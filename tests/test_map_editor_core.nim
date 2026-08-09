@@ -69,11 +69,23 @@ const PoolRenderHashes = [
   ## archetype character (blocks, three-lane, hub, field, warren, ring — not
   ## twenty skins of one map), no degenerate/barcode/empty-block board.
   ## `docs/pool-review.html` regenerated in the same change (AGENTS.md).
+  ##
+  ## tasks#49 SEED-HUNT ADDITIONS (indices 20-22, seeds 1306/1256/1946): three
+  ## new pool entries that fill the empty siege / rush cells the upward-scan
+  ## curation never reaches (it curates on size + endzone shape, not playtype).
+  ## Each was RENDERED WITH THESE EXACT OPTIONS AND LOOKED AT before its hash
+  ## was written down (`tools/pin_new_pool_hashes.nim`): symmetry visibly exact
+  ## (1306 mirror, 1256 rot180, 1946 mirror), both bases on one connected floor
+  ## component, cover real masses not confetti, no degenerate board. 1306 is a
+  ## hub with the pinch shelf that makes it siege (choke 8); 1256/1946 are open
+  ## three-lane boards with choke 0, route-min 2 (rush). Determinism: both a
+  ## release-mode pin run and the suite agree byte-for-byte.
   0x254b59b6'u32, 0x99fcdcd3'u32, 0x087a84d5'u32, 0x3027d369'u32,
   0x94b4b37c'u32, 0x92851ac7'u32, 0xa6b26372'u32, 0xac1b2e34'u32,
   0x09e37205'u32, 0x2f45235f'u32, 0xe87734f9'u32, 0xa8499c21'u32,
   0x38c717dd'u32, 0xd4a4ec24'u32, 0x2617d05a'u32, 0x999da82d'u32,
-  0x66a67465'u32, 0xe6c17791'u32, 0xded17dc7'u32, 0x779191bc'u32
+  0x66a67465'u32, 0xe6c17791'u32, 0xded17dc7'u32, 0x779191bc'u32,
+  0x1c53586d'u32, 0x7e1a66b7'u32, 0xed171f13'u32   # 1306, 1256, 1946
 ]
 
 proc poolMap(index: int): CtfMap =

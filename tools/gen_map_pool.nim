@@ -2,6 +2,16 @@
 ## ones whose SHIPPED map clears the validators, under small size-class and
 ## endzone-shape quotas for variety.
 ##
+## ⚠️ SEED-HUNT ADDITIONS ARE NOT REGENERATED HERE (tasks#49). This tool writes
+## exactly `PoolSize` seeds and would OVERWRITE the playtype-targeted seeds that
+## `tools/sweep_seeds.nim` appended to `map_pool.nim` (the siege/rush entries
+## below the divider comment there). This scan curates by size + endzone shape
+## only — it cannot target a playtype — so re-running it drops those cells back
+## to empty. After regenerating, RE-APPEND the hunt seeds (and re-pin their
+## render hashes in tests/test_map_editor_core.nim). A future improvement is to
+## teach this tool a playtype quota; until then the two blocks are maintained
+## separately, by design, not by oversight.
+##
 ## "Shipped map" means `generateCtfMap` — the best-of-K selection an actual
 ## game would run, not the raw first draw. It used to mean `generateMapAttempt`
 ## with a first-attempt-validity requirement, because the old re-roll walked

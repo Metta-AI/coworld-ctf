@@ -310,7 +310,11 @@ suite "map editor service":
     check body["ok"].getBool()
     check body["spec"]["genSeed"].getInt() == MapPoolSeeds[0]
 
-    for path in ["/api/pool/nope", "/api/pool/-1", "/api/pool/20"]:
+    # First out-of-range index is the pool length itself, not a hardcoded 20 —
+    # the pool grows (tasks#49 added siege/rush seeds), so the bound tracks
+    # MapPoolSeeds.len rather than a literal that silently goes in-bounds.
+    for path in ["/api/pool/nope", "/api/pool/-1",
+        "/api/pool/" & $MapPoolSeeds.len]:
       response = handleEditorRequest("GET", path, "")
       body = response.responseJson()
       check response.status == 200
