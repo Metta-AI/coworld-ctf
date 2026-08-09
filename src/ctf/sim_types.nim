@@ -18,8 +18,20 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "41"  ## GV41 (clock rule): NO MORE OVERTIME. The GV23
-    ## action floor (kills/heart steals guaranteeing 500 ticks of clock,
+  GameVersion* = "42"  ## GV42 (weapon reach): THE GRENADE AND THE SHOUT ARE
+    ## PINNED TO THE GUN, NOT TO THE BOARD. `GrenadeMaxRange` and `ShoutRange`
+    ## were both `MapWidth div 5` and therefore grew with the field, while
+    ## `GunRange` has been frozen at 1050 px since GV34 — so on a colossal
+    ## board the grenade nominally OUT-RANGED the gun (1284 px vs 1050 px).
+    ## Both are now `GunRange div 4` = 262 px on EVERY size class, within 6%
+    ## of the standard arena's historical 247 px (small/standard/large play
+    ## as they always did; huge/giant/colossal lose the board-scaled reach
+    ## they were never meant to have). A grenade's target coordinates are
+    ## hashed state, so pre-GV42 replays do not re-simulate. (Authored as
+    ## "GV38" on the mapgen line before main independently spent 38-41;
+    ## renumbered at the T0 merge.)
+    ##
+    ## Previously GV41 (clock rule): NO MORE OVERTIME. The GV23
     ## banked as overtimeTicks) is removed outright: the clock only ever
     ## counts down, and `maxTicks` is the exact scheduled draw ceiling.
     ## With the grenade-barrage endgame configured the ceiling does not end
@@ -464,6 +476,35 @@ const
   GrenadeRespawnTicks* = 5 * ReplayFps  ## a taken corner refills after 5s.
   GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
                               ## so a panicked drop can hurt the thrower.
+  GrenadeMaxRange* = GunRange div 4
+                              ## 262 px, a full-charge throw. PINNED TO THE
+                              ## GUN, NOT TO THE BOARD (GameVersion 38): the
+                              ## grenade is the short-range answer to the gun,
+                              ## so its reach is a fixed fraction of the gun's
+                              ## and is the SAME NUMBER on every size class.
+                              ## It used to be `MapWidth div 5`, which scaled
+                              ## with the field while `GunRange` stayed frozen
+                              ## at 1050 px (GV34) — on colossal that made the
+                              ## grenade out-range the gun (1284 px), which
+                              ## inverts the weapon's whole identity.
+                              ##
+                              ## The deeper reason is that the frozen gun is
+                              ## what gives each size class its VISIBILITY
+                              ## REGIME: one unoccluded vision cone covers 3.19
+                              ## whole playfields on standard, 1.89 on large,
+                              ## 0.12 on colossal. That gradient IS the point
+                              ## of having size classes — large is
+                              ## occlusion-limited (sightline control), the big
+                              ## boards are range/navigation-limited (encounter
+                              ## density). Any range that scales with the board
+                              ## snaps every class back to the same coverage
+                              ## ratio and makes colossal the standard map
+                              ## photocopied at 520%. A bigger board is
+                              ## supposed to cost MOVEMENT, not to hand out
+                              ## more reach. Derivation:
+                              ## docs/plans/2026-08-05-map-size-class-rules.md;
+                              ## the rules module carries the same constant as
+                              ## `map_rules.GrenadeRangeFromGunPx`.
   GrenadeChargeTicks* = 24    ## hold this long for a full-strength throw.
   GrenadeFlightMultiple* = 2  ## release-to-burst = this many shot windups,
                               ## REGARDLESS of distance: a grenade is a snap
@@ -605,6 +646,21 @@ const
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
 
+  ShoutRange* = GunRange div 4
+                              ## 262 px a shout carries — through walls and
+                              ## fog, like gunfire. PINNED TO THE GUN, NOT TO
+                              ## THE BOARD (GameVersion 38), the same rule as
+                              ## GrenadeMaxRange and for the same reason: a
+                              ## callout is only worth anything to a mate close
+                              ## enough to ACT on it, and "close enough to act"
+                              ## is measured in gun ranges, not in board
+                              ## widths. It was `MapWidth div 5` — a 1284 px
+                              ## bubble on colossal, i.e. free coordination
+                              ## reaching farther than anyone can shoot,
+                              ## handed out precisely on the boards where
+                              ## crossing the ground is meant to be the
+                              ## problem. 262 px keeps the standard arena's
+                              ## historical ~247 px within 6%.
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
@@ -709,8 +765,10 @@ var
   FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
   FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
   FovCellCount* = FovGridW * FovGridH
-  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
-  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
+  # GrenadeMaxRange and ShoutRange used to live here, re-derived from MapWidth
+  # by every map install. They are compile-time constants above as of
+  # GameVersion 38 — a weapon's reach is a fraction of the GUN's, which no map
+  # changes, so there is nothing per-map left to install.
 
 type
   Team* = enum
@@ -876,6 +934,26 @@ type
     symRot90
     symQuadMirror
 
+  MapBiome* = enum
+    ## A map's surface SKIN: which floor texture the art bake tiles the board
+    ## with. A biome is purely cosmetic — it changes what the board is made
+    ## OF, never the competitive skeleton (no wall, spawn, pickup or capture
+    ## geometry reads this). `biomeArena` is the classic polished concrete and
+    ## is the zero value, so every map that never sets a biome keeps exactly
+    ## the art it has today.
+    ##
+    ## The enum's string values ARE the biome names used on the wire and in
+    ## map specs, and they index the texture set: biome `x` resolves to
+    ## data/arena_floor_x.png (map_art.biomeFloorPath). Adding a biome means
+    ## adding a recipe to scripts/art/build_floor.py, committing the PNG with
+    ## `git add -f`, and adding its `test -f` guard to Dockerfile.replay-viewer.
+    biomeArena = "arena"
+    biomeCaves = "caves"
+    biomeForest = "forest"
+    biomeDesert = "desert"
+    biomeCity = "city"
+    biomePlains = "plains"
+
   CtfMap* = object
     name*: string
     path*: string
@@ -901,6 +979,9 @@ type
                                ## in from its edge, and SMALLER values push it
                                ## further from the edge.
     symmetry*: MapSymmetry
+    biome*: MapBiome           ## surface skin (floor texture) only; NEVER
+                               ## consulted by geometry, spawns or scoring.
+                               ## Zero value = biomeArena = today's concrete.
     layout*: TeamLayout        ## sides (2 teams) / corners / plus (4 teams).
     genSeed*: int              ## generator seed; 0 for hand-authored maps.
     medKitSpawns*: seq[MapPoint]     ## the two ACTIVE med-kit points.

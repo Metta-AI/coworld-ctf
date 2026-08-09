@@ -1,0 +1,57 @@
+
+=== arena  (3 episode(s), 8421 ticks total)
+    ep0:  2771t, 4 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  2719t, 3 steal(s) -> 1 capture(s), WON ON THE OBJECTIVE
+    ep2:  2931t, 2 steal(s) -> 1 capture(s), WON ON THE OBJECTIVE
+    dead space 40% of open floor (4107/6872 cells visited; largest unvisited region 26,500px²)  [CONTROL, hand-authored — the yardstick, never the verdict]
+    exposure 11.7 alive seat-ticks per open cell (80,538 seat-ticks over 6,872 cells)
+    137 deaths, spread 241px
+    kills [68, 65]  balance 1.00  pace 15.8 kills/1000t  contact 100% in gun range / 47% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 1 possible enemies came:
+      team 0 pedestal      356t  0.442%  1/1 enemies
+      team 1 pedestal      258t  0.320%  1/1 enemies
+    pressure balance 0.98 over 2 objectives (1.0 = even), attack pairs 2/2 100%
+    objective: 9 steals -> 2 captures (2 verified in zone) = 22% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 2/3 67% on the objective, 1/3 33% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/m4c/gal2/heat-arena.png
+    no gameplay flags
+
+===============================================
+ONE-PAGE COMPARISON — generated vs arena, the hand-authored control, per metric
+                                         arena*
+                                        CONTROL
+  teams                                       2
+  episodes                                    3
+  episode lengths             2771t 2719t 2931t
+  won on the objective                  2/3 67%
+  won by wipeout                        1/3 33%
+  out of clock, no winner                0/3 0%
+
+  open floor (10px cells)                 6,872
+  visited                         4107/6872 60%
+  DEAD SPACE                                40%
+  largest dead region                 26,500px²
+  exposure (seat-t/cell)                   11.7
+
+  objectives approached                2/2 100%
+    each, % of alive time           0.44% 0.32%
+    each, enemies that came             1/1 1/1
+  attack pairs realized                2/2 100%
+  pressure balance                         0.98
+  enemy time at pedestal             614 0.762%
+  pedestal ring radius                     70px
+  steals                                      9
+  captures                                    2
+  CONVERSION grab->cap                      22%
+  carrier in zone /1000t                    0.0
+
+  deaths                                    137
+  kills/1000t                              15.8
+  contact, gun range                       100%
+  contact, close                            47%
+  balance entropy                          1.00
+
+  DELTA FROM THE CONTROL  (generated - arena; pp = percentage points)
+  Exposure outside 0.70..1.40x makes the dead-space delta beside it NOT comparable — see the per-map FLAG lines above.
+
+wrote /tmp/m4c/gal2/playtest.json + heat-<map>.png

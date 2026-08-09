@@ -1,0 +1,93 @@
+
+=== 38 maps at 2 teams. First two rows are CONTROLS.
+!! 4 seed(s) THE GENERATOR COULD NOT SATISFY at 2 teams, absent from every number below: pool:14(1015) (Map generation found no valid layout in 100 attempts from seed 1015), pool:17(1020) (Map generation found no valid layout in 100 attempts from seed 1020), gen:1015 (Map generation found no valid layout in 100 attempts from seed 1015), gen:1020 (Map generation found no valid layout in 100 attempts from seed 1020)
+
+map                   size  score |  axP95 axMax axLong |  dgP95 dgMax dgLong |  chk tight   exp allow cov |  stCovMin stCovMax |  routes
+CTL arena       1235x659    1.000 |    639   663  11.0% |    379   790   0.2% |    0     0    -1    -1  no |      7.2%     7.2% |       8
+CTL arena-large 1606x858    0.899 |    838   868  17.2% |    654  1185   8.5% |    0     0    -1    -1  no |      2.6%     2.6% |      12
+pool:0(1001)    1235x659    0.995 |    516  1099   2.9% |    475   746   1.1% |    0     0    -1    -1  no |      7.2%     7.3% |       4
+pool:1(1002)    1235x659    0.986 |    514   644   1.8% |    526   721   2.7% |    0     0    -1    -1  no |      5.1%     5.1% |       2
+pool:2(1003)    1235x659    0.940 |    639   671   8.6% |    540   854   0.5% |    4    24    -1    -1  no |      2.5%     2.5% |       2
+pool:3(1004)    1235x659    0.944 |    639   675   8.6% |    492   854   0.7% |    5    22    -1    -1  no |      4.5%     4.5% |       3
+pool:4(1005)    1050x560    0.894 |    540   540   0.0% |    468   763   0.7% |    3    39    -1    -1 YES |      4.0%     4.1% |       3
+pool:5(1006)    1050x560    1.000 |    540   914   0.2% |    424   647   0.1% |    0     0    -1    -1  no |      9.2%     9.2% |       3
+pool:6(1007)    1050x560    0.975 |    540   914   0.6% |    462   651   0.1% |    0     0    -1    -1  no |      5.4%     5.4% |       4
+pool:7(1008)    1235x659    0.954 |    639   675   8.1% |    445   854   0.6% |    5    21    -1    -1  no |      4.4%     4.4% |       3
+pool:8(1009)    1050x560    0.959 |    540   548   0.0% |    476   763   0.7% |    0     0    -1    -1  no |      3.0%     3.1% |       3
+pool:9(1010)    1235x659    0.946 |    639   675   8.5% |    496   854   0.7% |    5    21    -1    -1  no |      4.1%     4.1% |       3
+pool:10(1011)   1235x659    1.000 |    577  1099   3.9% |    489   797   0.9% |    0     0    -1    -1  no |      4.5%     4.5% |       4
+pool:11(1012)   1050x560    0.983 |    540   914   1.1% |    472   675   0.5% |    0     0    -1    -1  no |      6.2%     6.2% |       4
+pool:12(1013)   1235x659    0.931 |    639   671   9.2% |    540   854   0.6% |    4    24    -1    -1  no |      2.0%     2.0% |       2
+pool:13(1014)   1235x659    0.986 |    548  1215   3.6% |    516   821   1.8% |    0     0    -1    -1  no |      4.8%     4.8% |       6
+pool:15(1016)   1050x560    0.972 |    540   914   1.4% |    455   763   0.5% |    0     0    -1    -1  no |      6.5%     6.6% |       3
+pool:16(1017)   1235x659    1.000 |    639  1099   5.3% |    517   704   0.6% |    0     0    -1    -1  no |      6.7%     6.7% |       4
+pool:18(1021)   1050x560    0.894 |    540   540   0.0% |    476   763   0.7% |    2    39    -1    -1 YES |      3.0%     3.1% |       3
+pool:19(1041)   1050x560    0.998 |    500   914   0.2% |    394   496   0.0% |    0     0    -1    -1  no |      8.0%     8.0% |       4
+gen:1001        1235x659    0.995 |    516  1099   2.9% |    475   746   1.1% |    0     0    -1    -1  no |      7.2%     7.3% |       4
+gen:1002        1235x659    0.986 |    514   644   1.8% |    526   721   2.7% |    0     0    -1    -1  no |      5.1%     5.1% |       2
+gen:1003        1235x659    0.940 |    639   671   8.6% |    540   854   0.5% |    4    24    -1    -1  no |      2.5%     2.5% |       2
+gen:1004        1235x659    0.944 |    639   675   8.6% |    492   854   0.7% |    5    22    -1    -1  no |      4.5%     4.5% |       3
+gen:1005        1050x560    0.894 |    540   540   0.0% |    468   763   0.7% |    3    39    -1    -1 YES |      4.0%     4.1% |       3
+gen:1006        1050x560    1.000 |    540   914   0.2% |    424   647   0.1% |    0     0    -1    -1  no |      9.2%     9.2% |       3
+gen:1007        1050x560    0.975 |    540   914   0.6% |    462   651   0.1% |    0     0    -1    -1  no |      5.4%     5.4% |       4
+gen:1008        1235x659    0.954 |    639   675   8.1% |    445   854   0.6% |    5    21    -1    -1  no |      4.4%     4.4% |       3
+gen:1009        1050x560    0.959 |    540   548   0.0% |    476   763   0.7% |    0     0    -1    -1  no |      3.0%     3.1% |       3
+gen:1010        1235x659    0.946 |    639   675   8.5% |    496   854   0.7% |    5    21    -1    -1  no |      4.1%     4.1% |       3
+gen:1011        1235x659    1.000 |    577  1099   3.9% |    489   797   0.9% |    0     0    -1    -1  no |      4.5%     4.5% |       4
+gen:1012        1050x560    0.983 |    540   914   1.1% |    472   675   0.5% |    0     0    -1    -1  no |      6.2%     6.2% |       4
+gen:1013        1235x659    0.931 |    639   671   9.2% |    540   854   0.6% |    4    24    -1    -1  no |      2.0%     2.0% |       2
+gen:1014        1235x659    0.986 |    548  1215   3.6% |    516   821   1.8% |    0     0    -1    -1  no |      4.8%     4.8% |       6
+gen:1016        1050x560    0.972 |    540   914   1.4% |    455   763   0.5% |    0     0    -1    -1  no |      6.5%     6.6% |       3
+gen:1017        1235x659    1.000 |    639  1099   5.3% |    517   704   0.6% |    0     0    -1    -1  no |      6.7%     6.7% |       4
+gen:1018        1235x659    0.928 |    639   639   9.1% |    540   854   0.6% |    6    18    -1    -1  no |      2.4%     2.4% |       2
+gen:1019        1235x659    0.931 |    639   671   9.3% |    540   851   0.4% |    5    24    -1    -1  no |      2.1%     2.1% |       2
+
+DISTRIBUTION over the non-control rows:
+  axis runP95          arena  639.000  large  838.000   min  500.000  p25  540.000  med  548.000  p75  639.000  max  639.000
+  axis runMax          arena  663.000  large  868.000   min  540.000  p25  671.000  med  675.000  p75  914.000  max 1215.000
+  longRunFrac          arena    0.110  large    0.172   min    0.000  p25    0.006  med    0.036  p75    0.085  max    0.093
+  diag runP95          arena  379.000  large  654.000   min  394.000  p25  468.000  med  489.000  p75  517.000  max  540.000
+  diag runMax          arena  790.000  large 1185.000   min  496.000  p25  721.000  med  763.000  p75  854.000  max  854.000
+  diagLongRunFrac      arena    0.002  large    0.085   min    0.000  p25    0.005  med    0.006  p75    0.007  max    0.027
+  chokeCount           arena    0.000  large    0.000   min    0.000  p25    0.000  med    0.000  p75    4.000  max    6.000
+  chokeExposedPx       arena   -1.000  large   -1.000   min   -1.000  p25   -1.000  med   -1.000  p75   -1.000  max   -1.000
+  chokeExcessPx        arena   -1.000  large   -1.000   min   -1.000  p25   -1.000  med   -1.000  p75   -1.000  max   -1.000
+  chokeCovered         arena    0.000  large    0.000   min    0.000  p25    0.000  med    0.000  p75    0.000  max    1.000
+  standCoverMin        arena    0.072  large    0.026   min    0.020  p25    0.040  med    0.045  p75    0.062  max    0.092
+  standCoverSpread     arena    0.000  large    0.000   min    0.000  p25    0.000  med    0.000  p75    0.000  max    0.001
+  routeCountMin        arena    8.000  large   12.000   min    2.000  p25    3.000  med    3.000  p75    4.000  max    6.000
+  visDegreeCv          arena    0.524  large    0.295   min    0.330  p25    0.356  med    0.366  p75    0.374  max    0.461
+  staticScore          arena    1.000  large    0.899   min    0.894  p25    0.944  med    0.972  p75    0.986  max    1.000
+
+BAND BREACHES (the control's breaches are METRIC BUGS, not verdicts):
+  !! CONTROL CTL arena-large  interiorFrac=0.100  longRunFrac=0.172  visDegreeCv=0.295
+     pool:0(1001)     standRingOpenMin=0.956
+     pool:1(1002)     routeCapacityFrac=0.080
+     pool:2(1003)     interiorFrac=0.240  routeCapacityFrac=0.080  standRingOpenMin=1.000
+     pool:3(1004)     interiorFrac=0.225  standRingOpenMin=1.000
+     pool:4(1005)     chokeCoveredPenalty=1.000  standRingOpenMin=1.000
+     pool:6(1007)     standRingOpenMin=0.978  detourMax=1.080
+     pool:7(1008)     interiorFrac=0.241  standRingOpenMin=1.000
+     pool:8(1009)     standRingOpenMin=1.000
+     pool:9(1010)     interiorFrac=0.228  standRingOpenMin=1.000
+     pool:11(1012)    standRingOpenMin=0.969  detourMax=1.091
+     pool:12(1013)    interiorFrac=0.226  routeCapacityFrac=0.080  standRingOpenMin=1.000
+     pool:13(1014)    detourMax=0.989
+     pool:15(1016)    standRingOpenMin=0.983  detourMax=1.094
+     pool:18(1021)    chokeCoveredPenalty=1.000  standRingOpenMin=1.000
+     pool:19(1041)    detourMax=1.087
+     gen:1001         standRingOpenMin=0.956
+     gen:1002         routeCapacityFrac=0.080
+     gen:1003         interiorFrac=0.240  routeCapacityFrac=0.080  standRingOpenMin=1.000
+     gen:1004         interiorFrac=0.225  standRingOpenMin=1.000
+     gen:1005         chokeCoveredPenalty=1.000  standRingOpenMin=1.000
+     gen:1007         standRingOpenMin=0.978  detourMax=1.080
+     gen:1008         interiorFrac=0.241  standRingOpenMin=1.000
+     gen:1009         standRingOpenMin=1.000
+     gen:1010         interiorFrac=0.228  standRingOpenMin=1.000
+     gen:1012         standRingOpenMin=0.969  detourMax=1.091
+     gen:1013         interiorFrac=0.226  routeCapacityFrac=0.080  standRingOpenMin=1.000
+     gen:1014         detourMax=0.989
+     gen:1016         standRingOpenMin=0.983  detourMax=1.094
+     gen:1018         interiorFrac=0.220  routeCapacityFrac=0.080  standRingOpenMin=1.000
+     gen:1019         interiorFrac=0.226  routeCapacityFrac=0.080  standRingOpenMin=1.000

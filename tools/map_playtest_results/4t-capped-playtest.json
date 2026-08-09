@@ -1,0 +1,270 @@
+{
+ "gen:1001": {
+  "map": "gen:1001",
+  "episodes": 3,
+  "ticks": 12246,
+  "episodeTicks": [
+   5124,
+   5125,
+   1997
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   0
+  ],
+  "deadPct": 0.6260934766308424,
+  "biggestDead": 1150,
+  "biggestDeadPx2": 115000,
+  "openCells": 8002,
+  "visitedCells": 2992,
+  "exposure": 7.903899025243689,
+  "isControl": false,
+  "deaths": 131,
+  "spread": 166.1288248148315,
+  "kills": [
+   26,
+   42,
+   27,
+   36
+  ],
+  "balanceEntropy": 0.985459489170583,
+  "pace": 23.476702508960575,
+  "fightTimeFrac": 1.0,
+  "closeContactFrac": 0.5190127594984743,
+  "measuredTicks": 5580,
+  "tickCapped": true,
+  "steals": 0,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": null,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 1,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 271,
+  "pedestalEnemyShare": 0.00428478821129856,
+  "pedestalRingPx": 70,
+  "episodeOutcomes": [
+   "timeLimit",
+   "timeLimit",
+   "elimination"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 1,
+  "timedOut": 2,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/mapgal/4t-capped/heat-gen-1001.png",
+  "flags": [
+   "63% dead floor, but NO CONTROL in this batch \u2014 refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.",
+   "ZERO steals in 3 episode(s). An enemy stood inside 1/4 = 25% of the pedestal rings, for 0.428% of alive time (271 seat-ticks) \u2014 near 0 the objective was never approached, and no conversion number from this map means anything"
+  ]
+ },
+ "gen:1003": {
+  "map": "gen:1003",
+  "episodes": 3,
+  "ticks": 9270,
+  "episodeTicks": [
+   5121,
+   2285,
+   1864
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   0
+  ],
+  "deadPct": 0.6955816275586619,
+  "biggestDead": 4233,
+  "biggestDeadPx2": 423300,
+  "openCells": 8012,
+  "visitedCells": 2439,
+  "exposure": 6.30017473789316,
+  "isControl": false,
+  "deaths": 130,
+  "spread": 185.25756674290784,
+  "kills": [
+   25,
+   33,
+   27,
+   45
+  ],
+  "balanceEntropy": 0.9801194350663576,
+  "pace": 23.29749103942652,
+  "fightTimeFrac": 0.9933038809754938,
+  "closeContactFrac": 0.4923430473284862,
+  "measuredTicks": 5580,
+  "tickCapped": true,
+  "steals": 0,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": null,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 2,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 1219,
+  "pedestalEnemyShare": 0.024149612694890743,
+  "pedestalRingPx": 70,
+  "episodeOutcomes": [
+   "timeLimit",
+   "elimination",
+   "elimination"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 2,
+  "timedOut": 1,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/mapgal/4t-capped/heat-gen-1003.png",
+  "flags": [
+   "70% dead floor, but NO CONTROL in this batch \u2014 refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.",
+   "ZERO steals in 3 episode(s). An enemy stood inside 2/4 = 50% of the pedestal rings, for 2.415% of alive time (1,219 seat-ticks) \u2014 near 0 the objective was never approached, and no conversion number from this map means anything"
+  ]
+ },
+ "gen:1009": {
+  "map": "gen:1009",
+  "episodes": 3,
+  "ticks": 15374,
+  "episodeTicks": [
+   5125,
+   5124,
+   5125
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   0
+  ],
+  "deadPct": 0.562248490945674,
+  "biggestDead": 672,
+  "biggestDeadPx2": 67200,
+  "openCells": 7952,
+  "visitedCells": 3481,
+  "exposure": 8.251383299798793,
+  "isControl": false,
+  "deaths": 123,
+  "spread": 298.817863488266,
+  "kills": [
+   47,
+   37,
+   15,
+   24
+  ],
+  "balanceEntropy": 0.9409405473502881,
+  "pace": 22.043010752688172,
+  "fightTimeFrac": 1.0,
+  "closeContactFrac": 0.5583936599862837,
+  "measuredTicks": 5580,
+  "tickCapped": true,
+  "steals": 0,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": null,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 2,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 4622,
+  "pedestalEnemyShare": 0.07044121008915644,
+  "pedestalRingPx": 70,
+  "episodeOutcomes": [
+   "timeLimit",
+   "timeLimit",
+   "timeLimit"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 0,
+  "timedOut": 3,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/mapgal/4t-capped/heat-gen-1009.png",
+  "flags": [
+   "56% dead floor, but NO CONTROL in this batch \u2014 refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.",
+   "ZERO steals in 3 episode(s). An enemy stood inside 2/4 = 50% of the pedestal rings, for 7.044% of alive time (4,622 seat-ticks) \u2014 near 0 the objective was never approached, and no conversion number from this map means anything"
+  ]
+ },
+ "gen:1024": {
+  "map": "gen:1024",
+  "episodes": 3,
+  "ticks": 12437,
+  "episodeTicks": [
+   4244,
+   3069,
+   5124
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   2,
+   0,
+   1
+  ],
+  "deadPct": 0.6062828776765208,
+  "biggestDead": 1319,
+  "biggestDeadPx2": 131900,
+  "openCells": 13497,
+  "visitedCells": 5314,
+  "exposure": 5.271541824109061,
+  "isControl": false,
+  "deaths": 113,
+  "spread": 292.79481682832403,
+  "kills": [
+   39,
+   34,
+   17,
+   23
+  ],
+  "balanceEntropy": 0.9648097624965041,
+  "pace": 20.25089605734767,
+  "fightTimeFrac": 1.0,
+  "closeContactFrac": 0.4408995080815179,
+  "measuredTicks": 5580,
+  "tickCapped": true,
+  "steals": 3,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": 0.0,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 2,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 1412,
+  "pedestalEnemyShare": 0.019845397048489106,
+  "pedestalRingPx": 91,
+  "episodeOutcomes": [
+   "elimination",
+   "elimination",
+   "timeLimit"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 2,
+  "timedOut": 1,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/mapgal/4t-capped/heat-gen-1024.png",
+  "flags": [
+   "61% dead floor, but NO CONTROL in this batch \u2014 refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.",
+   "3 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) \u2014 if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question"
+  ]
+ }
+}

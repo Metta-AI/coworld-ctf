@@ -369,8 +369,12 @@ What that means in practice:
 - **Throwing:** hold the **C button** (input mask bit 128) to charge, release
   to throw along your **current aim**. The charge picks the distance, from a
   short tap (~30 px — inside the blast radius, so a panicked drop can hurt
-  you) up to a full-charge **maximum of one fifth of the field width**
-  (~247 px) after ~1s of holding. While you charge, a **throw target ring**
+  you) up to a full-charge **maximum of one quarter of the gun's range**
+  (262 px) after ~1s of holding. That maximum is the SAME on every map size —
+  a grenade is the short-range answer to the gun, so it is measured against
+  the gun, never against the board (GameVersion 38; it used to be a fifth of
+  the field width, which on the biggest boards out-threw what the gun could
+  shoot). While you charge, a **throw target ring**
   marks the landing spot on your own view (and is readable intel for anyone
   who can see you, like your aim line).
 - **Grenades fly over every obstacle** in a straight lob from thrower to
@@ -463,9 +467,12 @@ What that means in practice:
   dropped). Send it as a chat packet (`0x81`, the standard sprite-protocol
   chat message); in the browser client press **Enter**, type, and press
   Enter again.
-- **Anyone within one fifth of the field width (~247 px) hears it** —
+- **Anyone within a quarter of the gun's range (262 px) hears it** —
   through walls and fog, like gunfire. Outside that radius the shout does
-  not appear in your frame at all.
+  not appear in your frame at all. Like the grenade, the radius is the same
+  on every map size (GameVersion 38; it used to be a fifth of the field
+  width): a callout is only worth something to a mate close enough to act on
+  it, and on a big board that distance is still one gun range, not one board.
 - A heard shout appears as a speech bubble labeled
   `<team> shout <name>: <text>` pinned at **deterministically jittered
   coordinates** (~±20 px, like gunshot impact rings): you learn roughly where
@@ -1035,6 +1042,24 @@ reference policy scans for stops being emitted. When this prose and the engine
 disagree, the manifest is right and this document is stale — that is exactly how
 the `heart`/`flag` claim above went wrong. The label vocabulary itself lives in
 `src/ctf/labels.nim`, shared by the engine and the reference policy.
+
+**The scoreboard chip is a label too, and its numbers are COUNTERS.** The strip
+above the field carries one board/spectator-stream object per team labeled
+`team score <TEAM> <kills>/<deaths>`, the team word UPPERCASE unlike every
+`<color>` slot elsewhere. Both tallies are the team-wide running counts for the
+episode so far — the same kills and deaths the Scoring section says are recorded
+without awarding points. It is chrome: nothing in `players/baseline/` scans it,
+and the analysis event stream reports the same tallies in a parsed form.
+
+**The slash does not mean the same thing here as in `hp <n>/3`.** The hp bar's
+denominator is a FIXED contract value the engine and every policy must spell
+identically, which is why the manifest keeps it literal and a test compares the
+two implementations. The scoreboard's is a live count that moves every time
+anybody dies. Pinning it would be pinning a scoreboard reading — and the
+manifest once did exactly that, carrying `team score BLUE <n>/1` until a
+map-generator change made the contract test's fixture land one more kill and the
+vocabulary guard reported a phantom new label. Both scoreboard numbers now
+normalize to `<n>`; the hp label is the sole opt-in to a literal denominator.
 
 **Identity badges:** every living player carries a separate badge object
 labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).

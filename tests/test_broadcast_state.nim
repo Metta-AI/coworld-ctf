@@ -8,14 +8,19 @@ const
   FixtureDir = GameDir / "tests" / "fixtures"
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
-  #   capture-seed1:  record_fixture.sh <out> 1
-  #   wipe-lives1:    record_fixture.sh <out> 3 10000 \
-  #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
-  #   draw-nokill:    record_fixture.sh <out> 7 1500 \
-  #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
+  #   capture-seed1:  record_fixture.sh <out> 1     10000 '{"barrageMaxPerSec":0}'
+  #   wipe-lives1:    record_fixture.sh <out> 3     10000 \
+  #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1,"barrageMaxPerSec":0}'
+  #   draw-nokill:    record_fixture.sh <out> 7     1500 \
+  #                     '{"hitPoints":1000,"carrierSpeedPct":1,"barrageMaxPerSec":0}'
   # (carrierSpeedPct 1 pins the flag so the wipe/draw endings cannot be
   # preempted by a capture; record on an otherwise idle machine — a
   # CPU-starved server at speed 16 drops its bots and ends degenerate.)
+  # barrageMaxPerSec:0 is LOAD-BEARING: config.json now defaults the grenade
+  # barrage ON (added after these fixtures were first recorded), and with the
+  # barrage armed the time limit never ends the game — so the near-invincible
+  # wipe/draw setups run forever instead of ending. Pin it off to reproduce
+  # the intended endings. These fixtures were all recorded barrage-off.
   # Then re-pin the capture winner asserted below to the new recording.
   # The capture fixture's SEED is part of the recipe, not a constant: the
   # ending a seed produces is a property of the rules it was recorded under.
@@ -150,8 +155,12 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 41,
-      # seed 1: Blue captures the red heart, eliminating Red).
+      # is pinned to the current recording of the fixture (GameVersion 42,
+      # seed 1: Blue captures the red heart, eliminating Red). Under GV41 the
+      # same seed captured the OTHER way (Red won, Blue's heart captured); the
+      # winner is a property of the rules the fixture was recorded under, not a
+      # constant, and GV42's weapon-reach rule (grenade/shout pinned to the gun,
+      # not the board) flipped which side reaches the capture first.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
       check state["over"]["winner"].getStr == "blue"

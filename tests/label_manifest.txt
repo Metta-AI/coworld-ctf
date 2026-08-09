@@ -73,10 +73,10 @@ splatter <color> stage <n>
 spray can
 spray can carried
 spray paint puff
-team score BLUE <n>/1
-team score GREEN <n>/0
-team score RED <n>/0
-team score YELLOW <n>/0
+team score BLUE <n>/<n>
+team score GREEN <n>/<n>
+team score RED <n>/<n>
+team score YELLOW <n>/<n>
 throw target
 trench <n>,<n> <n>,<n>
 walkability map

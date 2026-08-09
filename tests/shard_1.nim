@@ -4,6 +4,7 @@
 ## is also part of the full local run).
 {.warning[UnusedImport]: off.}
 import
+  test_carrier_zone,
   test_cog_drive,
   test_ctf_game,
   test_damage_pop,
@@ -13,6 +14,7 @@ import
   test_manifest_schema,
   test_map_editor,
   test_map_editor_core,
+  test_map_taxonomy,
   test_plasma_arc,
   test_replay_requests,
   # test_replay_switch_caches hot-switches the process-wide board render

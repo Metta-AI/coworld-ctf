@@ -98,6 +98,20 @@ suite "shouts":
       sim.step(none, none)
     check sim.recentShouts.len == 0
 
+  test "the shout radius is a quarter of the GUN, not a fifth of the board":
+    # GameVersion 38. ShoutRange was MapWidth div 5, so the coordination
+    # channel grew with the field while GunRange stayed frozen at 1050 (GV34):
+    # on a colossal board a shout carried 1284 px, farther than anyone could
+    # shoot. A callout is only worth something to a mate close enough to ACT on
+    # it, and "close enough to act" is a gun range, not a board width — so the
+    # bubble is the same 262 px on every size class now. The standard arena's
+    # historical 247 px is preserved within 6%; the board-independence sweep
+    # over all six size classes lives in tests/test_grenades.nim.
+    check ShoutRange == GunRange div 4
+    check ShoutRange == 262
+    check abs(ShoutRange - 247) * 100 div 247 < 7
+    check ShoutRange < GunRange
+
   test "shouts are audible within range, through walls, but not to the dead":
     var sim = twoTeamGame()
     check sim.applyShout(0, "here")

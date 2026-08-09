@@ -1,0 +1,664 @@
+{
+ "gen:1003": {
+  "map": "gen:1003",
+  "episodes": 3,
+  "ticks": 12069,
+  "episodeTicks": [
+   1827,
+   5121,
+   5121
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   0
+  ],
+  "deadPct": 0.5937695483548104,
+  "biggestDead": 3221,
+  "biggestDeadPx2": 322100,
+  "openCells": 7993,
+  "visitedCells": 3247,
+  "exposure": 8.718628800200175,
+  "isControl": false,
+  "baselineKind": "reference",
+  "baselineMap": "gen:1007",
+  "deaths": 134,
+  "spread": 222.72230678849743,
+  "kills": [
+   31,
+   30,
+   40,
+   33
+  ],
+  "balanceEntropy": 0.9952500682715274,
+  "pace": 11.102825420498798,
+  "fightTimeFrac": 0.9999426013086902,
+  "closeContactFrac": 0.4118069108024337,
+  "measuredTicks": 12069,
+  "tickCapped": false,
+  "steals": 0,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": null,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 4,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 12951,
+  "pedestalEnemyShare": 0.18584261278842842,
+  "pedestalRingPx": 70,
+  "pedestalSeats": [
+   {
+    "team": 0,
+    "ticks": 569,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.008164963838824474,
+    "byEnemy": [
+     0,
+     192,
+     309,
+     68
+    ]
+   },
+   {
+    "team": 1,
+    "ticks": 6535,
+    "approached": true,
+    "attackers": 2,
+    "possibleAttackers": 3,
+    "share": 0.09377511192744806,
+    "byEnemy": [
+     0,
+     0,
+     4007,
+     2528
+    ]
+   },
+   {
+    "team": 2,
+    "ticks": 3943,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.05658075995867294,
+    "byEnemy": [
+     0,
+     3943,
+     0,
+     0
+    ]
+   },
+   {
+    "team": 3,
+    "ticks": 1904,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.027321777063482953,
+    "byEnemy": [
+     0,
+     1904,
+     0,
+     0
+    ]
+   }
+  ],
+  "pedestalNeverApproached": [],
+  "pedestalPressureBalance": 0.8125040104764122,
+  "pedestalAttackPairs": 7,
+  "pedestalPossibleAttackPairs": 12,
+  "episodeOutcomes": [
+   "elimination",
+   "timeLimit",
+   "timeLimit"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 1,
+  "timedOut": 2,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/m4c/gal4b/heat-gen-1003.png",
+  "flags": [
+   "59% of open floor never visited against gen:1007's 40% at 0.92x the same exposure \u2014 worse than the best board of its own kind, which is NOT the same finding as worse than a known-good board \u2014 and gen:1007 is a GENERATED map from the same population, a reference point, NOT a hand-authored control: if the population is bad this delta reads zero",
+   "one unvisited region of ~322,100px\u00b2 \u2014 a whole wing nobody played",
+   "every objective was approached, but only 7/12 = 58% of the (attacker, target) pairs the rules allow ever happened \u2014 some teams can reach the objective and some pairings never meet on it",
+   "ZERO steals in 3 episode(s) DESPITE the objective being reached constantly: an enemy stood inside 4/4 = 100% of the pedestal rings for 18.584% of alive time (12,951 seat-ticks), 35x the arena's 0.533%. They got there and did not take it, so this is a RULES or BOT question before it is a map question"
+  ]
+ },
+ "gen:1007": {
+  "map": "gen:1007",
+  "episodes": 3,
+  "ticks": 9322,
+  "episodeTicks": [
+   2729,
+   3690,
+   2903
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   2,
+   1
+  ],
+  "deadPct": 0.39845040010161314,
+  "biggestDead": 247,
+  "biggestDeadPx2": 24700,
+  "openCells": 7873,
+  "visitedCells": 4736,
+  "exposure": 9.457513019179475,
+  "isControl": true,
+  "baselineKind": "reference",
+  "baselineMap": "gen:1007",
+  "deaths": 141,
+  "spread": 348.47409380702175,
+  "kills": [
+   51,
+   31,
+   25,
+   34
+  ],
+  "balanceEntropy": 0.9742298626908186,
+  "pace": 15.125509547307445,
+  "fightTimeFrac": 0.9999194187405149,
+  "closeContactFrac": 0.4356894398259445,
+  "measuredTicks": 9322,
+  "tickCapped": false,
+  "steals": 3,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": 0.0,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 4,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 2655,
+  "pedestalEnemyShare": 0.03565720732215045,
+  "pedestalRingPx": 70,
+  "pedestalSeats": [
+   {
+    "team": 0,
+    "ticks": 1322,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.017754737506547227,
+    "byEnemy": [
+     0,
+     204,
+     286,
+     832
+    ]
+   },
+   {
+    "team": 1,
+    "ticks": 383,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.005143770397131307,
+    "byEnemy": [
+     38,
+     0,
+     177,
+     168
+    ]
+   },
+   {
+    "team": 2,
+    "ticks": 347,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.004660282840220793,
+    "byEnemy": [
+     0,
+     0,
+     0,
+     347
+    ]
+   },
+   {
+    "team": 3,
+    "ticks": 603,
+    "approached": true,
+    "attackers": 2,
+    "possibleAttackers": 3,
+    "share": 0.008098416578251118,
+    "byEnemy": [
+     382,
+     0,
+     221,
+     0
+    ]
+   }
+  ],
+  "pedestalNeverApproached": [],
+  "pedestalPressureBalance": 0.8866185633258269,
+  "pedestalAttackPairs": 9,
+  "pedestalPossibleAttackPairs": 12,
+  "episodeOutcomes": [
+   "elimination",
+   "elimination",
+   "elimination"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 3,
+  "timedOut": 0,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/m4c/gal4b/heat-gen-1007.png",
+  "flags": [
+   "every objective was approached, but only 9/12 = 75% of the (attacker, target) pairs the rules allow ever happened \u2014 some teams can reach the objective and some pairings never meet on it",
+   "3 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) \u2014 if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question"
+  ]
+ },
+ "gen:1010": {
+  "map": "gen:1010",
+  "episodes": 3,
+  "ticks": 10862,
+  "episodeTicks": [
+   2082,
+   5121,
+   3659
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   1
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   3
+  ],
+  "deadPct": 0.5973451327433628,
+  "biggestDead": 3317,
+  "biggestDeadPx2": 331700,
+  "openCells": 13786,
+  "visitedCells": 5551,
+  "exposure": 5.8486145364862905,
+  "isControl": false,
+  "baselineKind": "reference",
+  "baselineMap": "gen:1007",
+  "deaths": 133,
+  "spread": 274.51638026244086,
+  "kills": [
+   33,
+   30,
+   37,
+   32
+  ],
+  "balanceEntropy": 0.9978732023483341,
+  "pace": 12.152458110845147,
+  "fightTimeFrac": 0.9972342457428469,
+  "closeContactFrac": 0.27952721725433777,
+  "measuredTicks": 10862,
+  "tickCapped": false,
+  "steals": 3,
+  "captures": 1,
+  "capturesInZone": 1,
+  "conversion": 0.3333333333333333,
+  "decidedFrac": 0.3333333333333333,
+  "pedestalsReached": 4,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 15178,
+  "pedestalEnemyShare": 0.18824492428282627,
+  "pedestalRingPx": 91,
+  "pedestalSeats": [
+   {
+    "team": 0,
+    "ticks": 1316,
+    "approached": true,
+    "attackers": 2,
+    "possibleAttackers": 3,
+    "share": 0.016321670862840913,
+    "byEnemy": [
+     0,
+     0,
+     1286,
+     30
+    ]
+   },
+   {
+    "team": 1,
+    "ticks": 7091,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.08794602438328641,
+    "byEnemy": [
+     0,
+     0,
+     7091,
+     0
+    ]
+   },
+   {
+    "team": 2,
+    "ticks": 6669,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.0827121755199742,
+    "byEnemy": [
+     0,
+     6669,
+     0,
+     0
+    ]
+   },
+   {
+    "team": 3,
+    "ticks": 102,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.0012650535167247517,
+    "byEnemy": [
+     0,
+     102,
+     0,
+     0
+    ]
+   }
+  ],
+  "pedestalNeverApproached": [],
+  "pedestalPressureBalance": 0.6943075663034952,
+  "pedestalAttackPairs": 5,
+  "pedestalPossibleAttackPairs": 12,
+  "episodeOutcomes": [
+   "elimination",
+   "timeLimit",
+   "capture"
+  ],
+  "wonByCapture": 1,
+  "wonByElimination": 1,
+  "timedOut": 1,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/m4c/gal4b/heat-gen-1010.png",
+  "flags": [
+   "60% dead floor vs the reference point's 40%, but exposure differs 0.62x (5.8 vs 9.5 alive seat-ticks per open cell) \u2014 NOT comparable, re-run both at the same seats and tick budget",
+   "every objective was approached, but only 5/12 = 42% of the (attacker, target) pairs the rules allow ever happened \u2014 some teams can reach the objective and some pairings never meet on it",
+   "enemy pressure is spread 0.69 evenly over the objectives (1.0 is even): t0 1.632% t1 8.795% t2 8.271% t3 0.127%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart",
+   "close contact 28% of alive time against the reference point's 44% (within 262px) \u2014 the teams meet less here. GunRange contact is 100% on every map at these sizes and cannot see this"
+  ]
+ },
+ "gen:1013": {
+  "map": "gen:1013",
+  "episodes": 3,
+  "ticks": 9643,
+  "episodeTicks": [
+   1974,
+   2545,
+   5124
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   1,
+   0,
+   1
+  ],
+  "deadPct": 0.4071771184935157,
+  "biggestDead": 331,
+  "biggestDeadPx2": 33100,
+  "openCells": 5629,
+  "visitedCells": 3337,
+  "exposure": 11.890566708118671,
+  "isControl": false,
+  "baselineKind": "reference",
+  "baselineMap": "gen:1007",
+  "deaths": 137,
+  "spread": 274.7411411785316,
+  "kills": [
+   32,
+   45,
+   30,
+   30
+  ],
+  "balanceEntropy": 0.9886261689571011,
+  "pace": 14.207196930415845,
+  "fightTimeFrac": 0.9934859260144624,
+  "closeContactFrac": 0.4709406561883703,
+  "measuredTicks": 9643,
+  "tickCapped": false,
+  "steals": 2,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": 0.0,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 4,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 7414,
+  "pedestalEnemyShare": 0.11076913882746668,
+  "pedestalRingPx": 60,
+  "pedestalSeats": [
+   {
+    "team": 0,
+    "ticks": 3879,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.05795434171995458,
+    "byEnemy": [
+     0,
+     524,
+     400,
+     2955
+    ]
+   },
+   {
+    "team": 1,
+    "ticks": 629,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.009397597561704416,
+    "byEnemy": [
+     2,
+     0,
+     252,
+     375
+    ]
+   },
+   {
+    "team": 2,
+    "ticks": 85,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.0012699456164465427,
+    "byEnemy": [
+     0,
+     0,
+     0,
+     85
+    ]
+   },
+   {
+    "team": 3,
+    "ticks": 2821,
+    "approached": true,
+    "attackers": 2,
+    "possibleAttackers": 3,
+    "share": 0.04214725392936114,
+    "byEnemy": [
+     2807,
+     0,
+     14,
+     0
+    ]
+   }
+  ],
+  "pedestalNeverApproached": [],
+  "pedestalPressureBalance": 0.6976288364686543,
+  "pedestalAttackPairs": 9,
+  "pedestalPossibleAttackPairs": 12,
+  "episodeOutcomes": [
+   "elimination",
+   "elimination",
+   "timeLimit"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 2,
+  "timedOut": 1,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/m4c/gal4b/heat-gen-1013.png",
+  "flags": [
+   "every objective was approached, but only 9/12 = 75% of the (attacker, target) pairs the rules allow ever happened \u2014 some teams can reach the objective and some pairings never meet on it",
+   "enemy pressure is spread 0.70 evenly over the objectives (1.0 is even): t0 5.795% t1 0.940% t2 0.127% t3 4.215%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart",
+   "2 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) \u2014 if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question"
+  ]
+ },
+ "gen:1020": {
+  "map": "gen:1020",
+  "episodes": 3,
+  "ticks": 12175,
+  "episodeTicks": [
+   5124,
+   5121,
+   1930
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   1,
+   1,
+   1
+  ],
+  "deadPct": 0.42149178255372943,
+  "biggestDead": 323,
+  "biggestDeadPx2": 32300,
+  "openCells": 7910,
+  "visitedCells": 4576,
+  "exposure": 11.664348925410872,
+  "isControl": false,
+  "baselineKind": "reference",
+  "baselineMap": "gen:1007",
+  "deaths": 127,
+  "spread": 375.3944222893363,
+  "kills": [
+   26,
+   36,
+   26,
+   39
+  ],
+  "balanceEntropy": 0.9877641861778637,
+  "pace": 10.431211498973306,
+  "fightTimeFrac": 0.9971386766379451,
+  "closeContactFrac": 0.317260066113911,
+  "measuredTicks": 12175,
+  "tickCapped": false,
+  "steals": 3,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": 0.0,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 4,
+  "pedestals": 4,
+  "pedestalEnemyTicks": 16177,
+  "pedestalEnemyShare": 0.17533192434834444,
+  "pedestalRingPx": 70,
+  "pedestalSeats": [
+   {
+    "team": 0,
+    "ticks": 5854,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.06344767788435485,
+    "byEnemy": [
+     0,
+     5410,
+     396,
+     48
+    ]
+   },
+   {
+    "team": 1,
+    "ticks": 10229,
+    "approached": true,
+    "attackers": 3,
+    "possibleAttackers": 3,
+    "share": 0.11086544193356093,
+    "byEnemy": [
+     9659,
+     0,
+     465,
+     105
+    ]
+   },
+   {
+    "team": 2,
+    "ticks": 44,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.0004768872270091584,
+    "byEnemy": [
+     0,
+     0,
+     0,
+     44
+    ]
+   },
+   {
+    "team": 3,
+    "ticks": 50,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 3,
+    "share": 0.0005419173034194982,
+    "byEnemy": [
+     0,
+     0,
+     50,
+     0
+    ]
+   }
+  ],
+  "pedestalNeverApproached": [],
+  "pedestalPressureBalance": 0.4988775897358894,
+  "pedestalAttackPairs": 8,
+  "pedestalPossibleAttackPairs": 12,
+  "episodeOutcomes": [
+   "timeLimit",
+   "timeLimit",
+   "elimination"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 1,
+  "timedOut": 2,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 4,
+  "heatmap": "/tmp/m4c/gal4b/heat-gen-1020.png",
+  "flags": [
+   "every objective was approached, but only 8/12 = 67% of the (attacker, target) pairs the rules allow ever happened \u2014 some teams can reach the objective and some pairings never meet on it",
+   "enemy pressure is spread 0.50 evenly over the objectives (1.0 is even): t0 6.345% t1 11.087% t2 0.048% t3 0.054%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart",
+   "3 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) \u2014 if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question",
+   "close contact 32% of alive time against the reference point's 44% (within 262px) \u2014 the teams meet less here. GunRange contact is 100% on every map at these sizes and cannot see this"
+  ]
+ }
+}

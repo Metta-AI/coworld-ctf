@@ -1,25 +1,47 @@
 ## Regenerates src/ctf/map_pool.nim: scans seeds upward and keeps the first
-## ones whose map passes every validator on the FIRST attempt (so the pool
-## entry IS the map — no re-roll drift if validators tighten later), under
-## small size-class and endzone-shape quotas for variety.
-## Usage: nim c -r tools/gen_map_pool.nim [startSeed]
-## Demo/curation tooling; not part of the server.
-import std/[os, strutils, strformat], ../src/ctf/sim
+## ones whose SHIPPED map clears the validators, under small size-class and
+## endzone-shape quotas for variety.
+##
+## "Shipped map" means `generateCtfMap` — the best-of-K selection an actual
+## game would run, not the raw first draw. It used to mean `generateMapAttempt`
+## with a first-attempt-validity requirement, because the old re-roll walked
+## `seed + attempt` and the first draw off the flat stream was the SIZE CLASS:
+## a pool entry that needed one re-roll was a different seed on a different
+## board, so the pool could not name it. `map_seed` fixed that — every
+## candidate for a seed is the same board — so the pool entry IS
+## `poolCtfMap(index)` by construction and the requirement is gone.
+##
+## Usage: nim c -d:release -r tools/gen_map_pool.nim [startSeed]
+## Costs one full selection per scanned seed (~1s on a standard board), so
+## build it in release. Demo/curation tooling; not part of the server.
+##
+## Regenerate `docs/pool-review.html` in the same change — see AGENTS.md.
+import std/[os, strutils, strformat], ../src/ctf/[sim, map_metrics]
 
 const
   PoolSize = 20
-  SizeQuota = [4, 5, 4, 4, 3]  ## small, standard, large, huge, giant.
+  SizeQuota: array[MapSizeClass, int] = [
+    10,  ## small
+    10,  ## standard
+    0,   ## large     — unreachable for this pool, see below
+    0,   ## huge      — unreachable
+    0,   ## giant     — unreachable
+    0,   ## colossal  — override-only, never drawn, so never pooled.
+  ]
+    ## Keyed by the canonical class enum, not by a positional index into a list
+    ## of width literals, so adding a class to `map_rules.MapSizeClassTable`
+    ## shows up here as a compile error rather than a runtime raise.
+    ##
+    ## The three largest rows are 0 because they are now UNREACHABLE, not
+    ## because they are unwanted. This pool is generated 2-team at the shipping
+    ## roster, and `map_rules.legalSizeNames(2, 8)` is {small, standard} — a
+    ## 16-player match on a giant board is 6.8x the area that roster wants.
+    ## The old quota (4/5/4/4/3) asked for eleven maps the generator can no
+    ## longer draw, which is not a slow scan, it is an infinite one.
+    ##
+    ## If a future mode wants big boards in the pool, give it its OWN pool at
+    ## its own roster rather than widening this one back out.
   ShapeQuota = [10, 5, 5]      ## column, disc, square.
-
-proc sizeClassIndex(gameMap: CtfMap): int =
-  case gameMap.width
-  of 1050: 0
-  of 1235: 1
-  of 1606: 2
-  of 2223: 3
-  of 3211: 4
-  else:
-    raise newException(CtfError, "Unexpected map width: " & $gameMap.width)
 
 proc shapeIndex(gameMap: CtfMap): int =
   case gameMap.endzone
@@ -31,43 +53,53 @@ when isMainModule:
   let start = if paramCount() >= 1: parseInt(paramStr(1)) else: 1001
   var
     seeds: seq[int]
-    counts = [0, 0, 0, 0, 0]
+    counts: array[MapSizeClass, int]
     shapeCounts = [0, 0, 0]
     seed = start
     scanned, rejected = 0
+  var scoreTotal = 0.0
   while seeds.len < PoolSize:
-    let gameMap = generateMapAttempt(seed, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1))
+    var gameMap: CtfMap
+    var reason = ""
+    try:
+      gameMap = generateCtfMap(
+        seed, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1))
+    except CtfError as e:
+      reason = e.msg
     inc scanned
-    let reason = validateGeneratedMap(gameMap)
     if reason.len > 0:
       inc rejected
       echo &"seed={seed} REJECT {reason}"
     else:
       let
-        sizeIndex = gameMap.sizeClassIndex()
+        sizeClass = gameMap.mapSizeClass()
         shape = gameMap.shapeIndex()
-      if counts[sizeIndex] < SizeQuota[sizeIndex] and
+        score = evaluateMap(gameMap).staticScore()
+      if counts[sizeClass] < SizeQuota[sizeClass] and
           shapeCounts[shape] < ShapeQuota[shape]:
         seeds.add seed
-        inc counts[sizeIndex]
+        scoreTotal += score
+        inc counts[sizeClass]
         inc shapeCounts[shape]
-        echo &"pool[{seeds.len - 1}] seed={seed} " &
+        echo &"pool[{seeds.len - 1}] seed={seed} size={sizeClass.sizeName()} " &
           &"{gameMap.width}x{gameMap.height} sym={gameMap.symmetry} " &
           &"endzone={gameMap.endzone} r={gameMap.endzoneRadius} " &
           &"home={gameMap.teamHomeX(Red)} " &
-          &"obstacles={gameMap.leftObstacles.len}"
+          &"obstacles={gameMap.leftObstacles.len} " &
+          &"score={score:.3f}"
       else:
-        echo &"seed={seed} ok but quota full"
+        echo &"seed={seed} ok (score={score:.3f}) but quota full"
     stdout.flushFile()
     inc seed
-  echo &"scanned={scanned} rejected={rejected}"
+  echo &"scanned={scanned} rejected={rejected} " &
+    &"meanScore={scoreTotal / float(PoolSize):.3f}"
 
   var lines = @[
-    "## GENERATED by `nim c -r tools/gen_map_pool.nim` — do not edit by hand.",
-    "## The curated terrain pool: seeds whose generated maps pass every " &
-      "validator",
-    "## on their FIRST attempt (so the pool entry IS the map, no re-roll " &
-      "drift).",
+    "## GENERATED by `nim c -d:release -r tools/gen_map_pool.nim` — do not " &
+      "edit by hand.",
+    "## The curated terrain pool: seeds whose SHIPPED map (best-of-K, i.e.",
+    "## `generateCtfMap` / `poolCtfMap`) validates, under size-class and",
+    "## endzone-shape quotas. The pool entry IS the map the pool serves.",
     "",
     "const MapPoolSeeds*: array[" & $PoolSize & ", int] = [",
   ]

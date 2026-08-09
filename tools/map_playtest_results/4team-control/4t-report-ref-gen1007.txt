@@ -1,0 +1,157 @@
+NO HAND-AUTHORED CONTROL AT THIS TEAM COUNT. Using gen:1007 as a labelled REFERENCE POINT: a generated map from the
+population under test, named as the yardstick. It supports 'worse than the best of its own kind' and NOT
+'worse than a board we know plays'. Do not call it a control.
+
+=== gen:1003  (3 episode(s), 12069 ticks total)
+    ep0:  1827t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  5121t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  5121t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    dead space 59% of open floor (3247/7993 cells visited; largest unvisited region 322,100px²)
+    exposure 8.7 alive seat-ticks per open cell (69,688 seat-ticks over 7,993 cells)
+    134 deaths, spread 223px
+    kills [31, 30, 40, 33]  balance 1.00  pace 11.1 kills/1000t  contact 100% in gun range / 41% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal      569t  0.816%  3/3 enemies
+      team 1 pedestal    6,535t  9.378%  2/3 enemies
+      team 2 pedestal    3,943t  5.658%  1/3 enemies
+      team 3 pedestal    1,904t  2.732%  1/3 enemies
+    pressure balance 0.81 over 4 objectives (1.0 = even), attack pairs 7/12 58%
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 1/3 33% by wipeout, 2/3 67% out of clock
+    heatmap /tmp/m4c/gal4b/heat-gen-1003.png
+    FLAG: 59% of open floor never visited against gen:1007's 40% at 0.92x the same exposure — worse than the best board of its own kind, which is NOT the same finding as worse than a known-good board — and gen:1007 is a GENERATED map from the same population, a reference point, NOT a hand-authored control: if the population is bad this delta reads zero
+    FLAG: one unvisited region of ~322,100px² — a whole wing nobody played
+    FLAG: every objective was approached, but only 7/12 = 58% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: ZERO steals in 3 episode(s) DESPITE the objective being reached constantly: an enemy stood inside 4/4 = 100% of the pedestal rings for 18.584% of alive time (12,951 seat-ticks), 35x the arena's 0.533%. They got there and did not take it, so this is a RULES or BOT question before it is a map question
+
+=== gen:1007  (3 episode(s), 9322 ticks total)
+    ep0:  2729t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  3690t, 2 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  2903t, 1 steal(s) -> 0 capture(s), won by wipeout
+    dead space 40% of open floor (4736/7873 cells visited; largest unvisited region 24,700px²)  [REFERENCE POINT, generated — NOT a hand-authored control; it can only say 'worse than the best of its own kind']
+    exposure 9.5 alive seat-ticks per open cell (74,459 seat-ticks over 7,873 cells)
+    141 deaths, spread 348px
+    kills [51, 31, 25, 34]  balance 0.97  pace 15.1 kills/1000t  contact 100% in gun range / 44% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    1,322t  1.775%  3/3 enemies
+      team 1 pedestal      383t  0.514%  3/3 enemies
+      team 2 pedestal      347t  0.466%  1/3 enemies
+      team 3 pedestal      603t  0.810%  2/3 enemies
+    pressure balance 0.89 over 4 objectives (1.0 = even), attack pairs 9/12 75%
+    objective: 3 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 3/3 100% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/m4c/gal4b/heat-gen-1007.png
+    FLAG: every objective was approached, but only 9/12 = 75% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: 3 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+=== gen:1010  (3 episode(s), 10862 ticks total)
+    ep0:  2082t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  5121t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  3659t, 3 steal(s) -> 1 capture(s), WON ON THE OBJECTIVE
+    dead space 60% of open floor (5551/13786 cells visited; largest unvisited region 331,700px²)
+    exposure 5.8 alive seat-ticks per open cell (80,629 seat-ticks over 13,786 cells)
+    133 deaths, spread 275px
+    kills [33, 30, 37, 32]  balance 1.00  pace 12.2 kills/1000t  contact 100% in gun range / 28% within 262px
+    per objective (ring 91px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    1,316t  1.632%  2/3 enemies
+      team 1 pedestal    7,091t  8.795%  1/3 enemies
+      team 2 pedestal    6,669t  8.271%  1/3 enemies
+      team 3 pedestal      102t  0.127%  1/3 enemies
+    pressure balance 0.69 over 4 objectives (1.0 = even), attack pairs 5/12 42%
+    objective: 3 steals -> 1 captures (1 verified in zone) = 33% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 1/3 33% on the objective, 1/3 33% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/m4c/gal4b/heat-gen-1010.png
+    FLAG: 60% dead floor vs the reference point's 40%, but exposure differs 0.62x (5.8 vs 9.5 alive seat-ticks per open cell) — NOT comparable, re-run both at the same seats and tick budget
+    FLAG: every objective was approached, but only 5/12 = 42% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: enemy pressure is spread 0.69 evenly over the objectives (1.0 is even): t0 1.632% t1 8.795% t2 8.271% t3 0.127%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: close contact 28% of alive time against the reference point's 44% (within 262px) — the teams meet less here. GunRange contact is 100% on every map at these sizes and cannot see this
+
+=== gen:1013  (3 episode(s), 9643 ticks total)
+    ep0:  1974t, 1 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  2545t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  5124t, 1 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    dead space 41% of open floor (3337/5629 cells visited; largest unvisited region 33,100px²)
+    exposure 11.9 alive seat-ticks per open cell (66,932 seat-ticks over 5,629 cells)
+    137 deaths, spread 275px
+    kills [32, 45, 30, 30]  balance 0.99  pace 14.2 kills/1000t  contact 99% in gun range / 47% within 262px
+    per objective (ring 60px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    3,879t  5.795%  3/3 enemies
+      team 1 pedestal      629t  0.940%  3/3 enemies
+      team 2 pedestal       85t  0.127%  1/3 enemies
+      team 3 pedestal    2,821t  4.215%  2/3 enemies
+    pressure balance 0.70 over 4 objectives (1.0 = even), attack pairs 9/12 75%
+    objective: 2 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 2/3 67% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/m4c/gal4b/heat-gen-1013.png
+    FLAG: every objective was approached, but only 9/12 = 75% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: enemy pressure is spread 0.70 evenly over the objectives (1.0 is even): t0 5.795% t1 0.940% t2 0.127% t3 4.215%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: 2 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+=== gen:1020  (3 episode(s), 12175 ticks total)
+    ep0:  5124t, 1 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep1:  5121t, 1 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  1930t, 1 steal(s) -> 0 capture(s), won by wipeout
+    dead space 42% of open floor (4576/7910 cells visited; largest unvisited region 32,300px²)
+    exposure 11.7 alive seat-ticks per open cell (92,265 seat-ticks over 7,910 cells)
+    127 deaths, spread 375px
+    kills [26, 36, 26, 39]  balance 0.99  pace 10.4 kills/1000t  contact 100% in gun range / 32% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    5,854t  6.345%  3/3 enemies
+      team 1 pedestal   10,229t 11.087%  3/3 enemies
+      team 2 pedestal       44t  0.048%  1/3 enemies
+      team 3 pedestal       50t  0.054%  1/3 enemies
+    pressure balance 0.50 over 4 objectives (1.0 = even), attack pairs 8/12 67%
+    objective: 3 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 1/3 33% by wipeout, 2/3 67% out of clock
+    heatmap /tmp/m4c/gal4b/heat-gen-1020.png
+    FLAG: every objective was approached, but only 8/12 = 67% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: enemy pressure is spread 0.50 evenly over the objectives (1.0 is even): t0 6.345% t1 11.087% t2 0.048% t3 0.054%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: 3 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+    FLAG: close contact 32% of alive time against the reference point's 44% (within 262px) — the teams meet less here. GunRange contact is 100% on every map at these sizes and cannot see this
+
+==============================================================================================================================================================
+ONE-PAGE COMPARISON — generated vs gen:1007, A GENERATED REFERENCE POINT (no hand-authored map exists at this team count), per metric
+                                             gen:1007*                  gen:1003                  gen:1010                  gen:1013                  gen:1020
+                                             REFERENCE                                                                                                        
+  teams                                              4                         4                         4                         4                         4
+  episodes                                           3                         3                         3                         3                         3
+  episode lengths                    2729t 3690t 2903t         1827t 5121t 5121t         2082t 5121t 3659t         1974t 2545t 5124t         5124t 5121t 1930t
+  won on the objective                          0/3 0%                    0/3 0%                   1/3 33%                    0/3 0%                    0/3 0%
+  won by wipeout                              3/3 100%                   1/3 33%                   1/3 33%                   2/3 67%                   1/3 33%
+  out of clock, no winner                       0/3 0%                   2/3 67%                   1/3 33%                   1/3 33%                   2/3 67%
+
+  open floor (10px cells)                        7,873                     7,993                    13,786                     5,629                     7,910
+  visited                                4736/7873 60%             3247/7993 41%            5551/13786 40%             3337/5629 59%             4576/7910 58%
+  DEAD SPACE                                       40%                       59%                       60%                       41%                       42%
+  largest dead region                        24,700px²                322,100px²                331,700px²                 33,100px²                 32,300px²
+  exposure (seat-t/cell)                           9.5                       8.7                       5.8                      11.9                      11.7
+
+  objectives approached                       4/4 100%                  4/4 100%                  4/4 100%                  4/4 100%                  4/4 100%
+    each, % of alive time      1.78% 0.51% 0.47% 0.81%   0.82% 9.38% 5.66% 2.73%   1.63% 8.79% 8.27% 0.13%   5.80% 0.94% 0.13% 4.21%  6.34% 11.09% 0.05% 0.05%
+    each, enemies that came            3/3 3/3 1/3 2/3           3/3 2/3 1/3 1/3           2/3 1/3 1/3 1/3           3/3 3/3 1/3 2/3           3/3 3/3 1/3 1/3
+  attack pairs realized                       9/12 75%                  7/12 58%                  5/12 42%                  9/12 75%                  8/12 67%
+  pressure balance                                0.89                      0.81                      0.69                      0.70                      0.50
+  enemy time at pedestal                  2,655 3.566%            12,951 18.584%            15,178 18.824%             7,414 11.077%            16,177 17.533%
+  pedestal ring radius                            70px                      70px                      91px                      60px                      70px
+  steals                                             3                         0                         3                         2                         3
+  captures                                           0                         0                         1                         0                         0
+  CONVERSION grab->cap                              0%                         -                       33%                        0%                        0%
+  carrier in zone /1000t                           0.0                       0.0                       0.0                       0.0                       0.0
+
+  deaths                                           141                       134                       133                       137                       127
+  kills/1000t                                     15.1                      11.1                      12.2                      14.2                      10.4
+  contact, gun range                              100%                      100%                      100%                       99%                      100%
+  contact, close                                   44%                       41%                       28%                       47%                       32%
+  balance entropy                                 0.97                      1.00                      1.00                      0.99                      0.99
+
+  DELTA FROM THE REFERENCE POINT  (map - gen:1007; pp = percentage points)
+  gen:1007 IS A GENERATED MAP, NOT A HAND-AUTHORED CONTROL. It is drawn from the same population as everything
+  beside it, so these deltas can say 'worse than the best of its own kind' and CANNOT say 'worse than a board
+  we know plays'. If the whole population is bad, every delta here reads zero and the table looks healthy.
+    gen:1003     dead floor +20pp   conversion n/a (no steals)   decided +0pp   exposure 0.92x
+    gen:1010     dead floor +20pp   conversion +33pp   decided +33pp   exposure 0.62x
+    gen:1013     dead floor +1pp   conversion +0pp   decided +0pp   exposure 1.26x
+    gen:1020     dead floor +2pp   conversion +0pp   decided +0pp   exposure 1.23x
+  Exposure outside 0.70..1.40x makes the dead-space delta beside it NOT comparable — see the per-map FLAG lines above.
+
+wrote /tmp/m4c/gal4b/playtest.json + heat-<map>.png

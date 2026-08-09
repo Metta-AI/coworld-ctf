@@ -1,4 +1,5 @@
 import
+  helpers,
   std/[math, os, sets, strutils, unittest],
   crunchy/crc32,
   pixie,
@@ -10,18 +11,112 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  0xff7ea386'u32, 0xe7a608d6'u32, 0xcfbc5c15'u32, 0xbc4bbdba'u32,
-  0xb0e53440'u32, 0x64365320'u32, 0x9eef99a4'u32, 0x8e7237dc'u32,
-  0x56d6b747'u32, 0x23906590'u32, 0xb04e9473'u32, 0x81eaef9f'u32,
-  0xa1d457d4'u32, 0x8a5b61a2'u32, 0x4522b04c'u32, 0x8fa035f7'u32,
-  0xee524a7e'u32, 0x65501d0f'u32, 0xe736475e'u32, 0xae0849b1'u32,
+  ## T2a MERGE NOTE (corridor68): on its own base that branch moved exactly
+  ## one hash — index 18, seed 1021 — because the 68 px length-aware corridor
+  ## floor rejected best-of-K's pick ("kill box at (523,392)") and selection
+  ## fell through. On THIS merged tree the pin below is re-verified by the
+  ## suite; if the floor moves a pool pick again, render and LOOK before
+  ## re-pinning (the law above stands).
+  ## Re-pinned against the rebuilt generator (`maxwell/mapgen-rebuild`), which
+  ## re-deals every seed: all 20 moved. The SEED LIST did not — `gen_map_pool`
+  ## re-curates to the same 20 — so this pin is the only place the rewrite is
+  ## visible, which is exactly why it is not a mechanical update. Every one of
+  ## these 20 renders was looked at before the hash was written down: six
+  ## archetypes present (blocks 5, three-lane 5, field 4, warren 3, hub 2,
+  ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
+  ## nobody has looked at makes a bad map the baseline for everyone after.
+  ##
+  ## T2b MERGE NOTE (three-lane): on its own base that branch moved the ten
+  ## SMALL-class pool renders (coverSizePx now scales sqrt(class), 56 at
+  ## standard by construction — small is the only drawable class below 1.0).
+  ## This merged tree re-verifies the pin below via the suite; on any move,
+  ## render and LOOK before re-pinning.
+  ## FIVE MOVED AGAIN when `clearLanes` started cutting polygons and diagonals
+  ## instead of dropping them whole, and closed the gate-mouth hole in the rect
+  ## trim (task eea795c7). Indices 3, 6, 10, 12, 13 — seeds 1004, 1007, 1011,
+  ## 1013, 1014 — are exactly the pool's three-lane draws; the other fifteen are
+  ## byte-identical, which is the control that says the change reached only what
+  ## it claims to touch. All five were rendered before and after and looked at:
+  ## symmetry exact (largest left/right stone delta 0.046%, and every mismatch
+  ## a 1 px line ON the axis, i.e. rasterizer rounding), walkable space one
+  ## connected component with both bases on it, blocking cover 14.1-16.6%, and
+  ## stone blob counts DOWN on all five (fewer, larger masses — not confetti).
+  ##
+  ## The review also found what the hash cannot say: pool-wide the WINDOW count
+  ## falls 57 -> 50 and two panes now overlap the border ring (0 before). That
+  ## is not the clip. Window anchors are drawn from fill shapes that are rect,
+  ## disc or diamond — `arena`'s anchor switch gives polygons and diagonals
+  ## (0, 0) and the `sx > 0` guard then skips them — so re-dealing the fill
+  ## re-deals the anchors, and the anchor step has never had a border test.
+  ## Recorded here rather than fixed here: it is the window stage's bug.
+  ##
+  ## T3 CLOSEOUT NOTE (007c28e): the pin was last written on the T1 base and
+  ## the generator moved through T2c..T2f (GV42 renumber, quad-mirror cover
+  ## fixes, corridor-aware column cover) without this pin being re-verified —
+  ## the T2a/T2b notes above re-pinned on their OWN bases, not on the folded
+  ## tip. THIRTEEN moved here — indices 1, 4, 5, 6, 8, 9, 11, 13, 14, 15, 17,
+  ## 18, 19 (seeds 1002, 1005, 1006, 1007, 1009, 1010, 1012, 1014, 1015, 1016,
+  ## 1020, 1021, 1041); the other SEVEN (indices 0, 2, 3, 7, 10, 12, 16 —
+  ## seeds 1001, 1003, 1004, 1008, 1011, 1013, 1017) are byte-identical, the
+  ## control that says the render change reached only what it touched. The
+  ## SEED LIST did not move — `gen_map_pool` re-curates to the SAME 20 seeds by
+  ## score+quota (verified byte-identical against the committed pool), so this
+  ## pin is again the only place the change is visible. Both render runs agree
+  ## byte-for-byte, so the hash is deterministic, not fleet-jittered. Renders
+  ## were LOOKED AT before writing these down (a spread across all archetypes,
+  ## both size classes, and the mirror/rot180 symmetries, including moved seeds
+  ## 1002/1007/1015/1020/1041): symmetry visibly exact on every one, distinct
+  ## archetype character (blocks, three-lane, hub, field, warren, ring — not
+  ## twenty skins of one map), no degenerate/barcode/empty-block board.
+  ## `docs/pool-review.html` regenerated in the same change (AGENTS.md).
+  0x254b59b6'u32, 0x99fcdcd3'u32, 0x087a84d5'u32, 0x3027d369'u32,
+  0x94b4b37c'u32, 0x92851ac7'u32, 0xa6b26372'u32, 0xac1b2e34'u32,
+  0x09e37205'u32, 0x2f45235f'u32, 0xe87734f9'u32, 0xa8499c21'u32,
+  0x38c717dd'u32, 0xd4a4ec24'u32, 0x2617d05a'u32, 0x999da82d'u32,
+  0x66a67465'u32, 0xe6c17791'u32, 0xded17dc7'u32, 0x779191bc'u32
 ]
 
 proc poolMap(index: int): CtfMap =
-  generateMapAttempt(
-    MapPoolSeeds[index],
-    MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
-  )
+  ## The map the pool actually SERVES — a full best-of-K selection, not the
+  ## raw first draw. It used to be `generateMapAttempt`, which was the same
+  ## thing only while the pool was curated on first-attempt validity; now that
+  ## `poolCtfMap` ranks candidates, pinning render hashes against attempt 0
+  ## would pin an image nobody plays. Memoized because a selection costs ~1s
+  ## and three tests below walk the whole pool.
+  ##
+  ## The memo lives in `helpers` rather than here so it is shared with the
+  ## other pool-sweeping modules: this module is alone in its SHARD, but the
+  ## local `tests.nim` run is one binary holding all four.
+  cachedPoolMap(index)
+
+proc firstRow(rows: seq[int]): int =
+  ## The first collected row, or -1 when the diagnostic collected nothing.
+  ## Subscript-free on purpose: an empty perception surface has to fail with
+  ## its own value printed, not with an IndexDefect that aborts the test and
+  ## hides every check after it. That crash is exactly what kept a 222-case
+  ## drift in the validation baseline invisible.
+  if rows.len > 0: rows[0] else: -1
+
+const FirstOccupiableRow* = ArenaBorder + MinPassableWidth div 2
+  ## The first row a 13 px body can actually stand in. Spelled from the same
+  ## two constants the validator uses rather than as a literal, so the scan
+  ## and its control cannot drift apart silently again.
+
+proc sightlineScanRows(height: int): int =
+  ## How many rows the validator's sightline scan visits on a board of this
+  ## height — the count an obstacle-free board has to report as open.
+  ##
+  ## Both of this helper's numbers moved with the scan and NEITHER is a taste:
+  ## the stride went 4 -> 1 because a strided scan missed fully open rows on
+  ## seeds 1001 and 1014, and the start moved from `ArenaBorder + 2` to the
+  ## first OCCUPIABLE row because the ~10 px strip above it is open on every
+  ## map by construction and can hold neither a shooter nor a target. This
+  ## helper described the old scan, so the control it feeds was asserting the
+  ## validator still had the defect that was fixed.
+  var y = FirstOccupiableRow
+  while y < height - FirstOccupiableRow:
+    inc result
+    inc y
 
 proc poolRenderOptions(maxDimension = 0): MapRenderOptions =
   MapRenderOptions(
@@ -164,13 +259,28 @@ suite "map editor core":
       check gameMap.symmetryImages(shapeAsRect(gameMap.trenches[0])) ==
         trenchRects
 
-  test "generated-map validation matches the pre-refactor baseline":
+  test "generated-map validation matches the baseline on both code paths":
+    ## The fixture pins `validateGeneratedMap` for the generator's RAW first
+    ## draw across 402 (teams, seed) pairs. It is a regression pin, not a
+    ## quality claim: regenerate it with `tools/gen_validation_baseline.nim`
+    ## whenever the draws or the validators move, and report the pass rate it
+    ## prints.
+    ##
+    ## Every case is ALSO re-checked through the FULL diagnostic pass, so the
+    ## two implementations behind `collectMapDiagnostics` — the generator's
+    ## first-failure early exit and the editor's complete pass — cannot drift
+    ## apart. That used to be three hand-picked seeds ("one 2-team sightline
+    ## rejection, one 2-team cover rejection, one 4-team rejection"), and the
+    ## hand-picking is precisely what rotted: the generator moved, not one of
+    ## the three still failed for the reason it had been chosen for, and the
+    ## expectations they carried went stale with nothing to say so. All 402
+    ## costs ~12s more and has no seeds to re-pick.
     var
       cases = 0
       endzones2 = initHashSet[string]()
       layouts4 = initHashSet[string]()
       mismatches: seq[string]
-      collectedSightlineRows: seq[int]
+      openSightlineMaps: seq[string]
     for line in readFile(ValidationBaselinePath).splitLines():
       if line.len == 0 or line[0] == '#' or line.startsWith("teams\t"):
         continue
@@ -188,6 +298,7 @@ suite "map editor core":
           teams,
         )
         actual = validateGeneratedMap(gameMap)
+        diagnostics = mapDiagnostics(gameMap)
       inc cases
       if teams == 2:
         endzones2.incl fields[2]
@@ -198,22 +309,51 @@ suite "map editor core":
           "teams=" & $teams & " seed=" & $seed &
             " expected=" & expected.repr & " actual=" & actual.repr
         )
-      if (teams, seed) in [(2, 1002), (2, 1156), (4, 1024)]:
-        let diagnostics = mapDiagnostics(gameMap)
-        if diagnostics.reason != expected:
-          mismatches.add(
-            "full diagnostics teams=" & $teams & " seed=" & $seed &
-              " expected=" & expected.repr &
-              " actual=" & diagnostics.reason.repr
-          )
-        if teams == 2 and seed == 1002:
-          collectedSightlineRows = diagnostics.openSightlineRows
+      if diagnostics.reason != actual:
+        mismatches.add(
+          "code paths disagree teams=" & $teams & " seed=" & $seed &
+            " early-exit=" & actual.repr &
+            " full-pass=" & diagnostics.reason.repr
+        )
+      if diagnostics.openSightlineRows.len > 0:
+        openSightlineMaps.add(
+          "teams=" & $teams & " seed=" & $seed &
+            " rows=" & $diagnostics.openSightlineRows
+        )
     check cases == 402
     check endzones2 == ["column", "disc", "square"].toHashSet()
     check layouts4 == ["corners", "plus"].toHashSet()
-    check collectedSightlineRows.len > 1
-    check collectedSightlineRows[0] == 512
-    check mismatches.len == 0
+    ## Compared as SEQUENCES, not lengths: `unittest` prints both operands, so
+    ## a red run names the seeds that drifted instead of only how many did.
+    check mismatches == newSeq[string]()
+
+    ## SIGHTLINE ROWS: RE-DERIVED, not re-pinned. This block used to assert
+    ## that seed 1020 collected MORE THAN ONE open sightline row, the first at
+    ## y=12 — a pin on the pre-rewrite generator, which shipped candidates
+    ## carrying open horizontal firing lanes for the validator to reject. The
+    ## rewrite's row-cover pass closes every row of the `sightlineLoX ..
+    ## sightlineHiX` band constructively, BEFORE validation runs, so all 402
+    ## draws now reach the validator with the lane already blocked: zero open
+    ## rows anywhere, zero sightline rejections in the fixture, and seed 1020
+    ## validating clean. The count is 0 BY DESIGN. The old y=12 was never a
+    ## property of seed 1020 either — it was `ArenaBorder + 2`, the first row
+    ## the old 4px scan visited on any board, and it is now
+    ## `FirstOccupiableRow`, the first row the scan visits at stride 1.
+    ##
+    ## An empty perception surface is how this codebase has been blinded
+    ## before, so the re-derivation is a PAIR. The census above asserts the
+    ## emptiness is real; the positive control below asserts the diagnostic
+    ## still fires when a lane genuinely is open, so "collects nothing" can
+    ## never quietly become "no longer collects".
+    check openSightlineMaps == newSeq[string]()
+
+    var strippedMap = generateMapAttempt(
+      1020, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1), 2
+    )
+    strippedMap.leftObstacles.setLen(0)
+    let strippedRows = mapDiagnostics(strippedMap).openSightlineRows
+    check strippedRows.len == sightlineScanRows(strippedMap.height)
+    check strippedRows.firstRow == FirstOccupiableRow
 
   test "every curated map spec round-trips byte-identically":
     for index in 0 ..< MapPoolSeeds.len:

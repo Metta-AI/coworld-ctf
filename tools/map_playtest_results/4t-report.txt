@@ -1,0 +1,92 @@
+NO CONTROL IN THIS BATCH. Run the arena through the same episode count ('tools/map_eval play arena --episodes 3') and pass its evidence here. A dynamic number without the control beside it has no scale.
+
+=== gen:1001  (3 episode(s), 12246 ticks total)
+    ep0:  5124t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep1:  5125t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  1997t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 62% of open floor (3041/8002 cells visited; largest unvisited region 113,900px²)
+    exposure 9.7 alive seat-ticks per open cell (77,328 seat-ticks over 8,002 cells)
+    136 deaths, spread 175px
+    kills [26, 44, 28, 38]  balance 0.98  pace 11.1 kills/1000t  contact 100% in gun range / 43% within 262px
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 1/3 33% by wipeout, 2/3 67% out of clock
+    heatmap /tmp/mapgal/4t/heat-gen-1001.png
+    FLAG: 62% dead floor, but NO CONTROL in this batch — refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.
+    FLAG: ZERO steals in 3 episode(s). An enemy stood inside 2/4 = 50% of the pedestal rings, for 0.972% of alive time (752 seat-ticks) — near 0 the objective was never approached, and no conversion number from this map means anything
+
+=== gen:1003  (3 episode(s), 9270 ticks total)
+    ep0:  5121t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep1:  2285t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  1864t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 69% of open floor (2481/8012 cells visited; largest unvisited region 395,300px²)
+    exposure 7.3 alive seat-ticks per open cell (58,225 seat-ticks over 8,012 cells)
+    134 deaths, spread 189px
+    kills [25, 35, 27, 47]  balance 0.98  pace 14.5 kills/1000t  contact 99% in gun range / 43% within 262px
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 2/3 67% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/mapgal/4t/heat-gen-1003.png
+    FLAG: 69% dead floor, but NO CONTROL in this batch — refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.
+    FLAG: ZERO steals in 3 episode(s). An enemy stood inside 2/4 = 50% of the pedestal rings, for 7.715% of alive time (4,492 seat-ticks) — near 0 the objective was never approached, and no conversion number from this map means anything
+
+=== gen:1009  (3 episode(s), 15374 ticks total)
+    ep0:  5125t, 1 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep1:  5124t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  5125t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    dead space 55% of open floor (3553/7952 cells visited; largest unvisited region 67,100px²)
+    exposure 12.5 alive seat-ticks per open cell (99,423 seat-ticks over 7,952 cells)
+    130 deaths, spread 301px
+    kills [48, 39, 19, 24]  balance 0.95  pace 8.5 kills/1000t  contact 100% in gun range / 44% within 262px
+    objective: 1 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 0/3 0% by wipeout, 3/3 100% out of clock
+    heatmap /tmp/mapgal/4t/heat-gen-1009.png
+    FLAG: 55% dead floor, but NO CONTROL in this batch — refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.
+    FLAG: 1 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+=== gen:1024  (3 episode(s), 12437 ticks total)
+    ep0:  4244t, 5 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  3069t, 1 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  5124t, 2 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    dead space 54% of open floor (6163/13497 cells visited; largest unvisited region 125,500px²)
+    exposure 7.5 alive seat-ticks per open cell (100,697 seat-ticks over 13,497 cells)
+    135 deaths, spread 365px
+    kills [41, 35, 27, 32]  balance 0.99  pace 10.9 kills/1000t  contact 98% in gun range / 36% within 262px
+    objective: 8 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 2/3 67% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/mapgal/4t/heat-gen-1024.png
+    FLAG: 54% dead floor, but NO CONTROL in this batch — refusing the verdict. There is no absolute bar here: the arena itself reads 24% dead at one long episode and 51% at three short ones, so only a delta from the control at comparable exposure means anything.
+    FLAG: 8 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+========================================================================================================
+ONE-PAGE COMPARISON — generated vs arena, per metric
+                                       gen:1001           gen:1003           gen:1009           gen:1024
+                                                                                                        
+  teams                                       4                  4                  4                  4
+  episodes                                    3                  3                  3                  3
+  episode lengths             5124t 5125t 1997t  5121t 2285t 1864t  5125t 5124t 5125t  4244t 3069t 5124t
+  won on the objective                   0/3 0%             0/3 0%             0/3 0%             0/3 0%
+  won by wipeout                        1/3 33%            2/3 67%             0/3 0%            2/3 67%
+  out of clock, no winner               2/3 67%            1/3 33%           3/3 100%            1/3 33%
+
+  open floor (10px cells)                 8,002              8,012              7,952             13,497
+  visited                         3041/8002 38%      2481/8012 31%      3553/7952 45%     6163/13497 46%
+  DEAD SPACE                                62%                69%                55%                54%
+  largest dead region                113,900px²         395,300px²          67,100px²         125,500px²
+  exposure (seat-t/cell)                    9.7                7.3               12.5                7.5
+
+  pedestals enemy reached               2/4 50%            2/4 50%           4/4 100%           4/4 100%
+  enemy time at pedestal             752 0.972%       4,492 7.715%     14,640 14.725%       9,755 9.687%
+  pedestal ring radius                     70px               70px               70px               91px
+  steals                                      0                  0                  1                  8
+  captures                                    0                  0                  0                  0
+  CONVERSION grab->cap                        -                  -                 0%                 0%
+  carrier in zone /1000t                    0.0                0.0                0.0                0.0
+
+  deaths                                    136                134                130                135
+  kills/1000t                              11.1               14.5                8.5               10.9
+  contact, gun range                       100%                99%               100%                98%
+  contact, close                            43%                43%                44%                36%
+  balance entropy                          0.98               0.98               0.95               0.99
+
+  NO CONTROL COLUMN. There is no hand-authored map at this team count, so every number above is readable only against the other generated maps — not against a known-good board.
+
+wrote /tmp/mapgal/4t/playtest.json + heat-<map>.png
