@@ -454,11 +454,23 @@ proc footprintOf(leaf, band: MapRect): MapRect =
   MapRect(x: leaf.x + l, y: leaf.y + t,
           w: leaf.w - l - r, h: leaf.h - t - b)
 
-proc districtPlanScene(coverTargetPermille, interiorHalfPx: int): Scene =
+proc districtPlanScene(coverTargetPermille, interiorHalfPx: int,
+                       laneCols = 0): Scene =
+  ## `laneCols` (0 = off) ENFORCES the column count from `mapRules.laneCount`
+  ## instead of leaving it to emerge from band geometry. Doc §8: "Route count
+  ## should be enforced by the partition (a column count derived from
+  ## mapRules.laneCount) rather than left emergent" — the prototype's
+  ## `band.w div MinLeafW` gives whatever the width happens to allow (measured
+  ## routeCountMin 5–7 vs the arena's 8). Each colonnade column contributes one
+  ## staggered street, so more columns is more vertex-disjoint routes; the count
+  ## is still capped at what `MinLeafW` can physically host so a leaf never
+  ## shrinks below a structure's footprint.
   Scene(name: "districtPlan", render: proc(ctx: var Ctx) =
     let
       band = ctx.region.rect
-      cols = clamp(band.w div MinLeafW, 2, 3)
+      geomMax = max(2, band.w div MinLeafW)
+      cols = if laneCols > 0: clamp(laneCols, 2, geomMax)
+             else: clamp(band.w div MinLeafW, 2, 3)
       leaves = colonnadeLeaves(ctx.rng, band, cols, MinLeafH)
     ## FEASIBILITY FIRST. A leaf can host a ray-blocking structure only if
     ## its whole footprint is off protected floor — otherwise the carve
@@ -994,7 +1006,8 @@ proc vandalScene(): Scene =
 
 proc ctfTwoTeamScene*(gameMap: CtfMap,
                       coverTargetPermille, interiorHalfPx: int,
-                      breakGlass = false, intentional = false): Scene =
+                      breakGlass = false, intentional = false,
+                      laneCount = 0): Scene =
   ## The whole 2-team map as ONE tree. Read top to bottom, this IS the map's
   ## design intent in order — which is the thing the current 590-line
   ## imperative generator cannot show you at any length.
@@ -1028,7 +1041,11 @@ proc ctfTwoTeamScene*(gameMap: CtfMap,
     fieldX0 = max(gameMap.captureClear + 4,
                   anchor.x + gameMap.spawnClearW + 8)
     fieldX1 = center.x - ring - 26
-    plan = districtPlanScene(coverTargetPermille, interiorHalfPx)
+    ## Enforce the column count from lanes only under the intentional flag: an
+    ## extra column raises the route count toward the arena's 8. Off = the
+    ## prototype's emergent geometric count, bit-identical.
+    laneCols = if intentional: laneCount else: 0
+    plan = districtPlanScene(coverTargetPermille, interiorHalfPx, laneCols)
     openScene = if intentional: crossfireCoverScene() else: plazaScene()
   plan.children = @[
     ChildAction(tags: @["district", "rayblock"], scene: structureScene()),
@@ -1055,6 +1072,13 @@ proc ctfTwoTeamScene*(gameMap: CtfMap,
     ## it — and its post-condition then guards it against anything after.
     result.children.add ChildAction(tags: @["field"],
       scene: forwardTrenchScene(fieldX1, GunRange div 3, 3))
+    ## Connectivity repair is NOT a scene — it runs as a post-pass in
+    ## `generateGraphMap` (`repairConnectivity`), because it must judge
+    ## reachability with the SAME body-width-eroded flood the sim validator uses
+    ## (`mapDiagnostics`), which needs the fully-assembled, mirrored `gameMap` —
+    ## not the raw left-half placement set a scene can see. A point-flood over
+    ## the placements squeezes through gaps too narrow for a cog body and so
+    ## never sees the pocket the validator rejects.
   if breakGlass:
     result.children.add ChildAction(tags: @["field"], scene: vandalScene())
 
@@ -1063,6 +1087,120 @@ type GraphResult* = object
   board*: Board
   rejected*: bool
   reason*: string
+
+proc repairConnectivity(gameMap: var CtfMap, notes: var seq[string],
+                        maxDoors = 3): bool =
+  ## The MakeConnected position (doc §7/§8), run as a POST-PASS on the fully
+  ## assembled map — not a scene — because it must judge reachability with the
+  ## SAME body-width-eroded flood the sim validator uses. The prototype claims
+  ## connectivity by construction and it holds for most seeds; the seam-side
+  ## scenes (the bastion especially) have no knowledge of the courtyard walls a
+  ## district drew, and seed 4010 is the failure the design doc predicted — the
+  ## bastion face plus a courtyard's south wall seal a ~3.3% pocket the sim
+  ## validator never tests for (it only checks flags↔centre), so it ships
+  ## silently and a carrier routed through it gets stuck ~800px from home.
+  ##
+  ## Additive-shape constraint (doc §8): it cannot carve, so it repairs the only
+  ## way the model allows — it SHORTENS the left-half wall placement sealing the
+  ## pocket to open a `DoorPx` gap, the same move the glazier makes. It picks the
+  ## thinnest bordering wall (cheapest door, least cover disturbed), re-floods,
+  ## and repeats up to `maxDoors`. It REPORTS every firing: a connector that
+  ## fires often is a partition to fix upstream, and that is invisible if silent.
+  ##
+  ## Returns true if the map is connected when it returns (fired 0+ times);
+  ## false if a pocket survives every door it could punch (caller rejects).
+  result = true
+  let W = gameMap.width
+  for pass in 0 ..< maxDoors:
+    let d = mapDiagnostics(gameMap,
+      {diagnosticCorridorOpen, diagnosticReachable})
+    ## Find a FRONTIER pixel: an unreachable open pixel whose short walk toward
+    ## reachable floor crosses exactly one thin wall. Scan the whole board once,
+    ## count the pocket, and record the frontier point where a reachable and an
+    ## unreachable open pixel are separated only by wall — that gap is where a
+    ## door actually connects, unlike the pocket CENTROID (which the first cut
+    ## aimed at and missed: the seal is on the pocket's edge, not its middle).
+    var
+      cnt = 0
+      frontierX, frontierY = -1
+    for y in 0 ..< gameMap.height:
+      for x in 0 ..< W:
+        let i = y * W + x
+        if d.corridorOpen[i] and not d.reachable[i]:
+          inc cnt
+          if frontierX < 0:
+            ## Probe outward along +x/-x/+y/-y for a reachable open pixel within
+            ## a wall-thickness-plus gap; the first found fixes the door site.
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+              var step = 1
+              var crossedWall = false
+              while step <= 3 * WallThick:
+                let nx = x + dx * step
+                let ny = y + dy * step
+                if nx < 0 or ny < 0 or nx >= W or ny >= gameMap.height: break
+                let ni = ny * W + nx
+                if not d.corridorOpen[ni]:
+                  crossedWall = true
+                elif d.reachable[ni] and crossedWall:
+                  ## reachable open floor on the far side of a wall: door here.
+                  frontierX = x + dx * (step div 2)
+                  frontierY = y + dy * (step div 2)
+                  break
+                elif d.corridorOpen[ni] and not crossedWall:
+                  break        ## open all the way, not a frontier in this dir
+                step.inc
+              if frontierX >= 0: break
+    if cnt == 0:
+      return true                      ## connected — the common case.
+    if frontierX < 0:
+      notes.add "connector: pocket of " & $cnt &
+        "px has no thin-wall frontier to a reachable cell (needs a wider breach)"
+      return false
+    ## Fold the frontier point into the LEFT half — the editable walls live in
+    ## `leftObstacles`, and breaching the left-half original opens the door on
+    ## both sides under mirror symmetry, keeping the map fair.
+    let
+      fx = if frontierX < W div 2: frontierX else: W - 1 - frontierX
+      fy = frontierY
+      grow = 2 * WallThick
+    ## The wall to breach is the one containing the frontier point.
+    var bestIdx = -1
+    for idx in 0 ..< gameMap.leftObstacles.len:
+      let s = gameMap.leftObstacles[idx]
+      if s.kind != shapeRect or s.window: continue
+      let r = s.rect
+      if fx >= r.x - grow and fx <= r.x + r.w + grow and
+          fy >= r.y - grow and fy <= r.y + r.h + grow:
+        bestIdx = idx
+        break
+    if bestIdx < 0:
+      notes.add "connector: frontier at " & $frontierX & "," & $frontierY &
+        " (folded " & $fx & "," & $fy & ") has no left-half wall to breach"
+      return false
+    let
+      r = gameMap.leftObstacles[bestIdx].rect
+      thin = min(r.w, r.h)
+    ## Open a DoorPx gap centred on the frontier, along the wall's LONG axis.
+    if r.w >= r.h:
+      let cut = clamp(fx - DoorPx div 2, r.x, max(r.x, r.x + r.w - DoorPx))
+      gameMap.leftObstacles[bestIdx] = rect(r.x, r.y, cut - r.x, r.h)
+      if r.x + r.w - (cut + DoorPx) > 0:
+        gameMap.leftObstacles.add rect(cut + DoorPx, r.y,
+          r.x + r.w - cut - DoorPx, r.h)
+    else:
+      let cut = clamp(fy - DoorPx div 2, r.y, max(r.y, r.y + r.h - DoorPx))
+      gameMap.leftObstacles[bestIdx] = rect(r.x, r.y, r.w, cut - r.y)
+      if r.y + r.h - (cut + DoorPx) > 0:
+        gameMap.leftObstacles.add rect(r.x, cut + DoorPx, r.w,
+          r.y + r.h - cut - DoorPx)
+    notes.add "connector FIRED (pass " & $pass & "): opened a " & $DoorPx &
+      "px door at frontier " & $frontierX & "," & $frontierY &
+      " into a " & $cnt & "px pocket (breached a " & $thin & "px wall)"
+  ## Exhausted maxDoors — is a pocket still open?
+  let d = mapDiagnostics(gameMap, {diagnosticCorridorOpen, diagnosticReachable})
+  for i in 0 ..< gameMap.width * gameMap.height:
+    if d.corridorOpen[i] and not d.reachable[i]: return false
+  return true
 
 proc generateGraphMap*(seed: int, sizeName = "standard",
                        coverTargetPermille = 180,
@@ -1101,7 +1239,7 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
     interiorHalfPx = (gameMap.width - 2 * gameMap.captureClear) *
       (gameMap.height - 2 * ArenaBorder) div 2
   runScene(ctfTwoTeamScene(gameMap, coverTargetPermille, interiorHalfPx,
-                           breakGlass, intentional),
+                           breakGlass, intentional, rules.laneCount),
            "root", seed, domain, rules, board)
 
   for p in board.placements:
@@ -1116,6 +1254,15 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
   for t in board.trenches:
     gameMap.trenches.add t.shape
     gameMap.trenches.add t.shape.mirrorX(gameMap.width)
+
+  ## Connectivity repair (intentional only), the MakeConnected position. Runs
+  ## on the assembled left-half wall set, judged by the same eroded flood the
+  ## validator uses. Its notes go on the board so the intent ledger and probes
+  ## can see when it fired; a pocket it cannot open rejects the map by name
+  ## rather than shipping the strand.
+  var connected = true
+  if intentional:
+    connected = repairConnectivity(gameMap, board.notes)
 
   ## Pickups: put them back on floor the terrain actually left open.
   var kits: seq[MapPoint]
@@ -1148,3 +1295,6 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
   if broken.len > 0:
     result.rejected = true
     result.reason = broken[0]
+  if not connected:
+    result.rejected = true
+    result.reason = "REJECT: connectivity repair could not open the pocket"

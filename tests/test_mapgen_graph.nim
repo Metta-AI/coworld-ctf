@@ -89,6 +89,37 @@ block intentionalFeatures:
   check "intentional adds no net invalid maps over the baseline prototype",
     intentInvalid <= baseInvalid
 
+block connectivityRepair:
+  ## The MakeConnected post-pass must FIRE on a seed the prototype strands, and
+  ## the strand must be GONE afterwards — a repair never seen fire is as
+  ## untrustworthy as a promise never seen kept. Seed 4010 seals a ~3.3% pocket
+  ## the sim validator does not test for (bastion face + courtyard south wall);
+  ## with the flag on, the connector must open it.
+  proc strandFrac(m: CtfMap): float =
+    let d = mapDiagnostics(m, {diagnosticCorridorOpen, diagnosticReachable})
+    var open, reach = 0
+    for i in 0 ..< m.width * m.height:
+      if d.corridorOpen[i]:
+        inc open
+        if d.reachable[i]: inc reach
+    (open - reach).float / max(1, open).float
+  let base = generateGraphMap(4010, intentional = false)
+  check "the prototype strands floor on 4010 (the defect being fixed)",
+    strandFrac(base.gameMap) > 0.02
+  let fixed = generateGraphMap(4010, intentional = true)
+  var fired = false
+  for n in fixed.board.notes:
+    if n.contains("connector FIRED"): fired = true
+  check "the connector fires on the stranded seed", fired
+  check "the connector eliminates the strand",
+    not fixed.rejected and strandFrac(fixed.gameMap) < 0.005
+  var everFired = false
+  for seed in 4001 .. 4012:
+    let g = generateGraphMap(seed, intentional = true)
+    if not g.rejected:
+      check "a repaired seed strands no floor (" & $seed & ")",
+        strandFrac(g.gameMap) < 0.005
+
 block negativeControl:
   ## THE control. With the vandal scene off, the glazier's promise holds; with
   ## it on, the driver must catch the broken promise by name.
