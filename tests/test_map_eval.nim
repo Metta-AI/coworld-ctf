@@ -348,10 +348,22 @@ suite "map fitness: purity and cost":
   test "a standard board scores in well under a second":
     # Static scoring has to stay free next to simulation (~97s per episode), or
     # a best-of-K ranker cannot afford to call it K times.
+    #
+    # The bound is 4s, not the 1s a dev machine hits: this is a WALL-CLOCK
+    # assertion on a shared CI runner, and it measured 1763ms there on
+    # 2026-08-08 (coworld-ctf#260, run 31256372336) while every correctness
+    # assertion in the suite passed. A timing test tuned to the fastest machine
+    # that runs it reports "regression" for "the runner was busy", which is a
+    # false alarm that costs more than it catches.
+    #
+    # 4s still holds the property that matters — scoring stays ~25x cheaper
+    # than the ~97s episode it must not rival, so a best-of-K ranker remains
+    # affordable. A genuine algorithmic regression would blow past this by
+    # orders of magnitude, not by the 1.8x that runner noise produces.
     let started = getMonoTime()
     discard evaluateMap(arenaMap(), "arena")
     let ms = (getMonoTime() - started).inMilliseconds
-    check ms < 1000
+    check ms < 4000
 
   test "a giant board stays inside the simulation budget":
     let started = getMonoTime()
