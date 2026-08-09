@@ -1,0 +1,32 @@
+{
+  "map_id": "pool:1007@gv42",
+  "schema_version": "map-card/v0",
+  "kind": {
+    "seed": 1007,
+    "game_version": "gv42",
+    "size_class": "small",
+    "width": 1050,
+    "height": 560,
+    "teams": 2,
+    "symmetry": "mirror",
+    "style": null,
+    "biome": "city",
+    "game_mode": "ctf",
+    "static_score": 0.9909045186974477,
+    "valid": true,
+    "archetype": "three-lane",
+    "playtype": "control",
+    "pacing": "fast",
+    "metrics": {
+      "interiorFrac": 0.36961536874251993,
+      "chokeCount": 0,
+      "routeCountMin": 3,
+      "longRunFrac": 0.010531242686637023,
+      "visDegreeCv": 0.3700252269261273,
+      "coverPermille": 169,
+      "contactTicks": 36.48462507350736
+    }
+  },
+  "live": null,
+  "grades": null
+}

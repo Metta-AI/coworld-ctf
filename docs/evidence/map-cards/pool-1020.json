@@ -1,0 +1,32 @@
+{
+  "map_id": "pool:1020@gv42",
+  "schema_version": "map-card/v0",
+  "kind": {
+    "seed": 1020,
+    "game_version": "gv42",
+    "size_class": "small",
+    "width": 1050,
+    "height": 560,
+    "teams": 2,
+    "symmetry": "rot180",
+    "style": null,
+    "biome": "forest",
+    "game_mode": "ctf",
+    "static_score": 0.9719135489226826,
+    "valid": true,
+    "archetype": "blocks",
+    "playtype": "skirmish",
+    "pacing": "fast",
+    "metrics": {
+      "interiorFrac": 0.2526916756955578,
+      "chokeCount": 0,
+      "routeCountMin": 7,
+      "longRunFrac": 0.015535991714137753,
+      "visDegreeCv": 0.2989811666729606,
+      "coverPermille": 149,
+      "contactTicks": 36.48462507350736
+    }
+  },
+  "live": null,
+  "grades": null
+}

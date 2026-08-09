@@ -1,0 +1,32 @@
+{
+  "map_id": "pool:1017@gv42",
+  "schema_version": "map-card/v0",
+  "kind": {
+    "seed": 1017,
+    "game_version": "gv42",
+    "size_class": "standard",
+    "width": 1235,
+    "height": 659,
+    "teams": 2,
+    "symmetry": "mirror",
+    "style": null,
+    "biome": "caves",
+    "game_mode": "ctf",
+    "static_score": 0.997738579828132,
+    "valid": true,
+    "archetype": "warren",
+    "playtype": "skirmish",
+    "pacing": "standard",
+    "metrics": {
+      "interiorFrac": 0.5426730184928167,
+      "chokeCount": 0,
+      "routeCountMin": 7,
+      "longRunFrac": 0.014421730607672921,
+      "visDegreeCv": 0.5303699876155951,
+      "coverPermille": 170,
+      "contactTicks": 50.49925065552733
+    }
+  },
+  "live": null,
+  "grades": null
+}
