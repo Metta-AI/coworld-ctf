@@ -72,6 +72,19 @@ type
     center*: MapPoint
     scanLo*, scanHi*: int          ## the validator's horizontal-ray band
     placements*: seq[Placement]
+    trenches*: seq[Placement]
+      ## A SEPARATE channel from `placements`, because a trench is not a wall:
+      ## it blocks no ray and no bullet — it is walkable floor that makes its
+      ## occupant hard to hit (`TrenchMissPct`) but slow to fire and costly to
+      ## leave. It lives on its own list for two reasons. First, the ledger
+      ## must be able to say a trench serves something a wall never could
+      ## ("a survivable holdpoint that does not shorten a sightline",
+      ## `map_rules.trenchSharePermille`). Second, and load-bearing:
+      ## `buildArenaObstacles` mirrors `leftObstacles` but NOT `gameMap.trenches`
+      ## (the trench field is stored already-symmetrized — see `mapSpecJson`),
+      ## so a trench dug here in the left-half domain must be mirrored EXPLICITLY
+      ## downstream. Keeping it off `placements` is what stops the wall-mirror
+      ## from double-imaging it.
     posts*: seq[Postcondition]
     notes*: seq[string]
     rayCover*: seq[(int, int)]     ## y intervals a structure provably blocks
@@ -145,6 +158,19 @@ proc place*(ctx: var Ctx, shape: ArenaShape, serves: string) =
   ctx.board.placements.add Placement(
     shape: shape, scene: ctx.path, serves: serves)
   ctx.board.spentPx += areaOf(shape)
+
+proc dig*(ctx: var Ctx, square: MapRect, serves: string) =
+  ## Write one TRENCH. Same audit contract as `place` — `serves` is mandatory —
+  ## but a trench goes on its own channel and is DELIBERATELY NOT debited
+  ## against the wall cover budget: it delivers survivability without spending
+  ## sightline, which is the whole reason `map_rules` gives trenches a separate
+  ## share of the cover total. A trench that cost wall-budget would make the
+  ## generator choose between the two exactly where the doctrine says it should
+  ## not have to.
+  doAssert serves.len > 0, "every trench must name what it serves"
+  ctx.board.trenches.add Placement(
+    shape: ArenaShape(kind: shapeRect, rect: square),
+    scene: ctx.path, serves: serves)
 
 proc budgetLeft*(b: Board): int = b.budgetPx - b.spentPx
 
@@ -323,6 +349,13 @@ proc disc(cx, cy, r: int): ArenaShape =
 
 proc ri(r: var Rand, lo, hi: int): int =
   if hi <= lo: lo else: lo + rand(r, hi - lo)
+
+proc trenchSquare(cx, cy: int): MapRect =
+  ## A `TrenchSize`×`TrenchSize` pit centred on (cx, cy). Mirrors arena's own
+  ## (unexported) `trenchSquareAt` — a trench never scales with the size class,
+  ## so this is the whole definition.
+  MapRect(x: cx - TrenchSize div 2, y: cy - TrenchSize div 2,
+          w: TrenchSize, h: TrenchSize)
 
 # ---------------------------------------------------------------------------
 # Scene: districtPlan — the PARTITION. Renders nothing.
@@ -755,6 +788,188 @@ proc glazierScene(maxPanes: int): Scene =
   )
 
 # ---------------------------------------------------------------------------
+# Scene: forwardTrench — a SURVIVABLE HOLDPOINT overlooking the approach.
+# ---------------------------------------------------------------------------
+#
+# Maxwell named trenches as the archetype of the "why is this here" problem,
+# and the scene-graph prototype's answer so far was to delete them wholesale
+# (`generateGraphMap` clears `gameMap.trenches`). That forfeits the one piece
+# of cover the range/mixed doctrine calls indispensable: `map_rules`'
+# `trenchSharePermille` gives trenches 250–500 permille of the WHOLE cover
+# budget precisely because a trench "gives survivability WITHOUT shortening a
+# sightline" — it is the only cover that is free where short sightlines are the
+# disease. A wall that would deliver the same survivability would also blind
+# the defender who stands behind it.
+#
+# So a trench is placed for exactly one reason, and it is checkable: a defender
+# on our side of the field needs a place to HOLD the lane an attacker must
+# cross to reach our flag — a spot that keeps them alive under fire (the pit)
+# WHILE they can still see and shoot down that lane (the overlook). A trench
+# that overlooks a wall is the "placed but pointless" defect in trench form, so
+# the overlook is measured before the dig and PROMISED afterwards: the sightline
+# toward midfield must survive every later scene, or the map fails by name.
+#
+# The trench sits on the forward third of the field (nearest the seam), on open
+# floor the districts left crossable — which is where the fight for the flag
+# actually happens, and where the pool's stands sit naked today.
+
+proc trenchClear(b: Board, sq: MapRect): bool =
+  ## A trench square must be dug in floor: clear of every wall, off protected
+  ## floor (the carve would delete a pit on it just as it deletes a wall), and
+  ## not overlapping a trench already dug. Sampled on a coarse grid — a trench
+  ## is 56px, so an 8px step cannot miss a wall wide enough to matter.
+  if not b.rectUnprotected(sq, 8): return false
+  var y = sq.y
+  while y <= sq.y + sq.h:
+    var x = sq.x
+    while x <= sq.x + sq.w:
+      if b.wallAt(x, y): return false
+      x += 8
+    y += 8
+  for t in b.trenches:
+    let r = t.shape.rect
+    if sq.x < r.x + r.w and r.x < sq.x + sq.w and
+        sq.y < r.y + r.h and r.y < sq.y + sq.h:
+      return false
+  true
+
+proc forwardTrenchScene(fieldX1, overlookPx, maxDig: int): Scene =
+  ## Runs on the whole field region. `fieldX1` is the seam-side edge of the
+  ## buildable field — "forward" is the third of the field nearest it, the
+  ## ground a defender falls back to and an attacker has to cross last.
+  Scene(name: "forwardTrench", render: proc(ctx: var Ctx) =
+    let
+      band = ctx.region.rect
+      half = TrenchSize div 2
+      ## The forward third: [x0, fieldX1). A defender here overlooks midfield
+      ## (east, +x) — the direction every attacker on our flag comes from.
+      x0 = max(band.x + half, fieldX1 - (band.w div 3))
+      x1 = min(band.x + band.w - half, fieldX1)
+    if x1 <= x0: return
+    var dug = 0
+    for _ in 0 ..< 40:
+      if dug >= maxDig: break
+      let
+        cx = ri(ctx.rng, x0, x1)
+        cy = ri(ctx.rng, band.y + half, band.y + band.h - half)
+        sq = trenchSquare(cx, cy)
+      if sq.x < band.x or sq.x + sq.w > band.x + band.w or
+          sq.y < band.y or sq.y + sq.h > band.y + band.h: continue
+      if not ctx.board.trenchClear(sq): continue
+      ## MEASURE THE OVERLOOK before committing: fire east from the pit's
+      ## centre. If the ray hits a wall before it clears `overlookPx`, this
+      ## spot overlooks nothing and the defender in it is blind — skip it.
+      let
+        eye = cx + half + 1
+        my = cy
+      if not ctx.board.rayClear(eye, my, 1, 0, overlookPx, 1): continue
+      ctx.dig sq, "survivable holdpoint overlooking the approach to our flag"
+      inc dug
+      ## PROMISE the overlook outlives every later scene. A wall parked across
+      ## it afterwards turns the trench back into pointless cover, and the
+      ## driver must catch that by name rather than ship it.
+      let (ex, ey) = (eye, my)
+      ctx.promise("trench at " & $cx & "," & $cy &
+                  " still overlooks the approach", proc(b: Board): bool =
+        b.rayClear(ex, ey, 1, 0, overlookPx, 1))
+    if dug == 0: ctx.note "no forward spot both open and overlooking midfield"
+  )
+
+# ---------------------------------------------------------------------------
+# Scene: crossfireCover — cover that BREAKS THE LONGEST OPEN RAY of a plaza.
+# ---------------------------------------------------------------------------
+#
+# `plaza cover` is the single most-placed feature in the ledger (26 of ~44
+# per-map placements) and, by its own comment, the least intentional: it drops
+# "1–3 pieces of hard cover" at random positions and "make[s] no sightline
+# claim". That is the exact defect this whole design exists to retire, living
+# inside the design's own prototype — a feature placed because a loop reached
+# it, with no reason that can be checked.
+#
+# The reason a plaza needs cover is specific: an OPEN district (the plan did
+# not count on it to break a ray) still has a longest open sightline running
+# across it, and that line is a shooting gallery — naked ground a defender
+# rakes from one end. Cover exists to break THAT line, so the plaza can be
+# crossed under fire instead of sprinted across in the open. So the piece is
+# placed on the longest open ray the plaza has, and it PROMISES that ray is
+# occluded afterwards. Cover that breaks no measured line is not written.
+
+proc crossfireCoverScene(): Scene =
+  Scene(name: "crossfireCover", render: proc(ctx: var Ctx) =
+    let fp = ctx.region.rect
+    if fp.w < 60 or fp.h < 60: return
+    ## Find the longest open HORIZONTAL ray across the plaza: scan candidate
+    ## rows, measure the clear span each offers, keep the widest. A horizontal
+    ## ray is the one the sightline validator itself fires, so breaking it is
+    ## breaking the line the map is actually judged on.
+    const ScanStep = 6
+    var
+      bestY = -1
+      bestSpan = 0     ## in PIXELS, not scan steps
+    var y = fp.y + 8
+    while y < fp.y + fp.h - 8:
+      var span = 0
+      var x = fp.x
+      while x < fp.x + fp.w:
+        if ctx.board.wallAt(x, y): span = 0
+        else: span += ScanStep
+        if span > bestSpan and not ctx.board.protectedAt(x, y):
+          bestSpan = span
+          bestY = y
+        x += ScanStep
+      y += 12
+    ## No open ray worth breaking (a plaza already broken up by neighbouring
+    ## structure) needs no cover — and saying so is the point of the ledger.
+    if bestY < 0 or bestSpan < 40:
+      ctx.note "plaza has no open ray long enough to be worth breaking"
+      return
+    let
+      rad = max(20, ctx.rules.coverSizePx div 2 - ctx.rng.rand(8))
+      ## Break the ray nearer its middle than its ends: cover hugging a wall
+      ## just widens the wall, while cover mid-span forces the crosser to
+      ## choose a side and creates the two peek angles a crossfire wants.
+      cx = clamp(fp.x + fp.w div 2 + ctx.rng.rand(fp.w div 4) - fp.w div 8,
+                 fp.x + rad, fp.x + fp.w - rad)
+      cy = bestY
+      box = MapRect(x: cx - rad, y: cy - rad, w: 2 * rad, h: 2 * rad)
+    if not ctx.board.canAfford(3 * rad * rad): return
+    if not ctx.board.rectUnprotected(box): return
+    if not ctx.board.rectClear(box): return
+    ## Cover that breaks a ray must not, in doing so, PINCH the route it sits
+    ## on into a kill box — a narrow slot beside a wall down which the broken
+    ## sightline simply re-forms is worse than the open ray it replaced. So the
+    ## disc is placed only where it keeps open floor above and below it (the two
+    ## ways a crosser goes AROUND it): the box grown by a safe margin in y must
+    ## still be clear of every wall. A plaza with no such room is left open and
+    ## says so, rather than shipping the pinch. The margin is set ABOVE the
+    ## validator's own kill-box floor (it rejects a route ~48px wide holding a
+    ## long sightline, and a corridor's safe floor is ~68px) so a gap this scene
+    ## leaves is one a player can clear alive, not one the validator then flags.
+    const PinchSafePx = 76
+    let apron = MapRect(x: box.x, y: box.y - PinchSafePx,
+                        w: box.w, h: box.h + 2 * PinchSafePx)
+    if not ctx.board.rectClear(apron):
+      ctx.note "plaza's longest ray has no room to be broken without a pinch"
+      return
+    ctx.place disc(cx, cy, rad),
+      "cover breaking the plaza's longest open sightline"
+    ## A second, smaller piece offset in y turns a single blocker into a
+    ## stagger — two angles, not one wall — but only if it too lands on floor.
+    let
+      rad2 = max(16, rad - 8 - ctx.rng.rand(6))
+      cy2 = clamp(cy + (if ctx.rng.rand(1) == 0: -1 else: 1) *
+                    (rad + rad2 + 12), fp.y + rad2, fp.y + fp.h - rad2)
+      box2 = MapRect(x: cx - rad2, y: cy2 - rad2, w: 2 * rad2, h: 2 * rad2)
+    if ctx.board.canAfford(3 * rad2 * rad2) and
+        ctx.board.rectUnprotected(box2) and ctx.board.rectClear(box2):
+      ctx.place disc(cx, cy2, rad2), "plaza crossfire stagger"
+    ## PROMISE the ray we came to break is broken and stays broken.
+    let (ry, rx0, rlen) = (cy, fp.x, fp.w)
+    ctx.promise("plaza ray at y=" & $ry & " is broken", proc(b: Board): bool =
+      not b.rayClear(rx0, ry, 1, 0, rlen, 0))
+  )
+
+# ---------------------------------------------------------------------------
 # Composition
 # ---------------------------------------------------------------------------
 
@@ -779,7 +994,7 @@ proc vandalScene(): Scene =
 
 proc ctfTwoTeamScene*(gameMap: CtfMap,
                       coverTargetPermille, interiorHalfPx: int,
-                      breakGlass = false): Scene =
+                      breakGlass = false, intentional = false): Scene =
   ## The whole 2-team map as ONE tree. Read top to bottom, this IS the map's
   ## design intent in order — which is the thing the current 590-line
   ## imperative generator cannot show you at any length.
@@ -787,10 +1002,18 @@ proc ctfTwoTeamScene*(gameMap: CtfMap,
   ##   ctf2                       names the three regions of a half-field
   ##     districtPlan  (field)    partitions, and decides which districts
   ##       structure   (rayblock) must break a sightline / may hold cover
-  ##       plaza       (open)
+  ##       plaza/crossfire (open) open ground earns cover for a REASON
   ##     centralBastion (seam)    cover where the two teams actually meet
   ##     standApron     (apron)   cover on the approach to the pedestal
   ##     glazier        (field)   glass, last, only where sight exists
+  ##     forwardTrench  (field)   a survivable holdpoint on our approach
+  ##
+  ## `intentional` swaps the two features whose placement carried no checkable
+  ## reason for two that do: the random `plaza` cover becomes `crossfireCover`
+  ## (placed on, and promising to break, the plaza's longest open ray), and a
+  ## `forwardTrench` layer digs the trenches the prototype had been deleting —
+  ## each dug only where it overlooks the approach it exists to hold. Left off,
+  ## the tree is bit-identical to the prototype the report measures against.
   let
     anchor = gameMap.teamAnchor(Red)
     center = gameMap.center
@@ -806,9 +1029,10 @@ proc ctfTwoTeamScene*(gameMap: CtfMap,
                   anchor.x + gameMap.spawnClearW + 8)
     fieldX1 = center.x - ring - 26
     plan = districtPlanScene(coverTargetPermille, interiorHalfPx)
+    openScene = if intentional: crossfireCoverScene() else: plazaScene()
   plan.children = @[
     ChildAction(tags: @["district", "rayblock"], scene: structureScene()),
-    ChildAction(tags: @["district", "open"], scene: plazaScene()),
+    ChildAction(tags: @["district", "open"], scene: openScene),
   ]
   result = Scene(name: "ctf2",
     render: proc(ctx: var Ctx) =
@@ -825,6 +1049,12 @@ proc ctfTwoTeamScene*(gameMap: CtfMap,
         anchor, gameMap.captureClear - anchor.x + 24, 200)),
       ChildAction(tags: @["field"], scene: glazierScene(3)),
     ])
+  if intentional:
+    ## Runs LAST among field scenes, after the walls and glass are final, so a
+    ## trench is only dug where the overlook survives everything placed before
+    ## it — and its post-condition then guards it against anything after.
+    result.children.add ChildAction(tags: @["field"],
+      scene: forwardTrenchScene(fieldX1, GunRange div 3, 3))
   if breakGlass:
     result.children.add ChildAction(tags: @["field"], scene: vandalScene())
 
@@ -836,7 +1066,7 @@ type GraphResult* = object
 
 proc generateGraphMap*(seed: int, sizeName = "standard",
                        coverTargetPermille = 180,
-                       breakGlass = false): GraphResult =
+                       breakGlass = false, intentional = false): GraphResult =
   ## Borrow the SHELL (board size, clearances, endzone, pedestals) from the
   ## existing generator, then replace its terrain wholesale with the scene
   ## tree. Reusing the shell is deliberate for a prototype: it keeps the
@@ -871,11 +1101,21 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
     interiorHalfPx = (gameMap.width - 2 * gameMap.captureClear) *
       (gameMap.height - 2 * ArenaBorder) div 2
   runScene(ctfTwoTeamScene(gameMap, coverTargetPermille, interiorHalfPx,
-                           breakGlass),
+                           breakGlass, intentional),
            "root", seed, domain, rules, board)
 
   for p in board.placements:
     gameMap.leftObstacles.add p.shape
+
+  ## Install the trenches. Unlike `leftObstacles`, `gameMap.trenches` is stored
+  ## already-symmetrized (`buildArenaObstacles` never mirrors it), so every pit
+  ## dug in the left-half domain is added TOGETHER WITH its x-mirror image here.
+  ## That is the same discipline `finalizeTrenches` uses in the main generator,
+  ## and it keeps team fairness structural: a defender on Red's approach and one
+  ## on Blue's get the exact same pit.
+  for t in board.trenches:
+    gameMap.trenches.add t.shape
+    gameMap.trenches.add t.shape.mirrorX(gameMap.width)
 
   ## Pickups: put them back on floor the terrain actually left open.
   var kits: seq[MapPoint]

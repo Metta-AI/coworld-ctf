@@ -63,6 +63,32 @@ block architecture:
   check "interiorFrac clears the current pool's median by a wide margin",
     best > 0.20
 
+block intentionalFeatures:
+  ## The intentional layer must actually fire, and every reason it writes must
+  ## survive to the end — a promise never seen kept is as untrustworthy as one
+  ## never seen fire. Across the seed band: trenches get dug, crossfire cover
+  ## gets placed, no post-condition breaks, and it adds no NET invalid maps
+  ## over the baseline prototype (a shifted pinch is the structure scene's
+  ## pre-existing diversity gap, not this layer's).
+  var trenches, crossfire, broken, baseInvalid, intentInvalid = 0
+  for seed in 4001 .. 4020:
+    let base = generateGraphMap(seed, intentional = false)
+    if not base.rejected and validateGeneratedMap(base.gameMap).len != 0:
+      inc baseInvalid
+    let g = generateGraphMap(seed, intentional = true)
+    if g.rejected: continue
+    trenches += g.gameMap.trenches.len
+    for p in g.board.placements:
+      if p.serves.contains("longest open sightline"): inc crossfire
+    broken += checkPostconditions(g.board).len
+    if validateGeneratedMap(g.gameMap).len != 0: inc intentInvalid
+  check "the intentional layer digs trenches", trenches > 0
+  check "the intentional layer places crossfire cover", crossfire > 0
+  check "every intentional promise (trench overlook, plaza ray) is kept",
+    broken == 0
+  check "intentional adds no net invalid maps over the baseline prototype",
+    intentInvalid <= baseInvalid
+
 block negativeControl:
   ## THE control. With the vandal scene off, the glazier's promise holds; with
   ## it on, the driver must catch the broken promise by name.
