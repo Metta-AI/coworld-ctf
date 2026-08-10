@@ -45,10 +45,12 @@ enforces uniqueness, so the collision lands silently and only shows up as
 replays whose recorded version no longer identifies the rules that produced
 them.
 
-This has now happened twice on the same line. The mapgen branch authored a bump
-as "GV38", found main had independently spent 38-41, renumbered to GV42 — and
-then the heart-grab hotfix (#264) merged GV42 first, for an unrelated rule
-(grab radius), while the mapgen PR still carried GV42 for grenade/shout reach.
+It has happened. An (abandoned, never-merged) mapgen branch authored a bump as
+"GV38", found main had independently spent 38-41, and renumbered to GV42;
+separately the heart-grab hotfix (#264) later took GV42 on main for an unrelated
+rule (grab radius). Nothing broke, because only one of the two ever landed — but
+neither branch could see the other's claim, and both were current with `main` at
+the time. That is the trap: being up to date is not what protects you.
 
 So **before you claim a version, scan the open PRs, not just `main`**:
 
@@ -79,7 +81,10 @@ moment the other change lands.
 **Nothing enforces this yet — the check is manual.** A CI guard for it is
 written and validated but UNMERGED: cubi tokens lack GitHub's `workflows`
 permission, so a bot cannot modify `.github/workflows/`. A human needs to land
-it (see issue #268). The guard's logic is worth knowing even so, because it is
+it (https://github.com/Metta-AI/coworld-ctf/issues/268 — cite full URLs here,
+not a bare `#N`: softmax runs both GitHub and Forgejo with independently
+numbered issues, so a bare number resolves against whichever host the reader
+happens to be on). The guard's logic is worth knowing even so, because it is
 the same reasoning you should apply by hand: **the number alone cannot detect
 the collision** — the colliding branch and the base BOTH read "42". What
 distinguishes them is the RULE the number is attached to, so compare the
@@ -89,11 +94,10 @@ The changelog comment on `GameVersion` is the other half of this: it is a
 prepend-only history, so **say what the number means and what it obsoletes**.
 Keep the `GVnn (short rule name): HEADLINE` shape — that first line is what
 makes two claims on one number distinguishable at a glance, and it is what the
-pending guard diffs.
-That comment is what let this collision be diagnosed at all — the mapgen
-branch's own note records its first renumber ("authored as GV38 … renumbered at
-the T0 merge"), which is why the second one was recognisable as a pattern
-rather than a one-off.
+pending guard diffs. That comment is what let the near-miss above be spotted at
+all: the branch's own note recorded its earlier renumber ("authored as GV38 …
+renumbered at the T0 merge"), which is how the second claim on 42 became visible
+instead of blending in.
 
 ## Layout
 
