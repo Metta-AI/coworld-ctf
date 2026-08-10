@@ -40,9 +40,17 @@
 ##   nim c -d:release --out:/tmp/contract_gate tools/contract_gate.nim
 ##   /tmp/contract_gate 4001 4008          # sweep seeds, one block per seed
 ##   /tmp/contract_gate --map arena        # a single named map
+# map_metrics is imported for its SIDE EFFECT, not its API: at module init it
+# calls arena.setMapFitness(staticScore), which is what makes generateCtfMap
+# SHIP the same best-of-K map the server/renderer/tests do. A tool that imports
+# arena ALONE gets fitness=none (first-valid) and generates a DIFFERENT map for
+# the same seed — the split brain arena's own setMapFitness doc warns about
+# (this tool had exactly that bug: it read 8 windows on gen:4055 where the real
+# shipping map has 6). The assertion in main() fails closed if the hook ever
+# goes missing again.
 import
   std/[os, math, strformat, strutils],
-  ../src/ctf/[arena, map_lanes, sim_types]
+  ../src/ctf/[arena, map_lanes, map_metrics, sim_types]
 
 const
   WindowSightlineMinPx* = 15   ## tasks#60 "15u" — SEE the calibration note above.
@@ -218,10 +226,15 @@ proc emit(sc: SeedContracts) =
   echo "  CONTRACT-GATE: " & (if gate: "PASS" else: "FAIL")
 
 when isMainModule:
+  # Fail closed if the generator fitness hook is missing: without it,
+  # generateCtfMap ships first-valid maps, NOT the ranked map the server/
+  # renderer/tests use, and every generated-seed verdict below is off-map.
+  doAssert mapFitnessInstalled(),
+    "map fitness not installed — generated maps would not match the shipping map"
   let args = commandLineParams()
   stderr.writeLine &"# contract_gate: WindowSightlineMinPx={WindowSightlineMinPx} " &
     &"FaceProbePx={FaceProbePx} TacticalSpaceMinPx={TacticalSpaceMinPx} " &
-    "(see calibration note in source header)"
+    &"fitness={mapFitnessLabel()} (see calibration note in source header)"
   if args.len == 2 and args[0] == "--map":
     emit(evaluate(args[1]))
   elif args.len == 2:

@@ -184,6 +184,11 @@ proc selftest(): int =
   return 1
 
 when isMainModule:
+  # map_metrics installs the generator fitness hook at module init; without it
+  # generateCtfMap ships first-valid maps, not the ranked shipping map. Fail
+  # closed so the ledger can never silently score an off-map candidate.
+  doAssert mapFitnessInstalled(),
+    "map fitness not installed — generated maps would not match the shipping map"
   let args = commandLineParams()
   stderr.writeLine &"# balance_ledger: per-side accept gate, tol=±{int(LedgerTol*100)}%; " &
     &"INFO={InfoRays} rays x {InfoRayMaxPx}px. On the mirrored generator all imb~0 " &

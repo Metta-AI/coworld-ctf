@@ -172,6 +172,11 @@ proc evaluate(seed: int): Candidate =
   result.accepted = result.ledgerAccept and result.contractAccept
 
 when isMainModule:
+  # map_metrics installs the generator fitness hook at module init; without it
+  # generateCtfMap ships first-valid maps, not the ranked shipping map, and the
+  # whole curated wave would be off-map. Fail closed.
+  doAssert mapFitnessInstalled(),
+    "map fitness not installed — generated maps would not match the shipping map"
   let args = commandLineParams()
   if args.len < 2:
     quit("usage: p6_curate <loSeed> <hiSeed> [topN=12]")

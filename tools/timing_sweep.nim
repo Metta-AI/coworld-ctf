@@ -209,6 +209,11 @@ proc selfValidate(): int =
   return 1
 
 when isMainModule:
+  # map_metrics installs the generator fitness hook at module init; without it
+  # generateCtfMap ships first-valid maps, not the ranked shipping map. Fail
+  # closed so a sweep can never silently run off-map.
+  doAssert mapFitnessInstalled(),
+    "map fitness not installed — generated maps would not match the shipping map"
   let args = commandLineParams()
   if args.len == 1 and args[0] == "--validate":
     quit(selfValidate())
