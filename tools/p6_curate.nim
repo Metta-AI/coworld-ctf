@@ -24,7 +24,7 @@
 ##   /tmp/p6_curate 4001 4200 12      # sweep 4001..4200, shortlist top 12
 import
   std/[os, math, algorithm, strformat, strutils],
-  ../src/ctf/[arena, map_metrics, map_lanes, sim_types]
+  ../src/ctf/[arena, map_metrics, map_lanes, sim_types, map_rules]
 
 const
   LedgerTol = 0.10
@@ -32,6 +32,14 @@ const
   InfoRayMaxPx = 400
   WindowSightlineMinPx = 15
   FaceProbePx = 40
+  # Carrier-survivability floor (driver ruling 71296): worst-side return-route
+  # survival must be >= this. Rejects the 71213 proven-0%-conversion seeds
+  # (<=0.310) and admits gen:4120(0.394)+gen:4020(0.376); rides the 0.053 natural
+  # gap. NECESSARY-not-sufficient (episodes decide): 4020 clears it yet still
+  # converted 0%, so a survival pass is a pre-filter, not a promise. See
+  # tools/return_exposure.nim for the metric + its correlation selftest.
+  SurvivalFloor = 0.35
+  CoverReachPx = 20      ## return-route: wall within this px = "has cover"
 
 type
   Candidate = object
@@ -52,6 +60,10 @@ type
     itemImb: float
     itemOnFloor, itemReachBoth, itemTotal: int
     contractAccept: bool
+    # carrier-survivability (71296 floor)
+    survivalA, survivalB: float   ## per-side return-route survival
+    survivalWorst: float
+    survivalAccept: bool
     staticScore: float
     accepted: bool
 
@@ -103,6 +115,63 @@ proc reachablePx(walk: seq[bool], w, h: int, a, b: MapPoint): int =
   let t = nearestWalkable(walk, w, h, b.x, b.y)
   if t < 0: return -1
   int(field[t])
+
+proc returnSurvival(m: CtfMap, walk, wall: seq[bool], w, h: int,
+                    team: Team): float =
+  ## Worst-side-input carrier survival on this team's RETURN corridor (enemy
+  ## flag -> own home stand): cover-weighted composite matching
+  ## tools/return_exposure.nim (0.7 cover / 0.3 exposed-run; rotation 0-weight).
+  ## Kept in lockstep with that tool — if its weights change, change here too.
+  let enemy = if team == Red: Blue else: Red
+  let grabAt = m.flagHome(enemy)
+  let homeStand = m.flagHome(team)
+  let src = nearestWalkable(walk, w, h, homeStand.x, homeStand.y)
+  if src < 0: return 0.0
+  let field = geodesic(walk, w, h, [src])
+  # gradient-descend the field from the grab point to reconstruct the path
+  var cur = nearestWalkable(walk, w, h, grabAt.x, grabAt.y)
+  if cur < 0 or field[cur] < 0: return 0.0
+  var path: seq[int]
+  path.add cur
+  var guard = 0
+  while field[cur] > 0 and guard < w * h:
+    inc guard
+    let cx = cur mod w
+    let cy = cur div w
+    var best = cur
+    var bestD = field[cur]
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+      let nx = cx + dx
+      let ny = cy + dy
+      if nx < 0 or ny < 0 or nx >= w or ny >= h: continue
+      let ni = ny * w + nx
+      if not walk[ni] or field[ni] < 0: continue
+      if field[ni] < bestD: bestD = field[ni]; best = ni
+    if best == cur: break
+    cur = best
+    path.add cur
+  if path.len < 2: return 0.0
+  var covered = 0
+  var run = 0
+  var maxRun = 0
+  for i in path:
+    let px = i mod w
+    let py = i div w
+    var nearCover = CoverReachPx + 1
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+      for step in 1 .. CoverReachPx:
+        let x = px + dx * step
+        let y = py + dy * step
+        if x < 0 or y < 0 or x >= w or y >= h or wall[y * w + x]:
+          if step < nearCover: nearCover = step
+          break
+    if nearCover <= CoverReachPx: inc covered; run = 0
+    else:
+      inc run
+      if run > maxRun: maxRun = run
+  let coverFrac = covered.float / path.len.float
+  let exposedPenalty = min(1.0, maxRun.float / float(LethalEnvelopePx))
+  max(0.0, min(1.0, 0.7 * coverFrac + 0.3 * (1.0 - exposedPenalty)))
 
 proc evaluate(seed: int): Candidate =
   result.seed = seed
@@ -169,7 +238,13 @@ proc evaluate(seed: int): Candidate =
   result.contractAccept = result.valid and wf == 0 and
     result.itemOnFloor == result.itemTotal and
     result.itemReachBoth == result.itemTotal and maxImb <= LedgerTol
-  result.accepted = result.ledgerAccept and result.contractAccept
+  # carrier-survivability floor (71296): worst-side return survival >= 0.35
+  result.survivalA = returnSurvival(m, walk, wall, w, h, Red)
+  result.survivalB = returnSurvival(m, walk, wall, w, h, Blue)
+  result.survivalWorst = min(result.survivalA, result.survivalB)
+  result.survivalAccept = result.survivalWorst >= SurvivalFloor
+  result.accepted = result.ledgerAccept and result.contractAccept and
+    result.survivalAccept
 
 when isMainModule:
   # map_metrics installs the generator fitness hook at module init; without it
@@ -185,8 +260,8 @@ when isMainModule:
     hi = args[1].parseInt
     topN = if args.len >= 3: args[2].parseInt else: 12
   stderr.writeLine &"# p6_curate: sweeping gen:{lo}..{hi}, P6=symRot180 (disguised " &
-    &"rotation), gates=contract(window/item)+ledger(5-currency ±{int(LedgerTol*100)}%), " &
-    &"rank by staticScore. topN={topN}."
+    &"rotation), gates=contract(window/item)+ledger(5-currency ±{int(LedgerTol*100)}%)" &
+    &"+survival(worst-side return >= {SurvivalFloor}, 71296), rank by staticScore. topN={topN}."
   var accepted: seq[Candidate]
   var scanned, rot180, symmir, genFailed = 0
   var failedSeeds: seq[int]
@@ -223,11 +298,11 @@ when isMainModule:
       &"(no valid layout in K attempts): {failedSeeds}"
   echo &"# P6 SHORTLIST — top {min(topN, accepted.len)} of {accepted.len} accepted " &
     "(disguised-rotation, all gates PASS)"
-  echo "seed,endzone,biome,staticScore,ledgerWorstImb,timeRed,timeBlue,coverImb,infoImb,routesImb,posImb,windows,itemImb"
+  echo "seed,endzone,biome,staticScore,survivalWorst,ledgerWorstImb,timeRed,timeBlue,coverImb,infoImb,routesImb,posImb,windows,itemImb"
   for i in 0 ..< min(topN, accepted.len):
     let c = accepted[i]
-    echo &"{c.seed},{c.endzone},{c.biome},{c.staticScore:.4f},{c.ledgerWorst:.3f}," &
-      &"{c.timeA},{c.timeB}," &
+    echo &"{c.seed},{c.endzone},{c.biome},{c.staticScore:.4f},{c.survivalWorst:.3f}," &
+      &"{c.ledgerWorst:.3f},{c.timeA},{c.timeB}," &
       &"{imb(c.coverA,c.coverB):.3f},{imb(c.infoA,c.infoB):.3f}," &
       &"{imb(c.routesA.float,c.routesB.float):.3f},{imb(c.posA,c.posB):.3f}," &
       &"{c.windowPass}/{c.windowPass+c.windowFail},{c.itemImb:.3f}"
