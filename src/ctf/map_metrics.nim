@@ -834,6 +834,97 @@ proc vertexDisjointRoutes(
     (flow, sx div count, sy div count)
 
 # ---------------------------------------------------------------------------
+# Route-geometry export (INSTRUMENTATION, driver ruling 71450 §2) — a READ-ONLY
+# public accessor over the SAME vertex-disjoint-route machinery `evaluateMap`
+# uses for `routeCountMin`. Exposes the per-base-pair disjoint-route flows and
+# the bottleneck (min-cut) locations, which were previously locked inside
+# `evaluateMap`. Changes NOTHING about generation or selection. The positive
+# control is that `routeReport(m).countMin == evaluateMap(m).routeCountMin`
+# (arena=8, 4120=5) — an export whose count disagrees with the validated
+# counter is a broken instrument (this is the bug that made the first
+# hand-rolled enumerator report 1 route for the arena; asserted in the tool).
+# ---------------------------------------------------------------------------
+
+type
+  RoutePair* = object
+    ## One base-pair's route measurement (teams a,b in `gameMap.teams()` order).
+    a*, b*: int              ## team indices
+    flow*: int               ## vertex-disjoint route count between the approaches
+    cutX*, cutY*: int        ## centroid of the min cut (the bottleneck), in px
+  RouteReport* = object
+    countMin*, countMax*: int   ## min/max flow over base pairs (== routeCountMin/Max)
+    pairs*: seq[RoutePair]
+    bottleneckX*, bottleneckY*: int  ## the tightest cut's location, in px
+
+proc routeReport*(gameMap: CtfMap): RouteReport =
+  ## Vertex-disjoint return/approach routes between every team-base pair, over
+  ## the validator's own player-width corridor at the same RouteCellPx=26 coarse
+  ## resolution `evaluateMap` uses. `countMin` reproduces `evaluateMap`'s
+  ## `routeCountMin` exactly (same corridor, same near-neighbourhood endpoint
+  ## sets, same maxFlow). Read-only; no generation/selection side effects.
+  let
+    w = gameMap.width
+    h = gameMap.height
+    diag = mapDiagnostics(gameMap, {diagnosticWallMasks, diagnosticCorridorOpen})
+    maxWall = diag.maxWall
+    corridor = diag.corridorOpen
+  # Chamfer 3-4 distance to nearest wall — identical to evaluateMap's own.
+  var dist = newSeq[int32](w * h)
+  for i in 0 ..< w * h:
+    dist[i] = if maxWall[i]: 0'i32 else: int32.high div 2
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      let i = y * w + x
+      if dist[i] == 0: continue
+      var d = dist[i]
+      if x > 0: d = min(d, dist[i - 1] + 3)
+      if y > 0: d = min(d, dist[i - w] + 3)
+      if x > 0 and y > 0: d = min(d, dist[i - w - 1] + 4)
+      if x < w - 1 and y > 0: d = min(d, dist[i - w + 1] + 4)
+      dist[i] = d
+  for y in countdown(h - 1, 0):
+    for x in countdown(w - 1, 0):
+      let i = y * w + x
+      if dist[i] == 0: continue
+      var d = dist[i]
+      if x < w - 1: d = min(d, dist[i + 1] + 3)
+      if y < h - 1: d = min(d, dist[i + w] + 3)
+      if x < w - 1 and y < h - 1: d = min(d, dist[i + w + 1] + 4)
+      if x > 0 and y < h - 1: d = min(d, dist[i + w - 1] + 4)
+      dist[i] = d
+  let (g, adj) = buildCoarse(corridor, dist, w, h, RouteCellPx)
+  var baseCell: seq[int]
+  for team in gameMap.teams():
+    let home = gameMap.flagHome(team)
+    baseCell.add g.nearestOpenCell(home.x, home.y)
+  var dists: seq[seq[int]]
+  for cell in baseCell:
+    dists.add bfsCells(adj, cell)
+  var flows: seq[int]
+  var bestCut = -1
+  for a in 0 ..< baseCell.len:
+    for b in a + 1 ..< baseCell.len:
+      if baseCell[a] < 0 or baseCell[b] < 0: continue
+      let span = dists[a][baseCell[b]]
+      if span < 5: continue
+      let near = span div 5
+      var srcSet, dstSet: seq[int]
+      for i in 0 ..< g.open.len:
+        if not g.open[i]: continue
+        if dists[a][i] in 0 .. near: srcSet.add i
+        elif dists[b][i] in 0 .. near: dstSet.add i
+      let r = vertexDisjointRoutes(g, adj, srcSet, dstSet)
+      flows.add r.flow
+      result.pairs.add RoutePair(a: a, b: b, flow: r.flow, cutX: r.cutX, cutY: r.cutY)
+      if bestCut < 0 or r.flow < bestCut:
+        bestCut = r.flow
+        result.bottleneckX = r.cutX
+        result.bottleneckY = r.cutY
+  if flows.len > 0:
+    result.countMin = min(flows)
+    result.countMax = max(flows)
+
+# ---------------------------------------------------------------------------
 # Stand ring — ported from mw2_playtest.py's `stand_exposure()`
 # ---------------------------------------------------------------------------
 
