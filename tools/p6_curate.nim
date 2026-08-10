@@ -243,8 +243,14 @@ proc evaluate(seed: int): Candidate =
   result.survivalB = returnSurvival(m, walk, wall, w, h, Blue)
   result.survivalWorst = min(result.survivalA, result.survivalB)
   result.survivalAccept = result.survivalWorst >= SurvivalFloor
-  result.accepted = result.ledgerAccept and result.contractAccept and
-    result.survivalAccept
+  # ACCEPT = survival floor AND ledger balance ONLY (driver ruling 71327 #1a).
+  # The contract gate (window/trench/item) is DEMOTED to a reported diagnostic
+  # and NO LONGER gates curation: it was anti-correlated with episode conversion
+  # (c71322 — the only converter gen:4120 FAILS contracts; 5 of 6 non-converters
+  # PASS), so using it as an accept-gate discarded the one good map. `contractAccept`
+  # is still computed and reported alongside as a render-defect signal, just not
+  # ANDed into `accepted`.
+  result.accepted = result.survivalAccept and result.ledgerAccept
 
 when isMainModule:
   # map_metrics installs the generator fitness hook at module init; without it
@@ -260,8 +266,9 @@ when isMainModule:
     hi = args[1].parseInt
     topN = if args.len >= 3: args[2].parseInt else: 12
   stderr.writeLine &"# p6_curate: sweeping gen:{lo}..{hi}, P6=symRot180 (disguised " &
-    &"rotation), gates=contract(window/item)+ledger(5-currency ±{int(LedgerTol*100)}%)" &
-    &"+survival(worst-side return >= {SurvivalFloor}, 71296), rank by staticScore. topN={topN}."
+    &"rotation), ACCEPT=[survival(worst-side return>={SurvivalFloor}, 71296) AND " &
+    &"ledger(5-currency ±{int(LedgerTol*100)}%)]; contract(window/trench/item) reported " &
+    &"as diagnostic only (71327 #1a). rank by staticScore. topN={topN}."
   var accepted: seq[Candidate]
   var scanned, rot180, symmir, genFailed = 0
   var failedSeeds: seq[int]
@@ -292,19 +299,22 @@ when isMainModule:
     if c.accepted: accepted.add c
   accepted.sort(proc (x, y: Candidate): int = cmp(y.staticScore, x.staticScore))
   stderr.writeLine &"# scanned {scanned}: {rot180} symRot180 (P6), {symmir} symMirror " &
-    &"(not P6), {genFailed} generator-unproducible; {accepted.len} P6 seeds passed ALL gates."
+    &"(not P6), {genFailed} generator-unproducible; {accepted.len} P6 seeds passed the " &
+    "ACCEPT gate [survival>=0.35 AND ledger] (71327 #1a; contract is diagnostic, not gating)."
   if failedSeeds.len > 0:
     stderr.writeLine &"# FINDING: {failedSeeds.len} seeds unproducible by the generator " &
       &"(no valid layout in K attempts): {failedSeeds}"
   echo &"# P6 SHORTLIST — top {min(topN, accepted.len)} of {accepted.len} accepted " &
-    "(disguised-rotation, all gates PASS)"
-  echo "seed,endzone,biome,staticScore,survivalWorst,ledgerWorstImb,timeRed,timeBlue,coverImb,infoImb,routesImb,posImb,windows,itemImb"
+    "(disguised-rotation, accept=[survival>=0.35 AND ledger]; contractDiag reported, non-gating)"
+  echo "seed,endzone,biome,staticScore,survivalWorst,ledgerWorstImb,timeRed,timeBlue," &
+    "coverImb,infoImb,routesImb,posImb,contractDiag,windows,itemImb"
   for i in 0 ..< min(topN, accepted.len):
     let c = accepted[i]
     echo &"{c.seed},{c.endzone},{c.biome},{c.staticScore:.4f},{c.survivalWorst:.3f}," &
       &"{c.ledgerWorst:.3f},{c.timeA},{c.timeB}," &
       &"{imb(c.coverA,c.coverB):.3f},{imb(c.infoA,c.infoB):.3f}," &
       &"{imb(c.routesA.float,c.routesB.float):.3f},{imb(c.posA,c.posB):.3f}," &
+      &"""{(if c.contractAccept: "pass" else: "FAIL")},""" &
       &"{c.windowPass}/{c.windowPass+c.windowFail},{c.itemImb:.3f}"
   if accepted.len == 0:
-    stderr.writeLine "# FINDING: no P6 seed in this range passed all gates — widen the range or report the cell as unproducible."
+    stderr.writeLine "# FINDING: no P6 seed cleared [survival>=0.35 AND ledger] in this range."
