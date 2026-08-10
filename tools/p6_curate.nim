@@ -32,12 +32,11 @@ const
   InfoRayMaxPx = 400
   WindowSightlineMinPx = 15
   FaceProbePx = 40
-  # Carrier-survivability floor (driver ruling 71296): worst-side return-route
-  # survival must be >= this. Rejects the 71213 proven-0%-conversion seeds
-  # (<=0.310) and admits gen:4120(0.394)+gen:4020(0.376); rides the 0.053 natural
-  # gap. NECESSARY-not-sufficient (episodes decide): 4020 clears it yet still
-  # converted 0%, so a survival pass is a pre-filter, not a promise. See
-  # tools/return_exposure.nim for the metric + its correlation selftest.
+  # SurvivalFloor: retained ONLY to compute the reported `survivalAccept` flag
+  # for the diagnostic column. It NO LONGER gates (driver ruling 71567 §1 —
+  # REFUTED as necessary at n=5: pool:2 converts at survival 0.126). survivalWorst
+  # is reported, not gated. See tools/return_exposure.nim + the banked
+  # known-outcome table for the falsification that retired it.
   SurvivalFloor = 0.35
   CoverReachPx = 20      ## return-route: wall within this px = "has cover"
 
@@ -243,14 +242,18 @@ proc evaluate(seed: int): Candidate =
   result.survivalB = returnSurvival(m, walk, wall, w, h, Blue)
   result.survivalWorst = min(result.survivalA, result.survivalB)
   result.survivalAccept = result.survivalWorst >= SurvivalFloor
-  # ACCEPT = survival floor AND ledger balance ONLY (driver ruling 71327 #1a).
-  # The contract gate (window/trench/item) is DEMOTED to a reported diagnostic
-  # and NO LONGER gates curation: it was anti-correlated with episode conversion
-  # (c71322 — the only converter gen:4120 FAILS contracts; 5 of 6 non-converters
-  # PASS), so using it as an accept-gate discarded the one good map. `contractAccept`
-  # is still computed and reported alongside as a render-defect signal, just not
-  # ANDed into `accepted`.
-  result.accepted = result.survivalAccept and result.ledgerAccept
+  # ACCEPT = ledger balance ONLY (driver ruling 71567 §1). The survival floor is
+  # UN-WIRED from the accept condition: n=5 REFUTED it as necessary (pool:2
+  # converts at survival 0.126, pool:4 at 0.225, arena-large at 0.344 — all below
+  # 0.35; gen:5065 is a NON-converter at 0.383, above 3 converters). A
+  # necessary-not-sufficient filter must not gate, and necessity was disproven —
+  # so survivalWorst joins the contract gate as a REPORTED diagnostic, not a gate.
+  # Per the graduation rule (71567 §2): a static metric gates only after it
+  # separates converters from non-converters on the known-outcome table AND
+  # survives held-out validation. Nothing static has. The ledger ACCEPT stays as
+  # a cheap degenerate-single-currency-blowout pre-filter ONLY, explicitly not a
+  # playability predictor (71567 §3: episodes are the gate).
+  result.accepted = result.ledgerAccept
 
 when isMainModule:
   # map_metrics installs the generator fitness hook at module init; without it
@@ -266,9 +269,9 @@ when isMainModule:
     hi = args[1].parseInt
     topN = if args.len >= 3: args[2].parseInt else: 12
   stderr.writeLine &"# p6_curate: sweeping gen:{lo}..{hi}, P6=symRot180 (disguised " &
-    &"rotation), ACCEPT=[survival(worst-side return>={SurvivalFloor}, 71296) AND " &
-    &"ledger(5-currency ±{int(LedgerTol*100)}%)]; contract(window/trench/item) reported " &
-    &"as diagnostic only (71327 #1a). rank by staticScore. topN={topN}."
+    &"rotation), ACCEPT=[ledger(5-currency ±{int(LedgerTol*100)}%)] ONLY (71567 §1: " &
+    &"survival floor UN-WIRED, refuted at n=5). survival + contract(window/trench/item) " &
+    &"reported as diagnostics only. Episodes are the real gate. rank by staticScore. topN={topN}."
   var accepted: seq[Candidate]
   var scanned, rot180, symmir, genFailed = 0
   var failedSeeds: seq[int]
@@ -300,12 +303,12 @@ when isMainModule:
   accepted.sort(proc (x, y: Candidate): int = cmp(y.staticScore, x.staticScore))
   stderr.writeLine &"# scanned {scanned}: {rot180} symRot180 (P6), {symmir} symMirror " &
     &"(not P6), {genFailed} generator-unproducible; {accepted.len} P6 seeds passed the " &
-    "ACCEPT gate [survival>=0.35 AND ledger] (71327 #1a; contract is diagnostic, not gating)."
+    "ACCEPT gate [ledger] (71567 §1; survival + contract are diagnostics, not gating; episodes decide)."
   if failedSeeds.len > 0:
     stderr.writeLine &"# FINDING: {failedSeeds.len} seeds unproducible by the generator " &
       &"(no valid layout in K attempts): {failedSeeds}"
   echo &"# P6 SHORTLIST — top {min(topN, accepted.len)} of {accepted.len} accepted " &
-    "(disguised-rotation, accept=[survival>=0.35 AND ledger]; contractDiag reported, non-gating)"
+    "(disguised-rotation, accept=[ledger] ONLY per 71567 §1; survival + contractDiag reported, non-gating)"
   echo "seed,endzone,biome,staticScore,survivalWorst,ledgerWorstImb,timeRed,timeBlue," &
     "coverImb,infoImb,routesImb,posImb,contractDiag,windows,itemImb"
   for i in 0 ..< min(topN, accepted.len):
@@ -317,4 +320,4 @@ when isMainModule:
       &"""{(if c.contractAccept: "pass" else: "FAIL")},""" &
       &"{c.windowPass}/{c.windowPass+c.windowFail},{c.itemImb:.3f}"
   if accepted.len == 0:
-    stderr.writeLine "# FINDING: no P6 seed cleared [survival>=0.35 AND ledger] in this range."
+    stderr.writeLine "# FINDING: no P6 seed cleared the [ledger] accept gate in this range."
