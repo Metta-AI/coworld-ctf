@@ -16,9 +16,10 @@
 ##   A window with a solid wall flush behind it (no walkable space one side, or
 ##   no through-sightline) is glass painted onto stone — it falsifies (1)/(2).
 ##
-## TRENCH contract (same shape): a trench is a TrenchSize walkable pit that must
-##   be reachable floor and lie on or beside a route (it is cover you cross, not
-##   a decorative hole). Falsified by an unreachable or route-isolated trench.
+## TRENCH contract: a trench (CtfMap.trenches — walkable dug pits) must be
+##   (1) reachable — center on connected walkable floor; (2) routed — abuts the
+##   route network on >=2 opposite sides (cover you cross, not a dead-end hole).
+##   Falsified by an unreachable pit or a floor cul-de-sac.
 ##
 ## ITEM (med-kit) contract: the ACTIVE med-kit spawns must sit on walkable floor
 ##   and be reachable from BOTH teams' flags; per-side reach imbalance is
@@ -185,12 +186,34 @@ proc evaluate(name: string): SeedContracts =
     result.windows.add v
     if v.ok: inc result.windowPass else: inc result.windowFail
     inc idx
-  # --- TRENCH contract --- trenches are walkable pits (TrenchSize) inside the
-  # obstacle wall mask: floor cells the validator opened. Count reachable floor
-  # trench-squares by probing the walkable mask on a TrenchSize grid near cover.
-  # (A precise trench inventory needs the generator's trench list, not exposed
-  # on CtfMap; we report the walkable-pit proxy the mask supports.)
-  # For each medkit candidate region we at least confirm reachable floor:
+  # --- TRENCH contract --- (un-stubbed 71164 R3: the generator's trench list
+  # IS reachable, `CtfMap.trenches: seq[ArenaShape]`.) A trench is a walkable
+  # dug pit — cover you CROSS, not a decorative hole. Contract: (1) reachable —
+  # its center sits on connected walkable floor; (2) routed — it abuts the route
+  # network on at least two opposite sides (you enter and leave), not a floor
+  # cul-de-sac. Falsified by a trench walled off from play or a dead-end pocket.
+  # Reachability is judged from a team home's geodesic field: a trench the
+  # players can never stand in is a hole in the art, not a tactical feature.
+  let homeField = block:
+    let s = nearestWalkable(walk, w, h, m.flagHome(Red).x, m.flagHome(Red).y)
+    if s >= 0: geodesic(walk, w, h, [s]) else: newSeq[int32](0)
+  result.trenchTotal = m.trenches.len
+  for tr in m.trenches:
+    let (tx0, ty0, tx1, ty1) = shapeBounds(tr)
+    let tcx = (tx0 + tx1) div 2
+    let tcy = (ty0 + ty1) div 2
+    let ci = nearestWalkable(walk, w, h, tcx, tcy)
+    let reachable = ci >= 0 and (homeField.len == 0 or homeField[ci] >= 0)
+    if reachable: inc result.trenchReachable
+    # routed: walkable floor just outside the pit on >= 2 of its 4 sides, on
+    # opposite axes (you can pass through, not just poke in).
+    proc openSide(dx, dy: int): bool =
+      let x = tcx + dx * ((if dx != 0: (tx1 - tx0) else: (ty1 - ty0)) div 2 + 4)
+      let y = tcy + dy * ((if dy != 0: (ty1 - ty0) else: (tx1 - tx0)) div 2 + 4)
+      x >= 0 and y >= 0 and x < w and y < h and walk[y * w + x]
+    let horizThru = openSide(-1, 0) and openSide(1, 0)
+    let vertThru = openSide(0, -1) and openSide(0, 1)
+    if reachable and (horizThru or vertThru): inc result.trenchRouted
   # --- ITEM (med-kit) contract ---
   result.medkits = m.medKitSpawns.len
   let redHome = m.flagHome(Red)
@@ -217,10 +240,16 @@ proc emit(sc: SeedContracts) =
       (if v.horizontal: "H" else: "V") &
       &" sight=[{v.sightPxA},{v.sightPxB}]px space=[{v.spaceA},{v.spaceB}] " &
       &"purpose={v.purpose} -> " & (if v.ok: "PASS" else: "FAIL:" & v.reason)
+  let trenchOk = sc.trenchReachable == sc.trenchTotal and
+    sc.trenchRouted == sc.trenchTotal
+  echo &"  TRENCH: total={sc.trenchTotal} reachable={sc.trenchReachable} " &
+    &"routed={sc.trenchRouted} " &
+    (if sc.trenchTotal == 0: "TRENCH-GATE:PASS(none)"
+     elif trenchOk: "TRENCH-GATE:PASS" else: "TRENCH-GATE:FAIL")
   echo &"  ITEM: medkits={sc.medkits} onFloor={sc.medkitOnFloor} " &
     &"reachBoth={sc.medkitReachBoth} per-side-reach-imbalance={sc.itemImbFrac:.3f} " &
     (if sc.itemImbFrac >= 0 and sc.itemImbFrac <= 0.10: "ITEM-GATE:PASS" else: "ITEM-GATE:FAIL")
-  let gate = sc.valid and sc.windowFail == 0 and
+  let gate = sc.valid and sc.windowFail == 0 and trenchOk and
     sc.medkitOnFloor == sc.medkits and sc.medkitReachBoth == sc.medkits and
     sc.itemImbFrac <= 0.10
   echo "  CONTRACT-GATE: " & (if gate: "PASS" else: "FAIL")
