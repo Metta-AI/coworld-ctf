@@ -183,19 +183,39 @@ when isMainModule:
     &"rotation), gates=contract(window/item)+ledger(5-currency ±{int(LedgerTol*100)}%), " &
     &"rank by staticScore. topN={topN}."
   var accepted: seq[Candidate]
-  var scanned, rot180, symmir = 0
+  var scanned, rot180, symmir, genFailed = 0
+  var failedSeeds: seq[int]
   for seed in lo .. hi:
-    let m = loadCtfMapMetadata(&"gen:{seed}")
     inc scanned
+    # generateCtfMap raises CtfError on a seed with no valid layout in K
+    # attempts (an over-constrained draw). That is the generator's own verdict
+    # on that seed, not a tool error — count it and move on rather than let one
+    # bad seed abort the whole sweep (it did, at 4143, before this guard).
+    var m: CtfMap
+    try:
+      m = loadCtfMapMetadata(&"gen:{seed}")
+    except CtfError:
+      inc genFailed
+      failedSeeds.add seed
+      continue
     # P6 core = disguised rotation = symRot180. symMirror seeds are NOT P6.
     if m.symmetry == symRot180: inc rot180
     elif m.symmetry == symMirror: inc symmir
     if m.symmetry != symRot180: continue
-    let c = evaluate(seed)
+    var c: Candidate
+    try:
+      c = evaluate(seed)
+    except CtfError:
+      inc genFailed
+      failedSeeds.add seed
+      continue
     if c.accepted: accepted.add c
   accepted.sort(proc (x, y: Candidate): int = cmp(y.staticScore, x.staticScore))
   stderr.writeLine &"# scanned {scanned}: {rot180} symRot180 (P6), {symmir} symMirror " &
-    &"(not P6); {accepted.len} P6 seeds passed ALL gates."
+    &"(not P6), {genFailed} generator-unproducible; {accepted.len} P6 seeds passed ALL gates."
+  if failedSeeds.len > 0:
+    stderr.writeLine &"# FINDING: {failedSeeds.len} seeds unproducible by the generator " &
+      &"(no valid layout in K attempts): {failedSeeds}"
   echo &"# P6 SHORTLIST — top {min(topN, accepted.len)} of {accepted.len} accepted " &
     "(disguised-rotation, all gates PASS)"
   echo "seed,endzone,biome,staticScore,ledgerWorstImb,timeRed,timeBlue,coverImb,infoImb,routesImb,posImb,windows,itemImb"
