@@ -39,9 +39,23 @@ running unattended is not one.
 ## The definition
 
 **1. A user is active on a day if they took at least one deliberate action on that
-league.** Today the only action the platform exposes is shipping a policy version,
-so the number is a floor (see the ask below). One action is enough to count for
-the day; a hundred is still one day.
+coworld.** One action is enough to count for the day; a hundred is still one day.
+Two classes of action are visible today:
+
+| Class | What it is | Keyed to | Identified by |
+|---|---|---|---|
+| `commit` | shipped a policy version | a **League** | Player name |
+| `experience` | paid for a hosted evaluation out of a rationed budget | a **Coworld** | User email |
+
+**The second class is what makes this work for every coworld, not just leagues.**
+Experience requests attach to `coworld_id` directly. A coworld with no league —
+cogtan, agricogla, nightshift, proxywar — has zero policy memberships and would
+report DAU 0 forever on a league-only metric, while still having real users
+running real evaluations against it.
+
+Note the two classes name *different levels* of the entity hierarchy (User →
+Player → Policy → PolicyVersion). They must be joined, or one human counts as
+two people. That join is trivial platform-side and is a lookup table here.
 
 **2. Repeat actions are capped, so volume cannot buy activity.** At most 3 count
 per person per day. This is not hypothetical: one Paintbot player opened **229
@@ -94,20 +108,41 @@ piece of work. Until it exists, this tool refuses to guess: it reports *attended
 and *unattended* in separate columns and leaves the judgment visible rather than
 silently merging or silently dropping it.
 
-## The ask
+## The ask, in cost order
 
-**One append-only event log**, per action, with five fields:
+**1. Widen the scope of an endpoint that already exists (cheap).**
+`/v2/experience-requests` is caller-scoped: 655 rows returned exactly two
+requesters, both of them ours. Every other user's evaluations are invisible, so
+this class currently contributes almost nothing to a field-wide count — *not
+because the signal is weak, but because we can't see it*. A read scope for
+metrics turns an already-shipped, already-attributed, high-intent action into
+platform-wide coverage. No new instrumentation.
+
+**2. Then one append-only event log**, per action, with five fields:
 
 ```
 (user_id, coworld_id, timestamp, action, credential_type)
 ```
 
-covering page views, replay downloads, and authenticated API reads — not just
-uploads. `credential_type` is what separates a person from their running policy,
-which authenticates with the same token today.
+covering page views, replay downloads, and authenticated API reads.
+`credential_type` is what separates a person from their running policy, which
+authenticates with the same token today.
 
-**The formula does not change.** It just stops being a floor. Everything else in
-this proposal is already built and running against the live API.
+**The formula does not change under either.** It just stops being a floor.
+Everything else in this proposal is already built and running against the live
+API.
+
+### One honest note on what step 1 will and won't buy
+
+For the single user we can currently see in *both* classes, uploads and
+experience requests fire on **exactly the same 9 days** — zero days where someone
+evaluated without also shipping. People request an evaluation and ship the result
+in one sitting.
+
+So widening the scope may well move Paintbot's number very little. Its real value
+is elsewhere: covering the leagueless coworlds, and catching the user who
+diagnoses for a week before shipping anything — the exact profile we most want to
+find and cannot currently see at all.
 
 ## What's built
 

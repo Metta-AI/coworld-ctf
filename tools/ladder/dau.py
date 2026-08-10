@@ -35,12 +35,34 @@ arguably the most invested user on the platform. Volume is not the discriminatin
 variable; PROGRESS is. So this script never merges the two: it reports DAU
 (attended) and DAU (unattended) separately and leaves the judgment visible.
 
-WHAT THIS SCRIPT CAN AND CANNOT SEE. The public API exposes exactly one human
-event class: a league-policy-membership row, i.e. a policy version SUBMITTED to
-the league. Replay downloads, authenticated standings reads, and observatory
-page views are not in any endpoint we can reach, so the attended number is a
-LOWER BOUND (`w_commit` only). Wire the platform event log in and the other
-classes light up without changing the formula.
+THE TWO EVENT CLASSES WE CAN ACTUALLY SEE.
+
+  commit      a league-policy-membership row — a policy version SUBMITTED.
+              Keyed to a LEAGUE and attributed to a Player name.
+  experience  an /v2/experience-requests row — a hosted evaluation the user
+              PAID FOR out of a rationed budget, so it carries high intent.
+              Keyed to a COWORLD (`coworld_id`) and attributed to a User
+              (`requester` email + `requester_user_id`).
+
+The second class matters structurally even though, measured, it moves Paintbot's
+number by zero: it is the only class keyed to a COWORLD rather than a league, so
+it is what lets this metric cover a coworld that has no league at all (cogtan,
+agricogla, nightshift...). A league-only metric reports those as DAU 0 forever.
+
+TWO LIMITS ON THE EXPERIENCE CLASS, both measured rather than assumed:
+
+  - `/v2/experience-requests` is CALLER-SCOPED. 655 rows returned exactly 2
+    requesters, both ours. We cannot see other users' requests, so this class
+    contributes only our own row to a field-wide count until the endpoint's
+    scope is widened. That is a much cheaper ask than a new event log.
+  - For the one user visible in BOTH classes, they fire on the SAME 9 days —
+    zero experience-only days. Requesting an evaluation and shipping the result
+    happen in one sitting, so for an active shipper the class is near-redundant.
+    It pays off for the user who diagnoses without shipping, which we cannot
+    observe until the scope widens.
+
+Page views, replay downloads and authenticated standings reads remain invisible,
+so the attended number is still a LOWER BOUND.
 
 Usage:
   PY=~/projects/coworld-players/coworld-cogherence-player/.venv/bin/python
@@ -56,6 +78,17 @@ import ctfapi
 
 PAINTBOT = "league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7"
 PAINTBOT_DIV = "div_aa7825db-262f-4a62-b01a-177c1b48f7ee"
+PAINTBOT_COWORLD = "paintbot"
+
+# The classes use different identity levels of the Observatory hierarchy
+# (User -> Player -> Policy -> PolicyVersion): an experience request names a
+# USER by email, a policy membership names a PLAYER. They must be reconciled or
+# one human counts twice. Platform-side this is a join; here it is a table, and
+# an unmapped requester is REPORTED rather than silently double-counted.
+IDENTITY = {"maxwell@softmax.com": "softmaxwell"}
+
+# Internal service accounts, excluded like the declared test players.
+SERVICE_ACCOUNTS = ("machine-sentinel@softmax.internal",)
 
 DAY = dt.timedelta(days=1)
 
@@ -113,6 +146,41 @@ def load_events(league):
     return out, lg
 
 
+def load_experience(coworld):
+    """Experience requests for one COWORLD, as human events.
+
+    Returns (events, unmapped) — `unmapped` names any requester with no entry in
+    IDENTITY, which would otherwise be counted as a second person.
+    """
+    rows, off = [], 0
+    while True:
+        r = ctfapi.get(f"/v2/experience-requests?limit=200&offset={off}")
+        page = r.get("entries") or []
+        rows += page
+        if not page or len(rows) >= r.get("total_count", 0):
+            break
+        off += 200
+
+    out, unmapped, requesters = [], set(), set()
+    for x in rows:
+        if x.get("coworld_name") != coworld:
+            continue
+        who = x.get("requester")
+        requesters.add(who)
+        if who in SERVICE_ACCOUNTS:
+            continue
+        ts = parse_ts(x.get("created_at"))
+        if ts is None:
+            continue
+        if who not in IDENTITY:
+            unmapped.add(who)
+        out.append({"t": ts, "user": IDENTITY.get(who, who),
+                    "label": x.get("id"), "policy": None,
+                    "status": x.get("status"), "klass": "experience"})
+    out.sort(key=lambda e: e["t"])
+    return out, sorted(unmapped), sorted(requesters)
+
+
 def classify(events):
     """h(u): human / auto / test, with the evidence that decided it."""
     by = collections.defaultdict(list)
@@ -146,26 +214,34 @@ def classify(events):
     return out
 
 
-def dau_series(events, days, klass, want):
+def dau_series(events, days):
+    """A(u,d) over an already-gated event list. Both classes weigh 1 and share
+    one cap, so a day of heavy activity in either is still one active day."""
     per_day = collections.defaultdict(collections.Counter)
     for e in events:
-        if klass[e["user"]][0] == want:
-            per_day[e["t"].date()][e["user"]] += 1
+        per_day[e["t"].date()][e["user"]] += 1
     series = []
     for d in days:
         c = per_day.get(d, collections.Counter())
-        # theta = the cheapest genuine act. With commit the only observable
-        # class, w_commit = 1 and theta = 1: one real ship counts, once.
         qual = sorted(u for u, n in c.items() if min(n, CAP_COMMIT) >= 1)
         series.append({"date": d.isoformat(), "dau": len(qual),
-                       "ships": sum(c.values()), "who": qual})
+                       "actions": sum(c.values()), "who": qual})
     return series
 
 
-def build(league=PAINTBOT, div=PAINTBOT_DIV, ndays=14):
+def build(league=PAINTBOT, div=PAINTBOT_DIV, ndays=14, coworld=PAINTBOT_COWORLD):
     events, lg = load_events(league)
     klass = classify(events)
     human = [e for e in events if klass[e["user"]][0] == HUMAN]
+    auto = [e for e in events if klass[e["user"]][0] == AUTO]
+
+    xreq, unmapped, requesters = ([], [], [])
+    if coworld:
+        try:
+            xreq, unmapped, requesters = load_experience(coworld)
+        except Exception as e:  # noqa: BLE001 — the class is additive, not required
+            print(f"  [warn] experience requests unavailable: "
+                  f"{type(e).__name__}: {e}")
 
     # tau: the coworld's own loop period, humans only.
     by = collections.defaultdict(list)
@@ -180,11 +256,17 @@ def build(league=PAINTBOT, div=PAINTBOT_DIV, ndays=14):
     end = max(events[-1]["t"].date(), now.date()) if events else now.date()
     days = [end - dt.timedelta(days=i) for i in range(ndays - 1, -1, -1)]
 
-    att = dau_series(events, days, klass, HUMAN)
-    una = dau_series(events, days, klass, AUTO)
+    att = dau_series(human + xreq, days)
+    una = dau_series(auto, days)
+    # What the experience class ADDS: days it makes someone active who shipped
+    # nothing. Measured, because "we added a signal" is not the same as "the
+    # number moved."
+    commit_only = dau_series(human, days)
+    xreq_added = sum(len(set(a["who"]) - set(c["who"]))
+                     for a, c in zip(att, commit_only))
 
     last = {}
-    for e in human:
+    for e in human + xreq:
         last[e["user"]] = max(last.get(e["user"], e["t"]), e["t"])
     window = max(tau, DAY)
     mean_dau = sum(d["dau"] for d in att) / len(att) if att else 0
@@ -207,6 +289,10 @@ def build(league=PAINTBOT, div=PAINTBOT_DIV, ndays=14):
         "league": {"id": league, "name": lg.get("name"),
                    "paused": lg.get("rounds_paused_at"),
                    "anchors": len(lg.get("filler_policy_version_ids") or [])},
+        "experience": {"coworld": coworld, "events": len(xreq),
+                       "days_added": xreq_added, "unmapped": unmapped,
+                       "requesters_visible": requesters,
+                       "caller_scoped": len(requesters) <= 2},
         "generated_at": now.isoformat(),
         "span": {"first": events[0]["t"].isoformat() if events else None,
                  "last": events[-1]["t"].isoformat() if events else None,
@@ -235,10 +321,12 @@ def main():
     ap.add_argument("--league", default=PAINTBOT)
     ap.add_argument("--div", default=PAINTBOT_DIV)
     ap.add_argument("--days", type=int, default=14)
+    ap.add_argument("--coworld", default=PAINTBOT_COWORLD,
+                    help="coworld name for the experience-request class")
     ap.add_argument("--json", help="also write the report as JSON here")
     a = ap.parse_args()
 
-    r = build(a.league, a.div, a.days)
+    r = build(a.league, a.div, a.days, a.coworld)
     lg, sp, nv = r["league"], r["span"], r["naive"]
 
     print(f"=== COWORLD: {lg['name']} ({lg['id'][:22]}…) ===")
@@ -253,12 +341,30 @@ def main():
           + ("  (SUB-DAILY → DAU is natively comparable, no normalization)"
              if r["tau_subdaily"] else "") + " ===")
 
+    xp = r["experience"]
+    print(f"\n=== EVENT CLASSES ===")
+    print(f"  commit      {r['span']['events']:>4}  policy versions shipped "
+          f"to the league")
+    print(f"  experience  {xp['events']:>4}  hosted evaluations paid for on "
+          f"coworld '{xp['coworld']}'")
+    if xp["caller_scoped"]:
+        print(f"              ⚠ /v2/experience-requests is CALLER-SCOPED — only "
+              f"{len(xp['requesters_visible'])} requester(s) visible "
+              f"({', '.join(xp['requesters_visible'])}).")
+        print(f"                Other users' requests are invisible to this "
+              f"credential, so this class is under-counted field-wide.")
+    if xp["unmapped"]:
+        print(f"              ⚠ requester(s) with no Player mapping (would "
+              f"double-count): {', '.join(xp['unmapped'])}")
+    print(f"  → experience requests made someone active on "
+          f"{xp['days_added']} extra user-day(s) that shipping alone missed.")
+
     print(f"\n=== DAU(d) — cap {CAP_COMMIT}/day, theta 1 ===")
-    print(f"  {'date':12} {'DAU':>4} {'auto':>5} {'ships':>6}  who")
+    print(f"  {'date':12} {'DAU':>4} {'auto':>5} {'acts':>6}  who")
     for att, una in zip(r["attended"], r["unattended"]):
         who = ", ".join(att["who"][:5]) + ("…" if len(att["who"]) > 5 else "")
         print(f"  {att['date']:12} {att['dau']:>4} {una['dau']:>5} "
-              f"{att['ships']:>6}  {who}")
+              f"{att['actions']:>6}  {who}")
 
     print(f"\n=== THE NUMBER ===")
     print(f"  DAU today (attended)   {r['dau_today']:>4}")

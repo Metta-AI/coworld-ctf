@@ -196,6 +196,7 @@ footer{
 <div id="tip"></div>
 <script>
 const D = __DATA__;
+const XP = D.experience;
 const $ = s => document.querySelector(s);
 const WD = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const wd = iso => { const d = new Date(iso+"T12:00:00Z"); return (d.getUTCDay()+6)%7; };
@@ -330,10 +331,12 @@ if(wk.length>=4){
 const auto = D.auto_players.length
   ? D.auto_players.join(", ")
   : "none found";
-[["A user is active on a day if they took at least one deliberate action on that league.",
-  `Today the only action the platform exposes is shipping a policy version, so this `
-  + `count is a <em>floor</em>. One action is enough to count for the day; a hundred `
-  + `is still one day.`],
+[["A user is active on a day if they took at least one deliberate action on that coworld.",
+  `Two are visible: shipping a policy version (keyed to a <em>league</em>, named by `
+  + `Player) and paying for a hosted evaluation (keyed to a <em>coworld</em>, named by `
+  + `User &mdash; ${XP.events} of them here). The second is what lets this metric cover `
+  + `a coworld with no league at all. One action is enough to count for the day; a `
+  + `hundred is still one day.`],
  ["Repeat actions are capped, so volume cannot buy activity.",
   `At most <code>${3}</code> count per person per day. One player opened 229 memberships `
   + `in a single day; that is one active day, not 229.`],
@@ -354,13 +357,16 @@ const auto = D.auto_players.length
 });
 
 $("#caveat").innerHTML =
-  `Policy uploads are the only human action the platform exposes today. Someone who `
-  + `reads their replays every morning and ships once a week counts as inactive &mdash; `
-  + `so <strong>${D.dau_mean.toFixed(1)} is a lower bound, not the truth</strong>. `
-  + `Closing it needs one append-only event log with `
-  + `<code>(user_id, coworld_id, timestamp, action, credential_type)</code> covering page `
-  + `views, replay downloads and API reads. The formula does not change; it just gets `
-  + `more to count.`;
+  `Two kinds of human action are visible: shipping a policy, and paying for a hosted `
+  + `evaluation. The second is <strong>caller-scoped</strong> &mdash; only `
+  + `${XP.requesters_visible.length} requester is visible to this credential, so every `
+  + `other user's evaluations are missing. Page views and replay downloads are not `
+  + `exposed at all. Someone who reads replays every morning and ships once a week still `
+  + `counts as inactive, so <strong>${D.dau_mean.toFixed(1)} is a lower bound, not the `
+  + `truth</strong>. Closing it needs a metrics read scope on `
+  + `<code>/v2/experience-requests</code> first, then an event log with `
+  + `<code>(user_id, coworld_id, timestamp, action, credential_type)</code>. The formula `
+  + `does not change; it just gets more to count.`;
 
 $("#foot").innerHTML =
   `${D.span.events} upload events since ${D.span.first.slice(0,10)} &middot; `
