@@ -4,7 +4,13 @@ This directory builds the CTF simulation and baseline player as the
 `softmax:game@0.1.0` and `softmax:player@0.1.0` WebAssembly components. The
 game component drives the deterministic simulation one tick per `step`, emits
 fog-limited Sprite v1 frames, and streams the existing CTF replay format. The
-player component runs the same baseline policy as the container entrypoint,
+game emits each seat's frame through a separate host callback. This is part of
+the runtime contract: Wasmtime 46's dynamic component API accounts a Python
+`list<u8>` as one host allocation per `Val`, so batching a real 16-seat CTF
+frame exhausts its 128 MiB per-hostcall safety budget even though the wire
+payload is only about 2.8 MiB. Per-seat callbacks preserve that safety boundary
+without changing the Sprite protocol.
+The player component runs the same baseline policy as the container entrypoint,
 with the WebSocket receive loop inverted into `on-message`.
 
 The checked-in WIT files are copied from the platform contract. Generated C

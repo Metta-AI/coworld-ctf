@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { finish, init, step } from './game/ctf_game.js';
 import { onMessage, start } from './player/ctf_player_baseline.js';
-import { replayChunks, resultBody } from './test_host_output.mjs';
+import { messages, replayChunks, resultBody } from './test_host_output.mjs';
 
 const seed = 0xfedcba9876543210n;
 const ticks = 13;
@@ -25,8 +25,9 @@ for (let tick = 0; tick < ticks; tick += 1) {
     payload: Uint8Array.of(0x84, seatMasks[tick % seatMasks.length]),
   })));
   assert.equal(output.done, tick === ticks - 1);
-  assert.equal(output.messages.length, 2);
-  const replies = onMessage(output.messages[0].payload);
+  const stepMessages = messages.splice(0);
+  assert.equal(stepMessages.length, 2);
+  const replies = onMessage(stepMessages[0].payload);
   playerMasks.push(replies.length === 0 ? -1 : replies[0][1]);
   if (replies.length > 0) {
     assert.equal(replies.length, 1);

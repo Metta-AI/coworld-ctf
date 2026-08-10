@@ -5,6 +5,9 @@
 
 // Imported Functions from `softmax:game/output@0.1.0`
 
+__attribute__((__import_module__("softmax:game/output@0.1.0"), __import_name__("message")))
+extern void __wasm_import_softmax_game_output_message(int32_t, uint8_t *, size_t);
+
 __attribute__((__import_module__("softmax:game/output@0.1.0"), __import_name__("results")))
 extern void __wasm_import_softmax_game_output_results(uint8_t *, size_t);
 
@@ -37,24 +40,6 @@ __attribute__((__weak__, __export_name__("cabi_post_step")))
 void __wasm_export_exports_game_step_post_return(uint8_t * arg0) {
   switch ((int32_t) (int32_t) *((uint8_t*) (arg0 + 0))) {
     case 0: {
-      size_t len0 = *((size_t*) (arg0 + (2*sizeof(void*))));
-      if (len0 > 0) {
-        uint8_t *ptr1 = *((uint8_t **) (arg0 + sizeof(void*)));
-        for (size_t i2 = 0; i2 < len0; i2++) {
-          uint8_t *base = ptr1 + i2 * (3*sizeof(void*));
-          (void) base;
-          size_t len = *((size_t*) (base + (2*sizeof(void*))));
-          if (len > 0) {
-            uint8_t *ptr = *((uint8_t **) (base + sizeof(void*)));
-            for (size_t i = 0; i < len; i++) {
-              uint8_t *base = ptr + i * 1;
-              (void) base;
-            }
-            free(ptr);
-          }
-        }
-        free(ptr1);
-      }
       break;
     }
     case 1: {
@@ -93,7 +78,7 @@ void *cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
 }
 
 __attribute__((__aligned__(sizeof(void*))))
-static uint8_t RET_AREA[(4*sizeof(void*))];
+static uint8_t RET_AREA[(3*sizeof(void*))];
 
 // Helper Functions
 
@@ -111,27 +96,8 @@ void softmax_game_types_seat_message_free(softmax_game_types_seat_message_t *ptr
   game_list_u8_free(&ptr->payload);
 }
 
-void softmax_game_types_list_seat_message_free(softmax_game_types_list_seat_message_t *ptr) {
-  size_t list_len = ptr->len;
-  if (list_len > 0) {
-    softmax_game_types_seat_message_t *list_ptr = ptr->ptr;
-    for (size_t i = 0; i < list_len; i++) {
-      softmax_game_types_seat_message_free(&list_ptr[i]);
-    }
-    free(list_ptr);
-  }
-}
-
-void softmax_game_types_step_output_free(softmax_game_types_step_output_t *ptr) {
-  softmax_game_types_list_seat_message_free(&ptr->messages);
-}
-
 void game_seat_message_free(game_seat_message_t *ptr) {
   softmax_game_types_seat_message_free(ptr);
-}
-
-void game_step_output_free(game_step_output_t *ptr) {
-  softmax_game_types_step_output_free(ptr);
 }
 
 void game_result_void_string_free(game_result_void_string_t *ptr) {
@@ -154,7 +120,6 @@ void game_list_seat_message_free(game_list_seat_message_t *ptr) {
 
 void game_result_step_output_string_free(game_result_step_output_string_t *ptr) {
   if (!ptr->is_err) {
-    game_step_output_free(&ptr->val.ok);
   } else {
     game_string_free(&ptr->val.err);
   }
@@ -186,6 +151,10 @@ void game_string_free(game_string_t *ret) {
 }
 
 // Component Adapters
+
+void softmax_game_output_message(uint32_t seat, game_list_u8_t *payload) {
+  __wasm_import_softmax_game_output_message((int32_t) (seat), (uint8_t *) (*payload).ptr, (*payload).len);
+}
 
 void softmax_game_output_results(game_list_u8_t *body) {
   __wasm_import_softmax_game_output_results((uint8_t *) (*body).ptr, (*body).len);
@@ -239,9 +208,7 @@ uint8_t * __wasm_export_exports_game_step(uint8_t * arg, size_t arg0) {
     *((uint8_t **)(ptr + sizeof(void*))) = (uint8_t *) (*payload2).ptr;
   } else {
     const game_step_output_t *payload = &(ret).val.ok;*((int8_t*)(ptr + 0)) = 0;
-    *((size_t*)(ptr + (2*sizeof(void*)))) = ((*payload).messages).len;
-    *((uint8_t **)(ptr + sizeof(void*))) = (uint8_t *) ((*payload).messages).ptr;
-    *((int8_t*)(ptr + (3*sizeof(void*)))) = (*payload).done;
+    *((int8_t*)(ptr + sizeof(void*))) = (*payload).done;
   }
   return ptr;
 }
