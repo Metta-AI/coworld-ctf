@@ -182,7 +182,17 @@ def load_experience(coworld):
 
 
 def classify(events):
-    """h(u): human / auto / test, with the evidence that decided it."""
+    """h(u): human / auto / test, with the evidence that decided it.
+
+    ⚠ PASS ONE ACTION CLASS ONLY — commits. Never the merged commit+experience
+    stream. A person requests an evaluation and ships the result minutes later,
+    so merging manufactures tight gaps that look exactly like a machine:
+    measured on our own account, uploads alone are a 498-minute median with 0%
+    of gaps under five minutes, while the merged stream is 34 minutes with 47%
+    under five. At FAST_FRAC=0.5 that is a near miss; at 0.4 it would classify
+    the team running the metric as a bot. Two different actions close together
+    is a human doing one thing — one action repeated is the machine.
+    """
     by = collections.defaultdict(list)
     for e in events:
         by[e["user"]].append(e)
