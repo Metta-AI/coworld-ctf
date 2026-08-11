@@ -67,27 +67,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexboard as hb  # noqa: E402
 
+# Restoring a zone means setting the cell's VARIANT as well as its geometry:
+# the variant is what fixes seats/teams, and the cell-map endpoint writes it
+# alongside the spec. 4ffa8 is the 32-seat giant; 4ffa is the 16-seat quad.
+MODE_VARIANT = {"1v1": "1v1", "2v2": "2v2", "ffa4": "4ffa"}
+
 MAPKIT = Path(os.environ.get("MAPKIT", "mapkit"))
 OUT = Path(os.environ.get("CAMPAIGN_MAPS_OUT", "campaign_maps"))
 SNAPSHOT = Path(os.environ.get("CAMPAIGN_BOARD_SNAPSHOT", str(OUT / "board.json")))
 
 
-def load_board(zones: str) -> hb.Board:
-    if SNAPSHOT.exists():
-        raw = json.loads(SNAPSHOT.read_text())
-        return hb.Board(
-            width=raw["width"],
-            height=raw["height"],
-            shape=raw.get("shape", "hex"),
-            cells=raw.get("cells", {}),
-        )
-    if zones == "board":
-        sys.exit(
-            f"no board snapshot at {SNAPSHOT} — run `gen_campaign_maps.py snapshot` "
-            "first (read-only), or pass --zones voronoi to work from the design "
-            "scheme alone (NOT safe for pinning onto the live league)"
-        )
-    return hb.Board()
+def load_board(args) -> hb.Board:
+    """The board we are restoring TO — 12x12 / 91 cells by default.
+
+    A snapshot only supplies per-cell metadata (size class, current variant),
+    and only when its geometry matches the target. The live league is still
+    the retired 16x16 board until the operator migrates it down, so a
+    mismatched snapshot is expected and is NOT an error.
+    """
+    target = hb.Board(width=args.width, height=args.height, shape="hex")
+    if not SNAPSHOT.exists():
+        if args.zones == "board":
+            sys.exit(f"--zones board needs a snapshot at {SNAPSHOT} — run "
+                     "`gen_campaign_maps.py snapshot` first (read-only)")
+        return target
+    raw = json.loads(SNAPSHOT.read_text())
+    if (raw["width"], raw["height"]) != (target.width, target.height):
+        print(f"note: snapshot is {raw['width']}x{raw['height']}, target is "
+              f"{target.width}x{target.height} — using target geometry, "
+              "ignoring snapshot cells", file=sys.stderr)
+        if args.zones == "board":
+            sys.exit("--zones board needs a snapshot matching the target board")
+        return target
+    return hb.Board(width=target.width, height=target.height, shape="hex",
+                    cells=raw.get("cells", {}))
 
 
 def polygon_count(path: Path) -> int:
@@ -154,7 +167,7 @@ def generate_cell(
 
 
 def cmd_plan(args) -> None:
-    board = load_board(args.zones)
+    board = load_board(args)
     print(f"board: {board.width}x{board.height} {board.shape}, "
           f"{len(board.coords())} cells, radius {board.radius}, "
           f"centre {board.centre}")
@@ -224,7 +237,7 @@ def cmd_snapshot(args) -> None:
 
 
 def cmd_generate(args) -> None:
-    board = load_board(args.zones)
+    board = load_board(args)
     OUT.mkdir(parents=True, exist_ok=True)
     if args.cells == ["all"]:
         targets = board.anchors()
@@ -267,7 +280,7 @@ def _infos() -> list[dict]:
 
 
 def cmd_report(args) -> None:
-    board = load_board(args.zones)
+    board = load_board(args)
     infos = _infos()
     if not infos:
         sys.exit(f"nothing generated in {OUT} — run `generate all` first")
@@ -333,10 +346,78 @@ def cmd_report(args) -> None:
               f"max={max(same):.3f}  (density band spans 0.140)")
 
 
+def cmd_mapping(args) -> None:
+    """Which authored map each restored cell inherits — no io, no generation."""
+    board = load_board(args)
+    old = hb.square_board(args.old_width, args.old_height)
+    mapping, orphans, spare = hb.correspondence(board, old)
+    print(f"carrying {old.width}x{old.height} ({len(old.coords())} authored "
+          f"cells) onto {board.width}x{board.height} ({len(board.coords())} "
+          "hex cells)")
+    print(f"  {len(mapping)} restored cells inherit an authored map")
+    print(f"  {len(orphans)} have NO ancestor and must be generated: "
+          f"{orphans if orphans else 'none'}")
+    print(f"  {len(spare)} authored cells have nowhere to go: {spare}")
+    per = collections.Counter(hb.zone_mode(board, *hb.parse_cell(c))
+                              for c in mapping)
+    print("  placed per mode: " + ", ".join(
+        f"{m}={per[m]}" for m in hb.MODES if per[m]))
+    if args.verbose:
+        for cid in sorted(mapping, key=hb.parse_cell):
+            print(f"    {cid:>6s} <- {mapping[cid]:>5s}  "
+                  f"{hb.zone_mode(board, *hb.parse_cell(cid))}")
+
+
+def cmd_place(args) -> None:
+    """Place RECOVERED authored specs onto the restored board.
+
+    Exact recovery beats regeneration, so this runs first: whatever daveey
+    actually authored is carried across, and `generate` afterwards fills only
+    what is genuinely left over (its idempotent skip does the rest)."""
+    board = load_board(args)
+    old = hb.square_board(args.old_width, args.old_height)
+    mapping, orphans, _ = hb.correspondence(board, old)
+    src = Path(args.recovered)
+    if not src.is_dir():
+        sys.exit(f"no recovered-spec directory at {src}")
+    OUT.mkdir(parents=True, exist_ok=True)
+    placed, absent = 0, []
+    for cid in sorted(mapping, key=hb.parse_cell):
+        ox, oy = hb.parse_cell(mapping[cid])
+        found = next((c for c in (src / f"cell_{ox}_{oy}.json",
+                                  src / f"old_{ox}_{oy}.json",
+                                  src / f"{ox},{oy}.json") if c.exists()), None)
+        if found is None:
+            absent.append(cid)
+            continue
+        x, y = hb.parse_cell(cid)
+        spec_path = OUT / f"cell_{x}_{y}.json"
+        spec_path.write_text(found.read_text())
+        subprocess.run([str(MAPKIT), "validate", str(spec_path)],
+                       check=True, capture_output=True)
+        subprocess.run([str(MAPKIT), "render", str(spec_path),
+                        "-o", str(OUT / f"cell_{x}_{y}.png")],
+                       check=True, capture_output=True)
+        (OUT / f"cell_{x}_{y}.info.json").write_text(json.dumps({
+            "cell": cid, "mode": hb.zone_mode(board, x, y),
+            "size": "authored", "seed": None, "tries": 0,
+            "blobs": polygon_count(spec_path),
+            "params": {"fillProb": None},
+            "members": [cid], "provenance": "recovered",
+            "source_cell": mapping[cid], "source_file": str(found),
+        }, indent=2))
+        placed += 1
+        print(f"{cid}: placed authored map from {mapping[cid]}", flush=True)
+    todo = sorted(set(orphans) | set(absent), key=hb.parse_cell)
+    print(f"\nplaced {placed} authored maps; {len(todo)} cells still need "
+          f"generating: {todo if todo else 'none'}")
+    print("run `generate all` next — it skips everything already placed")
+
+
 def cmd_upload(args) -> None:
     import campaign_api
 
-    board = load_board(args.zones)
+    board = load_board(args)
     infos = _infos()
     if not infos:
         sys.exit(f"nothing generated in {OUT} — run `generate all` first")
@@ -347,7 +428,8 @@ def cmd_upload(args) -> None:
         png = (OUT / f"cell_{x}_{y}.png").read_bytes()
         for member in info["members"]:
             uploads.append((member, info["cell"], spec, png))
-    print(f"{len(infos)} arenas -> {len(uploads)} cell pins")
+    print(f"{len(infos)} arenas -> {len(uploads)} cell pins "
+          f"(each also sets map_ref, which is what restores the zone)")
     if not args.apply:
         print("DRY RUN — nothing was sent. Re-run with --apply to write to "
               f"league {campaign_api.LEAGUE}.")
@@ -356,16 +438,24 @@ def cmd_upload(args) -> None:
         print(f"  ... {len(uploads)} total")
         return
     for member, anchor, spec, png in uploads:
-        resp = campaign_api.upload_cell_map(member, spec, png)
-        print(f"{member}: pinned from arena {anchor}, "
+        mode = board.mode_for(anchor, args.zones)
+        resp = campaign_api.upload_cell_map(
+            member, spec, png, map_ref=MODE_VARIANT[mode])
+        print(f"{member}: pinned {mode} -> variant {MODE_VARIANT[mode]}, "
               f"preview={resp.get('preview_url')}", flush=True)
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--zones", choices=["board", "voronoi"], default="board",
-                   help="where each cell's MODE comes from (default: the live "
-                        "board snapshot; 'voronoi' is the design proposal only)")
+    p.add_argument("--zones", choices=["voronoi", "board"], default="voronoi",
+                   help="where each cell's MODE comes from. DEFAULT 'voronoi' "
+                        "is daveey's design and the restoration target; "
+                        "'board' reads the live snapshot, which currently "
+                        "carries the tic-tac-toe damage, not a design")
+    p.add_argument("--old-width", type=int, default=10)
+    p.add_argument("--old-height", type=int, default=10)
+    p.add_argument("--width", type=int, default=12)
+    p.add_argument("--height", type=int, default=12)
     p.add_argument("--size", default=None,
                    help="force one size class for every arena (default: each "
                         "cell's own map_size)")
@@ -378,6 +468,14 @@ def main() -> None:
                    help="seeds to probe per arena before giving up")
     g.set_defaults(fn=cmd_generate)
     sub.add_parser("report").set_defaults(fn=cmd_report)
+    m = sub.add_parser("mapping")
+    m.add_argument("--verbose", action="store_true")
+    m.set_defaults(fn=cmd_mapping)
+    pl = sub.add_parser("place")
+    pl.add_argument("--recovered", required=True,
+                    help="directory of recovered authored specs, named "
+                         "cell_X_Y.json by their OLD square cell")
+    pl.set_defaults(fn=cmd_place)
     u = sub.add_parser("upload")
     u.add_argument("--apply", action="store_true",
                    help="actually write to the live league")

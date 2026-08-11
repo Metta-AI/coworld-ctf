@@ -66,13 +66,22 @@ OUT = Path(os.environ.get("CAMPAIGN_PUDDLES_OUT", "campaign_puddles"))
 SNAPSHOT = Path(os.environ.get("CAMPAIGN_BOARD_SNAPSHOT", str(MAPS / "board.json")))
 
 
-def load_board() -> hb.Board:
+def load_board(args) -> hb.Board:
+    """The board being restored — 12x12 / 91 cells by default. A snapshot is
+    only consulted when its geometry matches (the live league is still the
+    retired 16x16 board until the operator migrates it down)."""
+    target = hb.Board(width=args.width, height=args.height, shape="hex")
     if not SNAPSHOT.exists():
-        sys.exit(f"no board snapshot at {SNAPSHOT} — run "
-                 "`gen_campaign_maps.py snapshot` first (read-only)")
+        if args.zones == "board":
+            sys.exit(f"--zones board needs a snapshot at {SNAPSHOT}")
+        return target
     raw = json.loads(SNAPSHOT.read_text())
-    return hb.Board(width=raw["width"], height=raw["height"],
-                    shape=raw.get("shape", "hex"), cells=raw.get("cells", {}))
+    if (raw["width"], raw["height"]) != (target.width, target.height):
+        if args.zones == "board":
+            sys.exit("--zones board needs a snapshot matching the target board")
+        return target
+    return hb.Board(width=target.width, height=target.height, shape="hex",
+                    cells=raw.get("cells", {}))
 
 
 def targets(board: hb.Board, args) -> list[tuple[str, int]]:
@@ -91,15 +100,17 @@ def targets(board: hb.Board, args) -> list[tuple[str, int]]:
 
 
 def cmd_plan(args) -> None:
-    board = load_board()
+    board = load_board(args)
     origins = hb.puddle_origins(board)
     print(f"origins: {origins}   PEAK={args.peak} STEP={args.step} "
           f"(per hex ring)   zones={args.zones}")
     for o in origins:
-        m = board.board_mode(hb.cell_id(*o))
-        print(f"  origin {o}: live mode {m}"
-              + ("" if m and m not in hb.FOUR_TEAM_MODES
-                 else "   <-- WARNING: 4-team, its peak will be dropped"))
+        cid = hb.cell_id(*o)
+        m = board.mode_for(cid, args.zones) if args.zones == "voronoi" \
+            else board.board_mode(cid)
+        warn = ("   <-- WARNING: 4-team, its peak will be dropped"
+                if m in hb.FOUR_TEAM_MODES else "")
+        print(f"  origin {o}: {args.zones} mode {m or 'unknown'}{warn}")
 
     def glyph(x, y):
         cid = hb.cell_id(x, y)
@@ -126,7 +137,7 @@ def cmd_plan(args) -> None:
 
 
 def cmd_patch(args) -> None:
-    board = load_board()
+    board = load_board(args)
     OUT.mkdir(parents=True, exist_ok=True)
     tg = targets(board, args)
     if args.from_prod:
@@ -176,7 +187,7 @@ def cmd_patch(args) -> None:
 def cmd_upload(args) -> None:
     import campaign_api
 
-    board = load_board()
+    board = load_board(args)
     tg = targets(board, args)
     uploads = []
     for cid, count in tg:
@@ -188,8 +199,7 @@ def cmd_upload(args) -> None:
         if not loaded.get("puddles"):
             sys.exit(f"{spec_path} has no puddles — run patch first")
         png = (OUT / f"cell_{x}_{y}.png").read_bytes()
-        for member in board.members_of(cid):
-            uploads.append((member, cid, loaded, png))
+        uploads.append((cid, cid, loaded, png))
     print(f"{len(tg)} puddled arenas -> {len(uploads)} cell pins")
     if not args.apply:
         print("DRY RUN — nothing was sent. Re-run with --apply to write to "
@@ -204,7 +214,7 @@ def cmd_upload(args) -> None:
 def cmd_verify(args) -> None:
     import campaign_api
 
-    board = load_board()
+    board = load_board(args)
     want = {c: n for c, n in targets(board, args)}
     rows = campaign_api.sql(
         "SELECT key, jsonb_array_length(value->'map_spec'->'puddles') "
@@ -222,7 +232,11 @@ def cmd_verify(args) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--zones", choices=["board", "voronoi"], default="board")
+    p.add_argument("--zones", choices=["voronoi", "board"], default="voronoi",
+                   help="DEFAULT 'voronoi' is daveey's design and the "
+                        "restoration target")
+    p.add_argument("--width", type=int, default=12)
+    p.add_argument("--height", type=int, default=12)
     p.add_argument("--peak", type=int, default=hb.PUDDLE_PEAK)
     p.add_argument("--step", type=int, default=hb.PUDDLE_STEP,
                    help="puddles removed per hex ring (4 = the square's constant)")

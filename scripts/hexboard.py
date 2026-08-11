@@ -9,7 +9,15 @@ odd-r offset coordinates, cell ids "x,y", 6-way adjacency. `on_board` is a
 line-for-line port of the backend's membership test
 (app_backend/src/metta/app_backend/v2/campaign/engine.py::on_board) — cube
 distance from the middle — so this module's idea of "a cell" is exactly the
-server's. 16x16 carves 169 cells (radius 7), rows y=1..15.
+server's.
+
+TARGET BOARD: a 12x12 bounding grid, radius 5, **91 cells**, rows y=1..11.
+Hexagons come in 3R^2+3R+1 = 37 / 61 / 91 / 127 / 169, and 91 is the closest
+to the original square board's 100 -- the operator's standing requirement.
+169 was only ever justified when multi-hex blob footprints meant cells were
+not arenas; blobs are OFF by operator ruling, so one cell is one arena is one
+map. 100 -> 91 is very nearly one-to-one, which is what lets daveey's authored
+maps be CARRIED ACROSS rather than reinvented (see `correspondence`).
 
 THE DESIGN FIELDS, carried over from daveey's 10x10 square scripts:
 
@@ -92,9 +100,13 @@ def hex_pixel(x: int, y: int) -> tuple[float, float]:
 class Board:
     """The bounding grid plus its shape. `cells` is the carved board."""
 
-    width: int = 16
-    height: int = 16
+    width: int = 12
+    height: int = 12
     shape: str = "hex"
+    # Multi-hex footprints are OFF by operator ruling: one cell is one arena.
+    # The machinery stays (a snapshot may still carry blob_anchor from before
+    # the dissolve) but nothing consults it unless this is switched on.
+    blobs: bool = False
     # cid -> {"mode", "map_ref", "map_size", "blob_anchor", "agents"}; empty
     # when the board is a pure design proposal rather than a live snapshot.
     cells: dict[str, dict] = field(default_factory=dict)
@@ -145,10 +157,12 @@ class Board:
         SAME arena, so a map is generated once per anchor and pinned to every
         member. A board with no blobs is every-cell-its-own-anchor, exactly
         like the old square board."""
+        if not self.blobs:
+            return cid
         return (self.cells.get(cid) or {}).get("blob_anchor") or cid
 
     def anchors(self) -> list[str]:
-        if not self.cells:
+        if not self.blobs or not self.cells:
             return self.ids()
         return sorted(
             (cid for cid in self.cells if self.anchor_of(cid) == cid),
@@ -156,7 +170,7 @@ class Board:
         )
 
     def members_of(self, anchor: str) -> list[str]:
-        if not self.cells:
+        if not self.blobs or not self.cells:
             return [anchor]
         return sorted(
             (cid for cid in self.cells if self.anchor_of(cid) == anchor),
@@ -218,12 +232,10 @@ def zone_anchors(board: Board) -> dict[str, list[Cell]]:
              is a PAIR and its distance is the distance to the nearer of them.
     """
     if board.shape == "square":
+        # daveey's literal anchors: (0,0), (9,0), (4.5,9) on a 10x10.
         w, h = board.width - 1, board.height - 1
-        return {
-            "1v1": [(0, 0)],
-            "2v2": [(w, 0)],
-            "ffa4": [(w // 2, h), (w - w // 2, h)],
-        }
+        return {"1v1": [(0.0, 0.0)], "2v2": [(float(w), 0.0)],
+                "ffa4": [(w / 2.0, float(h))]}
     cx, cy = board.centre
     c = to_cube(cx, cy)
     r = board.radius
@@ -245,6 +257,11 @@ def zone_mode(board: Board, x: int, y: int) -> str:
     zones stay balanced across the board's mirror axis, then on mode name so
     the result is fully deterministic."""
     anchors = zone_anchors(board)
+    if board.shape == "square":
+        # The square design measured plain Euclidean distance; reproduce it
+        # exactly so `correspondence` reads daveey's real zones.
+        return min(anchors,
+                   key=lambda m: (min(math.dist((x, y), p) for p in anchors[m]), m))
 
     def key(mode: str) -> tuple:
         pts = anchors[mode]
@@ -338,16 +355,17 @@ def puddle_seed(x: int, y: int) -> int:
 # --- the puddle gradient ----------------------------------------------------
 
 PUDDLE_PEAK = 12
-# STEP is the re-derivation the hexagon forces. The square walked CHEBYSHEV
-# rings across two SOLID 2-team zones and puddled 32 of its 52 two-team cells
-# (62%) with 176 splats. On the live hex board the 2-team ground is not a zone
-# at all — it is the tic-tac-toe LINES, threaded across the whole hexagon — so
-# a 2-ring reach from two origins touches almost none of it (7 arenas, 12%).
-# Halving the step keeps the design's shape (a peak at each origin, falling by
-# ring, counts always EVEN so splats read as scattered pairs) while restoring
-# its REACH: 23 arenas, 40%, 146 splats. `--puddle-step 4` reproduces the
-# square's literal constant.
-PUDDLE_STEP = 2
+# STEP stays at daveey's literal constant. An earlier pass halved it to 2, but
+# that was an artifact of the retired 169-cell blob board, whose tic-tac-toe
+# damage scattered the 2-team ground so thinly that a 2-ring reach touched 12%
+# of it. On the correct 91-cell board with the design's own Voronoi zones the
+# 2-team ground is two SOLID zones again, exactly as on the square, and the
+# original constant behaves: STEP=4 reaches 38% of two-team cells with 112
+# splats (the square: 62%, 176). STEP=2 would now SATURATE -- every one of the
+# 48 two-team cells puddled -- which erases the gradient it is meant to draw.
+# Counts stay even at STEP=4 (12/8/4), which the design requires: an odd count
+# anchors a splat dead centre instead of reading as scattered pairs.
+PUDDLE_STEP = 4
 
 
 def puddle_origins(board: Board) -> list[Cell]:
@@ -405,3 +423,76 @@ def render_board(board: Board, value, width: int = 2) -> str:
 
 def mode_glyph(mode: str) -> str:
     return _GLYPH.get(mode, "?")
+
+
+# --- carrying daveey's authored maps across ---------------------------------
+
+
+def square_board(width: int = 10, height: int = 10) -> Board:
+    """The retired board the authored maps were made for."""
+    return Board(width=width, height=height, shape="square")
+
+
+def _normalised(board: Board) -> dict[str, tuple[float, float]]:
+    """Every cell's position rescaled into the unit square, so two boards of
+    different size and lattice can be compared. Hex cells use their pixel
+    centres, so the hexagon's own geometry (not the offset grid's shear)
+    decides what "the same place on the board" means."""
+    pts = {}
+    for x, y in board.coords():
+        pts[cell_id(x, y)] = (
+            (float(x), float(y)) if board.shape == "square" else hex_pixel(x, y)
+        )
+    xs = [p[0] for p in pts.values()]
+    ys = [p[1] for p in pts.values()]
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    return {
+        cid: ((px - x0) / (x1 - x0 or 1.0), (py - y0) / (y1 - y0 or 1.0))
+        for cid, (px, py) in pts.items()
+    }
+
+
+def correspondence(
+    new: Board,
+    old: Board | None = None,
+    new_mode=None,
+    old_mode=None,
+) -> tuple[dict[str, str], list[str], list[str]]:
+    """Which OLD cell each NEW cell inherits its authored map from.
+
+    Returns (mapping new_cid -> old_cid, new cells with no ancestor, old cells
+    left over). 100 square cells against 91 hex cells is nearly one-to-one, so
+    the restoration is mostly a PLACEMENT job: recovered specs are carried
+    across and only genuinely new ground is generated.
+
+    Pairing happens WITHIN A MODE, not just within a team count. Mode fixes the
+    symmetry the map was authored with (1v1 mirror, 2v2 rot180, ffa4
+    quadmirror), so a 2v2 spec dropped on a 1v1 cell would be the right team
+    count with the wrong geometry. Within a mode, cells pair by normalised
+    board position, nearest pair first — deterministic, and it keeps the
+    design's reading (a map from the top-left of the square lands top-left on
+    the hexagon).
+    """
+    old = old or square_board()
+    new_mode = new_mode or (lambda cid: zone_mode(new, *parse_cell(cid)))
+    old_mode = old_mode or (lambda cid: zone_mode(old, *parse_cell(cid)))
+    npos, opos = _normalised(new), _normalised(old)
+    mapping: dict[str, str] = {}
+    used: set[str] = set()
+    for mode in MODES:
+        news = sorted(c for c in npos if new_mode(c) == mode)
+        olds = sorted(c for c in opos if old_mode(c) == mode)
+        pairs = sorted(
+            (math.dist(npos[n], opos[o]), n, o) for n in news for o in olds
+        )
+        taken: set[str] = set()
+        for _, n, o in pairs:
+            if n in mapping or o in used or o in taken:
+                continue
+            mapping[n] = o
+            taken.add(o)
+            used.add(o)
+    orphans = sorted((c for c in npos if c not in mapping), key=parse_cell)
+    spare = sorted((c for c in opos if c not in used), key=parse_cell)
+    return mapping, orphans, spare

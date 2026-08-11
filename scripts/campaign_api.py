@@ -119,7 +119,8 @@ def count_pinned(league: str = LEAGUE) -> tuple[int, int]:
 
 
 def upload_cell_map(
-    cell: str, spec: dict, png: bytes | None, league: str = LEAGUE
+    cell: str, spec: dict, png: bytes | None, league: str = LEAGUE,
+    map_ref: str | None = None,
 ) -> dict:
     """Pin one cell's map_spec (+ hover preview) on the LIVE league.
 
@@ -128,6 +129,10 @@ def upload_cell_map(
     and drops the cell's `map_size` because pinned geometry replaces it.
     """
     payload: dict = {"cell": cell, "map_spec": spec}
+    if map_ref is not None:
+        # The endpoint moves the cell onto this variant and reconciles its
+        # policy mode — this is how the zone assignment is restored.
+        payload["map_ref"] = map_ref
     if png is not None:
         payload["preview_png_base64"] = base64.b64encode(png).decode()
     return api_call(f"/v2/leagues/league_{league}/campaign/cell-map", payload)
