@@ -285,6 +285,10 @@ always drawn — but moving entities are fogged:
   plus a deterministic pseudo-random offset of up to **±20°**, re-rolled about
   twice a second: watching another bot never reveals its exact aim. Your OWN
   self marker shows your TRUE aim — your gun is your own state, not a leak.
+  Every soldier sprite (self included) draws its gun at the nearest of 16
+  pre-rendered steps, 22.5° apart — so the self marker is true aim rounded
+  to within ±11.25° (±8 brads), with no fuzz on top, while other soldiers
+  carry the ±20° fuzz before the same rounding.
   (The spectator broadcast board also shows true aim.)
 - There is **no global heart tracking**: once a thief carries your heart into the
   fog, finding it again takes eyes on it.
