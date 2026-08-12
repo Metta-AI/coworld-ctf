@@ -144,7 +144,10 @@ function advance(frames) {
     }
     postMessage({
       type: 'advanced',
-      mismatchTick: Module._ctf_mismatch_tick()
+      mismatchTick: Module._ctf_mismatch_tick(),
+      // Presentation stat for the page (the core draws over here, a thread
+      // away): total frames blitted, so the page can read draws-per-second.
+      draws: core ? core.getPaceStats().draws : 0
     });
   } catch (error) {
     reportFailure(error);

@@ -15,6 +15,13 @@
   const cancelFrame = typeof globalScope.cancelAnimationFrame === 'function'
     ? globalScope.cancelAnimationFrame.bind(globalScope)
     : clearTimeout;
+  // Motion interpolation needs a display-cadence callback. Every engine this
+  // viewer supports has real requestAnimationFrame in Windows AND dedicated
+  // workers (Chromium 69+, Firefox 97+, Safari 15.4+); anywhere it is
+  // genuinely missing the setTimeout shim above still draws, but motion
+  // falls back to snapping at packet cadence instead of pretending a timer
+  // is a vsync.
+  const hasNativeRaf = typeof globalScope.requestAnimationFrame === 'function';
 
   function createCanvasSurface() {
     if (typeof document !== 'undefined') return document.createElement('canvas');
@@ -255,6 +262,35 @@
     let pixelRatio = Number(config.devicePixelRatio) ||
       globalScope.devicePixelRatio || 1;
     let lastTransform = null;
+
+    // ---- Motion interpolation ----
+    // The sim advances 24 discrete states per second (ReplayFps / TargetFps
+    // in src/ctf/sim.nim) and a packet is one such state. Drawn as-is that
+    // is a 41ms motion staircase on a 60/120Hz display, so every object
+    // carries a DISPLAY position (dispX/dispY) that glides from wherever it
+    // was last drawn to the packet's position over one packet interval, and
+    // frameTick keeps rAF-drawing while any glide is in flight. The loop
+    // arms only on real motion and dies when every glide lands: a paused or
+    // end-held replay draws nothing.
+    //
+    // Only id-stable objects glide; a new object, a layer change, or a jump
+    // past SNAP_DISTANCE (respawn, teleport, scrub) snaps — gliding those
+    // would invent motion the sim never had. Glide positions round to whole
+    // board pixels (the compositor is integer blitting and the board draws
+    // nearest-neighbor, so sub-pixel positions do not exist in this
+    // pipeline); at display cadence that still turns a 3-6px tick jump into
+    // steps of a pixel or two.
+    const interpEnabled = hasNativeRaf;
+    // Wire positions are supersampled map px (boardRenderScale×, 2× on
+    // standard boards): 48 is two agent cells (SpriteSize = 12 map px).
+    // Legit per-tick motion tops out near 6 wire px (MaxSpeed 704/256 map
+    // px/tick at 2×); respawns and teleports jump hundreds.
+    const SNAP_DISTANCE = 48;
+    const movingObjects = new Set();
+    let packetInterval = 1000 / 24;   // learned from motion-packet spacing
+    let lastMotionAt = 0;
+    let pendingDecodes = 0;           // sprites awaiting a decode retry
+    let drawCount = 0;
 
     // ---- Playout buffer (jitter absorption) ----
     // The stream leaves the server at a clean source cadence (~24fps), but the
@@ -578,10 +614,18 @@
     // Static map-band cache. The full-board map bands (object ids 40 up, on
     // layer 0, z pinned at -32768 so they underlie everything) are emitted
     // once at init and never change, yet re-blitting them dominates composite
-    // cost at full board size. Bake them into a per-layer base buffer and
-    // start each composite from a copy of that base, re-blitting only the
-    // dynamic objects above them (the endzone fade overlay at z = -32767 DOES
+    // cost at full board size. Bake them ONCE into a per-layer base canvas
+    // (per-pixel, via layer.image — bit-exact with the old software path) and
+    // start each composite by drawImage-ing that base, drawing only the
+    // dynamic objects above it (the endzone fade overlay at z = -32767 DOES
     // change every frame and must stay dynamic).
+    //
+    // Dynamic objects composite via canvas drawImage of small per-sprite
+    // surfaces, NOT the per-pixel software blend the bake uses: a software
+    // composite costs tens of ms per frame at full board size, which capped
+    // presentation below the packet rate — the motion-interpolation draw
+    // loop needs composites at display cadence, and canvas source-over is
+    // the same blend putSpritePixel implements.
     //
     // The window matches the server's MapBandObjectBase pool: 40..40+bands.
     // 99 covers 60 bands — enough for every generated size class (a 4-team
@@ -611,42 +655,74 @@
     // pressure, so stop burning CPU on it.
     const SPRITE_DECODE_RETRY_LIMIT = 240;
 
+    function spriteAwaitsRetry(sprite) {
+      return Boolean(sprite && sprite.pendingCompressed) &&
+        sprite.decodeRetries < SPRITE_DECODE_RETRY_LIMIT;
+    }
+
     function retrySpriteDecode(sprite) {
-      if (!sprite.pendingCompressed ||
-          sprite.decodeRetries >= SPRITE_DECODE_RETRY_LIMIT) {
-        return;
-      }
+      if (!spriteAwaitsRetry(sprite)) return;
       sprite.decodeRetries++;
       try {
         sprite.pixels = decodeSpritePixelsSnappy(
           sprite.pendingCompressed, sprite.width, sprite.height);
         sprite.pendingCompressed = null;
+        pendingDecodes--;
         // The recovered sprite may be part of the baked static-band base.
         staticBandsDirty = true;
       } catch (e) {
-        // Still failing — try again on a later composite.
+        // Still failing — try again on a later composite, unless this was
+        // the budget's last attempt (then stop forcing composites for it).
+        if (!spriteAwaitsRetry(sprite)) pendingDecodes--;
       }
     }
 
     function blitObject(layer, obj) {
       const sprite = sprites.get(obj.spriteId);
       if (!sprite || !sprite.pixels) return;
-      const startX = Math.max(0, -obj.x);
-      const startY = Math.max(0, -obj.y);
-      const endX = Math.min(sprite.width, layer.width - obj.x);
-      const endY = Math.min(sprite.height, layer.height - obj.y);
+      // Objects draw at their DISPLAY position: equal to x/y at rest, mid-
+      // glide between packets while interpolating (see updateInterpolation).
+      const objX = obj.dispX;
+      const objY = obj.dispY;
+      const startX = Math.max(0, -objX);
+      const startY = Math.max(0, -objY);
+      const endX = Math.min(sprite.width, layer.width - objX);
+      const endY = Math.min(sprite.height, layer.height - objY);
       if (startX >= endX || startY >= endY) return;
       for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
           putSpritePixel(
             layer,
-            obj.x + x,
-            obj.y + y,
+            objX + x,
+            objY + y,
             sprite,
             (y * sprite.width + x) * 4
           );
         }
       }
+    }
+
+    // Small canvas per sprite, built lazily on first draw and dropped on
+    // redefinition (0x01 replaces the record). Map-band sprites never build
+    // one: the static prefix is baked through the per-pixel path instead.
+    function spriteSurface(sprite) {
+      if (!sprite.surface) {
+        const canvas = createCanvasSurface();
+        canvas.width = sprite.width;
+        canvas.height = sprite.height;
+        const surfaceCtx = canvas.getContext('2d');
+        const image = surfaceCtx.createImageData(sprite.width, sprite.height);
+        image.data.set(sprite.pixels);
+        surfaceCtx.putImageData(image, 0, 0);
+        sprite.surface = canvas;
+      }
+      return sprite.surface;
+    }
+
+    function drawObject(targetCtx, obj) {
+      const sprite = sprites.get(obj.spriteId);
+      if (!sprite || !sprite.pixels) return;
+      targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
     }
 
     function composite() {
@@ -655,7 +731,7 @@
       // waiting on retry is exactly the one the clean-base path never
       // re-blits, so it would otherwise never get another attempt.
       for (const sprite of sprites.values()) {
-        if (sprite.pendingCompressed) retrySpriteDecode(sprite);
+        if (spriteAwaitsRetry(sprite)) retrySpriteDecode(sprite);
       }
       const orderedLayers = [...layers.values()]
         .filter(layer => (layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType)
@@ -667,7 +743,10 @@
         if (!layer.image) continue;
         const ordered = [...objects.values()]
           .filter(obj => obj.layer === layer.id)
-          .sort((a, b) => a.z - b.z || a.y - b.y || a.id - b.id);
+          // Depth ties break on the DISPLAY y, so two agents crossing swap
+          // paint order where they visibly cross, not a fraction of a tick
+          // early. Static bands glide never, so the cached prefix is stable.
+          .sort((a, b) => a.z - b.z || a.dispY - b.dispY || a.id - b.id);
         if (ordered.length === 0) continue;
         // The cache is only sound if the static bands form the sorted prefix
         // and every dynamic object sorts strictly after them (i.e. nothing
@@ -680,24 +759,30 @@
         for (let i = staticCount; cacheable && i < ordered.length; i++) {
           if (ordered[i].z <= STATIC_BAND_Z) cacheable = false;
         }
+        layer.ctx.clearRect(0, 0, layer.width, layer.height);
         if (cacheable) {
-          if (staticBandsDirty || !layer.staticBase ||
-              layer.staticBase.length !== layer.image.data.length) {
+          if (staticBandsDirty || !layer.baseCanvas ||
+              layer.baseCanvas.width !== layer.width ||
+              layer.baseCanvas.height !== layer.height) {
             layer.image.data.fill(0);
             for (let i = 0; i < staticCount; i++) blitObject(layer, ordered[i]);
-            layer.staticBase = layer.image.data.slice();
-          } else {
-            layer.image.data.set(layer.staticBase);
+            if (!layer.baseCanvas) {
+              layer.baseCanvas = createCanvasSurface();
+              layer.baseCtx = layer.baseCanvas.getContext('2d');
+            }
+            layer.baseCanvas.width = layer.width;
+            layer.baseCanvas.height = layer.height;
+            layer.baseCtx.putImageData(layer.image, 0, 0);
           }
+          layer.ctx.drawImage(layer.baseCanvas, 0, 0);
           for (let i = staticCount; i < ordered.length; i++) {
-            blitObject(layer, ordered[i]);
+            drawObject(layer.ctx, ordered[i]);
           }
         } else {
-          layer.staticBase = null;
-          layer.image.data.fill(0);
-          for (const obj of ordered) blitObject(layer, obj);
+          layer.baseCanvas = null;
+          layer.baseCtx = null;
+          for (const obj of ordered) drawObject(layer.ctx, obj);
         }
-        layer.ctx.putImageData(layer.image, 0, 0);
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
       staticBandsDirty = false;
@@ -737,19 +822,67 @@
       }
 
       drawMinimap();
+      drawCount++;
+    }
+
+    // Advance every in-flight glide to `now`. Returns whether any glide is
+    // still in flight (i.e. the draw loop must keep running); sets `dirty`
+    // only when some object's integer display position actually changed, so
+    // a 120Hz loop over slow motion skips the composites that would repaint
+    // identical pixels.
+    function updateInterpolation(now) {
+      if (movingObjects.size === 0) return false;
+      let animating = false;
+      let moved = false;
+      for (const obj of movingObjects) {
+        // rAF timestamps mark the frame's start and can precede the
+        // performance.now() the packet was stamped with — clamp, never
+        // extrapolate backwards.
+        const t = Math.max(0, (now - obj.moveAt) / packetInterval);
+        let nextX, nextY;
+        if (t >= 1) {
+          nextX = obj.x;
+          nextY = obj.y;
+          obj.fromX = nextX;
+          obj.fromY = nextY;
+          obj.moveAt = 0;
+          movingObjects.delete(obj);
+        } else {
+          nextX = Math.round(obj.fromX + (obj.x - obj.fromX) * t);
+          nextY = Math.round(obj.fromY + (obj.y - obj.fromY) * t);
+          animating = true;
+        }
+        if (nextX !== obj.dispX || nextY !== obj.dispY) {
+          obj.dispX = nextX;
+          obj.dispY = nextY;
+          moved = true;
+        }
+      }
+      if (moved) dirty = true;
+      return animating;
+    }
+
+    function frameTick(now) {
+      rafHandle = null;
+      // While any glide is in flight the draw self-reschedules, turning the
+      // one-shot rAF into a display-cadence loop. It dies the moment the
+      // board is motionless (pause, end hold, idle scene), so a held frame
+      // costs zero draws.
+      const animating = updateInterpolation(now);
+      draw();
+      if (animating && !stopped) scheduleDraw();
     }
 
     function scheduleDraw() {
       if (rafHandle) return;
-      rafHandle = requestFrame(() => {
-        rafHandle = null;
-        draw();
-      });
+      rafHandle = requestFrame(frameTick);
     }
 
     function parse(bytes) {
+      const packetTime = performance.now();
       let offset = 0;
       let changed = false;
+      let motionSeen = false;
       while (offset < bytes.length) {
         const type = bytes[offset++];
         if (type === 0x01) {
@@ -789,22 +922,34 @@
           // TextMessage opt-in never routes through the recorded stream. Never
           // register it as a drawable sprite.
           if (id === CHROME_SPRITE_ID) {
+            // Chrome paints no board pixels, so it is NOT a change: a paused
+            // replay keeps sending chrome (the clock JSON rides every
+            // packet), and marking the board dirty for it would re-composite
+            // an identical frame per packet forever.
             if (label) onText(label);
           } else {
+            if (spriteAwaitsRetry(sprites.get(id))) pendingDecodes--;
             sprites.set(id, {
               width, height, pixels, label, pendingCompressed, decodeRetries: 0
             });
-            // Only a redefinition of a sprite some static band currently
-            // references can change the baked base; other sprite traffic
-            // (agents, fade stages, decals) must not thrash the cache.
+            if (pendingCompressed) pendingDecodes++;
+            // A sprite definition repaints the board only when a live object
+            // references it: a redefinition of a static-band sprite dirties
+            // the baked base, and one under any other visible object dirties
+            // the frame. Everything else — chiefly the rig-pose PREFETCH
+            // stream, which trickles future pose sprites a few per packet
+            // even while paused — defines pixels nothing displays yet, and
+            // must not force composites (the object add/retarget that later
+            // uses the sprite marks the change).
             for (const obj of objects.values()) {
-              if (isStaticBand(obj) && obj.spriteId === id) {
+              if (obj.spriteId !== id) continue;
+              changed = true;
+              if (isStaticBand(obj)) {
                 staticBandsDirty = true;
                 break;
               }
             }
           }
-          changed = true;
         } else if (type === 0x02) {
           const id = readU16(bytes, offset);
           const x = readI16(bytes, offset + 2);
@@ -812,32 +957,95 @@
           const z = readI16(bytes, offset + 6);
           const layer = bytes[offset + 8];
           const spriteId = readU16(bytes, offset + 9);
-          objects.set(id, { id, x, y, z, layer, spriteId });
-          if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-            staticBandsDirty = true;
-          }
           offset += 11;
-          changed = true;
+          const obj = objects.get(id);
+          if (!obj) {
+            objects.set(id, {
+              id, x, y, z, layer, spriteId,
+              dispX: x, dispY: y, fromX: x, fromY: y, moveAt: 0
+            });
+            if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
+              staticBandsDirty = true;
+            }
+            changed = true;
+          } else if (obj.x !== x || obj.y !== y || obj.z !== z ||
+              obj.layer !== layer || obj.spriteId !== spriteId) {
+            // The server re-describes the board every frame, so an object
+            // message is only a CHANGE when some field differs — an
+            // identical re-send (every object, every packet, on a paused
+            // replay) must not dirty the frame.
+            if (obj.x !== x || obj.y !== y) {
+              const glide = interpEnabled && obj.layer === layer &&
+                Math.abs(x - obj.x) <= SNAP_DISTANCE &&
+                Math.abs(y - obj.y) <= SNAP_DISTANCE &&
+                !(layer === 0 && z === STATIC_BAND_Z &&
+                  id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID);
+              if (glide) {
+                // Glide FROM the currently drawn position (mid-glide
+                // included), so an early or late packet bends the path
+                // instead of kinking it.
+                obj.fromX = obj.dispX;
+                obj.fromY = obj.dispY;
+                obj.moveAt = packetTime;
+                movingObjects.add(obj);
+                motionSeen = true;
+              } else {
+                obj.dispX = x;
+                obj.dispY = y;
+                obj.fromX = x;
+                obj.fromY = y;
+                obj.moveAt = 0;
+                movingObjects.delete(obj);
+              }
+              obj.x = x;
+              obj.y = y;
+            }
+            obj.z = z;
+            obj.layer = layer;
+            obj.spriteId = spriteId;
+            if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
+              staticBandsDirty = true;
+            }
+            changed = true;
+          }
         } else if (type === 0x03) {
           const id = readU16(bytes, offset);
-          objects.delete(id);
-          if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-            staticBandsDirty = true;
-          }
           offset += 2;
-          changed = true;
+          const gone = objects.get(id);
+          if (gone) {
+            movingObjects.delete(gone);
+            objects.delete(id);
+            if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
+              staticBandsDirty = true;
+            }
+            changed = true;
+          }
         } else if (type === 0x04) {
           objects.clear();
+          movingObjects.clear();
           staticBandsDirty = true;
           changed = true;
         } else if (type === 0x05) {
-          setViewport(layers, bytes[offset], readU16(bytes, offset + 1), readU16(bytes, offset + 3), () => {
-            updateNativeSize();
-            computeFit();
-          });
-          staticBandsDirty = true;
+          const layerId = bytes[offset];
+          const width = readU16(bytes, offset + 1);
+          const height = readU16(bytes, offset + 3);
           offset += 5;
-          changed = true;
+          // The server restates every layer's viewport on every packet. Only
+          // an actual resize may take the full path: setViewport reallocates
+          // the layer's image and dirties the static-band bake, which would
+          // otherwise re-bake the full board once per packet — the exact
+          // per-frame cost the bake exists to avoid — and keep a paused
+          // board drawing forever.
+          const existing = layers.get(layerId);
+          if (!existing || !existing.image || existing.width !== width ||
+              existing.height !== height) {
+            setViewport(layers, layerId, width, height, () => {
+              updateNativeSize();
+              computeFit();
+            });
+            staticBandsDirty = true;
+            changed = true;
+          }
         } else if (type === 0x06) {
           defineLayer(layers, bytes[offset], bytes[offset + 1], bytes[offset + 2]);
           offset += 3;
@@ -846,6 +1054,25 @@
           if (socket) socket.close();
           break;
         }
+      }
+      if (motionSeen) {
+        if (lastMotionAt) {
+          const gap = packetTime - lastMotionAt;
+          // Learn the real motion-packet cadence (~24Hz at every playback
+          // speed). Catch-up bursts and pause gaps sit outside the window
+          // and do not poison the estimate.
+          if (gap >= 16 && gap <= 250) {
+            packetInterval += 0.1 * (gap - packetInterval);
+          }
+        }
+        lastMotionAt = packetTime;
+      }
+      if (pendingDecodes > 0) {
+        // A sprite is waiting on a decode retry, and retries only run in
+        // composite(): keep compositing on packet arrival until it heals or
+        // exhausts its budget (the self-heal path for a transiently-dropped
+        // map band — bands are sent exactly once).
+        changed = true;
       }
       if (changed) {
         dirty = true;
@@ -1148,7 +1375,11 @@
         queued: paceBinaryCount,
         presented: pacePresented,
         interval: paceInterval,
-        primed: pacePrimed
+        primed: pacePrimed,
+        // Total frames blitted to the canvas. The delta per second is the
+        // presentation rate: ~display refresh while motion glides, ~0 on a
+        // paused or end-held board.
+        draws: drawCount
       };
     }
 

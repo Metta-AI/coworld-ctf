@@ -35,6 +35,7 @@
     var lastFrame = 0;
     var accumulator = 0;
     var frameMs = 1000 / 24;
+    var workerDraws = 0;
     // Same shape the in-process core reports, so the page's view controls read
     // one object either way. These are the pre-stream values: fitted, whole
     // board, nothing to pan — which is exactly the state the board opens in.
@@ -145,6 +146,7 @@
         } else if (message.type === 'advanced') {
           setMismatchTick(message.mismatchTick);
           advanceInFlight = false;
+          if (typeof message.draws === 'number') workerDraws = message.draws;
         } else if (message.type === 'error') {
           showFailure(new Error(message.message || 'Replay Worker failed'));
           stop();
@@ -241,7 +243,16 @@
       getTransform: function () { return transform; },
       setViewportFit: postViewport,
       getPaceStats: function () {
-        return { enabled: false, queued: 0, presented: 0, interval: frameMs };
+        // `draws` mirrors the Worker core's blit count (refreshed on every
+        // 'advanced' ack), so the page can observe the real presentation
+        // rate even though drawing happens a thread away.
+        return {
+          enabled: false,
+          queued: 0,
+          presented: 0,
+          interval: frameMs,
+          draws: workerDraws
+        };
       }
     };
   }
