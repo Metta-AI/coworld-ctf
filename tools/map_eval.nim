@@ -598,14 +598,33 @@ proc writeEpisodeConfig(
   result = getTempDir() / &"ctf-eval-cfg-{getCurrentProcessId()}-{seed}.json"
   writeFile(result, $config)
 
+proc countCapturesFromEvents(eventsPath: string): int =
+  ## Counts captures from a summary.jsonl event stream. This is the
+  ## authoritative capture instrument (c75273 §1): when a capture coincides
+  ## with a same-tick team-wipe/gameover, the episode may terminate via the
+  ## wipe/gameover branch without incrementing a termination-path counter, but
+  ## the event stream always records the capture. Returns capture count, or -1
+  ## if the events file doesn't exist or is unreadable.
+  if not fileExists(eventsPath): return -1
+  result = 0
+  for line in readFile(eventsPath).strip().splitLines():
+    if line.len == 0: continue
+    let event = parseJson(line)
+    if event{"kind"}.getStr() == "capture":
+      inc result
+
 proc runEpisode(
   mapPath: string, seed, maxTicks, seats, teams, port: int, replayPath: string
-): tuple[ticks: int, ok: bool] =
+): tuple[ticks: int, captures: int, ok: bool] =
   ## One headless episode, recorded. This is `benchmark_game.nim`'s
   ## orchestration plus the single piece it lacked: COGAME_SAVE_REPLAY_URI.
   ## Without a replay there is no frame stream, and without a frame stream
   ## there is no travel heatmap — the whole dynamic half hangs off this env
   ## var, which is why it is set here rather than left to the caller.
+  ##
+  ## Returns ticks=-1 and captures=-1 if the events file is missing; otherwise
+  ## returns the tick count from the summary event and the capture count from
+  ## the authoritative event stream (kind:capture).
   let
     configPath = writeEpisodeConfig(mapPath, seed, maxTicks, seats, teams)
     serverLog = replayPath.changeFileExt("server.log")
@@ -653,12 +672,15 @@ proc runEpisode(
       if bot.running: bot.kill()
       discard bot.outputStream.readAll()
     result.ticks = -1
+    result.captures = -1
     if fileExists(eventsPath):
       for line in readFile(eventsPath).strip().splitLines():
         if line.len == 0: continue
         let row = parseJson(line)
         if row{"type"}.getStr() == "summary":
           result.ticks = row["ticks"].getInt()
+      # Count captures from the authoritative event stream (c75273 §1).
+      result.captures = countCapturesFromEvents(eventsPath)
     # A written replay under ~10KB is a truncated episode, not evidence. This
     # must be LOUD: the whole dynamic half hangs off the replay existing, and
     # an episode that quietly produced nothing once walked past as "MISSING"
@@ -692,20 +714,26 @@ proc cmdPlay(a: Args) =
       "(one 1725-tick sample once read a map as 53% dead floor; across three " &
       "it was 22%). Fewer than 3 episodes records evidence but proves nothing."
   let slug = mapPath.multiReplace(("/", "_"), (":", "-"), (".", "_"))
-  var lines: seq[string]
+  var
+    lines: seq[string]
+    totalCaptures = 0
   for episode in 0 ..< episodes:
     let
       replayPath = outDir / &"{slug}-ep{episode}.bitreplay"
       seed = 1 + episode
       run = runEpisode(mapPath, seed, maxTicks, seats, teams,
         pickPort(basePort), replayPath)
+    if run.captures >= 0:
+      totalCaptures += run.captures
     # Rule 4: each episode's length and result print individually. A capture
     # ENDS the episode, so length IS an outcome and a mean hides it.
-    lines.add &"  ep{episode} seed={seed} ticks={run.ticks} " &
+    let capStr = if run.captures >= 0: &" cap={run.captures}" else: ""
+    lines.add &"  ep{episode} seed={seed} ticks={run.ticks}{capStr} " &
       "replay=" & (if run.ok: "ok" else: "MISSING") & " " & replayPath
     echo lines[^1]
   echo ""
   echo &"recorded {episodes} episode(s) of {mapPath} into {outDir}"
+  echo &"CAPTURES: {totalCaptures}/{episodes} (from authoritative event stream)"
   echo &"next: for r in {outDir}/*.bitreplay; do \\"
   echo &"        map_playtest \"$r\" --name {mapPath} --out \"${{r%.bitreplay}}.json\"; done"
   echo &"      python3 tools/map_playtest.py {outDir}/*.json"
