@@ -2319,6 +2319,10 @@ type
     mates: seq[Track]
     carrierPos, carrierVel: Vec   # last fix on the thief carrying OUR flag
     carrierSeen: int
+    corpseSeen: seq[int]      # v48 kill release: corpse sprite objectIds already
+                              # processed, so each death expires a track ONCE
+                              # (a lingering corpse must not re-expire a fresh
+                              # track when a live enemy later walks over it)
     lastEnemySeen: int        # last tick ANY enemy was inside our vision
     gameStart: int            # tick of the last lobby-to-playing transition
     firedLast: bool           # A was set on the previous sent mask
@@ -4745,6 +4749,7 @@ proc resetTransient(bot: Bot) =
   bot.heardPlayTick = 0
   bot.lastCommsTick = 0
   bot.carrierSeen = -100_000
+  bot.corpseSeen.setLen(0)     # corpse objectIds are per-episode
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
   bot.firedLast = false
@@ -5210,6 +5215,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.updateTracks(bot.mates, seenMates)
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
+
+  # ⭐ v48 KILL RELEASE (BLD-B3, audit-confirmed): the engine renders a
+  # "corpse <color>" sprite where a player died, and this policy never read
+  # it — a killed enemy's track stayed a live engage candidate for up to
+  # FreshShotTicks(24) more ticks, commit+aimLock protected the ghost from
+  # target switches, and 1-2 shots per kill fired into empty floor (the
+  # measured accuracy deficit: 60.4% vs the field's 66.3% while OUT-killing
+  # it). On a corpse sprite's FIRST appearance, expire the nearest fresh
+  # enemy track within one body of it; dedupe by objectId so a lingering
+  # corpse never expires a live enemy walking over it later. NORELEASE=1
+  # reverts.
+  if getEnv("NORELEASE").len == 0:
+    for (o, _) in client.spriteObjectsWithLabelPrefix("corpse "):
+      if o.objectId in bot.corpseSeen:
+        continue
+      bot.corpseSeen.add o.objectId
+      if bot.corpseSeen.len > 256:
+        bot.corpseSeen.delete(0)
+      let cp = client.mapPos(o)
+      var best = -1
+      var bestD = 24.0
+      for i in 0 ..< bot.enemies.len:
+        let d = dist(bot.enemies[i].pos, cp)
+        if d < bestD:
+          bestD = d
+          best = i
+      if best >= 0:
+        # Age the track past every freshness gate rather than deleting it —
+        # deletion would shift indices under any cached engage index.
+        bot.enemies[best].lastSeen = bot.tick - TrackTtl - 1
 
   # Damage awareness (SIGHT + SOUND): our own hp pip bar is always sent to us,
   # so a drop since last frame means we were just hit. If no enemy is in front
@@ -5697,6 +5732,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # earlier retreat, exactly the defHold framing.
   let bankHpThreshold = min(MaxHp - 1, int(round(1.0 / bot.tune.aggro)))
   var banking = false
+  var peeling = false   # v48: medEcon/medPeel committed a kit target this frame
+                        # — the act chain steers feet to it even while engaged
+                        # (gun stays on the threat), the tier woundedBank was
+                        # meant to own before it was env-gated out of production
   if bot.tune.woundedBank and bot.ownHp in 1 .. bankHpThreshold and not iCarry and
       dist(me, stealTarget) > GrabCommitRing:
     banking = true
@@ -5745,14 +5784,28 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # The fall-back point: regroup on the nearest fresh mate who is NOT deeper in
   # enemy territory than we are (two guns beat the 1-vs-N), else withdraw toward
   # our own side.
-  var regroupTo = vec(me.x + homeSign(bot.team) * RetreatStep, me.y)
+  # ⭐ v48 audit fix: "withdraw toward our own side" was homeSign — a 2-team
+  # parity guess. A green/yellow ffa4 seat (parity Red/Blue, real home a
+  # CORNER) "broke contact" by marching along an axis that is not its own,
+  # often INTO a rival's country — a correct fire-superiority call converted
+  # into a feed, in the mode where our defense measures 45%. Retreat along
+  # the vector to ownHome (observed pedestal/statedZone, already color-true);
+  # 2-team boards keep the exact old geometry (ownHome is west/east there).
+  var homeDir =
+    if GameTeams > 2:
+      let d = ownHome - me
+      if dist(ownHome, me) > 1.0: norm(d) else: vec(0.0, 0.0)
+    else:
+      vec(homeSign(bot.team), 0.0)
+  var regroupTo = me + homeDir * RetreatStep
   if retreating:
     var bestD = RegroupRadius
     for t in bot.mates:
       if bot.tick - t.lastSeen > LocalFreshTicks:
         continue
-      if homeSign(bot.team) * (t.pos.x - me.x) < -20.0:
-        continue                         # this mate is further into the jaws
+      # "further into the jaws" = deeper along the AWAY-from-home direction
+      if dot(t.pos - me, homeDir) < -20.0:
+        continue
       let d = dist(t.pos, me)
       if d < bestD:
         bestD = d
@@ -6222,11 +6275,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # last-known spot and the enemy capture edge — body-block is void, so this is to KILL
       # the carrier (combat teeth below raise their engage). The home defenders already hold
       # the pedestal (ownStolen branches); this adds the 6 hunters the phase always promised.
+      # ⭐ v48 (audit "PhDefend outranks PhEscort"): a MUTUAL-CARRY race used to
+      # strip every escort off our own live capture run the instant a rival
+      # stole from us — trading a capture in flight for a broken chase. A seat
+      # already escorting our carrier STAYS on the escort; the rest hunt.
+      # NOESCSTAY=1 reverts.
+      let escStay = mateCarry and attacker and
+          dist(me, mateCarryPos) <= EscortCollapseRange and
+          getEnv("NOESCSTAY").len == 0
+      if escStay:
+        target = vec(target.x, clamp(mateCarryPos.y, LaneTop, LaneBottom))
       when defined(phprobe):
         inc dtNotCarry
         if attacker: inc dtAttacker
         if attacker and bot.tune.defendTeeth: inc dtOn
-      if attacker:
+      if attacker and not escStay:
         if bot.tune.defendTeeth:
           # ⭐ v29 RECAPTURE TEETH — the fix v26 got WRONG. v26 aimed the collapse at
           # `mateCarryPos`, which is where OUR mate carries the ENEMY heart: the wrong
@@ -7796,6 +7859,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       pickedVisOffSpot = false
     if haveEconKit:
       target = chosenEcon
+      # ⭐ v48: GIVE THE PEEL FEET. This assignment was DISCARDED whenever we
+      # were engaged: the act chain only navSteers to `target` under fire for
+      # retreating/banking/carrierFlee, and woundedBank (the intended owner of
+      # the under-the-gun tier) is env-gated OFF in production — so medPeel
+      # widened a gate whose output the movement arbitration threw away, and
+      # the measured med gap (us 15-24 takes vs their 85-112) never moved.
+      # `peeling` joins the act-chain steer set: feet to the kit, gun stays on
+      # the threat. The medPeel vetoes upstream already guarantee no live gun
+      # inside FinishRange when this fires. NOPEEL=1 reverts.
+      if getEnv("NOPEEL").len == 0:
+        peeling = true
       when defined(meprobe): inc meFireCount
       when defined(msprobe):
         inc msFire
@@ -8069,7 +8143,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           client.pixelRayClear(me, engageBody) and
           not bot.friendlyBlocked(me, engageBody, bodyD):
         wantFire = true
-    if retreating or banking or (bot.tune.carrierFlee and iCarry):
+    if retreating or banking or peeling or (bot.tune.carrierFlee and iCarry):
       # Outnumbered (retreat) OR banking at 1 hp OR carrying the heart (flee):
       # keep the gun on the
       # lined-up target and take the free trade, but MOVE toward our objective
@@ -8292,14 +8366,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # defender who spotted the runner flee) but keeps the free-trade shot.
     if bot.tune.chaseThief and ownStolen and threat >= 0 and
         not iCarry and not disarmedRush:
-      let toward = norm(seenEnemies[threat].pos - me)
+      # ⭐ v48: chase the THIEF, not whoever is nearest (audit: "when it does
+      # arm it closes on whoever is nearest, not the carrier"). With a live
+      # carrier fix, pick the visible enemy nearest that fix — the escort is
+      # not the one scoring the elimination. Falls back to the generic threat
+      # when the fix is stale or nobody is near it.
+      var chase = threat
+      if bot.tick - bot.carrierSeen <= ThiefFixTtl:
+        var bestD = 3.0 * ThiefMatchDist
+        for i in 0 ..< seenEnemies.len:
+          let d = dist(seenEnemies[i].pos, bot.carrierPos)
+          if d < bestD:
+            bestD = d
+            chase = i
+      let toward = norm(seenEnemies[chase].pos - me)
       var side = vec(-toward.y, toward.x)
       if (bot.tick div 10 + bot.slot div 2) mod 2 == 0:
         side = side * -1.0
       if not bot.gridRayClear(me, me + side * 24.0):
         side = side * -1.0
       moveMask = octantBits(toward + side * 0.4)
-      desiredAim = bradsOf(seenEnemies[threat].pos - me)
+      desiredAim = bradsOf(seenEnemies[chase].pos - me)
     elif threat >= 0 and not iCarry and not disarmedRush:
       let away = norm(me - seenEnemies[threat].pos)
       var side = vec(-away.y, away.x)
