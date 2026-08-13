@@ -7868,7 +7868,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # `peeling` joins the act-chain steer set: feet to the kit, gun stays on
       # the threat. The medPeel vetoes upstream already guarantee no live gun
       # inside FinishRange when this fires. NOPEEL=1 reverts.
-      if getEnv("NOPEEL").len == 0:
+      # v55 FIELD CORRECTION (r1565-71 forensics vs the v53 hours beside it):
+      # at <=2hp the peel fired so often it drained the mid-game gun line —
+      # kits/ep 0.57 -> 1.03 (the mechanism WORKS) but K-D in the 1000-3000
+      # bucket collapsed +155 -> +41 and gun damage fell 24%: the FEET LAW,
+      # measured again. Peel feet ONLY at 1hp — one hit from deletion, where
+      # leaving the fight is right; a 2hp bot keeps its gun in the line (the
+      # out-of-contact medEcon walk is unaffected — it never had feet issues).
+      if getEnv("NOPEEL").len == 0 and bot.ownHp == 1:
         peeling = true
       when defined(meprobe): inc meFireCount
       when defined(msprobe):

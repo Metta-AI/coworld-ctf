@@ -150,6 +150,16 @@ proc main() =
     totRedGrab, totBlueGrab, totRedCap, totBlueCap: int
     totRedShot, totBlueShot, totRedHit, totBlueHit: int
     redWins, blueWins, draws: int
+    # ⭐ N-TEAM TALLY (v49 rig): winnerTeam is ord(sim.winner) — already 0..3 —
+    # and r.slots carries team/kills/deaths/captures per seat, so the 4-team
+    # truth always flowed through this probe and was being collapsed into two
+    # buckets ("Blue" = every non-Red team — why a 4-team mirror printed
+    # "Red 0 / Blue 10" and looked like a red-seat defect). Aggregate per real
+    # team. Engine redGrabs/blueGrabs misattribute on >2 teams (any non-Blue
+    # victim credits "blue"), so GRABS stays a 2-team metric.
+    teamWins, teamCaps, teamKills, teamDeaths: array[4, int]
+  let evalTeams = max(2, (if getEnv("EVAL_TEAMS").len > 0:
+                            parseInt(getEnv("EVAL_TEAMS")) else: 2))
   let numPlayers = 16
   for g in 0 ..< games:
     let epSeed = seed + g
@@ -175,6 +185,12 @@ proc main() =
     if r.isDraw or r.winnerTeam < 0: inc draws
     elif r.winnerTeam == 0: inc redWins
     else: inc blueWins
+    if r.winnerTeam in 0 .. 3: inc teamWins[r.winnerTeam]
+    for s in r.slots:
+      if s.team in 0 .. 3:
+        teamCaps[s.team] += s.captures
+        teamKills[s.team] += s.kills
+        teamDeaths[s.team] += s.deaths
     echo &"game {g}: winner={r.winnerTeam} ticks={r.ticks} " &
       &"grabs R{r.redGrabs}/B{r.blueGrabs} caps R{r.redCaptures}/B{r.blueCaptures}"
 
@@ -192,6 +208,15 @@ proc main() =
   echo &"HITS  total  Red {totRedHit}  Blue {totBlueHit}"
   echo &"ACCURACY     Red {redAcc:.1f}%  Blue {blueAcc:.1f}%  " &
     &"(hits/shots — the wall-vs-body aim metric)"
+  if evalTeams > 2:
+    echo &"--- PER-TEAM ({evalTeams} teams; Red/Blue lines above lump teams 1.." &
+      &"{evalTeams-1} into 'Blue') ---"
+    const tn = ["red", "blue", "green", "yellow"]
+    for t in 0 ..< evalTeams:
+      let kd = (if teamDeaths[t] > 0: teamKills[t].float / teamDeaths[t].float
+                else: teamKills[t].float)
+      echo &"  {tn[t]:<7} wins {teamWins[t]:>2}  caps {teamCaps[t]:>2}  " &
+        &"kills {teamKills[t]:>4}  deaths {teamDeaths[t]:>4}  K/D {kd:.2f}"
   when defined(rngprobe):
     const bandName = ["<150", "150-300", "300-600", "600-1000", ">=1000"]
     for side in 0 .. 1:
