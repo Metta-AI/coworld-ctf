@@ -9,7 +9,7 @@
   "aimTurnRate": 5,
   "visionConeDeg": 60,
   "visionBubble": 90,
-  "maxTicks": 7200,
+  "maxTicks": 5000,
   "mapPath": "arena",
   "tokens": [
     "0xBADA55_0",
@@ -145,9 +145,5 @@
       "color": "blue"
     }
   ],
-  "fireWindupTicks": 5,
-  "barrageMaxPerSec": 15,
-  "barrageStartPerSec": 4,
-  "barrageStartSec": 30,
-  "barrageSaturateSec": 30
+  "fireWindupTicks": 5
 }

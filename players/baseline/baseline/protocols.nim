@@ -1,6 +1,7 @@
 import
   std/[algorithm, options, strutils],
   bitworld/[profile, spriteprotocol, server],
+  ctf/labels,
   pixie, supersnappy, whisky
 
 const
@@ -34,6 +35,9 @@ type
     y*: int
     width*: int
     height*: int
+    spriteId*: int            # the sprite DEFINITION id this object points at —
+                              # rotation-pooled sprites (v9 soldiers) bake the aim
+                              # step into the id while sharing one side label
 
   ProtocolClient* = ref object
     sprite: SpriteState
@@ -226,36 +230,34 @@ proc spriteObjectsWithLabel*(
       x: objectState.x,
       y: objectState.y,
       width: sprite.width,
-      height: sprite.height
+      height: sprite.height,
+      spriteId: objectState.spriteId
     ))
 
 proc spriteObjectsWithLabelPrefix*(
   client: ProtocolClient,
   prefix: string
 ): seq[tuple[info: SpriteObjectInfo, label: string]] =
-  ## Present sprite objects whose sprite label STARTS with `prefix`, paired
-  ## with the full label so the caller can parse the interpolated tail —
-  ## for label families that carry per-object data (`hp <n>/<m>`) and so
-  ## cannot be exact-match scanned.
+  ## Present sprite objects whose label STARTS WITH prefix, with the label
+  ## returned for value parsing. Exists because exact-match hp scans went
+  ## silently blind when the engine widened the hp vocabulary (2026-08-08:
+  ## "hp <n>/<maxHp>[ shield <s>]" — per-seat denominators and a shield tail).
   if client.sprite.isNil:
     return
   for objectId, objectState in client.sprite.objects:
     if not objectState.present:
       continue
     let sprite = client.sprite.spriteInfo(objectState.spriteId)
-    if sprite.isNil or not sprite.defined or
-        not sprite.label.startsWith(prefix):
+    if sprite.isNil or not sprite.defined or not sprite.label.startsWith(prefix):
       continue
-    result.add((
-      info: SpriteObjectInfo(
-        objectId: objectId,
-        x: objectState.x,
-        y: objectState.y,
-        width: sprite.width,
-        height: sprite.height
-      ),
-      label: sprite.label
-    ))
+    result.add((SpriteObjectInfo(
+      objectId: objectId,
+      x: objectState.x,
+      y: objectState.y,
+      width: sprite.width,
+      height: sprite.height,
+      spriteId: objectState.spriteId
+    ), sprite.label))
 
 iterator spriteObjects*(
   client: ProtocolClient
@@ -368,8 +370,13 @@ proc applySpritePacket(
           # keep the metadata, skip pixel decoding, and keep waiting for a
           # full payload if this sprite's pixels are ever actually needed.
           pixelFree = sprite.compressedPixels.len == 0
+          # Via the shared const, NOT a hand-written string. This is the most
+          # load-bearing exact match in the whole policy — miss it and the bot
+          # has no walkability mask, i.e. no navigation at all — and it is the
+          # one that would fail most quietly, because an unrecognised label is
+          # simply a sprite we never decode.
           shouldDecodeWalkability =
-            sprite.label == "walkability map" and not pixelFree
+            sprite.label == LabelWalkabilityMap and not pixelFree
           shouldDecodePixels = decodePixels and not pixelFree
         var
           compressed = ""
@@ -498,12 +505,6 @@ proc renderSpriteFrame(client: ProtocolClient) =
   ## Renders the retained sprite scene into client-owned buffers.
   client.renderSpriteFrame(client.unpacked, client.packed)
 
-proc applyFrame*(client: ProtocolClient, message: string) {.measure.} =
-  ## Applies one game-to-player frame without a transport.
-  if not client.applySpritePacket(message, false):
-    raise newException(ValueError, "Malformed sprite protocol packet.")
-  client.frameAdvance = 1
-
 proc acceptPlayerMessage(
   ws: WebSocket,
   message: Message,
@@ -566,6 +567,26 @@ proc receiveLatestFrame*(
 ): bool =
   ## Receives wire data and updates the latest client-owned frame buffers.
   client.receiveLatestFrameInto(ws, gui, client.packed, client.unpacked)
+
+proc feedInProcessPacket*(
+  client: ProtocolClient,
+  packet: string
+): bool {.discardable.} =
+  ## Applies one in-process sprite packet (no websocket), mirroring the
+  ## single-frame bookkeeping receiveLatestFrame performs: the retained scene
+  ## is advanced via applySpritePacket and frameAdvance is set to 1 so the
+  ## eval driver sees exactly one fresh frame this tick. decodePixels is false
+  ## to match the headless (gui = false) path — the bot reads sprite objects
+  ## and labels, never the rendered framebuffer.
+  client.frameAdvance = 0
+  if not client.applySpritePacket(packet, false):
+    return false
+  client.frameAdvance = 1
+  client.framesDropped = 0
+  client.frameBufferLen = 0
+  client.skippedFrames = 0
+  client.spritePending = 0
+  true
 
 proc copyLatestFrame*(
   client: ProtocolClient,
