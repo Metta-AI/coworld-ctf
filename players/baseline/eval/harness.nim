@@ -761,6 +761,21 @@ proc main() =
       &"WIPE-ARM/LINE-ARM>0 => a HEARD wipe/line armed a mate's rally it never saw itself; " &
       &"NADE-CLUSTER>0 => a grenade carrier lobbed at a multikill cluster — the full bus is LIVE + " &
       &"COORDINATING combined-arms. Mirror = liveness+no-regression only; win-credit is a hosted xreq.)"
+    let stackPx = (if csStackMove > 0: csStackMovePx / csStackMove.float else: 0.0)
+    let wipePx = (if csWipeMove > 0: csWipeMovePx / csWipeMove.float else: 0.0)
+    let linePx = (if csLineMove > 0: csLineMovePx / csLineMove.float else: 0.0)
+    echo &"  PLAY-EXEC (v56): STACK-CONVERGE {csStackMove} frames / {csStackMovePx:.0f}px " &
+      &"(mean {stackPx:.0f}px)  STACK-GATE {csStackGate}  " &
+      &"WIPE-LANE {csWipeMove} / {csWipeMovePx:.0f}px (mean {wipePx:.0f}px)  " &
+      &"LINE-DIVERT {csLineMove} / {csLineMovePx:.0f}px (mean {linePx:.0f}px)"
+    echo &"  PLAY-HYGIENE (v56): LATCH-DROP {csLatchDrop} (different-token overwrites refused)  " &
+      &"ECHO-SKIP {csEchoSkip} (redundant emits suppressed)  E-CALLOUT {csECall} emitted / " &
+      &"{csESeed} tracks seeded from a heard one"
+    echo &"    (⭐ every count on these two lines is FEET MOVED or a SLOT FREED, not eligibility — " &
+      &"the v56 answer to 'nobody reacts to our shouts'. A frame count >0 with a ~0px mean is still " &
+      &"a no-op, so read the px. STACK-GATE counts ONLY frames where the wire held a dive our own " &
+      &"eyes would have walked into. LATCH-DROP>0 => the measured 41% mid-TTL token thrash is being " &
+      &"refused; ECHO-SKIP>0 => the 58% echo redundancy is what pays for E-CALLOUT.)"
   when defined(arcprobe):
     let meanCl = (if apFire > 0: apClusterSum.float / apFire.float else: 0.0)
     echo &"  ARC-PROBE funnel: breacher {apBreacher} -> lineLive {apLineLive} -> " &
