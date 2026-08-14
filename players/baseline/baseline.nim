@@ -3414,10 +3414,24 @@ proc shippedCombatTune(): CombatTune =
   # 3) DANGER-BEARING PRE-AIM — "shots on target = positioned + looking where
   #    the enemy WILL be". NOPREAIM=1 reverts.
   result.dangerPreAim = getEnv("NOPREAIM").len == 0
-  # ⭐⭐ v56 SHAPE — ONE RUNNER, SEVEN HOLD (2026-08-14, the Hermes study).
-  # Hermes' edge measured as SHAPE, not aim: one committed deep runner while the
-  # rest hold. NOSHAPE=1 reverts to the six-attacker push. See ShapeHoldLinePx.
-  result.oneRunner = getEnv("NOSHAPE").len == 0
+  # ⛔ v56 SHAPE — ONE RUNNER, SEVEN HOLD: BUILT, FIRED, AND REJECTED (2026-08-14).
+  # Shipped OFF. It reached the field of play (-d:shapefire: 30,993 armed frames,
+  # 25,142 of them the hold actually clamped a target — 91% of holder-alive frames,
+  # and 0 on the control side, so the SHAPETEAM isolation was real and not a mirror),
+  # and what it produced was the LOSING shape, not the winning one: the shaped side
+  # fell to 2.0 midline crossings per episode (control 16.5) and meanDeep 0.04
+  # (control 0.68), with 95.7% of its deaths in its own half (control 66%) — a
+  # near-exact reproduction of the replay we LOST. Seat-rotated on seed 100 the
+  # shaped side lost on BOTH seatings, including flipping a control-mirror result.
+  # Mechanism, measured not guessed: the designated runner is alive for only 6.2%
+  # of armed frames against an even share of 12.5%, i.e. it dies about twice as
+  # fast as an average seat. Seven bodies held at home do not buy the eighth a
+  # corridor; they concede the midline and the fight relocates into our half.
+  # Known additional defect if anyone re-opens this: both med kits sit exactly ON
+  # the centre line (MedKitAX = MapW div 2), so a hold line home-ward of centre
+  # starves every holder of both kits. Fix that BEFORE re-measuring.
+  # SHAPE=1 re-arms it for further study; NOSHAPE=1 is an explicit force-off.
+  result.oneRunner = getEnv("SHAPE").len > 0 and getEnv("NOSHAPE").len == 0
   let shapePxEnv = getEnv("SHAPEPX")
   if shapePxEnv.len > 0:
     result.shapeHoldPx = parseFloat(shapePxEnv)
@@ -8232,7 +8246,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # heart home (that run is home-ward anyway, and clamping an escort would strand the
   # carrier), and with our own heart stolen the whole squad is on defence in its own half
   # already. The RUNNER is exempt by definition — it is the one body we commit.
-  if bot.tune.oneRunner:
+  # ⛔ TWO-TEAM ONLY. On a 4-team board "our own half" is not a thing (corner and
+  # plus maps), homeSign only distinguishes Red from everything-else, and the role
+  # table hands MidTop to seat 2 on Blue / seat 3 on Red — so a Green or Yellow team
+  # would get ZERO runners and eight clamped holders. Guard it here rather than in
+  # shippedCombatTune so the tune stays a plain description of intent.
+  if bot.tune.oneRunner and GameTeams <= 2:
     when defined(shapefire):
       inc spArmed[ord(bot.team)]
       if bot.role == MidTop: inc spRunner[ord(bot.team)]
