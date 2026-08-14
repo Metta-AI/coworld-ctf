@@ -479,6 +479,17 @@ var
     ## `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers. On a
     ## generated board these markers ARE the scoring geometry — we no longer
     ## reconstruct it from our own copy of the zone formulas.
+  PuddleMarks: seq[tuple[x0, y0, x1, y1: float]]
+    ## v56 hazardSense: every stated paint-puddle bounding box, from the
+    ## `puddle <x0>,<y0> <x1>,<y1>` init markers (absent on 4-team maps and
+    ## on puddle-less boards). Audit-confirmed ZERO readers before v56 —
+    ## sentries posted and wounded bots parked inside stated attrition zones.
+  BarrageDepthPx = 0.0
+    ## v56 hazardSense: the stated grenade-barrage ring depth off the LIVE
+    ## `grenade barrage depth <n> rate <n> start <n> sat <n>` marker — every
+    ## map edge is saturated this many px deep RIGHT NOW (0 = mode off / not
+    ## latched; escalates to the full board). Refreshed every frame in
+    ## decide; audit-confirmed zero readers before v56.
 
 var
   HeartHome: array[4, bool]     ## per-colour: that team's heart is ON its
@@ -1120,6 +1131,22 @@ const
                               # orient toward the muzzle-ring bearing this long
   ShotSoundRange = 300.0      # only react to "shot sound" muzzle rings within
                               # this of us (a nearby unseen shooter, likely at us)
+  RearTurnGuessDist = 200.0   # rearTurn: how far out to plant the opposite-of-
+                              # own-aim guess fix when no ring and no track is
+                              # known (only the BEARING matters, not the range)
+  MateGoneTicks = 120         # believe "every mate is dead" only after this long
+                              # with a mate corpse newer than any live-mate
+                              # evidence (fog: silence alone proves nothing)
+  MateCorpseMatchDist = 48.0  # a corpse counts as a MATE death only within this
+                              # of a remembered mate track (rejects our own
+                              # lingering corpse scanned right after respawn)
+  DangerAimTtl = 300          # dangerPreAim: a mate-death / last-hit bearing
+                              # stays worth pre-laying for this long (~10s)
+  PuddleStandMargin = 12.0    # hazardSense: stand-target clearance pushed out
+                              # around a stated puddle box (the box is already
+                              # loose — disc-union splats, conservative corners)
+  BarrageEvadeMargin = 48.0   # hazardSense: evacuate to this far INSIDE the
+                              # stated shell ring, not just onto its lip
   # ── Shout-reaction gate (calloutGate, 2026-07-16): a heard callout is
   # INTEL, not an order. Listening (banking the enemy track) is always cheap;
   # REACTING (turning the cone / moving) must clear a distraction bar keyed to
@@ -1464,6 +1491,34 @@ type
                               # 2-char codes, but static — fine for the FIRST value test).
     damageAware: bool         # orient toward the shooter when hit from an unseen
                               # direction (own-HP drop + "shot sound" ring).
+    rearTurn: bool            # ⭐ REAR-GUARD TURN-ON-HIT (v56, Maxwell replay
+                              # note: last-man-back shot from behind and never
+                              # turned). Arms the damageSense intake itself
+                              # (damageAware shipped OFF, so the whole sense was
+                              # inert) and adds the missing tail: a hit with NO
+                              # visible enemy and NO audible ring still swings
+                              # the cone — onto the freshest remembered enemy,
+                              # else DIRECTLY BEHIND our own aim (the shooter is
+                              # provably somewhere we are not looking). Also:
+                              # sentries consume the staged orient bearing (only
+                              # the navigate arm ever read it), and with every
+                              # mate believed dead the watch bearing faces the
+                              # FIELD, not the static -homeSign parity vector.
+    hazardSense: bool         # ⭐ STATED-HAZARD READS (v56): consume the engine's
+                              # puddle-box + grenade-barrage markers (audit-
+                              # confirmed ZERO readers). Never STAND/post/park a
+                              # movement target inside a stated puddle box; when
+                              # the stated endgame shell ring covers us, sprint
+                              # for the shrinking safe interior ("we still don't
+                              # react to end-of-game perimeter bombs").
+    dangerPreAim: bool        # ⭐ DANGER-BEARING PRE-AIM (v56): with no fresh
+                              # track and nothing else claiming the turret, aim
+                              # where the enemy WILL be — freshest mate-death
+                              # fix, else the last damage bearing on us, else
+                              # the approach corridor toward enemy country.
+                              # Bearings decay (DangerAimTtl), never steer the
+                              # feet, and lose to every live-target claim — NOT
+                              # the refuted huntSweep.
     carrierFlee: bool         # a carrier keeps MOVING home while engaged (gun
                               # still fires) instead of advancing — FALSIFIED
                               # 2026-07-15 (net -3, conv worse): fleeing turns the
@@ -2395,6 +2450,19 @@ type
                               # target triggers a lateral shift to the next vantage.
     sentryShift: float        # current lateral offset (± along the watch face) the
                               # sentry adds to its post; flips sign each displacement.
+    mateDeathPos: Vec         # v56 rearTurn/dangerPreAim: freshest MATE-corpse
+    mateDeathTick: int        # first-appearance fix ((-1,-1)/-100_000 = none),
+                              # matched to a remembered mate track so our own
+                              # lingering corpse scanned right after respawn
+                              # can't masquerade as a mate death
+    lastMateAlive: int        # last tick with positive evidence of a LIVE mate
+                              # (a seen mate, or a mate shout bubble that is not
+                              # our own); a mateDeathTick newer than this for
+                              # MateGoneTicks = we believe we are the last man
+    lastHitPos: Vec           # v56 dangerPreAim: most plausible source of the
+    lastHitTick: int          # last unseen hit (muzzle ring / freshest track /
+                              # behind-our-aim guess) — outlives the short
+                              # orient window so the cruise aim can pre-lay it
     arcBreachUntil: int       # ARC BREACHER: once the designated seat commits to the
                               # arc run (a line was live and we broke off for the pickup),
                               # hold the commit until this tick so a FLICKERING line read
@@ -2670,6 +2738,10 @@ proc defaultCombatTune(): CombatTune =
     commsPlay: false,         # control: ignore heard scenario codewords (clock playbook only).
     commsCrypto: false,       # control: no codeword rotation.
     damageAware: false,       # control: no orient-to-shooter reaction.
+    rearTurn: false,          # control: an unseen hit with no ring is ignored; sentries never
+                              # consume the orient bearing and always watch -homeSign.
+    hazardSense: false,       # control: puddle/barrage markers stay unread.
+    dangerPreAim: false,      # control: idle cruise aim just leads the feet.
     carrierFlee: false,       # control: carrier advances toward a point-blank enemy.
     carrierClearBand: false,  # control: carrier lane may sit in the respawn cone.
     carrierSerpentine: false, # control: carrier runs a straight predictable line home.
@@ -3274,6 +3346,22 @@ proc shippedCombatTune(): CombatTune =
   # directional evidence only (n=7-8 peels). Default ON; NOMEDPEEL=1 turns it
   # off for the A/B.
   result.medPeel = getEnv("NOMEDPEEL").len == 0
+  # ⭐⭐ v56 AWARENESS PACKAGE (2026-08-14, Maxwell replay notes). Three
+  # independent levers, one env opt-out each:
+  # 1) REAR-GUARD TURN-ON-HIT — "our last-man-back got shot from behind and
+  #    never turned; all his mates were dead, danger was provably forward of
+  #    him". Note damageAware itself was shipped OFF, so the whole hp-drop
+  #    sense was inert; rearTurn arms it AND adds the no-ring fallback + the
+  #    sentry orient consumption + the last-man field watch. NOTURN=1 reverts.
+  result.rearTurn = getEnv("NOTURN").len == 0
+  # 2) STATED-HAZARD READS — "we still don't react to end-of-game perimeter
+  #    bombs, we die to them a lot". The engine states puddle boxes and the
+  #    barrage shell ring outright; both label families had ZERO readers.
+  #    NOHAZARD=1 reverts.
+  result.hazardSense = getEnv("NOHAZARD").len == 0
+  # 3) DANGER-BEARING PRE-AIM — "shots on target = positioned + looking where
+  #    the enemy WILL be". NOPREAIM=1 reverts.
+  result.dangerPreAim = getEnv("NOPREAIM").len == 0
 
 
 when defined(rngprobe):
@@ -4265,6 +4353,32 @@ proc adoptEndzones(client: ProtocolClient) =
     except ValueError:
       discard
 
+proc adoptHazards(client: ProtocolClient) =
+  ## v56 hazardSense: reads every stated paint-puddle bounding box off the
+  ## `puddle <x0>,<y0> <x1>,<y1>` init markers (same tail contract as the
+  ## trench/endzone markers; zero markers on 4-team maps and puddle-less
+  ## boards, never an empty-box marker). Standing inside a box rolls 20%/s of
+  ## 1 damage; crossing in motion is nearly free — so these boxes veto STAND
+  ## targets only, never routing.
+  PuddleMarks.setLen(0)
+  for o in client.spriteObjects():
+    if not o.label.startsWith(LabelPrefixPuddle):
+      continue
+    let parts = o.label[LabelPrefixPuddle.len .. ^1].split(' ')
+    if parts.len != 2:
+      continue
+    let
+      lo = parts[0].split(',')
+      hi = parts[1].split(',')
+    if lo.len != 2 or hi.len != 2:
+      continue
+    try:
+      PuddleMarks.add (
+        x0: float(parseInt(lo[0])), y0: float(parseInt(lo[1])),
+        x1: float(parseInt(hi[0])), y1: float(parseInt(hi[1])))
+    except ValueError:
+      discard
+
 when defined(seatprobe):
   # -d:seatprobe (2026-08-07, diagnostic only — v45 seat-identity fix
   # verification): per-(team, teamSeat) tallies of the wantPocketRush
@@ -4297,6 +4411,7 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   bot.tune.fireRange = FireRange
   adoptGameParams(client)
   adoptEndzones(client)
+  adoptHazards(client)         # v56: stated puddle boxes (init snapshot)
   # ⭐⭐ THE STATUE FIX. A 4-team board deals seats round the teams (slot mod
   # teams, roster.teamForSlot), so the classic red/blue parity guess is wrong
   # for half of them — and a wrong color makes EVERY label scan blind,
@@ -4787,6 +4902,11 @@ proc resetTransient(bot: Bot) =
   bot.orientUntil = -100_000
   bot.sentrySince = bot.tick
   bot.sentryShift = 0.0
+  bot.mateDeathPos = vec(-1, -1)         # v56: per-round awareness state
+  bot.mateDeathTick = -100_000
+  bot.lastMateAlive = bot.tick           # fresh round: mates alive until proven dead
+  bot.lastHitPos = vec(-1, -1)
+  bot.lastHitTick = -100_000
 
 proc scanAim(bot: Bot, watch: Vec, me: Vec = vec(-1, -1)): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -5213,6 +5333,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       inc asSurprise
   bot.updateTracks(bot.enemies, seenEnemies)
   bot.updateTracks(bot.mates, seenMates)
+  if seenMates.len > 0:
+    bot.lastMateAlive = bot.tick         # v56: positive live-mate evidence
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
 
@@ -5226,14 +5348,40 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # enemy track within one body of it; dedupe by objectId so a lingering
   # corpse never expires a live enemy walking over it later. NORELEASE=1
   # reverts.
-  if getEnv("NORELEASE").len == 0:
-    for (o, _) in client.spriteObjectsWithLabelPrefix("corpse "):
+  if getEnv("NORELEASE").len == 0 or bot.tune.rearTurn:
+    for (o, clbl) in client.spriteObjectsWithLabelPrefix("corpse "):
       if o.objectId in bot.corpseSeen:
         continue
       bot.corpseSeen.add o.objectId
       if bot.corpseSeen.len > 256:
         bot.corpseSeen.delete(0)
       let cp = client.mapPos(o)
+      # ⭐ v56 MATE-DEATH FIX (rearTurn/dangerPreAim): "corpse <color> <side>"
+      # states WHOSE body this is, and the kill-release loop was throwing the
+      # colour away. A first-appearance corpse in OUR colour, matched to a
+      # remembered mate track, is a mate death: bank the fix (the killer is
+      # standing near it — the pre-aim ladder and the last-man belief both key
+      # on it) and age the mate track (a corpse is not a regroup buddy). The
+      # track match doubles as the own-corpse filter: right after OUR respawn
+      # the lingering own body scans as "first appearance", but no mate track
+      # ever stood on it.
+      let ctoks = clbl["corpse ".len .. ^1].split(' ')
+      if ctoks.len >= 1 and ctoks[0] == myColor:
+        if bot.tune.rearTurn:
+          var mbest = -1
+          var mbestD = MateCorpseMatchDist
+          for i in 0 ..< bot.mates.len:
+            let d = dist(bot.mates[i].pos, cp)
+            if d < mbestD:
+              mbestD = d
+              mbest = i
+          if mbest >= 0:
+            bot.mateDeathPos = cp
+            bot.mateDeathTick = bot.tick
+            bot.mates[mbest].lastSeen = bot.tick - TrackTtl - 1
+          continue                       # a mate corpse never expires an ENEMY track
+      if getEnv("NORELEASE").len > 0:
+        continue                         # kill-release off: the scan only fed the mate check
       var best = -1
       var bestD = 24.0
       for i in 0 ..< bot.enemies.len:
@@ -5245,6 +5393,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # Age the track past every freshness gate rather than deleting it —
         # deletion would shift indices under any cached engage index.
         bot.enemies[best].lastSeen = bot.tick - TrackTtl - 1
+
+  # ⭐ v56 BARRAGE MARKER READ (hazardSense): the stated escalation schedule,
+  # `grenade barrage depth <n> rate <n> start <n> sat <n>` — an invisible 1x1
+  # marker on both streams whenever the endgame mode is configured. Only the
+  # DEPTH is consumed: every map edge is lethal that many px deep right now.
+  # Refreshed per frame (the depth grows from 0 to the full board after the
+  # clock latches). Absence -> 0 (mode off / old engine).
+  if bot.tune.hazardSense:
+    BarrageDepthPx = 0.0
+    for (o, blbl) in client.spriteObjectsWithLabelPrefix(LabelPrefixBarrage):
+      let bparts = blbl[LabelPrefixBarrage.len .. ^1].split(' ')
+      if bparts.len >= 1:
+        try:
+          BarrageDepthPx = float(parseInt(bparts[0]))
+        except ValueError:
+          discard
+      break
 
   # Damage awareness (SIGHT + SOUND): our own hp pip bar is always sent to us,
   # so a drop since last frame means we were just hit. If no enemy is in front
@@ -5286,7 +5451,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           " bankHeals=" & $wbBankHeals & " hp1Segs=" & $wbHp1Segs &
           " hp1Heals=" & $wbHp1Heals & " hp1Deaths=" & $wbHp1Deaths &
           " hp1Ticks=" & $wbHp1Ticks
-    if not bot.tune.damageAware or prevHp <= 0 or hp >= prevHp:
+    # v56 rearTurn ARMS this intake: damageAware was shipped OFF, so the whole
+    # hp-drop sense (including the muzzle-ring orient it gates) was inert —
+    # exactly the "shot from behind and never turned" replay.
+    if not (bot.tune.damageAware or bot.tune.rearTurn) or prevHp <= 0 or
+        hp >= prevHp:
       break damageSense                  # first read, respawn, or no damage
     # We took a hit. Is a threat already in view? If so, combat handles it.
     var haveFreshVisible = false
@@ -5308,6 +5477,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if ringPos.x >= 0:
       bot.orientPos = ringPos
       bot.orientUntil = bot.tick + HpDropOrientTicks
+      bot.lastHitPos = ringPos           # v56: outlives the orient window for
+      bot.lastHitTick = bot.tick         # the dangerPreAim ladder
+    elif bot.tune.rearTurn:
+      # ⭐ v56 REAR-GUARD TURN-ON-HIT (Maxwell replay note): hit, NO visible
+      # enemy, NO audible muzzle ring — the old code did NOTHING here, and the
+      # last man back took the whole clip in the back without ever turning.
+      # The hit itself is still a bearing: the freshest remembered enemy is
+      # the most plausible shooter; with no memory at all the shooter is
+      # provably somewhere OUTSIDE the cone, and the single best guess is
+      # directly BEHIND our own aim.
+      var gb = -1
+      var gbT = -100_000
+      for i in 0 ..< bot.enemies.len:
+        if bot.enemies[i].lastSeen > gbT:
+          gbT = bot.enemies[i].lastSeen
+          gb = i
+      let guess =
+        if gb >= 0: bot.enemies[gb].pos
+        else: me + bradsDir((bot.estAim + AimBrads div 2) mod AimBrads) *
+          RearTurnGuessDist
+      bot.orientPos = guess
+      bot.orientUntil = bot.tick + HpDropOrientTicks
+      bot.lastHitPos = guess
+      bot.lastHitTick = bot.tick
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -5403,6 +5596,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let bubblePos = vec(
         float((o.x + o.width div 2) div RenderScale + client.mapCameraX),
         float((o.y + o.height div 2) div RenderScale + client.mapCameraY))
+      # v56: any mate shout is positive live-mate evidence — but our OWN bubble
+      # renders too and sits on us; only one clearly off our body proves a MATE.
+      if dist(bubblePos, me) > 40.0:
+        bot.lastMateAlive = bot.tick
       if text[0] == 'P' and text.len >= 2 and bot.tune.commsPlay:
         # COMMS BUS: a mate's opaque scenario codeword. Decode with the shared
         # rotating table and bank the play for CommsPlayTtl — adopted as MOVEMENT
@@ -6757,6 +6954,52 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   when defined(prprobe):
     if pocketRush: inc prRush
     if armedPocket: inc prArmed
+
+  # ⭐ v56 STATED-HAZARD STAND VETO (hazardSense). Every movement target chosen
+  # above is a place we intend to BE — a sentry post, a smartGrab standoff, a
+  # rally, a bank-cell park. Two engine-stated hazard families had ZERO
+  # readers, so those stands landed inside stated attrition/death zones:
+  # (1) a stated puddle box costs 20%/s of 1 damage to OCCUPY (crossing in
+  #     motion is nearly free, so routing is untouched — the target is pushed
+  #     out the nearest face instead);
+  # (2) the stated barrage shell ring saturates every map edge BarrageDepthPx
+  #     deep — never post into it (the body-evacuation override further down
+  #     handles a bot already caught inside).
+  # Deliberately placed AFTER the role/rally/latch chain and BEFORE the
+  # pickup/medEcon overrides below: kits and cans are touch-and-go, and a kit
+  # inside a puddle is still worth the walk-through. Carrier logic is exempt
+  # (iCarry / touchLatch: a capture ends the episode).
+  if bot.tune.hazardSense and not iCarry and not touchLatch:
+    for attempt in 0 .. 1:               # one push can land in an overlapping box
+      var moved = false
+      for pd in PuddleMarks:
+        let
+          px0 = pd.x0 - PuddleStandMargin
+          px1 = pd.x1 + PuddleStandMargin
+          py0 = pd.y0 - PuddleStandMargin
+          py1 = pd.y1 + PuddleStandMargin
+        if target.x < px0 or target.x > px1 or target.y < py0 or target.y > py1:
+          continue
+        let                              # push out the nearest box face
+          dl = target.x - px0
+          dr = px1 - target.x
+          du = target.y - py0
+          dd = py1 - target.y
+          m = min(min(dl, dr), min(du, dd))
+        if m == dl: target.x = px0 - 1.0
+        elif m == dr: target.x = px1 + 1.0
+        elif m == du: target.y = py0 - 1.0
+        else: target.y = py1 + 1.0
+        target.x = clamp(target.x, 8.0, float(MapW - 8))
+        target.y = clamp(target.y, 8.0, float(MapH - 8))
+        moved = true
+      if not moved: break
+    if BarrageDepthPx > 0.0:
+      let bdanger = BarrageDepthPx + BarrageEvadeMargin
+      target.x = clamp(target.x, min(bdanger, float(CenterX)),
+                       max(float(MapW - 1) - bdanger, float(CenterX)))
+      target.y = clamp(target.y, min(bdanger, float(CenterY)),
+                       max(float(MapH - 1) - bdanger, float(CenterY)))
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
@@ -8410,9 +8653,42 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # it back and forth across the arc threats cross while standing still.
       # While our flag is stolen the thief comes from our own half;
       # otherwise intruders come from the enemy half.
-      let watch =
+      # ⭐ v56 REAR-GUARD (Maxwell replay note): a posted sentry consumed NO
+      # orient bearing at all — damageSense/callouts staged orientPos, but
+      # only the navigate arm ever read it, so the last man back stood
+      # sweeping his watch arc while being shot from behind. For its short
+      # window the staged hit/callout bearing outranks the idle sweep (a live
+      # engage target still owns desiredAim before this branch runs).
+      if bot.tune.rearTurn and desiredAim < 0 and
+          bot.tick <= bot.orientUntil and bot.orientPos.x >= 0 and
+          dist(bot.orientPos, me) > 1.0:
+        desiredAim = bradsOf(bot.orientPos - me)
+      var watch =
         if ownStolen: vec(homeSign(bot.team), 0.0)
         else: vec(-homeSign(bot.team), 0.0)
+      # ⭐ v56 LAST-MAN WATCH (rearTurn): with every mate believed dead there
+      # is no front line left to face — the static -homeSign watch is a
+      # 2-team parity vector aimed at a wall of fog (and on a 4-team board it
+      # is not even our axis). Face the FIELD instead: the freshest
+      # remembered enemy if any track survives, else the board centre. The
+      # belief is evidence-based (a mate corpse newer than any live-mate
+      # sighting/shout, held MateGoneTicks) — fogged silence alone never
+      # flips it, and solo modes (no mates, no corpses) never trigger it.
+      if bot.tune.rearTurn and not ownStolen and
+          bot.mateDeathTick > bot.lastMateAlive and
+          bot.tick - bot.lastMateAlive > MateGoneTicks:
+        var fw = -1
+        var fwT = -100_000
+        for i in 0 ..< bot.enemies.len:
+          if bot.enemies[i].lastSeen > fwT:
+            fwT = bot.enemies[i].lastSeen
+            fw = i
+        if fw >= 0 and dist(bot.enemies[fw].pos, me) > 1.0:
+          watch = norm(bot.enemies[fw].pos - me)
+        else:
+          let fieldC = vec(float(CenterX), float(CenterY))
+          if dist(fieldC, me) > 40.0:
+            watch = norm(fieldC - me)
       # fatalFunnel: DEFENSIVE FATAL FUNNEL pre-lay (backlog #5, FM 90-10-1
       # App K). A truly idle sentry (no enemy track fresh within FunnelFreshTtl)
       # parks the turret ON the throat of the approach funnel instead of
@@ -8579,6 +8855,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # (turn-and-watch) so we pick the threat up instead of walking blind.
         desiredAim = bradsOf(bot.orientPos - me)
         deadband = CruiseDeadband
+      if desiredAim < 0 and mayHunt and bot.tune.dangerPreAim:
+        # ⭐ v56 DANGER-BEARING PRE-AIM (Maxwell replay note: "shots on target
+        # = positioned + looking where the enemy WILL be"). No live target, no
+        # lock, no staged orient bearing: rather than idling the cone down the
+        # movement lane, pre-lay the highest-priority DANGER bearing — the
+        # freshest mate death (their killer is standing near it), else the
+        # last damage bearing on us, else the approach corridor toward enemy
+        # country (stealTarget doubles as "enemy country" on every layout:
+        # observed pedestal / stated endzone centre). Deliberately NOT the
+        # refuted huntSweep (which chased ANY remembered enemy off-objective
+        # and traded wins for kills): these bearings decay in DangerAimTtl,
+        # never steer the feet, require NO fresh track at all, and lose to
+        # every live-target claim above.
+        var freshTrack = false
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= HuntSweepTtl:
+            freshTrack = true
+            break
+        if not freshTrack:
+          if bot.tick - bot.mateDeathTick <= DangerAimTtl and
+              bot.mateDeathPos.x >= 0 and dist(bot.mateDeathPos, me) > 24.0:
+            desiredAim = bradsOf(bot.mateDeathPos - me)
+            deadband = CruiseDeadband
+          elif bot.tick - bot.lastHitTick <= DangerAimTtl and
+              bot.lastHitPos.x >= 0 and dist(bot.lastHitPos, me) > 24.0:
+            desiredAim = bradsOf(bot.lastHitPos - me)
+            deadband = CruiseDeadband
+          elif dist(stealTarget, me) > 60.0:
+            desiredAim = bradsOf(stealTarget - me)
+            deadband = CruiseDeadband
       if desiredAim < 0:
         # No target demands the turret: the aim leads the movement direction
         # so the vision cone watches down-lane where we are heading. Movement
@@ -8604,6 +8910,40 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.jinkBits == 0:
       bot.jinkBits = ButtonUp
     moveMask = bot.jinkBits
+
+  # ⭐ v56 BARRAGE EVACUATION (hazardSense, Maxwell replay note: "we still
+  # don't react to end-of-game perimeter bombs, we die to them a lot"). The
+  # engine STATES the endgame shell ring outright — every map edge is lethal
+  # BarrageDepthPx deep, escalating to the full board — and the policy never
+  # read it: bots held posts and duels inside a declared death zone. When the
+  # stated ring covers us, sprint for the shrinking safe interior. A post-
+  # chain MOVEMENT-ONLY override (same shape as arcStandoff/nadeDanger
+  # below): whatever branch won the feet, the ring outranks it — never the
+  # turret (the engage block keeps firing on the way out) and never carrier
+  # logic (iCarry/touchLatch keep their run: a capture ends the episode).
+  # Runs BEFORE arcStandoff and nadeDanger so an instant-kill cone or a shell
+  # already falling on our head still wins the final say on the feet.
+  if bot.tune.hazardSense and BarrageDepthPx > 0.0 and
+      not iCarry and not touchLatch:
+    let bdanger = BarrageDepthPx + BarrageEvadeMargin
+    let edgeD = min(min(me.x, float(MapW - 1) - me.x),
+                    min(me.y, float(MapH - 1) - me.y))
+    if edgeD < bdanger:
+      # Nearest point of the safe interior box; the box collapses onto the
+      # centre as the escalation completes (then the centre is simply the
+      # last ground to stand on).
+      let
+        bsafe = vec(
+          clamp(me.x, min(bdanger, float(CenterX)),
+                max(float(MapW - 1) - bdanger, float(CenterX))),
+          clamp(me.y, min(bdanger, float(CenterY)),
+                max(float(MapH - 1) - bdanger, float(CenterY))))
+      var bstep = bot.navSteer(client, me, bsafe)
+      if bstep.len() < 0.5:
+        bstep = bsafe - me               # degenerate field: straight inward
+      moveMask = octantBits(norm(bstep))
+      holdStill = false
+      bot.stuckTicks = 0                 # a deliberate sprint, not a corner grind
 
   # ⭐ ARC STANDOFF (2026-08-07): the MOVEMENT half of counterArc. counterArc bumps a disarmed
   # enemy arc-carrier's engage PRIORITY but deliberately left the feet alone — so we happily shoot
