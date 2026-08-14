@@ -7805,10 +7805,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               dist(t.pos, me) >= NadeMinRange and dist(t.pos, me) <= NadeMaxRange and
               not client.pixelRayClear(me, t.pos):
             inc ndStaleSeen
+            # Same neighbour rule the real gate uses below (fresh sightings
+            # count too — a bunker is remembered as a whole), so this stage of
+            # the funnel is the actual bar, not a stricter one.
             var pop = 1
             for j in 0 ..< bot.enemies.len:
-              if j != i and bot.nadeCamper(bot.enemies[j]) and
-                  dist(bot.enemies[j].pos, t.pos) <= NadeBlast:
+              if j == i or dist(bot.enemies[j].pos, t.pos) > NadeBlast:
+                continue
+              if bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks or
+                  bot.nadeCamper(bot.enemies[j]):
                 inc pop
             if pop >= NadeStaleMinCluster: inc ndStaleCluster
         if not (bot.tune.staleNade and bot.nadeCamper(t)):
@@ -7923,9 +7928,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # never leave it; HomeDefender/Overwatch hold posts and must not wander.
     # Budget is the EXTRA path (me->depot->task minus me->task), not raw range,
     # so a depot already on the route is free and one across the map is refused.
-    if bot.tune.nadeSupply and not tookNade and
-        bot.role in {FlankTop, FlankBottom, MidGuard} and
-        engage < 0:                    # never leave a live gunfight for ammo
+    let supplySeat = not tookNade and
+      bot.role in {FlankTop, FlankBottom, MidGuard} and
+      engage < 0                       # never leave a live gunfight for ammo
+    when defined(ndprobe):
+      # Population, counted WITHOUT the lever (asoprobe rule) so the OFF arm
+      # reports the same denominator instead of a structural 0.
+      if supplySeat:
+        inc ndSupplyRole
+        if bot.nadeDepots.len > 0 or GameTeams < 4: inc ndSupplyDepot
+    if bot.tune.nadeSupply and supplySeat:
       if bot.nadeDepots.len == 0 and GameTeams < 4 and MapW > 120 and MapH > 120:
         let inset = NadeSpawnInsetPx
         for c in [vec(inset, inset), vec(inset, float(MapH) - inset),
@@ -7935,9 +7947,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           when defined(ndprobe): inc ndDepotSeeded
       while bot.nadeDryUntil.len < bot.nadeDepots.len:
         bot.nadeDryUntil.add 0
-      when defined(ndprobe):
-        inc ndSupplyRole
-        if bot.nadeDepots.len > 0: inc ndSupplyDepot
       var bestDepot = -1
       var bestCost = NadeDepotDetour
       let taskD = dist(target, me)

@@ -525,8 +525,20 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     if turtle and slot notin hunterSlots:
       # Defensive spread over the control team's 8 seats: 3 home-choke guards + 5
       # overwatch posts fanned across the lanes = a body wall in its own half.
+      #
+      # TURTLE_STACK=1 (2026-08-14, the staleNade stimulus): make EVERY control
+      # seat a HomeDefender instead. They all post on the same chokeSpot, so the
+      # control team stands as a BUNCHED, stationary, cover-backed knot rather
+      # than a fanned line — the wall-camper CLUSTER the plain TURTLE spread
+      # deliberately never produces (its Overwatch posts are spaced by design).
+      # Same diagnostic class as TURTLE/ARCFOE: a rig to field a stimulus the
+      # mirror cannot generate, NOT a league signal. The ND-PROBE funnel is the
+      # reading, never the win rate.
       let teamSeat = clamp(slot div 2, 0, 7)
-      d.bot.role = (if teamSeat mod 8 in [0, 3, 7]: HomeDefender else: Overwatch)
+      d.bot.role =
+        if envInt("TURTLE_STACK", 0) != 0: HomeDefender
+        elif teamSeat mod 8 in [0, 3, 7]: HomeDefender
+        else: Overwatch
     drivers.add(d)
 
   when defined(ndprobe):
