@@ -132,6 +132,38 @@ proc frame(driver: var Driver, packet: string): uint8 =
   driver.rng = randState()
   driver.lastMask = result
 
+when defined(doorprobe):
+  var engineTeamOfSlot: array[32, int]   # real team index per slot (4-team safe)
+
+  proc dpStat(v: seq[float]): (float, float) =
+    ## mean, sample stdev.
+    if v.len == 0: return (0.0, 0.0)
+    var m = 0.0
+    for x in v: m += x
+    m /= v.len.float
+    if v.len < 2: return (m, 0.0)
+    var s = 0.0
+    for x in v: s += (x - m) * (x - m)
+    (m, sqrt(s / (v.len - 1).float))
+
+  proc dpEntryLine(tag: string) =
+    ## ⚠️ Printed AFTER EVERY GAME and flushed. This rig runs ~12 min/game under
+    ## fleet load and the summary only exists at process exit, so a starved or
+    ## killed run used to yield NOTHING. Cumulative, so any partial run is still
+    ## a usable measurement — it just has fewer entries behind it.
+    for tm in 0 .. 1:
+      var allY, subY: seq[float]
+      for st in 0 .. 7:
+        for i in 0 ..< dpEntryN[tm][st]:
+          allY.add dpEntryY[tm][st][i]
+          if st <= 3: subY.add dpEntryY[tm][st][i]
+      let (am, asd) = dpStat(allY)
+      let (sm, ssd) = dpStat(subY)
+      echo &"ENTRYY {tag} team{tm}  all n={allY.len} mean={am:.1f} " &
+        &"stdev={asd:.1f}  |  SUBSET(seats0-3) n={subY.len} mean={sm:.1f} " &
+        &"STDEV={ssd:.1f}"
+    flushFile(stdout)
+
 proc main() =
   var games = 12
   var seed = 100
@@ -167,6 +199,8 @@ proc main() =
     var drivers: seq[Driver]
     for s in 0 ..< numPlayers:
       drivers.add newDriver(s, engine.teamOfSlot(s), epSeed)
+      when defined(doorprobe):
+        if s < 32: engineTeamOfSlot[s] = engine.teamOfSlot(s)
     var tick = 0
     while tick < ticks:
       for s in 0 ..< numPlayers:
@@ -193,6 +227,70 @@ proc main() =
         teamDeaths[s.team] += s.deaths
     echo &"game {g}: winner={r.winnerTeam} ticks={r.ticks} " &
       &"grabs R{r.redGrabs}/B{r.blueGrabs} caps R{r.redCaptures}/B{r.blueCaptures}"
+    when defined(doorprobe):
+      dpEntryLine(&"afterGame{g}")
+    flushFile(stdout)
+
+  when defined(doorprobe):
+    # ── ⭐ ONE-DOOR REPORT. The target metric is ENTRY-Y STDEV: the spread of
+    # the y at which our seats cross the midline into the enemy half. Field
+    # baseline vs daveey: ours 5/17/31px, his 148-242px, target >100.
+    # SUBSET is the number that matters: in "1v1 (8 per team)" paintbot we hold
+    # slots {0,2,4,6} => teamSeats {0,1,2,3}, so seats 4..7 are a DIFFERENT
+    # entrant's and must not be averaged into our score. This rig seats our
+    # policy on all 8, so the subset is taken by filtering, not by re-seating.
+    const RoleName = ["MidTop", "MidBottom", "MidGuard", "FlankTop",
+                      "FlankBottom", "Overwatch", "HomeDefender"]
+    let statOf = dpStat
+    echo "==================================================="
+    echo "--- ONE-DOOR PROBE (entry-y = midline crossing into the enemy half) ---"
+    for tm in 0 .. 1:
+      var allY: seq[float]
+      var subY: seq[float]
+      let tname = (if tm == 0: "RED " else: "BLUE")
+      echo &"  team {tname}   seat  role          entries  meanY   stdevY   " &
+        &"aliveFrames  travelPx  hotArm  hotFire  doorDeaths  hold  rel  exp"
+      for st in 0 .. 7:
+        var ys: seq[float]
+        for i in 0 ..< dpEntryN[tm][st]: ys.add dpEntryY[tm][st][i]
+        allY.add ys
+        if st <= 3: subY.add ys
+        let (mn, sd) = statOf(ys)
+        let rn = (if dpRole[tm][st] in 0 .. 6: RoleName[dpRole[tm][st]] else: "-")
+        echo &"           {st:>6}  {rn:<12} {ys.len:>8} {mn:>7.1f} {sd:>8.1f} " &
+          &"{dpAliveFrames[tm][st]:>12} {dpTravel[tm][st]:>9.0f} " &
+          &"{dpHotDoorArm[tm][st]:>7} {dpHotDoorFire[tm][st]:>8} " &
+          &"{dpDoorDeaths[tm][st]:>11} {dpWaveHold[tm][st]:>5} " &
+          &"{dpWaveRelease[tm][st]:>4} {dpWaveExpire[tm][st]:>4}"
+      let (am, asd) = statOf(allY)
+      let (sm, ssd) = statOf(subY)
+      echo &"  team {tname}  ALL8   entries {allY.len:>5}  meanY {am:>7.1f}  " &
+        &"ENTRY-Y STDEV {asd:>7.1f}"
+      echo &"  team {tname}  SUBSET entries {subY.len:>5}  meanY {sm:>7.1f}  " &
+        &"ENTRY-Y STDEV {ssd:>7.1f}   <-- the league seats {{0,1,2,3}}"
+    var hArm, hFire, dDeath, wHold, wRel, wExp = 0
+    for tm in 0 .. 1:
+      for st in 0 .. 7:
+        hArm += dpHotDoorArm[tm][st]; hFire += dpHotDoorFire[tm][st]
+        dDeath += dpDoorDeaths[tm][st]; wHold += dpWaveHold[tm][st]
+        wRel += dpWaveRelease[tm][st]; wExp += dpWaveExpire[tm][st]
+    echo &"  LEVER FIRES  doorDeaths {dDeath}  hotDoorArmed {hArm}  " &
+      &"hotDoorMovedTarget {hFire}  waveHoldFrames {wHold}  " &
+      &"waveReleases {wRel}  waveCapExpiries {wExp}"
+    # ── SEAT LIVENESS. "2 of 6 bots stood perfectly still with zero errors"
+    # after a silent seat-contract change; travel==0 or frames==0 is that
+    # signature. Indexed by physical SLOT so it is unambiguous on 4-team too.
+    echo "  --- SEAT LIVENESS (every slot must have frames>0 AND travel>0) ---"
+    var dead = 0
+    for sl in 0 ..< numPlayers:
+      let rn = (if dpSlotRole[sl] in 0 .. 6: RoleName[dpSlotRole[sl]] else: "-")
+      let ok = dpSlotFrames[sl] > 0 and dpSlotTravel[sl] > 0.0
+      if not ok: inc dead
+      echo &"    slot {sl:>2}  team {engineTeamOfSlot[sl]:>2}  teamSeat " &
+        &"{dpSlotSeat[sl]:>2}  role {rn:<13} frames {dpSlotFrames[sl]:>7}  " &
+        &"travel {dpSlotTravel[sl]:>9.0f}px  entries {dpSlotEntries[sl]:>4}  " &
+        &"{(if ok: \"ACTS\" else: \"*** STATUE ***\")}"
+    echo &"    STATUES: {dead} of {numPlayers}"
 
   echo "==================================================="
   echo &"{games} games  seed {seed}  ticks {ticks}"
