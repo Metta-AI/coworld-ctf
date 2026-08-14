@@ -44,6 +44,16 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
     if not mine:
       tune.spinCap = true
       tune.spinCapRangePx = Inf
+  # ⭐ SHAPE A/B isolation (2026-08-14, the Hermes study). shippedCombatTune() reads
+  # NOSHAPE from the PROCESS env and all 16 bots share one process, so a bare NOSHAPE=1
+  # would strip both sides and the "A/B" would be a mirror — the same trap SPINTEAM and
+  # AIMTEAM exist to avoid. SHAPETEAM=red|blue gives that side the one-runner shaping and
+  # RE-STAMPS the other side back to the six-attacker push, giving a deterministic,
+  # seat-rotatable head-to-head out of ONE frozen binary.
+  let shapeTeam = getEnv("SHAPETEAM")
+  if shapeTeam.len > 0:
+    tune.oneRunner = (shapeTeam == "red" and t == Red) or
+                     (shapeTeam == "blue" and t == Blue)
   let fixTeam = getEnv("FIXTEAM")
   let stripFix =
     getEnv("NOFIX") == "1" or
@@ -158,6 +168,10 @@ proc main() =
     # team. Engine redGrabs/blueGrabs misattribute on >2 teams (any non-Blue
     # victim credits "blue"), so GRABS stays a 2-team metric.
     teamWins, teamCaps, teamKills, teamDeaths: array[4, int]
+  when defined(shapeprobe):
+    var
+      shCross, shDeathOwn, shDeathEnemy, shDeepSum, shTicks: array[2, int]
+      shDeepMax: array[2, int]
   let evalTeams = max(2, (if getEnv("EVAL_TEAMS").len > 0:
                             parseInt(getEnv("EVAL_TEAMS")) else: 2))
   let numPlayers = 16
@@ -191,6 +205,20 @@ proc main() =
         teamCaps[s.team] += s.captures
         teamKills[s.team] += s.kills
         teamDeaths[s.team] += s.deaths
+    when defined(shapeprobe):
+      var perGame: array[2, string]
+      for t in 0 .. 1:
+        let sc = engine.shapeCounts(t)
+        shCross[t] += sc.cross
+        shDeathOwn[t] += sc.deathOwn
+        shDeathEnemy[t] += sc.deathEnemy
+        shDeepSum[t] += sc.deepSum
+        shTicks[t] += sc.ticks
+        if sc.deepMax > shDeepMax[t]: shDeepMax[t] = sc.deepMax
+        perGame[t] = &"cross {sc.cross} deaths own/enemy {sc.deathOwn}/{sc.deathEnemy} " &
+          &"deep {(sc.deepSum.float / max(1, sc.ticks).float):.2f} (max {sc.deepMax})"
+      echo &"  SHAPE red:  {perGame[0]}"
+      echo &"  SHAPE blue: {perGame[1]}"
     echo &"game {g}: winner={r.winnerTeam} ticks={r.ticks} " &
       &"grabs R{r.redGrabs}/B{r.blueGrabs} caps R{r.redCaptures}/B{r.blueCaptures}"
 
@@ -217,6 +245,26 @@ proc main() =
                 else: teamKills[t].float)
       echo &"  {tn[t]:<7} wins {teamWins[t]:>2}  caps {teamCaps[t]:>2}  " &
         &"kills {teamKills[t]:>4}  deaths {teamDeaths[t]:>4}  K/D {kd:.2f}"
+  when defined(shapeprobe):
+    echo "--- SHAPE (engine geometry: who actually crosses the midline) ---"
+    echo "team     cross/ep   deaths own   deaths enemy   own%   meanDeep   maxDeep"
+    for t in 0 .. 1:
+      let
+        tn = (if t == 0: "red" else: "blue")
+        dTot = shDeathOwn[t] + shDeathEnemy[t]
+        ownPct = (if dTot > 0: 100.0 * shDeathOwn[t].float / dTot.float else: 0.0)
+        meanDeep = shDeepSum[t].float / max(1, shTicks[t]).float
+      echo &"{tn:<7} {shCross[t] / games:>9.2f} {shDeathOwn[t]:>12} {shDeathEnemy[t]:>14}" &
+        &" {ownPct:>6.1f} {meanDeep:>10.2f} {shDeepMax[t]:>9}"
+    echo "  cross/ep = own->enemy half transitions per episode; meanDeep = mean bodies"
+    echo "  standing in the ENEMY half per tick (the SHAPE: 1.0 = one committed runner)."
+    when defined(shapefire):
+      echo "--- SHAPE LEVER FIRING (baseline-side counters) ---"
+      for t in 0 .. 1:
+        let tn = (if t == 0: "red" else: "blue")
+        echo &"  {tn:<5} armed(seats w/ lever) {spArmed[t]:>9}  runnerFrames {spRunner[t]:>9}" &
+          &"  holdFrames {spHold[t]:>9}  holdDroveTarget {spHoldFired[t]:>9}"
+      echo "  holdDroveTarget must be NON-ZERO or the hold never touched a single foot."
   when defined(rngprobe):
     const bandName = ["<150", "150-300", "300-600", "600-1000", ">=1000"]
     for side in 0 .. 1:

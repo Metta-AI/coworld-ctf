@@ -133,6 +133,18 @@ when defined(hlprobe):
   var hlLone = 0      # ...and not a lone last body (support genuinely inbound to wait for)
   var hlFireCount = 0 # ...and uncommitted => the line-hold actually fired
 
+when defined(shapefire):
+  # -d:shapefire ONLY (2026-08-14, the Hermes SHAPE study): prove the one-runner
+  # shaping lever actually TOUCHES FEET. Team-indexed (0 Red / 1 Blue) because the
+  # in-process eval harness runs all 16 bots in one process and the A/B is
+  # team-scoped (SHAPETEAM), so a pooled counter could not tell the arms apart.
+  # A compiled-but-never-triggered lever is this project's most repeated failure:
+  # spHoldFired must be NON-ZERO or the hold moved nobody.
+  var spArmed: array[2, int]      # decide()-frames on a seat whose tune has oneRunner on
+  var spRunner: array[2, int]     # ...on the designated deep runner (role MidTop)
+  var spHold: array[2, int]       # ...on a holder that reached the clamp (past the carve-outs)
+  var spHoldFired: array[2, int]  # ...and its target was DEEPER than the hold line => clamped
+
 when defined(ggprobe):
   # -d:ggprobe ONLY: instrument the grabGate as a FUNNEL so a 0-fire result is
   # diagnosable. Each counter = decide()-frames surviving one more gate. Never shipped.
@@ -1300,6 +1312,25 @@ const
   ForceClockTickTuned = 2000   # forceTiming: arm the late all-in at ~40% of the nominal
                                # clock — past the opening + a probe window, but inside the
                                # mean 2410-tick life of a real game, so FORCE actually fires.
+                               # ⛔ TOMBSTONE (VERIFIED 2026-08-14): this value has NEVER
+                               # run. `forceTiming` is set nowhere outside defaultCombatTune
+                               # (= false) — shippedCombatTune does not touch it and no env
+                               # knob reads FORCE_TICK despite the comment at :1962 — so the
+                               # live trigger at :6417 resolves to ForceClockTick = 3800 in
+                               # every build we have ever shipped. `git log -S "forceTiming
+                               # = true"` is empty. Do not cite 2000 as "what we run".
+  # ── SHAPE: ONE COMMITTED RUNNER, SEVEN HOLDING (v56, 2026-08-14, the Hermes study).
+  # Both Hermes head-to-heads were won by whichever side kept that shape; in our loss
+  # every one of our 24 deaths fell in OUR OWN half and we crossed the midline zero
+  # times — i.e. we had the "hold" with NO runner, the worst of both shapes. The lever
+  # designates the single closest-spawn rusher seat (role MidTop, exactly one per team
+  # on every deal) as the committed deep runner and caps every other seat's movement
+  # target at a line on OUR OWN side, so the squad presents one crosser and a held
+  # line instead of a six-body trickle. MOVEMENT-TARGET ONLY: the combat block still
+  # trades out anything lined up, and carry / own-heart-stolen states are carved out.
+  ShapeHoldLinePx = 140.0      # holders' cap: this many px HOME-ward of the centre line.
+                               # Deep enough to contest the crossing (gun range 1300 easily
+                               # covers mid from here) without standing in the enemy's farm.
   DefendInterceptPush = 40.0   # defendTeeth: px past the thief fix, toward ITS capture edge —
                                # cut the thief off ahead rather than trailing the fix (the same
                                # lead the HomeDefender intercept already applies).
@@ -1849,6 +1880,25 @@ type
                               # forceBalance retreat. Releases on local fire-superiority or a
                               # grouped wave. Asymmetric (we stop feeding isolated cogs) so the
                               # mirror can measure the K-D/own-half delta; the full edge is field.
+    shapeHoldPx: float        # oneRunner's hold line, px HOME-ward of centre. Sweepable
+                              # from the harness via SHAPEPX so the hold DEPTH gets a real
+                              # sweep instead of a guessed constant (0 = hold ON the midline,
+                              # i.e. still contest the crossing). Ignored unless oneRunner.
+    oneRunner: bool           # ⭐ SHAPE — ONE RUNNER, SEVEN HOLD (v56, 2026-08-14, the
+                              # Hermes study). Both Hermes head-to-heads were decided by
+                              # SHAPE, not by aim: the side that kept exactly one committed
+                              # deep runner while the rest held its own half won both. Our
+                              # loss was the degenerate shape — 24 of 24 deaths in OUR half
+                              # and zero midline crossings, a held line with nobody running.
+                              # The lever names the single closest-spawn rusher (role MidTop,
+                              # exactly one seat per team on every deal we are dealt) as the
+                              # runner, exempts it from the holdLine / regroupPush rallies so
+                              # its commitment cannot be talked out of it, and caps every
+                              # other seat's movement target at ShapeHoldLinePx on OUR side.
+                              # MOVEMENT-TARGET ONLY (the combat block is untouched — a
+                              # holder still trades out anything lined up); carrier, escort
+                              # and own-heart-stolen states are carved out, so a capture run
+                              # and a recapture are never clamped. NOSHAPE=1 reverts.
     grabGate: bool            # ⭐ NUMBERS-GATED GRAB (2026-07-22, the h006 grab-discipline
                               # finding): h006 commits to the heart almost ONLY when up bodies
                               # (its carries start at a local numbers lead; steal->cap 46-64%
@@ -2771,6 +2821,8 @@ proc defaultCombatTune(): CombatTune =
     regroupPush: false,       # control: a lone over-extended mid feeds the respawn wave, no rally.
     grabTiming: false,        # control: a rusher dives the pedestal unarmed even into a stacked pocket.
     holdLine: false,          # control: an over-extended mid pushes into a standing enemy line alone.
+    shapeHoldPx: ShapeHoldLinePx,  # only consulted when oneRunner is on.
+    oneRunner: false,         # control: all six attack roles push, no designated runner, no held line.
     grabGate: false,          # control: a rusher opens the unarmed dive without a local numbers edge.
     avoidDisarm: false,       # control: pathing walks over v7 sword/shield pickups and self-disarms.
     shieldTank: false,        # control: an escort never grabs a shield to body-block as a tank.
@@ -3362,6 +3414,13 @@ proc shippedCombatTune(): CombatTune =
   # 3) DANGER-BEARING PRE-AIM — "shots on target = positioned + looking where
   #    the enemy WILL be". NOPREAIM=1 reverts.
   result.dangerPreAim = getEnv("NOPREAIM").len == 0
+  # ⭐⭐ v56 SHAPE — ONE RUNNER, SEVEN HOLD (2026-08-14, the Hermes study).
+  # Hermes' edge measured as SHAPE, not aim: one committed deep runner while the
+  # rest hold. NOSHAPE=1 reverts to the six-attacker push. See ShapeHoldLinePx.
+  result.oneRunner = getEnv("NOSHAPE").len == 0
+  let shapePxEnv = getEnv("SHAPEPX")
+  if shapePxEnv.len > 0:
+    result.shapeHoldPx = parseFloat(shapePxEnv)
 
 
 when defined(rngprobe):
@@ -6436,6 +6495,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         for ph in TeamPhase:
           line &= " " & ($ph)[2..^1] & "=" & $phFrames[ph]
         line &= " ownStolenNow=" & $ownStolen
+        # ⭐ 2026-08-14: print the RESOLVED force trigger, not the constant we assume.
+        # ForceClockTickTuned=2000 reads like the shipped value in the source, but
+        # `forceTiming` is never set outside defaultCombatTune, so what actually runs
+        # is ForceClockTick=3800. Print it so the next reader measures instead of
+        # inferring (maxElapsed alongside it says whether 3800 is even reachable).
+        line &= " forceTiming=" & $bot.tune.forceTiming &
+          " forceTickInUse=" &
+          $(if bot.tune.forceTiming: bot.tune.forceClockTick else: ForceClockTick) &
+          " maxElapsed=" & $phMaxElapsed
         stderr.writeLine line
   if bot.tune.planLayer and not iCarry:
     let phase = botPhase
@@ -6674,7 +6742,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if bot.tune.regroupPush and not iCarry and not mateCarry and not ownStolen and
       not retreating and not pushOut and
       bot.role in {MidTop, MidBottom, MidGuard} and
+      not (bot.tune.oneRunner and bot.role == MidTop) and
       dist(me, stealTarget) >= PocketRushRange:
+    # ⭐ SHAPE carve-out: the designated runner is COMMITTED. Waiting for a wave
+    # that is (by design) holding at home would park it at midfield forever — the
+    # exact "held line with nobody running" shape the study says loses.
     # Depth INTO the enemy half: 0 at center, grows toward the enemy pedestal.
     let depth = -homeSign(bot.team) * (me.x - float(CenterX))
     var packMates = 0        # fresh mates grouped near me RIGHT NOW
@@ -6758,7 +6830,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if bot.tune.holdLine and not iCarry and not mateCarry and not ownStolen and
       not retreating and not pushOut and
       bot.role in {MidTop, MidBottom, MidGuard} and
+      not (bot.tune.oneRunner and bot.role == MidTop) and
       dist(me, stealTarget) >= PocketRushRange:
+    # ⭐ SHAPE carve-out (same reason as regroupPush above): the runner never rallies.
     when defined(hlprobe):
       inc hlReach
     # Depth INTO the enemy half: 0 at center, grows toward the enemy pedestal.
@@ -8144,6 +8218,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           nadeDanger = true
           nadeDangerFrom = p
           break nadeDangerScan
+
+  # ⭐⭐ v56 SHAPE — ONE RUNNER, SEVEN HOLD (oneRunner, 2026-08-14, the Hermes study).
+  # Placed HERE deliberately: this is the last point before the act chain, after every
+  # `target = ` write in decide(), so the cap cannot be silently overwritten downstream
+  # (the rallyWave/holdLine class of bug where a movement target is set and then thrown
+  # away). It is also IDEMPOTENT and one-directional — it only ever pulls a target that
+  # is DEEPER than the hold line back TO the line, and never pushes anyone forward — so
+  # every home-ward decision above (retreat, bank, defend, med peel, carry home) passes
+  # through untouched.
+  #
+  # Carve-outs, in the same spirit as holdLine's: a carrier or its escort is running the
+  # heart home (that run is home-ward anyway, and clamping an escort would strand the
+  # carrier), and with our own heart stolen the whole squad is on defence in its own half
+  # already. The RUNNER is exempt by definition — it is the one body we commit.
+  if bot.tune.oneRunner:
+    when defined(shapefire):
+      inc spArmed[ord(bot.team)]
+      if bot.role == MidTop: inc spRunner[ord(bot.team)]
+    if bot.role != MidTop and not iCarry and not mateCarry and not ownStolen:
+      when defined(shapefire):
+        inc spHold[ord(bot.team)]
+      # The hold line, on OUR side of centre. depthPastHold > 0 means the target we
+      # were about to walk to is deeper into the enemy half than a holder may go.
+      let holdX = float(CenterX) + homeSign(bot.team) * bot.tune.shapeHoldPx
+      if -homeSign(bot.team) * (target.x - holdX) > 0.0:
+        target = vec(holdX, target.y)   # keep the lane (y), give up the depth (x)
+        when defined(shapefire):
+          inc spHoldFired[ord(bot.team)]
 
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.

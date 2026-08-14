@@ -66,6 +66,24 @@ type
       redHitsNear, blueHitsNear: int
       redShotsFar, blueShotsFar: int
       redHitsFar, blueHitsFar: int
+    when defined(shapeprobe):
+      # -d:shapeprobe (2026-08-14, the Hermes SHAPE study): the geometry the
+      # replay read on — how many bodies each side commits ACROSS the midline,
+      # and which half its deaths fall in. Read straight off sim.players every
+      # tick, so this is ENGINE truth, not a bot's belief about itself.
+      #   spCross     own-half -> enemy-half transitions (one "crossing")
+      #   spDeathOwn / spDeathEnemy   deaths bucketed by the half they fell in
+      #   spDeepSum   Σ over ticks of (alive bodies standing in the enemy half);
+      #               spDeepSum/spTicks = MEAN CONCURRENT DEEP BODIES, which is
+      #               the shape number itself ("one runner, seven hold" ≈ 1.0)
+      #   spDeepMax   most bodies deep at once across the episode
+      spCross, spDeathOwn, spDeathEnemy, spDeepSum, spDeepMax: array[Team, int]
+      spTicks: int
+      spOwnLowX: array[Team, bool]   ## this team's own home sits in the low-x half
+      spCenterX: float
+      spWasDeep: seq[bool]           ## per slot: last tick's enemy-half flag
+      spWasAlive: seq[bool]
+      spLastX: seq[int]              ## last x seen ALIVE (i.e. where it died)
 
   SlotStat* = object
     slot*: int
@@ -157,6 +175,22 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
   for team in Team:
     result.prevCarrier[team] = -1
     result.grabTick[team] = -1
+  when defined(shapeprobe):
+    # The two pedestals are mirrored across the midline on every board, so their
+    # midpoint IS the centre line — no map-width constant needed (and it stays
+    # correct on generated boards, which the width constant would not).
+    let
+      redHomeX = result.sim.gameMap.flagHome(Red).x.float
+      blueHomeX = result.sim.gameMap.flagHome(Blue).x.float
+    result.spCenterX = (redHomeX + blueHomeX) / 2.0
+    result.spOwnLowX[Red] = redHomeX < result.spCenterX
+    result.spOwnLowX[Blue] = blueHomeX < result.spCenterX
+    result.spWasDeep = newSeq[bool](numPlayers)
+    result.spWasAlive = newSeq[bool](numPlayers)
+    result.spLastX = newSeq[int](numPlayers)
+    for i in 0 ..< numPlayers:
+      result.spWasAlive[i] = true
+      result.spLastX[i] = result.sim.players[i].x
 
 proc playerCount*(engine: EvalEngine): int =
   engine.sim.players.len
@@ -300,6 +334,34 @@ proc advance*(engine: EvalEngine) =
           else:
             inc engine.blueShotsFar
             if shot.hit: inc engine.blueHitsFar
+  when defined(shapeprobe):
+    # SHAPE geometry, sampled after the step so positions are this tick's truth.
+    inc engine.spTicks
+    var deepNow: array[Team, int]
+    for i in 0 ..< engine.sim.players.len:
+      let p = engine.sim.players[i]
+      let t = p.team
+      if p.alive:
+        let deep = (if engine.spOwnLowX[t]: p.x.float > engine.spCenterX
+                    else: p.x.float < engine.spCenterX)
+        if deep:
+          inc deepNow[t]
+          if not engine.spWasDeep[i]:
+            inc engine.spCross[t]     # a fresh own-half -> enemy-half crossing
+        engine.spWasDeep[i] = deep
+        engine.spLastX[i] = p.x
+      else:
+        if engine.spWasAlive[i]:
+          # Death: bucket it by the half the body was standing in last tick.
+          let inEnemy = (if engine.spOwnLowX[t]: engine.spLastX[i].float > engine.spCenterX
+                         else: engine.spLastX[i].float < engine.spCenterX)
+          if inEnemy: inc engine.spDeathEnemy[t] else: inc engine.spDeathOwn[t]
+        engine.spWasDeep[i] = false   # a respawn starts home; re-crossing counts again
+      engine.spWasAlive[i] = p.alive
+    for t in Team:
+      engine.spDeepSum[t] += deepNow[t]
+      if deepNow[t] > engine.spDeepMax[t]: engine.spDeepMax[t] = deepNow[t]
+
   # Gun-hit tally: a fresh "-1" damage pop (amount 1 = a bullet, not the amount-2
   # grenade blast) landed on a body THIS tick. Credit the SHOOTER = the enemy of
   # the victim's color, so redHits counts Red's bullets that connected. Paired
@@ -357,6 +419,16 @@ when defined(rangehitprobe):
      blueShotsNear: engine.blueShotsNear, blueHitsNear: engine.blueHitsNear,
      redShotsFar: engine.redShotsFar, redHitsFar: engine.redHitsFar,
      blueShotsFar: engine.blueShotsFar, blueHitsFar: engine.blueHitsFar)
+
+when defined(shapeprobe):
+  proc shapeCounts*(engine: EvalEngine, team: int): tuple[
+      cross, deathOwn, deathEnemy, deepSum, deepMax, ticks: int] =
+    ## Per-team SHAPE geometry for the episode just run. `deepSum/ticks` is the
+    ## mean number of that team's bodies standing in the ENEMY half at any tick.
+    let t = Team(team)
+    (cross: engine.spCross[t], deathOwn: engine.spDeathOwn[t],
+     deathEnemy: engine.spDeathEnemy[t], deepSum: engine.spDeepSum[t],
+     deepMax: engine.spDeepMax[t], ticks: engine.spTicks)
 
 proc result*(engine: EvalEngine): EpisodeResult =
   ## Snapshots the scoreboard from live sim fields (all authoritative — the
