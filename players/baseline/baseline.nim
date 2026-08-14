@@ -1119,6 +1119,12 @@ const
                               # ReplayFps ~1/s; we self-rate a touch slower)
   CalloutFreshTicks = 20      # only call out enemies seen this recently
   CalloutMaxCells = 2         # name at most this many enemy cells per shout
+  CalloutSeedTtl = 96         # a heard callout seeds a track at that cell ONCE, not
+                              # once per frame: any track already within a cell of it
+                              # and younger than this counts as the same lead. Must
+                              # exceed the shout bubble's life (ShoutTicks = 72) plus
+                              # the callout's own emit freshness (20), or the same
+                              # bubble re-seeds a phantom every frame it is on screen.
                               # ("E M9 C4" fits the 10-char budget)
   SurpriseRadius = 95.0       # an enemy THIS close that we were not tracking is
                               # "in our face" — the corner-ambush jump scare
@@ -5810,10 +5816,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if dist(p, me) < nearestD:
             nearestD = dist(p, me)
             nearest = p
-          # Only adopt if we have no fresh track already near this cell.
+          # Only adopt if we have no track already near this cell.
+          # ⚠️ v56 RE-SEED FIX. This dedupe window used to be CalloutFreshTicks (20),
+          # but the track we stamp below is deliberately aged to tick-FreshShotTicks-1
+          # (25) so it reads as a LEAD and not a shot — i.e. the seed could never
+          # satisfy its own freshness test, while the shout BUBBLE that produced it
+          # stays on screen for ShoutTicks (72) and is re-read every single frame. So
+          # the intake re-seeded the same phantom every frame for the bubble's whole
+          # life: measured at 192,469 seeds in a 4-game probe run, ~one per bot-frame.
+          # With TrackCap = 8 (exactly the real opponent count) and the prune sorting
+          # by lastSeen, a 25-tick-old phantom outranks and EVICTS real enemy memory
+          # older than that. The bug was dormant only because reactContact (the old
+          # sole gate on this branch) has been off; eCallout wakes it. The window must
+          # cover the bubble's life, not the callout's freshness.
           var known = false
           for t in bot.enemies:
-            if bot.tick - t.lastSeen <= CalloutFreshTicks and
+            if bot.tick - t.lastSeen <= CalloutSeedTtl and
                 dist(t.pos, p) <= float(MapW) / float(ChessFiles):
               known = true
               break
@@ -6584,7 +6602,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     #   • it decays with CommsPlayTtl like every other adoption.
     # Runs AFTER the clock flank so an EVENT beats the clock — which is the whole
     # point of an event-driven play layer.
+    # ⚠️ localSc == ScNone is the SAME precedence rule selectScenarioPlay already
+    # enforces one block up ("our own fresh classification takes priority; else a
+    # fresh heard play; else clock"). Without it these executors would fight the
+    # local levers — a bot that classifies ScLine itself is being held at a rally by
+    # holdLine while a heard WIPE tried to drag its lane elsewhere. A bot with a live
+    # local read is AT the picture and is the CALLER; a bot with none is the listener,
+    # and the listener is who this block is for. It also lines the population up with
+    # the geometry: ScStack needs the pocket, ScWipe/ScLine need depth, so the bots
+    # this leaves are exactly the ones still on the approach.
     let heardFresh = bot.tune.commsPlay and bot.heardPlay != RpNone and
+      localSc == ScNone and
       bot.tick - bot.heardPlayTick <= CommsPlayTtl and bot.heardPlayPos.x >= 0.0
     if heardFresh and not iCarry and not mateCarry and not ownStolen and
         not retreating and dist(me, stealTarget) > 150.0:
