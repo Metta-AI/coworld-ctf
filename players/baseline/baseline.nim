@@ -432,6 +432,44 @@ when defined(ffprobe):
   var ffIdle = 0      # ...with NO fresh enemy track (eligible to pre-lay)
   var ffPreLay = 0    # ...where the turret actually pre-laid on the throat
 
+when defined(ndprobe):
+  # -d:ndprobe ONLY (2026-08-14, the v56 NADE PACKAGE proof). Read each group
+  # as a FUNNEL — a stage that zeroes names the gate that is blind.
+  #
+  # ⚠️ The population counters (ndCarryFrames, ndStaleSeen, ndPairFrames) are
+  # deliberately NOT gated on their own lever, so the OFF arm measures the same
+  # world (the asoprobe rule: gating a probe behind its own lever means the OFF
+  # arm can only ever report 0, which is indistinguishable from "no stimulus").
+  var ndCarryFrames = 0   # frames a live bot held a grenade and was scanning
+  var ndFreshAim = 0      # ...and a FRESH candidate won the aim (shipped path)
+  var ndStaleSeen = 0     # tracks scanned that were stale-but-remembered,
+                          # wall-BLOCKED and camped (the population the shipped
+                          # FreshShotTicks gate throws away). Lever-independent.
+  var ndStaleCluster = 0  # ...of those, ones that also had >=2 in one blast
+                          # (the exact wall-camper case; the throw candidate)
+  var ndStaleAim = 0      # ...and the stale candidate actually WON the aim
+  var ndStaleRelease = 0  # grenades RELEASED off a stale-armed charge
+  var ndFreshRelease = 0  # grenades RELEASED off a fresh-armed charge
+  # Supply funnel.
+  var ndSupplyRole = 0    # frames an eligible (role-restricted) seat was unarmed
+                          # and free to re-arm. Lever-independent population.
+  var ndSupplyDepot = 0   # ...with at least one KNOWN depot coordinate
+  var ndSupplySeek = 0    # ...where the detour actually drove the feet
+  var ndSupplySeen = 0    # frames the shipped SEEN-sprite scan took a pickup
+                          # (the LOS-gated path; lever-independent)
+  var ndDepotSeeded = 0   # depots seeded from static map geometry
+  var ndDepotLearned = 0  # depots learned from a sighting
+  # Anti-bunch funnel.
+  var ndPairFrames = 0    # frames a mate track sat inside ONE BLAST of us
+                          # (lever-independent — the bunching STIMULUS)
+  var ndBunchBand = 0     # frames the outer 40..66px band term pushed the steer
+  var ndBunchStep = 0     # frames the post-chain step-apart broke a standing pair
+  # Release ledger for the DISCRIMINATION score: (throw tick, seat slot, stale?).
+  # The harness joins these to the engine's GrenadeThrow/GrenadeImpact events by
+  # actionId, so a stale-armed throw's CONVERSION can be compared against a
+  # fresh-armed one — a gate must DISCRIMINATE, not just fire.
+  var ndReleases: seq[tuple[tick, slot: int, stale: bool]] = @[]
+
 when defined(cgprobe):
   # -d:cgprobe ONLY (2026-08-06): comboGrab mechanism proof. The co-carry
   # counters are TUNE-INDEPENDENT (self-observed item state, no fog) so a
@@ -1147,6 +1185,62 @@ const
                               # loose — disc-union splats, conservative corners)
   BarrageEvadeMargin = 48.0   # hazardSense: evacuate to this far INSIDE the
                               # stated shell ring, not just onto its lip
+  # ── v56 NADE PACKAGE (2026-08-14, play-layer-analysis-2026-08-14.md §3).
+  # Three independent levers with one env opt-out each: staleNade
+  # (NOSTALENADE), nadeSupply (NOSUPPLY), antiBunch (NOBUNCH).
+  NadeStaleTicks = 110        # staleNade: a REMEMBERED bunker cluster stays a
+                              # legal LOB target this long. FreshShotTicks(24)
+                              # is a GUN gate — the turret needs the body to
+                              # still be roughly where it was — but a grenade
+                              # flies OVER the wall and bursts on AREA, so the
+                              # gun's freshness bar is the wrong instrument.
+                              # Capped under TrackTtl(120) so the track is still
+                              # remembered at all when we commit the charge.
+  NadeStaleVelPx = 0.6        # staleNade: ...and only for a CAMPER — last
+                              # observed speed under this (px/tick; top speed is
+                              # 2.75). A body that was MOVING when it fogged out
+                              # is not where we remember it; a wall-camper is.
+  NadeStaleMinCluster = 2     # staleNade: ...and only for >=2 remembered bodies
+                              # inside ONE blast. A lone stale memory is a
+                              # guess; two stacked memories behind cover is the
+                              # exact shape the grenade exists to punish (and
+                              # the measured five-kill door camper of §1).
+  NadeDepotDetour = 320.0     # nadeSupply: role-restricted RE-ARM detour budget,
+                              # in px of EXTRA path (me->depot->task minus
+                              # me->task). 320px is the measured cost of the
+                              # 2026-07 ammo detour; that finding's rule is that
+                              # such a detour MUST be role-restricted or it
+                              # drags the whole line off task.
+  NadeSpawnInsetPx = 50.0     # nadeSupply: the sim's corner grenade spawn inset
+                              # = ArenaBorder(10) + GrenadeSpawnInset(40),
+                              # planted EXACTLY (resetGrenades does no
+                              # nearest-walkable nudge). Only valid on a
+                              # layoutSides board — i.e. anything under 4 teams.
+  NadeDepotSeenPx = 24.0      # nadeSupply: two sightings within this are the
+                              # same static depot (dedupe the learned set)
+  NadeDepotMax = 8            # nadeSupply: remembered depot cap
+  NadeDepotDryPx = 20.0       # nadeSupply: standing this close to a depot and
+                              # STILL unarmed proves the corner is empty (the
+                              # sim picks up on a 12px touch, automatically)
+  NadeDepotDryTicks = 5 * 24  # nadeSupply: ...so ignore that depot for one
+                              # GrenadeRespawnTicks (5s * ReplayFps 24). Without
+                              # this a bot parks on a taken corner forever —
+                              # the detour's own worst failure mode.
+  BunchSpacing = NadeBlast + 14.0  # antiBunch: keep mates outside ONE blast
+                              # (52px + body). MateSpacing(40) sits INSIDE the
+                              # blast radius, so the shipped repulsion settles
+                              # pairs exactly where one grenade takes both:
+                              # 56% of enemy impacts that damaged us caught 2+.
+  BunchOuterGain = 0.5        # antiBunch: gain of the extra 40..66px band term
+                              # (half the inner MateSpacing gain — a nudge that
+                              # spaces the wave, not a term that breaks it up)
+  BunchMateTtl = 24           # antiBunch: a mate track this fresh still counts
+                              # for spacing. The shipped 12-tick gate plus the
+                              # fog contract (NO team radio — a mate is visible
+                              # only inside your own cone) is why two bots
+                              # facing the SAME way never repel each other.
+  BunchStepPx = 32.0          # antiBunch: probe this far when picking the
+                              # step-apart direction round cover
   # ── Shout-reaction gate (calloutGate, 2026-07-16): a heard callout is
   # INTEL, not an order. Listening (banking the enemy track) is always cheap;
   # REACTING (turning the cone / moving) must clear a distraction bar keyed to
@@ -1413,6 +1507,11 @@ type
     aimBrads: int             # last observed gun bearing (aim dots); -1 unknown
     hasArc: bool              # last observed plasma-arc possession (disarmed)
     hasShield: bool           # last observed shield possession (6-hp tank, slow fire)
+    sightings: int            # how many frames this track has been MATCHED.
+                              # A brand-new track carries vel (0,0) by
+                              # construction, so "it was standing still" is
+                              # unknowable until the second sighting — staleNade
+                              # needs that distinction (a camper vs a blur).
 
   CombatTune = object
     ## The fire/engage decision knobs, made per-bot so a forked policy can
@@ -1519,6 +1618,42 @@ type
                               # Bearings decay (DangerAimTtl), never steer the
                               # feet, and lose to every live-target claim — NOT
                               # the refuted huntSweep.
+    staleNade: bool           # ⭐ STALE-TRACK WALL GRENADE (v56 nade package).
+                              # The nade target scan reuses the GUN's freshness
+                              # gate (FreshShotTicks=24) — so a bunched enemy
+                              # KNOWN to be behind a wall can NEVER be targeted,
+                              # which is precisely the case a grenade exists
+                              # for. This is a NARROW exception, not a removal:
+                              # a stale track qualifies only if it is
+                              # wall-BLOCKED, was CAMPING (vel <= NadeStaleVelPx)
+                              # and has >=NadeStaleMinCluster remembered bodies
+                              # inside one blast. Everything else keeps the
+                              # 24-tick gate, and a stale candidate never
+                              # outranks an equal fresh one. NOSTALENADE=1
+                              # reverts.
+    nadeSupply: bool          # ⭐ ROLE-RESTRICTED NADE SUPPLY (v56 nade
+                              # package). We are supply-starved (38 pickups vs
+                              # 68). The shipped pickup scan is LOS-gated —
+                              # `spriteObjectsWithLabel("grenade")` is
+                              # fog-honest and the vision bubble is 90px — so
+                              # the flankers' "unlimited reach to their lane
+                              # corner" only ever fires by accident, the same
+                              # fires-0 shape the shield/arc seek had. Grenade
+                              # spawns are STATIC KNOWN POINTS (sim
+                              # grenadeSpawnPoints; on every non-4-team board
+                              # the four corners at ArenaBorder+GrenadeSpawnInset
+                              # = 50px inset), and a taken corner refills in 5s
+                              # — so navigate to the COORDINATE. Restricted to
+                              # the flank/trailer seats with a hard
+                              # NadeDepotDetour budget. NOSUPPLY=1 reverts.
+    antiBunch: bool           # ⭐ ANTI-BUNCH SPACING (v56 nade package). 56% of
+                              # enemy grenade impacts that damaged us caught 2+
+                              # of ours in one blast. MateSpacing(40) is INSIDE
+                              # NadeBlast(52), so the shipped repulsion parks
+                              # pairs in the kill radius. Adds an outer
+                              # 40..BunchSpacing band term on the nav steer plus
+                              # a post-chain step-apart for a STANDING pair
+                              # inside one blast. NOBUNCH=1 reverts.
     carrierFlee: bool         # a carrier keeps MOVING home while engaged (gun
                               # still fires) instead of advancing — FALSIFIED
                               # 2026-07-15 (net -3, conv worse): fleeing turns the
@@ -2395,6 +2530,18 @@ type
     nadeNeed: int             # charge ticks required for the planned throw
     nadeLockAim: int          # nadeLob: lob bearing frozen at charge start (-1 idle)
     nadeHold: int             # nadeLob: full-charge ticks spent waiting for the turret
+    nadeStaleArm: bool        # staleNade: this charge was armed on a STALE
+                              # (remembered, wall-blocked, camped) cluster, not
+                              # a fresh sighting — carried to the release so the
+                              # probe can score the two classes separately
+    nadeDryUntil: seq[int]    # nadeSupply: parallel to nadeDepots — tick until
+                              # which that corner is believed EMPTY (we stood on
+                              # it and got nothing), so we stop walking to it
+    nadeDepots: seq[Vec]      # nadeSupply: known grenade spawn points. Seeded
+                              # from the sim's STATIC corner geometry where the
+                              # layout is knowable, then extended with anything
+                              # we actually see. Static per episode, so this is
+                              # map knowledge, not a track.
     shoutWant: string         # chat packet to send after this frame's input
     lastShoutTick: int        # rate limit: server allows one shout per second
     heardPlay: ReactPlay      # COMMS BUS: play decoded from the last heard codeword
@@ -2742,6 +2889,10 @@ proc defaultCombatTune(): CombatTune =
                               # consume the orient bearing and always watch -homeSign.
     hazardSense: false,       # control: puddle/barrage markers stay unread.
     dangerPreAim: false,      # control: idle cruise aim just leads the feet.
+    staleNade: false,         # control: the nade scan keeps the GUN's 24-tick gate, so a
+                              # known wall-camped cluster is untargetable by construction.
+    nadeSupply: false,        # control: grenades are only collected when SEEN (90px bubble).
+    antiBunch: false,         # control: mates settle at MateSpacing(40), inside one blast.
     carrierFlee: false,       # control: carrier advances toward a point-blank enemy.
     carrierClearBand: false,  # control: carrier lane may sit in the respawn cone.
     carrierSerpentine: false, # control: carrier runs a straight predictable line home.
@@ -3362,6 +3513,20 @@ proc shippedCombatTune(): CombatTune =
   # 3) DANGER-BEARING PRE-AIM — "shots on target = positioned + looking where
   #    the enemy WILL be". NOPREAIM=1 reverts.
   result.dangerPreAim = getEnv("NOPREAIM").len == 0
+  # ⭐⭐ v56 NADE PACKAGE (2026-08-14, play-layer-analysis §3). Three
+  # independent levers, one env opt-out each:
+  # 1) STALE-TRACK WALL GRENADE — "the wall-camper grenade is impossible by
+  #    construction": nade targeting skips any track older than the GUN's
+  #    FreshShotTicks=24, so a known-but-currently-fogged bunker cluster can
+  #    never be a target. NOSTALENADE=1 reverts.
+  result.staleNade = getEnv("NOSTALENADE").len == 0
+  # 2) ROLE-RESTRICTED NADE SUPPLY — measured 38 pickups vs their 68. Grenade
+  #    spawns are STATIC known points, so the flank/trailer seats navigate to
+  #    the coordinate instead of waiting to SEE one. NOSUPPLY=1 reverts.
+  result.nadeSupply = getEnv("NOSUPPLY").len == 0
+  # 3) ANTI-BUNCH SPACING — 56% of enemy nade impacts that damaged us caught
+  #    2+ of ours; MateSpacing(40) < NadeBlast(52). NOBUNCH=1 reverts.
+  result.antiBunch = getEnv("NOBUNCH").len == 0
 
 
 when defined(rngprobe):
@@ -4821,11 +4986,13 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       # Shield tracks the live marker (a carrier can burn it down / it drops on
       # death); refresh both ways so a track that lost its shield stops reading tank.
       tracks[best].hasShield = a.hasShield
+      inc tracks[best].sightings
       claimed[best] = true
     else:
       tracks.add(Track(
         pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp,
-        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield))
+        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield,
+        sightings: 1))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -4835,6 +5002,18 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
   if kept.len > TrackCap:                # there are only eight real players
     kept.setLen(TrackCap)
   tracks = kept
+
+proc nadeCamper(bot: Bot, t: Track): bool =
+  ## staleNade: does this REMEMBERED track have the wall-camper shape a
+  ## grenade exists to punish? Three properties, all of them the camper's own:
+  ##   * still remembered at all (inside NadeStaleTicks, under TrackTtl);
+  ##   * seen at least TWICE — a brand-new track carries vel (0,0) by
+  ##     construction, so a single glimpse of a sprinting body is
+  ##     indistinguishable from a parked one until the second sighting; and
+  ##   * stationary when last seen (the blended vel estimate).
+  ## Says nothing about walls or clustering; the caller adds those.
+  bot.tick - t.lastSeen <= NadeStaleTicks and t.sightings >= 2 and
+    t.vel.len() <= NadeStaleVelPx
 
 proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
@@ -4857,6 +5036,11 @@ proc resetTransient(bot: Bot) =
   bot.nadeCharge = 0
   bot.nadeLockAim = -1
   bot.nadeHold = 0
+  bot.nadeStaleArm = false
+  bot.nadeDepots.setLen(0)   # nadeSupply: paintbot draws a fresh map per
+                             # episode, so depot geometry is re-derived, never
+                             # carried across the interstitial
+  bot.nadeDryUntil.setLen(0)
   bot.mateFixTick = 0
   bot.shoutWant = ""
   bot.lastShoutTick = 0
@@ -7578,49 +7762,131 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var
     nadeAim = -1
     nadeThrowD = 0.0
+    nadeAimStale = false               # staleNade: the winning candidate is a
+                                       # remembered wall-camper, not a sighting
   if carryingNade and not iCarry:
     # Score each candidate by CLUSTER SIZE (fresh enemies within one blast of the
     # aim point), tie-broken by nearness. A wall-blocked lone target still qualifies
     # (the gun can't reach it); an open target needs a cluster >=2 (a lone open
     # enemy is the gun's job, not a spent grenade) UNLESS a line is live, where even
     # thinning the front is worth the lob.
+    #
+    # ⭐ staleNade (v56): the freshness gate below is the GUN's gate
+    # (FreshShotTicks = 24 ≈ 0.8s), and it was silently deciding grenade
+    # targeting too — so a bunched enemy KNOWN to be behind a wall could NEVER
+    # be a target, which is precisely the case a grenade exists for (the
+    # measured five-kill door camper: known, stationary, wall-covered, never
+    # naded). The gate STAYS for everything else; a stale track is admitted
+    # only when all three of the camper's own properties hold:
+    #   (1) wall-BLOCKED — the gun provably cannot collect it, so the lob is
+    #       not competing with a shot we could just take;
+    #   (2) CAMPED when last seen (vel <= NadeStaleVelPx) — a body that was
+    #       moving is not where we remember it, and a grenade's ~1s flight
+    #       cannot chase; and
+    #   (3) >= NadeStaleMinCluster remembered bodies inside ONE blast — a lone
+    #       stale memory is a guess, a stack of two is the bunker.
+    # A stale candidate is scored on its own cluster but NEVER outranks an
+    # equal-size fresh one (the freshness tiebreak below), and a stale aim
+    # point is the REMEMBERED position, never velocity-extrapolated: over 110
+    # ticks `pos + vel*age` would fly off the map.
     var bestScore = -1
     var bestD = 1e18
+    var bestStale = true               # so the first candidate always wins
+    when defined(ndprobe): inc ndCarryFrames
     for i in 0 ..< bot.enemies.len:
       let t = bot.enemies[i]
-      if bot.tick - t.lastSeen > FreshShotTicks:
-        continue
-      let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
+      let age = bot.tick - t.lastSeen
+      var stale = false
+      if age > FreshShotTicks:
+        # Probe population (lever-INDEPENDENT so the OFF arm measures the same
+        # world): how often a stale track is actually the wall-camper shape.
+        when defined(ndprobe):
+          if bot.nadeCamper(t) and
+              dist(t.pos, me) >= NadeMinRange and dist(t.pos, me) <= NadeMaxRange and
+              not client.pixelRayClear(me, t.pos):
+            inc ndStaleSeen
+            var pop = 1
+            for j in 0 ..< bot.enemies.len:
+              if j != i and bot.nadeCamper(bot.enemies[j]) and
+                  dist(bot.enemies[j].pos, t.pos) <= NadeBlast:
+                inc pop
+            if pop >= NadeStaleMinCluster: inc ndStaleCluster
+        if not (bot.tune.staleNade and bot.nadeCamper(t)):
+          continue
+        stale = true
+      let p = if stale: t.pos else: t.pos + t.vel * float(age)
       let d = dist(p, me)
       if d < NadeMinRange or d > NadeMaxRange:
         continue
       let blocked = not client.pixelRayClear(me, p)
+      if stale and not blocked:
+        continue                       # a stale OPEN memory is the gun's job
       var cluster = 1                    # the target itself
       for j in 0 ..< bot.enemies.len:
         if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
             dist(bot.enemies[j].pos, p) <= NadeBlast:
           inc cluster
+      if stale:
+        # A stale candidate counts stale mates too — a bunker is remembered as
+        # a whole — but must clear the cluster bar to be a target at all.
+        var scluster = 1
+        for j in 0 ..< bot.enemies.len:
+          if j == i or dist(bot.enemies[j].pos, p) > NadeBlast:
+            continue
+          if bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks or
+              bot.nadeCamper(bot.enemies[j]):
+            inc scluster
+        if scluster < NadeStaleMinCluster:
+          continue
+        cluster = scluster
       # Worth a throw: wall-blocked (gun can't collect), OR a real cluster (>=2),
       # OR a live line where even a single front body thins the wall we must cross.
       if blocked or cluster >= 2 or lineLive:
-        # Prefer the fattest cluster; nearer breaks ties (flatter lob, less drift).
-        if cluster > bestScore or (cluster == bestScore and d < bestD):
+        # Prefer the fattest cluster; a FRESH candidate breaks a size tie ahead
+        # of a stale one (never trade a sighting for a memory); nearer breaks
+        # what is left (flatter lob, less drift).
+        let better =
+          if cluster > bestScore: true
+          elif cluster < bestScore: false
+          elif bestStale and not stale: true
+          elif stale and not bestStale: false
+          else: d < bestD
+        if better:
           bestScore = cluster
           bestD = d
+          bestStale = stale
           nadeAim = bradsOf(p - me)
           nadeThrowD = d
+          nadeAimStale = stale
     when defined(commsprobe):
       if nadeAim >= 0 and (lineLive or bestScore >= 2): inc csNadeLine
+    when defined(ndprobe):
+      if nadeAim >= 0:
+        if nadeAimStale: inc ndStaleAim else: inc ndFreshAim
   elif not carryingNade and not iCarry and not mateCarry and not pocketRush and
       not banking:
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
+    var tookNade = false
     for o in client.spriteObjectsWithLabel(LabelGrenade):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
           p.y > float(MapH - 40):
         continue                     # HUD indicator shares the label
+      # ⭐ nadeSupply: a sighting also BANKS the depot. Corner spawns are
+      # static for the whole episode (sim resetGrenades never moves them) and
+      # refill 5s after a take, so one look is permanent map knowledge — the
+      # part the 90px vision bubble otherwise throws away every frame.
+      if bot.tune.nadeSupply and bot.nadeDepots.len < NadeDepotMax:
+        var known = false
+        for q in bot.nadeDepots:
+          if dist(q, p) <= NadeDepotSeenPx:
+            known = true
+            break
+        if not known:
+          bot.nadeDepots.add p
+          when defined(ndprobe): inc ndDepotLearned
       let laneMatch =
         (bot.role == FlankTop and p.y < float(CenterY) and
          homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
@@ -7631,7 +7897,67 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         when defined(nadeDebug):
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
         target = p
+        tookNade = true
+        when defined(ndprobe): inc ndSupplySeen
         break
+    # ⭐ nadeSupply (v56): the scan above is LOS-GATED. `spriteObjectsWithLabel`
+    # is fog-honest (broadcast.addPickup drops any spawn outside the seat's real
+    # vision) and the bubble is 90px, so the flankers' "unlimited reach to their
+    # lane corner" almost never fires — the identical fires-0 shape the
+    # shield/plasma-arc seek had before it was repointed at the STATIC spawn
+    # coordinate. Measured cost: 38 pickups to their 68.
+    #
+    # Grenade spawns ARE static known points. sim.grenadeSpawnPoints() derives
+    # them from map geometry alone, and on every board that is not a 4-team
+    # board the layout is layoutSides BY CONSTRUCTION (arena.nim: only
+    # `teams == 4` can draw corners/plus, and the layout override is rejected
+    # below 4 teams) — the four corners at ArenaBorder(10) + GrenadeSpawnInset(40)
+    # = 50px inset. resetGrenades plants them there exactly, with no
+    # nearest-walkable nudge, and a taken corner refills in GrenadeRespawnTicks
+    # = 5s, so a depot is essentially always stocked.
+    #
+    # ROLE-RESTRICTED, per the 2026-07 supply finding ("the 320px ammo detour
+    # MUST be role-restricted"): only the two flank seats — whose route already
+    # runs the border — and the MidGuard trailer, the one attacker explicitly
+    # dealt as "trails offset high and cleans up". The mids are the wave and
+    # never leave it; HomeDefender/Overwatch hold posts and must not wander.
+    # Budget is the EXTRA path (me->depot->task minus me->task), not raw range,
+    # so a depot already on the route is free and one across the map is refused.
+    if bot.tune.nadeSupply and not tookNade and
+        bot.role in {FlankTop, FlankBottom, MidGuard} and
+        engage < 0:                    # never leave a live gunfight for ammo
+      if bot.nadeDepots.len == 0 and GameTeams < 4 and MapW > 120 and MapH > 120:
+        let inset = NadeSpawnInsetPx
+        for c in [vec(inset, inset), vec(inset, float(MapH) - inset),
+                  vec(float(MapW) - inset, inset),
+                  vec(float(MapW) - inset, float(MapH) - inset)]:
+          bot.nadeDepots.add c
+          when defined(ndprobe): inc ndDepotSeeded
+      while bot.nadeDryUntil.len < bot.nadeDepots.len:
+        bot.nadeDryUntil.add 0
+      when defined(ndprobe):
+        inc ndSupplyRole
+        if bot.nadeDepots.len > 0: inc ndSupplyDepot
+      var bestDepot = -1
+      var bestCost = NadeDepotDetour
+      let taskD = dist(target, me)
+      for k in 0 ..< bot.nadeDepots.len:
+        let q = bot.nadeDepots[k]
+        # Standing ON a depot and STILL unarmed proves it is empty (the sim
+        # grants on a 12px touch with no input at all), so believe it and let
+        # it refill. Without this the detour's own worst failure mode is a bot
+        # parked on a taken corner for the rest of the game.
+        if dist(q, me) <= NadeDepotDryPx:
+          bot.nadeDryUntil[k] = bot.tick + NadeDepotDryTicks
+        if bot.tick < bot.nadeDryUntil[k]:
+          continue
+        let cost = dist(q, me) + dist(target, q) - taskD
+        if cost < bestCost:
+          bestCost = cost
+          bestDepot = k
+      if bestDepot >= 0:
+        target = bot.nadeDepots[bestDepot]
+        when defined(ndprobe): inc ndSupplySeek
 
   # ── SWORD / SHIELD / PLASMA-ARC pickups. The disarm object MOVED with the
   # engine: on GameVersion 15 the SWORD IS GONE (replaced by the plasma arc) and
@@ -8186,6 +8512,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.nadeCharge == 0:
       bot.nadeNeed = max(3, int(float(NadeFullChargeTicks) *
         (nadeThrowD - 30.0) / (NadeMaxRange - 30.0)))
+      bot.nadeStaleArm = nadeAimStale  # staleNade: which class armed THIS charge
       if bot.tune.nadeLob:
         bot.nadeLockAim = nadeAim
         bot.nadeHold = 0
@@ -8211,8 +8538,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               stderr.writeLine "NADEREL slot=" & $bot.slot & " t=" & $bot.tick &
                 " err=" & $abs(bradsErr(desiredAim, bot.estAim)) &
                 " held=" & $bot.nadeHold
+          when defined(ndprobe):
+            if bot.nadeStaleArm: inc ndStaleRelease else: inc ndFreshRelease
+            # The release ledger the harness joins to the engine's
+            # GrenadeThrow/GrenadeImpact by actionId, so the stale class can be
+            # scored on CONVERSION (victims per throw), not trigger count.
+            ndReleases.add((tick: bot.tick, slot: bot.slot,
+                            stale: bot.nadeStaleArm))
           bot.nadeCharge = 0           # release this tick = the throw
           bot.nadeLockAim = -1
+          bot.nadeStaleArm = false
     holdStill = true
     acted = true
   elif bot.tune.swordAmbush and iHaveSword and swordTarget >= 0:
@@ -8736,6 +9071,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let d = dist(t.pos, me)
         if d < MateSpacing and d > 0.5:
           steer = steer + norm(me - t.pos) * ((MateSpacing - d) / MateSpacing) * 0.9
+      # ⭐ antiBunch (v56): the repulsion above settles pairs at MateSpacing =
+      # 40px — INSIDE NadeBlast (52px + body). Measured: 56% of the enemy
+      # grenade impacts that damaged us caught 2+ of ours in one blast. Add a
+      # second, gentler term over the 40..BunchSpacing band so the settling
+      # distance lands OUTSIDE one blast instead of inside it, and widen the
+      # track window to BunchMateTtl: there is no team radio (sim
+      # playerVisibleTo — a mate is visible only inside your own cone), so two
+      # bots walking the same way are mutually invisible and the shipped
+      # 12-tick gate never fires on exactly the pair that stacks at a door.
+      if bot.tune.antiBunch:
+        for t in bot.mates:
+          let age = bot.tick - t.lastSeen
+          if age > BunchMateTtl:
+            continue
+          let d = dist(t.pos, me)
+          if d >= MateSpacing and d < BunchSpacing and d > 0.5:
+            steer = steer + norm(me - t.pos) *
+              ((BunchSpacing - d) / BunchSpacing) * BunchOuterGain
+            when defined(ndprobe): inc ndBunchBand
       # avoidDisarm: soft-repel from a PLASMA-ARC pickup we are NOT out to collect
       # (auto-pickup on 12px touch => canFire=false, gun lost until fired+dropped).
       # Repointed off the dead sword + no-longer-disarming shield: the arc is the
@@ -9039,6 +9393,68 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           # stuck-burst jinks us in a RANDOM direction, i.e. possibly into the cone.
           bot.stuckTicks = 0
           when defined(asoprobe): inc asoHold
+
+  # ⭐ antiBunch STEP-APART (v56). The steer term above only reaches bots that
+  # are NAVIGATING; the pairs that actually eat one grenade are the ones
+  # STANDING together — at a door, behind the same corner, holding the same
+  # lip. This is a post-chain MOVEMENT-ONLY override in the same family as
+  # arcStandoff/nadeDanger: whatever branch won the feet, a mate parked inside
+  # one blast of us outranks a hold. Deliberately narrow:
+  #   * only when we are actually STILL (nothing else is moving us apart);
+  #   * only inside NadeBlast (one blast takes both — not merely "close");
+  #   * exactly ONE of the pair yields, on a rule both sides compute the same
+  #     way, so they step APART instead of both dancing and neither clearing;
+  #   * never a carrier / touch-latched grab (a capture ends the episode), and
+  #     never mid-charge (dropping a live grenade charge wastes it), and
+  #   * placed BEFORE nadeDanger so a grenade already marked on our head still
+  #     has the final say on the feet.
+  if bot.tune.antiBunch and moveMask == 0 and not iCarry and not touchLatch and
+      bot.nadeCharge == 0:
+    var bunchFrom = vec(-1.0, -1.0)
+    var bunchD = NadeBlast
+    for t in bot.mates:
+      if bot.tick - t.lastSeen > BunchMateTtl:
+        continue
+      let d = dist(t.pos, me)
+      if d < bunchD and d > 0.5:
+        bunchD = d
+        bunchFrom = t.pos
+    if bunchFrom.x >= 0.0:
+      # Yield rule: the FORWARD body peels, the one nearer our own heart holds
+      # its ground (ties fall to x, then y). It has to be an ASYMMETRIC rule
+      # both sides compute identically — a symmetric one moves both bodies and
+      # preserves the gap. A mate track carries no slot id, so the ordering is
+      # positional; perception is one-way anyway (no team radio), so often only
+      # the bot that can SEE the other runs this at all.
+      let
+        myHome = abs(me.x - homeDeepX(bot.team))
+        itsHome = abs(bunchFrom.x - homeDeepX(bot.team))
+        iYield =
+          if abs(myHome - itsHome) > 1.0: myHome > itsHome
+          elif abs(me.x - bunchFrom.x) > 1.0: me.x > bunchFrom.x
+          else: me.y > bunchFrom.y
+      if iYield:
+        var step = norm(me - bunchFrom)
+        if step.len() < 0.5:
+          step = vec(0.0, 1.0)
+        # Prefer a lateral peel that keeps us on task; fall back round cover.
+        let side = vec(-step.y, step.x)
+        if not bot.gridRayClear(me, me + step * BunchStepPx):
+          for alt in [norm(step + side), norm(step - side), side, side * -1.0]:
+            if bot.gridRayClear(me, me + alt * BunchStepPx):
+              step = alt
+              break
+        moveMask = octantBits(step)
+        holdStill = false
+        bot.stuckTicks = 0               # a deliberate peel, not a corner grind
+        when defined(ndprobe): inc ndBunchStep
+  when defined(ndprobe):
+    # Bunching STIMULUS, counted lever-independently (asoprobe rule): frames a
+    # remembered mate sat inside one blast of us.
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= BunchMateTtl and dist(t.pos, me) <= NadeBlast:
+        inc ndPairFrames
+        break
 
   if nadeDanger:
     # Sprint straight out of the marked blast zone; drop any hold/duck.
