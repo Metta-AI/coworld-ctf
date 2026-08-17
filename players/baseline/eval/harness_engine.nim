@@ -29,6 +29,9 @@ when defined(rangehitprobe):
   import std/math
   const RangeHitNearPx = 150.0  ## the study's own band: 0-150px hit%.
 
+when defined(ndprobe):
+  import std/math
+
 type
   EvalEngine* = ref object
     sim: SimServer
@@ -146,9 +149,28 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     # (collectEvents costs real allocation), so every other probe build stays
     # exactly as fast.
     result.sim.collectEvents = true
+  when defined(ndprobe):
+    # -d:ndprobe (2026-08-14, the v56 nade package): the tier-2 sink carries
+    # GrenadeThrow / GrenadeImpact / Pickup, which is the only ENGINE-TRUTH
+    # source for throws, supply and blast multiplicity (a policy-side counter
+    # of what the bot BELIEVES is not the field metric).
+    result.sim.collectEvents = true
   for i in 0 ..< numPlayers:
     discard result.sim.addPlayer("bot" & $i, trusted = true)
   result.sim.startGame()
+  when defined(ndprobe):
+    # Print the sim's OWN grenade spawn geometry, once per episode. This is the
+    # evidence for nadeSupply's premise: the four corners are derived from map
+    # size + layout alone (grenadeSpawnPoints), planted with no
+    # nearest-walkable nudge, and never move for the whole episode — i.e. they
+    # are STATIC KNOWN POINTS like the shield/plasma-arc spawns, not something
+    # the 90px vision bubble has to find.
+    var pts = ""
+    for sp in result.sim.grenadeSpawns:
+      pts.add " " & $sp.x & "," & $sp.y
+    echo "NDMAP ", result.sim.gameMap.width, "x", result.sim.gameMap.height,
+      " layout=", result.sim.gameMap.layout, " teams=", result.sim.config.teams,
+      " grenadeSpawns:", pts
   result.viewers = newSeq[PlayerViewerState](numPlayers)
   for i in 0 ..< numPlayers:
     result.viewers[i] = initPlayerViewerState()
@@ -242,6 +264,77 @@ when defined(canprobe):
   proc sprayOf*(engine: EvalEngine, slot: int): tuple[can, alive: bool] =
     let p = engine.sim.players[slot]
     (can: p.hasPlasmaArc, alive: p.alive)
+
+when defined(ndprobe):
+  # -d:ndprobe: ENGINE TRUTH for the v56 nade package.
+  type NdRec* = object
+    ## One grenade-relevant tier-2 event, flattened for the harness.
+    ## kind: 0 = GrenadeThrow, 1 = GrenadeImpact, 2 = grenade Pickup.
+    kind*: int
+    tick*: int
+    slot*: int                 ## acting player's stable JOIN slot (-1 = n/a)
+    team*: int                 ## that player's team ordinal (-1 = n/a)
+    actionId*: int64           ## ties a throw to its impact
+    victims*: array[4, int]    ## on an impact: bodies damaged, per team
+
+  proc ndGrenadeRecs*(engine: EvalEngine): seq[NdRec] =
+    ## Drains the collected event stream into throw / impact / pickup records.
+    ## `source` is a stable JOIN slot, not the raw player index, so map it the
+    ## same way weaponKillCounts and tools/extract_events.nim do.
+    var teamOfJoinSlot = newSeq[int](engine.sim.players.len)
+    for i in 0 ..< teamOfJoinSlot.len: teamOfJoinSlot[i] = -1
+    for p in engine.sim.players:
+      if p.joinOrder >= 0 and p.joinOrder < teamOfJoinSlot.len:
+        teamOfJoinSlot[p.joinOrder] = ord(p.team)
+    proc teamOf(s: int): int =
+      if s >= 0 and s < teamOfJoinSlot.len: teamOfJoinSlot[s] else: -1
+    for e in engine.sim.events:
+      case e.kind
+      of GrenadeThrow:
+        result.add NdRec(kind: 0, tick: e.tick, slot: e.source,
+                         team: teamOf(e.source), actionId: e.actionId)
+      of GrenadeImpact:
+        var rec = NdRec(kind: 1, tick: e.tick, slot: e.source,
+                        team: teamOf(e.source), actionId: e.actionId)
+        for d in e.damages:
+          let t = teamOf(d.slot)
+          if t in 0 .. 3: inc rec.victims[t]
+        result.add rec
+      of Pickup:
+        if e.item == "grenade":
+          result.add NdRec(kind: 2, tick: e.tick, slot: e.source,
+                           team: teamOf(e.source), actionId: e.actionId)
+      else: discard
+
+  proc ndSpacingSample*(engine: EvalEngine): tuple[
+      bots, underBlast: int, sumNearest: float, hist: array[6, int]] =
+    ## GROUND-TRUTH nearest-living-mate distance for every living bot this
+    ## tick. `underBlast` = bodies whose nearest mate sits inside NadeBlast,
+    ## i.e. the population one enemy grenade takes two of. Histogram buckets
+    ## (px): 0-26, 26-52, 52-66, 66-100, 100-200, 200+.
+    for i in 0 ..< engine.sim.players.len:
+      let me = engine.sim.players[i]
+      if not me.alive: continue
+      var nearest = 1e9
+      for j in 0 ..< engine.sim.players.len:
+        if j == i: continue
+        let q = engine.sim.players[j]
+        if not q.alive or q.team != me.team: continue
+        let d = sqrt(float((me.x - q.x) * (me.x - q.x) +
+                           (me.y - q.y) * (me.y - q.y)))
+        if d < nearest: nearest = d
+      if nearest > 1e8: continue         # no living mate: not a pair at all
+      inc result.bots
+      result.sumNearest += nearest
+      if nearest <= GrenadeBlastRadius.float: inc result.underBlast
+      let b =
+        if nearest < 26.0: 0
+        elif nearest < 52.0: 1
+        elif nearest < 66.0: 2
+        elif nearest < 100.0: 3
+        elif nearest < 200.0: 4
+        else: 5
+      inc result.hist[b]
 
 proc frameFor*(engine: EvalEngine, slot: int): string =
   ## The exact sprite packet blob the live server would send this slot this

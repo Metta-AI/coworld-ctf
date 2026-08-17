@@ -444,6 +444,23 @@ when defined(wkprobe):
   # engine's tier-2 event stream. Never spray_use.amount (always 0).
   var wkRedGun, wkBlueGun, wkRedSpray, wkBlueSpray, wkRedNade, wkBlueNade: int
 
+when defined(ndprobe):
+  # -d:ndprobe (2026-08-14, the v56 nade package): ENGINE-TRUTH totals for
+  # throws / supply / blast multiplicity, plus a ground-truth mate-spacing
+  # histogram. The policy-side counters live in baseline.nim; these are the
+  # ones that answer "did the FIELD move", not "did the bot believe".
+  var ndThrows, ndPickups: array[4, int]
+  var ndImpactDmg = 0        # impacts that damaged at least one enemy body
+  var ndImpactBunch = 0      # ...of which caught >=2 bodies of ONE team
+  var ndVictims = 0          # enemy bodies damaged, summed over impacts
+  var ndStaleThrows, ndStaleHit, ndStaleVictims: int
+  var ndFreshThrows, ndFreshHit, ndFreshVictims: int
+  var ndUnjoined = 0         # releases with no matching engine throw
+  var ndSpaceBots = 0
+  var ndSpaceUnder = 0
+  var ndSpaceSum = 0.0
+  var ndSpaceHist: array[6, int]
+
 when defined(rangehitprobe):
   # -d:rangehitprobe (2026-08-07, v45 A/B reporting): range-banded shots/hits
   # per PER-GAME (not just pooled) so the caller can compute accuracy VARIANCE
@@ -508,10 +525,24 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     if turtle and slot notin hunterSlots:
       # Defensive spread over the control team's 8 seats: 3 home-choke guards + 5
       # overwatch posts fanned across the lanes = a body wall in its own half.
+      #
+      # TURTLE_STACK=1 (2026-08-14, the staleNade stimulus): make EVERY control
+      # seat a HomeDefender instead. They all post on the same chokeSpot, so the
+      # control team stands as a BUNCHED, stationary, cover-backed knot rather
+      # than a fanned line — the wall-camper CLUSTER the plain TURTLE spread
+      # deliberately never produces (its Overwatch posts are spaced by design).
+      # Same diagnostic class as TURTLE/ARCFOE: a rig to field a stimulus the
+      # mirror cannot generate, NOT a league signal. The ND-PROBE funnel is the
+      # reading, never the win rate.
       let teamSeat = clamp(slot div 2, 0, 7)
-      d.bot.role = (if teamSeat mod 8 in [0, 3, 7]: HomeDefender else: Overwatch)
+      d.bot.role =
+        if envInt("TURTLE_STACK", 0) != 0: HomeDefender
+        elif teamSeat mod 8 in [0, 3, 7]: HomeDefender
+        else: Overwatch
     drivers.add(d)
 
+  when defined(ndprobe):
+    ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
   var tick = 0
   while engine.isPlaying() and tick < maxTicks:
     for slot in 0 ..< drivers.len:
@@ -560,7 +591,65 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
             if red: inc ssRedShieldEv else: inc ssBlueShieldEv
         ssPrevSword[slot] = ss.sword
         ssPrevShield[slot] = ss.shield
+    when defined(ndprobe):
+      let sp = engine.ndSpacingSample()
+      ndSpaceBots += sp.bots
+      ndSpaceUnder += sp.underBlast
+      ndSpaceSum += sp.sumNearest
+      for b in 0 ..< sp.hist.len: ndSpaceHist[b] += sp.hist[b]
     inc tick
+  when defined(ndprobe):
+    # ENGINE TRUTH + the stale-vs-fresh DISCRIMINATION join. A gate must
+    # discriminate, not just fire: score the stale exception on the SPREAD
+    # between converting and whiffing throws, not on trigger count.
+    let recs = engine.ndGrenadeRecs()
+    for r in recs:
+      case r.kind
+      of 0:
+        if r.team in 0 .. 3: inc ndThrows[r.team]
+      of 2:
+        if r.team in 0 .. 3: inc ndPickups[r.team]
+      of 1:
+        var hit = 0
+        var bunch = false
+        for t in 0 .. 3:
+          if t == r.team: continue         # a self-blast is not a punish
+          hit += r.victims[t]
+          if r.victims[t] >= 2: bunch = true
+        if hit > 0:
+          inc ndImpactDmg
+          ndVictims += hit
+          if bunch: inc ndImpactBunch
+      else: discard
+    # Join the policy release ledger to the engine's throws PER SEAT, in order
+    # (a release IS the throw, so the two sequences align 1:1 per slot); then
+    # follow actionId to the impact for the victim count.
+    var ledger: array[64, seq[bool]]
+    for rel in ndReleases:
+      if rel.slot in 0 ..< ledger.len: ledger[rel.slot].add rel.stale
+    var used: array[64, int]
+    for r in recs:
+      if r.kind != 0: continue
+      if r.slot < 0 or r.slot >= ledger.len: continue
+      if used[r.slot] >= ledger[r.slot].len:
+        inc ndUnjoined
+        continue
+      let stale = ledger[r.slot][used[r.slot]]
+      inc used[r.slot]
+      var v = 0
+      for q in recs:
+        if q.kind == 1 and q.actionId == r.actionId:
+          for t in 0 .. 3:
+            if t != r.team: v += q.victims[t]
+          break
+      if stale:
+        inc ndStaleThrows
+        ndStaleVictims += v
+        if v > 0: inc ndStaleHit
+      else:
+        inc ndFreshThrows
+        ndFreshVictims += v
+        if v > 0: inc ndFreshHit
   when defined(wkprobe):
     let wk = engine.weaponKillCounts()
     wkRedGun += wk.redGun; wkBlueGun += wk.blueGun
@@ -837,6 +926,50 @@ proc main() =
       &"committed {asNoCover} -> chargeFrames {asCharge}"
     echo &"    (surprise=0 => near-ambushes never happen in the mirror; committed=0 => " &
       &"cover was always nearer (duck stays right); chargeFrames>0 => lever live)"
+  when defined(ndprobe):
+    let
+      staleConv = (if ndStaleThrows > 0:
+                     100.0 * ndStaleHit.float / ndStaleThrows.float else: 0.0)
+      freshConv = (if ndFreshThrows > 0:
+                     100.0 * ndFreshHit.float / ndFreshThrows.float else: 0.0)
+      staleVpt = (if ndStaleThrows > 0:
+                    ndStaleVictims.float / ndStaleThrows.float else: 0.0)
+      freshVpt = (if ndFreshThrows > 0:
+                    ndFreshVictims.float / ndFreshThrows.float else: 0.0)
+      bunchPct = (if ndImpactDmg > 0:
+                    100.0 * ndImpactBunch.float / ndImpactDmg.float else: 0.0)
+      meanNear = (if ndSpaceBots > 0: ndSpaceSum / ndSpaceBots.float else: 0.0)
+      underPct = (if ndSpaceBots > 0:
+                    100.0 * ndSpaceUnder.float / ndSpaceBots.float else: 0.0)
+    echo &"  ND-PROBE 1/stale funnel: carryFrames {ndCarryFrames} -> " &
+      &"staleWallCamper-tracks {ndStaleSeen} -> withCluster>=2 {ndStaleCluster} -> " &
+      &"STALE-AIM {ndStaleAim} (fresh-aim {ndFreshAim}) -> " &
+      &"RELEASED stale {ndStaleRelease} / fresh {ndFreshRelease}"
+    echo &"    DISCRIMINATION (engine truth, joined by actionId): " &
+      &"stale throws {ndStaleThrows} conv {staleConv:.1f}% victims/throw {staleVpt:.2f}  |  " &
+      &"fresh throws {ndFreshThrows} conv {freshConv:.1f}% victims/throw {freshVpt:.2f}  " &
+      &"(unjoined {ndUnjoined})"
+    echo &"    (staleWallCamper-tracks is counted with NOSTALENADE=1 too, so both A/B arms " &
+      &"measure the same world. =0 => the wall-camper case never occurs here (no stimulus). " &
+      &">0 with STALE-AIM=0 => the cluster/range gate declines it. The gate EARNS its place " &
+      &"only if stale conv/victims-per-throw is comparable to fresh — a stale class that " &
+      &"whiffs is spent supply, not a lever.)"
+    echo &"  ND-PROBE 2/supply funnel: eligible-role frames {ndSupplyRole} -> " &
+      &"depot-known {ndSupplyDepot} -> DETOUR {ndSupplySeek}  " &
+      &"(seen-sprite grabs {ndSupplySeen}; depots seeded {ndDepotSeeded} learned {ndDepotLearned})"
+    echo &"    engine truth pickups per team: R{ndPickups[0]} B{ndPickups[1]} " &
+      &"G{ndPickups[2]} Y{ndPickups[3]}   throws: R{ndThrows[0]} B{ndThrows[1]} " &
+      &"G{ndThrows[2]} Y{ndThrows[3]}"
+    echo &"  ND-PROBE 3/anti-bunch: stimulus mate-inside-blast frames {ndPairFrames} -> " &
+      &"band-push {ndBunchBand} / STEP-APART {ndBunchStep}"
+    echo &"    spacing (ground truth, all living bots): mean nearest-mate {meanNear:.1f}px  " &
+      &"inside one blast {underPct:.1f}% of bot-ticks  " &
+      &"hist[<26|26-52|52-66|66-100|100-200|200+] " &
+      &"{ndSpaceHist[0]} {ndSpaceHist[1]} {ndSpaceHist[2]} {ndSpaceHist[3]} " &
+      &"{ndSpaceHist[4]} {ndSpaceHist[5]}"
+    echo &"    blast multiplicity: impacts that damaged someone {ndImpactDmg}, " &
+      &"of which caught 2+ of one team {ndImpactBunch} ({bunchPct:.1f}%), victims {ndVictims}  " &
+      &"(the field number this lever targets is 56%)"
   when defined(ffprobe):
     echo &"  FF-PROBE funnel: hold {ffHold} -> idle {ffIdle} -> preLay {ffPreLay}"
     echo &"    (idle=0 => a sentry always has a fresh track (sweep keeps the job); " &
