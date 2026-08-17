@@ -3490,6 +3490,18 @@ when defined(doorprobe):
   const DpMaxEntries = 512
   var dpEntryY*: array[2, array[8, array[DpMaxEntries, float]]]
   var dpEntryN*: array[2, array[8, int]]
+  # ⭐ THE DOOR IS NOT THE MIDLINE — reading only the midline understates the
+  # defect by an order of magnitude. Re-simulating r1692 e20 (the case study
+  # itself, hash-checked faithful) with a depth sweep on our four seats:
+  #     depth   0 (midline)   n=14  STDEV 81.6  span 211px
+  #     depth  45             n=8   STDEV 23.5  span  75px
+  #     depth  90 (the door)  n=9   STDEV  6.8  span  22px  <- the reported 16px
+  #     depth 135             n=5   STDEV  1.3  span   3px
+  # We DO spread at the line and are funnelled into one gap ~90px past it. Those
+  # two readings want different fixes, so record BOTH edges.
+  const DpDoorDepth = 90.0
+  var dpDoorY*: array[2, array[8, array[DpMaxEntries, float]]]
+  var dpDoorN*: array[2, array[8, int]]
   # Per-seat liveness: a seat with 0 acting frames is the "2 of 6 bots stood
   # perfectly still with zero errors" failure. Counted from decide()'s TAIL, so
   # it only ticks when the frame actually produced a decision.
@@ -3519,6 +3531,12 @@ when defined(doorprobe):
     if dpEntryN[team][seat] >= DpMaxEntries: return
     dpEntryY[team][seat][dpEntryN[team][seat]] = y
     inc dpEntryN[team][seat]
+
+  proc dpNoteDoor*(team, seat: int, y: float) =
+    if team notin 0 .. 1 or seat notin 0 .. 7: return
+    if dpDoorN[team][seat] >= DpMaxEntries: return
+    dpDoorY[team][seat][dpDoorN[team][seat]] = y
+    inc dpDoorN[team][seat]
 
 
 when defined(rngprobe):
@@ -9275,6 +9293,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.prevDepthSet and bot.prevDepth <= 0.0 and dpDepth > 0.0:
         dpNoteEntry(dpTm, dpSt, me.y)
         inc dpSlotEntries[dpSl]
+      if bot.prevDepthSet and bot.prevDepth <= DpDoorDepth and
+          dpDepth > DpDoorDepth:
+        dpNoteDoor(dpTm, dpSt, me.y)
       bot.prevDepth = dpDepth
       bot.prevDepthSet = true
 

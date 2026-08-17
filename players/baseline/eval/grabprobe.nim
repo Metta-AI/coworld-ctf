@@ -152,16 +152,20 @@ when defined(doorprobe):
     ## killed run used to yield NOTHING. Cumulative, so any partial run is still
     ## a usable measurement — it just has fewer entries behind it.
     for tm in 0 .. 1:
-      var allY, subY: seq[float]
+      var allY, subY, subD: seq[float]
       for st in 0 .. 7:
         for i in 0 ..< dpEntryN[tm][st]:
           allY.add dpEntryY[tm][st][i]
           if st <= 3: subY.add dpEntryY[tm][st][i]
+        if st <= 3:
+          for i in 0 ..< dpDoorN[tm][st]: subD.add dpDoorY[tm][st][i]
       let (am, asd) = dpStat(allY)
       let (sm, ssd) = dpStat(subY)
+      let (dm, dsd) = dpStat(subD)
       echo &"ENTRYY {tag} team{tm}  all n={allY.len} mean={am:.1f} " &
         &"stdev={asd:.1f}  |  SUBSET(seats0-3) n={subY.len} mean={sm:.1f} " &
-        &"STDEV={ssd:.1f}"
+        &"STDEV={ssd:.1f}  |  DOOR(+90px seats0-3) n={subD.len} " &
+        &"mean={dm:.1f} STDEV={dsd:.1f}"
     flushFile(stdout)
 
 proc main() =
@@ -268,6 +272,15 @@ proc main() =
         &"ENTRY-Y STDEV {asd:>7.1f}"
       echo &"  team {tname}  SUBSET entries {subY.len:>5}  meanY {sm:>7.1f}  " &
         &"ENTRY-Y STDEV {ssd:>7.1f}   <-- the league seats {{0,1,2,3}}"
+      # The DOOR reading (+90px past the midline). On r1692 e20 the midline
+      # spread was 81.6px and the same seats' door spread was 6.8px — the
+      # midline number alone would have called a one-door game "spread".
+      var subD: seq[float]
+      for st in 0 .. 3:
+        for i in 0 ..< dpDoorN[tm][st]: subD.add dpDoorY[tm][st][i]
+      let (dm, dsd) = statOf(subD)
+      echo &"  team {tname}  DOOR   crossings {subD.len:>5}  meanY {dm:>7.1f}  " &
+        &"DOOR-Y  STDEV {dsd:>7.1f}   <-- +90px past the midline"
     var hArm, hFire, dDeath, wHold, wRel, wExp = 0
     for tm in 0 .. 1:
       for st in 0 .. 7:

@@ -132,6 +132,19 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
   # is never compiled into /bin/baseline (the Dockerfile builds baseline.nim).
   if getEnv("EVAL_MAP").len > 0:
     config.mapPath = getEnv("EVAL_MAP")
+  # ⭐ EVAL_MAPSPEC (2026-08-17, one-door validation): run the mirror on the
+  # EXACT board a recorded league episode was played on. Every replay's config
+  # carries the expanded geometry as `mapSpec` (sim_config.nim:695 fills it for
+  # every "gen" map), and resolveCtfMapMetadata gives an explicit mapSpec
+  # priority over mapPath/mapSeed — so this is byte-exact, not a regeneration.
+  # ⚠️ REGENERATING FROM A SEED CANNOT WORK: the map name "gen-57711" carries
+  # the generator's winning ATTEMPT seed, while the hosted config leaves
+  # mapSeed at -1 — so `mapSeed=57711` runs generateCtfMap FROM 57711 and can
+  # land on a different map. The recorded spec is the only exact handle.
+  #   /tmp/door_entry.out <replay> --dump-mapspec /tmp/m.json
+  #   EVAL_MAPSPEC=/tmp/m.json EVAL_SCORING=pot /tmp/grabprobe.out ...
+  if getEnv("EVAL_MAPSPEC").len > 0:
+    config.mapSpec = readFile(getEnv("EVAL_MAPSPEC"))
   if getEnv("EVAL_TEAMS").len > 0:
     config.teams = parseInt(getEnv("EVAL_TEAMS"))
   if getEnv("EVAL_SCORING").len > 0:
