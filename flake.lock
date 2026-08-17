@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "nimby-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771525014,
+        "narHash": "sha256-sWOLmRMNdnENl0r2nJ7ozWQFzo1yvAeelU3gsM/kbsQ=",
+        "owner": "treeform",
+        "repo": "nimby",
+        "rev": "12eb5f0a36067de73e76f8ff451c5b75129ddfd6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "treeform",
+        "ref": "0.1.26",
+        "repo": "nimby",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1786963906,
+        "narHash": "sha256-3tkeMWSvHPo3tYljfXbPC/TgknikU1GvdVr/DkdfvE0=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "f4b6996c4e8b9ee06ce147ec344c885f51071b14",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nimby-src": "nimby-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
