@@ -44,6 +44,21 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
     if not mine:
       tune.spinCap = true
       tune.spinCapRangePx = Inf
+  # ⭐⭐ MID-QUAD BREAK isolation (2026-08-14). Same problem as SPINTEAM: this
+  # harness seats OUR policy on all 16 slots, so a whole-batch env flip is a
+  # MIRROR — both sides move together and per-seat K/D is symmetric by
+  # construction, which is exactly the "no-op A/B" tell. SEAT4TEAM arms the
+  # package on ONE colour: roleForSeat reads it directly (a pure function cannot
+  # be re-stamped) and the two tune levers are stripped from the other colour
+  # here, so all three move as one arm. ⚠️ SEAT-ROTATE IT — run red-armed and
+  # blue-armed and average, or you have measured the side.
+  let seat4Team = getEnv("SEAT4TEAM")
+  if seat4Team.len > 0:
+    let armed = (seat4Team == "red" and t == Red) or
+                (seat4Team == "blue" and t == Blue)
+    if not armed:
+      tune.roleSep = false
+      tune.midSpread = false
   let fixTeam = getEnv("FIXTEAM")
   let stripFix =
     getEnv("NOFIX") == "1" or
@@ -132,6 +147,72 @@ proc frame(driver: var Driver, packet: string): uint8 =
   driver.rng = randState()
   driver.lastMask = result
 
+when defined(roleprobe):
+  # ── ⭐⭐ MID-QUAD PROBE (grabprobe side). The finding is GEOMETRIC — four of
+  # eight seats in the mid family, one mid role dealt twice, four bodies in one
+  # corridor — so the numbers that can move on a mirror rig are per-seat K/D
+  # (with SEAT4TEAM arming one colour) and TEAMMATE SEPARATION. Win rate on a
+  # mirror cannot move by construction and is not scored here.
+  #
+  # ⚠️ SEPARATION IS TAKEN FROM GROUND TRUTH (-d:rwtruth slotTruth), never from
+  # a bot's own fogged belief about where its mates are: a probe that counts
+  # what the bot BELIEVES is not the field metric.
+  const
+    RpSampleEvery = 20        # ticks between separation samples (~cheap, and far
+                              # longer than one engagement so samples are not
+                              # autocorrelated into a fake n)
+    RpNadePairPx = 120.0      # ONE grenade catches BOTH: GrenadeBlastRadius is 52
+                              # and the check is body-box based, so a pair inside
+                              # ~2*(52+half) can be taken by a single blast. This
+                              # is the mirror analogue of the field stat this
+                              # package targets (58.4% of enemy nade impacts that
+                              # damaged us caught 2+ of ours).
+    RpTightPairPx = 60.0      # dead-on-top-of-each-other, the hard bunching case
+  var
+    rpKills, rpDeaths: array[2, array[8, int]]   # per (team, teamSeat)
+    rpEps: array[2, array[8, int]]               # episodes the seat appeared in
+    rpPairAll, rpPairNade, rpPairTight: array[2, int]  # sampled unordered pairs
+    rpBodyAll, rpBodyNade: array[2, int]         # sampled live bodies / with a
+                                                 # mate inside one blast
+    rpYSpreadSum: array[2, float]                # Σ stdev of live-teammate y
+    rpYSpreadN: array[2, int]
+
+  proc rpSample(engine: EvalEngine, players: int) =
+    ## One ground-truth separation sample over every live body, bucketed by team.
+    var xs, ys: array[4, seq[float]]
+    for s in 0 ..< players:
+      let tr = engine.slotTruth(s)
+      if not tr.alive: continue
+      if tr.team notin 0 .. 3: continue
+      xs[tr.team].add tr.x
+      ys[tr.team].add tr.y
+    for tm in 0 .. 1:
+      let n = xs[tm].len
+      if n == 0: continue
+      var nearFor = newSeq[bool](n)
+      for i in 0 ..< n:
+        for j in i + 1 ..< n:
+          let dx = xs[tm][i] - xs[tm][j]
+          let dy = ys[tm][i] - ys[tm][j]
+          let d = sqrt(dx * dx + dy * dy)
+          inc rpPairAll[tm]
+          if d <= RpNadePairPx:
+            inc rpPairNade[tm]
+            nearFor[i] = true
+            nearFor[j] = true
+          if d <= RpTightPairPx: inc rpPairTight[tm]
+      for i in 0 ..< n:
+        inc rpBodyAll[tm]
+        if nearFor[i]: inc rpBodyNade[tm]
+      if n >= 2:
+        var m = 0.0
+        for y in ys[tm]: m += y
+        m /= n.float
+        var v = 0.0
+        for y in ys[tm]: v += (y - m) * (y - m)
+        rpYSpreadSum[tm] += sqrt(v / (n - 1).float)
+        inc rpYSpreadN[tm]
+
 when defined(doorprobe):
   var engineTeamOfSlot: array[32, int]   # real team index per slot (4-team safe)
 
@@ -196,7 +277,14 @@ proc main() =
     teamWins, teamCaps, teamKills, teamDeaths: array[4, int]
   let evalTeams = max(2, (if getEnv("EVAL_TEAMS").len > 0:
                             parseInt(getEnv("EVAL_TEAMS")) else: 2))
-  let numPlayers = 16
+  # ⭐ EVAL_PLAYERS (2026-08-14): the 4ffa8 board is 32 SLOTS, and only there
+  # does teamSeat reach 4..7 on a 4-team deal (teamSeat = slot div teams). With
+  # the roster hard-coded to 16 the seat-4 half of the table was never exercised
+  # at RUNTIME on 4-team at all — the seat dump proved the deal, but "the deal is
+  # right" and "every seat still acts" are different claims and the statue
+  # failure only shows up in the second one.
+  let numPlayers = max(2, (if getEnv("EVAL_PLAYERS").len > 0:
+                             parseInt(getEnv("EVAL_PLAYERS")) else: 16))
   for g in 0 ..< games:
     let epSeed = seed + g
     var engine = newEvalEngine(numPlayers, epSeed, ticks)
@@ -213,6 +301,8 @@ proc main() =
         engine.setMask(s, mask)
       engine.advance()
       inc tick
+      when defined(roleprobe):
+        if tick mod RpSampleEvery == 0: rpSample(engine, numPlayers)
       let r = engine.result()
       if r.phaseOver: break
     let r = engine.result()
@@ -229,10 +319,74 @@ proc main() =
         teamCaps[s.team] += s.captures
         teamKills[s.team] += s.kills
         teamDeaths[s.team] += s.deaths
+    when defined(roleprobe):
+      # Per-SEAT K/D. teamSeat is the engine's own slotIdentityIndex
+      # (slot div teams) — the same formula roleForSeat is fed — so this is the
+      # seat the roster scan's Α..Θ letters name, not a re-derived guess.
+      for s in r.slots:
+        if s.team notin 0 .. 1: continue
+        let st = clamp(s.slot div max(2, evalTeams), 0, 7)
+        rpKills[s.team][st] += s.kills
+        rpDeaths[s.team][st] += s.deaths
+        inc rpEps[s.team][st]
     echo &"game {g}: winner={r.winnerTeam} ticks={r.ticks} " &
       &"grabs R{r.redGrabs}/B{r.blueGrabs} caps R{r.redCaptures}/B{r.blueCaptures}"
     when defined(doorprobe):
       dpEntryLine(&"afterGame{g}")
+    flushFile(stdout)
+
+  when defined(roleprobe):
+    # ── ⭐⭐ MID-QUAD REPORT. Three things, in the order they have to be true:
+    #   1) the levers FIRED (a compiled-but-inert lever reads exactly like a
+    #      broken one, and the reverts must read ZERO),
+    #   2) nothing became a STATUE (per-seat frames + travel, the silent
+    #      seat-contract failure),
+    #   3) the separation actually moved (the mirror-measurable target).
+    const RpRoleName = ["MidTop", "MidBottom", "MidGuard", "FlankTop",
+                        "FlankBottom", "Overwatch", "HomeDefender"]
+    echo "==================================================="
+    echo "--- MID-QUAD PROBE ---"
+    echo &"  arm: NOSEAT4={getEnv(\"NOSEAT4\")} NOROLESEP={getEnv(\"NOROLESEP\")} " &
+      &"NOMIDSPREAD={getEnv(\"NOMIDSPREAD\")} NODOOR1={getEnv(\"NODOOR1\")} " &
+      &"SEAT4TEAM={getEnv(\"SEAT4TEAM\")}"
+    for tm in 0 .. 1:
+      let tname = (if tm == 0: "RED " else: "BLUE")
+      echo &"  team {tname}  seat  role          eps    K     D    K/D    K-D/ep" &
+        &"   sepFire  midFire  midTrailMean  PARK"
+      var tk, td = 0
+      for st in 0 .. 7:
+        if rpEps[tm][st] == 0: continue
+        tk += rpKills[tm][st]; td += rpDeaths[tm][st]
+        # Match the per-team K/D convention already used below: with zero deaths
+        # the ratio is undefined, so report the kills rather than a 0.00 that
+        # reads as "this seat did nothing" when it in fact went unkilled.
+        let kd = (if rpDeaths[tm][st] > 0:
+                    rpKills[tm][st].float / rpDeaths[tm][st].float
+                  else: rpKills[tm][st].float)
+        let kdep = (rpKills[tm][st] - rpDeaths[tm][st]).float / rpEps[tm][st].float
+        let rn = (if dpRole[tm][st] in 0 .. 6: RpRoleName[dpRole[tm][st]] else: "-")
+        let mtm = (if rpMidFrames[tm][st] > 0:
+                     rpMidTrailSum[tm][st] / rpMidFrames[tm][st].float else: 0.0)
+        echo &"          {st:>6}  {rn:<12} {rpEps[tm][st]:>3} {rpKills[tm][st]:>5} " &
+          &"{rpDeaths[tm][st]:>5} {kd:>6.2f} {kdep:>9.2f} {rpSepFrames[tm][st]:>9} " &
+          &"{rpMidFrames[tm][st]:>8} {mtm:>13.1f} {rpPark[tm][st]:>5}"
+      let skd = (if td > 0: tk.float / td.float else: tk.float)
+      var park = 0
+      for st in 0 .. 7: park += rpPark[tm][st]
+      echo &"  team {tname}  SQUAD  K {tk} D {td}  K/D {skd:.2f}  " &
+        &"PARK-INVARIANT {(if park == 0: \"OK (0 frames)\" else: \"*** VIOLATED: \" & $park & \" frames ***\")}"
+      # SEPARATION — the geometric target. A pair inside RpNadePairPx can be
+      # taken by ONE grenade; bodyNade is the per-body version of the field's
+      # "58.4% of nade impacts caught 2+ of ours".
+      let pa = max(1, rpPairAll[tm])
+      let ba = max(1, rpBodyAll[tm])
+      let ysp = (if rpYSpreadN[tm] > 0:
+                   rpYSpreadSum[tm] / rpYSpreadN[tm].float else: 0.0)
+      echo &"  team {tname}  SEPARATION  pairs n={rpPairAll[tm]}  " &
+        &"within{RpNadePairPx.int}px {100.0 * rpPairNade[tm].float / pa.float:.2f}%  " &
+        &"within{RpTightPairPx.int}px {100.0 * rpPairTight[tm].float / pa.float:.2f}%  |  " &
+        &"BODIES n={rpBodyAll[tm]} with a mate inside one blast " &
+        &"{100.0 * rpBodyNade[tm].float / ba.float:.2f}%  |  live-mate y-STDEV {ysp:.1f}"
     flushFile(stdout)
 
   when defined(doorprobe):
