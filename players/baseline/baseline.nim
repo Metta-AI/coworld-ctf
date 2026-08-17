@@ -160,6 +160,22 @@ when defined(commsprobe):
   var csWipeArm = 0   # frames a HEARD wipe armed regroupPush's rally without a
                       # local over-extend read (the coordination the bus buys —
                       # a trailing mid converges on a wipe it never saw itself)
+  # ── v56 PLAY EXECUTORS. Each counter is FRAMES THE LEVER ACTUALLY MOVED
+  # SOMETHING, not frames it was merely eligible — the repeated failure in this
+  # policy is a lever that compiles, gates green and never fires. The *Px sums
+  # are total pixels of movement-target delta, so a non-zero fire count with a
+  # ~0 pixel sum still reads as the no-op it is.
+  var csStackMove = 0   # frames a heard STACK pulled this bot's approach target
+  var csStackMovePx = 0.0 # ...total px that pull moved the target
+  var csStackGate = 0   # frames a heard STACK (NOT our own eyes) held a fogged dive
+  var csWipeMove = 0    # frames a heard WIPE pulled our approach lane toward the hole
+  var csWipeMovePx = 0.0
+  var csLineMove = 0    # frames a heard LINE shoved our approach lane off the door
+  var csLineMovePx = 0.0
+  var csLatchDrop = 0   # different-token overwrites REFUSED inside the latch window
+  var csEchoSkip = 0    # emits suppressed because that play was already in the air
+  var csECall = 0       # "E <cell>.." enemy callouts we emitted
+  var csESeed = 0       # enemy tracks seeded from a mate's heard E-callout
 
 when defined(ssprobe):
   # -d:ssprobe ONLY (v7): count how often the avoidDisarm repulsion is ACTIVE
@@ -1103,6 +1119,12 @@ const
                               # ReplayFps ~1/s; we self-rate a touch slower)
   CalloutFreshTicks = 20      # only call out enemies seen this recently
   CalloutMaxCells = 2         # name at most this many enemy cells per shout
+  CalloutSeedTtl = 96         # a heard callout seeds a track at that cell ONCE, not
+                              # once per frame: any track already within a cell of it
+                              # and younger than this counts as the same lead. Must
+                              # exceed the shout bubble's life (ShoutTicks = 72) plus
+                              # the callout's own emit freshness (20), or the same
+                              # bubble re-seeds a phantom every frame it is on screen.
                               # ("E M9 C4" fits the 10-char budget)
   SurpriseRadius = 95.0       # an enemy THIS close that we were not tracking is
                               # "in our face" — the corner-ambush jump scare
@@ -1194,6 +1216,53 @@ const
   # is the alphabet drawn from. Opaque single letters, not "PushTop" — a clone reads
   # a letter, not our play. Order matters ONLY as the rotation base.
   CommsTokenPool = "kqxzjvwy" # 8 low-frequency glyphs; index = (play + roundSalt) mod 8
+
+  # ── ⭐⭐ v56 PLAY EXECUTORS (2026-08-14, the comms-forensics batch) ───────────
+  # MEASURED on 310 league episodes / 3,526 v55 P-calls (comms-forensics memo):
+  # the channel LANDS (mean 2.86 alive in-earshot hearers, only 7.6% starved) and
+  # DECODES (v53+ wire is provably salt-0-coherent) — but nothing MOVES. Pq=STACK
+  # was 23.8% of all traffic and had NO reader anywhere (selectScenarioPlay folded
+  # RpStack to the unchanged clock flank); Px/Pw were 75.5% and their entire
+  # designed reaction was to lower ONE hold threshold, i.e. the adoption of a play
+  # call rendered as STANDING STILL. These constants bound the fix: a heard play
+  # now moves FEET, on a leash, movement-intent only (REF-comms v2 — the turret is
+  # still never diverted by a codeword).
+  StackConvergePull = 140.0   # ⭐ Pq/STACK: a heard stack means a mate is AT the
+                              # contested pocket and needs the SECOND GUN the
+                              # doctrine comment has promised since C1. Pull the
+                              # listener's approach target this far toward the
+                              # CALLER's bubble (bounded step, not a teleport).
+  StackConvergeMin = 70.0     # ...but only from outside this: closer than this we
+                              # are already stacked on him, and the pull would just
+                              # collapse two bodies onto one grenade (the 56%
+                              # multi-hit blast finding).
+  StackConvergeMax = 460.0    # ...and no farther than this: a stack call from
+                              # across the map is not OUR fight; ~2x earshot so a
+                              # relayed echo can still pull a second lane in.
+  WipeLanePull = 120.0        # ⭐ Px/WIPE: a heard wipe names a lane the caller just
+                              # CLEARED. Pull the listener's approach lane (y) this
+                              # far toward the caller's bubble — push through the
+                              # hole, instead of only holding a rally line.
+  LineDivertPush = 170.0      # ⭐ Pw/LINE: a heard line names where the enemy is
+                              # STANDING. Do not feed it: shove the listener's
+                              # approach lane this far to the FAR side. Directly
+                              # attacks the one-door conveyor (measured entry-y
+                              # stdev 5-31px vs daveey's 148-242 — we use one door,
+                              # he uses the whole wall).
+  LineDivertBand = 190.0      # ...armed only when our approach lane is inside this
+                              # of the called line's lane (we are ABOUT to walk into
+                              # it). Farther off and we are already the other door.
+  CommsPlayLatch = 45         # ⭐ TTL LATCH: 41% of back-to-back calls carried a
+                              # DIFFERENT token inside the 90t TTL, so the single
+                              # heardPlay slot thrashed and even the threshold
+                              # nudges flapped. A freshly adopted play is IMMUNE to
+                              # a different-token overwrite for this many ticks
+                              # (half the TTL); a SAME-token echo always refreshes.
+  CommsEchoSuppress = 60      # ⭐ EMIT DEDUPE: 58% of calls were same-token echoes
+                              # of something already in the air. Do not re-shout a
+                              # play we HEARD this recently — the slot is worth more
+                              # as an E-callout (v55 emitted ZERO E; the enemy
+                              # lineage emitted 13,077 in the same window).
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -1484,6 +1553,45 @@ type
                               # worse than today's clock playbook). Requires playbook ON
                               # (it extends selectPlay). Reaction is MOVEMENT-INTENT only
                               # (which flank/rally), never a turret bearing (the v2 lesson).
+    stackConverge: bool       # ⭐⭐ v56 PLAY EXECUTOR #1 (NOSTACKCONV). Pq/STACK was
+                              # 23.8% of ALL play traffic and had ZERO readers — heard,
+                              # decoded, banked into bot.heardPlay, then folded straight
+                              # back to the unchanged clock flank. This is the executor
+                              # the C1 doctrine comment ("converge a second gun") always
+                              # promised: a fresh heard STACK pulls the listener's
+                              # approach target toward the CALLER's bubble, bounded by
+                              # StackConvergePull inside [Min,Max]. Movement only.
+    stackHoldGate: bool       # ⭐ v56 PLAY EXECUTOR #1b (NOSTACKGATE). The other half of
+                              # the STACK contract ("gate the dive"): a listener walking
+                              # into the pocket out of FOG cannot see the defenders its
+                              # mate just called, so smartGrab's local `defenders` read
+                              # is 0 and it dives solo — the measured dive-death. A fresh
+                              # heard STACK whose caller is AT the pocket counts as the
+                              # stack for THIS bot's smartGrab, so it holds at standoff
+                              # until the Captain's advantage read opens the touch.
+    playMove: bool            # ⭐⭐ v56 PLAY EXECUTOR #2 (NOPLAYMOVE). Px/WIPE + Pw/LINE
+                              # were 75.5% of traffic and their ONLY adoption was lowering
+                              # a hold threshold — the designed reaction to a play call
+                              # was to stand still. Now each moves FEET on the approach:
+                              # a heard WIPE pulls the listener's lane TOWARD the caller
+                              # (push through the hole he cleared), a heard LINE shoves it
+                              # AWAY (don't feed the standing line — take the other door).
+                              # Bounded, approach-only, clamped to the lane corridor.
+    playLatch: bool           # ⭐ v56 PLAY EXECUTOR #3 (NOPLAYLATCH). Channel hygiene:
+                              # (a) TTL LATCH — a freshly adopted play resists a
+                              # DIFFERENT-token overwrite for CommsPlayLatch ticks (41%
+                              # of back-to-back calls flipped the token mid-TTL, so the
+                              # one heardPlay slot thrashed); (b) EMIT DEDUPE — never
+                              # re-shout a play we HEARD within CommsEchoSuppress (58% of
+                              # calls were redundant echoes), which frees the shout slot.
+    eCallout: bool            # ⭐ v56 PLAY EXECUTOR #4 (NOECALL). v55 emitted ZERO enemy
+                              # callouts — the whole shout budget went to play codewords —
+                              # while the rival lineage emitted 13,077 in the same window.
+                              # Re-opens the "E <cell>.." emit AND its cross-fog track
+                              # INTAKE, without re-arming the carrier "C" heartbeat (that
+                              # one leaks our carrier and stays on shoutCallout) and
+                              # without the cone reorient (that stays on reactContact —
+                              # REF-comms v2: a report never swings the turret).
     commsCrypto: bool         # ⭐ COMMS BUS C2: rotate the play->token table each round
                               # by a shared salt (hash of roundStart + team + a compiled-in
                               # secret) that our 8 bots derive identically but a hand-copied
@@ -2399,6 +2507,12 @@ type
     lastShoutTick: int        # rate limit: server allows one shout per second
     heardPlay: ReactPlay      # COMMS BUS: play decoded from the last heard codeword
     heardPlayTick: int        # tick that codeword was heard (decays after CommsPlayTtl)
+    heardPlayPos: Vec         # ⭐ v56 PLAY EXECUTORS: the CALLER's rough (jittered)
+                              # bubble position for that codeword. A play call is only
+                              # actionable if you know WHERE it was called from — every
+                              # v56 movement executor (stack converge / wipe lane / line
+                              # divert) is a bounded pull relative to this point. x<0 =
+                              # unknown (never set, or the call was our own bubble).
     lastCommsTick: int        # own rate limit for emitting a scenario codeword
     lockPos: Vec              # committed target's last-known position, matched
     lockUntil: int            # frame-to-frame; commit holds it until this tick
@@ -2736,6 +2850,12 @@ proc defaultCombatTune(): CombatTune =
     reactContact: false,      # control: ignore heard shouts.
     commsBus: false,          # control: never emit scenario codewords.
     commsPlay: false,         # control: ignore heard scenario codewords (clock playbook only).
+    stackConverge: false,     # control: a heard STACK is decoded and DISCARDED (the v55 void).
+    stackHoldGate: false,     # control: a heard STACK never gates this bot's own pocket dive.
+    playMove: false,          # control: a heard WIPE/LINE moves no feet, only a hold threshold.
+    playLatch: false,         # control: the heardPlay slot is overwritten by any later token,
+                              # and every classifier re-shouts a play already in the air.
+    eCallout: false,          # control: no enemy callouts emitted, none taken in.
     commsCrypto: false,       # control: no codeword rotation.
     damageAware: false,       # control: no orient-to-shooter reaction.
     rearTurn: false,          # control: an unseen hit with no ring is ignored; sentries never
@@ -3196,6 +3316,32 @@ proc shippedCombatTune(): CombatTune =
   # asymmetric hosted field. commsPlay turns playbook on (it extends that machinery).
   result.commsBus = true
   result.commsPlay = true
+  # ⭐⭐ v56 PLAY EXECUTORS (2026-08-14). The comms-forensics pass over 310 league
+  # episodes / 3,526 v55 P-calls settled the "nobody reacts to our shouts" question:
+  # not earshot (2.86 mean hearers, 7.6% starved), not decode (v53+ wire is provably
+  # salt-0-coherent) — ADOPTION. A quarter of the channel (Pq/STACK) had no reader at
+  # ALL, and the other three quarters (Px/Pw) only lowered a hold threshold, so the
+  # designed reaction to a play call was to stand still. Four levers, four reverts,
+  # every one movement-intent only (a codeword still never touches the turret):
+  #   stackConverge  NOSTACKCONV  heard STACK pulls a second gun onto the caller
+  #   stackHoldGate  NOSTACKGATE  heard STACK gates the listener's own fogged dive
+  #   playMove       NOPLAYMOVE   heard WIPE pulls into the cleared lane / heard LINE
+  #                               shoves out of the fed one (the one-door conveyor)
+  #   playLatch      NOPLAYLATCH  TTL latch vs 41% mid-window token flips + emit
+  #                               dedupe vs 58% echoes (frees the slot for E)
+  result.stackConverge = getEnv("NOSTACKCONV").len == 0
+  result.stackHoldGate = getEnv("NOSTACKGATE").len == 0
+  result.playMove = getEnv("NOPLAYMOVE").len == 0
+  result.playLatch = getEnv("NOPLAYLATCH").len == 0
+  # ⭐ E-CALLOUTS RESTORED (NOECALL). v55 emitted ZERO of them — every shout window
+  # went to a play codeword — while the rival lineage emitted 13,077 over the same
+  # 310 episodes. This re-opens the enemy-cell callout on BOTH ends (emit + the
+  # cross-fog track intake) while deliberately NOT re-arming the two things that
+  # made shoutCallout a net cost: the carrier "C" heartbeat (a position tell about
+  # our own carrier) and the heard-callout cone reorient (REF-comms v2: a report
+  # never swings the turret). Both stay gated on shoutCallout / reactContact, which
+  # remain OFF. The emit dedupe above is what actually frees the slot for it.
+  result.eCallout = getEnv("NOECALL").len == 0
   # ⛔ commsCrypto OFF (v47 audit, 2026-08-12). Its round salt keys on
   # bot.gameStart — a PER-PROCESS frame-receipt counter our 4 separate seat
   # processes do NOT share (connects straggle through a 250ms retry loop, and
@@ -4862,6 +5008,7 @@ proc resetTransient(bot: Bot) =
   bot.lastShoutTick = 0
   bot.heardPlay = RpNone
   bot.heardPlayTick = 0
+  bot.heardPlayPos = vec(-1, -1)
   bot.lastCommsTick = 0
   bot.carrierSeen = -100_000
   bot.corpseSeen.setLen(0)     # corpse objectIds are per-episode
@@ -5605,9 +5752,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # rotating table and bank the play for CommsPlayTtl — adopted as MOVEMENT
         # INTENT only (selectScenarioPlay), never a turret bearing (REF-comms v2).
         let rp = decodeCommsToken(text[1], commsSalt)
-        if rp != RpNone:
+        # ⭐⭐ v56 TTL LATCH (playLatch). MEASURED: 41% of back-to-back calls inside
+        # the 90t CommsPlayTtl carried a DIFFERENT token (1,350 of 3,317), so the one
+        # heardPlay slot was being overwritten mid-window constantly and even the
+        # threshold nudges flapped. Every seat runs the same classifier with no
+        # authority bit, so a disagreeing token is a genuine second opinion — but a
+        # play that changes every few ticks is not a play. A freshly adopted call is
+        # therefore IMMUNE to a different-token overwrite for CommsPlayLatch ticks;
+        # after that the newer read wins, and a SAME-token echo (58% of traffic —
+        # emergent relay, the reason no affirm protocol is needed) always refreshes
+        # the window. Deliberately not a vote: no per-token tally survives the fog.
+        let latched = bot.tune.playLatch and bot.heardPlay != RpNone and
+          rp != bot.heardPlay and bot.tick - bot.heardPlayTick < CommsPlayLatch
+        if latched:
+          when defined(commsprobe):
+            inc csLatchDrop
+        elif rp != RpNone:
           bot.heardPlay = rp
           bot.heardPlayTick = bot.tick
+          # ⭐ v56: bank WHERE the call came from. A play call is only actionable if
+          # you know where it was called from — the caller's own (jittered) bubble is
+          # the only position the wire carries, and it is exactly the right anchor:
+          # the caller is AT the pocket it calls stacked, AT the vacuum it calls
+          # wiped, AT/just behind the line it calls. Our OWN bubble renders on us, so
+          # a call from inside 40px is our own echo and carries no new geometry.
+          bot.heardPlayPos =
+            if dist(bubblePos, me) > 40.0: bubblePos else: vec(-1, -1)
           # ⭐ A heard LINE call carries the caller's rough (jittered) bubble position —
           # the caller is AT/just-behind the line it's classifying, so its bubble is a
           # good proxy for where the enemy cluster is. The arc breacher converges here
@@ -5627,9 +5797,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.mateFixTick = bot.tick
           except ValueError:
             discard
-      elif text[0] == 'E' and bot.tune.reactContact:
+      elif text[0] == 'E' and (bot.tune.reactContact or bot.tune.eCallout):
         # Enemy callout: seed a fresh track at each named cell we don't already
         # have fresher eyes on, and orient the vision cone toward the nearest.
+        # ⭐ v56 (eCallout): the INTAKE half runs on eCallout alone. Seeding a track
+        # is pure perception — it feeds the local-balance reads (holdLine, pickEdge,
+        # the comms classifier) and the grenade target across fog, and costs nothing
+        # a cone diversion would. The REACTION half below stays on reactContact, so
+        # turning E back on does NOT re-import the v1/v2 cone-diversion loss.
         var nearest = vec(-1, -1)
         var nearestD = 1e18
         for cell in text[1 .. ^1].split(' '):
@@ -5641,10 +5816,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if dist(p, me) < nearestD:
             nearestD = dist(p, me)
             nearest = p
-          # Only adopt if we have no fresh track already near this cell.
+          # Only adopt if we have no track already near this cell.
+          # ⚠️ v56 RE-SEED FIX. This dedupe window used to be CalloutFreshTicks (20),
+          # but the track we stamp below is deliberately aged to tick-FreshShotTicks-1
+          # (25) so it reads as a LEAD and not a shot — i.e. the seed could never
+          # satisfy its own freshness test, while the shout BUBBLE that produced it
+          # stays on screen for ShoutTicks (72) and is re-read every single frame. So
+          # the intake re-seeded the same phantom every frame for the bubble's whole
+          # life: measured at 192,469 seeds in a 4-game probe run, ~one per bot-frame.
+          # With TrackCap = 8 (exactly the real opponent count) and the prune sorting
+          # by lastSeen, a 25-tick-old phantom outranks and EVICTS real enemy memory
+          # older than that. The bug was dormant only because reactContact (the old
+          # sole gate on this branch) has been off; eCallout wakes it. The window must
+          # cover the bubble's life, not the callout's freshness.
           var known = false
           for t in bot.enemies:
-            if bot.tick - t.lastSeen <= CalloutFreshTicks and
+            if bot.tick - t.lastSeen <= CalloutSeedTtl and
                 dist(t.pos, p) <= float(MapW) / float(ChessFiles):
               known = true
               break
@@ -5652,13 +5839,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.enemies.add(Track(pos: p, vel: vec(0, 0),
               lastSeen: bot.tick - FreshShotTicks - 1, hp: 0,
               aimBrads: -1))  # a lead, not a shot — no gun bearing known
+            when defined(commsprobe):
+              inc csESeed
         # ⭐ Seeding the track above is the ALWAYS-ON intel intake — even a
         # committed carrier now KNOWS the called enemy. The REACTION (turn the
         # cone / move the feet) is separate: with the gate on, only STAGE the
         # nearest callout; the task-priority gate below (after all commitment
         # states are known) decides whether to act on it. Gate off => the old
         # indiscriminate reorient of anyone in earshot.
-        if nearest.x >= 0 and nearestD <= ShoutHeardRange:
+        if bot.tune.reactContact and nearest.x >= 0 and nearestD <= ShoutHeardRange:
           if bot.tune.calloutGate:
             bot.calloutPos = nearest
             bot.calloutTick = bot.tick
@@ -6393,6 +6582,96 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       elif play == PushBottom and not feintHolder:
         target = vec(target.x, min(LaneBottom, target.y + PlayFlankPull))
 
+    # ⭐⭐ v56 HEARD-PLAY MOVEMENT EXECUTORS (the comms-forensics fix). Until now the
+    # ONLY thing a heard play could move was the flank bias above — and only for the
+    # two flip tokens, which are structurally unemittable (emit requires a live
+    # localSc, and no classifier ever produces ScNone). So the three tokens that DO
+    # ride the wire had exactly one behavioural outlet each: STACK had NONE at all
+    # (23.8% of traffic, decoded and dropped), WIPE and LINE lowered a hold threshold
+    # (75.5% of traffic whose designed reaction was to stand still). This block is the
+    # missing half: a fresh call from a known origin now bends the APPROACH.
+    #
+    # Design rules, all inherited from prior burns:
+    #   • movement intent ONLY — the turret is never diverted by a codeword (v1/v2
+    #     cone-diversion loss, REF-comms).
+    #   • APPROACH only (dist to the pocket > 150) — inside the pocket everyone
+    #     converges on the pedestal and the touch latch outranks every play.
+    #   • never on a carrier / escort / recapture — those states own the feet.
+    #   • bounded pull toward/away from a POINT, clamped to the lane corridor, so
+    #     the worst case is a lane offset, never a walk into geometry.
+    #   • it decays with CommsPlayTtl like every other adoption.
+    # Runs AFTER the clock flank so an EVENT beats the clock — which is the whole
+    # point of an event-driven play layer.
+    # ⚠️ localSc == ScNone is the SAME precedence rule selectScenarioPlay already
+    # enforces one block up ("our own fresh classification takes priority; else a
+    # fresh heard play; else clock"). Without it these executors would fight the
+    # local levers — a bot that classifies ScLine itself is being held at a rally by
+    # holdLine while a heard WIPE tried to drag its lane elsewhere. A bot with a live
+    # local read is AT the picture and is the CALLER; a bot with none is the listener,
+    # and the listener is who this block is for. It also lines the population up with
+    # the geometry: ScStack needs the pocket, ScWipe/ScLine need depth, so the bots
+    # this leaves are exactly the ones still on the approach.
+    let heardFresh = bot.tune.commsPlay and bot.heardPlay != RpNone and
+      localSc == ScNone and
+      bot.tick - bot.heardPlayTick <= CommsPlayTtl and bot.heardPlayPos.x >= 0.0
+    if heardFresh and not iCarry and not mateCarry and not ownStolen and
+        not retreating and dist(me, stealTarget) > 150.0:
+      let callD = dist(bot.heardPlayPos, me)
+      let before = target
+      if bot.heardPlay == RpStack and bot.tune.stackConverge:
+        # ⭐ Pq/STACK — THE SECOND GUN. The caller is at a contested pocket with >=2
+        # fresh guns on it and is about to be told (by smartGrab) to hold at standoff
+        # until it has an advantage. The advantage it is waiting for is US: one more
+        # body at the pocket flips its `coverMates`/`pickEdge` read and opens the
+        # touch. So pull our approach point toward the caller, bounded — this is the
+        # convergence the C1 doctrine comment promised and no code ever performed.
+        if callD >= StackConvergeMin and callD <= StackConvergeMax:
+          let d = dist(bot.heardPlayPos, target)
+          if d > 1.0:
+            let step = min(StackConvergePull, d)
+            target = target + norm(bot.heardPlayPos - target) * step
+            target = vec(target.x, clamp(target.y, LaneTop, LaneBottom))
+            when defined(commsprobe):
+              if dist(before, target) > 1.0:
+                inc csStackMove
+                csStackMovePx += dist(before, target)
+      elif bot.heardPlay == RpWipe and bot.tune.playMove:
+        # ⭐ Px/WIPE — PUSH THROUGH THE HOLE. A wipe call means the caller is deep and
+        # the enemy in front of it is GONE. regroupPush already lets a forward mid
+        # hold a rally on that news; nothing ever pointed a body at the hole. Pull our
+        # approach LANE (y only — the x commitment stays the role's) toward the
+        # caller's lane, so the wave arrives where the vacuum actually is.
+        if callD <= StackConvergeMax:
+          let dy = clamp(bot.heardPlayPos.y - target.y, -WipeLanePull, WipeLanePull)
+          target = vec(target.x, clamp(target.y + dy, LaneTop, LaneBottom))
+          when defined(commsprobe):
+            if dist(before, target) > 1.0:
+              inc csWipeMove
+              csWipeMovePx += dist(before, target)
+      elif bot.heardPlay == RpLine and bot.tune.playMove:
+        # ⭐ Pw/LINE — DON'T FEED THE DOOR. A line call names where the enemy is
+        # STANDING, waiting. Today the only adoptions are to hold (holdLine) or to
+        # converge an arc breacher onto it; a plain gun carrier just kept walking in.
+        # The play-layer study measured what that costs: our entry-y stdev vs the #1
+        # is 5-31px against his 148-242, all eight crossings through ONE door where a
+        # single camper took five kills. So when the called line sits in OUR approach
+        # lane, shove the lane to the far half of the map — the door he is not on.
+        # (holdLine's rally still owns anyone already over-extended; this is the
+        # APPROACH, before we are in his fire.)
+        # The direction is deliberately NOT "away from me" but "the half of the map
+        # opposite the line": every listener on the same call diverts the SAME way, so
+        # the wave re-forms in one new lane instead of splitting into two trickles —
+        # which is the exact failure (one body at a time) the funnel study measured.
+        if callD <= StackConvergeMax and
+            abs(bot.heardPlayPos.y - target.y) <= LineDivertBand:
+          let away = (if bot.heardPlayPos.y >= float(CenterY): -1.0 else: 1.0)
+          target = vec(target.x,
+            clamp(target.y + away * LineDivertPush, LaneTop, LaneBottom))
+          when defined(commsprobe):
+            if dist(before, target) > 1.0:
+              inc csLineMove
+              csLineMovePx += dist(before, target)
+
   # ⭐⭐ CONTINGENCY STATE MACHINE (planLayer). Layers the shared-plan PHASE posture
   # on top of the flank bias above. The phase is a pure fn of shared signals so all 8
   # bots agree and flow branch→branch unanimously. Drives movement HERE and the
@@ -6881,6 +7160,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.tick - t.lastSeen <= LocalFreshTicks and
           dist(t.pos, stealTarget) <= GrabStackRange:
         inc defenders
+    # ⭐⭐ v56 CROSS-FOG STACK GATE (stackHoldGate). smartGrab's `defenders` is a
+    # LOCAL-EYES read, so a body arriving at the pocket out of fog scores 0 and dives
+    # into a stack a mate is looking straight at. That mate has already shouted
+    # Pq/STACK — 840 times per 59 episodes in the v55 field, and until now every one
+    # of them was decoded and thrown away. A fresh heard STACK whose CALLER is at
+    # this pocket is exactly the evidence this read is missing, so it counts as the
+    # stack. This is the second half of the STACK contract ("converge a second gun,
+    # gate the dive"); stackConverge is the first. Never manufactures a hold on its
+    # own: the Captain's advantage read below still releases it, as with local eyes.
+    let fogStack = bot.tune.stackHoldGate and bot.tune.commsPlay and
+      bot.heardPlay == RpStack and bot.tick - bot.heardPlayTick <= CommsPlayTtl and
+      bot.heardPlayPos.x >= 0.0 and
+      dist(bot.heardPlayPos, stealTarget) <= GrabStackRange + CommsScanRange
+    let localStack = defenders >= GrabStackDefenders
+    if fogStack:
+      defenders = max(defenders, GrabStackDefenders)
     # Cover in place: a fresh mate AT the pocket with us (already trading, so the touch is
     # covered) releases the hold — that's a genuine team push, not a solo dive.
     var coverMates = 0
@@ -6897,6 +7192,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let haveAdvantage = pickEdge or (bot.tune.planLayer and botPhase == PhForce) or
       coverMates >= 1
     holdGrab = defenders >= GrabStackDefenders and not haveAdvantage
+    when defined(commsprobe):
+      # Count ONLY the frames the heard call is what did the work: our own eyes saw
+      # no stack, the wire did, and the hold actually fired. A gate must DISCRIMINATE
+      # — crediting it on frames a local sighting would have held anyway is the
+      # measurement error that has burned this policy before.
+      if holdGrab and fogStack and not localStack:
+        inc csStackGate
     when defined(sgprobe):
       inc sgWant
       if defenders >= GrabStackDefenders: inc sgDefended
@@ -9222,7 +9524,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let salt = roundSalt(bot.gameStart, bot.team, bot.tune.commsCrypto)
     let clockFlank = selectPlay(bot.tick - bot.gameStart, ownStolen)
     let rp = scenarioToPlay(localSc, clockFlank)
-    if rp != RpNone:
+    # ⭐⭐ v56 EMIT DEDUPE (playLatch). MEASURED: 58% of all play calls were the SAME
+    # token another seat had already put in the air within 90t — every seat runs the
+    # same classifier with no authority bit, so the squad agrees loudly and burns the
+    # one shout slot re-saying it. That redundancy is not a relay protocol worth
+    # keeping (reach is fine at 2.86 mean hearers / 7.6% starved, and the echo IS the
+    # relay); it is dead air. Skip the emit when the play we would call is already
+    # live on the wire, and — critically — do NOT consume lastShoutTick, so the slot
+    # falls through to the E-callout below instead of evaporating. This is what pays
+    # for E-callouts: v55 emitted 3,526 P-calls and ZERO E in the same window.
+    let alreadyAired = bot.tune.playLatch and rp != RpNone and rp == bot.heardPlay and
+      bot.tick - bot.heardPlayTick <= CommsEchoSuppress
+    if alreadyAired:
+      when defined(commsprobe):
+        inc csEchoSkip
+    elif rp != RpNone:
       bot.shoutWant = "P" & $commsToken(rp, salt)
       bot.lastShoutTick = bot.tick
       bot.lastCommsTick = bot.tick
@@ -9263,10 +9579,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.dieShoutTick = bot.tick
         if vanityRoll(bot.slot, bot.tick, 2):
           say = "die"
-    if say.len == 0 and bot.tune.shoutCallout:
+    if say.len == 0 and (bot.tune.shoutCallout or bot.tune.eCallout):
       # Enemy callout: name the nearest fresh enemy cells on the chess grid so
       # mates who cannot see them swing their cones over. Dedupe cells and cap
       # the count so the address fits the 10-char shout.
+      # ⭐ v56 (eCallout): this branch now runs on its own flag, separately from the
+      # carrier "C" heartbeat below — which is the piece that made shoutCallout a net
+      # cost (it broadcasts our CARRIER's exact cell to a channel both teams hear) and
+      # which stays off. An E names an ENEMY cell: worthless to the enemy who already
+      # knows where he is, and the position tell of the bubble itself is already paid
+      # for by every P codeword we shout. Only a body with FRESH eyes can fill this,
+      # so it self-limits to the seats that actually have something to say.
       var chosen: seq[Track] = @[]
       for t in bot.enemies:
         if bot.tick - t.lastSeen <= CalloutFreshTicks:
@@ -9282,6 +9605,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           break
       if cells.len > 0:
         say = "E " & cells.join(" ")
+        when defined(commsprobe):
+          inc csECall
     if say.len == 0 and iCarry and bot.tune.shoutCallout:
       # Carrier heartbeat: our own 8px-grid position so escorts converge. This
       # is STRATEGIC comms (broadcasts the carrier's exact spot — a position
