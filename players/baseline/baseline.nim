@@ -192,6 +192,7 @@ when defined(commsprobe):
   # even with the shout-forward bug fixed and WIPE/LINE firing fine. These break
   # the STACK-only path down gate-by-gate so a single "fires: 0" doesn't have to
   # be reverse-engineered again.
+  var csEmitStack = 0        # frames a bot EMITTED a STACK codeword (rp==RpStack at emit)
   var csStackHeardRaw = 0    # frames bot.heardPlay == RpStack, no other condition
   var csStackFreshEntry = 0  # ...AND heardFresh true (entered the stackConverge if)
   var csStackTooClose = 0    # ...AND callD < StackConvergeMin (70)
@@ -6623,6 +6624,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.arcLineTick = bot.tick
           when defined(commsprobe):
             inc csHeard
+            if rp == RpStack: inc csStackHeardRaw
       elif text[0] == 'C':
         # Carrier heartbeat: fresher than any dead-reckoned escort estimate.
         let parts = text[1 .. ^1].split(' ')
@@ -6854,6 +6856,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= CommsScanRange:
           inc freshMateNear
       let deep = -homeSign(bot.team) * (me.x - float(CenterX)) >= HoldLineTrigDepth
+      # ⭐ 2026-08-17 STACK-CONVERGE INVESTIGATION: if you're here because
+      # stackConverge/stackHoldGate read "fires: 0" on grabprobe, this condition is
+      # NOT the bug. A gate-by-gate waterfall (STACK-WATERFALL in grabprobe's
+      # -d:commsprobe report) shows the executor band (StackConvergeMin/Max,
+      # baseline.nim ~1341) is 100% correct whenever it gets input — 0 TOO-CLOSE, 0
+      # TOO-FAR, every BAND-OK frame produces a real ~140px move. The bottleneck is
+      # HERE, at classify+emit: a 2-team MIRROR self-play episode (both teams same
+      # policy) throws this condition far less often than real hosted play does — a
+      # 3-episode grabprobe sample reads a hard 0 EMIT-STACK, a 9-episode sample
+      # already catches one (which alone produced 161 downstream MOVE frames). The
+      # v55 REAL-FIELD corpus (comms-forensics-2026-08-14.md, 59 episodes) measured
+      # 840 STACK calls = 14.2/episode (23.8% of P-traffic) — two orders of
+      # magnitude above the mirror rate. Use n>=20+ episodes (or hosted data) before
+      # concluding this lever is dead; do not retune StackConvergeMin/Max/Pull off a
+      # small-n mirror sample, they aren't what's rejecting.
       if freshEnemyNear >= CommsStackDefenders and
           dist(me, stealTarget) <= CommsScanRange:
         localSc = ScStack                  # stacked pocket in front of us
@@ -7515,6 +7532,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let callD = dist(bot.heardPlayPos, me)
       let before = target
       if bot.heardPlay == RpStack and bot.tune.stackConverge:
+        when defined(commsprobe):
+          inc csStackFreshEntry
+          if callD < StackConvergeMin: inc csStackTooClose
+          if callD > StackConvergeMax: inc csStackTooFar
+          if callD >= StackConvergeMin and callD <= StackConvergeMax: inc csStackBandOk
         # ⭐ Pq/STACK — THE SECOND GUN. The caller is at a contested pocket with >=2
         # fresh guns on it and is about to be told (by smartGrab) to hold at standoff
         # until it has an advantage. The advantage it is waiting for is US: one more
@@ -7523,6 +7545,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # convergence the C1 doctrine comment promised and no code ever performed.
         if callD >= StackConvergeMin and callD <= StackConvergeMax:
           let d = dist(bot.heardPlayPos, target)
+          when defined(commsprobe):
+            if d <= 1.0: inc csStackNoDelta
           if d > 1.0:
             let step = min(StackConvergePull, d)
             target = target + norm(bot.heardPlayPos - target) * step
@@ -10885,6 +10909,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.lastCommsTick = bot.tick
       when defined(commsprobe):
         inc csEmit
+        if rp == RpStack: inc csEmitStack
 
   # ── Team shout emit (one channel, server-capped ~1/s): pick the single
   # highest-value message this frame and stage it in shoutWant for the caller

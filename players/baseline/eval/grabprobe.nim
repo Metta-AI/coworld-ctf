@@ -634,6 +634,14 @@ proc main() =
       &"{csESeed} tracks seeded from a heard one"
     echo &"    (⭐ every count on these two lines is FEET MOVED or a SLOT FREED, not eligibility — " &
       &"a frame count >0 with a ~0px mean is still a no-op, so read the px.)"
+    echo &"  STACK-WATERFALL: EMIT-STACK {csEmitStack} -> HEARD-STACK-RAW {csStackHeardRaw} -> " &
+      &"FRESH-ENTRY {csStackFreshEntry} -> [TOO-CLOSE {csStackTooClose}  TOO-FAR {csStackTooFar}  " &
+      &"BAND-OK {csStackBandOk}] -> NO-DELTA {csStackNoDelta} -> MOVE {csStackMove}"
+    echo &"    (EMIT-STACK>0 => this bot's own classifier called STACK; HEARD-STACK-RAW>0 => a mate's " &
+      &"STACK token decoded; FRESH-ENTRY = heardFresh true + heardPlay==RpStack, i.e. reached the " &
+      &"stackConverge if; TOO-CLOSE/TOO-FAR partition FRESH-ENTRY by the 70-460px callD band; " &
+      &"NO-DELTA = band ok but d<=1.0, already on target. 2026-08-17 verdict: EMIT-STACK is the " &
+      &"bottleneck, not the band — see the STACK-CONVERGE section of the investigation memo.)"
 
   when defined(ndprobe):
     # ── v56 NADE PACKAGE, on the grabprobe rig. Mirrors harness.nim's
