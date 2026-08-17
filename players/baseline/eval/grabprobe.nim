@@ -176,6 +176,12 @@ when defined(roleprobe):
                                                  # mate inside one blast
     rpYSpreadSum: array[2, float]                # Σ stdev of live-teammate y
     rpYSpreadN: array[2, int]
+    # ⭐ FRIENDLY FIRE, batch totals. Not split by colour on purpose: this rig is
+    # a MIRROR, so in the symmetric arms the own-colour rate is a property of the
+    # ARM, not of a side. (With SEAT4TEAM armed the sides differ — the per-seat
+    # K/D table is where that split is read.)
+    rpKillsAll, rpFfKills, rpFfGun, rpFfNade, rpFfSpray: int
+    rpDmgAll, rpFfDmg: int
 
   proc rpSample(engine: EvalEngine, players: int) =
     ## One ground-truth separation sample over every live body, bucketed by team.
@@ -329,6 +335,10 @@ proc main() =
         rpKills[s.team][st] += s.kills
         rpDeaths[s.team][st] += s.deaths
         inc rpEps[s.team][st]
+      let ff = engine.friendlyFireCounts()
+      rpKillsAll += ff.kills; rpFfKills += ff.ffKills
+      rpFfGun += ff.ffGun; rpFfNade += ff.ffNade; rpFfSpray += ff.ffSpray
+      rpDmgAll += ff.dmg; rpFfDmg += ff.ffDmg
     echo &"game {g}: winner={r.winnerTeam} ticks={r.ticks} " &
       &"grabs R{r.redGrabs}/B{r.blueGrabs} caps R{r.redCaptures}/B{r.blueCaptures}"
     when defined(doorprobe):
@@ -387,6 +397,16 @@ proc main() =
         &"within{RpTightPairPx.int}px {100.0 * rpPairTight[tm].float / pa.float:.2f}%  |  " &
         &"BODIES n={rpBodyAll[tm]} with a mate inside one blast " &
         &"{100.0 * rpBodyNade[tm].float / ba.float:.2f}%  |  live-mate y-STDEV {ysp:.1f}"
+    # ⭐⭐ FRIENDLY FIRE — the crowding metric, and the one the FIELD reports:
+    # 8.1% of half4 deaths were own-colour on the deal where three of four seats
+    # are mids. Friendly fire is ON in this engine, so this is not a proxy for
+    # crowding, it IS crowding: a mate on the ray, or a blast that caught two.
+    let ka = max(1, rpKillsAll)
+    let da = max(1, rpDmgAll)
+    echo &"  FRIENDLY FIRE  kills n={rpKillsAll}  own-colour {rpFfKills} " &
+      &"({100.0 * rpFfKills.float / ka.float:.2f}%)  [gun {rpFfGun} " &
+      &"nade {rpFfNade} spray {rpFfSpray}]  |  damage events n={rpDmgAll}  " &
+      &"own-colour {rpFfDmg} ({100.0 * rpFfDmg.float / da.float:.2f}%)"
     flushFile(stdout)
 
   when defined(doorprobe):

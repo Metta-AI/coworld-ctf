@@ -152,6 +152,14 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
   result = EvalEngine(sim: initSimServer(config))
   result.sim.gameEventLoggingEnabled = false  # keep the run quiet (a SimServer
                                               # field, defaults true post-init).
+  when defined(roleprobe):
+    # -d:roleprobe (2026-08-14, mid-quad break): the tier-2 sink is the only way
+    # to see FRIENDLY FIRE, which is the crowding metric a MIRROR rig can
+    # actually move (entry-y cannot — this rig's baseline is already 140-205px
+    # where the field shows 5-31px). Field reading: 8.1% of half4 deaths are
+    # own-colour (60 Picasso-on-Picasso, 42 from filler teammates) on exactly
+    # the deal where three of four seats are mids.
+    result.sim.collectEvents = true
   when defined(wkprobe):
     # -d:wkprobe (2026-08-07, kept permanently like canprobe/ssprobe): turn on
     # the tier-2 event sink so weaponKillCounts() below can read weapon-
@@ -245,6 +253,49 @@ when defined(wkprobe):
       of "grenade":
         if isRed: inc result.redNade else: inc result.blueNade
       else: discard
+
+when defined(roleprobe):
+  # ⭐⭐ FRIENDLY FIRE — the crowding metric, measured not inferred. Friendly fire
+  # is ON in this engine (selectFireTarget stops at the FIRST body, whoever it
+  # belongs to), so two of ours in one corridor is not a figure of speech: it is
+  # a teammate standing on the ray. Field: 8.1% of half4 deaths came from our own
+  # colour. Split by weapon because the two mechanisms are different — a `gun`
+  # own-kill is a body on the line, a `grenade` own-kill is the blast catching a
+  # cluster (the 58.4% stat), and the mid quad predicts BOTH.
+  #
+  # ⚠️ `source`/`target` are stable JOIN slots, not raw player indices — the same
+  # trap weaponKillCounts documents. Build the join-slot map, never assume they
+  # match.
+  proc friendlyFireCounts*(engine: EvalEngine): tuple[
+      kills, ffKills, ffGun, ffNade, ffSpray,
+      dmg, ffDmg: int] =
+    var teamOfJoinSlot = newSeq[int](engine.sim.players.len)
+    for i in 0 ..< teamOfJoinSlot.len: teamOfJoinSlot[i] = -1
+    for p in engine.sim.players:
+      if p.joinOrder >= 0 and p.joinOrder < teamOfJoinSlot.len:
+        teamOfJoinSlot[p.joinOrder] = ord(p.team)
+    for e in engine.sim.events:
+      if e.kind notin {Kill, Damage}: continue
+      if e.source < 0 or e.source >= teamOfJoinSlot.len: continue
+      if e.target < 0 or e.target >= teamOfJoinSlot.len: continue
+      let st = teamOfJoinSlot[e.source]
+      let tt = teamOfJoinSlot[e.target]
+      if st < 0 or tt < 0: continue
+      # Self-damage (own grenade at own feet) is a different defect from
+      # shooting a MATE, and only the second one is crowding. Exclude it.
+      let friendly = st == tt and e.source != e.target
+      if e.kind == Kill:
+        inc result.kills
+        if friendly:
+          inc result.ffKills
+          case e.weapon
+          of "gun": inc result.ffGun
+          of "grenade": inc result.ffNade
+          of "spray": inc result.ffSpray
+          else: discard
+      else:
+        inc result.dmg
+        if friendly: inc result.ffDmg
 
 when defined(canprobe):
   # -d:canprobe: engine-side TRUTH for the spray-can pickup path — whether the
