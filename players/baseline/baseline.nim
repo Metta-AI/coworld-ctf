@@ -188,6 +188,16 @@ when defined(commsprobe):
   var csEchoSkip = 0    # emits suppressed because that play was already in the air
   var csECall = 0       # "E <cell>.." enemy callouts we emitted
   var csESeed = 0       # enemy tracks seeded from a mate's heard E-callout
+  # ── STACK-CONVERGE WATERFALL (2026-08-17): stackConverge/stackHoldGate fire 0
+  # even with the shout-forward bug fixed and WIPE/LINE firing fine. These break
+  # the STACK-only path down gate-by-gate so a single "fires: 0" doesn't have to
+  # be reverse-engineered again.
+  var csStackHeardRaw = 0    # frames bot.heardPlay == RpStack, no other condition
+  var csStackFreshEntry = 0  # ...AND heardFresh true (entered the stackConverge if)
+  var csStackTooClose = 0    # ...AND callD < StackConvergeMin (70)
+  var csStackTooFar = 0      # ...AND callD > StackConvergeMax (460)
+  var csStackBandOk = 0      # ...AND in [Min,Max] band
+  var csStackNoDelta = 0     # ...band ok but d <= 1.0 (already on target, no move)
 
 when defined(ssprobe):
   # -d:ssprobe ONLY (v7): count how often the avoidDisarm repulsion is ACTIVE
@@ -1390,6 +1400,92 @@ const
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
+  # ── ⭐⭐ MID-QUAD BREAK (v56, 2026-08-14). The role table dealt FOUR of eight
+  # seats into the mid family and dealt MidBottom LITERALLY TWICE on every
+  # colour (seat 4, plus whichever of seats 2/3 resolves to MidBottom) — the
+  # docstring says it outright, "a mid quad plus two flankers". The field roster
+  # scan says that quad IS the problem: EVERY badly-performing seat is a mid and
+  # no non-mid seat is bad.
+  #   Β MidGuard  (full squad, n=67)  K/D 0.72 vs 1.14 squad — worst on the board
+  #   Γ Mid       (full squad, n=67)  K−D/ep +0.40 → −0.35 across the v55 ship
+  #   Ε MidBottom (full squad, n=67)  K−D/ep +0.20 → −0.14 (the DUPLICATE seat)
+  #   Δ Mid       (half squad, n=125) K/D 1.11 vs 1.34; (ffa4, n=345) 0.95 vs 1.17
+  #
+  # ⚠️⚠️ THE EVIDENCE THIS RESTS ON, AND THE EVIDENCE IT DOES NOT (2026-08-17).
+  # The original write-up justified this package on the ONE-DOOR FUNNEL. That
+  # explanation was measured and REFUTED, and none of it is load-bearing here:
+  #   ✗ "the partnered deal starves us into a funnel" — entry-y per deal shape
+  #     is partnered 70.7 vs h2h 63.2 (door 58.8 vs 56.8). The partnered deal is
+  #     NOT worse, which is the opposite of what seat-starvation predicts.
+  #   ✗ "ours 46.2px vs daveey 188px" — apples to oranges: ours was taken AT THE
+  #     DOOR, his at the MIDLINE. At equal depth he is 14.5px, ~2.3x wider than
+  #     us, not 30x. He funnels too.
+  #   ✗ "spending MidGuard is cheap because it is our worst seat" — that rank
+  #     (8 of 8) reproduces only on h2h, the deal where the swap changes no role
+  #     composition at all. On partnered, where a lever would bite, that seat is
+  #     1.30 against a 1.34 squad mean, rank 3 of 4. Dropped.
+  #   ✗ entry SPREAD as the mechanism at all — on gen-57711 a stock
+  #     paintbot-baseline filler found a second door at y≈386 while all nine of
+  #     our crossings went through y≈570, with NO role change. Route selection is
+  #     MAP-DERIVED; a fixed seat→role table cannot see a door.
+  # What survives, and is the whole case for this package:
+  #   ✓ every flagged-bad seat is a mid and no non-mid is flagged (a per-seat
+  #     PERFORMANCE finding, untouched by the funnel refutation),
+  #   ✓ MidBottom is dealt TWICE per colour — a literal duplicate, indefensible
+  #     on its own terms whatever the routing story turns out to be,
+  #   ✓ 8.1% of half4 deaths are own-colour (60 Picasso-on-Picasso) — direct
+  #     crowding damage, and unlike entry-y a metric this rig CAN move,
+  #   ✓ we die 0.52-0.53 deep inside THEIR half while the opponent arm dies
+  #     0.36-0.39 inside its own.
+  # Three levers, each independently revertable:
+  #   (1) seat 4 stops duplicating MidBottom             — NOSEAT4=1
+  #   (2) roleSep   — a bot whose role is ALSO dealt to a lower seat takes a
+  #                   separated lane/depth, so a duplicate is never a clone
+  #                                                       — NOROLESEP=1
+  #   (3) midSpread — the mid trail offsets stop being a 52px blob on approach
+  #                                                       — NOMIDSPREAD=1
+  # ⚠️ Levers 2 and 3 are APPROACH-ONLY: every one of them sits behind the
+  # existing `dist(me, stealTarget) > 90` / `> 170` gates, so the pocket
+  # convergence that actually scores the touch is byte-identical. Touch
+  # conversion is our known lever (71.8% vs 94.9%); nothing here may tax it.
+  MidTrailNarrowY = 26.0      # the ORIGINAL mid trail offset — MidBottom sat
+                              # +26px and MidGuard −26px off the steal target,
+                              # i.e. the whole mid stack inside one 52px band
+                              # while it walked the length of the map.
+  MidTrailWideY = 72.0        # midSpread: the widened band (144px apart). Sized
+                              # to exceed one blast (GrenadeBlastRadius 52), so
+                              # a single grenade cannot take the pair. ⚠️ The
+                              # "58.4% of nade impacts caught 2+ of ours" figure
+                              # that originally sized this belongs to the
+                              # refuted funnel write-up; the surviving crowding
+                              # evidence is the 8.1% own-colour DEATH rate, and
+                              # on this rig that metric did not move (below).
+  RoleSepLaneMix = 0.5        # roleSep: a DUPLICATE flanker runs halfway between
+                              # its namesake lane and LaneMid instead of sharing
+                              # the primary's corridor (both endpoints are
+                              # map-derived open lanes, so the blend is in the
+                              # band between two known-walkable corridors).
+  RoleSepDepthMul = 0.55      # roleSep: ...and turns in at 55% of FlankDepth, so
+                              # the pair separates in DEPTH as well as height and
+                              # does not arrive on the same beat.
+  MidSpreadRange = 200.0      # ⚠️ LOAD-BEARING. The widened band and the
+                              # duplicate's depth offset apply ONLY beyond this
+                              # range; inside it the mids fall back to the
+                              # ORIGINAL narrow anchor. The mid branch re-asserts
+                              # its anchor every frame that `dist > 90`, so an
+                              # anchor further than 90px from the steal target is
+                              # a bot that walks to it and PARKS there for the
+                              # rest of the round — no error, no statue (it
+                              # moved), it just never arrives. |(60,−72)| = 94
+                              # and the duplicate offsets are 143/166, all three
+                              # outside that gate. Staging the spread keeps every
+                              # anchor inside 90 once we are close, so the
+                              # approach spreads and the RUN-IN is byte-identical.
+  RoleSepTrailPx = 90.0       # roleSep: a duplicate MID mirrors its trail offset
+                              # in y and sits this much deeper in x, so it cannot
+                              # land on the seat it is duplicating (or on
+                              # MidGuard, which holds the mirrored y).
+
   # ── ⭐ ONE-DOOR BREAK (v56, 2026-08-14). Replay forensics, r1692 e20 vs
   # daveey (report play-layer-analysis-2026-08-14.md): ALL EIGHT of our entries
   # into the enemy half crossed one 16px slot (x~707-716, y in [566,582]) on a
@@ -2277,6 +2373,24 @@ type
                               # FOGGED, so this can NEVER be an open-ended headcount wait:
                               # the hold is capped at WaveGateMaxHold ticks and the budget
                               # is spent once per re-entry. NOWAVEGATE=1 reverts.
+    roleSep: bool             # ⭐ MID-QUAD BREAK lever 2 (2026-08-14): eight seats over
+                              # SEVEN roles means one role is always dealt twice, and the
+                              # two holders ran the same route with the same offsets — a
+                              # clone, not a second body. A bot computes its own role
+                              # ORDINAL from the deterministic, comms-free role table
+                              # (how many LOWER seats hold my role) and a non-primary
+                              # takes a separated lane and depth. Zero perception: the
+                              # table is a pure function of (seat, team, GameTeams), all
+                              # three of which a bot knows about ITSELF. Approach-only —
+                              # every site sits behind the existing pocket-range gates.
+                              # NOROLESEP=1 reverts.
+    midSpread: bool           # ⭐ MID-QUAD BREAK lever 3 (2026-08-14): the mid stack
+                              # trailed inside one 52px band (MidBottom +26, MidGuard −26)
+                              # for the whole walk up the map, which is narrower than a
+                              # grenade — 58.4% of enemy nade impacts that damaged us
+                              # caught 2+ of ours. Widen the APPROACH band to ±72px; the
+                              # pocket (dist ≤ 90) is untouched so the touch is unchanged.
+                              # NOMIDSPREAD=1 reverts.
     rallyWave: bool           # ⭐ rallyWave (plan #squad-1 / issue #20, 2026-08-06): arm
                               # PhOpen's EXISTING mid-lane pull for the RE-ENTRY MARCH.
                               # Field truth (26 GV36 league episodes, free 7-vs-7 in-episode
@@ -2675,6 +2789,14 @@ type
                               # never read. Suppressed movement after a close-
                               # range trigger pull; the A/B lost 1-9-2.
     role: Role
+    roleOrd: int               # ⭐ MID-QUAD BREAK (2026-08-14): how many LOWER seats are
+                               # dealt the SAME role as me. 0 = I am the primary holder
+                               # (byte-identical behaviour); >0 = I am a duplicate and
+                               # roleSep hands me a separated lane/depth. Derived from
+                               # roleForSeat alone — a pure function of (seat, team,
+                               # GameTeams) — so it needs no comms and no perception, and
+                               # it is recomputed beside `role` on every re-deal (the
+                               # 4-team colour re-lock can change the deal mid-episode).
     teamSeat: int              # ⭐ SEAT-IDENTITY FIX (2026-08-07, v45): the physical
                               # team-seat (slot div teams, same formula that picks
                               # `role` below) — the STABLE identity a "one designated
@@ -2973,15 +3095,117 @@ proc roleForSeat(seat: int, team: Team): Role =
       elif seat == 1: 6
       elif seat == 6: 1
       else: seat
+    # ⭐⭐ MID-QUAD BREAK, lever 1 (2026-08-14). NOSEAT4=1 reverts.
+    # Seat 4's MidBottom is a LITERAL DUPLICATE: seat 2 or 3 already deals
+    # MidBottom on every colour (the colour only decides WHICH of the pair), so
+    # the table spent four of eight seats on the mid family and dealt one mid
+    # role twice. The roster scan flags exactly those seats and no others — Ε
+    # (this seat) went +0.20 → −0.14 K−D/ep across the v55 ship against a squad
+    # that went +0.06, and its co-holder Γ went +0.40 → −0.35.
+    # Eight seats over SEVEN roles means SOME role must double; the question is
+    # only which double is cheapest. It must not be a mid (that is the finding),
+    # and it must not be Overwatch or HomeDefender — buying a second post with
+    # an attacker is precisely the prefix-balanced reorder measured at −20.5
+    # above, whose stated mechanism was that in a near-captureless regime the
+    # post it bought had nothing to do. That leaves the two flankers.
+    # ⚠️ Which flanker is NOT decided by the entry-y evidence any more: the
+    # "all eight entries through y 566-582, so we are saturated LOW" reading came
+    # from the refuted one-door write-up (ours measured at the door vs the
+    # opponent's at the midline), and a stock filler on the same map found a
+    # second door with no role change at all — routing is map-derived and this
+    # table cannot see it. FlankTop is taken for a reason that does not depend on
+    # that: it is the only role in the deal whose ordinal would otherwise be
+    # unique, so doubling it is the one choice that separates cleanly under
+    # roleSep (a blended lane at 55% depth), whereas doubling a POCKET role puts
+    # two bodies on one pedestal however you offset them.
+    # The two FlankTops therefore do NOT become clones — which is why levers 1
+    # and 2 are coupled and lever 1 must never ship without lever 2.
+    # ⚠️ TWO-TEAM ONLY, same reasoning as lever 1 of the one-door break: the
+    # 4-team deal is a different table (seat 1 is the NODEF4 heart guard, seat 6
+    # keeps FlankTop, MidGuard is absent) and all four flagged seats are 2-team
+    # readings. 4-team keeps its MidBottom at seat 4 byte-for-byte, and roleSep
+    # separates that duplicate instead. Verify with eval/seatdump.nim.
+    # ⚠️ SCOPE, stated plainly because it bounds every claim below: on a 2-team
+    # board the strided league subset is teamSeats 0..3, so SEAT 4 IS NOT DEALT
+    # TO US on the partnered board at all. Lever 1 reaches only the FULL-SQUAD
+    # 2-team deal. Lever 3 (midSpread) is the only one of the three that touches
+    # the partnered and ffa4 deals, because it changes the mid trail geometry
+    # rather than the seat table.
+    # ⚠️ SEAT4TEAM is an EVAL-ONLY seat-rotated A/B knob, never set in a shipped
+    # tune. The other two levers of this package are tune fields, so the harness
+    # can strip them from one colour and score a within-episode head-to-head;
+    # roleForSeat is a pure function and cannot be re-stamped, so the fork has
+    # to live here. Unset (production) it is inert, and this whole proc runs
+    # ONCE per bot per episode (out of buildNavGrid), so the read is free.
+    # ⭐ It must be SEAT-ROTATED — run red-armed and blue-armed and average — or
+    # it measures the side, not the lever. That is exactly how the −20.5
+    # rejection above was scored, and it is the reason it counted.
+    let seat4Arm = getEnv("SEAT4TEAM")
+    let seat4Armed =
+      if seat4Arm.len == 0: true
+      else: (seat4Arm == "red" and team == Red) or
+            (seat4Arm == "blue" and team == Blue)
+    # ⛔⛔ MEASURED AND REJECTED, DEFAULT OFF (2026-08-14). The PREMISE held —
+    # seat 4 was a literal duplicate of seat 2/3's MidBottom, and with the
+    # package off it is the WORST seat on the board in the mirror too (pooled
+    # K/D 0.54, K−D/ep −0.69, both colours, 8 games x 900t) exactly as the field
+    # roster scan reported for Ε. Arming it fixes THAT SEAT hard: K/D 0.54 →
+    # 1.07, K−D/ep −0.69 → +0.12, the largest per-seat gain on the board.
+    # But the SQUAD does not gain. A mirror A/B is zero-sum by construction (the
+    # per-seat deltas sum to +0.02), so the only decisive rig is the SEAT-ROTATED
+    # A/B this file already demands three paragraphs up — "it has to be positive
+    # on BOTH seatings to count". Armed-side kill differential over 10 games:
+    #     all three levers   red-armed −3   blue-armed −19   seat-adj −11
+    #     levers 1+2 only    red-armed −11  blue-armed −1    seat-adj −6
+    # Negative on FOUR of four armed runs and positive on none. The crowding it
+    # was aimed at did not move either: own-colour DAMAGE rate 5.21% vs 5.23%
+    # (n≈650/arm), and pairwise "inside one grenade" is dominated by a ~2pp SIDE
+    # effect (Red 18.6% vs Blue 20.6%) with no lever effect once you split armed
+    # from unarmed. So the seat-level win is a REDISTRIBUTION: seat 4 stops being
+    # the worst seat by taking kills the other seats used to take.
+    # ⚠️ That is not a refutation of the finding, only of this implementation of
+    # it — the mirror has no camper holding one door and no focus-fire wave, so
+    # it cannot reward spreading, and this squad is already locally outnumbered
+    # in 41.7% of contact frames (rallyWave exists to GROUP us). It needs hosted
+    # episodes against a strong opponent. Until then it ships OFF, held to the
+    # same bar that rejected the prefix-balanced reorder at −20.5.
+    # ROLEQUAD=1 arms all three levers; the NOxxx reverts still disable them
+    # individually on top of that, so every A/B in the commit message reproduces.
+    let quadArmed = getEnv("ROLEQUAD").len > 0
+    let seat4Role =
+      if GameTeams <= 2 and quadArmed and seat4Armed and
+          getEnv("NOSEAT4").len == 0: FlankTop
+      else: MidBottom
     case doorSeat
     of 0: FlankBottom      # wide bottom lane, get behind the contest
     of 1: MidGuard         # third mid, trails offset high and cleans up
     of 2: (if team == Blue: MidTop else: MidBottom)
     of 3: (if team == Red: MidTop else: MidBottom)
-    of 4: MidBottom        # fourth mid: the second trailing attacker
+    of 4: seat4Role        # was "fourth mid: the second trailing attacker" — a
+                           # duplicate of seat 2/3's MidBottom. Now the second
+                           # wide-lane body (2-team); 4-team is unchanged.
     of 5: Overwatch        # cover post flanking the ring: the lane sniper
     of 6: FlankTop         # wide top lane, get behind the contest
     else: HomeDefender     # choke guard before our capture column
+
+proc roleOrdinal(seat: int, team: Team): int =
+  ## ⭐ MID-QUAD BREAK lever 2 support. How many seats BELOW `seat` are dealt the
+  ## same role as `seat`. 0 = I am the primary holder of my role; >0 = I am a
+  ## duplicate, and roleSep separates my lane/depth from the primary's.
+  ##
+  ## Eight seats over seven roles means the deal ALWAYS doubles something, and
+  ## the two holders used to run identical routes with identical offsets — a
+  ## clone rather than a second body, which is how four mids ended up in one
+  ## corridor. This is a pure function of roleForSeat, which is itself a pure
+  ## function of (seat, team, GameTeams): every bot knows all three about
+  ## ITSELF, so the ordinal needs no comms, no perception and no fog-crossing
+  ## read. It is also stable across the env reverts — flip NOSEAT4 or NODOOR1
+  ## and the ordinal follows the table it is reading, so the arms stay coherent.
+  result = 0
+  let mine = roleForSeat(seat, team)
+  for s in 0 ..< clamp(seat, 0, 8):
+    if roleForSeat(s, team) == mine:
+      inc result
 
 proc selectPlay(elapsed: int, ownStolen: bool): Play =
   ## The team's shared play, computed from SHARED signals ONLY so all 8 bots
@@ -3872,6 +4096,16 @@ proc shippedCombatTune(): CombatTune =
   let shapePxEnv = getEnv("SHAPEPX")
   if shapePxEnv.len > 0:
     result.shapeHoldPx = parseFloat(shapePxEnv)
+  # ⭐⭐ v56 MID-QUAD BREAK (2026-08-14, Maxwell's roster scan). Levers 2 and 3
+  # of three; lever 1 is the seat-4 de-duplication inside roleForSeat
+  # (NOSEAT4=1). Both are MOVEMENT-TARGET ONLY and both sit behind the existing
+  # pocket-range gates, so the touch itself is byte-identical in every arm.
+  # ⛔ DEFAULT OFF — measured and rejected on the seat-rotated A/B (negative on
+  # four of four armed runs; see the ledger in roleForSeat). ROLEQUAD=1 arms the
+  # package, the NOxxx names still revert each lever individually on top of it.
+  let quadArmed = getEnv("ROLEQUAD").len > 0
+  result.roleSep = quadArmed and getEnv("NOROLESEP").len == 0
+  result.midSpread = quadArmed and getEnv("NOMIDSPREAD").len == 0
 
 
 when defined(doorprobe):
@@ -3884,6 +4118,18 @@ when defined(doorprobe):
   const DpMaxEntries = 512
   var dpEntryY*: array[2, array[8, array[DpMaxEntries, float]]]
   var dpEntryN*: array[2, array[8, int]]
+  # ⭐ THE DOOR IS NOT THE MIDLINE — reading only the midline understates the
+  # defect by an order of magnitude. Re-simulating r1692 e20 (the case study
+  # itself, hash-checked faithful) with a depth sweep on our four seats:
+  #     depth   0 (midline)   n=14  STDEV 81.6  span 211px
+  #     depth  45             n=8   STDEV 23.5  span  75px
+  #     depth  90 (the door)  n=9   STDEV  6.8  span  22px  <- the reported 16px
+  #     depth 135             n=5   STDEV  1.3  span   3px
+  # We DO spread at the line and are funnelled into one gap ~90px past it. Those
+  # two readings want different fixes, so record BOTH edges.
+  const DpDoorDepth = 90.0
+  var dpDoorY*: array[2, array[8, array[DpMaxEntries, float]]]
+  var dpDoorN*: array[2, array[8, int]]
   # Per-seat liveness: a seat with 0 acting frames is the "2 of 6 bots stood
   # perfectly still with zero errors" failure. Counted from decide()'s TAIL, so
   # it only ticks when the frame actually produced a decision.
@@ -3919,6 +4165,82 @@ when defined(doorprobe):
     if dpEntryN[team][seat] >= DpMaxEntries: return
     dpEntryY[team][seat][dpEntryN[team][seat]] = y
     inc dpEntryN[team][seat]
+
+  proc dpNoteDoor*(team, seat: int, y: float) =
+    if team notin 0 .. 1 or seat notin 0 .. 7: return
+    if dpDoorN[team][seat] >= DpMaxEntries: return
+    dpDoorY[team][seat][dpDoorN[team][seat]] = y
+    inc dpDoorN[team][seat]
+
+
+when defined(roleprobe):
+  # ── ⭐ MID-QUAD PROBE (-d:roleprobe ONLY, pure instrumentation, never in the
+  # shipped player). Two jobs, and the second is the one that has burned us:
+  #   1) LEVER FIRE. roleSep only does anything to a bot whose role is dealt
+  #      twice, and midSpread only touches the two trail branches. A lever that
+  #      compiles but never triggers reads exactly like a lever that does not
+  #      work, so each gets a counter that must be non-zero in the ON arm and
+  #      ZERO in its own revert arm.
+  #   2) SEPARATION and FRIENDLY FIRE. Entry-y cannot score this package (this
+  #      rig's baseline is already 140-205px where the field shows 5-31px, and
+  #      the field comparison that motivated it was itself refuted), so the
+  #      crowding target is measured two ways instead: sampled (frame, pair)
+  #      events with two live teammates inside one grenade, and — the one the
+  #      FIELD reports — the own-colour share of kills and damage. Friendly fire
+  #      is ON in this engine, so own-colour damage is not a proxy for crowding,
+  #      it IS crowding. Field reading: 8.1% of half4 deaths own-colour.
+  #      ⚠️ RESULT: it did not move. Own-colour DAMAGE 5.21% armed vs 5.23%
+  #      unarmed (n≈650 each, the best-powered reading); own-colour KILLS 7.54%
+  #      vs 5.56% on n=15/10, which is noise and if anything the wrong way. And
+  #      the pair metric is dominated by a ~2pp SIDE effect (Red 18.6%, Blue
+  #      20.6%) that survives every arm — a control worth keeping, because it is
+  #      exactly how a side-confounded metric fakes a lever effect.
+  var rpSepFrames*: array[2, array[8, int]]   # frames the roleSep branch moved a target
+  var rpMidFrames*: array[2, array[8, int]]   # frames a mid trail offset was applied
+  var rpMidTrailSum*: array[2, array[8, float]] # Σ|trail y| over those frames — the
+                              # midSpread arms differ in this SUM even though neither
+                              # takes a distinguishable branch (it is a value change,
+                              # not a code path, so a plain counter cannot prove it)
+
+  proc rpSepFire*(team: Team, seat: int) =
+    let t = clamp(ord(team), 0, 1)
+    if seat notin 0 .. 7: return
+    inc rpSepFrames[t][seat]
+
+  proc rpMidFire*(team: Team, seat: int, trailY: float) =
+    let t = clamp(ord(team), 0, 1)
+    if seat notin 0 .. 7: return
+    inc rpMidFrames[t][seat]
+    rpMidTrailSum[t][seat] += abs(trailY)
+
+  var rpPark*: array[2, array[8, int]]  # ⚠️ THE PARK INVARIANT. The mid branch
+                              # re-asserts its anchor on every frame the >90px
+                              # gate is open, so an anchor that is itself further
+                              # than 90px from the steal target is a bot that
+                              # arrives and then never leaves — it never touches
+                              # the pedestal, and it looks perfectly healthy
+                              # (frames > 0, travel > 0, zero errors). Three of
+                              # the six widened anchors in the first draft of
+                              # this package were exactly that. This counter must
+                              # be ZERO in every arm; a non-zero is a lever that
+                              # silently deletes the touch on the seats it was
+                              # supposed to help.
+  proc rpAnchorCheck*(team: Team, seat: int, target, steal: Vec, stealD: float) =
+    ## The exact parking condition, not a proxy: the anchor keeps the >90px gate
+    ## OPEN (so this branch will re-assert the same anchor next frame) AND it is
+    ## no closer to the pedestal than we already are (so arriving at it makes no
+    ## progress). A far-stage anchor at 143px read from 210px away is fine — the
+    ## bot closes to 143 and re-stages. The same anchor read from 143px away is
+    ## the trap.
+    let t = clamp(ord(team), 0, 1)
+    if seat notin 0 .. 7: return
+    # `dist` is declared further down the file than this probe block, so the
+    # hypot is inlined rather than moving the block (which would push it into
+    # the sibling-owned doorprobe region and conflict on every merge).
+    let dx = target.x - steal.x
+    let dy = target.y - steal.y
+    let anchorD = sqrt(dx * dx + dy * dy)
+    if anchorD > 90.0 and anchorD >= stealD - 1.0: inc rpPark[t][seat]
 
 
 when defined(rngprobe):
@@ -4985,6 +5307,10 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   # HomeDefender.
   bot.teamSeat = clamp(bot.slot div max(GameTeams, 2), 0, 7)
   bot.role = roleForSeat(bot.teamSeat, bot.team)
+  # ⭐ Recomputed HERE, beside the role, and never cached anywhere else: this
+  # site re-runs when the 4-team colour re-lock changes bot.team, and a stale
+  # ordinal would silently hand a primary the duplicate's route.
+  bot.roleOrd = roleOrdinal(bot.teamSeat, bot.team)
   when defined(seatprobe):
     # Runs once per bot (guarded by the `not bot.navBuilt` caller below) — the
     # full seat/role/designation identity table the v45 seat-identity fix is
@@ -7052,20 +7378,80 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cone cannot kill the pair; flankers run the extreme lanes deep past
     # mid, then hit the pedestal pocket from behind.
     target = stealTarget
+    # ⭐⭐ MID-QUAD BREAK, levers 2 and 3 (2026-08-14). NOROLESEP=1 / NOMIDSPREAD=1.
+    # `dup` = I am NOT the primary holder of my role (a lower seat has it too).
+    # Eight seats over seven roles always doubles one role, and until now the
+    # two holders ran the SAME route with the SAME offsets. That is how four
+    # bodies ended up in one 16px door and how 58.4% of the grenades that hurt
+    # us caught two of ours at once. Both levers are APPROACH-only: they live
+    # entirely inside the existing >90px / >170px gates, so once a bot is in the
+    # pocket the target is byte-identical to the shipped champion and the touch
+    # (our known conversion lever, 71.8% vs 94.9%) is untouched.
+    let dup = bot.tune.roleSep and bot.roleOrd > 0
+    let stealD = dist(me, stealTarget)
+    # ⚠️⚠️ THE ANCHOR MUST LIE INSIDE THE RELEASE GATE. This branch re-asserts
+    # its anchor on every frame where `stealD > 90`, so an anchor whose own
+    # distance from stealTarget EXCEEDS 90 is a bot that walks to it, re-reads
+    # the same gate, and parks there for the rest of the round — never closing
+    # on the pedestal, with no error and no statue signature (it moved, it just
+    # stopped arriving). The original offsets are safe by luck: |(34,26)| = 43
+    # and |(60,−26)| = 65. Widening y to 72 puts MidGuard at 94 and the
+    # duplicate offsets at 143/166 — all three OUTSIDE the gate.
+    # So the spread is a two-stage approach, not a bigger anchor: wide while we
+    # are still walking (beyond MidSpreadRange), then the ORIGINAL narrow anchor
+    # for the run-in, then stealTarget itself inside 90. Each stage is strictly
+    # closer than the one before, so it is monotone inward and cannot oscillate,
+    # and the final two stages are byte-identical to the shipped champion —
+    # which is the point: touch conversion (71.8% vs 94.9%) is our known lever
+    # and nothing here is allowed to tax it.
+    let spreadFar = stealD > MidSpreadRange
+    let trailY = (if bot.tune.midSpread and spreadFar: MidTrailWideY
+                  else: MidTrailNarrowY)
+    let sepX = (if dup and spreadFar: RoleSepTrailPx else: 0.0)
+    let sepFlip = dup and spreadFar
     case bot.role
     of MidBottom:
-      if dist(me, stealTarget) > 90:
-        target = stealTarget + vec(homeSign(bot.team) * 34.0, 26.0)
+      if stealD > 90:
+        # A duplicate MidBottom (the 4-team seat 4, and the 2-team seat 4 when
+        # NOSEAT4=1 reverts lever 1) mirrors the trail into the HIGH half and
+        # sits deeper, so on the walk in it can neither clone its co-holder nor
+        # land on MidGuard's mirrored post.
+        target = stealTarget + vec(
+          homeSign(bot.team) * (34.0 + sepX),
+          (if sepFlip: -trailY else: trailY))
+        when defined(roleprobe):
+          rpMidFire(bot.team, bot.teamSeat, trailY)
+          rpAnchorCheck(bot.team, bot.teamSeat, target, stealTarget, stealD)
+          if sepFlip: rpSepFire(bot.team, bot.teamSeat)
     of MidGuard:
-      if dist(me, stealTarget) > 90:
-        target = stealTarget + vec(homeSign(bot.team) * 60.0, -26.0)
+      if stealD > 90:
+        target = stealTarget + vec(
+          homeSign(bot.team) * (60.0 + sepX),
+          (if sepFlip: trailY else: -trailY))
+        when defined(roleprobe):
+          rpMidFire(bot.team, bot.teamSeat, trailY)
+          rpAnchorCheck(bot.team, bot.teamSeat, target, stealTarget, stealD)
+          if sepFlip: rpSepFire(bot.team, bot.teamSeat)
     of FlankTop, FlankBottom:
       # Run the wide lane deep, then turn straight in for the grab so the
       # flankers hit the pocket together with the mid trio instead of
       # trickling in.
-      let laneY = (if bot.role == FlankTop: LaneTop else: LaneBottom)
-      if not bot.behindLines and dist(me, stealTarget) > 170.0:
-        target = vec(float(CenterX) - homeSign(bot.team) * FlankDepth, laneY)
+      var laneY = (if bot.role == FlankTop: LaneTop else: LaneBottom)
+      var depth = FlankDepth
+      if dup:
+        # The SECOND holder of a lane role takes the band between its namesake
+        # lane and LaneMid — both endpoints are map-derived open corridors, so
+        # the blend is inside the walkable band the map declares, not a guessed
+        # y — and turns in early. Separated in height AND in arrival beat.
+        # No parking risk here: unlike the mid anchors this branch's gate (170px)
+        # releases on RANGE TO THE PEDESTAL, and its target is a staging point on
+        # our OWN side of centre, so the bot is always walking toward the gate.
+        laneY = laneY + (LaneMid - laneY) * RoleSepLaneMix
+        depth = FlankDepth * RoleSepDepthMul
+      if not bot.behindLines and stealD > 170.0:
+        target = vec(float(CenterX) - homeSign(bot.team) * depth, laneY)
+        when defined(roleprobe):
+          if dup: rpSepFire(bot.team, bot.teamSeat)
     else:
       discard
 
@@ -10081,6 +10467,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.prevDepthSet and bot.prevDepth <= 0.0 and dpDepth > 0.0:
         dpNoteEntry(dpTm, dpSt, me.y)
         inc dpSlotEntries[dpSl]
+      if bot.prevDepthSet and bot.prevDepth <= DpDoorDepth and
+          dpDepth > DpDoorDepth:
+        dpNoteDoor(dpTm, dpSt, me.y)
       bot.prevDepth = dpDepth
       bot.prevDepthSet = true
 

@@ -32,7 +32,12 @@ proc dumpBoard(label: string, teams: int, slots: int, prefix: HSlice[int, int]) 
     var counts = initCountTable[string]()
     for seat in 0 .. 7:
       let r = RoleName[ord(roleForSeat(seat, t))]
-      full.add &"{seat}:{r}"
+      # ⭐ The ordinal IS the duplicate flag roleSep reads (#1 = a non-primary
+      # holder that takes the separated lane/depth). Printing it here makes
+      # "which seat is a clone" a checked fact of the same dump that proves the
+      # multiset, instead of something re-derived by eye from the role column.
+      let ordn = roleOrdinal(seat, t)
+      full.add &"{seat}:{r}" & (if ordn > 0: &"#{ordn}" else: "")
       counts.inc r
     echo &"  {t:<7} ALL8    " & full.join("  ")
     # The seats we ACTUALLY hold in this mode.
@@ -55,9 +60,15 @@ proc dumpBoard(label: string, teams: int, slots: int, prefix: HSlice[int, int]) 
     echo &"          MULTISET dupes=[{dupes.join(\", \")}] missing=[{missing.join(\", \")}]"
 
 when isMainModule:
-  let rev = getEnv("NODOOR1").len > 0
-  echo (if rev: "### NODOOR1=1 (REVERTED: the pre-fix table)"
-        else: "### SHIPPED (one-door break lever 1 ON)")
+  # ⭐ Print the FULL env arm, not just one lever. roleForSeat now reads three
+  # independent reverts (NODEF4, NODOOR1, NOSEAT4), and a header that names only
+  # one of them is how a "both arms identical" claim gets made about two runs
+  # that were never in the arms they said they were.
+  var arm: seq[string]
+  for v in ["NODEF4", "NODOOR1", "NOSEAT4"]:
+    if getEnv(v).len > 0: arm.add v & "=1"
+  echo (if arm.len == 0: "### SHIPPED (all role-table levers ON)"
+        else: "### REVERTED: " & arm.join(" "))
   # 2-team, 16 slots: team = slot mod 2, teamSeat = slot div 2 -> 0..7.
   # In "1v1 (8 per team)" paintbot we hold slots {0,2,4,6} => teamSeats {0,1,2,3}.
   dumpBoard("2-TEAM 16-slot: league strided subset is teamSeats 0..3",
