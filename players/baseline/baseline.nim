@@ -1378,6 +1378,45 @@ const
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
+  # ── ⭐ ONE-DOOR BREAK (v56, 2026-08-14). Replay forensics, r1692 e20 vs
+  # daveey (report play-layer-analysis-2026-08-14.md): ALL EIGHT of our entries
+  # into the enemy half crossed one 16px slot (x~707-716, y in [566,582]) on a
+  # 638px-tall map, and daveey's slot 7 killed FIVE of us in a row standing on
+  # it (t=1386/1469/1831/1883/1938) without our route ever changing. Entry-y
+  # stdev: ours 5/17/31px, his 148-242px. Timing is NOT the defect (our
+  # re-entries are clocked at 27-42t gaps) — the DESTINATION is: every strided
+  # seat we hold is dealt a mid-or-bottom role, so every path matches.
+  # Three levers, each independently revertable:
+  #   (1) roleForSeat puts a FlankTop in the strided prefix   — NODOOR1=1
+  #   (2) hotDoor    — remembered crossing-band deaths push the next crossing
+  #                    into the OTHER y-half                  — NOHOTDOOR=1
+  #   (3) waveGate   — stage short of the crossing until a mate is with us,
+  #                    under a HARD tick cap                  — NOWAVEGATE=1
+  HotDoorMemory = 900         # ticks a remembered door death stays "hot" (the
+                              # camper in the case study held one point for
+                              # 1000+ ticks; ~2 respawn cycles of memory)
+  HotDoorRadius = 90.0        # |dy| within which two deaths are the SAME door
+  HotDoorMinDeaths = 2        # this many hot deaths on my crossing line = reroute
+                              # (one death is noise; the case study had five)
+  HotDoorBandPx = 300.0       # only deaths within this |x - CenterX| band are
+                              # "at the door" — a death deep in the pocket is a
+                              # fight we lost, not a covered entrance
+  HotDoorSlots = 8            # ring capacity of remembered door deaths
+  HotDoorCommit = 180         # once rerouted, hold the alternate lane this long
+                              # so a flickering read can't stutter us back
+  HotDoorSepPx = 200.0        # the alternate crossing must be at least this far
+                              # in y from the hot door (else it IS the same door)
+  WaveGateArmBand = 170.0     # arm only while within this px of the crossing on
+                              # OUR OWN side (pre-contact by construction)
+  WaveGateStageBack = 70.0    # stage this far back from CenterX while holding
+  WaveGatePack = 1            # fresh mates (besides me) needed to release
+  WaveGateRadius = 220.0      # a fresh mate this close counts as staged with me
+  WaveGateMaxHold = 90        # ⚠️ HARD liveness cap on ONE hold. Teammates are
+                              # FOGGED, so a headcount gate can deadlock a whole
+                              # squad into statues (2 of 6 bots once stood still
+                              # for a whole episode on a silent seat contract).
+                              # The budget is per re-entry and expires on its own.
+
   LaneTop = 40.0              # open corridor above the mirrored obstacles
   # LaneMid / LaneBottom are map-derived (adoptMapSize).
   RespawnBandHalf = 84.0      # fresh enemies respawn at pedestal height ±72px
@@ -2170,6 +2209,24 @@ type
                               # default, i.e. the SHIPPED-BROKEN aim, so the
                               # GV40 fix can be measured head-to-head from one
                               # frozen binary. Never set in a shipped tune.
+    hotDoor: bool             # ⭐ ONE-DOOR BREAK lever 2 (2026-08-14): remember friendly
+                              # deaths that happened AT THE CROSSING and route the next
+                              # crossing into a y-half that is not being camped. Field
+                              # evidence: daveey's slot 7 killed five of us in a row on
+                              # ONE 16px point over 1000+ ticks while our route never
+                              # changed. Perception-legal on a fogged client: our OWN
+                              # death position is always known and the memory outlives
+                              # the respawn, plus mate corpses we actually saw.
+                              # Movement-target only, pre-contact by construction (it
+                              # arms on OUR side of the midline). NOHOTDOOR=1 reverts.
+    waveGate: bool            # ⭐ ONE-DOOR BREAK lever 3 (2026-08-14): stage just short
+                              # of the crossing until a fresh mate is with us, instead of
+                              # trickling single bodies through a covered door (the case
+                              # study: s0 enters t=1368, dies t=1386; s6 enters t=1429,
+                              # 43 ticks AFTER s0 is already dead). ⚠️ Teammates are
+                              # FOGGED, so this can NEVER be an open-ended headcount wait:
+                              # the hold is capped at WaveGateMaxHold ticks and the budget
+                              # is spent once per re-entry. NOWAVEGATE=1 reverts.
     rallyWave: bool           # ⭐ rallyWave (plan #squad-1 / issue #20, 2026-08-06): arm
                               # PhOpen's EXISTING mid-lane pull for the RE-ENTRY MARCH.
                               # Field truth (26 GV36 league episodes, free 7-vs-7 in-episode
@@ -2720,6 +2777,23 @@ type
                               # (a seen mate, or a mate shout bubble that is not
                               # our own); a mateDeathTick newer than this for
                               # MateGoneTicks = we believe we are the last man
+    doorDeathY: array[HotDoorSlots, float]   # ⭐ hotDoor: ring of remembered
+    doorDeathTick: array[HotDoorSlots, int]  # deaths IN THE CROSSING BAND — our
+    doorDeathN: int                          # own (always known, survives our
+                              # respawn: resetTransient runs per ROUND, not per
+                              # life) plus mate corpses we actually saw. This is
+                              # the only camper evidence a fogged client has.
+    doorRerouteY: float       # hotDoor: committed alternate crossing height
+    doorRerouteUntil: int     # (-1 = none), held until this tick
+    waveGateUntil: int        # waveGate: this hold expires here (HARD cap)
+    waveGateHolding: bool     # waveGate: a hold is open right now (edge state, so
+                              # the cap is armed once per hold, frameAdvance-safe)
+    waveGateSpent: bool       # waveGate: this re-entry's ONE hold budget is
+                              # used; cleared once we are back in the enemy half
+                              # (or back deep home), so a hold can never repeat
+                              # itself into a statue
+    prevDepth: float          # depth into the enemy half last ALIVE frame; the
+    prevDepthSet: bool        # midline-crossing edge detector (probe + waveGate)
     lastHitPos: Vec           # v56 dangerPreAim: most plausible source of the
     lastHitTick: int          # last unseen hit (muzzle ring / freshest track /
                               # behind-our-aim guess) — outlives the short
@@ -2816,7 +2890,40 @@ proc roleForSeat(seat: int, team: Team): Role =
     # measured -20.5 and stays rejected).
     if GameTeams > 2 and seat == 1 and getEnv("NODEF4").len == 0:
       return HomeDefender  # the MidGuard trailer becomes the heart guard
-    case seat
+    # ⭐⭐ ONE-DOOR BREAK, lever 1 (2026-08-14). NODOOR1=1 reverts.
+    # This is a SWAP OF EXACTLY TWO SEATS (1 <-> 6), not the prefix-balanced
+    # REORDER that was measured and rejected above at -20.5: the eight-role
+    # multiset is byte-identical, no role is added, dropped or doubled, and
+    # seats 0/2/3/4/5/7 are untouched. What changes is WHICH seats hold
+    # MidGuard and FlankTop.
+    # Why: in "1v1 (8 per team)" paintbot we hold slots {0,2,4,6}, i.e.
+    # teamSeats {0,1,2,3} — the PREFIX. The old prefix was
+    #   FlankBottom, MidGuard, Mid, Mid   -> ZERO FlankTop
+    # so all four attacking seats route mid-or-low and every path matches:
+    # r1692 e20 put all 8 entries through one 16px slot at y 566-582 of a
+    # 638px board and daveey's slot 7 farmed five kills on it. FlankTop is the
+    # ONLY role that runs the LaneTop (y=40) wide corridor, so it is the one
+    # role whose absence collapses the entry-y spread. The new prefix is
+    #   FlankBottom, FlankTop, Mid, Mid   -> both wide lanes covered
+    # MidGuard (a near-pedestal trailer at stealTarget + (60,-26)) is the
+    # cheapest thing in the prefix to spend: seats 2/3/4 already supply the
+    # mid stack, and MidGuard survives at seat 6 for the full 8-seat deal.
+    # ⚠️⚠️ TWO-TEAM ONLY, and the seat dump is why. On a 4-team board seat 1 is
+    # already claimed by the NODEF4 heart guard ABOVE, which returns before this
+    # table — so a blind swap parks FlankTop on the one seat that can never
+    # deal it and DELETES the role from the 4ffa8 8-seat deal outright
+    # (measured: 4-team multiset went missing=[MidGuard] -> missing=[FlankTop]).
+    # That is exactly the silent seat-contract break this change exists to fix,
+    # so 4-team keeps the ORIGINAL table byte-for-byte: it keeps its v47
+    # HomeDefender (a 4-team capture is ELIMINATION) and keeps FlankTop at seat
+    # 6. The door evidence is 2-team; nothing is folded into 4ffa blind.
+    # Verify with players/baseline/eval/seatdump.nim.
+    let doorSeat =
+      if getEnv("NODOOR1").len > 0 or GameTeams > 2: seat
+      elif seat == 1: 6
+      elif seat == 6: 1
+      else: seat
+    case doorSeat
     of 0: FlankBottom      # wide bottom lane, get behind the contest
     of 1: MidGuard         # third mid, trails offset high and cleans up
     of 2: (if team == Blue: MidTop else: MidBottom)
@@ -3049,6 +3156,8 @@ proc defaultCombatTune(): CombatTune =
     planLayer: false,         # control: flat scenario→play matrix, no contingency phase machine.
     aimLegacy: false,         # default = the GV40 continuous servo.
     rallyWave: false,         # control: the mid-lane group pull is armed for PhOpen only.
+    hotDoor: false,           # control: the route never changes, however many die on it.
+    waveGate: false,          # control: single bodies trickle through the crossing.
     defendTeeth: false,       # control: PhDefend intercepts the WRONG entity (mateCarryPos).
     forceClockTick: ForceClockTickTuned,  # only consulted when forceTiming is on.
     forceTiming: false,       # control: PhForce stays at 3800 — measured 0 firing frames.
@@ -3673,6 +3782,54 @@ proc shippedCombatTune(): CombatTune =
   # 3) ANTI-BUNCH SPACING — 56% of enemy nade impacts that damaged us caught
   #    2+ of ours; MateSpacing(40) < NadeBlast(52). NOBUNCH=1 reverts.
   result.antiBunch = getEnv("NOBUNCH").len == 0
+  # ⭐⭐ v56 ONE-DOOR BREAK (2026-08-14, replay r1692 e20 forensics). Levers 2
+  # and 3 of three; lever 1 is the seat swap inside roleForSeat (NODOOR1=1).
+  # Both are MOVEMENT-TARGET ONLY, both arm on OUR OWN side of the midline
+  # (pre-contact by construction, so neither taxes the turret — the FEET LAW),
+  # and both are default ON with a one-env-var revert.
+  result.hotDoor = getEnv("NOHOTDOOR").len == 0
+  result.waveGate = getEnv("NOWAVEGATE").len == 0
+
+
+when defined(doorprobe):
+  # ── ⭐ ONE-DOOR PROBE (-d:doorprobe ONLY, pure instrumentation, never in the
+  # shipped player). Measures the ONE number this whole package is aimed at:
+  # ENTRY-Y STDEV — the y at which each seat crosses the midline INTO the enemy
+  # half. Ours in the field is 5-31px vs daveey's 148-242px; the target is >100.
+  # Per-(team, teamSeat) so the STRIDED LEAGUE SUBSET (teamSeats 0..3) can be
+  # scored on its own — grabprobe seats all 8 of our roles, the league does not.
+  const DpMaxEntries = 512
+  var dpEntryY*: array[2, array[8, array[DpMaxEntries, float]]]
+  var dpEntryN*: array[2, array[8, int]]
+  # Per-seat liveness: a seat with 0 acting frames is the "2 of 6 bots stood
+  # perfectly still with zero errors" failure. Counted from decide()'s TAIL, so
+  # it only ticks when the frame actually produced a decision.
+  var dpAliveFrames*: array[2, array[8, int]]
+  var dpTravel*: array[2, array[8, float]]     # px walked (alive-frame deltas)
+                              # ("green and yellow travelled exactly 0px across a
+                              # whole episode" is the statue signature)
+  var dpRole*: array[2, array[8, int]]         # ord(role) last seen, -1 = unseated
+  # Lever fire counts — a compiled-but-never-triggered lever is the repeated
+  # failure mode, so every lever gets a non-zero-or-it-did-not-ship counter.
+  var dpHotDoorFire*: array[2, array[8, int]]  # frames the reroute MOVED target.y
+  var dpHotDoorArm*: array[2, array[8, int]]   # frames a hot door was detected
+  var dpDoorDeaths*: array[2, array[8, int]]   # crossing-band deaths remembered
+  var dpWaveHold*: array[2, array[8, int]]     # frames held at the staging line
+  var dpWaveRelease*: array[2, array[8, int]]  # holds ended by a mate arriving
+  var dpWaveExpire*: array[2, array[8, int]]   # holds ended by the HARD cap
+  # ── PER-SLOT LIVENESS. team/teamSeat collide on a 4-team board (Team is a
+  # Red/Blue PARITY there), so the "did every seat act?" proof is indexed by the
+  # unambiguous physical SLOT.
+  var dpSlotFrames*: array[32, int]
+  var dpSlotTravel*: array[32, float]
+  var dpSlotRole*: array[32, int]
+  var dpSlotSeat*: array[32, int]
+  var dpSlotEntries*: array[32, int]
+  proc dpNoteEntry*(team, seat: int, y: float) =
+    if team notin 0 .. 1 or seat notin 0 .. 7: return
+    if dpEntryN[team][seat] >= DpMaxEntries: return
+    dpEntryY[team][seat][dpEntryN[team][seat]] = y
+    inc dpEntryN[team][seat]
 
 
 when defined(rngprobe):
@@ -5238,6 +5395,70 @@ proc resetTransient(bot: Bot) =
   bot.lastMateAlive = bot.tick           # fresh round: mates alive until proven dead
   bot.lastHitPos = vec(-1, -1)
   bot.lastHitTick = -100_000
+  # ⭐ ONE-DOOR BREAK: door memory is per-ROUND (it must SURVIVE our own
+  # respawn — that is the whole point; a camper is only legible across lives).
+  bot.doorDeathN = 0
+  for i in 0 ..< HotDoorSlots:
+    bot.doorDeathTick[i] = -100_000
+    bot.doorDeathY[i] = -1.0
+  bot.doorRerouteY = -1.0
+  bot.doorRerouteUntil = -100_000
+  bot.waveGateUntil = -100_000
+  bot.waveGateSpent = false
+  bot.waveGateHolding = false
+  bot.prevDepth = 0.0
+  bot.prevDepthSet = false
+
+proc noteDoorDeath(bot: Bot, p: Vec) =
+  ## ⭐ ONE-DOOR BREAK, lever 2 substrate. Remember a friendly death that
+  ## happened AT THE CROSSING (|x - CenterX| <= HotDoorBandPx) — our own (always
+  ## known, and the memory deliberately outlives the respawn) or a mate corpse
+  ## we actually saw. A death deep in the enemy pocket is a fight we lost, not a
+  ## covered entrance, so the x band is the whole discriminator: without it the
+  ## ring fills with pocket deaths and the reroute fires on noise.
+  ## Ring buffer, oldest slot overwritten — no allocation on the hot path.
+  if p.x < 0.0: return
+  if abs(p.x - float(CenterX)) > HotDoorBandPx: return
+  var slot = bot.doorDeathN mod HotDoorSlots
+  # Prefer an already-stale slot so a burst of pocket-adjacent deaths cannot
+  # evict a still-hot door reading.
+  for i in 0 ..< HotDoorSlots:
+    if bot.tick - bot.doorDeathTick[i] > HotDoorMemory:
+      slot = i
+      break
+  bot.doorDeathY[slot] = p.y
+  bot.doorDeathTick[slot] = bot.tick
+  inc bot.doorDeathN
+  when defined(doorprobe):
+    inc dpDoorDeaths[clamp(ord(bot.team), 0, 1)][clamp(bot.teamSeat, 0, 7)]
+
+proc hotDoorNear(bot: Bot, y: float): bool =
+  ## Is the crossing height `y` covered? True once HotDoorMinDeaths remembered,
+  ## still-fresh door deaths sit within HotDoorRadius of it. One death is noise
+  ## (we lose plenty of even fights); the case study had FIVE on one point.
+  var n = 0
+  for i in 0 ..< HotDoorSlots:
+    if bot.doorDeathTick[i] < 0: continue
+    if bot.tick - bot.doorDeathTick[i] > HotDoorMemory: continue
+    if abs(bot.doorDeathY[i] - y) <= HotDoorRadius: inc n
+  n >= HotDoorMinDeaths
+
+proc coldDoorY(bot: Bot, y: float): float =
+  ## Pick a crossing height in the OTHER y-half that is not itself hot and is at
+  ## least HotDoorSepPx from `y` (else it is the same door with extra steps).
+  ## Candidates are the three map-derived lanes plus the mirror of `y` about
+  ## CenterY, ordered farthest-first so we genuinely change wall.
+  let mirror = clamp(2.0 * float(CenterY) - y, LaneTop, LaneBottom)
+  var best = -1.0
+  var bestD = HotDoorSepPx
+  for cand in [mirror, LaneTop, LaneBottom, LaneMid]:
+    let d = abs(cand - y)
+    if d < HotDoorSepPx: continue
+    if bot.hotDoorNear(cand): continue
+    if d > bestD:
+      bestD = d
+      best = cand
+  best
 
 proc scanAim(bot: Bot, watch: Vec, me: Vec = vec(-1, -1)): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -5501,9 +5722,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
     # are ignored, so skip perception entirely.
+    # ⭐ ONE-DOOR BREAK, lever 2: bank OUR OWN death on the FIRST dead frame
+    # (`wasDead` is still false here — it is set just below and cleared on
+    # respawn, so this fires exactly once per life). Our own death is the one
+    # camper signal a fogged client can never miss, and bot.lastPos is the last
+    # ALIVE frame's position (the not-alive path returns before the tail that
+    # writes it). NOHOTDOOR=1 reverts.
+    if not bot.wasDead and bot.tune.hotDoor:
+      bot.noteDoorDeath(bot.lastPos)
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
+    bot.prevDepthSet = false        # a life ends: no crossing edge across death
     when defined(wbprobe):
       if bot.pHp1Since >= 0:
         inc wbHp1Segs
@@ -5698,14 +5928,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # ever stood on it.
       let ctoks = clbl["corpse ".len .. ^1].split(' ')
       if ctoks.len >= 1 and ctoks[0] == myColor:
+        # The mate-track match is hoisted out of the rearTurn gate so hotDoor
+        # (lever 2) can share it without inheriting rearTurn's on/off state —
+        # behaviour under rearTurn is byte-identical to before the hoist.
+        var mbest = -1
+        var mbestD = MateCorpseMatchDist
+        for i in 0 ..< bot.mates.len:
+          let d = dist(bot.mates[i].pos, cp)
+          if d < mbestD:
+            mbestD = d
+            mbest = i
+        # ⭐ ONE-DOOR BREAK, lever 2: a SEEN mate corpse in the crossing band is
+        # the second camper witness (our own deaths are the first). NOHOTDOOR=1.
+        if mbest >= 0 and bot.tune.hotDoor:
+          bot.noteDoorDeath(cp)
         if bot.tune.rearTurn:
-          var mbest = -1
-          var mbestD = MateCorpseMatchDist
-          for i in 0 ..< bot.mates.len:
-            let d = dist(bot.mates[i].pos, cp)
-            if d < mbestD:
-              mbestD = d
-              mbest = i
           if mbest >= 0:
             bot.mateDeathPos = cp
             bot.mateDeathTick = bot.tick
@@ -7085,6 +7322,112 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if rwArmedFrame:
         rwPostX = target.x
         rwPostY = target.y
+
+  # ⭐⭐ ONE-DOOR BREAK, levers 2 + 3 (2026-08-14). See the const block for the
+  # forensics. Both act ONLY on our own side of the midline, on the movement
+  # TARGET only, and only with no rival body visible inside RallyContactPx —
+  # the FEET LAW (the vision cone rides the turret and 83% of shots land under
+  # 150px, so redirecting the feet DURING a fight points the gun away from it).
+  # Neither touches carry, defence, speed, the turret or the fire gate.
+  #   hotDoor  — a crossing height that has already killed friendlies twice is
+  #              a CAMPED door; cross in the other y-half instead. NOHOTDOOR=1.
+  #   waveGate — do not walk into that door alone; stage just short of the
+  #              crossing until a mate is with us, under a HARD cap. NOWAVEGATE=1.
+  # They compose: while staging we also slide laterally to the cold height, so
+  # the hold buys the reroute for free instead of costing a second trip.
+  block oneDoorBreak:
+    if not (bot.tune.hotDoor or bot.tune.waveGate): break oneDoorBreak
+    if iCarry or mateCarry or ownStolen or retreating or pushOut:
+      break oneDoorBreak
+    # Sentries ARE their post [[AGG-E4]] — only the attacking wave crosses.
+    if bot.role notin {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
+      break oneDoorBreak
+    # Depth into the ENEMY half: + = across, - = still home. Frame-rate
+    # invariant, and it keeps both levers pre-contact by construction.
+    let depth = -homeSign(bot.team) * (me.x - float(CenterX))
+    if depth > 40.0:
+      # We are through. Refresh both budgets for the NEXT re-entry: a hold is
+      # once per crossing, and the next crossing re-reads the door fresh.
+      bot.waveGateSpent = false
+      bot.waveGateHolding = false
+      bot.doorRerouteUntil = -100_000
+      bot.doorRerouteY = -1.0
+      break oneDoorBreak
+    if depth > 0.0: break oneDoorBreak
+    if dist(me, stealTarget) <= PocketRushRange: break oneDoorBreak
+    var contactClear = true
+    for t in bot.enemies:
+      if t.lastSeen == bot.tick and dist(t.pos, me) <= RallyContactPx:
+        contactClear = false
+        break
+    if not contactClear: break oneDoorBreak
+    when defined(doorprobe):
+      let dpTm = clamp(ord(bot.team), 0, 1)
+      let dpSt = clamp(bot.teamSeat, 0, 7)
+
+    # ── LEVER 2: hot-door reroute ──────────────────────────────────────────
+    # crossY < 0 means "no opinion, leave the existing target alone".
+    var crossY = -1.0
+    if bot.tune.hotDoor:
+      if bot.tick <= bot.doorRerouteUntil and bot.doorRerouteY >= 0.0:
+        crossY = bot.doorRerouteY            # committed: no frame-to-frame stutter
+        when defined(doorprobe): inc dpHotDoorArm[dpTm][dpSt]
+      else:
+        # The height we WOULD cross at is the destination's height — the report's
+        # finding is a DESTINATION defect, not a timing one.
+        let planned = clamp(target.y, LaneTop, LaneBottom)
+        if bot.hotDoorNear(planned):
+          when defined(doorprobe): inc dpHotDoorArm[dpTm][dpSt]
+          let cold = bot.coldDoorY(planned)
+          if cold >= 0.0:
+            bot.doorRerouteY = cold
+            bot.doorRerouteUntil = bot.tick + HotDoorCommit
+            crossY = cold
+
+    # ── LEVER 3: re-entry wave gate ────────────────────────────────────────
+    var holding = false
+    if bot.tune.waveGate and not bot.waveGateSpent and
+        depth >= -WaveGateArmBand:
+      var packed = 0
+      for t in bot.mates:
+        if bot.tick - t.lastSeen > LocalFreshTicks: continue
+        if dist(t.pos, me) <= WaveGateRadius: inc packed
+      if packed >= WaveGatePack:
+        # The wave is with us. Release and spend the budget: this re-entry
+        # never holds again, so a mate drifting back out cannot re-stall us.
+        when defined(doorprobe):
+          if bot.waveGateHolding: inc dpWaveRelease[dpTm][dpSt]
+        bot.waveGateHolding = false
+        bot.waveGateSpent = true
+      elif bot.waveGateHolding and bot.tick > bot.waveGateUntil:
+        # ⚠️ HARD CAP reached. Teammates are FOGGED, so "wait for a mate" can
+        # never be open-ended — a squad that cannot see itself would stand
+        # still forever. Burn the budget and cross alone.
+        when defined(doorprobe): inc dpWaveExpire[dpTm][dpSt]
+        bot.waveGateHolding = false
+        bot.waveGateSpent = true
+      else:
+        if not bot.waveGateHolding:
+          bot.waveGateHolding = true
+          bot.waveGateUntil = bot.tick + WaveGateMaxHold
+        holding = true
+
+    # ── EMIT ───────────────────────────────────────────────────────────────
+    if holding:
+      # Stage just short of the crossing, at the cold height when lever 2 has
+      # an opinion — the wait doubles as the lateral move.
+      when defined(doorprobe): inc dpWaveHold[dpTm][dpSt]
+      target = vec(float(CenterX) + homeSign(bot.team) * WaveGateStageBack,
+                   (if crossY >= 0.0: crossY else: me.y))
+    elif crossY >= 0.0:
+      let beforeY = target.y
+      # A crossing WAYPOINT just inside the enemy half at the cold height: the
+      # nav field then routes us through that opening instead of the camped one
+      # (navSteer snaps an unreachable goal to the nearest open cell, so this
+      # can never strand a seat).
+      target = vec(float(CenterX) - homeSign(bot.team) * 24.0, crossY)
+      when defined(doorprobe):
+        if abs(target.y - beforeY) > 0.5: inc dpHotDoorFire[dpTm][dpSt]
 
   # SENTRY DISPLACE: a sentry (overwatch / home defender) settled on its post
   # with no live target and no fresh intruder has been standing scanning. SEAL
@@ -8515,7 +8858,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # The seek navigates to the STATIC arcSpawn (no LOS — the fires-0 fix), and the commit
   # window (arcBreachUntil) holds the run through line-read flicker. Once armed the FIRE
   # block owns the bot (iHavePlasma) and carries the cone to the cluster regardless of depth.
-  let teamSeat = clamp(bot.slot div 2, 0, 7)
+  # ⭐ SEAT-DIVISOR FIX (2026-08-14, NOSEATFIX=1 reverts). This recomputed the
+  # team seat with a HARDCODED `div 2` — correct only on a 2-team board. Seats
+  # deal round the ACTIVE teams (the engine's own slotIdentityIndex is
+  # slot div teams, the same index `roleForSeat` is fed), so on a 4-team board
+  # this local read named a DIFFERENT physical seat than bot.teamSeat did: on a
+  # 16-seat 4-team board slot 6 reads teamSeat 3 here but is really teamSeat 1,
+  # and the ArcBreachSeat designation landed on the wrong bot (or on nobody, or
+  # on two bots at once — the exact class of silent seat-contract break that
+  # once left 2 of 6 bots standing still with zero errors).
+  # ⚠️ Written as the FORMULA, not as a read of `bot.teamSeat`. decide() can run
+  # before buildNavGrid (mapCameraReady arrives before walkabilityReady), and in
+  # that window bot.teamSeat is still its 0 default — reading the field would
+  # briefly make EVERY bot claim seat 0, i.e. swap one seat bug for another.
+  # The formula is the engine's own slotIdentityIndex and is well-defined on the
+  # first frame. On a 2-team board max(GameTeams,2) == 2, so this is
+  # `slot div 2` — byte-identical to the old line, on EVERY frame. Strictly a
+  # 4-team fix; 2-team behaviour is provably unchanged.
+  let teamSeat =
+    if getEnv("NOSEATFIX").len > 0: clamp(bot.slot div 2, 0, 7)
+    else: clamp(bot.slot div max(GameTeams, 2), 0, 7)
   let iAmBreacher = bot.tune.arcBreach and teamSeat == ArcBreachSeat
   let breachDepth = -homeSign(bot.team) * (me.x - float(CenterX))   # + = into enemy half
   # Remember that a line was seen (this bot's own classification OR a heard call) — the
@@ -9556,6 +9918,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # no longer leaks our vision, so this is a choice, not a side effect.
         desiredAim = bradsOf(steer)
         deadband = CruiseDeadband
+
+  when defined(doorprobe):
+    # ⭐ ENTRY-Y PROBE (instrumentation only). A rising edge of `depth` through
+    # zero IS an entry into the enemy half — the exact event the replay
+    # forensics counted. Recorded per (team, teamSeat) so the strided league
+    # subset can be scored on its own. Also the per-seat LIVENESS tally: a seat
+    # with 0 alive frames or 0 travel is the silent seat-contract failure.
+    block doorProbeTail:
+      let dpTm = clamp(ord(bot.team), 0, 1)
+      let dpSt = clamp(bot.teamSeat, 0, 7)
+      dpRole[dpTm][dpSt] = ord(bot.role)
+      inc dpAliveFrames[dpTm][dpSt]
+      dpTravel[dpTm][dpSt] += dist(me, bot.lastPos)
+      let dpSl = clamp(bot.slot, 0, 31)
+      inc dpSlotFrames[dpSl]
+      dpSlotTravel[dpSl] += dist(me, bot.lastPos)
+      dpSlotRole[dpSl] = ord(bot.role)
+      dpSlotSeat[dpSl] = bot.teamSeat
+      let dpDepth = -homeSign(bot.team) * (me.x - float(CenterX))
+      if bot.prevDepthSet and bot.prevDepth <= 0.0 and dpDepth > 0.0:
+        dpNoteEntry(dpTm, dpSt, me.y)
+        inc dpSlotEntries[dpSl]
+      bot.prevDepth = dpDepth
+      bot.prevDepthSet = true
 
   # Stuck detection: if we have not moved for a second (and are not holding
   # behind cover on purpose), burst in a random direction and force a repath.
