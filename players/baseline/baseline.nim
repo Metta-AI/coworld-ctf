@@ -3900,6 +3900,12 @@ when defined(doorprobe):
   var dpWaveHold*: array[2, array[8, int]]     # frames held at the staging line
   var dpWaveRelease*: array[2, array[8, int]]  # holds ended by a mate arriving
   var dpWaveExpire*: array[2, array[8, int]]   # holds ended by the HARD cap
+  # NOSEATFIX: frames the divisor-formula fix actually resolved a DIFFERENT
+  # teamSeat than the buggy `slot div 2` read. Provably 0 on any board with
+  # GameTeams<=2 (max(GameTeams,2)==2 makes the two formulas byte-identical by
+  # construction) — this counter's job is to catch the day someone runs this
+  # probe on a 4-team board and confirm the fix actually resolves a seat.
+  var dpSeatFixDiff*: int
   # ── PER-SLOT LIVENESS. team/teamSeat collide on a 4-team board (Team is a
   # Red/Blue PARITY there), so the "did every seat act?" proof is indexed by the
   # unambiguous physical SLOT.
@@ -8976,6 +8982,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let teamSeat =
     if getEnv("NOSEATFIX").len > 0: clamp(bot.slot div 2, 0, 7)
     else: clamp(bot.slot div max(GameTeams, 2), 0, 7)
+  when defined(doorprobe):
+    if getEnv("NOSEATFIX").len == 0 and
+        teamSeat != clamp(bot.slot div 2, 0, 7):
+      inc dpSeatFixDiff
   let iAmBreacher = bot.tune.arcBreach and teamSeat == ArcBreachSeat
   let breachDepth = -homeSign(bot.team) * (me.x - float(CenterX))   # + = into enemy half
   # Remember that a line was seen (this bot's own classification OR a heard call) — the

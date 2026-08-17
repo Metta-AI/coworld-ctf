@@ -174,6 +174,28 @@ when defined(doorprobe):
         &"STDEV={ssd:.1f}"
     flushFile(stdout)
 
+when defined(ndprobe):
+  # -d:ndprobe ENGINE TRUTH, mirrored verbatim from harness.nim (2026-08-17,
+  # the grabprobe lever-attribution gap). The policy-side ndprobe counters
+  # (ndCarryFrames, ndSupplyRole, ndPairFrames, ...) already live in
+  # baseline.nim and arrive here for free via the `include` above — but the
+  # ENGINE-truth half (throws/pickups/impacts/spacing) was only ever wired
+  # into harness.nim's runEpisode, so grabprobe has never been able to report
+  # it. These vars + the two collection sites below (per-tick spacing sample,
+  # per-episode grenade-record join) port that wiring so grabprobe can print
+  # the identical ND-PROBE funnel harness.out does.
+  var ndThrows, ndPickups: array[4, int]
+  var ndImpactDmg = 0        # impacts that damaged at least one enemy body
+  var ndImpactBunch = 0      # ...of which caught >=2 bodies of ONE team
+  var ndVictims = 0          # enemy bodies damaged, summed over impacts
+  var ndStaleThrows, ndStaleHit, ndStaleVictims: int
+  var ndFreshThrows, ndFreshHit, ndFreshVictims: int
+  var ndUnjoined = 0         # releases with no matching engine throw
+  var ndSpaceBots = 0
+  var ndSpaceUnder = 0
+  var ndSpaceSum = 0.0
+  var ndSpaceHist: array[6, int]
+
 proc main() =
   var games = 12
   var seed = 100
@@ -215,17 +237,86 @@ proc main() =
       drivers.add newDriver(s, engine.teamOfSlot(s), epSeed)
       when defined(doorprobe):
         if s < 32: engineTeamOfSlot[s] = engine.teamOfSlot(s)
+    when defined(ndprobe):
+      ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
     var tick = 0
     while tick < ticks:
       for s in 0 ..< numPlayers:
         let packet = engine.frameFor(s)
         let mask = drivers[s].frame(packet)
         engine.setMask(s, mask)
+        # ⭐⭐ SHOUT-FORWARDING FIX (2026-08-17). This rig never forwarded a bot's
+        # staged shout (bot.shoutWant) into the sim — harness.nim's runEpisode
+        # does this every frame (engine.applyShout), grabprobe never did. The
+        # decide()-side counters (csEmit, csECall, ...) still incremented
+        # because they fire the moment a bot STAGES a shout, not when it is
+        # heard — so a whole prior grabprobe run could read EMIT>0 with every
+        # downstream comms counter (HEARD/ADOPT/STACK-CONVERGE/WIPE-LANE/
+        # LINE-DIVERT/LATCH-DROP) silently and permanently stuck at 0, with no
+        # signal that the channel itself was disconnected. Mirrors harness.nim
+        # lines ~561-563 exactly.
+        if drivers[s].bot.shoutWant.len > 0:
+          engine.applyShout(s, drivers[s].bot.shoutWant)
+          drivers[s].bot.shoutWant = ""
       engine.advance()
+      when defined(ndprobe):
+        let sp = engine.ndSpacingSample()
+        ndSpaceBots += sp.bots
+        ndSpaceUnder += sp.underBlast
+        ndSpaceSum += sp.sumNearest
+        for b in 0 ..< sp.hist.len: ndSpaceHist[b] += sp.hist[b]
       inc tick
       let r = engine.result()
       if r.phaseOver: break
     let r = engine.result()
+    when defined(ndprobe):
+      # ENGINE TRUTH + the stale-vs-fresh DISCRIMINATION join, once per episode
+      # (mirrors harness.nim's runEpisode tail verbatim).
+      let recs = engine.ndGrenadeRecs()
+      for rec in recs:
+        case rec.kind
+        of 0:
+          if rec.team in 0 .. 3: inc ndThrows[rec.team]
+        of 2:
+          if rec.team in 0 .. 3: inc ndPickups[rec.team]
+        of 1:
+          var hit = 0
+          var bunch = false
+          for t in 0 .. 3:
+            if t == rec.team: continue     # a self-blast is not a punish
+            hit += rec.victims[t]
+            if rec.victims[t] >= 2: bunch = true
+          if hit > 0:
+            inc ndImpactDmg
+            ndVictims += hit
+            if bunch: inc ndImpactBunch
+        else: discard
+      var ledger: array[64, seq[bool]]
+      for rel in ndReleases:
+        if rel.slot in 0 ..< ledger.len: ledger[rel.slot].add rel.stale
+      var used: array[64, int]
+      for rec in recs:
+        if rec.kind != 0: continue
+        if rec.slot < 0 or rec.slot >= ledger.len: continue
+        if used[rec.slot] >= ledger[rec.slot].len:
+          inc ndUnjoined
+          continue
+        let stale = ledger[rec.slot][used[rec.slot]]
+        inc used[rec.slot]
+        var v = 0
+        for q in recs:
+          if q.kind == 1 and q.actionId == rec.actionId:
+            for t in 0 .. 3:
+              if t != rec.team: v += q.victims[t]
+            break
+        if stale:
+          inc ndStaleThrows
+          ndStaleVictims += v
+          if v > 0: inc ndStaleHit
+        else:
+          inc ndFreshThrows
+          ndFreshVictims += v
+          if v > 0: inc ndFreshHit
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
@@ -305,6 +396,15 @@ proc main() =
     echo &"  LEVER FIRES  doorDeaths {dDeath}  hotDoorArmed {hArm}  " &
       &"hotDoorMovedTarget {hFire}  waveHoldFrames {wHold}  " &
       &"waveReleases {wRel}  waveCapExpiries {wExp}"
+    echo &"  NOSEATFIX diffFrames {dpSeatFixDiff}  (the arcBreach seat-divisor " &
+      &"fix; provably 0 whenever EVAL_TEAMS<=2 — max(GameTeams,2)==2 makes the " &
+      &"two formulas byte-identical by construction. Re-run with EVAL_TEAMS=4 " &
+      &"to see it fire.)"
+    echo &"  NODOOR1 seat-swap: read the per-seat role table above — armed " &
+      &"(env NODOOR1 unset, 2-team) means teamSeat 1 = FlankTop and " &
+      &"teamSeat 6 = MidGuard; NODOOR1=1 reverts to the old table (teamSeat 1 " &
+      &"= MidGuard, teamSeat 6 = FlankTop). This is a STATIC seat assignment, " &
+      &"not a per-frame fire — there is nothing to count beyond the table."
     # ── SEAT LIVENESS. "2 of 6 bots stood perfectly still with zero errors"
     # after a silent seat-contract change; travel==0 or frames==0 is that
     # signature. Indexed by physical SLOT so it is unambiguous on 4-team too.
@@ -319,6 +419,112 @@ proc main() =
         &"travel {dpSlotTravel[sl]:>9.0f}px  entries {dpSlotEntries[sl]:>4}  " &
         &"{(if ok: \"ACTS\" else: \"*** STATUE ***\")}"
     echo &"    STATUES: {dead} of {numPlayers}"
+
+  when defined(commsprobe):
+    # ── COMMS BUS + v56 PLAY EXECUTORS, on the grabprobe rig. Mirrors
+    # harness.nim's -d:commsprobe report verbatim (same module-level counters,
+    # incremented from the shared baseline.nim decide() — grabprobe just never
+    # printed them before). grabprobe always runs shippedCombatTune() (see
+    # newDriver above), so commsBus/commsPlay/stackConverge/playMove/playLatch/
+    # eCallout are ON here by construction, unlike harness.nim's default
+    # defaultCombatTune() control (which needs CONTROL_SHIPPED=1 to match).
+    echo "==================================================="
+    echo &"  COMMS-PROBE: classify stack {csStack} wipe {csWipe} peel {csPeel} line {csLine} -> " &
+      &"EMIT {csEmit} -> HEARD {csHeard} -> ADOPT {csAdopt} -> WIPE-ARM {csWipeArm} " &
+      &"LINE-ARM {csLineArm} NADE-CLUSTER {csNadeLine} ARC-SEEK {csArcSeek} ARC-FIRE {csArcFire}"
+    echo &"    (classify>0 => the scenario read fires (incl. LINE = standing enemy line); EMIT>0 => " &
+      &"codewords broadcast; HEARD>0 => mates decode them; ADOPT>0 => a heard play drove a mate's flank; " &
+      &"WIPE-ARM/LINE-ARM>0 => a HEARD wipe/line armed a mate's rally it never saw itself)"
+    let stackPx = (if csStackMove > 0: csStackMovePx / csStackMove.float else: 0.0)
+    let wipePx = (if csWipeMove > 0: csWipeMovePx / csWipeMove.float else: 0.0)
+    let linePx = (if csLineMove > 0: csLineMovePx / csLineMove.float else: 0.0)
+    echo &"  PLAY-EXEC (v56): STACK-CONVERGE {csStackMove} frames / {csStackMovePx:.0f}px " &
+      &"(mean {stackPx:.0f}px)  STACK-GATE {csStackGate}  " &
+      &"WIPE-LANE {csWipeMove} / {csWipeMovePx:.0f}px (mean {wipePx:.0f}px)  " &
+      &"LINE-DIVERT {csLineMove} / {csLineMovePx:.0f}px (mean {linePx:.0f}px)"
+    echo &"  PLAY-HYGIENE (v56): LATCH-DROP {csLatchDrop} (different-token overwrites refused)  " &
+      &"ECHO-SKIP {csEchoSkip} (redundant emits suppressed)  E-CALLOUT {csECall} emitted / " &
+      &"{csESeed} tracks seeded from a heard one"
+    echo &"    (⭐ every count on these two lines is FEET MOVED or a SLOT FREED, not eligibility — " &
+      &"a frame count >0 with a ~0px mean is still a no-op, so read the px.)"
+
+  when defined(ndprobe):
+    # ── v56 NADE PACKAGE, on the grabprobe rig. Mirrors harness.nim's
+    # -d:ndprobe report; the engine-truth half (throws/pickups/impacts/spacing)
+    # is now collected in the tick loop + episode tail above.
+    let
+      staleConv = (if ndStaleThrows > 0:
+                     100.0 * ndStaleHit.float / ndStaleThrows.float else: 0.0)
+      freshConv = (if ndFreshThrows > 0:
+                     100.0 * ndFreshHit.float / ndFreshThrows.float else: 0.0)
+      staleVpt = (if ndStaleThrows > 0:
+                    ndStaleVictims.float / ndStaleThrows.float else: 0.0)
+      freshVpt = (if ndFreshThrows > 0:
+                    ndFreshVictims.float / ndFreshThrows.float else: 0.0)
+      bunchPct = (if ndImpactDmg > 0:
+                    100.0 * ndImpactBunch.float / ndImpactDmg.float else: 0.0)
+      meanNear = (if ndSpaceBots > 0: ndSpaceSum / ndSpaceBots.float else: 0.0)
+      underPct = (if ndSpaceBots > 0:
+                    100.0 * ndSpaceUnder.float / ndSpaceBots.float else: 0.0)
+    echo "==================================================="
+    echo &"  ND-PROBE 1/stale funnel: carryFrames {ndCarryFrames} -> " &
+      &"staleWallCamper-tracks {ndStaleSeen} -> withCluster>=2 {ndStaleCluster} -> " &
+      &"STALE-AIM {ndStaleAim} (fresh-aim {ndFreshAim}) -> " &
+      &"RELEASED stale {ndStaleRelease} / fresh {ndFreshRelease}"
+    echo &"    DISCRIMINATION (engine truth, joined by actionId): " &
+      &"stale throws {ndStaleThrows} conv {staleConv:.1f}% victims/throw {staleVpt:.2f}  |  " &
+      &"fresh throws {ndFreshThrows} conv {freshConv:.1f}% victims/throw {freshVpt:.2f}  " &
+      &"(unjoined {ndUnjoined})"
+    echo &"  ND-PROBE 2/supply funnel: eligible-role frames {ndSupplyRole} -> " &
+      &"depot-known {ndSupplyDepot} -> DETOUR {ndSupplySeek}  " &
+      &"(seen-sprite grabs {ndSupplySeen}; depots seeded {ndDepotSeeded} learned {ndDepotLearned})"
+    echo &"    engine truth pickups per team: R{ndPickups[0]} B{ndPickups[1]} " &
+      &"G{ndPickups[2]} Y{ndPickups[3]}   throws: R{ndThrows[0]} B{ndThrows[1]} " &
+      &"G{ndThrows[2]} Y{ndThrows[3]}"
+    echo &"  ND-PROBE 3/anti-bunch: stimulus mate-inside-blast frames {ndPairFrames} -> " &
+      &"band-push {ndBunchBand} / STEP-APART {ndBunchStep}"
+    echo &"    spacing (ground truth, all living bots): mean nearest-mate {meanNear:.1f}px  " &
+      &"inside one blast {underPct:.1f}% of bot-ticks  " &
+      &"hist[<26|26-52|52-66|66-100|100-200|200+] " &
+      &"{ndSpaceHist[0]} {ndSpaceHist[1]} {ndSpaceHist[2]} {ndSpaceHist[3]} " &
+      &"{ndSpaceHist[4]} {ndSpaceHist[5]}"
+    echo &"    blast multiplicity: impacts that damaged someone {ndImpactDmg}, " &
+      &"of which caught 2+ of one team {ndImpactBunch} ({bunchPct:.1f}%), victims {ndVictims}"
+
+  when defined(doorprobe) and defined(commsprobe) and defined(ndprobe):
+    # ── ⭐ UNIFIED LEVER FIRE TABLE — the 12 NOxxx-gated v56 levers in one
+    # place, so nobody has to cross-reference three probe sections to answer
+    # "which levers actually fired this run". ARMED reads the env exactly as
+    # shippedCombatTune() does (NOxxx=1 reverts; HOTDOOR/WAVEGATE are opt-IN).
+    echo "==================================================="
+    echo "--- LEVER FIRE TABLE (12 NOxxx-gated v56 levers) ---"
+    template armed(name: string): bool = getEnv(name).len == 0
+    let hotDoorArmed = getEnv("HOTDOOR").len > 0 and getEnv("NOHOTDOOR").len == 0
+    let waveGateArmed = getEnv("WAVEGATE").len > 0 and getEnv("NOWAVEGATE").len == 0
+    # Re-sum from the per-(team,seat) arrays — the doorprobe report block above
+    # totals these into locals (hArm/wHold/...) SCOPED to its own `when` block,
+    # out of reach here, so this re-derives the same totals rather than reach
+    # across a closed scope.
+    var tblHotArm, tblWaveHold = 0
+    for tm in 0 .. 1:
+      for st in 0 .. 7:
+        tblHotArm += dpHotDoorArm[tm][st]
+        tblWaveHold += dpWaveHold[tm][st]
+    echo &"  {\"lever\":<14} {\"env\":<12} {\"armed\":<6} {\"fires\":>10}  evidence"
+    echo &"  {\"door1(seat)\":<14} {\"NODOOR1\":<12} {$armed(\"NODOOR1\"):<6} {\"n/a\":>10}  static — see per-seat role table"
+    echo &"  {\"hotDoor\":<14} {\"HOTDOOR\":<12} {$hotDoorArmed:<6} {tblHotArm:>10}  hotDoorArmed (opt-IN, off by default)"
+    echo &"  {\"waveGate\":<14} {\"WAVEGATE\":<12} {$waveGateArmed:<6} {tblWaveHold:>10}  waveHoldFrames (opt-IN, off by default)"
+    echo &"  {\"seatFix\":<14} {\"NOSEATFIX\":<12} {$armed(\"NOSEATFIX\"):<6} {dpSeatFixDiff:>10}  diffFrames (0 by construction on <=2 teams)"
+    echo &"  {\"stackConverge\":<14} {\"NOSTACKCONV\":<12} {$armed(\"NOSTACKCONV\"):<6} {csStackMove:>10}  csStackMove frames ({csStackMovePx:.0f}px total)"
+    echo &"  {\"stackHoldGate\":<14} {\"NOSTACKGATE\":<12} {$armed(\"NOSTACKGATE\"):<6} {csStackGate:>10}  csStackGate frames"
+    echo &"  {\"playMove\":<14} {\"NOPLAYMOVE\":<12} {$armed(\"NOPLAYMOVE\"):<6} {(csWipeMove + csLineMove):>10}  csWipeMove+csLineMove frames"
+    echo &"  {\"playLatch\":<14} {\"NOPLAYLATCH\":<12} {$armed(\"NOPLAYLATCH\"):<6} {(csLatchDrop + csEchoSkip):>10}  csLatchDrop+csEchoSkip"
+    echo &"  {\"eCallout\":<14} {\"NOECALL\":<12} {$armed(\"NOECALL\"):<6} {csECall:>10}  csECall emitted ({csESeed} tracks seeded)"
+    echo &"  {\"staleNade\":<14} {\"NOSTALENADE\":<12} {$armed(\"NOSTALENADE\"):<6} {(ndStaleAim + ndStaleRelease):>10}  ndStaleAim+ndStaleRelease (stimulus: staleWallCamper-tracks {ndStaleSeen})"
+    echo &"  {\"nadeSupply\":<14} {\"NOSUPPLY\":<12} {$armed(\"NOSUPPLY\"):<6} {ndSupplySeek:>10}  ndSupplySeek detours (stimulus: eligible-role frames {ndSupplyRole})"
+    echo &"  {\"antiBunch\":<14} {\"NOBUNCH\":<12} {$armed(\"NOBUNCH\"):<6} {(ndBunchBand + ndBunchStep):>10}  ndBunchBand+ndBunchStep (stimulus: mate-inside-blast frames {ndPairFrames})"
+    echo "  (comms-bus prerequisite: EMIT " & $csEmit & " — every play-executor row above is" &
+      " gated behind a HEARD play, so EMIT=0 would zero all five of them regardless of their own wiring)"
 
   echo "==================================================="
   echo &"{games} games  seed {seed}  ticks {ticks}"
