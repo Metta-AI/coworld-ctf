@@ -3834,13 +3834,23 @@ proc shippedCombatTune(): CombatTune =
   # 3) ANTI-BUNCH SPACING — 56% of enemy nade impacts that damaged us caught
   #    2+ of ours; MateSpacing(40) < NadeBlast(52). NOBUNCH=1 reverts.
   result.antiBunch = getEnv("NOBUNCH").len == 0
-  # ⭐⭐ v56 ONE-DOOR BREAK (2026-08-14, replay r1692 e20 forensics). Levers 2
-  # and 3 of three; lever 1 is the seat swap inside roleForSeat (NODOOR1=1).
-  # Both are MOVEMENT-TARGET ONLY, both arm on OUR OWN side of the midline
-  # (pre-contact by construction, so neither taxes the turret — the FEET LAW),
-  # and both are default ON with a one-env-var revert.
-  result.hotDoor = getEnv("NOHOTDOOR").len == 0
-  result.waveGate = getEnv("NOWAVEGATE").len == 0
+  # ⛔ v56 ONE-DOOR BREAK, levers 2 + 3 — HELD OFF (2026-08-14/17). Forensics in
+  # the const block (replay r1692 e20); lever 1 is the seat swap inside
+  # roleForSeat (NODOOR1=1) and lever 4 is the arcBreach seat divisor
+  # (NOSEATFIX=1) — those two SHIP, these two do NOT.
+  # Both are MOVEMENT-TARGET ONLY and arm on OUR OWN side of the midline
+  # (pre-contact by construction, so neither taxes the turret — the FEET LAW).
+  # ⚠️ WHY THEY ARE OFF: the door implementer's own validation sweep (c533f23,
+  # "levers 2/3 read inert on this map") found the armed and disarmed arms
+  # differing ONLY IN THEIR COUNTERS, with no behavioural change — a lever that
+  # ticks a counter but never moves a foot LOOKS alive and is not. Shipping two
+  # inert levers beside a real one contaminates attribution for the whole
+  # package, so they are held until that verdict lands.
+  # Arm them for further study with HOTDOOR=1 / WAVEGATE=1 (the SHAPE pattern
+  # below); NOHOTDOOR=1 / NOWAVEGATE=1 remain explicit force-offs so the
+  # documented revert still exists and still works.
+  result.hotDoor = getEnv("HOTDOOR").len > 0 and getEnv("NOHOTDOOR").len == 0
+  result.waveGate = getEnv("WAVEGATE").len > 0 and getEnv("NOWAVEGATE").len == 0
   # ⛔ v56 SHAPE — ONE RUNNER, SEVEN HOLD: BUILT, FIRED, AND REJECTED (2026-08-14).
   # Shipped OFF. It reached the field of play (-d:shapefire: 30,993 armed frames,
   # 25,142 of them the hold actually clamped a target — 91% of holder-alive frames,
