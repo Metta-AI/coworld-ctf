@@ -273,6 +273,20 @@ when defined(rwtruth):
     let p = engine.sim.players[slot]
     (x: float(p.x), y: float(p.y), alive: p.alive, team: ord(p.team))
 
+when defined(fpprobe):
+  proc slotVitals*(engine: EvalEngine, slot: int):
+      tuple[hp: int, alive: bool, deaths: int, lives: int, x, y: int] =
+    ## GROUND TRUTH vitals for one seat (probe builds only). The ffa4 metrics
+    ## are life-economy metrics — lives spent by half-time, P(escape | hp==1) —
+    ## and neither can be read from a bot's own fogged belief. Straight off
+    ## sim.players, same source the hosted results JSON is built from.
+    let p = engine.sim.players[slot]
+    (hp: p.hp, alive: p.alive, deaths: p.deaths, lives: p.lives,
+     x: int(p.x), y: int(p.y))
+
+  proc slotCaptures*(engine: EvalEngine, slot: int): int =
+    engine.sim.players[slot].captures
+
 when defined(ssprobe):
   # v7-only: count accidental sword/shield possession (auto-disarm). The
   # hasSword/hasShield fields exist only on the GameVersion 7 engine, so this

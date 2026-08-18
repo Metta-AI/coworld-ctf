@@ -131,6 +131,35 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   if aimTeam.len > 0:
     tune.aimLegacy = (aimTeam == "red" and t == Red) or
                      (aimTeam == "blue" and t == Blue)
+  # ⭐⭐ FFA4 PACKAGE isolation (2026-08-17, the integration gate). The four ffa4
+  # levers are read from the PROCESS env by shippedCombatTune(), and this rig
+  # seats every slot in ONE process — so a bare NOxxx=1 strips all four teams
+  # and the "A/B" is a MIRROR (the SPINTEAM/SEAT4TEAM/AIMTEAM trap). FFA4TEAM
+  # re-stamps the flags OFF for the unarmed side, giving an armed-vs-control
+  # comparison inside the SAME episode against identical opponents.
+  # ⚠️ In THIS rig `t` is Red for engine team 0 only and Blue for teams 1..3
+  # (see the `if team == 0` above), so FFA4TEAM=red arms ONE of four teams and
+  # controls three — the closest local analogue of the hosted field, where only
+  # we carry the package. FFA4TEAM=blue inverts it (three armed, one control).
+  # Per-lever arms (FFA4ONLY) isolate one lever on the armed side.
+  # `when compiles` so this SAME file drops into a pre-merge tree (the d045bb5
+  # fingerprint control) where the four tune fields do not exist yet.
+  when compiles(tune.ffaMedSee):
+   let ffa4Team = getEnv("FFA4TEAM")
+   if ffa4Team.len > 0:
+     let armed = (ffa4Team == "red" and t == Red) or
+                 (ffa4Team == "blue" and t == Blue)
+     let only = getEnv("FFA4ONLY")          # "", or one of L1/L2/L3/L4
+     if not armed:
+       tune.ffaMedSee = false
+       tune.lastLifeGuard = false
+       tune.tradeGate = false
+       tune.flagClock = false
+     elif only.len > 0:
+       tune.ffaMedSee = only == "L1"
+       tune.tradeGate = only == "L2"
+       tune.lastLifeGuard = only == "L3"
+       tune.flagClock = only == "L4"
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -287,6 +316,45 @@ when defined(ndprobe):
   var ndSpaceSum = 0.0
   var ndSpaceHist: array[6, int]
 
+when defined(fpprobe):
+  # ⭐⭐ -d:fpprobe (2026-08-17, ffa4 integration gate). Two jobs no existing
+  # probe does:
+  #   (1) BEHAVIOURAL FINGERPRINT. A fire counter is not proof — a sibling
+  #       lever logged 362 target writes on a run whose emitted button-mask
+  #       stream was byte-identical, because navSteer overwrote every waypoint.
+  #       fpMask hashes EVERY emitted button mask in (tick, slot) order and
+  #       fpTraj hashes ground-truth positions on a stride, so "identical" and
+  #       "different" are both provable, not argued.
+  #   (2) LIFE ECONOMY. The ffa4 scoring metric is lives spent BY HALF-TIME,
+  #       and an ffa4 episode ends by ELIMINATION well before maxTicks — so
+  #       half-time is half of the REALISED length, which is only knowable
+  #       afterwards. Keep a per-team death timeline and index it at the end.
+  var fpMask: uint64 = 0xcbf29ce484222325'u64
+  var fpTraj: uint64 = 0xcbf29ce484222325'u64
+  proc fpMix(h: var uint64, b: uint8) =
+    h = (h xor b.uint64) * 0x100000001b3'u64
+  proc fpMixInt(h: var uint64, v: int) =
+    var x = v
+    for i in 0 .. 3:
+      fpMix(h, uint8(x and 0xff))
+      x = x shr 8
+  const FpTrajStride = 25          # ticks between trajectory samples
+  var
+    fpDeathTL: array[4, seq[int]]  # per team: cumulative deaths, sampled per tick
+    fpLivesHalf: array[4, int]     # Σ lives spent by half-time, over episodes
+    fpLivesEnd: array[4, int]      # Σ lives spent at episode end
+    fpEps: array[4, int]           # episodes counted per team
+    fpWiped: array[4, int]         # episodes the team lost ALL its lives
+    fpCapsTotal: array[4, int]     # Σ captures
+    fpCapsLate: array[4, int]      # ...struck in the final 20% of the episode
+    fpCapTL: array[4, seq[int]]    # per team: cumulative captures, per tick
+    fpHp1Enter: array[4, int]      # times a live body first reached hp == 1
+    fpHp1Escape: array[4, int]     # ...and got back above 1 hp alive (a heal)
+    fpHp1Death: array[4, int]      # ...and died at 1 hp
+    fpHeals: array[4, int]         # any hp increase on a live body (kits taken)
+    fpTicksSum = 0
+    fpGames = 0
+
 proc main() =
   var games = 12
   var seed = 100
@@ -337,12 +405,26 @@ proc main() =
         if s < 32: engineTeamOfSlot[s] = engine.teamOfSlot(s)
     when defined(ndprobe):
       ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
+    when defined(fpprobe):
+      for t in 0 .. 3:
+        fpDeathTL[t].setLen(0)
+        fpCapTL[t].setLen(0)
+      var fpWasHp1 = newSeq[bool](numPlayers)
+      var fpLastHp = newSeq[int](numPlayers)
+      var fpLastDeaths = newSeq[int](numPlayers)
+      var fpWasAlive = newSeq[bool](numPlayers)
+      for s in 0 ..< numPlayers:
+        let v = engine.slotVitals(s)
+        fpLastHp[s] = v.hp
+        fpLastDeaths[s] = v.deaths
+        fpWasAlive[s] = v.alive
     var tick = 0
     while tick < ticks:
       for s in 0 ..< numPlayers:
         let packet = engine.frameFor(s)
         let mask = drivers[s].frame(packet)
         engine.setMask(s, mask)
+        when defined(fpprobe): fpMix(fpMask, mask)
         # ⭐⭐ SHOUT-FORWARDING FIX (2026-08-17). This rig never forwarded a bot's
         # staged shout (bot.shoutWant) into the sim — harness.nim's runEpisode
         # does this every frame (engine.applyShout), grabprobe never did. The
@@ -364,6 +446,43 @@ proc main() =
         ndSpaceSum += sp.sumNearest
         for b in 0 ..< sp.hist.len: ndSpaceHist[b] += sp.hist[b]
       inc tick
+      when defined(fpprobe):
+        var dTot: array[4, int]
+        var cTot: array[4, int]
+        for s in 0 ..< numPlayers:
+          let tm = engine.teamOfSlot(s)
+          let v = engine.slotVitals(s)
+          if tm in 0 .. 3:
+            dTot[tm] += v.deaths
+            cTot[tm] += engine.slotCaptures(s)
+            # hp == 1 episodes: entered, escaped (healed above 1 while alive),
+            # or died there. GROUND TRUTH, never the bot's own belief.
+            if v.alive and v.hp == 1 and not fpWasHp1[s]:
+              fpWasHp1[s] = true
+              inc fpHp1Enter[tm]
+            elif fpWasHp1[s]:
+              if v.deaths > fpLastDeaths[s] or not v.alive:
+                fpWasHp1[s] = false
+                inc fpHp1Death[tm]
+              elif v.hp > 1:
+                fpWasHp1[s] = false
+                inc fpHp1Escape[tm]
+            # ⚠️ `alive last tick too`: a RESPAWN restores hp from 0 to full a few
+            # ticks AFTER the death counter moved, so without this a respawn
+            # reads as a medkit and heals/ep inflates ~10x.
+            if v.alive and fpWasAlive[s] and v.hp > fpLastHp[s] and
+                v.deaths == fpLastDeaths[s]:
+              inc fpHeals[tm]
+          fpLastHp[s] = v.hp
+          fpLastDeaths[s] = v.deaths
+          fpWasAlive[s] = v.alive
+          if tick mod FpTrajStride == 0:
+            fpMixInt(fpTraj, v.x)
+            fpMixInt(fpTraj, v.y)
+            fpMixInt(fpTraj, v.hp)
+        for t in 0 .. 3:
+          fpDeathTL[t].add dTot[t]
+          fpCapTL[t].add cTot[t]
       when defined(roleprobe):
         if tick mod RpSampleEvery == 0: rpSample(engine, numPlayers)
       let r = engine.result()
@@ -417,6 +536,27 @@ proc main() =
           inc ndFreshThrows
           ndFreshVictims += v
           if v > 0: inc ndFreshHit
+    when defined(fpprobe):
+      let realTicks = fpDeathTL[0].len
+      inc fpGames
+      fpTicksSum += realTicks
+      if realTicks > 0:
+        let halfIdx = max(0, realTicks div 2 - 1)
+        let lateIdx = max(0, (realTicks * 4) div 5 - 1)
+        let nTeams = max(2, evalTeams)
+        for t in 0 ..< min(4, nTeams):
+          inc fpEps[t]
+          fpLivesHalf[t] += fpDeathTL[t][halfIdx]
+          fpLivesEnd[t] += fpDeathTL[t][^1]
+          fpCapsTotal[t] += fpCapTL[t][^1]
+          fpCapsLate[t] += fpCapTL[t][^1] - fpCapTL[t][lateIdx]
+        # WIPE: every slot of the team out of lives AND dead at the end.
+        var alive: array[4, int]
+        for sl in r.slots:
+          if sl.team in 0 .. 3:
+            alive[sl.team] += sl.lives + (if sl.alive: 1 else: 0)
+        for t in 0 ..< min(4, nTeams):
+          if alive[t] == 0: inc fpWiped[t]
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
@@ -808,6 +948,71 @@ proc main() =
     echo &"BEYOND300  frames {farF}  open {farO} ({100.0*farO.float/max(1,farF).float:.2f}%)  fire {farFi}"
     echo &"SHOTSHARE  fire<150 {rpFire[0][0]+rpFire[1][0]}  fire>=300 {farFi}  share>=300 {100.0*farFi.float/max(1,tfi).float:.2f}%"
     echo &"SPINCAP    cappedFrames {rpCap[0]+rpCap[1]}  sumSlotErr {rpCapErr[0]+rpCapErr[1]}"
+
+  when defined(fpprobe):
+    const TeamName = ["red   ", "blue  ", "green ", "yellow"]
+    echo "==================================================="
+    echo "--- FFA4 LIFE ECONOMY (-d:fpprobe, GROUND TRUTH) ---"
+    echo &"  arm: NOFFAMEDSEE={getEnv(\"NOFFAMEDSEE\")} NOLASTLIFE={getEnv(\"NOLASTLIFE\")} " &
+      &"NOVOLUME={getEnv(\"NOVOLUME\")} NOFLAGCLOCK={getEnv(\"NOFLAGCLOCK\")} " &
+      &"NOMIDGUARD8={getEnv(\"NOMIDGUARD8\")} FFA4TEAM={getEnv(\"FFA4TEAM\")} " &
+      &"FFA4ONLY={getEnv(\"FFA4ONLY\")}"
+    echo &"  FINGERPRINT  mask=0x{fpMask:016x}  traj=0x{fpTraj:016x}  " &
+      &"games={fpGames} meanTicks={(fpTicksSum.float / max(1, fpGames).float):.0f}"
+    echo &"    (mask hashes EVERY emitted button mask in (tick,slot) order; traj hashes " &
+      &"ground-truth x/y/hp every {FpTrajStride} ticks. Equal on both arms => provably inert.)"
+    let perTeam = max(1, numPlayers div max(2, evalTeams))
+    echo &"  team    eps   livesSpentByHalf(of {perTeam * 3})  livesSpentEnd   WIPED%   " &
+      &"caps/ep  lateCapShare  hp1 n  P(escape|hp1)  P(die|hp1)  heals/ep"
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      let e = max(1, fpEps[t])
+      let h1 = max(1, fpHp1Enter[t])
+      echo &"  {TeamName[t]} {fpEps[t]:>5}   {(fpLivesHalf[t].float / e.float):>18.2f}   " &
+        &"{(fpLivesEnd[t].float / e.float):>12.2f}   " &
+        &"{(100.0 * fpWiped[t].float / e.float):>6.1f}   " &
+        &"{(fpCapsTotal[t].float / e.float):>7.2f}  " &
+        &"{(100.0 * fpCapsLate[t].float / max(1, fpCapsTotal[t]).float):>11.1f}%  " &
+        &"{fpHp1Enter[t]:>5}  {(100.0 * fpHp1Escape[t].float / h1.float):>12.1f}%  " &
+        &"{(100.0 * fpHp1Death[t].float / h1.float):>9.1f}%  " &
+        &"{(fpHeals[t].float / e.float):>7.2f}"
+    var lh, le, ep, wp, ct, cl, e1, es, ed, hl = 0
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      lh += fpLivesHalf[t]; le += fpLivesEnd[t]; ep += fpEps[t]; wp += fpWiped[t]
+      ct += fpCapsTotal[t]; cl += fpCapsLate[t]
+      e1 += fpHp1Enter[t]; es += fpHp1Escape[t]; ed += fpHp1Death[t]; hl += fpHeals[t]
+    let epf = max(1, ep).float
+    echo &"  ALL     {ep:>5}   {(lh.float / epf):>18.2f}   {(le.float / epf):>12.2f}   " &
+      &"{(100.0 * wp.float / epf):>6.1f}   {(ct.float / epf):>7.2f}  " &
+      &"{(100.0 * cl.float / max(1, ct).float):>11.1f}%  {e1:>5}  " &
+      &"{(100.0 * es.float / max(1, e1).float):>12.1f}%  " &
+      &"{(100.0 * ed.float / max(1, e1).float):>9.1f}%  {(hl.float / epf):>7.2f}"
+    flushFile(stdout)
+
+  when defined(ffa4probe):
+    echo "==================================================="
+    echo "--- FFA4 FIRE TABLE (-d:ffa4probe policy-side, DISCRIMINATING) ---"
+    echo &"  POPULATION  decideFrames {f4Frames}  onFfa4Board {f4Ffa4}"
+    echo &"  READBACK    selfLives() parsed {f4LivesRead} frames  " &
+      &"lives hist x0={f4LivesHist[0]} x1={f4LivesHist[1]} x2={f4LivesHist[2]} " &
+      &"x3={f4LivesHist[3]} x4={f4LivesHist[4]}"
+    echo &"    (parsed==0 => the `lives <hp>hp x<n>` HUD marker never reached the policy " &
+      &"and L3 is structurally inert, whatever its flag says.)"
+    echo &"  L3 lastLifeGuard  onLastLife frames {f4OnLastLife}  |  rushGeomWanted " &
+      &"{f4RushGeom}  VETOED-BY-LAST-LIFE {f4RushVetoLL}  |  medEcon commits {f4MedFire} " &
+      &"(lastLife {f4MedLastLife})  WIDENED-DETOUR-ONLY {f4MedWide}"
+    echo &"  L1 ffaMedSee      medEcon commits {f4MedFire}  from VISIBLE family " &
+      &"{f4MedPickVis}  of which OFF both formula spots {f4MedPickVisOff}  <= the " &
+      &"addresses the pre-lever code could never produce"
+  when defined(tempoprobe):
+    echo "--- FFA4 FIRE TABLE (-d:tempoprobe, from the tempo branch) ---"
+    echo &"  L2 tradeGate   eval {tgEval}  wouldPress(old margin) {tgWouldPress}  " &
+      &"DECLINED-ANYWAY {tgDeclined}  <= the frames the two rules DISAGREE"
+    echo &"  L4 flagClock   rushGeomWanted {fcWouldRush}  BLOCKED(pre-clock) {fcBlocked}  " &
+      &"allowed(post-clock) {fcOpened}  |  touchLatch BLOCKED {fcTouchBlocked}  |  " &
+      &"holdGrab commit-hard bypass {fcClockCommitFires}"
+    echo &"  L4 rush attempts (first frame of a fresh attempt): pre-clock {fcRushPre}  " &
+      &"post-clock {fcRushPost}"
+    flushFile(stdout)
 
 when isMainModule:
   main()

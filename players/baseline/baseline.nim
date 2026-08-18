@@ -179,6 +179,31 @@ when defined(tempoprobe):
   var fcRushPre = 0
   var fcRushPost = 0
 
+when defined(ffa4probe):
+  # -d:ffa4probe ONLY (2026-08-17, ffa4 INTEGRATION gate). The tempo package
+  # shipped its own -d:tempoprobe counters for L2/L4; the lives package shipped
+  # none, so L1/L3 had no fire proof at all. These are the missing half, built
+  # to the same DISCRIMINATE rule: count the frames where the lever is what
+  # made the decision differ, never raw eligibility. Never shipped.
+  var f4Frames = 0        # decide() frames reached (population)
+  var f4Ffa4 = 0          # ...on a GameTeams > 2 board
+  var f4LivesRead = 0     # ...where selfLives() PARSED (the readback is live at all)
+  var f4LivesHist: array[5, int]   # distribution of the parsed `lives` value (0..4)
+  var f4OnLastLife = 0    # ...and this bot is on its LAST life (lastLifeGuard armed)
+  # L3a HARD OFFENCE STOP. llGeomRush mirrors wantPocketRush with the last-life
+  # term REMOVED: every other gate already passed, so the pre-lever world would
+  # genuinely have dived.
+  var f4RushGeom = 0      # frames every non-lastLife term of wantPocketRush was true
+  var f4RushVetoLL = 0    # ...of which onLastLife is what closed it => DISCRIMINATES
+  # L3b WIDER MEDKIT ERRAND + L1 ffaMedSee, at the single commit point.
+  var f4MedFire = 0       # medEcon actually committed a kit target
+  var f4MedLastLife = 0   # ...on a last-life bot
+  var f4MedWide = 0       # ...at a distance >= MedKitEconDetour => ONLY reachable
+                          #    under MedKitEconDetourLastLife => DISCRIMINATES
+  var f4MedPickVis = 0    # ...target came from the VISIBLE family (ffaMedSee/medSee)
+  var f4MedPickVisOff = 0 # ...and that kit is OFF both formula spots => an address
+                          #    the pre-lever code could never have produced
+
 when defined(commsprobe):
   # -d:commsprobe ONLY: prove the comms bus is LIVE — codewords emitted, heard,
   # and adopted. A 0-heard result vs a >0-emit result diagnoses a wire/range gap.
@@ -6058,6 +6083,14 @@ proc resetTransient(bot: Bot) =
   bot.sawLineTick = -100_000
   bot.arcBackTick = -100_000  # arcStandoff: no back-off latched on a fresh life
   bot.ownHp = 0
+  # ⭐ INTEGRATION FIX (2026-08-17): ownLives is a LATCHED perception read (it
+  # only ever gets written when the HUD marker parses), so without this a fresh
+  # ROUND started with the previous round's value — a bot that ended the last
+  # round on its last life would open the new one with onLastLife true for the
+  # frames before the first lives marker lands, vetoing its pocket dive and
+  # widening its medkit detour while it actually holds all three lives. 0 =
+  # unread, and lastLifeGuard only acts on == 1, so unread is the safe state.
+  bot.ownLives = 0
   bot.surpriseShoutTick = -100_000
   bot.dieShoutTick = -100_000
   bot.orientUntil = -100_000
@@ -6752,6 +6785,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let (haveLives, _, lives) = client.selfLives()
     if haveLives:
       bot.ownLives = lives
+    when defined(ffa4probe):
+      inc f4Frames
+      if GameTeams > 2: inc f4Ffa4
+      if haveLives:
+        inc f4LivesRead
+        if lives in 0 .. 4: inc f4LivesHist[lives]
 
   # ⭐⭐ ffa4 lives audit (2026-08-17): the two new levers below (wantPocketRush's
   # last-life veto, medKitEcon's ffaMedSee/widened detour) both gate on these,
@@ -6762,6 +6801,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # own remaining lives), never a team-wide posture change.
   let ffa4Board = GameTeams > 2
   let onLastLife = bot.tune.lastLifeGuard and ffa4Board and bot.ownLives == 1
+  when defined(ffa4probe):
+    if onLastLife: inc f4OnLastLife
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -8506,6 +8547,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.pFcRushLatched = true
     else:
       bot.pFcRushLatched = false
+  when defined(ffa4probe):
+    # DISCRIMINATE for L3a: every wantPocketRush term EXCEPT the last-life veto.
+    let llGeomRush = not iCarry and not mateCarry and not banking and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
+           not bot.comboGrabDone) and
+      lateFlagClockOpen and
+      dist(me, stealTarget) < PocketRushRange and
+      dist(me, stealTarget) < nearestMateToSteal + 8.0
+    if llGeomRush:
+      inc f4RushGeom
+      if onLastLife: inc f4RushVetoLL
   when defined(seatprobe):
     let comboSuppressing = bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
       not bot.comboGrabDone
@@ -8632,6 +8685,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     lateFlagClockOpen and
     dist(me, stealTarget) <= GrabCommitRing
+  when defined(tempoprobe):
+    # fcTouchBlocked was DECLARED by the tempo branch and never incremented —
+    # wired here so L4's second half (the touch latch) has a fire count too.
+    # DISCRIMINATE: every touchLatch term true EXCEPT the clock.
+    if bot.tune.touchCommit and not iCarry and not mateCarry and
+        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+        dist(me, stealTarget) <= GrabCommitRing and not lateFlagClockOpen:
+      inc fcTouchBlocked
   when defined(tcprobe):
     if touchLatch: inc tcLatch
   if touchLatch:
@@ -9990,6 +10051,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # out-of-contact medEcon walk is unaffected — it never had feet issues).
       if getEnv("NOPEEL").len == 0 and bot.ownHp == 1:
         peeling = true
+      when defined(ffa4probe):
+        inc f4MedFire
+        if onLastLife: inc f4MedLastLife
+        if bestEcon >= MedKitEconDetour: inc f4MedWide
+        if pickedVisible:
+          inc f4MedPickVis
+          if pickedVisOffSpot: inc f4MedPickVisOff
       when defined(meprobe): inc meFireCount
       when defined(msprobe):
         inc msFire
