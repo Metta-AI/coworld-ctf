@@ -11,7 +11,7 @@
 
 import
   helpers,
-  std/[json, unittest],
+  std/[json, os, unittest],
   bitworld/spriteprotocol,
   ctf/[arena, sim, sim_config, sim_types]
 
@@ -189,7 +189,11 @@ suite "symNone full-board authoring (#280)":
     ## tests/fixtures/symnone-demo.json is the PR's demo fixture: a hand-authored
     ## ASYMMETRIC full-board map. Prove the on-disk file (not just the in-test
     ## builder) loads through the real path and steps.
-    let specText = readFile("fixtures/symnone-demo.json")
+    ## Source-relative path (currentSourcePath), not cwd-relative: CI runs the
+    ## shard binary from a different working directory than tests/ (the relative
+    ## "fixtures/..." read failed in CI). Same pattern as test_map_editor_core.
+    const fixturePath = currentSourcePath.parentDir / "fixtures" / "symnone-demo.json"
+    let specText = readFile(fixturePath)
     let gameMap = mapFromSpecJson(specText)      # validates on load
     check gameMap.symmetry == symNone
     check buildArenaObstacles(gameMap).len == 4  # verbatim, no mirror lift
