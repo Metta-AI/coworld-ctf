@@ -8288,7 +8288,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # durable close-range breacher loadout the combo is FOR.
   # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role (see the sprayGrab exclusion
   # comment ~L7192 for why the role-equality form is wrong).
+  # ⭐⭐ lastLifeGuard HARD OFFENCE STOP (ffa4 lives audit, 2026-08-17): a bot on
+  # its OWN last life never volunteers as the pocket diver — the single
+  # riskiest committed action a bot takes, and this bot's 3rd death is
+  # PERMANENT (P(win) at 4-of-4 own slots eliminated: 0 of 801). AGENT-LOCAL
+  # only: it still shoots, holds, and covers a mate's dive; a teammate with
+  # lives in reserve is untouched and still dives (never team-wide passivity —
+  # spending 0 lives by half-time wins 53.3%, worse than spending 2 at 74.4%).
   let wantPocketRush = not iCarry and not mateCarry and not banking and
+    not onLastLife and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
          not bot.comboGrabDone) and
@@ -9625,13 +9633,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         seekingPickup or iHaveShield or iHaveSword or iHavePlasma:
       break medKitEcon                                 # a higher objective owns this bot
     when defined(meprobe): inc meFree
-
-    # ⭐⭐ ffa4 lives audit (2026-08-17): GameTeams > 2 gates BOTH new levers at
-    # this call site (never in shippedCombatTune — GameTeams is unknown until
-    # the init markers land), so a 2-team game is byte-identical below
-    # regardless of ffaMedSee/lastLifeGuard.
-    let ffa4Board = GameTeams > 2
-    let lastLifeActive = bot.tune.lastLifeGuard and ffa4Board and bot.ownLives == 1
+    # ffa4Board / onLastLife: computed once, right after the lives readback
+    # near the top of decide() — reused here unchanged.
 
     # Contact rule. Out of contact: always free to top off (the medTopOff intent).
     # In contact: only a bot at the light-contact threshold may disengage, and
@@ -9673,7 +9676,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are close enough that an absent sprite proves the kit is gone.
     # ⭐⭐ lastLifeGuard WIDER MEDKIT ERRAND: a bot on its last life gets a
     # bigger routing budget (both families below share this one cap).
-    let econDetour = if lastLifeActive: MedKitEconDetourLastLife else: MedKitEconDetour
+    let econDetour = if onLastLife: MedKitEconDetourLastLife else: MedKitEconDetour
     var bestEcon = econDetour
     var haveEconKit = false
     var chosenEcon: Vec
