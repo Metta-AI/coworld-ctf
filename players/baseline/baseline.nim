@@ -5911,6 +5911,11 @@ proc resetTransient(bot: Bot) =
   bot.sawLineTick = -100_000
   bot.arcBackTick = -100_000  # arcStandoff: no back-off latched on a fresh life
   bot.ownHp = 0
+  bot.ownLives = 0            # defensive, matches ownHp: resetTransient only fires at
+                              # episode boundaries where decide() (and livesSense's fresh
+                              # read) isn't running yet, so this is not reachable as a
+                              # stale-read window in the shipped runBot loop — kept for
+                              # hygiene/consistency and as a guard against future reordering.
   bot.surpriseShoutTick = -100_000
   bot.dieShoutTick = -100_000
   bot.orientUntil = -100_000
