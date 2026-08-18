@@ -57,8 +57,13 @@ suite "rasterizer mirror-bit-identity":
   # is decision-independent is ZERO INTERIOR asymmetry; the 1px slanted-edge
   # boundary slivers (mesa 82 / carve 16, all edge-adjacent) are characterized
   # here but not asserted to 0 pending the strict-0-vs-interior-exact gate ruling
-  # (tasks#42 c101042). Flip `slantSliverBudget` to 0 if the gate goes strict-0.
-  const slantSliverBudget = 128   # generous upper bound on slanted-edge slivers
+  # (tasks#42 c101042 -> Option A ratified c101066; clause-1 reworded to its
+  # functional form c101124: no asymmetric px that alters a manifest-declared
+  # throat — verified, throats are EXACT parity on the fixed engine). Budget
+  # tightened from the initial generous 128 to the MEASURED counts (c101124
+  # note 1): mesa 82, carve 16. A regression that exceeds these means new
+  # slanted-sliver asymmetry crept in — investigate, don't just raise the bound.
+  const slantSliverBudget = 82    # measured max (mesa); carve is 16
 
   proc engineResidual(spec: string): tuple[total, interior: int] =
     let gm = mapFromSpecJson(readFile(spec))
