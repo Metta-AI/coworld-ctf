@@ -830,6 +830,11 @@ const
   MedKitLightContactHp = 1    # medEcon: at or below this hp a bot breaks LIGHT contact
                               # (a threat that is not aiming at us) to go heal. At 1 hp
                               # the next bullet is death, so healing outranks the duel.
+  MedKitEconDetourLastLife = 480.0  # ⭐⭐ lastLifeGuard (ffa4 lives audit, 2026-08-17):
+                              # 1.5x MedKitEconDetour. A bot on its LAST life (3rd death
+                              # is permanent) has more reason to walk further for a heal
+                              # than one with a life in reserve; the contact/aimedAtUs
+                              # veto is untouched, only the routing cap widens.
   CarrySelfRadius = 26.0      # a carried heart rides CarriedFlagLift (~10 map
                               # px) above its carrier's center, so our own
                               # carry shows as the enemy heart floating just
@@ -2752,6 +2757,58 @@ type
                               #       at 2 of 3 hp, median, per parameter_table.csv).
                               # Directional evidence only (n=7-8 peels) — stays behind its own
                               # A/B before any ship. Default ON; NOMEDPEEL=1 turns it off.
+    ffaMedSee: bool           # ⭐⭐ FFA4 MEDKIT VISIBILITY (2026-08-17, ffa4 lives audit, 347
+                              # re-simulated ffa4 episodes). medEcon's destination is two STATIC
+                              # formula spots (MedKitAX/AY, MedKitBX/BY) — a two-team-arena
+                              # truth. On a GENERATED ffa4 board the kit pair's y is drawn per
+                              # map and a 4-team board carries FOUR kits in a rot90 orbit nowhere
+                              # near that line (see the medSee field doc, 2026-08-05), so a
+                              # wounded ffa4 bot routes to empty floor while a real kit sits in
+                              # its own vision cone. This is the measured mechanism behind the
+                              # ffa4 medkit gap: us 0.63 medkits/episode vs winners 1.84-2.46,
+                              # P(escape|hp==1) us 2.5% vs the SCRIPTED FILLER's 7.3% and
+                              # winners' 9.2-14.0%. `medSee` (the union-of-visible-sprites fix)
+                              # already exists and is fully wired — it was reverted 2026-08-06
+                              # because it cost the holder 13% of its kills on the 2-team MIRROR
+                              # (the FEET LAW: routing feet toward a destination taxes guns).
+                              # That verdict was measured on 2-team DEATHMATCH, where a lost duel
+                              # just concedes a respawn. ffa4 is ELIMINATION (3 lives/agent, 3rd
+                              # death PERMANENT) where early deaths predict the winner 76.4% and
+                              # early kills predict 45.1% (noise floor) — the kill tax medSee
+                              # pays is exactly the currency this game mode does not score on.
+                              # Reuses the medSee mechanism UNCHANGED (same hp gate, same
+                              # objective yields, same in-contact and aimedAtUs rules); the only
+                              # new thing is WHEN it fires. Gated at the CALL SITE on
+                              # GameTeams > 2, not baked into the default here — GameTeams is
+                              # unknown at shippedCombatTune() time (init markers land later) —
+                              # so a 2-team game runs byte-identical regardless of this flag.
+                              # Default ON; NOFFAMEDSEE=1 turns it off.
+    lastLifeGuard: bool       # ⭐⭐ LAST-LIFE GUARD (2026-08-17, ffa4 lives audit). Per-seat
+                              # deaths-of-3 are flat (A 2.69 / B 2.59 / C 2.74 / D 2.79) — no
+                              # seat currently protects its OWN last life, yet P(win) by our own
+                              # eliminated-slot count is 0 out 59.8%, 1 out 75.9%, 2 out 63.0%,
+                              # 3 out 44.6%, 4 out 0 OF 801 — losing every slot is close to a
+                              # guaranteed loss, so the marginal life on a bot already on its
+                              # last one is worth far more than a marginal kill. Two effects,
+                              # ONLY while bot.ownLives == 1 (this life is our last — read off
+                              # the `lives <hp>hp x<lives>` HUD marker, see selfLives):
+                              #   (1) HARD OFFENCE STOP — never volunteer for the pocket dive
+                              #       (wantPocketRush stays false), the single riskiest committed
+                              #       action a bot takes. It can still shoot, hold a line, or
+                              #       cover a mate's dive; it just never IS the diver on its
+                              #       last life.
+                              #   (2) WIDER MEDKIT ERRAND — medEcon's out-of-contact detour
+                              #       budget widens (MedKitEconDetourLastLife) so a last-life bot
+                              #       walks further for a heal before returning to the fight; the
+                              #       in-contact aimedAtUs veto is UNTOUCHED (a live gun on us
+                              #       still wins — that safety rule is not the "stop shooting at
+                              #       hp==1" idea already refuted, P(die|fired) 95.8% vs
+                              #       P(die|held) 96.1%, flat for every policy).
+                              # Deliberately NOT team-wide passivity: only the bot ON its last
+                              # life stands down from diving — spending 0 lives by half-time wins
+                              # 53.3%, WORSE than spending 2 (74.4%), so the other three slots
+                              # keep pressing. GameTeams > 2 only, gated at the call site (same
+                              # reasoning as ffaMedSee). Default ON; NOLASTLIFE=1 turns it off.
 
   Bot = ref object
     slot: int
@@ -2927,6 +2984,11 @@ type
                               # tick (hysteresis, mirrors regroupReleaseUntil)
     holdLineHoldUntil: int    # holdLine: sticky rally-hold (mirrors regroupHoldUntil)
     ownHp: int                # our own hp last frame (MaxHp = full); 0 = unread
+    ownLives: int             # ⭐⭐ our own REMAINING lives (ffa4 lives audit,
+                              # 2026-08-17), read off the `lives <hp>hp x<lives>`
+                              # top-right HUD marker (selfLives) — a channel this
+                              # policy had never consumed before. 0 = unread/dead/
+                              # eliminated; lastLifeGuard acts when this reads 1.
     surpriseShoutTick: int    # last tick we shouted "oh shit!" (own rate limit)
     dieShoutTick: int         # last tick we shouted "die" (own rate limit)
     orientPos: Vec            # a heard-shout / damage bearing to face for a beat
@@ -3460,6 +3522,8 @@ proc defaultCombatTune(): CombatTune =
     comboGrab: false,         # control: sprayGrab's iHaveShield gate stays, no can-carrier shield-seek.
     aggro: 1.0,               # control: today's shipped posture exactly (every multiply is a no-op).
     medPeel: false,           # control: medEcon's aimedAtUs veto is unranged, MedKitLightContactHp stays 1.
+    ffaMedSee: false,         # control: medEcon's ffa4 candidates stay the two formula spots only.
+    lastLifeGuard: false,     # control: a last-life bot dives the pocket and heals like any other.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -4107,6 +4171,17 @@ proc shippedCombatTune(): CombatTune =
   let quadArmed = getEnv("ROLEQUAD").len > 0
   result.roleSep = quadArmed and getEnv("NOROLESEP").len == 0
   result.midSpread = quadArmed and getEnv("NOMIDSPREAD").len == 0
+  # ⭐⭐ FFA4 LIVES PACKAGE (2026-08-17, "SEAL team: best at attacking, best at
+  # flag capturing, ALL GAME MODES COVERED" audit, 347 re-simulated ffa4
+  # episodes). ffa4 is a LAST-TEAM-STANDING elimination game (3 lives/agent,
+  # 3rd death permanent) scored on lives-spent-by-half-time far more than K/D
+  # (early deaths predict the winner 76.4%, early kills 45.1% = noise). Both
+  # levers are GATED AT THE CALL SITE on GameTeams > 2 (not here — GameTeams
+  # is unknown until the init markers land, well after this function runs),
+  # so a 2-team game is byte-identical regardless of these two flags. See the
+  # ffaMedSee / lastLifeGuard field docs for the full measurement.
+  result.ffaMedSee = getEnv("NOFFAMEDSEE").len == 0
+  result.lastLifeGuard = getEnv("NOLASTLIFE").len == 0
 
 
 when defined(doorprobe):
@@ -4692,6 +4767,29 @@ proc selfHp(client: ProtocolClient, me: Vec, color: string): tuple[have: bool, h
       bestD = d
       let scaled = clamp((hp * MaxHp + maxHp - 1) div maxHp, 1, MaxHp)
       result = (have: true, hp: scaled)
+
+proc selfLives(client: ProtocolClient): tuple[have: bool, hp: int, lives: int] =
+  ## ⭐⭐ Our own REMAINING lives (ffa4 lives audit, 2026-08-17), from the
+  ## top-right HUD marker `lives <hp>hp x<lives>` (labels.nim LabelPrefixLives;
+  ## `lives <n>hp x<n>` in tests/label_manifest.txt) — a channel this policy
+  ## had never read before this. Self-only + screen-space HUD, unlike the pip
+  ## bar `selfHp` reads: it is never sent for another player and needs no
+  ## proximity match, so (like ownAimBrads) the first match IS the answer.
+  ## `hp` here reads PAST the base MaxHp cap (a shield carrier shows 6) per
+  ## the label's own doc — callers that want the clamped 0..MaxHp gauge
+  ## should keep using selfHp, this is for `lives` only.
+  result = (have: false, hp: 0, lives: 0)
+  for o in client.spriteObjects():
+    if o.label.startsWith(LabelPrefixLives):
+      let tail = o.label[LabelPrefixLives.len .. ^1]   # "<hp>hp x<lives>"
+      let cut = tail.find("hp x")
+      if cut < 0:
+        return
+      try:
+        return (have: true, hp: parseInt(tail[0 ..< cut]),
+                lives: parseInt(tail[cut + "hp x".len .. ^1]))
+      except ValueError:
+        return
 
 proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
   ## A visible mate's aim angle read from ITS rendered aim-indicator dots
@@ -6485,6 +6583,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.orientUntil = bot.tick + HpDropOrientTicks
       bot.lastHitPos = guess
       bot.lastHitTick = bot.tick
+
+  # ⭐⭐ OWN-LIVES READBACK (ffa4 lives audit, 2026-08-17): the top-right HUD
+  # `lives <hp>hp x<lives>` marker states our REMAINING lives outright. Pure
+  # perception, unconditional like ownHp above — lastLifeGuard below is what
+  # actually acts on bot.ownLives. Screen-space + self-only, so unlike hp it
+  # reads the same whether we are alive or mid-respawn.
+  block livesSense:
+    let (haveLives, _, lives) = client.selfLives()
+    if haveLives:
+      bot.ownLives = lives
+
+  # ⭐⭐ ffa4 lives audit (2026-08-17): the two new levers below (wantPocketRush's
+  # last-life veto, medKitEcon's ffaMedSee/widened detour) both gate on these,
+  # computed ONCE per frame right after the lives readback. GameTeams > 2 is
+  # the call-site scope — never baked into shippedCombatTune, since GameTeams
+  # is unknown until the init markers land — so a 2-team game is byte-identical
+  # regardless of ffaMedSee/lastLifeGuard. onLastLife is agent-local (this bot's
+  # own remaining lives), never a team-wide posture change.
+  let ffa4Board = GameTeams > 2
+  let onLastLife = bot.tune.lastLifeGuard and ffa4Board and bot.ownLives == 1
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -9508,6 +9626,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       break medKitEcon                                 # a higher objective owns this bot
     when defined(meprobe): inc meFree
 
+    # ⭐⭐ ffa4 lives audit (2026-08-17): GameTeams > 2 gates BOTH new levers at
+    # this call site (never in shippedCombatTune — GameTeams is unknown until
+    # the init markers land), so a 2-team game is byte-identical below
+    # regardless of ffaMedSee/lastLifeGuard.
+    let ffa4Board = GameTeams > 2
+    let lastLifeActive = bot.tune.lastLifeGuard and ffa4Board and bot.ownLives == 1
+
     # Contact rule. Out of contact: always free to top off (the medTopOff intent).
     # In contact: only a bot at the light-contact threshold may disengage, and
     # only from a threat that is NOT pointing at it. Anything else keeps fighting.
@@ -9546,22 +9671,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Route to the nearest kit whose spot is not known-empty. The position is
     # static knowledge; only the PRESENCE needs a sight check, and only once we
     # are close enough that an absent sprite proves the kit is gone.
-    var bestEcon = MedKitEconDetour
+    # ⭐⭐ lastLifeGuard WIDER MEDKIT ERRAND: a bot on its last life gets a
+    # bigger routing budget (both families below share this one cap).
+    let econDetour = if lastLifeActive: MedKitEconDetourLastLife else: MedKitEconDetour
+    var bestEcon = econDetour
     var haveEconKit = false
     var chosenEcon: Vec
     var pickedVisible = false      # which family supplied the target (probe/mechanism)
     var pickedVisOffSpot = false   # ...and that visible kit is NOT at a formula spot
 
-    # ── ⭐⭐ medSee (plan #16): the kits we can SEE are candidates too.
-    # The two formula spots below are an ARENA truth: on a generated board the
-    # generator draws the pair's y per map, and a 4-team board carries FOUR kits
-    # in a rot90 orbit — so a wounded bot walks to empty floor while a real kit
-    # sits in its cone. A visible sprite needs no presence check (seeing it IS
-    # presence) but keeps the SAME HUD-indicator edge filter and the SAME
-    # MedKitEconDetour cap; nearest across both families wins. Nothing above this
-    # point changes — same hp gate, same objective yields, same in-contact and
-    # aimedAtUs rules — so this adds no new disengagement, only a better address.
-    if bot.tune.medSee or MedSeeProbeScan:
+    # ── ⭐⭐ medSee (plan #16) / ffaMedSee (ffa4 lives audit, 2026-08-17): the
+    # kits we can SEE are candidates too. The two formula spots below are an
+    # ARENA truth: on a generated board the generator draws the pair's y per
+    # map, and a 4-team board carries FOUR kits in a rot90 orbit — so a
+    # wounded bot walks to empty floor while a real kit sits in its cone. A
+    # visible sprite needs no presence check (seeing it IS presence) but
+    # keeps the SAME HUD-indicator edge filter and the SAME detour cap;
+    # nearest across both families wins. Nothing above this point changes —
+    # same hp gate, same objective yields, same in-contact and aimedAtUs
+    # rules — so this adds no new disengagement, only a better address.
+    # medSee itself ships OFF (2-team FEET LAW cost); ffaMedSee is the SAME
+    # mechanism armed only on GameTeams > 2, where the destination-blindness
+    # this fixes is the measured cause of the ffa4 medkit gap.
+    let medVisOn = bot.tune.medSee or (bot.tune.ffaMedSee and ffa4Board)
+    if medVisOn or MedSeeProbeScan:
       var visAny = false
       var visNear = false
       var visOff = false
@@ -9572,14 +9705,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           continue                                     # HUD indicator shares the label
         visAny = true
         let d = dist(p, me)
-        if d >= MedKitEconDetour:
+        if d >= econDetour:
           continue                                     # outside the detour budget
         visNear = true
         let offSpot = dist(p, vec(MedKitAX, MedKitAY)) > MedKitOnSpotPx and
                       dist(p, vec(MedKitBX, MedKitBY)) > MedKitOnSpotPx
         if offSpot:
           visOff = true
-        if not bot.tune.medSee:
+        if not medVisOn:
           continue                                     # probe build, lever off: count only
         if d >= bestEcon:
           continue
