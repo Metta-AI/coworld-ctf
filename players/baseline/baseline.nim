@@ -251,6 +251,18 @@ when defined(meprobe):
   var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
   var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
 
+when defined(lifeprobe):
+  # -d:lifeprobe ONLY (ffa4 lives audit, 2026-08-17): does each new lever
+  # actually FIRE a behavioural change, not just build? Never shipped.
+  var llOnLastLifeFrames = 0   # population: alive frames onLastLife read true
+  var llWantSuppressed = 0     # ...and wantPocketRush WOULD have been true
+                                # (the veto was load-bearing, not a no-op)
+  var ffaMedFireCount = 0      # frames ffaMedSee (not base medSee) supplied
+                                # the chosen medEcon target
+  var llWiderDetourFireCount = 0  # frames onLastLife's widened cap was
+                                   # load-bearing: the chosen kit sits BEYOND
+                                   # the normal MedKitEconDetour
+
 when defined(msprobe):
   # -d:msprobe ONLY (plan #16): instrument medSee — does routing medEcon at a kit
   # we can SEE actually change the chosen target, and does it convert into heals?
@@ -8295,13 +8307,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # only: it still shoots, holds, and covers a mate's dive; a teammate with
   # lives in reserve is untouched and still dives (never team-wide passivity —
   # spending 0 lives by half-time wins 53.3%, worse than spending 2 at 74.4%).
-  let wantPocketRush = not iCarry and not mateCarry and not banking and
-    not onLastLife and
+  let wantPocketRushBase = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
          not bot.comboGrabDone) and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
+  let wantPocketRush = wantPocketRushBase and not onLastLife
+  when defined(lifeprobe):
+    if onLastLife:
+      inc llOnLastLifeFrames
+      if wantPocketRushBase: inc llWantSuppressed  # the veto was load-bearing
   when defined(seatprobe):
     let comboSuppressing = bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
       not bot.comboGrabDone
@@ -9753,6 +9769,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       haveEconKit = true
       pickedVisible = false
       pickedVisOffSpot = false
+    when defined(lifeprobe):
+      if haveEconKit and pickedVisible and bot.tune.ffaMedSee and ffa4Board and
+          not bot.tune.medSee:
+        inc ffaMedFireCount   # ffaMedSee (not base medSee) supplied this target
+      if haveEconKit and onLastLife and dist(chosenEcon, me) > MedKitEconDetour:
+        inc llWiderDetourFireCount  # the widened cap was load-bearing
     if haveEconKit:
       target = chosenEcon
       # ⭐ v48: GIVE THE PEEL FEET. This assignment was DISCARDED whenever we

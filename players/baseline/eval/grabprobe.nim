@@ -897,6 +897,14 @@ proc main() =
         &"P(all-slots-eliminated by game end) {allElimPct:>5.1f}%"
     echo "  (half-time = tick ticks/2, or game end if earlier; " &
       "all-slots-eliminated = every seat lives==0 and not alive at game end)"
+    echo &"  LEVER FIRE: lastLifeGuard onLastLife-frames {llOnLastLifeFrames}  " &
+      &"wantPocketRush-suppressed {llWantSuppressed}  " &
+      &"widerDetour-load-bearing {llWiderDetourFireCount}  |  " &
+      &"ffaMedSee target-supplied {ffaMedFireCount}"
+    echo "  (suppressed>0 proves the veto changed a real decision, not a no-op; " &
+      "widerDetour-load-bearing>0 proves the cap widening reached a kit the " &
+      "normal cap would have missed; ffaMedSee fires>0 proves the visible-kit " &
+      "union chose a target the formula-spot-only base would not have)"
 
   when defined(msprobe):
     echo "==================================================="
