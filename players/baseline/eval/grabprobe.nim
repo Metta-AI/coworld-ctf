@@ -381,6 +381,18 @@ proc main() =
     # team. Engine redGrabs/blueGrabs misattribute on >2 teams (any non-Blue
     # victim credits "blue"), so GRABS stays a 2-team metric.
     teamWins, teamCaps, teamKills, teamDeaths: array[4, int]
+  # ⭐⭐ L2/L4 ffa4 TEMPO MANDATE (2026-08-17) scoring: lives spent BY HALF-TIME
+  # (of each team's own starting pool — causal, ~5x more discriminating than
+  # K/D per the mandate) and capture TIMING (L4's own target: move captures
+  # later without losing any). Always-on (not gated behind a -d: probe — this
+  # is the headline score, not lever-fire diagnostics), engine truth straight
+  # off r.slots. "Half-time" = min(ticks/2, the tick the episode actually
+  # ended) — a game that WIPES before the clock's halfway point can spend no
+  # more lives after it ends, so its final tally IS its half-time tally.
+  var totLivesStart, totLivesHalf: float   # Σ over (games × teams) of each
+                                           # team's own starting/half-time pool
+  var totCaptures = 0        # Σ captures, ANY team, this batch
+  var totCapturesLate = 0    # ...of which landed in the final 20% of the clock
   when defined(shapeprobe):
     var
       shCross, shDeathOwn, shDeathEnemy, shDeepSum, shTicks: array[2, int]
@@ -418,6 +430,25 @@ proc main() =
         fpLastHp[s] = v.hp
         fpLastDeaths[s] = v.deaths
         fpWasAlive[s] = v.alive
+    # tempo mandate: starting life pool per team (engine truth, before tick 0).
+    var tmLivesStart: array[4, int]
+    block:
+      let r0 = engine.result()
+      for s in r0.slots:
+        if s.team in 0 .. 3: tmLivesStart[s.team] += s.lives + (if s.alive: 1 else: 0)
+    # ⚠️ INTEGRATION FIX (2026-08-17): the original sampler took the pool at
+    # `ticks div 2` OR at phaseOver, whichever came first. An ffa4 episode ends
+    # by ELIMINATION — median 3087 ticks on 348 cached hosted 4-team episodes,
+    # p25 2420 — so with --ticks 5000 nearly every episode hit phaseOver first
+    # and the "half-time" reading was actually the FINAL pool. That inflates
+    # lives-spent-by-half toward 12 in BOTH arms and flattens the very delta the
+    # metric exists to show. Half-time is half of the REALISED length, which is
+    # only knowable afterwards, so keep the timeline and index it at the end.
+    var tmPoolTL: seq[int] = @[]
+    var tmStartTotal = 0
+    for t in 0 .. 3: tmStartTotal += tmLivesStart[t]
+    var tmLastCapTotal = 0
+    var tmCapTicks: seq[int] = @[]     # tick of every capture this episode
     var tick = 0
     while tick < ticks:
       for s in 0 ..< numPlayers:
@@ -486,6 +517,22 @@ proc main() =
       when defined(roleprobe):
         if tick mod RpSampleEvery == 0: rpSample(engine, numPlayers)
       let r = engine.result()
+      # tempo mandate: sample the life pool at half-time (or at whatever tick
+      # the episode ends, if that's earlier — no more lives can be spent after).
+      var poolNow = 0
+      for s in r.slots:
+        if s.team in 0 .. 3: poolNow += s.lives + (if s.alive: 1 else: 0)
+      tmPoolTL.add poolNow
+      # tempo mandate: capture TIMING. r.slots' `captures` is cumulative per
+      # player, so a rise in the summed total this tick is a fresh capture,
+      # timestamped at `tick` — bucket it against the clock fraction.
+      var tmCapNow = 0
+      for s in r.slots: tmCapNow += s.captures
+      if tmCapNow > tmLastCapTotal:
+        let newCaps = tmCapNow - tmLastCapTotal
+        totCaptures += newCaps
+        tmCapTicks.add tick
+        tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
     when defined(ndprobe):
@@ -536,6 +583,15 @@ proc main() =
           inc ndFreshThrows
           ndFreshVictims += v
           if v > 0: inc ndFreshHit
+    block tmFold:
+      # Realised length, realised half, realised final-20% — never the CONFIGURED
+      # --ticks, which an elimination mode almost never reaches.
+      let realT = tmPoolTL.len
+      if realT > 0:
+        totLivesStart += tmStartTotal.float
+        totLivesHalf += tmPoolTL[max(0, realT div 2 - 1)].float
+        for ct in tmCapTicks:
+          if ct.float >= 0.8 * realT.float: inc totCapturesLate
     when defined(fpprobe):
       let realTicks = fpDeathTL[0].len
       inc fpGames
@@ -826,6 +882,29 @@ proc main() =
     echo &"    blast multiplicity: impacts that damaged someone {ndImpactDmg}, " &
       &"of which caught 2+ of one team {ndImpactBunch} ({bunchPct:.1f}%), victims {ndVictims}"
 
+  when defined(tempoprobe):
+    # ── L2/L4 ffa4 TEMPO MANDATE — behavioural PROOF the two levers actually
+    # fire a decision, not just a counter (navSteer has silently absorbed
+    # waypoint writes before). Every number here is a DISCRIMINATING count:
+    # frames where the lever's presence changed what the old logic would have
+    # done, not just frames the branch was merely evaluated.
+    echo "==================================================="
+    echo "--- TEMPO PROBE (L2 volume gate / L4 late-flag clock) ---"
+    echo &"  L2 tradeGate: fireSuperiority-branch evals {tgEval}  " &
+      &"oldMarginWouldPress {tgWouldPress}  DECLINED-ANYWAY {tgDeclined}" &
+      (if tgWouldPress > 0:
+         &"  ({100.0*tgDeclined.float/tgWouldPress.float:.1f}% of press-worthy-by-the-old-bar frames now decline)"
+       else: "  (0 press-worthy frames seen this run)")
+    echo &"  L4 flagClock: geometry-wants-rush frames {fcWouldRush}  " &
+      &"BLOCKED-by-clock {fcBlocked}  openedThrough {fcOpened}  " &
+      &"touchLatchBlocked {fcTouchBlocked}  clockCommitBypasses {fcClockCommitFires}"
+    echo &"    rush-attempt timing (first frame of each continuous want): " &
+      &"pre-clock {fcRushPre}  post-clock {fcRushPost}" &
+      (if fcRushPre + fcRushPost > 0:
+         &"  ({100.0*fcRushPost.float/(fcRushPre+fcRushPost).float:.1f}% post-clock)"
+       else: "")
+    echo "  (0 in any BLOCKED/DECLINED column with a non-zero stimulus column beside it means the gate compiled but never fired)"
+
   when defined(doorprobe) and defined(commsprobe) and defined(ndprobe):
     # ── ⭐ UNIFIED LEVER FIRE TABLE — the 12 NOxxx-gated v56 levers in one
     # place, so nobody has to cross-reference three probe sections to answer
@@ -884,6 +963,20 @@ proc main() =
                 else: teamKills[t].float)
       echo &"  {tn[t]:<7} wins {teamWins[t]:>2}  caps {teamCaps[t]:>2}  " &
         &"kills {teamKills[t]:>4}  deaths {teamDeaths[t]:>4}  K/D {kd:.2f}"
+  echo "==================================================="
+  echo "--- L2/L4 ffa4 TEMPO MANDATE SCORE (2026-08-17) ---"
+  block:
+    let spent = totLivesStart - totLivesHalf
+    let spentFrac = (if totLivesStart > 0: spent / totLivesStart else: 0.0)
+    let meanStart = totLivesStart / (games * evalTeams).float
+    let meanSpent = spent / (games * evalTeams).float
+    echo &"  LIVES SPENT BY HALF-TIME (tick <= {ticks div 2} of {ticks}, causal — " &
+      &"NOT K/D, NEVER accuracy): mean starting pool/team {meanStart:.2f}  " &
+      &"mean SPENT/team {meanSpent:.2f}  ({100.0*spentFrac:.1f}% of the pool)"
+    let capShareLate = (if totCaptures > 0:
+                          100.0 * totCapturesLate.float / totCaptures.float else: 0.0)
+    echo &"  CAPTURES total {totCaptures}  (per game {totCaptures.float/games.float:.2f})  " &
+      &"in the FINAL 20% of the clock: {totCapturesLate} ({capShareLate:.1f}% of total)"
   when defined(shapeprobe):
     echo "--- SHAPE (engine geometry: who actually crosses the midline) ---"
     echo "team     cross/ep   deaths own   deaths enemy   own%   meanDeep   maxDeep"

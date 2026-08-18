@@ -1108,6 +1108,11 @@ const
   RegroupRadius = 460.0       # fall back onto a remembered mate within this
                               # range (re-form the wave), else straight home
   RetreatStep = 240.0         # else withdraw this far toward our home side
+  DeclineStep = 140.0         # tradeGate's declineTo fallback (no home bias): break
+                              # away+lateral from the specific threat this far when
+                              # no mate is near to converge on. Shorter than
+                              # RetreatStep on purpose — this holds our depth in the
+                              # field, it does not march home.
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
   ScanDwellRange = 900.0      # #3: a sentry dwells on a fresh threat inside its
@@ -1189,13 +1194,38 @@ const
                                 # enemy tally (the same shield/hp-weighted count
                                 # fireSuperiority already computes) to PRESS; an even
                                 # matchup declines and regroups on a mate instead.
-  LateFlagClockTick = 3000      # flagClock: 60% of the league's 5000-tick clock (same
-                                # convention as OpenPhaseTicks=600/12% and
-                                # ForceClockTick=3800/76%). Steals before this are a
-                                # straight life-sink (by-episode-fifth steal win rate
-                                # 38.0/32.8/35.0/53.3/68.3%, all but the last BELOW the
-                                # ~44% two-team-episode parity bar); captures after it
-                                # are the single strongest correlate measured (85.9%).
+  LateFlagClockTick = 2000      # flagClock: an ABSOLUTE tick, re-pinned 2026-08-17 off
+                                # n=348 HOSTED 4-team episodes (~/.ctf/scout/events),
+                                # not the original "60% of a 5000-tick clock" guess.
+                                # ⛔ THAT PREMISE WAS FALSE: real ffa4 length is min 1340
+                                # / p25 2420 / median 3087 / p75 4594 / p90 7130 / max
+                                # 8379 — there is no fixed 5000-tick clock (22.1% of
+                                # episodes run PAST 5000), so "60% of 5000" = 3000 was
+                                # actually the ~53rd percentile of LENGTH, not of the
+                                # by-episode-fifth framing it was copied from — and in
+                                # 46.6% of real episodes a 3000 pin never opens at all.
+                                # Binned by ABSOLUTE tick instead (this is the unit the
+                                # constant is expressed in), the steal win rate crosses
+                                # the ~44% two-team-episode parity bar in the t2000-2499
+                                # bucket (53.8%, n=143; captures 67.4%, n=46) and stays
+                                # above it every bucket after — 2000 is reached by 91.1%
+                                # of episodes, so the clock actually opens almost always.
+                                # Steals before this remain a life-sink (t0-1999 win
+                                # rates 38.1/34.2/32.7/41.9%, all below parity).
+                                # ⚠️ Two open caveats (v56-integrate, same measurement):
+                                # (1) bot.gameStart is a PER-PROCESS frame-receipt tick
+                                # (shippedCombatTune's commsCrypto comment: the four real
+                                # seat processes do NOT share a clock) — same imprecision
+                                # class as every other elapsed-tick lever in this file
+                                # (OpenPhaseTicks/ForceClockTick/LatePushTick), not a new
+                                # defect, but flagClock inherits it: each of our bots
+                                # opens its own clock independently, +/- connection jitter.
+                                # (2) the late-steal correlation may be partly SURVIVOR-
+                                # SHIP (a team still alive at t3000+ is a team that is
+                                # winning, and winning teams steal) rather than pure
+                                # causation — being independently re-measured armed-on-
+                                # one-team-only to separate the two before this lever is
+                                # trusted beyond "ships OFF, no regression."
 
   # --- holdLine (anti-over-extend vs a standing line) -------------------------
   # The h006 line-defense finding (2026-07-22 corpus): the #1 policy forms a line
@@ -2912,12 +2942,14 @@ type
                               # K/D~=1.0, while picking up the fewest medkits on the team. This is
                               # a CLOCK, not a suppression of the flag game (we are already good
                               # at capturing — 0.54 caps/ep vs focusfire 0.30 — and must stay
-                              # that way): before LateFlagClockTick (60% of the 5000-tick league
-                              # clock) the pocket-rush commit (wantPocketRush) and the touch latch
-                              # both stay closed — attackers still contest mid/space, they just
-                              # never dive the pedestal for a below-parity steal. Once the clock
-                              # opens, holdGrab's standoff hesitation is bypassed (commit hard: a
-                              # late steal is worth the life price). Scoped to GameTeams > 2
+                              # that way): before LateFlagClockTick (an ABSOLUTE tick — see its own
+                              # comment for why this is pinned off the real hosted length
+                              # distribution, not a fraction of an assumed fixed clock) the
+                              # pocket-rush commit (wantPocketRush) and the touch latch both stay
+                              # closed — attackers still contest mid/space, they just never dive
+                              # the pedestal for a below-parity steal. Once the clock opens,
+                              # holdGrab's standoff hesitation is bypassed (commit hard: a late
+                              # steal is worth the life price). Scoped to GameTeams > 2
                               # (a 2-team game is decided by the SAME single flag pair from the
                               # opening whistle — this study never measured 2-team timing —
                               # byte-identical off there). NOFLAGCLOCK=1 reverts.
@@ -3066,6 +3098,14 @@ type
     aimLockPos: Vec           # TARGET-LOCK: the enemy the turret is pinned on,
     aimLockUntil: int         # held (aim stays on its bearing) until this tick
     retreatUntil: int         # force-balance withdrawal committed until this tick
+    declineUntil: int         # ⭐⭐ L2 VOLUME GATE (tradeGate): a SEPARATE commit
+                              # timer from retreatUntil, deliberately never routed
+                              # through the home-biased regroupTo fallback —
+                              # spending less time at home predicts WINNING
+                              # field-wide, and we already sit below the field's
+                              # own home-dwell share, so a lever that fires on
+                              # every even matchup (not just genuine overmatch)
+                              # must not erode that edge. See `declining` below.
     bankCell: int             # woundedBank: cached LOS-break bank cell (-1 = none)
     bankCellTick: int         # woundedBank: tick that cell was computed (BankRecalc)
     bankBlindSince: int       # woundedBank: last tick a fresh threat had a clear
@@ -6063,6 +6103,7 @@ proc resetTransient(bot: Bot) =
   bot.lockUntil = -100_000
   bot.aimLockUntil = -100_000
   bot.retreatUntil = -100_000
+  bot.declineUntil = -100_000
   bot.bankCell = -1
   bot.bankCellTick = -100_000
   bot.bankBlindSince = bot.tick
@@ -7263,7 +7304,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           let wouldPress = enemyGuns - friendGuns < breakMargin
           if wouldPress: inc tgWouldPress
         if friendGuns - enemyGuns < TradeMinEdge:
-          bot.retreatUntil = bot.tick + RetreatHold  # decline the even/losing trade
+          # NOT bot.retreatUntil — that field drives regroupTo's home-biased
+          # fallback (see its comment). declineUntil drives its own movement
+          # branch below that converges on a mate or breaks laterally, never
+          # home. Spending less time at home predicts WINNING, so tradeGate
+          # firing on every even matchup (far more often than genuine
+          # overmatch) must not become a de-facto pullback.
+          bot.declineUntil = bot.tick + RetreatHold  # decline the even/losing trade
           when defined(tempoprobe):
             if wouldPress: inc tgDeclined
       elif enemyGuns - friendGuns >= breakMargin:
@@ -7282,6 +7329,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if localEnemies - localFriends >= bot.tune.outnumberMargin:
         bot.retreatUntil = bot.tick + RetreatHold  # hysteresis: commit the fall-back
   let retreating = onOffense and bot.tick <= bot.retreatUntil
+  let declining = onOffense and bot.tick <= bot.declineUntil  # L2 volume gate (tradeGate)
   # ── ⭐ WOUNDED BANK entry (plan #13 §1.1). The trigger is OWN hp state only:
   # hp == 1, where we measured 100% death (n=160 lives, median 83t) — there is
   # no won fight being thrown away at hp1 as a class, and headcount appears
@@ -7384,6 +7432,50 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         regroupTo = t.pos
     regroupTo.x = clamp(regroupTo.x, 20.0, float(MapW - 20))
     regroupTo.y = clamp(regroupTo.y, 20.0, float(MapH - 20))
+  # ⭐⭐ L2 VOLUME GATE, movement half (tradeGate/declining). Deliberately NOT
+  # regroupTo: that fallback steps toward HOME (homeDir * RetreatStep) whenever
+  # no fresh mate is near, and tradeGate fires on every even matchup — far more
+  # often than genuine overmatch — so reusing it would turn "decline the coin-
+  # flip" into a de-facto team pullback. Spending less time at home predicts
+  # WINNING field-wide (we already sit below the field's own home-dwell share),
+  # so this converges on a mate exactly like regroupTo (two guns beat 1-vs-N),
+  # but when no mate is near it creates separation from the SPECIFIC enemy that
+  # made this a coin-flip — away + lateral, zero home bias — holding our depth
+  # in the field instead of marching home.
+  var declineTo = me
+  if declining:
+    var bestD = RegroupRadius
+    var haveMate = false
+    for t in bot.mates:
+      if bot.tick - t.lastSeen > LocalFreshTicks:
+        continue
+      if dot(t.pos - me, homeDir) < -20.0:
+        continue
+      let d = dist(t.pos, me)
+      if d < bestD:
+        bestD = d
+        declineTo = t.pos
+        haveMate = true
+    if not haveMate:
+      var nearestE = vec(-1.0, -1.0)
+      var nearestD = 1e18
+      for t in bot.enemies:
+        if bot.tick - t.lastSeen > LocalFreshTicks or dist(t.pos, me) > RetreatRadius:
+          continue
+        let d = dist(t.pos, me)
+        if d < nearestD:
+          nearestD = d
+          nearestE = t.pos
+      if nearestE.x >= 0.0:
+        let away = norm(me - nearestE)
+        var side = vec(-away.y, away.x)
+        if not bot.gridRayClear(me, me + side * 24.0):
+          side = side * -1.0
+        let dirv = norm(away + side * 0.8)
+        let fb = me + dirv * DeclineStep
+        declineTo = vec(fb.x, fb.y)
+    declineTo.x = clamp(declineTo.x, 20.0, float(MapW - 20))
+    declineTo.y = clamp(declineTo.y, 20.0, float(MapH - 20))
 
   # Movement target from role and flag situation.
   var target: Vec
@@ -7392,6 +7484,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # fires at anything already lined up while we withdraw (a free trade on the
     # way out is fine) — we just stop ADVANCING into the losing cluster.
     target = regroupTo
+  elif declining:
+    # Decline the even/losing trade WITHOUT a home bias — converge on a mate or
+    # break laterally away from the specific threat (see declineTo above). The
+    # combat block below still fires back at anything already lined up.
+    target = declineTo
   elif iCarry:
     # Run the stolen enemy flag home along the emptiest lane; the exposure
     # cost in the path field keeps the route hugging cover past remembered
@@ -7861,7 +7958,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       localSc == ScNone and
       bot.tick - bot.heardPlayTick <= CommsPlayTtl and bot.heardPlayPos.x >= 0.0
     if heardFresh and not iCarry and not mateCarry and not ownStolen and
-        not retreating and dist(me, stealTarget) > 150.0:
+        not retreating and not declining and dist(me, stealTarget) > 150.0:
       let callD = dist(bot.heardPlayPos, me)
       let before = target
       if bot.heardPlay == RpStack and bot.tune.stackConverge:
@@ -8178,7 +8275,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the hold buys the reroute for free instead of costing a second trip.
   block oneDoorBreak:
     if not (bot.tune.hotDoor or bot.tune.waveGate): break oneDoorBreak
-    if iCarry or mateCarry or ownStolen or retreating or pushOut:
+    if iCarry or mateCarry or ownStolen or retreating or declining or pushOut:
       break oneDoorBreak
     # Sentries ARE their post [[AGG-E4]] — only the attacking wave crosses.
     if bot.role notin {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
@@ -8319,7 +8416,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if not iCarry and not mateCarry: inc rgNoCarry
       if not iCarry and not mateCarry and not ownStolen: inc rgNoStolen
   if bot.tune.regroupPush and not iCarry and not mateCarry and not ownStolen and
-      not retreating and not pushOut and
+      not retreating and not declining and not pushOut and
       bot.role in {MidTop, MidBottom, MidGuard} and
       not (bot.tune.oneRunner and bot.role == MidTop) and
       dist(me, stealTarget) >= PocketRushRange:
@@ -8407,7 +8504,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tune.holdLine and bot.role in {MidTop, MidBottom, MidGuard}:
       inc hlMid
   if bot.tune.holdLine and not iCarry and not mateCarry and not ownStolen and
-      not retreating and not pushOut and
+      not retreating and not declining and not pushOut and
       bot.role in {MidTop, MidBottom, MidGuard} and
       not (bot.tune.oneRunner and bot.role == MidTop) and
       dist(me, stealTarget) >= PocketRushRange:
@@ -8511,8 +8608,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # lives in reserve is untouched and still dives (never team-wide passivity —
   # spending 0 lives by half-time wins 53.3%, worse than spending 2 at 74.4%).
   # ⭐⭐ L4 LATE-FLAG CLOCK (flagClock): ffa4 only (GameTeams > 2). Before
-  # LateFlagClockTick (60% of the 5000-tick league clock) an early steal is a
-  # measured life-sink (below the ~44% two-team-episode parity bar), so the
+  # LateFlagClockTick (an absolute tick pinned off the real hosted length
+  # distribution — see its const comment) an early steal is a measured
+  # life-sink (below the ~44% two-team-episode parity bar), so the
   # pocket-rush commit stays CLOSED — the role still contests mid/space via
   # every other branch, it just never opens the disarmed dive on the flag
   # itself. True (open) by construction once the clock passes, off, or on a
@@ -8695,6 +8793,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       inc fcTouchBlocked
   when defined(tcprobe):
     if touchLatch: inc tcLatch
+  when defined(tempoprobe):
+    # DISCRIMINATE: a frame where the touch latch's OWN gates (role/carry/ring)
+    # all pass but the clock is still what suppressed it.
+    if bot.tune.touchCommit and not iCarry and not mateCarry and
+        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+        not lateFlagClockOpen and
+        dist(me, stealTarget) <= GrabCommitRing:
+      inc fcTouchBlocked
   if touchLatch:
     # Drive straight onto the pedestal and let the act-chain guards below stand down.
     target = stealTarget
@@ -10373,8 +10479,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           client.pixelRayClear(me, engageBody) and
           not bot.friendlyBlocked(me, engageBody, bodyD):
         wantFire = true
-    if retreating or banking or peeling or (bot.tune.carrierFlee and iCarry):
-      # Outnumbered (retreat) OR banking at 1 hp OR carrying the heart (flee):
+    if retreating or declining or banking or peeling or (bot.tune.carrierFlee and iCarry):
+      # Outnumbered (retreat), declining the coin-flip trade (tradeGate), banking
+      # at 1 hp, OR carrying the heart (flee):
       # keep the gun on the
       # lined-up target and take the free trade, but MOVE toward our objective
       # (the regroup point / home capture edge) instead of advancing into the
@@ -10506,9 +10613,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       holdStill = true
     acted = true
   elif bot.tune.holdVsGun and not shotReady and not iCarry and not pocketRush and
-      not retreating and not banking:
+      not retreating and not declining and not banking:
     # (banking already keeps the gun on the threat while withdrawing — avoid
-    # double-owning the frame; plan #13 touch 12.)
+    # double-owning the frame; plan #13 touch 12. declining is the same shape.)
     # ⭐ NEVER TURN YOUR BACK ON A LIVE GUN (focus-fire audit fix). boundHold above only
     # holds a gun-down bot that has a covering MATE; a SOLO bot (no wingman) with its gun
     # on cooldown and a fresh enemy whose gun is ON us past DuckRange but inside
@@ -10928,7 +11035,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if holdStill:
     bot.stuckTicks = 0
   if bot.stuckTicks > 20 and
-      (engage < 0 or retreating or bot.tune.unstuckEngaged):
+      (engage < 0 or retreating or declining or bot.tune.unstuckEngaged):
     bot.stuckTicks = 0
     bot.jinkUntil = bot.tick + 10
     bot.jinkBits = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))
