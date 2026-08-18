@@ -154,12 +154,12 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
        tune.ffaMedSee = false
        tune.lastLifeGuard = false
        tune.tradeGate = false
-       tune.flagClock = false
      elif only.len > 0:
+       # L4 (flagClock) is RETIRED — see its tombstone in baseline.nim. FFA4ONLY=L4
+       # now arms nothing, which is the correct answer, not a bug.
        tune.ffaMedSee = only == "L1"
        tune.tradeGate = only == "L2"
        tune.lastLifeGuard = only == "L3"
-       tune.flagClock = only == "L4"
   # ⭐⭐ ffa4 lives audit (2026-08-17) TEAM ISOLATION. shippedCombatTune() reads
   # NOFFAMEDSEE/NOLASTLIFE from the process env and all numPlayers bots share
   # ONE process, so a bare NOxxx=1 would strip every team and the "A/B" would
@@ -999,20 +999,17 @@ proc main() =
     # frames where the lever's presence changed what the old logic would have
     # done, not just frames the branch was merely evaluated.
     echo "==================================================="
-    echo "--- TEMPO PROBE (L2 volume gate / L4 late-flag clock) ---"
+    echo "--- TEMPO PROBE (L2 volume gate; L4 late-flag clock RETIRED 2026-08-17) ---"
     echo &"  L2 tradeGate: fireSuperiority-branch evals {tgEval}  " &
       &"oldMarginWouldPress {tgWouldPress}  DECLINED-ANYWAY {tgDeclined}" &
       (if tgWouldPress > 0:
          &"  ({100.0*tgDeclined.float/tgWouldPress.float:.1f}% of press-worthy-by-the-old-bar frames now decline)"
        else: "  (0 press-worthy frames seen this run)")
-    echo &"  L4 flagClock: geometry-wants-rush frames {fcWouldRush}  " &
-      &"BLOCKED-by-clock {fcBlocked}  openedThrough {fcOpened}  " &
-      &"touchLatchBlocked {fcTouchBlocked}  clockCommitBypasses {fcClockCommitFires}"
-    echo &"    rush-attempt timing (first frame of each continuous want): " &
-      &"pre-clock {fcRushPre}  post-clock {fcRushPost}" &
-      (if fcRushPre + fcRushPost > 0:
-         &"  ({100.0*fcRushPost.float/(fcRushPre+fcRushPost).float:.1f}% post-clock)"
-       else: "")
+    echo "  L4 flagClock: RETIRED — lever and counters deleted. See the tombstone at " &
+      "LateFlagClockTick in baseline.nim before re-deriving it: armed on ONE team it " &
+      "produced episodes IDENTICAL to the all-off control in 8 of 9, its commit-hard " &
+      "bypass fired 0 times in every arm ever run, and its premise is refuted on our " &
+      "own hosted episodes (more early steals => fewer lives spent AND more wins)."
     echo "  (0 in any BLOCKED/DECLINED column with a non-zero stimulus column beside it means the gate compiled but never fired)"
 
   when defined(doorprobe) and defined(commsprobe) and defined(ndprobe):
@@ -1211,7 +1208,7 @@ proc main() =
       &"and L3 is structurally inert, whatever its flag says.)"
     echo &"  L3 lastLifeGuard  onLastLife frames {f4OnLastLife}  |  rushGeomWanted " &
       &"{f4RushGeom}  VETOED-BY-LAST-LIFE {f4RushVetoLL}  |  medEcon commits {f4MedFire} " &
-      &"(lastLife {f4MedLastLife})  WIDENED-DETOUR-ONLY {f4MedWide}"
+      &"(lastLife {f4MedLastLife})"
     echo &"  L1 ffaMedSee      medEcon commits {f4MedFire}  from VISIBLE family " &
       &"{f4MedPickVis}  of which OFF both formula spots {f4MedPickVisOff}  <= the " &
       &"addresses the pre-lever code could never produce"
@@ -1219,11 +1216,7 @@ proc main() =
     echo "--- FFA4 FIRE TABLE (-d:tempoprobe, from the tempo branch) ---"
     echo &"  L2 tradeGate   eval {tgEval}  wouldPress(old margin) {tgWouldPress}  " &
       &"DECLINED-ANYWAY {tgDeclined}  <= the frames the two rules DISAGREE"
-    echo &"  L4 flagClock   rushGeomWanted {fcWouldRush}  BLOCKED(pre-clock) {fcBlocked}  " &
-      &"allowed(post-clock) {fcOpened}  |  touchLatch BLOCKED {fcTouchBlocked}  |  " &
-      &"holdGrab commit-hard bypass {fcClockCommitFires}"
-    echo &"  L4 rush attempts (first frame of a fresh attempt): pre-clock {fcRushPre}  " &
-      &"post-clock {fcRushPost}"
+    echo "  L4 flagClock   RETIRED 2026-08-17 — see the tombstone in baseline.nim"
     flushFile(stdout)
   when defined(lifeprobe):
     echo "==================================================="
@@ -1244,10 +1237,10 @@ proc main() =
       "all-slots-eliminated = every seat lives==0 and not alive at game end)"
     echo &"  LEVER FIRE: lastLifeGuard onLastLife-frames {llOnLastLifeFrames}  " &
       &"wantPocketRush-suppressed {llWantSuppressed}  " &
-      &"widerDetour-load-bearing {llWiderDetourFireCount}  |  " &
+      &"widerDetour DROPPED (see tombstone)  |  " &
       &"ffaMedSee target-supplied {ffaMedFireCount}"
     echo "  (suppressed>0 proves the veto changed a real decision, not a no-op; " &
-      "widerDetour-load-bearing>0 proves the cap widening reached a kit the " &
+      "the widened-detour half (L3b) is DELETED — it fired 819-913x per arm and " &
       "normal cap would have missed; ffaMedSee fires>0 proves the visible-kit " &
       "union chose a target the formula-spot-only base would not have)"
 

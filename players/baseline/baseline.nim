@@ -165,19 +165,6 @@ when defined(tempoprobe):
   var tgEval = 0        # frames the tradeGate branch actually ran (onOffense, fireSuperiority+tradeGate)
   var tgWouldPress = 0  # ...of which the OLD margin test would have pressed (enemyGuns-friendGuns < breakMargin)
   var tgDeclined = 0    # ...and tradeGate declined anyway (friendGuns-enemyGuns < TradeMinEdge) => DISCRIMINATES
-  #   L4 late-flag clock (flagClock): a frame where the clock actually BLOCKED a
-  #   rush/touch that the underlying geometry otherwise wanted, and the mirror
-  #   frame after the clock opens where the same geometry is allowed through.
-  var fcWouldRush = 0   # frames the pre-clock geometry/role/seat gate for wantPocketRush was true
-  var fcBlocked = 0     # ...of which the clock was still closed => SUPPRESSED (early steal declined)
-  var fcOpened = 0      # ...of which the clock had opened => pocket rush allowed through
-  var fcTouchBlocked = 0   # touchLatch: frames inside GrabCommitRing where the clock still suppressed the latch
-  var fcClockCommitFires = 0  # holdGrab: frames the post-clock "commit hard" bypass actually skipped a hold
-  #   Steal-attempt timing, bucketed by elapsed/LateFlagClockTick (0 = pre-clock,
-  #   1 = post-clock), sampled at the moment wantPocketRush FIRST goes true this
-  #   life (a fresh rush attempt) so double-counting doesn't drown the signal.
-  var fcRushPre = 0
-  var fcRushPost = 0
 
 when defined(ffa4probe):
   # -d:ffa4probe ONLY (2026-08-17, ffa4 INTEGRATION gate). The tempo package
@@ -195,13 +182,9 @@ when defined(ffa4probe):
   # genuinely have dived.
   var f4RushGeom = 0      # frames every non-lastLife term of wantPocketRush was true
   var f4RushVetoLL = 0    # ...of which onLastLife is what closed it => DISCRIMINATES
-  var f4RushVetoClock = 0 # ...and of which the L4 clock is what closed it (the two
-                          #    vetoes overlap; reported side by side, never nested)
   # L3b WIDER MEDKIT ERRAND + L1 ffaMedSee, at the single commit point.
   var f4MedFire = 0       # medEcon actually committed a kit target
   var f4MedLastLife = 0   # ...on a last-life bot
-  var f4MedWide = 0       # ...at a distance >= MedKitEconDetour => ONLY reachable
-                          #    under MedKitEconDetourLastLife => DISCRIMINATES
   var f4MedPickVis = 0    # ...target came from the VISIBLE family (ffaMedSee/medSee)
   var f4MedPickVisOff = 0 # ...and that kit is OFF both formula spots => an address
                           #    the pre-lever code could never have produced
@@ -312,9 +295,6 @@ when defined(lifeprobe):
                                 # (the veto was load-bearing, not a no-op)
   var ffaMedFireCount = 0      # frames ffaMedSee (not base medSee) supplied
                                 # the chosen medEcon target
-  var llWiderDetourFireCount = 0  # frames onLastLife's widened cap was
-                                   # load-bearing: the chosen kit sits BEYOND
-                                   # the normal MedKitEconDetour
 
 when defined(msprobe):
   # -d:msprobe ONLY (plan #16): instrument medSee — does routing medEcon at a kit
@@ -895,11 +875,18 @@ const
   MedKitLightContactHp = 1    # medEcon: at or below this hp a bot breaks LIGHT contact
                               # (a threat that is not aiming at us) to go heal. At 1 hp
                               # the next bullet is death, so healing outranks the duel.
-  MedKitEconDetourLastLife = 480.0  # ⭐⭐ lastLifeGuard (ffa4 lives audit, 2026-08-17):
-                              # 1.5x MedKitEconDetour. A bot on its LAST life (3rd death
-                              # is permanent) has more reason to walk further for a heal
-                              # than one with a life in reserve; the contact/aimedAtUs
-                              # veto is untouched, only the routing cap widens.
+  # ⛔ TOMBSTONE — L3b "WIDER MEDKIT ERRAND" (MedKitEconDetourLastLife = 480.0,
+  # 1.5x MedKitEconDetour for a bot on its last life). BUILT AND DROPPED
+  # 2026-08-17. It fired — 819-913 load-bearing commits per 10-episode arm, both
+  # this file's -d:ffa4probe and the lives branch's -d:lifeprobe agreeing — and
+  # moved nothing: medkits/Ep on the armed team was 0.50 in EVERY arm including
+  # the all-off control (0.50), i.e. the widening changed the routing cap without
+  # changing a single kit collected. The band it opens is 320-480px on a bot that
+  # is simultaneously wounded AND on its last life, the narrowest intersection in
+  # the package. It is also unnecessary on the real board: all 1627 medkit pickups
+  # across n=348 hosted ffa4 episodes sit WITHIN 320px of a formula spot (max 292),
+  # so the normal MedKitEconDetour already reaches every kit that exists — what was
+  # broken was the ADDRESS, not the range, and that is what ffaMedSee fixes.
   CarrySelfRadius = 26.0      # a carried heart rides CarriedFlagLift (~10 map
                               # px) above its carrier's center, so our own
                               # carry shows as the enemy heart floating just
@@ -1199,7 +1186,7 @@ const
                                 # structurally 0 (gtprobe: noCover 144 -> FIRED 0).
 
   # --- L2/L4 ffa4 tempo mandate (2026-08-17, 347 re-simulated ffa4 episodes) ---
-  TradeMinEdge = 1.0            # flagClock's sibling: volume gate (tradeGate). In a
+  TradeMinEdge = 1.0            # L2 VOLUME GATE (tradeGate), ships OFF. In a
                                 # four-way pot a 1:1 trade burns both fighters' life
                                 # pools while the two bystanders pay nothing — parity
                                 # is a LOSS, not a wash (measured: holding K-D fixed
@@ -1208,39 +1195,51 @@ const
                                 # enemy tally (the same shield/hp-weighted count
                                 # fireSuperiority already computes) to PRESS; an even
                                 # matchup declines and regroups on a mate instead.
-  LateFlagClockTick = 2000      # flagClock: an ABSOLUTE tick, re-pinned 2026-08-17 off
-                                # n=348 HOSTED 4-team episodes (~/.ctf/scout/events),
-                                # not the original "60% of a 5000-tick clock" guess.
-                                # ⛔ THAT PREMISE WAS FALSE: real ffa4 length is min 1340
-                                # / p25 2420 / median 3087 / p75 4594 / p90 7130 / max
-                                # 8379 — there is no fixed 5000-tick clock (22.1% of
-                                # episodes run PAST 5000), so "60% of 5000" = 3000 was
-                                # actually the ~53rd percentile of LENGTH, not of the
-                                # by-episode-fifth framing it was copied from — and in
-                                # 46.6% of real episodes a 3000 pin never opens at all.
-                                # Binned by ABSOLUTE tick instead (this is the unit the
-                                # constant is expressed in), the steal win rate crosses
-                                # the ~44% two-team-episode parity bar in the t2000-2499
-                                # bucket (53.8%, n=143; captures 67.4%, n=46) and stays
-                                # above it every bucket after — 2000 is reached by 91.1%
-                                # of episodes, so the clock actually opens almost always.
-                                # Steals before this remain a life-sink (t0-1999 win
-                                # rates 38.1/34.2/32.7/41.9%, all below parity).
-                                # ⚠️ Two open caveats (v56-integrate, same measurement):
-                                # (1) bot.gameStart is a PER-PROCESS frame-receipt tick
-                                # (shippedCombatTune's commsCrypto comment: the four real
-                                # seat processes do NOT share a clock) — same imprecision
-                                # class as every other elapsed-tick lever in this file
-                                # (OpenPhaseTicks/ForceClockTick/LatePushTick), not a new
-                                # defect, but flagClock inherits it: each of our bots
-                                # opens its own clock independently, +/- connection jitter.
-                                # (2) the late-steal correlation may be partly SURVIVOR-
-                                # SHIP (a team still alive at t3000+ is a team that is
-                                # winning, and winning teams steal) rather than pure
-                                # causation — being independently re-measured armed-on-
-                                # one-team-only to separate the two before this lever is
-                                # trusted beyond "ships OFF, no regression."
-
+  # ⛔⛔ TOMBSTONE — L4 "LATE-FLAG CLOCK" (flagClock / LateFlagClockTick),
+  # BUILT 2026-08-17, MEASURED AND RETIRED THE SAME DAY. Do not re-derive it.
+  # The idea: ffa4 steals before ~60% of the clock win 33-38% (below the ~44%
+  # parity bar) and late ones win 68-86%, so gate the pocket-rush commit and the
+  # touch latch shut until a late tick, then "commit hard". Four independent
+  # findings killed it; the first two are why the SHAPE of the idea cannot work,
+  # the last two are why the PREMISE was never true.
+  #
+  # 1. THE CLOCK CANNOT BE EXPRESSED AS AN ABSOLUTE TICK. Real ffa4 length over
+  #    n=348 HOSTED 4-team episodes (~/.ctf/scout/events, summary `ticks`) is
+  #    min 1340 / p25 2420 / median 3087 / p75 4594 / p90 7130 / max 8379. There
+  #    is no 5000-tick league clock (22.1% run past 5000). One constant therefore
+  #    means "opens at 87% through" in a short episode and "at 36%" in a long
+  #    one. The original 3000 pin was the ~53rd percentile of LENGTH: in 46.6% of
+  #    real episodes it NEVER OPENED, making the lever a permanent ban. Re-pinning
+  #    to 2000 fixed the never-opens half and changed nothing else.
+  # 2. IT KEYS ON bot.gameStart, A PER-PROCESS COUNTER. See shippedCombatTune's
+  #    commsCrypto kill: our four seats run as four processes that do NOT share a
+  #    frame-receipt clock, so each bot opens its own clock at a different real
+  #    time. In-process eval steps every seat on one stream, which is exactly why
+  #    a mirror can never see the skew.
+  # 3. THE PREMISE IS REFUTED ON OUR OWN EPISODES. Within our 346 hosted ffa4
+  #    team-episodes, MORE early (<t2000) steals goes with FEWER lives spent and
+  #    MORE wins: 0 early steals -> 7.33 lives by t1500 / 22.3% win (our WORST
+  #    bucket); 1 -> 6.78 / 27.4%; 2 -> 7.03 / 33.3%; 3+ -> 7.10 / 28.6%. The
+  #    "early steals win only 33-38%" figure is a comparison ACROSS teams — weak
+  #    teams steal early and lose, strong teams are still alive to steal late —
+  #    i.e. survivorship, not a cost of stealing early.
+  # 4. IT BANS THE WINDOW THAT PRODUCES MOST OF OUR CAPTURES. 144 of our 186
+  #    hosted ffa4 captures (77%) land before tick 2000, and we are already near
+  #    best-in-field at capturing (0.54 caps/ep vs focusfire 0.30). The lever paid
+  #    that to chase a late window holding 29 steals across 346 episodes.
+  #
+  # MEASURED BEHAVIOUR, for anyone tempted by the counters: armed on ONE team
+  # (FFA4TEAM=red FFA4ONLY=L4, 10 episodes, gen 4-team, EVAL_PLAYERS=16), the
+  # armed team's episodes were IDENTICAL to the all-off control in 8 of 9 — same
+  # winner, tick count, grabs and captures — and the ninth differed only in
+  # length. Across every arm ever run, holdGrab's "commit hard" bypass fired
+  # ZERO times. A lever that blocks 125-671 frames and changes no outcome is
+  # blocking frames that were not going to become steals.
+  #
+  # If you are re-reading this because the fifths table looks compelling again:
+  # the fifths are real and reproduce exactly. They are a survivorship signal.
+  # Test any successor ARMED ON ONE TEAM ONLY against the same seeds before
+  # believing a counter.
   # --- holdLine (anti-over-extend vs a standing line) -------------------------
   # The h006 line-defense finding (2026-07-22 corpus): the #1 policy forms a line
   # in its own half and lets us over-push into a converging kill. We die 39% in the
@@ -2945,28 +2944,6 @@ type
                               # volume/commitment gate, agnostic of WHO we shoot. Scoped to
                               # GameTeams > 2 (2-team combat is already the fireSuperiority
                               # arithmetic and stays byte-identical). NOVOLUME=1 reverts.
-    flagClock: bool           # ⭐⭐ L4 LATE-FLAG CLOCK (2026-08-17, ffa4 tempo mandate): across
-                              # 370 captures/1270 steals, by episode-fifth steals go
-                              # 38.0/32.8/35.0/53.3/68.3% and captures 45.8/50.0/46.1/51.2/85.9%
-                              # — two-team-episode parity is ~44%, so an EARLY steal (33-38%) is
-                              # a straight life-sink (independently confirmed: early steal count
-                              # predicts the final winner only 32.6%) and a LATE one (85.9%
-                              # captures) is the single strongest correlate measured. Our C/D
-                              # seats pay 5.53 lives/episode for 1.22 steals + 0.46 captures at
-                              # K/D~=1.0, while picking up the fewest medkits on the team. This is
-                              # a CLOCK, not a suppression of the flag game (we are already good
-                              # at capturing — 0.54 caps/ep vs focusfire 0.30 — and must stay
-                              # that way): before LateFlagClockTick (an ABSOLUTE tick — see its own
-                              # comment for why this is pinned off the real hosted length
-                              # distribution, not a fraction of an assumed fixed clock) the
-                              # pocket-rush commit (wantPocketRush) and the touch latch both stay
-                              # closed — attackers still contest mid/space, they just never dive
-                              # the pedestal for a below-parity steal. Once the clock opens,
-                              # holdGrab's standoff hesitation is bypassed (commit hard: a late
-                              # steal is worth the life price). Scoped to GameTeams > 2
-                              # (a 2-team game is decided by the SAME single flag pair from the
-                              # opening whistle — this study never measured 2-team timing —
-                              # byte-identical off there). NOFLAGCLOCK=1 reverts.
 
   Bot = ref object
     slot: int
@@ -3130,10 +3107,6 @@ type
       pHadLine: bool          # probe: a fresh threat line existed this segment
       pBroke: bool            # probe: that line was broken this segment
       pHp1Since: int          # probe: tick own hp became 1 (-1 = not at hp 1)
-    when defined(tempoprobe):
-      pFcRushLatched: bool    # probe: geomWantsRush was already true last frame — latches
-                              # the fcRushPre/fcRushPost sample to the FIRST frame of a
-                              # continuous rush attempt so a long approach isn't recounted.
     shieldRushDone: bool      # shieldRush: latched once we grabbed the opening shield OR
                               # gave up (mate took it) — stops re-detouring mid-run
     comboGrabDone: bool       # comboGrab: latched once the ComboGrabSeat holds BOTH the
@@ -3748,7 +3721,6 @@ proc defaultCombatTune(): CombatTune =
     ffaMedSee: false,         # control: medEcon's ffa4 candidates stay the two formula spots only.
     lastLifeGuard: false,     # control: a last-life bot dives the pocket and heals like any other.
     tradeGate: false,         # control: fireSuperiority presses on "not badly outnumbered", not "hold an edge".
-    flagClock: false,         # control: the pocket rush/touch latch have no clock — steal any time.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -4406,7 +4378,18 @@ proc shippedCombatTune(): CombatTune =
   # so a 2-team game is byte-identical regardless of these two flags. See the
   # ffaMedSee / lastLifeGuard field docs for the full measurement.
   result.ffaMedSee = getEnv("NOFFAMEDSEE").len == 0
-  result.lastLifeGuard = getEnv("NOLASTLIFE").len == 0
+  # ⛔ lastLifeGuard DEFAULT OFF (2026-08-17 gate). The perception half — the
+  # ownLives readback — is PROVEN LIVE (selfLives() parsed 204,566 of 204,566
+  # decide frames on the gen 4-team rig, distribution x3/x2/x1 = 54591/66578/83397)
+  # and stays wired unconditionally, because it costs nothing and is the only
+  # channel that states our remaining lives. The BEHAVIOUR half is not proven and
+  # is not in any ship claim: L3a's dive veto fired 0 times in one 10-episode
+  # armed arm and 447 in another on the same rig, so its fire rate is not even
+  # stable, let alone its effect. Its L3b sibling (the widened detour) is deleted
+  # outright — see its tombstone at MedKitEconDetour. LASTLIFE=1 arms L3a for the
+  # eval rig; NOLASTLIFE=1 still force-offs on top (the HOTDOOR/NOHOTDOOR double
+  # gate), so the documented revert name keeps working either way.
+  result.lastLifeGuard = getEnv("LASTLIFE").len > 0 and getEnv("NOLASTLIFE").len == 0
   # ⭐⭐ L2/L4 ffa4 TEMPO MANDATE (2026-08-17, "we are SEAL team — best at
   # attacking, best at flag capturing, ALL GAME MODES COVERED"). Both levers
   # are structurally gated to `GameTeams > 2` at every call site (the volume
@@ -4416,20 +4399,22 @@ proc shippedCombatTune(): CombatTune =
   # there (proven: candidate vs control grabprobe output is BYTE-IDENTICAL on
   # a 2-team board). See the tune-field comments above for the measured
   # premise and each constant's own comment for its calibration.
-  # ⛔ DEFAULT OFF (HOTDOOR/WAVEGATE precedent, not touchCommit/arcStandoff) —
-  # BEHAVIOURAL fire is proven (tradeGate: 8224/56397 press-worthy frames now
-  # decline, 14.6%, n=5 ffa4 mirror games; flagClock: 671 rush-attempt frames
-  # blocked pre-clock, 3 opened through post-clock) but the OUTCOME claim
-  # (lives-spent-by-half-time candidate vs control, capture-timing shift) is
-  # UNCONFIRMED — the paired A/B batch did not finish under fleet load
-  # (build+partial logs on disk; see the session report) before this had to
-  # ship. Per this file's own rule (failed.md: never bake an unproven lever
-  # into the champion tune), both stay ARMED-ONLY until that lands. VOLUME=1 /
-  # FLAGCLOCK=1 arm them for the eval rig; NOVOLUME=1 / NOFLAGCLOCK=1 still
-  # force them off on top of that (same double-gate shape as HOTDOOR/
-  # NOHOTDOOR above), so the documented revert names keep working either way.
+  # ⛔ DEFAULT OFF (HOTDOOR/WAVEGATE precedent, not touchCommit/arcStandoff).
+  # tradeGate's BEHAVIOURAL fire is proven and clean — armed on one team over 10
+  # gen 4-team episodes it declined 1871 of 33949 press-worthy frames (5.5%), and
+  # 8224/56397 (14.6%) in an all-armed mirror — and its secondary profile is the
+  # best of the package (most captures of any team in its arm, deaths equal to
+  # its controls, best net P(escape|hp==1) of any single lever). But the OUTCOME
+  # claim is UNCONFIRMED: lives spent by a FIXED tick 1500 moved -0.37 net of the
+  # +0.53 seat-position baseline over n=10, far inside the 0.7-1.8 spread among
+  # the three control teams. It also cuts against a measured field fact — holding
+  # early deaths FIXED, more early kills is worth +32 to +42pp of win rate on our
+  # own 346 hosted ffa4 episodes, and declining a trade forgoes the kill. Per
+  # this file's own rule (never bake an unproven lever into the champion tune) it
+  # stays ARMED-ONLY pending a hosted A/B. VOLUME=1 arms it; NOVOLUME=1 still
+  # force-offs on top (same double gate as HOTDOOR/NOHOTDOOR above), so the
+  # documented revert name keeps working either way.
   result.tradeGate = getEnv("VOLUME").len > 0 and getEnv("NOVOLUME").len == 0
-  result.flagClock = getEnv("FLAGCLOCK").len > 0 and getEnv("NOFLAGCLOCK").len == 0
 
 
 when defined(doorprobe):
@@ -6139,8 +6124,6 @@ proc resetTransient(bot: Bot) =
     bot.pHadLine = false
     bot.pBroke = false
     bot.pHp1Since = -1
-  when defined(tempoprobe):
-    bot.pFcRushLatched = false
   bot.shieldRushDone = false
   bot.comboGrabDone = false
   bot.assaultUntil = -100_000
@@ -8634,54 +8617,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # only: it still shoots, holds, and covers a mate's dive; a teammate with
   # lives in reserve is untouched and still dives (never team-wide passivity —
   # spending 0 lives by half-time wins 53.3%, worse than spending 2 at 74.4%).
-  # ⭐⭐ L4 LATE-FLAG CLOCK (flagClock): ffa4 only (GameTeams > 2). Before
-  # LateFlagClockTick (an absolute tick pinned off the real hosted length
-  # distribution — see its const comment) an early steal is a measured
-  # life-sink (below the ~44% two-team-episode parity bar), so the
-  # pocket-rush commit stays CLOSED — the role still contests mid/space via
-  # every other branch, it just never opens the disarmed dive on the flag
-  # itself. True (open) by construction once the clock passes, off, or on a
-  # 2-team board, so this is a provable no-op there.
-  let lateFlagClockOpen = not (bot.tune.flagClock and GameTeams > 2 and
-    bot.tick - bot.gameStart < LateFlagClockTick)
-  # ⚠️ INTEGRATION RESOLUTION (2026-08-17). `wantPocketRushBase` carries the
-  # GEOMETRY/role/seat terms ONLY — neither ffa4 veto is folded into it, on
-  # purpose. Both vetoes close the same decision, so whichever one is baked
-  # into the base MASKS the other's fire counter: with the clock inside Base,
-  # L3's llWantSuppressed reads a hard 0 for the entire pre-clock phase and
-  # L3 looks inert when it is merely second in line. Kept separate so each
-  # lever's counter answers "would this decision have gone the other way
-  # without ME", which is the only question a fire table is allowed to answer.
+  # ⚠️ `wantPocketRushBase` carries the GEOMETRY/role/seat terms ONLY; the
+  # last-life veto is applied at the final assignment, never folded in. That is
+  # a MEASUREMENT contract, kept even now that the retired L4 clock is no longer
+  # competing for the same decision: a veto baked into the base masks the fire
+  # counter of any veto applied after it (with the clock inside Base, L3's
+  # llWantSuppressed read a hard 0 and L3 looked inert when it was merely second
+  # in line — the near-miss that nearly killed a working lever). Any future veto
+  # on this decision goes on the final line too.
   let wantPocketRushBase = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
          not bot.comboGrabDone) and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
-  let wantPocketRush = wantPocketRushBase and not onLastLife and lateFlagClockOpen
+  let wantPocketRush = wantPocketRushBase and not onLastLife
   when defined(lifeprobe):
     if onLastLife:
       inc llOnLastLifeFrames
       if wantPocketRushBase: inc llWantSuppressed  # the veto was load-bearing
-  when defined(tempoprobe):
-    # DISCRIMINATE: the clock is the reason wantPocketRush reads false.
-    if wantPocketRushBase:
-      inc fcWouldRush
-      if lateFlagClockOpen: inc fcOpened
-      else: inc fcBlocked
-      if not bot.pFcRushLatched:
-        if bot.tick - bot.gameStart < LateFlagClockTick: inc fcRushPre
-        else: inc fcRushPost
-      bot.pFcRushLatched = true
-    else:
-      bot.pFcRushLatched = false
   when defined(ffa4probe):
-    # DISCRIMINATE for L3a, UNMASKED by the clock (see the resolution note above):
-    # f4RushVetoLL counts frames the last-life veto alone closed the dive.
+    # DISCRIMINATE for L3a: f4RushVetoLL counts the frames the last-life veto
+    # ALONE closed the dive (every other term of wantPocketRush already true).
     if wantPocketRushBase:
       inc f4RushGeom
       if onLastLife: inc f4RushVetoLL
-      if not lateFlagClockOpen: inc f4RushVetoClock
   when defined(seatprobe):
     let comboSuppressing = bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
       not bot.comboGrabDone
@@ -8738,19 +8698,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # uncontested touch). This is the chess-not-checkers pocket: the Captain calls the push.
     let haveAdvantage = pickEdge or (bot.tune.planLayer and botPhase == PhForce) or
       coverMates >= 1
-    # ⭐⭐ L4 LATE-FLAG CLOCK, "commit hard" half (flagClock): once the clock has
-    # opened (ffa4 only), a late steal is worth its life price (captures in the
-    # final fifth hit 85.9%), so bypass the standoff hesitation entirely instead
-    # of waiting for pickEdge/PhForce/coverMates — false (no bypass) by
-    # construction when flagClock is off, still early, or on a 2-team board.
-    let clockCommit = bot.tune.flagClock and GameTeams > 2 and
-      bot.tick - bot.gameStart >= LateFlagClockTick
-    holdGrab = defenders >= GrabStackDefenders and not haveAdvantage and not clockCommit
-    when defined(tempoprobe):
-      # DISCRIMINATE: only counts frames the bypass is what did the work — the
-      # old advantage read would have held, and clockCommit released it anyway.
-      if clockCommit and defenders >= GrabStackDefenders and not haveAdvantage:
-        inc fcClockCommitFires
+    holdGrab = defenders >= GrabStackDefenders and not haveAdvantage
     when defined(commsprobe):
       # Count ONLY the frames the heard call is what did the work: our own eyes saw
       # no stack, the wire did, and the hold actually fired. A gate must DISCRIMINATE
@@ -8806,26 +8754,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # there, where retreating costs the same exposure as finishing.
   let touchLatch = bot.tune.touchCommit and not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-    lateFlagClockOpen and
     dist(me, stealTarget) <= GrabCommitRing
-  when defined(tempoprobe):
-    # fcTouchBlocked was DECLARED by the tempo branch and never incremented —
-    # wired here so L4's second half (the touch latch) has a fire count too.
-    # DISCRIMINATE: every touchLatch term true EXCEPT the clock.
-    if bot.tune.touchCommit and not iCarry and not mateCarry and
-        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-        dist(me, stealTarget) <= GrabCommitRing and not lateFlagClockOpen:
-      inc fcTouchBlocked
   when defined(tcprobe):
     if touchLatch: inc tcLatch
-  when defined(tempoprobe):
-    # DISCRIMINATE: a frame where the touch latch's OWN gates (role/carry/ring)
-    # all pass but the clock is still what suppressed it.
-    if bot.tune.touchCommit and not iCarry and not mateCarry and
-        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-        not lateFlagClockOpen and
-        dist(me, stealTarget) <= GrabCommitRing:
-      inc fcTouchBlocked
   if touchLatch:
     # Drive straight onto the pedestal and let the act-chain guards below stand down.
     target = stealTarget
@@ -10085,8 +10016,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are close enough that an absent sprite proves the kit is gone.
     # ⭐⭐ lastLifeGuard WIDER MEDKIT ERRAND: a bot on its last life gets a
     # bigger routing budget (both families below share this one cap).
-    let econDetour = if onLastLife: MedKitEconDetourLastLife else: MedKitEconDetour
-    var bestEcon = econDetour
+    var bestEcon = MedKitEconDetour
     var haveEconKit = false
     var chosenEcon: Vec
     var pickedVisible = false      # which family supplied the target (probe/mechanism)
@@ -10117,7 +10047,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           continue                                     # HUD indicator shares the label
         visAny = true
         let d = dist(p, me)
-        if d >= econDetour:
+        if d >= MedKitEconDetour:
           continue                                     # outside the detour budget
         visNear = true
         let offSpot = dist(p, vec(MedKitAX, MedKitAY)) > MedKitOnSpotPx and
@@ -10166,8 +10096,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if haveEconKit and pickedVisible and bot.tune.ffaMedSee and ffa4Board and
           not bot.tune.medSee:
         inc ffaMedFireCount   # ffaMedSee (not base medSee) supplied this target
-      if haveEconKit and onLastLife and dist(chosenEcon, me) > MedKitEconDetour:
-        inc llWiderDetourFireCount  # the widened cap was load-bearing
     if haveEconKit:
       target = chosenEcon
       # ⭐ v48: GIVE THE PEEL FEET. This assignment was DISCARDED whenever we
@@ -10191,7 +10119,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       when defined(ffa4probe):
         inc f4MedFire
         if onLastLife: inc f4MedLastLife
-        if bestEcon >= MedKitEconDetour: inc f4MedWide
         if pickedVisible:
           inc f4MedPickVis
           if pickedVisOffSpot: inc f4MedPickVisOff
