@@ -4246,11 +4246,23 @@ proc shippedCombatTune(): CombatTune =
   # gate inside the fireSuperiority block, the clock inside wantPocketRush /
   # touchLatch / holdGrab) — a 2-team game reads getEnv same as always but the
   # gate condition is false by construction, so this is a provable no-op
-  # there. Default ON (NOxxx reverts), matching the touchCommit/arcStandoff
-  # precedent for a lever whose trigger cannot even form outside its target
-  # mode. See the tune-field comments above for the measured premise.
-  result.tradeGate = getEnv("NOVOLUME").len == 0
-  result.flagClock = getEnv("NOFLAGCLOCK").len == 0
+  # there (proven: candidate vs control grabprobe output is BYTE-IDENTICAL on
+  # a 2-team board). See the tune-field comments above for the measured
+  # premise and each constant's own comment for its calibration.
+  # ⛔ DEFAULT OFF (HOTDOOR/WAVEGATE precedent, not touchCommit/arcStandoff) —
+  # BEHAVIOURAL fire is proven (tradeGate: 8224/56397 press-worthy frames now
+  # decline, 14.6%, n=5 ffa4 mirror games; flagClock: 671 rush-attempt frames
+  # blocked pre-clock, 3 opened through post-clock) but the OUTCOME claim
+  # (lives-spent-by-half-time candidate vs control, capture-timing shift) is
+  # UNCONFIRMED — the paired A/B batch did not finish under fleet load
+  # (build+partial logs on disk; see the session report) before this had to
+  # ship. Per this file's own rule (failed.md: never bake an unproven lever
+  # into the champion tune), both stay ARMED-ONLY until that lands. VOLUME=1 /
+  # FLAGCLOCK=1 arm them for the eval rig; NOVOLUME=1 / NOFLAGCLOCK=1 still
+  # force them off on top of that (same double-gate shape as HOTDOOR/
+  # NOHOTDOOR above), so the documented revert names keep working either way.
+  result.tradeGate = getEnv("VOLUME").len > 0 and getEnv("NOVOLUME").len == 0
+  result.flagClock = getEnv("FLAGCLOCK").len > 0 and getEnv("NOFLAGCLOCK").len == 0
 
 
 when defined(doorprobe):
