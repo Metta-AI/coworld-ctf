@@ -191,6 +191,7 @@ suite "spinning center diamonds are real geometry":
     try:
       proc imagesOf(m: CtfMap, cx, cy: int): seq[(int, int)] =
         case m.symmetry
+        of symNone: result = @[]   # full-board: no symmetry image of a diamond
         of symMirror: result = @[(m.width - 1 - cx, cy)]
         of symRot180: result = @[(m.width - 1 - cx, m.height - 1 - cy)]
         of symRot90:

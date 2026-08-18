@@ -43,6 +43,13 @@ proc testRegion(base: CtfMap): MapRect =
     seam = 20
   let halfW = base.width div 2
   case base.symmetry
+  of symNone:
+    ## Full-board: no seam. Span the whole width inset by hMargin off both home
+    ## borders — mirrors mapkit.placementRegion's symNone arm. (Generated maps
+    ## are never symNone, so this test path is not exercised at runtime; the arm
+    ## exists for exhaustiveness and matches the tool it mirrors.)
+    MapRect(x: hMargin, y: vMargin,
+            w: base.width - 2 * hMargin, h: base.height - 2 * vMargin)
   of symMirror, symRot180:
     MapRect(x: hMargin, y: vMargin,
             w: halfW - hMargin - seam, h: base.height - 2 * vMargin)

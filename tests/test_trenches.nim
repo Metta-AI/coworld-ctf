@@ -343,6 +343,12 @@ suite "trenches":
             w: trench.w, h: trench.h)
           of symRot90, symQuadMirror:
             raiseAssert "trenches never place on 4-team maps"
+          of symNone:
+            ## Full-board maps have no symmetry image: a trench stands alone, so
+            ## its "image" is itself and the membership check below is trivially
+            ## satisfied. (This pool is GENERATED maps, which are never symNone —
+            ## the arm exists for exhaustiveness.)
+            trench
         check rectShape(image) in gameMap.trenches
     ## The drawn pool exercises the endzone and field placement classes.
     check mapsWithTrenches > 0
@@ -456,6 +462,9 @@ suite "trenches":
           w: trench.w, h: trench.h)
         of symRot90, symQuadMirror:
           raiseAssert "trenches never place on 4-team maps"
+        of symNone:
+          trench    # full-board: no image; membership check is trivial (generated
+                    # maps are never symNone — arm for exhaustiveness)
       check rectShape(image) in gameMap.trenches
 
   test "out-of-range pit knobs raise config errors at config load":

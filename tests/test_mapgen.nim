@@ -65,6 +65,12 @@ suite "procedural terrain":
             of symRot180: (w - 1 - x, h - 1 - y)
             of symRot90: (w - 1 - y, x)
             of symQuadMirror: (w - 1 - x, y)
+            of symNone: (x, y)
+              ## Full-board maps have NO symmetric image — the obstacle union is
+              ## intentionally asymmetric, so a point's "image" is itself and the
+              ## equality below holds trivially. (Generated maps are never
+              ## symNone; this arm is for exhaustiveness. Fairness on symNone
+              ## maps is a MEASURED property, not a union invariant.)
           check obstacleAt(obstacles, x, y) ==
             obstacleAt(obstacles, sx, sy)
           y += 13
@@ -235,6 +241,10 @@ suite "procedural terrain":
           of symRot180: (w - 1 - points[0].x, h - 1 - points[0].y)
           of symRot90: (w - 1 - points[0].y, points[0].x)
           of symQuadMirror: (w - 1 - points[0].x, points[0].y)
+          of symNone: (points[1].x, points[1].y)
+            ## symNone pickups are authored EXPLICITLY per team (no orbit image);
+            ## the check below is then points[1] == points[1]. Generated maps are
+            ## never symNone — arm for exhaustiveness.
         check points[1] == image
         ## Each team still keeps its own pickups on its own side.
         check points[0].x < gameMap.center.x
