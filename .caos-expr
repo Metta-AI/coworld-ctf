@@ -1,0 +1,1 @@
+run --base:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std/flake-input-loader --input-tree:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std --input=caos --in:@=. --expr=$CAOS_EXPR --output-path=caos-std

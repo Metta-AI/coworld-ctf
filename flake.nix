@@ -4,6 +4,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
+    # caos build/agent daemon + CLI. Brings its own pinned nixpkgs (rust-overlay
+    # + crane); left un-followed on purpose so its Rust workspace substitutes
+    # from cache rather than rebuilding against ours.
+    caos.url = "github:Metta-AI/caos";
+
     # Nimby is the project's dependency manager (see README / Dockerfile). It is
     # a single-file, stdlib-only Nim program, so we build it from source instead
     # of downloading the release binary (which does not run unpatched on Nix).
@@ -13,7 +18,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, nimby-src }:
+  outputs = { self, nixpkgs, caos, nimby-src }:
     let
       systems = [
         "x86_64-linux"
@@ -65,6 +70,12 @@
         };
 
         default = nimby;
+
+        # Re-exported so `nix build .#caos-tools` works from this repo without
+        # spelling out the upstream flake ref. The rest of caos's package set
+        # (images, worker tarballs) stays upstream — merging it in wholesale
+        # would let its `default` silently take over ours.
+        inherit (caos.packages.${system}) caos-tools;
       });
 
       devShells = forAllSystems (system: pkgs:
@@ -115,6 +126,12 @@
 
               # tools/*.cjs QA harnesses and the wasm replay-viewer smoke test.
               pkgs.nodejs_22
+
+              # caos, caos-cli, caosd and caos-runnerd on PATH in one package —
+              # the consumption path caos's own flake documents. Built against
+              # caos's pinned nixpkgs, NOT ours: a `follows` here would rebuild
+              # the whole Rust workspace instead of substituting it.
+              caos.packages.${system}.caos-tools
 
               python
             ];
