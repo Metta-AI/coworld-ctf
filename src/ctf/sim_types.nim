@@ -887,6 +887,16 @@ type
   MapPoint* = object
     x*, y*: int
 
+  TeamPickupPoints* = object
+    ## EXPLICIT per-team pickup points for a full-board (symNone) map, in team
+    ## order (Red, Blue, [Green, Yellow]). Empty on symmetric maps (the orbit
+    ## supplies them). Each seq, when non-empty, has one point per active team.
+    ## Barriers carry `perTeam` points each, flattened team-major (team 0's
+    ## points, then team 1's, ...), matching barrierSpawnPoints' orbit order.
+    shields*: seq[MapPoint]
+    cans*: seq[MapPoint]        ## spray-can (plasma-arc) points
+    barriers*: seq[MapPoint]    ## cardboard points, team-major (perTeam each)
+
   EndzoneShape* = enum
     ## The shape of a team's home capture region on a SIDES map. The classic
     ## column runs the full map height along the home border; the two COMPACT
@@ -929,6 +939,18 @@ type
     symRot180
     symRot90
     symQuadMirror
+    symNone
+      ## FULL-BOARD authoring (coworld-ctf#280): the authored obstacle set IS
+      ## the whole board — no fundamental domain, no lift. Used for organic,
+      ## irregular, theme-based maps that no group-completion can express (the
+      ## corpus's asymmetric tier). There is no symmetry group, so there is no
+      ## `teamImagePoint` orbit: a symNone spec MUST carry EXPLICIT per-team
+      ## pickup/shield/can points, validated for walkability + connectivity
+      ## like spawns. Team-FAIRNESS is NOT guaranteed by construction here —
+      ## it is a MEASURED property the caller gates on (mapgen program, law 5);
+      ## the engine only validates the spec is well-formed, it does not judge
+      ## balance. Appended last: older viewers cannot parse symNone specs, the
+      ## same wire caveat GV39's quadmirror (#237) shipped with.
 
   CtfMap* = object
     name*: string
@@ -979,6 +1001,16 @@ type
                                ## effect. FULL-map (both halves, already
                                ## symmetrized), pinned into replay specs like
                                ## trenches.
+    teamPickups*: TeamPickupPoints
+                               ## EXPLICIT per-team pickup points (coworld-ctf
+                               ## #280). Symmetric maps leave this empty and
+                               ## derive every team's shield/can/barrier point
+                               ## from RED's via the symmetry orbit
+                               ## (`teamImagePoint`). A symNone (full-board) map
+                               ## has NO orbit, so it MUST author each team's
+                               ## points here; the loader validates they are
+                               ## present, walkable and connected (no silent
+                               ## default). Ignored on symmetric maps.
 
   CrewSprite* = ref object
     width*, height*: int

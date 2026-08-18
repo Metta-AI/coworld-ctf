@@ -116,6 +116,33 @@ proc validateMap(gameMap: CtfMap) =
   for i, trench in gameMap.trenches:
     validateMapRect(
       "trench " & $i, shapeAsRect(trench), gameMap.width, gameMap.height)
+  ## coworld-ctf#280 full-board (symNone) invariants. Fairness is NOT checked
+  ## here (it is a MEASURED property the caller gates on); we only enforce that
+  ## the spec is well-formed so the sim has real per-team points to place.
+  if gameMap.symmetry == symNone:
+    if gameMap.layout != layoutSides:
+      raise newException(CtfError,
+        "symNone (full-board) maps are 2-team: they need a sides layout.")
+    let teamCount = 2
+    ## Every explicit pickup set present must be point-per-team (barriers are
+    ## config-gated, so an EMPTY barriers set is allowed — the config decides
+    ## perTeam; a NON-empty set must be a whole multiple of teamCount).
+    for (name, pts, perTeamOne) in [
+        ("teamPickups.shields", gameMap.teamPickups.shields, true),
+        ("teamPickups.cans", gameMap.teamPickups.cans, true),
+        ("teamPickups.barriers", gameMap.teamPickups.barriers, false)]:
+      if perTeamOne:
+        if pts.len != teamCount:
+          raise newException(CtfError,
+            "symNone map must author " & $teamCount & " explicit points for " &
+            name & " (one per team); got " & $pts.len &
+            " — no symmetry orbit exists to derive them.")
+      elif pts.len mod teamCount != 0:
+        raise newException(CtfError,
+          name & " on a symNone map must carry the same count per team " &
+          "(a multiple of " & $teamCount & "); got " & $pts.len & ".")
+      for i, p in pts:
+        validateMapPoint(name & "[" & $i & "]", p, gameMap.width, gameMap.height)
 
 const
   ArenaName = "arena"
@@ -353,6 +380,15 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
   ## Red spot instead — which is how the shields came to sit in the terrain
   ## of the spray cans, and the cans in the terrain of the shields.
   case gameMap.symmetry
+  of symNone:
+    ## Full-board maps have NO symmetry group, so there is no image of Red's
+    ## point to carry — per-team points are authored EXPLICITLY in the spec.
+    ## Reaching here means a caller tried to derive a team image on a symNone
+    ## map (a bug: it should have read the explicit point). Fail loudly rather
+    ## than invent an orbit that does not exist.
+    raise newException(CtfError,
+      "teamImagePoint has no meaning under symNone (full-board): the spec must " &
+      "carry an explicit point for team " & $team & " — no symmetry image exists.")
   of symRot90:
     gameMap.rot90TeamPoint(red, team)
   of symMirror:
@@ -953,6 +989,8 @@ proc symmetryImages*(gameMap: CtfMap, rect: MapRect): seq[MapRect] =
   ## re-deriving the half-pixel rotation axis.
   result.add rect
   case gameMap.symmetry
+  of symNone:
+    discard   # no symmetry group: the orbit is the rect itself (already added)
   of symMirror:
     let image = rect.mirrorX(gameMap.width)
     if image notin result:
@@ -981,6 +1019,8 @@ proc symmetryImages*(gameMap: CtfMap, point: MapPoint): seq[MapPoint] =
   ## walk the same exact quarter-turn orbit as team-owned sim geometry.
   result.add point
   case gameMap.symmetry
+  of symNone:
+    discard   # no symmetry group: a point's orbit is itself (already added)
   of symMirror, symRot180:
     let image = gameMap.teamImagePoint(point, Blue)
     if image notin result:
@@ -1102,9 +1142,17 @@ proc buildArenaObstacles*(gameMap: CtfMap): seq[ArenaShape] =
   ## rotations of the quadrant on rot90 maps; both reflections and rot180 of
   ## the quadrant on quad-mirror maps), precomputed once per map selection so
   ## the per-pixel wall test never re-mirrors.
+  ##
+  ## Under symNone (coworld-ctf#280) there is no fundamental domain: the
+  ## authored `leftObstacles` set IS the whole board, taken VERBATIM with no
+  ## image added. `leftObstacles` keeps its name (flatty positional wire compat
+  ## — renaming the field would shift the keyframe layout); under symNone read
+  ## it as "the full authored obstacle set".
   for shape in gameMap.leftObstacles:
     result.add shape
     case gameMap.symmetry
+    of symNone:
+      discard   # full board authored verbatim — no lift, no image
     of symMirror:
       result.add shape.mirrorX(gameMap.width)
     of symRot180:
@@ -1203,7 +1251,11 @@ proc isSpinningDiamond*(gameMap: CtfMap, shape: ArenaShape): bool {.inline.} =
   if shape.kind != shapeDiamond:
     return false
   case gameMap.symmetry
-  of symMirror, symRot180:
+  of symMirror, symRot180, symNone:
+    ## symNone is 2-team full-board (sides layout): the spinning set is the
+    ## vertical center-band, same rule as mirror/rot180 — it is closed under
+    ## nothing (no group) but the band is authored directly and the sim treats
+    ## a center-band diamond identically regardless of how the board was built.
     nearSpinAxis(shape.cx, gameMap.width)
   of symRot90, symQuadMirror:
     ## Both 4-team symmetries use the cross through the center. rot90 MUST:
@@ -1343,6 +1395,10 @@ proc centerPuddleSplat(rng: var MapRng, gameMap: CtfMap): Puddle =
     of symRot180: half.rot180(gameMap.width, gameMap.height)
     of symRot90, symQuadMirror:
       raiseAssert "puddles never place on 4-team maps"
+    of symNone:
+      ## Full-board: no mirror image — the generated spots already cover the
+      ## whole board (this half IS the board). Empty image = verbatim.
+      Puddle(spots: @[])
   result = half
   for s in image.spots:
     result.spots.add s
@@ -1766,18 +1822,23 @@ proc placePuddles(gameMap: var CtfMap, count: int, rng: var MapRng) =
     ## Accepts one left-half splat plus its symmetry image when both sit
     ## on open floor clear of everything above. A splat whose image is
     ## blocked drops WITH it — fairness before density, as with trenches.
+    ## symNone has no symmetry image: the splat stands alone (full-board maps
+    ## author/generate the whole surface directly, no fairness-pair to place).
+    let paired = gameMap.symmetry != symNone
     let image =
       case gameMap.symmetry
       of symMirror: splat.mirrorX(gameMap.width)
       of symRot180: splat.rot180(gameMap.width, gameMap.height)
+      of symNone: splat        # unused when not paired
       of symRot90, symQuadMirror:
         raiseAssert "puddles never place on 4-team maps"
     let
       splatBox = puddleBounds(splat)
       imageBox = puddleBounds(image)
-    if rectsIntersect(splatBox, imageBox):
+    if paired and rectsIntersect(splatBox, imageBox):
       return false
-    for candBox in [splatBox, imageBox]:
+    let candBoxes = if paired: @[splatBox, imageBox] else: @[splatBox]
+    for candBox in candBoxes:
       if not rectOnOpenFloor(gameMap, obstacles, candBox):
         return false
       for trench in gameMap.trenches:
@@ -1789,10 +1850,11 @@ proc placePuddles(gameMap: var CtfMap, count: int, rng: var MapRng) =
     for accepted in splats:
       let accBox = puddleBounds(accepted)
       if rectsIntersect(accBox, splatBox) or
-          rectsIntersect(accBox, imageBox):
+          (paired and rectsIntersect(accBox, imageBox)):
         return false
     splats.add splat
-    splats.add image
+    if paired:
+      splats.add image
     true
   var splats: seq[Puddle]
   if count mod 2 == 1:
@@ -2299,7 +2361,10 @@ proc generateMapAttempt*(
       while y < result.height - ArenaBorder:
         let covered =
           case result.symmetry
-          of symMirror:
+          of symMirror, symNone:
+            ## symNone: the authored obstacle set IS the full board (no lift),
+            ## so a row's cover is read directly from it — same call as mirror
+            ## (rowBlocked reads the stored obstacle rows), no fold.
             result.rowBlocked(y)
           of symRot180, symQuadMirror:
             ## Quad-mirror reads like rot180 here: the mirrorX images repeat
@@ -2511,6 +2576,8 @@ proc generateMapAttempt*(
         case gameMap.symmetry
         of symMirror: trench.mirrorX(gameMap.width)
         of symRot180: trench.rot180(gameMap.width, gameMap.height)
+        of symNone: trench    # no image: full-board, the `image != trench`
+                              # guard below then adds it exactly once
         of symRot90, symQuadMirror:
           raiseAssert "trenches never place on 4-team maps"
       if not rectOnOpenFloor(gameMap, obstacles, trench) or
@@ -2976,6 +3043,8 @@ proc pointsNode(points: seq[MapPoint]): JsonNode =
     result.add %*[p.x, p.y]
 
 proc pointsFromNode(node: JsonNode): seq[MapPoint] =
+  if node.isNil or node.kind != JArray:
+    return                        # absent optional key (e.g. teamPickups.*) -> empty
   for item in node:
     result.add MapPoint(x: item[0].getInt(), y: item[1].getInt())
 
@@ -3017,7 +3086,8 @@ proc mapSpecJson*(gameMap: CtfMap): string =
       of symMirror: "mirror"
       of symRot180: "rot180"
       of symRot90: "rot90"
-      of symQuadMirror: "quadmirror"),
+      of symQuadMirror: "quadmirror"
+      of symNone: "none"),          # round-trips with the parse at ~L3086
     "layout": (
       case gameMap.layout
       of layoutSides: "sides"
@@ -3051,6 +3121,16 @@ proc mapSpecJson*(gameMap: CtfMap): string =
         spots.add %*[s.cx, s.cy, s.r]
       puddleNodes.add spots
     spec["puddles"] = puddleNodes
+  ## Explicit per-team pickups pin only when present (symNone maps): an
+  ## unconditional key would change every existing pinned spec's echo for
+  ## nothing. Round-trips with the teamPickups parse in mapFromSpecJson.
+  if gameMap.teamPickups.shields.len > 0 or gameMap.teamPickups.cans.len > 0 or
+      gameMap.teamPickups.barriers.len > 0:
+    spec["teamPickups"] = %*{
+      "shields": pointsNode(gameMap.teamPickups.shields),
+      "cans": pointsNode(gameMap.teamPickups.cans),
+      "barriers": pointsNode(gameMap.teamPickups.barriers),
+    }
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3086,6 +3166,7 @@ proc mapFromSpecJson*(text: string): CtfMap =
     of "rot180": symRot180
     of "rot90": symRot90
     of "quadmirror": symQuadMirror
+    of "none": symNone          # coworld-ctf#280 full-board authoring (no lift)
     else:
       raise newException(
         CtfError, "Unknown map spec symmetry: " & symmetryText)
@@ -3134,6 +3215,15 @@ proc mapFromSpecJson*(text: string): CtfMap =
       result.puddles.add puddle
   for item in node["leftObstacles"]:
     result.leftObstacles.add item.shapeFromSpecNode()
+  ## Optional: EXPLICIT per-team pickup points (coworld-ctf#280). Only symNone
+  ## maps carry these; symmetric maps derive pickups from the orbit and leave
+  ## the object absent. Present or not, parse what is there — validateMap
+  ## enforces the symNone requirement.
+  let tpNode = node{"teamPickups"}
+  if not tpNode.isNil and tpNode.kind == JObject:
+    result.teamPickups.shields = pointsFromNode(tpNode{"shields"})
+    result.teamPickups.cans = pointsFromNode(tpNode{"cans"})
+    result.teamPickups.barriers = pointsFromNode(tpNode{"barriers"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
 
@@ -3570,7 +3660,11 @@ proc diamondSpinDir*(
   ## demands. A diamond ON an axis (sign 0) takes +1: it is its own image
   ## under that reflection, so either direction is self-consistent.
   case symmetry
-  of symMirror:
+  of symMirror, symNone:
+    ## symNone is a 2-team sides board; use the mirror rule so the two halves'
+    ## center-band diamonds counter-rotate (the classic arena feel). This is a
+    ## per-diamond visual/collision rule read from position, independent of how
+    ## the board was authored — no symmetry group is required for it.
     if 2 * cx >= width - 1: -1 else: 1
   of symRot180, symRot90:
     1

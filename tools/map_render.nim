@@ -72,8 +72,11 @@ const AllPickupKinds* = {
 proc mapSeedRegion*(gameMap: CtfMap): MapRect =
   ## Returns the authored seed half (2-team) or top-left quadrant (rot90 /
   ## quad-mirror) whose shapes buildArenaObstacles expands into the complete
-  ## symmetric obstacle set.
+  ## symmetric obstacle set. Under symNone there is no fundamental domain —
+  ## the authored set IS the full board, so the seed region is the whole map.
   case gameMap.symmetry
+  of symNone:
+    MapRect(x: 0, y: 0, w: gameMap.width, h: gameMap.height)
   of symMirror, symRot180:
     MapRect(x: 0, y: 0, w: gameMap.width div 2, h: gameMap.height)
   of symRot90, symQuadMirror:

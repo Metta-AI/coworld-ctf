@@ -118,6 +118,12 @@ proc placementRegion(base: CtfMap): MapRect =
     hMargin = 40   ## a little off the home border (carve still protects bases)
     seam = 20      ## short of the center seam (where a shape meets its image)
   case base.symmetry
+  of symNone:
+    ## Full-board: no symmetry seam. Span the whole width inset by hMargin off
+    ## BOTH home borders (a symNone author supplies real geometry; this is only
+    ## the tool's default cover extent).
+    MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
+            w: max(1, sr.w - 2 * hMargin), h: max(1, sr.h - 2 * vMargin))
   of symMirror, symRot180:
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - 2 * vMargin))
@@ -303,6 +309,7 @@ proc orbitBoxes(base: CtfMap, shape: ArenaShape): seq[Box] =
     my: Box = (b.x0, h - 1 - b.y1, b.x1, h - 1 - b.y0)
     r180: Box = (w - 1 - b.x1, h - 1 - b.y1, w - 1 - b.x0, h - 1 - b.y0)
   case base.symmetry
+  of symNone: @[b]              # no symmetry group: the orbit is the shape itself
   of symMirror: @[b, mx]
   of symRot180: @[b, r180]
   of symQuadMirror: @[b, mx, my, r180]
