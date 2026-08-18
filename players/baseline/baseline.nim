@@ -153,6 +153,32 @@ when defined(ggprobe):
   var ggOutgun = 0    # ...and outgunned locally at the pedestal (deficit >= GrabGateDeficit)
   var ggFireCount = 0 # ...=> the grab-gate actually fired (dive held)
 
+when defined(tempoprobe):
+  # -d:tempoprobe ONLY (2026-08-17, ffa4 L2/L4 tempo mandate): prove both new
+  # levers actually TOUCH A DECISION, not just a counter — the repeated failure
+  # mode this project has hit before (navSteer silently absorbing waypoint
+  # writes, the mid-quad levers reading inert on one map). Never shipped.
+  #   L2 volume gate (tradeGate): a frame where the gate DISCRIMINATES, i.e. the
+  #   old outnumberMargin arithmetic would have PRESSED (not badly outnumbered)
+  #   but tradeGate's "hold a real edge" bar DECLINES instead — the counter that
+  #   matters is the one where the two disagree, not raw evaluation frames.
+  var tgEval = 0        # frames the tradeGate branch actually ran (onOffense, fireSuperiority+tradeGate)
+  var tgWouldPress = 0  # ...of which the OLD margin test would have pressed (enemyGuns-friendGuns < breakMargin)
+  var tgDeclined = 0    # ...and tradeGate declined anyway (friendGuns-enemyGuns < TradeMinEdge) => DISCRIMINATES
+  #   L4 late-flag clock (flagClock): a frame where the clock actually BLOCKED a
+  #   rush/touch that the underlying geometry otherwise wanted, and the mirror
+  #   frame after the clock opens where the same geometry is allowed through.
+  var fcWouldRush = 0   # frames the pre-clock geometry/role/seat gate for wantPocketRush was true
+  var fcBlocked = 0     # ...of which the clock was still closed => SUPPRESSED (early steal declined)
+  var fcOpened = 0      # ...of which the clock had opened => pocket rush allowed through
+  var fcTouchBlocked = 0   # touchLatch: frames inside GrabCommitRing where the clock still suppressed the latch
+  var fcClockCommitFires = 0  # holdGrab: frames the post-clock "commit hard" bypass actually skipped a hold
+  #   Steal-attempt timing, bucketed by elapsed/LateFlagClockTick (0 = pre-clock,
+  #   1 = post-clock), sampled at the moment wantPocketRush FIRST goes true this
+  #   life (a fresh rush attempt) so double-counting doesn't drown the signal.
+  var fcRushPre = 0
+  var fcRushPost = 0
+
 when defined(commsprobe):
   # -d:commsprobe ONLY: prove the comms bus is LIVE — codewords emitted, heard,
   # and adopted. A 0-heard result vs a >0-emit result diagnoses a wire/range gap.
@@ -1122,6 +1148,24 @@ const
                                 # fresh at the moment of the hold decision. At
                                 # LocalFreshTicks(20) the inbound count was
                                 # structurally 0 (gtprobe: noCover 144 -> FIRED 0).
+
+  # --- L2/L4 ffa4 tempo mandate (2026-08-17, 347 re-simulated ffa4 episodes) ---
+  TradeMinEdge = 1.0            # flagClock's sibling: volume gate (tradeGate). In a
+                                # four-way pot a 1:1 trade burns both fighters' life
+                                # pools while the two bystanders pay nothing — parity
+                                # is a LOSS, not a wash (measured: holding K-D fixed
+                                # at 0, low-volume wins 36.6% vs high-volume 6.5%).
+                                # Require a full extra effective gun over the local
+                                # enemy tally (the same shield/hp-weighted count
+                                # fireSuperiority already computes) to PRESS; an even
+                                # matchup declines and regroups on a mate instead.
+  LateFlagClockTick = 3000      # flagClock: 60% of the league's 5000-tick clock (same
+                                # convention as OpenPhaseTicks=600/12% and
+                                # ForceClockTick=3800/76%). Steals before this are a
+                                # straight life-sink (by-episode-fifth steal win rate
+                                # 38.0/32.8/35.0/53.3/68.3%, all but the last BELOW the
+                                # ~44% two-team-episode parity bar); captures after it
+                                # are the single strongest correlate measured (85.9%).
 
   # --- holdLine (anti-over-extend vs a standing line) -------------------------
   # The h006 line-defense finding (2026-07-22 corpus): the #1 policy forms a line
@@ -2752,6 +2796,49 @@ type
                               #       at 2 of 3 hp, median, per parameter_table.csv).
                               # Directional evidence only (n=7-8 peels) — stays behind its own
                               # A/B before any ship. Default ON; NOMEDPEEL=1 turns it off.
+    tradeGate: bool           # ⭐⭐ L2 VOLUME GATE (2026-08-17, ffa4 tempo mandate): 347
+                              # re-simulated ffa4 episodes show holding K-D fixed, LOW-volume
+                              # beats HIGH-volume massively (K-D=0: 36.6% win vs 6.5%, 5.6x). In
+                              # a four-way pot a 1:1 trade burns both fighters' life pools while
+                              # the two BYSTANDERS pay nothing — parity in a two-team duel is a
+                              # loss in a four-way pot (against our contender in the SAME
+                              # episode we deal +1.43 more early kills AND take +1.45 more early
+                              # deaths — trading at par and mistaking it for parity). This raises
+                              # fireSuperiority's press bar from "not badly outnumbered" to "hold
+                              # a REAL edge": reuses the same local fresh-gun tally
+                              # (enemyGuns/friendGuns, shield/hp-weighted) already computed there
+                              # and presses only when friendGuns exceeds enemyGuns by >=
+                              # TradeMinEdge, so an even matchup (1v1, 2v2, ...) is DECLINED — we
+                              # reposition toward a mate instead of advancing into a coin-flip
+                              # trade (the existing "free trade on the way out" behavior in the
+                              # retreat branch still fires back at a target already lined up;
+                              # this only stops us ADVANCING into the wash). Explicitly NOT
+                              # directional focus-fire (REFUTED: most-focused team wins only
+                              # 19.5%, most-spread wins 29.3%, and being ganged up on is not a
+                              # death sentence either — 32.5% vs 20.2%) — this is a pure
+                              # volume/commitment gate, agnostic of WHO we shoot. Scoped to
+                              # GameTeams > 2 (2-team combat is already the fireSuperiority
+                              # arithmetic and stays byte-identical). NOVOLUME=1 reverts.
+    flagClock: bool           # ⭐⭐ L4 LATE-FLAG CLOCK (2026-08-17, ffa4 tempo mandate): across
+                              # 370 captures/1270 steals, by episode-fifth steals go
+                              # 38.0/32.8/35.0/53.3/68.3% and captures 45.8/50.0/46.1/51.2/85.9%
+                              # — two-team-episode parity is ~44%, so an EARLY steal (33-38%) is
+                              # a straight life-sink (independently confirmed: early steal count
+                              # predicts the final winner only 32.6%) and a LATE one (85.9%
+                              # captures) is the single strongest correlate measured. Our C/D
+                              # seats pay 5.53 lives/episode for 1.22 steals + 0.46 captures at
+                              # K/D~=1.0, while picking up the fewest medkits on the team. This is
+                              # a CLOCK, not a suppression of the flag game (we are already good
+                              # at capturing — 0.54 caps/ep vs focusfire 0.30 — and must stay
+                              # that way): before LateFlagClockTick (60% of the 5000-tick league
+                              # clock) the pocket-rush commit (wantPocketRush) and the touch latch
+                              # both stay closed — attackers still contest mid/space, they just
+                              # never dive the pedestal for a below-parity steal. Once the clock
+                              # opens, holdGrab's standoff hesitation is bypassed (commit hard: a
+                              # late steal is worth the life price). Scoped to GameTeams > 2
+                              # (a 2-team game is decided by the SAME single flag pair from the
+                              # opening whistle — this study never measured 2-team timing —
+                              # byte-identical off there). NOFLAGCLOCK=1 reverts.
 
   Bot = ref object
     slot: int
@@ -2907,6 +2994,10 @@ type
       pHadLine: bool          # probe: a fresh threat line existed this segment
       pBroke: bool            # probe: that line was broken this segment
       pHp1Since: int          # probe: tick own hp became 1 (-1 = not at hp 1)
+    when defined(tempoprobe):
+      pFcRushLatched: bool    # probe: geomWantsRush was already true last frame — latches
+                              # the fcRushPre/fcRushPost sample to the FIRST frame of a
+                              # continuous rush attempt so a long approach isn't recounted.
     shieldRushDone: bool      # shieldRush: latched once we grabbed the opening shield OR
                               # gave up (mate took it) — stops re-detouring mid-run
     comboGrabDone: bool       # comboGrab: latched once the ComboGrabSeat holds BOTH the
@@ -3460,6 +3551,8 @@ proc defaultCombatTune(): CombatTune =
     comboGrab: false,         # control: sprayGrab's iHaveShield gate stays, no can-carrier shield-seek.
     aggro: 1.0,               # control: today's shipped posture exactly (every multiply is a no-op).
     medPeel: false,           # control: medEcon's aimedAtUs veto is unranged, MedKitLightContactHp stays 1.
+    tradeGate: false,         # control: fireSuperiority presses on "not badly outnumbered", not "hold an edge".
+    flagClock: false,         # control: the pocket rush/touch latch have no clock — steal any time.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -4107,6 +4200,17 @@ proc shippedCombatTune(): CombatTune =
   let quadArmed = getEnv("ROLEQUAD").len > 0
   result.roleSep = quadArmed and getEnv("NOROLESEP").len == 0
   result.midSpread = quadArmed and getEnv("NOMIDSPREAD").len == 0
+  # ⭐⭐ L2/L4 ffa4 TEMPO MANDATE (2026-08-17, "we are SEAL team — best at
+  # attacking, best at flag capturing, ALL GAME MODES COVERED"). Both levers
+  # are structurally gated to `GameTeams > 2` at every call site (the volume
+  # gate inside the fireSuperiority block, the clock inside wantPocketRush /
+  # touchLatch / holdGrab) — a 2-team game reads getEnv same as always but the
+  # gate condition is false by construction, so this is a provable no-op
+  # there. Default ON (NOxxx reverts), matching the touchCommit/arcStandoff
+  # precedent for a lever whose trigger cannot even form outside its target
+  # mode. See the tune-field comments above for the measured premise.
+  result.tradeGate = getEnv("NOVOLUME").len == 0
+  result.flagClock = getEnv("NOFLAGCLOCK").len == 0
 
 
 when defined(doorprobe):
@@ -5792,6 +5896,8 @@ proc resetTransient(bot: Bot) =
     bot.pHadLine = false
     bot.pBroke = false
     bot.pHp1Since = -1
+  when defined(tempoprobe):
+    bot.pFcRushLatched = false
   bot.shieldRushDone = false
   bot.comboGrabDone = false
   bot.assaultUntil = -100_000
@@ -6933,7 +7039,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           friendGuns += 1.0
       let breakMargin = (if bot.tune.gv21Press: Gv21OutnumberMargin
                          else: bot.tune.outnumberMargin).float
-      if enemyGuns - friendGuns >= breakMargin:
+      # ⭐⭐ L2 VOLUME GATE (tradeGate): ffa4 only (GameTeams > 2 — a 2-team game
+      # keeps the exact breakMargin arithmetic above, byte-identical). A 1:1
+      # trade in a four-way pot burns both fighters' life pools while the two
+      # bystanders pay nothing, so DECLINE anything at or below parity instead
+      # of only breaking off when genuinely outnumbered — require a real edge
+      # (friendGuns - enemyGuns >= TradeMinEdge) to press.
+      if bot.tune.tradeGate and GameTeams > 2:
+        when defined(tempoprobe):
+          inc tgEval
+          let wouldPress = enemyGuns - friendGuns < breakMargin
+          if wouldPress: inc tgWouldPress
+        if friendGuns - enemyGuns < TradeMinEdge:
+          bot.retreatUntil = bot.tick + RetreatHold  # decline the even/losing trade
+          when defined(tempoprobe):
+            if wouldPress: inc tgDeclined
+      elif enemyGuns - friendGuns >= breakMargin:
         bot.retreatUntil = bot.tick + RetreatHold  # commit the fall-back (hysteresis)
     else:
       var localEnemies = 0
@@ -8170,12 +8291,42 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # durable close-range breacher loadout the combo is FOR.
   # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role (see the sprayGrab exclusion
   # comment ~L7192 for why the role-equality form is wrong).
+  # ⭐⭐ L4 LATE-FLAG CLOCK (flagClock): ffa4 only (GameTeams > 2). Before
+  # LateFlagClockTick (60% of the 5000-tick league clock) an early steal is a
+  # measured life-sink (below the ~44% two-team-episode parity bar), so the
+  # pocket-rush commit stays CLOSED — the role still contests mid/space via
+  # every other branch, it just never opens the disarmed dive on the flag
+  # itself. True (open) by construction once the clock passes, off, or on a
+  # 2-team board, so this is a provable no-op there.
+  let lateFlagClockOpen = not (bot.tune.flagClock and GameTeams > 2 and
+    bot.tick - bot.gameStart < LateFlagClockTick)
   let wantPocketRush = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
          not bot.comboGrabDone) and
+    lateFlagClockOpen and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
+  when defined(tempoprobe):
+    # DISCRIMINATE: only counts frames where the clock is the reason
+    # wantPocketRush reads false — i.e. every OTHER geometry/role/seat gate
+    # already passed, so the pre-clock world would genuinely have rushed.
+    let geomWantsRush = not iCarry and not mateCarry and not banking and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
+           not bot.comboGrabDone) and
+      dist(me, stealTarget) < PocketRushRange and
+      dist(me, stealTarget) < nearestMateToSteal + 8.0
+    if geomWantsRush:
+      inc fcWouldRush
+      if lateFlagClockOpen: inc fcOpened
+      else: inc fcBlocked
+      if not bot.pFcRushLatched:
+        if bot.tick - bot.gameStart < LateFlagClockTick: inc fcRushPre
+        else: inc fcRushPost
+      bot.pFcRushLatched = true
+    else:
+      bot.pFcRushLatched = false
   when defined(seatprobe):
     let comboSuppressing = bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
       not bot.comboGrabDone
@@ -8232,7 +8383,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # uncontested touch). This is the chess-not-checkers pocket: the Captain calls the push.
     let haveAdvantage = pickEdge or (bot.tune.planLayer and botPhase == PhForce) or
       coverMates >= 1
-    holdGrab = defenders >= GrabStackDefenders and not haveAdvantage
+    # ⭐⭐ L4 LATE-FLAG CLOCK, "commit hard" half (flagClock): once the clock has
+    # opened (ffa4 only), a late steal is worth its life price (captures in the
+    # final fifth hit 85.9%), so bypass the standoff hesitation entirely instead
+    # of waiting for pickEdge/PhForce/coverMates — false (no bypass) by
+    # construction when flagClock is off, still early, or on a 2-team board.
+    let clockCommit = bot.tune.flagClock and GameTeams > 2 and
+      bot.tick - bot.gameStart >= LateFlagClockTick
+    holdGrab = defenders >= GrabStackDefenders and not haveAdvantage and not clockCommit
+    when defined(tempoprobe):
+      # DISCRIMINATE: only counts frames the bypass is what did the work — the
+      # old advantage read would have held, and clockCommit released it anyway.
+      if clockCommit and defenders >= GrabStackDefenders and not haveAdvantage:
+        inc fcClockCommitFires
     when defined(commsprobe):
       # Count ONLY the frames the heard call is what did the work: our own eyes saw
       # no stack, the wire did, and the hold actually fired. A gate must DISCRIMINATE
@@ -8288,6 +8451,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # there, where retreating costs the same exposure as finishing.
   let touchLatch = bot.tune.touchCommit and not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+    lateFlagClockOpen and
     dist(me, stealTarget) <= GrabCommitRing
   when defined(tcprobe):
     if touchLatch: inc tcLatch
