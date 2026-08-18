@@ -6138,14 +6138,15 @@ proc resetTransient(bot: Bot) =
   bot.sawLineTick = -100_000
   bot.arcBackTick = -100_000  # arcStandoff: no back-off latched on a fresh life
   bot.ownHp = 0
-  # ⭐ INTEGRATION FIX (2026-08-17): ownLives is a LATCHED perception read (it
-  # only ever gets written when the HUD marker parses), so without this a fresh
-  # ROUND started with the previous round's value — a bot that ended the last
-  # round on its last life would open the new one with onLastLife true for the
-  # frames before the first lives marker lands, vetoing its pocket dive and
-  # widening its medkit detour while it actually holds all three lives. 0 =
-  # unread, and lastLifeGuard only acts on == 1, so unread is the safe state.
-  bot.ownLives = 0
+  bot.ownLives = 0            # ⭐ ownLives is a LATCHED perception read — it is only
+                              # ever written when the `lives <hp>hp x<n>` marker parses,
+                              # so without this a fresh ROUND opens carrying the previous
+                              # round's value. NOT reachable as a stale read in the
+                              # shipped loop (resetTransient fires only on the
+                              # not-mapCameraReady interstitial, where decide() — and so
+                              # livesSense — never runs, and the first playing frame
+                              # re-reads before onLastLife is computed). Kept as a guard
+                              # against reordering, and for consistency with ownHp above.
   bot.surpriseShoutTick = -100_000
   bot.dieShoutTick = -100_000
   bot.orientUntil = -100_000
