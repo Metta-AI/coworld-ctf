@@ -160,6 +160,21 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
        tune.tradeGate = only == "L2"
        tune.lastLifeGuard = only == "L3"
        tune.flagClock = only == "L4"
+  # ⭐⭐ ffa4 lives audit (2026-08-17) TEAM ISOLATION. shippedCombatTune() reads
+  # NOFFAMEDSEE/NOLASTLIFE from the process env and all numPlayers bots share
+  # ONE process, so a bare NOxxx=1 would strip every team and the "A/B" would
+  # be a mirror — the same trap SPINTEAM/SHAPETEAM/SEAT4TEAM exist to avoid.
+  # Both levers are GameTeams>2-gated already; on a 4-team board
+  # FFAMEDTEAM=<n>/LASTLIFETEAM=<n> arms ONLY engine team index n (0..3) and
+  # strips every other team, giving a deterministic, team-rotatable A/B from
+  # one binary. Uses the raw team INDEX param, not red/blue: `t` above
+  # collapses every non-zero team to Blue on a >2-team board.
+  let ffaMedTeam = getEnv("FFAMEDTEAM")
+  if ffaMedTeam.len > 0:
+    tune.ffaMedSee = team == parseInt(ffaMedTeam)
+  let lastLifeTeam = getEnv("LASTLIFETEAM")
+  if lastLifeTeam.len > 0:
+    tune.lastLifeGuard = team == parseInt(lastLifeTeam)
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -257,6 +272,25 @@ when defined(roleprobe):
         for y in ys[tm]: v += (y - m) * (y - m)
         rpYSpreadSum[tm] += sqrt(v / (n - 1).float)
         inc rpYSpreadN[tm]
+
+when defined(lifeprobe):
+  # ⭐⭐ ffa4 LIVES PROBE (2026-08-17). Two field-shaped metrics nothing else in
+  # this harness computes, PER REAL TEAM COLOR (0..3, engine.teamOfSlot):
+  #   "lives spent by half-time" — Σ over a team's seats of (3 - livesNow),
+  #     sampled at tick == ticks div 2 (or at game end, whichever comes
+  #     first, so a short episode still contributes). GROUND TRUTH via
+  #     slotLifeState, never the bot's own fogged perception.
+  #   "P(all 4 slots eliminated)" — episodes ending with every seat on the
+  #     team at lives==0 and not alive.
+  # P(escape|hp==1) and medkits/episode reuse the EXISTING tune-independent
+  # wbprobe/msprobe globals already built into baseline.nim (msHeals/
+  # wbHp1Heals/wbHp1Deaths) — a before/after MIRROR run pair (candidate vs
+  # NOFFAMEDSEE=1 NOLASTLIFE=1) is the A/B for those two; they just had no
+  # report wired to a harness before now (see the report block below).
+  var lpEpisodes: array[4, int]
+  var lpSeatsPerTeam: array[4, int]
+  var lpHalfSpentSum: array[4, float]
+  var lpFinalAllElim: array[4, int]
 
 when defined(doorprobe):
   var engineTeamOfSlot: array[32, int]   # real team index per slot (4-team safe)
@@ -449,6 +483,12 @@ proc main() =
     for t in 0 .. 3: tmStartTotal += tmLivesStart[t]
     var tmLastCapTotal = 0
     var tmCapTicks: seq[int] = @[]     # tick of every capture this episode
+    when defined(lifeprobe):
+      var lpTeamSeats: array[4, int]
+      for s in 0 ..< numPlayers:
+        let tm = engine.teamOfSlot(s)
+        if tm in 0 .. 3: inc lpTeamSeats[tm]
+      var lpHalfSampled = false
     var tick = 0
     while tick < ticks:
       for s in 0 ..< numPlayers:
@@ -514,6 +554,15 @@ proc main() =
         for t in 0 .. 3:
           fpDeathTL[t].add dTot[t]
           fpCapTL[t].add cTot[t]
+      when defined(lifeprobe):
+        if not lpHalfSampled and tick >= ticks div 2:
+          lpHalfSampled = true
+          for s in 0 ..< numPlayers:
+            let tm = engine.teamOfSlot(s)
+            if tm notin 0 .. 3: continue
+            let st = engine.slotLifeState(s)
+            let livesNow = st.lives + (if st.alive: 1 else: 0)
+            lpHalfSpentSum[tm] += float(3 - livesNow)
       when defined(roleprobe):
         if tick mod RpSampleEvery == 0: rpSample(engine, numPlayers)
       let r = engine.result()
@@ -535,6 +584,28 @@ proc main() =
         tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
+    when defined(lifeprobe):
+      # Game ended before half-time (rare, e.g. an early wipe/capture): the
+      # final state IS the half-time-or-earlier snapshot, so sample it now.
+      if not lpHalfSampled:
+        for s in 0 ..< numPlayers:
+          let tm = engine.teamOfSlot(s)
+          if tm notin 0 .. 3: continue
+          let st = engine.slotLifeState(s)
+          let livesNow = st.lives + (if st.alive: 1 else: 0)
+          lpHalfSpentSum[tm] += float(3 - livesNow)
+      for tm in 0 .. 3:
+        if lpTeamSeats[tm] == 0: continue
+        inc lpEpisodes[tm]
+        lpSeatsPerTeam[tm] = lpTeamSeats[tm]
+        var allElim = true
+        for s in 0 ..< numPlayers:
+          if engine.teamOfSlot(s) != tm: continue
+          let st = engine.slotLifeState(s)
+          if st.alive or st.lives > 0:
+            allElim = false
+            break
+        if allElim: inc lpFinalAllElim[tm]
     when defined(ndprobe):
       # ENGINE TRUTH + the stale-vs-fresh DISCRIMINATION join, once per episode
       # (mirrors harness.nim's runEpisode tail verbatim).
@@ -1106,6 +1177,47 @@ proc main() =
     echo &"  L4 rush attempts (first frame of a fresh attempt): pre-clock {fcRushPre}  " &
       &"post-clock {fcRushPost}"
     flushFile(stdout)
+  when defined(lifeprobe):
+    echo "==================================================="
+    echo "--- ffa4 LIVES PROBE (ffaMedSee/lastLifeGuard, 2026-08-17) ---"
+    echo &"  arm: NOFFAMEDSEE={getEnv(\"NOFFAMEDSEE\")} NOLASTLIFE={getEnv(\"NOLASTLIFE\")} " &
+      &"FFAMEDTEAM={getEnv(\"FFAMEDTEAM\")} LASTLIFETEAM={getEnv(\"LASTLIFETEAM\")}  " &
+      &"(unset NOxxx + unset xTEAM = every team ships hot, GameTeams>2-gated)"
+    const tn2 = ["red", "blue", "green", "yellow"]
+    for t in 0 .. 3:
+      if lpEpisodes[t] == 0: continue
+      let totalLives = 3 * lpSeatsPerTeam[t]
+      let spentAvg = lpHalfSpentSum[t] / lpEpisodes[t].float
+      let allElimPct = 100.0 * lpFinalAllElim[t].float / lpEpisodes[t].float
+      echo &"  {tn2[t]:<7} eps {lpEpisodes[t]:>3}  seats {lpSeatsPerTeam[t]}  " &
+        &"livesSpentByHalf {spentAvg:>6.2f} of {totalLives}  " &
+        &"P(all-slots-eliminated by game end) {allElimPct:>5.1f}%"
+    echo "  (half-time = tick ticks/2, or game end if earlier; " &
+      "all-slots-eliminated = every seat lives==0 and not alive at game end)"
+    echo &"  LEVER FIRE: lastLifeGuard onLastLife-frames {llOnLastLifeFrames}  " &
+      &"wantPocketRush-suppressed {llWantSuppressed}  " &
+      &"widerDetour-load-bearing {llWiderDetourFireCount}  |  " &
+      &"ffaMedSee target-supplied {ffaMedFireCount}"
+    echo "  (suppressed>0 proves the veto changed a real decision, not a no-op; " &
+      "widerDetour-load-bearing>0 proves the cap widening reached a kit the " &
+      "normal cap would have missed; ffaMedSee fires>0 proves the visible-kit " &
+      "union chose a target the formula-spot-only base would not have)"
+
+  when defined(msprobe):
+    echo "==================================================="
+    echo "--- MEDKIT HEALS (msprobe, tune-independent global — msHeals) ---"
+    echo &"  woundedFrames {msWoundedFrames}  heals(wounded->full) {msHeals}  " &
+      &"medkits/episode(pooled, all teams) {msHeals.float / games.float:.3f}  " &
+      &"medkits/episode/team(approx, /{max(1, evalTeams)}) " &
+      &"{msHeals.float / games.float / max(1, evalTeams).float:.3f}"
+
+  when defined(wbprobe):
+    echo "==================================================="
+    echo "--- P(escape | hp==1) (wbprobe, tune-independent global) ---"
+    let hp1Total = wbHp1Heals + wbHp1Deaths
+    let escapePct = (if hp1Total > 0: 100.0 * wbHp1Heals.float / hp1Total.float else: 0.0)
+    echo &"  hp1 segments resolved {hp1Total}  healedToFull {wbHp1Heals}  " &
+      &"diedFromHp1 {wbHp1Deaths}  P(escape|hp==1) {escapePct:.2f}%"
 
 when isMainModule:
   main()

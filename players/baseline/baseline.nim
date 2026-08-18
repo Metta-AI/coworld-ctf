@@ -195,6 +195,8 @@ when defined(ffa4probe):
   # genuinely have dived.
   var f4RushGeom = 0      # frames every non-lastLife term of wantPocketRush was true
   var f4RushVetoLL = 0    # ...of which onLastLife is what closed it => DISCRIMINATES
+  var f4RushVetoClock = 0 # ...and of which the L4 clock is what closed it (the two
+                          #    vetoes overlap; reported side by side, never nested)
   # L3b WIDER MEDKIT ERRAND + L1 ffaMedSee, at the single commit point.
   var f4MedFire = 0       # medEcon actually committed a kit target
   var f4MedLastLife = 0   # ...on a last-life bot
@@ -301,6 +303,18 @@ when defined(meprobe):
   var meLightBreak = 0 # ...and IN contact but at 1 hp with no gun on us (the new case)
   var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
   var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
+
+when defined(lifeprobe):
+  # -d:lifeprobe ONLY (ffa4 lives audit, 2026-08-17): does each new lever
+  # actually FIRE a behavioural change, not just build? Never shipped.
+  var llOnLastLifeFrames = 0   # population: alive frames onLastLife read true
+  var llWantSuppressed = 0     # ...and wantPocketRush WOULD have been true
+                                # (the veto was load-bearing, not a no-op)
+  var ffaMedFireCount = 0      # frames ffaMedSee (not base medSee) supplied
+                                # the chosen medEcon target
+  var llWiderDetourFireCount = 0  # frames onLastLife's widened cap was
+                                   # load-bearing: the chosen kit sits BEYOND
+                                   # the normal MedKitEconDetour
 
 when defined(msprobe):
   # -d:msprobe ONLY (plan #16): instrument medSee — does routing medEcon at a kit
@@ -8617,25 +8631,28 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # 2-team board, so this is a provable no-op there.
   let lateFlagClockOpen = not (bot.tune.flagClock and GameTeams > 2 and
     bot.tick - bot.gameStart < LateFlagClockTick)
-  let wantPocketRush = not iCarry and not mateCarry and not banking and
-    not onLastLife and
+  # ⚠️ INTEGRATION RESOLUTION (2026-08-17). `wantPocketRushBase` carries the
+  # GEOMETRY/role/seat terms ONLY — neither ffa4 veto is folded into it, on
+  # purpose. Both vetoes close the same decision, so whichever one is baked
+  # into the base MASKS the other's fire counter: with the clock inside Base,
+  # L3's llWantSuppressed reads a hard 0 for the entire pre-clock phase and
+  # L3 looks inert when it is merely second in line. Kept separate so each
+  # lever's counter answers "would this decision have gone the other way
+  # without ME", which is the only question a fire table is allowed to answer.
+  let wantPocketRushBase = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
          not bot.comboGrabDone) and
-    lateFlagClockOpen and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
+  let wantPocketRush = wantPocketRushBase and not onLastLife and lateFlagClockOpen
+  when defined(lifeprobe):
+    if onLastLife:
+      inc llOnLastLifeFrames
+      if wantPocketRushBase: inc llWantSuppressed  # the veto was load-bearing
   when defined(tempoprobe):
-    # DISCRIMINATE: only counts frames where the clock is the reason
-    # wantPocketRush reads false — i.e. every OTHER geometry/role/seat gate
-    # already passed, so the pre-clock world would genuinely have rushed.
-    let geomWantsRush = not iCarry and not mateCarry and not banking and
-      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-      not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
-           not bot.comboGrabDone) and
-      dist(me, stealTarget) < PocketRushRange and
-      dist(me, stealTarget) < nearestMateToSteal + 8.0
-    if geomWantsRush:
+    # DISCRIMINATE: the clock is the reason wantPocketRush reads false.
+    if wantPocketRushBase:
       inc fcWouldRush
       if lateFlagClockOpen: inc fcOpened
       else: inc fcBlocked
@@ -8646,17 +8663,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       bot.pFcRushLatched = false
   when defined(ffa4probe):
-    # DISCRIMINATE for L3a: every wantPocketRush term EXCEPT the last-life veto.
-    let llGeomRush = not iCarry and not mateCarry and not banking and
-      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-      not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
-           not bot.comboGrabDone) and
-      lateFlagClockOpen and
-      dist(me, stealTarget) < PocketRushRange and
-      dist(me, stealTarget) < nearestMateToSteal + 8.0
-    if llGeomRush:
+    # DISCRIMINATE for L3a, UNMASKED by the clock (see the resolution note above):
+    # f4RushVetoLL counts frames the last-life veto alone closed the dive.
+    if wantPocketRushBase:
       inc f4RushGeom
       if onLastLife: inc f4RushVetoLL
+      if not lateFlagClockOpen: inc f4RushVetoClock
   when defined(seatprobe):
     let comboSuppressing = bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
       not bot.comboGrabDone
@@ -10137,6 +10149,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       haveEconKit = true
       pickedVisible = false
       pickedVisOffSpot = false
+    when defined(lifeprobe):
+      if haveEconKit and pickedVisible and bot.tune.ffaMedSee and ffa4Board and
+          not bot.tune.medSee:
+        inc ffaMedFireCount   # ffaMedSee (not base medSee) supplied this target
+      if haveEconKit and onLastLife and dist(chosenEcon, me) > MedKitEconDetour:
+        inc llWiderDetourFireCount  # the widened cap was load-bearing
     if haveEconKit:
       target = chosenEcon
       # ⭐ v48: GIVE THE PEEL FEET. This assignment was DISCARDED whenever we

@@ -242,6 +242,16 @@ proc teamOfSlot*(engine: EvalEngine, slot: int): int =
   ## 0 Red / 1 Blue, read straight off the seated player.
   ord(engine.sim.players[slot].team)
 
+proc slotLifeState*(engine: EvalEngine, slot: int): tuple[hp, lives: int, alive: bool] =
+  ## GROUND-TRUTH hp/lives/alive for one seat, straight off sim.players — for
+  ## the ffa4 lives audit (2026-08-17): "lives spent by half-time", medkit
+  ## takes, and P(escape|hp==1) all need ground truth sampled every tick, not
+  ## the bot's own fogged/label-parsed perception (the 2026-08-05 field-metric
+  ## rule). Unconditional, not probe-gated: a read-only accessor with no
+  ## gameplay effect, and this module never compiles into the shipped player.
+  let p = engine.sim.players[slot]
+  (hp: p.hp, lives: p.lives, alive: p.alive)
+
 proc isPlaying*(engine: EvalEngine): bool =
   engine.sim.phase == Playing
 
