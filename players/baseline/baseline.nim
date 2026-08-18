@@ -1164,13 +1164,38 @@ const
                                 # enemy tally (the same shield/hp-weighted count
                                 # fireSuperiority already computes) to PRESS; an even
                                 # matchup declines and regroups on a mate instead.
-  LateFlagClockTick = 3000      # flagClock: 60% of the league's 5000-tick clock (same
-                                # convention as OpenPhaseTicks=600/12% and
-                                # ForceClockTick=3800/76%). Steals before this are a
-                                # straight life-sink (by-episode-fifth steal win rate
-                                # 38.0/32.8/35.0/53.3/68.3%, all but the last BELOW the
-                                # ~44% two-team-episode parity bar); captures after it
-                                # are the single strongest correlate measured (85.9%).
+  LateFlagClockTick = 2000      # flagClock: an ABSOLUTE tick, re-pinned 2026-08-17 off
+                                # n=348 HOSTED 4-team episodes (~/.ctf/scout/events),
+                                # not the original "60% of a 5000-tick clock" guess.
+                                # ⛔ THAT PREMISE WAS FALSE: real ffa4 length is min 1340
+                                # / p25 2420 / median 3087 / p75 4594 / p90 7130 / max
+                                # 8379 — there is no fixed 5000-tick clock (22.1% of
+                                # episodes run PAST 5000), so "60% of 5000" = 3000 was
+                                # actually the ~53rd percentile of LENGTH, not of the
+                                # by-episode-fifth framing it was copied from — and in
+                                # 46.6% of real episodes a 3000 pin never opens at all.
+                                # Binned by ABSOLUTE tick instead (this is the unit the
+                                # constant is expressed in), the steal win rate crosses
+                                # the ~44% two-team-episode parity bar in the t2000-2499
+                                # bucket (53.8%, n=143; captures 67.4%, n=46) and stays
+                                # above it every bucket after — 2000 is reached by 91.1%
+                                # of episodes, so the clock actually opens almost always.
+                                # Steals before this remain a life-sink (t0-1999 win
+                                # rates 38.1/34.2/32.7/41.9%, all below parity).
+                                # ⚠️ Two open caveats (v56-integrate, same measurement):
+                                # (1) bot.gameStart is a PER-PROCESS frame-receipt tick
+                                # (shippedCombatTune's commsCrypto comment: the four real
+                                # seat processes do NOT share a clock) — same imprecision
+                                # class as every other elapsed-tick lever in this file
+                                # (OpenPhaseTicks/ForceClockTick/LatePushTick), not a new
+                                # defect, but flagClock inherits it: each of our bots
+                                # opens its own clock independently, +/- connection jitter.
+                                # (2) the late-steal correlation may be partly SURVIVOR-
+                                # SHIP (a team still alive at t3000+ is a team that is
+                                # winning, and winning teams steal) rather than pure
+                                # causation — being independently re-measured armed-on-
+                                # one-team-only to separate the two before this lever is
+                                # trusted beyond "ships OFF, no regression."
 
   # --- holdLine (anti-over-extend vs a standing line) -------------------------
   # The h006 line-defense finding (2026-07-22 corpus): the #1 policy forms a line
@@ -2835,12 +2860,14 @@ type
                               # K/D~=1.0, while picking up the fewest medkits on the team. This is
                               # a CLOCK, not a suppression of the flag game (we are already good
                               # at capturing — 0.54 caps/ep vs focusfire 0.30 — and must stay
-                              # that way): before LateFlagClockTick (60% of the 5000-tick league
-                              # clock) the pocket-rush commit (wantPocketRush) and the touch latch
-                              # both stay closed — attackers still contest mid/space, they just
-                              # never dive the pedestal for a below-parity steal. Once the clock
-                              # opens, holdGrab's standoff hesitation is bypassed (commit hard: a
-                              # late steal is worth the life price). Scoped to GameTeams > 2
+                              # that way): before LateFlagClockTick (an ABSOLUTE tick — see its own
+                              # comment for why this is pinned off the real hosted length
+                              # distribution, not a fraction of an assumed fixed clock) the
+                              # pocket-rush commit (wantPocketRush) and the touch latch both stay
+                              # closed — attackers still contest mid/space, they just never dive
+                              # the pedestal for a below-parity steal. Once the clock opens,
+                              # holdGrab's standoff hesitation is bypassed (commit hard: a late
+                              # steal is worth the life price). Scoped to GameTeams > 2
                               # (a 2-team game is decided by the SAME single flag pair from the
                               # opening whistle — this study never measured 2-team timing —
                               # byte-identical off there). NOFLAGCLOCK=1 reverts.
@@ -8362,8 +8389,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role (see the sprayGrab exclusion
   # comment ~L7192 for why the role-equality form is wrong).
   # ⭐⭐ L4 LATE-FLAG CLOCK (flagClock): ffa4 only (GameTeams > 2). Before
-  # LateFlagClockTick (60% of the 5000-tick league clock) an early steal is a
-  # measured life-sink (below the ~44% two-team-episode parity bar), so the
+  # LateFlagClockTick (an absolute tick pinned off the real hosted length
+  # distribution — see its const comment) an early steal is a measured
+  # life-sink (below the ~44% two-team-episode parity bar), so the
   # pocket-rush commit stays CLOSED — the role still contests mid/space via
   # every other branch, it just never opens the disarmed dive on the flag
   # itself. True (open) by construction once the clock passes, off, or on a
