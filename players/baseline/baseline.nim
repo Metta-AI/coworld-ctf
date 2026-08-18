@@ -3177,6 +3177,56 @@ proc roleForSeat(seat: int, team: Team): Role =
       if GameTeams <= 2 and quadArmed and seat4Armed and
           getEnv("NOSEAT4").len == 0: FlankTop
       else: MidBottom
+    # ⭐⭐⭐ SEAT-7 CATCH-ALL FIX (2026-08-17), the 4ffa8 double-defender bug.
+    # NOMIDGUARD8=1 reverts.
+    # On GameTeams > 2 the door swap above is forced off (doorSeat == seat), so
+    # this `else` catch-all is reached ONLY by seat 7 — the one teamSeat value
+    # none of the `of 0..6` arms name. Seat 1 is ALREADY a dedicated
+    # HomeDefender on GameTeams > 2 (the NODEF4 heart guard far above, which
+    # `return`s before this table runs at all), so seat 7's HomeDefender was
+    # never a second post — it is a DUPLICATE of the first, bought by deleting
+    # MidGuard (the role seat 1 gave up to become the guard) from the table
+    # outright, with nothing gained. seatdump proved it before this fix:
+    # missing=[MidGuard], dupes=[HomeDefender x2, MidBottom x2], on every
+    # GameTeams > 2 board, every existing env arm.
+    # Unlike seat 4's MidBottom duplicate above (a considered, separately
+    # gated trade), this one buys a second HomeDefender for FREE. Un-doubling
+    # it restores this table's own stated design — seven roles, eight seats,
+    # exactly ONE accepted double (seat 4's) — for the first time on
+    # GameTeams > 2. That is a structural fix, not a composition judgment.
+    # ⚠️ SCOPE: doorSeat only reaches 7 when teamSeat runs 0..7, which is the
+    # 4ffa8 32-slot board alone (teamSeat = slot div GameTeams, so a 16-slot
+    # four-team board — the ffa4 board proper — never deals any entrant a
+    # teamSeat past 3). This fix is therefore INERT on the 16-slot ffa4 deal:
+    # every one of our four HELD seats there (0..3) is byte-identical to the
+    # pre-fix table, on purpose — verified with eval/seatdump.nim. The 16-slot
+    # composition (one HomeDefender, MidGuard absent, three attackers) is a
+    # SEPARATE, deliberate question this fix does not answer; the measured
+    # ffa4 win-shape decides that, not a mirror redistribution here.
+    # ⚠️ 2-team is untouched too: seat 7 there is the long-shipped HomeDefender
+    # choke guard ("choke guard before our capture column") and this whole
+    # block is gated on GameTeams > 2, so `seat7Role` degrades to plain
+    # HomeDefender whenever GameTeams <= 2 — byte-identical to before.
+    # ⚠️ Reviving MidGuard means MidGuard-gated branches that have NEVER run on
+    # a GameTeams > 2 board (spray/rally/holdLine/regroupPush eligibility, the
+    # carrier-screen/thief-hunt cases, the PARK-invariant anchor at
+    # stealTarget+(60,-26)) fire there for the first time — verify they act
+    # sanely (frames>0, travel>0, PARK==0) rather than assuming code that only
+    # ever ran on 2-team ports cleanly.
+    # MIDGUARD8TEAM=red|blue arms this fix on ONE team PARITY only (same
+    # caveat as SEAT4TEAM above: Team is Red/Blue PARITY on a GameTeams > 2
+    # board — team-index 0/2 read Red, 1/3 read Blue — so this arms two of the
+    # four teams, not one), forcing the other parity back to the
+    # double-defender table, for a within-episode seat-rotated A/B. Unset =
+    # every team gets the fix. Verify with eval/seatdump.nim and -d:roleprobe.
+    let mg8Arm = getEnv("MIDGUARD8TEAM")
+    let mg8Armed =
+      if mg8Arm.len == 0: true
+      else: (mg8Arm == "red" and team == Red) or
+            (mg8Arm == "blue" and team == Blue)
+    let seat7Role =
+      if GameTeams > 2 and mg8Armed and getEnv("NOMIDGUARD8").len == 0: MidGuard
+      else: HomeDefender
     case doorSeat
     of 0: FlankBottom      # wide bottom lane, get behind the contest
     of 1: MidGuard         # third mid, trails offset high and cleans up
@@ -3187,7 +3237,10 @@ proc roleForSeat(seat: int, team: Team): Role =
                            # wide-lane body (2-team); 4-team is unchanged.
     of 5: Overwatch        # cover post flanking the ring: the lane sniper
     of 6: FlankTop         # wide top lane, get behind the contest
-    else: HomeDefender     # choke guard before our capture column
+    else: seat7Role        # 2-team: choke guard before our capture column
+                           # (HomeDefender, unchanged). 4ffa8 (32-slot,
+                           # GameTeams > 2): MidGuard, un-doubling seat 1's
+                           # heart guard.
 
 proc roleOrdinal(seat: int, team: Team): int =
   ## ⭐ MID-QUAD BREAK lever 2 support. How many seats BELOW `seat` are dealt the

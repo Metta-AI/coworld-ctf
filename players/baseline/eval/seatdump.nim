@@ -60,12 +60,12 @@ proc dumpBoard(label: string, teams: int, slots: int, prefix: HSlice[int, int]) 
     echo &"          MULTISET dupes=[{dupes.join(\", \")}] missing=[{missing.join(\", \")}]"
 
 when isMainModule:
-  # ⭐ Print the FULL env arm, not just one lever. roleForSeat now reads three
-  # independent reverts (NODEF4, NODOOR1, NOSEAT4), and a header that names only
-  # one of them is how a "both arms identical" claim gets made about two runs
-  # that were never in the arms they said they were.
+  # ⭐ Print the FULL env arm, not just one lever. roleForSeat now reads four
+  # independent reverts (NODEF4, NODOOR1, NOSEAT4, NOMIDGUARD8), and a header
+  # that names only one of them is how a "both arms identical" claim gets made
+  # about two runs that were never in the arms they said they were.
   var arm: seq[string]
-  for v in ["NODEF4", "NODOOR1", "NOSEAT4"]:
+  for v in ["NODEF4", "NODOOR1", "NOSEAT4", "NOMIDGUARD8"]:
     if getEnv(v).len > 0: arm.add v & "=1"
   echo (if arm.len == 0: "### SHIPPED (all role-table levers ON)"
         else: "### REVERTED: " & arm.join(" "))
