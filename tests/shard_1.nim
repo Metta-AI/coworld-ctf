@@ -14,6 +14,7 @@ import
   test_map_editor,
   test_map_editor_core,
   test_sym_none,
+  test_rasterizer_mirror,
   test_plasma_arc,
   test_replay_requests,
   # test_replay_switch_caches hot-switches the process-wide board render

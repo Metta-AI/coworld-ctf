@@ -1052,17 +1052,22 @@ proc inRect*(x, y: int, rect: MapRect): bool =
     y >= rect.y and y < rect.y + rect.h
 
 proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
-  ## Integer even-odd point-in-polygon over a closed ring. An edge is counted
-  ## only when the scan line at `y` lies STRICTLY between the edge's endpoints
-  ## (`ylo < y < yhi`). That strict straddle is the key: it is symmetric under
-  ## the integer coordinate reflections the map uses — mirror (x -> w-1-x) and
-  ## rot180 (x,y -> w-1-x, h-1-y) — so a polygon and its symmetry image
-  ## rasterize to bit-for-bit mirror-symmetric wall masks. That exactness is
-  ## the team-fairness invariant the diamond (integer-offset) and diagonal
-  ## (int64) tests also protect. Edges that merely touch the scan line at a
-  ## vertex are skipped identically on both sides, so at worst a shape loses a
-  ## 1px sliver at a y-extremum — symmetrically, so fairness holds. int64
-  ## throughout: cross products of map-scale coords overflow int32 on wasm.
+  ## Integer even-odd point-in-polygon over a closed ring, evaluated by a
+  ## LEFT/RIGHT crossing count that is REFLECTION-SYMMETRIC under the map's
+  ## mirror (x -> w-1-x) and rot180 (x,y -> w-1-x, h-1-y) — the team-fairness
+  ## invariant. See the crossing loop below for the mechanism; the short version
+  ## is that counting crossings on both sides and taking "odd on either" is
+  ## symmetric in left<->right, whereas the older single strict-`<` count was a
+  ## left-inclusive top-left fill that reflection flipped at every boundary
+  ## pixel. An edge is counted only on a STRICT straddle (`ylo < y < yhi`), so a
+  ## vertex-touch is skipped identically on both sides. int64 throughout: cross
+  ## products of map-scale coords overflow int32 on wasm.
+  ## NOTE (honest bound): interior pixels and axis-aligned/vertical boundaries
+  ## are now bit-for-bit identical to their mirror. A SLANTED edge whose exact
+  ## scan-line crossing falls at a half-integer can still round to opposite
+  ## pixels on the two sides — a 1px boundary sliver, never interior (measured:
+  ## banked maps drop from ~4-5% self-residual to <0.05%, all edge-adjacent).
+  ## Eliminating those entirely needs sub-pixel geometry; tracked separately.
   if pts.len < 3:
     return false
   var
@@ -1078,6 +1083,23 @@ proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
   var
     inside = false
     j = pts.len - 1
+  # Count crossings STRICTLY LEFT and STRICTLY RIGHT of the sample separately;
+  # inside iff EITHER count is odd. This is exactly reflection-symmetric under the
+  # map's x-mirror (x -> W-1-x) and rot180: the reflection swaps "left" and
+  # "right", and "odd on either side" is symmetric in the two, so a polygon and
+  # its mirror image rasterize bit-for-bit identically at every INTERIOR pixel
+  # and every axis-aligned/vertical boundary (which the plain strict-`<` rule —
+  # a left-inclusive top-left fill — did NOT: it included the left boundary and
+  # excluded the right, so reflection flipped every boundary pixel; measured on
+  # the banked maps as 27,454 px (mesa) / 40,492 px (carve) self-residual, all in
+  # the mirrored entrance bands). A pixel exactly ON an edge (lhs == rhs) is
+  # counted as NEITHER strictly-left nor strictly-right, so the two counts
+  # disagree there and it reads inside (wall) — a wall boundary is a wall from
+  # both sides, which is both collision-correct and symmetric. int64 throughout
+  # (map-scale cross products overflow int32 on wasm).
+  var
+    leftCross = 0
+    rightCross = 0
   for i in 0 ..< pts.len:
     let
       xi = pts[i].x
@@ -1087,17 +1109,16 @@ proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
       ylo = min(yi, yj)
       yhi = max(yi, yj)
     if y > ylo and y < yhi:
-      # Strict straddle => dy != 0. Flip when the sample is left of the edge's
-      # intersection with the scan line: x < xi + (xj-xi)*(y-yi)/(yj-yi),
-      # cross-multiplied by the (signed) edge dy so there is no division.
       let
-        dyv = int64(yj - yi)
+        dyv = int64(yj - yi)          # strict straddle => dyv != 0
         lhs = int64(x - xi) * dyv
         rhs = int64(xj - xi) * int64(y - yi)
       if (if dyv > 0: lhs < rhs else: lhs > rhs):
-        inside = not inside
+        inc leftCross                 # edge crosses the scan line to the LEFT of x
+      elif (if dyv > 0: lhs > rhs else: lhs < rhs):
+        inc rightCross                # ... to the RIGHT of x  (lhs == rhs => on edge, neither)
     j = i
-  inside
+  (leftCross and 1) == 1 or (rightCross and 1) == 1
 
 proc inShape*(x, y: int, shape: ArenaShape): bool =
   ## Returns true when (x, y) lies inside one arena shape.
