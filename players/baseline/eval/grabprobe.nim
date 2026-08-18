@@ -289,7 +289,6 @@ when defined(lifeprobe):
   # report wired to a harness before now (see the report block below).
   var lpEpisodes: array[4, int]
   var lpSeatsPerTeam: array[4, int]
-  const LpFixedWindow = 1500   # absolute tick, NOT a fraction — see the sampler.
   var lpHalfSpentSum: array[4, float]
   var lpFinalAllElim: array[4, int]
 
@@ -399,6 +398,14 @@ when defined(fpprobe):
     fpHeals: array[4, int]         # any hp increase on a live body (kits taken)
     fpTicksSum = 0
     fpGames = 0
+
+const FfaFixedWindow = 1500
+  ## ⭐⭐ The arm-invariant life-spend window (2026-08-17). "By half-time" is a
+  ## fraction of an episode length the LEVER ITSELF changes — a lever that keeps
+  ## a team alive lengthens the episode, half-time lands later, and more lives
+  ## have been spent by then MECHANICALLY. An absolute tick is identical across
+  ## arms. 1500 is the window the causal read used (early deaths predict the
+  ## winner 76.4%, early kills 45.1%).
 
 proc main() =
   var games = 12
@@ -572,10 +579,10 @@ proc main() =
         # absolute tick, so more lives have been spent by then MECHANICALLY:
         # the metric penalises the lever for working, and a candidate that
         # survived longer read WORSE (11.06 vs 10.56) purely from the moving
-        # denominator. LpFixedWindow is identical across arms by construction.
+        # denominator. FfaFixedWindow is identical across arms by construction.
         # 1500 is the window the causal read used (early deaths predict the
         # winner 76.4% there; early kills 45.1%).
-        if not lpHalfSampled and tick >= LpFixedWindow:
+        if not lpHalfSampled and tick >= FfaFixedWindow:
           lpHalfSampled = true
           for s in 0 ..< numPlayers:
             let tm = engine.teamOfSlot(s)
@@ -605,7 +612,7 @@ proc main() =
       if r.phaseOver: break
     let r = engine.result()
     when defined(lifeprobe):
-      # Episode ended before tick LpFixedWindow (common in ffa4 — the mode ends
+      # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
       # by ELIMINATION): no more lives can be spent after that, so the final
       # state IS the count at the window. Denominator stays every episode, so
       # both arms are compared on the same population.
@@ -682,7 +689,7 @@ proc main() =
       let realT = tmPoolTL.len
       if realT > 0:
         totLivesStart += tmStartTotal.float
-        totLivesHalf += tmPoolTL[max(0, realT div 2 - 1)].float
+        totLivesHalf += tmPoolTL[max(0, min(realT - 1, FfaFixedWindow - 1))].float
         for ct in tmCapTicks:
           if ct.float >= 0.8 * realT.float: inc totCapturesLate
     when defined(fpprobe):
@@ -1073,7 +1080,7 @@ proc main() =
     let spentFrac = (if totLivesStart > 0: spent / totLivesStart else: 0.0)
     let meanStart = totLivesStart / (games * evalTeams).float
     let meanSpent = spent / (games * evalTeams).float
-    echo &"  LIVES SPENT BY TICK {LpFixedWindow} (FIXED absolute window, arm-invariant — " &
+    echo &"  LIVES SPENT BY TICK {FfaFixedWindow} (FIXED absolute window, arm-invariant — " &
       &"NOT K/D, NEVER accuracy): mean starting pool/team {meanStart:.2f}  " &
       &"mean SPENT/team {meanSpent:.2f}  ({100.0*spentFrac:.1f}% of the pool)"
     let capShareLate = (if totCaptures > 0:
