@@ -1,1 +1,11 @@
-run --base:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std/flake-input-loader --input-tree:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std --input=caos --in:@=. --expr=$CAOS_EXPR --output-path=caos-std
+# Consumer root expression (caos design/flake-inputs.md, "Consumer root").
+# Two steps, chained through a variable:
+#   1. MOUNTED — splice caos's std/ into this tree at caos-std/. Nothing of
+#      caos is committed; the loader checks the pin below against the `caos`
+#      input in flake.lock and refuses a drifted one.
+#   2. deepen the mounted tree, so each ./DEPS line becomes a DEEP-DEPS/<name>
+#      mount. That second step is what `run-tool` needs: it resolves a tool
+#      script's image as DEEP-DEPS/bash, which does not exist until the tree
+#      is deepened. Without it every tool call fails to resolve its image.
+MOUNTED=run --base:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std/flake-input-loader --input-tree:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std --input=caos --in:@=. --expr=$CAOS_EXPR --output-path=caos-std
+run --base:@@=git+https://github.com/Metta-AI/caos?rev=a68c8a1eef3adee855c62fb541ec60d606c13ca1&dir=std/deep-deps --in=$MOUNTED

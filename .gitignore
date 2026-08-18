@@ -8,6 +8,10 @@
 # Ignore hidden files, but not the license or github files.
 .*
 !.caos-expr
+!DEPS
+# The nim image's /worker trampoline — extensionless, and caos only ever
+# sees git-tracked files, so an ignored worker is an invisible failure.
+!caos/nim/worker
 !.github/
 !.github/**
 !.gitignore
@@ -60,3 +64,7 @@ pool-preview/
 data/replays/
 barrier-demo.bitreplay
 perks-2v2-demo.bitreplay
+
+# The mount point .caos-expr splices caos's std/ into. Never committed — the
+# loader REFUSES to overwrite an entry that is already there.
+/caos-std/

@@ -71,6 +71,17 @@
 
         default = nimby;
 
+        # The pinned Nim deps, fetched by nimby itself in a FIXED-OUTPUT
+        # derivation (nix/nim-deps.nix). Declaring the hash is what grants the
+        # sandbox network access, so nimby.lock stays the single source of
+        # truth — no generated per-dep hash list to drift from it. Refresh
+        # `hash` when nimby.lock changes; nix prints the expected value.
+        nim-deps = pkgs.callPackage ./nix/nim-deps.nix {
+          inherit nimby;
+          lockFile = ./nimby.lock;
+          hash = "sha256-lxu/wzRcSLJBIqumYuWvbmx6HmmyTHD0eKmPQZxs3fw=";
+        };
+
         # Re-exported so `nix build .#caos-tools` works from this repo without
         # spelling out the upstream flake ref. The rest of caos's package set
         # (images, worker tarballs) stays upstream — merging it in wholesale
@@ -92,6 +103,30 @@
             # tools/ci/test_next_coworld_version.py
             pytest
           ]);
+
+          # A `gcc` that is really ccache. Nim resolves its C compiler by NAME on
+          # PATH (`gcc.exe = "gcc"`), so shadowing it is what gets ccache into
+          # the build — there is no nim flag to set once and forget.
+          #
+          # Worth it because Nim regenerates byte-identical C on a forced
+          # rebuild: measured on this repo, `nim c -f src/ctf.nim` goes 15.5s ->
+          # 4.1s with 133/133 ccache hits, the residual being the single-threaded
+          # Nim frontend (3.9s) plus the link. On a distro this happens by
+          # accident (Debian's ccache package prepends /usr/lib/ccache to PATH);
+          # in a nix shell nothing does it for us.
+          #
+          # NOTE the condition: the generated C embeds absolute paths, so hits
+          # require a STABLE --nimcache. Different nimcache dirs miss 100%.
+          ccacheGcc = pkgs.runCommand "nim-ccache-gcc" { } ''
+            mkdir -p $out/bin
+            for tool in gcc cc g++ c++; do
+              cat > $out/bin/$tool <<EOF
+            #!/bin/sh
+            exec ${pkgs.ccache}/bin/ccache ${pkgs.stdenv.cc}/bin/$tool "\$@"
+            EOF
+              chmod +x $out/bin/$tool
+            done
+          '';
 
           # curly/libcurl load libcurl at runtime via dynlib, and pixie/zippy
           # want zlib around. On Linux, windy/paddy (pulled in by nimby.lock)
@@ -120,6 +155,8 @@
               self.packages.${system}.nimby
 
               # Nim compiles through a C compiler and links with pkg-config.
+              ccacheGcc
+              pkgs.ccache
               pkgs.pkg-config
               pkgs.git
               pkgs.curl
@@ -162,6 +199,9 @@
   baseline bot nim c players/baseline/baseline.nim
   map editor   nim c --threads:on --mm:orc -r tools/map_editor.nim 8099
   replay dump  nim r tools/expand_replay.nim tests/replays/<file>.bitreplay
+
+  gcc is ccache-wrapped: a forced rebuild (nim c -f) is ~4s instead of ~15s
+  once warm. Hits need a STABLE --nimcache (paths are baked into the C).
 
   The static replay viewer (wasm) builds through Docker —
   Dockerfile.replay-viewer pins emsdk; use tools/build_replay_viewer.sh.
