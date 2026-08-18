@@ -289,6 +289,7 @@ when defined(lifeprobe):
   # report wired to a harness before now (see the report block below).
   var lpEpisodes: array[4, int]
   var lpSeatsPerTeam: array[4, int]
+  const LpFixedWindow = 1500   # absolute tick, NOT a fraction — see the sampler.
   var lpHalfSpentSum: array[4, float]
   var lpFinalAllElim: array[4, int]
 
@@ -376,6 +377,16 @@ when defined(fpprobe):
   var
     fpDeathTL: array[4, seq[int]]  # per team: cumulative deaths, sampled per tick
     fpLivesHalf: array[4, int]     # Σ lives spent by half-time, over episodes
+    # ⭐⭐ FIXED-WINDOW life spend (2026-08-17, coordinator's confound). "By
+    # half-time" is a proportion of a length the LEVER ITSELF CHANGES: if a
+    # lever keeps a team alive the episode runs longer, half-time lands at a
+    # later absolute tick, and more lives have been spent by then MECHANICALLY
+    # — the metric penalises the lever for working. An ABSOLUTE tick is
+    # identical across arms by construction. 1500 is the window the original
+    # causal read used (early deaths predict the winner 76.4%).
+    fpLivesAt: array[3, array[4, int]]   # Σ lives spent by tick 1000 / 1500 / 2000
+    fpLivesAtN: array[3, array[4, int]]  # episodes that actually REACHED that tick
+    fpTicksByTeam: array[4, int]         # Σ realised episode length (survival proxy)
     fpLivesEnd: array[4, int]      # Σ lives spent at episode end
     fpEps: array[4, int]           # episodes counted per team
     fpWiped: array[4, int]         # episodes the team lost ALL its lives
@@ -555,7 +566,16 @@ proc main() =
           fpDeathTL[t].add dTot[t]
           fpCapTL[t].add cTot[t]
       when defined(lifeprobe):
-        if not lpHalfSampled and tick >= ticks div 2:
+        # ⭐⭐ FIXED ABSOLUTE WINDOW (2026-08-17, integration gate). This was
+        # `tick >= ticks div 2` — PROPORTIONAL half-time. A lever that keeps a
+        # team alive LENGTHENS the episode, which pushes half-time to a later
+        # absolute tick, so more lives have been spent by then MECHANICALLY:
+        # the metric penalises the lever for working, and a candidate that
+        # survived longer read WORSE (11.06 vs 10.56) purely from the moving
+        # denominator. LpFixedWindow is identical across arms by construction.
+        # 1500 is the window the causal read used (early deaths predict the
+        # winner 76.4% there; early kills 45.1%).
+        if not lpHalfSampled and tick >= LpFixedWindow:
           lpHalfSampled = true
           for s in 0 ..< numPlayers:
             let tm = engine.teamOfSlot(s)
@@ -585,8 +605,10 @@ proc main() =
       if r.phaseOver: break
     let r = engine.result()
     when defined(lifeprobe):
-      # Game ended before half-time (rare, e.g. an early wipe/capture): the
-      # final state IS the half-time-or-earlier snapshot, so sample it now.
+      # Episode ended before tick LpFixedWindow (common in ffa4 — the mode ends
+      # by ELIMINATION): no more lives can be spent after that, so the final
+      # state IS the count at the window. Denominator stays every episode, so
+      # both arms are compared on the same population.
       if not lpHalfSampled:
         for s in 0 ..< numPlayers:
           let tm = engine.teamOfSlot(s)
@@ -671,8 +693,18 @@ proc main() =
         let halfIdx = max(0, realTicks div 2 - 1)
         let lateIdx = max(0, (realTicks * 4) div 5 - 1)
         let nTeams = max(2, evalTeams)
+        const FpFixedTicks = [1000, 1500, 2000]
         for t in 0 ..< min(4, nTeams):
           inc fpEps[t]
+          fpTicksByTeam[t] += realTicks
+          for w in 0 .. 2:
+            # An episode that ENDED before the window closed still contributes:
+            # no more lives can be spent after elimination, so its final count IS
+            # its count at that tick. Denominator stays every episode, so the two
+            # arms are compared on the same population.
+            let idx = min(realTicks - 1, FpFixedTicks[w] - 1)
+            fpLivesAt[w][t] += fpDeathTL[t][max(0, idx)]
+            inc fpLivesAtN[w][t]
           fpLivesHalf[t] += fpDeathTL[t][halfIdx]
           fpLivesEnd[t] += fpDeathTL[t][^1]
           fpCapsTotal[t] += fpCapTL[t][^1]
@@ -1041,7 +1073,7 @@ proc main() =
     let spentFrac = (if totLivesStart > 0: spent / totLivesStart else: 0.0)
     let meanStart = totLivesStart / (games * evalTeams).float
     let meanSpent = spent / (games * evalTeams).float
-    echo &"  LIVES SPENT BY HALF-TIME (tick <= {ticks div 2} of {ticks}, causal — " &
+    echo &"  LIVES SPENT BY TICK {LpFixedWindow} (FIXED absolute window, arm-invariant — " &
       &"NOT K/D, NEVER accuracy): mean starting pool/team {meanStart:.2f}  " &
       &"mean SPENT/team {meanSpent:.2f}  ({100.0*spentFrac:.1f}% of the pool)"
     let capShareLate = (if totCaptures > 0:
@@ -1139,6 +1171,15 @@ proc main() =
         &"{fpHp1Enter[t]:>5}  {(100.0 * fpHp1Escape[t].float / h1.float):>12.1f}%  " &
         &"{(100.0 * fpHp1Death[t].float / h1.float):>9.1f}%  " &
         &"{(fpHeals[t].float / e.float):>7.2f}"
+    echo &"  --- FIXED-WINDOW life spend (the arm-invariant comparator; " &
+      &"'by half-time' moves with an episode length the lever itself changes) ---"
+    echo &"  team    eps   meanEpisodeTicks   livesSpentBy1000   livesSpentBy1500   livesSpentBy2000"
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      let e = max(1, fpEps[t])
+      echo &"  {TeamName[t]} {fpEps[t]:>5}   {(fpTicksByTeam[t].float / e.float):>16.0f}   " &
+        &"{(fpLivesAt[0][t].float / max(1, fpLivesAtN[0][t]).float):>16.2f}   " &
+        &"{(fpLivesAt[1][t].float / max(1, fpLivesAtN[1][t]).float):>16.2f}   " &
+        &"{(fpLivesAt[2][t].float / max(1, fpLivesAtN[2][t]).float):>16.2f}"
     var lh, le, ep, wp, ct, cl, e1, es, ed, hl = 0
     for t in 0 ..< min(4, max(2, evalTeams)):
       lh += fpLivesHalf[t]; le += fpLivesEnd[t]; ep += fpEps[t]; wp += fpWiped[t]
