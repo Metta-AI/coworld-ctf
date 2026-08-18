@@ -2894,6 +2894,29 @@ type
                               # GameTeams > 2, not baked into the default here — GameTeams is
                               # unknown at shippedCombatTune() time (init markers land later) —
                               # so a 2-team game runs byte-identical regardless of this flag.
+                              # ⭐ v57 SHIP EVIDENCE (2026-08-17), the reason this is the ONLY
+                              # lever of the four in the ship claim: the bug is not a judgement
+                              # call, it is 100% prevalent on the real board. Across n=348 HOSTED
+                              # 4-team episodes (~/.ctf/scout/events), ALL 1627 med_kit pickups
+                              # sit MORE than MedKitOnSpotPx from BOTH formula spots — median
+                              # 177px, max 292px, and the result is 100.00% for every plausible
+                              # map dimension (swept: it only drops to 99.4% at a map 120px
+                              # larger than the observed play extent). The pre-lever code
+                              # therefore steers every wounded ffa4 bot at a location that has
+                              # never once held a kit. Consequence in the field: we take 0.63
+                              # medkits/Episode on ffa4 — LAST in the field, below even the
+                              # scripted filler's 1.11, against 1.83-2.46 for every real rival —
+                              # and our P(escape | hp==1) is 2.0% (n=3084 segments) against the
+                              # filler's 7.0% and the winners' 9.0-13.8%. Every kit is already
+                              # inside MedKitEconDetour (max 292px < 320), so what was broken is
+                              # the ADDRESS, not the range — which is why the widened-detour
+                              # sibling was deleted rather than shipped (see its tombstone).
+                              # ⚠️ NO win-rate or life-spend claim rides on this. The local
+                              # 4-team mirror is saturated (10.3-10.9 lives of 12 spent by tick
+                              # 1500, vs 7.02 in the field) and structurally cannot resolve the
+                              # payoff; the dose-response curve that motivated the package is a
+                              # CORRELATE, not causation (the scripted filler shows the opposite
+                              # slope). This ships as a repaired address, nothing more.
                               # Default ON; NOFFAMEDSEE=1 turns it off.
     lastLifeGuard: bool       # ⭐⭐ LAST-LIFE GUARD (2026-08-17, ffa4 lives audit). Per-seat
                               # deaths-of-3 are flat (A 2.69 / B 2.59 / C 2.74 / D 2.79) — no
