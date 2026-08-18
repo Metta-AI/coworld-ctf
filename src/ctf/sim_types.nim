@@ -1008,9 +1008,14 @@ type
                                ## from RED's via the symmetry orbit
                                ## (`teamImagePoint`). A symNone (full-board) map
                                ## has NO orbit, so it MUST author each team's
-                               ## points here; the loader validates they are
-                               ## present, walkable and connected (no silent
-                               ## default). Ignored on symmetric maps.
+                               ## points here. The loader validates they are
+                               ## PRESENT (one per team; barriers a multiple of
+                               ## the team count) and NOT WALL — each point must
+                               ## be in-bounds and clear of every obstacle
+                               ## (wall-overlap test, no silent default). It does
+                               ## NOT do a full flood-CONNECTIVITY check at load
+                               ## (too heavy); reachability/fairness is the
+                               ## caller's measured gate. Ignored on symmetric maps.
 
   CrewSprite* = ref object
     width*, height*: int

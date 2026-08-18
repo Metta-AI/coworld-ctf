@@ -143,6 +143,9 @@ proc validateMap(gameMap: CtfMap) =
           "(a multiple of " & $teamCount & "); got " & $pts.len & ".")
       for i, p in pts:
         validateMapPoint(name & "[" & $i & "]", p, gameMap.width, gameMap.height)
+    ## The WALL-OVERLAP walkability check needs buildArenaObstacles/mapWallAt,
+    ## which are defined later in this module — run it in validateMapWalkability
+    ## (called from mapFromSpecJson right after this), not here.
 
 const
   ArenaName = "arena"
@@ -1558,6 +1561,31 @@ proc mapWallAt*(
     if inShape(x, y, shape):
       return true
   false
+
+proc validateMapWalkability*(gameMap: CtfMap) =
+  ## coworld-ctf#280 WALL-OVERLAP check for symNone explicit pickups. Separate
+  ## from validateMap because it needs buildArenaObstacles/mapWallAt (defined
+  ## above here, below validateMap). Called from mapFromSpecJson right after
+  ## validateMap. A symmetric map's pickups are nudged to nearest-walkable at
+  ## spawn and are orbit-fair by construction; a symNone pickup is authored RAW,
+  ## so a point inside an obstacle would load fine and be unreachable. Reject
+  ## any pickup that is a WALL (the engine's own uninstalled predicate: border +
+  ## obstacle test, spinning excluded). This is the wall-overlap minimum the
+  ## brief requires; a full flood-connectivity check is the caller's fairness
+  ## gate (too heavy for load-time).
+  if gameMap.symmetry != symNone:
+    return
+  let obstacles = buildArenaObstacles(gameMap)
+  for (name, pts) in [
+      ("teamPickups.shields", gameMap.teamPickups.shields),
+      ("teamPickups.cans", gameMap.teamPickups.cans),
+      ("teamPickups.barriers", gameMap.teamPickups.barriers)]:
+    for i, p in pts:
+      if mapWallAt(gameMap, obstacles, p.x, p.y, includeSpinning = false):
+        raise newException(CtfError,
+          name & "[" & $i & "] at (" & $p.x & "," & $p.y & ") is inside an " &
+          "obstacle/border (unwalkable). symNone pickups are authored raw " &
+          "(not nudged), so they must land on open floor.")
 
 proc shapeBounds*(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
   ## Inclusive bounding box of one shape's membership: no pixel outside it
@@ -3226,6 +3254,7 @@ proc mapFromSpecJson*(text: string): CtfMap =
     result.teamPickups.barriers = pointsFromNode(tpNode{"barriers"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
+  result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)
 
 proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
   ## The effective map for one config: an explicit mapSpec wins (replay

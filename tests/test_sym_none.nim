@@ -130,6 +130,28 @@ suite "symNone full-board authoring (#280)":
     expect CtfError:
       discard mapFromSpecJson($node)
 
+  test "validation REJECTS an unwalkable pickup (inside an obstacle)":
+    ## A shield authored inside an obstacle would load fine and be unreachable
+    ## if only in-bounds were checked. The wall-overlap check must reject it.
+    ## The demo's red obstacle is a disc at (760,250) r=34; put a shield there.
+    var node = parseJson(demoSymNoneSpec())
+    node["leftObstacles"] = %*[{"kind": "disc", "cx": 760, "cy": 250, "r": 34}]
+    node["teamPickups"]["shields"] = %*[[760, 250], [W - 60, 250]]  # red shield in the disc
+    expect CtfError:
+      discard mapFromSpecJson($node)
+
+  test "barrier count mismatch vs config perTeam raises at spawn":
+    ## Loader only checks barriers.len is a multiple of teamCount; the config's
+    ## perTeam is unknown until spawn. barrierSpawnPoints must reject a spec
+    ## that carries the wrong count for the requested perTeam.
+    var node = parseJson(demoSymNoneSpec())
+    # author ONE pair (perTeam=1) — walkable spots in the open home columns
+    node["teamPickups"]["barriers"] = %*[[60, 300], [W - 60, 300]]
+    let gm = mapFromSpecJson($node)         # loads: 2 is a valid multiple
+    check gm.barrierSpawnPoints(1).len == 2 # config perTeam=1 matches -> OK
+    expect CtfError:
+      discard gm.barrierSpawnPoints(2)      # config perTeam=2 wants 4, spec has 2
+
   test "map spec JSON round-trips symNone exactly":
     ## Idempotence on the SERIALIZED form: load -> emit -> load -> emit must be a
     ## fixed point (comparing the loaded CtfMap directly trips on the loader's

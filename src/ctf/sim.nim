@@ -135,8 +135,17 @@ proc barrierSpawnPoints*(gameMap: CtfMap, perTeam: int): seq[tuple[x, y: int]] =
   ## terrain the others' don't get. One spot lands at the midpoint; two
   ## split the line in thirds.
   if gameMap.symmetry == symNone:
-    ## Explicit, team-major (perTeam per team). The loader validated the count
-    ## (perTeam * activeTeams) and walkability, so emit them verbatim.
+    ## Explicit, team-major (perTeam per team). The LOADER only checked the
+    ## count is a multiple of the team count and that each point is walkable —
+    ## it does NOT know the config's `perTeam`. So verify HERE, where perTeam is
+    ## known, that the spec carries EXACTLY perTeam * activeTeams points; a
+    ## mismatch would otherwise silently give teams the wrong barrier count.
+    let expected = perTeam * gameMap.layout.teamCount()
+    if gameMap.teamPickups.barriers.len != expected:
+      raise newException(CtfError,
+        "symNone barrier pickups: config asks perTeam=" & $perTeam & " (" &
+        $expected & " total for " & $gameMap.layout.teamCount() & " teams) but " &
+        "the spec authored " & $gameMap.teamPickups.barriers.len & " points.")
     for p in gameMap.teamPickups.barriers: result.add((p.x, p.y))
     return
   let
