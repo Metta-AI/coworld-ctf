@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #@doc Build the test binary from this tree and run the whole suite as cached
-#@doc jobs — one job per tests/test_*.nim module, in parallel — then return
-#@doc the report: a line per module with its time, the tail of every failure,
-#@doc and a pass/fail banner. An unchanged module never re-runs. Nothing is
-#@doc handed in from the host; the suite is compiled from these sources.
+#@doc jobs in parallel — one per tests/test_*.nim module, or one per test for
+#@doc the slow modules — then return the report: a line per job with its time,
+#@doc the tail of every failure, and a pass/fail banner. An unchanged job never
+#@doc re-runs. Nothing is handed in from the host; the suite is compiled from
+#@doc these sources.
 #@arg [test-salt] Re-run every test while leaving the compile a cache hit — any fresh value (e.g. $(date --iso=s)) re-keys the test runs and nothing else.
 #@arg [only] Space-separated module names (e.g. "test_fov test_mapgen") to run just those.
 #
@@ -15,15 +16,27 @@
 #   summarize the `then` of the fan-out: assemble the report
 #
 # WHY ONE BINARY AND NOT ONE PER MODULE: Nim's unit of compilation is the whole
-# program, so 66 per-module compiles cost ~20x one combined compile (35s vs
+# program, so 66 per-module compiles cost ~20x one combined compile (36s vs
 # 9-16 CPU-minutes) — the shared modules get rebuilt 66 times. And the run, not
-# the compile, is the expensive part (~203s vs 35s). So: compile once, fan out
-# the RUN.
+# the compile, is the expensive part (~340 CPU-seconds vs 36s). So: compile
+# once, fan out the RUN.
 #
-# WHY PER MODULE AND NOT PER TEST: each invocation pays ~660ms of fixed startup
-# against a ~356ms average test, and the wall clock floor is one 74.6s test
-# (test_map_editor_core's generated-map validation) that no granularity splits.
-# Per module is 78s; per test is ~75s for 10x the containers.
+# WHAT BOUNDS THE WALL CLOCK, measured: four chained stages at ~3s of container
+# dispatch each = a ~12s floor before any test runs; then the fan-out, which is
+# throughput-bound rather than latency-bound — runnerd has 8 slots (its
+# default; `caosd up` does not pass CAOS_RUNNER_SLOTS through) on a 16-core
+# box, so 340 CPU-seconds over 8 slots plus ~2s of dispatch per job is ~75s no
+# matter how the tests are cut up. Splitting the 73s baseline test was still
+# what made that reachable: before it, ONE test set an 86s floor that no
+# number of slots could beat.
+#
+# PER MODULE BY DEFAULT, PER TEST WHERE IT PAYS: each invocation pays ~660ms of
+# fixed startup (the module-scope asserts of every module run on every startup)
+# against a ~356ms average test, so splitting a fast module costs more than it
+# saves. Fanning out ALL 570 tests adds 6.3 CPU-minutes of startup to a suite
+# whose total is ~6 CPU-minutes — it doubles the work to shave the tail. So
+# only the modules in PER_TEST below are split, and the ms column of the report
+# is how you decide which.
 set -euo pipefail
 
 fail() { echo "TEST FAIL: $*" >&2; exit 1; }
@@ -131,17 +144,17 @@ fanout)
   caos get -r /cas/args/ws/tests
   caos get -r /cas/args/runner
 
-  # The binary is curried into the MAPPER, so all 58 jobs name the same blob by
+  # The binary is curried into the MAPPER, so every job names the same blob by
   # the same hash — stored once, not copied per child. The mapper is curried
   # HERE, where the image (/cas/args/base) is a genuine tree.
   # `ws` rides along with the binary because the binary NEEDS IT AT RUNTIME:
   # nim bakes currentSourcePath at compile time, so the tests resolve their
   # fixtures against the directory they were COMPILED in. Both are curried into
-  # the mapper, so all 58 jobs name the same two hashes and each is stored once.
+  # the mapper, so every job names the same two hashes, each stored once.
   mapper=$(caos curry --base:@=/cas/args/base \
     "--worker1:@=/cas/args/runner" \
     "--ws:@=/cas/args/ws" \
-    "--tests:@=/cas/args/in/bin") || fail "currying the per-module runner"
+    "--tests:@=/cas/args/in/bin") || fail "currying the per-job test runner"
 
   only=""
   if [ -e /cas/args/only ]; then caos get /cas/args/only; only=" $(cat /cas/args/only) "; fi
@@ -151,6 +164,31 @@ fanout)
   # Test names come straight out of the source: 570 `test "..."` and 83
   # `suite "..."` — exactly what the binary reports — with zero computed names,
   # so a grep is complete rather than approximate. No listing pass needed.
+
+  # Modules fanned out one job PER TEST instead of one job per module. A module
+  # belongs here only when a single test in it is a meaningful slice of the
+  # whole run's wall clock; below that, the 660ms startup per extra container
+  # dominates. Read the ms column of the last report to maintain it.
+  #
+  # NOT in the list, deliberately: test_replay_switch_caches, whose 21s is 20s
+  # of ONE test (`invalidateBoardMapCaches stops serving the previous sim's
+  # map`). Splitting a module cannot split a test — caos selects tests by name
+  # and a name is indivisible — so that module is the floor until the test
+  # itself is broken up, the way tests/test_map_editor_core.nim's 73s baseline
+  # was broken into 8 named shards.
+  PER_TEST="test_map_editor_core test_mapgen test_four_team"
+
+  # One child per job. --test-salt rides in EVERY child and nowhere else, so a
+  # fresh value re-runs the tests and leaves the compile a cache hit. Nothing
+  # reads it: its presence in the child is what moves the key. Do not "clean up"
+  # the unused write — it is the whole mechanism.
+  emit() { # $1 = child name, rest = the test names that job runs
+    local child=$1; shift
+    mkdir -p "/tmp/sel/$child"
+    printf '%s\n' "$@" > "/tmp/sel/$child/names"
+    if [ -n "$salt" ]; then printf '%s' "$salt" > "/tmp/sel/$child/salt"; fi
+  }
+
   mkdir -p /tmp/sel /tmp/skipped
   : > /tmp/skipped/list
   for f in /cas/args/ws/tests/test_*.nim; do
@@ -166,18 +204,26 @@ fanout)
     if [ -z "$names" ]; then
       # NOT skipped, and the report must not say so. These modules assert at
       # MODULE SCOPE (doAssert, printing "Testing <x> ... ok"), so they execute
-      # on every startup of the binary — i.e. in all 58 batches, not none. They
+      # on every startup of the binary — i.e. in every job, not none. They
       # simply cannot be fanned out, having no test names to filter on.
       echo "$m" >> /tmp/skipped/list
       continue
     fi
-    mkdir -p "/tmp/sel/$m"
-    printf '%s\n' "$names" > "/tmp/sel/$m/names"
-    # --test-salt rides in EVERY child and nowhere else, so a fresh value
-    # re-runs the tests and leaves the compile a cache hit. Nothing reads it:
-    # its presence in the child is what moves the key. Do not "clean up" the
-    # unused write — it is the whole mechanism.
-    if [ -n "$salt" ]; then printf '%s' "$salt" > "/tmp/sel/$m/salt"; fi
+    case " $PER_TEST " in
+      *" $m "*)
+        # `<module>--NN`: unique and stable, and it keeps the module name at the
+        # front so a split module's jobs read together in the report.
+        i=0
+        while IFS= read -r t; do
+          i=$((i + 1))
+          emit "$(printf '%s--%02d' "$m" "$i")" "$t"
+        done <<< "$names"
+        ;;
+      *)
+        mapfile -t all <<< "$names"
+        emit "$m" "${all[@]}"
+        ;;
+    esac
   done
   caos put /tmp/sel /cas/sel
   caos put /tmp/skipped /cas/skipped
@@ -228,7 +274,9 @@ summarize)
   {
     echo "coworld-ctf test suite"
     echo
-    sort -k2 -rn /tmp/lines
+    # By the ms column. -k1,1 explicitly: the whole-line fallback only sorted
+    # correctly because %6s right-aligns, and would break at 7 digits.
+    sort -rn -k1,1 /tmp/lines
     if [ -s /cas/args/skipped/list ]; then
       echo
       echo "module-scope asserts (run in EVERY batch, not fanned out):"
@@ -241,7 +289,7 @@ summarize)
     echo
     # The banner goes LAST: long results are truncated by keeping the TAIL, so
     # a summary at the top is the first thing lost.
-    echo "modules: $((pass + failed))   passed: $pass   failed: $failed   cpu: $((total_ms / 1000))s"
+    echo "jobs: $((pass + failed))   passed: $pass   failed: $failed   cpu: $((total_ms / 1000))s"
     if [ "$failed" -gt 0 ]; then
       echo "FAILED"
     else

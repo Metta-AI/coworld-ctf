@@ -17,6 +17,35 @@ const PoolRenderHashes = [
   0xee524a7e'u32, 0x65501d0f'u32, 0xe736475e'u32, 0xae0849b1'u32,
 ]
 
+type BaselineRow = object
+  ## One data row of fixtures/map-validation-baseline.tsv.
+  teams, seed: int
+  endzone, layout, expected: string
+
+proc validationBaseline(): seq[BaselineRow] =
+  ## Parsed once per test rather than shared in a global: reading and splitting
+  ## 402 lines is microseconds next to generating a single map, and a global
+  ## would make the shards order-dependent.
+  for line in readFile(ValidationBaselinePath).splitLines():
+    if line.len == 0 or line[0] == '#' or line.startsWith("teams\t"):
+      continue
+    let fields = line.split('\t', maxsplit = 4)
+    doAssert fields.len == 5, "malformed baseline row: " & line
+    result.add BaselineRow(
+      teams: parseInt(fields[0]),
+      seed: parseInt(fields[1]),
+      endzone: fields[2],
+      layout: fields[3],
+      expected: fields[4],
+    )
+
+proc baselineMap(row: BaselineRow): CtfMap =
+  generateMapAttempt(
+    row.seed,
+    MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
+    row.teams,
+  )
+
 proc poolMap(index: int): CtfMap =
   generateMapAttempt(
     MapPoolSeeds[index],
@@ -164,57 +193,110 @@ suite "map editor core":
       check gameMap.symmetryImages(shapeAsRect(gameMap.trenches[0])) ==
         trenchRects
 
-  test "generated-map validation matches the pre-refactor baseline":
+  # The 402-row baseline is the single most expensive thing in the suite: at
+  # ~180ms per row it was one 73-second `test`, which set the wall clock of the
+  # whole run and could not be broken up by any amount of fan-out (caos runs
+  # tests by NAME, and a name is indivisible). So it is 8 named shards, each
+  # runnable on its own.
+  #
+  # Interleaved (row i goes to shard i mod ValidationShards), not chunked: the
+  # fixture is ordered by teams then seed, and 4-team maps cost noticeably more
+  # to generate, so contiguous blocks would be lopsided.
+  const ValidationShards = 8
+
+  proc shardSize(rows, shard: int): int =
+    ## How many rows shard `shard` owns. Derived, not written down, so it
+    ## cannot drift from the fixture — but still checked against what each
+    ## shard actually ran, which is what catches a row silently skipped.
+    (rows - shard + ValidationShards - 1) div ValidationShards
+
+  proc checkValidationShard(shard: int) =
+    let rows = validationBaseline()
     var
       cases = 0
-      endzones2 = initHashSet[string]()
-      layouts4 = initHashSet[string]()
       mismatches: seq[string]
-      collectedSightlineRows: seq[int]
-    for line in readFile(ValidationBaselinePath).splitLines():
-      if line.len == 0 or line[0] == '#' or line.startsWith("teams\t"):
-        continue
-      let fields = line.split('\t', maxsplit = 4)
-      check fields.len == 5
-      if fields.len != 5:
-        continue
+    var i = shard
+    while i < rows.len:
       let
-        teams = parseInt(fields[0])
-        seed = parseInt(fields[1])
-        expected = fields[4]
-        gameMap = generateMapAttempt(
-          seed,
-          MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
-          teams,
-        )
-        actual = validateGeneratedMap(gameMap)
+        row = rows[i]
+        actual = validateGeneratedMap(baselineMap(row))
       inc cases
-      if teams == 2:
-        endzones2.incl fields[2]
-      else:
-        layouts4.incl fields[3]
-      if actual != expected:
+      if actual != row.expected:
         mismatches.add(
-          "teams=" & $teams & " seed=" & $seed &
-            " expected=" & expected.repr & " actual=" & actual.repr
+          "teams=" & $row.teams & " seed=" & $row.seed &
+            " expected=" & row.expected.repr & " actual=" & actual.repr
         )
-      if (teams, seed) in [(2, 1002), (2, 1156), (4, 1024)]:
-        let diagnostics = mapDiagnostics(gameMap)
-        if diagnostics.reason != expected:
-          mismatches.add(
-            "full diagnostics teams=" & $teams & " seed=" & $seed &
-              " expected=" & expected.repr &
-              " actual=" & diagnostics.reason.repr
-          )
-        if teams == 2 and seed == 1002:
-          collectedSightlineRows = diagnostics.openSightlineRows
-    check cases == 402
-    check endzones2 == ["column", "disc", "square"].toHashSet()
-    check layouts4 == ["corners", "plus"].toHashSet()
-    check collectedSightlineRows.len > 1
-    check collectedSightlineRows[0] == 512
+      i += ValidationShards
+    check cases == shardSize(rows.len, shard)
     check mismatches.len == 0
 
+  test "generated-map validation baseline is complete and fully sharded":
+    ## Guards the split itself. Every assertion the sharded tests cannot make
+    ## — because each of them sees only its own slice — lives here, and none of
+    ## it generates a map, so it costs nothing.
+    let rows = validationBaseline()
+    check rows.len == 402
+    # The shards partition the rows EXACTLY: nothing run twice, nothing
+    # dropped. Without this, deleting a shard below would quietly reduce
+    # coverage and every remaining test would still pass.
+    var covered = 0
+    for shard in 0 ..< ValidationShards:
+      covered += shardSize(rows.len, shard)
+    check covered == rows.len
+
+    var
+      endzones2 = initHashSet[string]()
+      layouts4 = initHashSet[string]()
+    for row in rows:
+      if row.teams == 2:
+        endzones2.incl row.endzone
+      else:
+        layouts4.incl row.layout
+    check endzones2 == ["column", "disc", "square"].toHashSet()
+    check layouts4 == ["corners", "plus"].toHashSet()
+
+  test "generated-map validation reports full diagnostics on the pinned rows":
+    ## Three rows got the expensive full-diagnostics treatment inside the old
+    ## loop. Pulled out here so the shards stay a uniform map-and-validate.
+    const Pinned = [(2, 1002), (2, 1156), (4, 1024)]
+    var seen = 0
+    for row in validationBaseline():
+      if (row.teams, row.seed) notin Pinned:
+        continue
+      inc seen
+      let diagnostics = mapDiagnostics(baselineMap(row))
+      check diagnostics.reason == row.expected
+      if row.teams == 2 and row.seed == 1002:
+        check diagnostics.openSightlineRows.len > 1
+        check diagnostics.openSightlineRows[0] == 512
+    check seen == Pinned.len
+
+  # Eight literal names, not a loop building them. caos's test runner selects
+  # tests by grepping `test "..."` out of this file, so a computed name is one
+  # the fan-out cannot see — it would simply stop running, silently.
+  test "generated-map validation baseline shard 0 of 8":
+    checkValidationShard(0)
+
+  test "generated-map validation baseline shard 1 of 8":
+    checkValidationShard(1)
+
+  test "generated-map validation baseline shard 2 of 8":
+    checkValidationShard(2)
+
+  test "generated-map validation baseline shard 3 of 8":
+    checkValidationShard(3)
+
+  test "generated-map validation baseline shard 4 of 8":
+    checkValidationShard(4)
+
+  test "generated-map validation baseline shard 5 of 8":
+    checkValidationShard(5)
+
+  test "generated-map validation baseline shard 6 of 8":
+    checkValidationShard(6)
+
+  test "generated-map validation baseline shard 7 of 8":
+    checkValidationShard(7)
   test "every curated map spec round-trips byte-identically":
     for index in 0 ..< MapPoolSeeds.len:
       let
