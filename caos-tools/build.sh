@@ -54,8 +54,15 @@ narrow)
 
 compile)
   # --result is the deps tree; --ws the narrowed source tree.
+  # Phase timings into the report. The worker's wall clock is dominated by
+  # things that are invisible from outside it — materializing the deps tree is
+  # not obviously cheaper than the compile — so measure rather than guess.
+  T0=$(date +%s%N); ph() { echo "  $1: $(( ($(date +%s%N) - T0)/1000000 ))ms"; T0=$(date +%s%N); }
+  : > /tmp/phases
   caos get -r /cas/args/result
+  ph "fetch deps" >> /tmp/phases
   caos get -r /cas/args/ws
+  ph "fetch ws" >> /tmp/phases
   caos get -r /cas/args/lib
   # Curried as its own arg rather than narrowed into the tree: the source tree
   # should not re-key on an edit to a tool script.
@@ -69,14 +76,28 @@ compile)
   rm -rf /tmp/build/src; mkdir -p /tmp/build
   cp -RL /cas/args/ws/. /tmp/build/src/
   cd /tmp/build/src
+  ph "copy ws to the fixed build path" >> /tmp/phases
 
   R=/tmp/result; rm -rf "$R"; mkdir -p "$R"
   set +e
-  nim c -d:release --hints:off "${DEPS_FLAGS[@]}" \
+  nim c -d:release --hints:off "${CCACHE_NIM_FLAGS[@]}" "${DEPS_FLAGS[@]}" \
     --nimcache:"$NIMCACHE" -o:/tmp/build/ctf src/ctf.nim > "$R/report" 2>&1
   status=$?
   set -e
   echo "$status" > "$R/status"
+  ph "nim c (frontend + C compile + link)" >> /tmp/phases
+
+  # Cache stats into the report: a remote that cannot be reached is otherwise
+  # indistinguishable from a cold one.
+  {
+    echo
+    echo "---- phases ----"
+    cat /tmp/phases 2>/dev/null
+    echo "---- ccache ----"
+    echo "  gcc:    $(command -v gcc)"
+    echo "  remote: ${CCACHE_REMOTE_STORAGE:-<unset>}"
+    ccache -s 2>/dev/null || echo "  (no stats)"
+  } >> "$R/report"
 
   # A compile failure is a VALUE, not a job error: this tool is often called
   # precisely because something broke, and a job error takes an agent's turn

@@ -47,9 +47,28 @@ deps_flags() {
 # generates, so a nimcache that moves misses 100% (measured: 0 hits / 266).
 # This is caos's own lesson from cargo-workers.md, in a different compiler.
 setup_ccache() {
-  export CCACHE_REMOTE_STORAGE="${CTF_CCACHE_REDIS:-redis://caos-redis:6379}"
+  # caos-stack, NOT caos-redis. The stack is ONE container (design/one-stack-image.md)
+  # running redis, the registry, the server and runnerd as a process group, so
+  # redis answers on the stack container's own name. `caos-redis` is the name the
+  # SERVER uses from inside that container; it does not resolve on caos-net.
+  #
+  # Getting this wrong is silent: ccache treats an unreachable remote as a miss
+  # and falls back to a local cache that is empty in every fresh container, so
+  # the build simply stays slow with no error anywhere. That is why the stats
+  # below are written into the report — an unobservable cache is a cache you
+  # cannot trust.
+  export CCACHE_REMOTE_STORAGE="${CTF_CCACHE_REDIS:-redis://caos-stack:6379}"
   export CCACHE_DIR=/tmp/ccache
   export CCACHE_BASEDIR=/tmp/build
   mkdir -p /tmp/build "$CCACHE_DIR"
 }
 NIMCACHE=/tmp/build/nimcache
+
+# Tell nim EXPLICITLY which compiler to run. Shadowing `gcc` on PATH does not
+# work here: the nixpkgs nim wrapper bakes an absolute compiler path into its
+# config, so nim invokes
+#   /nix/store/...-gcc-wrapper-15.3.0/bin/gcc
+# directly and never consults PATH (measured with `nim c --listCmd`). Shipping a
+# /ccache-bin wrapper without this flag looks completely correct — `command -v
+# gcc` even reports the wrapper — while ccache records ZERO calls.
+CCACHE_NIM_FLAGS=(--cc:gcc --gcc.exe:/ccache-bin/gcc)

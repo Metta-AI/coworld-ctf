@@ -54,6 +54,28 @@
             mkdir -p $out
             install -m 755 ${./worker} $out/worker
           '';
+
+          # A `gcc` that is really ccache. Shipping ccache in the image is not
+          # enough on its own, and neither is putting this directory first on
+          # PATH: the nixpkgs nim wrapper bakes an ABSOLUTE compiler path into
+          # its config, so nim execs /nix/store/...-gcc-wrapper/bin/gcc and
+          # never consults PATH. What routes the build through here is the
+          # explicit `--gcc.exe:/ccache-bin/gcc` in caos-tools/lib/common.sh;
+          # PATH order only keeps a bare `gcc` consistent with it. Without the
+          # flag this looks entirely correct — `command -v gcc` even reports the
+          # wrapper — while ccache records zero calls.
+          #
+          # printf rather than a heredoc: nix strips the common indentation from
+          # a ''-string, so a heredoc body written here lands in the script with
+          # leading spaces — and a shebang is only honoured at byte 0.
+          ccacheBin = pkgs.runCommand "ctf-nim-ccache-bin" { } ''
+            mkdir -p $out/ccache-bin
+            for tool in gcc cc g++ c++; do
+              printf '#!/bin/sh\nexec %s/bin/ccache %s/bin/%s "$@"\n' \
+                ${pkgs.ccache} ${pkgs.gcc} "$tool" > $out/ccache-bin/$tool
+              chmod +x $out/ccache-bin/$tool
+            done
+          '';
         in
         pkgs.dockerTools.buildLayeredImage {
           name = "ctf-nim";
@@ -64,6 +86,7 @@
           maxLayers = 100;
           contents = [
             workerRoot
+            ccacheBin
             # The interpreter and the shell tools a worker script leans on.
             pkgs.bashInteractive
             pkgs.coreutils
@@ -90,7 +113,8 @@
           ];
           config = {
             Env = [
-              "PATH=/bin"
+              # /ccache-bin first, so `gcc` is the ccache wrapper above.
+              "PATH=/ccache-bin:/bin"
               "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
               # Home has to be writable for nimby and ccache defaults.
               "HOME=/tmp"

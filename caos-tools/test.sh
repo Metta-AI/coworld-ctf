@@ -86,11 +86,21 @@ compile)
 
   R=/tmp/result; rm -rf "$R"; mkdir -p "$R"
   set +e
-  nim c -d:release --hints:off "${DEPS_FLAGS[@]}" \
+  nim c -d:release --hints:off "${CCACHE_NIM_FLAGS[@]}" "${DEPS_FLAGS[@]}" \
     --nimcache:"$NIMCACHE" -o:/tmp/build/tests tests/tests.nim > "$R/report" 2>&1
   status=$?
   set -e
   echo "$status" > "$R/status"
+
+  # Cache stats into the report: a remote that cannot be reached is otherwise
+  # indistinguishable from a cold one.
+  {
+    echo
+    echo "---- ccache ----"
+    echo "  gcc:    $(command -v gcc)"
+    echo "  remote: ${CCACHE_REMOTE_STORAGE:-<unset>}"
+    ccache -s 2>/dev/null || echo "  (no stats)"
+  } >> "$R/report"
 
   if [ "$status" -ne 0 ]; then
     # Compiling is the whole job when it fails: return the diagnostics as the

@@ -71,17 +71,6 @@
 
         default = nimby;
 
-        # The pinned Nim deps, fetched by nimby itself in a FIXED-OUTPUT
-        # derivation (nix/nim-deps.nix). Declaring the hash is what grants the
-        # sandbox network access, so nimby.lock stays the single source of
-        # truth — no generated per-dep hash list to drift from it. Refresh
-        # `hash` when nimby.lock changes; nix prints the expected value.
-        nim-deps = pkgs.callPackage ./nix/nim-deps.nix {
-          inherit nimby;
-          lockFile = ./nimby.lock;
-          hash = "sha256-lxu/wzRcSLJBIqumYuWvbmx6HmmyTHD0eKmPQZxs3fw=";
-        };
-
         # Re-exported so `nix build .#caos-tools` works from this repo without
         # spelling out the upstream flake ref. The rest of caos's package set
         # (images, worker tarballs) stays upstream — merging it in wholesale
