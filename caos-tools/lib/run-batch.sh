@@ -11,9 +11,25 @@
 # error, one red test would abort the fan-out and lose the other 57 results.
 set -euo pipefail
 
+# Phase timings, returned with the result and summed across every job by
+# test.sh's summarize stage. Before a batch job can run anything it fetches a
+# ~9.5 MB binary and an 11.2 MB / 303-file tree and copies the binary out of
+# /cas, and EVERY job pays that in full — the same bytes, from the same server,
+# 109 times over. It is ~14% of the fan-out's slot time, and it is what decides
+# whether splitting a module further helps or hurts, so it is measured rather
+# than assumed. (Assumed, it came out at 2s a job; measured, 1.06s, of which
+# 0.82s is the tree.)
+T0=$(date +%s%N)
+JOB_START=$T0
+ph() { echo "  $1: $(( ($(date +%s%N) - T0)/1000000 ))ms" >> /tmp/phases; T0=$(date +%s%N); }
+: > /tmp/phases
+
 caos get -r /cas/args/tests
+ph "get tests binary"
 caos get -r /cas/args/in
+ph "get in"
 caos get -r /cas/args/ws
+ph "get ws"
 
 # THE BINARY NEEDS THE TREE AT ITS COMPILE-TIME PATH. Nim bakes
 # currentSourcePath, so tests resolve fixtures against the directory they were
@@ -29,6 +45,7 @@ ln -sfn /cas/args/ws /tmp/build/src
 # /cas is root-owned and this worker is unprivileged, so the binary has to be
 # copied out before it can be executed.
 install -m 755 /cas/args/tests /tmp/tests
+ph "install the binary"
 
 # Nim's unittest takes EXACT test names as argv (no globs — verified), and
 # accepts many at once. They go in as argv elements and are never
@@ -47,5 +64,8 @@ status=$?
 set -e
 echo $(( ($(date +%s%N) - start) / 1000000 )) > "$R/ms"
 echo "$status" > "$R/status"
+ph "run the tests"
+echo "  ---- job total (script entry to here): $(( ($(date +%s%N) - JOB_START)/1000000 ))ms" >> /tmp/phases
+cp /tmp/phases "$R/phases"
 
 caos put "$R" /cas/out

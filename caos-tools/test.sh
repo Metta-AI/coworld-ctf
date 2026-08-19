@@ -21,14 +21,22 @@
 # the compile, is the expensive part (~340 CPU-seconds vs 36s). So: compile
 # once, fan out the RUN.
 #
-# WHAT BOUNDS THE WALL CLOCK, measured: four chained stages at ~3s of container
-# dispatch each = a ~12s floor before any test runs; then the fan-out, which is
-# throughput-bound rather than latency-bound — runnerd has 8 slots (its
-# default; `caosd up` does not pass CAOS_RUNNER_SLOTS through) on a 16-core
-# box, so 340 CPU-seconds over 8 slots plus ~2s of dispatch per job is ~75s no
-# matter how the tests are cut up. Splitting the 73s baseline test was still
-# what made that reachable: before it, ONE test set an 86s floor that no
-# number of slots could beat.
+# WHAT BOUNDS THE WALL CLOCK, measured. Not any single test any more — the
+# longest job is ~21s against a ~90s wall. It is throughput:
+#
+#   - the tests' own CPU, ~410 seconds of it on a quiet box, against EIGHT
+#     PHYSICAL cores — the 16 in nproc are SMT siblings. Whether more runner
+#     slots would help is OPEN: 16 measured worse, but every 16-slot run came
+#     after its 8-slot pair on a machine that was drifting slower, so the
+#     comparison is confounded and is not evidence.
+#   - ~14% of the fan-out's slot time is each job re-fetching the same 11.2 MB
+#     tree and 9.5 MB binary from the server — 1.2 GB per run across 109 jobs
+#     (see the "fan-out cost" block the report prints).
+#   - four chained stages before any test runs. Dispatch itself is cheap: a
+#     whole no-op tool call — eval, ingest, container, result — is 240ms.
+#
+# Splitting the 73s baseline test is what made any of this reachable: before
+# it, ONE test set an 86s floor that nothing else could get under.
 #
 # PER MODULE BY DEFAULT, PER TEST WHERE IT PAYS: each invocation pays ~660ms of
 # fixed startup (the module-scope asserts of every module run on every startup)
@@ -244,11 +252,13 @@ summarize)
   pass=0; failed=0; total_ms=0
   : > /tmp/lines; : > /tmp/failures
 
+  : > /tmp/allphases
   for d in /cas/args/children/*/; do
     [ -d "$d" ] || continue
     m=$(basename "$d")
     st=$(cat "$d/status" 2>/dev/null || echo "?")
     ms=$(cat "$d/ms" 2>/dev/null || echo 0)
+    cat "$d/phases" >> /tmp/allphases 2>/dev/null || true
     cp -RL "$d" "$R/results/$m" 2>/dev/null || true
     if [ "$ms" -eq "$ms" ] 2>/dev/null; then total_ms=$((total_ms + ms)); fi
     if [ "$st" = "0" ]; then
@@ -277,6 +287,27 @@ summarize)
     # By the ms column. -k1,1 explicitly: the whole-line fallback only sorted
     # correctly because %6s right-aligns, and would break at 7 digits.
     sort -rn -k1,1 /tmp/lines
+    # SUMMED ACROSS EVERY JOB, in slot-seconds. What decides whether splitting a
+    # module further helps is not one job's overhead but the total: each extra
+    # job re-materializes the test binary and the source tree, and there are
+    # only 8 runner slots to spend that on. Reported so the PER_TEST list above
+    # can be tuned against a number rather than a guess.
+    # Pure bash: the worker image carries coreutils and grep, not awk.
+    if [ -s /tmp/allphases ]; then
+      echo
+      echo "fan-out cost, summed over all $((pass + failed)) jobs:"
+      order=(); declare -A tot=()
+      while IFS= read -r pline; do
+        case "$pline" in *"---- job total"*) continue ;; *ms) ;; *) continue ;; esac
+        key=${pline%%:*}; key=${key#  }
+        val=${pline##*: }; val=${val%ms}
+        [ -n "${tot[$key]+x}" ] || order+=("$key")
+        tot[$key]=$(( ${tot[$key]:-0} + val ))
+      done < /tmp/allphases
+      for key in "${order[@]}"; do
+        printf '  %-22s %6s.%03ds\n' "$key" "$(( tot[$key] / 1000 ))" "$(( tot[$key] % 1000 ))"
+      done
+    fi
     if [ -s /cas/args/skipped/list ]; then
       echo
       echo "module-scope asserts (run in EVERY batch, not fanned out):"
