@@ -143,6 +143,39 @@ proc validateMap(gameMap: CtfMap) =
           "(a multiple of " & $teamCount & "); got " & $pts.len & ".")
       for i, p in pts:
         validateMapPoint(name & "[" & $i & "]", p, gameMap.width, gameMap.height)
+    ## coworld-ctf#285: optional explicit per-team home anchors. Empty is allowed
+    ## (derive from homeDepth as before). When present it must be COMPLETE and
+    ## well-formed — one per team, in-bounds, each in its OWN half, and the spawn
+    ## pocket around it fitting on the board. Fairness/reachability stay the
+    ## caller's measured gate (as with teamPickups), but a wholly-wrong-half or
+    ## off-board anchor is a spec bug we reject loudly, not a silent default.
+    if gameMap.teamAnchors.len != 0:
+      if gameMap.teamAnchors.len != teamCount:
+        raise newException(CtfError,
+          "teamAnchors on a symNone map must carry one point per team (" &
+          $teamCount & "); got " & $gameMap.teamAnchors.len &
+          " — author both or omit the field to derive from homeDepth.")
+      let mid = gameMap.width div 2
+      for i, p in gameMap.teamAnchors:
+        validateMapPoint("teamAnchors[" & $i & "]", p, gameMap.width, gameMap.height)
+        ## Red (team 0) owns the left half, Blue (team 1) the right — an anchor in
+        ## the wrong half crosses homes (and would seal under the wrong spawn pocket).
+        if i == 0 and p.x >= mid:
+          raise newException(CtfError,
+            "teamAnchors[0] (Red) at x=" & $p.x & " must be in the LEFT half " &
+            "(x < " & $mid & ").")
+        if i == 1 and p.x < mid:
+          raise newException(CtfError,
+            "teamAnchors[1] (Blue) at x=" & $p.x & " must be in the RIGHT half " &
+            "(x >= " & $mid & ").")
+        ## The spawn pocket (spawnClearW x spawnClearH about the anchor) must fit
+        ## on-board — an anchor too near an edge would clip the protected floor.
+        if p.x - gameMap.spawnClearW < 0 or p.x + gameMap.spawnClearW > gameMap.width or
+            p.y - gameMap.spawnClearH < 0 or p.y + gameMap.spawnClearH > gameMap.height:
+          raise newException(CtfError,
+            "teamAnchors[" & $i & "] at (" & $p.x & "," & $p.y & ") — the spawn " &
+            "pocket (" & $gameMap.spawnClearW & "x" & $gameMap.spawnClearH &
+            " half-extents) does not fit on the board.")
     ## The WALL-OVERLAP walkability check needs buildArenaObstacles/mapWallAt,
     ## which are defined later in this module — run it in validateMapWalkability
     ## (called from mapFromSpecJson right after this), not here.
@@ -451,12 +484,20 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
     d = gameMap.homeDepthOf()
   case gameMap.layout
   of layoutSides:
-    result =
-      case team
-      of Red:
-        MapPoint(x: axisHomeLo(cx, d), y: cy)
-      else:
-        MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
+    ## coworld-ctf#285: an explicit per-team anchor override, when authored on a
+    ## symNone (full-board) sides map, is returned verbatim — the only way to place
+    ## a 2-team pedestal off the center-row axis. Empty (the default) falls through
+    ## to the classic center+homeDepth derivation (byte-identical to before; the
+    ## validator has already checked count/half/pocket when this list is non-empty).
+    if gameMap.symmetry == symNone and gameMap.teamAnchors.len == 2:
+      result = gameMap.teamAnchors[ord(team)]
+    else:
+      result =
+        case team
+        of Red:
+          MapPoint(x: axisHomeLo(cx, d), y: cy)
+        else:
+          MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
   of layoutCorners, layoutPlus:
     if gameMap.symmetry == symQuadMirror:
       if gameMap.layout == layoutCorners:
@@ -3180,6 +3221,11 @@ proc mapSpecJson*(gameMap: CtfMap): string =
       "cans": pointsNode(gameMap.teamPickups.cans),
       "barriers": pointsNode(gameMap.teamPickups.barriers),
     }
+  ## coworld-ctf#285: emit explicit per-team anchors only when authored (absent
+  ## on every derived map, so the spec is byte-identical to before). Round-trips
+  ## with the teamAnchors parse in mapFromSpecJson.
+  if gameMap.teamAnchors.len > 0:
+    spec["teamAnchors"] = pointsNode(gameMap.teamAnchors)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3273,6 +3319,9 @@ proc mapFromSpecJson*(text: string): CtfMap =
     result.teamPickups.shields = pointsFromNode(tpNode{"shields"})
     result.teamPickups.cans = pointsFromNode(tpNode{"cans"})
     result.teamPickups.barriers = pointsFromNode(tpNode{"barriers"})
+  ## coworld-ctf#285: optional explicit per-team anchors. Absent -> empty seq ->
+  ## teamAnchor derives from homeDepth (unchanged). validateMap gates a present set.
+  result.teamAnchors = pointsFromNode(node{"teamAnchors"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)
