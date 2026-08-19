@@ -24,14 +24,19 @@
 # WHAT BOUNDS THE WALL CLOCK, measured. Not any single test any more — the
 # longest job is ~21s against a ~90s wall. It is throughput:
 #
-#   - TWO saturation ceilings, both already reached at 8 slots, both measured
-#     by interleaving 8/16/8/16 on an idle box. Cores: the 16 in nproc are SMT
-#     siblings on 8 physical, and doubling the slots doubles measured test CPU
-#     (396s -> 812s) for identical work. The object path: `get ws` per job also
-#     doubles (0.49s -> 0.98s) even on 16 light jobs with the cores nearly
-#     idle — constant total fetch throughput, i.e. serialization. Wall clock is
-#     a wash in both orderings. 8 slots IS the machine; do not plumb
+#   - CORES, and only cores. Interleaving 8/16/8/16 on an idle box: doubling
+#     the slots doubles measured test CPU (396s -> 812s) for identical work,
+#     because the 16 in nproc are SMT siblings on 8 physical. Wall clock is a
+#     wash in both orderings. 8 slots IS the machine; do not plumb
 #     CAOS_RUNNER_SLOTS through `caosd up` expecting a win.
+#
+#     `get ws` per job also doubles at 16 slots (0.49s -> 0.98s), which looks
+#     like the object server saturating and is NOT. A probe that fetches the
+#     same objects with curl — pure transfer, nothing materialized — gets
+#     672/645us per object at 8 slots and 579/582us at 16: FASTER concurrent,
+#     with aggregate throughput more than doubling. The server scales. What
+#     doubles is `caos get`'s own client-side work — zlib inflate, ~600 file
+#     operations and ~600 xattr sets — competing for the same 8 cores.
 #   - each job re-fetching the same 11.2 MB tree and 9.5 MB binary from the
 #     server (see the "fan-out cost" block the report prints). Uncontended the
 #     tree is 385ms — ~215ms of that HTTP at 0.66ms per object over 326
@@ -189,10 +194,9 @@ fanout)
   #
   # Both directions cost. Empty, test_map_editor_core's 17 tests run in one
   # 118s job that sets the wall clock by itself. Wider, the extra 35 jobs each
-  # re-fetch the tree, and the object path is a HARD THROUGHPUT CEILING — `get
-  # ws` per job scales exactly linearly with concurrency (0.49s at 8 slots,
-  # 0.98s at 16, reproducible to 4%), so a job is not free even when cores sit
-  # idle. Adding a module here has to beat that, and only one does.
+  # re-fetch and re-materialize the tree — 385ms uncontended, and it is CPU
+  # they take from the tests, not just bytes (see the header). Adding a module
+  # here has to beat that, and only one does.
   #
   # NOT here, deliberately: test_replay_switch_caches, whose 21s is 20s of ONE
   # test (`invalidateBoardMapCaches stops serving the previous sim's map`).
