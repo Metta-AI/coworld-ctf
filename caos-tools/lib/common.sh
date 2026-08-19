@@ -83,17 +83,27 @@ deps_flags() {
 # generates, so a nimcache that moves misses 100% (measured: 0 hits / 266).
 # This is caos's own lesson from cargo-workers.md, in a different compiler.
 setup_ccache() {
-  # caos-stack, NOT caos-redis. The stack is ONE container (design/one-stack-image.md)
-  # running redis, the registry, the server and runnerd as a process group, so
-  # redis answers on the stack container's own name. `caos-redis` is the name the
-  # SERVER uses from inside that container; it does not resolve on caos-net.
+  # caos tells us where the cache is: runnerd injects CAOS_WORKER_REDIS_ADDR
+  # into every worker when the deployment offers one (crates/runnerd/src/main.rs).
+  # It is a host:port ADDRESS, not a URL, so ccache's scheme goes on the front.
   #
-  # Getting this wrong is silent: ccache treats an unreachable remote as a miss
-  # and falls back to a local cache that is empty in every fresh container, so
-  # the build simply stays slow with no error anywhere. That is why the stats
-  # below are written into the report — an unobservable cache is a cache you
-  # cannot trust.
-  export CCACHE_REMOTE_STORAGE="${CTF_CCACHE_REDIS:-redis://caos-stack:6379}"
+  # ABSENT IS NORMAL, and must never be an error. caos's contract is explicit:
+  # "unset means no worker is offered one, so a worker must treat its absence as
+  # 'no cache available' and still do the work". A deployment without a worker
+  # redis builds slower; it does not fail.
+  #
+  # Do not hardcode an address here again. The previous one was `caos-stack`,
+  # because the stack was a single container and `caos-redis` did not resolve on
+  # caos-net; it does now. Guessing this wrong is SILENT — ccache reports an
+  # unreachable remote as a miss and falls back to a local cache that is empty in
+  # every fresh container, so the build just stays slow with no error anywhere.
+  # That is why the stats go into the report: an unobservable cache is one you
+  # cannot trust, and this one was dead for a long time before anyone noticed.
+  if [ -n "${CAOS_WORKER_REDIS_ADDR:-}" ]; then
+    export CCACHE_REMOTE_STORAGE="redis://$CAOS_WORKER_REDIS_ADDR"
+  else
+    unset CCACHE_REMOTE_STORAGE
+  fi
   export CCACHE_DIR=/tmp/ccache
   export CCACHE_BASEDIR=/tmp/build
   mkdir -p /tmp/build "$CCACHE_DIR"

@@ -7,5 +7,5 @@
 #      mount. That second step is what `run-tool` needs: it resolves a tool
 #      script's image as DEEP-DEPS/bash, which does not exist until the tree
 #      is deepened. Without it every tool call fails to resolve its image.
-MOUNTED=run --base:@@=git+https://github.com/Metta-AI/caos?rev=d3407c55592e7e9454ad9413a8ac9d5a0e3b7c05&dir=std/flake-input-loader --input-tree:@@=git+https://github.com/Metta-AI/caos?rev=d3407c55592e7e9454ad9413a8ac9d5a0e3b7c05&dir=std --input=caos --in:@=. --expr=$CAOS_EXPR --output-path=caos-std
-run --base:@@=git+https://github.com/Metta-AI/caos?rev=d3407c55592e7e9454ad9413a8ac9d5a0e3b7c05&dir=std/deep-deps --in=$MOUNTED
+MOUNTED=run --base:@@=git+https://github.com/Metta-AI/caos?rev=097493ae9458c293ef16faf6d7320d72dcd639f8&dir=std/flake-input-loader --input-tree:@@=git+https://github.com/Metta-AI/caos?rev=097493ae9458c293ef16faf6d7320d72dcd639f8&dir=std --input=caos --in:@=. --expr=$CAOS_EXPR --output-path=caos-std
+run --base:@@=git+https://github.com/Metta-AI/caos?rev=097493ae9458c293ef16faf6d7320d72dcd639f8&dir=std/deep-deps --in=$MOUNTED

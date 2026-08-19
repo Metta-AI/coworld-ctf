@@ -95,7 +95,7 @@ compile)
     cat /tmp/phases 2>/dev/null
     echo "---- ccache ----"
     echo "  gcc:    $(command -v gcc)"
-    echo "  remote: ${CCACHE_REMOTE_STORAGE:-<unset>}"
+    echo "  remote: ${CCACHE_REMOTE_STORAGE:-<none: CAOS_WORKER_REDIS_ADDR unset>}"
     ccache -s 2>/dev/null || echo "  (no stats)"
   } >> "$R/report"
 
