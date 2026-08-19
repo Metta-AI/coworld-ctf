@@ -24,6 +24,42 @@ narrow_tree() {
   caos put "$w" "$dest"
 }
 
+# Mirror a MATERIALIZED /cas tree, keeping only what the test binary reads at
+# RUN time: everything that is not Nim source.
+#
+# This exists so a source edit that does not change the binary does not re-run
+# the tests. The fan-out's mapper has to carry a tree, because nim bakes
+# currentSourcePath and the binary resolves its fixtures against the directory
+# it was COMPILED in. Carrying the full source tree there meant every child's
+# ArgTree moved whenever any .nim moved — so editing a comment re-ran all 74
+# jobs, even though the generated C was byte-identical (measured: 0 of 133 .c
+# files differ after a comment-only edit) and the binary therefore was too.
+#
+# Exclude-the-sources rather than enumerate-the-data, deliberately: the suite
+# reads data/, client/, tests/fixtures/, tests/replays/, tools/map_editor/'s
+# assets and both top-level JSON files, plenty of it via paths built at run
+# time, so any hand-written include list would be wrong the first time someone
+# added a fixture. Nothing under tests/ or tools/ reads a .nim at run time
+# (checked): the one `"/static/../arena.nim"` is a traversal probe asserting a
+# 404, which it gets either way.
+#
+# By reference, like narrow_tree: every entry is a symlink into /cas, so `caos
+# put` records the hash already known for it and no content is copied.
+#
+# $1 = destination /cas path, $2 = the materialized source tree.
+runtime_tree() {
+  local dest=$1 src=$2 w f rel d
+  w=$(mktemp -d)
+  while IFS= read -r f; do
+    rel=${f#"$src"/}
+    d=$(dirname "$rel")
+    mkdir -p "$w/$d"
+    ln -s "$f" "$w/$rel"
+  done < <(find "$src" \( -type f -o -type l \) \
+             ! -name '*.nim' ! -name '*.nims' ! -name '*.cfg')
+  caos put "$w" "$dest"
+}
+
 # The --path: flags for the deps tree at $1, rooted there. nim reads a nim.cfg
 # only from the PROJECT dir and its parents, never from a --path: directory, so
 # the deps ship the list and we root it here. (This repo's own nim.cfg is

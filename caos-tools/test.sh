@@ -143,8 +143,15 @@ compile)
   fi
   cp /tmp/build/tests "$R/bin"
 
+  # The tree the BINARY needs at run time, which is not the tree it was built
+  # from: no .nim, so it does not move when a source edit leaves the binary
+  # unchanged. Built here because this is where /cas/args/ws is already
+  # materialized. `ws` still rides along — fanout greps the sources for test
+  # names, and only the MAPPER gets the runtime tree.
+  runtime_tree /cas/rtws /cas/args/ws
+
   fwd=("--worker1:@=/cas/args/worker1" --stage=fanout
-       "--ws:@=/cas/args/ws" "--runner:@=/cas/args/runner")
+       "--ws:@=/cas/args/ws" "--rtws:@=/cas/rtws" "--runner:@=/cas/args/runner")
   if [ -e /cas/args/test-salt ]; then fwd+=("--test-salt:@=/cas/args/test-salt"); fi
   if [ -e /cas/args/only ]; then fwd+=("--only:@=/cas/args/only"); fi
   next=$(caos curry --base:@=/cas/args/base "${fwd[@]}") || fail "currying fanout"
@@ -162,17 +169,21 @@ fanout)
   caos get /cas/args/ws
   caos get -r /cas/args/ws/tests
   caos get -r /cas/args/runner
+  caos get /cas/args/rtws
 
   # The binary is curried into the MAPPER, so every job names the same blob by
   # the same hash — stored once, not copied per child. The mapper is curried
   # HERE, where the image (/cas/args/base) is a genuine tree.
-  # `ws` rides along with the binary because the binary NEEDS IT AT RUNTIME:
+  # A tree rides along with the binary because the binary NEEDS ONE AT RUNTIME:
   # nim bakes currentSourcePath at compile time, so the tests resolve their
   # fixtures against the directory they were COMPILED in. Both are curried into
   # the mapper, so every job names the same two hashes, each stored once.
+  # --ws here is the RUNTIME tree, not the source tree. That is the whole point:
+  # these two hashes are every child's ArgTree, so if either moves when the
+  # binary has not changed, the entire suite re-runs for nothing.
   mapper=$(caos curry --base:@=/cas/args/base \
     "--worker1:@=/cas/args/runner" \
-    "--ws:@=/cas/args/ws" \
+    "--ws:@=/cas/args/rtws" \
     "--tests:@=/cas/args/in/bin") || fail "currying the per-job test runner"
 
   only=""
