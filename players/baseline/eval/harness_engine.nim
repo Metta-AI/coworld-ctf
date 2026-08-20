@@ -32,6 +32,9 @@ when defined(rangehitprobe):
 when defined(ndprobe):
   import std/math
 
+when defined(wuffprobe):
+  import std/tables
+
 type
   EvalEngine* = ref object
     sim: SimServer
@@ -187,6 +190,14 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     # attributed Kill events (weapon="gun"/"spray"/"grenade"). Off by default
     # (collectEvents costs real allocation), so every other probe build stays
     # exactly as fast.
+    result.sim.collectEvents = true
+  when defined(wuffprobe):
+    # ⭐⭐⭐ -d:wuffprobe (2026-08-19, the WINDUP FRIENDLY-FIRE VETO): the tier-2
+    # sink is the ONLY engine-truth source for "which body stopped this bullet"
+    # and, via GunTrigger's actionId, for WHICH TICK PULLED IT. Both are needed:
+    # the futility bound is a join from a friendly-fire IMPACT back to the
+    # TRIGGER FRAME, and only that join can say whether the veto could have
+    # changed the outcome rather than merely fired.
     result.sim.collectEvents = true
   when defined(ndprobe):
     # -d:ndprobe (2026-08-14, the v56 nade package): the tier-2 sink carries
@@ -600,6 +611,53 @@ when defined(rangehitprobe):
      blueShotsNear: engine.blueShotsNear, blueHitsNear: engine.blueHitsNear,
      redShotsFar: engine.redShotsFar, redHitsFar: engine.redHitsFar,
      blueShotsFar: engine.blueShotsFar, blueHitsFar: engine.blueHitsFar)
+
+when defined(wuffprobe):
+  proc wuffGunShots*(engine: EvalEngine): seq[tuple[
+      srcSlot, tgtSlot, srcTeam, tgtTeam, triggerTick, impactTick: int]] =
+    ## Every GUN shot RELEASED this episode, as engine truth, with the tick that
+    ## PULLED it. `ShotImpact` is emitted for every released gun shot — on a body
+    ## (target >= 0) and on geometry/range (target < 0) — so this is the shot
+    ## ledger, not just the hits.
+    ##
+    ## ⚠️ `source`/`target` in the event stream are stable JOIN SLOTS, not player
+    ## indices; they are inverted through joinOrder here so the caller gets real
+    ## slots it can index wuffTickFlags with.
+    ##
+    ## triggerTick comes from joining ShotImpact.actionId to the GunTrigger event
+    ## emitted by startFireWindup at the pull. That is EXACT, not an assumption
+    ## about the windup length — the join is what proves the 5-tick gap rather
+    ## than presuming it, and the gap is printed as a histogram by the caller.
+    var idxOf = newSeq[int](engine.sim.players.len)
+    var teamOf = newSeq[int](engine.sim.players.len)
+    for i in 0 ..< idxOf.len:
+      idxOf[i] = -1
+      teamOf[i] = -1
+    for i in 0 ..< engine.sim.players.len:
+      let jo = engine.sim.players[i].joinOrder
+      if jo >= 0 and jo < idxOf.len:
+        idxOf[jo] = i
+        teamOf[jo] = ord(engine.sim.players[i].team)
+    var trigTick = initTable[int64, int]()
+    for e in engine.sim.events:
+      if e.kind == GunTrigger and e.actionId != 0:
+        trigTick[e.actionId] = e.tick
+    for e in engine.sim.events:
+      if e.kind != ShotImpact or e.weapon != "gun": continue
+      if e.source < 0 or e.source >= idxOf.len: continue
+      let
+        src = idxOf[e.source]
+        st = teamOf[e.source]
+      if src < 0 or st < 0: continue
+      var
+        tgt = -1
+        tt = -1
+      if e.target >= 0 and e.target < idxOf.len and e.target != e.source:
+        tgt = idxOf[e.target]
+        tt = teamOf[e.target]
+      result.add((srcSlot: src, tgtSlot: tgt, srcTeam: st, tgtTeam: tt,
+                  triggerTick: trigTick.getOrDefault(e.actionId, -1),
+                  impactTick: e.tick))
 
 when defined(shapeprobe):
   proc shapeCounts*(engine: EvalEngine, team: int): tuple[

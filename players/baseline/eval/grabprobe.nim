@@ -175,6 +175,28 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   let lastLifeTeam = getEnv("LASTLIFETEAM")
   if lastLifeTeam.len > 0:
     tune.lastLifeGuard = team == parseInt(lastLifeTeam)
+  # ⭐⭐⭐ wuff (WINDUP FRIENDLY-FIRE VETO, 2026-08-19) TEAM ISOLATION.
+  # shippedCombatTune() reads WUFF from the PROCESS env and all bots run in ONE
+  # process, so a bare WUFF=1 arms every team and measures a MIRROR — the same
+  # trap SPINTEAM / SEAT4TEAM / FFAMEDTEAM exist to avoid. WUFFTEAM=<n> arms ONLY
+  # raw engine team index n and strips every other team. RAW INDEX, never
+  # red/blue: `t` above collapses every non-zero team to Blue on a >2-team board,
+  # and this board has four bases.
+  #
+  # Accepts a COMMA LIST ("0,2") so one run can arm half the board and still be
+  # paired against a pure control arm; WUFFTEAM=9 (any out-of-range index) IS
+  # that control arm — same binary, same env shape, the two runs differ in ONE
+  # integer. ⚠️ Seat is NOT exchangeable on this board (8.9/8.9/23.2/58.9% win
+  # share by slot block), so every team must be compared against ITSELF.
+  let wuffTeam = getEnv("WUFFTEAM")
+  if wuffTeam.len > 0:
+    var wuffArmed = false
+    for part in wuffTeam.split(','):
+      let p = part.strip()
+      if p.len > 0 and team == parseInt(p): wuffArmed = true
+    # NOWUFF stays authoritative over the isolation knob: a force-revert has to
+    # revert, or "roll it back by re-running with different env" is a lie.
+    tune.windupFf = wuffArmed and getEnv("NOWUFF").len == 0
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -291,6 +313,20 @@ when defined(lifeprobe):
   var lpSeatsPerTeam: array[4, int]
   var lpHalfSpentSum: array[4, float]
   var lpFinalAllElim: array[4, int]
+
+when defined(wuffprobe):
+  # ⭐⭐⭐ wuff futility-bound cross-run state (grabprobe side).
+  var wuffOffHist: array[9, int]   # (botTick - triggerTick) offsets, -4..+4, for
+                                   # every released gun shot whose trigger frame
+                                   # was found in the policy ledger. A single
+                                   # sharp mode PROVES the two clocks align; a
+                                   # smear means the join is unreliable and the
+                                   # bound below must not be believed.
+  var wuffFfNoPull = 0             # friendly-fire impacts whose trigger frame was
+                                   # NOT in the ledger at all — a gun shot pulled
+                                   # from OUTSIDE the engage branch (the ambush /
+                                   # arc-breach forks also set wantFire), i.e.
+                                   # OUT OF THIS LEVER'S REACH by construction.
 
 when defined(doorprobe):
   var engineTeamOfSlot: array[32, int]   # real team index per slot (4-team safe)
@@ -467,6 +503,18 @@ proc main() =
       drivers.add newDriver(s, engine.teamOfSlot(s), epSeed)
       when defined(doorprobe):
         if s < 32: engineTeamOfSlot[s] = engine.teamOfSlot(s)
+      when defined(wuffprobe):
+        # The RAW engine team per slot, handed to the policy-side counters: they
+        # cannot derive it themselves (bot.team is Red/Blue and collapses three
+        # teams into one on this board).
+        if s < 32: wuffTeamOfSlot[s] = engine.teamOfSlot(s)
+    when defined(wuffprobe):
+      # The per-tick flag ledger is per EPISODE and indexed by BOT TICK, so it is
+      # sized to the tick budget plus slack for the windup tail and cleared here.
+      for s in 0 ..< 32:
+        wuffTickFlags[s].setLen(ticks + 32)
+        for i in 0 ..< wuffTickFlags[s].len: wuffTickFlags[s][i] = 0'u8
+        wuffSupAt[s] = -1
     when defined(ndprobe):
       ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
     when defined(fpprobe):
@@ -611,6 +659,79 @@ proc main() =
         tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
+    when defined(wuffprobe):
+      # ⭐⭐⭐ THE FUTILITY BOUND. Join every RELEASED gun shot back to the tick
+      # that pulled it (engine truth, via GunTrigger.actionId), then ask the
+      # policy-side ledger what the veto said on THAT frame. That turns "the veto
+      # fired N times" into "the veto flagged the trigger of M of the K shots that
+      # actually hit a teammate" — the only number that bounds what it can win.
+      #
+      # Printed RAW, one row per episode per team, because this rig's absolutes
+      # are not calibrated to the field (a measured 7.7x spread across seed
+      # blocks): only a PAIRED WITHIN-BLOCK contrast on identical seeds is
+      # admissible, and that needs the per-episode grain. Columns are COUNTS,
+      # never rates — pooling first would give an episode with 3 shots the weight
+      # of one with 90.
+      block wuffRow:
+        var
+          shots, ffHits, enHits, geo: array[4, int]
+          ffFlagA, ffFlagB, ffFlagC, ffFlagD, ffPullSeen: array[4, int]
+          kl, dt, cp, lv: array[4, int]
+        for row in engine.wuffGunShots():
+          let t = row.srcTeam
+          if t notin 0 .. 3: continue
+          inc shots[t]
+          let isFf = row.tgtTeam == t and row.tgtSlot >= 0
+          if row.tgtSlot < 0: inc geo[t]
+          elif isFf: inc ffHits[t]
+          else: inc enHits[t]
+          if row.triggerTick >= 0:
+            # Tick alignment is MEASURED, not assumed: the bot's own tick and the
+            # sim's tickCount are advanced by different code, so scan a small
+            # window around the joined trigger tick, take the nearest frame this
+            # slot actually pulled, and record the offset. wuffOffHist below is
+            # the proof — a single sharp mode means the alignment is exact.
+            var best = 99
+            for off in -4 .. 4:
+              let bt = row.triggerTick + off
+              if row.srcSlot in 0 ..< 32 and bt >= 0 and
+                  bt < wuffTickFlags[row.srcSlot].len and
+                  (wuffTickFlags[row.srcSlot][bt] and 1'u8) != 0:
+                if abs(off) < abs(best): best = off
+            if best != 99:
+              wuffOffHist[best + 4] += 1
+              if isFf:
+                inc ffPullSeen[t]
+                let f = wuffTickFlags[row.srcSlot][row.triggerTick + best]
+                if (f and 2'u8) != 0: inc ffFlagA[t]
+                if (f and 4'u8) != 0: inc ffFlagB[t]
+                if (f and 8'u8) != 0: inc ffFlagC[t]
+                if (f and 16'u8) != 0: inc ffFlagD[t]
+            elif isFf:
+              inc wuffFfNoPull
+        for st in r.slots:
+          if st.team notin 0 .. 3: continue
+          kl[st.team] += st.kills
+          dt[st.team] += st.deaths
+          cp[st.team] += st.captures
+          lv[st.team] += st.lives + (if st.alive: 1 else: 0)
+        for t in 0 .. 3:
+          if shots[t] == 0 and kl[t] == 0 and dt[t] == 0: continue
+          echo "WUFFROW ", epSeed, " ", t, " ", r.ticks,
+            " ", shots[t], " ", enHits[t], " ", ffHits[t], " ", geo[t],
+            " ", ffPullSeen[t], " ", ffFlagA[t], " ", ffFlagB[t],
+            " ", ffFlagC[t], " ", ffFlagD[t],
+            " ", wuffCand[t], " ", wuffBlkA[t], " ", wuffBlkB[t],
+            " ", wuffBlkC[t], " ", wuffBlkD[t], " ", wuffNewD[t],
+            " ", wuffSup[t], " ", wuffStale[t],
+            " ", wuffRe[0][t], " ", wuffRe[1][t], " ", wuffRe[2][t],
+            " ", kl[t], " ", dt[t], " ", cp[t], " ", lv[t]
+        # The policy-side counters are process-global and cumulative; the row
+        # above is a running total, so bank the episode deltas by resetting.
+        for t in 0 .. 3:
+          wuffCand[t] = 0; wuffBlkA[t] = 0; wuffBlkB[t] = 0; wuffBlkC[t] = 0
+          wuffBlkD[t] = 0; wuffNewD[t] = 0; wuffSup[t] = 0; wuffStale[t] = 0
+          wuffRe[0][t] = 0; wuffRe[1][t] = 0; wuffRe[2][t] = 0
     when defined(lifeprobe):
       # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
       # by ELIMINATION): no more lives can be spent after that, so the final
@@ -1259,6 +1380,34 @@ proc main() =
     let escapePct = (if hp1Total > 0: 100.0 * wbHp1Heals.float / hp1Total.float else: 0.0)
     echo &"  hp1 segments resolved {hp1Total}  healedToFull {wbHp1Heals}  " &
       &"diedFromHp1 {wbHp1Deaths}  P(escape|hp==1) {escapePct:.2f}%"
+
+  when defined(wuffprobe):
+    echo "==================================================="
+    echo "--- wuff: WINDUP FRIENDLY-FIRE VETO (2026-08-19) ---"
+    echo &"  arm: WUFF={getEnv(\"WUFF\")} NOWUFF={getEnv(\"NOWUFF\")} " &
+      &"WUFFTEAM={getEnv(\"WUFFTEAM\")} WUFFSHADOW={getEnv(\"WUFFSHADOW\")} " &
+      &"WUFFAXIS={getEnv(\"WUFFAXIS\")} WUFFLEAD={getEnv(\"WUFFLEAD\")} " &
+      &"WUFFSELF={getEnv(\"WUFFSELF\")} " &
+      &"WUFFMATERANGE={getEnv(\"WUFFMATERANGE\")}"
+    var offTot = 0
+    for v in wuffOffHist: offTot += v
+    var offStr = ""
+    for i in 0 .. 8:
+      if wuffOffHist[i] > 0:
+        offStr.add &"{i - 4:+d}:{wuffOffHist[i]} "
+    echo &"  CLOCK JOIN  released gun shots matched to a policy pull frame " &
+      &"{offTot}  offset histogram (botTick - triggerTick): {offStr}"
+    echo "  (one sharp mode = the two clocks align and the bound below is a real " &
+      "join; a smear = do NOT believe it)"
+    echo &"  OUT OF REACH  friendly-fire impacts with NO engage-branch pull frame " &
+      &"{wuffFfNoPull}  <= fired from another branch, this lever cannot touch them"
+    echo "  Per-episode/per-team detail is on the WUFFROW lines (counts, never rates):"
+    echo "  WUFFROW seed team ticks | shots enemyHits ffHits geometry | " &
+      "ffJoined ffFlagA ffFlagB ffFlagC ffFlagD | cand blkA blkB blkC blkD newD " &
+      "sup stale re3 re6 re12 | kills deaths caps lives"
+    echo "  A = selection ray @T0   B = estAim @T0 (axis term alone)   " &
+      "C = estAim + mate lead   D = C + muzzle lead (the full lever)"
+    flushFile(stdout)
 
 when isMainModule:
   main()

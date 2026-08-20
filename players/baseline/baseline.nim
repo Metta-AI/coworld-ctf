@@ -407,6 +407,48 @@ when defined(arprobe):
   var arMateRead = 0  # ...with aimBrads >= 0 off the rotation id
   var arResync = 0    # frames the rot readback actually corrected estAim
 
+when defined(wuffprobe):
+  # ⭐⭐⭐ -d:wuffprobe ONLY (2026-08-19): the WINDUP FRIENDLY-FIRE VETO's FUTILITY
+  # BOUND. "It fired" is not "it mattered" — an earlier lever reported an 88.7%
+  # bind rate that was constant by construction and meant nothing. So every
+  # counter here is one of three things and never a mix:
+  #   POPULATION  — candidate trigger pulls (the denominator)
+  #   FIRED       — the veto's verdict, split FOUR ways so the AXIS term and the
+  #                 LEAD term can be attributed separately from ONE run
+  #   MATTERED    — the join against engine-truth friendly-fire impacts, done in
+  #                 grabprobe: of the gun shots that actually hit a teammate, what
+  #                 share had their TRIGGER TICK flagged? That share is the bound.
+  # Every array is indexed by the RAW ENGINE TEAM (0..3), not Red/Blue: on a
+  # >2-team board `bot.team` collapses every non-zero team into Blue, so a
+  # per-team split keyed on it is wrong by construction. grabprobe fills
+  # wuffTeamOfSlot from engine.teamOfSlot before the episode runs.
+  var wuffTeamOfSlot: array[32, int]
+  var wuffCand: array[4, int]   # POPULATION: fresh candidate gun pulls (wantFire
+                                # and not firedLast) inside the engage branch,
+                                # counted whenever the lever is ARMED
+  var wuffBlkA: array[4, int]   # blocked on the SELECTION ray, both bodies at T0
+                                # (what the shipped selection-site test can see)
+  var wuffBlkB: array[4, int]   # blocked on bradsDir(estAim), both bodies at T0
+                                # (the AXIS term alone == a cqbLos-style check)
+  var wuffBlkC: array[4, int]   # blocked on estAim with the MATE led to T+5
+  var wuffBlkD: array[4, int]   # blocked on estAim with mate AND muzzle led (full)
+  var wuffNewD: array[4, int]   # D blocked where B did NOT — the population no T0
+                                # veto of any axis can reach
+  var wuffSup: array[4, int]    # pulls the ARMED, non-shadow veto actually killed
+  var wuffStale: array[4, int]  # ...where the deciding mate track was > WuffStaleAge
+  var wuffRe: array[3, array[4, int]]  # of suppressed pulls, how many re-fired
+                                # within 3 / 6 / 12 ticks (the "it only cost slew"
+                                # claim, measured instead of asserted)
+  var wuffSupAt: array[32, int] # per slot: tick of the last suppressed pull, -1 = none
+  var wuffTickFlags: array[32, seq[uint8]]  # per slot, per BOT TICK bitfield:
+                                # 1 = candidate pull, 2 = A, 4 = B, 8 = C, 16 = D,
+                                # 32 = suppressed. grabprobe sizes/clears it per
+                                # episode and joins it against the engine's gun
+                                # ShotImpact rows (trigger tick = impact - 5).
+  proc wuffMark(slot, tick: int, bits: uint8) =
+    if slot >= 0 and slot < 32 and tick >= 0 and tick < wuffTickFlags[slot].len:
+      wuffTickFlags[slot][tick] = wuffTickFlags[slot][tick] or bits
+
 when defined(caprobe):
   # -d:caprobe ONLY: counterArc (Play C) funnel — verify the "plasma arc carried"
   # attribution fires and the priority bump reaches a real engage. Also the place
@@ -941,6 +983,45 @@ const
                               # 6. See AUDITOR.md, "the CQB plant trap".
   WindupPlantTicks = 5        # DEAD with the above: the movement suppression the
                               # reverted plant applied after a CQB trigger pull.
+  WuffLeadTicks = 5.0         # ⭐⭐ WINDUP FRIENDLY-FIRE VETO (wuff): ticks between
+                              # the trigger pull and the bullet actually leaving.
+                              # NOT invented — it is `FireWindupTicks* = 5` from
+                              # src/ctf/sim_types.nim:396, which sim_config.nim
+                              # hands the server as `fireWindupTicks`. sim.step()
+                              # arms the windup at the pull (startFireWindup locks
+                              # `windupBrads` = the aim), decrements it once per
+                              # tick, and releases on the tick it reaches 0 — from
+                              # the shooter's THEN-CURRENT centre against the
+                              # THEN-CURRENT bodies (selectFireTarget). So the veto
+                              # has to be run on the geometry at T0+5, not at T0.
+  # ── ⭐⭐ SHARED MATE-MOTION ESTIMATOR CONSTANTS. PORTED VERBATIM, not
+  # reinvented, from the AoE friendly-fire veto (commit e8712e0 on
+  # maxwell/ffa4-ff-aoe, 2026-08-19) so the gun, the grenade and the spray cone
+  # all answer "where will this mate BE when my weapon lands" with ONE estimator
+  # that cannot drift between weapons. Every value is read off the engine and
+  # names its source. If both branches land, these blocks are meant to CONFLICT
+  # textually rather than silently duplicate.
+  FfMateFreshTicks = 36       # friendlyBlocked's own mate-freshness bar, reused so
+                              # all three weapons veto off the SAME track set.
+  FfStaleGrowPx = 0.35        # ...and its staleness widening (px per tick of age).
+  FfMaxSpeedPx = 2.75         # sim_types MaxSpeed(704) / MotionScale(256) = px/tick.
+  FfUnknownMotionCapPx = 20.0 # a track with ONE sighting carries vel (0,0) BY
+                              # CONSTRUCTION (see Track.sightings), so "standing
+                              # still" is unknowable. Treating it as stationary is
+                              # a silent FALSE NEGATIVE — exactly the body that
+                              # walks onto the line during the lock. Pay a BOUNDED
+                              # isotropic pad instead of asserting a wrong vector.
+  FfEmaLagFrac = 0.5          # updateTracks blends velocity as (old + new)*0.5, so
+                              # a body that JUST started moving reads at half its
+                              # true speed. Pad the predicted displacement by this
+                              # fraction of itself to cover the lag.
+  WuffSelfStepCapPx = 6.0     # a plausible ONE-tick move for the muzzle-lead
+                              # estimate (top speed is ~2.75px/tick; 6 leaves room
+                              # for a diagonal). Above this the delta is a respawn
+                              # teleport or the first frame, so no self lead is
+                              # applied and the muzzle is tested where it stands.
+  WuffStaleAge = 4.0          # a mate track older than this counts as STALE in the
+                              # probe's attribution split (diagnostic only).
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
@@ -1908,6 +1989,34 @@ type
                               # remembered enemy instead of down the move lane.
     fireOnRealBody: bool      # gate the trigger on the perp-miss to the target's
                               # REAL last-seen position, not the full lead phantom.
+    windupFf: bool            # ⭐⭐ WINDUP FRIENDLY-FIRE VETO (wuff) master arm:
+                              # CLOSE the gun trigger when a remembered teammate
+                              # will be inside the corridor AT THE RELEASE TICK.
+                              # Off => the shipped trigger (which has no
+                              # friendly-fire veto on it at all).
+    windupFfAxis: bool        # test on bradsDir(estAim) — the bearing the turret
+                              # will actually LOCK and fire on — instead of the
+                              # ray to the aim point that target SELECTION cleared.
+                              # Independently toggleable so the A/B can attribute
+                              # the gain to the AXIS separately from the LEAD.
+    windupFfLead: int         # ticks of MATE lead handed to trackAhead: where the
+                              # body will be when the bullet leaves. 0 disables
+                              # PREDICTION entirely and reproduces friendlyBlocked's
+                              # T0 geometry exactly, which is the control arm for
+                              # attributing the LEAD term on its own.
+    windupFfSelfLead: float   # ticks of SELF lead: advance our MUZZLE by our own
+                              # one-tick step over the windup (the bearing is
+                              # locked, but the origin travels with us).
+    windupFfMateRange: float  # veto only on a mate whose ALONG-TRACK distance is
+                              # inside this (0 = no gate). Deliberately NOT the
+                              # target's range: the field census puts the mate we
+                              # hit at median 47px along the ray while the target
+                              # sits at 190px, so a target-range gate discards
+                              # about two thirds of its own population.
+    windupFfShadow: bool      # MEASURE ONLY: evaluate the veto and record it, but
+                              # never suppress. Behaviour stays byte-identical to
+                              # the control, which is what makes the futility bound
+                              # an OBSERVATION rather than a second arm.
     threatFacingBonus: bool   # danger-score: credit an enemy FACING us so we
                               # engage the greatest threat first.
     shout: bool               # EMIT shouts at all (carrier heartbeat + enemy
@@ -3652,6 +3761,12 @@ proc defaultCombatTune(): CombatTune =
     aimLock: false,           # control: aim resets to the move lane off-target.
     huntSweep: false,         # control: no active acquisition sweep.
     fireOnRealBody: false,    # control: fire gate uses the full lead phantom.
+    windupFf: false,          # control: NO friendly-fire veto on the gun trigger.
+    windupFfAxis: false,      # control: unused while windupFf is false.
+    windupFfLead: 0,          # control: unused while windupFf is false.
+    windupFfSelfLead: 0.0,    # control: unused while windupFf is false.
+    windupFfMateRange: 0.0,   # control: unused while windupFf is false.
+    windupFfShadow: false,    # control: unused while windupFf is false.
     threatFacingBonus: false, # control: danger score ignores enemy facing.
     shout: false,             # control: never shout.
     shoutCallout: false,      # control: no enemy callouts.
@@ -4005,6 +4120,65 @@ proc shippedCombatTune(): CombatTune =
   # windup: by the time the bullet leaves, the juking body it was aimed at has moved on.
   # REALBODY=1 re-enables it for anyone who wants to re-measure; it ships OFF.
   result.fireOnRealBody = getEnv("REALBODY").len > 0
+  # ⭐⭐⭐ wuff — the WINDUP-AWARE FRIENDLY-FIRE VETO (2026-08-19).
+  #
+  # THE HOLE. The shipped gun trigger has NO friendly-fire veto. `wantFire` is set
+  # by perpMiss <= max(fireSlackPx, 17.0) and nothing else; the friendlyBlocked
+  # call a few lines below sits INSIDE `if bot.tune.fireOnRealBody:`, a block that
+  # can only ever set wantFire = TRUE (it OPENS the trigger, it cannot close it),
+  # and fireOnRealBody ships false anyway. The one shipped friendlyBlocked call is
+  # at target SELECTION and its verb is `continue` — it re-picks a target, it never
+  # stops a shot. So there is exactly zero trigger-side friendly-fire logic.
+  #
+  # FIELD MEASUREMENT (346 hosted ffa4 team-Episodes, per-tick frames, 549 gun FF
+  # hits). We deal 2.431 friendly damage per team-Episode = 0.810 LIVES at 3hp,
+  # against a paired death gap of +1.287 vs real rivals. daveey deals 0.188; the
+  # SCRIPTED FILLER deals 1.257, so we are 1.93x a bot with no policy at all.
+  #
+  # IT IS NOT SPACING. Paired inside the same Episodes, "a mate is in our fired
+  # corridor at the trigger tick" is 2.78% of our triggers vs relh 3.15%, richard
+  # 2.76%, Baseline 2.31%, daveey 1.18% — relh is MORE exposed than us. The
+  # outlier is CONVERSION: P(FF hit | mate in corridor) = 41.9% for us vs 25.7%,
+  # 20.8%, 15.5%, 10.8%. We do not stand badly; we pull the trigger anyway.
+  #
+  # ⭐ WHY A T0 CHECK CANNOT FIX IT. The bearing locks at the pull and the bullet
+  # leaves WuffLeadTicks (5) later. Victim perpendicular offset from the ray that
+  # actually fires, same 549 hits:
+  #     T0, both bodies frozen (what ANY T0 check sees) : 15.0px, 49.4% in corridor
+  #     victim advanced only                            : 10.8px, 80.5%
+  #     shooter advanced only                           : 12.9px, 64.7%
+  #     T+5 release, both advanced (the REAL bullet)    :  9.2px, 99.8%
+  # Both bodies converge onto the line during the lock (victim 10.6px, shooter
+  # 7.1px median). 32.4% of ALL friendly-fire hits are "the mate was outside the
+  # corridor on BOTH candidate rays at the decision frame and moved into the
+  # bullet afterwards" — invisible to a T0 veto BY CONSTRUCTION. Blindness is
+  # REFUTED as a cause (0.3% of hits: the mate was unperceivable within 36 ticks).
+  #
+  # Ships OFF. WUFF=1 arms, NOWUFF=1 force-reverts (a rollback is a re-run with
+  # different env, never a rebuild). Each sub-behaviour toggles independently so
+  # the A/B can attribute the gain to the AXIS vs the LEAD:
+  #   WUFFAXIS=0        test the SELECTION ray instead of bradsDir(estAim)
+  #   WUFFLEAD=<ticks>  mate lead (default WuffLeadTicks=5; 0 = no prediction, T0)
+  #   WUFFSELF=<ticks>  own-muzzle lead (default WuffLeadTicks=5; 0 = muzzle at T0)
+  #   WUFFMATERANGE=<px> along-track gate on the MATE (0 = none, the default)
+  #   WUFFSHADOW=1      evaluate + record, never suppress (the futility bound)
+  # ⚠️ A bare WUFF=1 is a MIRROR — every rig bot shares one process env. Use
+  # WUFFTEAM=<n[,n]> in grabprobe.nim, which arms ONE raw engine team index.
+  # ⚠️ This lever is FRIENDLY FIRE ONLY. It contains no wall / LOS re-check, on
+  # purpose: the T0 fire-axis lever measured ~94% WALL vetoes, so a bundled
+  # version cannot state a friendly-fire gain without the wall term riding along.
+  result.windupFf = getEnv("WUFF").len > 0 and getEnv("NOWUFF").len == 0
+  result.windupFfAxis = getEnv("WUFFAXIS") != "0"
+  result.windupFfLead =
+    if getEnv("WUFFLEAD").len > 0: parseInt(getEnv("WUFFLEAD"))
+    else: int(WuffLeadTicks)
+  result.windupFfSelfLead =
+    if getEnv("WUFFSELF").len > 0: parseFloat(getEnv("WUFFSELF"))
+    else: WuffLeadTicks
+  result.windupFfMateRange =
+    if getEnv("WUFFMATERANGE").len > 0: parseFloat(getEnv("WUFFMATERANGE"))
+    else: 0.0
+  result.windupFfShadow = getEnv("WUFFSHADOW").len > 0
   # counterArc (Play C, GameVersion 15 plasma arc): prioritize a DISARMED enemy
   # arc-carrier (gun off for life while holding) beyond its 136px cone — a free
   # kill that deletes the enemy's whole AoE play. Ships on the SAME field-only
@@ -6365,6 +6539,113 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
     if abs(cross(rel, dir)) < CorridorHalfWidth + age * 0.35:
       return true
   false
+
+proc trackAhead(t: Track, nowTick, aheadTicks: int): tuple[at: Vec, pad: float] =
+  ## ⭐⭐ THE SHARED MATE-MOTION ESTIMATOR. PORTED VERBATIM from the AoE
+  ## friendly-fire veto (commit e8712e0 on maxwell/ffa4-ff-aoe) — ONE answer to
+  ## "where will this remembered body BE when my weapon actually lands", used by
+  ## every friendly-fire test so the three weapons can never drift apart. Not
+  ## rewritten here: a second estimator is a second thing to keep in sync.
+  ##
+  ## This is the largest single term in the friendly-fire finding: at the
+  ## DECISION tick only 49.4% of victims are on the weapon's line, at the RELEASE
+  ## tick 99.8% are — both bodies converge onto it during the lock (victim ~10.6px
+  ## median, shooter ~7.1px). A test evaluated on `t.pos` alone therefore clears a
+  ## mate who is standing on the impact by the time it happens.
+  ##
+  ## There is NO oracle for mate velocity. `Track.vel` is an EMA of SUCCESSIVE
+  ## OBSERVED POSITIONS (updateTracks: v = (a.pos - t.pos)/dt, blended
+  ## (old + v)*0.5 and clamped to +-3 px/tick), which is the only honest source —
+  ## and it has two known defects this proc handles EXPLICITLY rather than
+  ## pretending they do not exist:
+  ##   * sightings < 2  => vel is (0,0) by construction, not measured. Hold the
+  ##     position and pay a BOUNDED isotropic pad for the unknown direction,
+  ##     rather than assert a velocity we never observed.
+  ##   * the EMA LAGS. A body that just started moving reads at half speed, so the
+  ##     predicted displacement is padded by a fraction of itself.
+  ## `pad` is returned SEPARATELY from `at` so a radial test (blast) can add it to
+  ## its radius and a corridor/wedge test (gun, cone) can add it perpendicular —
+  ## the same estimate, two shapes.
+  let
+    age = float(nowTick - t.lastSeen)
+    span = age + float(aheadTicks)
+  if t.sightings >= 2:
+    let step = t.vel * span
+    result.at = t.pos + step
+    result.pad = age * FfStaleGrowPx + FfEmaLagFrac * step.len()
+  else:
+    result.at = t.pos
+    result.pad = age * FfStaleGrowPx +
+      min(FfUnknownMotionCapPx, FfMaxSpeedPx * span)
+
+proc windupFfBlocked(bot: Bot, origin, dir: Vec, enemyDist: float,
+                     aheadTicks: int, predict: bool, mateRange: float
+                     ): tuple[hit: bool, stale: bool, along: float] =
+  ## ⭐⭐⭐ The WINDUP-AWARE friendly-fire corridor test — friendlyBlocked run on
+  ## the geometry the BULLET meets, not the geometry at the decision frame.
+  ##
+  ## ⚠️ FRIENDLY FIRE ONLY. There is deliberately NO wall / line-of-sight
+  ## re-check in here. A sibling measurement of the T0 fire-axis lever found ~94%
+  ## of its vetoes were WALL vetoes and only ~6% mate vetoes (per-team-episode
+  ## veto/wall/mate 34/32/2, 62/59/4, 131/130/1, 83/80/6) — i.e. a wall lever
+  ## wearing a friendly-fire label. Keeping the two on separate flags is the only
+  ## way to state a friendly-fire gain without the wall term riding along, so
+  ## this proc tests bodies and nothing else.
+  ##
+  ## Three differences from friendlyBlocked, each independently switchable at the
+  ## call site so an A/B can attribute the gain to one of them:
+  ##
+  ## 1. AXIS. `dir` is passed in as a unit vector rather than derived from an aim
+  ##    POINT, so the caller can hand it bradsDir(bot.estAim) — the exact bearing
+  ##    startFireWindup will lock — instead of the ray to the aim point that
+  ##    target selection cleared. Perp-miss is a LINEAR tolerance on an ANGULAR
+  ##    error, so those two rays diverge hard up close: the trigger's own 17px
+  ##    slack is 1.4 deg at 400px but 16.5 deg at 60px, and the mate we hit sits
+  ##    at a median 47px along the ray.
+  ##
+  ## 2. MATE LEAD (`predict` + `aheadTicks`). Every fresh mate is put through
+  ##    trackAhead — the SHARED estimator ported from the AoE veto — which returns
+  ##    where the body will be at release AND, separately, how much it does not
+  ##    know. The uncertainty is spent PERPENDICULAR here, widening the corridor,
+  ##    which is exactly the shape a hitscan corridor wants. `predict = false`
+  ##    reproduces friendlyBlocked's geometry EXACTLY (observed position, corridor
+  ##    widened by age * FfStaleGrowPx) and is the T0 control arm.
+  ##
+  ## 3. STALE TRACKS are trackAhead's business, not this proc's: it dead-reckons
+  ##    across the age as well as the windup and charges a pad for both the age
+  ##    and the EMA's known lag, and a ONE-SIGHTING track (vel (0,0) by
+  ##    construction) gets a bounded isotropic pad instead of a fabricated
+  ##    velocity. That is the single behaviour all three weapons share.
+  ##
+  ## The along-track window keeps friendlyBlocked's backstop (a mate BEHIND the
+  ## target is safe — the target's body stops the bullet first) and adds an
+  ## optional gate on the MATE's own along-track distance. It is deliberately NOT
+  ## a gate on the target's range: the field census puts the target at a median
+  ## 190px and the mate we hit at 47px, so gating on the target discards about
+  ## two thirds of the population the veto exists for.
+  ##
+  ## Returns (hit, stale, along) — `stale` and `along` are diagnostics for the
+  ## probe and are meaningless when `hit` is false.
+  for t in bot.mates:
+    let age = float(bot.tick - t.lastSeen)
+    if age > FfMateFreshTicks:
+      continue
+    let (at, pad) =
+      if predict: trackAhead(t, bot.tick, aheadTicks)
+      else: (t.pos, age * FfStaleGrowPx)
+    let
+      rel = at - origin
+      d = rel.len()
+      along = dot(rel, dir)
+    if along <= 0 or d < 1e-6:
+      continue
+    if along >= enemyDist + 14.0:
+      continue                          # beyond the target: the target dies first
+    if mateRange > 0.0 and along > mateRange:
+      continue
+    if abs(cross(rel, dir)) < CorridorHalfWidth + pad:
+      return (true, age > WuffStaleAge, along)
+  (false, false, 0.0)
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
@@ -10460,6 +10741,72 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           client.pixelRayClear(me, engageBody) and
           not bot.friendlyBlocked(me, engageBody, bodyD):
         wantFire = true
+    # ⭐⭐⭐ WINDUP FRIENDLY-FIRE VETO (wuff) — the last word on the gun trigger,
+    # and the ONLY thing on this path that can CLOSE it. Everything above only
+    # opens it: `wantFire` is pure perp-miss, and the friendlyBlocked call three
+    # lines up lives inside a block that exclusively assigns `true`.
+    #
+    # Gated on `wantFire and not bot.firedLast` because that pair is exactly the
+    # condition under which a ButtonA is emitted at the bottom of decide(); on any
+    # other frame clearing wantFire could not change the mask, so evaluating there
+    # would only burn CPU and inflate the "it fired" counter with frames where it
+    # could not possibly have mattered.
+    if bot.tune.windupFf and wantFire and not bot.firedLast:
+      # The bearing is LOCKED at the pull (startFireWindup stores windupBrads =
+      # aimBrads) and the pull tick emits ButtonA with NO rotate bit — see the
+      # mask assembly at the tail of decide() — so bot.estAim IS the bearing the
+      # bullet will fly on, not an estimate of one.
+      let wuffDir = (if bot.tune.windupFfAxis: bradsDir(bot.estAim)
+                     else: norm(aim - me))
+      # The ORIGIN, though, travels: the muzzle is the shooter's centre AT THE
+      # RELEASE TICK. Our own velocity is the one-tick delta (bot.lastPos is still
+      # last frame's position here — decide() restamps it at the tail), rejected
+      # unless it is a plausible single-tick move so a respawn teleport or the
+      # first frame contributes nothing.
+      var wuffOrigin = me
+      if bot.tune.windupFfSelfLead > 0.0:
+        let step = me - bot.lastPos
+        if step.len() <= WuffSelfStepCapPx:
+          wuffOrigin = me + step * bot.tune.windupFfSelfLead
+      let wuffHit = bot.windupFfBlocked(
+        wuffOrigin, wuffDir, engageD, bot.tune.windupFfLead,
+        bot.tune.windupFfLead > 0, bot.tune.windupFfMateRange)
+      when defined(wuffprobe):
+        # FOUR verdicts on the SAME frame, so ONE run decomposes the axis term
+        # from the lead term instead of needing four arms. A = the selection ray
+        # at T0 (what the shipped code can see), B = the fire axis at T0 (a
+        # cqbLos-style check), C = fire axis + mate lead, D = the full lever.
+        let
+          wpTeam = (if bot.slot >= 0 and bot.slot < 32: wuffTeamOfSlot[bot.slot]
+                    else: -1)
+          wpA = bot.windupFfBlocked(me, norm(aim - me), engageD, 0, false,
+                                    bot.tune.windupFfMateRange)
+          wpB = bot.windupFfBlocked(me, bradsDir(bot.estAim), engageD, 0, false,
+                                    bot.tune.windupFfMateRange)
+          wpC = bot.windupFfBlocked(me, bradsDir(bot.estAim), engageD,
+                                    bot.tune.windupFfLead, true,
+                                    bot.tune.windupFfMateRange)
+        if wpTeam in 0 .. 3:
+          inc wuffCand[wpTeam]
+          if wpA.hit: inc wuffBlkA[wpTeam]
+          if wpB.hit: inc wuffBlkB[wpTeam]
+          if wpC.hit: inc wuffBlkC[wpTeam]
+          if wuffHit.hit:
+            inc wuffBlkD[wpTeam]
+            if not wpB.hit: inc wuffNewD[wpTeam]
+            if wuffHit.stale: inc wuffStale[wpTeam]
+        var wpBits = 1'u8
+        if wpA.hit: wpBits = wpBits or 2'u8
+        if wpB.hit: wpBits = wpBits or 4'u8
+        if wpC.hit: wpBits = wpBits or 8'u8
+        if wuffHit.hit: wpBits = wpBits or 16'u8
+        if wuffHit.hit and not bot.tune.windupFfShadow: wpBits = wpBits or 32'u8
+        wuffMark(bot.slot, bot.tick, wpBits)
+        if wuffHit.hit and not bot.tune.windupFfShadow:
+          if wpTeam in 0 .. 3: inc wuffSup[wpTeam]
+          if bot.slot >= 0 and bot.slot < 32: wuffSupAt[bot.slot] = bot.tick
+      if wuffHit.hit and not bot.tune.windupFfShadow:
+        wantFire = false
     if retreating or declining or banking or peeling or (bot.tune.carrierFlee and iCarry):
       # Outnumbered (retreat), declining the coin-flip trade (tradeGate), banking
       # at 1 hp, OR carrying the heart (flee):
@@ -11361,6 +11708,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
+    when defined(wuffprobe):
+      # ⭐ "A vetoed trigger re-fires a tick or two later on a clean line" is the
+      # whole cost argument for this lever, so MEASURE it: on every A actually
+      # emitted, how long ago was this slot's last suppression? A suppression
+      # that is never followed by an A is a shot we truly lost and shows up as
+      # the shortfall between wuffSup and wuffRe[2].
+      if bot.slot >= 0 and bot.slot < 32 and wuffSupAt[bot.slot] >= 0:
+        let wpGap = bot.tick - wuffSupAt[bot.slot]
+        let wpTm = wuffTeamOfSlot[bot.slot]
+        if wpGap >= 1 and wpTm in 0 .. 3:
+          if wpGap <= 3: inc wuffRe[0][wpTm]
+          if wpGap <= 6: inc wuffRe[1][wpTm]
+          if wpGap <= 12: inc wuffRe[2][wpTm]
+        if wpGap >= 1: wuffSupAt[bot.slot] = -1
     when defined(rngprobe):
       if rpBand >= 0: inc rpFire[rpSide][rpBand]
   when defined(rngprobe):
