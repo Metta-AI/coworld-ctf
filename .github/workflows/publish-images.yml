@@ -5,6 +5,19 @@ name: Publish images
 # do not republish images. The manifest references:
 #   ghcr.io/metta-ai/coworld-ctf           (game)
 #   ghcr.io/metta-ai/coworld-ctf-baseline  (baseline bot)
+#
+# The `bases` job below publishes the two nix-built bases the baseline bot's
+# Dockerfile sits on. It runs FIRST and `publish` needs it, because a base that
+# does not exist in GHCR is a Dockerfile that cannot resolve its FROM.
+#   ghcr.io/metta-ai/coworld-ctf-nim       (build stage: nim + nimby + ccache)
+#   ghcr.io/metta-ai/coworld-ctf-runtime   (runtime: glibc + curl + cacert)
+#
+# THEY ARE TAGGED BY THEIR NIXPKGS PIN, not `latest`, and the Dockerfile names
+# that tag explicitly. The tag IS the contract: nim bakes absolute /nix/store
+# paths into the binary, so the build base and the runtime base must come from
+# one pin, and a floating `latest` would let a base rebuild silently change
+# what every contributor compiles against. Bumping the pin is then a visible
+# one-line Dockerfile edit that reviews as what it is.
 on:
   workflow_dispatch:
   push:
@@ -12,7 +25,54 @@ on:
       - "v*"
 
 jobs:
+  # The nix-built bases. Nix runs HERE, on linux/amd64, so that nobody building
+  # the policy image needs it — least of all on a mac, where producing a
+  # linux/amd64 nix image is its own project.
+  bases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: coworld-ctf-nim
+            flake: ./caos/nim#caosImage
+            lock: caos/nim/flake.lock
+          - image: coworld-ctf-runtime
+            flake: ./caos/player-runtime#runtimeImage
+            lock: caos/player-runtime/flake.lock
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - id: pin
+        # The tag is the nixpkgs rev the image was built from, read from the
+        # lock rather than written down twice.
+        run: |
+          rev=$(python3 -c "import json;d=json.load(open('${{ matrix.lock }}'));print([v['locked']['rev'] for k,v in d['nodes'].items() if k=='nixpkgs'][0])")
+          echo "tag=${rev:0:8}" >> "$GITHUB_OUTPUT"
+      - run: |
+          out=$(nix build --no-link --print-out-paths '${{ matrix.flake }}')
+          echo "archive=$out" >> "$GITHUB_ENV"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the archive to GHCR
+        # skopeo, not `docker load` + `docker push`: dockerTools emits an OCI
+        # archive already, so loading it into a daemon only to push it back out
+        # rewrites the layers for nothing.
+        run: |
+          sudo apt-get update && sudo apt-get install -y skopeo
+          for tag in "${{ steps.pin.outputs.tag }}" latest; do
+            skopeo copy --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+              "docker-archive:$archive" \
+              "docker://ghcr.io/metta-ai/${{ matrix.image }}:$tag"
+          done
+
   publish:
+    needs: bases
     runs-on: ubuntu-latest
     permissions:
       contents: read
