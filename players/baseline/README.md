@@ -277,7 +277,32 @@ COWORLD_PLAYER_WS_URL="ws://localhost:8080/player?slot=0&token=0xBADA55_0" \
   ./players/baseline/baseline.out
 ```
 
-Container build uses `players/baseline/Dockerfile` (produces `/bin/baseline`).
+Container build uses `players/baseline/Dockerfile` (produces `/bin/baseline`):
+
+```bash
+docker build --platform=linux/amd64 \
+  -f players/baseline/Dockerfile -t coworld-ctf-baseline:local .
+```
+
+`--platform=linux/amd64` is required, not advisory — the platform rejects any
+other architecture, and the build is arch-native otherwise, so an Apple Silicon
+machine silently produces an arm64 image without it.
+
+Both stages sit on nix-built bases this repo defines (`caos/nim`,
+`caos/player-runtime`) and CI publishes to GHCR. **Building the image does not
+need nix** — the bases pull like any other `FROM`. They are tagged by the
+nixpkgs pin they were built from, and the Dockerfile names that tag, because
+nim bakes absolute `/nix/store` paths into the binary (its RUNPATH, and an
+absolute `dlopen` path for libcurl, which the nim `libcurl` package loads at
+run time rather than linking). Build base and runtime base must share one pin.
+Getting it wrong fails at startup with `could not load: libcurl.so(|.4)`,
+before the websocket — never silently.
+
+`caos-cli run-tool build-player` compiles on `caos/nim` too, so its binary is
+linked exactly like this one and can be dropped into the runtime stage as-is.
+This Dockerfile does not do that — it is the standalone path and compiles from
+source, with no ccache (a build stage is discarded, so a cache there would be
+cold every time while looking like a cached build).
 
 ## Artifact telemetry (always on)
 
