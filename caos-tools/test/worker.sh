@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-#@doc Build the test binary from this tree and run the whole suite as cached
-#@doc jobs in parallel — one per tests/test_*.nim module, or one per test for
-#@doc the slow modules — then return the report: a line per job with its time,
-#@doc the tail of every failure, and a pass/fail banner. An unchanged job never
-#@doc re-runs. Nothing is handed in from the host; the suite is compiled from
-#@doc these sources.
-#@arg [test-salt] Re-run every test while leaving the compile a cache hit — any fresh value (e.g. $(date --iso=s)) re-keys the test runs and nothing else.
-#@arg [only] Space-separated module names (e.g. "test_fov test_mapgen") to run just those.
+# The `test` tool's worker. Its DOCS — the description and `@param` tags an
+# agent registers it by — live in the sibling `.caos-expr` here-string, not in
+# this header (caos SPEC, "Tools"): a doc edit then re-keys the tool's arg tree
+# without re-running a single test.
 #
 # FOUR STAGES, one script, selected by a curried --stage.
 #

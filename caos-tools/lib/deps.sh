@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # The pinned Nim dependency tree, fetched by nimby inside a worker.
 #
-# A HELPER, not a tool (subdirectories of caos-tools/ are not registered): it
-# is curried by build.sh and test.sh, never called by an agent.
+# A HELPER, not a tool: it is curried by build/worker.sh and test/worker.sh,
+# never called by an agent. What keeps caos-tools/lib/ out of the registry is
+# that it carries no `.caos-expr` — a tool is a DIRECTORY whose expression
+# yields its arg tree (caos SPEC, "Tools"), and a directory without one is
+# skipped rather than registered.
 #
 # Keyed on `nimby.lock` ALONE. The lock file is the whole `--in`, deliberately:
 # bind the repo tree here and every source edit re-fetches 29 git repos. As it

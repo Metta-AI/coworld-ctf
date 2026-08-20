@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-#@doc Compile the game server (src/ctf.nim) inside caos and return its
-#@doc diagnostics. The Nim deps come from a cached `deps` job keyed on
-#@doc nimby.lock, and the C compilation is ccache-backed, so an unchanged
-#@doc build never runs and a one-file edit recompiles one file. Nothing is
-#@doc handed in from the host: the tree is compiled from source, in workers.
-#@arg [salt] Force a rebuild — any fresh value (e.g. $(date --iso=s)) re-keys this build and nothing else.
+# The `build` tool's worker. Its DOCS — the description and `@param` tags an
+# agent registers it by — live in the sibling `.caos-expr` here-string, not in
+# this header (caos SPEC, "Tools"): a doc edit then re-keys the tool's arg tree
+# without touching the tree this script compiles from.
 #
 # TWO STAGES, one script, selected by a curried --stage (caos's convention).
 # Each stage ends where it must delegate rather than block: a worker describes
@@ -46,7 +44,14 @@ narrow)
 
   fwd=("--worker1:@=/cas/args/worker1" --stage=compile "--ws:@=/cas/ws"
        "--lib:@=/cas/args/in/caos-tools/lib/common.sh")
-  if [ -e /cas/args/salt ]; then fwd+=("--salt:@=/cas/args/salt"); fi
+  # --build-salt, not --salt: `salt` is a RESERVED arg name (the interpreter
+  # binds it from CAOS_SALT and threads it into every sub-run), so a tool
+  # declaring `@param [salt]` is refused at REGISTRATION and an agent never
+  # gets the parameter at all — only a hand-run could reach it. Under its own
+  # name it rides in the compile stage and nowhere else, so a fresh value
+  # re-keys this build while leaving the deps job a cache hit. Nothing reads
+  # it: its presence in the key is the whole mechanism.
+  if [ -e /cas/args/build-salt ]; then fwd+=("--build-salt:@=/cas/args/build-salt"); fi
   next=$(caos curry --base:@=/cas/args/base "${fwd[@]}") || fail "currying compile"
 
   caos run-then /cas/args/in/nimby.lock --run:hash="$deps" --then:hash="$next"
