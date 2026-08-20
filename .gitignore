@@ -27,6 +27,12 @@ nimcache
 out/
 tmp/
 build/
+# ...but NOT the `build` tool. A tool is a DIRECTORY under caos-tools/ (caos
+# SPEC, "Tools"), and caos — like nix — only ever sees git-tracked files, so
+# the generic `build/` above would make this tool silently invisible rather
+# than broken. Re-including the directory is what lets git descend into it;
+# a `!caos-tools/build/**` alone cannot, an excluded parent is never walked.
+!caos-tools/build/
 replay-viewer/dist/
 __pycache__/
 *.pyc

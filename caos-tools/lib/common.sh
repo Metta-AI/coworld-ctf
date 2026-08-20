@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared by build.sh, build-player.sh and test.sh. Sourced, not run.
+# Shared by the build, build-player and test tools' worker.sh. Sourced, not run.
 
 # Narrow the workspace tree to the entries a compile actually reads, and put it
 # in the CAS. Everything is linked BY REFERENCE: `caos put` resolves a symlink

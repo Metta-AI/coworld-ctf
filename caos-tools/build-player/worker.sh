@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
-#@doc Compile a policy (players/<name>/<name>.nim) inside caos and return its
-#@doc diagnostics, with the SAME flags players/baseline/Dockerfile ships with,
-#@doc so a policy that is green here is one whose shipped image will compile.
-#@doc (It is a CHECK, not a replacement for that image: the binary here links
-#@doc against the worker's glibc, not the Dockerfile's debian one.)
-#@doc The Nim deps come from the same cached `deps` job the game build uses, and
-#@doc the C compilation is ccache-backed, so an unchanged build never runs.
-#@doc Nothing is handed in from the host: the policy is compiled from source, in
-#@doc a worker.
-#@arg [player] Which policy under players/ to build — the directory name, whose entry point is players/<name>/<name>.nim. Default: baseline.
-#@arg [defines] Extra defines for the compile, space-separated, e.g. "-d:taunt -d:tuneCarrierFireRange=140". Each must be -d:… or --define:… — this arg is not a general flag escape hatch.
-#@arg [salt] Force a rebuild — any fresh value (e.g. $(date --iso=s)) re-keys this build and nothing else.
+# The `build-player` tool's worker. Its DOCS — the description and `@param`
+# tags an agent registers it by — live in the sibling `.caos-expr`
+# here-string, not in this header (caos SPEC, "Tools"): a doc edit then
+# re-keys the tool's arg tree without recompiling a policy.
 #
-# TWO STAGES, one script, selected by a curried --stage — build.sh's shape, and
-# for the same reason: a worker describes its continuation and exits rather than
-# blocking on a job (design/map-then.md).
+# TWO STAGES, one script, selected by a curried --stage — build/worker.sh's
+# shape, and for the same reason: a worker describes its continuation and
+# exits rather than blocking on a job (design/map-then.md).
 #
 #   narrow   (default) narrow the tree, curry the deps job, run-then it
 #   compile  the `then`: --result is the deps tree, so nim can be pointed at it
@@ -81,7 +73,14 @@ narrow)
        "--lib:@=/cas/args/in/caos-tools/lib/common.sh")
   if [ -e /cas/args/player ]; then fwd+=("--player:@=/cas/args/player"); fi
   if [ -e /cas/args/defines ]; then fwd+=("--defines:@=/cas/args/defines"); fi
-  if [ -e /cas/args/salt ]; then fwd+=("--salt:@=/cas/args/salt"); fi
+  # --build-salt, not --salt: `salt` is a RESERVED arg name (the interpreter
+  # binds it from CAOS_SALT and threads it into every sub-run), so a tool
+  # declaring `@param [salt]` is refused at REGISTRATION and an agent never
+  # gets the parameter at all — only a hand-run could reach it. Under its own
+  # name it rides in the compile stage and nowhere else, so a fresh value
+  # re-keys this build while leaving the deps job a cache hit. Nothing reads
+  # it: its presence in the key is the whole mechanism.
+  if [ -e /cas/args/build-salt ]; then fwd+=("--build-salt:@=/cas/args/build-salt"); fi
   next=$(caos curry --base:@=/cas/args/base "${fwd[@]}") || fail "currying compile"
 
   caos run-then /cas/args/in/nimby.lock --run:hash="$deps" --then:hash="$next"

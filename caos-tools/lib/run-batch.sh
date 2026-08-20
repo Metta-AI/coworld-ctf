@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# One module's tests, as a caos job. Curried by test.sh's fanout stage and run
-# once per module (the `map` of a map-then), so 58 of these run in parallel.
+# One module's tests, as a caos job. Curried by test/worker.sh's fanout stage
+# and run once per module (the `map` of a map-then), so 58 of these run in
+# parallel.
 #
 # Args:
 #   tests  the test binary  — curried into the MAPPER, so all 58 jobs name the
@@ -12,7 +13,7 @@
 set -euo pipefail
 
 # Phase timings, returned with the result and summed across every job by
-# test.sh's summarize stage. Before a batch job can run anything it fetches a
+# test/worker.sh's summarize stage. Before a batch job can run anything it fetches a
 # ~9.5 MB binary and an 11.2 MB / 303-file tree and copies the binary out of
 # /cas, and EVERY job pays that in full — the same bytes, from the same server,
 # 109 times over. It is ~14% of the fan-out's slot time, and it is what decides

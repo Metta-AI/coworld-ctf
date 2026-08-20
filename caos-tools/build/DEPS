@@ -1,0 +1,12 @@
+# This tool's worker image, named by a local deep-deps mount: the path is
+# relative to THIS directory, and the root `.caos-expr` deepens the repo, so
+# `DEEP-DEPS/nim` exists in the tree this directory's `.caos-expr` is evaluated
+# against (caos design/caos-expr.md).
+#
+# caos/nim rather than caos's std/bash, and that is load-bearing rather than a
+# convenience: every one of these tools compiles Nim, and the test batches MUST
+# run on this image — the test binary hardcodes the ELF interpreter of the glibc
+# it was linked against, which is the one in here. caos/nim satisfies everything
+# std/bash would have: bash, coreutils, and the same /worker trampoline that
+# runs `worker1`.
+../../caos/nim nim

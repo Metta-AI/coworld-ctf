@@ -1,0 +1,18 @@
+# The `test` tool (caos SPEC, "Tools"): this directory's worker script curried
+# onto the Nim worker image, plus the `help` an agent registers it by.
+#
+# The docs are a HERE-STRING, so they live here rather than in the script's
+# header — and a `.caos-expr` is STRIPPED from the tree its own expression is
+# evaluated against, so editing them re-keys this tool's arg tree and NOTHING
+# it builds. That split is why `@param [only]` can be reworded without
+# re-running a single test.
+HELP=<<END
+Build the test binary from this tree and run the whole suite as cached jobs in
+parallel — one per tests/test_*.nim module, or one per test for the slow
+modules — then return the report: a line per job with its time, the tail of
+every failure, and a pass/fail banner. An unchanged job never re-runs. Nothing
+is handed in from the host; the suite is compiled from these sources.
+@param [test-salt] Re-run every test while leaving the compile a cache hit — any fresh value (e.g. $(date --iso=s)) re-keys the test runs and nothing else.
+@param [only] Space-separated module names (e.g. "test_fov test_mapgen") to run just those.
+END
+curry --base:@=DEEP-DEPS/nim --worker1:@=worker.sh --help=$HELP
