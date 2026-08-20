@@ -25,6 +25,9 @@ import
 
 export spriteprotocol.InputState, spriteprotocol.decodeInputMask
 
+when defined(aoeprobe):
+  import std/tables
+
 when defined(rangehitprobe):
   import std/math
   const RangeHitNearPx = 150.0  ## the study's own band: 0-150px hit%.
@@ -198,6 +201,13 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     # the futility bound is a join from a friendly-fire IMPACT back to the
     # TRIGGER FRAME, and only that join can say whether the veto could have
     # changed the outcome rather than merely fired.
+    result.sim.collectEvents = true
+
+  when defined(aoeprobe):
+    # -d:aoeprobe (2026-08-19, the AoE friendly-fire hole): the tier-2 sink is
+    # the ONLY source of weapon-attributed friendly DAMAGE (weaponKillCounts and
+    # friendlyFireCounts split KILLS by weapon but pool damage into one number,
+    # and the finding is stated in hit points, not bodies).
     result.sim.collectEvents = true
   when defined(ndprobe):
     # -d:ndprobe (2026-08-14, the v56 nade package): the tier-2 sink carries
@@ -468,6 +478,91 @@ when defined(ndprobe):
         elif nearest < 200.0: 4
         else: 5
       inc result.hist[b]
+
+when defined(aoeprobe):
+  # ── ⭐⭐ AoE FRIENDLY-FIRE ENGINE TRUTH (2026-08-19). Damage in HIT POINTS,
+  # split by weapon and by friend/foe, plus a per-ACTION ledger the rig joins to
+  # the policy's own veto flags. That join is what turns "the veto fired" into
+  # "the veto would have removed N hit points of friendly fire and M hit points
+  # of enemy damage" — the futility bound, with no sweep.
+  #
+  # ⚠️ e.source / e.target / d.slot are stable JOIN slots, not raw player
+  # indices (see emitEvent) — build the map, never assume they match.
+  proc aoeTeamMap(engine: EvalEngine): seq[int] =
+    result = newSeq[int](engine.sim.players.len)
+    for i in 0 ..< result.len: result[i] = -1
+    for p in engine.sim.players:
+      if p.joinOrder >= 0 and p.joinOrder < result.len:
+        result[p.joinOrder] = ord(p.team)
+
+  proc aoeFfDamage*(engine: EvalEngine): tuple[
+      gunFf, sprayFf, nadeFf, gunAll, sprayAll, nadeAll, nadeSelf: int] =
+    ## Damage in HIT POINTS by weapon. `*Ff` is mate-on-mate only: a blast at
+    ## one's OWN feet is a different defect and is broken out as nadeSelf rather
+    ## than pooled in (friendlyFireCounts makes the same exclusion).
+    let team = engine.aoeTeamMap()
+    for e in engine.sim.events:
+      if e.kind != Damage: continue
+      if e.source notin 0 ..< team.len or e.target notin 0 ..< team.len: continue
+      let st = team[e.source]
+      let tt = team[e.target]
+      if st < 0 or tt < 0: continue
+      let selfHit = e.source == e.target
+      let friendly = st == tt and not selfHit
+      case e.weapon
+      of "gun":
+        result.gunAll += e.amount
+        if friendly: result.gunFf += e.amount
+      of "spray":
+        result.sprayAll += e.amount
+        if friendly: result.sprayFf += e.amount
+      of "grenade":
+        result.nadeAll += e.amount
+        if friendly: result.nadeFf += e.amount
+        if selfHit: result.nadeSelf += e.amount
+      else: discard
+
+  proc aoeNadeRows*(engine: EvalEngine): seq[tuple[
+      slot, throwTick, ffDmg, foeDmg, selfDmg: int]] =
+    ## One row per THROW that reached a burst, carrying the hit points that
+    ## burst dealt to mates and to enemies. Keyed by the thrower's join slot and
+    ## the LAUNCH tick (recovered through actionId, which ties GrenadeThrow to
+    ## GrenadeImpact) so it lines up with the policy's release ledger.
+    let team = engine.aoeTeamMap()
+    var throwTick = initTable[int64, int]()
+    for e in engine.sim.events:
+      if e.kind == GrenadeThrow: throwTick[e.actionId] = e.tick
+    for e in engine.sim.events:
+      if e.kind != GrenadeImpact: continue
+      if e.source notin 0 ..< team.len: continue
+      let st = team[e.source]
+      if st < 0: continue
+      var row = (slot: e.source,
+                 throwTick: throwTick.getOrDefault(e.actionId, e.tick),
+                 ffDmg: 0, foeDmg: 0, selfDmg: 0)
+      for d in e.damages:
+        if d.slot notin 0 ..< team.len: continue
+        if d.slot == e.source: row.selfDmg += d.amount
+        elif team[d.slot] == st: row.ffDmg += d.amount
+        else: row.foeDmg += d.amount
+      result.add row
+
+  proc aoeSprayRows*(engine: EvalEngine): seq[tuple[
+      slot, tick, ffDmg, foeDmg: int]] =
+    ## One row per spray DAMAGE event (the cone re-picks victims every active
+    ## tick, so an activation is a burst of these; the rig folds them back onto
+    ## the press that started them).
+    let team = engine.aoeTeamMap()
+    for e in engine.sim.events:
+      if e.kind != Damage or e.weapon != "spray": continue
+      if e.source notin 0 ..< team.len or e.target notin 0 ..< team.len: continue
+      let st = team[e.source]
+      let tt = team[e.target]
+      if st < 0 or tt < 0 or e.source == e.target: continue
+      if st == tt:
+        result.add (slot: e.source, tick: e.tick, ffDmg: e.amount, foeDmg: 0)
+      else:
+        result.add (slot: e.source, tick: e.tick, ffDmg: 0, foeDmg: e.amount)
 
 proc frameFor*(engine: EvalEngine, slot: int): string =
   ## The exact sprite packet blob the live server would send this slot this

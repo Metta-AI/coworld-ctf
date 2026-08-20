@@ -197,6 +197,37 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
     # NOWUFF stays authoritative over the isolation knob: a force-revert has to
     # revert, or "roll it back by re-running with different env" is a lie.
     tune.windupFf = wuffArmed and getEnv("NOWUFF").len == 0
+
+  # ⭐⭐ AoE FRIENDLY-FIRE VETO (2026-08-19) TEAM ISOLATION. shippedCombatTune()
+  # reads NADEFF / SPRAYFF from the process env and all numPlayers bots share ONE
+  # process, so a bare NADEFF=1 arms every team and the "A/B" is a MIRROR — the
+  # same trap CQBLOSTEAM / FFAMEDTEAM / SPINTEAM exist to avoid. NADEFFTEAM=<n>
+  # arms ONLY engine team index n and strips every other team; SPRAYFFTEAM does
+  # the same for the cone. Raw team INDEX, not red/blue: `t` above collapses
+  # every non-zero team to Blue on a >2-team board, so red/blue cannot name one
+  # of four seats. An OUT-OF-RANGE index (e.g. 9) is the all-CONTROL arm — same
+  # binary, same env shape, the two runs differ in ONE integer.
+  # Both accept a COMMA LIST ("0,2") so one run can arm half the board and still
+  # be paired against a pure NADEFFTEAM=9 control: seat is NOT exchangeable here
+  # (the mid-quad finding), so every team has to be measured against ITSELF.
+  # `when compiles` so this same file still drops into a pre-merge tree.
+  proc aoeArmed(envName: string, team: int): bool =
+    let raw = getEnv(envName)
+    if raw.len == 0: return false
+    for part in raw.split(','):
+      let p = part.strip()
+      if p.len > 0 and team == parseInt(p): return true
+    false
+  # ⚠️ MERGE FIX (2026-08-19): the force-revert stays authoritative over the
+  # isolation knob, exactly as NOWUFF does over WUFFTEAM. Without this a
+  # NONADEFF=1 run that also carried NADEFFTEAM would arm the lever it was asked
+  # to revert, and "roll back by re-running with different env" would be a lie.
+  when compiles(tune.nadeFfVeto):
+    if getEnv("NADEFFTEAM").len > 0:
+      tune.nadeFfVeto = aoeArmed("NADEFFTEAM", team) and getEnv("NONADEFF").len == 0
+  when compiles(tune.sprayFfVeto):
+    if getEnv("SPRAYFFTEAM").len > 0:
+      tune.sprayFfVeto = aoeArmed("SPRAYFFTEAM", team) and getEnv("NOSPRAYFF").len == 0
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -479,6 +510,18 @@ proc main() =
   # more lives after it ends, so its final tally IS its half-time tally.
   var totLivesStart, totLivesHalf: float   # Σ over (games × teams) of each
                                            # team's own starting/half-time pool
+  when defined(aoeprobe):
+    var
+      aoGunFf, aoSprayFf, aoNadeFf, aoNadeSelf: int
+      aoGunAll, aoSprayAll, aoNadeAll: int
+      aoTeamEps = 0                      # Σ (episodes × teams) = the /team-Ep denominator
+      aoNadeThrows, aoNadeMatched: int
+      aoNHotN, aoNHotFf, aoNHotFoe: int  # throws the veto WOULD have stopped
+      aoNColdN, aoNColdFf, aoNColdFoe: int
+      aoNMissFf, aoNMissFoe: int         # bursts with no matching release row
+      aoSprayEv, aoSprayMatched: int
+      aoSHotFf, aoSHotFoe, aoSColdFf, aoSColdFoe: int
+      aoSMissFf, aoSMissFoe: int
   var totCaptures = 0        # Σ captures, ANY team, this batch
   var totCapturesLate = 0    # ...of which landed in the final 20% of the clock
   when defined(shapeprobe):
@@ -517,6 +560,9 @@ proc main() =
         wuffSupAt[s] = -1
     when defined(ndprobe):
       ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
+    when defined(aoeprobe):
+      nfRel.setLen(0)          # both AoE ledgers are per-EPISODE (joined below)
+      sfFire.setLen(0)
     when defined(fpprobe):
       for t in 0 .. 3:
         fpDeathTL[t].setLen(0)
@@ -557,6 +603,11 @@ proc main() =
       var lpHalfSampled = false
     var tick = 0
     while tick < ticks:
+      # Stamp the ENGINE tick into the policy module before the frames run, so
+      # the AoE release/press ledgers carry the same clock the sim events do and
+      # the join below needs no offset guess (bot.tick is a per-seat frame count
+      # that resets on respawn — joining on it would be a silent mismatch).
+      when defined(aoeprobe): aoeTick = tick
       for s in 0 ..< numPlayers:
         let packet = engine.frameFor(s)
         let mask = drivers[s].frame(packet)
@@ -675,7 +726,7 @@ proc main() =
       block wuffRow:
         var
           shots, ffHits, enHits, geo: array[4, int]
-          ffFlagA, ffFlagB, ffFlagC, ffFlagD, ffPullSeen: array[4, int]
+          ffFlagA, ffFlagB, ffFlagC, ffFlagD, ffFlagU, ffPullSeen: array[4, int]
           kl, dt, cp, lv: array[4, int]
         for row in engine.wuffGunShots():
           let t = row.srcTeam
@@ -707,6 +758,7 @@ proc main() =
                 if (f and 4'u8) != 0: inc ffFlagB[t]
                 if (f and 8'u8) != 0: inc ffFlagC[t]
                 if (f and 16'u8) != 0: inc ffFlagD[t]
+                if (f and 64'u8) != 0: inc ffFlagU[t]
             elif isFf:
               inc wuffFfNoPull
         for st in r.slots:
@@ -720,9 +772,9 @@ proc main() =
           echo "WUFFROW ", epSeed, " ", t, " ", r.ticks,
             " ", shots[t], " ", enHits[t], " ", ffHits[t], " ", geo[t],
             " ", ffPullSeen[t], " ", ffFlagA[t], " ", ffFlagB[t],
-            " ", ffFlagC[t], " ", ffFlagD[t],
+            " ", ffFlagC[t], " ", ffFlagD[t], " ", ffFlagU[t],
             " ", wuffCand[t], " ", wuffBlkA[t], " ", wuffBlkB[t],
-            " ", wuffBlkC[t], " ", wuffBlkD[t], " ", wuffNewD[t],
+            " ", wuffBlkC[t], " ", wuffBlkD[t], " ", wuffBlkU[t], " ", wuffNewD[t],
             " ", wuffSup[t], " ", wuffStale[t],
             " ", wuffRe[0][t], " ", wuffRe[1][t], " ", wuffRe[2][t],
             " ", kl[t], " ", dt[t], " ", cp[t], " ", lv[t]
@@ -730,7 +782,8 @@ proc main() =
         # above is a running total, so bank the episode deltas by resetting.
         for t in 0 .. 3:
           wuffCand[t] = 0; wuffBlkA[t] = 0; wuffBlkB[t] = 0; wuffBlkC[t] = 0
-          wuffBlkD[t] = 0; wuffNewD[t] = 0; wuffSup[t] = 0; wuffStale[t] = 0
+          wuffBlkD[t] = 0; wuffBlkU[t] = 0; wuffNewD[t] = 0
+          wuffSup[t] = 0; wuffStale[t] = 0
           wuffRe[0][t] = 0; wuffRe[1][t] = 0; wuffRe[2][t] = 0
     when defined(lifeprobe):
       # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
@@ -844,6 +897,57 @@ proc main() =
             alive[sl.team] += sl.lives + (if sl.alive: 1 else: 0)
         for t in 0 ..< min(4, nTeams):
           if alive[t] == 0: inc fpWiped[t]
+    when defined(aoeprobe):
+      # ── ⭐⭐ AoE FF: engine truth + the join that makes the futility bound exact.
+      let ffd = engine.aoeFfDamage()
+      aoGunFf += ffd.gunFf; aoSprayFf += ffd.sprayFf; aoNadeFf += ffd.nadeFf
+      aoGunAll += ffd.gunAll; aoSprayAll += ffd.sprayAll; aoNadeAll += ffd.nadeAll
+      aoNadeSelf += ffd.nadeSelf
+      aoTeamEps += clamp(evalTeams, 2, 4)
+      # GRENADE: every burst is attributed to the release row that produced it,
+      # so its friendly AND enemy hit points land in the hot (veto would have
+      # stopped it) or cold (it would not) bucket. Unmatched bursts are reported
+      # separately and never silently folded into either — an unmatched row is a
+      # broken join, not a cold throw.
+      for row in engine.aoeNadeRows():
+        inc aoNadeThrows
+        var hit = -1
+        var bestGap = 1 shl 30
+        for i in 0 ..< nfRel.len:
+          if nfRel[i].slot != row.slot: continue
+          let gap = abs(nfRel[i].tick - row.throwTick)
+          if gap <= 6 and gap < bestGap:
+            bestGap = gap
+            hit = i
+        if hit < 0:
+          aoNMissFf += row.ffDmg; aoNMissFoe += row.foeDmg
+        else:
+          inc aoNadeMatched
+          if nfRel[hit].hot[2]:
+            inc aoNHotN; aoNHotFf += row.ffDmg; aoNHotFoe += row.foeDmg
+          else:
+            inc aoNColdN; aoNColdFf += row.ffDmg; aoNColdFoe += row.foeDmg
+      # SPRAY: the cone re-picks victims every active tick, so each damage tick
+      # is folded back onto the LATEST press by that seat inside the activation
+      # window (PlasmaArcActiveTicks, plus slack for the frame/step offset).
+      for row in engine.aoeSprayRows():
+        inc aoSprayEv
+        var hit = -1
+        var bestTick = -1 shl 30
+        for i in 0 ..< sfFire.len:
+          if sfFire[i].slot != row.slot: continue
+          let dt = row.tick - sfFire[i].tick
+          if dt >= -3 and dt <= 8 and sfFire[i].tick > bestTick:
+            bestTick = sfFire[i].tick
+            hit = i
+        if hit < 0:
+          aoSMissFf += row.ffDmg; aoSMissFoe += row.foeDmg
+        else:
+          inc aoSprayMatched
+          if sfFire[hit].hot[2]:
+            aoSHotFf += row.ffDmg; aoSHotFoe += row.foeDmg
+          else:
+            aoSColdFf += row.ffDmg; aoSColdFoe += row.foeDmg
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
@@ -1388,7 +1492,7 @@ proc main() =
       &"WUFFTEAM={getEnv(\"WUFFTEAM\")} WUFFSHADOW={getEnv(\"WUFFSHADOW\")} " &
       &"WUFFAXIS={getEnv(\"WUFFAXIS\")} WUFFLEAD={getEnv(\"WUFFLEAD\")} " &
       &"WUFFSELF={getEnv(\"WUFFSELF\")} " &
-      &"WUFFMATERANGE={getEnv(\"WUFFMATERANGE\")}"
+      &"WUFFMATERANGE={getEnv(\"WUFFMATERANGE\")} WUFFUNION={getEnv(\"WUFFUNION\")}"
     var offTot = 0
     for v in wuffOffHist: offTot += v
     var offStr = ""
@@ -1406,7 +1510,62 @@ proc main() =
       "ffJoined ffFlagA ffFlagB ffFlagC ffFlagD | cand blkA blkB blkC blkD newD " &
       "sup stale re3 re6 re12 | kills deaths caps lives"
     echo "  A = selection ray @T0   B = estAim @T0 (axis term alone)   " &
-      "C = estAim + mate lead   D = C + muzzle lead (the full lever)"
+      "C = estAim + mate lead   D = C + muzzle lead   U = C OR D (the union)"
+
+  when defined(aoeprobe):
+    echo "==================================================="
+    echo "--- AoE FRIENDLY-FIRE VETO (-d:aoeprobe, 2026-08-19) ---"
+    echo &"  arm: NADEFF={getEnv(\"NADEFF\")} NONADEFF={getEnv(\"NONADEFF\")} " &
+      &"SPRAYFF={getEnv(\"SPRAYFF\")} NOSPRAYFF={getEnv(\"NOSPRAYFF\")} " &
+      &"NADEFFTEAM={getEnv(\"NADEFFTEAM\")} SPRAYFFTEAM={getEnv(\"SPRAYFFTEAM\")}"
+    echo &"  games {games}  teams {evalTeams}  team-episodes {aoTeamEps}"
+    let te = max(1, aoTeamEps).float
+    echo "  --- ENGINE TRUTH: damage in HIT POINTS (the finding's own unit) ---"
+    echo &"    gun     ff {aoGunFf:>6}  all {aoGunAll:>7}  ff/team-Ep {aoGunFf.float/te:>7.3f}"
+    echo &"    spray   ff {aoSprayFf:>6}  all {aoSprayAll:>7}  ff/team-Ep {aoSprayFf.float/te:>7.3f}"
+    echo &"    grenade ff {aoNadeFf:>6}  all {aoNadeAll:>7}  ff/team-Ep {aoNadeFf.float/te:>7.3f}" &
+      &"   (self-blast, excluded from ff: {aoNadeSelf})"
+    let aoeFf = aoSprayFf + aoNadeFf
+    let allFf = aoGunFf + aoeFf
+    echo &"    AoE share of all friendly fire: {aoeFf}/{allFf} = " &
+      &"{(if allFf > 0: 100.0*aoeFf.float/allFf.float else: 0.0):.1f}%"
+    echo "  --- POLICY FUNNEL (lever-INDEPENDENT: both arms score the same world) ---"
+    echo &"    grenade  candidate impact points {nfCand}   dropped-by-armed-veto {nfCandVeto}"
+    var line = "      ...of which a mate is in the burst, by slack px:"
+    for k in 0 ..< AoeSlackN:
+      line &= &"  {AoeSlack[k]:+.0f}={nfCandHot[k]}"
+    echo line
+    echo &"    grenade  RELEASES {nfRelease}   held-by-armed-veto(ticks) {nfHoldTicks}" &
+      &"   threw-anyway-at-cap {nfHoldBail}"
+    line = "      ...of which a mate is in the burst AT BURST, by slack px:"
+    for k in 0 ..< AoeSlackN:
+      line &= &"  {AoeSlack[k]:+.0f}={nfReleaseHot[k]}"
+    echo line
+    echo &"    spray    PRESSES {sfPress}   declined-by-armed-veto {sfVeto}"
+    line = "      ...of which a mate is in the wedge, by slack px:"
+    for k in 0 ..< AoeSlackN:
+      line &= &"  {AoeSlack[k]:+.0f}={sfPressHot[k]}"
+    echo line
+    echo "  --- FUTILITY BOUND (join of the ledger to the burst it produced) ---"
+    echo &"    grenade bursts {aoNadeThrows}  joined to a release row {aoNadeMatched}" &
+      &"  (unjoined ff {aoNMissFf} foe {aoNMissFoe} — a broken join, NOT a cold throw)"
+    echo &"      VETO-HOT throws {aoNHotN}: friendly {aoNHotFf} hp REACHED, " &
+      &"enemy {aoNHotFoe} hp FORGONE"
+    echo &"      cold     throws {aoNColdN}: friendly {aoNColdFf} hp OUT OF REACH, " &
+      &"enemy {aoNColdFoe} hp kept"
+    echo &"    spray damage ticks {aoSprayEv}  joined to a press {aoSprayMatched}" &
+      &"  (unjoined ff {aoSMissFf} foe {aoSMissFoe})"
+    echo &"      VETO-HOT: friendly {aoSHotFf} hp REACHED, enemy {aoSHotFoe} hp FORGONE"
+    echo &"      cold    : friendly {aoSColdFf} hp OUT OF REACH, enemy {aoSColdFoe} hp kept"
+    let reach = aoNHotFf + aoSHotFf
+    let cost = aoNHotFoe + aoSHotFoe
+    echo &"    => AoE friendly hp the veto REACHES {reach} of {aoeFf} " &
+      &"({(if aoeFf > 0: 100.0*reach.float/aoeFf.float else: 0.0):.1f}%), " &
+      &"enemy hp it FORGOES {cost}  (exchange {(if cost > 0: reach.float/cost.float else: 0.0):.2f} " &
+      "friendly hp saved per enemy hp given up)"
+    echo "    (REACHED is the CEILING for this geometry+perception. A cold burst that " &
+      "still hurt a mate is one the mate track was too stale or too wrong to predict — " &
+      "raise slack, not the flag.)"
     flushFile(stdout)
 
 when isMainModule:

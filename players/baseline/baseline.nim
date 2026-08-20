@@ -432,6 +432,7 @@ when defined(wuffprobe):
                                 # (the AXIS term alone == a cqbLos-style check)
   var wuffBlkC: array[4, int]   # blocked on estAim with the MATE led to T+5
   var wuffBlkD: array[4, int]   # blocked on estAim with mate AND muzzle led (full)
+  var wuffBlkU: array[4, int]   # blocked by the UNION of C and D
   var wuffNewD: array[4, int]   # D blocked where B did NOT — the population no T0
                                 # veto of any axis can reach
   var wuffSup: array[4, int]    # pulls the ARMED, non-shadow veto actually killed
@@ -442,7 +443,8 @@ when defined(wuffprobe):
   var wuffSupAt: array[32, int] # per slot: tick of the last suppressed pull, -1 = none
   var wuffTickFlags: array[32, seq[uint8]]  # per slot, per BOT TICK bitfield:
                                 # 1 = candidate pull, 2 = A, 4 = B, 8 = C, 16 = D,
-                                # 32 = suppressed. grabprobe sizes/clears it per
+                                # 32 = suppressed, 64 = the C-OR-D union.
+                                # grabprobe sizes/clears it per
                                 # episode and joins it against the engine's gun
                                 # ShotImpact rows (trigger tick = impact - 5).
   proc wuffMark(slot, tick: int, bits: uint8) =
@@ -595,6 +597,45 @@ when defined(ndprobe):
   # actionId, so a stale-armed throw's CONVERSION can be compared against a
   # fresh-armed one — a gate must DISCRIMINATE, not just fire.
   var ndReleases: seq[tuple[tick, slot: int, stale: bool]] = @[]
+
+when defined(aoeprobe):
+  # ── ⭐⭐ AoE FRIENDLY-FIRE PROBE (-d:aoeprobe ONLY, 2026-08-19). Never compiled
+  # into the shipped player. Its job is to make the FUTILITY BOUND computable
+  # from ONE control run, before any sweep is paid for — "it FIRED" is not "it
+  # could have CHANGED the outcome" (the 88.7% bind rate that meant nothing).
+  #
+  # Every counter here is LEVER-INDEPENDENT: the hot/veto tests are evaluated on
+  # the SAME decisions in both arms, so a control run (NADEFF/SPRAYFF unset)
+  # reports exactly how much of the UNVETOED world the veto reaches. Gating a
+  # probe behind its own lever makes the OFF arm read 0 and 0 is
+  # indistinguishable from "no stimulus" (the asoprobe rule).
+  #
+  # The SLACK LADDER is the point: each decision is scored at five margins
+  # around the shipped geometry, so the whole coverage-vs-suppression curve is
+  # readable from one run and the margin can be re-tuned without a re-sim.
+  const AoeSlackN* = 5
+  const AoeSlack*: array[AoeSlackN, float] = [-24.0, -12.0, 0.0, 12.0, 24.0]
+  var aoeTick* = 0        # ENGINE tick, stamped by the rig before each frame, so
+                          # the rows below join to sim events with no offset guess.
+  # GRENADE funnel.
+  var nfCand = 0          # candidate impact points that cleared every EXISTING
+                          # gate (range, LOS, cluster) — the throwable population
+  var nfCandHot: array[AoeSlackN, int]   # ...of those, ones with a mate in the burst
+  var nfCandVeto = 0      # ...and the ARMED lever actually dropped the candidate
+  var nfRelease = 0       # grenades actually RELEASED (the decision that matters)
+  var nfReleaseHot: array[AoeSlackN, int]  # ...with a mate predicted in the burst
+                          # AT BURST TIME = the throws the veto could have stopped
+  var nfHoldTicks = 0     # ticks the ARMED release veto held a charge back
+  var nfHoldBail = 0      # ...and threw anyway at NadeFfHoldMax (the residual)
+  var nfRel*: seq[tuple[tick, slot: int, hot: array[AoeSlackN, bool]]] = @[]
+                          # per-release ledger; the rig joins it to the engine's
+                          # GrenadeImpact damage so REACH and COST are exact
+                          # counts of hit points, not proxy fire rates.
+  # SPRAY funnel.
+  var sfPress = 0         # cone presses the existing policy would have made
+  var sfPressHot: array[AoeSlackN, int]  # ...with a mate inside the wedge
+  var sfVeto = 0          # ...and the ARMED lever actually declined the press
+  var sfFire*: seq[tuple[tick, slot: int, hot: array[AoeSlackN, bool]]] = @[]
 
 when defined(cgprobe):
   # -d:cgprobe ONLY (2026-08-06): comboGrab mechanism proof. The co-carry
@@ -994,27 +1035,12 @@ const
                               # the shooter's THEN-CURRENT centre against the
                               # THEN-CURRENT bodies (selectFireTarget). So the veto
                               # has to be run on the geometry at T0+5, not at T0.
-  # ── ⭐⭐ SHARED MATE-MOTION ESTIMATOR CONSTANTS. PORTED VERBATIM, not
-  # reinvented, from the AoE friendly-fire veto (commit e8712e0 on
-  # maxwell/ffa4-ff-aoe, 2026-08-19) so the gun, the grenade and the spray cone
-  # all answer "where will this mate BE when my weapon lands" with ONE estimator
-  # that cannot drift between weapons. Every value is read off the engine and
-  # names its source. If both branches land, these blocks are meant to CONFLICT
-  # textually rather than silently duplicate.
-  FfMateFreshTicks = 36       # friendlyBlocked's own mate-freshness bar, reused so
-                              # all three weapons veto off the SAME track set.
-  FfStaleGrowPx = 0.35        # ...and its staleness widening (px per tick of age).
-  FfMaxSpeedPx = 2.75         # sim_types MaxSpeed(704) / MotionScale(256) = px/tick.
-  FfUnknownMotionCapPx = 20.0 # a track with ONE sighting carries vel (0,0) BY
-                              # CONSTRUCTION (see Track.sightings), so "standing
-                              # still" is unknowable. Treating it as stationary is
-                              # a silent FALSE NEGATIVE — exactly the body that
-                              # walks onto the line during the lock. Pay a BOUNDED
-                              # isotropic pad instead of asserting a wrong vector.
-  FfEmaLagFrac = 0.5          # updateTracks blends velocity as (old + new)*0.5, so
-                              # a body that JUST started moving reads at half its
-                              # true speed. Pad the predicted displacement by this
-                              # fraction of itself to cover the lag.
+  # ── ⭐⭐ The SHARED MATE-MOTION ESTIMATOR (trackAhead) and its Ff* constants
+  # are defined ONCE, in the AoE friendly-fire block further down this same
+  # const section. The merge of the gun veto and the AoE vetoes deliberately
+  # collapsed the two copies into that one: gun corridor, grenade blast disc and
+  # spray wedge all answer "where will this mate BE when my weapon lands" from
+  # the same estimator, and a second copy is a second thing to keep in sync.
   WuffSelfStepCapPx = 6.0     # a plausible ONE-tick move for the muzzle-lead
                               # estimate (top speed is ~2.75px/tick; 6 leaves room
                               # for a diagonal). Above this the delta is a respawn
@@ -1147,6 +1173,73 @@ const
                               # approach is the +EV act the weapon exists for (area-denial vs a
                               # cluster; doctrine "numbers are the currency"), NOT feeding: it is
                               # gated on a REAL cluster, never a singleton (that's the dry case).
+  # ── ⭐⭐ AoE FRIENDLY-FIRE VETO (2026-08-19). The gun has friendlyBlocked;
+  # the GRENADE and the SPRAY CONE have no friendly check at ALL, and together
+  # they are 36% of our friendly-fire damage (gun 441 / spray 174 / grenade 72
+  # per the ffa4 autopsy). That 36% is unvetoed BY CONSTRUCTION, so it is a
+  # MISSING CHECK, not a tuning error. A corridor hitscan is the wrong SHAPE for
+  # either: one is a disc at a destination, the other a widening wedge from us.
+  # Every number below is READ OFF THE ENGINE (src/ctf/sim.nim, sim_types.nim) —
+  # none is invented, and each names its source so a GameVersion bump can diff it.
+  FfMateFreshTicks = 36       # friendlyBlocked's own mate-freshness bar, reused so
+                              # all three weapons veto off the SAME track set.
+  FfStaleGrowPx = 0.35        # ...and its staleness widening (px per tick of age).
+  FfPlayerHalfPx = 6.0        # sim_types PlayerHalf: the SOLID footprint half-extent.
+  FfMaxSpeedPx = 2.75         # sim_types MaxSpeed(704) / MotionScale(256) = px/tick.
+  FfUnknownMotionCapPx = 20.0 # a track with ONE sighting carries vel (0,0) BY
+                              # CONSTRUCTION (see Track.sightings), so "standing
+                              # still" is unknowable. Treating it as stationary is
+                              # a silent FALSE NEGATIVE — exactly the body that
+                              # walks onto the impact during the lock. Pay a
+                              # BOUNDED isotropic pad instead of a wrong vector.
+  FfEmaLagFrac = 0.5          # updateTracks blends velocity as (old + new)*0.5, so
+                              # a body that JUST started moving reads at half its
+                              # true speed and converges only over several
+                              # sightings. Pad the predicted displacement by this
+                              # fraction of itself to cover the lag.
+  # GRENADE. sim.explodeGrenade tests the victim's solid body BOX against a disc:
+  # nearX = max(0,|dx|-PlayerHalf), nearY likewise, caught iff nearX^2+nearY^2 <=
+  # GrenadeBlastRadius^2. That region is the Minkowski sum of the disc with the
+  # 12x12 box, whose FURTHEST point is the diagonal, 52 + 6*sqrt(2) = 60.49px —
+  # so a plain radius test at 60.49 is a strict SUPERSET of the engine rule and
+  # can never miss a real catch (the on-axis 58px figure the engine comment
+  # quotes would).
+  NadeFfBlastPx = NadeBlast + FfPlayerHalfPx * 1.41422
+  NadeFfFlightTicks = 10      # sim.throwGrenade: max(1, GrenadeFlightMultiple(2) *
+                              # fireWindupTicks(5)). FIXED fuse, near or far — a
+                              # mate outside the disc NOW can be inside it at burst.
+  NadeFfDriftPx = 8.0         # residual motion margin on top of the velocity
+                              # extrapolation: ~3 ticks of MaxSpeed, for the
+                              # acceleration a one-frame velocity read cannot carry.
+  NadeFfHoldMax = 8           # release-time veto is a HOLD, not an abort (the engine
+                              # throws on the C RELEASE edge, so a charge cannot be
+                              # abandoned). Bounded so a blocked bot is a statue for
+                              # at most 8 ticks, then throws anyway.
+  # SPRAY CONE. sim.selectArcVictims: forward in (0, reach + bodyRadius], and
+  # perpendicular <= forward * (maxWidth / (2*reach)) + bodyRadius, then gated on
+  # paintPathClear. A WEDGE, not a fixed-radius arc.
+  ArcFfReachPx = 170.0        # sim_types PlasmaArcReach = 5 * PlasmaArcSquare
+                              # (= SoldierBodyPx 34). ⚠️ the policy's own
+                              # PlasmaArcReachPx(136) is STALE — GV31 grew the reach
+                              # 4 -> 5 squares and nobody updated it. The veto uses
+                              # the ENGINE number; the stale const is left alone so
+                              # this change stays a pure ADD.
+  ArcFfBodyPx = 17.0          # sim_types PlasmaArcBodyRadius = SoldierBodyPx div 2:
+                              # the cone hits the DRAWN body, not the 1px point.
+  ArcFfSlope = 0.25           # sim PlasmaArcMaxWidth(5*34 div 2 = 85) / (2 * 170).
+                              # atan(0.25) = 14.04deg, the documented half-angle.
+  ArcFfActiveTicks = 5        # sim_types PlasmaArcActiveTicks: ticks a fired cone
+                              # stays on, re-selecting victims EVERY one of them.
+  ArcFfRidePx = 13.75         # PlasmaArcActiveTicks(5) * FfMaxSpeedPx(2.75). The
+                              # cone's BEARING is locked at the fire instant
+                              # (arcAimBrads) so it never sweeps — but its ORIGIN
+                              # RIDES its owner and victims are re-selected EVERY
+                              # active tick, so a mate can walk into a cone that was
+                              # clean when we pressed. This is that window.
+  ArcFfAimPadSlope = 0.125    # tan(AimRate 5 brads = 7.03deg): one tick of turret
+                              # lag between bot.estAim and the aimBrads the engine
+                              # actually locks.
+
   ArcSeamHoldDepth = 55.0     # a DISARMED breacher with NO cluster anywhere (the dry case) must
                               # NOT charge its gunless body INTO the line to be focus-fired for
                               # free. Hold at this shallow depth just past center — a live cone is
@@ -2013,6 +2106,14 @@ type
                               # hit at median 47px along the ray while the target
                               # sits at 190px, so a target-range gate discards
                               # about two thirds of its own population.
+    windupFfUnion: bool       # ⭐ C-OR-D UNION: block if EITHER the mate-lead test
+                              # with the muzzle held at T0 OR the mate+muzzle-lead
+                              # test trips. Built because the muzzle lead is NOT
+                              # strictly better than the mate lead alone — it moves
+                              # the corridor off some real collisions while catching
+                              # others (measured: of the friendly hits that got
+                              # through the full lever, 13/37 carried a mate-lead
+                              # flag at their own trigger frame).
     windupFfShadow: bool      # MEASURE ONLY: evaluate the veto and record it, but
                               # never suppress. Behaviour stays byte-identical to
                               # the control, which is what makes the futility bound
@@ -3076,6 +3177,33 @@ type
                               # volume/commitment gate, agnostic of WHO we shoot. Scoped to
                               # GameTeams > 2 (2-team combat is already the fireSuperiority
                               # arithmetic and stays byte-identical). NOVOLUME=1 reverts.
+    nadeFfVeto: bool          # ⭐⭐ GRENADE FRIENDLY VETO (2026-08-19, the AoE hole).
+                              # friendlyBlocked guards the GUN only; the lob has never
+                              # had a friendly check of any kind, so every mate the
+                              # blast catches is unvetoed BY CONSTRUCTION. Two gates,
+                              # both off the one `friendlyInBlast` disc test:
+                              #   (a) SELECTION — a candidate impact point with a mate
+                              #       predicted inside the burst is not a target at all
+                              #       (no charge is even started, so nothing is wasted);
+                              #   (b) RELEASE — the charge takes 3-24 ticks and the fuse
+                              #       another 10, so a mate can walk in AFTER the throw
+                              #       was planned. The engine throws on the C RELEASE
+                              #       edge, so a charge cannot be aborted; the veto
+                              #       therefore HOLDS the charge (the same mechanism
+                              #       nadeLob's turret-settle wait already uses) for at
+                              #       most NadeFfHoldMax ticks, then throws anyway.
+                              # Ships OFF. NADEFF=1 arms it, NONADEFF=1 force-reverts on
+                              # top; NADEFFTEAM=<n>[,<n>] in grabprobe arms one team so a
+                              # local run is not a mirror.
+    sprayFfVeto: bool         # ⭐⭐ SPRAY FRIENDLY VETO (2026-08-19, the AoE hole). Same
+                              # missing check in the other AoE weapon: the arc-breacher
+                              # presses attack on pure enemy geometry and the sim's cone
+                              # hits EVERY body in the wedge, mate included. Blocks the
+                              # press (never the approach) when `friendlyInCone` puts a
+                              # remembered mate inside the wedge the engine would cut —
+                              # so the can is not spent, and the next tick re-tests.
+                              # Ships OFF. SPRAYFF=1 arms, NOSPRAYFF=1 force-reverts;
+                              # SPRAYFFTEAM=<n>[,<n>] isolates a team in grabprobe.
 
   Bot = ref object
     slot: int
@@ -3192,6 +3320,9 @@ type
     nadeNeed: int             # charge ticks required for the planned throw
     nadeLockAim: int          # nadeLob: lob bearing frozen at charge start (-1 idle)
     nadeHold: int             # nadeLob: full-charge ticks spent waiting for the turret
+    nadeFfHold: int           # nadeFfVeto: ticks this charge has been HELD because a
+                              # mate is predicted inside the burst. Bounded by
+                              # NadeFfHoldMax so a blocked bot never freezes for good.
     nadeStaleArm: bool        # staleNade: this charge was armed on a STALE
                               # (remembered, wall-blocked, camped) cluster, not
                               # a fresh sighting — carried to the release so the
@@ -3766,6 +3897,7 @@ proc defaultCombatTune(): CombatTune =
     windupFfLead: 0,          # control: unused while windupFf is false.
     windupFfSelfLead: 0.0,    # control: unused while windupFf is false.
     windupFfMateRange: 0.0,   # control: unused while windupFf is false.
+    windupFfUnion: false,     # control: unused while windupFf is false.
     windupFfShadow: false,    # control: unused while windupFf is false.
     threatFacingBonus: false, # control: danger score ignores enemy facing.
     shout: false,             # control: never shout.
@@ -3859,6 +3991,10 @@ proc defaultCombatTune(): CombatTune =
     ffaMedSee: false,         # control: medEcon's ffa4 candidates stay the two formula spots only.
     lastLifeGuard: false,     # control: a last-life bot dives the pocket and heals like any other.
     tradeGate: false,         # control: fireSuperiority presses on "not badly outnumbered", not "hold an edge".
+    nadeFfVeto: false,        # control: the lob has NO friendly check — any mate inside the 52px
+                              # blast at burst simply eats it (the shipped behaviour today).
+    sprayFfVeto: false,       # control: the cone has NO friendly check — any mate inside the
+                              # 170px wedge simply eats it (the shipped behaviour today).
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -4161,6 +4297,7 @@ proc shippedCombatTune(): CombatTune =
   #   WUFFLEAD=<ticks>  mate lead (default WuffLeadTicks=5; 0 = no prediction, T0)
   #   WUFFSELF=<ticks>  own-muzzle lead (default WuffLeadTicks=5; 0 = muzzle at T0)
   #   WUFFMATERANGE=<px> along-track gate on the MATE (0 = none, the default)
+  #   WUFFUNION=1       block on the OR of the mate-lead and mate+muzzle-lead tests
   #   WUFFSHADOW=1      evaluate + record, never suppress (the futility bound)
   # ⚠️ A bare WUFF=1 is a MIRROR — every rig bot shares one process env. Use
   # WUFFTEAM=<n[,n]> in grabprobe.nim, which arms ONE raw engine team index.
@@ -4178,6 +4315,7 @@ proc shippedCombatTune(): CombatTune =
   result.windupFfMateRange =
     if getEnv("WUFFMATERANGE").len > 0: parseFloat(getEnv("WUFFMATERANGE"))
     else: 0.0
+  result.windupFfUnion = getEnv("WUFFUNION").len > 0
   result.windupFfShadow = getEnv("WUFFSHADOW").len > 0
   # counterArc (Play C, GameVersion 15 plasma arc): prioritize a DISARMED enemy
   # arc-carrier (gun off for life while holding) beyond its 136px cone — a free
@@ -4612,6 +4750,20 @@ proc shippedCombatTune(): CombatTune =
   # force-offs on top (same double gate as HOTDOOR/NOHOTDOOR above), so the
   # documented revert name keeps working either way.
   result.tradeGate = getEnv("VOLUME").len > 0 and getEnv("NOVOLUME").len == 0
+  # ── ⭐⭐ AoE FRIENDLY-FIRE VETO (2026-08-19). SHIPS OFF, RUNTIME-GATED. `when
+  # defined(...)` gates are compiled OUT of the shipped champion, so a build-time
+  # gate is not a gate at all — these must be getEnv, like every lever above.
+  # Two INDEPENDENT flags (a grenade regression must be rollable back without
+  # touching spray, and vice versa) each with its own force-revert, the
+  # HOTDOOR/NOHOTDOOR double-gate shape: a rollback is a re-run with different
+  # env, never a rebuild.
+  #   NADEFF=1  / NONADEFF=1   grenade blast veto
+  #   SPRAYFF=1 / NOSPRAYFF=1  spray cone veto
+  # ⚠️ A BARE flag is a MIRROR on the local rig: every bot shares ONE process env,
+  # so arming here arms all four teams and the A/B measures nothing. Use
+  # grabprobe's NADEFFTEAM / SPRAYFFTEAM team-isolation knobs for any measurement.
+  result.nadeFfVeto = getEnv("NADEFF").len > 0 and getEnv("NONADEFF").len == 0
+  result.sprayFfVeto = getEnv("SPRAYFF").len > 0 and getEnv("NOSPRAYFF").len == 0
 
 
 when defined(doorprobe):
@@ -6283,6 +6435,7 @@ proc resetTransient(bot: Bot) =
   bot.nadeCharge = 0
   bot.nadeLockAim = -1
   bot.nadeHold = 0
+  bot.nadeFfHold = 0
   bot.nadeStaleArm = false
   bot.nadeDepots.setLen(0)   # nadeSupply: paintbot draws a fresh map per
                              # episode, so depot geometry is re-derived, never
@@ -6541,17 +6694,19 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
   false
 
 proc trackAhead(t: Track, nowTick, aheadTicks: int): tuple[at: Vec, pad: float] =
-  ## ⭐⭐ THE SHARED MATE-MOTION ESTIMATOR. PORTED VERBATIM from the AoE
-  ## friendly-fire veto (commit e8712e0 on maxwell/ffa4-ff-aoe) — ONE answer to
-  ## "where will this remembered body BE when my weapon actually lands", used by
-  ## every friendly-fire test so the three weapons can never drift apart. Not
-  ## rewritten here: a second estimator is a second thing to keep in sync.
+  ## ⭐⭐ THE SHARED MATE-MOTION ESTIMATOR (2026-08-19). ONE answer to "where will
+  ## this remembered body BE when my weapon actually lands", used by every
+  ## friendly-fire test so the three weapons can never drift apart — the gun's
+  ## windup corridor, the grenade's blast disc and the spray cone's wedge all
+  ## call THIS proc and no other. There is exactly one definition on purpose: a
+  ## second estimator is a second thing to keep in sync.
   ##
   ## This is the largest single term in the friendly-fire finding: at the
   ## DECISION tick only 49.4% of victims are on the weapon's line, at the RELEASE
   ## tick 99.8% are — both bodies converge onto it during the lock (victim ~10.6px
   ## median, shooter ~7.1px). A test evaluated on `t.pos` alone therefore clears a
-  ## mate who is standing on the impact by the time it happens.
+  ## mate who is standing on the impact by the time it happens. The grenade is the
+  ## worst case: 10 ticks of fuse on top of 3-24 ticks of charge.
   ##
   ## There is NO oracle for mate velocity. `Track.vel` is an EMA of SUCCESSIVE
   ## OBSERVED POSITIONS (updateTracks: v = (a.pos - t.pos)/dt, blended
@@ -6646,6 +6801,71 @@ proc windupFfBlocked(bot: Bot, origin, dir: Vec, enemyDist: float,
     if abs(cross(rel, dir)) < CorridorHalfWidth + pad:
       return (true, age > WuffStaleAge, along)
   (false, false, 0.0)
+
+proc friendlyInBlast(bot: Bot, impact: Vec, aheadTicks: int,
+                     slackPx: float): bool =
+  ## ⭐⭐ GRENADE friendly veto. True when a remembered teammate would be caught
+  ## by a burst at `impact` in `aheadTicks` ticks. The blast is a DISC at a
+  ## destination point, not a corridor along a ray: it ignores walls entirely
+  ## (sim.explodeGrenade does no LOS test at all, unlike the cone), so there is
+  ## deliberately NO pixelRayClear gate here — a mate behind a wall 30px from the
+  ## burst still eats it.
+  ##
+  ## Flight time is the whole point: the fuse is a FIXED 10 ticks, so the mate we
+  ## must test is the one at BURST, not at release. Extrapolate each track
+  ## forward by (age + flight) on its last read velocity — the same
+  ## `pos + vel*age` the grenade's own enemy scan uses — then widen by a residual
+  ## drift margin. Mate freshness and the staleness widening are friendlyBlocked's
+  ## conventions verbatim, so all three weapons veto off one track set.
+  for t in bot.mates:
+    let age = float(bot.tick - t.lastSeen)
+    if age > FfMateFreshTicks:
+      continue
+    let (at, pad) = trackAhead(t, bot.tick, aheadTicks)
+    if dist(at, impact) <= NadeFfBlastPx + NadeFfDriftPx + pad + slackPx:
+      return true
+  false
+
+proc friendlyInCone(bot: Bot, client: ProtocolClient, me: Vec, aimBrads: int,
+                    slackPx: float): bool =
+  ## ⭐⭐ SPRAY friendly veto. True when a remembered teammate sits inside the
+  ## forward WEDGE the cone would cover if we pressed attack on `aimBrads`.
+  ## Mirrors sim.selectArcVictims term for term (forward cap, linearly widening
+  ## half-width, drawn-body radius, paintPathClear) with three additions:
+  ##   * the cone's ORIGIN rides its owner for PlasmaArcActiveTicks while victims
+  ##     are re-picked every tick, so both bodies get ArcFfRidePx of slack;
+  ##   * bot.estAim is an ESTIMATE of the aimBrads the engine locks, so the wedge
+  ##     is padded by one tick of turret lag (ArcFfAimPadSlope);
+  ##   * friendlyBlocked's staleness widening applies to old tracks.
+  ## The LOS gate is kept because the engine keeps it (paintPathClear): a mate
+  ## behind a wall inside the wedge is NOT a victim, and vetoing on it would be a
+  ## pure false positive. pixelRayClear is the policy's own analogue, used the
+  ## same way three lines below for enemies.
+  let dir = bradsDir(aimBrads)
+  for t in bot.mates:
+    let age = float(bot.tick - t.lastSeen)
+    if age > FfMateFreshTicks:
+      continue
+    # Advance to the MIDDLE of the activation window: the cone is resolved on
+    # every one of its PlasmaArcActiveTicks, so the mate that matters is not the
+    # one standing there at the press. ArcFfRidePx then covers the half-window
+    # either side, for both the mate AND the owner the cone origin rides with.
+    let
+      (at, pad) = trackAhead(t, bot.tick, ArcFfActiveTicks div 2)
+      rel = at - me
+      forward = dot(rel, dir)
+      perp = abs(cross(rel, dir))
+    if forward <= 0.0:
+      continue                          # behind us: the can points forward
+    if forward > ArcFfReachPx + ArcFfBodyPx + ArcFfRidePx + pad + slackPx:
+      continue                          # past the reach cap
+    if perp > forward * (ArcFfSlope + ArcFfAimPadSlope) + ArcFfBodyPx +
+        ArcFfRidePx + pad + slackPx:
+      continue                          # outside the widening wedge
+    if not client.pixelRayClear(me, at):
+      continue                          # walled off: the sim would not hit them
+    return true
+  false
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
@@ -9776,6 +9996,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # Worth a throw: wall-blocked (gun can't collect), OR a real cluster (>=2),
       # OR a live line where even a single front body thins the wall we must cross.
       if blocked or cluster >= 2 or lineLive:
+        # ⭐⭐ nadeFfVeto GATE (a): do not TARGET a point that blasts a mate. `p`
+        # is the aim point at distance `d` on the bearing the throw will take, so
+        # it IS the impact point the engine will compute from the charge — test
+        # it directly. Rejecting here (rather than at release) is free: no charge
+        # is started, no grenade is spent, and the scan simply picks the next
+        # best cluster. Counted lever-independently first so the OFF arm reports
+        # the same stimulus.
+        when defined(aoeprobe):
+          inc nfCand
+          for k in 0 ..< AoeSlackN:
+            if bot.friendlyInBlast(p, NadeFfFlightTicks, AoeSlack[k]):
+              inc nfCandHot[k]
+        if bot.tune.nadeFfVeto and
+            bot.friendlyInBlast(p, NadeFfFlightTicks, 0.0):
+          when defined(aoeprobe): inc nfCandVeto
+          continue
         # Prefer the fattest cluster; a FRESH candidate breaks a size tie ahead
         # of a stale one (never trade a sighting for a memory); nearer breaks
         # what is left (flatter lob, less drift).
@@ -10526,6 +10762,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.nadeNeed = max(3, int(float(NadeFullChargeTicks) *
         (nadeThrowD - 30.0) / (NadeMaxRange - 30.0)))
       bot.nadeStaleArm = nadeAimStale  # staleNade: which class armed THIS charge
+      bot.nadeFfHold = 0               # nadeFfVeto: fresh hold budget per charge
       if bot.tune.nadeLob:
         bot.nadeLockAim = nadeAim
         bot.nadeHold = 0
@@ -10540,12 +10777,46 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         inc bot.nadeCharge
       else:
         const NadeHoldMax = 20         # settle-wait bail-out (ticks)
+        # ⭐⭐ nadeFfVeto GATE (b): where this throw will ACTUALLY land, right now.
+        # The selection gate tested the plan; between then and here 3-24 charge
+        # ticks passed, and another 10 pass in flight, so a mate that was nowhere
+        # near the plan can be standing on the burst. sim.throwGrenade re-derives
+        # the distance from throwCharge at the RELEASE tick, so project it from
+        # the ticks we have actually held C — nadeCharge counts the ramp,
+        # nadeHold and nadeFfHold the two waits — using the engine's own
+        # GrenadeMinRange + (max-min)*charge/GrenadeChargeTicks formula.
+        let
+          ffAim = (if desiredAim >= 0: desiredAim else: bot.estAim)
+          ffPress = clamp(bot.nadeCharge + bot.nadeHold + bot.nadeFfHold,
+                          0, NadeFullChargeTicks)
+          ffImpact = me + bradsDir(ffAim) *
+            (30.0 + (NadeMaxRange - 30.0) * float(ffPress) /
+                    float(NadeFullChargeTicks))
+          ffDirty = bot.friendlyInBlast(ffImpact, NadeFfFlightTicks, 0.0)
         if bot.tune.nadeLob and desiredAim >= 0 and
             abs(bradsErr(desiredAim, bot.estAim)) > 6 and
             bot.nadeHold < NadeHoldMax:
           nadeC = true                 # keep holding: turret not on the line yet
           inc bot.nadeHold
+        elif bot.tune.nadeFfVeto and ffDirty and bot.nadeFfHold < NadeFfHoldMax:
+          # A mate is on the burst. The engine throws on the C RELEASE EDGE, so
+          # there is no abort — the only lever is to KEEP HOLDING and let them
+          # clear. Same mechanism as the settle-wait above, and bounded the same
+          # way: the cost is range creep toward the cap (which the projection
+          # above tracks tick by tick) and at most NadeFfHoldMax frozen ticks.
+          nadeC = true
+          inc bot.nadeFfHold
+          when defined(aoeprobe): inc nfHoldTicks
         else:
+          when defined(aoeprobe):
+            if bot.tune.nadeFfVeto and ffDirty: inc nfHoldBail
+            inc nfRelease
+            var ffHot: array[AoeSlackN, bool]
+            for k in 0 ..< AoeSlackN:
+              ffHot[k] = bot.friendlyInBlast(ffImpact, NadeFfFlightTicks,
+                                             AoeSlack[k])
+              if ffHot[k]: inc nfReleaseHot[k]
+            nfRel.add((tick: aoeTick, slot: bot.slot, hot: ffHot))
           when defined(nadeprobe):
             if desiredAim >= 0:
               stderr.writeLine "NADEREL slot=" & $bot.slot & " t=" & $bot.tick &
@@ -10561,6 +10832,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.nadeCharge = 0           # release this tick = the throw
           bot.nadeLockAim = -1
           bot.nadeStaleArm = false
+          bot.nadeFfHold = 0
     holdStill = true
     acted = true
   elif bot.tune.swordAmbush and iHaveSword and swordTarget >= 0:
@@ -10633,6 +10905,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(fireTgt - me)      # close to keep the cluster in the cone
       let err = abs(bradsErr(desiredAim, bot.estAim))
       wantFire = err <= ArcBreachConeBrads     # on-bearing so the cone covers them
+      # ⭐⭐ sprayFfVeto. The cone hits EVERY body in the wedge (selectArcVictims
+      # excludes only the attacker), so a mate standing between us and the
+      # cluster takes PlasmaArcDamage(3) = a whole life. Test the wedge the
+      # engine will actually cut: along bot.estAim, because startArcFire LOCKS
+      # arcAimBrads to the live aim at the press and never sweeps it afterwards.
+      # Declining costs nothing — the can is not spent, the approach continues,
+      # and the next tick re-tests once the mate clears.
+      when defined(aoeprobe):
+        if wantFire:
+          inc sfPress
+          var sfHot: array[AoeSlackN, bool]
+          for k in 0 ..< AoeSlackN:
+            sfHot[k] = bot.friendlyInCone(client, me, bot.estAim, AoeSlack[k])
+            if sfHot[k]: inc sfPressHot[k]
+          sfFire.add((tick: aoeTick, slot: bot.slot, hot: sfHot))
+      if wantFire and bot.tune.sprayFfVeto and
+          bot.friendlyInCone(client, me, bot.estAim, 0.0):
+        wantFire = false
+        when defined(aoeprobe): inc sfVeto
       when defined(commsprobe):
         if wantFire: inc csArcFire
       when defined(arcprobe):
@@ -10666,6 +10957,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(tgt - me)
       let err = abs(bradsErr(desiredAim, bot.estAim))
       wantFire = err <= ArcBreachConeBrads
+      # ⭐⭐ sprayFfVeto, singleton branch — same wedge, same reasoning as the
+      # cluster press above. Both presses go through one helper so the two
+      # branches can never drift apart.
+      when defined(aoeprobe):
+        if wantFire:
+          inc sfPress
+          var sfHot: array[AoeSlackN, bool]
+          for k in 0 ..< AoeSlackN:
+            sfHot[k] = bot.friendlyInCone(client, me, bot.estAim, AoeSlack[k])
+            if sfHot[k]: inc sfPressHot[k]
+          sfFire.add((tick: aoeTick, slot: bot.slot, hot: sfHot))
+      if wantFire and bot.tune.sprayFfVeto and
+          bot.friendlyInCone(client, me, bot.estAim, 0.0):
+        wantFire = false
+        when defined(aoeprobe): inc sfVeto
       when defined(commsprobe):
         if wantFire: inc csArcFire
     elif bot.tune.spraySingle and nearFoe >= 0 and nearD <= ArcApproachRadius:
@@ -10763,14 +11069,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # last frame's position here — decide() restamps it at the tail), rejected
       # unless it is a plausible single-tick move so a respawn teleport or the
       # first frame contributes nothing.
-      var wuffOrigin = me
+      var
+        wuffOrigin = me
+        wuffLed = false
       if bot.tune.windupFfSelfLead > 0.0:
         let step = me - bot.lastPos
         if step.len() <= WuffSelfStepCapPx:
           wuffOrigin = me + step * bot.tune.windupFfSelfLead
-      let wuffHit = bot.windupFfBlocked(
+          wuffLed = true
+      var wuffHit = bot.windupFfBlocked(
         wuffOrigin, wuffDir, engageD, bot.tune.windupFfLead,
         bot.tune.windupFfLead > 0, bot.tune.windupFfMateRange)
+      if bot.tune.windupFfUnion and not wuffHit.hit and wuffLed:
+        # ⭐ THE UNION. Leading the muzzle is not a strict improvement: it slides
+        # the corridor forward along the fire axis, which can carry a mate OUT of
+        # a corridor it is genuinely standing in at release. Re-test with the
+        # muzzle held where it is; block if EITHER geometry finds a mate. Costs
+        # one extra corridor scan on the frames the led test already cleared.
+        wuffHit = bot.windupFfBlocked(
+          me, wuffDir, engageD, bot.tune.windupFfLead,
+          bot.tune.windupFfLead > 0, bot.tune.windupFfMateRange)
       when defined(wuffprobe):
         # FOUR verdicts on the SAME frame, so ONE run decomposes the axis term
         # from the lead term instead of needing four arms. A = the selection ray
@@ -10786,20 +11104,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           wpC = bot.windupFfBlocked(me, bradsDir(bot.estAim), engageD,
                                     bot.tune.windupFfLead, true,
                                     bot.tune.windupFfMateRange)
+          wpD = bot.windupFfBlocked(wuffOrigin, bradsDir(bot.estAim), engageD,
+                                    bot.tune.windupFfLead, true,
+                                    bot.tune.windupFfMateRange)
+          wpU = wpC.hit or wpD.hit
         if wpTeam in 0 .. 3:
           inc wuffCand[wpTeam]
           if wpA.hit: inc wuffBlkA[wpTeam]
           if wpB.hit: inc wuffBlkB[wpTeam]
           if wpC.hit: inc wuffBlkC[wpTeam]
-          if wuffHit.hit:
+          if wpU: inc wuffBlkU[wpTeam]
+          if wpD.hit:
             inc wuffBlkD[wpTeam]
             if not wpB.hit: inc wuffNewD[wpTeam]
-            if wuffHit.stale: inc wuffStale[wpTeam]
+            if wpD.stale: inc wuffStale[wpTeam]
         var wpBits = 1'u8
         if wpA.hit: wpBits = wpBits or 2'u8
         if wpB.hit: wpBits = wpBits or 4'u8
         if wpC.hit: wpBits = wpBits or 8'u8
-        if wuffHit.hit: wpBits = wpBits or 16'u8
+        if wpD.hit: wpBits = wpBits or 16'u8
+        if wpU: wpBits = wpBits or 64'u8
         if wuffHit.hit and not bot.tune.windupFfShadow: wpBits = wpBits or 32'u8
         wuffMark(bot.slot, bot.tick, wpBits)
         if wuffHit.hit and not bot.tune.windupFfShadow:
