@@ -194,6 +194,13 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
     for part in wuffTeam.split(','):
       let p = part.strip()
       if p.len > 0 and team == parseInt(p): wuffArmed = true
+    # ⚠️ ASSIGNMENT, never an OR — and that matters MORE now the lever ships
+    # DEFAULT ON. WUFFTEAM=<n> must arm team n and DISARM every other team; an
+    # out-of-range WUFFTEAM=9 must therefore force the lever OFF everywhere and
+    # give a pure all-control arm. If this were written as `tune.windupFf =
+    # tune.windupFf or armed` the flipped default would leave every team hot and
+    # silently turn every future A/B into a MIRROR. Verified empirically, not just
+    # read: WUFFTEAM=9 prints windupFf=0 on all four LEVERSTATE rows.
     # NOWUFF stays authoritative over the isolation knob: a force-revert has to
     # revert, or "roll it back by re-running with different env" is a lie.
     tune.windupFf = wuffArmed and getEnv("NOWUFF").len == 0
@@ -551,6 +558,31 @@ proc main() =
         # cannot derive it themselves (bot.team is Red/Blue and collapses three
         # teams into one on this board).
         if s < 32: wuffTeamOfSlot[s] = engine.teamOfSlot(s)
+    when defined(wuffprobe):
+      # ⭐⭐⭐ LEVERSTATE — the RESOLVED tune, per raw engine team, straight off the
+      # constructed Bot. Not an echo of the env and not a claim about the source:
+      # this is what shippedCombatTune() actually returned after every knob and
+      # every team-isolation override was applied. It is the only line that can
+      # answer "is the lever ARMED in this binary" without arguing from code, and
+      # it is exactly the question v30 got wrong (lever in the source, dark in the
+      # image, nine days). It also makes the isolation INVERSION checkable: with
+      # the levers now DEFAULT ON, an out-of-range *TEAM=9 control arm must print
+      # 0 for every team, not 1.
+      var lsSeen: array[4, bool]
+      for s in 0 ..< numPlayers:
+        let tm = engine.teamOfSlot(s)
+        if tm notin 0 .. 3 or lsSeen[tm]: continue
+        lsSeen[tm] = true
+        let tn = drivers[s].bot.tune
+        echo "LEVERSTATE ", epSeed, " ", tm,
+          " windupFf=", ord(tn.windupFf),
+          " union=", ord(tn.windupFfUnion),
+          " lead=", tn.windupFfLead,
+          " selfLead=", tn.windupFfSelfLead.int,
+          " axis=", ord(tn.windupFfAxis),
+          " shadow=", ord(tn.windupFfShadow),
+          " nadeFf=", ord(tn.nadeFfVeto),
+          " sprayFf=", ord(tn.sprayFfVeto)
     when defined(wuffprobe):
       # The per-tick flag ledger is per EPISODE and indexed by BOT TICK, so it is
       # sized to the tick budget plus slack for the windup tail and cleared here.

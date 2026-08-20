@@ -4297,14 +4297,21 @@ proc shippedCombatTune(): CombatTune =
   #   WUFFLEAD=<ticks>  mate lead (default WuffLeadTicks=5; 0 = no prediction, T0)
   #   WUFFSELF=<ticks>  own-muzzle lead (default WuffLeadTicks=5; 0 = muzzle at T0)
   #   WUFFMATERANGE=<px> along-track gate on the MATE (0 = none, the default)
-  #   WUFFUNION=1       block on the OR of the mate-lead and mate+muzzle-lead tests
   #   WUFFSHADOW=1      evaluate + record, never suppress (the futility bound)
-  # ⚠️ A bare WUFF=1 is a MIRROR — every rig bot shares one process env. Use
-  # WUFFTEAM=<n[,n]> in grabprobe.nim, which arms ONE raw engine team index.
   # ⚠️ This lever is FRIENDLY FIRE ONLY. It contains no wall / LOS re-check, on
   # purpose: the T0 fire-axis lever measured ~94% WALL vetoes, so a bundled
   # version cannot state a friendly-fire gain without the wall term riding along.
-  result.windupFf = getEnv("WUFF").len > 0 and getEnv("NOWUFF").len == 0
+  #
+  # ⭐⭐⭐ SHIPPED HOT (v58, 2026-08-19, on the user's explicit go-ahead), DEFAULT ON
+  # IN CODE with a NOxxx opt-out — the arcStandoff / touchCommit shape, and it is
+  # that shape for a REASON this tree paid for. v30 armed the field-proven
+  # touchCommit latch with a container `ENV TOUCH=1` on a throwaway image that
+  # never entered git, and every git-built image after it ran with that lever
+  # SILENTLY DARK for nine days; v46 exists only to recover from it. So: NEVER gate
+  # a shipped lever on container env. NOWUFF=1 is the opt-out and it is the
+  # rollback path — proven byte-identical to base 64a0ea9 on 32/32 seeds by the
+  # FNV-over-every-emitted-button-mask fingerprint.
+  result.windupFf = getEnv("NOWUFF").len == 0
   result.windupFfAxis = getEnv("WUFFAXIS") != "0"
   result.windupFfLead =
     if getEnv("WUFFLEAD").len > 0: parseInt(getEnv("WUFFLEAD"))
@@ -4315,7 +4322,15 @@ proc shippedCombatTune(): CombatTune =
   result.windupFfMateRange =
     if getEnv("WUFFMATERANGE").len > 0: parseFloat(getEnv("WUFFMATERANGE"))
     else: 0.0
-  result.windupFfUnion = getEnv("WUFFUNION").len > 0
+  # ⭐⭐ THE UNION IS THE SHIPPED VARIANT, not the mate+muzzle-lead test alone.
+  # Measured paired on 96 team-Episodes (24 seeds x 4 teams, identical seeds):
+  # reach 100/118 = 84.75% of gun friendly fire vs D's 94/118 = 79.66%; realised
+  # friendly hits 97 -> 16 (-83.5%) vs D's 97 -> 27 (-72.2%); shots +0.82% vs
+  # D's +4.37%; and it cuts the close-range GEOMETRY regression the veto causes
+  # (held fire re-fires closer, so more shots die on terrain) to +0.38pp per shot
+  # against D's +1.18pp. It dominates D on every axis this rig can measure.
+  # NOWUFFUNION=1 falls back to D alone without a rebuild.
+  result.windupFfUnion = getEnv("NOWUFFUNION").len == 0
   result.windupFfShadow = getEnv("WUFFSHADOW").len > 0
   # counterArc (Play C, GameVersion 15 plasma arc): prioritize a DISARMED enemy
   # arc-carrier (gun off for life while holding) beyond its 136px cone — a free
@@ -4757,13 +4772,24 @@ proc shippedCombatTune(): CombatTune =
   # touching spray, and vice versa) each with its own force-revert, the
   # HOTDOOR/NOHOTDOOR double-gate shape: a rollback is a re-run with different
   # env, never a rebuild.
-  #   NADEFF=1  / NONADEFF=1   grenade blast veto
-  #   SPRAYFF=1 / NOSPRAYFF=1  spray cone veto
+  #   NONADEFF=1   opts the grenade blast veto out
+  #   NOSPRAYFF=1  opts the spray cone veto out
   # ⚠️ A BARE flag is a MIRROR on the local rig: every bot shares ONE process env,
   # so arming here arms all four teams and the A/B measures nothing. Use
   # grabprobe's NADEFFTEAM / SPRAYFFTEAM team-isolation knobs for any measurement.
-  result.nadeFfVeto = getEnv("NADEFF").len > 0 and getEnv("NONADEFF").len == 0
-  result.sprayFfVeto = getEnv("SPRAYFF").len > 0 and getEnv("NOSPRAYFF").len == 0
+  #
+  # ⭐⭐⭐ SHIPPED HOT (v58, 2026-08-19, on the user's explicit go-ahead), DEFAULT ON
+  # IN CODE with NOxxx opt-outs, same v30/touchCommit lesson as windupFf above:
+  # never gate a shipped lever on container env. Two INDEPENDENT flags on purpose —
+  # a grenade regression must be rollable back without touching spray, and vice
+  # versa. ⚠️ BOTH SHIP UNMEASURED ON THIS RIG, and that is stated rather than
+  # hidden: over 12 full episodes the local 4-team rig produced 341 candidate
+  # grenade impact points with ZERO mates in any burst at any slack level, and 50
+  # spray presses with ZERO mates in any wedge. Neither cost nor benefit is
+  # observable here; both are field-only claims resting on the shared trackAhead
+  # geometry the gun veto DID score.
+  result.nadeFfVeto = getEnv("NONADEFF").len == 0
+  result.sprayFfVeto = getEnv("NOSPRAYFF").len == 0
 
 
 when defined(doorprobe):
