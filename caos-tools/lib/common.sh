@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared by build.sh and test.sh. Sourced, not run.
+# Shared by build.sh, build-player.sh and test.sh. Sourced, not run.
 
 # Narrow the workspace tree to the entries a compile actually reads, and put it
 # in the CAS. Everything is linked BY REFERENCE: `caos put` resolves a symlink
@@ -118,3 +118,18 @@ NIMCACHE=/tmp/build/nimcache
 # /ccache-bin wrapper without this flag looks completely correct — `command -v
 # gcc` even reports the wrapper — while ccache records ZERO calls.
 CCACHE_NIM_FLAGS=(--cc:gcc --gcc.exe:/ccache-bin/gcc)
+
+# The block every build report ends with. Cache stats belong in the REPORT, not
+# a log: ccache reports an unreachable remote as a plain miss, so a cache that
+# is silently dead looks exactly like a cold one, and this one was dead for a
+# long time before anyone noticed (three separate ways — see setup_ccache).
+# `gcc` is printed because the wrapper being on PATH is NOT evidence nim used
+# it; `remote` because an unset CAOS_WORKER_REDIS_ADDR is legal and must be
+# visibly different from a configured address that cannot be reached.
+ccache_report() {
+  echo
+  echo "---- ccache ----"
+  echo "  gcc:    $(command -v gcc)"
+  echo "  remote: ${CCACHE_REMOTE_STORAGE:-<none: CAOS_WORKER_REDIS_ADDR unset>}"
+  ccache -s 2>/dev/null || echo "  (no stats)"
+}

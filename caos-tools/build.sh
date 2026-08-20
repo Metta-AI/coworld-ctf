@@ -87,16 +87,11 @@ compile)
   echo "$status" > "$R/status"
   ph "nim c (frontend + C compile + link)" >> /tmp/phases
 
-  # Cache stats into the report: a remote that cannot be reached is otherwise
-  # indistinguishable from a cold one.
   {
     echo
     echo "---- phases ----"
     cat /tmp/phases 2>/dev/null
-    echo "---- ccache ----"
-    echo "  gcc:    $(command -v gcc)"
-    echo "  remote: ${CCACHE_REMOTE_STORAGE:-<none: CAOS_WORKER_REDIS_ADDR unset>}"
-    ccache -s 2>/dev/null || echo "  (no stats)"
+    ccache_report
   } >> "$R/report"
 
   # A compile failure is a VALUE, not a job error: this tool is often called
