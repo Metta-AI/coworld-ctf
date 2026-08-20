@@ -124,15 +124,7 @@ compile)
   set -e
   echo "$status" > "$R/status"
 
-  # Cache stats into the report: a remote that cannot be reached is otherwise
-  # indistinguishable from a cold one.
-  {
-    echo
-    echo "---- ccache ----"
-    echo "  gcc:    $(command -v gcc)"
-    echo "  remote: ${CCACHE_REMOTE_STORAGE:-<none: CAOS_WORKER_REDIS_ADDR unset>}"
-    ccache -s 2>/dev/null || echo "  (no stats)"
-  } >> "$R/report"
+  ccache_report >> "$R/report"
 
   if [ "$status" -ne 0 ]; then
     # Compiling is the whole job when it fails: return the diagnostics as the
