@@ -58,8 +58,27 @@ suite "policy constants track the engine":
   # geometry. The DAMAGE reach is `PlasmaArcReach = 5 * PlasmaArcSquare` = 170,
   # grown at GameVersion 30 precisely so the damage cone covers the tip of the
   # plume the game draws. Reading the FX const instead of the damage const is
-  # the most likely origin of 136, and it is a trap that survives eyeballing a
-  # replay: the paint you SEE really does end at 136.
+  # the most likely origin of 136.
+  #
+  # ⚠️⚠️ WHY A REPLAY CHECK RATIFIES THE BUG INSTEAD OF CATCHING IT — this is
+  # how the stale constant survived four propagations and two clean audits, and
+  # an earlier draft of this comment had it BACKWARDS (it claimed the visible
+  # paint stops at 136, which would merely have made a replay check useless).
+  # The truth is worse: a replay check actively CONFIRMS the wrong number, in
+  # the direction that feels safe. Both halves are in the engine source:
+  #   * sim_types.nim:546 — the plume's puffs are "drawn oversize so they merge
+  #     (SprayPuffOverlap), so its outermost pixel lands well past this";
+  #   * sim_types.nim:558 — the 5th square (GameVersion 30, was 4) "is not extra
+  #     range for its own sake — it is exactly what it takes for the damage cone
+  #     to cover the tip of the plume the game draws".
+  # So the VISIBLE paint reaches approximately the DAMAGE envelope (~187), not
+  # 136. A reviewer who sanity-checks `PlasmaArcReachPx = 136` against a replay
+  # sees paint out at ~187 against a constant of 136 and concludes "136 is
+  # CONSERVATIVE, we have margin" — the opposite of the truth, arrived at by
+  # doing the right thing. Any future check of a policy constant against a
+  # rendered replay has this hazard: art geometry and damage geometry are
+  # separate constants that the engine deliberately keeps in step, so the
+  # picture cannot distinguish them. Check the CONSTANT, not the picture.
   #
   # It is worse than a 34px error, because a victim is a DISC, not a point:
   # sim.selectArcVictims accepts a victim while
@@ -161,37 +180,80 @@ suite "policy constants track the engine":
     # every one of its active ticks; it can only ever widen the veto.
     check ArcFfRidePx > 0.0
 
-  test "the arc FIRE envelope is a strict subset of what the weapon can do":
-    # Two bounds, and the direction of each is the point.
-    let ArcBreachFireReach = policyFloat("ArcBreachFireReach")
+  test "the arc FIRE envelope never exceeds the engine's (SHIPPED value)":
+    # ⚠️⚠️ THIS TEST RESOLVES THE SHIPPED FIRE REACH, NOT A NAMED CONSTANT.
+    # The first draft bounded `ArcBreachFireReach` because that WAS the fire
+    # gate. The spray lane's correction keeps that constant at 128.0 as the
+    # `NOSPRAYCONE=1` CONTROL arm and moves the shipped gate to a tune-gated
+    # expression, so a test pinned to the constant would go GREEN FOREVER and
+    # never see the shipped number again — the exact failure `policyFloat()`
+    # exists to prevent, one level further out. A guard has to track the value
+    # the champion actually plays with, through every indirection.
     const
       ArcFfReachPx = 170.0
       ArcFfBodyPx = 17.0
       ArcFfRidePx = 13.75
+      ArcFfSlope = 0.25
+    let
+      engineDanger = float(PlasmaArcReach + PlasmaArcBodyRadius)   # 187
+      engineSlope = PlasmaArcMaxWidth.float / (2.0 * PlasmaArcReach.float)
+      vetoCap = ArcFfReachPx + ArcFfBodyPx + ArcFfRidePx           # 200.75
+      # The cone-sized gate ships default ON via a NO* opt-out, so its ON arm
+      # is the shipped envelope; the constant survives as the control arm.
+      coneGated = policyHas("sprayConeFire")
 
-    # (a) SAFETY — never press outside what the veto is prepared to police, or
-    #     we would take shots the friendly-fire veto never examined.
-    let vetoCap = ArcFfReachPx + ArcFfBodyPx + ArcFfRidePx   # 200.75, pad >= 0
-    check ArcBreachFireReach <= vetoCap
+    var shippedFireReach: float
+    if coneGated:
+      # Post-correction shape. Assert the ARMING too — a lever that silently
+      # became opt-IN would move the shipped envelope back to the control arm
+      # without changing either number.
+      check policyHas("result.sprayConeFire = getEnv(\"NOSPRAYCONE\").len == 0")
+      check policyHas("ArcFfReachPx + ArcFfBodyPx")
+      shippedFireReach = ArcFfReachPx + ArcFfBodyPx                # 187
+      # The control arm must still be a legal envelope in its own right.
+      check policyFloat("ArcBreachFireReach") <= engineDanger
+    else:
+      # Pre-correction shape: the constant IS the shipped gate.
+      check policyHas("ArcBreachFireReach = ")
+      shippedFireReach = policyFloat("ArcBreachFireReach")         # 128
+
+    # ⚠️ FAIL LOUD rather than silently skipping. If neither recognised shape is
+    # present the fire gate has been restructured again, and this test must be
+    # re-pointed rather than quietly passing on a stale assumption.
+    check shippedFireReach > 0.0
+
+    # (a) SAFETY — never press outside what the VETO is prepared to police, or
+    #     we take shots the friendly-fire veto never examined. Margin here is
+    #     ArcFfRidePx(13.75); the veto is deliberately the wider envelope.
+    check shippedFireReach <= vetoCap
 
     # (b) SANITY — never press beyond what the ENGINE can actually damage.
-    let engineDanger = float(PlasmaArcReach + PlasmaArcBodyRadius)   # 187
-    check ArcBreachFireReach <= engineDanger
+    check shippedFireReach <= engineDanger
 
-    # ⚠️ MEASURED COST OF THE GAP, recorded not asserted (the value is owned by
-    # the spray lane and is being corrected there; asserting 128 here would
-    # ratchet backwards the moment they land it). Over 1,421 re-simulated Elite
-    # ffa4 episodes, of the ready carry-ticks where the sim's own
-    # `selectArcVictims` WOULD have damaged a fresh enemy at the bearing we
-    # already held (n = 3,609 for us), **71.3% were refused by
-    # ArcBreachFireReach = 128 ALONE** — the single most expensive stale number
-    # in the arc family. The 59px disagreement between the two halves is the
-    # whole mechanism: the veto knew the weapon reaches 187, the trigger did not.
-    # (In this tree that gap is 187 - 128 = 59px. NOT asserted: the moment the
-    # spray lane lands `ArcBreachFireReach = 187` the gap becomes 0, and a test
-    # that pinned 59 would fail on the FIX — the classic backwards ratchet. The
-    # two directional bounds above are what must hold forever; the gap is a
-    # measurement, and measurements belong in comments.)
+    # (c) The WEDGE, same direction. The fire slope must not exceed the engine's.
+    check ArcFfSlope <= engineSlope + 1e-9
+
+    # ⚠️⚠️ ZERO MARGIN IS THE TARGET STATE, NOT A NEAR-MISS — DO NOT "FIX" IT.
+    # Post-correction both engine bounds hold with EQUALITY: reach 187 == 187 and
+    # slope 0.25 == 0.25. That is deliberate — the fire predicate is
+    # `selectArcVictims` term for term with NO padding, because padding the
+    # ENEMY side would be tuning whereas matching the engine is a correctness
+    # repair. Hence `<=` and not `<` throughout: a strict inequality would fail
+    # on the correct answer. Anyone reading the zero margin as a bug and adding
+    # a safety pad would be re-introducing the very defect this file exists to
+    # catch, in the opposite direction.
+
+    # ⚠️ MEASURED COST, recorded not asserted (the gap closes to 0 on landing, so
+    # pinning it would ratchet backwards). Over 1,421 re-simulated Elite ffa4
+    # episodes, of ready carry-ticks where the sim's own `selectArcVictims`
+    # WOULD have damaged a fresh enemy at the bearing we already held
+    # (n = 3,609 for us), **71.3% were refused by ArcBreachFireReach = 128
+    # ALONE** — the most expensive stale number in the arc family. The 59px
+    # disagreement between the two halves of one weapon is the whole mechanism:
+    # the veto knew the cone reaches 187, the trigger did not.
+    # ⚠️ That 71.3% is a paired within-block ratio from an UNCALIBRATED rig
+    # (7.7x seed-block spread); it earns the fix PRIORITY, not a ship claim.
+    # The hosted A/B is the test, and the correctness repair stands either way.
 
   # ── 2a. THE PER-TEAM ADDRESS BUG: SHIELD AND ARC ONLY ───────────────────
   #
