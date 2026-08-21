@@ -49,7 +49,16 @@ narrow)
   done
   build=$(caos curry --base:@=/cas/args/base "${fwd[@]}") || fail "currying build-image"
 
-  next=("--worker1:@=/cas/args/worker1" --stage=realize)
+  # EVERY entry of this tool's own arg tree rides through every stage, and
+  # that is load-bearing rather than tidy. A secret's reader is the tool's arg
+  # tree — here {base, help, nim, worker1} — and the grant is a SUBSET match
+  # against the arg tree of the job that wants it, with no inheritance (caos's
+  # no-delegation invariant). A stage that drops `nim` or `help` stops being
+  # recognisable as this tool and SILENTLY loses the secret, failing later at
+  # the token check as if none had been declared. Nothing reads either value;
+  # carrying them is what makes a stage this tool.
+  next=("--worker1:@=/cas/args/worker1" --stage=realize
+        "--help:@=/cas/args/help" "--nim:@=/cas/args/nim")
   for a in player name server upload-salt; do
     [ -e "/cas/args/$a" ] && next+=("--$a:@=/cas/args/$a")
   done
@@ -69,84 +78,45 @@ realize)
     caos put "$R" /cas/out; exit 0
   }
 
-  player=baseline
-  if [ -e /cas/args/player ]; then caos get /cas/args/player; player=$(cat /cas/args/player); fi
-
-  base=$(cat /cas/args/result/image/base)
-  base=${base#docker://}
-
-  # Pull the base into an OCI layout. `dir:` keeps the blobs as files we can
-  # extend; skopeo does the token dance.
+  # Let the SERVER convert the delta, and ask what it converted to.
   #
-  # --format oci IS REQUIRED, not a preference. A base pushed as docker v2s2
-  # carries v2s2 layer media types, and appending our OCI layer to that
-  # manifest produces an image no registry will accept ("unsupported docker
-  # v2s2 media type"). Rewriting the base to OCI on the way in makes the two
-  # compose. caos's own fetch_base does exactly this, for exactly this reason.
-  tls=--src-tls-verify=true
-  # No dot in the host means a bare name like caos-registry:5000 — docker's
-  # own rule for telling a registry from a path segment, and the caos stack's
-  # registry answers plain HTTP. Nothing secret moves here; the base is public.
-  case "${base%%/*}" in *.*) ;; *) tls=--src-tls-verify=false ;; esac
-  L=/tmp/layout; rm -rf "$L"
-  # Keep skopeo's own diagnostic. Swallowing it makes a registry/TLS/auth
-  # problem indistinguishable from a missing image, which is exactly the kind
-  # of invisible failure this repo keeps paying for.
-  skopeo copy --format oci $tls "docker://$base" "dir:$L" >/tmp/pull.log 2>&1 \
-    || { echo "--- skopeo ---" >&2; tail -20 /tmp/pull.log >&2
-         fail "pulling the base $base"; }
+  # This stage used to pull the base with `skopeo copy --format oci`, tar
+  # layer00, append its diff_id to the config and its descriptor to the
+  # manifest — which is `convert_git_image` reimplemented in bash, against the
+  # same base, with the same arithmetic and a second place for it to be wrong.
+  # `caos resolve-image` returns the ref the server already computed and
+  # cached, so there is one implementation of that arithmetic again.
+  delta=$(caos hash /cas/args/result/image) || fail "hashing the image delta"
+  ref=$(caos resolve-image "$delta") || fail "converting the image delta $delta"
 
-  # Our layer, as an UNCOMPRESSED tar — so its digest and its diff_id are the
-  # same value, which is what makes the config and the manifest agree without
-  # tarring it twice.
-  W=/tmp/layer; rm -rf "$W"; mkdir -p "$W/bin"
-  cp "/cas/args/result/image/layer00/bin/$player" "$W/bin/$player"
-  chmod 0755 "$W/bin/$player"
-  # Deterministic tar: fixed mtime/uid/gid/order, so the same policy binary
-  # always produces the same layer digest and therefore the same client_hash.
-  # Without this every upload would look like a new image.
-  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-      -cf /tmp/layer.tar -C "$W" bin
-  ldig=$(sha256sum /tmp/layer.tar | cut -d' ' -f1)
-  lsize=$(stat -c %s /tmp/layer.tar)
-  cp /tmp/layer.tar "$L/$ldig"
+  R=/tmp/result; rm -rf "$R"; mkdir -p "$R"
+  printf '%s' "$ref" > "$R/ref"
+  caos put "$R" /cas/converted
 
-  # Extend the base's config: our diff_id on the end of the rootfs stack, and
-  # Cmd naming this policy. Everything else — Env, and SSL_CERT_FILE in
-  # particular — is the base's.
-  jq --arg d "sha256:$ldig" --arg cmd "/bin/$player" \
-     '.rootfs.diff_ids += [$d] | .config.Cmd = [$cmd]' \
-     "$L/$(jq -r '.config.digest' "$L/manifest.json" | cut -d: -f2)" \
-     > /tmp/config.json || fail "extending the base config"
-  cdig=$(sha256sum /tmp/config.json | cut -d' ' -f1)
-  csize=$(stat -c %s /tmp/config.json)
-  cp /tmp/config.json "$L/$cdig"
-
-  jq --arg cd "sha256:$cdig" --argjson cs "$csize" \
-     --arg ld "sha256:$ldig" --argjson ls "$lsize" \
-     '.config.digest = $cd | .config.size = $cs
-      | .layers += [{mediaType:"application/vnd.oci.image.layer.v1.tar",
-                     digest:$ld, size:$ls}]' \
-     "$L/manifest.json" > /tmp/manifest.json || fail "extending the manifest"
-  mv /tmp/manifest.json "$L/manifest.json"
-
-  # client_hash is the CONFIG digest: coworld reads it as `docker image inspect
-  # --format {{.Id}}`, which is exactly the config digest, so we can compute it
-  # here without a daemon (see coworld/upload.py, _local_image_client_hash).
-  printf 'sha256:%s' "$cdig" > /tmp/client-hash
-
-  caos put "$L" /cas/layout
-  fwd=("--worker1:@=/cas/args/worker1" --stage=push "--layout:@=/cas/layout")
+  fwd=("--worker1:@=/cas/args/worker1" --stage=push
+       "--help:@=/cas/args/help" "--nim:@=/cas/args/nim")
   for a in player name server upload-salt; do
     [ -e "/cas/args/$a" ] && fwd+=("--$a:@=/cas/args/$a")
   done
   then_=$(caos curry --base:@=/cas/args/base "${fwd[@]}") || fail "currying push"
-  caos map-then /cas/layout --then:hash="$then_"
+  caos map-then /cas/converted --then:hash="$then_"
   ;;
 
 push)
-  caos get -r /cas/args/in     # the OCI layout
-  L=/cas/args/in
+  caos get -r /cas/args/in     # { ref } — what the server converted the delta to
+  ref=$(cat /cas/args/in/ref) || fail "no converted ref"
+
+  # resolve-image answers through the server's registry_pull_host, which is the
+  # HOST daemon's view (localhost:5000); a worker is on caos-net and cannot
+  # reach that. Rewrite it to the name the network answers to.
+  #
+  # This is a rough edge in resolve-image rather than something to be proud of
+  # here: the server knows one address and hands it to callers on both sides of
+  # its network. The clean fix is for runnerd to inject the registry address the
+  # way it already injects CAOS_WORKER_REDIS_ADDR.
+  case "$ref" in
+    localhost:*|127.0.0.1:*) ref="caos-registry:${ref#*:}" ;;
+  esac
 
   # THE SECRET. Absent is a hard failure, per caos's contract: a worker must
   # fail if its secret is missing or invalid, because the run's identity records
@@ -160,7 +130,12 @@ push)
   if [ -e /cas/args/name ]; then caos get /cas/args/name; name=$(cat /cas/args/name); fi
   server=$DEFAULT_SERVER
   if [ -e /cas/args/server ]; then caos get /cas/args/server; server=$(cat /cas/args/server); fi
-  chash=$(cat "$L/client-hash" 2>/dev/null) || fail "no client-hash in the layout"
+  # client_hash is the image's CONFIG digest — exactly what coworld reads from
+  # `docker image inspect --format {{.Id}}` (upload.py, _local_image_client_hash).
+  # Ask the registry, not a daemon.
+  chash=$(skopeo inspect --tls-verify=false --raw "docker://$ref" | jq -r '.config.digest') \
+    || fail "reading the config digest of $ref"
+  [ -n "$chash" ] && [ "$chash" != null ] || fail "no config digest for $ref"
 
   api() { # $1 = path, $2 = json body
     curl -fsSL -X POST "$server$1" \
@@ -189,7 +164,8 @@ push)
     auth=$(jq -r '.pre_signed_info.authorization_token' <<< "$resp")
     # The token is base64 user:pass, which is what --dest-creds wants decoded.
     creds=$(printf '%s' "$auth" | base64 -d 2>/dev/null) || creds="AWS:$auth"
-    skopeo copy --dest-creds "$creds" "dir:$L" "docker://$reg/$repo:$tag" \
+    skopeo copy --src-tls-verify=false --dest-creds "$creds" \
+      "docker://$ref" "docker://$reg/$repo:$tag" \
       >/tmp/push.log 2>&1 || { tail -20 /tmp/push.log >&2; fail "pushing to $reg/$repo:$tag"; }
     api /v2/container_images/upload/complete "$(jq -nc --arg i "$imgid" '{id:$i}')" \
       >/dev/null || fail "POST /v2/container_images/upload/complete rejected"
@@ -203,6 +179,7 @@ push)
     || fail "POST /stats/policies/docker-img/complete rejected"
 
   { echo "policy:      $name"
+    echo "image:       $ref"
     echo "client_hash: $chash"
     echo "image id:    $imgid"
     echo "image:       $pushed"
