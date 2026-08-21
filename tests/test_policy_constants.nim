@@ -106,36 +106,41 @@ suite "policy constants track the engine":
     # ring changes the slip geometry's premise, so it needs its own A/B rather
     # than a drive-by number swap.
 
-  # ── 2. THE SPAWN-ADDRESS FAMILY ─────────────────────────────────────────
+  # ── 2a. THE PER-TEAM ADDRESS BUG: SHIELD AND ARC ONLY ───────────────────
+  #
+  # ⚠️ SCOPE CORRECTION 2026-08-20 (caught by the kit-selector lane BEFORE this
+  # test hardened, and re-verified here against both sources). An earlier draft
+  # of this file filed MED KIT, SHIELD and ARC as "three faces of one bug". That
+  # was WRONG, and wrong in the most durable way — a false causal claim inside a
+  # GREEN test. Med kits have a SEPARATE cause; see 2b. Only shield and arc are
+  # this bug. The two defects happen to produce the same symptom (a phantom
+  # address), which is exactly why they got merged.
   #
   # FINDING: the policy's `Team` enum has only `Red, Blue`. The engine's has
-  # `Red, Blue, Green, Yellow`. Every pickup address in the policy is written
-  # `if team == Red: <a> else: <b>` — a two-way branch — so on a four-team
-  # board GREEN AND YELLOW BOTH INHERIT BLUE'S COORDINATES. The engine does not
-  # mirror at all: it orbits Red's point through the map's own symmetry
-  # (`teamOrbitPoints` / `teamImagePoint`), which is a rot90 on `layoutCorners`,
-  # not a left-right flip.
+  # `Red, Blue, Green, Yellow`. The shield and arc addresses are each written
+  # `if team == Red: <a> else: <b>` — a two-way branch — so on a four-team board
+  # GREEN AND YELLOW BOTH INHERIT BLUE'S COORDINATES. The engine does not mirror
+  # at all: it orbits Red's point through the map's own symmetry
+  # (`teamOrbitPoints` / `teamImagePoint`), which is a rot90 on `layoutCorners`
+  # — the TOP edge, not the right edge a mirror picks.
   #
-  # Measured misses (re-simulated hosted boards, sibling lanes, 2026-08-20):
-  #   MED KIT  0 of 3,433 four-team boards had a live spawn inside the 12px
-  #            pickup range of a formula spot; median miss 168px (58px on
-  #            2-team, where the formula also loses a 59.9% coin flip over
-  #            WHICH candidate pair is active).
-  #   SHIELD   0 of 2,400 team-addresses within 12px; Red 395px, Blue 395px,
-  #            GREEN 1136.9px, Yellow 65px. Green's address points into
-  #            YELLOW's base corner.
-  #   ARC      0.00% within 12px, median 178px off, over 600 boards.
-  # The med-kit and shield halves are owned by other lanes; asserted here, not
-  # fixed here.
+  # Measured (re-simulated hosted boards, sibling lanes, 2026-08-20):
+  #   SHIELD  0 of 2,400 team-addresses within the 12px pickup range;
+  #           Red 395px, Blue 395px, GREEN 1136.9px, Yellow 65px. Green's
+  #           address points into YELLOW's base corner.
+  #   ARC     0.00% within 12px, median 178px off, over 600 boards.
+  # The shield half is owned by the consumable lane; asserted here, not fixed.
 
-  test "the policy Team enum is 2-team, so every address formula is 2-team":
+  test "the policy Team enum is 2-team, so the PER-TEAM addresses are 2-team":
     check policyHas("Team = enum\n    Red, Blue")
     # If someone widens the policy enum, these address formulas must be
     # revisited in the same change — that is the whole point of pinning it.
     check Team.high == Yellow          # the ENGINE knows four
 
-  test "every pickup-address formula is the 2-way shape (documented)":
+  test "the shield and arc addresses are the 2-way shape (documented)":
     # Both formulas branch Red / not-Red. Kept as an inventory, not a fix.
+    # ⚠️ EXACTLY TWO formulas have this shape. The med-kit constants are NOT
+    # among them — they take no team argument at all (see 2b).
     check policyHas("if team == Red: vec(50, y) else: vec(float(MapW - 50), y)")
     check policyCount("if team == Red: vec(50, y) else: vec(float(MapW - 50), y)") == 2
     # …while the engine derives every non-Red point by SYMMETRY, and on
@@ -155,6 +160,69 @@ suite "policy constants track the engine":
     check policyHas("when defined(arcOn):\n    result.arcBreach = true")
     # No unconditional arming may creep in without this test noticing.
     check policyCount("result.arcBreach = true") == 1
+
+  # ── 2b. THE MED-KIT PHANTOM: A DIFFERENT BUG WITH THE SAME SYMPTOM ──────
+  #
+  # FINDING: the med-kit formula is a phantom for reasons that have NOTHING to
+  # do with the `Team` enum. It takes no team argument at all —
+  #     MedKitAX = MapW div 2        MedKitBX = MapW div 2
+  #     MedKitAY = MapH div 3        MedKitBY = 2 * MapH div 3
+  # — so all four colours walk to the SAME two spots and miss by the SAME
+  # distance. There is no address to inherit and no per-team asymmetry.
+  #
+  # ⭐ THE METHOD THAT SEPARATED THEM — worth more than either finding.
+  # Both defects present identically as "0% of formula spots are within the
+  # 12px pickup range", which is what let them be merged into one cause.
+  # DECOMPOSING THE POSITIONAL ERROR INTO AXES before assigning a cause split
+  # them apart in one table (hosted mapSpecs, kit-selector lane, 2026-08-20):
+  #
+  #     board     mean |dx|   mean |dy|   formula x EXACTLY the kit x
+  #     2-team      0.0 px     46.7 px    18/18 (100%)
+  #     4-team    169.3 px     59.3 px     0/6  (0%)
+  #
+  # The enum mechanism REQUIRES a nonzero |dx| (a team inheriting the wrong
+  # side's x). On 2-team |dx| is identically ZERO on 18 of 18 boards, so the
+  # enum cannot be the cause there. Always decompose before attributing.
+  #
+  # THE TWO REAL CAUSES, both confirmed against src/ctf/arena.nim:
+  #   2-TEAM — the x is EXACT by construction (generator `mid = width div 2`,
+  #     policy `MapW div 2`: the same number), so the entire miss is in y. The
+  #     generator draws y1 from [0.16H, 0.34H] and y2 from [0.36H, 0.47H] and
+  #     then COIN-FLIPS which of the two candidate pairs is live. The policy
+  #     hard-codes H/3 and 2H/3 and knows nothing of the draw or the flip.
+  #   4-TEAM — the generator ABANDONS the centre column entirely and places
+  #     four kits on a quadMirror/rot90 ORBIT at radius d from map centre. That
+  #     is why 4-team (median 168px) is worse than 2-team (58px) — not because
+  #     half the teams get another team's address.
+  # Verified independently on a real hosted 4-team spec (gen-21482, width 1235,
+  # so MedKitAX = 617): kits sit at x = 499 and 735, i.e. |dx| = 118 on all
+  # four, and none is on the centre column.
+  #
+  # Owned by the consumable-economy and kit-selector lanes. Asserted, not fixed.
+
+  test "the med-kit formula has NO team term (so the enum bug cannot reach it)":
+    check policyHas("MedKitAX = float(MapW div 2)")
+    check policyHas("MedKitBX = float(MapW div 2)")
+    check policyHas("MedKitAY = float(MapH div 3)")
+    check policyHas("MedKitBY = float(2 * MapH div 3)")
+    # The shape that WOULD carry the enum bug is `proc …(team: Team)`. The
+    # med-kit constants are plain map-derived values with no team parameter,
+    # which is the whole reason 2a cannot explain them.
+    check not policyHas("MedKitAX(team")
+    check not policyHas("medKitSpot(team")
+
+  test "the ENGINE med-kit generator explains the miss on both axes":
+    let arenaSrc = readFile(RepoRoot / "src" / "ctf" / "arena.nim")
+    # 2-team: same x as the policy (hence |dx| == 0), y is a RANDOM DRAW from
+    # two bands, and a COIN FLIP selects which candidate pair is live.
+    check arenaSrc.contains("mid = result.width div 2")
+    check arenaSrc.contains("y1 = rng.pickRange(result.height * 16 div 100")
+    check arenaSrc.contains("y2 = rng.pickRange(result.height * 36 div 100")
+    check arenaSrc.contains("if rng.coin():")
+    # 4-team: an ORBIT about the centre, not a centre column at all.
+    check arenaSrc.contains("quadMirrorOrbit(")
+    check arenaSrc.contains("rot90Orbit(")
+    check arenaSrc.contains("result.medKitSpawns = result.medKitCandidates")
 
   # ── 3. THE AIM WORLD (why spinCap is unreachable) ───────────────────────
   #
