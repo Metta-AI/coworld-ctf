@@ -108,19 +108,25 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   # plays against an otherwise-identical control that keeps every other lever.
   if getEnv("NOPLAYBOOK") == "1" and not stripFix:
     tune.playbook = false
-  # GRABTIMING=1 turns ON the anti-stacked-dive hold (not in shippedCombatTune) so
-  # the not-blind oracle can confirm a grabTiming build still grabs + has decisive
-  # games before any upload. Applies to BOTH teams (a mirror liveness check).
-  if getEnv("GRABTIMING") == "1":
-    tune.grabTiming = true
+  # ⛔ GRABTIMING — DEAD KNOB, removed 2026-08-20 (lever-liveness audit).
+  # `grabTiming` has ZERO read sites in baseline.nim: smartGrab superseded the
+  # hard-threshold gates and their bodies went with them. This "liveness check"
+  # was checking a build that is byte-identical to its control.
+  if getEnv("GRABTIMING").len > 0:
+    quit("⛔ GRABTIMING is a DEAD knob: grabTiming has no read site in " &
+      "baseline.nim (superseded by smartGrab). This run would have been a " &
+      "guaranteed null.", 2)
   # HOLDLINE=1 / GRABGATE=1 (2026-07-22, the h006 counters) turn ON the anti-over-extend
   # rally / numbers-gated pocket open (neither in shippedCombatTune) so the not-blind
   # oracle can confirm each build still grabs + has decisive games before any A/B.
   # Applies to BOTH teams (a mirror liveness check).
   if getEnv("HOLDLINE") == "1":
     tune.holdLine = true
-  if getEnv("GRABGATE") == "1":
-    tune.grabGate = true
+  # ⛔ GRABGATE — DEAD KNOB, removed 2026-08-20. Same cause as GRABTIMING.
+  if getEnv("GRABGATE").len > 0:
+    quit("⛔ GRABGATE is a DEAD knob: grabGate has no read site in " &
+      "baseline.nim (superseded by smartGrab). This run would have been a " &
+      "guaranteed null.", 2)
   # ⭐ GV40 AIM A/B (2026-08-06). shippedCombatTune() reads OLDAIM from the
   # process env and all 16 bots share ONE process, so a bare OLDAIM=1 would arm
   # BOTH sides and the "A/B" would be a mirror — the same trap SPINTEAM and

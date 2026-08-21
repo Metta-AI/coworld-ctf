@@ -690,11 +690,44 @@ var
     ## on puddle-less boards). Audit-confirmed ZERO readers before v56 —
     ## sentries posted and wounded bots parked inside stated attrition zones.
   BarrageDepthPx = 0.0
+    ## ⚠️ -d:barrprobe (2026-08-20) instruments this var; see bpMaxDepth.
     ## v56 hazardSense: the stated grenade-barrage ring depth off the LIVE
     ## `grenade barrage depth <n> rate <n> start <n> sat <n>` marker — every
     ## map edge is saturated this many px deep RIGHT NOW (0 = mode off / not
     ## latched; escalates to the full board). Refreshed every frame in
     ## decide; audit-confirmed zero readers before v56.
+    ##
+    ## ⚠️⚠️ 2026-08-20 — "BarrageDepthPx was 0.0 on 100% of frames, so
+    ## hazardSense's barrage branch is a CONSTANT-FALSE GUARD" is REFUTED.
+    ## The branch is fine and the label contract is intact; the RIG is blind:
+    ##   * the marker is emitted only when `config.barrageMaxPerSec > 0`
+    ##     (src/ctf/global.nim:6242), and `defaultGameConfig()` ships
+    ##     `barrageMaxPerSec: 0` (src/ctf/sim_config.nim:52);
+    ##   * `newEvalEngine` (players/baseline/eval/harness_engine.nim) overrides
+    ##     aimTurnRate / gunRange / map / teams / scoring and NOTHING ELSE, so
+    ##     every local episode runs with the barrage mode OFF;
+    ##   * the HOSTED league arms it: coworld_manifest_paintbot.json sets
+    ##     `barrageMaxPerSec: 15, barrageStartPerSec: 4, barrageStartSec: 30,
+    ##     barrageSaturateSec: 30` on the 2v2, 4ffa AND 4ffa8 modes.
+    ## So in the field the marker DOES arrive and the depth DOES escalate — the
+    ## lever was written for a real, observed death cause ("we still don't react
+    ## to end-of-game perimeter bombs, we die to them a lot").
+    ## ⚠️ The depth is stated as 0 until the barrage LATCHES at 30s remaining,
+    ## which on the 7200-tick clock is ~tick 6480. A rig run with `--ticks 6000`
+    ## would read 0 even with the mode armed. Reproduce with EVAL_BARRAGE=15 and
+    ## ticks past the latch; see harness_engine.nim.
+
+when defined(barrprobe):
+  # -d:barrprobe ONLY (2026-08-20): the instrument that REFUTES "hazardSense's
+  # barrage branch is a constant-false guard". It answers the two questions a
+  # fire counter could not: did the stated depth ever become non-zero, and did
+  # the evacuation override ever drive the feet. Run it with EVAL_BARRAGE=15 and
+  # --ticks past the latch (barrageStartSec=30 remaining), or it reads 0 for the
+  # RIG's reason rather than the policy's.
+  var bpMaxDepth = 0.0    # largest BarrageDepthPx ever stated to us
+  var bpDepthFrames = 0   # bot-frames on which the stated depth was > 0
+  var bpPostVeto = 0      # target pushed out of the ring by the post/stand guard
+  var bpEvac = 0          # frames the body-evacuation override drove the feet
 
 var
   HeartHome: array[4, bool]     ## per-colour: that team's heart is ON its
@@ -1095,15 +1128,40 @@ const
                               # is DISARMED (gun off while holding) AND out of cone
                               # range = a free kill. Local copy (player can't import
                               # sim); re-verify vs sim.nim on every engine bump.
+                              # ⛔⛔ STALE SINCE GameVersion 30 — see
+                              # tests/test_arc_reach.nim. The engine's DAMAGE const is
+                              # `PlasmaArcReach = 5 * PlasmaArcSquare` = 170px
+                              # (sim_types.nim:558); 4*34 = 136 is now
+                              # `PlasmaArcFxReach` (:546), the DRAWN PLUME's span —
+                              # ART geometry. Reading the FX const instead of the
+                              # damage const is almost certainly how 136 got here.
+                              # ⚠️ THE SPRAY LANE OWNS THIS CONSTANT and is correcting
+                              # it together with ArcBreachFireReach. Do NOT change its
+                              # VALUE from a second branch: one consumer (the
+                              # arc-breacher cluster scan, :11067) uses this symbol as
+                              # a CLUSTER RADIUS, not a danger radius, and 136 -> 170
+                              # silently widens that gate 1.56x in AREA.
   CounterArcBonus = 240.0     # px of priority credit for an enemy arc-carrier we can
                               # kill from OUTSIDE its cone. Above AimThreatBonus(120)
                               # so it beats a generic/far/wounded enemy, but BELOW
                               # CommitBonus(400) so it NEVER drops a target we're one
                               # hit from killing (protects the commit lock + OBJ-1).
-  CounterArcReachBuffer = 24.0 # margin past PlasmaArcReachPx before we treat a
+  CounterArcReachBuffer = 24.0 # margin past the cone reach before we treat a
                               # carrier as "safely disarmed" — covers the 5-tick cone
                               # sweep + our closing speed so we don't mis-classify a
                               # carrier about to be in reach.
+                              # ⛔ MEASURED WRONG 2026-08-20 (lever-liveness pass;
+                              # ASSERTED, NOT PATCHED — tests/test_arc_reach.nim).
+                              # Against the STALE PlasmaArcReachPx(136) this puts the
+                              # "safely disarmed, free kill" threshold at 160px, which
+                              # is INSIDE the real damage envelope: the engine selects
+                              # a victim while forward <= PlasmaArcReach(170) +
+                              # PlasmaArcBodyRadius(17) = 187px (sim.nim:855-869), and
+                              # PlasmaArcDamage(3) == MaxHp(3) makes one touch an
+                              # instant kill. Worse than a blind spot: CounterArcBonus
+                              # (240) actively PULLS the engage onto exactly the
+                              # enemies that can one-shot us. The buffer is fine; its
+                              # BASE is stale. Fix belongs with the const owner.
   # --- arcStandoff (the MOVEMENT companion to counterArc) ---
   ArcStandoffBuffer = 60.0    # px past PlasmaArcReachPx(136) that we hold off a DISARMED
                               # enemy arc-carrier. Sized off the sim: a cog closes at
@@ -1113,6 +1171,20 @@ const
                               # than CounterArcReachBuffer(24) on purpose: that one only has
                               # to CLASSIFY a carrier, this one has to out-FOOT it.
   ArcStandoffRing = PlasmaArcReachPx + ArcStandoffBuffer  # 196px: inside this we back off.
+                              # ⛔ MEASURED WRONG 2026-08-20 (ASSERTED, NOT PATCHED —
+                              # tests/test_arc_reach.nim): 136 + 60 = 196, but the real
+                              # damage envelope reaches 187px, so the INTENDED 60px of
+                              # foot-room is actually NINE px — ~3 ticks at 2.75px/tick,
+                              # well inside the 5-tick cone sweep (PlasmaArcActiveTicks)
+                              # this buffer was explicitly sized to cover. The dead band
+                              # (196..236) then straddles the kill line instead of
+                              # sitting outside it, and the whole "hold at the ring and
+                              # keep shooting is a FREE kill" argument in the block
+                              # comment below assumes a ring that clears the cone.
+                              # ⚠️ arcStandoff has prior history — retreat a cone
+                              # DIAGONALLY, not radially — so a range change interacts
+                              # with the slip geometry. Needs its own A/B, not a
+                              # drive-by number swap.
   ArcStandoffSlipMix = 1.0    # sideways:backward ratio of the break-contact step. 1.0 = a 45°
                               # diagonal, which is exactly an octant on the 8-way d-pad (so
                               # octantBits quantizes it with ZERO error). Sideways is what
@@ -2260,11 +2332,18 @@ type
                               # still fires) instead of advancing — FALSIFIED
                               # 2026-07-15 (net -3, conv worse): fleeing turns the
                               # back to the respawner without clearing its cone.
-    carrierClearBand: bool    # ⭐ CAPTURE CONVERSION: inside the robbed pocket,
-                              # route the carrier DIAGONALLY out of the respawn
-                              # firing band (pedestal height ±72px, where fresh
-                              # invulnerable respawners spawn aimed E-W) before the
-                              # home run — never pick the mid lane that IS the cone.
+    # ⛔ carrierClearBand — FIELD DELETED 2026-08-20 (lever-liveness correctness
+    # pass). It read: "inside the robbed pocket, route the carrier DIAGONALLY out
+    # of the respawn firing band (pedestal height ±72px, where fresh invulnerable
+    # respawners spawn aimed E-W) before the home run — never pick the mid lane
+    # that IS the cone." v47 RETRACTED the premise (ab27fc8 deleted spawn
+    # protection; GV25/72fd075 made respawns land uniformly over the whole
+    # endzone) and deleted the lane veto + the vertical bugout — but left the
+    # `if tune.carrierClearBand and arenaExit: ... else: ...` SHELL behind with
+    # BYTE-IDENTICAL arms. The liveness audit counted 1,008 "fires" on 2-team and
+    # read that as a live 2-team-only lever; every one of those fires was a no-op.
+    # "It FIRED" is not "it could have CHANGED the outcome". See the carrier-home
+    # branch (search: carrierClearBand tombstone) for the surviving history.
     carrierSerpentine: bool   # ⭐ CARRIER-RUN SURVIVAL (2026-07-24): the carrier WEAVES while
                               # crossing watched ground on the run home. Carriers were EXEMPT
                               # from the serpentine (speed-beats-evasion) — wrong for the SLOWEST
@@ -2322,18 +2401,21 @@ type
                               # crosses the escort FIRST (selectFireTarget stops at
                               # the first body; friendly fire ON). The one mechanism
                               # the mirror can't refute away: a screen is physics.
-    carrierGrabDetect: bool   # ⭐⭐⭐⭐ WAKEUP DEADLOCK FIX: the self-carry test only
-                              # fires when the heart is >16px off its pedestal, but a
-                              # carrier standing ON the robbed pedestal keeps the heart
-                              # ~7px away (CarriedFlagLift=10) → iCarry stays FALSE →
-                              # the bot never routes home and camps the pedestal it
-                              # already robbed until timeout (hosted replays: 67-75% of
-                              # a game frozen at the enemy pedestal → a DRAW that should
-                              # have been a win). Fix via the auto-pickup invariant: a
-                              # living player within FlagPickupRange of an un-carried
-                              # enemy pedestal heart is INSTANTLY made carrier by the
-                              # sim, so if the heart is on me AND I'm inside pickup range
-                              # of the pedestal with no mate closer, I MUST be carrying.
+    # ⛔ carrierGrabDetect — FIELD DELETED 2026-08-20 (lever-liveness correctness
+    # pass). STILLBORN: it shipped `true` with ZERO read sites, for months.
+    # `git log --all -S "tune.carrierGrabDetect"` returns exactly ONE commit,
+    # 80e7f87 ("wip: vanity 5% gate ... pre-0.7.8-merge snapshot", 2026-07-16),
+    # which is NOT an ancestor of HEAD — it survives only on
+    # maxwell/ctf-shouts-awareness and maxwell/picasso-0.7.8-perception. So no
+    # SHIPPED build has ever read this field, and the harness `GRABFIX` knob was
+    # a no-op that could not move an A/B.
+    # THE FIX IT NAMES DID SHIP, unconditionally, and is still live: the wakeup
+    # deadlock (a carrier standing ON the robbed pedestal keeps the heart ~7px
+    # away, under the >16px self-carry test, so iCarry stayed FALSE and the bot
+    # camped the pedestal it had already robbed — hosted replays: 67-75% of a
+    # game frozen there, a DRAW that should have been a win) is fixed by the
+    # constant `CarrySelfRadius = 26.0`, not by a flag. ⚠️ v3's ship-log credit
+    # ("+7, field-proven core") CANNOT rest on this lever.
     # ── SEAL/CQB v4 levers (2026-07-16). Each defaults false (control), all ON
     # in shippedCombatTune, each with its own harness env knob. Derived from the
     # recovered ctf-combat-strategy doctrine, reinterpreted for WIN-ONLY scoring
@@ -2510,6 +2592,17 @@ type
                               # (benefit cancels) and its trigger — a clean wipe with the
                               # enemy carrier already dead — barely occurs in the mirror;
                               # validate on a hosted/asymmetric mixed field, not the lab.
+    # ⛔⛔ ZERO READ SITES since smartGrab (:9231) superseded it — the field is
+    # DECLARED but nothing reads `tune.grabTiming`. KEPT ON PURPOSE, not
+    # overlooked: `git log --all -S "tune.grabTiming"` shows a real shipped
+    # history (410a1cf "FIX the suicidal pedestal dive" wired it; 3ac6643 v47
+    # unwired it), and the design notes below are the record of WHY the
+    # hard-threshold shape was abandoned. That makes it a TOMBSTONE, which the
+    # house rule says to document in place rather than delete.
+    # ⚠️ Its harness knob GRABTIMING was DELETED 2026-08-20 — it armed a field
+    # nothing reads, so every A/B run through it was a guaranteed null that read
+    # as "no effect". The knob now fails loud. Do NOT re-add an arming line here
+    # without first re-adding a read site.
     grabTiming: bool          # ⭐ ANTI-STACKED-DIVE (2026-07-20, the dive-death
                               # finding): 96% of our carrier deaths are AT the enemy
                               # pedestal, 0% grab->cap in every loss — we rush a lone
@@ -2605,6 +2698,9 @@ type
                               # holder still trades out anything lined up); carrier, escort
                               # and own-heart-stolen states are carved out, so a capture run
                               # and a recapture are never clamped. NOSHAPE=1 reverts.
+    # ⛔⛔ ZERO READ SITES since smartGrab (:9231) superseded it — see the
+    # grabTiming tombstone above; identical status, identical reasoning. Its
+    # harness knob GRABGATE was DELETED 2026-08-20 and now fails loud.
     grabGate: bool            # ⭐ NUMBERS-GATED GRAB (2026-07-22, the h006 grab-discipline
                               # finding): h006 commits to the heart almost ONLY when up bodies
                               # (its carries start at a local numbers lead; steal->cap 46-64%
@@ -2809,6 +2905,27 @@ type
                               # Mirror-measurable for the same reason medTopOff was: it is a
                               # resource RACE, not a coordination lever, so self-play scores
                               # it (heals, deaths, K-D) — unlike comms.
+    # ⚠️⚠️ 2-TEAM MEDKIT PERCEPTION BLACKOUT (recorded 2026-08-20, lever-liveness
+    # correctness pass). The visibility gate in the medEcon commit block is
+    #     let medVisOn = bot.tune.medSee or (bot.tune.ffaMedSee and ffa4Board)
+    # and `medSee` is armed ONLY by `getEnv("MEDSEE")` while players/baseline/
+    # Dockerfile declares exactly one variable, `ENV PATH`. So medSee is FALSE in
+    # every shipped build, and on a TWO-TEAM board `medVisOn` is FALSE OUTRIGHT:
+    # the candidate set collapses to the two formula spots and the union of
+    # VISIBLE kit sprites is never populated at all.
+    # That is the mechanism behind the standing finding "we never steer to
+    # medkits — broken on 2-team too". On 2-team it is not a steering failure or
+    # a losing tie-break; it is a PERCEPTION BLACKOUT by construction.
+    # ⚠️ ARMING IT IS A REAL TRADE, NOT A FREE FIX — see the v-lever note in
+    # shippedCombatTune(): medSee was dropped 2026-08-06 for costing the holder
+    # 13% of its kills on the 2-team mirror (the FEET LAW). Measured 2026-08-20
+    # by the kit-selector lane on 3 hosted 2-team mapSpecs x 3 seeds (n=18,
+    # paired within map/seed/team): adding SIGHT alone is +0.32 ± 0.08
+    # heals/team-Ep but −0.02 ± 0.01 captures/team-Ep — the capture sign the
+    # revert predicted. The gate for this belongs to the CONSUMABLE-ECONOMY lane
+    # (one knob per consumable, so kits and shields attribute separately); it is
+    # deliberately NOT added here to avoid two branches arming the same
+    # expression. Score CAPTURES, not just heals, when it lands.
     medSee: bool              # ⭐⭐ medSee (2026-08-05, issue #16): give medEcon its EYES.
                               # medEcon above buys the RIGHT doctrine with a TWO-TEAM ARENA
                               # coordinate: its candidate set is exactly the two formula spots
@@ -3924,14 +4041,12 @@ proc defaultCombatTune(): CombatTune =
     nadeSupply: false,        # control: grenades are only collected when SEEN (90px bubble).
     antiBunch: false,         # control: mates settle at MateSpacing(40), inside one blast.
     carrierFlee: false,       # control: carrier advances toward a point-blank enemy.
-    carrierClearBand: false,  # control: carrier lane may sit in the respawn cone.
-    carrierSerpentine: false, # control: carrier runs a straight predictable line home.
+      carrierSerpentine: false, # control: carrier runs a straight predictable line home.
     carryAnyHeart: false,     # control: carry is only detected on the current raid target.
     cornerDeep: false,        # control: a corner zone's target is its bounding-box centre.
     carrierSprint: false,     # control: carrier fights (engage 110px) instead of running.
     carrierScreen: false,     # control: escort screens remembered threats, not the cone.
-    carrierGrabDetect: false, # control: self-carry only when heart >16px off pedestal.
-    dangerScore: false,       # control: flat facing tiebreak only (threatFacingBonus).
+      dangerScore: false,       # control: flat facing tiebreak only (threatFacingBonus).
     twoSpeedScan: false,      # control: sentry sweep rakes past the hot bearing.
     boundingOverwatch: false, # control: advance across open ground even on cooldown.
     holdVsGun: false,         # control: a solo gun-down bot strolls away from a live gun.
@@ -4013,7 +4128,12 @@ proc shippedCombatTune(): CombatTune =
   # seatings (Red 23.8% vs 13.0% baseline, Blue 26.3% vs 5.9%). Asymmetric fix
   # (converts would-be-draws to wins for the fixed side) so the mirror measures
   # it, unlike the six falsified combat levers.
-  result.carrierGrabDetect = true
+  # ⛔ 2026-08-20: the ARMING LINE `result.carrierGrabDetect = true` that used to
+  # sit here was DELETED — the field was STILLBORN (zero read sites in every
+  # shipped build; see the tombstone on the CombatTune declaration). The fix
+  # described above is real and still live, but it ships as the unconditional
+  # constant `CarrySelfRadius = 26.0`, and the A/B quoted above therefore
+  # measured that constant, NOT this flag. Nothing about behaviour changes here.
   # ── SEAL/CQB v4 (2026-07-16): the six doctrine levers, now the PROVEN champion
   # base. Corrected seat-rotated A/B (24g/side, seed 100, candidate = this + core
   # vs control = v3 core alone) = +8 SEAT-ADJUSTED, positive on BOTH seatings
@@ -4085,7 +4205,11 @@ proc shippedCombatTune(): CombatTune =
   # branch entirely (engage 0 = pure nav home, mirror-A/B-measurable); carrierClearBand routes it
   # vertically out of the pedestal-height respawn band before the home run.
   result.carrierSprint = true
-  result.carrierClearBand = true
+  # ⛔ 2026-08-20: `result.carrierClearBand = true` DELETED with the field. v47
+  # retracted the premise and removed BOTH the lane veto and the vertical bugout,
+  # leaving an if/else whose two arms were byte-identical — so from v47 onward
+  # this lever could not change a single mask. See the carrierClearBand tombstone
+  # in the carrier-home branch. carrierSprint above is unaffected and still live.
   # ── CORNER PRE-AIM (2026-07-16). Replay-reported miss ("we shoot the WALL our
   # enemy hides behind, they step out, we miss by aiming at the wall, they kill
   # us — daveey's shots land on the body"). Root cause: the peek/blocked branch
@@ -4575,6 +4699,26 @@ proc shippedCombatTune(): CombatTune =
   # per-process env rig: kills +64%, deaths -40%, positive both seatings;
   # gated-off path byte-identical to v38; nade release err >6 brads 4% -> 0%.
   result.nadeLob = true
+  # ⛔⛔ spinCap IS UNREACHABLE ON THE CURRENT ENGINE — armed, but its guarded
+  # branch was evaluated 0 times in 768,992 bot-frames across BOTH board families
+  # (lever-liveness audit 2026-08-20). ROOT CAUSE, and it is not in spinCap:
+  # the whole spin-budget family lives inside the `elif desiredAim >= 0:` GV36
+  # SLOT SERVO arm, which only runs when `aimSlotWorld` is true — i.e. when the
+  # observed aim step is a multiple of 8 brads AND >= 8 (a 32-slot lattice).
+  # GV40 (2026-08-06) RESTORED CONTINUOUS TURRET AIM: `AimTurnRate = 5`
+  # brads/tick (src/ctf/sim_types.nim:424), so `bot.aimStepBrads` is 5, `5 >= 8`
+  # is false, and every frame takes the CONTINUOUS servo arm instead. spinCap is
+  # correct code for an engine that no longer exists.
+  # ⚠️ THE RIG CANNOT REACH IT EITHER, and for a DIFFERENT reason than the one
+  # harness_engine.nim documents: that comment warns that at `aimTurnRate = 1`
+  # (the engine default) "the whole spin-budget family is INERT" and tells you to
+  # override to the league value 5. At 5 it is inert TOO — 5 is not a slot rate.
+  # NEITHER rate reaches this lever; only a GV36-style slot engine does.
+  # LEFT ARMED DELIBERATELY: flipping it off would be a behaviour change with no
+  # bound behind it (it cannot execute either way), and leaving it armed means
+  # that if the engine ever flips back to a slot lattice the lever wakes up as
+  # its authors intended. tests/test_arc_reach.nim asserts the engine is still a
+  # continuous-aim world, so a flip surfaces as a failing test, not as silence.
   result.spinCap = true
   # ⭐ spinCap RANGE FORK (issue #8 residual, 2026-08-05). Measured on the shipped
   # trees: the 4-tick budget parks the turret at a ≤2-slot residual, and because
@@ -7285,6 +7429,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         except ValueError:
           discard
       break
+    when defined(barrprobe):
+      if BarrageDepthPx > 0.0:
+        inc bpDepthFrames
+        if BarrageDepthPx > bpMaxDepth: bpMaxDepth = BarrageDepthPx
 
   # Damage awareness (SIGHT + SOUND): our own hp pip bar is always sent to us,
   # so a drop since last frame means we were just hit. If no enemy is in front
@@ -8054,34 +8202,38 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cost in the path field keeps the route hugging cover past remembered
     # enemies.
     var laneY = bot.safestLaneY(me)
-    let
-      ezc = statedZone(SelfEnemyColor)
-      arenaExit = GameTeams <= 2 and not (ezc.have and ezc.compact)
-        # The vertical-bugout + border-lane exit is ARENA geometry. On a
-        # compact/wrapped endzone or any 4-team layout those lanes are
-        # fiction — live census: surviving carriers wandered the pocket for
-        # 300-900 ticks at ~0% progress with the override steering them.
-        # There, the eroded live nav grid knows the real walls: navSteer
-        # straight at captureAim.
-    if bot.tune.carrierClearBand and arenaExit:
-      # ⛔ v47 audit: the ORIGINAL premise here was retracted by the engine
-      # before this lever was even written. It read: "every kill respawns an
-      # armed, SPAWN-PROTECTED (thus unkillable) enemy at this pedestal aimed
-      # E-W across pedestal height" — but ab27fc8 (2026-07-22) DELETED spawn
-      # protection entirely, and GV25 (72fd075) made respawns land UNIFORMLY
-      # over the whole endzone, not in a pedestal-height band. So the lane
-      # veto (kick safestLaneY off LaneMid whenever |laneY-CenterY| < 84 —
-      # always true for LaneMid) and the pure-vertical bugout were steering
-      # the carrier off a firing line that does not exist, overriding a real
-      # multi-factor cover scorer with fiction, and stalling homeward progress
-      # inside the pocket. Let safestLaneY/captureAim own the route.
-      target = captureAim(bot.team, me, laneY)
-    else:
-      # (v47: the vertical "spawn-cone bugout" that lived here keyed on the
-      # same retracted spawn-protection premise AND on flagHome's stock-arena
-      # pedestal x — on generated maps it fired in open midfield around the
-      # phantom x, stalling the run. Removed with carrierClearBand's veto.)
-      target = captureAim(bot.team, me, laneY)
+    # ⛔⛔ carrierClearBand TOMBSTONE (flag deleted 2026-08-20; history kept
+    # because it is the reason this branch looks so plain).
+    #
+    # v47 audit: the ORIGINAL premise was retracted by the ENGINE before the
+    # lever was even written. It read "every kill respawns an armed,
+    # SPAWN-PROTECTED (thus unkillable) enemy at this pedestal aimed E-W across
+    # pedestal height" — but ab27fc8 (2026-07-22) DELETED spawn protection
+    # entirely, and GV25 (72fd075) made respawns land UNIFORMLY over the whole
+    # endzone, not in a pedestal-height band. So BOTH halves of the lever were
+    # steering the carrier off a firing line that does not exist:
+    #   * the LANE VETO (kick safestLaneY off LaneMid whenever
+    #     |laneY-CenterY| < 84 — always true for LaneMid), which overrode a real
+    #     multi-factor cover scorer with fiction; and
+    #   * the pure-vertical "spawn-cone BUGOUT", which additionally keyed on
+    #     flagHome's stock-arena pedestal x, so on generated maps it fired in
+    #     open midfield around a PHANTOM x and stalled the run.
+    # v47 deleted both bodies — but left the `if tune.carrierClearBand and
+    # arenaExit: ... else: ...` shell standing with two BYTE-IDENTICAL arms, plus
+    # an `arenaExit` (`GameTeams <= 2 and not compact-endzone`) and a
+    # `statedZone(SelfEnemyColor)` call computed only to feed it.
+    #
+    # ⚠️ MEASUREMENT NOTE, so nobody re-derives it: the 2026-08-20 lever-liveness
+    # audit recorded 1,008 fires on 2-team and 0 of 1,851 evaluations on 4-team,
+    # and read that as "a live lever that is 4-team-inert by construction". It is
+    # not. From v47 onward NEITHER board family could be affected — every one of
+    # those 1,008 fires selected between two identical statements. This is the
+    # canonical "it FIRED != it could have CHANGED the outcome" case: a fire
+    # counter cannot see an if whose arms agree. The question "do we want 4-team
+    # support for carrierClearBand?" is therefore MOOT — there is no body to port.
+    # If the respawn-band idea is ever revived it needs a NEW premise measured
+    # against the CURRENT respawn distribution, not this flag switched back on.
+    target = captureAim(bot.team, me, laneY)
     if bot.tune.carrierHomeStretch:
       # ⭐ FINISH FIX: within CarrierFinishBand of our home edge the entire
       # capture column (x < ArenaCaptureClear = 210, mirrored for Blue) is
@@ -9354,6 +9506,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         moved = true
       if not moved: break
     if BarrageDepthPx > 0.0:
+      when defined(barrprobe): inc bpPostVeto
       let bdanger = BarrageDepthPx + BarrageEvadeMargin
       target.x = clamp(target.x, min(bdanger, float(CenterX)),
                        max(float(MapW - 1) - bdanger, float(CenterX)))
@@ -11754,6 +11907,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bstep = bsafe - me               # degenerate field: straight inward
       moveMask = octantBits(norm(bstep))
       holdStill = false
+      when defined(barrprobe): inc bpEvac
       bot.stuckTicks = 0                 # a deliberate sprint, not a corner grind
 
   # ⭐ ARC STANDOFF (2026-08-07): the MOVEMENT half of counterArc. counterArc bumps a disarmed
@@ -12009,6 +12163,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # plan so the error actually reaches 0 and the corridor opens. A traverse
       # with no shootable target (aimTargetD < 0) always keeps the budget — it
       # cannot cost a shot, and the blind multi-rev spin is pure vision loss.
+      # ⛔ MEASURED DEAD 2026-08-20: `spinBudgeted` was true on 0 of 768,992
+      # bot-frames — not because the test below fails, but because this entire
+      # `elif` (the GV36 slot servo) is unreachable while the engine runs
+      # continuous aim at AimTurnRate = 5 brads/tick. See the spinCap note in
+      # shippedCombatTune(). Do not "fix" the condition; there is nothing wrong
+      # with it. NOSPINCAP / SPINRANGE are inert for the same reason.
       let spinBudgeted = bot.tune.spinCap and
         (aimTargetD < 0.0 or aimTargetD <= bot.tune.spinCapRangePx)
       var capped = false

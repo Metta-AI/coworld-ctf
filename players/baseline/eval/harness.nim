@@ -30,6 +30,14 @@ import ./harness_engine
 # its runBot entrypoint never fires; we drive `decide` directly.
 include "../baseline.nim"
 
+when defined(maskhash):
+  # ⭐ -d:maskhash (ported from maxwell/leveraudit 80e7667): FNV-1a over EVERY
+  # emitted mask in (tick, slot) order plus the hp/lives trajectory. The ONLY
+  # accepted proof that a "behaviour-neutral" edit really is byte-identical.
+  # ⚠️ SEPARATE --nimcache per arm: a shared cache has faked an identity match.
+  var mhHash: uint64 = 14695981039346656037'u64
+  var mhMasks = 0
+
 var
   campTicksRed = 0        ## diagnostic: ticks a RED bot spent frozen (<0.8px
   campTicksBlue = 0       ## moved) while holding a live enemy track — the
@@ -60,7 +68,7 @@ proc newDriver(slot, team, episodeSeed: int, tune: CombatTune): BotDriver =
   ## baseline control and a hunter must face IDENTICAL conditions so only the
   ## swapped decisions differ), the episode seed salts every seat's stream.
   ## Team: 0 Red / 1 Blue.
-  let t = (if team == 0: Red else: Blue)
+  let t = (if team mod 2 == 0: Red else: Blue)
   let role = roleForSeat(clamp(slot div 2, 0, 7), t)
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
@@ -116,6 +124,18 @@ proc envFloat(name: string, dflt: float): float =
 proc envInt(name: string, dflt: int): int =
   let v = getEnv(name)
   if v.len > 0: parseInt(v.strip()) else: dflt
+
+proc deadKnob(name, why: string) =
+  ## ⛔ A/B KNOB THAT CANNOT MOVE ANYTHING — the fourth way a lever goes dark
+  ## (tests/test_lever_liveness.nim, guard 4). The harness used to expose these
+  ## as ordinary `envInt` overrides for CombatTune fields the policy does not
+  ## read, so setting one produced a run that was byte-identical to its control
+  ## and the A/B reported "no effect" instead of "not wired". FAIL LOUD instead:
+  ## a null you cannot distinguish from a no-op is worse than a crash.
+  if getEnv(name).len > 0:
+    quit("⛔ " & name & " is a DEAD A/B knob and this run would have been a " &
+      "guaranteed null.\n   " & why & "\n   (lever-liveness audit 2026-08-20; " &
+      "remove the env var to run the intended control.)", 2)
 
 proc hunterTune(): CombatTune =
   ## The hunter's fire/engage knobs. Starts from the baseline default and
@@ -211,11 +231,14 @@ proc hunterTune(): CombatTune =
   # the drop@home~2% leak (carriers die AT the robbed pedestal, in the respawn
   # nest). Isolated so an A/B measures grab->cap% directly.
   result.carrierFlee = envInt("CARRIERFLEE", 0) != 0
-  # CLEARBAND=1: carrier clears the respawn firing band (pedestal height ±84)
-  # vertically before the home run, and never picks a lane inside it. Targets
-  # the drop@home~4% death (carriers killed AT the robbed pedestal by fresh
-  # invulnerable respawners aimed E-W). Isolated for a direct grab->cap% A/B.
-  result.carrierClearBand = envInt("CLEARBAND", 0) != 0
+  # ⛔ CLEARBAND — DEAD KNOB, removed 2026-08-20. It armed `carrierClearBand`,
+  # whose v47 remnant was an if/else with two byte-identical arms, so the knob
+  # could not move a mask on any board. Field deleted; see the tombstone in
+  # baseline.nim's carrier-home branch.
+  deadKnob("CLEARBAND",
+    "carrierClearBand's body was deleted in v47; the flag guarded an if/else " &
+    "whose two arms were byte-identical, so this A/B could never differ from " &
+    "its control. The field is gone — there is nothing left to arm.")
   # SPRINT=1: carrier NEVER enters combat (engage 0). Survival instrumentation
   # showed carriers live ~110t but travel ~4% of the run — PINNED firing at the
   # invulnerable spawn-protected respawner (wasted shots) while advancing into
@@ -235,9 +258,16 @@ proc hunterTune(): CombatTune =
   # Recognize carry via the auto-pickup invariant (living player in pickup range
   # of an un-carried pedestal heart is instantly the carrier). Asymmetric fix, so
   # a seat-rotated self-play A/B CAN measure it (unlike the six combat levers).
-  # Default = shipped value, so SHIPBASE=1 keeps the v3 grabfix unless GRABFIX
-  # explicitly overrides it.
-  result.carrierGrabDetect = envInt("GRABFIX", (if result.carrierGrabDetect: 1 else: 0)) != 0
+  # ⛔ GRABFIX — DEAD KNOB, removed 2026-08-20. `carrierGrabDetect` was
+  # STILLBORN: it shipped true with ZERO read sites in every shipped build
+  # (`git log --all -S "tune.carrierGrabDetect"` -> one commit, 80e7f87, not an
+  # ancestor of HEAD). The fix described above is real and STILL ACTIVE — it
+  # ships as the unconditional constant `CarrySelfRadius = 26.0`, so it is not
+  # switchable and never was. Any A/B run through GRABFIX was a guaranteed null.
+  deadKnob("GRABFIX",
+    "carrierGrabDetect has no read site in baseline.nim and never had one in a " &
+    "shipped build; the wakeup-deadlock fix it names ships unconditionally as " &
+    "CarrySelfRadius = 26.0. Nothing to toggle.")
   # SEAL/CQB v4 bundle (2026-07-16). SEAL4=1 turns the whole set on; each lever
   # also has its own env override so a regression can be bisected without a
   # rebuild. The Picasso v4 champion runs all six ON together (shippedCombatTune),
@@ -297,7 +327,13 @@ proc hunterTune(): CombatTune =
   # deaths are at the pedestal, 0% cap in every loss). Default OFF (not in shipped
   # Tune); asymmetric so the mirror measures grab->cap, but the "vs a real stacked
   # defense" edge is field-only. A/B: SHIPBASE=1 GRABTIMING=1 vs CONTROL_SHIPPED=1.
-  result.grabTiming   = envInt("GRABTIMING",   (if result.grabTiming: 1 else: 0)) != 0
+  # ⛔ GRABTIMING — DEAD KNOB, removed 2026-08-20. See the grabTiming tombstone
+  # in baseline.nim: smartGrab superseded both hard-threshold gates and their
+  # read sites went with them, so the field is declared but never read.
+  deadKnob("GRABTIMING",
+    "grabTiming has ZERO read sites in baseline.nim — smartGrab replaced it. " &
+    "Every A/B ever run through this knob was a guaranteed null. Sweep the " &
+    "smartGrab standoff instead.")
   # holdLine (2026-07-22, the h006 line-defense finding): the OPPOSITE trigger to
   # regroupPush — rally a shallow wave when over-extended into the enemy half AND a
   # fresh enemy LINE is to our front AND we lack local fire-superiority, so the mid hits
@@ -311,7 +347,11 @@ proc hunterTune(): CombatTune =
   # the pedestal outnumber fresh mates by >= GrabGateDeficit — the diagnosed suicide-grab
   # state, 72-82% of our carriers die there). Default OFF (not in shippedCombatTune);
   # asymmetric so the mirror measures grab->cap. A/B: SHIPBASE=1 GRABGATE=1 vs CONTROL_SHIPPED=1.
-  result.grabGate     = envInt("GRABGATE",     (if result.grabGate: 1 else: 0)) != 0
+  # ⛔ GRABGATE — DEAD KNOB, removed 2026-08-20. Same cause as GRABTIMING.
+  deadKnob("GRABGATE",
+    "grabGate has ZERO read sites in baseline.nim — smartGrab replaced it. " &
+    "Every A/B ever run through this knob was a guaranteed null. Sweep the " &
+    "smartGrab numbers gate instead.")
   # medTopOff (2026-07-20, v9 med-kit): a wounded, out-of-contact bot detours to a
   # visible center med kit (heals to full on a 12px touch; a healthy bot never
   # consumes one, so the kit is never wasted). Pure-upside MOVEMENT lever, default
@@ -548,6 +588,13 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     for slot in 0 ..< drivers.len:
       let packet = engine.frameFor(slot)
       let mask = drivers[slot].frame(packet)
+      when defined(maskhash):
+        mhHash = mhHash xor uint64(mask); mhHash = mhHash * 1099511628211'u64
+        mhHash = mhHash xor uint64(tick and 0xffff); mhHash = mhHash * 1099511628211'u64
+        mhHash = mhHash xor uint64(slot); mhHash = mhHash * 1099511628211'u64
+        let ls = engine.slotLifeState(slot)
+        mhHash = mhHash xor uint64(ls.hp * 8 + ls.lives); mhHash = mhHash * 1099511628211'u64
+        inc mhMasks
       engine.setMask(slot, mask)
       # Forward any shout the bot staged this frame, exactly as runBot's WS loop
       # sends chatBlob(shoutWant): the sim buffers it and delivers it to audible
@@ -1086,5 +1133,13 @@ proc main() =
     echo &"  DEFTEETH steer: {dtTot} frames  fresh-fix {dtFresh}  " &
       &"stale-crossing {dtStale}  blind-mid {dtBlind}"
 
+proc mhDump() =
+  when defined(maskhash):
+    echo &"MASKHASH {mhHash:016x} masks={mhMasks}"
+  when defined(barrprobe):
+    echo &"BARRPROBE maxDepth={bpMaxDepth} depthFrames={bpDepthFrames} " &
+      &"postVeto={bpPostVeto} evac={bpEvac}"
+
 when isMainModule and not defined(tuneCheck):
   main()
+  mhDump()

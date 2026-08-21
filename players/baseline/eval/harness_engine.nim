@@ -176,6 +176,39 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     config.teams = parseInt(getEnv("EVAL_TEAMS"))
   if getEnv("EVAL_SCORING").len > 0:
     config.scoring = getEnv("EVAL_SCORING")
+  # ⭐⭐ EVAL_BARRAGE (2026-08-20, lever-liveness correctness pass): the
+  # GRENADE-BARRAGE ENDGAME, which this rig could not previously see AT ALL.
+  # The 2026-08-20 audit reported `BarrageDepthPx` as 0.0 on 100% of frames and
+  # concluded hazardSense's barrage branch was a constant-false guard. It is
+  # not — the RIG was blind. `defaultGameConfig()` ships `barrageMaxPerSec: 0`
+  # (sim_config.nim:52) and the overrides above never touched it, while the
+  # HOSTED league arms `barrageMaxPerSec: 15` (+ start 4/sec, latch at 30s
+  # remaining, saturate over 30s) on the 2v2, 4ffa AND 4ffa8 modes
+  # (coworld_manifest_paintbot.json). So every barrage measurement taken on this
+  # rig measured a mode that was switched off.
+  # ⚠️ THE LATCH IS THE TRAP: the marker states depth 0 until the clock drops to
+  # barrageStartSec remaining. On the hosted 7200-tick clock that is ~tick 6480,
+  # so a `--ticks 6000` run reads 0 even with the mode ON. Set --ticks past the
+  # latch (or shrink EVAL_BARRAGE_START) or you will re-derive the same false
+  # null. maxTicks > 0 is REQUIRED by sim_config validation when the mode is on.
+  # Unset = unchanged, so every existing gate/probe output stays byte-identical.
+  # ⭐ MEASURED 2026-08-20 with -d:barrprobe, ONE episode, seed 101:
+  #     EVAL_BARRAGE=15                      -> maxDepth 0, 0 frames  (episode ended
+  #                                             before the latch at ~tick 6280)
+  #     EVAL_BARRAGE=15 EVAL_BARRAGE_START=280
+  #                                          -> maxDepth 330px, 20,136 depth-frames,
+  #                                             20,136 post/stand vetoes,
+  #                                             14,970 body-EVACUATION frames
+  # So hazardSense's barrage branch is not merely reachable, it DOMINATES the feet
+  # once the ring is up. Use EVAL_BARRAGE_START to reach it deterministically; the
+  # default 30s latch needs an episode that survives to ~tick 6280.
+  if getEnv("EVAL_BARRAGE").len > 0:
+    config.barrageMaxPerSec = parseInt(getEnv("EVAL_BARRAGE"))
+    config.barrageStartPerSec = BarrageStartPerSec
+    config.barrageStartSec = BarrageStartSec
+    config.barrageSaturateSec = BarrageSaturateSec
+    if getEnv("EVAL_BARRAGE_START").len > 0:
+      config.barrageStartSec = parseInt(getEnv("EVAL_BARRAGE_START"))
   result = EvalEngine(sim: initSimServer(config))
   result.sim.gameEventLoggingEnabled = false  # keep the run quiet (a SimServer
                                               # field, defaults true post-init).
