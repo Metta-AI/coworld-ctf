@@ -464,6 +464,26 @@ const
                               ## (GameVersion 21): stalling out the clock is
                               ## never better than losing, for either side.
 
+  # Achievement ids exported per slot in results.json (the platform's
+  # achievement catalog in the coworld manifest uses the same ids). All are
+  # WIN-GATED: only slots on a game's winning team can earn them, so an idle
+  # policy cannot farm pacifist/spotless. Analysis-only: evaluation reads the
+  # analysis counters and writes RewardAccount.earnedAchievements, none of
+  # which enters gameHash — replays and gameplay are untouched.
+  AchievementPacifist* = "pacifist"    ## won without a single attack (gun,
+                                       ## grenade, or spray).
+  AchievementSpotless* = "spotless"    ## won without taking any damage —
+                                       ## shield-absorbed hits still count as
+                                       ## damage taken.
+  AchievementAlmost* = "almost"        ## whole winning team finished with
+                                       ## fewer than AlmostTeamHp hit points.
+  AchievementGrenadier* = "grenadier"  ## won with at least half of the
+                                       ## damage dealt coming from grenades
+                                       ## (and dealt more than zero).
+  AlmostTeamHp* = 2           ## `almost` threshold: the winning team's living
+                              ## cogs hold strictly fewer than this many hp
+                              ## in total when the game ends.
+
   FlagPickupRange* = 34       ## touch radius to steal the enemy flag: STAND ON
                               ## THE PEDESTAL AND THE HEART IS YOURS (GV42).
                               ## The grab radius is deliberately keyed to the
@@ -1034,6 +1054,11 @@ type
     kills*: int
     deaths*: int
     captures*: int
+    earnedAchievements*: seq[string]
+      ## Achievement ids this address earned across the episode's games,
+      ## deduplicated (see recordAchievement). Account-level so it survives
+      ## per-game Player counter resets under maxGames > 1 and a mid-episode
+      ## disconnect; exported per slot in results.json.
 
   PlayerSlotConfig* = object
     name*: string
@@ -1278,6 +1303,20 @@ type
                                ## pre-barrier replay's hash chain (keyframe
                                ## scrub still restores it exactly via the
                                ## flatty sim snapshot — the puddleTicks rule).
+    attacksMade*: int          ## attack initiations of any kind — gun shots
+                               ## released, grenades thrown, spray cans
+                               ## fired; analysis-only (the `pacifist`
+                               ## achievement), excluded from gameHash.
+    damageTaken*: int          ## total damage absorbed this game, shield
+                               ## layer included; analysis-only (the
+                               ## `spotless` achievement), excluded from
+                               ## gameHash.
+    damageDealt*: int          ## total damage this cog dealt to OTHER cogs
+                               ## (teammates included, self excluded);
+                               ## analysis-only (the `grenadier`
+                               ## achievement), excluded from gameHash.
+    grenadeDamageDealt*: int   ## the grenade-blast share of damageDealt;
+                               ## analysis-only, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH

@@ -615,6 +615,16 @@ proc recordCapture*(sim: var SimServer, playerIndex: int) =
     inc sim.rewardAccounts[index].captures
   inc sim.players[playerIndex].captures
 
+proc recordAchievement*(sim: var SimServer, playerIndex: int, id: string) =
+  ## Records one earned achievement on the player's address account,
+  ## deduplicated: an id earned again in a later game of the same episode
+  ## stays a single entry (the platform's badge model counts it once anyway).
+  let index = sim.rewardAccountForPlayer(playerIndex)
+  if index < 0:
+    return
+  if id notin sim.rewardAccounts[index].earnedAchievements:
+    sim.rewardAccounts[index].earnedAchievements.add(id)
+
 proc playerResultsJson*(sim: SimServer): string =
   ## Returns final player rewards and win states as JSON.
   var
@@ -628,6 +638,7 @@ proc playerResultsJson*(sim: SimServer): string =
     capturesList = newJArray()
     shotsFiredList = newJArray()
     shotsHitList = newJArray()
+    achievementsList = newJArray()
     results = newJObject()
   for slotIndex in 0 ..< sim.playerResultSlotCount():
     resultSlots.add(slotIndex)
@@ -655,6 +666,7 @@ proc playerResultsJson*(sim: SimServer): string =
       captures = 0
       shotsFired = 0
       shotsHit = 0
+      achievements = newJArray()
     if accountIndex >= 0:
       let account = sim.rewardAccounts[accountIndex]
       name = account.address
@@ -665,6 +677,8 @@ proc playerResultsJson*(sim: SimServer): string =
       kills = account.kills
       deaths = account.deaths
       captures = account.captures
+      for id in account.earnedAchievements:
+        achievements.add(%id)
     if playerIndex >= 0:
       let player = sim.players[playerIndex]
       name = player.address
@@ -689,6 +703,7 @@ proc playerResultsJson*(sim: SimServer): string =
     capturesList.add(%captures)
     shotsFiredList.add(%shotsFired)
     shotsHitList.add(%shotsHit)
+    achievementsList.add(achievements)
   results["names"] = names
   results["scores"] = scores
   results["win"] = win
@@ -696,6 +711,7 @@ proc playerResultsJson*(sim: SimServer): string =
   results["kills"] = killsList
   results["deaths"] = deathsList
   results["captures"] = capturesList
+  results["achievements"] = achievementsList
   # shotsFired/shotsHit stay OUT of the results payload: the platform's
   # episode-results schema is closed (additionalProperties: false) and the
   # certifier rejects unknown fields, blocking every canonical upload. The
