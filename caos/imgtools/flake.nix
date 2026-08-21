@@ -27,6 +27,18 @@
             mkdir -p $out
             install -m 755 ${./worker} $out/worker
           '';
+
+          # skopeo REFUSES TO COPY without a trust policy, and nixpkgs ships
+          # none: `skopeo copy` dies with "no policy.json file found" while
+          # `skopeo inspect` works fine, so the gap only shows up on the one
+          # operation that matters. Accept-anything is right here — every image
+          # this moves is one we just built or a base pinned by digest, and the
+          # digest is the trust.
+          skopeoPolicy = pkgs.runCommand "ctf-imgtools-policy" { } ''
+            mkdir -p $out/etc/containers
+            echo '{"default":[{"type":"insecureAcceptAnything"}]}' \
+              > $out/etc/containers/policy.json
+          '';
         in
         pkgs.dockerTools.buildLayeredImage {
           name = "ctf-imgtools";
@@ -34,6 +46,7 @@
           maxLayers = 100;
           contents = [
             workerRoot
+            skopeoPolicy
             pkgs.bashInteractive
             pkgs.coreutils
             pkgs.findutils

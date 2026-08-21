@@ -1,0 +1,27 @@
+# The `upload-image` tool (caos SPEC, "Tools"): build the policy image and push
+# it to softmax, then register it as a policy version.
+HELP=<<END
+Build the policy image (via build-image) and upload it to softmax as a policy
+version, then print the policy page URL. Needs a softmax API token, which comes
+from caos's secrets system as /secret/softmax-token and never from an argument
+— an argument would put the token in the CAS and in this job's cache key.
+
+Declare the secret once, in .caos-secrets/softmax-token:
+
+    name=softmax-token
+    entropy=<any fresh random string>
+    value=<your token>
+    reader=caos-tools/upload-image
+
+The upload is keyed on the IMAGE, so re-uploading an unchanged policy is a
+cache hit that does nothing. Pass upload-salt to force it — after deleting the
+version on the platform, say, when caos's cached "already uploaded" is no
+longer true.
+@param [player] Which policy under players/ to upload. Default: baseline.
+@param [defines] Extra defines, passed through to build-player, e.g. "-d:taunt".
+@param [name] Policy name on the platform. Default: coworld-ctf-<player>.
+@param [runtime] Runtime base to layer onto. Default: the tag players/baseline/Dockerfile names.
+@param [server] Platform API base URL. Default: https://api.softmax.com.
+@param [upload-salt] Force a re-upload — any fresh value re-keys the push and nothing else.
+END
+curry --base:@=DEEP-DEPS/imgtools --worker1:@=worker.sh --nim:@=DEEP-DEPS/nim --help=$HELP

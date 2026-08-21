@@ -98,7 +98,7 @@ assemble)
   # on caos-registry:5000). Nothing secret moves here — the base is public and
   # this is a pull.
   tlsflag=--tls-verify=true
-  case "${runtime%%/*}" in *.*|*:*.*) ;; *) tlsflag=--tls-verify=false ;; esac
+  case "${runtime%%/*}" in *.*) ;; *) tlsflag=--tls-verify=false ;; esac
   skopeo inspect --config $tlsflag "docker://$runtime" > /tmp/base-config.json \
     || fail "cannot read the config of $runtime (is the base published?)"
 
