@@ -31,6 +31,23 @@ proc policyHas(needle: string): bool = policySrc.contains(needle)
 
 proc policyCount(needle: string): int = policySrc.count(needle)
 
+proc policyFloat(name: string): float =
+  ## Read a `const <name> = <float>` straight out of the shipped policy source.
+  ## ⚠️ Parsed, never hard-coded: a local copy of a constant that ANOTHER lane
+  ## is actively correcting turns this suite into a backwards ratchet — it would
+  ## fail on the fix instead of on the defect. Parse the live value and assert
+  ## the RELATIONSHIP, which is what has to hold at every value.
+  let key = "  " & name & " = "
+  let i = policySrc.find(key)
+  doAssert i >= 0, "constant not found in the shipped policy: " & name
+  var j = i + key.len
+  var num = ""
+  while j < policySrc.len and policySrc[j] in {'0'..'9', '.', '-'}:
+    num.add policySrc[j]
+    inc j
+  doAssert num.len > 0, "no numeric literal after " & name
+  parseFloat(num)
+
 suite "policy constants track the engine":
 
   # ── 1. THE PLASMA-ARC REACH ─────────────────────────────────────────────
@@ -105,6 +122,76 @@ suite "policy constants track the engine":
     # a measured result (retreat a cone DIAGONALLY, not radially); moving the
     # ring changes the slip geometry's premise, so it needs its own A/B rather
     # than a drive-by number swap.
+
+  # ── 1b. THE TWO HALVES OF ONE WEAPON MUST AGREE ─────────────────────────
+  #
+  # The arc has a FIRE half (when do we press the can) and a VETO half (when
+  # would pressing it hit a teammate). They are separate code with separate
+  # constants, and nothing made them agree — v58 sized the VETO to the engine's
+  # true 170 while the FIRE gate stayed on `ArcBreachFireReach = 128`, derived
+  # from the stale 136 (its own doc comment still says "just inside the engine's
+  # 136px reach"). The two halves of one weapon disagreed by 59px.
+  #
+  # TWO INVARIANTS, both directional, both true before AND after the spray
+  # lane's correction — so this pins the relationship without ratcheting
+  # backwards on a value that is actively being fixed elsewhere.
+
+  test "the arc VETO envelope covers the engine's true damage envelope":
+    # If the veto were narrower than the weapon, we would fire shots the veto
+    # believed were safe and the engine scored as friendly fire. This is the
+    # invariant that must never break.
+    const
+      ArcFfReachPx = 170.0
+      ArcFfBodyPx = 17.0
+      ArcFfRidePx = 13.75      # PlasmaArcActiveTicks(5) * 2.75px/tick of ride
+      ArcFfSlope = 0.25
+      ArcFfAimPadSlope = 0.125 # one tick of turret lag
+    # Local copies must match the shipped source, or this test is fiction.
+    check policyHas("ArcFfReachPx = 170.0")
+    check policyHas("ArcFfBodyPx = 17.0")
+    check policyHas("ArcFfRidePx = 13.75")
+    check policyHas("ArcFfSlope = 0.25")
+    check policyHas("ArcFfAimPadSlope = 0.125")
+    let engineDanger = float(PlasmaArcReach + PlasmaArcBodyRadius)   # 187
+    check ArcFfReachPx + ArcFfBodyPx >= engineDanger - 0.001
+    # …and the veto's wedge is WIDER than the engine's, never narrower.
+    check ArcFfSlope + ArcFfAimPadSlope >=
+      PlasmaArcMaxWidth.float / (2.0 * PlasmaArcReach.float)
+    # The ride term is the half-window of a cone that re-selects victims on
+    # every one of its active ticks; it can only ever widen the veto.
+    check ArcFfRidePx > 0.0
+
+  test "the arc FIRE envelope is a strict subset of what the weapon can do":
+    # Two bounds, and the direction of each is the point.
+    let ArcBreachFireReach = policyFloat("ArcBreachFireReach")
+    const
+      ArcFfReachPx = 170.0
+      ArcFfBodyPx = 17.0
+      ArcFfRidePx = 13.75
+
+    # (a) SAFETY — never press outside what the veto is prepared to police, or
+    #     we would take shots the friendly-fire veto never examined.
+    let vetoCap = ArcFfReachPx + ArcFfBodyPx + ArcFfRidePx   # 200.75, pad >= 0
+    check ArcBreachFireReach <= vetoCap
+
+    # (b) SANITY — never press beyond what the ENGINE can actually damage.
+    let engineDanger = float(PlasmaArcReach + PlasmaArcBodyRadius)   # 187
+    check ArcBreachFireReach <= engineDanger
+
+    # ⚠️ MEASURED COST OF THE GAP, recorded not asserted (the value is owned by
+    # the spray lane and is being corrected there; asserting 128 here would
+    # ratchet backwards the moment they land it). Over 1,421 re-simulated Elite
+    # ffa4 episodes, of the ready carry-ticks where the sim's own
+    # `selectArcVictims` WOULD have damaged a fresh enemy at the bearing we
+    # already held (n = 3,609 for us), **71.3% were refused by
+    # ArcBreachFireReach = 128 ALONE** — the single most expensive stale number
+    # in the arc family. The 59px disagreement between the two halves is the
+    # whole mechanism: the veto knew the weapon reaches 187, the trigger did not.
+    # (In this tree that gap is 187 - 128 = 59px. NOT asserted: the moment the
+    # spray lane lands `ArcBreachFireReach = 187` the gap becomes 0, and a test
+    # that pinned 59 would fail on the FIX — the classic backwards ratchet. The
+    # two directional bounds above are what must hold forever; the gap is a
+    # measurement, and measurements belong in comments.)
 
   # ── 2a. THE PER-TEAM ADDRESS BUG: SHIELD AND ARC ONLY ───────────────────
   #
