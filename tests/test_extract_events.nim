@@ -156,6 +156,9 @@ suite "tier-2 event extraction (tools/extract_events)":
     check results["kills"].len == slotCount
     check "shotsFired" notin results
     check "shotsHit" notin results
+    # Achievements DID make it into the platform schema (manifest
+    # results_schema declares the field): one id array per slot.
+    check results["achievements"].len == slotCount
     for slot in 0 ..< slotCount:
       check results["kills"][slot].getInt == killsBySlot[slot]
 

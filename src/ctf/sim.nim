@@ -269,6 +269,10 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].multiKills3 = 0
     sim.players[i].teamKills = 0
     sim.players[i].arcKillsThisFire = 0
+    sim.players[i].attacksMade = 0
+    sim.players[i].damageTaken = 0
+    sim.players[i].damageDealt = 0
+    sim.players[i].grenadeDamageDealt = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -825,11 +829,28 @@ proc killPlayer*(
     else:
       0
 
-proc absorbDamage*(sim: var SimServer, targetIndex: int, amount: int): int {.discardable.} =
+proc absorbDamage*(
+  sim: var SimServer,
+  targetIndex: int,
+  amount: int,
+  attackerIndex = -1,
+  weapon = ""
+): int {.discardable.} =
   ## Applies damage to a player: the shield layer soaks hits before base hp.
   ## Callers keep their own death checks on the base hp that remains. Returns
   ## how many hp the shield layer absorbed (`fromShield`) — first-hand `blocked`
   ## for the tier-2 Damage event; callers that don't need it can ignore it.
+  ##
+  ## This is the ONE subtraction point, so the achievement analysis counters
+  ## live here: the victim's damageTaken always (shield hits included — being
+  ## hit at all breaks `spotless`), and, when the caller names an attacker,
+  ## that attacker's damageDealt (self-damage excluded) with its grenade
+  ## share. Environmental damage (puddles, barrage shells) passes no attacker.
+  inc sim.players[targetIndex].damageTaken, amount
+  if attackerIndex >= 0 and attackerIndex != targetIndex:
+    inc sim.players[attackerIndex].damageDealt, amount
+    if weapon == "grenade":
+      inc sim.players[attackerIndex].grenadeDamageDealt, amount
   let fromShield = min(sim.players[targetIndex].shieldHp, amount)
   sim.players[targetIndex].shieldHp -= fromShield
   sim.players[targetIndex].hp -= amount - fromShield
@@ -918,6 +939,7 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   sim.players[attackerIndex].arcAimBrads = sim.players[attackerIndex].aimBrads
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
+  inc sim.players[attackerIndex].attacksMade
   sim.logGameEvent(
     playerColorText(sim.players[attackerIndex].color) & " sprayed paint"
   )
@@ -980,7 +1002,9 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       # paintball (see the gun's damage site).
       let bubbleUp = sim.players[victimIndex].hasShield and
         sim.players[victimIndex].shieldHp > 0
-      let blocked = sim.absorbDamage(victimIndex, PlasmaArcDamage)
+      let blocked = sim.absorbDamage(
+        victimIndex, PlasmaArcDamage, arcFire.attacker, "spray"
+      )
       if bubbleUp:
         # Blink the bubble toward the sprayer, as the gun's damage site does —
         # otherwise a fully-absorbed burst shows no feedback anywhere.
@@ -1223,6 +1247,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
   # (targetIndex >= 0) is on-target, so it counts as a hit even in the rare
   # tick where the victim already died to a simultaneous shot.
   inc sim.players[shooterIndex].shotsFired
+  inc sim.players[shooterIndex].attacksMade
   sim.emitEvent(
     Shot,
     source = shooterIndex,
@@ -1314,7 +1339,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     if PerkLuck in shooter.perks and
         sim.rng.rand(999) < sim.config.perkMods.luckChance:
       damage = sim.config.perkMods.luckDamage
-    let blocked = sim.absorbDamage(targetIndex, damage)
+    let blocked = sim.absorbDamage(targetIndex, damage, shooterIndex, "gun")
     # Paintball paint marks the body only when the shield bubble ISN'T eating it
     # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat
     # fires for THIS paint hit — and only for a PAINT hit (gun/grenade). The
@@ -1495,6 +1520,7 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
     # throws; the threat window is constant and readable.
     flight = max(1, GrenadeFlightMultiple * sim.config.fireWindupTicks)
     throwDistance = hypot(float(tx - sx), float(ty - sy))
+  inc sim.players[playerIndex].attacksMade
   sim.airborneGrenades.add AirborneGrenade(
     sx: sx,
     sy: sy,
@@ -1685,7 +1711,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       # the blast keeps the body clean, exactly as with a paintball (see the
       # gun's damage site).
       bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
-      blocked = sim.absorbDamage(i, dmg)
+      blocked = sim.absorbDamage(i, dmg, throwerIndex, "grenade")
     if bubbleUp:
       # The bubble itself blinks and dents toward the burst, so an absorbed
       # blast reads as absorbed instead of leaving no feedback at all.
@@ -2527,6 +2553,27 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       inc sim.rewardAccounts[i].wins[sim.rewardAccounts[i].team]
     else:
       sim.rewardAccounts[i].reward += lossReward
+  # Achievements: evaluated once per finished (non-draw) game, only for the
+  # winning team's seated cogs, from the analysis counters this game reset at
+  # startGame. Earned ids accumulate on the address accounts (deduplicated),
+  # so a maxGames > 1 episode reports the union in results.json.
+  var winnerTeamHp = 0
+  for p in sim.players:
+    if p.team == winner and p.alive:
+      winnerTeamHp += max(0, p.hp)
+  let almost = winnerTeamHp < AlmostTeamHp
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team != winner:
+      continue
+    if sim.players[i].attacksMade == 0:
+      sim.recordAchievement(i, AchievementPacifist)
+    if sim.players[i].damageTaken == 0:
+      sim.recordAchievement(i, AchievementSpotless)
+    if almost:
+      sim.recordAchievement(i, AchievementAlmost)
+    if sim.players[i].damageDealt > 0 and
+        sim.players[i].grenadeDamageDealt * 2 >= sim.players[i].damageDealt:
+      sim.recordAchievement(i, AchievementGrenadier)
 
 proc maxTicksReached(sim: SimServer): bool =
   ## Whether the scheduled draw ceiling ends the game this tick. A game

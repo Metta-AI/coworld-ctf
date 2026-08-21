@@ -1,6 +1,7 @@
 ## CI shard 2 of 4. See shard_1.nim for the sharding rules.
 {.warning[UnusedImport]: off.}
 import
+  test_achievements,
   test_board_click_select,
   test_four_team,
   test_fov,
