@@ -1,7 +1,8 @@
 import
-  std/[algorithm, math, os, strutils, tables],
+  std/[algorithm, math, os, sets, strutils, tables],
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
+  flatty/binny,
   pixie,
   labels, sim
 
@@ -1022,6 +1023,9 @@ type
     shoutSlots*: array[ShoutMaxCount, string]  ## slot → owning shouter address
                                  ## ("" = free); see GlobalViewerState.shoutSlots.
     spriteDefs: seq[SpriteDefinition]
+    idStamp: seq[int32]        ## delete sweep: idStamp[id] == idGen marks id
+    idGen: int32               ## live this frame; replaces a per-frame scan
+                               ## of the id seq, quadratic in the object count
 
   ProtocolTextItem = ref object
     spriteId: int
@@ -1612,11 +1616,39 @@ proc spriteDefinitionIndex(
   defs: openArray[SpriteDefinition],
   spriteId: int
 ): int =
-  ## Returns the cache index for one sprite definition.
-  for i in 0 ..< defs.len:
-    if defs[i].spriteId == spriteId:
-      return i
+  ## Returns the cache index for one sprite definition. The cache is kept
+  ## sorted by spriteId (insertDefinition), so this bisects: a linear scan
+  ## over the few hundred refs a mid-game viewer holds was, summed over its
+  ## callers, the single dearest line of the observation build. Nothing reads
+  ## the cache in insertion order, so the sort is free to impose.
+  var
+    lo = 0
+    hi = defs.len - 1
+  while lo <= hi:
+    let mid = (lo + hi) shr 1
+    if defs[mid].spriteId == spriteId:
+      return mid
+    elif defs[mid].spriteId < spriteId:
+      lo = mid + 1
+    else:
+      hi = mid - 1
   -1
+
+proc insertDefinition(defs: var seq[SpriteDefinition], def: SpriteDefinition) =
+  ## Adds a definition, keeping the cache sorted by spriteId for the bisect
+  ## above. Ids are unique here: every caller inserts only on a lookup miss.
+  var i = defs.len
+  defs.setLen(i + 1)
+  while i > 0 and defs[i - 1].spriteId > def.spriteId:
+    defs[i] = defs[i - 1]
+    dec i
+  defs[i] = def
+  # A duplicate id lands adjacent to its twin, so this neighbor check makes a
+  # broken sort (an insertion site that bypassed this proc, re-inserting an id
+  # the bisect then missed) fail loudly instead of silently re-sending defs.
+  doAssert (i == 0 or defs[i - 1].spriteId < def.spriteId) and
+    (i + 1 == defs.len or def.spriteId < defs[i + 1].spriteId),
+    "sprite def cache unsorted or duplicate id " & $def.spriteId
 
 proc addSpriteChanged(
   packet: var seq[uint8],
@@ -1648,7 +1680,7 @@ proc addSpriteChanged(
     defs[index].label = label
     defs[index].compressedPixels = @[]
   else:
-    defs.add SpriteDefinition(
+    defs.insertDefinition SpriteDefinition(
       spriteId: spriteId,
       width: width,
       height: height,
@@ -1663,11 +1695,23 @@ proc addBoardObject(
   ## addObject for renderer emissions: placements on the zoomable board
   ## layers (map + fog) scale by boardScale; UI-layer placements pass
   ## through untouched. z is ordering-only and never scales.
-  if layerId == MapLayerId or layerId == FogLayerId:
-    packet.addObject(
-      objectId, x * boardScale, y * boardScale, z, layerId, spriteId)
-  else:
-    packet.addObject(objectId, x, y, z, layerId, spriteId)
+  ##
+  ## Encoded here in one setLen + inline binny stores rather than through
+  ## addObject: that path is six cross-module calls with a setLen each, and
+  ## every emitter pays it for every object it re-places every frame. binny's
+  ## writers are the same copyMem the addObject path bottoms out in, so the
+  ## bytes are identical, as are the conversion checks.
+  let
+    board = layerId == MapLayerId or layerId == FogLayerId
+    start = packet.len
+  packet.setLen(start + 12)
+  packet[start] = SpriteMessageObject
+  packet.writeUint16(start + 1, uint16(objectId))
+  packet.writeInt16(start + 3, int16(if board: x * boardScale else: x))
+  packet.writeInt16(start + 5, int16(if board: y * boardScale else: y))
+  packet.writeInt16(start + 7, int16(z))
+  packet[start + 9] = uint8(layerId)
+  packet.writeUint16(start + 10, uint16(spriteId))
 
 proc addBoardSpriteChanged(
   packet: var seq[uint8],
@@ -1738,7 +1782,7 @@ proc addDebugOverlay(
       spriteDefs[index].label = sprite.label
       spriteDefs[index].compressedPixels = sprite.compressedPixels
     else:
-      spriteDefs.add SpriteDefinition(
+      spriteDefs.insertDefinition SpriteDefinition(
         spriteId: spriteId,
         width: sprite.width,
         height: sprite.height,
@@ -3085,7 +3129,7 @@ proc addMapBands(
       if index >= 0:
         spriteDefs[index] = def
       else:
-        spriteDefs.add def
+        spriteDefs.insertDefinition def
     packet.add boardMapBandsCache
     return
   let mapPixels = sim.boardMapPixels()
@@ -3118,7 +3162,7 @@ proc addMapBands(
     if index >= 0:
       spriteDefs[index] = def
     else:
-      spriteDefs.add def
+      spriteDefs.insertDefinition def
   packet.add encoded
 
 proc invalidateBoardMapCaches*() =
@@ -6352,7 +6396,9 @@ proc buildSpriteProtocolPlayerUpdates*(
     result = sim.buildSpriteProtocolPlayerInit(nextState.spriteDefs)
     nextState.initialized = true
 
-  var currentIds: seq[int] = @[]
+  # Sized to last frame's object count: the id list runs to ~300 entries and
+  # was regrown from nothing every frame.
+  var currentIds = newSeqOfCap[int](nextState.objectIds.len + 32)
   if sim.phase != Playing or playerIndex < 0 or
       playerIndex >= sim.players.len:
     currentIds.add(SpritePlayerInterstitialObjectId)
@@ -6484,18 +6530,22 @@ proc buildSpriteProtocolPlayerUpdates*(
         # hide OTHERS' aim, and your self marker is your own state, not a leak.
         let rot = soldierRotIndex(other.aimBrads)
         spriteId = selfSoldierSpriteId(other.skin, rot)
-        result.addSpriteChanged(
-          nextState.spriteDefs,
-          spriteId,
-          SoldierCanvas,
-          SoldierCanvas,
-          soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
-          # Documented self marker (RULES.md): `self <color> <side>`, only drawn
-          # while alive. Side follows the aim exactly as the sim's flipH does.
-          labelSelf(
-            teamText(other.team),
-            if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft)
-        )
+        # The def is immutable per (skin, rot), so only rasterize the outline
+        # the first time this viewer needs it — addSpriteChanged would drop a
+        # re-send anyway, after paying for the pixels.
+        if nextState.spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+          result.addSpriteChanged(
+            nextState.spriteDefs,
+            spriteId,
+            SoldierCanvas,
+            SoldierCanvas,
+            soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
+            # Documented self marker (RULES.md): `self <color> <side>`, only drawn
+            # while alive. Side follows the aim exactly as the sim's flipH does.
+            labelSelf(
+              teamText(other.team),
+              if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft)
+          )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
       result.addBoardObject(
@@ -6683,8 +6733,20 @@ proc buildSpriteProtocolPlayerUpdates*(
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   if not state.isNil:
+    # Membership via a generation stamp per object id: `notin` over the id
+    # seq was quadratic in the object count, which fog runs push into the
+    # hundreds. Ids are u16 on the wire, so the stamp array is small and
+    # grown once; a stamp equal to this frame's generation marks the id
+    # live, everything else is stale.
+    inc nextState.idGen
+    let gen = nextState.idGen
+    for objectId in currentIds:
+      if objectId >= nextState.idStamp.len:
+        nextState.idStamp.setLen(objectId + 1)
+      nextState.idStamp[objectId] = gen
     for objectId in state.objectIds:
-      if objectId notin currentIds:
+      if objectId >= nextState.idStamp.len or
+          nextState.idStamp[objectId] != gen:
         result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
 
@@ -7705,8 +7767,11 @@ proc buildSpriteProtocolUpdates*(
   )
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
+  # One HashSet per frame instead of a `notin` seq scan per id, which was
+  # quadratic in the object count.
+  let current = currentIds.toHashSet
   for objectId in state.objectIds:
-    if objectId notin currentIds:
+    if objectId notin current:
       result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
 
