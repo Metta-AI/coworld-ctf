@@ -49,12 +49,37 @@ suite "achievements":
     check AchievementSpotless notin sim.earned("red0")
     check AchievementPacifist in sim.earned("red0")
 
-  test "almost: the winning team's living cogs hold under 2 hp in total":
+  test "almost: one survivor, one hp, no respawns owed":
     var sim = twoTeamGame()
     sim.players[0].hp = 1
+    sim.players[0].lives = 1                # alive on its last life
     sim.finishGame(Red)
     check AchievementAlmost in sim.earned("red0")
     check AchievementAlmost notin sim.earned("blue0")
+
+  test "almost counts respawns still owed as a full hp bar each":
+    # A 1-hp survivor with a respawn in hand is not on the brink.
+    var sim = twoTeamGame()
+    sim.players[0].hp = 1
+    sim.players[0].lives = 2
+    sim.finishGame(Red)
+    check AchievementAlmost notin sim.earned("red0")
+    # Neither is a team whose only remaining cog is dead but respawning —
+    # the barrage endgame's usual finish, which the living-hp rule scored
+    # as a cliffhanger in one win out of eight.
+    var sim2 = twoTeamGame()
+    sim2.players[0].alive = false
+    sim2.players[0].hp = 0
+    sim2.players[0].lives = 1
+    sim2.finishGame(Red)
+    check AchievementAlmost notin sim2.earned("red0")
+    # Out of lives entirely (wipe traded for the win): budget 0 < 2, almost.
+    var sim3 = twoTeamGame()
+    sim3.players[0].alive = false
+    sim3.players[0].hp = 0
+    sim3.players[0].lives = 0
+    sim3.finishGame(Red)
+    check AchievementAlmost in sim3.earned("red0")
 
   test "almost counts the whole team: two survivors on 1 hp each miss it":
     var sim = initCtfForTest(defaultGameConfig())
@@ -67,9 +92,12 @@ suite "achievements":
     sim.players[2].team = Blue
     sim.players[0].hp = 1
     sim.players[1].hp = 1
+    sim.players[0].lives = 1
+    sim.players[1].lives = 1
     sim.finishGame(Red)
     check AchievementAlmost notin sim.earned("red0")
-    # A dead teammate contributes nothing: sole survivor on 1 hp earns it.
+    # A dead, out-of-lives teammate contributes nothing: the sole survivor
+    # on 1 hp with no respawn left earns it.
     var sim2 = initCtfForTest(defaultGameConfig())
     discard sim2.addPlayer("red0")
     discard sim2.addPlayer("red1")
@@ -79,8 +107,10 @@ suite "achievements":
     sim2.players[1].team = Red
     sim2.players[2].team = Blue
     sim2.players[0].hp = 1
+    sim2.players[0].lives = 1
     sim2.players[1].alive = false
     sim2.players[1].hp = 0
+    sim2.players[1].lives = 0
     sim2.finishGame(Red)
     check AchievementAlmost in sim2.earned("red0")
     check AchievementAlmost in sim2.earned("red1")  # team badge: whole team
@@ -149,6 +179,7 @@ suite "achievements":
   test "results.json carries per-slot achievement arrays":
     var sim = twoTeamGame()
     sim.players[0].hp = 1
+    sim.players[0].lives = 1
     sim.finishGame(Red)
     let results = parseJson(sim.playerResultsJson())
     check "achievements" in results
@@ -169,6 +200,7 @@ suite "achievements":
     sim.players[1].team = Blue
     sim.players[0].damageTaken = 1          # spotless lost this game
     sim.players[0].hp = 1                   # almost earned this game
+    sim.players[0].lives = 1
     sim.finishGame(Red)
     let red = sim.earned("red0")
     check AchievementPacifist in red
@@ -179,3 +211,62 @@ suite "achievements":
       if id == AchievementPacifist:
         inc pacifistCount
     check pacifistCount == 1                # deduplicated, not re-appended
+
+  proc policyPairGame(): SimServer =
+    ## Red seats two cogs of ONE policy ("pol0" and its hosted-runtime
+    ## sibling "pol0_(2)"), Blue one cog of another.
+    result = initCtfForTest(defaultGameConfig())
+    discard result.addPlayer("pol0")
+    discard result.addPlayer("pol0_(2)")
+    discard result.addPlayer("pol1")
+    result.startGame()
+    result.players[0].team = Red
+    result.players[1].team = Red
+    result.players[2].team = Blue
+
+  test "pacifist and spotless are judged per policy, not per cog":
+    # One sibling fights and gets hit; the idle sibling does NOT earn the
+    # badges on its own — the policy attacked and took damage.
+    var sim = policyPairGame()
+    sim.players[1].attacksMade = 3
+    sim.players[1].damageTaken = 2
+    sim.finishGame(Red)
+    check AchievementPacifist notin sim.earned("pol0")
+    check AchievementPacifist notin sim.earned("pol0_(2)")
+    check AchievementSpotless notin sim.earned("pol0")
+    check AchievementSpotless notin sim.earned("pol0_(2)")
+    # When neither sibling attacks or gets hit, every seat of the policy
+    # records the badge (the platform dedupes per player).
+    var sim2 = policyPairGame()
+    sim2.finishGame(Red)
+    check AchievementPacifist in sim2.earned("pol0")
+    check AchievementPacifist in sim2.earned("pol0_(2)")
+    check AchievementSpotless in sim2.earned("pol0")
+    check AchievementSpotless in sim2.earned("pol0_(2)")
+
+  test "grenadier sums damage across a policy's cogs":
+    # Cog A: 1 grenade damage only. Cog B: 5 gun damage. Per cog, A would be
+    # a grenadier; per policy, 1 of 6 is not.
+    var sim = policyPairGame()
+    sim.players[0].damageDealt = 1
+    sim.players[0].grenadeDamageDealt = 1
+    sim.players[1].damageDealt = 5
+    sim.finishGame(Red)
+    check AchievementGrenadier notin sim.earned("pol0")
+    check AchievementGrenadier notin sim.earned("pol0_(2)")
+    var sim2 = policyPairGame()
+    sim2.players[0].damageDealt = 4
+    sim2.players[0].grenadeDamageDealt = 4
+    sim2.players[1].damageDealt = 3
+    sim2.finishGame(Red)
+    check AchievementGrenadier in sim2.earned("pol0")
+    check AchievementGrenadier in sim2.earned("pol0_(2)")
+
+  test "a losing policy's cogs never enter the winner's aggregate":
+    var sim = policyPairGame()
+    sim.players[2].attacksMade = 9
+    sim.players[2].damageTaken = 9
+    sim.finishGame(Red)
+    check AchievementPacifist in sim.earned("pol0")
+    check AchievementSpotless in sim.earned("pol0")
+    check sim.earned("pol1").len == 0
