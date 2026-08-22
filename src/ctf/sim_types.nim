@@ -479,10 +479,11 @@ const
   AchievementAlmost* = "almost"        ## whole winning team finished with
                                        ## fewer than AlmostTeamHp hp of life
                                        ## budget (living hp + respawns owed).
-  AchievementGrenadier* = "grenadier"  ## won with at least half of the
-                                       ## policy's damage dealt (summed over
-                                       ## its cogs) coming from grenades, and
-                                       ## more than zero dealt.
+  AchievementGrenadier* = "grenadier"  ## won with at least GrenadierPct of
+                                       ## the policy's damage dealt (summed
+                                       ## over its cogs) coming from grenades,
+                                       ## and more than zero dealt.
+  GrenadierPct* = 80          ## `grenadier` threshold, percent of damage dealt.
   AlmostTeamHp* = 2           ## `almost` threshold: the winning team's life
                               ## budget — living cogs' hp plus a full hp bar
                               ## per respawn still owed — is strictly below

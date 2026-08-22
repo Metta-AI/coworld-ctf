@@ -578,7 +578,7 @@
       {
         "id": "grenadier",
         "name": "Grenadier",
-        "description": "Win a game in which at least half of the damage your cogs dealt, summed together, came from grenades.",
+        "description": "Win a game in which at least 80% of the damage your cogs dealt, summed together, came from grenades.",
         "points": 30
       }
     ]

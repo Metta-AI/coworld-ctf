@@ -115,14 +115,25 @@ suite "achievements":
     check AchievementAlmost in sim2.earned("red0")
     check AchievementAlmost in sim2.earned("red1")  # team badge: whole team
 
-  test "grenadier: at least half the damage dealt came from grenades":
+  test "grenadier: at least 80% of the damage dealt came from grenades":
     var sim = twoTeamGame()
-    sim.players[0].damageDealt = 4
-    sim.players[0].grenadeDamageDealt = 2
+    sim.players[0].damageDealt = 5
+    sim.players[0].grenadeDamageDealt = 4
     sim.finishGame(Red)
     check AchievementGrenadier in sim.earned("red0")
+    # 79% (19 of 24) misses; half certainly does.
+    var sim2 = twoTeamGame()
+    sim2.players[0].damageDealt = 24
+    sim2.players[0].grenadeDamageDealt = 19
+    sim2.finishGame(Red)
+    check AchievementGrenadier notin sim2.earned("red0")
+    var sim3 = twoTeamGame()
+    sim3.players[0].damageDealt = 4
+    sim3.players[0].grenadeDamageDealt = 2
+    sim3.finishGame(Red)
+    check AchievementGrenadier notin sim3.earned("red0")
 
-  test "grenadier: under half, or zero damage dealt, does not qualify":
+  test "grenadier: under the threshold, or zero damage dealt, does not qualify":
     var sim = twoTeamGame()
     sim.players[0].damageDealt = 4
     sim.players[0].grenadeDamageDealt = 1
@@ -246,7 +257,7 @@ suite "achievements":
 
   test "grenadier sums damage across a policy's cogs":
     # Cog A: 1 grenade damage only. Cog B: 5 gun damage. Per cog, A would be
-    # a grenadier; per policy, 1 of 6 is not.
+    # a grenadier; per policy, 1 of 6 is not. Then 4 grenade + 1 gun = 80%.
     var sim = policyPairGame()
     sim.players[0].damageDealt = 1
     sim.players[0].grenadeDamageDealt = 1
@@ -257,7 +268,7 @@ suite "achievements":
     var sim2 = policyPairGame()
     sim2.players[0].damageDealt = 4
     sim2.players[0].grenadeDamageDealt = 4
-    sim2.players[1].damageDealt = 3
+    sim2.players[1].damageDealt = 1
     sim2.finishGame(Red)
     check AchievementGrenadier in sim2.earned("pol0")
     check AchievementGrenadier in sim2.earned("pol0_(2)")
