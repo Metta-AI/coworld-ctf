@@ -582,12 +582,29 @@ proc recordGameWin*(sim: var SimServer, playerIndex: int) =
   sim.rewardAccounts[index].won = true
   inc sim.rewardAccounts[index].wins[sim.players[playerIndex].team]
 
+proc noteLifeKill*(sim: var SimServer, playerIndex: int) =
+  ## Analysis-only: one more kill in this cog's current life (`rambo`).
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return
+  inc sim.players[playerIndex].killsThisLife
+  sim.players[playerIndex].bestKillsInLife = max(
+    sim.players[playerIndex].bestKillsInLife,
+    sim.players[playerIndex].killsThisLife)
+
+proc noteLifeHeal*(sim: var SimServer, playerIndex: int) =
+  ## Analysis-only: one more med kit in this cog's current life (`medic`).
+  inc sim.players[playerIndex].healsThisLife
+  sim.players[playerIndex].bestHealsInLife = max(
+    sim.players[playerIndex].bestHealsInLife,
+    sim.players[playerIndex].healsThisLife)
+
 proc recordKill*(sim: var SimServer, playerIndex: int) =
   ## Increments the kill counter for one player.
   let index = sim.rewardAccountForPlayer(playerIndex)
   if index >= 0:
     inc sim.rewardAccounts[index].kills
   inc sim.players[playerIndex].kills
+  sim.noteLifeKill(playerIndex)
 
 proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
   ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:

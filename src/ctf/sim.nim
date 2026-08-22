@@ -101,13 +101,13 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
           MapPoint(x: inset, y: gameMap.center.y + gameMap.plusArmHalf() div 2)
   gameMap.explicitOrOrbit(gameMap.teamPickups.shields, red)
 
-proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
+proc sprayPaintSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## One spray can point per team, built exactly like the shields: RED's spot
   ## carried to every other team by the map's own symmetry. Red's can is the
   ## opposite half of its endzone from Red's shield, so the two sets never
   ## collide.
   let
-    inset = ArenaBorder + PlasmaArcSpawnInset
+    inset = ArenaBorder + SprayPaintSpawnInset
     red =
       if gameMap.endzone != ezColumn:
         ## The compact-endzone counterpart of the shield spot: same zone,
@@ -212,12 +212,12 @@ proc resetShields*(sim: var SimServer) =
     sim.players[i].hasShield = false
     sim.players[i].shieldHp = 0
 
-proc resetPlasmaArcs*(sim: var SimServer) =
+proc resetSprayPaints*(sim: var SimServer) =
   ## Refills every team's spray can pickup and clears carried cans.
-  sim.placeWalkablePickups(plasmaArcSpawns, sim.gameMap.plasmaArcSpawnPoints())
-  sim.plasmaArcFlashes = @[]
+  sim.placeWalkablePickups(sprayPaintSpawns, sim.gameMap.sprayPaintSpawnPoints())
+  sim.sprayPaintFlashes = @[]
   for i in 0 ..< sim.players.len:
-    sim.players[i].hasPlasmaArc = false
+    sim.players[i].hasSprayPaint = false
     sim.players[i].arcTicksLeft = 0
     sim.players[i].arcAimBrads = -1
     sim.players[i].arcHitMask = 0
@@ -273,11 +273,21 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].damageTaken = 0
     sim.players[i].damageDealt = 0
     sim.players[i].grenadeDamageDealt = 0
+    sim.players[i].gunDamageDealt = 0
+    sim.players[i].sprayDamageDealt = 0
+    sim.players[i].pitDamageDealt = 0
+    sim.players[i].killsThisLife = 0
+    sim.players[i].bestKillsInLife = 0
+    sim.players[i].healsThisLife = 0
+    sim.players[i].bestHealsInLife = 0
+    sim.players[i].aliveTicks = 0
+    sim.players[i].packTicks = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
+  sim.lastCaptureTick = -1
   sim.resetGrenades()
   sim.resetShields()
-  sim.resetPlasmaArcs()
+  sim.resetSprayPaints()
   sim.resetBarriers()
   sim.emitPhaseChange(Playing)
   sim.phase = Playing
@@ -770,7 +780,7 @@ proc killPlayer*(
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
   sim.players[targetIndex].shieldHp = 0
-  sim.players[targetIndex].hasPlasmaArc = false
+  sim.players[targetIndex].hasSprayPaint = false
   sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].arcAimBrads = -1
   sim.players[targetIndex].throwCharge = 0
@@ -804,6 +814,8 @@ proc killPlayer*(
     kill: true
   )
   sim.players[targetIndex].alive = false
+  sim.players[targetIndex].killsThisLife = 0
+  sim.players[targetIndex].healsThisLife = 0
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
   sim.players[targetIndex].carryX = 0
@@ -849,8 +861,13 @@ proc absorbDamage*(
   inc sim.players[targetIndex].damageTaken, amount
   if attackerIndex >= 0 and attackerIndex != targetIndex:
     inc sim.players[attackerIndex].damageDealt, amount
-    if weapon == "grenade":
-      inc sim.players[attackerIndex].grenadeDamageDealt, amount
+    case weapon
+    of "grenade": inc sim.players[attackerIndex].grenadeDamageDealt, amount
+    of "gun": inc sim.players[attackerIndex].gunDamageDealt, amount
+    of "spray": inc sim.players[attackerIndex].sprayDamageDealt, amount
+    else: discard
+    if sim.playerTrench(attackerIndex) >= 0:
+      inc sim.players[attackerIndex].pitDamageDealt, amount
   let fromShield = min(sim.players[targetIndex].shieldHp, amount)
   sim.players[targetIndex].shieldHp -= fromShield
   sim.players[targetIndex].hp -= amount - fromShield
@@ -869,14 +886,14 @@ proc canFire*(sim: SimServer, shooterIndex: int): bool =
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasPlasmaArc
+  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasSprayPaint
 
 proc canFireArc*(sim: SimServer, attackerIndex: int): bool =
   ## Returns whether one player can fire an immediate spray burst.
   if attackerIndex < 0 or attackerIndex >= sim.players.len:
     return false
   let attacker = sim.players[attackerIndex]
-  attacker.alive and attacker.hasPlasmaArc and attacker.fireCooldown <= 0
+  attacker.alive and attacker.hasSprayPaint and attacker.fireCooldown <= 0
 
 proc selectArcVictims(
   sim: SimServer,
@@ -888,7 +905,7 @@ proc selectArcVictims(
   ## the fire instant (`arcAimBrads`) — turning the cog mid-spray never sweeps
   ## the cone.
   ##
-  ## The victim is a disc of PlasmaArcBodyRadius, not the bare point its
+  ## The victim is a disc of SprayPaintBodyRadius, not the bare point its
   ## 1px collision box would suggest, so the cone covers what the paint
   ## visibly covers. Spraying backwards still hits nobody: the can points
   ## forward, so a cog behind the attacker is out regardless of its body.
@@ -899,10 +916,10 @@ proc selectArcVictims(
     ax = attacker.x + CollisionW div 2
     ay = attacker.y + CollisionH div 2
     (ux, uy) = aimVector(attacker.arcAimBrads)
-    reach = float(PlasmaArcReach)
+    reach = float(SprayPaintReach)
     # The cone's half-width grows linearly with forward distance, hitting
-    # PlasmaArcMaxWidth / 2 exactly at the reach cap.
-    halfWidthSlope = float(PlasmaArcMaxWidth) / (2.0 * reach)
+    # SprayPaintMaxWidth / 2 exactly at the reach cap.
+    halfWidthSlope = float(SprayPaintMaxWidth) / (2.0 * reach)
   for i in 0 ..< sim.players.len:
     if i == attackerIndex or not sim.players[i].alive:
       continue
@@ -911,9 +928,9 @@ proc selectArcVictims(
       vy = float(sim.players[i].y + CollisionH div 2 - ay)
       forward = vx * ux + vy * uy
       perpendicular = abs(vx * uy - vy * ux)
-    if forward <= 0 or forward > reach + float(PlasmaArcBodyRadius):
+    if forward <= 0 or forward > reach + float(SprayPaintBodyRadius):
       continue
-    if perpendicular > forward * halfWidthSlope + float(PlasmaArcBodyRadius):
+    if perpendicular > forward * halfWidthSlope + float(SprayPaintBodyRadius):
       continue
     if not sim.paintPathClear(
       ax,
@@ -925,14 +942,14 @@ proc selectArcVictims(
     result.add(i)
 
 proc startArcFire*(sim: var SimServer, attackerIndex: int) =
-  ## Ignites one player's plasma cone: it stays on for PlasmaArcActiveTicks
-  ## and the weapon then needs PlasmaArcResetTicks to recharge before the
+  ## Ignites one player's spray paint cone: it stays on for SprayPaintActiveTicks
+  ## and the weapon then needs SprayPaintResetTicks to recharge before the
   ## next firing. Damage is dealt by resolveActiveArcCones each active tick.
   if not sim.canFireArc(attackerIndex):
     return
   sim.players[attackerIndex].fireCooldown =
-    PlasmaArcActiveTicks + PlasmaArcResetTicks
-  sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
+    SprayPaintActiveTicks + SprayPaintResetTicks
+  sim.players[attackerIndex].arcTicksLeft = SprayPaintActiveTicks
   # Lock the aim NOW: the cone keeps this direction for its whole active
   # window, so turning the cog mid-spray no longer sweeps it around. One
   # fire, one direction.
@@ -949,7 +966,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
   ## against the same snapshot (no processing-order advantage), each victim
   ## is damaged at most once per activation, and every live cone leaves a
   ## cosmetic flash at its owner's current position and aim. A touch removes
-  ## PlasmaArcDamage hit points — lethal to a bare cog, survivable once by a
+  ## SprayPaintDamage hit points — lethal to a bare cog, survivable once by a
   ## shield carrier. A dead owner's cone shuts off.
   var arcFires: seq[tuple[attacker: int, victims: seq[int]]] = @[]
   for attackerIndex in 0 ..< sim.players.len:
@@ -962,7 +979,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
   for arcFire in arcFires:
     let attacker = sim.players[arcFire.attacker]
     var damages: seq[EventDamage]
-    sim.plasmaArcFlashes.add PlasmaArcFx(
+    sim.sprayPaintFlashes.add SprayPaintFx(
       x: attacker.x + CollisionW div 2,
       y: attacker.y + CollisionH div 2,
       aimBrads: attacker.arcAimBrads,   ## the locked fire direction, not live aim
@@ -979,7 +996,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         ax = attacker.x + CollisionW div 2
         ay = attacker.y + CollisionH div 2
         (ux, uy) = aimVector(attacker.arcAimBrads)
-      for step in 1 .. PlasmaArcReach:
+      for step in 1 .. SprayPaintReach:
         let
           rx = ax + int(round(ux * float(step)))
           ry = ay + int(round(uy * float(step)))
@@ -1003,7 +1020,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let bubbleUp = sim.players[victimIndex].hasShield and
         sim.players[victimIndex].shieldHp > 0
       let blocked = sim.absorbDamage(
-        victimIndex, PlasmaArcDamage, arcFire.attacker, "spray"
+        victimIndex, SprayPaintDamage, arcFire.attacker, "spray"
       )
       if bubbleUp:
         # Blink the bubble toward the sprayer, as the gun's damage site does —
@@ -1025,14 +1042,14 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         vy = float(sim.players[victimIndex].y + CollisionH div 2)
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
-        weapon = "spray", amount = PlasmaArcDamage,
+        weapon = "spray", amount = SprayPaintDamage,
         hp = max(0, sim.players[victimIndex].hp),
         blocked = blocked, x = vx, y = vy
       )
       if sim.collectEvents:
         damages.add sim.eventDamage(
           victimIndex,
-          PlasmaArcDamage,
+          SprayPaintDamage,
           max(0, sim.players[victimIndex].hp),
           blocked
         )
@@ -1041,7 +1058,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         x: sim.players[victimIndex].x + CollisionW div 2,
         y: sim.players[victimIndex].y + CollisionH div 2,
         tick: sim.tickCount,
-        amount: PlasmaArcDamage, color: sim.players[victimIndex].color
+        amount: SprayPaintDamage, color: sim.players[victimIndex].color
       )
       if sim.players[victimIndex].hp <= 0:
         sim.killPlayer(victimIndex, arcFire.attacker)
@@ -1050,7 +1067,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           sim.recordTeamKill(arcFire.attacker, victimIndex)
           sim.emitEvent(
             Kill, source = arcFire.attacker, target = victimIndex,
-            weapon = "spray", amount = PlasmaArcDamage, x = vx, y = vy
+            weapon = "spray", amount = SprayPaintDamage, x = vx, y = vy
           )
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
@@ -1071,7 +1088,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         actionId = sim.eventActionId(
           arcFire.attacker,
           SprayAction,
-          sim.tickCount - (PlasmaArcActiveTicks - attacker.arcTicksLeft)
+          sim.tickCount - (SprayPaintActiveTicks - attacker.arcTicksLeft)
         ),
         headingBrads = attacker.arcAimBrads,
         damages = damages
@@ -1758,6 +1775,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
           # live index point at a different player. Results and events above
           # use the immutable thrower identity.
           inc sim.players[legacyThrowerIndex].kills
+          sim.noteLifeKill(legacyThrowerIndex)
         if throwerIndex >= 0 and throwerIndex != i:
           sim.recordTeamKill(throwerIndex, i)
         sim.emitEvent(
@@ -1867,9 +1885,9 @@ proc updateMedKits*(sim: var SimServer) =
   ## Refills center med kits whose respawn timer elapsed.
   sim.refillElapsedPickups(medKitSpawns)
 
-proc updatePlasmaArcs*(sim: var SimServer) =
+proc updateSprayPaints*(sim: var SimServer) =
   ## Refills side-center spray can pickups whose respawn timer elapsed.
-  sim.refillElapsedPickups(plasmaArcSpawns)
+  sim.refillElapsedPickups(sprayPaintSpawns)
 
 proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## Lets a hurt living player pick up a center med kit by touch, restoring
@@ -1885,6 +1903,7 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
       MedKitRespawnTicks):
     let healed = maxHp - sim.players[playerIndex].hp
     sim.players[playerIndex].hp = maxHp
+    sim.noteLifeHeal(playerIndex)
     sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
     sim.emitEvent(
       Heal, source = playerIndex, amount = healed,
@@ -1922,13 +1941,13 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
         " picked up a shield"
     )
 
-proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
+proc tryPickupSprayPaints*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up one side-center spray can by touch.
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasPlasmaArc:
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasSprayPaint:
     return
-  sim.pickupByTouch(playerIndex, plasmaArcSpawns, PlasmaArcPickupRange,
-      PlasmaArcRespawnTicks):
-    sim.players[playerIndex].hasPlasmaArc = true
+  sim.pickupByTouch(playerIndex, sprayPaintSpawns, SprayPaintPickupRange,
+      SprayPaintRespawnTicks):
+    sim.players[playerIndex].hasSprayPaint = true
     sim.players[playerIndex].fireWindup = 0
     sim.players[playerIndex].windupBrads = -1
     sim.emitPickup(playerIndex, "spray_can", spawn.x, spawn.y)
@@ -2558,16 +2577,16 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   # startGame. Earned ids accumulate on the address accounts (deduplicated),
   # so a maxGames > 1 episode reports the union in results.json.
   #
-  # pacifist / spotless / grenadier are POLICY-level: a policy that seats
-  # several cogs ("softmaxwell", "softmaxwell (2)", …) is judged on the SUM of
-  # its cogs' counters, and every one of its cogs records the badge. Judging
-  # cogs one at a time handed pacifist/spotless to any four-cog seat whose
-  # heart-guard never fired or never got hit — i.e. to nearly every winner.
+  # Every badge is TEAM-level: the counters are summed (or maxed) over all of
+  # the winning team's cogs, whichever policies seat them, and every cog on
+  # the team records the badge — the platform dedupes per player. Judging
+  # cogs one at a time handed pacifist/spotless to any seat whose heart-guard
+  # never fired or never got hit, i.e. to nearly every winner.
   #
-  # `almost` is team-level and counts the team's whole remaining LIFE BUDGET:
-  # living hp plus every respawn still owed (a cog respawns at full hp while
-  # it has lives left). Counting living hp alone made a winner whose last cog
-  # was respawning when the final enemy fell — the barrage endgame's normal
+  # `almost` counts the team's whole remaining LIFE BUDGET: living hp plus
+  # every respawn still owed (a cog respawns at full hp while it has lives
+  # left). Counting living hp alone made a winner whose last cog was
+  # respawning when the final enemy fell — the barrage endgame's normal
   # finish — a "cliffhanger" in one game out of eight.
   var winnerLife = 0
   for p in sim.players:
@@ -2581,39 +2600,60 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     else:
       winnerLife += p.lives * fullHp
   let almost = winnerLife < AlmostTeamHp
+  # `heist`: the game ended on THIS tick's heart capture by the winner — the
+  # capture eliminated the last standing rival — so the win was the carry,
+  # not the wipe.
+  let heistWin = sim.lastCaptureTick == sim.tickCount and
+    sim.lastCaptureTeam == winner
   var
-    policies: seq[string]
-    attacks, taken, dealt, grenade: seq[int]
+    attacks, taken, dealt, grenade, gun, spray, pit, kills = 0
+    bestKills, bestHeals = 0
+    packOk = true
   for p in sim.players:
     if p.team != winner:
       continue
-    let pol = policyName(p.address)
-    var k = policies.find(pol)
-    if k < 0:
-      policies.add(pol)
-      attacks.add(0)
-      taken.add(0)
-      dealt.add(0)
-      grenade.add(0)
-      k = policies.len - 1
-    attacks[k] += p.attacksMade
-    taken[k] += p.damageTaken
-    dealt[k] += p.damageDealt
-    grenade[k] += p.grenadeDamageDealt
+    attacks += p.attacksMade
+    taken += p.damageTaken
+    dealt += p.damageDealt
+    grenade += p.grenadeDamageDealt
+    gun += p.gunDamageDealt
+    spray += p.sprayDamageDealt
+    pit += p.pitDamageDealt
+    kills += p.kills
+    bestKills = max(bestKills, p.bestKillsInLife)
+    bestHeals = max(bestHeals, p.bestHealsInLife)
+    # `pack` is an EVERY-cog condition: one straggler fails the team.
+    if p.aliveTicks == 0 or p.packTicks * 100 < p.aliveTicks * PackPct:
+      packOk = false
+  var earned: seq[string]
+  if attacks == 0:
+    earned.add AchievementPacifist
+  if taken == 0:
+    earned.add AchievementSpotless
+  if almost:
+    earned.add AchievementAlmost
+  # Percent thresholds compare by integer cross-multiply (no floats in the sim).
+  if dealt > 0 and grenade * 100 >= dealt * GrenadierPct:
+    earned.add AchievementGrenadier
+  if bestKills >= RamboKills:
+    earned.add AchievementRambo
+  if bestHeals >= MedicHeals:
+    earned.add AchievementMedic
+  if dealt > 0 and gun == dealt:
+    earned.add AchievementSniper
+  if dealt > 0 and spray * 100 >= dealt * BanksyPct:
+    earned.add AchievementBanksy
+  if packOk:
+    earned.add AchievementPack
+  if dealt > 0 and pit * 100 >= dealt * PitMasterPct:
+    earned.add AchievementPitMaster
+  if heistWin and kills == 0:
+    earned.add AchievementHeist
   for i in 0 ..< sim.players.len:
     if sim.players[i].team != winner:
       continue
-    let k = policies.find(policyName(sim.players[i].address))
-    if attacks[k] == 0:
-      sim.recordAchievement(i, AchievementPacifist)
-    if taken[k] == 0:
-      sim.recordAchievement(i, AchievementSpotless)
-    if almost:
-      sim.recordAchievement(i, AchievementAlmost)
-    # Grenadier: at least GrenadierPct of the policy's damage came from
-    # grenades (integer cross-multiply, no floats in the sim).
-    if dealt[k] > 0 and grenade[k] * 100 >= dealt[k] * GrenadierPct:
-      sim.recordAchievement(i, AchievementGrenadier)
+    for id in earned:
+      sim.recordAchievement(i, id)
 
 proc maxTicksReached(sim: SimServer): bool =
   ## Whether the scheduled draw ceiling ends the game this tick. A game
@@ -2881,6 +2921,8 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       sim.flags[flagTeam].captured = true
       sim.flags[flagTeam].carrier = -1
       sim.players[carrierIndex].carryingFlag = false
+      sim.lastCaptureTeam = carrier.team
+      sim.lastCaptureTick = sim.tickCount
       sim.eliminateTeam(flagTeam, carrierIndex)
   # GV33: a completely killed team's heart leaves play with it. A wiped
   # team can never recover its heart, so it retires the moment the team is
@@ -3318,7 +3360,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetGrenades()
   result.resetMedKits()
   result.resetShields()
-  result.resetPlasmaArcs()
+  result.resetSprayPaints()
   result.resetBarriers()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
@@ -3342,10 +3384,10 @@ proc resetToLobby*(sim: var SimServer) =
   sim.resetGrenades()
   sim.resetMedKits()
   sim.resetShields()
-  sim.resetPlasmaArcs()
+  sim.resetSprayPaints()
   sim.resetBarriers()
   sim.recentBlasts = @[]
-  sim.plasmaArcFlashes = @[]
+  sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.hitFlashes = @[]
@@ -3393,6 +3435,40 @@ proc stepLobby(sim: var SimServer) {.measure.} =
     sim.startGame()
   else:
     sim.logLobbyCountdown()
+
+proc packRadiusSq*(sim: SimServer): int =
+  ## `pack`: the squared radius of a circle covering PackAreaPct of the map's
+  ## area (r² = area / π, integer: area * 100 / 314).
+  var w = sim.gameMap.width
+  var h = sim.gameMap.height
+  if w <= 0: w = MapWidth
+  if h <= 0: h = MapHeight
+  (PackAreaPct * w * h) div 314
+
+proc updatePackTicks*(sim: var SimServer) =
+  ## Analysis-only (`pack`): one alive tick per living cog, and a pack tick
+  ## when at least PackMates living teammates stand within the pack radius.
+  ## Nothing here enters gameHash.
+  if sim.phase != Playing:
+    return
+  let radiusSq = sim.packRadiusSq()
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive:
+      continue
+    inc sim.players[i].aliveTicks
+    var mates = 0
+    for j in 0 ..< sim.players.len:
+      if j == i or not sim.players[j].alive or
+          sim.players[j].team != sim.players[i].team:
+        continue
+      let dx = sim.players[j].x - sim.players[i].x
+      let dy = sim.players[j].y - sim.players[i].y
+      if dx * dx + dy * dy <= radiusSq:
+        inc mates
+        if mates >= PackMates:
+          break
+    if mates >= PackMates:
+      inc sim.players[i].packTicks
 
 proc respawnPlayers(sim: var SimServer) =
   ## Ticks respawn timers and brings dead players back at a random spot in
@@ -3485,7 +3561,7 @@ proc step*(
     sim.applyGrenadeInput(playerIndex, input, prev)
     sim.applyBarrierInput(playerIndex, input, prev)
     if input.attack and not prev.attack:
-      if sim.players[playerIndex].hasPlasmaArc:
+      if sim.players[playerIndex].hasSprayPaint:
         if sim.canFireArc(playerIndex):
           arcFiring.add(playerIndex)
       else:
@@ -3502,7 +3578,7 @@ proc step*(
   sim.updateGrenades()
   sim.updateMedKits()
   sim.updateShields()
-  sim.updatePlasmaArcs()
+  sim.updateSprayPaints()
   sim.updateBarriers()
 
   for playerIndex in 0 ..< sim.players.len:
@@ -3510,10 +3586,11 @@ proc step*(
     sim.tryPickupGrenades(playerIndex)
     sim.tryPickupMedKits(playerIndex)
     sim.tryPickupShields(playerIndex)
-    sim.tryPickupPlasmaArcs(playerIndex)
+    sim.tryPickupSprayPaints(playerIndex)
     sim.tryPickupBarriers(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
+  sim.updatePackTicks()
   # Puddle damage resolves after movement and pickups, before the win check,
   # so a lethal roll feeds the same tick's wipe resolution.
   sim.updatePuddles()
@@ -3528,7 +3605,7 @@ proc step*(
   sim.pruneAgedFx(hitFlashes, tick, HitFlashTicks)
   sim.pruneAgedFx(bubbleImpacts, tick, BubbleImpactTicks)
   sim.pruneAgedFx(recentBlasts, tick, BlastFxTicks)
-  sim.pruneAgedFx(plasmaArcFlashes, tick, PlasmaArcFxTicks)
+  sim.pruneAgedFx(sprayPaintFlashes, tick, SprayPaintFxTicks)
 
   # Expire old shouts. Unlike the cosmetic effects above, shouts are
   # observable gameplay state (bots hear them), so expiry is part of the

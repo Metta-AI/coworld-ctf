@@ -172,7 +172,7 @@ const
                        ## POINTS. Three changes, all closing the same gap —
                        ## paint visibly covering a cog that walked away clean.
                        ## 1. The cone hits BODIES, not center points: a victim
-                       ## is tested as a disc of PlasmaArcBodyRadius (half a
+                       ## is tested as a disc of SprayPaintBodyRadius (half a
                        ## cog), where it used to be the bare point its 1px
                        ## collision box describes. Largest effect point-blank,
                        ## where the cone was narrower than the cog it covered.
@@ -182,7 +182,7 @@ const
                        ## cover the tip of the plume the game draws: the mist
                        ## is a chain of round puffs drawn oversize so they
                        ## merge, so it always reached past the cone that sized
-                       ## it. test_plasma_arc pins the containment.
+                       ## it. test_spraypaint pins the containment.
                        ## A cog can still be grazed by the plume's edge
                        ## without damage (the overlap makes the mist ~15px
                        ## wider than the cone); closing that too would need a
@@ -201,7 +201,7 @@ const
                        ## UNDER-sells its reach (the mirror of the plume's
                        ## overhang in (2)).
                        ## NOTE "body" is deliberately two sizes here: the cone
-                       ## uses the DRAWN body (PlasmaArcBodyRadius, 17px)
+                       ## uses the DRAWN body (SprayPaintBodyRadius, 17px)
                        ## because its whole point is covering visible paint,
                        ## while the gun and the blast use the SOLID footprint
                        ## (PlayerHalf, 6px) they have always used. Widening
@@ -472,18 +472,44 @@ const
   # which enters gameHash — replays and gameplay are untouched.
   AchievementPacifist* = "pacifist"    ## won without a single attack (gun,
                                        ## grenade, or spray) by ANY cog of the
-                                       ## policy (policyName groups its seats).
-  AchievementSpotless* = "spotless"    ## won without any cog of the policy
+                                       ## winning team.
+  AchievementSpotless* = "spotless"    ## won without any cog of the team
                                        ## taking damage — shield-absorbed hits
                                        ## still count as damage taken.
   AchievementAlmost* = "almost"        ## whole winning team finished with
                                        ## fewer than AlmostTeamHp hp of life
                                        ## budget (living hp + respawns owed).
   AchievementGrenadier* = "grenadier"  ## won with at least GrenadierPct of
-                                       ## the policy's damage dealt (summed
-                                       ## over its cogs) coming from grenades,
+                                       ## the team's damage dealt (summed over its
+                                       ## cogs) coming from grenades,
                                        ## and more than zero dealt.
   GrenadierPct* = 80          ## `grenadier` threshold, percent of damage dealt.
+  AchievementRambo* = "rambo"          ## one cog killed >= RamboKills cogs in a
+                                       ## single life (between spawns).
+  AchievementMedic* = "medic"          ## one cog took >= MedicHeals med kits in
+                                       ## a single life.
+  AchievementSniper* = "sniper"        ## every point of the team's damage
+                                       ## came from the paintball gun.
+  AchievementBanksy* = "banksy"        ## >= BanksyPct of the team's damage
+                                       ## came from spray paint.
+  AchievementPack* = "pack"            ## EVERY cog of the team spent
+                                       ## >= PackPct of its alive ticks with
+                                       ## >= PackMates teammates inside a circle
+                                       ## of PackAreaPct of the map's area.
+  AchievementPitMaster* = "pit-master" ## >= PitMasterPct of the team's
+                                       ## damage was dealt while standing in a
+                                       ## trench/pit.
+  AchievementHeist* = "heist"          ## the win came from carrying the
+                                       ## enemy heart home and the team
+                                       ## killed nobody.
+  RamboKills* = 9             ## `rambo`: kills in one life, "more than 8".
+  MedicHeals* = 4             ## `medic`: med kits in one life.
+  BanksyPct* = 90             ## `banksy` threshold, percent of damage dealt.
+  PitMasterPct* = 90          ## `pit-master` threshold, percent of damage dealt.
+  PackPct* = 90               ## `pack`: percent of a cog's alive ticks.
+  PackMates* = 2              ## `pack`: teammates that must be within range.
+  PackAreaPct* = 5            ## `pack`: the circle's area as a percent of the
+                              ## map's area; radius² = area / π, integer math.
   AlmostTeamHp* = 2           ## `almost` threshold: the winning team's life
                               ## budget — living cogs' hp plus a full hp bar
                               ## per respawn still owed — is strictly below
@@ -565,11 +591,11 @@ const
 
   MedKitPickupRange* = 12     ## touch radius to pick a med kit up.
   MedKitRespawnTicks* = 30 * ReplayFps  ## a taken kit refills after 30s.
-  PlasmaArcSpawnInset* = GrenadeSpawnInset
-  PlasmaArcPickupRange* = 12  ## touch radius to pick a plasma arc up.
-  PlasmaArcRespawnTicks* = 30 * ReplayFps
-  PlasmaArcSquare* = SoldierBodyPx  ## one "square": a cog body length.
-  PlasmaArcFxReach* = 4 * PlasmaArcSquare
+  SprayPaintSpawnInset* = GrenadeSpawnInset
+  SprayPaintPickupRange* = 12  ## touch radius to pick a spray can up.
+  SprayPaintRespawnTicks* = 30 * ReplayFps
+  SprayPaintSquare* = SoldierBodyPx  ## one "square": a cog body length.
+  SprayPaintFxReach* = 4 * SprayPaintSquare
                               ## how far the DRAWN plume spans, and the span
                               ## its puffs are sized against. This is art
                               ## geometry, not damage: the mist is a chain of
@@ -577,23 +603,23 @@ const
                               ## (SprayPuffOverlap), so its outermost pixel
                               ## lands well past this. The damage reach below
                               ## is set to cover that overhang — see
-                              ## test_plasma_arc's containment check, which is
+                              ## test_spraypaint's containment check, which is
                               ## what keeps the two in step if either moves.
-  PlasmaArcFxMaxWidth* = 2 * PlasmaArcSquare
-                              ## the drawn plume's width at PlasmaArcFxReach.
-  PlasmaArcReach* = 5 * PlasmaArcSquare  ## forward cone reach: 5 squares
+  SprayPaintFxMaxWidth* = 2 * SprayPaintSquare
+                              ## the drawn plume's width at SprayPaintFxReach.
+  SprayPaintReach* = 5 * SprayPaintSquare  ## forward cone reach: 5 squares
                               ## (GameVersion 30, was 4). The 5th square is
                               ## not extra range for its own sake — it is
                               ## exactly what it takes for the damage cone to
                               ## cover the tip of the plume the game draws, so
                               ## a cog the paint engulfs cannot walk away
                               ## clean.
-  PlasmaArcMaxWidth* = 5 * PlasmaArcSquare div 2  ## cone width AT max reach:
+  SprayPaintMaxWidth* = 5 * SprayPaintSquare div 2  ## cone width AT max reach:
                               ## 2.5 squares, which holds the half-angle at
                               ## atan(1/4) ~ 14.0 degrees everywhere along the
                               ## reach as the reach grew. The cone widens
                               ## linearly from the muzzle.
-  PlasmaArcBodyRadius* = SoldierBodyPx div 2
+  SprayPaintBodyRadius* = SoldierBodyPx div 2
                               ## the sprayed cog's own half-width, added to the
                               ## cone on every side (GameVersion 30). Reach and
                               ## width above describe the cone's CENTERLINE
@@ -605,14 +631,14 @@ const
                               ## to each side at 40px out). Spraying a body now
                               ## hits it: the test is the cog's DISC against the
                               ## cone, not its center point.
-  PlasmaArcDamage* = 3        ## hit points removed by one cone touch:
+  SprayPaintDamage* = 3        ## hit points removed by one cone touch:
                               ## instantly lethal to a bare cog (3 hp), but a
                               ## shield carrier (6 hp) survives the first one.
-  PlasmaArcActiveTicks* = 5   ## a fired cone stays on this many ticks,
+  SprayPaintActiveTicks* = 5   ## a fired cone stays on this many ticks,
                               ## tracking the attacker's position and aim.
-  PlasmaArcResetTicks* = 20   ## recharge time after the cone shuts off; the
+  SprayPaintResetTicks* = 20   ## recharge time after the cone shuts off; the
                               ## refire cadence is ActiveTicks + ResetTicks.
-  PlasmaArcFxTicks* = 4       ## each per-tick cone snapshot fades this long
+  SprayPaintFxTicks* = 4       ## each per-tick cone snapshot fades this long
                               ## (cosmetic only).
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
@@ -920,7 +946,7 @@ type
     ## Barriers carry `perTeam` points each, flattened team-major (team 0's
     ## points, then team 1's, ...), matching barrierSpawnPoints' orbit order.
     shields*: seq[MapPoint]
-    cans*: seq[MapPoint]        ## spray-can (plasma-arc) points
+    cans*: seq[MapPoint]        ## spray-can (spraypaint-arc) points
     barriers*: seq[MapPoint]    ## cardboard points, team-major (perTeam each)
 
   EndzoneShape* = enum
@@ -1244,7 +1270,7 @@ type
     hasShield*: bool           ## carrying an endzone shield: 3x slower fire.
     shieldHp*: int             ## remaining shield-layer hp (0..ShieldLayerHp);
                                ## damage depletes it before base hp.
-    hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
+    hasSprayPaint*: bool        ## each player carries at most one spray can.
     arcTicksLeft*: int         ## remaining active ticks of a fired spray
                                ## cone (0 = the cone is off).
     arcAimBrads*: int          ## aim direction locked at the spray's fire
@@ -1323,6 +1349,21 @@ type
                                ## achievement), excluded from gameHash.
     grenadeDamageDealt*: int   ## the grenade-blast share of damageDealt;
                                ## analysis-only, excluded from gameHash.
+    gunDamageDealt*: int       ## the paintball-gun share of damageDealt
+                               ## (`sniper`); analysis-only.
+    sprayDamageDealt*: int     ## the spraypaint-spray share of damageDealt
+                               ## (`banksy`); analysis-only.
+    pitDamageDealt*: int       ## damageDealt while this cog stood in a
+                               ## trench/pit (`pit-master`); analysis-only.
+    killsThisLife*: int        ## kills since this cog last spawned; reset on
+                               ## death (`rambo`); analysis-only.
+    bestKillsInLife*: int      ## max killsThisLife over the game.
+    healsThisLife*: int        ## med kits taken since spawn; reset on death
+                               ## (`medic`); analysis-only.
+    bestHealsInLife*: int      ## max healsThisLife over the game.
+    aliveTicks*: int           ## ticks spent alive this game (`pack`).
+    packTicks*: int            ## alive ticks with >= PackMates teammates
+                               ## inside the pack radius (`pack`).
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -1427,7 +1468,7 @@ type
                                ## the flash renders truncated to the pit's
                                ## footprint instead of the open-field size.
 
-  PlasmaArcFx* = object
+  SprayPaintFx* = object
     ## A cosmetic spray-cone paint flash; never enters gameHash (replay-safe).
     x*, y*: int
     aimBrads*: int
@@ -1438,7 +1479,7 @@ type
       ## tick, each with the owner's LIVE pose; the renderer groups snapshots by
       ## attacker and draws them all along the newest one's pose, so a burst that
       ## swings its aim reads as one plume, not a divergent trail. See
-      ## plasmaArcRenderPose.
+      ## sprayPaintRenderPose.
 
   DamageFx* = object
     ## A cosmetic floating "-N" damage number that rises and fades above a
@@ -1615,9 +1656,9 @@ type
     medKitSpawns*: seq[PickupSpawn]       ## the map's active med kits (2 on
                                           ## sides maps, 4 on 4-team maps).
     shieldSpawns*: seq[PickupSpawn]       ## one shield per team endzone.
-    plasmaArcSpawns*: seq[PickupSpawn]    ## one spray can per team endzone.
+    sprayPaintSpawns*: seq[PickupSpawn]    ## one spray can per team endzone.
     airborneGrenades*: seq[AirborneGrenade]
-    plasmaArcFlashes*: seq[PlasmaArcFx]
+    sprayPaintFlashes*: seq[SprayPaintFx]
     gameStartTick*: int
     startWaitTimer*: int
     lobbyWaitTimer*: int  ## lobby ticks spent short of minPlayers (live-server
@@ -1626,6 +1667,9 @@ type
     asciiSprites*: PixelFont
     shoutFont*: PixelFont  ## chunky 9px grid font used only for shout bubbles.
     winner*: Team
+    lastCaptureTeam*: Team     ## team whose carrier scored the most recent
+                               ## heart capture (`heist`); analysis-only.
+    lastCaptureTick*: int      ## tick of that capture, -1 = none this game.
     gameOverTimer*: int
     timeLimitReached*: bool
     barrageStartTick*: int     ## tickCount at which the grenade barrage

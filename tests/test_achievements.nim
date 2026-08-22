@@ -181,8 +181,8 @@ suite "achievements":
     sim.players[0].hasGrenade = true
     sim.chargeAndThrow(0, 1)
     check sim.players[0].attacksMade == 2
-    # Spray: ignite the plasma cone.
-    sim.players[0].hasPlasmaArc = true
+    # Spray: ignite the spray paint cone.
+    sim.players[0].hasSprayPaint = true
     sim.players[0].fireCooldown = 0
     sim.startArcFire(0)
     check sim.players[0].attacksMade == 3
@@ -235,9 +235,9 @@ suite "achievements":
     result.players[1].team = Red
     result.players[2].team = Blue
 
-  test "pacifist and spotless are judged per policy, not per cog":
-    # One sibling fights and gets hit; the idle sibling does NOT earn the
-    # badges on its own — the policy attacked and took damage.
+  test "pacifist and spotless are judged for the whole team, not per cog":
+    # One teammate fights and gets hit; the idle teammate does NOT earn the
+    # badges on its own — the team attacked and took damage.
     var sim = policyPairGame()
     sim.players[1].attacksMade = 3
     sim.players[1].damageTaken = 2
@@ -246,7 +246,7 @@ suite "achievements":
     check AchievementPacifist notin sim.earned("pol0_(2)")
     check AchievementSpotless notin sim.earned("pol0")
     check AchievementSpotless notin sim.earned("pol0_(2)")
-    # When neither sibling attacks or gets hit, every seat of the policy
+    # When nobody on the team attacks or gets hit, every seat on the team
     # records the badge (the platform dedupes per player).
     var sim2 = policyPairGame()
     sim2.finishGame(Red)
@@ -255,7 +255,7 @@ suite "achievements":
     check AchievementSpotless in sim2.earned("pol0")
     check AchievementSpotless in sim2.earned("pol0_(2)")
 
-  test "grenadier sums damage across a policy's cogs":
+  test "grenadier sums damage across the team's cogs":
     # Cog A: 1 grenade damage only. Cog B: 5 gun damage. Per cog, A would be
     # a grenadier; per policy, 1 of 6 is not. Then 4 grenade + 1 gun = 80%.
     var sim = policyPairGame()
@@ -273,7 +273,7 @@ suite "achievements":
     check AchievementGrenadier in sim2.earned("pol0")
     check AchievementGrenadier in sim2.earned("pol0_(2)")
 
-  test "a losing policy's cogs never enter the winner's aggregate":
+  test "the losing team's cogs never enter the winner's aggregate":
     var sim = policyPairGame()
     sim.players[2].attacksMade = 9
     sim.players[2].damageTaken = 9
@@ -281,3 +281,159 @@ suite "achievements":
     check AchievementPacifist in sim.earned("pol0")
     check AchievementSpotless in sim.earned("pol0")
     check sim.earned("pol1").len == 0
+
+  test "rambo: nine kills in one life; a death resets the streak":
+    var sim = policyPairGame()
+    for _ in 0 ..< 8:
+      sim.noteLifeKill(0)
+    sim.finishGame(Red)
+    check AchievementRambo notin sim.earned("pol0")
+    var sim2 = policyPairGame()
+    for _ in 0 ..< 9:
+      sim2.noteLifeKill(1)                 # the sibling cog's streak counts
+    sim2.finishGame(Red)
+    check AchievementRambo in sim2.earned("pol0")
+    check AchievementRambo in sim2.earned("pol0_(2)")
+    var sim3 = policyPairGame()
+    for _ in 0 ..< 5:
+      sim3.noteLifeKill(0)
+    sim3.players[0].hp = 10
+    sim3.killPlayer(0, 2)                  # death: streak back to zero
+    for _ in 0 ..< 5:
+      sim3.noteLifeKill(0)
+    sim3.finishGame(Red)
+    check AchievementRambo notin sim3.earned("pol0")
+    check sim3.players[0].bestKillsInLife == 5
+
+  test "medic: four med kits in one life":
+    var sim = policyPairGame()
+    for _ in 0 ..< 4:
+      sim.noteLifeHeal(0)
+    sim.finishGame(Red)
+    check AchievementMedic in sim.earned("pol0")
+    var sim2 = policyPairGame()
+    for _ in 0 ..< 3:
+      sim2.noteLifeHeal(0)
+    sim2.players[0].hp = 10
+    sim2.killPlayer(0, 2)
+    sim2.noteLifeHeal(0)
+    sim2.finishGame(Red)
+    check AchievementMedic notin sim2.earned("pol0")
+
+  test "sniper: gun-only damage across the policy; banksy: 90% spray":
+    var sim = policyPairGame()
+    sim.absorbDamage(2, 2, attackerIndex = 0, weapon = "gun")
+    sim.absorbDamage(2, 1, attackerIndex = 1, weapon = "gun")
+    sim.finishGame(Red)
+    check AchievementSniper in sim.earned("pol0")
+    check AchievementBanksy notin sim.earned("pol0")
+    var sim2 = policyPairGame()
+    sim2.players[2].hp = 50
+    sim2.absorbDamage(2, 9, attackerIndex = 0, weapon = "spray")
+    sim2.absorbDamage(2, 1, attackerIndex = 1, weapon = "gun")   # one gun hit
+    sim2.finishGame(Red)
+    check AchievementSniper notin sim2.earned("pol0")
+    check AchievementBanksy in sim2.earned("pol0")                # 9 of 10
+    var sim3 = policyPairGame()
+    sim3.players[2].hp = 50
+    sim3.absorbDamage(2, 8, attackerIndex = 0, weapon = "spray")
+    sim3.absorbDamage(2, 2, attackerIndex = 1, weapon = "gun")
+    sim3.finishGame(Red)
+    check AchievementBanksy notin sim3.earned("pol0")             # 8 of 10
+    # No damage at all: neither badge.
+    var sim4 = policyPairGame()
+    sim4.finishGame(Red)
+    check AchievementSniper notin sim4.earned("pol0")
+    check AchievementBanksy notin sim4.earned("pol0")
+
+  test "pit-master: 90% of damage dealt from inside a trench":
+    # absorbDamage reads the attacker's trench live; stand-ins set the
+    # counters the way the trench check would have.
+    var sim = policyPairGame()
+    sim.players[2].hp = 50
+    sim.absorbDamage(2, 10, attackerIndex = 0, weapon = "gun")
+    sim.players[0].pitDamageDealt = 9
+    sim.finishGame(Red)
+    check AchievementPitMaster in sim.earned("pol0")
+    var sim2 = policyPairGame()
+    sim2.players[2].hp = 50
+    sim2.absorbDamage(2, 10, attackerIndex = 0, weapon = "gun")
+    sim2.players[0].pitDamageDealt = 8
+    sim2.finishGame(Red)
+    check AchievementPitMaster notin sim2.earned("pol0")
+
+  test "pack: every cog keeps two teammates within the pack radius":
+    # Three Red cogs of one policy stacked on one tile; one Blue far away.
+    var sim = initCtfForTest(defaultGameConfig())
+    discard sim.addPlayer("pol0")
+    discard sim.addPlayer("pol0_(2)")
+    discard sim.addPlayer("pol0_(3)")
+    discard sim.addPlayer("pol1")
+    sim.startGame()
+    for i in 0 ..< 3:
+      sim.players[i].team = Red
+      sim.players[i].x = 100 + i * 4
+      sim.players[i].y = 100
+      sim.players[i].alive = true
+    sim.players[3].team = Blue
+    sim.players[3].x = 1000
+    sim.players[3].y = 500
+    for _ in 0 ..< 10:
+      sim.updatePackTicks()
+    check sim.players[0].aliveTicks == 10
+    check sim.players[0].packTicks == 10
+    check sim.players[3].packTicks == 0
+    sim.finishGame(Red)
+    check AchievementPack in sim.earned("pol0")
+    check AchievementPack in sim.earned("pol0_(3)")
+    # One straggler (90% bar missed by a single cog) fails the whole team.
+    var sim2 = initCtfForTest(defaultGameConfig())
+    discard sim2.addPlayer("pol0")
+    discard sim2.addPlayer("pol0_(2)")
+    discard sim2.addPlayer("pol0_(3)")
+    discard sim2.addPlayer("pol1")
+    sim2.startGame()
+    for i in 0 ..< 3:
+      sim2.players[i].team = Red
+      sim2.players[i].x = 100
+      sim2.players[i].y = 100
+    sim2.players[3].team = Blue
+    for _ in 0 ..< 9:
+      sim2.updatePackTicks()
+    sim2.players[2].x = 1100                # wanders off for the last tick
+    sim2.players[2].y = 600
+    sim2.updatePackTicks()
+    check sim2.players[2].packTicks == 9    # 9 of 10 = 90%: still in
+    sim2.updatePackTicks()
+    check sim2.players[2].packTicks == 9    # 9 of 11: out
+    sim2.finishGame(Red)
+    check AchievementPack notin sim2.earned("pol0")
+    # A lone cog never has two teammates: no pack.
+    var sim3 = twoTeamGame()
+    sim3.updatePackTicks()
+    sim3.finishGame(Red)
+    check AchievementPack notin sim3.earned("red0")
+
+  test "heist: a capture win with no kills by the team":
+    var sim = policyPairGame()
+    sim.lastCaptureTeam = Red
+    sim.lastCaptureTick = sim.tickCount     # the capture ended the game
+    sim.finishGame(Red)
+    check AchievementHeist in sim.earned("pol0")
+    check AchievementHeist notin sim.earned("pol1")
+    var sim2 = policyPairGame()
+    sim2.lastCaptureTeam = Red
+    sim2.lastCaptureTick = sim2.tickCount
+    sim2.recordKill(1)                      # a teammate killed someone
+    sim2.finishGame(Red)
+    check AchievementHeist notin sim2.earned("pol0")
+    # A wipe win (no capture this tick) is not a heist.
+    var sim3 = policyPairGame()
+    sim3.finishGame(Red)
+    check AchievementHeist notin sim3.earned("pol0")
+    var sim4 = policyPairGame()
+    sim4.lastCaptureTeam = Red
+    sim4.lastCaptureTick = sim4.tickCount - 5
+    sim4.finishGame(Red)
+    check AchievementHeist notin sim4.earned("pol0")
+
