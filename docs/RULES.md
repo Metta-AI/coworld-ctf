@@ -807,15 +807,15 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; reaches 1.5× gun range (1575px stock), walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
-| Spray cone reach (`PlasmaArcReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
-| Spray cone max width (`PlasmaArcMaxWidth`) | 85px (2.5 squares) | Centerline cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |
-| Drawn plume span (`PlasmaArcFxReach` / `PlasmaArcFxMaxWidth`) | 136px / 68px | Art geometry the mist puffs are placed and sized against — deliberately shorter than the cone, because the puffs are drawn oversize and spill past it |
-| Spray body radius (`PlasmaArcBodyRadius`) | 17px (half a cog) | The victim is a disc, not a point: added to the cone's reach and to its half-width at every distance |
-| Spray damage (`PlasmaArcDamage`) | 3 hp | One touch per victim per burst; lethal to a bare cog, survivable by a shield carrier |
-| Spray active window (`PlasmaArcActiveTicks`) | 5 ticks | The sprayed cone stays on, tracking its owner's position and aim |
-| Spray can reset (`PlasmaArcResetTicks`) | 20 ticks | Repressurize after the cone shuts off (one burst per 25 ticks) |
+| Spray cone reach (`SprayPaintReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
+| Spray cone max width (`SprayPaintMaxWidth`) | 85px (2.5 squares) | Centerline cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |
+| Drawn plume span (`SprayPaintFxReach` / `SprayPaintFxMaxWidth`) | 136px / 68px | Art geometry the mist puffs are placed and sized against — deliberately shorter than the cone, because the puffs are drawn oversize and spill past it |
+| Spray body radius (`SprayPaintBodyRadius`) | 17px (half a cog) | The victim is a disc, not a point: added to the cone's reach and to its half-width at every distance |
+| Spray damage (`SprayPaintDamage`) | 3 hp | One touch per victim per burst; lethal to a bare cog, survivable by a shield carrier |
+| Spray active window (`SprayPaintActiveTicks`) | 5 ticks | The sprayed cone stays on, tracking its owner's position and aim |
+| Spray can reset (`SprayPaintResetTicks`) | 20 ticks | Repressurize after the cone shuts off (one burst per 25 ticks) |
 | Spray can respawn | 30s | Taken pickups refill after this interval |
-| Paint puff lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
+| Paint puff lifetime (`SprayPaintFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
 | Trench size (`TrenchSize`) | 56px | Side of the walkable center trench pit |
 | Trench speed divisor (`TrenchSpeedDivisor`) | 5 | Climbing out (motion away from the pit center while inside) is 1/5 speed; entering and crossing are full speed |
@@ -1014,21 +1014,21 @@ Spray cans add the labels documented in the Spray can section; their
 pickup and carrier markers are fog-gated like other floor and overhead item
 markers.
 
-**The cone weapon is a SPRAY CAN (renamed from "plasma arc").** It is the same
+**The cone weapon is a SPRAY CAN (renamed from "spray can").** It is the same
 weapon with the same numbers — only the art and the names changed, so this is a
 pure vocabulary break for label-scanning policies. Rename in five places:
 
 | Surface | Was | Now |
 | --- | --- | --- |
-| Pickup sprite label | `plasma arc` | `spray can` |
-| Carrier marker label | `plasma arc carried` | `spray can carried` |
-| Cone FX label | `plasma arc pulse` | `spray paint puff` |
+| Pickup sprite label | `spray can` | `spray can` |
+| Carrier marker label | `spray can carried` | `spray can carried` |
+| Cone FX label | `spray can pulse` | `spray paint puff` |
 | Own-HUD + badge weapon token | `weapon arc`, `identity … arc` | `weapon spray`, `identity … spray` |
 | Held-weapon art on a carrier | `cog gun <color>` | `cog spray can <color>` |
 
 Analysis events (`tools/extract_events.nim`) likewise carry `weapon: "spray"`
-instead of `"plasma"`, and the broadcast item token is `spray`. The internal
-`PlasmaArc*` identifiers and `hasPlasmaArc` field keep their names (as the
+instead of `"spraypaint"`, and the broadcast item token is `spray`. The internal
+`SprayPaint*` identifiers and `hasSprayPaint` field keep their names (as the
 `flag`→`heart` rename kept `sim.flags`), so `gameHash` and replays are
 unaffected — no GameVersion bump.
 

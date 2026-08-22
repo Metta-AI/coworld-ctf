@@ -94,7 +94,7 @@ proc fullFeatureGame(teams4 = false): SimServer =
   result.players[2].hasGrenade = true
   result.players[4].x = cx - 90
   result.players[4].y = cy + 20
-  result.players[4].hasPlasmaArc = true
+  result.players[4].hasSprayPaint = true
   # The shield carrier also carries a folded cardboard barrier, so the
   # `barrier carried` marker renders (a barrier excludes a GRENADE, not a
   # shield — seat 2 keeps the grenade).
@@ -333,7 +333,7 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
     (sim.players[0].x, sim.players[0].y),
     (sim.grenadeSpawns[0].x, sim.grenadeSpawns[0].y),
     (sim.shieldSpawns[0].x, sim.shieldSpawns[0].y),
-    (sim.plasmaArcSpawns[0].x, sim.plasmaArcSpawns[0].y),
+    (sim.sprayPaintSpawns[0].x, sim.sprayPaintSpawns[0].y),
     (sim.medKitSpawns[0].x, sim.medKitSpawns[0].y),
     (sim.barrierSpawns[0].x, sim.barrierSpawns[0].y),
   ]
@@ -359,12 +359,12 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
   # `weapon spray` is gated on the seat being alive in a Playing-phase frame, so
   # the phase pin has to hold right here or this family goes missing.
   sim.keepPlaying()
-  sim.players[0].hasPlasmaArc = true
+  sim.players[0].hasSprayPaint = true
   sim.players[0].fireCooldown = 0
   sim.tryFireArc(0)
   result.absorb(sim.buildPlayerMessages(0, livingState))
   result.absorb(sim.buildGlobalMessages(gstate))
-  sim.players[0].hasPlasmaArc = false
+  sim.players[0].hasSprayPaint = false
   result.absorb(sim.buildPlayerMessages(0, livingState))
 
 suite "sprite label contract":

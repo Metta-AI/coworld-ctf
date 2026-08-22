@@ -162,11 +162,11 @@ suite "cardboard barriers":
     sim.placeStill(1, kit.x + 24 - CollisionW div 2, kit.y - CollisionH div 2)
     sim.placeStill(0, kit.x - 40 - CollisionW div 2, kit.y - CollisionH div 2)
     sim.players[0].aimBrads = 0
-    sim.players[0].hasPlasmaArc = true
+    sim.players[0].hasSprayPaint = true
     sim.players[0].fireCooldown = 0
     sim.tryFireArc(0)
     let none = sim.none()
-    for _ in 0 ..< PlasmaArcActiveTicks:
+    for _ in 0 ..< SprayPaintActiveTicks:
       sim.step(none, none)
     check sim.players[1].hp == sim.config.hitPoints
 

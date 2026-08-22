@@ -145,7 +145,7 @@ suite "floating damage numbers":
     check game.damagePops.len == 0
 
   test "spray and trench-grenade amounts show their real value, not clamped to -2":
-    # Spray deals PlasmaArcDamage=3 and a trench-trapped grenade deals
+    # Spray deals SprayPaintDamage=3 and a trench-trapped grenade deals
     # GrenadeTrenchDamage=6; both exceed the historical 2-hp cap and must not
     # be clamped down to "-2" in the displayed label.
     var game = initCtfForTest(defaultGameConfig())

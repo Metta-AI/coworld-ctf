@@ -81,7 +81,7 @@ Capture (`inCaptureZone`), respawn (`randomEndzonePosition`) and the endzone
 fade strip are already capture-zone-driven and inherit the shape for free. New
 work: one `disc` branch in `endzoneColorAt` (line at the ring, ember easing
 inward — same language as the diagonal corner zones), a compact branch in
-`shieldSpawnPoints` / `plasmaArcSpawnPoints` (inside the zone, above and below
+`shieldSpawnPoints` / `sprayPaintSpawnPoints` (inside the zone, above and below
 the pedestal, guaranteed walkable), and the three new fields in `mapSpecJson` /
 `mapFromSpecJson` so replays pin the geometry.
 

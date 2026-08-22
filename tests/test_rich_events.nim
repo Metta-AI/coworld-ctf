@@ -212,9 +212,9 @@ suite "rich analysis events":
     var game = twoTeamGame(collectEvents = true)
     game.players[0].placeAtCenter(60, MapHeight div 2)
     game.players[0].aimBrads = 0
-    game.players[0].hasPlasmaArc = true
+    game.players[0].hasSprayPaint = true
     game.players[1].placeAtCenter(100, MapHeight div 2)
-    game.players[1].hp = PlasmaArcDamage + 1
+    game.players[1].hp = SprayPaintDamage + 1
 
     var attack = game.none()
     attack[0].attack = true
@@ -228,7 +228,7 @@ suite "rich analysis events":
     check uses[0].damages.len == 1
     if uses[0].damages.len == 1:
       check uses[0].damages[0].slot == 1
-      check uses[0].damages[0].amount == PlasmaArcDamage
+      check uses[0].damages[0].amount == SprayPaintDamage
 
   test "pickups identify the item, player, and pickup location":
     var game = twoTeamGame(collectEvents = true)
@@ -245,9 +245,9 @@ suite "rich analysis events":
     game.players[0].y = game.shieldSpawns[0].y
     game.tryPickupShields(0)
 
-    game.players[0].x = game.plasmaArcSpawns[0].x
-    game.players[0].y = game.plasmaArcSpawns[0].y
-    game.tryPickupPlasmaArcs(0)
+    game.players[0].x = game.sprayPaintSpawns[0].x
+    game.players[0].y = game.sprayPaintSpawns[0].y
+    game.tryPickupSprayPaints(0)
 
     let pickups = game.eventsOf(Pickup)
     check pickups.mapIt(it.item) == @["grenade", "med_kit", "shield", "spray_can"]

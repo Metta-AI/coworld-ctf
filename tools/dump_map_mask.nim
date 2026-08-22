@@ -150,7 +150,7 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
   var pickups = newJObject()
   pickups["grenade"] = points(grenadeSpawnPoints(gameMap))
   pickups["shield"] = points(shieldSpawnPoints(gameMap))
-  pickups["spray"] = points(plasmaArcSpawnPoints(gameMap))
+  pickups["spray"] = points(sprayPaintSpawnPoints(gameMap))
   var medkits = newJArray()
   for p in gameMap.medKitSpawns:
     medkits.add(point(p))

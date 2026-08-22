@@ -287,7 +287,7 @@ const
                                  ## at 19900..19931.
   ShieldCarryObjectBase = 19900  ## carried shield markers: one per player,
                                  ## 19900..19931. Moved off 19620: a 32-wide
-                                 ## per-player pool there runs into the plasma
+                                 ## per-player pool there runs into the spraypaint
                                  ## arc pickups at 19640.
   ShieldBubbleSpriteId = 1422    ## the protective bubble drawn around a carrier.
   ShieldBubbleSize = 44          ## px bubble diameter (34px soldier body + margin).
@@ -312,25 +312,25 @@ const
                                  ## the soldier rotations).
   ShieldBubbleDeformStages = 4   ## blink/dent ease-back steps across
                                  ## BubbleImpactTicks.
-  PlasmaArcPickupSpriteId = 2000
-  PlasmaArcCarrySpriteId = 2001
-  PlasmaArcFxSpriteBase = 2002   ## cone paint-mist puffs, keyed colorIndex *
+  SprayPaintPickupSpriteId = 2000
+  SprayPaintCarrySpriteId = 2001
+  SprayPaintFxSpriteBase = 2002   ## cone paint-mist puffs, keyed colorIndex *
                                  ## (stages * pulses) + stage * pulses +
                                  ## pulse: 2002..2385, clear of the replay
                                  ## UI sprites at 4002.
-  PlasmaArcFxStages* = 4         ## fade stages across PlasmaArcFxTicks.
-  PlasmaArcFxPulses* = 6         ## puffs placed along the cone axis, sized to
+  SprayPaintFxStages* = 4         ## fade stages across SprayPaintFxTicks.
+  SprayPaintFxPulses* = 6         ## puffs placed along the cone axis, sized to
                                  ## the local cone width. 6 (was 4) so the
                                  ## overlapping puffs close into a continuous
                                  ## plume instead of beads on a string.
-  PlasmaArcPickupSize = 20
-  PlasmaArcCarrySize = 10
-  PlasmaArcPickupObjectBase = 19640
-  PlasmaArcCarryObjectBase = 19660
-  PlasmaArcFxObjectBase* = 19700 ## 19700..19891 (32 flashes x 6 pulses),
+  SprayPaintPickupSize = 20
+  SprayPaintCarrySize = 10
+  SprayPaintPickupObjectBase = 19640
+  SprayPaintCarryObjectBase = 19660
+  SprayPaintFxObjectBase* = 19700 ## 19700..19891 (32 flashes x 6 pulses),
                                  ## clear of the carried-shield markers at
                                  ## 19900.
-  PlasmaArcMaxFlashes = MaxPlayers ## most spray cones drawn at once. Cans are
+  SprayPaintMaxFlashes = MaxPlayers ## most spray cones drawn at once. Cans are
                                  ## one per team, but a fired cone leaves a
                                  ## few fading per-tick snapshots and respawns
                                  ## let carriers overlap, so size to the
@@ -782,10 +782,10 @@ const
     ("endzone shields", ShieldObjectBase, 4),
     ("med kits", MedKitObjectBase, 4),
     ("rot diamonds", RotDiamondObjectBase, 8),
-    ("plasma arc pickups", PlasmaArcPickupObjectBase, 4),
-    ("plasma arc carry markers", PlasmaArcCarryObjectBase, MaxPlayers),
-    ("plasma arc fx", PlasmaArcFxObjectBase,
-      PlasmaArcMaxFlashes * PlasmaArcFxPulses),
+    ("spray can pickups", SprayPaintPickupObjectBase, 4),
+    ("spray can carry markers", SprayPaintCarryObjectBase, MaxPlayers),
+    ("spray can fx", SprayPaintFxObjectBase,
+      SprayPaintMaxFlashes * SprayPaintFxPulses),
     ("shield carry markers", ShieldCarryObjectBase, MaxPlayers),
     ("shield bubbles", ShieldBubbleObjectBase, MaxPlayers),
     ("map markers", MapMarkerObjectBase, 1000),
@@ -882,9 +882,9 @@ const
     ("rot diamonds", RotDiamondSpriteBase, 16),
     ("shield statics", ShieldSpriteId, 3),
     ("corpses", CorpseSpriteBase, 2 * 4 * SoldierRotations),
-    ("plasma statics", PlasmaArcPickupSpriteId, 2),
-    ("plasma fx", PlasmaArcFxSpriteBase,
-      16 * PlasmaArcFxStages * PlasmaArcFxPulses),
+    ("spraypaint statics", SprayPaintPickupSpriteId, 2),
+    ("spraypaint fx", SprayPaintFxSpriteBase,
+      16 * SprayPaintFxStages * SprayPaintFxPulses),
     ("replay UI", ReplayTickSpriteId, 5),
     ("broadcast chrome", BroadcastChromeSpriteId, 1),
     ("endzone fades", EndzoneFadeSpriteBase,
@@ -2177,12 +2177,12 @@ proc buildShieldBubbleSprite(): seq[uint8] =
 
 ## The spray cone ANIMATES: a burst's fan starts bunched at the nozzle and jets
 ## outward to full reach as each per-tick snapshot ages, then thins out. The old
-## plasma version placed its discs at fixed distances and only faded them, so the
+## spraypaint version placed its discs at fixed distances and only faded them, so the
 ## cone popped into existence fully formed and never moved — it read as a static
 ## stamp, not as paint leaving a can.
 ##
-## The sim emits one snapshot per active tick (PlasmaArcActiveTicks) and each
-## lives PlasmaArcFxTicks, so several fans at different stages overlap at any
+## The sim emits one snapshot per active tick (SprayPaintActiveTicks) and each
+## lives SprayPaintFxTicks, so several fans at different stages overlap at any
 ## instant — that overlap is what makes a held trigger read as one continuous jet
 ## rather than a pulsing strobe.
 const
@@ -2220,30 +2220,30 @@ const
 proc sprayJetGrowth(stage: int): float =
   ## How far the fan has jetted out, 0 = just left the nozzle, 1 = full reach.
   SprayJetStart + (1.0 - SprayJetStart) *
-    (stage.float / float(max(1, PlasmaArcFxStages - 1)))
+    (stage.float / float(max(1, SprayPaintFxStages - 1)))
 
-proc plasmaPulseForward*(pulse, stage: int): int =
+proc spraypaintPulseForward*(pulse, stage: int): int =
   ## The forward distance of one paint-mist puff's center, in map px, measured
   ## from the sprayer's body center: the puff's slot along the fan, where the fan
   ## spans the NOZZLE out to however far this stage has jetted.
-  let tip = float(PlasmaArcFxReach) * sprayJetGrowth(stage)
+  let tip = float(SprayPaintFxReach) * sprayJetGrowth(stage)
   if tip <= float(SprayNozzleFwd):
     return SprayNozzleFwd
   SprayNozzleFwd + int(round((tip - float(SprayNozzleFwd)) *
-    float(2 * pulse + 1) / float(2 * PlasmaArcFxPulses)))
+    float(2 * pulse + 1) / float(2 * SprayPaintFxPulses)))
 
-proc plasmaPulseRight*(pulse, stage: int): int =
+proc spraypaintPulseRight*(pulse, stage: int): int =
   ## The PERPENDICULAR offset of one puff's center, in map px, positive toward
   ## the cog's right (the side the can is held on). Full at the nozzle and
   ## easing back toward the cone's center line with distance, per
   ## SprayAxisConverge — so the plume visibly leaves the nozzle and then joins
   ## the axis the cone actually covers.
-  if PlasmaArcFxPulses <= 1:
+  if SprayPaintFxPulses <= 1:
     return SprayNozzleRight
-  let along = float(pulse) / float(PlasmaArcFxPulses - 1)   ## 0 near .. 1 far
+  let along = float(pulse) / float(SprayPaintFxPulses - 1)   ## 0 near .. 1 far
   int(round(float(SprayNozzleRight) * (1.0 - SprayAxisConverge * along)))
 
-proc plasmaPulseDiameter*(pulse, stage: int): int =
+proc spraypaintPulseDiameter*(pulse, stage: int): int =
   ## One puff sprite's diameter: the plume's width AT that puff's current
   ## distance (so the mist widens as it travels), scaled by the overlap so the
   ## plume closes up. The floor keeps a near-nozzle puff from collapsing to a
@@ -2253,10 +2253,10 @@ proc plasmaPulseDiameter*(pulse, stage: int): int =
   ## puff wider than its slot, so a plume sized directly off the cone would
   ## always spill outside it, and growing the cone to catch the spill would
   ## grow the plume with it. The damage cone is set to cover this shape
-  ## instead — test_plasma_arc asserts the containment.
+  ## instead — test_spraypaint asserts the containment.
   let
-    forward = plasmaPulseForward(pulse, stage)
-    slot = PlasmaArcFxMaxWidth * forward div max(1, PlasmaArcFxReach)
+    forward = spraypaintPulseForward(pulse, stage)
+    slot = SprayPaintFxMaxWidth * forward div max(1, SprayPaintFxReach)
   max(10, int(round(float(slot) * SprayPuffOverlap)))
 
 ## --- Team-colored PAINT art: always tint from teamPaintRgba ---
@@ -2269,7 +2269,7 @@ proc plasmaPulseDiameter*(pulse, stage: int): int =
 ## So palette-tinted blue paint read as a washed-out grey-violet, as if it
 ## belonged to some third team. teamPaintRgba maps the two TEAM colors to their
 ## true display values and passes individual player-slot colors through.
-proc buildPlasmaPulseSprite(
+proc buildSpraypaintPulseSprite(
   colorIndex, stage, pulse: int
 ): seq[uint8] {.measure.} =
   ## Builds one puff of the spray cone: atomized PAINT in the sprayer's team
@@ -2281,12 +2281,12 @@ proc buildPlasmaPulseSprite(
   ## the droplet density thins toward each puff's rim so the plume's edge is
   ## ragged and gassy instead of a ring of hard circles.
   let
-    size = plasmaPulseDiameter(pulse, stage)
+    size = spraypaintPulseDiameter(pulse, stage)
     base = teamPaintRgba(PlayerColors[colorIndex and 0x0f])
     center = float(size - 1) / 2
     radius = max(center, 1.0)
     fade = 1.0 - 0.72 * (stage.float /
-      float(max(1, PlasmaArcFxStages - 1)))
+      float(max(1, SprayPaintFxStages - 1)))
   result = newRgbaPixels(size, size)
   for y in 0 ..< size:
     for x in 0 ..< size:
@@ -5086,7 +5086,7 @@ proc addRotatingDiamonds(
       spot.cy, MapLayerId, spriteId
     )
 
-proc addPlasmaArcs(
+proc addSprayPaints(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
@@ -5094,86 +5094,86 @@ proc addPlasmaArcs(
   viewerIndex = -1
 ) {.measure.} =
   ## Places side-center spray can pickups and carried markers.
-  for i in 0 ..< sim.plasmaArcSpawns.len:
-    let spawn = sim.plasmaArcSpawns[i]
+  for i in 0 ..< sim.sprayPaintSpawns.len:
+    let spawn = sim.sprayPaintSpawns[i]
     if not spawn.present:
       continue
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
       continue
-    if spriteDefs.spriteDefinitionIndex(PlasmaArcPickupSpriteId) < 0:
+    if spriteDefs.spriteDefinitionIndex(SprayPaintPickupSpriteId) < 0:
       packet.addBoardSpriteChanged(
         spriteDefs,
-        PlasmaArcPickupSpriteId,
-        PlasmaArcPickupSize,
-        PlasmaArcPickupSize,
-        loadSprayCanSprite(PlasmaArcPickupSize * boardScale),
+        SprayPaintPickupSpriteId,
+        SprayPaintPickupSize,
+        SprayPaintPickupSize,
+        loadSprayCanSprite(SprayPaintPickupSize * boardScale),
         LabelSprayCan,
         native = boardScale
       )
-    let objectId = PlasmaArcPickupObjectBase + i
+    let objectId = SprayPaintPickupObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      spawn.x - PlasmaArcPickupSize div 2,
-      spawn.y - PlasmaArcPickupSize div 2,
+      spawn.x - SprayPaintPickupSize div 2,
+      spawn.y - SprayPaintPickupSize div 2,
       spawn.y,
       MapLayerId,
-      PlasmaArcPickupSpriteId
+      SprayPaintPickupSpriteId
     )
 
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
-    if not player.alive or not player.hasPlasmaArc:
+    if not player.alive or not player.hasSprayPaint:
       continue
     if viewerIndex >= 0 and i != viewerIndex and
         not sim.playerVisibleTo(viewerIndex, i):
       continue
-    if spriteDefs.spriteDefinitionIndex(PlasmaArcCarrySpriteId) < 0:
+    if spriteDefs.spriteDefinitionIndex(SprayPaintCarrySpriteId) < 0:
       packet.addBoardSpriteChanged(
         spriteDefs,
-        PlasmaArcCarrySpriteId,
-        PlasmaArcCarrySize,
-        PlasmaArcCarrySize,
-        loadSprayCanSprite(PlasmaArcCarrySize * boardScale),
+        SprayPaintCarrySpriteId,
+        SprayPaintCarrySize,
+        SprayPaintCarrySize,
+        loadSprayCanSprite(SprayPaintCarrySize * boardScale),
         LabelSprayCanCarried,
         native = boardScale
       )
-    let objectId = PlasmaArcCarryObjectBase + i
+    let objectId = SprayPaintCarryObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
       player.x + CollisionW div 2 + HpBarAnchorWidth div 2 -
-        PlasmaArcCarrySize div 2,
-      player.overheadAnchorY() - OverheadYOffset - PlasmaArcCarrySize,
+        SprayPaintCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - SprayPaintCarrySize,
       30006,
       MapLayerId,
-      PlasmaArcCarrySpriteId
+      SprayPaintCarrySpriteId
     )
 
-proc plasmaArcRenderPose*(
+proc sprayPaintRenderPose*(
   sim: SimServer, flashIndex: int
 ): tuple[x, y, aimBrads: int] =
   ## The pose a spray snapshot is DRAWN at: its firing player's MOST RECENT
   ## snapshot (latest tick; ties broken by later emission), NOT its own captured
   ## pose. One burst emits a snapshot per active tick; the aim is LOCKED at the
   ## fire instant (GV38, `arcAimBrads`) so every snapshot shares it, but the
-  ## POSITION rides the moving owner. Each snapshot lingers PlasmaArcFxTicks —
+  ## POSITION rides the moving owner. Each snapshot lingers SprayPaintFxTicks —
   ## drawn at their own positions, a burst whose owner walks fans out into
   ## several divergent plumes and reads as two simultaneous sprays. Collapsing
   ## every snapshot of a burst onto its newest pose keeps the jet/fade animation
   ## (still driven by each snapshot's own age) while showing exactly one cone
   ## that sits at the owner's current position and freezes there as it fades.
-  let flash = sim.plasmaArcFlashes[flashIndex]
+  let flash = sim.sprayPaintFlashes[flashIndex]
   result = (flash.x, flash.y, flash.aimBrads)
   var best = (tick: flash.tick, idx: flashIndex)
-  for j in 0 ..< sim.plasmaArcFlashes.len:
-    let other = sim.plasmaArcFlashes[j]
+  for j in 0 ..< sim.sprayPaintFlashes.len:
+    let other = sim.sprayPaintFlashes[j]
     if other.attacker == flash.attacker and
         (other.tick > best.tick or (other.tick == best.tick and j > best.idx)):
       best = (other.tick, j)
       result = (other.x, other.y, other.aimBrads)
 
-proc addPlasmaArcFlashes(
+proc addSprayPaintFlashes(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
@@ -5182,36 +5182,36 @@ proc addPlasmaArcFlashes(
 ) {.measure.} =
   ## Places each recent spray burst's fading cone: a run of paint-mist puffs
   ## along the attacker's aim, each sized to the local cone width. Every snapshot
-  ## of one burst is drawn along that burst's newest pose (plasmaArcRenderPose),
+  ## of one burst is drawn along that burst's newest pose (sprayPaintRenderPose),
   ## so a burst that turns mid-window stays one coherent plume.
-  for i in 0 ..< min(sim.plasmaArcFlashes.len, PlasmaArcMaxFlashes):
+  for i in 0 ..< min(sim.sprayPaintFlashes.len, SprayPaintMaxFlashes):
     let
-      flash = sim.plasmaArcFlashes[i]
-      pose = sim.plasmaArcRenderPose(i)
+      flash = sim.sprayPaintFlashes[i]
+      pose = sim.sprayPaintRenderPose(i)
     if viewerIndex >= 0 and
         not sim.fovVisibleAt(viewerIndex, pose.x, pose.y):
       continue
     let
       age = max(0, sim.tickCount - flash.tick)
-      stage = clamp(age * PlasmaArcFxStages div PlasmaArcFxTicks,
-        0, PlasmaArcFxStages - 1)
+      stage = clamp(age * SprayPaintFxStages div SprayPaintFxTicks,
+        0, SprayPaintFxStages - 1)
       colorIndex = playerColorIndex(flash.color)
       (ux, uy) = aimVector(pose.aimBrads)
       # The cog's RIGHT, perpendicular to the aim: for east aim (1, 0) this is
       # (0, 1) — screen-down — matching the held weapon's GunRightPx convention.
       (rx, ry) = (-uy, ux)
-    for pulse in 0 ..< PlasmaArcFxPulses:
+    for pulse in 0 ..< SprayPaintFxPulses:
       let
-        spriteId = PlasmaArcFxSpriteBase +
-          colorIndex * PlasmaArcFxStages * PlasmaArcFxPulses +
-          stage * PlasmaArcFxPulses + pulse
+        spriteId = SprayPaintFxSpriteBase +
+          colorIndex * SprayPaintFxStages * SprayPaintFxPulses +
+          stage * SprayPaintFxPulses + pulse
         # Both the distance and the width move with `stage`: the fan jets out
         # from the nozzle as the burst ages instead of appearing fully formed.
-        forward = float(plasmaPulseForward(pulse, stage))
+        forward = float(spraypaintPulseForward(pulse, stage))
         # ...and each puff is nudged toward the cog's right, so the plume leaves
         # the NOZZLE (which is held off-axis) and eases onto the cone's axis.
-        right = float(plasmaPulseRight(pulse, stage))
-        diameter = plasmaPulseDiameter(pulse, stage)
+        right = float(spraypaintPulseRight(pulse, stage))
+        diameter = spraypaintPulseDiameter(pulse, stage)
         px = pose.x + int(round(ux * forward + rx * right))
         py = pose.y + int(round(uy * forward + ry * right))
       # The damage cone is blocked by walls and standing cardboard
@@ -5226,10 +5226,10 @@ proc addPlasmaArcFlashes(
           spriteId,
           diameter,
           diameter,
-          buildPlasmaPulseSprite(colorIndex, stage, pulse),
+          buildSpraypaintPulseSprite(colorIndex, stage, pulse),
           LabelSprayPaintPuff
         )
-      let objectId = PlasmaArcFxObjectBase + i * PlasmaArcFxPulses + pulse
+      let objectId = SprayPaintFxObjectBase + i * SprayPaintFxPulses + pulse
       currentIds.add(objectId)
       packet.addBoardObject(
         objectId,
@@ -6077,7 +6077,7 @@ proc addIdentityBadges(
       IdentityNames[identityIndex],
       shield = player.hasShield,
       nade = player.hasGrenade,
-      weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
+      weapon = (if player.hasSprayPaint: LabelWeaponSpray else: LabelWeaponGun)
     )
     # 16 aim steps x identity means the pixels are worth building only when this
     # id is genuinely new or its loadout tail moved; addBoardSpriteChanged would
@@ -6567,13 +6567,13 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    sim.addPlasmaArcs(
+    sim.addSprayPaints(
       nextState.spriteDefs,
       currentIds,
       result,
       viewerIndex = playerIndex
     )
-    sim.addPlasmaArcFlashes(
+    sim.addSprayPaintFlashes(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -6636,7 +6636,7 @@ proc buildSpriteProtocolPlayerUpdates*(
     # weapon from floating markers gets it wrong at the worst moments. The
     # label is the machine contract ("weapon gun" | "weapon spray").
     let
-      weaponText = if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun
+      weaponText = if player.hasSprayPaint: LabelWeaponSpray else: LabelWeaponGun
       weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
     currentIds.add(SpritePlayerWeaponObjectId)
     result.addSpriteChanged(
@@ -7235,7 +7235,7 @@ proc addCogRigObjects(
   # spray can is carried, so the art swaps with it and the silhouette shows which
   # weapon is live. Both share one object slot (a cog can't hold both).
   let
-    holdsSpray = player.hasPlasmaArc
+    holdsSpray = player.hasSprayPaint
     weaponSpriteId =
       if holdsSpray: rigSpraySpriteId(player.team, aimStep)
       else: rigGunSpriteId(player.team, aimStep)
@@ -7444,8 +7444,8 @@ proc buildSpriteProtocolUpdates*(
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addBarriers(nextState.spriteDefs, currentIds, result)
-  sim.addPlasmaArcs(nextState.spriteDefs, currentIds, result)
-  sim.addPlasmaArcFlashes(nextState.spriteDefs, currentIds, result)
+  sim.addSprayPaints(nextState.spriteDefs, currentIds, result)
+  sim.addSprayPaintFlashes(nextState.spriteDefs, currentIds, result)
   sim.addBoardShouts(nextState, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
