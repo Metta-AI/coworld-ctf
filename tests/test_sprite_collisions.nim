@@ -25,7 +25,7 @@ import
 
 proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   ## A game exercising every sprite family at once: a viewer, a visible
-  ## enemy, teammates carrying shield / grenade / plasma arc, floor pickups
+  ## enemy, teammates carrying shield / grenade / spray can, floor pickups
   ## untouched, and combat FX.
   var config = defaultGameConfig()
   if withCrown:
@@ -51,13 +51,13 @@ proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   result.players[1].y = cy
   result.players[1].hasShield = true
   # Red teammates just behind the viewer, in its vision bubble, carrying
-  # the grenade and the plasma arc so those markers render too.
+  # the grenade and the spray can so those markers render too.
   result.players[2].x = cx - 90
   result.players[2].y = cy - 20
   result.players[2].hasGrenade = true
   result.players[4].x = cx - 90
   result.players[4].y = cy + 20
-  result.players[4].hasPlasmaArc = true
+  result.players[4].hasSprayPaint = true
 
 proc conflicts(messages: openArray[SpritePacketMessage]): seq[string] =
   ## Ids defined twice with different labels WITHIN one packet.
@@ -174,7 +174,7 @@ suite "sprite id collisions":
       (game.players[0].x, game.players[0].y),
       (game.grenadeSpawns[0].x, game.grenadeSpawns[0].y),
       (game.shieldSpawns[0].x, game.shieldSpawns[0].y),
-      (game.plasmaArcSpawns[0].x, game.plasmaArcSpawns[0].y),
+      (game.sprayPaintSpawns[0].x, game.sprayPaintSpawns[0].y),
       (game.medKitSpawns[0].x, game.medKitSpawns[0].y),
     ]
     for stop in stops:

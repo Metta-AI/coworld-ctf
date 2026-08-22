@@ -31,7 +31,7 @@ proc runEpisode(specText: string, seed: int, maxTicks: int):
     game.startGame()
     # snapshot the placed pickup points (proves explicit per-team placement)
     for s in game.shieldSpawns: result.shields.add((s.x, s.y))
-    for s in game.plasmaArcSpawns: result.cans.add((s.x, s.y))
+    for s in game.sprayPaintSpawns: result.cans.add((s.x, s.y))
     let none = newSeq[InputState](0)
     var t = 0
     while game.phase != GameOver and t < maxTicks:

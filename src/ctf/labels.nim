@@ -49,7 +49,7 @@ const
   LabelShieldCarried* = "shield carried"
     ## Marker floating over a shield carrier you can see.
   LabelSprayCan* = "spray can"
-    ## Side-column weapon pickup (the 0.7.x rename of the plasma arc).
+    ## Side-column weapon pickup (the 0.7.x rename of the spray can).
   LabelSprayCanCarried* = "spray can carried"
     ## Marker floating over a spray-can carrier you can see.
   LabelSprayPaintPuff* = "spray paint puff"
@@ -242,8 +242,8 @@ const
   LabelWeaponGun* = "gun"
     ## Default paintball marker; see `labelWeapon` / `labelIdentity`.
   LabelWeaponSpray* = "spray"
-    ## Spray can. (0.7.x renamed the plasma arc, whose token was "arc"; the
-    ## internal `hasPlasmaArc` field kept its name, the wire token did not.)
+    ## Spray can. (0.7.x renamed the spray can, whose token was "arc"; the
+    ## internal `hasSprayPaint` field kept its name, the wire token did not.)
   LabelTokenShield* = "shield"
     ## Optional identity-badge suffix: the wearer carries a shield.
   LabelTokenNade* = "nade"

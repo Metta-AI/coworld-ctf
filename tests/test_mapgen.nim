@@ -194,7 +194,7 @@ suite "procedural terrain":
         gameMap = cachedMap(11, overrides, teams = 4)
         w = gameMap.width
         shields = gameMap.shieldSpawnPoints()
-        cans = gameMap.plasmaArcSpawnPoints()
+        cans = gameMap.sprayPaintSpawnPoints()
       var sets = @[shields, cans]
       sets.add(@(gameMap.grenadeSpawnPoints()))
       for points in sets:
@@ -233,7 +233,7 @@ suite "procedural terrain":
         w = gameMap.width
         h = gameMap.height
       for points in [gameMap.shieldSpawnPoints(),
-          gameMap.plasmaArcSpawnPoints()]:
+          gameMap.sprayPaintSpawnPoints()]:
         check points.len == 2
         let image =
           case gameMap.symmetry

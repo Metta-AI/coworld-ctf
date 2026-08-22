@@ -161,7 +161,7 @@ for curved/organic terrain. Trenches are also `ArenaShape` (the generator emits
 | Grenades | exactly 4 corner pickups | `GrenadeRespawnTicks`=120, `GrenadeChargeTicks`=24, `GrenadeBlastRadius`=52, `GrenadeDamage`=2, `GrenadeTrenchDamage`=6, max throw = `MapWidth/5` |
 | Med kits | 2 (sides) / up to 4 (4-team) | `MedKitPickupRange`=12, `MedKitRespawnTicks`=720 |
 | Shields | 1 per team endzone | `ShieldRespawnTicks`=720, `ShieldLayerHp`=3, `ShieldFireSlowdown`=3 |
-| Plasma arcs (spray) | 1 per team endzone | `PlasmaArcRespawnTicks`=720, `PlasmaArcReach`=5, `PlasmaArcDamage`=3 |
+| Spray cans (spray) | 1 per team endzone | `SprayPaintRespawnTicks`=720, `SprayPaintReach`=5, `SprayPaintDamage`=3 |
 | Trenches | via `mapGen.pits`/`pitDensity` | `TrenchSize`=56, `TrenchSpeedDivisor`=5, `TrenchFireSlowdown`=3, `TrenchMissPct`=70 |
 | Paint puddles | via `mapGen.puddles` (`mapPuddles`) | `PuddleSize`=64, `PuddleRollTicks`=24, `DefaultPuddleDamagePct`=20 (config `puddleDamagePct`), `MaxPuddles`=64 |
 | Cardboard barriers | via `barrierPickups` (per team) | `BarrierHp`=10, `BarrierRadius`=24, `BarrierHalfThick`=2, `BarrierRespawnTicks`=720, `MaxBarriersPlaced`=16 ([sim_types.nim](../src/ctf/sim_types.nim)) |

@@ -123,7 +123,7 @@ suite "compact endzones":
       r = sim.gameMap.endzoneRadius
     ## Both pickups sit inside the zone, clear of the pedestal art.
     for points in [sim.gameMap.shieldSpawnPoints(),
-        sim.gameMap.plasmaArcSpawnPoints()]:
+        sim.gameMap.sprayPaintSpawnPoints()]:
       check points.len == 2
       for point in points:
         check zone.inCaptureZone(point.x, point.y) or

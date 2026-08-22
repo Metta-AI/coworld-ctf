@@ -341,7 +341,7 @@ proc keepFeatureClearance(base: var CtfMap) =
   for point in base.grenadeSpawnPoints():
     items.add point
   items.add base.shieldSpawnPoints()
-  items.add base.plasmaArcSpawnPoints()
+  items.add base.sprayPaintSpawnPoints()
   var kept: seq[ArenaShape]
   for shape in base.leftObstacles:
     var collides = false

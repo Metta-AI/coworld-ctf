@@ -201,7 +201,7 @@ suite "quad-mirror symmetry":
       ## the last block pins.)
       let
         shields = gameMap.shieldSpawnPoints()
-        cans = gameMap.plasmaArcSpawnPoints()
+        cans = gameMap.sprayPaintSpawnPoints()
       for points in [shields, cans]:
         check points.len == 4
         check points.deduplicate().len == 4

@@ -34,7 +34,7 @@ suite "weapon observability":
     var ls = game.labels(viewer)
     check "weapon gun" in ls
     check ls.anyIt(it.startsWith("identity ") and it.endsWith(" gun"))
-    game.players[viewer].hasPlasmaArc = true
+    game.players[viewer].hasSprayPaint = true
     ls = game.labels(viewer)
     check "weapon spray" in ls
     check ls.anyIt(it.startsWith("identity ") and it.endsWith(" spray"))
@@ -49,6 +49,6 @@ suite "weapon observability":
     var ls = game.boardLabels()
     check ls.anyIt(it.startsWith("cog gun "))
     check not ls.anyIt(it.startsWith("cog spray can "))
-    game.players[viewer].hasPlasmaArc = true
+    game.players[viewer].hasSprayPaint = true
     ls = game.boardLabels()
     check ls.anyIt(it.startsWith("cog spray can "))

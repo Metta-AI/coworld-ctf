@@ -163,7 +163,7 @@ proc loadPaintBombSprite*(size: int): seq[uint8] =
 proc loadSprayCanSprite*(size: int): seq[uint8] =
   ## The side-column cone weapon: a chunky aerosol spray-paint can, in the same
   ## bold-outline painted style as the med kit, shield, and paint bomb (this is
-  ## paintball — the short-range weapon sprays paint, it does not fire plasma).
+  ## paintball — the short-range weapon sprays paint, it does not fire spraypaint).
   ## Used for the floor pickup and the carried marker. Hard alpha edge keeps the
   ## ink outline crisp on the floor instead of feathering into a halo.
   loadRgbaSprite("data/spraycan.png", size, alphaCutoff = 128'u8)

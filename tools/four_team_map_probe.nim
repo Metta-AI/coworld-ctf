@@ -49,7 +49,7 @@ proc renderMap(gameMap: CtfMap, path: string) =
           image[px, py] = c
   for point in gameMap.shieldSpawnPoints():
     dot(point.x, point.y, rgba(255, 255, 255, 255))
-  for point in gameMap.plasmaArcSpawnPoints():
+  for point in gameMap.sprayPaintSpawnPoints():
     dot(point.x, point.y, rgba(0, 0, 0, 255))
   for point in gameMap.grenadeSpawnPoints():
     dot(point.x, point.y, rgba(255, 0, 255, 255))

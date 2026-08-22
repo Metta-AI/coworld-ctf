@@ -29,11 +29,11 @@ proc landGrenade(sim: var SimServer) =
     sim.step(input, input)
 
 # The left capture column is protected floor — never walled — so these tests
-# anchor the actors there for guaranteed line of sight (like test_plasma_arc).
+# anchor the actors there for guaranteed line of sight (like test_spraypaint).
 # A template, not a `let`: MapHeight is a process `var`, and in a combined
 # test binary an earlier module may leave a different (e.g. giant generated)
 # map installed at this module's import time — the anchor must read the
-# height AFTER badgeGame installs the default arena. Same as test_plasma_arc.
+# height AFTER badgeGame installs the default arena. Same as test_spraypaint.
 const ClearX = 60
 template ClearY(): int = MapHeight div 2
 
@@ -75,7 +75,7 @@ suite "kill badges":
 
   test "one spray burst killing two enemies mints one double":
     var game = badgeGame(1, 2)
-    game.players[0].hasPlasmaArc = true
+    game.players[0].hasSprayPaint = true
     game.players[0].aimBrads = 0
     game.players[0].placeAtCenter(ClearX, ClearY)
     let
@@ -93,7 +93,7 @@ suite "kill badges":
 
   test "one spray burst killing three upgrades the double to a triple":
     var game = badgeGame(1, 3)
-    game.players[0].hasPlasmaArc = true
+    game.players[0].hasSprayPaint = true
     game.players[0].aimBrads = 0
     game.players[0].placeAtCenter(ClearX, ClearY)
     let

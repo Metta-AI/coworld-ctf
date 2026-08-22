@@ -112,7 +112,7 @@ suite "symNone full-board authoring (#280)":
   test "explicit per-team pickups are used, not the orbit":
     let gameMap = demoSymNoneMap()
     let shields = gameMap.shieldSpawnPoints()
-    let cans = gameMap.plasmaArcSpawnPoints()
+    let cans = gameMap.sprayPaintSpawnPoints()
     check shields == @[(40, 3 * H div 4), (W - 40, 3 * H div 4)]
     check cans == @[(40, H div 4), (W - 40, H div 4)]
 

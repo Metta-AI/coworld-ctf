@@ -26,7 +26,7 @@ const TEAM_COLORS = {
 const MARKER_COLORS = {
   grenade: '#8c552d',
   shield: '#3f6f9f',
-  plasmaArc: '#1e8395',
+  sprayPaint: '#1e8395',
   medKitActive: '#b9473a',
   medKitCandidate: '#74675a',
   spinningDiamond: '#b9782d',
@@ -179,7 +179,7 @@ const MOCK_DERIVED = {
   pickups: {
     grenade: [[50, 50], [50, 608], [1184, 50], [1184, 608]],
     shield: [[185, 399], [1049, 259]],
-    plasmaArc: [[185, 259], [1049, 399]],
+    sprayPaint: [[185, 259], [1049, 399]],
     medKitActive: [[617, 219], [617, 439]],
     medKitCandidate: [[617, 219], [617, 439], [617, 286], [617, 372]],
   },
@@ -1054,7 +1054,7 @@ class MapViewport {
     const labels = {
       grenade: 'grenade',
       shield: 'shield',
-      plasmaArc: 'spray can',
+      sprayPaint: 'spray can',
       medKitActive: 'active med kit',
       medKitCandidate: 'med-kit candidate',
     };

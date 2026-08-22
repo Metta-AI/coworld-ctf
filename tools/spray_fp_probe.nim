@@ -47,7 +47,7 @@ proc main() =
   placeAt(red, 300, midY - 90)
   placeAt(blue, 400, midY - 90)
   game.players[red].aimBrads = 0
-  game.players[red].hasPlasmaArc = true
+  game.players[red].hasSprayPaint = true
   game.players[red].fireCooldown = 0
   game.players[blue].hp = 3
   inc game.tickCount                     # so paintTick differs from the sentinel

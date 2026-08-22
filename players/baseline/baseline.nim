@@ -168,20 +168,20 @@ const
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
-  PlasmaReach = 187.0         # spray cone reach: 5 squares of centerline plus
+  SpraypaintReach = 187.0         # spray cone reach: 5 squares of centerline plus
                               # the sprayed cog's own radius, because the cone
-                              # hits BODIES (sim PlasmaArcReach +
-                              # PlasmaArcBodyRadius, GameVersion 30)
-  PlasmaSlope = 0.25          # centerline cone half-width per px forward: 2
+                              # hits BODIES (sim SprayPaintReach +
+                              # SprayPaintBodyRadius, GameVersion 30)
+  SpraypaintSlope = 0.25          # centerline cone half-width per px forward: 2
                               # squares wide at max reach, atan(1/4) ~ 14
-                              # degrees (sim PlasmaArcMaxWidth / Reach)
-  PlasmaBodyRadius = 17.0     # half a cog, added to the cone's half-width at
-                              # EVERY distance (sim PlasmaArcBodyRadius). It
+                              # degrees (sim SprayPaintMaxWidth / Reach)
+  SpraypaintBodyRadius = 17.0     # half a cog, added to the cone's half-width at
+                              # EVERY distance (sim SprayPaintBodyRadius). It
                               # dominates up close: at 40px out the centerline
                               # cone forgives 10px of miss and the body another
                               # 17, so a point-blank spray is far harder to
                               # whiff than the 14-degree figure suggests.
-  PlasmaDetour = 70.0         # attacker detour budget for a spray can pickup
+  SpraypaintDetour = 70.0         # attacker detour budget for a spray can pickup
   ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
@@ -408,8 +408,8 @@ type
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
-    plasmaPos: seq[Vec]       # discovered spray can spots (side midpoints)
-    plasmaAbsentAt: seq[int]
+    spraypaintPos: seq[Vec]       # discovered spray can spots (side midpoints)
+    spraypaintAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
@@ -1378,8 +1378,8 @@ proc resetTransient(bot: Bot) =
   bot.hp = MaxHp
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
-  for i in 0 ..< bot.plasmaAbsentAt.len:
-    bot.plasmaAbsentAt[i] = -1
+  for i in 0 ..< bot.spraypaintAbsentAt.len:
+    bot.spraypaintAbsentAt[i] = -1
   for i in 0 ..< bot.shieldAbsentAt.len:
     bot.shieldAbsentAt[i] = -1
   bot.shoutWant = ""
@@ -1549,34 +1549,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   let statedAim = client.ownAimBrads()
   if statedAim >= 0:
     bot.estAim = statedAim
-  # Plasma arcs and shields share the endzone back columns (inset 50)
+  # Spray cans and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
   # front (they are deterministic; the fog would otherwise hide them until
   # we are already on top of them), then let sightings refine the nudged
   # positions.
-  if bot.plasmaPos.len == 0:
+  if bot.spraypaintPos.len == 0:
     for spot in [vec(50.0, float(MapH div 4)),
                  vec(float(MapW) - 50.0, float(MapH div 4))]:
-      bot.plasmaPos.add(spot)
-      bot.plasmaAbsentAt.add(-1)
+      bot.spraypaintPos.add(spot)
+      bot.spraypaintAbsentAt.add(-1)
     for spot in [vec(50.0, float(3 * MapH div 4)),
                  vec(float(MapW) - 50.0, float(3 * MapH div 4))]:
       bot.shieldPos.add(spot)
       bot.shieldAbsentAt.add(-1)
-  var plasmaSeen, shieldSeen: seq[Vec]
+  var spraypaintSeen, shieldSeen: seq[Vec]
   for o in client.spriteObjectsWithLabel(LabelSprayCan):
-    plasmaSeen.add(client.mapPos(o))
+    spraypaintSeen.add(client.mapPos(o))
   for o in client.spriteObjectsWithLabel(LabelShield):
     shieldSeen.add(client.mapPos(o))
-  trackPickups(bot.plasmaPos, bot.plasmaAbsentAt, plasmaSeen, me, bot.tick)
+  trackPickups(bot.spraypaintPos, bot.spraypaintAbsentAt, spraypaintSeen, me, bot.tick)
   trackPickups(bot.shieldPos, bot.shieldAbsentAt, shieldSeen, me, bot.tick)
   # Own carry state: the carried markers float over their carrier, and a
   # shield carrier's HUD reads 6 hp (the marker is the fallback).
-  var hasPlasma = false
+  var hasSpraypaint = false
   for o in client.spriteObjectsWithLabel(LabelSprayCanCarried):
     if dist(client.mapPos(o), me) <= 30.0:
-      hasPlasma = true
+      hasSpraypaint = true
       break
   var hasShield = bot.hp > MaxHp
   if not hasShield:
@@ -1586,7 +1586,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         break
   let
     shotReady = client.spriteObjectsWithLabel(LabelFireIcon).len > 0 and
-      not hasPlasma                      # the spray can replaces the gun; a shield
+      not hasSpraypaint                      # the spray can replaces the gun; a shield
                                          # only slows it (3x cooldown)
     seenMates = client.actorsFor(myColor)
   var seenEnemies: seq[Actor]
@@ -2441,9 +2441,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
-    elif hasShield and not hasPlasma:    # slow gun (3x cooldown): only fight
+    elif hasShield and not hasSpraypaint:    # slow gun (3x cooldown): only fight
       CarrierFireRange                   # what is point-blank in the way
-    elif hasPlasma: PlasmaReach + 6.0    # cone weapon: only close range matters
+    elif hasSpraypaint: SpraypaintReach + 6.0    # cone weapon: only close range matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= thiefChaseTtl: FireRange
@@ -2680,7 +2680,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
   # steals second (the run home is what kills 3 hp carriers). Defensive
-  # roles never take a shield (it slows the gun 3x). PLASMA ARCS arm the
+  # roles never take a shield (it slows the gun 3x). SPRAY CANS arm the
   # pocket brawlers: attackers detour a little for one on the way in — the
   # pocket duel is close-range, where an instant lethal cone beats any gun.
   bot.tripping = false
@@ -2703,17 +2703,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         target = bot.shieldPos[i]
         objMode = "shield_trip"
         break
-  elif not iCarry and not hasPlasma and
+  elif not iCarry and not hasSpraypaint and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
       not mateCarry and not pocketRush:
-    # Plasma top-up: cone-armed pocket brawls win close range. Cheap when we
+    # Spraypaint top-up: cone-armed pocket brawls win close range. Cheap when we
     # are already visiting the endzone column (shield chain) or passing by.
-    for i in 0 ..< bot.plasmaPos.len:
-      if not pickupAvailable(bot.plasmaAbsentAt, i, bot.tick):
+    for i in 0 ..< bot.spraypaintPos.len:
+      if not pickupAvailable(bot.spraypaintAbsentAt, i, bot.tick):
         continue
-      if dist(me, bot.plasmaPos[i]) <= PlasmaDetour:
-        target = bot.plasmaPos[i]
-        objMode = "plasma_grab"
+      if dist(me, bot.spraypaintPos[i]) <= SpraypaintDetour:
+        target = bot.spraypaintPos[i]
+        objMode = "spraypaint_grab"
         break
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
@@ -2844,24 +2844,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
-  elif hasPlasma and engage >= 0:
-    actMode = "plasma"
-    # Plasma cone: ignition is INSTANT (no windup, no aim lock), reaches 4
+  elif hasSpraypaint and engage >= 0:
+    actMode = "spraypaint"
+    # Spraypaint cone: ignition is INSTANT (no windup, no aim lock), reaches 4
     # squares plus a body radius, stays on 5 ticks, and deals 3 hp (lethal to
     # bare cogs) — press A the moment the victim is inside reach and roughly
     # in front.
     desiredAim = bradsOf(aim - me)
     let err = abs(bradsErr(desiredAim, bot.estAim))
     # How far off-axis the cone still catches this target, as an angle: the
-    # half-width is PlasmaSlope * range + a whole body radius, so the angle
+    # half-width is SpraypaintSlope * range + a whole body radius, so the angle
     # the cone forgives OPENS UP as the range closes. A fixed half-angle gate
     # throws away most of a point-blank spray's reach.
-    let plasmaHalfBrads = int(round(
-      arctan((PlasmaSlope * engageD + PlasmaBodyRadius) / max(1.0, engageD)) *
+    let spraypaintHalfBrads = int(round(
+      arctan((SpraypaintSlope * engageD + SpraypaintBodyRadius) / max(1.0, engageD)) *
         float(AimBrads div 2) / PI))
     # Ignite a little early on the angle: the cone stays on 5 ticks and
     # tracks our aim, so the ongoing traverse sweeps it across the target.
-    if engageD <= PlasmaReach - 6.0 and err <= plasmaHalfBrads + 3:
+    if engageD <= SpraypaintReach - 6.0 and err <= spraypaintHalfBrads + 3:
       wantFire = true
       holdStill = true
     else:
@@ -3077,7 +3077,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     targetX: int(target.x), targetY: int(target.y),
     iCarry: iCarry, mateCarry: mateCarry, ownStolen: ownStolen,
     sawThief: sawThief, pushOut: pushOut,
-    hasShield: hasShield, hasPlasma: hasPlasma, carryNade: carryingNade,
+    hasShield: hasShield, hasSpraypaint: hasSpraypaint, carryNade: carryingNade,
     nadeCharge: bot.nadeCharge, jinked: jinked, nadeDanger: nadeDanger,
     enemiesVisible: seenEnemies.len,
     engageDist: (if engage >= 0: int(engageD) else: -1),

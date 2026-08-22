@@ -101,7 +101,7 @@ suite "map editor service":
     check derived["captureZones"].len == gameMap.teamCount()
     check derived["pickups"]["grenade"].len == 4
     check derived["pickups"]["shield"].len == gameMap.teamCount()
-    check derived["pickups"]["plasmaArc"].len == gameMap.teamCount()
+    check derived["pickups"]["sprayPaint"].len == gameMap.teamCount()
     check derived["pickups"]["medKitActive"].len ==
       gameMap.medKitSpawns.len
     check derived["pickups"]["medKitCandidate"].len ==

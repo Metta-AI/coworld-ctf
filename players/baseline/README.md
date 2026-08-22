@@ -296,21 +296,21 @@ Zip contents:
 - `events.jsonl` — tick-stamped edges: `steal`/`carry_end`,
   `mate_carry`/`mate_carry_end`, `death`/`respawn`,
   `own_flag_stolen`/`own_flag_returned`, `thief_fix`,
-  `pickup_shield`/`shield_lost`, `pickup_plasma`/`plasma_spent`,
+  `pickup_shield`/`shield_lost`, `pickup_spraypaint`/`spraypaint_spent`,
   `pickup_nade`/`nade_thrown`, `damage`/`heal`, `shot` (with aim + engage
   range), `objective` (movement-branch switches), `push_out`, `stuck_jink`,
   `nade_flee`, `shout_tx`, `game_start`/`game_end`.
 - `ticks.jsonl` — a state row every 12 ticks (~0.5 s): position, hp, aim,
   objective + action branch, movement target, visible enemies, engage
-  distance, input mask, and status flags (carry/shield/plasma/nade/pushOut).
+  distance, input mask, and status flags (carry/shield/spraypaint/nade/pushOut).
 - `summary.json` — event counters plus per-objective and per-action tick
   histograms; the first internal telemetry error, if any, is recorded here
   (telemetry disables itself rather than ever touching gameplay).
 
 The `objective` tag names the movement-target branch in `decide` (`carry`,
 `thief_hunt`, `thief_guard`, `escort`, `defend`, `overwatch`, `attack`,
-`pocket_rush`, `shield_trip`, `plasma_grab`, `heal_detour`, `nade_grab`);
-the `action` tag names the turret/act branch (`nade`, `plasma`, `fire`,
+`pocket_rush`, `shield_trip`, `spraypaint_grab`, `heal_detour`, `nade_grab`);
+the `action` tag names the turret/act branch (`nade`, `spraypaint`, `fire`,
 `duck`, `peek`, `evade`, `scan`, `navigate`, `nade_flee`).
 
 Fetching after a league/xreq episode:
