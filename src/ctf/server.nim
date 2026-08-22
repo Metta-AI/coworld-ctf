@@ -1657,6 +1657,11 @@ proc runServerLoop*(
       playerViewerStates.setLen(0)
       {.gcsafe.}:
         withLock appState.lock:
+          # The new sim may draw a different generated-map size class, moving
+          # the board render scale and shout-bubble zoom under the label-only
+          # def gates; player viewer states reset above, board viewers persist.
+          for websocket in appState.globalViewers.keys:
+            appState.globalViewers[websocket].forgetEpisodeSprites()
           appState.kickedIdentities.clear()
           var reconnectSockets: seq[WebSocket] = @[]
           for websocket in appState.playerIndices.keys:

@@ -1,7 +1,8 @@
 import
-  std/[algorithm, math, os, strutils, tables],
+  std/[algorithm, math, os, sets, strutils, tables],
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
+  flatty/binny,
   pixie,
   labels, sim
 
@@ -399,6 +400,10 @@ const
   ShoutFloat = 13              ## px the tail tip floats above the shouter's head.
   ShoutZoomBaseW = 1235        ## the standard 2-team field the bubble art was
   ShoutZoomBaseH = 659         ## sized to read on; see shoutBubbleZoomFor.
+  ShoutBubbleCacheMax = 256    ## live bubble rasters kept before a bubble
+                               ## cache is dropped whole. Both variants use
+                               ## it: see buildShoutBubble and
+                               ## buildSmoothShoutBubble.
   GrenadeMaxAirborne = MaxPlayers  ## most in-flight orbs drawn at once.
   GrenadeMaxBlasts = MaxPlayers    ## most blast flashes drawn at once.
   SoundRingSpriteId = 830      ## the filled landing "sound" ring sprite
@@ -1022,6 +1027,9 @@ type
     shoutSlots*: array[ShoutMaxCount, string]  ## slot → owning shouter address
                                  ## ("" = free); see GlobalViewerState.shoutSlots.
     spriteDefs: seq[SpriteDefinition]
+    idStamp: seq[int32]        ## delete sweep: idStamp[id] == idGen marks id
+    idGen: int32               ## live this frame; replaces a per-frame scan
+                               ## of the id seq, quadratic in the object count
 
   ProtocolTextItem = ref object
     spriteId: int
@@ -1392,6 +1400,17 @@ proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
 
+proc forgetEpisodeSprites*(state: var GlobalViewerState) =
+  ## Drops this viewer's sprite-def cache at an episode reset. A reset builds
+  ## a NEW SimServer, and a generated map can change size class with it —
+  ## which moves the board render scale and the shout-bubble zoom. The
+  ## dims-comparing dedup self-heals across that (a changed size re-sends);
+  ## the label-only def gates (the shout bubbles, the player name labels)
+  ## cannot, so a label that recurs next episode would reuse a stale raster
+  ## at the old scale. Forgetting the cache makes the first touch of every
+  ## sprite next episode a re-send, which the client applies as an overwrite.
+  state.spriteDefs.setLen(0)
+
 proc debugSpritePixels(sprite: SpritePacketSpriteDef): seq[uint8] =
   ## Decodes one sprite and rejects pixel counts that do not match its shape.
   result = uncompress(sprite.compressedPixels)
@@ -1612,11 +1631,72 @@ proc spriteDefinitionIndex(
   defs: openArray[SpriteDefinition],
   spriteId: int
 ): int =
-  ## Returns the cache index for one sprite definition.
-  for i in 0 ..< defs.len:
-    if defs[i].spriteId == spriteId:
-      return i
+  ## Returns the cache index for one sprite definition. The cache is kept
+  ## sorted by spriteId (insertDefinition), so this bisects: a linear scan
+  ## over the few hundred refs a mid-game viewer holds was, summed over its
+  ## callers, the single dearest line of the observation build. Nothing reads
+  ## the cache in insertion order, so the sort is free to impose.
+  var
+    lo = 0
+    hi = defs.len - 1
+  while lo <= hi:
+    let mid = (lo + hi) shr 1
+    if defs[mid].spriteId == spriteId:
+      return mid
+    elif defs[mid].spriteId < spriteId:
+      lo = mid + 1
+    else:
+      hi = mid - 1
   -1
+
+proc insertDefinition(defs: var seq[SpriteDefinition], def: SpriteDefinition) =
+  ## Adds a definition, keeping the cache sorted by spriteId for the bisect
+  ## above. Ids are unique here: every caller inserts only on a lookup miss.
+  var i = defs.len
+  defs.setLen(i + 1)
+  while i > 0 and defs[i - 1].spriteId > def.spriteId:
+    defs[i] = defs[i - 1]
+    dec i
+  defs[i] = def
+  # A duplicate id lands adjacent to its twin, so this neighbor check makes a
+  # broken sort (an insertion site that bypassed this proc, re-inserting an id
+  # the bisect then missed) fail loudly instead of silently re-sending defs.
+  doAssert (i == 0 or defs[i - 1].spriteId < def.spriteId) and
+    (i + 1 == defs.len or def.spriteId < defs[i + 1].spriteId),
+    "sprite def cache unsorted or duplicate id " & $def.spriteId
+
+proc knownTextDefSize(
+  defs: openArray[SpriteDefinition],
+  spriteId: int,
+  label: string,
+  scale = 1
+): tuple[width, height: int] =
+  ## Size of the def already holding `label`, or width -1 when a send is owed.
+  ## A match means addSpriteChanged below would dedup the send anyway — text
+  ## callers use this to skip rasterizing the glyphs entirely and lay out off
+  ## the def, and `addBoardSpriteGated` uses it to skip any raster at all.
+  ##
+  ## It reads as a TEXT query and is not one: what it needs is that the label
+  ## determines the pixels, which is true of a rendered string and equally
+  ## true of an hp bar or an identity badge, whose label and sprite id fix
+  ## every input their rasterizer takes.
+  ##
+  ## `scale` divides the stored dims back down to LOGICAL ones, for the board
+  ## path: addBoardSpriteChanged stores `boardScale ×` what it was given, so a
+  ## board caller passes `boardScale` and a UI-layer caller takes the default.
+  ## Exact either way, because that is how they were multiplied up: the store
+  ## is `width * boardScale`, so dividing by the same boardScale recovers
+  ## `width` with no remainder at any scale. The suite exercises the divide at
+  ## RenderScale — tests/test_damage_pop.nim builds a board packet and asserts
+  ## on labels a mis-divided gate would have dropped.
+  ##
+  ## The HEIGHT is here for the shout bubbles, which hang their tail tip off
+  ## it; the HUD readouts only lay out horizontally and take `.width`.
+  let index = defs.spriteDefinitionIndex(spriteId)
+  if index >= 0 and defs[index].label == label:
+    (defs[index].width div scale, defs[index].height div scale)
+  else:
+    (-1, 0)
 
 proc addSpriteChanged(
   packet: var seq[uint8],
@@ -1648,7 +1728,7 @@ proc addSpriteChanged(
     defs[index].label = label
     defs[index].compressedPixels = @[]
   else:
-    defs.add SpriteDefinition(
+    defs.insertDefinition SpriteDefinition(
       spriteId: spriteId,
       width: width,
       height: height,
@@ -1663,11 +1743,23 @@ proc addBoardObject(
   ## addObject for renderer emissions: placements on the zoomable board
   ## layers (map + fog) scale by boardScale; UI-layer placements pass
   ## through untouched. z is ordering-only and never scales.
-  if layerId == MapLayerId or layerId == FogLayerId:
-    packet.addObject(
-      objectId, x * boardScale, y * boardScale, z, layerId, spriteId)
-  else:
-    packet.addObject(objectId, x, y, z, layerId, spriteId)
+  ##
+  ## Encoded here in one setLen + inline binny stores rather than through
+  ## addObject: that path is six cross-module calls with a setLen each, and
+  ## every emitter pays it for every object it re-places every frame. binny's
+  ## writers are the same copyMem the addObject path bottoms out in, so the
+  ## bytes are identical, as are the conversion checks.
+  let
+    board = layerId == MapLayerId or layerId == FogLayerId
+    start = packet.len
+  packet.setLen(start + 12)
+  packet[start] = SpriteMessageObject
+  packet.writeUint16(start + 1, uint16(objectId))
+  packet.writeInt16(start + 3, int16(if board: x * boardScale else: x))
+  packet.writeInt16(start + 5, int16(if board: y * boardScale else: y))
+  packet.writeInt16(start + 7, int16(z))
+  packet[start + 9] = uint8(layerId)
+  packet.writeUint16(start + 10, uint16(spriteId))
 
 proc addBoardSpriteChanged(
   packet: var seq[uint8],
@@ -1699,6 +1791,58 @@ proc addBoardSpriteChanged(
     packet.addSpriteChanged(
       defs, spriteId, outW, outH,
       scaleSpritePixels(pixels, width, height, boardScale), label, changed)
+
+template addBoardSpriteGated(
+  packet: var seq[uint8],
+  defs: var seq[SpriteDefinition],
+  spriteIdArg, widthArg, heightArg: int,
+  labelArg: string,
+  pixels: untyped,
+  nativeArg = 1
+) =
+  ## `addBoardSpriteChanged` with the RASTER evaluated only if it will be sent.
+  ##
+  ## Every per-frame emitter here passes its raster as an ordinary argument,
+  ## so Nim builds it before the call and the dedup above then throws it away
+  ## — a full rasterization per living visible player (or splatter, or pop)
+  ## per viewer per frame, for pixels nothing looks at.
+  ##
+  ## `pixels` is `untyped`, so it is only touched on the branch that ships it.
+  ## The gate is `addBoardSpriteChanged`'s own dedup asked ahead of time —
+  ## `knownTextDefSize` is that predicate minus its `changed` term, which is
+  ## why this template does not expose `changed`: a caller that needs a forced
+  ## re-send must call `addBoardSpriteChanged` directly rather than have its
+  ## intent silently swallowed here.
+  ##
+  ## THE GATE LIVES HERE AND NOT AT THE EMITTERS, and that is an invariant,
+  ## not a tidiness call: THE OBJECT STREAM MUST NEVER BE A FUNCTION OF WHAT
+  ## GETS RASTERIZED. An emitter-level `if` around a send is an `if` a later
+  ## edit can slide `currentIds.add` or a pool-slot counter into, which
+  ## renumbers every later item in the pool — a difference invisible until a
+  ## stale id ships a spurious delete mid-episode. This proc emits no objects
+  ## at all, so a gate inside it cannot reach the stream even by accident.
+  ##
+  ## The gate divides by `boardScale` and NOT by `nativeArg`, which is right
+  ## and reads as though it might not be: `native` says what scale the caller
+  ## rasterized at, while addBoardSpriteChanged stores `width * boardScale`
+  ## for every value of it — `native` only decides whether those pixels get
+  ## upscaled on the way out. So the stored dims divide back by boardScale
+  ## whatever `native` was, and an edit that changed how `outW` is computed
+  ## would have to change this divisor with it.
+  ##
+  ## The arguments are bound to locals first: a template substitutes its
+  ## parameters as EXPRESSIONS, and `label` in particular is built by the
+  ## caller and read twice below.
+  block:
+    let
+      gateId = spriteIdArg
+      gateW = widthArg
+      gateH = heightArg
+      gateLabel = labelArg
+      gateNative = nativeArg
+    if defs.knownTextDefSize(gateId, gateLabel, boardScale) != (gateW, gateH):
+      packet.addBoardSpriteChanged(
+        defs, gateId, gateW, gateH, pixels, gateLabel, native = gateNative)
 
 proc addDebugOverlay(
   packet: var seq[uint8],
@@ -1738,7 +1882,7 @@ proc addDebugOverlay(
       spriteDefs[index].label = sprite.label
       spriteDefs[index].compressedPixels = sprite.compressedPixels
     else:
-      spriteDefs.add SpriteDefinition(
+      spriteDefs.insertDefinition SpriteDefinition(
         spriteId: spriteId,
         width: sprite.width,
         height: sprite.height,
@@ -1890,7 +2034,7 @@ proc hpBarWidth(pips: int): int =
   ## The bar's px width for one seat's pip count (base max hp + shield hp).
   pips * HpPipW + (pips - 1) * HpPipGap
 
-proc buildHpBarSprite(hp, maxHp, shieldHp: int): seq[uint8] {.measure.} =
+proc buildHpBarSpriteRaw(hp, maxHp, shieldHp: int): seq[uint8] {.measure.} =
   ## Builds the overhead health bar as TRUE hit points, one pip each: the
   ## seat's remaining base hp as lit sage-green pips, its missing hp as dim
   ## sockets (the green section is always maxHp wide, so an armored seat
@@ -1936,7 +2080,18 @@ proc identityBadgeSpriteId(team: Team, identityIndex, rot: int): int =
     (ord(team) * IdentityNames.len + identityIndex) * SoldierRotations +
     ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
 
-proc buildIdentityBadgeSprite(
+var hpBarSpriteCache: Table[(int, int, int), seq[uint8]]
+
+proc buildHpBarSprite(hp, maxHp, shieldHp: int): seq[uint8] =
+  ## `buildHpBarSpriteRaw`, memoized: a pure function of its arguments that
+  ## every connection re-rasterized for every def it had not seen. (The same
+  ## pattern covers the badge, splatter, hit-spark, tracer-head and
+  ## floating-pop builders below — cosmetic rasters, keyed by their full
+  ## argument list.)
+  memoized(hpBarSpriteCache, (hp, maxHp, shieldHp),
+    buildHpBarSpriteRaw(hp, maxHp, shieldHp))
+
+proc buildIdentityBadgeSpriteRaw(
   team: Team,
   identityIndex, rot: int,
   scale = 1
@@ -2032,6 +2187,19 @@ proc buildIdentityBadgeSprite(
         result[i + ch] = uint8(clamp(
           (srcRgb[ch] + dstPm * keep div 255) * 255 div outA, 0, 255))
       result[i + 3] = uint8(outA)
+
+var identityBadgeCache: Table[(Team, int, int, int), seq[uint8]]
+
+proc buildIdentityBadgeSprite(
+  team: Team,
+  identityIndex, rot: int,
+  scale = 1
+): seq[uint8] =
+  ## `buildIdentityBadgeSpriteRaw`, memoized (see buildHpBarSprite). The key
+  ## carries the aim step and the raster scale: the glyph turns with the cog,
+  ## so each (team, identity, rot, scale) is its own immutable raster.
+  memoized(identityBadgeCache, (team, identityIndex, rot, scale),
+    buildIdentityBadgeSpriteRaw(team, identityIndex, rot, scale))
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
@@ -2398,7 +2566,7 @@ proc buildBlastSprite(colorIndex, stage, size: int): seq[uint8] {.measure.} =
         uint8(clamp(255.0 * fade, 0.0, 255.0))
       )
 
-proc buildTracerDotSprite(colorIndex, stage, bucket: int): seq[uint8] {.measure.} =
+proc buildTracerDotSpriteRaw(colorIndex, stage, bucket: int): seq[uint8] {.measure.} =
   ## Builds one thin trail blob of the comet's tail: a small round wet paintball
   ## in SATURATED team paint. Blobs are sampled at < their own size along the
   ## beam so they overlap into one thin continuous trail (not a dotted line),
@@ -2541,7 +2709,7 @@ proc addHitFlashes(
       spriteId
     )
 
-proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+proc buildTracerHeadSpriteRaw(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds the bright LEADING paintball at a shot's IMPACT end — the comet's
   ## head, the eye-anchor. Hotter than a trail dot (a wide white-hot core over a
   ## team-color rim) so it's the brightest thing on the beam and clearly points
@@ -2578,7 +2746,24 @@ proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         alpha
       )
 
-proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+var tracerDotSpriteCache: Table[(int, int, int), seq[uint8]]
+
+proc buildTracerDotSprite(colorIndex, stage, bucket: int): seq[uint8] =
+  ## `buildTracerDotSpriteRaw`, memoized (see buildHpBarSprite) — like the
+  ## tracer head below, built eagerly as a call argument per drawn shot.
+  memoized(tracerDotSpriteCache, (colorIndex, stage, bucket),
+    buildTracerDotSpriteRaw(colorIndex, stage, bucket))
+
+var tracerHeadSpriteCache: Table[(int, int), seq[uint8]]
+
+proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] =
+  ## `buildTracerHeadSpriteRaw`, memoized (see buildHpBarSprite) — this one
+  ## is built eagerly as an argument per live shot per viewer per frame, so
+  ## without the memo the raster ran even when the def dedup then dropped it.
+  memoized(tracerHeadSpriteCache, (colorIndex, stage),
+    buildTracerHeadSpriteRaw(colorIndex, stage))
+
+proc buildSplatterSpriteRaw(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds one death-splatter blob: a dense irregular blob of the victim's
   ## color at stage 0 that grows sparser and darker toward the last stage.
   result = newRgbaPixels(SplatterSize, SplatterSize)
@@ -2603,7 +2788,14 @@ proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
           if stage >= SplatterStages div 2: shade else: color
         )
 
-proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+var splatterSpriteCache: Table[(int, int), seq[uint8]]
+
+proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] =
+  ## `buildSplatterSpriteRaw`, memoized (see buildHpBarSprite).
+  memoized(splatterSpriteCache, (colorIndex, stage),
+    buildSplatterSpriteRaw(colorIndex, stage))
+
+proc buildHitSparkSpriteRaw(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds the on-hit PAINT SPLAT left by a non-fatal hit (this is paintball,
   ## not blood). A wet, glossy blob of the SHOOTER's team paint — big enough
   ## (~player-sized) to read at a glance, flung droplets around the core so it
@@ -2678,6 +2870,13 @@ proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         y * HitSplatSize + x, r, g, b,
         uint8(clamp(255.0 * fade, 0.0, 255.0))
       )
+
+var hitSparkSpriteCache: Table[(int, int), seq[uint8]]
+
+proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] =
+  ## `buildHitSparkSpriteRaw`, memoized (see buildHpBarSprite).
+  memoized(hitSparkSpriteCache, (colorIndex, stage),
+    buildHitSparkSpriteRaw(colorIndex, stage))
 
 proc buildPaintStainSprite(
   sim: SimServer,
@@ -2854,6 +3053,11 @@ var smoothShoutBubbleCache: Table[string, tuple[
   ## Baked vector shout bubbles, keyed by (team, geometry scale, native
   ## scale, text); see buildSmoothShoutBubble.
 
+var shoutBubbleCache: Table[(Team, string), tuple[
+  width, height: int, pixels: seq[uint8]]]
+  ## The PIXEL bubble's cache, the 1x sibling of the one above; see
+  ## buildShoutBubble.
+
 proc imageToStraightRgba(image: Image): seq[uint8] =
   ## Straight-alpha RGBA bytes for the Sprite v1 protocol (pixie stores
   ## premultiplied).
@@ -2960,7 +3164,7 @@ proc blitRgbaBuffer(
       dst[d + 2] = src[s + 2]
       dst[d + 3] = src[s + 3]
 
-proc buildFloatingPopSprite(
+proc buildFloatingPopSpriteRaw(
   game: SimServer, colorIndex: int, text: string, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Builds one floating pop label ("-N" damage number or "KO" kill marker):
@@ -3028,6 +3232,21 @@ proc buildFloatingPopSprite(
         if nearInk:
           result.pixels.putRawRgbaPixel(i, 20, 16, 14, alpha)
 
+var floatingPopCache:
+  Table[(int, string, int, int), tuple[width, height: int, pixels: seq[uint8]]]
+
+proc buildFloatingPopSprite(
+  game: SimServer, colorIndex: int, text: string, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## `buildFloatingPopSpriteRaw`, memoized (see buildHpBarSprite). `game`
+  ## contributes only its ascii font, loaded once per process, so it stays
+  ## out of the key; the raw builder also reads the module's boardScale
+  ## (smooth text above 1x), which a size-class change can flip, so that IS
+  ## in the key. `text` is a damage number or "KO", so the cache is bounded
+  ## by the per-hit damage range, not by anything a player controls.
+  memoized(floatingPopCache, (colorIndex, text, stage, boardScale),
+    game.buildFloatingPopSpriteRaw(colorIndex, text, stage))
+
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
   if sim.mapRgba.len == sim.gameMap.width * sim.gameMap.height * 4:
@@ -3085,7 +3304,7 @@ proc addMapBands(
       if index >= 0:
         spriteDefs[index] = def
       else:
-        spriteDefs.add def
+        spriteDefs.insertDefinition def
     packet.add boardMapBandsCache
     return
   let mapPixels = sim.boardMapPixels()
@@ -3118,7 +3337,7 @@ proc addMapBands(
     if index >= 0:
       spriteDefs[index] = def
     else:
-      spriteDefs.add def
+      spriteDefs.insertDefinition def
   packet.add encoded
 
 proc invalidateBoardMapCaches*() =
@@ -3809,27 +4028,23 @@ proc buildSmoothShoutBubble(
   result.width = logicalW
   result.height = logicalH
   result.pixels = imageToStraightRgba(image)
-  if smoothShoutBubbleCache.len > 256:
+  if smoothShoutBubbleCache.len > ShoutBubbleCacheMax:
     smoothShoutBubbleCache.clear()
   smoothShoutBubbleCache[cacheKey] = result
 
-proc buildShoutBubble*(
+proc buildShoutBubbleRaw(
   game: SimServer,
   team: Team,
-  text: string,
-  zoom = 1
+  text: string
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## A kid-friendly comic speech bubble for one shout: dark ink on a cream
   ## "paper" pill with rounded corners, a chunky team-colored outline, and a
   ## little tail pointing down at the shouter. Drawn with the chunky 9px shout
   ## font (not the 6px tiny5 HUD font) so it reads at full desktop size, and
-  ## in-world with the rest of the pixel art — never as an HD overlay. On the
-  ## supersampled board the vector variant replaces it (same silhouette).
-  ## `zoom` grows the bubble's whole MAP footprint by that factor (the
-  ## oversize-board readability affordance — see shoutBubbleZoomFor); any
-  ## zoomed bubble uses the vector variant so the enlargement stays crisp.
-  if boardScale > 1 or zoom > 1:
-    return game.buildSmoothShoutBubble(team, text, boardScale * zoom, boardScale)
+  ## in-world with the rest of the pixel art — never as an HD overlay. This
+  ## is the 1x pixel variant only: the supersampled and zoomed board uses
+  ## the vector one (same silhouette), and the dispatch to it — along with
+  ## the cache in front of this — is in `buildShoutBubble`.
   let
     font = game.shoutFont
     # Bold widens each glyph's advance by 1 and overdraws 1px past the last
@@ -3893,6 +4108,30 @@ proc buildShoutBubble*(
     bold = true
   )
 
+proc buildShoutBubble*(
+  game: SimServer,
+  team: Team,
+  text: string,
+  zoom = 1
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## `buildShoutBubbleRaw`, memoized (see buildHpBarSprite) — the 1x path had
+  ## no cache while its supersampled sibling did, and a bubble stays up for
+  ## ShoutTicks with every viewer in earshot rebuilding it every frame.
+  ## `game` contributes only its shout font, loaded once per process, so it
+  ## stays out of the key (as in buildFloatingPopSprite).
+  ##
+  ## `zoom` grows the bubble's whole MAP footprint by that factor (the
+  ## oversize-board readability affordance — see shoutBubbleZoomFor); any
+  ## zoomed bubble uses the vector variant so the enlargement stays crisp.
+  ##
+  ## The key carries the shout TEXT, which a policy chooses rather than the
+  ## game, so this is bounded the same way and for the same reason as
+  ## smoothShoutBubbleCache: churn drops the table rather than growing it.
+  if boardScale > 1 or zoom > 1:
+    return game.buildSmoothShoutBubble(team, text, boardScale * zoom, boardScale)
+  memoized(shoutBubbleCache, (team, text), game.buildShoutBubbleRaw(team, text),
+    cap = ShoutBubbleCacheMax)
+
 proc centeredTextX(sim: SimServer, text: string): int =
   ## Returns the centered x position for interstitial text.
   (ScreenWidth - sim.asciiSprites.textWidth(text)) div 2
@@ -3914,27 +4153,38 @@ proc addTeamScoreboard(
     deaths[p.team] += p.deaths
   # One "NAME k/d" text sprite per active team, laid out left to right in
   # enum order and centered as a group (the classic red-left/blue-right
-  # strip is the 2-team case).
-  var chips: seq[tuple[team: Team, text: string,
-    sprite: tuple[width, height: int, pixels: seq[uint8]]]]
+  # strip is the 2-team case). Each chip rasterizes only when its label is
+  # not already the def's — see knownTextDefSize.
+  var chips: seq[tuple[team: Team, label: string, width, height: int,
+    pixels: seq[uint8]]]
   var totalWidth = -TeamScoreGap
   for team in sim.teams():
     let text = teamText(team).toUpperAscii() & " " &
       $kills[team] & "/" & $deaths[team]
-    let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
-    totalWidth += sprite.width + TeamScoreGap
-    chips.add((team: team, text: text, sprite: sprite))
+    let label = "team score " & text
+    var chip = (team: team, label: label,
+      width: spriteDefs.knownTextDefSize(
+        TeamScoreSpriteBase + ord(team), label).width,
+      height: 0, pixels: newSeq[uint8]())
+    if chip.width < 0:
+      let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
+      chip.width = sprite.width
+      chip.height = sprite.height
+      chip.pixels = sprite.pixels
+    totalWidth += chip.width + TeamScoreGap
+    chips.add(chip)
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
   for chip in chips:
     let slot = ord(chip.team)
-    packet.addSpriteChanged(
-      spriteDefs,
-      TeamScoreSpriteBase + slot,
-      chip.sprite.width,
-      chip.sprite.height,
-      chip.sprite.pixels,
-      "team score " & chip.text
-    )
+    if chip.pixels.len > 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        TeamScoreSpriteBase + slot,
+        chip.width,
+        chip.height,
+        chip.pixels,
+        chip.label
+      )
     currentIds.add(TeamScoreObjectBase + slot)
     packet.addBoardObject(
       TeamScoreObjectBase + slot,
@@ -3944,7 +4194,7 @@ proc addTeamScoreboard(
       TeamScoreLayerId,
       TeamScoreSpriteBase + slot
     )
-    x += chip.sprite.width + TeamScoreGap
+    x += chip.width + TeamScoreGap
 
 proc addTextItem(
   items: var seq[ProtocolTextItem],
@@ -4960,7 +5210,7 @@ proc addShotImpactRings(
       ShotImpactSpriteId
     )
 
-proc buildPaintedDiamondPixels(
+proc buildPaintedDiamondPixelsRaw(
   sim: SimServer,
   diamond, frame, size: int,
   base: seq[uint8]
@@ -5025,6 +5275,43 @@ proc buildPaintedDiamondPixels(
             0.0, 255.0
           ))
 
+const PaintedDiamondCacheMax = 512
+  ## repainted-stone rasters kept before the cache is dropped whole: one
+  ## match can mint at most StainMaxCount × DiamondSpinFrames keys, and a
+  ## long-lived process hosts many matches.
+
+var paintedDiamondCache: Table[(int, int, uint64, int), seq[uint8]]
+
+proc foldStain(key: uint64, stain: DiamondStain): uint64 =
+  ## Mixes one stain into a diamond's repaint fingerprint: every field the
+  ## repaint reads (seed, offsets, color), in list order.
+  var h = key xor uint64(stain.seed)
+  h = (h xor uint64(cast[uint32](stain.lx))) * 0x100000001b3'u64
+  h = (h xor uint64(cast[uint32](stain.ly))) * 0x100000001b3'u64
+  h = (h xor uint64(stain.color)) * 0x100000001b3'u64
+  h xor (h shr 29)
+
+proc buildPaintedDiamondPixels(
+  sim: SimServer, diamond, frame: int, stainKey: uint64
+): seq[uint8] =
+  ## `buildPaintedDiamondPixelsRaw`, memoized (see buildHpBarSprite) — with
+  ## the base-pixel fetch (and the size it fixes) pulled inside, so a hit
+  ## skips both the raster and the cached-frame copy, and no caller can pass
+  ## dimensions that disagree with the key. The pixels are pure in (this
+  ## diamond's stain list, frame, boardScale); `stainKey` is a fingerprint of
+  ## that list (addRotatingDiamonds folds it while counting), so the key is
+  ## the input itself — correct across matches, across replays restored
+  ## from keyframes, and across several sims sharing one process, with no
+  ## epoch bookkeeping to keep honest. Every viewer wants the same repainted
+  ## frame right after a spin advance; one build now serves all of them
+  ## where each paid its own.
+  memoized(paintedDiamondCache, (diamond, frame, stainKey, boardScale),
+    (block:
+      let (size, base) = rotatingDiamondPixels(
+        AnimatedDiamonds[diamond].radius, frame, boardScale)
+      sim.buildPaintedDiamondPixelsRaw(diamond, frame, size, base)),
+    cap = PaintedDiamondCacheMax)
+
 proc addRotatingDiamonds(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -5051,10 +5338,15 @@ proc addRotatingDiamonds(
     # the marks turn with it and stay clipped to its silhouette. Only the frame
     # on screen right now is built/emitted; the rest arrive as the spin reaches
     # them, so paint costs one sprite per step rather than all 16 at once.
-    var paintCount = 0
+    var
+      paintCount = 0
+      stainKey = 0'u64    ## fingerprint of this diamond's stains (see
+                          ## buildPaintedDiamondPixels); folds every field
+                          ## the repaint reads, so the memo key IS the input.
     for stain in sim.diamondStains:
       if int(stain.diamond) == i:
         inc paintCount
+        stainKey = stainKey.foldStain(stain)
     let spriteId =
       if paintCount > 0: DiamondPaintSpriteBase + i * DiamondSpinFrames + frame
       else: RotDiamondSpriteBase + frame
@@ -5064,14 +5356,15 @@ proc addRotatingDiamonds(
       let label = "diamond " & $i & " paint " & $paintCount
       let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
       if defIndex < 0 or spriteDefs[defIndex].label != label:
-        let (_, basePixels) =
-          rotatingDiamondPixels(spot.radius, frame, boardScale)
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, size, size,
-          sim.buildPaintedDiamondPixels(i, frame, size, basePixels), label,
+          sim.buildPaintedDiamondPixels(i, frame, stainKey), label,
           native = boardScale
         )
     elif spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      # The clean stone's pixels are fetched only when this viewer still owes
+      # the def — the fetch is a copy out of diamondFrameCache, and most
+      # frames every viewer already holds every def.
       let (_, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs, spriteId, size, size, pixels, "diamond",
@@ -5822,24 +6115,36 @@ proc addShouts(
       # overflow shout, like the old first-ShoutMaxCount cap did.
       continue
     let
-      bubble = sim.buildShoutBubble(shout.team, shout.text)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      bubble.width,
-      bubble.height,
-      bubble.pixels,
-      labelShout(
-        teamText(shout.team), sim.shoutIdentityName(shout), shout.text),
-      native = boardScale
-    )
+      label = labelShout(
+        teamText(shout.team), sim.shoutIdentityName(shout), shout.text)
+    # Rasterize only when the label — which carries the whole shout text — is
+    # not already this viewer's def, and lay out off the def when it is. Same
+    # gate as the lives and weapon readouts, and it belongs here more than
+    # anywhere: a bubble stays up for ShoutTicks and every viewer in earshot
+    # rebuilt it on every one of those frames, for a send
+    # addBoardSpriteChanged then deduped away.
+    var (bubbleWidth, bubbleHeight) =
+      spriteDefs.knownTextDefSize(spriteId, label, boardScale)
+    if bubbleWidth < 0:
+      let bubble = sim.buildShoutBubble(shout.team, shout.text)
+      bubbleWidth = bubble.width
+      bubbleHeight = bubble.height
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        spriteId,
+        bubble.width,
+        bubble.height,
+        bubble.pixels,
+        label,
+        native = boardScale
+      )
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      anchorX - bubble.width div 2,
-      tailTipY - bubble.height,
+      anchorX - bubbleWidth div 2,
+      tailTipY - bubbleHeight,
       ShoutBubbleZ,
       MapLayerId,
       spriteId
@@ -5955,23 +6260,35 @@ proc addBoardShouts(
         break
     let
       linger = state.shoutLinger[slot]
-      bubble = sim.buildShoutBubble(linger.team, linger.text, zoom)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
-    packet.addBoardSpriteChanged(
-      state.spriteDefs,
-      spriteId,
-      bubble.width,
-      bubble.height,
-      bubble.pixels,
-      labelShout(teamText(linger.team), linger.name, linger.text),
-      native = boardScale
-    )
+      label = labelShout(teamText(linger.team), linger.name, linger.text)
+    # Same gate as addShouts, and the label fixes the raster here too: the
+    # bubble is a pure function of (team, text, zoom), and zoom and
+    # boardScale are constants of a running server (gameMap never changes
+    # under one). The win is larger on this stream — the zoomed variant
+    # returns a full raster copy zoom² the 1× area, per bubble per rendered
+    # frame for its whole dwell.
+    var (bubbleWidth, bubbleHeight) =
+      state.spriteDefs.knownTextDefSize(spriteId, label, boardScale)
+    if bubbleWidth < 0:
+      let bubble = sim.buildShoutBubble(linger.team, linger.text, zoom)
+      bubbleWidth = bubble.width
+      bubbleHeight = bubble.height
+      packet.addBoardSpriteChanged(
+        state.spriteDefs,
+        spriteId,
+        bubble.width,
+        bubble.height,
+        bubble.pixels,
+        label,
+        native = boardScale
+      )
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      linger.anchorX - bubble.width div 2,
-      linger.tailTipY - bubble.height,
+      linger.anchorX - bubbleWidth div 2,
+      linger.tailTipY - bubbleHeight,
       ShoutBubbleZ,
       MapLayerId,
       spriteId
@@ -6008,14 +6325,11 @@ proc addHpPips(
     let shieldHp = max(0, player.shieldHp)
     let width = hpBarWidth(maxHp + shieldHp)
     let spriteId = HpPipSpriteBase + i
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      width,
-      HpBarH,
-      buildHpBarSprite(hp, maxHp, shieldHp),
-      labelHp(hp, maxHp, shieldHp)
-    )
+    # The label fixes every input of the raster (hp, maxHp, shieldHp), so a
+    # def already holding it means the send would dedup: gate the build.
+    packet.addBoardSpriteGated(
+      spriteDefs, spriteId, width, HpBarH, labelHp(hp, maxHp, shieldHp),
+      buildHpBarSprite(hp, maxHp, shieldHp))
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
@@ -6080,19 +6394,13 @@ proc addIdentityBadges(
       weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
     )
     # 16 aim steps x identity means the pixels are worth building only when this
-    # id is genuinely new or its loadout tail moved; addBoardSpriteChanged would
-    # drop a rebuilt-but-identical sprite on the floor after paying for it.
-    let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
-    if defIndex < 0 or spriteDefs[defIndex].label != label:
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        spriteId,
-        IdentityBadgeSize,
-        IdentityBadgeSize,
-        buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale),
-        label,
-        native = boardScale
-      )
+    # id is genuinely new or its loadout tail moved; addBoardSpriteGated asks
+    # addBoardSpriteChanged's dedup ahead of time so the raster (memoized, but
+    # still a copy) is only touched when it ships.
+    packet.addBoardSpriteGated(
+      spriteDefs, spriteId, IdentityBadgeSize, IdentityBadgeSize, label,
+      buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale),
+      nativeArg = boardScale)
     # On the board, step BACK along the aim onto the bare plate behind the
     # visor; a player view keeps the badge dead-centered on the body.
     let
@@ -6149,17 +6457,19 @@ proc addSplatters(
       spriteSize = if splatter.hit: HitSplatSize else: SplatterSize
       px = splatter.x - spriteSize div 2
       py = splatter.y - spriteSize div 2
-    let spriteId = splatterSpriteId(colorIndex, stage, splatter.hit)
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      spriteSize,
-      spriteSize,
-      (if splatter.hit: buildHitSparkSprite(colorIndex, stage)
-       else: buildSplatterSprite(colorIndex, stage)),
-      (if splatter.hit: "hit splat " else: "splatter ") &
+    let
+      spriteId = splatterSpriteId(colorIndex, stage, splatter.hit)
+      label = (if splatter.hit: "hit splat " else: "splatter ") &
         playerColorName(colorIndex) & " stage " & $stage
-    )
+    # No emitter-level skip here on purpose: it would take `inc nextSplatter`
+    # with it and shift every later splatter into a different pool slot,
+    # which is a renumbered object stream. Gating the RASTER costs the stream
+    # nothing, which is the whole point of the gate living inside the send
+    # rather than around it.
+    packet.addBoardSpriteGated(
+      spriteDefs, spriteId, spriteSize, spriteSize, label,
+      (if splatter.hit: buildHitSparkSprite(colorIndex, stage)
+       else: buildSplatterSprite(colorIndex, stage)))
     let objectId = SplatterObjectBase + nextSplatter
     inc nextSplatter
     currentIds.add(objectId)
@@ -6301,11 +6611,10 @@ proc addDamagePops(
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
       text = if pop.kill: "KO" else: "-" & $pop.amount
-      sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
+      label = "damage pop " & playerColorName(colorIndex) & " " & text &
+        " stage " & $stage
       # Rise a few pixels over the full life so the label lifts off the player.
       rise = risePer * age div max(1, life)
-      px = pop.x - sprite.width div 2
-      py = pop.y - sprite.height div 2 - rise
       spriteId =
         if pop.kill:
           KillPopSpriteBase + colorIndex * DamagePopStages + stage
@@ -6313,17 +6622,31 @@ proc addDamagePops(
           DamagePopSpriteBase +
             (colorIndex * DamagePopBucketCount + damagePopBucket(pop.amount)) *
               DamagePopStages + stage
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      sprite.width,
-      sprite.height,
-      sprite.pixels,
-      "damage pop " & playerColorName(colorIndex) & " " & text &
-        " stage " & $stage,
-      native = boardScale
-    )
-    let objectId = DamagePopObjectBase + nextPop
+    # No emitter-level skip here either, for the splatters' reason: it would
+    # take `inc nextPop` with it. The raster is gated through knownTextDefSize
+    # rather than addBoardSpriteGated because this emitter needs the DIMS as
+    # well as the send: the label carries the colour, the text and the stage,
+    # which is everything buildFloatingPopSprite reads, so a def holding this
+    # label holds those exact pixels and its stored dims are the ones the
+    # placement wants.
+    var (sw, sh) = spriteDefs.knownTextDefSize(spriteId, label, boardScale)
+    if sw < 0:
+      let sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
+      sw = sprite.width
+      sh = sprite.height
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        spriteId,
+        sw,
+        sh,
+        sprite.pixels,
+        label,
+        native = boardScale
+      )
+    let
+      px = pop.x - sw div 2
+      py = pop.y - sh div 2 - rise
+      objectId = DamagePopObjectBase + nextPop
     inc nextPop
     currentIds.add(objectId)
     packet.addBoardObject(objectId, px, py, DamagePopZ, MapLayerId, spriteId)
@@ -6352,7 +6675,9 @@ proc buildSpriteProtocolPlayerUpdates*(
     result = sim.buildSpriteProtocolPlayerInit(nextState.spriteDefs)
     nextState.initialized = true
 
-  var currentIds: seq[int] = @[]
+  # Sized to last frame's object count: the id list runs to ~300 entries and
+  # was regrown from nothing every frame.
+  var currentIds = newSeqOfCap[int](nextState.objectIds.len + 32)
   if sim.phase != Playing or playerIndex < 0 or
       playerIndex >= sim.players.len:
     currentIds.add(SpritePlayerInterstitialObjectId)
@@ -6484,18 +6809,22 @@ proc buildSpriteProtocolPlayerUpdates*(
         # hide OTHERS' aim, and your self marker is your own state, not a leak.
         let rot = soldierRotIndex(other.aimBrads)
         spriteId = selfSoldierSpriteId(other.skin, rot)
-        result.addSpriteChanged(
-          nextState.spriteDefs,
-          spriteId,
-          SoldierCanvas,
-          SoldierCanvas,
-          soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
-          # Documented self marker (RULES.md): `self <color> <side>`, only drawn
-          # while alive. Side follows the aim exactly as the sim's flipH does.
-          labelSelf(
-            teamText(other.team),
-            if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft)
-        )
+        # The def is immutable per (skin, rot), so only rasterize the outline
+        # the first time this viewer needs it — addSpriteChanged would drop a
+        # re-send anyway, after paying for the pixels.
+        if nextState.spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+          result.addSpriteChanged(
+            nextState.spriteDefs,
+            spriteId,
+            SoldierCanvas,
+            SoldierCanvas,
+            soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
+            # Documented self marker (RULES.md): `self <color> <side>`, only drawn
+            # while alive. Side follows the aim exactly as the sim's flipH does.
+            labelSelf(
+              teamText(other.team),
+              if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft)
+          )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
       result.addBoardObject(
@@ -6609,22 +6938,29 @@ proc buildSpriteProtocolPlayerUpdates*(
           SpritePlayerFireSpriteId
       )
 
-    # Lives counter on the top-right HUD layer.
+    # Lives counter on the top-right HUD layer, rasterized only when its
+    # label (which carries the whole text) is not already the def's — see
+    # knownTextDefSize.
     let
       livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
-      lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
+      livesLabel = LabelPrefixLives & livesText
+    var livesWidth = nextState.spriteDefs.knownTextDefSize(
+      SpritePlayerRemainingSpriteId, livesLabel).width
+    if livesWidth < 0:
+      let lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
+      livesWidth = lives.width
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerRemainingSpriteId,
+        lives.width,
+        lives.height,
+        lives.pixels,
+        livesLabel
+      )
     currentIds.add(SelectedTextObjectId)
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      SpritePlayerRemainingSpriteId,
-      lives.width,
-      lives.height,
-      lives.pixels,
-      LabelPrefixLives & livesText
-    )
     result.addBoardObject(
       SelectedTextObjectId,
-      23 - lives.width,
+      23 - livesWidth,
       1,
       0,
       HudTopRightLayerId,
@@ -6635,21 +6971,27 @@ proc buildSpriteProtocolPlayerUpdates*(
     # whenever a spray can is carried, and a bot that has to infer its own
     # weapon from floating markers gets it wrong at the worst moments. The
     # label is the machine contract ("weapon gun" | "weapon spray").
+    # Same rasterize-only-on-change gate as the lives counter above.
     let
       weaponText = if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun
-      weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+      weaponLabel = labelWeapon(weaponText)
+    var weaponWidth = nextState.spriteDefs.knownTextDefSize(
+      SpritePlayerWeaponSpriteId, weaponLabel).width
+    if weaponWidth < 0:
+      let weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+      weaponWidth = weapon.width
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerWeaponSpriteId,
+        weapon.width,
+        weapon.height,
+        weapon.pixels,
+        weaponLabel
+      )
     currentIds.add(SpritePlayerWeaponObjectId)
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      SpritePlayerWeaponSpriteId,
-      weapon.width,
-      weapon.height,
-      weapon.pixels,
-      labelWeapon(weaponText)
-    )
     result.addBoardObject(
       SpritePlayerWeaponObjectId,
-      23 - weapon.width,
+      23 - weaponWidth,
       8,
       0,
       HudTopRightLayerId,
@@ -6683,8 +7025,20 @@ proc buildSpriteProtocolPlayerUpdates*(
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   if not state.isNil:
+    # Membership via a generation stamp per object id: `notin` over the id
+    # seq was quadratic in the object count, which fog runs push into the
+    # hundreds. Ids are u16 on the wire, so the stamp array is small and
+    # grown once; a stamp equal to this frame's generation marks the id
+    # live, everything else is stale.
+    inc nextState.idGen
+    let gen = nextState.idGen
+    for objectId in currentIds:
+      if objectId >= nextState.idStamp.len:
+        nextState.idStamp.setLen(objectId + 1)
+      nextState.idStamp[objectId] = gen
     for objectId in state.objectIds:
-      if objectId notin currentIds:
+      if objectId >= nextState.idStamp.len or
+          nextState.idStamp[objectId] != gen:
         result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
 
@@ -7705,8 +8059,11 @@ proc buildSpriteProtocolUpdates*(
   )
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
+  # One HashSet per frame instead of a `notin` seq scan per id, which was
+  # quadratic in the object count.
+  let current = currentIds.toHashSet
   for objectId in state.objectIds:
-    if objectId notin currentIds:
+    if objectId notin current:
       result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
 
