@@ -2680,7 +2680,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
   # steals second (the run home is what kills 3 hp carriers). Defensive
-  # roles never take a shield (it slows the gun 3x). SPRAYPAINT ARCS arm the
+  # roles never take a shield (it slows the gun 3x). SPRAY CANS arm the
   # pocket brawlers: attackers detour a little for one on the way in — the
   # pocket duel is close-range, where an instant lethal cone beats any gun.
   bot.tripping = false
