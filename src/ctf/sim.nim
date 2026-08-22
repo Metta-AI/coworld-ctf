@@ -2610,7 +2610,9 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       sim.recordAchievement(i, AchievementSpotless)
     if almost:
       sim.recordAchievement(i, AchievementAlmost)
-    if dealt[k] > 0 and grenade[k] * 2 >= dealt[k]:
+    # Grenadier: at least GrenadierPct of the policy's damage came from
+    # grenades (integer cross-multiply, no floats in the sim).
+    if dealt[k] > 0 and grenade[k] * 100 >= dealt[k] * GrenadierPct:
       sim.recordAchievement(i, AchievementGrenadier)
 
 proc maxTicksReached(sim: SimServer): bool =
