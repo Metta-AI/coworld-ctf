@@ -2553,26 +2553,64 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       inc sim.rewardAccounts[i].wins[sim.rewardAccounts[i].team]
     else:
       sim.rewardAccounts[i].reward += lossReward
-  # Achievements: evaluated once per finished (non-draw) game, only for the
-  # winning team's seated cogs, from the analysis counters this game reset at
+  # Achievements: evaluated once per finished (non-draw) game, for the
+  # winning team only, from the analysis counters this game reset at
   # startGame. Earned ids accumulate on the address accounts (deduplicated),
   # so a maxGames > 1 episode reports the union in results.json.
-  var winnerTeamHp = 0
+  #
+  # pacifist / spotless / grenadier are POLICY-level: a policy that seats
+  # several cogs ("softmaxwell", "softmaxwell (2)", …) is judged on the SUM of
+  # its cogs' counters, and every one of its cogs records the badge. Judging
+  # cogs one at a time handed pacifist/spotless to any four-cog seat whose
+  # heart-guard never fired or never got hit — i.e. to nearly every winner.
+  #
+  # `almost` is team-level and counts the team's whole remaining LIFE BUDGET:
+  # living hp plus every respawn still owed (a cog respawns at full hp while
+  # it has lives left). Counting living hp alone made a winner whose last cog
+  # was respawning when the final enemy fell — the barrage endgame's normal
+  # finish — a "cliffhanger" in one game out of eight.
+  var winnerLife = 0
   for p in sim.players:
-    if p.team == winner and p.alive:
-      winnerTeamHp += max(0, p.hp)
-  let almost = winnerTeamHp < AlmostTeamHp
+    if p.team != winner:
+      continue
+    let fullHp = sim.config.maxHpFor(p.team, p.perks)
+    if p.alive:
+      # An alive cog with N lives dies N times in total, so it still has
+      # N - 1 respawns owed; a dead cog waiting on its timer has `lives`.
+      winnerLife += max(0, p.hp) + max(0, p.lives - 1) * fullHp
+    else:
+      winnerLife += p.lives * fullHp
+  let almost = winnerLife < AlmostTeamHp
+  var
+    policies: seq[string]
+    attacks, taken, dealt, grenade: seq[int]
+  for p in sim.players:
+    if p.team != winner:
+      continue
+    let pol = policyName(p.address)
+    var k = policies.find(pol)
+    if k < 0:
+      policies.add(pol)
+      attacks.add(0)
+      taken.add(0)
+      dealt.add(0)
+      grenade.add(0)
+      k = policies.len - 1
+    attacks[k] += p.attacksMade
+    taken[k] += p.damageTaken
+    dealt[k] += p.damageDealt
+    grenade[k] += p.grenadeDamageDealt
   for i in 0 ..< sim.players.len:
     if sim.players[i].team != winner:
       continue
-    if sim.players[i].attacksMade == 0:
+    let k = policies.find(policyName(sim.players[i].address))
+    if attacks[k] == 0:
       sim.recordAchievement(i, AchievementPacifist)
-    if sim.players[i].damageTaken == 0:
+    if taken[k] == 0:
       sim.recordAchievement(i, AchievementSpotless)
     if almost:
       sim.recordAchievement(i, AchievementAlmost)
-    if sim.players[i].damageDealt > 0 and
-        sim.players[i].grenadeDamageDealt * 2 >= sim.players[i].damageDealt:
+    if dealt[k] > 0 and grenade[k] * 2 >= dealt[k]:
       sim.recordAchievement(i, AchievementGrenadier)
 
 proc maxTicksReached(sim: SimServer): bool =

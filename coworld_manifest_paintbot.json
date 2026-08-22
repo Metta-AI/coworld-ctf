@@ -560,25 +560,25 @@
       {
         "id": "pacifist",
         "name": "Pacifist",
-        "description": "Win a game in which this cog never attacked at all \u2014 no gun shots, grenades, or spray.",
+        "description": "Win a game in which none of your cogs attacked at all \u2014 no gun shots, grenades, or spray.",
         "points": 25
       },
       {
         "id": "spotless",
         "name": "Spotless",
-        "description": "Win a game in which this cog took no damage; shield-absorbed hits still count.",
+        "description": "Win a game in which none of your cogs took damage; shield-absorbed hits still count.",
         "points": 25
       },
       {
         "id": "almost",
         "name": "Almost",
-        "description": "Win a game with fewer than 2 hit points left across the whole team.",
+        "description": "Win a game with under 2 hit points of life left across the whole team \u2014 living hp plus any respawns still owed.",
         "points": 50
       },
       {
         "id": "grenadier",
         "name": "Grenadier",
-        "description": "Win a game in which at least half of this cog's damage dealt came from grenades.",
+        "description": "Win a game in which at least half of the damage your cogs dealt, summed together, came from grenades.",
         "points": 30
       }
     ]

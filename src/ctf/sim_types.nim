@@ -471,18 +471,23 @@ const
   # analysis counters and writes RewardAccount.earnedAchievements, none of
   # which enters gameHash — replays and gameplay are untouched.
   AchievementPacifist* = "pacifist"    ## won without a single attack (gun,
-                                       ## grenade, or spray).
-  AchievementSpotless* = "spotless"    ## won without taking any damage —
-                                       ## shield-absorbed hits still count as
-                                       ## damage taken.
+                                       ## grenade, or spray) by ANY cog of the
+                                       ## policy (policyName groups its seats).
+  AchievementSpotless* = "spotless"    ## won without any cog of the policy
+                                       ## taking damage — shield-absorbed hits
+                                       ## still count as damage taken.
   AchievementAlmost* = "almost"        ## whole winning team finished with
-                                       ## fewer than AlmostTeamHp hit points.
+                                       ## fewer than AlmostTeamHp hp of life
+                                       ## budget (living hp + respawns owed).
   AchievementGrenadier* = "grenadier"  ## won with at least half of the
-                                       ## damage dealt coming from grenades
-                                       ## (and dealt more than zero).
-  AlmostTeamHp* = 2           ## `almost` threshold: the winning team's living
-                              ## cogs hold strictly fewer than this many hp
-                              ## in total when the game ends.
+                                       ## policy's damage dealt (summed over
+                                       ## its cogs) coming from grenades, and
+                                       ## more than zero dealt.
+  AlmostTeamHp* = 2           ## `almost` threshold: the winning team's life
+                              ## budget — living cogs' hp plus a full hp bar
+                              ## per respawn still owed — is strictly below
+                              ## this when the game ends: one cog, one hit
+                              ## from losing, and nobody coming back.
 
   FlagPickupRange* = 34       ## touch radius to steal the enemy flag: STAND ON
                               ## THE PEDESTAL AND THE HEART IS YOURS (GV42).
