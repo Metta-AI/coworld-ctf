@@ -622,6 +622,24 @@
         "name": "Heist",
         "description": "Win by carrying the enemy heart home without your team killing a single enemy.",
         "points": 50
+      },
+      {
+        "id": "silent",
+        "name": "Silent",
+        "description": "Win a game in which nobody on your team shouted a single word.",
+        "points": 30
+      },
+      {
+        "id": "assassin",
+        "name": "Assassin",
+        "description": "Win a game in which a cog on your team landed 10 kill shots (gun or grenade, spray paint does not count) on cogs it had never damaged before in that life.",
+        "points": 50
+      },
+      {
+        "id": "lucky",
+        "name": "Lucky",
+        "description": "Win a game in which a cog on your team was caught in 5 grenade blasts and survived every one of them.",
+        "points": 40
       }
     ]
   },

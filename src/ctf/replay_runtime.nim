@@ -132,7 +132,8 @@ proc buildReplayViewerPacket*(
       replay.skipLulls and replay.playing and
         replay.isLullTick(sim.tickCount),
       if sendLead: replay.lullSpans else: @[],
-      if sendLead: replay.beatEvents else: nil
+      if sendLead: replay.beatEvents else: nil,
+      if sendLead: replay.achievementBadges else: nil
     )
   )
   if sendLead:

@@ -282,9 +282,14 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].bestHealsInLife = 0
     sim.players[i].aliveTicks = 0
     sim.players[i].packTicks = 0
+    sim.players[i].hurtByMask = 0
+    sim.players[i].assassinKills = 0
+    sim.players[i].blastsSurvived = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
+  sim.lastCaptureIndex = -1
+  sim.achievementFocus = @[]
   sim.resetGrenades()
   sim.resetShields()
   sim.resetSprayPaints()
@@ -816,6 +821,7 @@ proc killPlayer*(
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].killsThisLife = 0
   sim.players[targetIndex].healsThisLife = 0
+  sim.players[targetIndex].hurtByMask = 0   # the next life starts untouched
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
   sim.players[targetIndex].carryX = 0
@@ -858,8 +864,20 @@ proc absorbDamage*(
   ## hit at all breaks `spotless`), and, when the caller names an attacker,
   ## that attacker's damageDealt (self-damage excluded) with its grenade
   ## share. Environmental damage (puddles, barrage shells) passes no attacker.
+  ##
+  ## `assassin` is judged here too: a gun or grenade hit that drops the
+  ## victim from living hp to none, landed by an attacker that had not yet
+  ## touched this victim in this life (hurtByMask), is a first-touch kill
+  ## shot. Spray never qualifies, and neither does a teammate.
+  let hpBefore = sim.players[targetIndex].hp
   inc sim.players[targetIndex].damageTaken, amount
+  var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
+    if attackerIndex < 32:
+      let bit = 1'u32 shl attackerIndex
+      firstTouch = (sim.players[targetIndex].hurtByMask and bit) == 0
+      sim.players[targetIndex].hurtByMask =
+        sim.players[targetIndex].hurtByMask or bit
     inc sim.players[attackerIndex].damageDealt, amount
     case weapon
     of "grenade": inc sim.players[attackerIndex].grenadeDamageDealt, amount
@@ -871,6 +889,10 @@ proc absorbDamage*(
   let fromShield = min(sim.players[targetIndex].shieldHp, amount)
   sim.players[targetIndex].shieldHp -= fromShield
   sim.players[targetIndex].hp -= amount - fromShield
+  if firstTouch and hpBefore > 0 and sim.players[targetIndex].hp <= 0 and
+      weapon in ["gun", "grenade"] and
+      sim.players[attackerIndex].team != sim.players[targetIndex].team:
+    inc sim.players[attackerIndex].assassinKills
   if fromShield > 0 and sim.players[targetIndex].shieldHp == 0:
     # A broken shield is GONE: the carry icon, the " shield" label, and the
     # fire slowdown all end with the bubble, and an in-flight slowed cooldown
@@ -1729,6 +1751,8 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       # gun's damage site).
       bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
       blocked = sim.absorbDamage(i, dmg, throwerIndex, "grenade")
+    if sim.players[i].hp > 0:
+      inc sim.players[i].blastsSurvived    # `lucky`: caught, not killed
     if bubbleUp:
       # The bubble itself blinks and dents toward the burst, so an absorbed
       # blast reads as absorbed instead of leaving no feedback at all.
@@ -2497,6 +2521,24 @@ proc flagVisibleTo*(sim: SimServer, viewerIndex: int, team: Team): bool =
     return true
   sim.playerVisibleTo(viewerIndex, carrier)
 
+
+proc focusCog(
+  sim: SimServer,
+  winner: Team,
+  score: proc(p: Player): int
+): int =
+  ## The winning team's cog with the top `score`, damage dealt as the
+  ## tiebreak (achievement focus -- see finishGame). -1 if the team is empty.
+  result = -1
+  var best = low(int)
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team != winner:
+      continue
+    let v = score(sim.players[i]) * 1000 + sim.players[i].damageDealt
+    if result < 0 or v > best:
+      best = v
+      result = i
+
 proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReached = false) =
   ## Moves to game over and awards all winning players.
   if sim.phase == GameOver:
@@ -2607,8 +2649,9 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     sim.lastCaptureTeam == winner
   var
     attacks, taken, dealt, grenade, gun, spray, pit, kills = 0
-    bestKills, bestHeals = 0
+    bestKills, bestHeals, bestAssassin, bestLucky = 0
     packOk = true
+    silent = true
   for p in sim.players:
     if p.team != winner:
       continue
@@ -2622,6 +2665,12 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     kills += p.kills
     bestKills = max(bestKills, p.bestKillsInLife)
     bestHeals = max(bestHeals, p.bestHealsInLife)
+    bestAssassin = max(bestAssassin, p.assassinKills)
+    bestLucky = max(bestLucky, p.blastsSurvived)
+    # `silent`: lastShoutTick is reset to -1 at startGame and only set by
+    # an APPLIED shout, so any value >= 0 means this cog spoke this game.
+    if p.lastShoutTick >= 0:
+      silent = false
     # `pack` is an EVERY-cog condition: one straggler fails the team.
     if p.aliveTicks == 0 or p.packTicks * 100 < p.aliveTicks * PackPct:
       packOk = false
@@ -2649,11 +2698,55 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     earned.add AchievementPitMaster
   if heistWin and kills == 0:
     earned.add AchievementHeist
+  if silent:
+    earned.add AchievementSilent
+  if bestAssassin >= AssassinKills:
+    earned.add AchievementAssassin
+  if bestLucky >= LuckyBlasts:
+    earned.add AchievementLucky
   for i in 0 ..< sim.players.len:
     if sim.players[i].team != winner:
       continue
     for id in earned:
       sim.recordAchievement(i, id)
+  # The focus cog per earned badge — who the badge is ABOUT — so a replay
+  # opened from a badge's watch link can select the receiving cog. Per-cog
+  # badges name their streaker/survivor; aggregate badges name the top
+  # contributor; heist names the capturer; the team-wide badges (pacifist,
+  # spotless, silent, pack, almost) fall back to the team's most active cog
+  # (kills, then damage dealt) — every teammate "received" those, so the
+  # camera follows the one with the most story.
+  sim.achievementFocus = @[]
+  for id in earned:
+    let focus =
+      case id
+      of AchievementRambo:
+        focusCog(sim, winner, proc(p: Player): int = p.bestKillsInLife)
+      of AchievementMedic:
+        focusCog(sim, winner, proc(p: Player): int = p.bestHealsInLife)
+      of AchievementAssassin:
+        focusCog(sim, winner, proc(p: Player): int = p.assassinKills)
+      of AchievementLucky:
+        focusCog(sim, winner, proc(p: Player): int = p.blastsSurvived)
+      of AchievementGrenadier:
+        focusCog(sim, winner, proc(p: Player): int = p.grenadeDamageDealt)
+      of AchievementSniper:
+        focusCog(sim, winner, proc(p: Player): int = p.gunDamageDealt)
+      of AchievementBanksy:
+        focusCog(sim, winner, proc(p: Player): int = p.sprayDamageDealt)
+      of AchievementPitMaster:
+        focusCog(sim, winner, proc(p: Player): int = p.pitDamageDealt)
+      of AchievementAlmost:
+        # The cliffhanger's face is whoever is still standing.
+        focusCog(sim, winner,
+          proc(p: Player): int = (if p.alive: 1000 + p.hp else: 0))
+      of AchievementHeist:
+        if sim.lastCaptureIndex >= 0: sim.lastCaptureIndex
+        else: focusCog(sim, winner, proc(p: Player): int = p.captures)
+      else: focusCog(sim, winner, proc(p: Player): int = p.kills)
+    if focus >= 0:
+      sim.achievementFocus.add(
+        AchievementFocus(id: id, playerIndex: focus))
 
 proc maxTicksReached(sim: SimServer): bool =
   ## Whether the scheduled draw ceiling ends the game this tick. A game
@@ -2923,6 +3016,7 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       sim.players[carrierIndex].carryingFlag = false
       sim.lastCaptureTeam = carrier.team
       sim.lastCaptureTick = sim.tickCount
+      sim.lastCaptureIndex = carrierIndex
       sim.eliminateTeam(flagTeam, carrierIndex)
   # GV33: a completely killed team's heart leaves play with it. A wiped
   # team can never recover its heart, so it retires the moment the team is
