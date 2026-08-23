@@ -55,6 +55,36 @@ proc ctfInput(data: ptr uint8, length: cint)
   if runtimeLoaded:
     viewer.applyGlobalViewerMessage(data.bytesFromPointer(int(length)))
 
+proc ctfSetPointer(x, y: cint) {.exportc: "ctf_set_pointer", cdecl.} =
+  ## Streams the cursor's MAP-space position so the hover inspector can resolve
+  ## a cog. Deliberately NOT a click: a board click sets `selectedJoinOrder`,
+  ## which is the POV toggle, and the POV branch returns long before the hover
+  ## hit test ever runs -- so pointing and pinning have to be different inputs.
+  ##
+  ## Three scars are baked into these four lines:
+  ##  * It must also be listed in replay-viewer/config.nims EXPORTED_FUNCTIONS.
+  ##    emcc dead-strips an `exportc` that isn't named there; the build still
+  ##    exits 0, ctf_replay.wasm still exists, and `Module._ctf_set_pointer` is
+  ##    simply `undefined` at runtime inside a handler firing 100x a second.
+  ##  * It never touches `clickPending`/`mouseDown` state, and it BAILS while
+  ##    either is set. `clickMap` writes mouseX/mouseY/mouseLayer plus
+  ##    clickPending, consumed on the NEXT ctf_frame; browsers fire `click`
+  ##    after `mouseup`, so a pointermove landing in that gap would relocate the
+  ##    pending click and pin the wrong cog.
+  ##  * Parking is signalled on `mouseLayer`, never on a coordinate. Nim's `div`
+  ##    truncates toward zero, so a parked `mouseX = -1` becomes 0 in the hit
+  ##    test and hovers the arena's top-left corner forever.
+  if not runtimeLoaded:
+    return
+  if viewer.clickPending or viewer.mouseDown:
+    return
+  if x < 0 or y < 0:
+    viewer.mouseLayer = -1
+    return
+  viewer.mouseLayer = MapLayerId
+  viewer.mouseX = int(x)
+  viewer.mouseY = int(y)
+
 proc ctfFrame(): cint {.exportc: "ctf_frame", cdecl.} =
   if not runtimeLoaded:
     return 0

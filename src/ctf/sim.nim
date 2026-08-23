@@ -1,5 +1,6 @@
 import
   std/[json, math, os, random, strutils],
+  glory,
   bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
@@ -464,6 +465,39 @@ type
     kills*: int
     deaths*: int
     captures*: int
+    xp*: int                   ## GLORY: experience earned THIS LIFE. Zeroed
+                               ## on death, which is the whole anti-snowball
+                               ## rule -- a levelled cog's power dies with it.
+                               ## Causal (it drives buffs), so it is in gameHash.
+    level*: int                ## GLORY: 0..MaxLevel, cached from `xp` so the
+                               ## wire, the hash and the buff sites can never
+                               ## disagree about what a cog currently is.
+    titheCredit*: int          ## xp banked toward this cog's next heart
+                               ## pickup; only NEW xp opens the tap.
+    tithesThisLife*: int       ## pickups produced this life (capped at
+                               ## TitheMaxPerLife).
+    lastTitheTick*: int        ## tick of this cog's latest tithe, -1 = never.
+    grenadeCharges*: int       ## throws left on the carried grenade; a L4+
+                               ## pickup yields two.
+    lastKilledBy*: int         ## player index of this cog's latest killer,
+                               ## -1 = none. Feeds the revenge deed.
+    lastKilledByTick*: int     ## tick of that death, -1 = never.
+    # ── ACHIEVEMENT COUNTERS ────────────────────────────────────────────
+    # Muster's law 5: every requirement maps to a counter that already
+    # exists or an event the engine already emits -- no proxy metrics. These
+    # are the ones paintbot did not already keep. All per GAME (achievements
+    # are one-shot per team per game), except the two marked per-pickup /
+    # per-life, which reset where their subject does.
+    gunKills*, sprayKills*, grenadeKills*: int
+    longshotKills*, multiKills*: int
+    soakedHp*: int             ## hit points this cog's shields absorbed.
+    clutchHeals*: int          ## heals taken at 1 hp.
+    steals*, returns*, carrierKills*, denials*: int
+    sprayKillsThisPickup*: int ## resets when the can is taken or lost.
+    stealTickThisLife*: int    ## tick this life stole a heart, -1 = never.
+    clutchHealTick*: int       ## tick of the latest clutch heal, -1 = never.
+    peelTick*: int             ## tick of the latest carrier kill, -1 = never.
+    tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool
     shotsFired*: int           ## shots this player released; analysis-only,
                                ## excluded from gameHash (see gameHash).
     shotsHit*: int             ## released shots that connected with an enemy;
@@ -612,6 +646,27 @@ type
     present*: bool
     respawnAt*: int            ## tick the pickup refills (when not present).
 
+  AchievementClaim* = object
+    ## One claimed tier. Muster's two-cadence rule: every achievement emits a
+    ## machine-schema'd record AND a herald line -- agents read the schema,
+    ## the crowd reads the herald. This is the schema half; `logGameEvent` is
+    ## the herald half. The replay viewer reads this to draw the toast.
+    tick*: int
+    team*: Team
+    tree*: Tree
+    tier*: int
+    glory*: int
+    first*: bool               ## first team in the episode to complete it.
+
+  TithePickup* = object
+    ## One piece of kit spat out by a team's heart because one of its cogs
+    ## reached StarfallLevel and kept EARNING. Unlike the fixed PickupSpawn
+    ## points these are transient: taken or timed out, never respawned in
+    ## place. Bounded by TitheMaxPerLife per cog per life.
+    x*, y*: int
+    kind*: string              ## a TitheCycle entry: which pickup this is.
+    expiresAt*: int            ## tick it evaporates if nobody takes it.
+
   AirborneGrenade* = object
     ## One thrown grenade in flight: it flies OVER walls in a straight line
     ## from the throw point to the target and explodes on landing.
@@ -676,6 +731,27 @@ type
                                ## live servers pay nothing (see SimEvent).
     events*: seq[SimEvent]     ## collected tier-2 events; the extractor
                                ## drains this every tick. Never in gameHash.
+    teamGlory*: array[Team, int]      ## GLORY: the team ledger.
+    heatEmbers*: array[Team, int]     ## rampage embers -> the heat multiplier.
+    heatLastDeed*: array[Team, int]   ## tick of the team's latest drama deed.
+    heatLastDecay*: array[Team, int]  ## tick embers last cooled.
+    claimed*: array[Team, array[AchievementTrees * AchievementTiers, bool]]
+                               ## achievement one-shot set, per team per game.
+    claimedFirst*: array[AchievementTrees * AchievementTiers, bool]
+                               ## whether ANY team has taken this tier yet;
+                               ## the first claimant gets the x3 (law 2).
+    firstBloodDone*: bool      ## the episode's first kill has been minted.
+    tithePickups*: seq[TithePickup]   ## kit produced by 3-star veterans.
+    achievementFeed*: seq[AchievementClaim]  ## claims in order, for the
+                               ## viewer's toast and any downstream report.
+    deedCounts*: array[Deed, int]     ## AUDIT: times each deed fired.
+    deedGloryMass*: array[Deed, int]  ## AUDIT: glory minted per deed.
+                               ## Muster shipped five reward layers that never
+                               ## fired, each plausible in review; the banked
+                               ## rule is that every layer carries an
+                               ## accumulator and a layer stuck at 0 is DEAD.
+                               ## Never gated on collectEvents: glory is
+                               ## causal, so its audit must always be live.
     lastLobbyPlayersLogged*: int
     lastLobbyNeededLogged*: int
     lastLobbySecondsLogged*: int
@@ -3277,6 +3353,22 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+    # GLORY: unlike the analysis-only counters below, the per-life ladder
+    # CHANGES GAMEPLAY -- level drives hit points, fire timing and range -- so
+    # it belongs in the hash. A replay that diverged on xp would desync.
+    result.mixHashInt(player.xp)
+    result.mixHashInt(player.level)
+    result.mixHashInt(player.titheCredit)
+    result.mixHashInt(player.tithesThisLife)
+    result.mixHashInt(player.grenadeCharges)
+  for team in Team:
+    result.mixHashInt(sim.teamGlory[team])
+    result.mixHashInt(sim.heatEmbers[team])
+  result.mixHashInt(sim.tithePickups.len)
+  for pickup in sim.tithePickups:
+    result.mixHashInt(pickup.x)
+    result.mixHashInt(pickup.y)
+    result.mixHashInt(pickup.expiresAt)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -3423,6 +3515,385 @@ proc emitEvent(
     y: y
   )
 
+# ───────────────────────────────────────────────────────────────────────────
+# GLORY — the team ledger, the per-life ladder, and the veteran's tithe
+# ───────────────────────────────────────────────────────────────────────────
+#
+# Pricing lives in `ctf/glory`; this is the plumbing. Three rules govern every
+# proc below and none of them is optional:
+#
+#   1. Glory is CAUSAL. Levels grant buffs, so nothing here may be gated on
+#      `collectEvents`, everything is integer, and the ledger enters gameHash.
+#   2. One kill mints ONE deed (`glory.killDeed`). The double-pay bug class is
+#      what turned one Muster combo into ~390 payments.
+#   3. Every mint bumps `deedCounts`/`deedGloryMass`. A deed that never fires
+#      is dead code that looks alive, and an A/B over a dead lever reads as a
+#      clean null -- which is exactly what `arcStandoff` cost us.
+
+func playerLevel*(sim: SimServer, playerIndex: int): int {.inline.} =
+  ## A cog's current level, or 0 for an invalid index.
+  if playerIndex < 0 or playerIndex >= sim.players.len: 0
+  else: clampLevel(sim.players[playerIndex].level)
+
+func playerMaxHp*(sim: SimServer, playerIndex: int): int {.inline.} =
+  ## The hit-point CEILING after the ladder. Levelling grants headroom, never
+  ## a heal: the points still have to be earned back from a med kit, or a
+  ## level-up would be a free full heal at the moment you are already winning.
+  levelMaxHp(sim.config.hitPoints, sim.playerLevel(playerIndex))
+
+func playerWindupTicks*(sim: SimServer, playerIndex: int): int {.inline.} =
+  levelWindupTicks(sim.config.fireWindupTicks, sim.playerLevel(playerIndex))
+
+func playerFireCooldown*(sim: SimServer, playerIndex: int): int {.inline.} =
+  levelFireCooldown(sim.config.fireCooldownTicks, sim.playerLevel(playerIndex))
+
+func playerGunRange*(sim: SimServer, playerIndex: int): int {.inline.} =
+  levelGunRange(sim.config.gunRange, sim.playerLevel(playerIndex))
+
+func playerSprayReset*(sim: SimServer, playerIndex: int): int {.inline.} =
+  levelSprayReset(PlasmaArcResetTicks, sim.playerLevel(playerIndex))
+
+func playerCarrierSpeedPct*(sim: SimServer, playerIndex: int): int {.inline.} =
+  levelCarrierSpeedPct(sim.config.carrierSpeedPct, sim.playerLevel(playerIndex))
+
+func groundOwner*(sim: SimServer, x, y: int): Team =
+  ## Which team's ground a point sits on: the NEAREST HOME PEDESTAL wins.
+  ##
+  ## 🚨 This is deliberately not an x-midline test. Our `homeSign` is a signed
+  ## x against a midline that four bases do not have, and every spawn address
+  ## in this engine is a 2-team formula -- so a home/away rule written the
+  ## obvious way is silently wrong on ffa4, which is half of Elite. Nearest
+  ## pedestal is Muster's own primitive (it prices ownership at the deed site,
+  ## explicitly not distance-from-spawn) and it is correct for any base count
+  ## without a midline existing at all.
+  result = Red
+  var best = high(int)
+  for team in Team:
+    let
+      home = sim.gameMap.flagHome(team)
+      dx = home.x - x
+      dy = home.y - y
+      d2 = dx * dx + dy * dy
+    if d2 < best:
+      best = d2
+      result = team
+
+func deedSitePct*(sim: SimServer, team: Team, x, y: int): int =
+  ## The within-arena gradient for a deed by one team at a point.
+  let owner = sim.groundOwner(x, y)
+  siteMultPct(ownerIsSelf = owner == team, ownerIsNone = false)
+
+proc heatCool*(sim: var SimServer) =
+  ## Embers bleed with quiet: a stalled rampage falls back down the ladder.
+  ## Without this a team banks a multiplier it has stopped earning, which is
+  ## how Muster ended up with its whole server pinned at max flames.
+  for team in Team:
+    if sim.heatEmbers[team] <= 0:
+      continue
+    let quietSince = max(sim.heatLastDeed[team], sim.heatLastDecay[team])
+    if sim.tickCount - quietSince >= HeatDecayTicks:
+      sim.heatEmbers[team] = max(0, sim.heatEmbers[team] - HeatEmberDecay)
+      sim.heatLastDecay[team] = sim.tickCount
+
+proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
+                times = 1) =
+  ## THE SINGLE MINT. Every glory award in the engine goes through here, so no
+  ## deed can dodge the economy or the audit.
+  if deed == dNone or times <= 0:
+    return
+  let
+    sitePct = sim.deedSitePct(team, x, y)
+    carrying = sim.flags[if team == Red: Blue else: Red].carrier >= 0 and
+               sim.players[sim.flags[if team == Red: Blue else: Red].carrier].team == team
+    amount = mintGlory(deed, sim.heatEmbers[team], sitePct, carrying) * times
+  sim.teamGlory[team] += amount
+  inc sim.deedCounts[deed], times
+  sim.deedGloryMass[deed] += amount
+  if paysHeat(deed):
+    # One ember per deed; the RUNGS cost more each time, so x8 needs a real
+    # streak rather than three kills.
+    sim.heatEmbers[team] = min(HeatEmberCap, sim.heatEmbers[team] + times)
+    sim.heatLastDeed[team] = sim.tickCount
+  if sim.gameEventLoggingEnabled:
+    # A penalty is negative, so a hardcoded "+" prints "+-60".
+    sim.logGameEvent(teamText(team) & " " & deedName(deed) &
+                     (if amount < 0: " " else: " +") & $amount)
+
+proc teamHoldsDistinctKits(sim: SimServer, team: Team): int =
+  ## How many DISTINCT pickup types the team has live right now. The squad
+  ## tree's whole point is that a combined-arms loadout is a team achievement,
+  ## not an individual one.
+  var med, nade, spray, shield = false
+  for player in sim.players:
+    if player.team != team or not player.alive:
+      continue
+    if player.hasGrenade: nade = true
+    if player.hasPlasmaArc: spray = true
+    if player.hasShield: shield = true
+    if player.hp > sim.config.hitPoints: med = true
+  ord(med) + ord(nade) + ord(spray) + ord(shield)
+
+proc teamAliveCount(sim: SimServer, team: Team): int =
+  for player in sim.players:
+    if player.team == team and player.alive:
+      inc result
+
+proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
+                       isFirst: bool) =
+  ## Mint one achievement tier for a team, with the first-claim multiplier
+  ## decided BY THE CALLER -- the tie logic lives in evalAchievementsAllTeams,
+  ## which judges every team's tick before any claim lands.
+  ##
+  ## The four laws are enforced HERE, and each is a scar:
+  ##   1. One-shot per team per game -- `claimed` is checked and set, and
+  ##      nothing about this is per-tick income (Muster's `trophy_held`).
+  ##   2. EVERY team can earn it; only the FIRST claimant in the episode gets
+  ##      the x3. A first-only reward teaches the other teams nothing.
+  ##   2b. Nothing here pays for travel or arrival.
+  ##   4. It NEVER climbs heat -- this mints directly rather than through
+  ##      `awardDeed`, and `paysHeat(dAchievement)` is false besides.
+  let key = achievementKey(tree, tier)
+  if sim.claimed[team][key]:
+    return
+  sim.claimed[team][key] = true
+  let
+    home = sim.gameMap.flagHome(team)
+    amount = mintAchievement(tier, sim.deedSitePct(team, home.x, home.y),
+                             isFirst)
+  sim.claimedFirst[key] = true
+  sim.teamGlory[team] += amount
+  inc sim.deedCounts[dAchievement]
+  sim.deedGloryMass[dAchievement] += amount
+  sim.achievementFeed.add AchievementClaim(
+    tick: sim.tickCount, team: team, tree: tree, tier: tier,
+    glory: amount, first: isFirst
+  )
+  if sim.gameEventLoggingEnabled:
+    sim.logGameEvent(
+      teamText(team) & " achievement: " & achievementName(tree, tier) &
+      (if isFirst: " (FIRST!)" else: "") & " +" & $amount
+    )
+
+proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int) =
+  ## Sequential (first-come) arity: first = nobody has taken the tier yet.
+  ## Correct whenever claims arrive at DIFFERENT times; the same-tick tie is
+  ## the one case it cannot judge, which is evalAchievementsAllTeams' job.
+  sim.claimAchievement(team, tree, tier,
+                       isFirst = not sim.claimedFirst[achievementKey(tree, tier)])
+
+proc satisfiedAchievements(sim: SimServer, team: Team):
+    array[Tree, array[AchievementTiers, bool]] =
+  ## Pure satisfaction read over engine-truth counters: which tiers this team
+  ## meets RIGHT NOW, claimed or not. No minting -- the claimers below own
+  ## that, and separating the read is what lets the all-teams pass judge a
+  ## same-tick tie before any claim marks `claimedFirst`.
+  var
+    best: array[Tree, array[AchievementTiers, bool]]
+    anyGunHit, anyCapture = false
+    kits = sim.teamHoldsDistinctKits(team)
+  for player in sim.players:
+    if player.team != team:
+      continue
+    if player.shotsHit > 0: anyGunHit = true
+    if player.captures > 0: anyCapture = true
+
+    # GUN -- the weapon every cog spawns with.
+    if anyGunHit:                     best[treeGun][0] = true
+    if player.gunKills >= 1:          best[treeGun][1] = true
+    if player.gunKills >= 3:          best[treeGun][2] = true
+    if player.longshotKills >= 1:     best[treeGun][3] = true
+    if player.level >= MaxLevel:      best[treeGun][4] = true
+
+    # SPRAY -- 28.5% of all kills in the field, historically 87% unfired.
+    if player.tookSpray:              best[treeSpray][0] = true
+    if player.sprayKills >= 1:        best[treeSpray][1] = true
+    if player.multiKills >= 1 and player.sprayKills >= 2:
+                                      best[treeSpray][2] = true
+    if player.sprayKillsThisPickup >= 2: best[treeSpray][3] = true
+    if player.sprayKillsThisPickup >= 3: best[treeSpray][4] = true
+
+    # GRENADE -- the corner paint-bomb.
+    if player.tookGrenade:            best[treeGrenade][0] = true
+    if player.grenadeKills >= 1:      best[treeGrenade][1] = true
+    if player.grenadeKills >= 2:      best[treeGrenade][2] = true
+    if player.grenadeKills >= 1 and player.multiKills >= 1:
+                                      best[treeGrenade][3] = true
+    if player.grenadeKills >= 3:      best[treeGrenade][4] = true
+
+    # SHIELD -- soak, not damage. `blocked` already exists on the wire.
+    if player.tookShield:             best[treeShield][0] = true
+    if player.soakedHp >= 3:          best[treeShield][1] = true
+    if player.soakedHp >= 6:          best[treeShield][2] = true
+    # Enemy kills only: `player.kills` is the raw recordKill tally and it
+    # COUNTS TEAMMATES, so gating on it let a friendly-fire kill complete
+    # "Bulwark" (proven in the field: the banner announced it while the same
+    # tick minted the -60 team-kill penalty). The per-weapon counters are
+    # incremented only on non-friendly kills, so their sum is the honest gate.
+    if player.soakedHp >= 6 and
+       player.gunKills + player.sprayKills + player.grenadeKills >= 1:
+                                      best[treeShield][3] = true
+    if player.soakedHp >= 12:         best[treeShield][4] = true
+
+    # MED KIT -- the heal line, where we run 5.9x worse than winners.
+    if player.tookMedKit:             best[treeMedKit][0] = true
+    if player.clutchHeals >= 1:       best[treeMedKit][1] = true
+    if player.clutchHeals >= 2:       best[treeMedKit][2] = true
+    if player.clutchHealTick >= 0 and
+       player.gunKills + player.sprayKills + player.grenadeKills >= 1 and
+       sim.tickCount - player.clutchHealTick <= 120:
+                                      best[treeMedKit][3] = true
+    if player.clutchHeals >= 3:       best[treeMedKit][4] = true
+
+    # CARRIER -- steal, run, score.
+    if player.steals >= 1:            best[treeCarrier][0] = true
+    if player.carryingFlag and player.stealTickThisLife >= 0 and
+       sim.tickCount - player.stealTickThisLife >= 120:
+                                      best[treeCarrier][1] = true
+    if player.captures >= 1:          best[treeCarrier][2] = true
+    if player.captures >= 1 and
+       sim.teamAliveCount(team) <
+       sim.teamAliveCount(if team == Red: Blue else: Red):
+                                      best[treeCarrier][3] = true
+    if player.captures >= 1 and player.stealTickThisLife >= 0:
+                                      best[treeCarrier][4] = true
+
+    # DEFENDER -- peel, return, deny.
+    if player.returns >= 1:           best[treeDefender][0] = true
+    if player.carrierKills >= 1:      best[treeDefender][1] = true
+    if player.denials >= 1:           best[treeDefender][2] = true
+    if player.peelTick >= 0 and player.stealTickThisLife > player.peelTick and
+       player.stealTickThisLife - player.peelTick <= RevengeTicks:
+                                      best[treeDefender][3] = true
+    if player.denials >= 2:           best[treeDefender][4] = true
+
+  # SQUAD -- the team tree. Nothing here is per-cog.
+  if kits >= 2:                       best[treeSquad][0] = true
+  if kits >= 3:                       best[treeSquad][1] = true
+  if kits >= 4:                       best[treeSquad][2] = true
+  block cleanSheet:
+    if sim.tickCount - sim.gameStartTick < 600:
+      break cleanSheet
+    for player in sim.players:
+      if player.team == team and player.teamKills > 0:
+        break cleanSheet
+    best[treeSquad][3] = true
+  if kits >= 4 and anyCapture:        best[treeSquad][4] = true
+
+  result = best
+
+proc evalAchievements*(sim: var SimServer, team: Team) =
+  ## Poll one team and claim anything newly satisfied, sequential-first.
+  ##
+  ## Called from tests and any single-team poller, NOT from `awardDeed` --
+  ## the claim mints glory, so evaluating inside the mint would recurse.
+  ## Polling is safe precisely because every claim is one-shot: re-checking a
+  ## satisfied requirement is a no-op, which is the property law 1 buys.
+  if sim.phase != Playing:
+    return
+  let best = sim.satisfiedAchievements(team)
+  for tree in Tree:
+    for tier in 0 ..< AchievementTiers:
+      if best[tree][tier]:
+        sim.claimAchievement(team, tree, tier)
+
+proc evalAchievementsAllTeams*(sim: var SimServer) =
+  ## The per-tick pass: judge EVERY team's satisfied tiers first, then mint.
+  ##
+  ## This exists because the naive `for team in Team: evalAchievements(team)`
+  ## marked `claimedFirst` as it went -- when both teams completed a tier on
+  ## the same tick, the x3 went to Red purely by enum order, a systematic
+  ## bias the fidelity audit caught. A same-tick completion is a genuine
+  ## tie, so EVERY same-tick claimant takes the first-claim multiplier;
+  ## later ticks still find `claimedFirst` set and pay base.
+  if sim.phase != Playing:
+    return
+  var sat: array[Team, array[Tree, array[AchievementTiers, bool]]]
+  for team in Team:
+    sat[team] = sim.satisfiedAchievements(team)
+  var untakenAtTickStart: array[AchievementTrees * AchievementTiers, bool]
+  for key in 0 ..< untakenAtTickStart.len:
+    untakenAtTickStart[key] = not sim.claimedFirst[key]
+  for team in Team:
+    for tree in Tree:
+      for tier in 0 ..< AchievementTiers:
+        if sat[team][tree][tier]:
+          sim.claimAchievement(team, tree, tier,
+            isFirst = untakenAtTickStart[achievementKey(tree, tier)])
+
+proc dropTithe(sim: var SimServer, playerIndex: int) =
+  ## A veteran's heart spits out kit.
+  ##
+  ## The tap is fed by NEW xp, never by standing around at rank. Muster's
+  ## bomber potential paid 1-3 per tick forever once armed and in position and
+  ## the rational play became hovering; the rule banked from it is that the
+  ## potential must FLATLINE once the preconditions are met, with real reward
+  ## coming only from the action. So a hiding 3-star produces exactly nothing.
+  let player = sim.players[playerIndex]
+  if player.level < StarfallLevel:
+    return
+  if player.tithesThisLife >= TitheMaxPerLife:
+    return
+  if player.lastTitheTick >= 0 and
+      sim.tickCount - player.lastTitheTick < TitheCooldownTicks:
+    return
+  if player.titheCredit < TitheXp:
+    return
+  let
+    home = sim.gameMap.flagHome(player.team)
+    slot = player.tithesThisLife
+    # A fixed scatter, not a roll: the sim's RNG draws are load-bearing for
+    # replay determinism and a rotation needs none.
+    offsetX = (slot mod 2) * 48 - 24
+    offsetY = (slot div 2) * 48 - 24
+  sim.tithePickups.add TithePickup(
+    x: home.x + offsetX,
+    y: home.y + offsetY,
+    kind: TitheCycle[slot mod TitheCycle.len],
+    expiresAt: sim.tickCount + MedKitRespawnTicks
+  )
+  sim.players[playerIndex].titheCredit -= TitheXp
+  inc sim.players[playerIndex].tithesThisLife
+  sim.players[playerIndex].lastTitheTick = sim.tickCount
+  if sim.gameEventLoggingEnabled:
+    sim.logGameEvent(
+      playerColorText(player.color) & " tithes a " &
+      TitheCycle[slot mod TitheCycle.len] & " to the heart"
+    )
+
+proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
+  ## Move a cog along its per-life ladder, and mint the level-up if it climbs.
+  ## Negative amounts are how friendly fire de-levels you.
+  if playerIndex < 0 or playerIndex >= sim.players.len or amount == 0:
+    return
+  let before = sim.players[playerIndex].level
+  sim.players[playerIndex].xp = max(0, sim.players[playerIndex].xp + amount)
+  sim.players[playerIndex].level = levelForXp(sim.players[playerIndex].xp)
+  if amount > 0 and sim.players[playerIndex].level >= StarfallLevel:
+    sim.players[playerIndex].titheCredit += amount
+    sim.dropTithe(playerIndex)
+  let after = sim.players[playerIndex].level
+  if after > before:
+    sim.awardDeed(
+      sim.players[playerIndex].team, dLevelUp,
+      sim.players[playerIndex].x, sim.players[playerIndex].y, after - before
+    )
+    if sim.gameEventLoggingEnabled:
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) & " is " &
+        levelName(after)
+      )
+
+proc resetLadder*(sim: var SimServer, playerIndex: int) =
+  ## Death forfeits the whole per-life ladder: xp, level, buffs and the tithe
+  ## allowance. This IS the anti-snowball mechanism -- a runaway cog is a
+  ## `dStarfall` bounty and killing it puts it back to a recruit.
+  sim.players[playerIndex].xp = 0
+  sim.players[playerIndex].level = 0
+  sim.players[playerIndex].stealTickThisLife = -1
+  sim.players[playerIndex].titheCredit = 0
+  sim.players[playerIndex].tithesThisLife = 0
+  sim.players[playerIndex].lastTitheTick = -1
+
 proc emitPhaseChange(sim: var SimServer, newPhase: GamePhase) {.inline.} =
   ## Appends one PhaseChange analysis event for a phase about to be entered
   ## (call BEFORE assigning sim.phase, with the phase being switched to).
@@ -3447,6 +3918,10 @@ proc resetFlag*(sim: var SimServer, team: Team) =
       x = float(sim.flags[team].x),
       y = float(sim.flags[team].y)
     )
+  if sim.phase == Playing and sim.flags[team].carrier >= 0:
+    for i in 0 ..< sim.players.len:
+      if sim.players[i].team == team:
+        inc sim.players[i].returns
   let home = sim.gameMap.flagHome(team)
   sim.flags[team] = FlagState(x: home.x, y: home.y, carrier: -1)
 
@@ -3991,6 +4466,9 @@ proc recordCapture*(sim: var SimServer, playerIndex: int) =
   if index >= 0:
     inc sim.rewardAccounts[index].captures
   inc sim.players[playerIndex].captures
+  sim.awardDeed(sim.players[playerIndex].team, dCapture,
+                sim.players[playerIndex].x, sim.players[playerIndex].y)
+  sim.addXp(playerIndex, XpPerCapture)
 
 proc playerResultsJson*(sim: SimServer): string =
   ## Returns final player rewards and win states as JSON.
@@ -4165,11 +4643,49 @@ proc startGame*(sim: var SimServer) =
   sim.damagePops = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
+  # GLORY: every ledger, multiplier and one-shot resets at the game boundary.
+  # A per-episode economy that leaks across games would make the first game's
+  # heat and achievement claims silently price the second one.
+  for team in Team:
+    sim.teamGlory[team] = 0
+    sim.heatEmbers[team] = 0
+    sim.heatLastDeed[team] = 0
+    sim.heatLastDecay[team] = 0
+    for key in 0 ..< sim.claimed[team].len:
+      sim.claimed[team][key] = false
+  for key in 0 ..< sim.claimedFirst.len:
+    sim.claimedFirst[key] = false
+  for deed in Deed:
+    sim.deedCounts[deed] = 0
+    sim.deedGloryMass[deed] = 0
+  sim.firstBloodDone = false
+  sim.tithePickups = @[]
+  sim.achievementFeed = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
     sim.players[i].lives = sim.config.lives
     sim.players[i].hp = sim.config.hitPoints
+    sim.resetLadder(i)
+    sim.players[i].grenadeCharges = 0
+    for reset in [addr sim.players[i].gunKills, addr sim.players[i].sprayKills,
+                  addr sim.players[i].grenadeKills,
+                  addr sim.players[i].longshotKills,
+                  addr sim.players[i].multiKills, addr sim.players[i].soakedHp,
+                  addr sim.players[i].clutchHeals, addr sim.players[i].steals,
+                  addr sim.players[i].returns,
+                  addr sim.players[i].carrierKills,
+                  addr sim.players[i].denials,
+                  addr sim.players[i].sprayKillsThisPickup]:
+      reset[] = 0
+    sim.players[i].clutchHealTick = -1
+    sim.players[i].peelTick = -1
+    sim.players[i].tookMedKit = false
+    sim.players[i].tookGrenade = false
+    sim.players[i].tookSpray = false
+    sim.players[i].tookShield = false
+    sim.players[i].lastKilledBy = -1
+    sim.players[i].lastKilledByTick = -1
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -4456,13 +4972,78 @@ proc floorGameClock(sim: var SimServer) =
   if remaining < ActionClockFloorTicks:
     sim.overtimeTicks += ActionClockFloorTicks - remaining
 
-proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
+proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
+                 weapon = "", multi = false) =
   ## Applies a fatal hit: return any carried flag to its pedestal, decrement
   ## lives, start respawn.
+  ##
+  ## This is also the single chokepoint where a kill is PRICED. `weapon` and
+  ## `multi` come from the call site because that is where they are known
+  ## first-hand -- the same discipline the tier-2 event channel follows, and
+  ## the reason nothing downstream has to guess by counter-diffing.
   if targetIndex < 0 or targetIndex >= sim.players.len:
     return
   if not sim.players[targetIndex].alive:
     return
+  # Read the kill CONTEXT before anything below mutates it: the flag-return
+  # loop clears `carryingFlag`, so asking afterwards would price every peel as
+  # a plain kill -- and the peel is the deed we most need to be able to see.
+  block priceTheKill:
+    if killerIndex < 0 or killerIndex >= sim.players.len:
+      break priceTheKill
+    let
+      victim = sim.players[targetIndex]
+      killer = sim.players[killerIndex]
+      victimHome = sim.gameMap.flagHome(victim.team)
+      dxHome = victim.x - victimHome.x
+      dyHome = victim.y - victimHome.y
+      dx = victim.x - killer.x
+      dy = victim.y - killer.y
+      # Fleeing = the victim's velocity points away from the killer. A dot
+      # product of separation and victim velocity: positive means opening the
+      # gap, which is the chase the crowd came to watch.
+      opening = dx * victim.velX + dy * victim.velY
+      ctx = KillContext(
+        friendly: victim.team == killer.team,
+        victimCarrying: victim.carryingFlag,
+        nearVictimHome: dxHome * dxHome + dyHome * dyHome <=
+                        DenialPx * DenialPx,
+        victimLevel: victim.level,
+        multi: multi,
+        rangePx: int(sqrt(float(dx * dx + dy * dy))),
+        weaponSpray: weapon == "spray",
+        weaponGrenade: weapon == "grenade",
+        avengesKiller: killer.lastKilledBy == targetIndex and
+                       killer.lastKilledByTick >= 0 and
+                       sim.tickCount - killer.lastKilledByTick <= RevengeTicks,
+        fleeing: opening > 0
+      )
+    let deed = killDeed(ctx)
+    sim.awardDeed(killer.team, deed, victim.x, victim.y)
+    # Achievement counters, keyed off the RESOLVED deed so they can never
+    # disagree with what was actually minted.
+    if not ctx.friendly:
+      if ctx.weaponSpray:
+        inc sim.players[killerIndex].sprayKills
+        inc sim.players[killerIndex].sprayKillsThisPickup
+      elif ctx.weaponGrenade:
+        inc sim.players[killerIndex].grenadeKills
+      else:
+        inc sim.players[killerIndex].gunKills
+      if ctx.multi: inc sim.players[killerIndex].multiKills
+      if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
+      if ctx.victimCarrying:
+        inc sim.players[killerIndex].carrierKills
+        sim.players[killerIndex].peelTick = sim.tickCount
+        if ctx.nearVictimHome: inc sim.players[killerIndex].denials
+    # First blood stacks, alone among the kill deeds: it is one-shot per
+    # episode so it cannot be farmed by construction.
+    if not sim.firstBloodDone and not ctx.friendly:
+      sim.firstBloodDone = true
+      sim.awardDeed(killer.team, dFirstBlood, victim.x, victim.y)
+    sim.addXp(killerIndex, killXp(ctx))
+  sim.players[targetIndex].lastKilledBy = killerIndex
+  sim.players[targetIndex].lastKilledByTick = sim.tickCount
   sim.logGameEvent(
     playerColorText(sim.players[targetIndex].color) &
       " killed by " & sim.playerText(killerIndex)
@@ -4503,6 +5084,11 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
     kill: true
   )
   sim.players[targetIndex].alive = false
+  # THE ANTI-SNOWBALL RULE: a cog's whole per-life ladder dies with it. This is
+  # the price of granting real power at all, and it is what keeps a levelled
+  # cog bounded to one life instead of compounding across an episode.
+  sim.resetLadder(targetIndex)
+  sim.players[targetIndex].grenadeCharges = 0
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
   sim.players[targetIndex].carryX = 0
@@ -4530,6 +5116,15 @@ proc absorbDamage*(sim: var SimServer, targetIndex: int, amount: int): int {.dis
   ## how many hp the shield layer absorbed (`fromShield`) — first-hand `blocked`
   ## for the tier-2 Damage event; callers that don't need it can ignore it.
   let fromShield = min(sim.players[targetIndex].shieldHp, amount)
+  if fromShield > 0:
+    # Priced per hit point absorbed, at ZERO drama: soaking funds the team but
+    # it is not a moment, and pricing ambient work as drama is how Muster's
+    # passive deeds reached 93-100% of all glory.
+    sim.awardDeed(sim.players[targetIndex].team, dShieldSoak,
+                  sim.players[targetIndex].x, sim.players[targetIndex].y,
+                  times = fromShield)
+    sim.addXp(targetIndex, XpPerShieldSoak * fromShield)
+    sim.players[targetIndex].soakedHp += fromShield
   sim.players[targetIndex].shieldHp -= fromShield
   sim.players[targetIndex].hp -= amount - fromShield
   if fromShield > 0 and sim.players[targetIndex].shieldHp == 0:
@@ -4601,8 +5196,13 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   ## next firing. Damage is dealt by resolveActiveArcCones each active tick.
   if not sim.canFireArc(attackerIndex):
     return
+  # The recharge half runs through the ladder: L2's faster spray reset
+  # (levelSprayReset) applies HERE or it applies nowhere -- this is the only
+  # site that arms the cone's cooldown. It shipped unwired once (zero
+  # consumers, found by the fidelity audit while docs/RULES.md was already
+  # advertising it); the active window stays fixed, only the recharge shrinks.
   sim.players[attackerIndex].fireCooldown =
-    PlasmaArcActiveTicks + PlasmaArcResetTicks
+    PlasmaArcActiveTicks + sim.playerSprayReset(attackerIndex)
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
@@ -4657,6 +5257,14 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let
         vx = float(sim.players[victimIndex].x + CollisionW div 2)
         vy = float(sim.players[victimIndex].y + CollisionH div 2)
+      # Damage is the DENSE half of the ladder. Muster's v9 lesson: pair
+      # sparse glory events (objective alignment) with dense shaping
+      # (credit assignment), or the signal is too rare to climb.
+      # Without this `XpPerDamage` is a declared constant nothing
+      # reads -- the dead-layer class this system exists to refuse.
+      if arcFire.attacker >= 0 and arcFire.attacker < sim.players.len and
+          sim.players[arcFire.attacker].team != sim.players[victimIndex].team:
+        sim.addXp(arcFire.attacker, XpPerDamage * PlasmaArcDamage)
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
         weapon = "spray", amount = PlasmaArcDamage,
@@ -4671,7 +5279,8 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         amount: PlasmaArcDamage, color: sim.players[victimIndex].color
       )
       if sim.players[victimIndex].hp <= 0:
-        sim.killPlayer(victimIndex, arcFire.attacker)
+        sim.killPlayer(victimIndex, arcFire.attacker, "spray",
+                       multi = sim.players[arcFire.attacker].arcKillsThisFire > 0)
         if victimIndex != arcFire.attacker:
           sim.recordKill(arcFire.attacker)
           sim.recordTeamKill(arcFire.attacker, victimIndex)
@@ -4725,7 +5334,7 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
     (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-    maxRange = float(sim.config.gunRange)
+    maxRange = float(sim.playerGunRange(shooterIndex))
   var bestT = maxRange + 1.0
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
@@ -4762,9 +5371,9 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     sy = shooter.y + CollisionH div 2
   sim.players[shooterIndex].fireCooldown =
     if shooter.hasShield:
-      sim.config.fireCooldownTicks * ShieldFireSlowdown
+      sim.playerFireCooldown(shooterIndex) * ShieldFireSlowdown
     else:
-      sim.config.fireCooldownTicks
+      sim.playerFireCooldown(shooterIndex)
   sim.players[shooterIndex].windupBrads = -1
   # Accuracy bookkeeping (analysis-only, excluded from gameHash): every call
   # here is one released shot; a shot that locked onto a live enemy on the ray
@@ -4790,7 +5399,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   else:
     # March along the unit aim to the last wall-free pixel or max range
     # (checking each sampled pixel keeps this O(range) at 1300px).
-    let maxRange = sim.config.gunRange
+    let maxRange = sim.playerGunRange(shooterIndex)
     var lastClear = 0
     for step in 1 .. maxRange:
       let
@@ -4825,6 +5434,14 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     # spray cone stamps it at its own damage site.
     if not bubbleUp:
       sim.players[targetIndex].paintHitTick = sim.tickCount
+    # Damage is the DENSE half of the ladder. Muster's v9 lesson: pair
+    # sparse glory events (objective alignment) with dense shaping
+    # (credit assignment), or the signal is too rare to climb.
+    # Without this `XpPerDamage` is a declared constant nothing
+    # reads -- the dead-layer class this system exists to refuse.
+    if shooterIndex >= 0 and shooterIndex < sim.players.len and
+        sim.players[shooterIndex].team != sim.players[targetIndex].team:
+      sim.addXp(shooterIndex, XpPerDamage * 1)
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
       amount = 1, hp = max(0, sim.players[targetIndex].hp),
@@ -4855,7 +5472,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       color: sim.players[targetIndex].color
     )
     if sim.players[targetIndex].hp <= 0:
-      sim.killPlayer(targetIndex, shooterIndex)
+      sim.killPlayer(targetIndex, shooterIndex, "gun")
       sim.recordKill(shooterIndex)
       sim.recordTeamKill(shooterIndex, targetIndex)
       sim.emitEvent(
@@ -4895,7 +5512,7 @@ proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
     return
   if sim.players[shooterIndex].fireWindup > 0:
     return
-  sim.players[shooterIndex].fireWindup = sim.config.fireWindupTicks
+  sim.players[shooterIndex].fireWindup = sim.playerWindupTicks(shooterIndex)
   sim.players[shooterIndex].windupBrads = sim.players[shooterIndex].aimBrads
 
 
@@ -5008,6 +5625,14 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     # A paint-bomb blast marks everyone caught in it — stamp so the EYES-PiP
     # visor splat fires for this paint hit (gun/grenade; spray stamps its own).
     sim.players[i].paintHitTick = sim.tickCount
+    # Damage is the DENSE half of the ladder. Muster's v9 lesson: pair
+    # sparse glory events (objective alignment) with dense shaping
+    # (credit assignment), or the signal is too rare to climb.
+    # Without this `XpPerDamage` is a declared constant nothing
+    # reads -- the dead-layer class this system exists to refuse.
+    if grenade.thrower >= 0 and grenade.thrower < sim.players.len and
+        sim.players[grenade.thrower].team != sim.players[i].team:
+      sim.addXp(grenade.thrower, XpPerDamage * GrenadeDamage)
     sim.emitEvent(
       Damage, source = grenade.thrower, target = i, weapon = "grenade",
       amount = GrenadeDamage, hp = max(0, sim.players[i].hp),
@@ -5020,7 +5645,11 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       amount: GrenadeDamage, color: sim.players[i].color
     )
     if sim.players[i].hp <= 0:
-      sim.killPlayer(i, grenade.thrower)
+      # `blastKills` counts NON-SELF kills only and is incremented below, so
+      # reading it here asks "did this blast already kill someone else?" --
+      # exactly the multi-kill test, without double-counting the tally the
+      # multiKills2/3 accounting depends on.
+      sim.killPlayer(i, grenade.thrower, "grenade", multi = blastKills > 0)
       if grenade.thrower != i:
         sim.recordKill(grenade.thrower)
         sim.recordTeamKill(grenade.thrower, i)
@@ -5068,6 +5697,10 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + GrenadeRespawnTicks
       sim.players[playerIndex].hasGrenade = true
+      sim.players[playerIndex].tookGrenade = true
+      sim.addXp(playerIndex, XpPerPickup)
+      sim.players[playerIndex].grenadeCharges =
+        levelGrenadeCharges(sim.players[playerIndex].level)
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a grenade"
@@ -5092,18 +5725,48 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].hp >= sim.config.hitPoints:
+  # Heal to the LEVELLED ceiling: a level grants headroom, and this is where a
+  # veteran actually banks it.
+  if sim.players[playerIndex].hp >= sim.playerMaxHp(playerIndex):
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
     py = sim.players[playerIndex].y + CollisionH div 2
     rangeSq = MedKitPickupRange * MedKitPickupRange
+    onOneHp = sim.players[playerIndex].hp <= 1
+    # 🚨 Read the ceiling BEFORE this pickup grants a single point of xp.
+    # Both the clutch bonus and the per-hit-point heal xp below can cross a
+    # level threshold, and `LevelBonusHp` then raises `playerMaxHp` MID-HEAL.
+    # Filling to the new ceiling hands the cog a hit point it never earned
+    # back -- the exact snowball glory.nim forbids ("a raised max hp does NOT
+    # heal the cog... otherwise a level-up is a free full heal at the exact
+    # moment you are winning a fight"). It also made the Heal event LIE:
+    # `amount` was measured against the old ceiling and `hp` against the new
+    # one, so the stream reported "restored 1, now at 4" for a cog that was on
+    # 2 -- and every heal metric we read off the tier-2 channel undercounted.
+    # `tests/test_extract_events.nim` catches it as hp=4 against 1+2.
+    ceiling = sim.playerMaxHp(playerIndex)
   for spawn in sim.medKitSpawns.mitems:
     if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
       spawn.present = false
       spawn.respawnAt = sim.tickCount + MedKitRespawnTicks
-      let healed = sim.config.hitPoints - sim.players[playerIndex].hp
-      sim.players[playerIndex].hp = sim.config.hitPoints
+      sim.players[playerIndex].tookMedKit = true
+      # A heal taken at 1 hp is the save the crowd watches -- and the deed
+      # aimed squarely at our measured gap (0.62 kits/Ep against winners'
+      # 1.84-2.60).
+      if onOneHp:
+        sim.awardDeed(sim.players[playerIndex].team, dClutchHeal,
+                      sim.players[playerIndex].x, sim.players[playerIndex].y)
+        sim.addXp(playerIndex, XpPerClutchHeal)
+        inc sim.players[playerIndex].clutchHeals
+        sim.players[playerIndex].clutchHealTick = sim.tickCount
+      let healed = ceiling - sim.players[playerIndex].hp
+      # Bank the hit points FIRST, then pay the xp -- the same order the tithe
+      # path already uses, and the reason the ceiling cannot move under us.
+      sim.players[playerIndex].hp = ceiling
+      # Healing is levelling WORK, per hit point restored -- plus the pickup
+      # itself: both halves of Maxwell's kills-don't-level ruling.
+      sim.addXp(playerIndex, XpPerPickup + XpPerHeal * healed)
       sim.emitEvent(
         Heal, source = playerIndex, amount = healed,
         hp = sim.players[playerIndex].hp, x = float(px), y = float(py)
@@ -5142,6 +5805,8 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
+      sim.players[playerIndex].tookShield = true
+      sim.addXp(playerIndex, XpPerPickup)
       sim.players[playerIndex].shieldHp = ShieldLayerHp
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
@@ -5162,6 +5827,11 @@ proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + PlasmaArcRespawnTicks
       sim.players[playerIndex].hasPlasmaArc = true
+      sim.players[playerIndex].tookSpray = true
+      sim.addXp(playerIndex, XpPerPickup)
+      # A fresh can is a fresh streak: the Repainted/Muralist tiers ask what
+      # ONE pickup produced, so the counter belongs to the can, not the cog.
+      sim.players[playerIndex].sprayKillsThisPickup = 0
       sim.players[playerIndex].fireWindup = 0
       sim.players[playerIndex].windupBrads = -1
       sim.logGameEvent(
@@ -5239,6 +5909,78 @@ proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   for shot in shots:
     sim.applyFire(shot.shooter, shot.target)
 
+proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
+  ## Take a piece of kit a 3-star teammate's heart produced. Only the OWNING
+  ## team can collect: the tithe is a veteran paying their own squad, so an
+  ## enemy standing on your pedestal cannot farm your veteran's work.
+  if not sim.players[playerIndex].alive:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = MedKitPickupRange * MedKitPickupRange
+    team = sim.players[playerIndex].team
+  var taken = -1
+  for i, pickup in sim.tithePickups:
+    if sim.groundOwner(pickup.x, pickup.y) != team:
+      continue
+    if distSq(px, py, pickup.x, pickup.y) > rangeSq:
+      continue
+    case pickup.kind
+    of "med kit":
+      if sim.players[playerIndex].hp >= sim.playerMaxHp(playerIndex): continue
+      let restored = sim.playerMaxHp(playerIndex) - sim.players[playerIndex].hp
+      sim.players[playerIndex].hp = sim.playerMaxHp(playerIndex)
+      sim.players[playerIndex].tookMedKit = true
+      sim.addXp(playerIndex, XpPerPickup + XpPerHeal * restored)
+      # 🚨 A tithed heal MUST emit, exactly like the ground med kit does.
+      # Without this the hp trace silently desynchronises: a cog restored by
+      # its own heart gains hit points that no consumer of the tier-2 channel
+      # can see, so the very next real Heal reports an `hp` that does not
+      # equal `last hp + amount`. `tests/test_extract_events.nim` caught it as
+      # hp=4 against an expected 3. This is the dead-layer class the module
+      # header warns about, in its quietest form -- not a layer that never
+      # fires, but a STATE CHANGE THAT NEVER ANNOUNCES ITSELF.
+      sim.emitEvent(
+        Heal, source = playerIndex, amount = restored,
+        hp = sim.players[playerIndex].hp,
+        x = float(sim.players[playerIndex].x),
+        y = float(sim.players[playerIndex].y)
+      )
+    of "grenade":
+      if sim.players[playerIndex].hasGrenade: continue
+      sim.players[playerIndex].hasGrenade = true
+      sim.players[playerIndex].tookGrenade = true
+      sim.addXp(playerIndex, XpPerPickup)
+      sim.players[playerIndex].grenadeCharges =
+        levelGrenadeCharges(sim.players[playerIndex].level)
+    of "spray can":
+      if sim.players[playerIndex].hasPlasmaArc: continue
+      sim.players[playerIndex].hasPlasmaArc = true
+      sim.players[playerIndex].tookSpray = true
+      sim.addXp(playerIndex, XpPerPickup)
+      sim.players[playerIndex].sprayKillsThisPickup = 0
+    of "shield":
+      if sim.players[playerIndex].hasShield: continue
+      sim.players[playerIndex].hasShield = true
+      sim.players[playerIndex].tookShield = true
+      sim.addXp(playerIndex, XpPerPickup)
+      sim.players[playerIndex].shieldHp = ShieldLayerHp
+    else: continue
+    taken = i
+    break
+  if taken >= 0:
+    sim.tithePickups.delete(taken)
+
+proc expireTithes*(sim: var SimServer) =
+  ## Untaken kit evaporates. Without this a stalemate accumulates pickups at
+  ## a pedestal forever, which is a per-tick income by another name.
+  var kept: seq[TithePickup]
+  for pickup in sim.tithePickups:
+    if pickup.expiresAt > sim.tickCount:
+      kept.add pickup
+  sim.tithePickups = kept
+
 proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player steal the ENEMY team's flag off its pedestal by
   ## touch. A player's own flag cannot be interacted with by their own team.
@@ -5256,6 +5998,11 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].carryingFlag = true
     # A steal is action: keep at least ActionClockFloorTicks on the clock.
     sim.floorGameClock()
+    sim.awardDeed(sim.players[playerIndex].team, dFlagSteal,
+                  sim.players[playerIndex].x, sim.players[playerIndex].y)
+    sim.addXp(playerIndex, XpPerSteal)
+    inc sim.players[playerIndex].steals
+    sim.players[playerIndex].stealTickThisLife = sim.tickCount
     sim.emitEvent(
       FlagSteal, source = playerIndex,
       x = float(sim.flags[flagTeam].x), y = float(sim.flags[flagTeam].y)
@@ -5321,7 +6068,7 @@ proc applyInput*(
 
   let
     speedScale =
-      if player.carryingFlag: sim.config.carrierSpeedPct else: 100
+      if player.carryingFlag: sim.playerCarrierSpeedPct(playerIndex) else: 100
     maxSpeed = sim.config.maxSpeed * speedScale div 100
     accel = sim.config.accel * speedScale div 100
 
@@ -5914,6 +6661,15 @@ proc step*(
   prevInputs: openArray[InputState]
 ) {.measure.} =
   inc sim.tickCount
+  # A stalled rampage bleeds back down the ladder (see heatCool).
+  sim.heatCool()
+  sim.expireTithes()
+  # Evaluate EVERY team's satisfied tiers before any claim is minted: the
+  # naive per-team loop marked `claimedFirst` as it went, so when both teams
+  # completed a tier on the same tick the x3 always went to Red purely by
+  # enum order. Same-tick completion is a genuine tie -- both claimants take
+  # the first-claim multiplier; neither is punished for the poll sequence.
+  sim.evalAchievementsAllTeams()
 
   # Roster-driven transitions belong inside the deterministic step: leaves
   # are recorded and re-applied, so replays re-derive these exactly. (They
@@ -5980,6 +6736,7 @@ proc step*(
     sim.tryPickupFlags(playerIndex)
     sim.tryPickupGrenades(playerIndex)
     sim.tryPickupMedKits(playerIndex)
+    sim.tryPickupTithes(playerIndex)
     sim.tryPickupShields(playerIndex)
     sim.tryPickupPlasmaArcs(playerIndex)
   sim.updateFlags()

@@ -45,6 +45,7 @@ name p<n>
 name p<n> flag <n>
 player <color>
 player <color> <side>
+score p<n> <n> <stars> color <n>
 score p<n> <n> color <n>
 score pip <color>
 selected player <color> <side>
@@ -58,9 +59,11 @@ splatter <color> stage <n>
 spray can
 spray can carried
 spray paint puff
-team score BLUE <n>/1
-team score RED <n>/0
+team score BLUE <n>/1  <n>g
+team score RED <n>/0  <n>g  x<n>
 throw target
+tithe halo
+veteran mark <n>
 walkability map
 weapon gun
 weapon spray

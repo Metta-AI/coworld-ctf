@@ -18,6 +18,7 @@
 
 import
   std/[algorithm, json, math, strutils],
+  glory,
   sim
 
 type
@@ -31,6 +32,13 @@ type
     deaths: seq[int]
     captures: seq[int]
     carriers: array[Team, int]
+    achievements: int         ## sim.achievementFeed.len at the last snapshot.
+                              ## The feed is APPEND-ONLY within a life of the
+                              ## sim but is cleared on restart (sim.nim's
+                              ## `restartGame`), and a seek re-runs from a
+                              ## keyframe -- so this is a high-water mark that
+                              ## can legitimately EXCEED the live length, and
+                              ## every read of it must clamp.
 
 proc initBroadcastTracker*(): BroadcastTracker =
   ## Returns a fresh, unsynced broadcast tracker.
@@ -56,6 +64,7 @@ proc snapshot(tracker: var BroadcastTracker, sim: SimServer) =
     tracker.captures[i] = p.captures
   for team in Team:
     tracker.carriers[team] = sim.flags[team].carrier
+  tracker.achievements = sim.achievementFeed.len
   tracker.prevTick = sim.tickCount
   tracker.prevPhase = sim.phase
   tracker.initialized = true
@@ -177,6 +186,33 @@ proc stepEvents*(
         "flag": teamText(enemy(p.team))
       })
 
+  # Achievement claims, read straight off the sim's ledger rather than diffed
+  # -- `sim.achievementFeed` IS the append-only record, so the only state we
+  # need is how much of it the client has already been told about.
+  #
+  # APPENDED LAST, and as a NEW kind. The kill/steal/return/capture stream
+  # above is asserted tuple-for-tuple against tools/expand_replay.nim
+  # (tests/test_broadcast_state.nim), so reordering it or reusing one of its
+  # kinds would break the story the timeline tool tells. A new kind at the end
+  # is invisible to that comparison.
+  #
+  # The `min` is NOT belt-and-braces. `restartGame` clears the feed and a seek
+  # replays from a keyframe, so the cached length routinely exceeds the live
+  # one; without the clamp a scrub-to-start would index off the end (or, once
+  # the feed refilled, re-shout the whole ledger at the viewer).
+  for i in min(tracker.achievements, sim.achievementFeed.len) ..<
+      sim.achievementFeed.len:
+    let claim = sim.achievementFeed[i]
+    events.add(%*{
+      "t": claim.tick,
+      "k": "achv",
+      "team": teamText(claim.team),
+      "name": achievementName(claim.tree, claim.tier),
+      "tier": claim.tier,
+      "glory": claim.glory,
+      "first": claim.first
+    })
+
   tracker.snapshot(sim)
 
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
@@ -188,8 +224,31 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     "lives": sim.teamLivesRemaining(team),
     "flag": (if taken: "taken" else: "home"),
     "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
-    "prog": sim.teamFlagProgress(enemy(team))
+    "prog": sim.teamFlagProgress(enemy(team)),
+    # GLORY: the team ledger and its rampage multiplier. Priced entirely by
+    # glory.nim -- `heatMult` is shipped rather than recomputed client-side so
+    # the browser can never drift from the ladder the sim actually paid out.
+    # `embers` rides along because the multiplier alone hides how close a team
+    # is to the next rung.
+    "glory": sim.teamGlory[team],
+    "heat": heatMult(sim.heatEmbers[team]),
+    "embers": sim.heatEmbers[team]
   }
+  # The team's earned achievement LEDGER, complete every frame. State-derived
+  # rather than accumulated from `achv` events client-side, so a seek or a
+  # loop can never leave the panel stale or double-counted -- the same reason
+  # the scorebug reads state, not events. Bounded at 40 entries/team; the
+  # names come from glory.nim's single source via achievementName.
+  var claims = newJArray()
+  for claim in sim.achievementFeed:
+    if claim.team == team:
+      claims.add %*{
+        "n": achievementName(claim.tree, claim.tier),
+        "t": claim.tier + 1,
+        "f": claim.first,
+        "tk": claim.tick
+      }
+  result["claims"] = claims
 
 proc rosterJson(sim: SimServer): JsonNode =
   ## Returns the per-player roster array keyed by stable join slot.
@@ -209,7 +268,11 @@ proc rosterJson(sim: SimServer): JsonNode =
       "cap": p.captures,
       "mk2": p.multiKills2,
       "mk3": p.multiKills3,
-      "tk": p.teamKills
+      "tk": p.teamKills,
+      # GLORY: the per-LIFE ladder. Both reset on death by design, so a roster
+      # row is a snapshot of what this cog is worth right now, not a career.
+      "lvl": p.level,
+      "xp": p.xp
     })
 
 const
@@ -583,7 +646,9 @@ proc buildStateJson*(
   skipLulls: bool = false,
   fastForwarding: bool = false,
   lullSpans: seq[array[2, int]] = @[],
-  beatEvents: JsonNode = nil
+  beatEvents: JsonNode = nil,
+  inspectSlot: int = -1,
+  inspectLines: seq[string] = @[]
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -658,6 +723,20 @@ proc buildStateJson*(
     for span in lullSpans:
       spans.add(%*[span[0], span[1]])
     state["lulls"] = spans
+
+  # The inspector card, shipped as FINISHED LINES. `global.inspectorLines` is
+  # the single source of the card's text (it reads the live buff accessors, so
+  # "windup 5t" is the number the sim will actually use); the browser only
+  # styles what it is handed. Reimplementing any of it in JS would fork the
+  # glory ladder into a second, silently-drifting copy -- the exact failure
+  # glory.nim's "one accessor" rule exists to prevent.
+  #
+  # Threaded in as a defaulted parameter rather than computed here on purpose:
+  # this module imports only `sim`, while `inspectorLines` lives in global.nim
+  # behind pixie + bitworld/server. Keeping that cone out of broadcast.nim is
+  # what keeps the WASM bundle buildable.
+  if inspectSlot >= 0 and inspectLines.len > 0:
+    state["insp"] = %*{"slot": inspectSlot, "lines": inspectLines}
 
   # The end-card is STATE, not an event: present on every game-over frame so a
   # viewer who seeks straight to the end still sees the verdict. isDraw is read

@@ -2,7 +2,7 @@ import
   std/[algorithm, math, os, strutils, tables],
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
-  labels, sim
+  glory, labels, sim
 
 const
   BroadcastChromeSpriteId* = 4090
@@ -212,6 +212,23 @@ const
   PaintBombCarryObjectBase = 19360   ## carried markers: one per player.
   ThrowTargetObjectBase = 19400      ## charge rings: one per player.
   BlastObjectBase = 19440            ## blast flashes: one per recent blast.
+  TitheObjectBase = 19800        ## veteran-tithed kit: 19800..19831, in the
+                                 ## gap between the spray cone FX (..19795)
+                                 ## and the map markers (20000).
+  TitheHaloSpriteId = 2390       ## the one shared veteran halo under tithed
+                                 ## kit; 2390 sits in the gap between the
+                                 ## spray FX puffs (..2385) and the rank
+                                 ## plumes (2400..).
+  TitheHaloObjectBase = 19860    ## tithe halos: 19860..19891, after the rank
+                                 ## plumes (19840..19855) and still clear of
+                                 ## the map markers (20000).
+  TitheHaloSize = 28             ## px across; wider than the widest kit
+                                 ## sprite so the ring reads as a ring around
+                                 ## the kit rather than a box behind it.
+  VeteranMarkSpriteBase = 2400   ## per-player rank plume text: 2400..2415,
+                                 ## clear of the spray FX puffs (..2385) and
+                                 ## the replay UI sprites (4002).
+  VeteranMarkObjectBase = 19840  ## rank plumes: one per player.
   ShoutSpriteBase = 22000      ## speech-bubble sprites: one per live shout
                                ## (content-keyed, so unique per shout, clear
                                ## of the fog runs at 21000 and map markers at
@@ -392,6 +409,20 @@ const
   PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
   PlayerInterstitialLayerType = 5
   ## Team kills/deaths scoreboard shown above the field in every view.
+  InspectorLayerId = 12        ## hover/selection inspector card, bottom-right.
+                               ## 12 because 8-10 belong to the replay chrome
+                               ## and 11 is the team score.
+  InspectorLayerType = 3       ## bottom-right anchor: clear of the top-left
+                               ## roster and the top-center score line.
+  InspectorWidth = 8           ## resting size: effectively invisible when no
+                               ## cog is hovered. NEVER full-screen -- a
+                               ## full-screen UI layer paints over the board.
+  InspectorHeight = 8
+  InspectorSpriteId = 12200
+  InspectorObjectId = 9700
+  InspectorMaxAchievements = 10  ## most recent claims shown; the count in the
+                               ## header is always the TRUE total, so a
+                               ## truncated list can never read as complete.
   TeamScoreLayerId = 11        ## NOT 8: the replay viewer re-registers layer 8 as its
                                ## center-BOTTOM scrubber panel, which dragged the team
                                ## scoreboard to the bottom of replays.
@@ -428,7 +459,7 @@ const
   ]
 
 type
-  SpriteDefinition = ref object
+  SpriteDefinition* = ref object
     spriteId: int
     width: int
     height: int
@@ -445,6 +476,27 @@ type
     clickPending*: bool
     povActive*: bool
     povJoinOrder*: int
+    inspectIndex*: int           ## player index the inspector card resolved to
+    inspectPinned*: int          ## join order PINNED by a board click, -1 =
+                                 ## none. Join order, not player index, so the
+                                 ## pin survives any roster reindex. The card
+                                 ## follows the pin, never the cursor: cogs
+                                 ## outrun a hover in under a second, and a
+                                 ## card you cannot mouse INTO cannot carry
+                                 ## buttons.
+    inspectClickPending*: bool   ## an `i:@` command arrived: hit-test the
+                                 ## current cursor next frame and re-pin (or
+                                 ## clear, if the click hit empty board).
+    inspectPinPending*: int      ## direct pin request from an `i:<slot>`
+                                 ## command; -2 = none, -1 = clear.
+                                 ## THIS frame (-1 = nothing hovered/pinned).
+                                 ## Derived, never an input: the hover hit test
+                                 ## lives here in global.nim, and the replay
+                                 ## chrome reads this out rather than
+                                 ## re-deriving a second answer from the
+                                 ## cursor. Two hit tests over one cursor is
+                                 ## how a card ends up naming a different cog
+                                 ## than the one the board highlights.
     povState*: PlayerViewerState
     scrubbingReplay*: bool
     replaySeekTick*: int
@@ -697,10 +749,13 @@ proc initGlobalViewerState*(): GlobalViewerState =
   result.mouseLayer = MapLayerId
   result.selectedJoinOrder = -1
   result.povJoinOrder = -1
+  result.inspectIndex = -1
   new(result.povState)
   result.replaySeekTick = -1
   result.replayCommands = @[]
   result.povSelectPending = -2   ## -2 = no request; -1 = clear; >=0 = slot.
+  result.inspectPinned = -1
+  result.inspectPinPending = -2
   result.cogDriveTick = low(int)  ## no drive step yet; the first frame snaps.
 
 proc initPlayerViewerState*(): PlayerViewerState =
@@ -993,9 +1048,34 @@ proc applyGlobalViewerMessage*(
         let slot = try: parseInt(item.text[2 .. ^1]) except ValueError: -2
         if slot >= -1:
           state.povSelectPending = slot
+      elif item.text.startsWith("i:"):
+        # Inspector pin. `i:@` = hit-test the streamed cursor position next
+        # frame (the click); `i:<slot>` = pin that join order directly;
+        # `i:-1` = clear (the card's close button). The hit test stays in
+        # Nim beside every other hit test -- the chrome never resolves a cog.
+        if item.text == "i:@":
+          state.inspectClickPending = true
+        else:
+          let slot = try: parseInt(item.text[2 .. ^1]) except ValueError: -2
+          if slot >= -1:
+            state.inspectPinPending = slot
       else:
         state.replayCommands.add(item.text)
     of SpriteClientInputMessage:
+      discard
+    # bitworld's client-message enum has grown kinds this viewer takes no
+    # action on (the Sprite v1 ready packet is consumed by server.nim's
+    # fastMode pacing; the debug-sprite request is a dev tool).
+    #
+    # This has to be `else`, not the explicit kinds. The replay-viewer WASM
+    # image pins an OLDER bitworld where those identifiers do not exist, so
+    # naming them compiles locally and breaks the bundle build. `else` is
+    # correct against every pinned version.
+    #
+    # The cost is real and worth stating: we lose the exhaustiveness check
+    # here, so a future kind that DOES need handling will be silently
+    # swallowed rather than failing to compile.
+    else:
       discard
 
 proc applyPlayerViewerMessage*(
@@ -1014,6 +1094,20 @@ proc applyPlayerViewerMessage*(
       pressedMask = pressedMask or (item.mask and not inputMask)
       inputMask = item.mask
     of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage:
+      discard
+    # bitworld's client-message enum has grown kinds this viewer takes no
+    # action on (the Sprite v1 ready packet is consumed by server.nim's
+    # fastMode pacing; the debug-sprite request is a dev tool).
+    #
+    # This has to be `else`, not the explicit kinds. The replay-viewer WASM
+    # image pins an OLDER bitworld where those identifiers do not exist, so
+    # naming them compiles locally and breaks the bundle build. `else` is
+    # correct against every pinned version.
+    #
+    # The cost is real and worth stating: we lose the exhaustiveness check
+    # here, so a future kind that DOES need handling will be silently
+    # swallowed rather than failing to compile.
+    else:
       discard
 
 proc isSolid(sprite: Sprite, x, y: int, flipH: bool): bool =
@@ -1286,6 +1380,22 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
         (float(y) - c) * (float(y) - c))
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
+
+proc buildTitheHaloSprite(): seq[uint8] {.measure.} =
+  ## The veteran halo laid UNDER tithed kit: a soft amber ring with a faint
+  ## fill, in the same warm-amber the rest of the chrome uses for "earned".
+  ## Hollow-ish on purpose -- it must say "a veteran's heart made this" without
+  ## hiding which kind of kit is sitting on it.
+  result = newRgbaPixels(TitheHaloSize, TitheHaloSize)
+  let c = float(TitheHaloSize - 1) / 2
+  for y in 0 ..< TitheHaloSize:
+    for x in 0 ..< TitheHaloSize:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d > c:
+        continue
+      let alpha = if d >= c - 2.0: 190'u8 else: 40'u8
+      result.putRawRgbaPixel(y * TitheHaloSize + x, 232, 163, 61, alpha)
 
 proc buildShieldBubblePixels(
   dentBucket, stage: int
@@ -2587,8 +2697,17 @@ proc addTeamScoreboard(
     kills[p.team] += p.kills
     deaths[p.team] += p.deaths
   let
-    redText = "RED " & $kills[Red] & "/" & $deaths[Red]
-    blueText = "BLUE " & $kills[Blue] & "/" & $deaths[Blue]
+    # Glory and the live heat multiplier ride the same line as kills/deaths.
+    # A number with no context is unreadable, so heat only shows when it is
+    # actually lit (x1 is the resting state and saying so is noise).
+    redHeat = heatMult(sim.heatEmbers[Red])
+    blueHeat = heatMult(sim.heatEmbers[Blue])
+    redText = "RED " & $kills[Red] & "/" & $deaths[Red] &
+      "  " & $sim.teamGlory[Red] & "g" &
+      (if redHeat > 1: "  x" & $redHeat else: "")
+    blueText = "BLUE " & $kills[Blue] & "/" & $deaths[Blue] &
+      "  " & $sim.teamGlory[Blue] & "g" &
+      (if blueHeat > 1: "  x" & $blueHeat else: "")
     red = sim.buildSpriteProtocolTextSprite([redText], teamColor(Red))
     blue = sim.buildSpriteProtocolTextSprite([blueText], teamColor(Blue))
     totalWidth = red.width + TeamScoreGap + blue.width
@@ -3093,6 +3212,11 @@ proc buildSpriteProtocolInit(
   result.addLayer(BottomRightLayerId, BottomRightLayerType, UiLayerFlag)
   result.addViewport(BottomRightLayerId, ScreenWidth, ScreenHeight)
   result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
+  # Register the inspector layer up front so the client knows it exists, but
+  # keep the viewport CARD-SIZED. A full-screen UI layer here paints opaque
+  # over the whole board -- that is what turned the viewer black.
+  result.addLayer(InspectorLayerId, InspectorLayerType, UiLayerFlag)
+  result.addViewport(InspectorLayerId, InspectorWidth, InspectorHeight)
   result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
   # The map rides as horizontal bands (see addMapBands): one ~1.09 MB map
   # sprite exceeds the hosted 1 MiB WS frame cap — banding keeps every pixel
@@ -3128,6 +3252,11 @@ proc buildSpriteProtocolPlayerInit(
   )
   result.addViewport(PlayerInterstitialLayerId, ScreenWidth, ScreenHeight)
   result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
+  # Register the inspector layer up front so the client knows it exists, but
+  # keep the viewport CARD-SIZED. A full-screen UI layer here paints opaque
+  # over the whole board -- that is what turned the viewer black.
+  result.addLayer(InspectorLayerId, InspectorLayerType, UiLayerFlag)
+  result.addViewport(InspectorLayerId, InspectorWidth, InspectorHeight)
   result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
   result.addSpriteChanged(
     spriteDefs,
@@ -3202,14 +3331,24 @@ proc scoreboardPipSpriteId(colorIndex: int): int =
   ## Returns the stable score pip sprite id for one color.
   ScoreboardPipSpriteBase + colorIndex
 
-proc scoreboardName(player: Player): string =
+proc scoreboardName*(player: Player): string =
   ## Returns the clickable scoreboard player label. The color pip next to the
   ## row already carries the team, so no (red)/(blue) tag.
+  ##
+  ## Exported because it is also the inspector card's headline AND the
+  ## inspector sprite's LABEL, so a test that proves the card reached the wire
+  ## has to be able to name the same string the emitter used -- asserting
+  ## against a hand-retyped copy would just restate the claim.
   player.playerLabelText()
 
 proc scoreboardText(player: Player): string =
-  ## Returns one compact scoreboard row.
-  player.scoreboardName() & " " & $player.lives
+  ## Returns one compact scoreboard row: name, lives, and the cog's current
+  ## rank once it has one. The rank is per LIFE, so a row that loses its stars
+  ## is telling you the veteran just died -- which is the single most useful
+  ## thing the picker can say during a fight.
+  result = player.scoreboardName() & " " & $player.lives
+  if player.level > 0:
+    result &= " " & repeat("*", min(player.level, MaxLevel))
 
 proc scoreboardJoinOrderAt(
   sim: SimServer,
@@ -3837,6 +3976,248 @@ proc addMedKits(
       spawn.x - MedKitSize div 2,
       spawn.y - MedKitSize div 2,
       spawn.y, MapLayerId, MedKitSpriteId
+    )
+
+proc inspectorLines*(sim: SimServer, playerIndex: int): seq[string] =
+  ## The hover card's text: what this cog has earned, and what its team has
+  ## claimed. Every number carries its unit or its context -- a bare count
+  ## tells a spectator nothing.
+  let
+    player = sim.players[playerIndex]
+    team = player.team
+    level = clampLevel(player.level)
+    nextAt =
+      if level >= MaxLevel: 0 else: LevelThresholds[level]
+  result.add player.scoreboardName().toUpperAscii()
+  result.add "rank " & levelName(level).toUpperAscii() &
+    (if level > 0: " " & repeat("*", level) else: "")
+  result.add(
+    if level >= MaxLevel: "xp " & $player.xp & " (max rank)"
+    else: "xp " & $player.xp & " / " & $nextAt & " to " &
+          levelName(level + 1))
+  # What the ladder is currently BUYING, so the card explains the cog's power
+  # rather than just labelling it.
+  if level > 0:
+    var buffs: seq[string]
+    if LevelWindupDelta[level] != 0:
+      buffs.add "windup " & $sim.playerWindupTicks(playerIndex) & "t"
+    if LevelGunRangePct[level] != 100:
+      buffs.add "range +" & $(LevelGunRangePct[level] - 100) & "%"
+    if LevelBonusHp[level] != 0:
+      buffs.add "hp " & $sim.playerMaxHp(playerIndex)
+    if LevelFireCooldownPct[level] != 100:
+      buffs.add "rof " & $sim.playerFireCooldown(playerIndex) & "t"
+    if LevelGrenadeCharges[level] > 1:
+      buffs.add "nade x" & $LevelGrenadeCharges[level]
+    if LevelCarrierSpeedWaived[level]:
+      buffs.add "no carry tax"
+    if buffs.len > 0:
+      result.add "buffs " & buffs.join(" ")
+  result.add "hp " & $player.hp & "/" & $sim.playerMaxHp(playerIndex) &
+    "  lives " & $player.lives
+  # `player.kills` is the raw recordKill tally and includes teammates; the
+  # per-weapon counters below count enemies only. Showing the tk term is what
+  # keeps the headline reconcilable with the breakdown -- without it a cog
+  # that only ever shot a teammate reads "kills 1 / gun 0 spray 0 nade 0".
+  result.add "kills " & $player.kills &
+    (if player.teamKills > 0: " (tk " & $player.teamKills & ")" else: "") &
+    "  deaths " & $player.deaths
+  result.add "gun " & $player.gunKills & " spray " & $player.sprayKills &
+    " nade " & $player.grenadeKills
+  result.add "soak " & $player.soakedHp & "hp  heals " & $player.clutchHeals
+  result.add "steals " & $player.steals & " peels " & $player.carrierKills &
+    " denials " & $player.denials
+  if player.level >= StarfallLevel:
+    # At the per-life cap the credit keeps accruing but can never convert, so
+    # the un-clamped readout rendered "(440/20 to next)" -- a progress bar
+    # pointing past its own end. Say "tap closed" instead of lying.
+    result.add "tithes " & $player.tithesThisLife & "/" & $TitheMaxPerLife &
+      (if player.tithesThisLife >= TitheMaxPerLife: "  (tap closed)"
+       else: "  (" & $min(player.titheCredit, TitheXp) & "/" & $TitheXp &
+             " to next)")
+  var claims: seq[AchievementClaim]
+  for claim in sim.achievementFeed:
+    if claim.team == team:
+      claims.add claim
+  result.add ""
+  result.add teamText(team).toUpperAscii() & " GLORY " & $sim.teamGlory[team] &
+    "  HEAT x" & $heatMult(sim.heatEmbers[team])
+  result.add "ACHIEVEMENTS " & $claims.len & "/" &
+    $(AchievementTrees * AchievementTiers)
+  let startAt = max(0, claims.len - InspectorMaxAchievements)
+  if startAt > 0:
+    result.add "  ... " & $startAt & " earlier"
+  for i in startAt ..< claims.len:
+    let claim = claims[i]
+    result.add "  " & achievementName(claim.tree, claim.tier) &
+      " " & repeat("*", claim.tier + 1) &
+      (if claim.first: " FIRST" else: "") & " +" & $claim.glory & "g"
+
+proc addInspector*(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  playerIndex: int
+) {.measure.} =
+  ## The hover/selection card: point at a cog and read its rank, what that rank
+  ## is buying it, its deed counters, and its team's achievement ledger.
+  ##
+  ## Server-rendered like everything else on this board -- the client already
+  ## streams the cursor every frame, so the hit test and the card both live
+  ## here and no new client code is needed.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return
+  if sim.phase != Playing:
+    return
+  let
+    lines = sim.inspectorLines(playerIndex)
+    card = sim.buildSpriteProtocolTextSprite(
+      lines, teamColor(sim.players[playerIndex].team))
+  packet.addViewport(
+    InspectorLayerId, max(InspectorWidth, card.width + 8),
+    max(InspectorHeight, card.height + 8))
+  currentIds.add(InspectorObjectId)
+  packet.addSpriteChanged(
+    spriteDefs, InspectorSpriteId, card.width, card.height, card.pixels,
+    "inspector " & sim.players[playerIndex].scoreboardName()
+  )
+  packet.addBoardObject(
+    InspectorObjectId, 4, 4, 0, InspectorLayerId, InspectorSpriteId)
+
+proc addTithePickups(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Draws the kit a 3-star veteran's heart has produced.
+  ##
+  ## 🚨 This proc is not optional garnish. Muster shipped terrain that drove
+  ## collision and sight while the floor baked flat grey -- twice in one
+  ## branch -- and banked the rule: ANY rule the sim reads, the viewer must
+  ## draw. Tithed kit is real, collectable, gameplay-affecting state; undrawn
+  ## it is a cog picking up an invisible object.
+  ##
+  ## It reuses each kind's EXISTING sprite and, more importantly, its existing
+  ## LABEL. Labels are the observation schema, so tithed kit reads to every
+  ## policy in the league as ordinary kit of that type -- no perception change,
+  ## no bot update, nothing to renegotiate. Only the object-id range differs.
+  for i in 0 ..< sim.tithePickups.len:
+    let pickup = sim.tithePickups[i]
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, pickup.x, pickup.y):
+      continue
+    var spriteId, size: int
+    case pickup.kind
+    of "med kit":
+      spriteId = MedKitSpriteId
+      size = MedKitSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadMedKitSprite(size * boardScale), LabelMedKit, native = boardScale)
+    of "grenade":
+      spriteId = PaintBombPickupSpriteId
+      size = PaintBombPickupSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadPaintBombSprite(size * boardScale), LabelGrenade,
+          native = boardScale)
+    of "spray can":
+      spriteId = PlasmaArcPickupSpriteId
+      size = PlasmaArcPickupSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadSprayCanSprite(size * boardScale), LabelSprayCan,
+          native = boardScale)
+    of "shield":
+      spriteId = ShieldSpriteId
+      size = ShieldSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadShieldSprite(size * boardScale), LabelShield,
+          native = boardScale)
+    else:
+      continue
+    # The veteran halo: a SEPARATE object underneath the kit, never a change to
+    # the kit sprite or its label. Broadcast-only (`viewerIndex < 0`) -- a
+    # player view must keep reading tithed kit as ordinary kit of that type,
+    # which is the whole point of the label reuse above, so the halo is
+    # spectator garnish that no policy is ever shown. z one below the kit's own
+    # y so it lays under it instead of over it.
+    if viewerIndex < 0:
+      let haloId = TitheHaloObjectBase + i
+      if spriteDefs.spriteDefinitionIndex(TitheHaloSpriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, TitheHaloSpriteId, TitheHaloSize, TitheHaloSize,
+          buildTitheHaloSprite(), LabelTitheHalo)
+      currentIds.add(haloId)
+      packet.addBoardObject(
+        haloId, pickup.x - TitheHaloSize div 2,
+        pickup.y - TitheHaloSize div 2,
+        pickup.y - 1, MapLayerId, TitheHaloSpriteId
+      )
+    let objectId = TitheObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId, pickup.x - size div 2, pickup.y - size div 2,
+      pickup.y, MapLayerId, spriteId
+    )
+
+proc addVeteranMarks(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## The rank plume over a levelled cog: one star per level, in team colour,
+  ## and only from StarfallLevel up -- the threshold that also makes the cog a
+  ## bounty and opens its heart's tithe. Below it the field stays quiet.
+  ##
+  ## Stars are the whole reason a levelled cog is READABLE. Without them a
+  ## veteran with four hit points and a shorter windup looks exactly like the
+  ## recruit beside it, and the single most consequential piece of state in a
+  ## fight is invisible to whoever is watching.
+  if sim.phase != Playing:
+    return
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or player.level < StarfallLevel:
+      continue
+    if viewerIndex >= 0 and viewerIndex != i and
+        not sim.fovVisibleAt(viewerIndex, player.x + CollisionW div 2,
+                             player.y + CollisionH div 2):
+      continue
+    let
+      spriteId = VeteranMarkSpriteBase + i
+      objectId = VeteranMarkObjectBase + i
+      stars = repeat("*", min(player.level, MaxLevel))
+      # Board sprite, so it must be built and emitted like one. This used to
+      # rasterise at 1x and ship through the raw addSpriteChanged, which on the
+      # supersampled board (RenderScale) drew the plume at HALF its intended
+      # footprint AND doubled the `- width div 2` centering shift, so the stars
+      # sat small and off to the left of the cog they belong to -- while every
+      # sibling on this layer (addShouts, addIdentityBadges) already used the
+      # smooth + native=boardScale pair. Same two-line pattern here: vector face
+      # at boardScale, LOGICAL dims out, native pixels on the wire.
+      mark = sim.buildSpriteProtocolTextSprite(
+        [stars], teamColor(player.team), smooth = true)
+    currentIds.add(objectId)
+    packet.addBoardSpriteChanged(
+      spriteDefs, spriteId, mark.width, mark.height, mark.pixels,
+      LabelVeteranMark & " " & $player.level,
+      native = boardScale
+    )
+    packet.addBoardObject(
+      objectId,
+      player.x + CollisionW div 2 - mark.width div 2,
+      player.overheadAnchorY() - OverheadYOffset - mark.height - 10,
+      30007, MapLayerId, spriteId
     )
 
 proc addShields(
@@ -4594,6 +4975,10 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addTithePickups(
+      nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
+    sim.addVeteranMarks(
+      nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
     sim.addShields(
       nextState.spriteDefs,
       currentIds,
@@ -5233,6 +5618,34 @@ proc buildSpriteProtocolUpdates*(
     )
     if seekTick >= 0:
       nextState.replaySeekTick = seekTick
+  # Inspector pin commands are INPUT, so they are consumed here with the rest
+  # of the input handling -- BEFORE the POV fork. They used to live in the
+  # board branch, where they were unreachable the moment a `v:` command turned
+  # povActive on: CLOSE stopped working exactly while the EYES view was open,
+  # which is the one moment the card is guaranteed to be up.
+  if nextState.inspectClickPending:
+    nextState.inspectClickPending = false
+    let hit =
+      if nextState.mouseLayer == MapLayerId:
+        sim.selectSpritePlayer(
+          nextState.mouseX div RenderScale, nextState.mouseY div RenderScale)
+      else:
+        -1
+    nextState.inspectPinned =
+      if hit >= 0: sim.players[hit].joinOrder else: -1
+  if nextState.inspectPinPending >= -1:
+    nextState.inspectPinned = nextState.inspectPinPending
+    nextState.inspectPinPending = -2
+  # The pin is the card's ONLY subject, in both branches. POV used to force
+  # the subject to the ridden seat, which meant the card could not be closed
+  # while a lens was open; now entering EYES from the card keeps the card
+  # (the pin is already that cog) and CLOSE clears it regardless of the lens.
+  nextState.inspectIndex = -1
+  if nextState.inspectPinned >= 0:
+    for i in 0 ..< sim.players.len:
+      if sim.players[i].joinOrder == nextState.inspectPinned:
+        nextState.inspectIndex = i
+        break
   let playerIndex = sim.selectedPlayerIndex(nextState.selectedJoinOrder)
   if playerIndex < 0:
     nextState.selectedJoinOrder = -1
@@ -5325,6 +5738,15 @@ proc buildSpriteProtocolUpdates*(
   sim.addHitFlashes(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
+  sim.addTithePickups(nextState.spriteDefs, currentIds, result)
+  sim.addVeteranMarks(nextState.spriteDefs, currentIds, result)
+  # The pin was consumed and the subject resolved before the POV fork above;
+  # the board branch only has to draw it. (Hover drove the card first and
+  # failed in play: a cog outruns the cursor in under a second, and a card
+  # that vanishes the instant you move toward it cannot carry buttons. The
+  # click pins -- `i:@` -- and the EYES view moved onto the card as a button.)
+  sim.addInspector(
+    nextState.spriteDefs, currentIds, result, nextState.inspectIndex)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addPlasmaArcs(nextState.spriteDefs, currentIds, result)

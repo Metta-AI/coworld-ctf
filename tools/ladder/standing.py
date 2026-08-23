@@ -1,7 +1,15 @@
-"""Where do we stand right now? Leaderboard + our champion state + recent-round trend."""
+"""Where do we stand right now? Leaderboard + our champion state + recent-round trend.
+
+⚠️ The division leaderboard is now a TERRITORY board (campaign cells), not Elo, and it
+identifies rows by `player_name` — `policy_label`, `rounds_played`, `win_rate` and
+`recent_rounds` all come back null. So this prints the campaign standing; for per-round
+policy history use rounds.py / h2h.py, and for the per-MODE split of who owns what use
+the campaign endpoint (/v2/leagues/{id}/campaign) directly.
+"""
 import ctfapi
 
-print("=== CHAMPION STATE (mine, Ctf league) ===")
+ctfapi.whoami()
+print("=== CHAMPION STATE (mine) ===")
 for x in ctfapi.my_memberships():
     pv = x.get("policy_version") or {}
     if x.get("is_champion") or x.get("status") == "competing":
@@ -16,16 +24,18 @@ def n(v, w=6, p=None):
     return f"{v:>{w}}"
 
 
-rows = ctfapi.leaderboard(include_recent_rounds=40)
+rows = ctfapi.leaderboard()
 print(f"\n=== LEADERBOARD ({len(rows)} entrants) ===")
-print(f"{'rk':>3} {'policy':38} {'Elo':>7} {'rds':>5} {'epW':>6} {'epN':>6} {'wr':>6}")
+score_label = (rows[0].get("score_label") if rows else None) or "score"
+print(f"{'rk':>3} {'player':38} {score_label:>10} {'rds':>5} {'epW':>6} {'epN':>6} {'wr':>6}")
 ours = None
 for r in rows:
-    label = str(r.get("policy_label"))
-    line = (f"{n(r.get('rank'), 3)} {label[:38]:38} {n(r.get('score'), 7, 1)} "
+    # player_name is the only reliably-populated identity on this board.
+    label = str(r.get("player_name") or r.get("policy_label"))
+    line = (f"{n(r.get('rank'), 3)} {label[:38]:38} {n(r.get('score'), 10, 1)} "
             f"{n(r.get('rounds_played'), 5)} {n(r.get('episode_wins'))} "
             f"{n(r.get('episodes_played'))} {n(r.get('win_rate'), 6, 3)}")
-    if "Picasso" in label:
+    if label == ctfapi.OUR_PLAYER or "Picasso" in label:
         ours = r
         line += "   <== US"
     print(line)

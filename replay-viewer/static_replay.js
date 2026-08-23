@@ -102,6 +102,15 @@ var Module = window.Module || {};
       copyIntoRuntime(bytes, function (pointer, length) {
         Module._ctf_input(pointer, length);
       });
+    },
+    // Cursor in MAP pixels, for the hover inspector. Not routed through
+    // sendPacket because it is not a viewer MESSAGE — it is a per-frame scalar
+    // pair, and marshalling it as a packet would allocate on every pointermove.
+    // (-1, -1) parks it: the wasm side keys "no hover" off the LAYER, never off
+    // a coordinate.
+    setPointer: function (x, y) {
+      if (!runtimeReady) return;
+      Module._ctf_set_pointer(x | 0, y | 0);
     }
   };
 })();

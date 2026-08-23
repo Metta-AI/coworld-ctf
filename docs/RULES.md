@@ -274,6 +274,44 @@ What that means in practice:
   4-square shape from the first active tick, regardless of how far the
   animation has travelled.
 
+## Glory, ranks and the veteran's tithe
+
+Every consequential act mints **glory** to the acting team, and each cog runs a
+**per-life rank ladder** off the same acts. Both are gameplay, not scoring
+garnish: rank changes what a cog can do.
+
+- **Ranks are per LIFE, and WORK levels a cog -- kills do not.** XP comes
+  from damage landed (any weapon), healing taken (per hit point restored),
+  kit pickups, shield soak, and flag play (steal, capture, and the peel --
+  priced as the flag RETURN it causes). A kill levels nobody: the damage
+  that produced it already did, in proportion to who dealt it. The ladder is
+  `recruit → blooded → marksman → ironhide → quickdraw → legend`. **Death
+  resets the ladder to zero** and the buffs go with it, so a dominant cog is
+  bounded to one life. Killing a rank-3+ cog pays a `starfall` bounty, and
+  friendly fire subtracts xp.
+- **What a rank buys** (cumulative): shorter trigger windup, then +15% gun
+  range and a faster spray recharge, then +1 hit point, then a faster fire
+  cooldown and two throws per grenade pickup, then a shorter windup again and
+  no heart-carry speed penalty -- the hp ceiling stops climbing at rank 3 and
+  never gets a second bump. A rank raises the hp **ceiling** only -- the
+  points still have to be earned back from a med kit.
+- **Observation labels**: a cog at rank 3 or above wears a `veteran mark <n>`
+  plume, one star per rank, fog-gated like any overhead marker. The scoreboard
+  shows the same stars for any ranked cog, from rank 1 up -- not gated to the
+  plume's rank-3 threshold. A row that loses its stars means that cog just
+  died.
+- **The tithe.** From rank 3 up, a cog's own heart produces kit -- a med kit,
+  grenade, spray can and shield in rotation -- dropped on its team's pedestal.
+  The tap is fed by **newly earned xp**, not by standing at rank, so a veteran
+  that stops fighting stops producing. Capped per life, and untaken kit
+  evaporates. Tithed kit carries each type's **normal** label, so it reads to
+  a policy exactly like any other pickup.
+- **Achievements**: 8 kit-keyed trees x 5 tiers, one-shot per team per game.
+  Every team can earn every tier; the first team in the episode to complete one
+  claims at triple value. They never build the team's heat multiplier.
+- The team scoreboard shows `<TEAM> <kills>/<deaths> <glory>g` plus the live
+  heat multiplier (`x2`/`x4`/`x8`) while a team is on a streak.
+
 ## Shouts
 
 - **Any living player can shout: a short text message, at most 10

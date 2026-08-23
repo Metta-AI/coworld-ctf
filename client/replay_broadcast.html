@@ -212,6 +212,42 @@ html, body {
   color: var(--paper-dim);
   flex: none;
 }
+/* GLORY rides the EXISTING lives row rather than a third row in .team-id.
+   relayout() writes #scorebug.offsetHeight straight into --topband, which is
+   subtracted from the board height at every embed size — so a new row would
+   cost play area permanently, at every size, forever. A second numeral+label
+   pair inside a row that is already there costs nothing.
+   Sized against its neighbouring .lives-num (20), NOT against the transport:
+   #scorebug overrides --u to 0.8x locally, so any measure copied in from the
+   bottom band lands 20% small. */
+.lives-num.glory {
+  font-size: calc(13 * var(--u));
+  color: var(--amber);
+}
+/* HEAT is suppressed at x1 — the sim already refuses to print it there
+   (global.nim's team score line), because the resting state is noise on every
+   frame of every replay. Show/hide on the .show class, the same pattern the
+   fast-forward mini indicator uses. Amber because amber is already this
+   chrome's "earned / active" accent (carrier pip, .tbtn.on, .win-chip); a
+   rampage does not get a new colour. */
+.heat-chip {
+  display: none;
+  flex: none;
+  align-self: center;
+  gap: calc(1 * var(--u));
+}
+.heat-chip.show { display: flex; }
+.heat-chip svg {
+  width: calc(9 * var(--u));
+  height: calc(12 * var(--u));
+  display: block;
+}
+/* The flames breathe: a rampage is ALIVE, and a static glyph reads like an
+   inert badge. Subtle scale flicker, staggered per flame. */
+.heat-chip svg { transform-origin: 50% 100%; animation: heat-flick 0.9s ease-in-out infinite alternate; }
+.heat-chip svg:nth-child(2) { animation-delay: 0.3s; }
+.heat-chip svg:nth-child(3) { animation-delay: 0.6s; }
+@keyframes heat-flick { from { transform: scaleY(0.92); } to { transform: scaleY(1.06); } }
 /* Squad strip: ONE pip per player (8). Lit = alive, dim = down-but-has-lives,
    hollow = eliminated. The strip is the "who's left" read; the big numeral is
    the exact lives count. Each pip is clickable → POV lens (fog-honesty). */
@@ -365,6 +401,7 @@ html, body {
   white-space: nowrap;
   animation: chippop 300ms cubic-bezier(.2,1.4,.4,1);
 }
+.banner-chip.achv { border-bottom-color: var(--amber); }
 .banner-chip.steal { border-bottom-color: var(--amber); }
 .banner-chip.returned { border-bottom-color: var(--paper-dim); }
 .banner-chip.wipe { border-bottom-color: var(--red); font-size: calc(15 * var(--u)); }
@@ -455,6 +492,135 @@ html, body {
   cursor: pointer;
 }
 #povBadge.on { display: flex; }
+
+/* ---------- INSPECTOR CARD (hover a cog) ----------
+   Plain HTML inside #chrome, NOT a registered sprite layer. That is the whole
+   point: a UI layer sized to the screen paints opaque over the entire board and
+   black-screens this viewer (the scar behind InspectorWidth/Height = 8), and a
+   DOM node has no viewport to get wrong. It is also the only thing that CAN
+   work here — broadcast_core composites only ZoomableFlag/MapLayerType layers,
+   so the sim's own InspectorLayerId card has never been a single pixel in this
+   bundle.
+   Top-RIGHT, below the reserved scorebug band: the killfeed owns bottom-right
+   and the first-person PiP owns bottom-left, so this is the one free corner
+   over play. Every line is server-composed text (see broadcast.buildStateJson's
+   `insp`); the browser only styles what it is handed. */
+.ec-glory { font-size: calc(13 * var(--u)); opacity: 0.9; margin-left: calc(10 * var(--u)); }
+
+/* The persistent per-team achievement ledger (Maxwell: "something always
+   visible that shows each team's achievements earned"). Left rail, mirroring
+   the inspector's glass-chip language on the right. State-driven from
+   teams.*.claims (never accumulated from events), so seeks and loops can
+   never leave it stale. Collapsible via its header; DEFAULT OPEN. */
+#achpanel {
+  position: absolute;
+  top: calc(var(--topband, 0px) + 10 * var(--u));
+  left: calc(12 * var(--u));
+  width: max-content;
+  max-width: calc(200 * var(--u));
+  max-height: calc(100% - var(--topband, 0px) - 120 * var(--u));
+  overflow: hidden;
+  padding: calc(5 * var(--u)) calc(8 * var(--u));
+  background: rgba(22, 17, 13, 0.88);
+  font-family: var(--pixfont);
+  font-size: calc(8 * var(--u));
+  line-height: 1.45;
+  color: var(--paper-dim);
+  z-index: 10;
+  pointer-events: auto;
+}
+#achpanel .ach-head {
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.08em;
+  color: var(--paper);
+  cursor: pointer;
+  user-select: none;
+  white-space: pre;
+}
+#achpanel .ach-head .ach-caret { color: var(--amber); }
+#achpanel .ach-team {
+  margin-top: calc(3 * var(--u));
+  letter-spacing: 0.06em;
+}
+#achpanel .ach-team.red { color: var(--red); }
+#achpanel .ach-team.blue { color: var(--blue); }
+#achpanel .ach-row { white-space: pre; }
+#achpanel .ach-row .ach-first { color: var(--amber); }
+#achpanel.closed .ach-body { display: none; }
+/* At the embed floor the full ledger cannot fit beside the board: keep the
+   HEADER (the counts are the always-visible read) and collapse the body. */
+#stage.tiny #achpanel .ach-body { display: none; }
+
+#inspector {
+  display: none;
+  position: absolute;
+  top: calc(var(--topband, 0px) + 10 * var(--u));
+  right: calc(12 * var(--u));
+  /* Sized to CONTENT, then bounded: the card grows with the team's achievement
+     ledger (up to 10 named claims), and an unbounded card would eventually
+     reach the transport band. */
+  width: max-content;
+  max-width: calc(230 * var(--u));
+  /* Bounded by the KILL FEED, not by the board: the feed is anchored
+     bottom:76u with a fixed 88u four-row reserve, so the last 164u of this
+     column is spoken for whether or not a row is live — and the feed is later
+     in the DOM, so it would paint straight over the card's oldest achievement
+     lines. 174u leaves a few u of air between them. The type below is set so a
+     FULL card (rank + buffs + every counter + ten named claims) fits inside
+     this budget rather than being silently clipped by the overflow. */
+  max-height: calc(100% - var(--topband, 0px) - 174 * var(--u));
+  overflow: hidden;
+  padding: calc(6 * var(--u)) calc(9 * var(--u));
+  background: rgba(22, 17, 13, 0.92);
+  font-family: var(--pixfont);
+  /* 8u is the kill feed's own register — the card is a dense stat block, and
+     sizing it with the feed keeps the two lower-thirds reading as one system. */
+  font-size: calc(8 * var(--u));
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: var(--paper-dim);
+  z-index: 11;
+  /* Interactive: the card is click-PINNED now, so the pointer arriving on it
+     is deliberate, and the footer buttons (EYES view / close) need to be
+     clickable. The old hover card had to be pointer-transparent because the
+     cursor that opened it was still chasing the cog underneath. */
+  pointer-events: auto;
+}
+#inspector .ins-actions {
+  display: flex;
+  gap: calc(6 * var(--u));
+  margin-top: calc(5 * var(--u));
+}
+#inspector .ins-btn {
+  font-family: var(--pixfont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.06em;
+  padding: calc(3 * var(--u)) calc(7 * var(--u));
+  background: rgba(242, 232, 216, 0.08);
+  border: 1px solid rgba(242, 232, 216, 0.25);
+  color: var(--paper-dim);
+  cursor: pointer;
+}
+#inspector .ins-btn:hover { background: rgba(242, 232, 216, 0.16); color: var(--paper); }
+#inspector.on { display: block; }
+#inspector.red { border-left: calc(2 * var(--u)) solid var(--red); }
+#inspector.blue { border-left: calc(2 * var(--u)) solid var(--blue); }
+/* The first line is the cog's name — the card's headline, at the scorebug
+   numeral's weight so the subject is unmistakable at a glance. */
+#inspector .ins-head {
+  font-size: calc(12 * var(--u));
+  color: var(--paper);
+  letter-spacing: 0.04em;
+  margin-bottom: calc(2 * var(--u));
+}
+#inspector .ins-line { white-space: pre; }
+/* inspectorLines ships a genuine empty string as its section break (before the
+   team GLORY block); render it as the hairline it means, not as dead space. */
+#inspector .ins-rule {
+  height: 1px;
+  background: rgba(242, 232, 216, 0.14);
+  margin: calc(4 * var(--u)) 0;
+}
 
 /* First-person PiP inset: pinned bottom-LEFT (the killfeed owns bottom-right, so
    they never overlap), responsive width (§2 — sized off the stage so it scales
@@ -718,6 +884,10 @@ html, body {
 .beat-marker.return.blue { background: var(--blue); }
 .beat-marker.capture { background: var(--red); width: calc(3 * var(--u)); height: calc(12 * var(--u)); }
 .beat-marker.capture.blue { background: var(--blue); }
+/* an achievement claim: a short amber tick, the same "earned" accent the
+   banner rule and the feed badge use, and deliberately shorter than a capture
+   so a glory beat never reads as a match point. */
+.beat-marker.achv { background: var(--amber); height: calc(5 * var(--u)); opacity: 0.85; }
 /* winner cap: a flat block just past the track's right end, colored by the
    verdict (split for a draw), so the scrubber itself says how this ends. */
 .scrub-win {
@@ -1024,6 +1194,48 @@ html, body {
 /* very small floor (≤620px stage): tighten reserves */
 #stage.tiny #killfeed { min-height: calc(3 * 20 * var(--u)); width: calc(190 * var(--u)); }
 #stage.tiny .plate .squad-pip { width: calc(6 * var(--u)); height: calc(6 * var(--u)); }
+/* At the embed floor a FULL card (rank/buffs/every deed counter/the
+   achievement ledger) would cover ~a quarter of the frame at unreadable
+   size, over live play. Below the same 620px threshold the killfeed uses,
+   swap it for a MINIMAL card instead of dropping it outright: name, rank,
+   hp/lives, and the two action buttons -- the scorebug already carries the
+   team's glory/heat ledger at this size, so the deed counters and the
+   achievement list are the part that can go. renderInspector marks the two
+   kept stat lines .ins-vital by CONTENT, not by position -- `buffs` is an
+   optional line, so rank/hp-lives don't sit at a fixed index. Everything
+   else (xp, buffs, counters, the rule, glory/heat, achievements) still
+   ships in the DOM; it just hides here, same as the achievement ledger
+   already does off-card at full size via overflow. */
+#stage.tiny #inspector {
+  max-width: calc(140 * var(--u));
+  padding: calc(8 * var(--u)) calc(10 * var(--u));
+}
+#stage.tiny #inspector .ins-rule,
+#stage.tiny #inspector .ins-line:not(.ins-vital) { display: none; }
+#stage.tiny #inspector .ins-head {
+  font-size: calc(19 * var(--u));
+  margin-bottom: calc(4 * var(--u));
+}
+/* `pre` (the full-size default) never wraps; at a 140u cap a long stat
+   line would rather wrap onto a second line than get sliced by the card's
+   own overflow:hidden. */
+#stage.tiny #inspector .ins-line.ins-vital {
+  font-size: calc(14 * var(--u));
+  white-space: normal;
+}
+/* Stacked, not side-by-side: two full-size buttons ("EYES VIEW" + "CLOSE")
+   at a legible compact size don't both fit in a 140u-wide card, and a
+   clipped button is a dead button. */
+#stage.tiny #inspector .ins-actions {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(4 * var(--u));
+  margin-top: calc(6 * var(--u));
+}
+#stage.tiny #inspector .ins-btn {
+  font-size: calc(14 * var(--u));
+  padding: calc(4 * var(--u)) calc(9 * var(--u));
+}
 
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
@@ -1065,6 +1277,11 @@ body[data-embed] #board { top: 0; height: 100%; }
             <span class="team-name" id="name-red">RED</span>
             <span class="lives-label">Lives</span>
             <span class="lives-num" id="lives-red">—</span>
+            <!-- GLORY rides this same row (see .lives-num.glory) so the band
+                 height, and therefore the reserved --topband, never grows. -->
+            <span class="lives-label">Glory</span>
+            <span class="lives-num glory" id="glory-red">—</span>
+            <span class="heat-chip" id="heat-red"></span>
           </div>
           <!-- one pip per player (8): alive / down / eliminated. The roster IS
                the counter (Valorant/R6/Apex). Clickable → POV lens. -->
@@ -1088,6 +1305,9 @@ body[data-embed] #board { top: 0; height: 100%; }
             <span class="team-name" id="name-blue">BLUE</span>
             <span class="lives-label">Lives</span>
             <span class="lives-num" id="lives-blue">—</span>
+            <span class="lives-label">Glory</span>
+            <span class="lives-num glory" id="glory-blue">—</span>
+            <span class="heat-chip" id="heat-blue"></span>
           </div>
           <div class="squad" id="squad-blue"></div>
         </div>
@@ -1095,7 +1315,16 @@ body[data-embed] #board { top: 0; height: 100%; }
     </div>
 
     <div id="mmwarn">Replay hash mismatch — showing recorded inputs</div>
-    <div id="povBadge">👁 POV lens — click to clear</div>
+    <!-- Inline SVG eye, not an emoji: emoji-as-icon is a hard fail in the
+         design rubric and renders platform-dependent. Same pattern as the
+         .flagicon SVGs above. -->
+    <div id="povBadge"><svg viewBox="0 0 24 16" style="width:calc(14*var(--u));height:calc(10*var(--u));flex:none;margin-right:calc(4*var(--u))"><path d="M12 1 C6 1 2 6 1 8 C2 10 6 15 12 15 C18 15 22 10 23 8 C22 6 18 1 12 1 Z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="8" r="3.4" fill="currentColor"/></svg><span id="povBadgeText">POV lens — click to clear</span></div>
+    <!-- Hover a cog on the board: rank, what that rank is BUYING it, its deed
+         counters, its tithe progress, and its team's glory ledger. Composed
+         server-side by global.inspectorLines and shipped as finished lines —
+         glory.nim stays the single source of every number. -->
+    <div id="inspector"></div>
+    <div id="achpanel"></div>
     <!-- First-person picture-in-picture: the selected seat's Wolfenstein-style
          raycast view, shown only while a player is in POV. A window into what
          that soldier sees down the barrel, riding alongside their top-down fog.
@@ -1166,6 +1395,8 @@ body[data-embed] #board { top: 0; height: 100%; }
           <div class="ec-lives">
             <span class="fl-num red" id="ec-red">0</span>
             <span class="fl-cap">Lives left</span>
+            <span class="fl-num red ec-glory" id="ec-glory-red">0</span>
+            <span class="fl-cap">Glory</span>
           </div>
           <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
           <div id="ec-rows-red"></div>
@@ -1175,6 +1406,8 @@ body[data-embed] #board { top: 0; height: 100%; }
           <div class="ec-lives">
             <span class="fl-num blue" id="ec-blue">0</span>
             <span class="fl-cap">Lives left</span>
+            <span class="fl-num blue ec-glory" id="ec-glory-blue">0</span>
+            <span class="fl-cap">Glory</span>
           </div>
           <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
           <div id="ec-rows-blue"></div>
@@ -1427,14 +1660,23 @@ body[data-embed] #board { top: 0; height: 100%; }
     // the boost as a seek.
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
-    if (jumped) { clearFeed(); clearBanners(); }
+    if (jumped) {
+      clearFeed(); clearBanners();
+      // The verdict chip has no other clearing path (setVerdict early-returns
+      // on a liveless frame), so without this a looping replay spoils its own
+      // ending from tick 0 of the second loop onward.
+      $('win-chip').className = 'win-chip';
+      $('scrub-win').className = 'scrub-win';
+    }
     lastFf = !!s.ff;
 
     renderScorebug(s);
+    renderAchPanel(s);
     renderClock(s);
     renderTransport(s);
     renderPov(s);
     renderMismatch(s);
+    renderInspector(s);
 
     if (s.events && s.events.length && !jumped) {
       for (var i = 0; i < s.events.length; i++) applyEvent(s.events[i], s);
@@ -1453,6 +1695,76 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     lastTick = s.t;
   }
+
+  // ---------- inspector card (hover a cog) ----------
+  // The lines arrive FINISHED from global.inspectorLines — rank, what the rank
+  // is buying (windup/range/hp/rof/nade charges, read off the live buff
+  // accessors), deed counters, tithe progress, team glory + heat, and the named
+  // achievement ledger. Nothing here interprets them: re-deriving any of it in
+  // JS would fork the glory ladder into a second copy that drifts silently, and
+  // glory.nim's one-accessor rule exists precisely to stop that.
+  // Absent `insp` means nothing is hovered (or the phase isn't Playing, which
+  // is what addInspector does too) — hide, don't stale.
+  var inspectorKey = '';
+  function renderInspector(s) {
+    var el = $('inspector');
+    if (!el) return;
+    var insp = s.insp;
+    if (!insp || !insp.lines || !insp.lines.length) {
+      el.classList.remove('on');
+      inspectorKey = '';
+      return;
+    }
+    var team = teamOf(s, insp.slot) === 'blue' ? 'blue' : 'red';
+    // Rebuild only when the text actually changes: this runs every frame at up
+    // to 24Hz, and the card is 20-odd nodes.
+    var key = team + '\u0000' + insp.lines.join('\u0000');
+    if (key !== inspectorKey) {
+      inspectorKey = key;
+      var html = '';
+      for (var i = 0; i < insp.lines.length; i++) {
+        var line = insp.lines[i];
+        if (!line.length) { html += '<div class="ins-rule"></div>'; continue; }
+        var cls = i === 0 ? 'ins-head' : 'ins-line';
+        // #stage.tiny's compact card keeps only rank + hp/lives and hides
+        // every other .ins-line by class (see the #stage.tiny #inspector
+        // rule). `buffs` is an optional line, so those two don't sit at a
+        // fixed index -- content is the only stable way to tag them.
+        if (cls === 'ins-line' &&
+            (line.indexOf('rank ') === 0 || line.indexOf('hp ') === 0)) {
+          cls += ' ins-vital';
+        }
+        html += '<div class="' + cls + '">' + esc(line) + '</div>';
+      }
+      // The action row: the EYES view -- which used to be the board click --
+      // and the close. Rendered with the card (the rebuild key covers them);
+      // the CLICKS are handled by one delegated listener on #inspector, so
+      // rebuilding the innerHTML never orphans a handler.
+      html += '<div class="ins-actions">' +
+        '<button class="ins-btn" data-act="eyes">EYES VIEW</button>' +
+        '<button class="ins-btn" data-act="close">CLOSE</button></div>';
+      el.innerHTML = html;
+      el.classList.remove('red', 'blue');
+      el.classList.add(team);
+      el.dataset.slot = insp.slot;
+    }
+    el.classList.add('on');
+  }
+  $('inspector').addEventListener('click', function (ev) {
+    var act = ev.target && ev.target.dataset && ev.target.dataset.act;
+    if (!act) return;
+    ev.stopPropagation();
+    if (act === 'close') { send('i:-1'); return; }
+    if (act === 'eyes') {
+      var slot = parseInt($('inspector').dataset.slot, 10);
+      if (!isNaN(slot) && slot >= 0) {
+        // The same `v:` command the squad pips send -- toggles off if this
+        // cog's EYES view is already open.
+        if (lastState && lastState.pov === slot) send('v:-1');
+        else send('v:' + slot);
+      }
+    }
+  });
 
   // The server ships the full-match lives-lead change-point series ONCE (on the
   // first HUD frame). Cache it so the momentum graph draws its whole-timeline
@@ -1487,13 +1799,17 @@ body[data-embed] #board { top: 0; height: 100%; }
       var b = beatTimeline[i];
       if (b.k === 'steal' || b.k === 'return') markBeat(b.t, b.k, b.flag);
       else if (b.k === 'capture') markBeat(b.t, 'capture', otherTeam(b.flag));
-      else if (b.k === 'gameover') setVerdict(b);
+      // The 'gameover' beat is NOT the verdict: it arrives with the up-front
+      // beat timeline, so setting the chip here announced the winner at tick
+      // 0 of a replay nobody had watched yet. The chip fires from the
+      // game-over STATE path instead (renderState), when the ending is
+      // actually on screen -- and the jump-reset clears it again on loop.
     }
   }
 
-  // Winner cap + "RED WINS" chip. Fed by the up-front beat timeline, and as a
-  // fallback by the game-over state (older servers that ship no beats still
-  // get the verdict once playback reaches the end). Idempotent.
+  // Winner cap + "RED WINS" chip. Fired ONLY by the game-over state, when
+  // playback has actually reached the end -- the up-front beat timeline used
+  // to feed it too, which spoiled the outcome from the first frame.
   function setVerdict(v) {
     var cls = v.draw ? 'draw' : (v.winner === 'red' || v.winner === 'blue' ? v.winner : '');
     if (!cls) return;
@@ -1570,6 +1886,69 @@ body[data-embed] #board { top: 0; height: 100%; }
     });
   }
 
+  function renderGlory(team, t) {
+    var num = $('glory-' + team);
+    var chip = $('heat-' + team);
+    if (!num || !chip) return;
+    num.textContent = (typeof t.glory === 'number') ? t.glory : '—';
+    var heat = t.heat || 1;
+    // FLAMES, not the word (Maxwell's call): one flame per rung above x1 --
+    // x2 one, x4 two, x8 three. Inline SVG in the chrome's amber (emoji-as-
+    // icon is a hard fail in the design rubric). The title still carries the
+    // exact multiplier for anyone who hovers.
+    var rungs = heat >= 8 ? 3 : heat >= 4 ? 2 : heat >= 2 ? 1 : 0;
+    if (rungs !== (chip._rungs || 0)) {
+      chip._rungs = rungs;
+      var flame = '<svg viewBox="0 0 12 16"><path d="M6 0 C7 3 10 5 10 9 ' +
+        'A4 4 0 0 1 2 9 C2 6 4 5 4 3 C5 5 6 5 6 3 Z" fill="var(--amber)"/>' +
+        '<path d="M6 8 C6.7 9.5 8 10 8 11.6 A2 2 0 0 1 4 11.6 ' +
+        'C4 10 5.3 9.5 6 8 Z" fill="var(--stage-lo)"/></svg>';
+      chip.innerHTML = new Array(rungs + 1).join(flame);
+    }
+    chip.title = 'rampage x' + heat;
+    chip.classList.toggle('show', rungs > 0);
+  }
+
+  var achOpen = true;   // default VISIBLE; the header click flips it
+  function renderAchPanel(s) {
+    var el = $('achpanel');
+    if (!el || !s.teams) return;
+    var red = (s.teams.red && s.teams.red.claims) || [];
+    var blue = (s.teams.blue && s.teams.blue.claims) || [];
+    // Rebuild only when the ledger actually changes -- 24Hz frames, ~80 rows.
+    var key = achOpen + '|' + red.length + '|' + blue.length + '|' +
+      (red.length ? red[red.length - 1].n : '') + '|' +
+      (blue.length ? blue[blue.length - 1].n : '');
+    if (key === el._key) return;
+    el._key = key;
+    var html = '<div class="ach-head" data-act="toggle">' +
+      '<span class="ach-caret">' + (achOpen ? '▾' : '▸') + '</span>' +
+      ' ACHIEVEMENTS  ' + red.length + '/40 · ' + blue.length + '/40</div>';
+    html += '<div class="ach-body">';
+    [['red', red], ['blue', blue]].forEach(function (pair) {
+      var team = pair[0], claims = pair[1];
+      html += '<div class="ach-team ' + team + '">' + team.toUpperCase() +
+        ' ' + claims.length + '</div>';
+      // newest first: the row a viewer just saw the banner for is on top
+      for (var i = claims.length - 1; i >= 0; i--) {
+        var c = claims[i];
+        html += '<div class="ach-row">' +
+          new Array((c.t || 1) + 1).join('*') + ' ' + esc(c.n) +
+          (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</div>';
+      }
+      if (!claims.length) html += '<div class="ach-row">—</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    el.classList.toggle('closed', !achOpen);
+  }
+  $('achpanel').addEventListener('click', function (ev) {
+    var t = ev.target.closest ? ev.target.closest('.ach-head') : null;
+    if (!t) return;
+    achOpen = !achOpen;
+    $('achpanel')._key = null;   // force a re-render with the new state
+  });
+
   function renderScorebug(s) {
     var tr = s.teams || {};
     var red = tr.red || {}, blue = tr.blue || {};
@@ -1580,6 +1959,13 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     $('lives-red').textContent = rl;
     $('lives-blue').textContent = bl;
+
+    // GLORY + HEAT, both priced entirely by glory.nim and shipped on the
+    // team state — never recomputed here, so the band can't drift from the
+    // ladder the sim actually paid out. Heat hides at x1: the sim's own score
+    // line suppresses it there too, and a permanent "x1" is noise.
+    renderGlory('red', red);
+    renderGlory('blue', blue);
 
     // squad pips per team (one per player), sorted by stable join slot
     var reds = [], blues = [];
@@ -1754,7 +2140,9 @@ body[data-embed] #board { top: 0; height: 100%; }
   function renderPov(s) {
     var badge = $('povBadge');
     badge.classList.toggle('on', s.pov >= 0);
-    if (s.pov >= 0) badge.textContent = '👁 POV: ' + shortName(rosterName(s, s.pov)) + ' — click to clear';
+    if (s.pov >= 0)
+      $('povBadgeText').textContent =
+        'POV: ' + shortName(rosterName(s, s.pov)) + ' — click to clear';
     renderFpv(s);
   }
 
@@ -2839,6 +3227,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
       case 'return': onReturn(e, s); markBeat(e.t, 'return', e.flag); beatPulse(); break;
       case 'capture': onCapture(e, s); markBeat(e.t, 'capture', otherTeam(e.flag)); beatPulse(); break;
+      case 'achv': onAchievement(e, s); markBeat(e.t, 'achv', e.team); break;
       case 'respawn': /* board rematerialize handles this visually */ break;
       case 'gameover': /* end-card is state-driven */ break;
       case 'phase': /* clock caption handles phase */ break;
@@ -2885,6 +3274,33 @@ body[data-embed] #board { top: 0; height: 100%; }
         '<span class="glyph">' + glyph + '</span>' +
         '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
     }
+    pushFeed(row);
+  }
+
+  // An achievement claim. Two lanes, split on how rare the claim is: a FIRST
+  // (first team in the Episode to complete that tier) or a high tier earns the
+  // banner lane — one at a time, with the 1900ms dwell floor, so it still reads
+  // at 16x. Everything else joins the kill feed, which already reserves four
+  // rows and already holds each one 2600ms. Both lanes are cleared on a seek by
+  // onFrame's jump guard, so scrubbing backwards never re-shouts the ledger.
+  // No new queue, no new timing model, no new colour.
+  function onAchievement(e, s) {
+    var stars = new Array((e.tier || 0) + 2).join('*');
+    var team = e.team === 'red' ? 'red' : 'blue';
+    if (e.first || (e.tier || 0) >= 3) {
+      // Every number carries its context: what was claimed, how deep the tier,
+      // and what it PAID.
+      // banner() writes textContent, so this string is NOT escaped here —
+      // escaping it would surface literal &amp; in the chip.
+      banner(String(e.name) + ' ' + stars + (e.first ? ' first' : '') +
+        ' +' + (e.glory || 0) + ' glory', 'achv ' + team + '-accent');
+      beatPulse();
+      return;
+    }
+    var row = document.createElement('div');
+    row.className = 'feed-row';
+    row.innerHTML = '<span class="who ' + team + '">' + esc(e.name) + '</span>' +
+      '<span class="badge">' + esc(stars) + ' +' + (e.glory || 0) + 'g</span>';
     pushFeed(row);
   }
 
@@ -3177,6 +3593,12 @@ body[data-embed] #board { top: 0; height: 100%; }
     var redL = o.redLives, blueL = o.blueLives;
     $('ec-red').textContent = redL;
     $('ec-blue').textContent = blueL;
+    // The final glory ledger, from the same shipped teams block the scorebug
+    // reads -- a match that scores glory all game must settle it at the end.
+    $('ec-glory-red').textContent =
+      ((s.teams && s.teams.red && s.teams.red.glory) || 0) + 'g';
+    $('ec-glory-blue').textContent =
+      ((s.teams && s.teams.blue && s.teams.blue.glory) || 0) + 'g';
     $('ec-wincond').textContent = endcardWinCondition(o);
     $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
     $('ec-tname-blue').textContent = teamName(s, 'blue', 'BLUE');
@@ -3282,12 +3704,14 @@ body[data-embed] #board { top: 0; height: 100%; }
     else if (k >= '1' && k <= '9') send(k);
   });
 
-  // Click a soldier on the board to select it (mirrors the squad-pip lens, but
-  // for anyone visible on the arena). The board canvas draws ONLY the zoomable
-  // map layer, letterboxed by broadcast_core; chrome (scoreboard, transport) are
-  // HTML overlays, so a canvas click is always a MAP-space click. Invert the
-  // core's letterbox transform to recover native map pixels, then hand them to
-  // clickMap — the server hit-tests the soldier footprint and toggles selection.
+  // Click a soldier to PIN its inspector card. The card used to follow the
+  // hover and the EYES view used to be the click -- both replaced together:
+  // a cog outruns the cursor in under a second (Maxwell watched the card
+  // vanish mid-read), and a hover card can never carry buttons, because
+  // moving toward it unhovers the cog. Now the click pins, the pinned card
+  // holds while the cog fights on, and the EYES view lives ON the card as a
+  // button. Clicking empty board clears the pin. The hit test stays in Nim:
+  // the streamed cursor is already there, and `i:@` just says "resolve it".
   canvas.addEventListener('click', function (ev) {
     var rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -3302,7 +3726,56 @@ body[data-embed] #board { top: 0; height: 100%; }
     var mapY = Math.round((cssY - t.offsetY) / t.scale);
     // Ignore clicks in the letterbox bands (outside the drawn map).
     if (mapX < 0 || mapY < 0 || mapX >= t.nativeW || mapY >= t.nativeH) return;
-    core.clickMap(mapX, mapY);
+    // Deliver the exact click coordinate BEFORE the pin command, so the hit
+    // test cannot run against a stale rAF-coalesced cursor position.
+    if (replayAdapter && replayAdapter.setPointer) replayAdapter.setPointer(mapX, mapY);
+    send('i:@');
+  });
+
+  // The cursor is streamed to the wasm as a pair of scalars (ctf_set_pointer)
+  // rather than as a viewer message. It no longer drives the card -- the card
+  // is click-PINNED (see the click handler above) -- but the stream stays,
+  // because the `i:@` pin command hit-tests against exactly this position,
+  // in Nim, where every other hit test lives.
+  var pointerPending = null;   // {x, y} coalesced to one send per frame
+  var pointerRaf = 0;
+  function flushPointer() {
+    pointerRaf = 0;
+    var p = pointerPending;
+    pointerPending = null;
+    if (!p) return;
+    if (!replayAdapter || !replayAdapter.setPointer) return;
+    replayAdapter.setPointer(p.x, p.y);
+  }
+  function queuePointer(x, y) {
+    // pointermove fires far faster than the board redraws; coalescing to one
+    // send per animation frame keeps a 100Hz trackpad from crossing the wasm
+    // boundary 100 times a second for a card that repaints at 24Hz.
+    pointerPending = { x: x, y: y };
+    if (!pointerRaf) pointerRaf = requestAnimationFrame(flushPointer);
+  }
+  canvas.addEventListener('pointermove', function (ev) {
+    if (!replayAdapter || !replayAdapter.setPointer) return;
+    var rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    // Same inverse-letterbox math as the click handler above, and the same CSS
+    // pixel space (no devicePixelRatio factor).
+    var t = core.getTransform();
+    if (!t || !t.scale) return;
+    var mapX = Math.round((ev.clientX - rect.left - t.offsetX) / t.scale);
+    var mapY = Math.round((ev.clientY - rect.top - t.offsetY) / t.scale);
+    // In the letterbox bands the cursor is not over the arena at all, so PARK
+    // it rather than clamping — a clamped coordinate would hover whatever cog
+    // happens to sit against that edge.
+    if (mapX < 0 || mapY < 0 || mapX >= t.nativeW || mapY >= t.nativeH) {
+      queuePointer(-1, -1);
+      return;
+    }
+    queuePointer(mapX, mapY);
+  });
+  canvas.addEventListener('pointerleave', function () {
+    if (!replayAdapter || !replayAdapter.setPointer) return;
+    queuePointer(-1, -1);
   });
 
   // ============================================================

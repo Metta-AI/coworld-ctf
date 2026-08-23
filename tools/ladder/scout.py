@@ -58,14 +58,27 @@ SKIPPED_BUILD = collections.Counter()  # (GameVersion, coworld_version) -> n
 
 
 def our_game_version():
+    """The extractor's GameVersion, read from ITS checkout.
+
+    ⚠️ `GameVersion*` moved from sim.nim to sim_types.nim, and this returned
+    None for every caller after the move — silently, because the only consumer
+    treats None as "skip the pre-flight check". The GV mismatch skip then never
+    fired and every un-resimulatable replay paid a full subprocess launch
+    before failing. A None here is a BROKEN PATH, not "no version"; try both
+    and say so loudly rather than degrading to a slow no-op.
+    """
     d = os.path.dirname(os.path.dirname(EXTRACT_BIN))
-    try:
-        with open(f"{d}/src/ctf/sim.nim") as f:
-            for line in f:
-                if "GameVersion* =" in line:
-                    return line.split('"')[1]
-    except OSError:
-        pass
+    for rel in ("src/ctf/sim_types.nim", "src/ctf/sim.nim"):
+        try:
+            with open(f"{d}/{rel}") as f:
+                for line in f:
+                    if "GameVersion* =" in line:
+                        return line.split('"')[1]
+        except OSError:
+            continue
+    print(f"  ⚠️ could not read GameVersion under {d} — the pre-flight GV skip "
+          f"is DISABLED and every mismatched replay will pay a subprocess",
+          file=sys.stderr)
     return None
 
 
@@ -168,12 +181,29 @@ def score_of(ep, player):
 
 
 def matchup(ep, player=OURS):
-    """(player, opponent) for a head-to-head episode, or None."""
+    """(player, opponent) for an episode we are in, or None.
+
+    This required EXACTLY two entrants until 2026-08-12 — the ladder's old
+    head-to-head world. Paintbot deals 16 seats across 3-4 policies plus
+    Baseline fillers, so the strict test rejected 404 of 406 episodes in an
+    r1434-1443 sweep and the tool reported "no attributable episodes" rather
+    than "your filter is wrong". Now any episode containing us qualifies; with
+    3+ entrants the named opponent is the largest non-filler other entrant,
+    and those rows read as us-vs-FIELD, not a clean head-to-head.
+    """
     e = entrants(ep)
-    if player not in e or len(e) != 2:
+    if player not in e:
         return None
-    opp = next(n for n in e if n != player)
-    return player, opp
+    others = [n for n in e if n != player]
+    if not others:
+        return None
+    if len(e) == 2:
+        return player, others[0]
+    fillers = {p["player_name"] for p in (ep.get("participants") or [])
+               if p.get("is_filler")}
+    real = [n for n in others if n not in fillers] or others
+    real.sort(key=lambda n: -len(e[n]))
+    return player, real[0]
 
 
 # ---------------------------------------------------------------- 2. fetch
@@ -351,6 +381,7 @@ def tally(eps, player=OURS, vs=None):
     # point of the sweep is catching a rival's new version early.
     versions = collections.defaultdict(collections.Counter)
     short = []  # episodes an entrant played a seat down
+    mixed_eps = []  # episodes holding a third policy / filler seats
     used = 0
 
     for _rnd, ep in eps:
@@ -382,13 +413,25 @@ def tally(eps, player=OURS, vs=None):
                 # short-handed. Real and worth counting, not a parse failure.
                 empty += 1
             else:
+                # A THIRD policy or a "Baseline" filler seat. This used to be a
+                # hard skip, on the 2-player 8v8 assumption the ladder had when
+                # this was written. Paintbot deals 16 seats across 3-4 policies
+                # plus fillers, so that assumption now discards nearly every
+                # episode: a 10-round sweep attributed 2 of 406. Every consumer
+                # only asks "is this slot me?", so folding non-us seats into
+                # `them` keeps OUR metrics (K/D, accuracy, damage, alive time)
+                # exactly right. The cost is that in a mixed episode `them` is
+                # THE WHOLE FIELD, not one opponent — so a per-opponent split
+                # from a mixed episode is not trustworthy; our own side is.
                 unknown.append(base)
-        if unknown or not addr:
-            # A name we can't place means our roster assumption is wrong —
-            # skip rather than mis-attribute kills to the wrong side.
-            print(f"  r{_rnd} vs {opp}: unplaceable slots {unknown} — skipped",
+                side_of[i] = "them"
+        if not addr or not any(s == "me" for s in side_of.values()):
+            # No seat of ours: nothing to attribute. That IS a parse failure.
+            print(f"  r{_rnd} vs {opp}: no slot of ours in {addr[:4]} — skipped",
                   file=sys.stderr)
             continue
+        if unknown:
+            mixed_eps.append((_rnd, sorted(set(unknown))))
         if empty:
             short.append((_rnd, opp, empty))
 

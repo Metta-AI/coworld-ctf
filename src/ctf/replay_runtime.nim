@@ -85,6 +85,21 @@ proc buildReplayViewerPacket*(
   let
     sendLead = not state.momentumSent
     sendFpMap = not state.fpMapSent
+  # The inspector card, resolved by the board hit test inside
+  # `buildSpriteProtocolUpdates` and shipped down the chrome channel as
+  # finished lines. This is the ONLY path the static replay bundle has: the
+  # sim-side InspectorLayerId is a UI layer, and the broadcast client's
+  # composite filter only blits ZoomableFlag/MapLayerType layers -- so the
+  # native card has never been a pixel here. Gated on `Playing` to match
+  # `addInspector`, which refuses to draw in the lobby or on the end-card.
+  var
+    inspectSlot = -1
+    inspectLines: seq[string] = @[]
+  let inspectIndex = nextState.inspectIndex
+  if inspectIndex >= 0 and inspectIndex < sim.players.len and
+      sim.phase == Playing:
+    inspectSlot = sim.players[inspectIndex].joinOrder
+    inspectLines = sim.inspectorLines(inspectIndex)
   result.addSprite(
     BroadcastChromeSpriteId,
     1,
@@ -107,7 +122,9 @@ proc buildReplayViewerPacket*(
       replay.skipLulls and replay.playing and
         replay.isLullTick(sim.tickCount),
       if sendLead: replay.lullSpans else: @[],
-      if sendLead: replay.beatEvents else: nil
+      if sendLead: replay.beatEvents else: nil,
+      inspectSlot,
+      inspectLines
     )
   )
   if sendLead:

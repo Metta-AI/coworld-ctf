@@ -1,7 +1,7 @@
 import
   std/[algorithm, os, sequtils, sets, strutils, tables, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, labels, sim]
+  ctf/[glory, global, labels, sim]
 
 # Sprite-label VOCABULARY contract.
 #
@@ -163,6 +163,19 @@ proc fullFeatureGame(): SimServer =
   result.players[5].x = cx - 40
   result.players[5].y = cy + 30
   result.killPlayer(5, 0)
+  #   A LEVELLED cog, so the rank plume (`veteran mark <n>`) enters the sweep.
+  #   The plume only draws from StarfallLevel up, so an unposed frame never
+  #   emits it -- and a contract label no fixture produces is a label the
+  #   guard silently stops guarding. Seat 0 is the viewer, already on-camera.
+  result.addXp(0, LevelThresholds[StarfallLevel - 1])
+  doAssert result.players[0].level >= StarfallLevel,
+    "the plume fixture must actually reach the rank that draws it"
+  #   Its heart's tithe is on the board for the same reason: tithed kit is
+  #   real collectable state, and it reuses each kind's existing label, so
+  #   the sweep must see those labels coming from this path too.
+  result.tithePickups.add TithePickup(
+    x: cx - 120, y: cy - 60, kind: "med kit",
+    expiresAt: result.tickCount + 1000)
   #   The NON-fatal halves of the same two pools: the short-lived `hit splat`
   #   paint spark and the floating `-N` damage number. Injected directly like
   #   the shot/blast FX above — a real graze needs a windup and a live
@@ -201,6 +214,14 @@ proc normalizeLabel(label: string): string =
   # the bot's own MaxHp). Normalizing it to <n> would erase exactly the drift
   # this test exists to catch — "hp <n>/<n>" matches whether the total is 3 or
   # 300, so the vocabulary diff would wave a retune straight through.
+  # Star runs collapse to <stars> the same way digits collapse to <n>: the
+  # fixture happens to produce a 3-star cog, and pinning the LITERAL "***"
+  # in the golden means a 2-star or 4-star run reads as a vocabulary change.
+  # The rank plume's level suffix is already digit-normalized; this covers
+  # the scoreboard row's star decoration.
+  while "**" in text:
+    text = text.replace("**", "*")
+  text = text.replace(" *", " <stars>")
   var digitless = ""
   var i = 0
   while i < text.len:

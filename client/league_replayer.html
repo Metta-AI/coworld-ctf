@@ -106,6 +106,16 @@
     color:var(--paper); flex:none; text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
   .lives-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
     text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
+  /* GLORY + HEAT, mirrored from the broadcast scorebug. The shell REDRAWS the
+     scorebug from the postMessage frame stream (the in-frame one is hidden at
+     ?embed=1), so anything added there and not here ships half-invisible: the
+     theater is the surface most people actually watch. Same tokens, same amber
+     "earned" accent, same x1 suppression. */
+  .lives-num.glory{font-size:calc(13*var(--u)); color:var(--amber)}
+  .heat-chip{display:none; font-family:var(--finefont); font-size:calc(7*var(--u));
+    letter-spacing:.1em; text-transform:uppercase; padding:calc(1*var(--u)) calc(4*var(--u));
+    color:var(--stage-lo); background:var(--amber); flex:none; align-self:center}
+  .heat-chip.show{display:block}
   .team-head.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
   @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
     50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
@@ -282,6 +292,9 @@
       <div class="lives-line">
         <span class="lives-label">Lives</span>
         <span class="lives-num" id="lives-red">—</span>
+        <span class="lives-label">Glory</span>
+        <span class="lives-num glory" id="glory-red">—</span>
+        <span class="heat-chip" id="heat-red"></span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
@@ -295,6 +308,9 @@
       <div class="lives-line">
         <span class="lives-label">Lives</span>
         <span class="lives-num" id="lives-blue">—</span>
+        <span class="lives-label">Glory</span>
+        <span class="lives-num glory" id="glory-blue">—</span>
+        <span class="heat-chip" id="heat-blue"></span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
@@ -600,6 +616,17 @@
     if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
   }
 
+  function renderGlory(team, t){
+    var num=$('glory-'+team), chip=$('heat-'+team);
+    if(!num||!chip) return;
+    num.textContent = (typeof t.glory==='number') ? t.glory : '—';
+    var heat = t.heat || 1;
+    // "HEAT x2", never a bare "2" — a multiplier without its operator reads as
+    // a second score. Hidden at x1, like the sim's own team score line.
+    chip.textContent = 'Heat x'+heat;
+    chip.classList.toggle('show', heat>1);
+  }
+
   function renderScorebug(s){
     var tr=s.teams||{};
     var red=tr.red||{}, blue=tr.blue||{};
@@ -609,6 +636,11 @@
     setName('name-blue', teamName(s,'blue','BLUE'));
     $('lives-red').textContent  = (s.teams&&s.teams.red)?rl:'—';
     $('lives-blue').textContent = (s.teams&&s.teams.blue)?bl:'—';
+
+    // GLORY + HEAT off the same team state the board client reads. Priced by
+    // glory.nim; nothing is recomputed here.
+    renderGlory('red', red);
+    renderGlory('blue', blue);
 
     updateFlag('flag-red',  'red',  red,  s);
     updateFlag('flag-blue', 'blue', blue, s);
