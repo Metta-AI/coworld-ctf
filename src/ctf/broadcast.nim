@@ -210,7 +210,8 @@ proc stepEvents*(
       "name": achievementName(claim.tree, claim.tier),
       "tier": claim.tier,
       "glory": claim.glory,
-      "first": claim.first
+      "first": claim.first,
+      "slot": claim.slot
     })
 
   tracker.snapshot(sim)
@@ -246,7 +247,17 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
         "n": achievementName(claim.tree, claim.tier),
         "t": claim.tier + 1,
         "f": claim.first,
-        "tk": claim.tick
+        "tk": claim.tick,
+        # What the tier actually PAID, post first-claim multiplier and site
+        # gradient. Priced by glory.nim and shipped rather than recomputed, so
+        # the panel row can never disagree with the ledger above it -- and so
+        # no row on this panel is ever a bare number.
+        "g": claim.glory,
+        # The join slot of the cog that earned it, or -1 for a team tree. The
+        # panel does not use it today; the pop over the cog's head is rendered
+        # sim-side. It ships because the claim is the only place this fact
+        # exists, and reconstructing it client-side would be a second source.
+        "s": claim.slot
       }
   result["claims"] = claims
 

@@ -1,7 +1,7 @@
 import
   std/[os, sets, tables, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, sim]
+  ctf/[global, glory, sim]
 
 # Sprite-id collision + bot label-contract audit.
 #
@@ -95,6 +95,14 @@ proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   result.players[4].x = cx - 90
   result.players[4].y = cy + 20
   result.players[4].hasPlasmaArc = true
+  # GLORY score pops. Without these `sim.gloryPops` stays empty through every
+  # test in this suite, so the GloryPop sprite/object pools are never emitted
+  # and the "no two render sites claim one id" check silently covers nothing --
+  # the exact shape of dead guard this repo keeps banking rules about. Mint one
+  # PLAIN pop and one LABELLED (achievement) pop, since they take different
+  # sprite sizes and different lives.
+  result.awardDeed(Red, dHonorableKill, cx - 55, cy - 10)
+  result.claimAchievement(Red, treeGun, 0, isFirst = true, byIndex = 0)
 
 proc conflicts(messages: openArray[SpritePacketMessage]): seq[string] =
   ## Ids defined twice with different labels WITHIN one packet.

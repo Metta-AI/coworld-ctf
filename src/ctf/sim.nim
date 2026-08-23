@@ -112,6 +112,19 @@ const
                               ## after a hit (cosmetic only, never in gameHash).
   KillFxTicks* = 44           ## ~1.8s a floating "KO" kill marker rises and fades
                               ## after a death (cosmetic only, never in gameHash).
+  GloryFxTicks* = 40          ## ~1.7s a floating "+Ng" score pop rises and fades
+                              ## at the site of the deed that minted it. Longer
+                              ## than the "-1" it stacks above, because it is the
+                              ## REWARD and the reward should outlive the wound.
+  AchievementFxTicks* = 84    ## ~3.5s an achievement's NAME holds over the cog
+                              ## that earned it — a named moment, not a tick of
+                              ## income, so it reads at 16x playback.
+  GloryPopCoalescePx* = 10    ## one tick, one team, this close = ONE pop. A kill
+                              ## can resolve a deed AND first blood at the same
+                              ## pixel; the crowd should read "+22", not a pile.
+  GloryPopMaxStack* = 3       ## deepest visible stack at one site. Past this the
+                              ## pops share a row again: an unreadable overlap is
+                              ## still better than a column climbing off-screen.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -584,6 +597,42 @@ type
     kill*: bool                ## a fatal hit: drawn as a "KO" kill marker that
                                ## lives KillFxTicks instead of the "-N" number.
 
+  GloryFx* = object
+    ## A cosmetic floating GLORY score pop — the FPS hitmarker, in the CoD /
+    ## Battlefield sense: not a damage number but the "+100" that tells you the
+    ## deed PAID, at the exact pixel it happened. Never enters gameHash
+    ## (replay-safe); `awardDeed` is the single mint and this is its shadow.
+    ##
+    ## Our economy is one-shot kills over few lives, so the KILL pop is the
+    ## workhorse; capture / wipe / denial arrive rarely and read LARGER for it
+    ## (see gloryPopSize). Drawn above the "-1" damage pop so the two stack
+    ## rather than fight — the wound below, the reward above.
+    x*, y*: int                ## the deed site (victim center, pedestal, cog).
+    tick*: int                 ## when it was minted.
+    amount*: int               ## POST-multiplier glory. Negative for a team kill.
+    team*: Team                ## who was paid. Not a tint (the pop is amber, one
+                               ## currency, one colour) — this is what keeps two
+                               ## sides' same-tick mints from coalescing into one.
+    label*: string             ## "" for a plain deed pop; the ACHIEVEMENT's name
+                               ## for a claim, which rides the same seq so there
+                               ## is one pop pool, one draw site, one fade curve.
+    tier*: int                 ## achievement tier 0..4 for a claim, -1 for a
+                               ## plain deed pop. On the FX because the chip
+                               ## draws the tier as pips: the depth of a claim is
+                               ## most of what makes it worth interrupting for,
+                               ## and the renderer must not have to parse it back
+                               ## out of the name.
+    first*: bool               ## first team in the Episode to take this tier.
+                               ## Pays x3 and is the rarest thing on the board,
+                               ## so the chip marks it.
+    row*: int                  ## how many pops are already stacked at this site,
+                               ## so a second pop on one cog reads as a STACK and
+                               ## not an amber smear. Only pops that could not
+                               ## COALESCE need this: two achievements landing on
+                               ## the same tick, or a claim on top of the kill
+                               ## that earned it. Bounded by GloryPopMaxStack so
+                               ## a pile-up cannot march off the top of the board.
+
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
     ## emitted at the exact in-sim site where the fact is known first-hand
@@ -657,6 +706,12 @@ type
     tier*: int
     glory*: int
     first*: bool               ## first team in the episode to complete it.
+    slot*: int                 ## the join slot of the cog whose counters
+                               ## SATISFIED the tier, or -1 for a team tree
+                               ## (`treeSquad`) which no single cog can own.
+                               ## This is what lets the viewer pop the claim
+                               ## over the earning cog's head instead of
+                               ## shouting it from the top of the screen.
 
   TithePickup* = object
     ## One piece of kit spat out by a team's heart because one of its cogs
@@ -707,6 +762,8 @@ type
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
+    gloryPops*: seq[GloryFx]  ## cosmetic floating "+Ng" score pops and achievement
+                              ## names; excluded from gameHash.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, PickupSpawn]
     medKitSpawns*: array[2, PickupSpawn]
@@ -3595,10 +3652,60 @@ proc heatCool*(sim: var SimServer) =
       sim.heatEmbers[team] = max(0, sim.heatEmbers[team] - HeatEmberDecay)
       sim.heatLastDecay[team] = sim.tickCount
 
+proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
+                 label = "", tier = -1, first = false) =
+  ## Push one floating score pop at a deed site. COSMETIC ONLY: `gloryPops` is
+  ## excluded from gameHash exactly like `damagePops`, so this can never move a
+  ## replay — which is the whole reason the pop is minted here, next to the
+  ## money, instead of being reconstructed from the event stream downstream.
+  ##
+  ## Coalescing is not tidiness, it is the read. One kill can resolve a kill
+  ## deed AND first blood at the same pixel on the same tick, and a shield can
+  ## soak twice in a burst; three stacked labels at one spot is noise, whereas
+  ## a single "+22" is the number the viewer actually wants. Same tick, same
+  ## team, within GloryPopCoalescePx, both unlabelled -> add into the existing
+  ## pop. A named achievement never merges: its name is the payload.
+  if amount == 0:
+    return
+  if label.len == 0:
+    for pop in sim.gloryPops.mitems:
+      if pop.tick == sim.tickCount and pop.team == team and pop.label.len == 0 and
+          abs(pop.x - x) <= GloryPopCoalescePx and
+          abs(pop.y - y) <= GloryPopCoalescePx:
+        pop.amount += amount
+        return
+  # Could not merge, so STACK instead of overlapping. A labelled claim never
+  # coalesces (its name is the payload) and neither do two claims on one tick,
+  # and both land on the cog's exact center -- without this they render at the
+  # identical anchor and become an unreadable amber pile. `gloryPops` holds only
+  # LIVE pops (the per-tick prune drops expired ones), so this sees exactly the
+  # pops that are actually on screen at this site right now.
+  var row = 0
+  for pop in sim.gloryPops:
+    if abs(pop.x - x) <= GloryPopCoalescePx and
+        abs(pop.y - y) <= GloryPopCoalescePx:
+      row = max(row, pop.row + 1)
+  sim.gloryPops.add GloryFx(
+    x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
+    tier: tier, first: first, row: min(row, GloryPopMaxStack)
+  )
+
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
-                times = 1) =
+                times = 1, byIndex = -1) =
   ## THE SINGLE MINT. Every glory award in the engine goes through here, so no
   ## deed can dodge the economy or the audit.
+  ##
+  ## `x, y` is the PRICING site and nothing else. It feeds `deedSitePct`, the
+  ## base-Voronoi gradient that decides what the deed is worth, and `teamGlory`
+  ## is in `gameHash` -- so moving these coordinates silently reprices the deed
+  ## and invalidates every replay. They are not a draw position and must never
+  ## be repurposed as one.
+  ##
+  ## `byIndex` is the EARNER, and it is cosmetic only: it moves the score pop,
+  ## never the money. A kill prices at the VICTIM's position (that is where the
+  ## contested ground is) but must PAY OUT over the killer -- glory is amber for
+  ## every team, so a "+24g" floating over the body reads as if the dead cog
+  ## earned it. The victim already has an event there: the splat and the "-1".
   if deed == dNone or times <= 0:
     return
   let
@@ -3609,6 +3716,19 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   sim.teamGlory[team] += amount
   inc sim.deedCounts[deed], times
   sim.deedGloryMass[deed] += amount
+  # THE HITMARKER. A deed that mints pops its POST-multiplier amount at the
+  # site — heat and the site gradient are already inside `amount`, so what the
+  # crowd reads is what the ledger actually took, never a base price.
+  # `popsScore` (glory.nim, single source) decides WHICH deeds get a pop: the
+  # ledger still banks ambient soak, the screen just doesn't shout about it.
+  if popsScore(deed):
+    # Pay out over the EARNER when we know who it is, falling back to the
+    # pricing site for a deed no single cog owns.
+    let
+      earned = byIndex >= 0 and byIndex < sim.players.len
+      popX = if earned: sim.players[byIndex].x else: x
+      popY = if earned: sim.players[byIndex].y else: y
+    sim.addGloryPop(team, popX, popY, amount)
   if paysHeat(deed):
     # One ember per deed; the RUNGS cost more each time, so x8 needs a real
     # streak rather than three kills.
@@ -3639,7 +3759,7 @@ proc teamAliveCount(sim: SimServer, team: Team): int =
       inc result
 
 proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
-                       isFirst: bool) =
+                       isFirst: bool, byIndex = -1) =
   ## Mint one achievement tier for a team, with the first-claim multiplier
   ## decided BY THE CALLER -- the tie logic lives in evalAchievementsAllTeams,
   ## which judges every team's tick before any claim lands.
@@ -3664,66 +3784,102 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   sim.teamGlory[team] += amount
   inc sim.deedCounts[dAchievement]
   sim.deedGloryMass[dAchievement] += amount
+  let byCog = byIndex >= 0 and byIndex < sim.players.len and
+              sim.players[byIndex].team == team
   sim.achievementFeed.add AchievementClaim(
     tick: sim.tickCount, team: team, tree: tree, tier: tier,
-    glory: amount, first: isFirst
+    glory: amount, first: isFirst,
+    slot: (if byCog: sim.players[byIndex].joinOrder else: -1)
   )
+  # Pop the claim OVER THE COG THAT EARNED IT rather than from the top of the
+  # screen. A team tree (treeSquad) has no single earner by construction, and a
+  # dead cog's last coordinates are a corpse, not a subject — both stay
+  # feed-only. Cosmetic: `gloryPops` is outside gameHash.
+  if byCog and sim.players[byIndex].alive:
+    sim.addGloryPop(team, sim.players[byIndex].x, sim.players[byIndex].y,
+                    amount, label = achievementName(tree, tier),
+                    tier = tier, first = isFirst)
   if sim.gameEventLoggingEnabled:
     sim.logGameEvent(
       teamText(team) & " achievement: " & achievementName(tree, tier) &
       (if isFirst: " (FIRST!)" else: "") & " +" & $amount
     )
 
-proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int) =
+proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
+                       byIndex = -1) =
   ## Sequential (first-come) arity: first = nobody has taken the tier yet.
   ## Correct whenever claims arrive at DIFFERENT times; the same-tick tie is
   ## the one case it cannot judge, which is evalAchievementsAllTeams' job.
-  sim.claimAchievement(team, tree, tier,
-                       isFirst = not sim.claimedFirst[achievementKey(tree, tier)])
+  sim.claimAchievement(
+    team, tree, tier,
+    isFirst = not sim.claimedFirst[achievementKey(tree, tier)],
+    byIndex = byIndex)
 
-proc satisfiedAchievements(sim: SimServer, team: Team):
-    array[Tree, array[AchievementTiers, bool]] =
+type SatisfiedBy = array[Tree, array[AchievementTiers, int]]
+  ## Per-tier: WHO satisfies it right now. `Unsatisfied`, `NoCog`, or a player
+  ## index. One array rather than a bool grid plus a parallel who-grid, because
+  ## two arrays that must agree is exactly the drift this port keeps banning.
+
+const
+  Unsatisfied = -2   ## the tier is not met.
+  NoCog* = -1        ## met, but by the TEAM (`treeSquad`) -- no single earner,
+                     ## so nothing to float a name over. Same sentinel
+                     ## `AchievementClaim.slot` uses on the wire.
+
+proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
   ## Pure satisfaction read over engine-truth counters: which tiers this team
-  ## meets RIGHT NOW, claimed or not. No minting -- the claimers below own
-  ## that, and separating the read is what lets the all-teams pass judge a
-  ## same-tick tie before any claim marks `claimedFirst`.
+  ## meets RIGHT NOW, claimed or not, AND WHICH COG met each one. No minting --
+  ## the claimers below own that, and separating the read is what lets the
+  ## all-teams pass judge a same-tick tie before any claim marks `claimedFirst`.
+  ##
+  ## The cell is a player INDEX, not a bool, because the viewer pops a claim
+  ## over the cog that earned it. `Unsatisfied` means the tier is not met;
+  ## `NoCog` means it IS met but by the team as a whole (`treeSquad`). First
+  ## writer wins: a tier is credited to the earliest cog in slot order that
+  ## satisfies it, which is also the cog whose counter crossed the line for
+  ## the accumulating team-wide flags (`anyGunHit`).
   var
-    best: array[Tree, array[AchievementTiers, bool]]
+    best: SatisfiedBy
     anyGunHit, anyCapture = false
     kits = sim.teamHoldsDistinctKits(team)
-  for player in sim.players:
+  for tree in Tree:
+    for tier in 0 ..< AchievementTiers:
+      best[tree][tier] = Unsatisfied
+  for idx, player in sim.players:
     if player.team != team:
       continue
+    template earn(tr: Tree, ti: int) =
+      if best[tr][ti] == Unsatisfied: best[tr][ti] = idx
     if player.shotsHit > 0: anyGunHit = true
     if player.captures > 0: anyCapture = true
 
     # GUN -- the weapon every cog spawns with.
-    if anyGunHit:                     best[treeGun][0] = true
-    if player.gunKills >= 1:          best[treeGun][1] = true
-    if player.gunKills >= 3:          best[treeGun][2] = true
-    if player.longshotKills >= 1:     best[treeGun][3] = true
-    if player.level >= MaxLevel:      best[treeGun][4] = true
+    if anyGunHit:                     earn(treeGun, 0)
+    if player.gunKills >= 1:          earn(treeGun, 1)
+    if player.gunKills >= 3:          earn(treeGun, 2)
+    if player.longshotKills >= 1:     earn(treeGun, 3)
+    if player.level >= MaxLevel:      earn(treeGun, 4)
 
     # SPRAY -- 28.5% of all kills in the field, historically 87% unfired.
-    if player.tookSpray:              best[treeSpray][0] = true
-    if player.sprayKills >= 1:        best[treeSpray][1] = true
+    if player.tookSpray:              earn(treeSpray, 0)
+    if player.sprayKills >= 1:        earn(treeSpray, 1)
     if player.multiKills >= 1 and player.sprayKills >= 2:
-                                      best[treeSpray][2] = true
-    if player.sprayKillsThisPickup >= 2: best[treeSpray][3] = true
-    if player.sprayKillsThisPickup >= 3: best[treeSpray][4] = true
+                                      earn(treeSpray, 2)
+    if player.sprayKillsThisPickup >= 2: earn(treeSpray, 3)
+    if player.sprayKillsThisPickup >= 3: earn(treeSpray, 4)
 
     # GRENADE -- the corner paint-bomb.
-    if player.tookGrenade:            best[treeGrenade][0] = true
-    if player.grenadeKills >= 1:      best[treeGrenade][1] = true
-    if player.grenadeKills >= 2:      best[treeGrenade][2] = true
+    if player.tookGrenade:            earn(treeGrenade, 0)
+    if player.grenadeKills >= 1:      earn(treeGrenade, 1)
+    if player.grenadeKills >= 2:      earn(treeGrenade, 2)
     if player.grenadeKills >= 1 and player.multiKills >= 1:
-                                      best[treeGrenade][3] = true
-    if player.grenadeKills >= 3:      best[treeGrenade][4] = true
+                                      earn(treeGrenade, 3)
+    if player.grenadeKills >= 3:      earn(treeGrenade, 4)
 
     # SHIELD -- soak, not damage. `blocked` already exists on the wire.
-    if player.tookShield:             best[treeShield][0] = true
-    if player.soakedHp >= 3:          best[treeShield][1] = true
-    if player.soakedHp >= 6:          best[treeShield][2] = true
+    if player.tookShield:             earn(treeShield, 0)
+    if player.soakedHp >= 3:          earn(treeShield, 1)
+    if player.soakedHp >= 6:          earn(treeShield, 2)
     # Enemy kills only: `player.kills` is the raw recordKill tally and it
     # COUNTS TEAMMATES, so gating on it let a friendly-fire kill complete
     # "Bulwark" (proven in the field: the banner announced it while the same
@@ -3731,53 +3887,53 @@ proc satisfiedAchievements(sim: SimServer, team: Team):
     # incremented only on non-friendly kills, so their sum is the honest gate.
     if player.soakedHp >= 6 and
        player.gunKills + player.sprayKills + player.grenadeKills >= 1:
-                                      best[treeShield][3] = true
-    if player.soakedHp >= 12:         best[treeShield][4] = true
+                                      earn(treeShield, 3)
+    if player.soakedHp >= 12:         earn(treeShield, 4)
 
     # MED KIT -- the heal line, where we run 5.9x worse than winners.
-    if player.tookMedKit:             best[treeMedKit][0] = true
-    if player.clutchHeals >= 1:       best[treeMedKit][1] = true
-    if player.clutchHeals >= 2:       best[treeMedKit][2] = true
+    if player.tookMedKit:             earn(treeMedKit, 0)
+    if player.clutchHeals >= 1:       earn(treeMedKit, 1)
+    if player.clutchHeals >= 2:       earn(treeMedKit, 2)
     if player.clutchHealTick >= 0 and
        player.gunKills + player.sprayKills + player.grenadeKills >= 1 and
        sim.tickCount - player.clutchHealTick <= 120:
-                                      best[treeMedKit][3] = true
-    if player.clutchHeals >= 3:       best[treeMedKit][4] = true
+                                      earn(treeMedKit, 3)
+    if player.clutchHeals >= 3:       earn(treeMedKit, 4)
 
     # CARRIER -- steal, run, score.
-    if player.steals >= 1:            best[treeCarrier][0] = true
+    if player.steals >= 1:            earn(treeCarrier, 0)
     if player.carryingFlag and player.stealTickThisLife >= 0 and
        sim.tickCount - player.stealTickThisLife >= 120:
-                                      best[treeCarrier][1] = true
-    if player.captures >= 1:          best[treeCarrier][2] = true
+                                      earn(treeCarrier, 1)
+    if player.captures >= 1:          earn(treeCarrier, 2)
     if player.captures >= 1 and
        sim.teamAliveCount(team) <
        sim.teamAliveCount(if team == Red: Blue else: Red):
-                                      best[treeCarrier][3] = true
+                                      earn(treeCarrier, 3)
     if player.captures >= 1 and player.stealTickThisLife >= 0:
-                                      best[treeCarrier][4] = true
+                                      earn(treeCarrier, 4)
 
     # DEFENDER -- peel, return, deny.
-    if player.returns >= 1:           best[treeDefender][0] = true
-    if player.carrierKills >= 1:      best[treeDefender][1] = true
-    if player.denials >= 1:           best[treeDefender][2] = true
+    if player.returns >= 1:           earn(treeDefender, 0)
+    if player.carrierKills >= 1:      earn(treeDefender, 1)
+    if player.denials >= 1:           earn(treeDefender, 2)
     if player.peelTick >= 0 and player.stealTickThisLife > player.peelTick and
        player.stealTickThisLife - player.peelTick <= RevengeTicks:
-                                      best[treeDefender][3] = true
-    if player.denials >= 2:           best[treeDefender][4] = true
+                                      earn(treeDefender, 3)
+    if player.denials >= 2:           earn(treeDefender, 4)
 
   # SQUAD -- the team tree. Nothing here is per-cog.
-  if kits >= 2:                       best[treeSquad][0] = true
-  if kits >= 3:                       best[treeSquad][1] = true
-  if kits >= 4:                       best[treeSquad][2] = true
+  if kits >= 2:                       best[treeSquad][0] = NoCog
+  if kits >= 3:                       best[treeSquad][1] = NoCog
+  if kits >= 4:                       best[treeSquad][2] = NoCog
   block cleanSheet:
     if sim.tickCount - sim.gameStartTick < 600:
       break cleanSheet
     for player in sim.players:
       if player.team == team and player.teamKills > 0:
         break cleanSheet
-    best[treeSquad][3] = true
-  if kits >= 4 and anyCapture:        best[treeSquad][4] = true
+    best[treeSquad][3] = NoCog
+  if kits >= 4 and anyCapture:        best[treeSquad][4] = NoCog
 
   result = best
 
@@ -3793,8 +3949,8 @@ proc evalAchievements*(sim: var SimServer, team: Team) =
   let best = sim.satisfiedAchievements(team)
   for tree in Tree:
     for tier in 0 ..< AchievementTiers:
-      if best[tree][tier]:
-        sim.claimAchievement(team, tree, tier)
+      if best[tree][tier] != Unsatisfied:
+        sim.claimAchievement(team, tree, tier, byIndex = best[tree][tier])
 
 proc evalAchievementsAllTeams*(sim: var SimServer) =
   ## The per-tick pass: judge EVERY team's satisfied tiers first, then mint.
@@ -3807,7 +3963,7 @@ proc evalAchievementsAllTeams*(sim: var SimServer) =
   ## later ticks still find `claimedFirst` set and pay base.
   if sim.phase != Playing:
     return
-  var sat: array[Team, array[Tree, array[AchievementTiers, bool]]]
+  var sat: array[Team, SatisfiedBy]
   for team in Team:
     sat[team] = sim.satisfiedAchievements(team)
   var untakenAtTickStart: array[AchievementTrees * AchievementTiers, bool]
@@ -3816,9 +3972,10 @@ proc evalAchievementsAllTeams*(sim: var SimServer) =
   for team in Team:
     for tree in Tree:
       for tier in 0 ..< AchievementTiers:
-        if sat[team][tree][tier]:
+        if sat[team][tree][tier] != Unsatisfied:
           sim.claimAchievement(team, tree, tier,
-            isFirst = untakenAtTickStart[achievementKey(tree, tier)])
+            isFirst = untakenAtTickStart[achievementKey(tree, tier)],
+            byIndex = sat[team][tree][tier])
 
 proc dropTithe(sim: var SimServer, playerIndex: int) =
   ## A veteran's heart spits out kit.
@@ -4641,6 +4798,7 @@ proc startGame*(sim: var SimServer) =
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
+  sim.gloryPops = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   # GLORY: every ledger, multiplier and one-shot resets at the game boundary.
@@ -5019,7 +5177,8 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
         fleeing: opening > 0
       )
     let deed = killDeed(ctx)
-    sim.awardDeed(killer.team, deed, victim.x, victim.y)
+    sim.awardDeed(killer.team, deed, victim.x, victim.y,
+                  byIndex = killerIndex)
     # Achievement counters, keyed off the RESOLVED deed so they can never
     # disagree with what was actually minted.
     if not ctx.friendly:
@@ -5040,7 +5199,8 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
     # episode so it cannot be farmed by construction.
     if not sim.firstBloodDone and not ctx.friendly:
       sim.firstBloodDone = true
-      sim.awardDeed(killer.team, dFirstBlood, victim.x, victim.y)
+      sim.awardDeed(killer.team, dFirstBlood, victim.x, victim.y,
+                    byIndex = killerIndex)
     sim.addXp(killerIndex, killXp(ctx))
   sim.players[targetIndex].lastKilledBy = killerIndex
   sim.players[targetIndex].lastKilledByTick = sim.tickCount
@@ -6600,6 +6760,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
+  sim.gloryPops = @[]
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1
@@ -6793,3 +6954,9 @@ proc step*(
     if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops
+  var keptGlory: seq[GloryFx] = @[]
+  for pop in sim.gloryPops:
+    let life = if pop.label.len > 0: AchievementFxTicks else: GloryFxTicks
+    if sim.tickCount - pop.tick < life:
+      keptGlory.add pop
+  sim.gloryPops = keptGlory

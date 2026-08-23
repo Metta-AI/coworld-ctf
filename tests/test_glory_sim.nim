@@ -516,7 +516,7 @@ suite "glory in the sim: the hover inspector":
     check "gun 2" in text                         # per-weapon deed counters
     check "GLORY" in text                         # the team ledger
     check "ACHIEVEMENTS" in text                  # ...and its curriculum
-    check "Blooded" in text                       # a named claim, not a count
+    check "First Tag" in text                     # a named claim, not a count
     check ("tithes " & $sim.players[0].tithesThisLife & "/" &
            $TitheMaxPerLife) in text                 # the veteran's tap
 

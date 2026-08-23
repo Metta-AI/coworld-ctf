@@ -304,9 +304,94 @@ const
   DamagePopMaxAmount = 2       ## highest -N shown (a grenade removes GrenadeDamage=2).
   DamagePopRisePx = 11         ## px the number floats upward over its full life.
   DamagePopZ = 30006           ## drawn above players, HP bars and name tags.
-  KillPopSpriteBase = 31128    ## floating "KO" kill-marker sprites keyed
+  KillPopSpriteBase = 31128    ## floating "SPLAT" tag-out marker sprites keyed
                                ## color×stage: 31128..31191 (above damage pops).
   KillPopRisePx = 16           ## px the kill marker floats upward over its life.
+  ## --- Glory score pops (the FPS hitmarker) ---
+  ## Keyed by POOL SLOT × stage rather than by content, because the text is
+  ## open-ended ("+250g", "THE PEEL +90g"): addBoardSpriteChanged dedups on the
+  ## LABEL, which carries the text, so a slot re-uploads only when its text or
+  ## its fade stage actually changes — at most GloryPopStages times per pop.
+  GloryPopSpriteBase = 31300   ## slot×stage: 31300..31379 (clear of the kill
+                               ## pops below and the rig pools at 40000+).
+  GloryPopObjectBase = 31400   ## one drawn glory pop per object: 31400..31415.
+  GloryPopStages = 5           ## alpha fade stages across a pop's life.
+  GloryPopMaxCount = 16        ## most score pops drawn at once.
+  GloryPopRisePx = 20          ## px a "+Ng" floats upward over its full life.
+  GloryPopLiftPx = 13          ## px the pop starts ABOVE the player center, so
+                               ## it clears the "-1" damage pop stacking below
+                               ## it rather than colliding with it.
+  GloryPopZ = 30008            ## above the damage pops (30006) and everything
+                               ## they already sit above.
+  ## Magnitude → type size, in logical px of line box. Our economy is one-shot
+  ## kills over few lives, so the KILL pop is the workhorse and it sets the
+  ## floor; the rare, expensive deeds (capture 250, wipe 400, denial 120) are
+  ## the ones that get to shout.
+  GloryPopMidGlory = 40        ## |glory| at or above this reads one step up.
+  GloryPopBigGlory = 150       ## |glory| at or above this reads two steps up.
+  GloryPopMidLiftPx = 3        ## extra line box for a mid-magnitude pop.
+  GloryPopBigLiftPx = 8        ## extra line box for a big-magnitude pop.
+  GloryPopInk = (232'u8, 163'u8, 61'u8)
+                               ## the chrome's warm amber (--amber #e8a33d).
+                               ## Glory is ONE currency, so it is one colour —
+                               ## never the team tint, which means "damage".
+  GloryPopPenaltyInk = (168'u8, 96'u8, 56'u8)
+                               ## a dulled ember, same warm family as the
+                               ## reward amber (never a cool tone, and never
+                               ## the team-red "damage" tint) but visibly
+                               ## duller and redder, so a team-kill penalty
+                               ## ("-60g") reads as a LOSS at a glance without
+                               ## borrowing red's "you got hit" meaning.
+  ## --- Achievement claim CHIP (the named pop's own plaque, not text with a
+  ## rectangle behind it). Reuses buildPopLabelSprite's shared smoothTextSprite
+  ## rasterizer for its two text lines (same cache, same fade convention as
+  ## every other glory pop) and draws the plaque, edge, tier pips and FIRST
+  ## tag itself. All sizes below are LOGICAL (1x) px, exactly like the pop
+  ## consts above; the sprite id POOL is unchanged (buildGloryPopSprite feeds
+  ## the same GloryPopSpriteBase slot the plain pop used to).
+  GloryChipPadX = 4           ## logical px around the content, left/right.
+  GloryChipPadY = 3           ## logical px above/below the content block.
+  GloryChipGapNM = 1          ## logical px between the name and money lines.
+  GloryChipGapMF = 2          ## logical px between the money line and the
+                               ## tier-pip / FIRST-tag footer strip.
+  GloryChipNameLineH = 9      ## the headline's line box: one size step above
+                               ## GloryChipMoneyLineH, so SIZE (not just
+                               ## colour) is what makes the name lead.
+  GloryChipMoneyLineH = TextLineHeight
+                               ## the payout rides the ordinary HUD line
+                               ## height — it supports the name, it does not
+                               ## compete with it.
+  GloryChipFooterH = 6        ## logical px tall: the tier-pip / FIRST row.
+  GloryChipRadius = 3'f32     ## logical corner radius of the plaque.
+  GloryChipEdgePx = 1         ## logical stroke width of the plaque's amber edge.
+  GloryChipFirstEdgePx = 2    ## a first claim's edge, thicker — it pays x3
+                               ## and is the rarest thing on the board, so it
+                               ## is the one place this HUD is allowed to be
+                               ## loud.
+  GloryChipHaloPx = 2         ## logical margin reserved around a first
+                               ## claim's plaque for its soft outer-edge glow.
+  GloryChipPipR = 1.1'f32     ## logical radius of one tier pip.
+  GloryChipPipGap = 3         ## logical gap between tier-pip centers.
+  GloryChipMaxTierPips = 5    ## AchievementClaim.tier is 0..4 (1..5 pips);
+                               ## clamp defends against any future widening.
+  GloryChipFirstTag = "FIRST" ## the footer wordmark on a first-in-Episode claim.
+  GloryChipFillInk = (22'u8, 17'u8, 13'u8)
+                               ## the HUD's own near-black, rgba(22,17,13,*) —
+                               ## the plaque is cut from the same chrome as the
+                               ## rest of the broadcast, not a new material.
+  GloryChipFillAlpha = 0.88'f32
+  GloryChipQuietInk = (
+    uint8(GloryPopInk[0].int * 65 div 100),
+    uint8(GloryPopInk[1].int * 65 div 100),
+    uint8(GloryPopInk[2].int * 65 div 100))
+                               ## 65% of the reward amber's brightness: the
+                               ## payout line and the tier pips SUPPORT the
+                               ## name, they never compete with it.
+  GloryChipFirstInk = (250'u8, 222'u8, 156'u8)
+                               ## a hot gold-white, brighter than the standard
+                               ## amber edge — the one accent in this HUD
+                               ## brighter than GloryPopInk itself, reserved
+                               ## for the rarest claim on the board.
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
   ## The cog draws as 9 z-stacked segments + a held gun, each its own board object
   ## so the head/arms track AIM while the legs/wheels track MOVEMENT (a true turret
@@ -2091,33 +2176,37 @@ proc blitRgbaBuffer(
       dst[d + 2] = src[s + 2]
       dst[d + 3] = src[s + 3]
 
-proc buildFloatingPopSprite(
-  game: SimServer, colorIndex: int, text: string, stage: int
+proc buildPopLabelSprite(
+  game: SimServer, text: string, stage, stages: int,
+  inkR, inkG, inkB: uint8, heightPx = 0
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds one floating pop label ("-N" damage number or "KO" kill marker):
-  ## bright team-tinted glyphs with a dark 1px contour so it pops off any
-  ## floor, fading by ALPHA across the pop's short life (the protocol has no
-  ## per-object alpha). Cosmetic only, never in gameHash. The tint uses the
-  ## VICTIM's team color so it reads as that player's loss, lightened toward
-  ## white so the glyphs stay legible.
+  ## Builds one floating pop label: bright glyphs with a dark 1px contour so it
+  ## pops off any floor, fading by ALPHA across the pop's short life (the
+  ## protocol has no per-object alpha). Cosmetic only, never in gameHash.
+  ##
+  ## Shared by the "-N"/"SPLAT" damage pops (team-tinted, victim's colour) and the
+  ## "+Ng" GLORY score pops (amber, one currency one colour). One rasterizer, so
+  ## the two families can never drift into two different fade curves.
+  ##
+  ## `heightPx` overrides the line box on the supersampled board, which is how a
+  ## capture reads bigger than a shield soak. The 1x pixel-font fallback has no
+  ## size to give, so it renders every magnitude at the font's own height --
+  ## honest rather than silently wrong, and that path is POV streams only.
   let
     font = game.asciiSprites
     textW = max(1, font.textWidth(text))
     glyphH = max(1, font.height)
     width = textW + 2          # 1px contour margin on each side
     height = glyphH + 2
-    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
-    inkR = uint8((base.r.int + 255 * 2) div 3)
-    inkG = uint8((base.g.int + 255 * 2) div 3)
-    inkB = uint8((base.b.int + 255 * 2) div 3)
     # Alpha-only fade: full at stage 0, nearly gone by the last stage.
-    fade = 1.0 - 0.85 * (stage.float / float(max(1, DamagePopStages - 1)))
+    fade = 1.0 - 0.85 * (stage.float / float(max(1, stages - 1)))
     alpha = uint8(clamp(255.0 * fade, 0.0, 255.0))
   if boardScale > 1:
     # Supersampled board: the numeral as smooth vector type (its drop shadow
     # plays the old dark contour's role), the stage fade applied to the copy
     # the cache hands back. LOGICAL dims, native pixels.
-    result = smoothTextSprite([text], inkR, inkG, inkB, boardScale, height)
+    result = smoothTextSprite([text], inkR, inkG, inkB, boardScale,
+                              (if heightPx > 0: heightPx else: height))
     if alpha != 255'u8:
       for i in countup(3, result.pixels.len - 1, 4):
         result.pixels[i] = uint8(result.pixels[i].int * alpha.int div 255)
@@ -2158,6 +2247,19 @@ proc buildFloatingPopSprite(
             break
         if nearInk:
           result.pixels.putRawRgbaPixel(i, 20, 16, 14, alpha)
+
+proc buildFloatingPopSprite(
+  game: SimServer, colorIndex: int, text: string, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## The "-N" damage number / "SPLAT" tag-out marker. The tint uses the VICTIM's team
+  ## color so it reads as that player's loss, lightened toward white so the
+  ## glyphs stay legible.
+  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+  game.buildPopLabelSprite(
+    text, stage, DamagePopStages,
+    uint8((base.r.int + 255 * 2) div 3),
+    uint8((base.g.int + 255 * 2) div 3),
+    uint8((base.b.int + 255 * 2) div 3))
 
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
@@ -4013,15 +4115,21 @@ proc inspectorLines*(sim: SimServer, playerIndex: int): seq[string] =
       buffs.add "no carry tax"
     if buffs.len > 0:
       result.add "buffs " & buffs.join(" ")
+  # Both numbers carry their denominator. `lives 2` alone said nothing about
+  # whether that is comfortable or the last one -- and the inconsistency with
+  # the `hp N/M` sitting beside it on the same line was the tell.
   result.add "hp " & $player.hp & "/" & $sim.playerMaxHp(playerIndex) &
-    "  lives " & $player.lives
+    "  lives " & $player.lives & "/" & $sim.config.lives
   # `player.kills` is the raw recordKill tally and includes teammates; the
   # per-weapon counters below count enemies only. Showing the tk term is what
   # keeps the headline reconcilable with the breakdown -- without it a cog
   # that only ever shot a teammate reads "kills 1 / gun 0 spray 0 nade 0".
-  result.add "kills " & $player.kills &
-    (if player.teamKills > 0: " (tk " & $player.teamKills & ")" else: "") &
-    "  deaths " & $player.deaths
+  # Paintball register: tags MADE, own paint, and times tagged OUT. `kills` is
+  # still the raw recordKill tally and still includes teammates, so the "own"
+  # term is what keeps this headline reconcilable with the breakdown below it.
+  result.add "tags " & $player.kills &
+    (if player.teamKills > 0: " (own " & $player.teamKills & ")" else: "") &
+    "  outs " & $player.deaths
   result.add "gun " & $player.gunKills & " spray " & $player.sprayKills &
     " nade " & $player.grenadeKills
   result.add "soak " & $player.soakedHp & "hp  heals " & $player.clutchHeals
@@ -4754,7 +4862,7 @@ proc addDamagePops(
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
       amount = clamp(pop.amount, 1, DamagePopMaxAmount)
-      text = if pop.kill: "KO" else: "-" & $amount
+      text = if pop.kill: "SPLAT" else: "-" & $amount
       sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
       # Rise a few pixels over the full life so the label lifts off the player.
       rise = risePer * age div max(1, life)
@@ -4781,6 +4889,314 @@ proc addDamagePops(
     inc nextPop
     currentIds.add(objectId)
     packet.addBoardObject(objectId, px, py, DamagePopZ, MapLayerId, spriteId)
+
+proc gloryPopMoneyText(pop: GloryFx): string =
+  ## The payout half of a pop's text: its POST-multiplier amount with its unit
+  ## attached — "+120g", never a bare 120 — and a penalty keeps its own sign
+  ## ("-60g" for a team kill, which is the whole point of pricing it).
+  (if pop.amount < 0: "-" else: "+") & $abs(pop.amount) & "g"
+
+proc gloryPopText(pop: GloryFx): string =
+  ## What one score pop reads, flattened to ONE line: used for the sprite
+  ## dedupe hash (gloryPopLabelKey) and as the boardScale == 1 fallback, where
+  ## there is no vector type budget for the two-line claim chip
+  ## (buildGloryChipSprite). An achievement leads with the name it just
+  ## earned, so the moment is legible without the ledger.
+  let money = gloryPopMoneyText(pop)
+  if pop.label.len > 0: pop.label.toUpperAscii() & "  " & money else: money
+
+proc gloryPopLabelKey(text: string): uint32 =
+  ## FNV-1a digest of a pop's rendered TEXT, for use in the sprite LABEL only
+  ## (never the pixels — gloryPopText above is still what the player reads).
+  ## addBoardSpriteChanged dedupes a sprite by comparing its label, so the
+  ## label must change exactly when `text` changes or a re-upload gets
+  ## skipped. Spelling `text` straight into the label would do that, but an
+  ## achievement claim's text carries the achievement's NAME — one of 40 — and
+  ## sprite labels are the policy perception surface this repo golden-tests as
+  ## a closed vocabulary (tests/test_label_contract.nim), so that would open
+  ## it by 40 entries. A numeric key is exact-on-content for the dedupe (any
+  ## text change flips the hash) while collapsing every achievement to the
+  ## same manifest pattern: one `<n>`.
+  result = 2166136261'u32
+  for ch in text:
+    result = result xor uint32(ord(ch))
+    result = result * 16777619'u32
+
+proc ink8(r, g, b: uint8, a = 1.0'f32): Color =
+  ## This file's usual uint8 0..255 ink as a pixie 0..1 Color.
+  color(float32(r) / 255, float32(g) / 255, float32(b) / 255, a)
+
+proc addDarkContour(pixels: var seq[uint8], width, height: int) =
+  ## Dilates whatever is already drawn by one native pixel into a solid dark
+  ## ring wherever the source has none yet — the boardScale > 1 sibling of the
+  ## 1x pixel-font path's own 4-neighbor contour (buildPopLabelSprite, above).
+  ## A standalone "+Ng" deed pop has no plaque to lean on for contrast, unlike
+  ## a claim chip, so it is the one glory-pop family that still needs its own
+  ## halo to survive a busy floor. The ring borrows its alpha from whichever
+  ## neighbor triggered it, so it fades in lockstep with the glyph it outlines
+  ## instead of needing its own fade math.
+  let src = pixels
+  for y in 0 ..< height:
+    for x in 0 ..< width:
+      let i = (y * width + x) * 4
+      if src[i + 3] > 0:
+        continue
+      var near: uint8 = 0
+      for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        let
+          nx = x + dx
+          ny = y + dy
+        if nx >= 0 and nx < width and ny >= 0 and ny < height:
+          near = max(near, src[(ny * width + nx) * 4 + 3])
+      if near > 0:
+        pixels[i] = 20
+        pixels[i + 1] = 16
+        pixels[i + 2] = 14
+        pixels[i + 3] = near
+
+proc gloryChipContentLogicalHeight(pop: GloryFx): int =
+  ## The plaque's own footprint in LOGICAL (1x) px — padding, the two text
+  ## lines, and the tier-pip/FIRST footer when there is one — EXCLUDING a
+  ## first claim's halo margin. `gloryChipLogicalHeight` below adds that back
+  ## for callers that need the full drawn extent.
+  result = GloryChipPadY * 2 + GloryChipNameLineH + GloryChipGapNM +
+    GloryChipMoneyLineH
+  if pop.tier >= 0 or pop.first:
+    result += GloryChipGapMF + GloryChipFooterH
+
+proc gloryChipLogicalHeight(pop: GloryFx): int =
+  ## Single source of truth for a claim chip's FULL logical footprint
+  ## (plaque + halo), shared by the sprite builder (canvas sizing) and the
+  ## row-stack math in addGloryPops (via gloryPopLineBox below), so a second
+  ## pop stacked on the same cog can never overlap a chip that grew taller
+  ## than the old flat text ever was.
+  result = gloryChipContentLogicalHeight(pop)
+  if pop.first:
+    result += GloryChipHaloPx * 2
+
+proc buildGloryChipSprite(
+  pop: GloryFx, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## The achievement CLAIM pop: a genuine plaque, not text with a rectangle
+  ## behind it. A rounded plaque cut from the HUD's own near-black chrome,
+  ## a thin warm amber edge, the achievement NAME leading in full-brightness
+  ## amber, its "+Ng" payout supporting in a quieter dimmed amber beneath it,
+  ## and a footer strip of tier pips (plus a FIRST tag, when it applies) —
+  ## iconography drawn directly, never text parsed back out of the name.
+  ## boardScale > 1 only; the caller falls back to plain type at 1x, where
+  ## there is no vector budget for a plaque.
+  let
+    k = boardScale
+    fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
+    alphaByte = uint8(clamp(255.0 * fade, 0.0, 255.0))
+    tierCount = clamp(pop.tier + 1, 0, GloryChipMaxTierPips)
+    isFirst = pop.first
+    hasFooter = tierCount > 0 or isFirst
+    nameSpr = smoothTextSprite(
+      [pop.label.toUpperAscii()], GloryPopInk[0], GloryPopInk[1],
+      GloryPopInk[2], k, GloryChipNameLineH)
+    moneySpr = smoothTextSprite(
+      [gloryPopMoneyText(pop)], GloryChipQuietInk[0], GloryChipQuietInk[1],
+      GloryChipQuietInk[2], k, GloryChipMoneyLineH)
+  var footerFont = newFont(boardTypeface())
+  footerFont.size = float32(GloryChipFooterH * k) / 1.1
+  footerFont.lineHeight = float32(GloryChipFooterH * k)
+  let
+    firstTagW = if isFirst: footerFont.layoutBounds(GloryChipFirstTag).x
+                else: 0.0'f32
+    pipD = GloryChipPipR * 2.0'f32 * k.float32
+    pipsW = if tierCount > 0:
+        tierCount.float32 * pipD +
+          max(0, tierCount - 1).float32 * GloryChipPipGap.float32 * k.float32
+      else: 0.0'f32
+    footerGap = if tierCount > 0 and isFirst: GloryChipPipGap.float32 * k.float32
+                else: 0.0'f32
+    footerW = pipsW + footerGap + firstTagW
+    contentW = max(float32(nameSpr.width * k),
+                   max(float32(moneySpr.width * k), footerW))
+    haloPad = if isFirst: GloryChipHaloPx * k else: 0
+    innerW = int(ceil(contentW)) + GloryChipPadX * 2 * k
+    innerH = gloryChipContentLogicalHeight(pop) * k
+    canvasW = innerW + haloPad * 2
+    canvasH = innerH + haloPad * 2
+    logicalW = max(1, (canvasW + k - 1) div k)
+    logicalH = max(1, (canvasH + k - 1) div k)
+  var image = newImage(canvasW, canvasH)
+  let
+    r = GloryChipRadius * k.float32
+    edgeW = float32(k) * float32(
+      if isFirst: GloryChipFirstEdgePx else: GloryChipEdgePx)
+    half = edgeW / 2
+    plaqueRect = rect(
+      float32(haloPad) + half, float32(haloPad) + half,
+      float32(innerW) - edgeW, float32(innerH) - edgeW)
+  var path = newPath()
+  # A hairline daub, not a dialog box: the four corners are NOT quite equal,
+  # which is enough asymmetry to read as painted rather than drafted -- tried
+  # a separate splat notch on the lower edge instead, and at this size (a
+  # 640x360 embed floor) it read as clip art, not paint, so it was cut.
+  path.roundedRect(plaqueRect, r * 0.85'f32, r, r * 1.2'f32, r * 0.95'f32)
+  image.fillPath(path, ink8(GloryChipFillInk[0], GloryChipFillInk[1],
+    GloryChipFillInk[2], GloryChipFillAlpha))
+  if isFirst:
+    # Two flat, low-alpha bands standing in for a blur this rasterizer
+    # doesn't have. A first claim pays x3 and is the rarest thing on the
+    # board -- one team, one tier, once per Episode -- so its edge is
+    # allowed to be the loudest element in the whole HUD.
+    image.strokePath(path, ink8(GloryChipFirstInk[0], GloryChipFirstInk[1],
+      GloryChipFirstInk[2], 0.16'f32), strokeWidth = edgeW * 5)
+    image.strokePath(path, ink8(GloryChipFirstInk[0], GloryChipFirstInk[1],
+      GloryChipFirstInk[2], 0.35'f32), strokeWidth = edgeW * 2.5)
+    image.strokePath(path, ink8(GloryChipFirstInk[0], GloryChipFirstInk[1],
+      GloryChipFirstInk[2], 1.0'f32), strokeWidth = edgeW)
+  else:
+    image.strokePath(path, ink8(GloryPopInk[0], GloryPopInk[1],
+      GloryPopInk[2], 1.0'f32), strokeWidth = edgeW)
+  if hasFooter:
+    let footerY = float32(haloPad) + float32(GloryChipPadY * k) +
+      float32((GloryChipNameLineH + GloryChipGapNM + GloryChipMoneyLineH +
+        GloryChipGapMF) * k)
+    var penX = float32(haloPad) + float32(GloryChipPadX * k)
+    for i in 0 ..< tierCount:
+      var pip = newPath()
+      pip.circle(
+        penX + GloryChipPipR * k.float32,
+        footerY + float32(GloryChipFooterH * k) * 0.5'f32,
+        GloryChipPipR * k.float32)
+      image.fillPath(pip, ink8(GloryPopInk[0], GloryPopInk[1], GloryPopInk[2]))
+      penX += pipD + GloryChipPipGap.float32 * k.float32
+    if isFirst:
+      footerFont.paint = newPaint(SolidPaint)
+      footerFont.paint.color = ink8(
+        GloryChipFirstInk[0], GloryChipFirstInk[1], GloryChipFirstInk[2])
+      let tagX = float32(canvasW - haloPad) - float32(GloryChipPadX * k) -
+        firstTagW
+      image.fillText(footerFont, GloryChipFirstTag,
+        translate(vec2(tagX, footerY)))
+  var pixels = imageToStraightRgba(image)
+  let
+    nameX = (canvasW - nameSpr.width * k) div 2
+    nameY = haloPad + GloryChipPadY * k
+    moneyX = (canvasW - moneySpr.width * k) div 2
+    moneyY = nameY + (GloryChipNameLineH + GloryChipGapNM) * k
+  pixels.blitRgbaBuffer(canvasW, canvasH, nameSpr.pixels,
+    nameSpr.width * k, nameSpr.height * k, nameX, nameY)
+  pixels.blitRgbaBuffer(canvasW, canvasH, moneySpr.pixels,
+    moneySpr.width * k, moneySpr.height * k, moneyX, moneyY)
+  if alphaByte != 255'u8:
+    for i in countup(3, pixels.len - 1, 4):
+      pixels[i] = uint8(pixels[i].int * alphaByte.int div 255)
+  result.width = logicalW
+  result.height = logicalH
+  result.pixels = pixels
+
+proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
+  ## Magnitude-scaled type size for a plain deed pop (kill vs capture vs
+  ## wipe), OR a claim chip's own logical footprint height. The two no longer
+  ## share one "make it BIG" hack: the chip earns its contrast from the
+  ## plaque itself, not from oversized type, so it is sized by its own
+  ## content (gloryChipLogicalHeight) instead of forcing the deed pop's
+  ## biggest step regardless of price.
+  if pop.label.len > 0:
+    return gloryChipLogicalHeight(pop)
+  result = max(1, sim.asciiSprites.height) + 2
+  if abs(pop.amount) >= GloryPopBigGlory:
+    result += GloryPopBigLiftPx
+  elif abs(pop.amount) >= GloryPopMidGlory:
+    result += GloryPopMidLiftPx
+
+proc buildGloryPopSprite(
+  sim: SimServer, pop: GloryFx, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
+  ## Dispatches a glory pop to its family's own renderer: a claim earns a
+  ## genuine plaque (buildGloryChipSprite); a plain deed stays honest
+  ## floating type (buildPopLabelSprite), amber for a reward and a duller
+  ## ember for a penalty, with its own dark contour added back on the
+  ## supersampled board since it has no plaque to lean on for contrast.
+  if pop.label.len > 0 and boardScale > 1:
+    return buildGloryChipSprite(pop, stage)
+  let ink = if pop.amount < 0: GloryPopPenaltyInk else: GloryPopInk
+  result = sim.buildPopLabelSprite(
+    gloryPopText(pop), stage, GloryPopStages,
+    ink[0], ink[1], ink[2], heightPx = sim.gloryPopLineBox(pop))
+  if boardScale > 1:
+    result.pixels.addDarkContour(
+      result.width * boardScale, result.height * boardScale)
+
+proc addGloryPops(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places the floating GLORY score pops from a fixed object pool — the FPS
+  ## hitmarker, in the CoD/Battlefield sense: not a damage number but the "+100"
+  ## that tells you the deed PAID, at the pixel where it happened.
+  ##
+  ## Sited exactly like the damage pops it stacks above (same pool discipline,
+  ## same fog honesty: the map view passes no viewer and shows every pop, a
+  ## player view passes its index and sees only what it can see), but lifted
+  ## GloryPopLiftPx so the wound below and the reward above never collide.
+  ## The pool is chosen by PRIORITY, not by arrival. Insertion order looked
+  ## harmless and was a silent cap: with 16 slots, sixteen older small pops
+  ## still alive meant a 250g capture minted after them was never drawn AT ALL
+  ## for its entire life -- not delayed, dropped, with nothing on screen saying
+  ## so. A named claim outranks a plain pop, and within each group the larger
+  ## payout wins, so the deeds this economy is actually about cannot be crowded
+  ## out by small change. Selection is a deterministic partial sort over the few
+  ## candidates that survive fog; nothing here may depend on iteration order.
+  var candidates: seq[int] = @[]
+  for i, pop in sim.gloryPops:
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, pop.x, pop.y):
+      continue     # a fogged pop consumes NO pool slot (fog honesty)
+    candidates.add i
+  # Rank: labelled first, then by |amount| descending, then by index so ties are
+  # stable across frames (a pop must not flicker in and out of the pool).
+  proc outranks(a, b: GloryFx): bool =
+    let
+      aLab = a.label.len > 0
+      bLab = b.label.len > 0
+    if aLab != bLab: return aLab
+    abs(a.amount) > abs(b.amount)
+  for i in 1 ..< candidates.len:
+    var j = i
+    while j > 0 and outranks(sim.gloryPops[candidates[j]],
+                             sim.gloryPops[candidates[j - 1]]):
+      swap candidates[j], candidates[j - 1]
+      dec j
+  var nextPop = 0
+  for ci in candidates:
+    if nextPop >= GloryPopMaxCount:
+      break
+    let pop = sim.gloryPops[ci]
+    let
+      age = sim.tickCount - pop.tick
+      life = if pop.label.len > 0: AchievementFxTicks else: GloryFxTicks
+      stage = clamp(age * GloryPopStages div max(1, life), 0,
+        GloryPopStages - 1)
+      text = gloryPopText(pop)
+      sprite = sim.buildGloryPopSprite(pop, stage)
+      rise = GloryPopRisePx * age div max(1, life)
+      px = pop.x - sprite.width div 2
+      # `pop.row` staggers pops that could not coalesce at one site (a claim on
+      # top of the kill that earned it), so they read as a stack, not a smear.
+      py = pop.y - sprite.height div 2 - GloryPopLiftPx - rise -
+           pop.row * sim.gloryPopLineBox(pop)
+      spriteId = GloryPopSpriteBase + nextPop * GloryPopStages + stage
+    packet.addBoardSpriteChanged(
+      spriteDefs,
+      spriteId,
+      sprite.width,
+      sprite.height,
+      sprite.pixels,
+      "glory pop " & $gloryPopLabelKey(text) & " stage " & $stage,
+      native = boardScale
+    )
+    let objectId = GloryPopObjectBase + nextPop
+    inc nextPop
+    currentIds.add(objectId)
+    packet.addBoardObject(objectId, px, py, GloryPopZ, MapLayerId, spriteId)
 
 proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
@@ -4963,6 +5379,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addDamagePops(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addGloryPops(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -5734,6 +6156,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addEndzoneGlowFade(nextState, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
+  sim.addGloryPops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addHitFlashes(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)

@@ -17,7 +17,7 @@
 ## **The anti-snowball rule is that levels are PER LIFE.** A cog's XP resets
 ## to zero on death and its buffs go with it. A runaway cog is therefore also
 ## a fat bounty (`dStarfall`), and the counter-play to a snowball is the same
-## as the counter-play to everything else: kill it. This is a DELIBERATE
+## as the counter-play to everything else: tag it out. This is a DELIBERATE
 ## inversion of Muster's ruling that stars must only ever REPORT strength
 ## (`soldier_roles.STAR_BUFFS` is 60 buffs with zero consumers, and Muster
 ## keeps it that way on purpose). Paintbot wants the power fantasy; the
@@ -51,7 +51,7 @@ type
     dRunDown           ## killing a target that is moving away from you: the
                        ## chase, on camera.
     dStarfall          ## killing a StarfallLevel+ cog — a named character
-                       ## dies. This is what makes a leveller a bounty.
+                       ## goes down. This is what makes a leveller a bounty.
     dTeamKill          ## NEGATIVE. Friendly fire cost us up to 63% of the
                        ## death gap before v59; pricing it keeps it closed.
 
@@ -379,7 +379,7 @@ const
   # of just harder. Values are cumulative and applied at five integer sites
   # in `sim.nim`; all arithmetic stays integer.
   #
-  #   L1 Blooded    windup -1 tick        the lead we measured at +70pp
+  #   L1 Tagger     windup -1 tick        the lead we measured at +70pp
   #   L2 Marksman   gun range +15%,       reach, and the spray finally recycles
   #                 spray reset -40%
   #   L3 Ironhide   +1 max hp             now a real threat -- and a bounty
@@ -415,7 +415,7 @@ const
     ## At L5 the heart no longer slows you.
 
   LevelNames*: array[0 .. MaxLevel, string] = [
-    "recruit", "blooded", "marksman", "ironhide", "quickdraw", "legend"
+    "recruit", "tagger", "marksman", "ironhide", "quickdraw", "legend"
   ]
     ## What the feed and the replay pip call each rung.
 
@@ -529,10 +529,10 @@ const
   AchievementNames*: array[Tree, array[AchievementTiers, string]] = [
     # treeGun — "The Sidearm"
     ["Trigger Discipline",  ## I    land a gun hit
-     "Blooded",             ## II   a gun kill
+     "First Tag",           ## II   a gun kill
      "Marksman",            ## III  3 gun kills in one game
      "Longshot",            ## IV   a kill past LongshotPx
-     "Deadeye"],            ## V    a cog reaches max rank (L5)
+     "Sharpshooter"],       ## V    a cog reaches max rank (L5)
     # treeSpray — "The Can"
     ["Shake It",            ## I    pick up a spray can
      "First Coat",          ## II   a spray kill
@@ -555,7 +555,7 @@ const
     ["Field Dressing",      ## I    take a med kit
      "The Save",            ## II   heal at 1 hp
      "Triage",              ## III  2 clutch heals in one episode
-     "Back From the Dead",  ## IV   clutch-heal then kill within 120 ticks
+     "Back in Play",        ## IV   clutch-heal then kill within 120 ticks
      "Miracle Worker"],     ## V    3 clutch heals in one episode
     # treeCarrier — "The Heart"
     ["Hands On",            ## I    steal the enemy heart
@@ -600,6 +600,28 @@ func paysHeat*(deed: Deed): bool {.inline.} =
   ## Law 4: achievements mint through the ledger (feed, heralds and the site
   ## gradient all apply) but NEVER climb heat. Only combat drama does.
   deed != dAchievement and isDrama(deed)
+
+func popsScore*(deed: Deed): bool {.inline.} =
+  ## Whether a minted deed floats a "+Ng" score pop at its site (the FPS
+  ## hitmarker). Lives here rather than in the renderer for the same reason
+  ## every other rule does: one accessor, so the FX layer can never hardcode a
+  ## deed name and drift from the economy it is reporting.
+  ##
+  ## `dShieldSoak` is excluded because it is ambient per-hit-point income, not
+  ## a moment — the table already prices it at ZERO drama for exactly that
+  ## reason. It also fires every 9-12 ticks per attacker under focus fire, and
+  ## the draw pool is a fixed 16: left in, ambient soak STARVES the rare deeds
+  ## the pop exists to celebrate, so a capture could mint and never be drawn.
+  ##
+  ## `dAchievement` is excluded because a claim pops through `claimAchievement`'s
+  ## LABELLED path instead, carrying the name it just earned. Popping it here
+  ## too would price one moment twice on screen.
+  ##
+  ## A PENALTY still pops. `dTeamKill` is 0-drama (anti-drama: it must never
+  ## light heat) but friendly fire is the largest single loss we have measured,
+  ## so "-60g" over the body is one of the most valuable things on this HUD.
+  ## That is why this is NOT `isDrama`, which would silently swallow it.
+  deed != dShieldSoak and deed != dAchievement
 
 func tierGlory*(tier: int): int {.inline.} =
   ## Base glory for an achievement tier index 0..4.
@@ -800,29 +822,31 @@ func killXp*(ctx: KillContext): int =
 # everything. Neither is optional and neither may be gated on `collectEvents`.
 
 func deedName*(deed: Deed): string =
-  ## Stable wire/report name. Used by the feed, the audit dump and the
-  ## replay ledger, so it must not drift from the enum.
+  ## Human-readable herald name, in paintball-league register. NOT a stable
+  ## wire contract — its only consumers are `sim.nim`'s stdout herald
+  ## (Docker logs, `logGameEvent`) and a non-asserting debug `echo` in
+  ## `tests/test_glory_sim.nim`. Free to reword; nothing parses this string.
   case deed
   of dNone: "none"
-  of dFirstBlood: "first blood"
-  of dHonorableKill: "honorable kill"
-  of dSprayKill: "spray kill"
-  of dGrenadeKill: "grenade kill"
-  of dPointBlankKill: "point blank kill"
-  of dLongshotKill: "longshot kill"
-  of dSplashMultiKill: "splash multikill"
-  of dRevengeKill: "revenge kill"
-  of dRunDown: "run down"
+  of dFirstBlood: "first tag"
+  of dHonorableKill: "clean tag"
+  of dSprayKill: "spray tag"
+  of dGrenadeKill: "bomb tag"
+  of dPointBlankKill: "point blank tag"
+  of dLongshotKill: "longshot tag"
+  of dSplashMultiKill: "double splash"
+  of dRevengeKill: "payback"
+  of dRunDown: "chase down"
   of dStarfall: "starfall"
-  of dTeamKill: "team kill"
+  of dTeamKill: "own paint"
   of dFlagSteal: "heart steal"
   of dFlagReturn: "heart return"
   of dCapture: "capture"
-  of dCarrierKill: "carrier kill"
-  of dDenial: "denial"
-  of dEscortKill: "escort kill"
-  of dClutchHeal: "clutch heal"
+  of dCarrierKill: "the peel"
+  of dDenial: "doorstep stop"
+  of dEscortKill: "escort tag"
+  of dClutchHeal: "clutch patch"
   of dShieldSoak: "shield soak"
-  of dWipe: "wipe"
-  of dLevelUp: "level up"
+  of dWipe: "whitewash"
+  of dLevelUp: "rank up"
   of dAchievement: "achievement"

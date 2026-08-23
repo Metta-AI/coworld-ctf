@@ -19,12 +19,13 @@ cog spray can <color>
 cog wheel <color>
 corpse <color> <side>
 damage pop <color> -<n> stage <n>
-damage pop <color> KO stage <n>
+damage pop <color> SPLAT stage <n>
 diamond
 endzone <color> power <n>
 fire icon
 fire icon cooldown
 fog
+glory pop <n> stage <n>
 grenade
 grenade air
 grenade carried

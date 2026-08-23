@@ -401,7 +401,6 @@ html, body {
   white-space: nowrap;
   animation: chippop 300ms cubic-bezier(.2,1.4,.4,1);
 }
-.banner-chip.achv { border-bottom-color: var(--amber); }
 .banner-chip.steal { border-bottom-color: var(--amber); }
 .banner-chip.returned { border-bottom-color: var(--paper-dim); }
 .banner-chip.wipe { border-bottom-color: var(--red); font-size: calc(15 * var(--u)); }
@@ -455,6 +454,9 @@ html, body {
 .feed-row .who.red { color: var(--red); }
 .feed-row .who.blue { color: var(--blue); }
 .feed-row .glyph { color: var(--paper); font-size: calc(9 * var(--u)); }
+/* The achievement's NAME in a feed row: the row's subject, so it reads at the
+   glyph's weight rather than as a second badge competing with the payout. */
+.feed-row .ach-title { color: var(--paper); white-space: nowrap; }
 .feed-row .badge {
   font-family: var(--finefont);
   font-size: calc(7 * var(--u));
@@ -529,7 +531,23 @@ html, body {
   z-index: 10;
   pointer-events: auto;
 }
+/* A real <button>, not a div with a click handler: the panel's only control
+   has to be reachable by keyboard and has to announce its open/closed state.
+   Everything below the first line is UA-reset so this is a pure a11y change
+   with no visual diff -- a button inherits neither the panel's pixel font nor
+   its color, and brings its own border, padding and centering. */
 #achpanel .ach-head {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  line-height: inherit;
   font-size: calc(9 * var(--u));
   letter-spacing: 0.08em;
   color: var(--paper);
@@ -537,15 +555,61 @@ html, body {
   user-select: none;
   white-space: pre;
 }
+/* Focus ring in the warm palette. The UA default satisfies the contrast rule
+   but renders as a blue halo that belongs to no other surface here. */
+#achpanel .ach-head:focus-visible,
+#inspector .ins-btn:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: calc(1 * var(--u));
+}
 #achpanel .ach-head .ach-caret { color: var(--amber); }
+#achpanel .ach-head .red { color: var(--red); }
+#achpanel .ach-head .blue { color: var(--blue); }
 #achpanel .ach-team {
-  margin-top: calc(3 * var(--u));
+  margin-top: calc(4 * var(--u));
   letter-spacing: 0.06em;
 }
 #achpanel .ach-team.red { color: var(--red); }
 #achpanel .ach-team.blue { color: var(--blue); }
-#achpanel .ach-row { white-space: pre; }
+/* The team subhead's own denominator + payout sit quiet next to the colored
+   name: the name is the label, the rest is context, and one weight step is
+   enough to say so without a divider. */
+#achpanel .ach-team .ach-sub { color: var(--paper-dim); letter-spacing: 0.02em; }
+/* A row is NAME (left) ... +Ng (right). The payout is right-anchored so the
+   amber column reads as one scannable ledger down the panel rather than
+   drifting with each name's length. */
+#achpanel .ach-row {
+  display: flex;
+  align-items: baseline;
+  gap: calc(8 * var(--u));
+  white-space: pre;
+}
+/* min-width:0 is load-bearing, not boilerplate. A flex child defaults to
+   min-width:auto, and with `pre` on the row the name can then never shrink
+   below its full text -- so the longest claim in the curriculum
+   ("***** Nothing Gets Through FIRST") pushes past the panel's max-width and
+   overflow:hidden clips from the RIGHT, eating the amber payout column this
+   row exists to show. The payout must be the last thing to go, never the
+   first. `normal` (not `pre`) so the ellipsis can actually engage. */
+#achpanel .ach-row .ach-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 #achpanel .ach-row .ach-first { color: var(--amber); }
+#achpanel .ach-row .ach-pay {
+  flex: none;
+  margin-left: auto;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+/* The overflow line. The panel used to clip its oldest rows against
+   max-height with nothing said about it, which reads as "that is all of
+   them" -- the one thing it must never say. */
+#achpanel .ach-more { color: var(--paper-dim); opacity: 0.72; }
+#achpanel .ach-none { color: var(--paper-dim); opacity: 0.72; }
 #achpanel.closed .ach-body { display: none; }
 /* At the embed floor the full ledger cannot fit beside the board: keep the
    HEADER (the counts are the always-visible read) and collapse the body. */
@@ -601,19 +665,40 @@ html, body {
   color: var(--paper-dim);
   cursor: pointer;
 }
+/* WCAG 2.2 AA target minimum. Everything else on this card scales with --u
+   (= 1px * hudscale, clamped 0.5..1.6), and at the 760px reference width that
+   put these two buttons at ~17px tall -- under the 24px floor across most of
+   the clamp range, not just in tiny embeds. An absolute floor is the only
+   thing that holds at every scale. */
+#inspector .ins-btn { min-height: 24px; }
 #inspector .ins-btn:hover { background: rgba(242, 232, 216, 0.16); color: var(--paper); }
 #inspector.on { display: block; }
-#inspector.red { border-left: calc(2 * var(--u)) solid var(--red); }
-#inspector.blue { border-left: calc(2 * var(--u)) solid var(--blue); }
-/* The first line is the cog's name — the card's headline, at the scorebug
-   numeral's weight so the subject is unmistakable at a glance. */
+/* WHOSE cog this is, said by a pip in the headline rather than a left accent
+   stripe down the card. The stripe was banned visual language and it was also
+   the weaker read: it lived at the card's edge, furthest from the name it was
+   qualifying, while the pip sits against it. Same pip language as the scorebug
+   squad strip, so the two surfaces agree. */
 #inspector .ins-head {
   font-size: calc(12 * var(--u));
   color: var(--paper);
   letter-spacing: 0.04em;
   margin-bottom: calc(2 * var(--u));
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--u));
 }
+#inspector .ins-pip {
+  flex: none;
+  /* em, not u: the .tiny card scales the headline to 19u and the pip must
+     stay in proportion to the name it qualifies, not to the stage. */
+  width: 0.52em;
+  height: 0.52em;
+  border-radius: 50%;
+}
+#inspector.red .ins-pip { background: var(--red); }
+#inspector.blue .ins-pip { background: var(--blue); }
 #inspector .ins-line { white-space: pre; }
+#inspector .ins-line.ins-wrap { white-space: normal; }
 /* inspectorLines ships a genuine empty string as its section break (before the
    team GLORY block); render it as the hairline it means, not as dead space. */
 #inspector .ins-rule {
@@ -1398,7 +1483,7 @@ body[data-embed] #board { top: 0; height: 100%; }
             <span class="fl-num red ec-glory" id="ec-glory-red">0</span>
             <span class="fl-cap">Glory</span>
           </div>
-          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
+          <div class="ec-thead"><span>Player</span><span>Tags</span><span>Outs</span><span>Clstr</span><span>Cap</span></div>
           <div id="ec-rows-red"></div>
         </div>
         <div class="ec-team" id="ec-team-blue">
@@ -1409,7 +1494,7 @@ body[data-embed] #board { top: 0; height: 100%; }
             <span class="fl-num blue ec-glory" id="ec-glory-blue">0</span>
             <span class="fl-cap">Glory</span>
           </div>
-          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
+          <div class="ec-thead"><span>Player</span><span>Tags</span><span>Outs</span><span>Clstr</span><span>Cap</span></div>
           <div id="ec-rows-blue"></div>
         </div>
       </div>
@@ -1726,6 +1811,13 @@ body[data-embed] #board { top: 0; height: 100%; }
         var line = insp.lines[i];
         if (!line.length) { html += '<div class="ins-rule"></div>'; continue; }
         var cls = i === 0 ? 'ins-head' : 'ins-line';
+        // The headline carries the team PIP (see the #inspector .ins-pip rule):
+        // whose cog this is, said next to the name instead of by an edge stripe.
+        if (i === 0) {
+          html += '<div class="ins-head"><span class="ins-pip"></span>' +
+            esc(line) + '</div>';
+          continue;
+        }
         // #stage.tiny's compact card keeps only rank + hp/lives and hides
         // every other .ins-line by class (see the #stage.tiny #inspector
         // rule). `buffs` is an optional line, so those two don't sit at a
@@ -1734,6 +1826,15 @@ body[data-embed] #board { top: 0; height: 100%; }
             (line.indexOf('rank ') === 0 || line.indexOf('hp ') === 0)) {
           cls += ' ins-vital';
         }
+        // The `buffs` line is the one most likely to hit the card's width: at
+        // max rank it carries six phrases (~60 chars). `pre` never wraps and
+        // the card is overflow:hidden, so it would be SLICED mid-word -- the
+        // same failure the .tiny rules already fix for .ins-vital, at a size
+        // where nobody thought to look. Tagged by content because `buffs` is
+        // optional and so has no fixed index.
+        if (cls === 'ins-line' && line.indexOf('buffs ') === 0) {
+          cls += ' ins-wrap';
+        }
         html += '<div class="' + cls + '">' + esc(line) + '</div>';
       }
       // The action row: the EYES view -- which used to be the board click --
@@ -1741,7 +1842,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       // the CLICKS are handled by one delegated listener on #inspector, so
       // rebuilding the innerHTML never orphans a handler.
       html += '<div class="ins-actions">' +
-        '<button class="ins-btn" data-act="eyes">EYES VIEW</button>' +
+        '<button class="ins-btn" data-act="eyes">POV</button>' +
         '<button class="ins-btn" data-act="close">CLOSE</button></div>';
       el.innerHTML = html;
       el.classList.remove('red', 'blue');
@@ -1910,6 +2011,15 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   var achOpen = true;   // default VISIBLE; the header click flips it
+  // The full curriculum: 8 kit-keyed trees x 5 tiers, per team. Every count on
+  // this panel carries it as its denominator -- "3" alone says nothing about
+  // whether a team is doing well.
+  var ACH_TOTAL = 40;
+  // Rows shown per team before the panel says so. The panel is bounded by
+  // max-height, and a CSS clip is a SILENT truncation: it drops the oldest
+  // claims while looking exactly like a complete list. Bounding by COUNT
+  // instead makes the overflow a fact the panel can state.
+  var ACH_MAX_ROWS = 11;
   function renderAchPanel(s) {
     var el = $('achpanel');
     if (!el || !s.teams) return;
@@ -1921,22 +2031,39 @@ body[data-embed] #board { top: 0; height: 100%; }
       (blue.length ? blue[blue.length - 1].n : '');
     if (key === el._key) return;
     el._key = key;
-    var html = '<div class="ach-head" data-act="toggle">' +
+    var html = '<button type="button" class="ach-head" data-act="toggle"' +
+      ' aria-expanded="' + (achOpen ? 'true' : 'false') + '">' +
       '<span class="ach-caret">' + (achOpen ? '▾' : '▸') + '</span>' +
-      ' ACHIEVEMENTS  ' + red.length + '/40 · ' + blue.length + '/40</div>';
+      ' ACHIEVEMENTS  <span class="red">RED ' + red.length + '/' + ACH_TOTAL +
+      '</span> · <span class="blue">BLUE ' + blue.length + '/' + ACH_TOTAL +
+      '</span></button>';
     html += '<div class="ach-body">';
     [['red', red], ['blue', blue]].forEach(function (pair) {
       var team = pair[0], claims = pair[1];
+      // What this team's curriculum has PAID. Summed from the same per-claim
+      // `g` the rows print, so the subhead can never disagree with them.
+      var paid = 0;
+      for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
       html += '<div class="ach-team ' + team + '">' + team.toUpperCase() +
-        ' ' + claims.length + '</div>';
-      // newest first: the row a viewer just saw the banner for is on top
-      for (var i = claims.length - 1; i >= 0; i--) {
+        '<span class="ach-sub">  ' + claims.length + ' of ' + ACH_TOTAL +
+        (paid ? '  ·  +' + paid + 'g' : '') + '</span></div>';
+      // newest first: the row a viewer just saw pop over a cog is on top
+      var shown = Math.min(claims.length, ACH_MAX_ROWS);
+      for (var i = claims.length - 1; i >= claims.length - shown; i--) {
         var c = claims[i];
-        html += '<div class="ach-row">' +
+        html += '<div class="ach-row"><span class="ach-name">' +
           new Array((c.t || 1) + 1).join('*') + ' ' + esc(c.n) +
-          (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</div>';
+          (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</span>' +
+          '<span class="ach-pay">+' + (c.g || 0) + 'g</span></div>';
       }
-      if (!claims.length) html += '<div class="ach-row">—</div>';
+      if (claims.length > shown) {
+        html += '<div class="ach-row ach-more"><span class="ach-name">+ ' +
+          (claims.length - shown) + ' earlier</span></div>';
+      }
+      if (!claims.length) {
+        html += '<div class="ach-row ach-none"><span class="ach-name">' +
+          'none yet</span></div>';
+      }
     });
     html += '</div>';
     el.innerHTML = html;
@@ -3265,10 +3392,10 @@ body[data-embed] #board { top: 0; height: 100%; }
       // Same-tick multi-kill the sim can't pair (a 3-way pileup or two
       // independent kills). Attribution is honestly unknown (F7): show the
       // victim with a neutral marker, never a fabricated killer or "traded".
-      badge = '<span class="badge">double KO</span>';
+      badge = '<span class="badge">DOUBLE SPLAT</span>';
       row.innerHTML = '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
     } else {
-      if (e.tk) { badge = '<span class="badge tk">team kill</span>'; row.classList.add('flagkill'); }
+      if (e.tk) { badge = '<span class="badge tk">OWN PAINT</span>'; row.classList.add('flagkill'); }
       var killerName = killer >= 0 ? shortName(rosterName(s, killer)) : 'the arena';
       row.innerHTML = '<span class="who ' + (killerTeam || '') + '">' + esc(killerName) + '</span>' +
         '<span class="glyph">' + glyph + '</span>' +
@@ -3277,30 +3404,31 @@ body[data-embed] #board { top: 0; height: 100%; }
     pushFeed(row);
   }
 
-  // An achievement claim. Two lanes, split on how rare the claim is: a FIRST
-  // (first team in the Episode to complete that tier) or a high tier earns the
-  // banner lane — one at a time, with the 1900ms dwell floor, so it still reads
-  // at 16x. Everything else joins the kill feed, which already reserves four
-  // rows and already holds each one 2600ms. Both lanes are cleared on a seek by
-  // onFrame's jump guard, so scrubbing backwards never re-shouts the ledger.
-  // No new queue, no new timing model, no new colour.
+  // An achievement claim. ONE lane now: the kill feed, plus the scrubber mark
+  // applyEvent already sets. The banner lane is gone deliberately — the claim
+  // is popped OVER THE COG THAT EARNED IT, sim-side (sim.gloryPops, drawn by
+  // global.addGloryPops), and a top-middle toast saying the same words a
+  // moment later just pulls the eye off the cog the pop is pointing at. The
+  // feed is the durable record, the pop is the moment, the panel is the state.
+  //
+  // `e.slot` is the join slot of the cog whose counters satisfied the tier, or
+  // -1 for a team tree (treeSquad) that no single cog can own — those file
+  // under the team, which is exactly what they are.
   function onAchievement(e, s) {
     var stars = new Array((e.tier || 0) + 2).join('*');
     var team = e.team === 'red' ? 'red' : 'blue';
-    if (e.first || (e.tier || 0) >= 3) {
-      // Every number carries its context: what was claimed, how deep the tier,
-      // and what it PAID.
-      // banner() writes textContent, so this string is NOT escaped here —
-      // escaping it would surface literal &amp; in the chip.
-      banner(String(e.name) + ' ' + stars + (e.first ? ' first' : '') +
-        ' +' + (e.glory || 0) + ' glory', 'achv ' + team + '-accent');
-      beatPulse();
-      return;
-    }
+    var slot = (typeof e.slot === 'number') ? e.slot : -1;
+    var who = slot >= 0 ? shortName(rosterName(s, slot)) : team.toUpperCase();
+    // A FIRST (first team in the Episode to complete that tier) or a deep tier
+    // still gets the heartbeat pulse: it is a rarer moment and the transport
+    // should say so. It just no longer takes over the top of the frame.
+    if (e.first || (e.tier || 0) >= 3) beatPulse();
     var row = document.createElement('div');
     row.className = 'feed-row';
-    row.innerHTML = '<span class="who ' + team + '">' + esc(e.name) + '</span>' +
-      '<span class="badge">' + esc(stars) + ' +' + (e.glory || 0) + 'g</span>';
+    row.innerHTML = '<span class="who ' + team + '">' + esc(who) + '</span>' +
+      '<span class="ach-title">' + esc(e.name) + '</span>' +
+      '<span class="badge">' + esc(stars) +
+      (e.first ? ' FIRST' : '') + ' +' + (e.glory || 0) + 'g</span>';
     pushFeed(row);
   }
 
@@ -3555,7 +3683,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var html = '';
     rows.forEach(function (p) {
       var mvp = mvpSlot != null && p.s === mvpSlot;
-      var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
+      var marks = endcardBadge('bs', p.tk, 'Own paint — tagged a teammate');
       var cluster = (p.mk2 || 0) + (p.mk3 || 0);
       html += '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
         '<span class="pcell">' +
@@ -3622,7 +3750,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       head.className = 'headline draw';
       head.textContent = 'DRAW — NO SCORE';
       how.textContent = o.timeLimit
-        ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
+        ? 'Time expired before a capture or a whitewash — a scoreless draw, with no tiebreak on lives.'
         : 'The match ended with neither side scoring — no winner.';
       return;
     }
@@ -3644,7 +3772,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     } else {
       var loserLives = winner === 'red' ? blueL : redL;
       if (loserLives <= 0) {
-        head.textContent = winName + ' WIPES OUT ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
+        head.textContent = winName + ' WHITEWASHES ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
         how.textContent = winName + ' eliminated every opposing life.';
       } else {
         how.textContent = winName + ' captured the enemy heart.';

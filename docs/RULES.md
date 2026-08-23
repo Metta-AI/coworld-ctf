@@ -36,7 +36,7 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   bar — dead on the center row — is a **glass window**: the mid lane stays
   closed to movement and fire, but both teams can watch the center corridor
   through the glass.
-- A round ends when a team **captures the enemy heart** or is **wiped out**.
+- A round ends when a team **captures the enemy heart** or is **whitewashed**.
 
 ## Teams & spawns
 
@@ -54,7 +54,7 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   player means seeing who it is. Existing `player <color> <side>` labels are
   unchanged.
 - Each team has a **home edge**: Red = left, Blue = right.
-- Players spawn just inside their home edge and respawn there when killed.
+- Players spawn just inside their home edge and respawn there when tagged out.
 
 ## Movement
 
@@ -106,7 +106,7 @@ always drawn — but moving entities are fogged:
   so watching a lane, sweeping an arc, and turning your back are deliberate
   rotation choices - and moving somewhere no longer reveals it.
 - Everything outside your vision is **masked**: enemies, an enemy carrying a
-  heart, and death splatters from unseen events are simply not in your
+  heart, and splat markers from unseen events are simply not in your
   observation. The unseen area is dimmed by a fog overlay.
 - **Bullets are invisible to players.** Shot tracers and muzzle flashes are
   spectator/replay rendering only — no player observation ever contains
@@ -134,15 +134,15 @@ always drawn — but moving entities are fogged:
   board still shows true aim — this fuzz exists in player observations only.)
 - There is **no global heart tracking**: once a thief carries your heart into the
   fog, finding it again takes eyes on it.
-- Death does not lift the fog: a dead player sees the whole map fogged —
-  only the terrain, the pedestal hearts, and their own corpse — until they
-  respawn (their inputs are ignored).
+- Being tagged out does not lift the fog: a player who has been tagged out
+  sees the whole map fogged — only the terrain, the pedestal hearts, and
+  their own corpse — until they respawn (their inputs are ignored).
 
 ## Combat
 
 - **Every player has `hitPoints` (default 3) per life.** Each bullet that hits
-  removes one hit point; at zero you die. Hit points reset to full on every
-  respawn. Your own remaining HP shows on your HUD next to your lives.
+  removes one hit point; at zero you're tagged out. Hit points reset to full
+  on every respawn. Your own remaining HP shows on your HUD next to your lives.
 - Press **A** to fire. Firing has a short **cooldown** between shots (it is not a
   continuous beam).
 - Pressing fire starts a short **windup** (~0.2s): your aim locks the moment
@@ -162,10 +162,10 @@ always drawn — but moving entities are fogged:
   shoulder is fair game even when the body's center is safely covered).
   More exposure means more aim angles connect.
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
-  so firing into a cluster of teammates can kill your own escort.
+  so firing into a cluster of teammates can tag out your own escort.
 - **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
-  tick picks its target against the same snapshot before any kill applies: a
-  mutual face-off duel kills both shooters, and neither team gains an
+  tick picks its target against the same snapshot before any tag applies: a
+  mutual face-off duel tags out both shooters, and neither team gains an
   input-processing-order advantage.
 
 ### Shot micro (frame data)
@@ -209,8 +209,8 @@ What that means in practice:
 - **Four grenade pickups spawn in the arena corners** — two on each team's
   side — a fixed inset inside the border walls. Anyone may take either
   side's pickups by **touch**; a taken corner **refills 5 seconds later**.
-- **Each player carries at most one grenade.** Dying loses the carried
-  grenade (nothing drops).
+- **Each player carries at most one grenade.** Getting tagged out loses the
+  carried grenade (nothing drops).
 - **Throwing:** hold the **C button** (input mask bit 128) to charge, release
   to throw along your **current aim**. The charge picks the distance, from a
   short tap (~30 px — inside the blast radius, so a panicked drop can hurt
@@ -227,7 +227,7 @@ What that means in practice:
   and the thrower alike**, removing 2 hit points each. The landing splat and
   the charge-time throw-target ring are drawn at the TRUE blast diameter —
   what looks painted is exactly what got hit, and everything inside the ring
-  will be. Kills credit the thrower (except suicides).
+  will be. Kills credit the thrower (except self-splats).
 - **Throwing is silent; landing is loud.** A landing you could not see
   leaves a large jittered sound ring (label `grenade sound`) — landing-only
   audio, exactly like gunshot impact rings. The throw itself leaves nothing.
@@ -244,7 +244,7 @@ What that means in practice:
   are present when the game starts, and a taken one respawns after
   **30 seconds**.
 - **Each player carries at most one spray can**, independently of their
-  grenade. Dying loses the carried can; nothing drops.
+  grenade. Getting tagged out loses the carried can; nothing drops.
 - While carrying a spray can, **A sprays a forward paint cone instead of
   firing the gun**. The cone reaches **4 squares** in front of the player
   (136 px — one square is one 34 px cog body) and widens linearly to
@@ -253,7 +253,7 @@ What that means in practice:
   throws a carried grenade normally.
 - **The cone stays on for 5 ticks**, tracking the attacker's position and
   aim across the window, then the can takes **20 ticks to repressurize**
-  (one burst every 25 ticks). The cone shuts off if its owner dies.
+  (one burst every 25 ticks). The cone shuts off if its owner is tagged out.
 - **A touch removes 3 hit points, once per victim per burst** — instantly
   lethal to a bare 3 hp cog, while a 6 hp shield carrier survives the first
   touch with 3 hp left. The cone affects teammates too and requires line
@@ -285,10 +285,10 @@ garnish: rank changes what a cog can do.
   kit pickups, shield soak, and flag play (steal, capture, and the peel --
   priced as the flag RETURN it causes). A kill levels nobody: the damage
   that produced it already did, in proportion to who dealt it. The ladder is
-  `recruit → blooded → marksman → ironhide → quickdraw → legend`. **Death
-  resets the ladder to zero** and the buffs go with it, so a dominant cog is
-  bounded to one life. Killing a rank-3+ cog pays a `starfall` bounty, and
-  friendly fire subtracts xp.
+  `recruit → tagger → marksman → ironhide → quickdraw → legend`. **Getting
+  tagged out resets the ladder to zero** and the buffs go with it, so a
+  dominant cog is bounded to one life. Killing a rank-3+ cog pays a
+  `starfall` bounty, and friendly fire subtracts xp.
 - **What a rank buys** (cumulative): shorter trigger windup, then +15% gun
   range and a faster spray recharge, then +1 hit point, then a faster fire
   cooldown and two throws per grenade pickup, then a shorter windup again and
@@ -298,8 +298,8 @@ garnish: rank changes what a cog can do.
 - **Observation labels**: a cog at rank 3 or above wears a `veteran mark <n>`
   plume, one star per rank, fog-gated like any overhead marker. The scoreboard
   shows the same stars for any ranked cog, from rank 1 up -- not gated to the
-  plume's rank-3 threshold. A row that loses its stars means that cog just
-  died.
+  plume's rank-3 threshold. A row that loses its stars means that cog was
+  just tagged out.
 - **The tithe.** From rank 3 up, a cog's own heart produces kit -- a med kit,
   grenade, spray can and shield in rotation -- dropped on its team's pedestal.
   The tap is fed by **newly earned xp**, not by standing at rank, so a veteran
@@ -328,7 +328,7 @@ garnish: rank changes what a cog can do.
   the shouter is, never exactly.
 - **Rate limit: one shout per second per player**, and each player has at
   most one live bubble (a new shout replaces the old). Bubbles fade after
-  **3 seconds**. Dead players cannot shout and hear nothing.
+  **3 seconds**. Tagged-out players cannot shout and hear nothing.
 - The global/replay view draws every bubble at the shouter's actual
   position, following them while they live.
 - **Shouting is free**: it never consumes, delays, or modifies any other
@@ -367,8 +367,8 @@ garnish: rank changes what a cog can do.
 - **While carrying a shield you fire 3x slower.** A fresh player with a
   fresh shield has 6 effective hp (3 base + 3 shield). Each shot you fire
   starts a cooldown three times the normal length until the shield breaks
-  or you die. You can still move, carry the heart, and throw grenades.
-- **A shield is lost when you die** and is not dropped on the ground; the
+  or you're tagged out. You can still move, carry the heart, and throw grenades.
+- **A shield is lost when you're tagged out** and is not dropped on the ground; the
   taken endzone shield **respawns 30 seconds later** in the same spot.
 - Observation label: `shield`. Shields are fog-gated like the med kits and
   grenade pickups: you see one only where you have vision, and a small
@@ -377,8 +377,8 @@ garnish: rank changes what a cog can do.
 ## Lives & respawn
 
 - Each player has a fixed number of **lives**.
-- When you die, you **respawn at your home edge** after a short delay — as long as
-  you have lives remaining.
+- When you're tagged out, you **respawn at your home edge** after a short delay
+  — as long as you have lives remaining.
 - When you run out of lives, you are **out for the rest of the round**.
 
 ## The hearts
@@ -387,7 +387,7 @@ garnish: rank changes what a cog can do.
 - **Touch the ENEMY heart to steal it** off its pedestal. Your own heart cannot be
   interacted with by your own team. While carrying you move **slower** but can
   **still shoot**.
-- If the carrier is killed (or disconnects), the heart **returns instantly to its
+- If the carrier is tagged out (or disconnects), the heart **returns instantly to its
   own pedestal**. A heart is never left loose on the ground: it is either carried
   or sitting on its pedestal.
 - Your own heart's **state** is always observable: its pedestal is never fogged,
@@ -445,8 +445,8 @@ These are starting values, exposed in the game config and tuned in self-play.
 | --- | --- | --- |
 | Players | 16 (8v8) | All standard Coworld slots |
 | Lives per player | 3 | Out of lives = out for the round |
-| Hit points per life (`hitPoints`) | 3 | Shots to kill; reset to full on respawn |
-| Respawn delay | ~3s | Time dead before respawning at home |
+| Hit points per life (`hitPoints`) | 3 | Shots to tag out; reset to full on respawn |
+| Respawn delay | ~3s | Time out before respawning at home |
 | Gun range | 1300px | Effectively map-wide; aim precision and line of sight are the real limits |
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
@@ -462,7 +462,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Spray can reset (`PlasmaArcResetTicks`) | 20 ticks | Repressurize after the cone shuts off (one burst per 25 ticks) |
 | Spray can respawn | 30s | Taken pickups refill after this interval |
 | Paint puff lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
-| Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
+| Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier is tagged out |
 | Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
@@ -478,8 +478,8 @@ compute the object center and divide by 3:
 (map size 1235x659, ranges, speeds) stays in map pixels; only the wire
 representation scaled. The invisible `walkability map` sprite is unscaled and
 still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
-unchanged, with one exception: while you are dead your own body is the only
-player sprite in frame, labeled `corpse <color> <side>` instead of
+unchanged, with one exception: while you are tagged out your own body is the
+only player sprite in frame, labeled `corpse <color> <side>` instead of
 `player <color> <side>`, so a policy scanning for `player` labels never
 mistakes a body for a live enemy.
 
@@ -547,8 +547,8 @@ the `heart`/`flag` claim above went wrong. The label vocabulary itself lives in
 **Identity badges:** every living player carries a separate badge object
 labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).
 Like the `hp <n>/3` bar, the badge is a distinct object centered on its
-player's body: attach it by proximity. It is fog-gated with its player and disappears on
-death.
+player's body: attach it by proximity. It is fog-gated with its player and
+disappears when its player is tagged out.
 
 ---
 
