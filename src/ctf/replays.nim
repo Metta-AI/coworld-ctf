@@ -73,6 +73,12 @@ type
       ## the same keyframe walk. Shipped once to the HUD client so the
       ## scrubber can place its flag markers and winner cap up front instead
       ## of accumulating them as playback happens to pass each beat.
+    achievementBadges*: JsonNode
+      ## The final game's earned achievements with their focus cogs
+      ## ([{"id", "s" (seat slot), "n" (address)}]), read off the scan sim
+      ## after its walk crossed finishGame. Shipped once with the lead
+      ## chrome so a viewer opened from a badge's watch link
+      ## (?achievement=<id>) can select the receiving cog.
     scan: ReplayScan
       ## The in-flight whole-match precompute walk, nil when finished (and
       ## for players that never scan — the offline tools). The walk used to
@@ -488,6 +494,7 @@ proc initReplayScan*(
   replay.livesSeries = @[]
   replay.lullSpans = @[]
   replay.beatEvents = newJArray()
+  replay.achievementBadges = newJArray()
   replay.scanDone = false
   var scan = ReplayScan(interval: max(interval, 1))
   scan.sim = initialSim
@@ -579,6 +586,18 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
     replay.replayStartTick(),
     scan.maxTick
   )
+  # The walked sim has crossed the recorded match's end, so finishGame's
+  # achievement evaluation (and its focus cogs) already ran on it; export the
+  # pairs by SEAT SLOT (joinOrder — the id the viewer's pov select speaks).
+  replay.achievementBadges = newJArray()
+  for focus in scan.sim.achievementFocus:
+    if focus.playerIndex < 0 or focus.playerIndex >= scan.sim.players.len:
+      continue
+    replay.achievementBadges.add %*{
+      "id": focus.id,
+      "s": scan.sim.players[focus.playerIndex].joinOrder,
+      "n": scan.sim.players[focus.playerIndex].address
+    }
   replay.scan = nil
   replay.scanDone = true
 

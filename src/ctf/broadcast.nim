@@ -667,7 +667,8 @@ proc buildStateJson*(
   skipLulls: bool = false,
   fastForwarding: bool = false,
   lullSpans: seq[array[2, int]] = @[],
-  beatEvents: JsonNode = nil
+  beatEvents: JsonNode = nil,
+  achievementBadges: JsonNode = nil
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -767,6 +768,13 @@ proc buildStateJson*(
   # immediately instead of collecting them as playback passes each one.
   if not beatEvents.isNil and beatEvents.len > 0:
     state["beats"] = beatEvents
+
+  # The final game's earned achievements with their focus cogs, shipped on the
+  # same lead frame. The client only consults it when the page URL carries
+  # ?achievement=<id> (a badge's watch link): it selects the named cog's POV so
+  # the viewer opens looking at the receiver.
+  if not achievementBadges.isNil and achievementBadges.len > 0:
+    state["ach"] = achievementBadges
 
   # Full-timeline lull spans, shipped alongside the lead series on the same
   # first frame: [[firstTick, lastTick], …] quiet stretches the skip-lulls mode

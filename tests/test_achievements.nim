@@ -437,3 +437,136 @@ suite "achievements":
     sim4.finishGame(Red)
     check AchievementHeist notin sim4.earned("pol0")
 
+
+  test "silent: no cog of the team shouted; one applied shout forfeits it":
+    var sim = policyPairGame()
+    sim.finishGame(Red)
+    check AchievementSilent in sim.earned("pol0")
+    var sim2 = policyPairGame()
+    check sim2.applyShout(1, "go")          # the sibling cog speaks
+    sim2.finishGame(Red)
+    check AchievementSilent notin sim2.earned("pol0")
+    check AchievementSilent notin sim2.earned("pol0_(2)")
+    # A rejected shout (empty text) leaves the team silent.
+    var sim3 = policyPairGame()
+    check not sim3.applyShout(0, "   ")
+    sim3.finishGame(Red)
+    check AchievementSilent in sim3.earned("pol0")
+
+  test "assassin: first-touch kill shots; spray, teammates, softened kills excluded":
+    proc freshKill(sim: var SimServer, victim: int, weapon: string) =
+      # Respawn the victim at 1 hp, untouched, and drop it with one hit.
+      sim.players[victim].alive = true
+      sim.players[victim].hp = 1
+      sim.players[victim].hurtByMask = 0
+      sim.absorbDamage(victim, 1, attackerIndex = 0, weapon = weapon)
+      sim.killPlayer(victim, 0)
+    var sim = policyPairGame()
+    for _ in 0 ..< 9:
+      sim.freshKill(2, "gun")
+    check sim.players[0].assassinKills == 9
+    sim.freshKill(2, "spray")               # spray never counts
+    check sim.players[0].assassinKills == 9
+    sim.finishGame(Red)
+    check AchievementAssassin notin sim.earned("pol0")
+    var simTen = policyPairGame()
+    for _ in 0 ..< 9:
+      simTen.freshKill(2, "gun")
+    simTen.freshKill(2, "grenade")          # a grenade kill shot does
+    check simTen.players[0].assassinKills == 10
+    simTen.finishGame(Red)
+    check AchievementAssassin in simTen.earned("pol0")
+    check AchievementAssassin in simTen.earned("pol0_(2)")
+    check AchievementAssassin notin simTen.earned("pol1")
+    # A kill on a victim this cog already wounded in that life is not fresh;
+    # a death wipes the mask so the NEXT life is fresh again.
+    var sim2 = policyPairGame()
+    sim2.players[2].hp = 2
+    sim2.absorbDamage(2, 1, attackerIndex = 0, weapon = "gun")
+    sim2.absorbDamage(2, 1, attackerIndex = 0, weapon = "gun")
+    check sim2.players[0].assassinKills == 0
+    sim2.killPlayer(2, 0)
+    check sim2.players[2].hurtByMask == 0
+    # A teammate's earlier hit does not spoil the assassin's first touch.
+    sim2.players[2].alive = true
+    sim2.players[2].hp = 2
+    sim2.absorbDamage(2, 1, attackerIndex = 1, weapon = "gun")
+    sim2.absorbDamage(2, 1, attackerIndex = 0, weapon = "gun")
+    check sim2.players[0].assassinKills == 1
+    # Killing a teammate is no assassination.
+    var sim3 = policyPairGame()
+    sim3.players[1].hp = 1
+    sim3.absorbDamage(1, 1, attackerIndex = 0, weapon = "gun")
+    check sim3.players[0].assassinKills == 0
+
+  proc blast(sim: var SimServer, thrower, victim: int) =
+    ## A real max-range throw from `thrower` that lands on `victim` (both
+    ## stood on a clear row), stepped through to the detonation.
+    sim.players[thrower].x = 460
+    sim.players[thrower].y = sim.gameMap.center.y
+    sim.players[thrower].aimBrads = 0
+    sim.players[thrower].hasGrenade = true
+    sim.players[thrower].fireCooldown = 0
+    sim.players[victim].x = 460 + GrenadeMaxRange
+    sim.players[victim].y = sim.gameMap.center.y
+    sim.chargeAndThrow(thrower, GrenadeChargeTicks)
+    check sim.airborneGrenades.len == 1
+    let flight = sim.airborneGrenades[0].flightTicks
+    let prev = sim.none()
+    for _ in 0 .. flight:
+      sim.step(sim.none(), prev)
+    check sim.airborneGrenades.len == 0
+
+  test "lucky: five grenade blasts survived in one game":
+    var sim = policyPairGame()
+    sim.players[0].hp = 100
+    for _ in 0 ..< 5:
+      sim.blast(2, 0)
+    check sim.players[0].alive
+    check sim.players[0].blastsSurvived == 5
+    sim.finishGame(Red)
+    check AchievementLucky in sim.earned("pol0")
+    check AchievementLucky notin sim.earned("pol1")
+    # The fatal fifth blast is not survived.
+    var sim2 = policyPairGame()
+    sim2.players[0].hp = 4 * GrenadeDamage + 1
+    for _ in 0 ..< 4:
+      sim2.blast(2, 0)
+    check sim2.players[0].blastsSurvived == 4
+    sim2.players[0].hp = GrenadeDamage
+    sim2.blast(2, 0)
+    check not sim2.players[0].alive
+    check sim2.players[0].blastsSurvived == 4
+    sim2.finishGame(Red)
+    check AchievementLucky notin sim2.earned("pol0")
+
+  test "assassin: a real grenade kill shot on an untouched cog counts once":
+    var sim = policyPairGame()
+    sim.players[2].hp = GrenadeDamage
+    sim.blast(0, 2)
+    check not sim.players[2].alive
+    check sim.players[0].assassinKills == 1
+
+  test "achievement focus names the receiving cog per badge":
+    var sim = policyPairGame()
+    for _ in 0 ..< 9:
+      sim.noteLifeKill(1)                   # the sibling cog is the streaker
+    sim.finishGame(Red)
+    var ramboFocus = -1
+    for focus in sim.achievementFocus:
+      if focus.id == AchievementRambo:
+        ramboFocus = focus.playerIndex
+    check ramboFocus == 1
+    # heist focuses the capturer, and a team-wide badge (pacifist) still
+    # names SOME winning cog so the watch link has a face to select.
+    var sim2 = policyPairGame()
+    sim2.lastCaptureTeam = Red
+    sim2.lastCaptureTick = sim2.tickCount
+    sim2.lastCaptureIndex = 1
+    sim2.finishGame(Red)
+    var heistFocus, pacifistFocus = -1
+    for focus in sim2.achievementFocus:
+      if focus.id == AchievementHeist: heistFocus = focus.playerIndex
+      if focus.id == AchievementPacifist: pacifistFocus = focus.playerIndex
+    check heistFocus == 1
+    check pacifistFocus in [0, 1]

@@ -1891,6 +1891,29 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var seekRaw = new URLSearchParams(location.search).get('t');
     if (seekRaw != null && /^\d+$/.test(seekRaw)) SEEK_T = parseInt(seekRaw, 10);
   } catch (e) {}
+
+  // Achievement deep-link (?achievement=<id>): a badge's watch link. The lead
+  // chrome frame carries the final game's earned badges with their focus cogs
+  // (s.ach: [{id, s, n}]); when it arrives, select the receiving cog's POV via
+  // the same v: command a squad-pip click sends. One-shot: once applied (or the
+  // id turns out unearned in this recording) the param goes inert, so the
+  // viewer is free to click elsewhere.
+  var ACH_FOCUS = null;
+  try {
+    var achRaw = new URLSearchParams(location.search).get('achievement');
+    if (achRaw) ACH_FOCUS = achRaw;
+  } catch (e) {}
+  function applyAchievementFocus(s) {
+    if (ACH_FOCUS == null || !s.ach) return;
+    var want = ACH_FOCUS;
+    ACH_FOCUS = null;             // the lead frame ships once; so does this
+    for (var i = 0; i < s.ach.length; i++) {
+      if (s.ach[i].id === want && s.ach[i].s != null && s.ach[i].s >= 0) {
+        send('v:' + s.ach[i].s);
+        return;
+      }
+    }
+  }
   function postToShell(type, payload) {
     if (!EMBED || window.parent === window) return;
     try { window.parent.postMessage({ src: 'ctf-replay', type: type, data: payload }, '*'); } catch (e) {}
@@ -1989,6 +2012,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (SEEK_T != null) { send('s:' + SEEK_T); SEEK_T = null; }
+    applyAchievementFocus(s);
 
     // The board's real native size, read off the core's letterbox transform.
     // THIS page re-layouts its own stage to it (syncBoardAspect) and it also

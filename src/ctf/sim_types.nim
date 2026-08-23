@@ -502,6 +502,16 @@ const
   AchievementHeist* = "heist"          ## the win came from carrying the
                                        ## enemy heart home and the team
                                        ## killed nobody.
+  AchievementSilent* = "silent"        ## no cog of the team shouted all game.
+  AchievementAssassin* = "assassin"    ## one cog made >= AssassinKills kill
+                                       ## shots (gun or grenade, never spray)
+                                       ## on cogs it had not damaged before
+                                       ## in that victim's life.
+  AchievementLucky* = "lucky"          ## one cog was caught in >= LuckyBlasts
+                                       ## grenade blasts this game and walked
+                                       ## away from every one of them.
+  AssassinKills* = 10         ## `assassin`: first-touch kill shots in a game.
+  LuckyBlasts* = 5            ## `lucky`: grenade blasts survived in a game.
   RamboKills* = 9             ## `rambo`: kills in one life, "more than 8".
   MedicHeals* = 4             ## `medic`: med kits in one life.
   BanksyPct* = 90             ## `banksy` threshold, percent of damage dealt.
@@ -1364,6 +1374,15 @@ type
     aliveTicks*: int           ## ticks spent alive this game (`pack`).
     packTicks*: int            ## alive ticks with >= PackMates teammates
                                ## inside the pack radius (`pack`).
+    hurtByMask*: uint32        ## bit i set = player i damaged this cog in
+                               ## its CURRENT life; reset on death
+                               ## (`assassin`); analysis-only, excluded from
+                               ## gameHash (index >= 32 never tracked).
+    assassinKills*: int        ## kill shots (gun/grenade) whose hit was this
+                               ## cog's first damage on that victim in the
+                               ## victim's life (`assassin`); analysis-only.
+    blastsSurvived*: int       ## grenade blasts this cog took and outlived
+                               ## this game (`lucky`); analysis-only.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -1392,6 +1411,12 @@ type
       ## A restamp ORs all of them, so a shared pixel gets the same answer
       ## whichever window wrote it last. Usually just self; dense generated
       ## maps can pack diamonds closer than the arena does.
+
+  AchievementFocus* = object
+    ## One earned achievement paired with its focus cog (see
+    ## SimServer.achievementFocus). Analysis-only, never in gameHash.
+    id*: string                ## achievement id (AchievementPacifist, ...).
+    playerIndex*: int          ## live player index of the focus cog.
 
   ShotFx* = object
     ## A cosmetic shot tracer segment; never enters gameHash (replay-safe).
@@ -1670,6 +1695,18 @@ type
     lastCaptureTeam*: Team     ## team whose carrier scored the most recent
                                ## heart capture (`heist`); analysis-only.
     lastCaptureTick*: int      ## tick of that capture, -1 = none this game.
+    lastCaptureIndex*: int     ## player index of that capture's carrier, -1 =
+                               ## none this game; analysis-only (the `heist`
+                               ## badge's focus cog), excluded from gameHash.
+    achievementFocus*: seq[AchievementFocus]
+                               ## per earned achievement, the cog the badge is
+                               ## ABOUT (the rambo streaker, the lucky
+                               ## survivor, the heist capturer; the team's
+                               ## top contributor for team-wide badges).
+                               ## Filled by finishGame, analysis-only,
+                               ## excluded from gameHash. The replay viewer
+                               ## ships it so a badge's watch link can select
+                               ## the receiving cog.
     gameOverTimer*: int
     timeLimitReached*: bool
     barrageStartTick*: int     ## tickCount at which the grenade barrage
