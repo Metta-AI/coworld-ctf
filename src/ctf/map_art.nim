@@ -623,9 +623,7 @@ proc renderArenaRgbaPair*(
     floorTex = readImage(dir / "data/arena_floor.png")
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
-    pedSprs[team] = readImage(dir / teamArtOrFallback(
-      "data/ped_" & teamText(team) & ".png",
-      "data/ped_" & teamText(Red) & ".png"))
+    pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
   # The art mask at output resolution: border + obstacle shapes from float
   # geometry, minus the spinning center diamonds (drawn live as objects).
   # Window pixels (glass) get their own mask in the same per-shape pass: wall
@@ -798,9 +796,7 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     floorTex = readImage(dir / "data/arena_floor.png")
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
-    pedSprs[team] = readImage(dir / teamArtOrFallback(
-      "data/ped_" & teamText(team) & ".png",
-      "data/ped_" & teamText(Red) & ".png"))
+    pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
   ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
   ## bevel and the collision masks so art and geometry can never disagree.
   ## Rasterized per shape (isArenaWall per pixel scans the whole obstacle

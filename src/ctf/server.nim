@@ -155,24 +155,34 @@ const
   # A live cog always carries its gun, so this is the pose the PiP shows for any
   # armed cog; the empty-handed masters cover the unarmed read. One entry per
   # team x {top-down, front, front_gun}, served by path lookup.
-  SoldierArtAssets = [
-    ("/client/soldier_red_front.png",
-      staticRead("../../data/soldier_red_front.png")),
-    ("/client/soldier_blue_front.png",
-      staticRead("../../data/soldier_blue_front.png")),
-    ("/client/soldier_green_front.png",
-      staticRead("../../data/soldier_green_front.png")),
-    ("/client/soldier_yellow_front.png",
-      staticRead("../../data/soldier_yellow_front.png")),
-    ("/client/soldier_red_front_gun.png",
-      staticRead("../../data/soldier_red_front_gun.png")),
-    ("/client/soldier_blue_front_gun.png",
-      staticRead("../../data/soldier_blue_front_gun.png")),
-    ("/client/soldier_green_front_gun.png",
-      staticRead("../../data/soldier_green_front_gun.png")),
-    ("/client/soldier_yellow_front_gun.png",
-      staticRead("../../data/soldier_yellow_front_gun.png")),
-  ]
+  TeamNames: array[Team, string] = block:
+    ## teamText as a compile-time table, so paths below can be staticRead.
+    var n: array[Team, string]
+    for team in Team:
+      n[team] = teamText(team)
+    n
+  SoldierArtAssets = block:
+    ## BR INTEGRATION: derived from the enum, not a hand-listed four. This
+    ## list used to name Red/Blue/Green/Yellow literally, which meant the 12
+    ## BR identities' front masters — present on disk since the tint lane —
+    ## were never SERVED, so a plum or azure cog fell back to the top-down
+    ## board sprite in the first-person PiP while its teammates in classic
+    ## colours got the real eye-level art. That is exactly the "literal
+    ## 4-multiplier" hazard BR_MAPGEN.md §6.2 calls out, in asset form.
+    ##
+    ## staticRead resolves at COMPILE time, so this block is also the
+    ## strongest possible assertion that all 2 x 16 front masters exist: a
+    ## missing one is a build failure, not a runtime fallback.
+    var assets: seq[(string, string)]
+    for team in Team:
+      assets.add(
+        ("/client/soldier_" & TeamNames[team] & "_front.png",
+          staticRead("../../data/soldier_" & TeamNames[team] & "_front.png")))
+      assets.add(
+        ("/client/soldier_" & TeamNames[team] & "_front_gun.png",
+          staticRead(
+            "../../data/soldier_" & TeamNames[team] & "_front_gun.png")))
+    assets
   LeagueReplayerPath = "/client/league"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
