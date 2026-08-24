@@ -154,10 +154,14 @@ const
     ## in the init snapshot stating one team's home capture region outright —
     ## its shape archetype (see the LabelEndzoneShape tokens) and the
     ## inclusive corners of its bounding box in map pixels. One marker per
-    ## team in the game. CAUTION for consumers: the broadcast/spectator
-    ## stream also carries the endzone glow overlays,
-    ## `endzone <color> power <n>` — match the third token against the shape
-    ## vocabulary (or the `power` literal) before parsing corners.
+    ## team in the game — UNLESS the map is flagless (BR N-point spawn
+    ## subsystem, CtfMap.flagless): there is no capture geometry to state, so
+    ## a flagless episode emits ZERO `endzone ` markers, absence being the
+    ## correct signal rather than a fabricated zone nobody scores. CAUTION
+    ## for consumers: the broadcast/spectator stream also carries the
+    ## endzone glow overlays, `endzone <color> power <n>` — match the third
+    ## token against the shape vocabulary (or the `power` literal) before
+    ## parsing corners.
   LabelPrefixHandicap* = "handicap "
     ## The per-team handicap marker,
     ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: an

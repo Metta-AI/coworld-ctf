@@ -866,7 +866,10 @@ instead of assuming the classic 1235x659 two-team arena.
 marker per team labeled `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: the
 team's home capture region stated outright. `<x0>,<y0>` / `<x1>,<y1>` are the
 INCLUSIVE top-left and bottom-right corners of the zone's bounding box in map
-pixels, and `<shape>` says how the zone fills that box:
+pixels, and `<shape>` says how the zone fills that box. A **flagless** map
+(the BR N-point spawn subsystem) has no capture region to state and emits
+NONE of these markers at all — nor any flag/pedestal/heart sprite or object,
+anywhere in the wire protocol.
 
 | Shape | Where | Zone membership |
 |-------|-------|-----------------|

@@ -3455,34 +3455,44 @@ proc addMapMarkers(
     )
   )
   inc index
-  for team in sim.gameMap.teams():
-    let zone = sim.gameMap.captureZone(team)
-    if zone.diag:
-      ## The `corner` contract promises the threshold diagonal joins the two
-      ## box corners adjacent to the map corner — true exactly when the L1
-      ## limit was not clamped by the far map edges. HomeDepth's bounds keep
-      ## anchors well inside the clamp on every map class; hold that here so
-      ## a retune cannot silently bend the stated geometry.
-      doAssert zone.diagLimit == zone.xHi - zone.xLo and
-          zone.diagLimit == zone.yHi - zone.yLo,
-        "clamped diagonal capture zone breaks the corner-marker contract"
-    packet.addMapMarker(
-      spriteDefs,
-      index,
-      zone.xLo,
-      zone.yLo,
-      1,
-      1,
-      labelEndzone(
-        teamText(team),
-        sim.gameMap.endzoneShapeToken(zone),
+  # BR N-point spawn subsystem: a flagless map has no capture geometry to
+  # state — skip the whole loop rather than calling captureZone/teamAnchor
+  # at all. This isn't just "the label would be noise": on a symNone map
+  # with layoutCorners/layoutPlus on a non-square board, teamAnchor's
+  # rot90-orbit math for a non-Red team can land far outside the board (the
+  # same hazard CtfMap.flagless already routes around for the collision
+  # carve and the map-art bake), which can violate this loop's OWN
+  # corner-marker doAssert below — never construct the fabricated zone at
+  # all rather than hoping the clamp always saves it.
+  if not sim.gameMap.flagless:
+    for team in sim.gameMap.teams():
+      let zone = sim.gameMap.captureZone(team)
+      if zone.diag:
+        ## The `corner` contract promises the threshold diagonal joins the two
+        ## box corners adjacent to the map corner — true exactly when the L1
+        ## limit was not clamped by the far map edges. HomeDepth's bounds keep
+        ## anchors well inside the clamp on every map class; hold that here so
+        ## a retune cannot silently bend the stated geometry.
+        doAssert zone.diagLimit == zone.xHi - zone.xLo and
+            zone.diagLimit == zone.yHi - zone.yLo,
+          "clamped diagonal capture zone breaks the corner-marker contract"
+      packet.addMapMarker(
+        spriteDefs,
+        index,
         zone.xLo,
         zone.yLo,
-        zone.xHi,
-        zone.yHi
+        1,
+        1,
+        labelEndzone(
+          teamText(team),
+          sim.gameMap.endzoneShapeToken(zone),
+          zone.xLo,
+          zone.yLo,
+          zone.xHi,
+          zone.yHi
+        )
       )
-    )
-    inc index
+      inc index
   for team in sim.gameMap.teams():
     # The deltas are resolved HERE, mirroring broadcast.nim's teamStateJson —
     # the label states what the sim actually plays, never a re-derivation.
@@ -4251,6 +4261,13 @@ proc addFlagSprites(
   ## Adds every active team's banner sprites (carried + big planted) plus
   ## carrier halos. The builders raster at the emission scale, so pass
   ## native = boardScale.
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms no flag — never ship
+  ## the flag/pedestal/aura sprite bytes (or their labels) at all, not even
+  ## unreferenced, so a flagless episode's wire stream carries zero flag
+  ## vocabulary from the moment a viewer connects.
+  if sim.gameMap.flagless:
+    return
   for team in sim.teams():
     packet.addBoardSpriteChanged(
       spriteDefs,
@@ -6405,7 +6422,12 @@ proc buildSpriteProtocolPlayerUpdates*(
     # (GV32 capture or GV33 dead team) is out of play and never drawn.
     for team in sim.teams():
       let flag = sim.flags[team]
-      if flag.captured:
+      # BR N-point spawn subsystem: a flagless map's flags are permanently
+      # `captured` (CtfMap.flagless / resetFlags), so `flag.captured` below
+      # already self-gates this loop to zero objects — the explicit check
+      # here is defense-in-depth against that invariant ever drifting, not
+      # load-bearing on its own.
+      if sim.gameMap.flagless or flag.captured:
         continue
       if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
         # A carried flag glows: the halo rides UNDER the carrier so the runner
@@ -7552,7 +7574,12 @@ proc buildSpriteProtocolUpdates*(
     let
       flag = sim.flags[team]
       objectId = FlagObjectBase + ord(team)
-    if flag.captured:
+    # BR N-point spawn subsystem: a flagless map's flags are permanently
+    # `captured` (CtfMap.flagless / resetFlags), so `flag.captured` below
+    # already self-gates this loop to zero objects — the explicit check
+    # here is defense-in-depth against that invariant ever drifting, not
+    # load-bearing on its own.
+    if sim.gameMap.flagless or flag.captured:
       continue
     if flag.carrier >= 0:
       let auraId = FlagAuraObjectBase + ord(team)

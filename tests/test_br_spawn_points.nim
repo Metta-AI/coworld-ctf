@@ -17,38 +17,44 @@
 ##     symNone map with spawnPoints validates and boots; the SAME map WITHOUT
 ##     spawnPoints still rejects, exactly as it did before this subsystem;
 ##   - a full flagless episode on an 8-point, 4-team map seats every player
-##     at its authored spec point and steps to a normal (non-capture) finish.
+##     at its authored spec point and steps to a normal (non-capture) finish;
+##   - flagless is not just gameplay-inert: the WIRE stream itself carries
+##     zero flag/pedestal/heart sprites and zero flag/endzone labels (no
+##     pedestal position is even computed — resetFlags skips the
+##     teamAnchor/flagHome call entirely), while the same map with flags
+##     armed still carries the full, unchanged vocabulary.
 
 import
   helpers,
-  std/[json, unittest],
-  ctf/[arena, sim, sim_config, sim_types]
+  std/[json, sequtils, strutils, unittest],
+  bitworld/spriteprotocol,
+  ctf/[arena, global, labels, sim, sim_config, sim_types]
 
 const
   W = 1235
   H = 659
   SpawnClear = 40
 
-proc fourTeamPickupsNode(): JsonNode =
+proc fourTeamPickupsNode(boardH = H): JsonNode =
   ## teamPickups.shields/cans need EXACTLY teamCount points on ANY symNone
   ## map (spawnPoints or not) — a fixed, walkable, well-separated quad so
   ## every spec below only has to vary spawnPoints/flagless/layout.
   %*{
-    "shields": [[40, 80], [W - 40, 80], [40, H - 80], [W - 40, H - 80]],
-    "cans": [[40, 130], [W - 40, 130], [40, H - 130], [W - 40, H - 130]],
+    "shields": [[40, 80], [W - 40, 80], [40, boardH - 80], [W - 40, boardH - 80]],
+    "cans": [[40, 130], [W - 40, 130], [40, boardH - 130], [W - 40, boardH - 130]],
     "barriers": newJArray()
   }
 
-proc fourTeamSpawnPointsNode(): JsonNode =
+proc fourTeamSpawnPointsNode(boardH = H): JsonNode =
   ## 8 points, 2 per team in ENUM order (Red, Blue, Green, Yellow) — the
   ## team-major flattening the spec grammar requires. Each same-team pair is
   ## separated by 100px on y (> 2*SpawnClear); cross-team pairs are separated
   ## by hundreds of px on x or y. No two pockets overlap.
   %*[
-    [150, 150], [150, 250],                     # Red    (team 0)
-    [W - 150, 150], [W - 150, 250],              # Blue   (team 1)
-    [150, H - 150], [150, H - 250],              # Green  (team 2)
-    [W - 150, H - 150], [W - 150, H - 250],      # Yellow (team 3)
+    [150, 150], [150, 250],                                # Red    (team 0)
+    [W - 150, 150], [W - 150, 250],                        # Blue   (team 1)
+    [150, boardH - 150], [150, boardH - 250],              # Green  (team 2)
+    [W - 150, boardH - 150], [W - 150, boardH - 250],      # Yellow (team 3)
   ]
 
 ## Hand-computed expected spawn position per JOIN order (players added
@@ -70,32 +76,77 @@ const ExpectedJoinOrderSpawn = [
 ]
 
 proc fourTeamSpec(
-  spawnPoints = true, flagless = true, layout = "corners"
+  spawnPoints = true, flagless = true, layout = "corners", boardH = H
 ): string =
+  ## boardH defaults to the RECTANGULAR BR field height (H, != W): the
+  ## flagless case is exactly the combo that needs a non-square corners
+  ## board to work at all. A caller that wants flags ARMED on a corners
+  ## layout must pass boardH = W (square) — validateMap now REJECTS
+  ## symNone+corners/plus with flags armed on a non-square board outright
+  ## (teamAnchor's rot90-orbit fallback for non-Red teams needs one, same as
+  ## rot90 symmetry itself; see arena.nim's validateMap).
   var node = %*{
     "name": "br-spawn-demo",
-    "width": W, "height": H,
+    "width": W, "height": boardH,
     "flagRing": 70, "captureClear": 210,
     "spawnClearW": SpawnClear, "spawnClearH": SpawnClear,
     "gunRange": GunRange,
     "symmetry": "none",
     "layout": layout,
     "endzone": "column", "endzoneRadius": 0, "homeDepth": 0,
-    "medKitSpawns": [[W div 2, H div 3], [W div 2, 2 * H div 3]],
-    "medKitCandidates": [[W div 2, H div 3], [W div 2, 2 * H div 3]],
+    "medKitSpawns": [[W div 2, boardH div 3], [W div 2, 2 * boardH div 3]],
+    "medKitCandidates": [[W div 2, boardH div 3], [W div 2, 2 * boardH div 3]],
     "leftObstacles": newJArray(),
-    "teamPickups": fourTeamPickupsNode(),
+    "teamPickups": fourTeamPickupsNode(boardH),
   }
   if spawnPoints:
-    node["spawnPoints"] = fourTeamSpawnPointsNode()
+    node["spawnPoints"] = fourTeamSpawnPointsNode(boardH)
   if flagless:
     node["flagless"] = %true
   $node
 
 proc fourTeamMap(
-  spawnPoints = true, flagless = true, layout = "corners"
+  spawnPoints = true, flagless = true, layout = "corners", boardH = H
 ): CtfMap =
-  mapFromSpecJson(fourTeamSpec(spawnPoints, flagless, layout))
+  mapFromSpecJson(fourTeamSpec(spawnPoints, flagless, layout, boardH))
+
+proc fourTeamGame(flagless: bool, boardH = H): SimServer =
+  ## A started, 8-seat (2/team) game on the 4-team spawnPoints map, with or
+  ## without flags armed. Flags-armed callers must pass boardH = W — see
+  ## fourTeamSpec's doc comment.
+  var config = defaultGameConfig()
+  config.teams = 4
+  config.mapSpec = fourTeamSpec(spawnPoints = true, flagless = flagless, boardH = boardH)
+  result = initCtfForTest(config)
+  for i in 0 ..< 8:
+    discard result.addPlayer("p" & $i)
+  result.startGame()
+
+proc collectFlagishLabels(sim: var SimServer): seq[string] =
+  ## Every spkSprite label whose text is flag/pedestal/heart/endzone-shaped,
+  ## across the board/spectator stream and a living + ghost player stream —
+  ## the same streams test_label_contract.nim's collectLabels sweeps, and
+  ## the same spkSprite-only scan it uses to prove a label IS in the
+  ## vocabulary, used here in both directions (IS for a flagged map, is NOT
+  ## for a flagless one). addFlagSprites and addMapMarkers's endzone loop
+  ## both run unconditionally at INIT (never lazily), so one fresh snapshot
+  ## per stream is the complete surface — no stepping required.
+  var
+    gstate = initGlobalViewerState()
+    livingState: PlayerViewerState
+    ghostState: PlayerViewerState
+  proc absorb(into: var seq[string], messages: seq[SpritePacketMessage]) =
+    for message in messages:
+      if message.kind == spkSprite:
+        let label = message.sprite.label
+        if "flag" in label or "heart" in label or
+            label.startsWith(LabelPrefixEndzone):
+          into.add label
+  result.absorb(sim.buildGlobalMessages(gstate))
+  result.absorb(sim.buildPlayerMessages(0, livingState))
+  sim.players[7].alive = false
+  result.absorb(sim.buildPlayerMessages(7, ghostState))
+  sim.players[7].alive = true
 
 suite "BR N-point spawn subsystem":
 
@@ -134,7 +185,10 @@ suite "BR N-point spawn subsystem":
       check not mapProtectedFloorAt(gm, p.x, p.y + SpawnClear + 1)
 
   test "carve: flagless drops the flag-ring/approach carve entirely":
-    let flagArmed = fourTeamMap(flagless = false)
+    ## flagArmed needs a SQUARE board (boardH = W) — see fourTeamSpec's doc
+    ## comment; flagOff keeps the rectangular BR field (the case that
+    ## actually needs the relaxation).
+    let flagArmed = fourTeamMap(flagless = false, boardH = W)
     let flagOff = fourTeamMap(flagless = true)
     ## The map center sits inside the flag ring on a flag-armed map (the
     ## classic-endzone flagRing carve is a center disc) and nowhere near any
@@ -143,7 +197,7 @@ suite "BR N-point spawn subsystem":
     check not mapProtectedFloorAt(flagOff, flagOff.center.x, flagOff.center.y)
 
   test "carve: an ordinary (non-flagless) map keeps BOTH carves when spawnPoints is set":
-    let gm = fourTeamMap(flagless = false)
+    let gm = fourTeamMap(flagless = false, boardH = W)  # square — see above
     ## Spawn-point pocket still carves...
     check mapProtectedFloorAt(gm, gm.spawnPoints[0].x, gm.spawnPoints[0].y)
     ## ...and the flag ring around the map center still carves too — the two
@@ -215,7 +269,7 @@ suite "BR N-point spawn subsystem":
     expect CtfError:
       discard mapFromSpecJson($node)
 
-  test "flagless: flags never leave their reset defaults (pickup is refused)":
+  test "flagless: no flag is ever armed, and no pedestal position is ever computed":
     var config = defaultGameConfig()
     config.teams = 4
     config.mapSpec = fourTeamSpec(spawnPoints = true, flagless = true)
@@ -224,9 +278,17 @@ suite "BR N-point spawn subsystem":
       discard sim.addPlayer("p" & $i)
     sim.startGame()
     for team in sim.teams():
+      ## carrier=-1 + captured=true is the "no flag active" sentinel every
+      ## downstream reader treats as inert; x/y stay at the (0,0) default
+      ## because resetFlags never calls teamAnchor/flagHome to compute a
+      ## pedestal position at all (that's the whole point: nothing is armed,
+      ## not even an inert placeholder sitting on the board).
       check sim.flags[team].carrier == -1
-      check not sim.flags[team].captured
-    ## Standing exactly on another team's flag pedestal does not steal it.
+      check sim.flags[team].captured
+      check sim.flags[team].x == 0
+      check sim.flags[team].y == 0
+    ## Standing exactly where a pedestal would otherwise be does not steal
+    ## anything — pickup is refused outright, before any range check.
     for i in 0 ..< sim.players.len:
       sim.tryPickupFlags(i)
     for team in sim.teams():
@@ -260,3 +322,35 @@ suite "BR N-point spawn subsystem":
     check sim.phase == Playing        ## still a normal, un-crashed episode.
     check sim.lastCaptureTeam == Red  ## default zero-value: never assigned.
     check sim.lastCaptureTick == -1   ## never set — no capture ever fired.
+
+  test "wire: a flagless episode carries zero flag/pedestal/heart sprites and zero flag/endzone labels":
+    ## "they don't need hearts and pedestals. this is not ctf. it is battle
+    ## royale." — flagless must not just be gameplay-inert, the WIRE stream
+    ## itself must never mention a flag. Sweeps the exact same init-snapshot
+    ## surface test_label_contract.nim's collectLabels sweeps (board/
+    ## spectator stream + a living player view + a ghost/dead player view),
+    ## scanning spkSprite defs — the same mechanism that suite uses to prove
+    ## a label IS in the vocabulary, used here to prove a whole family is
+    ## NOT. addFlagSprites/addMapMarkers's endzone loop are init-time-only
+    ## (never lazy), so one snapshot per stream is the complete surface.
+    var sim = fourTeamGame(flagless = true)
+    let labels = sim.collectFlagishLabels()
+    check labels.len == 0
+
+  test "wire: the SAME map with flags armed still carries the full flag/pedestal/heart vocabulary":
+    ## The positive control: proves the flagless gates added above are
+    ## correctly scoped to `flagless` and not accidentally starving an
+    ## ordinary game too — an existing map's wire footprint is unchanged
+    ## ("byte-identical to today"), which is also independently proven by
+    ## the full CI suite (test_label_contract.nim's manifest diff never
+    ## touches `gameMap.flagless`, since it defaults false and no fixture
+    ## there sets it). Square board (boardH = W) — see fourTeamSpec's doc
+    ## comment: flags-armed symNone corners/plus needs one.
+    var sim = fourTeamGame(flagless = false, boardH = W)
+    let labels = sim.collectFlagishLabels()
+    check labelFlag("red") in labels
+    check labelFlag("blue") in labels
+    check labelFlagPlanted("red") in labels
+    check labelFlagPlanted("blue") in labels
+    check labels.anyIt(it.startsWith(LabelPrefixEndzone))
+    check labels.anyIt(" flag carrier glow" in it)

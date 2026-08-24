@@ -515,9 +515,27 @@ proc resetFlags*(sim: var SimServer) =
   ## Returns every active team's flag to its home pedestal. Inactive slots
   ## hold an explicit no-carrier state so nothing can misread the array's
   ## zero value (carrier 0 would mean "player 0 carries it").
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms NO flag at all, so an
+  ## active team gets the SAME explicit sentinel as an inactive one instead
+  ## of a real resetFlag — which would call flagHome/teamAnchor to compute a
+  ## pedestal position. Skipping that call is deliberate, not just "don't
+  ## bother": on a symNone map with layoutCorners/layoutPlus on a
+  ## non-square board, teamAnchor's rot90-orbit math for a non-Red team can
+  ## land far outside the board (the defaultCtfRooms crash this subsystem
+  ## already had to fix once), so never computing the position kills that
+  ## cosmetic hazard at the root instead of computing a garbage point
+  ## nothing then draws. carrier=-1 + captured=true is the same "no flag
+  ## active" sentinel every downstream reader (updateFlags,
+  ## checkWinCondition, flagVisibleTo, flagCarryProgress, killPlayer's
+  ## drop-on-death loop, roster's carrier-reindex) already treats as inert —
+  ## captured=true additionally short-circuits checkWinCondition's "heart
+  ## retired" bookkeeping loop before it would otherwise log a spurious
+  ## "heart retired" line for a game that never had one.
   for team in Team:
-    if team in sim.teams():
+    if team in sim.teams() and not sim.gameMap.flagless:
       sim.resetFlag(team)
     else:
-      sim.flags[team] = FlagState(x: 0, y: 0, carrier: -1)
+      sim.flags[team] =
+        FlagState(x: 0, y: 0, carrier: -1, captured: sim.gameMap.flagless)
 

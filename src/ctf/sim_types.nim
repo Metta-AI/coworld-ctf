@@ -1122,23 +1122,45 @@ type
                                ## hardcode 2/4 against this field.
     # GVNEXT(spawn): see spawnPoints above — same reasoning applies.
     flagless*: bool           ## Map-level boot toggle (BR N-point spawn
-                               ## subsystem): when true, flag pedestals are
-                               ## never armed (resetFlags still parks an inert
-                               ## FlagState so carrier/captured stay at their
-                               ## normal -1/false defaults, but tryPickupFlags
-                               ## refuses to pick one up) and the flag-ring /
-                               ## capture-approach carve in mapProtectedFloorAt
-                               ## (and its installed/float twins) is skipped
-                               ## entirely — there is no capture geometry to
-                               ## protect. checkWinCondition's capture branch
-                               ## needs no separate gate: it can never fire once
-                               ## pickup is refused. Lives/time-limit end
+                               ## subsystem): "this is not CTF, it is battle
+                               ## royale" — no hearts, no pedestals, no
+                               ## endzones, not even INERT ones. When true:
+                               ## resetFlags skips pedestal placement
+                               ## entirely (no teamAnchor/flagHome call —
+                               ## every flag is parked at the (0,0)
+                               ## carrier=-1/captured=true sentinel every
+                               ## downstream reader already treats as
+                               ## inactive) and tryPickupFlags refuses
+                               ## pickup; checkWinCondition's capture/
+                               ## heart-retired bookkeeping is skipped
+                               ## outright (defense-in-depth — it was already
+                               ## inert via the sentinel); the flag-ring /
+                               ## capture-approach carve in
+                               ## mapProtectedFloorAt (+ installed/float
+                               ## twins) is skipped; the endzone tint + team
+                               ## pedestal paint passes in map_art.nim's
+                               ## loadMapLayers are skipped (no visual ring,
+                               ## no disc carved into the static map
+                               ## texture); and the ENTIRE wire protocol
+                               ## carries zero flag/pedestal/heart footprint:
+                               ## no sprite definitions (addFlagSprites), no
+                               ## per-frame board objects (both
+                               ## buildSpriteProtocol*Updates flag loops), no
+                               ## `endzone ` label markers (addMapMarkers),
+                               ## and broadcast.nim's JSON chrome
+                               ## (teamStateJson, firstPersonJson's heart
+                               ## ents + map.hearts, the game-over card's
+                               ## flag-progress fields) omits every
+                               ## flag-shaped key rather than sending frozen
+                               ## placeholder data. Lives/time-limit end
                                ## conditions are untouched and unconditional.
-                               ## Defaults false (current behavior, unchanged).
+                               ## Defaults false (current behavior, unchanged
+                               ## — every gate above is a no-op when false).
                                ## Independent of spawnPoints: an ordinary
                                ## (non-flagless) map may set spawnPoints and
-                               ## keep its flag/endzone carve; a flagless map
-                               ## with no spawnPoints falls back to the legacy
+                               ## keep its flag/endzone carve + wire
+                               ## footprint; a flagless map with no
+                               ## spawnPoints falls back to the legacy
                                ## anchor-staggered spawn (still carved).
 
   CrewSprite* = ref object

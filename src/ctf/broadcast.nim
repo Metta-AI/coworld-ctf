@@ -217,20 +217,25 @@ proc teamPoliciesJson(sim: SimServer, team: Team): JsonNode =
 
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## Returns one team's scorebug state: lives, flag state, carrier, progress.
-  let
-    flag = sim.flags[team]
-    taken = flag.carrier >= 0
+  ## BR N-point spawn subsystem: a flagless map arms no flag, so the
+  ## "flag"/"carrier"/"prog" keys are simply omitted — same schema-safe,
+  ## omit-when-absent idiom as the existing conditional "hcap" key below,
+  ## not a fixed-arity field a client can depend on being present.
   result = %*{
     "lives": sim.teamLivesRemaining(team),
-    "flag": (
+    "policies": sim.teamPoliciesJson(team)
+  }
+  if not sim.gameMap.flagless:
+    let
+      flag = sim.flags[team]
+      taken = flag.carrier >= 0
+    result["flag"] = %(
       if flag.captured: "captured"
       elif taken: "taken"
       else: "home"
-    ),
-    "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
-    "prog": sim.flagCarryProgress(team),
-    "policies": sim.teamPoliciesJson(team)
-  }
+    )
+    result["carrier"] = %(if taken: sim.slotOf(flag.carrier) else: -1)
+    result["prog"] = %sim.flagCarryProgress(team)
   # Per-team handicap for the scorebug badge + its hover breakdown. Present only
   # when the team is actually handicapped, so an unhandicapped team shows no
   # badge. The resolved deltas are computed here (the one place the
@@ -471,7 +476,14 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # carrier (already drawn as that player, tagged carry), so skip it here.
     # A retired heart (GV32 capture or GV33 dead team) is out of play and
     # never drawn.
+    #
+    # BR N-point spawn subsystem: a flagless map's flags are permanently
+    # `captured` (CtfMap.flagless / resetFlags), so the check below already
+    # self-gates this loop to zero ents — the explicit check here is
+    # defense-in-depth, not load-bearing on its own.
     for team in sim.teams():
+      if sim.gameMap.flagless:
+        break
       if sim.flags[team].carrier >= 0 or sim.flags[team].captured:
         continue
       if not sim.flagVisibleTo(playerIndex, team):
@@ -606,14 +618,18 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       "carry": p.carryingFlag
     })
   var mapHearts = newJArray()
-  for team in sim.teams():
-    mapHearts.add(%*{
-      "x": sim.flags[team].x,
-      "y": sim.flags[team].y,
-      "team": teamText(team),
-      "carried": sim.flags[team].carrier >= 0,
-      "captured": sim.flags[team].captured
-    })
+  # BR N-point spawn subsystem: a flagless map arms no flag — the omniscient
+  # map view carries zero heart entries (already a variable-length JSON
+  # array, so an empty list is schema-safe).
+  if not sim.gameMap.flagless:
+    for team in sim.teams():
+      mapHearts.add(%*{
+        "x": sim.flags[team].x,
+        "y": sim.flags[team].y,
+        "team": teamText(team),
+        "carried": sim.flags[team].carrier >= 0,
+        "captured": sim.flags[team].captured
+      })
   var mapItems = newJArray()
   proc addMapItem(kind: string, spawn: PickupSpawn) =
     if spawn.present:
@@ -795,20 +811,22 @@ proc buildStateJson*(
     # anything external still reading them.
     var overTeams = newJObject()
     for team in sim.teams():
-      overTeams[teamText(team)] = %*{
-        "lives": sim.teamLivesRemaining(team),
-        "prog": sim.teamFlagProgress(team)
-      }
+      overTeams[teamText(team)] = %*{"lives": sim.teamLivesRemaining(team)}
+      # BR N-point spawn subsystem: no flag, so no progress to report. Same
+      # omit-when-absent idiom as teamStateJson.
+      if not sim.gameMap.flagless:
+        overTeams[teamText(team)]["prog"] = %sim.teamFlagProgress(team)
     state["over"] = %*{
       "winner": teamText(sim.winner),
       "draw": sim.isDraw,
       "timeLimit": sim.timeLimitReached,
       "teams": overTeams,
       "redLives": sim.teamLivesRemaining(Red),
-      "blueLives": sim.teamLivesRemaining(Blue),
-      "redProg": sim.teamFlagProgress(Red),
-      "blueProg": sim.teamFlagProgress(Blue)
+      "blueLives": sim.teamLivesRemaining(Blue)
     }
+    if not sim.gameMap.flagless:
+      state["over"]["redProg"] = %sim.teamFlagProgress(Red)
+      state["over"]["blueProg"] = %sim.teamFlagProgress(Blue)
     # End-segment hold countdown: whole seconds until a looping replay
     # restarts. Present only during the hold, so the end-card can show a
     # "replaying in N" line without ever inventing a countdown after a seek.
