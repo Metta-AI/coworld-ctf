@@ -616,15 +616,15 @@ type
     label*: string             ## "" for a plain deed pop; the ACHIEVEMENT's name
                                ## for a claim, which rides the same seq so there
                                ## is one pop pool, one draw site, one fade curve.
-    tier*: int                 ## achievement tier 0..4 for a claim, -1 for a
-                               ## plain deed pop. On the FX because the chip
-                               ## draws the tier as pips: the depth of a claim is
-                               ## most of what makes it worth interrupting for,
-                               ## and the renderer must not have to parse it back
-                               ## out of the name.
     first*: bool               ## first team in the Episode to take this tier.
-                               ## Pays x3 and is the rarest thing on the board,
-                               ## so the chip marks it.
+                               ## Pays x3 and is the rarest thing on the board;
+                               ## the one-line chip says so with hotter ink and
+                               ## a thicker edge. (A `tier` field lived here
+                               ## while the chip drew tier pips; the pips died
+                               ## with the two-line plaque -- Maxwell: one line,
+                               ## a name and a number -- and a field nothing
+                               ## reads is a defect, so it went with them. The
+                               ## panel and feed still carry the stars.)
     row*: int                  ## how many pops are already stacked at this site,
                                ## so a second pop on one cog reads as a STACK and
                                ## not an amber smear. Only pops that could not
@@ -3653,7 +3653,7 @@ proc heatCool*(sim: var SimServer) =
       sim.heatLastDecay[team] = sim.tickCount
 
 proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
-                 label = "", tier = -1, first = false) =
+                 label = "", first = false) =
   ## Push one floating score pop at a deed site. COSMETIC ONLY: `gloryPops` is
   ## excluded from gameHash exactly like `damagePops`, so this can never move a
   ## replay — which is the whole reason the pop is minted here, next to the
@@ -3687,7 +3687,7 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
       row = max(row, pop.row + 1)
   sim.gloryPops.add GloryFx(
     x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
-    tier: tier, first: first, row: min(row, GloryPopMaxStack)
+    first: first, row: min(row, GloryPopMaxStack)
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
@@ -3798,7 +3798,7 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   if byCog and sim.players[byIndex].alive:
     sim.addGloryPop(team, sim.players[byIndex].x, sim.players[byIndex].y,
                     amount, label = achievementName(tree, tier),
-                    tier = tier, first = isFirst)
+                    first = isFirst)
   if sim.gameEventLoggingEnabled:
     sim.logGameEvent(
       teamText(team) & " achievement: " & achievementName(tree, tier) &

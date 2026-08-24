@@ -342,47 +342,54 @@ const
                                ## duller and redder, so a team-kill penalty
                                ## ("-60g") reads as a LOSS at a glance without
                                ## borrowing red's "you got hit" meaning.
-  ## --- Achievement claim CHIP (the named pop's own plaque, not text with a
-  ## rectangle behind it). Reuses buildPopLabelSprite's shared smoothTextSprite
-  ## rasterizer for its two text lines (same cache, same fade convention as
-  ## every other glory pop) and draws the plaque, edge, tier pips and FIRST
-  ## tag itself. All sizes below are LOGICAL (1x) px, exactly like the pop
-  ## consts above; the sprite id POOL is unchanged (buildGloryPopSprite feeds
-  ## the same GloryPopSpriteBase slot the plain pop used to).
-  GloryChipPadX = 4           ## logical px around the content, left/right.
-  GloryChipPadY = 3           ## logical px above/below the content block.
-  GloryChipGapNM = 1          ## logical px between the name and money lines.
-  GloryChipGapMF = 2          ## logical px between the money line and the
-                               ## tier-pip / FIRST-tag footer strip.
-  GloryChipNameLineH = 13     ## the headline's line box: one size step above
-                               ## GloryChipMoneyLineH, so SIZE (not just
-                               ## colour) is what makes the name lead. Raised
-                               ## from 9: the board renders once at
-                               ## RenderScale=2 and a 640x360 embed then
+  ## --- Achievement claim CHIP (the named pop's own backing, not bare text).
+  ## USED TO be a two-line plaque: a 13px name line, a 10px money line
+  ## beneath it, and a footer row of tier pips + a "FIRST" wordmark, plus a
+  ## soft halo band on a first claim. Maxwell's verdict: "so big and
+  ## obnoxious" — a claim chip fires often enough that the two-line-plus-
+  ## footer design outgrew its moment, and the tier is already carried by
+  ## the achievements panel and the feed (see addInspector above), so this
+  ## chip never needed to repeat it. Cut to ONE line — "NAME +Ng" — the same
+  ## string gloryPopText already renders for the boardScale==1 fallback, on
+  ## a slim chip just big enough to hold it: one smoothTextSprite call (the
+  ## same rasterizer every other glory pop's text uses, not a bespoke one),
+  ## one fill, one stroke. No pips, no wordmark, no halo — a first claim's
+  ## whole distinction is now its hotter ink (GloryChipFirstInk) and a
+  ## thicker edge, both free (same draw calls, different constants). All
+  ## sizes below are LOGICAL (1x) px, exactly like the pop consts above; the
+  ## sprite id POOL is unchanged (buildGloryPopSprite feeds the same
+  ## GloryPopSpriteBase slot the plain pop used to).
+  GloryChipPadX = 3           ## logical px around the line, left/right.
+  GloryChipPadY = 2           ## logical px above/below the line — tight, so
+                               ## the chip hugs the text instead of padding
+                               ## out toward the old plaque's footprint.
+  GloryChipLineH = 13         ## the one line's box. This is the OLD name
+                               ## line's size (raised from 9 for the same
+                               ## reason then as now: the board renders once
+                               ## at RenderScale=2 and a 640x360 embed then
                                ## downscales that ~2x again, and 9 logical px
-                               ## (18 native, ~9 displayed) fell below this
-                               ## vector face's legibility floor there — a
-                               ## clean read at 1280 but an amber smudge at
-                               ## 640, with no readable name at all.
-  GloryChipMoneyLineH = 10    ## the payout's own line box. No longer tied to
-                               ## the ordinary HUD line height (TextLineHeight
-                               ## = 7): it needs to grow with the name line
-                               ## above it to survive the same 640x360
-                               ## downscale, and TextLineHeight is a shared
-                               ## HUD constant this chip must not drag along
-                               ## with it. Scaled by the same ~1.44x as
-                               ## GloryChipNameLineH (9->13), so the payout
-                               ## still supports the name rather than
-                               ## competing with it.
-  GloryChipFooterH = 6        ## logical px tall: the tier-pip / FIRST row.
-  GloryChipRadius = 3'f32     ## logical corner radius of the plaque.
-  GloryChipEdgePx = 1         ## logical stroke width of the plaque's amber edge.
+                               ## fell below this vector face's legibility
+                               ## floor there — a clean read at 1280 but an
+                               ## amber smudge at 640). Proven readable at
+                               ## that size with a LONGER two-line string, so
+                               ## the shorter one-line chip keeps it rather
+                               ## than re-risking a smaller, unproven size.
+  GloryChipRadius = 2'f32     ## logical corner radius of the chip.
+  GloryChipEdgePx = 1         ## logical stroke width of the chip's amber edge.
   GloryChipFirstEdgePx = 2    ## a first claim's edge, thicker — it pays x3
                                ## and is the rarest thing on the board, so it
-                               ## is the one place this HUD is allowed to be
-                               ## loud.
-  GloryChipHaloPx = 2         ## logical margin reserved around a first
-                               ## claim's plaque for its soft outer-edge glow.
+                               ## is still the one place this HUD is allowed
+                               ## to be louder. (Used to also carry a 3-pass
+                               ## halo band standing in for a blur; at this
+                               ## chip's much smaller size that read as noise
+                               ## rather than glow, so it's cut — the
+                               ## thicker edge plus the hotter line ink below
+                               ## carry the distinction on their own.)
+  GloryChipFillInk = (22'u8, 17'u8, 13'u8)
+                               ## the HUD's own near-black, rgba(22,17,13,*) —
+                               ## the chip is cut from the same chrome as the
+                               ## rest of the broadcast, not a new material.
+  GloryChipFillAlpha = 0.88'f32
   GloryChipKillAirPx = 4      ## logical px of clear air a claim chip keeps
                                ## between its own bottom edge and the
                                ## co-sited "SPLAT" kill marker's worst-case
@@ -390,28 +397,14 @@ const
                                ## case is a kill and its achievement claim
                                ## landing on the same cog, so the two must
                                ## never so much as kiss, let alone overlap.
-  GloryChipPipR = 1.1'f32     ## logical radius of one tier pip.
-  GloryChipPipGap = 3         ## logical gap between tier-pip centers.
-  GloryChipMaxTierPips = 5    ## AchievementClaim.tier is 0..4 (1..5 pips);
-                               ## clamp defends against any future widening.
-  GloryChipFirstTag = "FIRST" ## the footer wordmark on a first-in-Episode claim.
-  GloryChipFillInk = (22'u8, 17'u8, 13'u8)
-                               ## the HUD's own near-black, rgba(22,17,13,*) —
-                               ## the plaque is cut from the same chrome as the
-                               ## rest of the broadcast, not a new material.
-  GloryChipFillAlpha = 0.88'f32
-  GloryChipQuietInk = (
-    uint8(GloryPopInk[0].int * 65 div 100),
-    uint8(GloryPopInk[1].int * 65 div 100),
-    uint8(GloryPopInk[2].int * 65 div 100))
-                               ## 65% of the reward amber's brightness: the
-                               ## payout line and the tier pips SUPPORT the
-                               ## name, they never compete with it.
   GloryChipFirstInk = (250'u8, 222'u8, 156'u8)
                                ## a hot gold-white, brighter than the standard
                                ## amber edge — the one accent in this HUD
-                               ## brighter than GloryPopInk itself, reserved
-                               ## for the rarest claim on the board.
+                               ## brighter than GloryPopInk itself. Now used
+                               ## for the WHOLE first-claim line (name and
+                               ## payout share one ink, one smoothTextSprite
+                               ## call) as well as the edge, so a first claim
+                               ## reads hotter at a glance without a wordmark.
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
   ## The cog draws as 9 z-stacked segments + a held gun, each its own board object
   ## so the head/arms track AIM while the legs/wheels track MOVEMENT (a true turret
@@ -4918,20 +4911,21 @@ proc gloryPopMoneyText(pop: GloryFx): string =
 
 proc gloryPopText(pop: GloryFx): string =
   ## What one score pop reads, flattened to ONE line: used for the sprite
-  ## dedupe hash (gloryPopLabelKey) and as the boardScale == 1 fallback, where
-  ## there is no vector type budget for the two-line claim chip
-  ## (buildGloryChipSprite). An achievement leads with the name it just
-  ## earned, so the moment is legible without the ledger.
+  ## dedupe hash (gloryPopLabelKey) AND, since the claim chip cut down to one
+  ## line too, as the literal text buildGloryChipSprite rasterizes at
+  ## boardScale > 1 as well as the boardScale == 1 fallback — one string, two
+  ## draw paths, so they can never again say two different things. An
+  ## achievement leads with the name it just earned, so the moment is
+  ## legible without the ledger.
   let money = gloryPopMoneyText(pop)
   if pop.label.len == 0:
     return money
-  # The plaque says FIRST with a gold edge and a wordmark, but the plaque only
-  # exists at boardScale > 1. On a POV stream this string IS the whole pop, so
-  # without this a player has no way to tell the rarest thing in the Episode
-  # (one team, one tier, paid x3) from an ordinary claim.
-  result = pop.label.toUpperAscii() & "  " & money
-  if pop.first:
-    result.add "  FIRST"
+  # No "FIRST" wordmark here or on the chip: a first claim now tells itself
+  # apart with ink alone (buildGloryPopSprite/buildGloryChipSprite pick
+  # GloryChipFirstInk over GloryPopInk when pop.first), which both draw
+  # paths already apply to this exact string — so this stays one line, one
+  # or two words and a number, full stop.
+  result = pop.label.toUpperAscii() & " " & money
 
 proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
   ## FNV-1a digest of a pop's rendered TEXT, for use in the sprite LABEL only
@@ -4946,18 +4940,17 @@ proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
   ## text change flips the hash) while collapsing every achievement to the
   ## same manifest pattern: one `<n>`.
   ##
-  ## `tier` and `first` are folded in as well, because the CHIP's pixels depend
-  ## on them (pip count, gold edge, halo) while the text may not. Two claims
-  ## whose rendered strings matched but whose tier or first-flag differed would
-  ## otherwise hash the same and one would render as the other. That is not
-  ## reachable under today's numbers -- a first claim always outpays a non-first
-  ## of the same tier, so the amounts differ -- but that separation is an
-  ## accident of AchievementFirstMultPct vs the site multipliers, not a rule
-  ## anyone stated. Hash what you DRAW, then it cannot rot.
+  ## `first` is folded in as well, because the CHIP's pixels depend on it
+  ## (ink, edge width) while the text may not (the chip no longer spells
+  ## "FIRST" out). `tier` used to be folded in too, for the pip count the
+  ## chip no longer draws — the one-line redesign dropped pips entirely, so
+  ## tier no longer changes a single pixel here and folding it in would just
+  ## be extra hash work over a value the draw never reads. Hash what you
+  ## DRAW, then it cannot rot.
   result = 2166136261'u32
-  for b in [uint32(pop.tier + 2), uint32(ord(pop.first))]:
-    result = result xor b
-    result = result * 16777619'u32
+  let b = uint32(ord(pop.first))
+  result = result xor b
+  result = result * 16777619'u32
   for ch in text:
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
@@ -4995,50 +4988,67 @@ proc addDarkContour(pixels: var seq[uint8], width, height: int) =
         pixels[i + 3] = near
 
 proc gloryChipContentLogicalHeight(pop: GloryFx): int =
-  ## The plaque's own footprint in LOGICAL (1x) px — padding, the two text
-  ## lines, and the tier-pip/FIRST footer when there is one — EXCLUDING a
-  ## first claim's halo margin. `gloryChipLogicalHeight` below adds that back
-  ## for callers that need the full drawn extent.
-  result = GloryChipPadY * 2 + GloryChipNameLineH + GloryChipGapNM +
-    GloryChipMoneyLineH
-  if pop.tier >= 0 or pop.first:
-    result += GloryChipGapMF + GloryChipFooterH
+  ## The chip's own footprint in LOGICAL (1x) px: padding above and below the
+  ## ONE text line. No footer, no per-claim branching any more — a claim
+  ## chip is the same height regardless of tier or first, which is what lets
+  ## `first`'s pixel cost stay in ink/edge-width alone rather than in extra
+  ## canvas. `gloryChipLogicalHeight` below is this repo's single source of
+  ## truth for the full drawn extent; kept as a separate proc (rather than
+  ## inlined at the two call sites) so a future halo-style addition has one
+  ## place to land instead of three.
+  GloryChipPadY * 2 + GloryChipLineH
 
 proc gloryChipLogicalHeight(pop: GloryFx): int =
-  ## Single source of truth for a claim chip's FULL logical footprint
-  ## (plaque + halo), shared by the sprite builder (canvas sizing) and the
-  ## row-stack math in addGloryPops (via gloryPopLineBox below), so a second
-  ## pop stacked on the same cog can never overlap a chip that grew taller
-  ## than the old flat text ever was.
-  result = gloryChipContentLogicalHeight(pop)
-  if pop.first:
-    result += GloryChipHaloPx * 2
+  ## Single source of truth for a claim chip's FULL logical footprint,
+  ## shared by the sprite builder (canvas sizing) and the row-stack math in
+  ## addGloryPops (via gloryPopLineBox below), so a second pop stacked on
+  ## the same cog can never overlap a chip that grew taller than expected.
+  ## Equal to gloryChipContentLogicalHeight now that the first-claim halo
+  ## margin is gone (GloryChipHaloPx, deleted with the halo bands it sized)
+  ## — a first claim no longer grows the canvas, only its ink and edge.
+  gloryChipContentLogicalHeight(pop)
 
 var gloryChipCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
-  ## Composed plaques, keyed by everything that changes their pixels.
+  ## Composed chips, keyed by everything that changes their pixels.
   ##
-  ## The chip's TEXT runs already ride smoothTextCache, but the plaque around
-  ## them -- a pixie Image, a roundedRect fill, up to three strokePath passes,
-  ## the pip/wordmark footer, a full-buffer alpha remultiply and two blits --
-  ## had no cache and was rebuilt unconditionally, BEFORE addBoardSpriteChanged
-  ## ever got the chance to dedupe it. That check gates the WIRE, not the CPU.
-  ## So one claim cost a full compose every tick of its ~3.5s life, times the
-  ## map view plus every connected POV -- roughly 84 composes per viewer where
+  ## The chip's TEXT run already rides smoothTextCache, but the chip around
+  ## it -- a pixie Image, a roundedRect fill, one strokePath pass, a
+  ## full-buffer alpha remultiply and a blit -- had no cache of its own and
+  ## was rebuilt unconditionally, BEFORE addBoardSpriteChanged ever got the
+  ## chance to dedupe it. That check gates the WIRE, not the CPU. So one
+  ## claim cost a full compose every tick of its ~3.5s life, times the map
+  ## view plus every connected POV -- roughly 84 composes per viewer where
   ## the design comment promised at most GloryPopStages (5).
 
 proc buildGloryChipSprite(
   pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
-  ## The achievement CLAIM pop: a genuine plaque, not text with a rectangle
-  ## behind it. A rounded plaque cut from the HUD's own near-black chrome,
-  ## a thin warm amber edge, the achievement NAME leading in full-brightness
-  ## amber, its "+Ng" payout supporting in a quieter dimmed amber beneath it,
-  ## and a footer strip of tier pips (plus a FIRST tag, when it applies) —
-  ## iconography drawn directly, never text parsed back out of the name.
+  ## The achievement CLAIM pop: ONE line -- "NAME +Ng" -- on a slim chip, not
+  ## the old two-line name/payout plaque with a tier-pip and FIRST-wordmark
+  ## footer. Maxwell's call: that plaque was "so big and obnoxious" for
+  ## something that fires this often, and the achievements panel/feed
+  ## already carry the tier in full (addInspector, above), so the chip
+  ## doesn't need to repeat it -- it earns its keep on one short line, one
+  ## or two words and a number.
+  ##
+  ## Backing: kept a SLIM chip rather than dropping to bare text with just a
+  ## dark contour (the plain deed pop's treatment, buildGloryPopSprite +
+  ## addDarkContour) -- an achievement name runs to two words plus a payout,
+  ## longer and more varied than a deed's bare "+Ng" or "SPLAT", and this
+  ## chip is also the one place a player learns WHICH of 40 achievements
+  ## just fired, so it needs a steadier contrast anchor across the busy
+  ## board floor than a per-glyph contour gives a short numeral. A fill this
+  ## tight (just padding, one line, one stroke) is not a return to "big and
+  ## obnoxious": at GloryChipLineH=13 + GloryChipPadY*2 it lands around
+  ## deed-pop-plus-padding, not plaque territory.
+  ##
   ## boardScale > 1 only; the caller falls back to plain type at 1x, where
-  ## there is no vector budget for a plaque.
-  let cacheKey = pop.label & "\x1f" & $pop.amount & "\x1f" & $pop.tier &
-    "\x1f" & $ord(pop.first) & "\x1f" & $stage & "\x1f" & $boardScale
+  ## there is no vector budget for a chip (gloryPopText is what's drawn
+  ## there instead, and it now renders the identical "NAME +Ng" string).
+  let
+    text = gloryPopText(pop)
+    cacheKey = text & "\x1f" & $ord(pop.first) & "\x1f" & $stage & "\x1f" &
+      $boardScale
   if gloryChipCache.hasKey(cacheKey):
     return gloryChipCache[cacheKey]
   defer:
@@ -5051,101 +5061,41 @@ proc buildGloryChipSprite(
     k = boardScale
     fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
     alphaByte = uint8(clamp(255.0 * fade, 0.0, 255.0))
-    tierCount = clamp(pop.tier + 1, 0, GloryChipMaxTierPips)
     isFirst = pop.first
-    hasFooter = tierCount > 0 or isFirst
-    nameSpr = smoothTextSprite(
-      [pop.label.toUpperAscii()], GloryPopInk[0], GloryPopInk[1],
-      GloryPopInk[2], k, GloryChipNameLineH)
-    moneySpr = smoothTextSprite(
-      [gloryPopMoneyText(pop)], GloryChipQuietInk[0], GloryChipQuietInk[1],
-      GloryChipQuietInk[2], k, GloryChipMoneyLineH)
-  var footerFont = newFont(boardTypeface())
-  footerFont.size = float32(GloryChipFooterH * k) / 1.1
-  footerFont.lineHeight = float32(GloryChipFooterH * k)
-  let
-    firstTagW = if isFirst: footerFont.layoutBounds(GloryChipFirstTag).x
-                else: 0.0'f32
-    pipD = GloryChipPipR * 2.0'f32 * k.float32
-    pipsW = if tierCount > 0:
-        tierCount.float32 * pipD +
-          max(0, tierCount - 1).float32 * GloryChipPipGap.float32 * k.float32
-      else: 0.0'f32
-    footerGap = if tierCount > 0 and isFirst: GloryChipPipGap.float32 * k.float32
-                else: 0.0'f32
-    footerW = pipsW + footerGap + firstTagW
-    contentW = max(float32(nameSpr.width * k),
-                   max(float32(moneySpr.width * k), footerW))
-    haloPad = if isFirst: GloryChipHaloPx * k else: 0
-    innerW = int(ceil(contentW)) + GloryChipPadX * 2 * k
+    # A first claim's whole line runs hotter -- name and payout share one
+    # ink, one smoothTextSprite call -- instead of a separate wordmark; see
+    # the const-block comment above for why that reads as enough on its own.
+    ink = if isFirst: GloryChipFirstInk else: GloryPopInk
+    lineSpr = smoothTextSprite([text], ink[0], ink[1], ink[2], k,
+      GloryChipLineH)
+    innerW = lineSpr.width * k + GloryChipPadX * 2 * k
     innerH = gloryChipContentLogicalHeight(pop) * k
-    canvasW = innerW + haloPad * 2
-    canvasH = innerH + haloPad * 2
-    logicalW = max(1, (canvasW + k - 1) div k)
-    logicalH = max(1, (canvasH + k - 1) div k)
-  var image = newImage(canvasW, canvasH)
+    logicalW = max(1, (innerW + k - 1) div k)
+    logicalH = max(1, (innerH + k - 1) div k)
+  var image = newImage(innerW, innerH)
   let
     r = GloryChipRadius * k.float32
     edgeW = float32(k) * float32(
       if isFirst: GloryChipFirstEdgePx else: GloryChipEdgePx)
     half = edgeW / 2
-    plaqueRect = rect(
-      float32(haloPad) + half, float32(haloPad) + half,
-      float32(innerW) - edgeW, float32(innerH) - edgeW)
+    chipRect = rect(half, half, float32(innerW) - edgeW, float32(innerH) - edgeW)
   var path = newPath()
   # A plain rounded rect, one radius on all four corners. A per-corner
   # asymmetry ("hairline daub") was tried here to read as painted rather
   # than drafted, and separately a splat notch on the lower edge -- at this
   # size (a 640x360 embed floor, or even 3x zoomed) neither was visible at
   # all: pure cost, no payoff, cut.
-  path.roundedRect(plaqueRect, r, r, r, r)
+  path.roundedRect(chipRect, r, r, r, r)
   image.fillPath(path, ink8(GloryChipFillInk[0], GloryChipFillInk[1],
     GloryChipFillInk[2], GloryChipFillAlpha))
-  if isFirst:
-    # Two flat, low-alpha bands standing in for a blur this rasterizer
-    # doesn't have. A first claim pays x3 and is the rarest thing on the
-    # board -- one team, one tier, once per Episode -- so its edge is
-    # allowed to be the loudest element in the whole HUD.
-    image.strokePath(path, ink8(GloryChipFirstInk[0], GloryChipFirstInk[1],
-      GloryChipFirstInk[2], 0.16'f32), strokeWidth = edgeW * 5)
-    image.strokePath(path, ink8(GloryChipFirstInk[0], GloryChipFirstInk[1],
-      GloryChipFirstInk[2], 0.35'f32), strokeWidth = edgeW * 2.5)
-    image.strokePath(path, ink8(GloryChipFirstInk[0], GloryChipFirstInk[1],
-      GloryChipFirstInk[2], 1.0'f32), strokeWidth = edgeW)
-  else:
-    image.strokePath(path, ink8(GloryPopInk[0], GloryPopInk[1],
-      GloryPopInk[2], 1.0'f32), strokeWidth = edgeW)
-  if hasFooter:
-    let footerY = float32(haloPad) + float32(GloryChipPadY * k) +
-      float32((GloryChipNameLineH + GloryChipGapNM + GloryChipMoneyLineH +
-        GloryChipGapMF) * k)
-    var penX = float32(haloPad) + float32(GloryChipPadX * k)
-    for i in 0 ..< tierCount:
-      var pip = newPath()
-      pip.circle(
-        penX + GloryChipPipR * k.float32,
-        footerY + float32(GloryChipFooterH * k) * 0.5'f32,
-        GloryChipPipR * k.float32)
-      image.fillPath(pip, ink8(GloryPopInk[0], GloryPopInk[1], GloryPopInk[2]))
-      penX += pipD + GloryChipPipGap.float32 * k.float32
-    if isFirst:
-      footerFont.paint = newPaint(SolidPaint)
-      footerFont.paint.color = ink8(
-        GloryChipFirstInk[0], GloryChipFirstInk[1], GloryChipFirstInk[2])
-      let tagX = float32(canvasW - haloPad) - float32(GloryChipPadX * k) -
-        firstTagW
-      image.fillText(footerFont, GloryChipFirstTag,
-        translate(vec2(tagX, footerY)))
+  image.strokePath(path, ink8(ink[0], ink[1], ink[2], 1.0'f32),
+    strokeWidth = edgeW)
   var pixels = imageToStraightRgba(image)
   let
-    nameX = (canvasW - nameSpr.width * k) div 2
-    nameY = haloPad + GloryChipPadY * k
-    moneyX = (canvasW - moneySpr.width * k) div 2
-    moneyY = nameY + (GloryChipNameLineH + GloryChipGapNM) * k
-  pixels.blitRgbaBuffer(canvasW, canvasH, nameSpr.pixels,
-    nameSpr.width * k, nameSpr.height * k, nameX, nameY)
-  pixels.blitRgbaBuffer(canvasW, canvasH, moneySpr.pixels,
-    moneySpr.width * k, moneySpr.height * k, moneyX, moneyY)
+    lineX = (innerW - lineSpr.width * k) div 2
+    lineY = GloryChipPadY * k
+  pixels.blitRgbaBuffer(innerW, innerH, lineSpr.pixels,
+    lineSpr.width * k, lineSpr.height * k, lineX, lineY)
   if alphaByte != 255'u8:
     for i in countup(3, pixels.len - 1, 4):
       pixels[i] = uint8(pixels[i].int * alphaByte.int div 255)
@@ -5232,13 +5182,21 @@ proc buildGloryPopSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Dispatches a glory pop to its family's own renderer: a claim earns a
-  ## genuine plaque (buildGloryChipSprite); a plain deed stays honest
-  ## floating type (buildPopLabelSprite), amber for a reward and a duller
-  ## ember for a penalty, with its own dark contour added back on the
-  ## supersampled board since it has no plaque to lean on for contrast.
+  ## slim chip (buildGloryChipSprite); a plain deed stays honest floating
+  ## type (buildPopLabelSprite), amber for a reward and a duller ember for a
+  ## penalty, with its own dark contour added back on the supersampled board
+  ## since it has no chip to lean on for contrast. Below boardScale > 1 (or
+  ## for a plain deed at any scale) a claim still renders through this same
+  ## pixel-font path with gloryPopText's identical "NAME +Ng" string, so a
+  ## first claim needs its ink picked here too -- the hotter GloryChipFirstInk
+  ## instead of the standard amber -- or the two draw paths would say the
+  ## same text but stop agreeing on which claims are rare.
   if pop.label.len > 0 and boardScale > 1:
     return buildGloryChipSprite(pop, stage)
-  let ink = if pop.amount < 0: GloryPopPenaltyInk else: GloryPopInk
+  let ink =
+    if pop.amount < 0: GloryPopPenaltyInk
+    elif pop.label.len > 0 and pop.first: GloryChipFirstInk
+    else: GloryPopInk
   result = sim.buildPopLabelSprite(
     gloryPopText(pop), stage, GloryPopStages,
     ink[0], ink[1], ink[2], heightPx = sim.gloryPopLineBox(pop))
