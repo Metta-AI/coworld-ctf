@@ -1439,6 +1439,31 @@ type
                                   ## default, byte-identical to the
                                   ## pre-barrier game (no spawns, no carries,
                                   ## no placements, no new RNG draws).
+    # GVNEXT(elim): appended field, safe to add without a GameVersion bump
+    # (scalar bool on GameConfig, not an array[Team, X] run inside the
+    # flatty-serialized state — see docs/designs/BR_MAPGEN.md §6.2 for why
+    # that distinction matters).
+    brMode*: bool                 ## battle-royale elimination ruleset: a
+                                  ## dead player never respawns regardless of
+                                  ## `lives`/`respawnTicks` (killPlayer forces
+                                  ## lives to 0 on first death, reusing
+                                  ## eliminateTeam's existing "permanently
+                                  ## out" contract so every reader — HUD,
+                                  ## teamHasLivePlayers, gameHash — already
+                                  ## handles it); flag captures never
+                                  ## eliminate a team or end the game
+                                  ## (checkWinCondition's capture branch is
+                                  ## skipped); the game ends the moment at
+                                  ## most one team has a living player
+                                  ## (the existing wipe/last-team-standing
+                                  ## branch, already generic over
+                                  ## `sim.teams()`); and a maxTicks timeout
+                                  ## resolves by tiebreak (most living
+                                  ## players, then total damage dealt)
+                                  ## instead of an automatic draw. false =
+                                  ## the mode is off — the default,
+                                  ## byte-identical to a build with no BR
+                                  ## code at all.
 
   Player* = object
     x*, y*: int

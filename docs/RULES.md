@@ -753,6 +753,40 @@ limit).
   until the barrage latches). Shells only land within `depth` map pixels of
   some edge.
 
+## Battle-royale elimination ruleset (config-gated)
+
+The elimination mode for battle-royale play (`docs/designs/BR_MAPGEN.md`
+§1): no respawns, last team standing wins. Off by default; a league turns it
+on with `brMode: true`. Unconfigured (the default), nothing about death,
+win-condition, or timeout resolution changes — byte-identical to a build
+with no BR code at all.
+
+- **No respawns.** A death is permanent — `lives`/`respawnTicks` are never
+  consulted for a re-entry: whatever they're set to, one death is out for
+  the rest of the round. Mechanically this reuses the "captured team is
+  permanently out" contract the classic 4-team mode already has (its
+  players' lives are forced to 0), so the same HUD, roster, and gameHash
+  paths that already render a permanently-out player render a BR death
+  correctly with no client changes.
+- **Winning: last team standing.** The round ends the instant at most one
+  team has a living player — the survivor wins; a simultaneous final wipe
+  is a **draw**. This is the SAME wipe check classic and 4-team play already
+  use (generic over however many teams the map seats), just the only way a
+  BR round can end.
+- **Flags never end or score it.** Captures/hearts are inert in this mode:
+  a capture can never eliminate a team or end the round, however a map
+  configures its flags. (A BR map is expected to run flagless — no hearts
+  to fight over at all — but this holds even if it doesn't.)
+- **Timeout resolves by tiebreak, not an automatic draw.** If the clock
+  runs out with more than one team still standing, the round is decided:
+  the team with the most **living players** wins; a tie there breaks on
+  total **damage dealt**; a tie on both is a draw. (Classic and 4-team play
+  still resolve a timeout as the unconditional lose-lose scoreless draw
+  described under Winning above — this tiebreak is BR-only.)
+- **Environmental deaths count too.** A death from any source — combat, the
+  shrink-zone hazard, the grenade barrage — goes through the same
+  no-respawn path; the mode doesn't care how a team lost its last player.
+
 ## Scoring
 
 Scoring is **sparse and win-only**:

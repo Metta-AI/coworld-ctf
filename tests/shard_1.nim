@@ -4,6 +4,7 @@
 ## is also part of the full local run).
 {.warning[UnusedImport]: off.}
 import
+  test_br_elim,
   test_cog_drive,
   test_ctf_game,
   test_damage_pop,
