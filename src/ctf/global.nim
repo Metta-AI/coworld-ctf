@@ -620,6 +620,20 @@ const
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
   SpritePlayerFlagObjectBase = 5009  ## 5009..5012 by team.
+    ## TEAM-INDEXED (SpritePlayerFlagObjectBase + ord(team)) but NOT in
+    ## BoardObjectPools: it is nested inside the "player HUD" envelope pool
+    ## (SpritePlayerInterstitialObjectId, base 5006 width 16) by original
+    ## layout, not a disjoint range, so it cannot be given its own
+    ## TeamPoolWidth-derived audit entry without a false-positive overlap
+    ## against that envelope at ANY team count. # GVNEXT(team16): at
+    ## TeamPoolWidth >= 13 this walks onto SpritePlayerWeaponObjectId (5021,
+    ## ord(team)=12) and at >= 15 onto SpritePlayerOwnAimObjectId (5023,
+    ## ord(team)=14) — a real collision once Team has 13+ members. Left
+    ## UNFIXED here: relocating it changes wire object ids for every team
+    ## count, which risks fixture/golden-output breakage this stage must not
+    ## cause. Needs a dedicated relocation (new base with real headroom)
+    ## before 16-team play ships; do not add it to BoardObjectPools until
+    ## that lands.
   SpritePlayerWeaponSpriteId = 5020  ## own-weapon HUD text ("weapon gun|arc").
   SpritePlayerWeaponObjectId = 5021
   SpritePlayerOwnAimSpriteId = 5022  ## invisible own-aim readback marker
@@ -757,10 +771,10 @@ const
     ("players (POV view)", PlayerObjectBase, MaxPlayers),
     ("replay UI", ReplayTickObjectId, 5),
     ("player HUD", SpritePlayerInterstitialObjectId, 16),
-    ("flags", FlagObjectBase, 4),
+    ("flags", FlagObjectBase, TeamPoolWidth),
     ("player names", PlayerNameObjectBase, MaxPlayers),
     ("protocol text", ProtocolTextObjectBase, 100),
-    ("team score", TeamScoreObjectBase, 4),
+    ("team score", TeamScoreObjectBase, TeamPoolWidth),
     ("game-over icons", ProtocolGameOverIconObjectBase, 100),
     ("scoreboard text", ScoreboardTextObjectBase, MaxPlayers + 8),
     ("scoreboard pips", ScoreboardPipObjectBase, MaxPlayers + 8),
@@ -771,14 +785,14 @@ const
     ("hp pips", HpPipObjectBase, MaxPlayers),
     ("identity badges", IdentityBadgeObjectBase, MaxPlayers),
     ("impact rings", ShotImpactObjectBase, TracerMaxShots),
-    ("flag auras", FlagAuraObjectBase, 4),
+    ("flag auras", FlagAuraObjectBase, TeamPoolWidth),
     ("grenade pickups", PaintBombPickupObjectBase, 4),
     ("airborne grenades", PaintBombAirObjectBase, GrenadeMaxAirborne),
     ("grenade carry markers", PaintBombCarryObjectBase, MaxPlayers),
     ("throw-target rings", ThrowTargetObjectBase, MaxPlayers),
     ("blast flashes", BlastObjectBase, GrenadeMaxBlasts),
     ("shout bubbles", ShoutObjectBase, ShoutMaxCount),
-    ("endzone fades", EndzoneFadeObjectBase, 4 * MaxEndzoneFadeBands),
+    ("endzone fades", EndzoneFadeObjectBase, TeamPoolWidth * MaxEndzoneFadeBands),
     ("endzone shields", ShieldObjectBase, 4),
     ("med kits", MedKitObjectBase, 4),
     ("rot diamonds", RotDiamondObjectBase, 8),
@@ -825,7 +839,7 @@ static:
   doAssert DebugObjectBase >= StainObjectBase + StainMaxCount,
     "debug object pool must start above the paint stains"
   doAssert DebugObjectBase >=
-      EndzoneFadeObjectBase + 4 * MaxEndzoneFadeBands,
+      EndzoneFadeObjectBase + TeamPoolWidth * MaxEndzoneFadeBands,
     "debug object pool must start above the endzone fade bands"
 
 proc boardObjectPoolName*(objectId: int): string =
@@ -862,12 +876,12 @@ const
   BoardSpritePools = [
     ("POV map", int(MapSpriteId), 1),
     ("map bands", MapBandSpriteBase, 60),
-    ("soldiers", int(PlayerSpriteBase), 2 * 4 * SoldierRotations),
-    ("carry hearts", CarryHeartSpriteBase, 4 * SoldierRotations),
-    ("flags", int(FlagSpriteBase), 4),
-    ("flag auras", FlagAuraSpriteBase, 4),
-    ("planted flags", PlantedFlagSpriteBase, 4),
-    ("game-over icons", GameOverIconSpriteBase, 4),
+    ("soldiers", int(PlayerSpriteBase), 2 * TeamPoolWidth * SoldierRotations),
+    ("carry hearts", CarryHeartSpriteBase, TeamPoolWidth * SoldierRotations),
+    ("flags", int(FlagSpriteBase), TeamPoolWidth),
+    ("flag auras", FlagAuraSpriteBase, TeamPoolWidth),
+    ("planted flags", PlantedFlagSpriteBase, TeamPoolWidth),
+    ("game-over icons", GameOverIconSpriteBase, TeamPoolWidth),
     ("hp pips", HpPipSpriteBase, MaxPlayers),
     ("sound ring", SoundRingSpriteId, 1),
     ("impact ring", ShotImpactSpriteId, 1),
@@ -881,23 +895,28 @@ const
     ("med kit", MedKitSpriteId, 1),
     ("rot diamonds", RotDiamondSpriteBase, 16),
     ("shield statics", ShieldSpriteId, 3),
-    ("corpses", CorpseSpriteBase, 2 * 4 * SoldierRotations),
+    ("corpses", CorpseSpriteBase, 2 * TeamPoolWidth * SoldierRotations),
     ("spraypaint statics", SprayPaintPickupSpriteId, 2),
     ("spraypaint fx", SprayPaintFxSpriteBase,
       16 * SprayPaintFxStages * SprayPaintFxPulses),
     ("replay UI", ReplayTickSpriteId, 5),
     ("broadcast chrome", BroadcastChromeSpriteId, 1),
     ("endzone fades", EndzoneFadeSpriteBase,
-      4 * GlowFadeStages * MaxEndzoneFadeBands),
-    ("identity badges", IdentityBadgeSpriteBase, 4 * 32),
+      TeamPoolWidth * GlowFadeStages * MaxEndzoneFadeBands),
+    # Was declared `4 * 32` (128): understated even at 4 teams. The real
+    # index is (ord(team)*IdentityNames.len + identity) * SoldierRotations +
+    # aimStep, i.e. TeamPoolWidth*IdentityNames.len*SoldierRotations ids
+    # (512 at 4 teams, matching the 4200..4711 the doc comment states).
+    ("identity badges", IdentityBadgeSpriteBase,
+      TeamPoolWidth * IdentityNames.len * SoldierRotations),
     ("player HUD", SpritePlayerFireSpriteId, 23),
     ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
     ("selected soldiers", int(SelectedPlayerSpriteBase),
-      2 * 4 * SoldierRotations),
+      2 * TeamPoolWidth * SoldierRotations),
     ("player names", PlayerNameSpriteBase, MaxPlayers),
     ("protocol text", ProtocolTextSpriteBase, 100),
     ("scoreboard text", ScoreboardTextSpriteBase, MaxPlayers + 8),
-    ("team scores", TeamScoreSpriteBase, 4),
+    ("team scores", TeamScoreSpriteBase, TeamPoolWidth),
     ("scoreboard pips", ScoreboardPipSpriteBase, MaxPlayers + 8),
     ("splatters", SplatterSpriteBase, 64),
     ("hit splats", HitSpriteBase, 64),
@@ -1514,9 +1533,12 @@ proc playerColorName(index: int): string =
     return PlayerColorNames[index]
   "unknown"
 
-const SoldierSkinSpriteStride = 4 * SoldierRotations
-  ## One rotation set per Team enum member (4), per skin — red/blue default-
-  ## skin ids keep their historical values; the pool widened for green/yellow.
+const SoldierSkinSpriteStride = TeamPoolWidth * SoldierRotations
+  ## One rotation set per Team enum member, per skin — red/blue default-skin
+  ## ids keep their historical values; the pool widened for green/yellow, and
+  ## widens again with every later Team member. DERIVED from TeamPoolWidth,
+  ## never a literal — see its doc comment (sim_types.nim) and the
+  ## 2026-08-02 4-team black-stripe incident this class of bug shipped.
 
 proc soldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Sprite id for one living soldier at aim rotation `rot`. The four team

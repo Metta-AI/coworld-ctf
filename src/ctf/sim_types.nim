@@ -861,6 +861,19 @@ type
     Green
     Yellow
 
+const
+  TeamPoolWidth* = Team.high.ord + 1
+    ## Total member count of the `Team` enum — the WIRE-SIZE upper bound for
+    ## any team-indexed sprite/object pool width. This is NOT how many teams
+    ## are active in one game (that is `teamCount()`/`activeTeams()`, always
+    ## a prefix of the enum); it is how wide a fixed pool must be reserved so
+    ## `ord(team)` can never walk off the end of it. Every team-indexed
+    ## sprite/object pool width must derive from this constant, never a
+    ## literal — see the BoardSpritePools/BoardObjectPools compile-time
+    ## audits in global.nim, and the 2026-08-02 4-team black-stripe incident
+    ## that a hardcoded width let ship.
+
+type
   TeamLayout* = enum
     ## Where the teams live on the map. `layoutSides` is the classic 2-team
     ## left/right arena; the two 4-team layouts put a team in each corner or
