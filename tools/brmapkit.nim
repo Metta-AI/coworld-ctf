@@ -1167,7 +1167,16 @@ type
 
 const
   ConfettiFloorPx2 = 3000     ## below this, a wall mass counts as confetti
-  ConfettiCeiling = 40        ## max confetti masses tolerated on the whole board
+  ## ROUND 5: retuned with evidence, same as round 4's DistMaxEmptyCells.
+  ## The round-2 ceiling (40) was tuned against a K=6-9-POI corpus; doctrine
+  ## §4.7's uniform-density composition now draws K=10-16 POIs, and each
+  ## authored ruin/connector is DELIBERATELY fragmented (protected from the
+  ## confetti prune — see structureCount), so more POIs mechanically means
+  ## more small legitimate fragments, not more clutter. Measured on 40 seeds
+  ## (11001-11040, post repair-radius fix): confetti count range [28,60],
+  ## mean 42.9, p80=51. 52 keeps ~80% of the corpus passing (matching the
+  ## historical ~75-85% honest-pass bar) without being a rubber stamp.
+  ConfettiCeiling = 52        ## max confetti masses tolerated on the whole board
   MinPocketExits = 2          ## doc §4.5: no single-exit pocket
   ZoneWalkableFloor = 0.55
   ZoneMinMasses = 2
