@@ -6310,10 +6310,48 @@ proc addZoneMarkers(
   packet.addBoardObject(nextObjectId, 0, 0, 0, MapLayerId, nextSpriteId)
 
 const
-  ZoneEdgeBandThickness = 5    ## px thickness of the cosmetic border bars.
-  ZoneEdgeBandColor = rgba(255, 170, 40, 170)  ## flat warm amber; the
-                               ## paint-tide/stormfront treatment is a later
-                               ## pass (§4.3) — this is a legible line/band.
+  ## The shrink zone's cosmetic edge: an advancing PAINT TIDE with three
+  ## concentric layers outward from the safe interior (docs/designs/
+  ## BR_MAPGEN.md §4.3's art directive — "not a line"), all reusing the
+  ## puddle hazard's established violet paint palette (PuddleRimColor /
+  ## PuddleFillTint / PuddleGlossTint, map_art.nim) so this reads as the
+  ## SAME paint-hazard language, not a fire/electric effect:
+  ##   1. approach shimmer  (ZoneTideShimmerWidth px) — thin, glinting,
+  ##      pulses radially INWARD (toward the safe interior) over time, so
+  ##      the motion itself points at the direction of collapse.
+  ##   2. churning front    (ZoneTideFrontWidth px) — thick, wet-paint
+  ##      blobs on a per-cell grid, jittered by a tick-cycled frame index
+  ##      (ZoneTideFrameCount frames, held ZoneTideFrameHoldTicks ticks
+  ##      each) — animated, but driven ENTIRELY by sim.tickCount, never
+  ##      wall-clock.
+  ##   3. dead paint         (ZoneTideDeadWidth px) — flat, unanimated,
+  ##      matte: ground the tide has already claimed.
+  ## Every layer is a pure function of (the current rect, sim.tickCount);
+  ## nothing here is stored on SimServer, so there is nothing new to
+  ## gameHash or replay-desync.
+  ZoneTideShimmerWidth = 8
+  ZoneTideFrontWidth = 22
+  ZoneTideDeadWidth = 110
+  ZoneTideBandPx = ZoneTideShimmerWidth + ZoneTideFrontWidth + ZoneTideDeadWidth
+
+  ZoneTideBlobPeriod = 28      ## along-axis spacing of the front's blobs.
+  ZoneTideFrameCount = 6       ## distinct churn frames.
+  ZoneTideFrameHoldTicks = 4   ## ticks each churn frame holds (a full
+                               ## 6-frame churn cycle every 24 ticks = 1s
+                               ## at the engine's 24 ticks/sec).
+  ZoneTideShimmerPeriod = 24   ## ticks for one inward shimmer pulse cycle.
+  ZoneTideShimmerTickScale = 3 ## tick coefficient of the traveling pulse.
+  ZoneTideShimmerDepthScale = 3  ## per-px-of-depth coefficient — together
+                               ## with the tick coefficient this makes the
+                               ## bright band migrate toward d=0 (the safe
+                               ## edge) as tick increases: an inward crawl.
+
+  ZoneTideDeadColor    = rgba(54, 18, 64, 225)    ## dried, settled paint.
+  ZoneTideFrontBase    = rgba(120, 30, 140, 235)  ## front band's trough tone.
+  ZoneTideFrontBlob    = rgba(178, 60, 202, 245)  ## front band's wet-blob tone.
+  ZoneTideShimmerDim   = rgba(196, 110, 220, 90)  ## shimmer band, resting.
+  ZoneTideShimmerGlint = rgba(236, 190, 245, 175) ## shimmer band, lit.
+
   ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
                                ## low(int16) + 2), well below players/HUD.
   ZoneEdgeFxLabelTag = "fx 9c41"  ## deliberately OPAQUE, unlike damagePops'
@@ -6321,18 +6359,142 @@ const
                                ## headline mechanic, so its cosmetic art gets
                                ## a hashed tag rather than a spelled-out
                                ## label, and a policy grepping for a literal
-                               ## "zone"/"edge" string finds nothing here.
-                               ## The real, stable, policy-facing contract is
-                               ## labelZone/labelZoneNext, never this art.
+                               ## "zone"/"edge"/"tide" string finds nothing
+                               ## here. The real, stable, policy-facing
+                               ## contract is labelZone/labelZoneNext, never
+                               ## this art.
 
-proc zoneEdgeBarPixels(width, height: int): seq[uint8] =
-  ## A flat, semi-transparent amber rectangle — the whole cosmetic art for
-  ## v1 of the shrink-zone edge (see ZoneEdgeBandColor).
+proc zoneTideHash(a, b: int): int {.inline.} =
+  ## A cheap deterministic scramble for COSMETIC jitter only (the churning
+  ## front's blob placement) — never used for gameplay, never mixed into
+  ## gameHash. FNV-1a mixing in UNSIGNED 64-bit space, same idiom as
+  ## sim_state.nim's mixHash: a signed-int version of this overflows
+  ## int64 on realistic map coordinates (a chained multiply-by-~1e9 with
+  ## no wraparound is a checked OverflowDefect on signed ints), and
+  ## unsigned wraparound is exactly what a hash mix wants anyway. Result is
+  ## masked down to a small always-nonnegative range so every caller-side
+  ## shr/mod stays trivially in range.
+  var h = 14695981039346656037'u64
+  h = h xor cast[uint64](int64(a))
+  h *= 1099511628211'u64
+  h = h xor cast[uint64](int64(b))
+  h *= 1099511628211'u64
+  int(h and 0x7FFFFFFF'u64)
+
+proc zoneTidePixelColor(d, along, tick: int): ColorRGBA {.inline.} =
+  ## Returns one tide pixel's color at rectangular (Chebyshev) distance `d`
+  ## OUTSIDE the current zone rect (0 = the pixel row/column touching the
+  ## border) and `along`-axis position `along` (map px along the edge this
+  ## pixel sits on — see distanceOutsideRect / buildTideBarPixels). `tick`
+  ## drives every animated term; nothing else does.
+  if d < ZoneTideShimmerWidth:
+    # Approach shimmer: a bright pulse that migrates from the front (large
+    # d) toward the safe interior (d=0) as tick advances — motion pointed
+    # AT the collapsing direction, not just a static glinting stripe.
+    let phase = (
+      (tick * ZoneTideShimmerTickScale + d * ZoneTideShimmerDepthScale) mod
+        ZoneTideShimmerPeriod + ZoneTideShimmerPeriod
+    ) mod ZoneTideShimmerPeriod
+    if phase < ZoneTideShimmerPeriod div 3:
+      ZoneTideShimmerGlint
+    else:
+      ZoneTideShimmerDim
+  elif d < ZoneTideShimmerWidth + ZoneTideFrontWidth:
+    # Churning front: wet-paint blobs on a per-cell grid, jittered by a
+    # tick-cycled frame index so the front visibly churns without ever
+    # reading wall-clock time — the house "stage" idiom (see addDamagePops)
+    # applied to a continuous hazard instead of a one-shot event.
+    let
+      fd = d - ZoneTideShimmerWidth
+      frame = (tick div ZoneTideFrameHoldTicks) mod ZoneTideFrameCount
+      cell = along div ZoneTideBlobPeriod
+      jitter = zoneTideHash(cell, frame)
+      blobAlong = cell * ZoneTideBlobPeriod + ZoneTideBlobPeriod div 2 +
+        (((jitter shr 4) mod 9) - 4)
+      blobDepth = ZoneTideFrontWidth div 2 + (((jitter shr 12) mod 5) - 2)
+      blobRadius = ZoneTideFrontWidth div 2 + ((jitter shr 20) mod 3)
+      dAlong = along - blobAlong
+      dDepth = fd - blobDepth
+    if dAlong * dAlong + dDepth * dDepth <= blobRadius * blobRadius:
+      ZoneTideFrontBlob
+    else:
+      ZoneTideFrontBase
+  elif d < ZoneTideBandPx:
+    ZoneTideDeadColor
+  else:
+    rgba(0, 0, 0, 0)
+
+proc distanceOutsideRect(rect: MapRect, px, py: int): int {.inline.} =
+  ## Rectangular (Chebyshev) distance of map point (px, py) outside `rect`:
+  ## 0 for any point on or inside the border, growing outward on whichever
+  ## axis (or both, in a corner) is furthest past it. This is what makes
+  ## the tide's three layers read as clean CONCENTRIC rectangles all the
+  ## way around, corners included, from one shared distance function.
+  let
+    dx = max(0, max(rect.x - px, px - (rect.x + rect.w - 1)))
+    dy = max(0, max(rect.y - py, py - (rect.y + rect.h - 1)))
+  max(dx, dy)
+
+proc buildTideBarPixels(
+  rect: MapRect, barX, barY, width, height, tick: int
+): seq[uint8] =
+  ## Builds one edge bar's RGBA buffer by evaluating zoneTidePixelColor at
+  ## every pixel's true distance outside `rect` (distanceOutsideRect) and
+  ## an along-edge coordinate — map x for a wide (top/bottom) bar, map y
+  ## for a tall (left/right) one, so the churn pattern reads along the
+  ## edge it is drawn on. A pixel with d <= 0 (inside the rect — should not
+  ## happen given how the four bars are placed, but cosmetic code stays
+  ## defensive) is left fully transparent.
   result = newRgbaPixels(width, height)
-  for i in 0 ..< width * height:
-    result.putRawRgbaPixel(
-      i, ZoneEdgeBandColor.r, ZoneEdgeBandColor.g, ZoneEdgeBandColor.b,
-      ZoneEdgeBandColor.a)
+  let wideBar = width >= height
+  for ly in 0 ..< height:
+    let py = barY + ly
+    for lx in 0 ..< width:
+      let
+        px = barX + lx
+        d = distanceOutsideRect(rect, px, py)
+      if d <= 0:
+        continue
+      let
+        along = if wideBar: px else: py
+        color = zoneTidePixelColor(d - 1, along, tick)
+      result.putRawRgbaPixel(ly * width + lx, color.r, color.g, color.b, color.a)
+
+var
+  ZoneTideCacheKey: tuple[tick, cx, cy, x, y, w, h: int] = (
+    low(int), 0, 0, 0, 0, 0, 0)
+  ZoneTideCachePixels: array[4, seq[uint8]]  ## top, bottom, left, right.
+  ZoneTideCacheGeom: array[4, tuple[x, y, w, h: int]]
+
+proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
+  ## Rebuilds the four tide-bar pixel buffers ONCE per (tick, center, rect)
+  ## and caches them at module scope — addZoneEdgeBand runs once per
+  ## CONNECTED VIEWER per tick (board stream plus every player stream), and
+  ## without this cache each of those calls would redo the same ~500K-pixel
+  ## computation. Same pattern as EndzoneStripCache/EndzoneColdRgba above:
+  ## process-local cosmetic cache, never gameHash, never SimServer state.
+  ## Keyed on the rect itself (not just tick) so a fresh game's re-drawn
+  ## zoneCenter — or a stale cache from a PRIOR game reusing the same raw
+  ## tick number — can never serve a wrong frame.
+  let key = (
+    sim.tickCount, sim.zoneCenter.x, sim.zoneCenter.y,
+    rect.x, rect.y, rect.w, rect.h
+  )
+  if key == ZoneTideCacheKey:
+    return
+  ZoneTideCacheKey = key
+  let
+    band = ZoneTideBandPx
+    bars = [
+      (rect.x - band, rect.y - band, rect.w + 2 * band, band),  # top
+      (rect.x - band, rect.y + rect.h, rect.w + 2 * band, band),  # bottom
+      (rect.x - band, rect.y, band, rect.h),                     # left
+      (rect.x + rect.w, rect.y, band, rect.h),                   # right
+    ]
+  for i, bar in bars:
+    let (bx, by, w, h) = bar
+    ZoneTideCacheGeom[i] = (bx, by, w, h)
+    ZoneTideCachePixels[i] = buildTideBarPixels(rect, bx, by, w, h, sim.tickCount)
 
 proc addZoneEdgeBand(
   sim: SimServer,
@@ -6340,33 +6502,23 @@ proc addZoneEdgeBand(
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Minimal v1 of the closing zone's cosmetic edge: four flat amber bars
-  ## traced along the CURRENT rect's border, redrawn as it shrinks, so the
-  ## boundary is visible on both streams without a bot needing to parse the
-  ## label markers. Cosmetic only — never enters gameHash, and unlike
-  ## every rect coordinate above (which may legitimately sit off-board
-  ## during an early phase) this is pure decoration, so bars are clamped to
-  ## width/height >= 1 defensively and nothing else validates them.
+  ## The closing zone's cosmetic edge (docs/designs/BR_MAPGEN.md §4.3): an
+  ## advancing paint tide traced along the CURRENT rect's border — see the
+  ## const block above for the three-layer design. Rendered on both
+  ## streams so the boundary is visible without parsing the label markers.
   if sim.config.zonePhases.len == 0:
     return
-  let
-    (rect, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
-    t = ZoneEdgeBandThickness
-    bars = [
-      (max(1, rect.w), t, rect.x, rect.y),                         # top
-      (max(1, rect.w), t, rect.x, rect.y + rect.h - t),             # bottom
-      (t, max(1, rect.h), rect.x, rect.y),                          # left
-      (t, max(1, rect.h), rect.x + rect.w - t, rect.y),             # right
-    ]
-  for i, bar in bars:
+  let (rect, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+  ensureZoneTideCache(sim, rect)
+  for i in 0 ..< 4:
     let
-      (w, h, bx, by) = bar
+      (bx, by, w, h) = ZoneTideCacheGeom[i]
       spriteId = ZoneMarkerBase + 2 + i
       objectId = ZoneMarkerBase + 2 + i
     currentIds.add(objectId)
     packet.addBoardSpriteChanged(
-      spriteDefs, spriteId, w, h, zoneEdgeBarPixels(w, h),
-      ZoneEdgeFxLabelTag & " " & $i
+      spriteDefs, spriteId, w, h, ZoneTideCachePixels[i],
+      ZoneEdgeFxLabelTag & " " & $i, changed = true
     )
     packet.addBoardObject(objectId, bx, by, ZoneEdgeBandZ, MapLayerId, spriteId)
 
