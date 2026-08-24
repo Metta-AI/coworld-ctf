@@ -241,22 +241,30 @@ proc resetBarriers*(sim: var SimServer) =
     sim.players[i].hasBarrier = false
 
 proc resetZone*(sim: var SimServer) =
-  ## Draws this game's shrink-zone center ONCE, deterministically from the
-  ## sim RNG (docs/designs/BR_MAPGEN.md §4.3): uniform over positions where
-  ## the FINAL configured phase's rect — the smallest, most constraining
-  ## target — fits fully on-board with an ArenaBorder margin on every side.
-  ## The whole trajectory (every earlier, larger phase's rect) derives from
-  ## this same center; an earlier rect MAY hang slightly off-board for an
-  ## off-center draw (only the final rect's fit is guaranteed — see
-  ## zoneRectAtScale), which just means fewer players read as "outside" near
-  ## that edge during the early game, exactly like a real battle-royale
-  ## circle that is not always dead-center at the drop.
+  ## Draws this game's shrink-zone center ONCE (docs/designs/BR_MAPGEN.md
+  ## §4.3): either the AUTHORED `zoneCenter` config point, when set (see
+  ## readConfigZoneCenter — already validated at config load to keep the
+  ## final rect on-board, so no re-check or RNG draw happens here), or —
+  ## the shipping default — deterministically from the sim RNG, uniform
+  ## over positions where the FINAL configured phase's rect — the
+  ## smallest, most constraining target — fits fully on-board with an
+  ## ArenaBorder margin on every side. The whole trajectory (every earlier,
+  ## larger phase's rect) derives from this same center; an earlier rect
+  ## MAY hang slightly off-board for an off-center draw (only the final
+  ## rect's fit is guaranteed — see zoneRectAtScale), which just means
+  ## fewer players read as "outside" near that edge during the early game,
+  ## exactly like a real battle-royale circle that is not always
+  ## dead-center at the drop.
   ##
   ## A no-op when zonePhases is empty: zoneCenter stays (0, 0) and nothing
   ## ever reads it, so an unconfigured game draws nothing extra from the RNG
   ## (byte-identical sim-RNG stream to a build without this field).
   sim.zoneCenter = MapPoint(x: 0, y: 0)
   if sim.config.zonePhases.len == 0:
+    return
+  if sim.config.zoneCenterConfigured:
+    sim.zoneCenter =
+      MapPoint(x: sim.config.zoneCenterX, y: sim.config.zoneCenterY)
     return
   let
     finalPermille = sim.config.zonePhases[^1].zPermille

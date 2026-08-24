@@ -1486,6 +1486,27 @@ type
                                   ## label markers, byte-identical to an
                                   ## engine without the field. See
                                   ## resetZone/updateZone/zoneRectAndDps.
+    zoneCenterConfigured*: bool   ## true when the optional `zoneCenter`
+                                  ## config field was set: resetZone then
+                                  ## closes on that AUTHORED point instead
+                                  ## of drawing one from the sim RNG (no RNG
+                                  ## draw happens in that case — the
+                                  ## trajectory is fully pinned by config).
+                                  ## False (the default) keeps the existing
+                                  ## random draw — the shipping default,
+                                  ## byte-identical to a build without this
+                                  ## field. Meaningless (and never read)
+                                  ## when zonePhases is empty, exactly like
+                                  ## zoneCenter itself (see SimServer).
+    zoneCenterX*, zoneCenterY*: int  ## the authored close-on point (map
+                                  ## px), meaningful only when
+                                  ## zoneCenterConfigured. Validated at
+                                  ## config load — see readConfigZoneCenter
+                                  ## in sim_config.nim — to keep the FINAL
+                                  ## configured phase's rect fully on-board
+                                  ## with an ArenaBorder margin, the same
+                                  ## rule resetZone applies to its own
+                                  ## random draw.
 
   Player* = object
     x*, y*: int
