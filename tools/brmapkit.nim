@@ -880,6 +880,28 @@ const NoEnclosureExits = 99
 proc gridDims(width, height: int): tuple[cols, rows: int] =
   (width div GridStride + 1, height div GridStride + 1)
 
+proc measuredShapeArea(shape: ArenaShape): int =
+  ## The ACTUAL area one isolated shape will register as once rasterized —
+  ## same grid-corner-sampling method buildWallGrid uses below, applied to
+  ## just this one shape's own bounding box. Round 5 fix: a polygon's
+  ## shoelace/formula area can badly overstate its true even-odd fill once
+  ## blobPolygon's wobble makes it non-convex (see ScreenBlobRadius's
+  ## comment) — this measures what will actually land in the wall grid, so
+  ## a repair candidate can be self-verified before being committed.
+  let b = shapeBounds(shape)
+  let gx0 = b.x0 div GridStride
+  let gy0 = b.y0 div GridStride
+  let gx1 = b.x1 div GridStride
+  let gy1 = b.y1 div GridStride
+  var count = 0
+  for gy in gy0 .. gy1:
+    let y = gy * GridStride
+    for gx in gx0 .. gx1:
+      let x = gx * GridStride
+      if inShape(x, y, shape):
+        inc count
+  count * GridStride * GridStride
+
 proc buildWallGrid(m: BrMap): seq[bool] =
   ## True = solid (wall or off-playable-border), sampled at grid-cell centers.
   ## Painted shape-by-shape over each shape's own bounding box only, matching
@@ -1715,6 +1737,28 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
       dy += ScanStride
     false
 
+  proc touchesAnyRing(shape: ArenaShape): bool =
+    ## Cheap bbox-only pre-filter, factored out so both the placement
+    ## search AND the round-5 quality-retry (below) can reject a candidate
+    ## whose bounding box overlaps ANY spawn's exit ring outright — the
+    ## quality retry regenerates the SHAPE (not just re-measures it), so it
+    ## must re-run this check too, or a bigger reroll can choke a ring that
+    ## the original (smaller) roll cleared, and phase 2 trims it away with
+    ## nothing to fall back on (measured: this was a real regression — a
+    ## repair with a comfortably large measured area still left its spawn
+    ## uncovered because the reroll it won on was never safety-checked).
+    let cb = shapeBounds(shape)
+    for s2 in m.spawns:
+      let p2 = pocketRect(s2, m.spawnClearW, m.spawnClearH)
+      let r2x0 = p2.x - PocketExitMargin
+      let r2y0 = p2.y - PocketExitMargin
+      let r2x1 = p2.x + p2.w + PocketExitMargin
+      let r2y1 = p2.y + p2.h + PocketExitMargin
+      if not (cb.x1 < r2x0 - 4 or cb.x0 > r2x1 + 4 or
+          cb.y1 < r2y0 - 4 or cb.y0 > r2y1 + 4):
+        return true
+    false
+
   ## TWO-PHASE, round-2 fix #6 (replaces three earlier attempts at an
   ## incremental "accept only if provably safe" placement search — each
   ## closed one failure mode and opened another, because blobPolygon's
@@ -1758,6 +1802,7 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
       ## the radius it's meant to satisfy.
       var bestD2 = high(int)
       var bestCandidate: ArenaShape
+      var bestCx, bestCy: int
       var found = false
       var dy = -maxCenterDist
       while dy <= maxCenterDist:
@@ -1774,33 +1819,47 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
               let candidate = blobPolygon(
                 rng, MapRect(x: 0, y: 0, w: m.width, h: m.height),
                 cx, cy, ScreenBlobRadius, 12)
-              ## Cheap bbox-only pre-filter: reject any candidate whose
-              ## bounding box overlaps ANY spawn's ring outright, so phase 2
-              ## (the expensive, authoritative trim) mostly only has to
-              ## catch multi-candidate interactions instead of individually
+              ## Bbox-only pre-filter: reject any candidate whose bounding
+              ## box overlaps ANY spawn's ring outright, so phase 2 (the
+              ## expensive, authoritative trim) mostly only has to catch
+              ## multi-candidate interactions instead of individually
               ## doomed placements — most of round 2's "too much trimming"
               ## was candidates that were never going to survive anyway.
-              let cb = shapeBounds(candidate)
-              var touchesRing = false
-              for s2 in m.spawns:
-                let p2 = pocketRect(s2, m.spawnClearW, m.spawnClearH)
-                let r2x0 = p2.x - PocketExitMargin
-                let r2y0 = p2.y - PocketExitMargin
-                let r2x1 = p2.x + p2.w + PocketExitMargin
-                let r2y1 = p2.y + p2.h + PocketExitMargin
-                if not (cb.x1 < r2x0 - 4 or cb.x0 > r2x1 + 4 or
-                    cb.y1 < r2y0 - 4 or cb.y0 > r2y1 + 4):
-                  touchesRing = true
-                  break
-              if not touchesRing:
+              if not touchesAnyRing(candidate):
                 bestD2 = d2
                 bestCandidate = candidate
+                bestCx = cx
+                bestCy = cy
                 found = true
                 when defined(brDebugExit):
                   stderr.writeLine(&"  candidate screen blob at ({cx},{cy}) dist={sqrt(float(d2)):.0f} radius={radius}")
           dx += ScanStep
         dy += ScanStep
       if found:
+        ## ROUND 5 quality retry: the CLOSEST safe position is fixed now,
+        ## but blobPolygon's wobble is random per call — regenerate a few
+        ## more candidates at that EXACT position and keep whichever one's
+        ## ACTUALLY-RASTERIZED area (measuredShapeArea, not the shoelace/
+        ## formula area) is largest, so a marginal/near-self-intersecting
+        ## roll doesn't ship when a better one was one reroll away. MUST
+        ## re-run touchesAnyRing per retry too (regression, caught and
+        ## fixed): a bigger reroll can choke a ring the original smaller
+        ## roll cleared, and phase 2 would trim it with nothing to fall
+        ## back on — a comfortably-measured repair that still left its
+        ## spawn uncovered, because the winning reroll was never safety-
+        ## checked.
+        var bestArea = measuredShapeArea(bestCandidate)
+        for retry in 0 ..< 5:
+          let alt = blobPolygon(
+            rng, MapRect(x: 0, y: 0, w: m.width, h: m.height),
+            bestCx, bestCy, ScreenBlobRadius, 12)
+          if touchesAnyRing(alt): continue
+          let altArea = measuredShapeArea(alt)
+          if altArea > bestArea:
+            bestArea = altArea
+            bestCandidate = alt
+        when defined(brDebugExit):
+          stderr.writeLine(&"  final screen blob at ({bestCx},{bestCy}) measuredArea={bestArea} floor={ConfettiFloorPx2}")
         candidates.add bestCandidate
         placed = true
     when defined(brDebugExit):
