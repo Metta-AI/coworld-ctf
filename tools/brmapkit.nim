@@ -156,7 +156,6 @@ type
     spawnClearW, spawnClearH: int  ## CtfMap.spawnClearW/H semantics, reused
     groups: int                 ## 16 duos
     seatsPerGroup: int          ## 2
-    ringK: float                ## 0.85, §4.2
     zoneZ: float                ## 0.173, §4.3 final-zone scale
     obstacles: seq[ArenaShape]  ## FULL board, no symmetry (BR is symNone-only)
     spawns: seq[BrSpawn]
@@ -185,7 +184,6 @@ const
   StandardW = 1235   ## the CTF "standard" field width scaledGenShell derives from
   StandardH = 659
   GiantScale = 2.6    ## doctrine §4.1: giant field, half colossal's traverse time
-  RingK = 0.85
   ZoneZ = 0.173
   Groups = 16
   SeatsPerGroup = 2
@@ -220,49 +218,82 @@ proc spawnClearance(scale: float): tuple[w, h: int] =
 
 # --- ring spawns (§4.2) -------------------------------------------------------
 
-proc ringSpawns(width, height: int, k: float, n: int): seq[BrSpawn] =
-  ## n points equally spaced by ARC LENGTH around an inset rectangle ring of
-  ## the field's own aspect. Walk clockwise from the top edge, phase-offset by
-  ## half a step so no point lands exactly on a corner (keeps the per-edge
-  ## pocket-orientation tag unambiguous for all n).
-  let
-    insetW = k * float(width)
-    insetH = k * float(height)
-    x0 = (float(width) - insetW) / 2.0
-    y0 = (float(height) - insetH) / 2.0
-    x1 = x0 + insetW
-    y1 = y0 + insetH
-    perimeter = 2.0 * (insetW + insetH)
-    step = perimeter / float(n)
-  var d = step / 2.0
-  for i in 0 ..< n:
-    var t = d
-    var edge: SpawnEdge
-    var x, y: float
-    if t <= insetW:
-      edge = seTop; x = x0 + t; y = y0
-    else:
-      t -= insetW
-      if t <= insetH:
-        edge = seRight; x = x1; y = y0 + t
-      else:
-        t -= insetH
-        if t <= insetW:
-          edge = seBottom; x = x1 - t; y = y1
-        else:
-          t -= insetW
-          edge = seLeft; x = x0; y = y1 - t
-    result.add BrSpawn(
-      p: MapPoint(x: int(round(x)), y: int(round(y))), edge: edge)
-    d += step
+proc nearestFieldEdge(p: MapPoint, width, height: int): SpawnEdge =
+  ## ROUND 5: `.edge` is now purely a cosmetic/debug tag — pocketRect's
+  ## case-split on edge is a no-op once clearW == clearH (a duo pocket is
+  ## isotropic; see spawnClearance), and every other consumer only prints
+  ## it in a stderr diagnostic. Classify by which field border the point is
+  ## proportionally closest to, so it stays meaningful (and jitter-proof,
+  ## and round-trip-safe) even though spawns no longer sit on a ring.
+  let dTop = float(p.y) / float(height)
+  let dBottom = float(height - p.y) / float(height)
+  let dLeft = float(p.x) / float(width)
+  let dRight = float(width - p.x) / float(width)
+  let m = min([dTop, dBottom, dLeft, dRight])
+  if m == dTop: seTop
+  elif m == dBottom: seBottom
+  elif m == dLeft: seLeft
+  else: seRight
+
+proc gridSpawns(rng: var Rand, width, height, n: int): seq[BrSpawn] =
+  ## ROUND 5 (Maxwell's ruling, doctrine §4.2 rewrite): "the spawns dont
+  ## need to be all in a circle. they can be in a grid" — supersedes the
+  ## ring-spawn derivation entirely. "The ring was solving rotational
+  ## fairness geometrically; fairness is measured per spawn, so the
+  ## geometry constraint buys nothing and starves the field edges of
+  ## structure" (doctrine). 16 groups -> a 4x4 grid spanning the WHOLE
+  ## field (not inset), jittered within each cell, with a defensive
+  ## minimum-separation retry — cells are ~800x428px at giant scale, far
+  ## bigger than gunRange (~331px), so two spawns landing close enough to
+  ## matter essentially never happens; the retry exists so it CAN'T happen
+  ## rather than because it's expected to.
+  const GridCols = 4
+  const GridRows = 4
+  doAssert GridCols * GridRows == n,
+    "gridSpawns is authored for a 4x4 grid; group count changed"
+  let cellW = float(width) / float(GridCols)
+  let cellH = float(height) / float(GridRows)
+  let edgeMargin = ArenaBorderPx + 70 + 20 ## keep the duo pocket off the border wall
+  let minSep = 200
+  const JitterFrac = 0.32 ## keep jittered spawns inside their own cell
+  for row in 0 ..< GridRows:
+    for col in 0 ..< GridCols:
+      let baseX = (float(col) + 0.5) * cellW
+      let baseY = (float(row) + 0.5) * cellH
+      let jitterW = int(cellW * JitterFrac)
+      let jitterH = int(cellH * JitterFrac)
+      var placed = false
+      for attempt in 0 ..< 40:
+        let x = clamp(int(baseX) + rng.rand(-jitterW .. jitterW),
+          edgeMargin, width - edgeMargin)
+        let y = clamp(int(baseY) + rng.rand(-jitterH .. jitterH),
+          edgeMargin, height - edgeMargin)
+        let p = MapPoint(x: x, y: y)
+        var tooClose = false
+        for s in result:
+          let dx = p.x - s.p.x
+          let dy = p.y - s.p.y
+          if dx * dx + dy * dy < minSep * minSep:
+            tooClose = true
+            break
+        if not tooClose:
+          result.add BrSpawn(p: p, edge: nearestFieldEdge(p, width, height))
+          placed = true
+          break
+      if not placed:
+        ## Falls back to the exact (unjittered) cell center, which is
+        ## guaranteed >= minSep from every other cell center given
+        ## cellW/cellH >> minSep — this path should never actually fire.
+        let p = MapPoint(x: clamp(int(baseX), edgeMargin, width - edgeMargin),
+                          y: clamp(int(baseY), edgeMargin, height - edgeMargin))
+        result.add BrSpawn(p: p, edge: nearestFieldEdge(p, width, height))
 
 proc pocketRect(s: BrSpawn, clearW, clearH: int): MapRect =
-  ## Oriented spawn-pocket clearance: the SMALLER half-extent (clearW) runs
-  ## TANGENTIAL to the ring (along the edge, toward the next spawn — this is
-  ## the axis under spacing pressure); the LARGER half-extent (clearH) runs
-  ## RADIAL (toward the field interior / the border), which has no neighbour
-  ## to collide with. This is the BR analogue of the CTF pocket, whose W ran
-  ## along the home border and H ran along the carrier's approach.
+  ## Oriented spawn-pocket clearance — kept general (clearW tangential,
+  ## clearH radial per the original CTF-derived convention) even though
+  ## round 5 made the duo pocket isotropic (clearW == clearH == 70), so
+  ## the shape stays correct if a future round ever re-introduces an
+  ## anisotropic pocket.
   case s.edge
   of seTop, seBottom:
     MapRect(x: s.p.x - clearW, y: s.p.y - clearH, w: 2 * clearW, h: 2 * clearH)
@@ -456,85 +487,21 @@ proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
       return true
   false
 
-proc tooCloseToAnyPocket(p: MapPoint, pockets: seq[MapRect], clear: int): bool =
-  for pocket in pockets:
-    if p.x >= pocket.x - clear and p.x <= pocket.x + pocket.w + clear and
-        p.y >= pocket.y - clear and p.y <= pocket.y + pocket.h + clear:
-      return true
-  false
-
-proc tryPlacePoi(
-  rng: var Rand, sites: var seq[PoiSite],
-  targetX, targetY, jitterX, jitterY, width, height, minSep: int,
-  pockets: seq[MapRect], archetype: PoiArchetype, halfExtent, lootTier: int,
-  pocketClear: int
-) =
-  ## Pulled out of placePois as a top-level proc: a nested proc closing over
-  ## a `var Rand` parameter fails Nim's capture-safety check ("cannot be
-  ## captured as it would violate memory safety") — passing `rng` explicitly
-  ## sidesteps it.
-  ##
-  ## jitterX/jitterY are DELIBERATELY asymmetric: a giant field is wide
-  ## (3211px) but short (1713px), and every spawn pocket's tangential
-  ## clearance leaves only narrow gaps ALONG the top/bottom edges — so the
-  ## rejection sampler needs plenty of room to slide horizontally to find
-  ## one of those gaps, but only a little vertically before it either
-  ## crosses back into a pocket's radial reach or a spawn pocket on the far
-  ## side (measured: symmetric jitter placed 3/7 POIs; this placed 7/7).
-  const MaxAttempts = 200
-  for attempt in 0 ..< MaxAttempts:
-    let jx = targetX + (if jitterX > 0: rng.rand(-jitterX .. jitterX) else: 0)
-    let jy = targetY + (if jitterY > 0: rng.rand(-jitterY .. jitterY) else: 0)
-    let margin = halfExtent + 60
-    if jx < margin or jy < margin or jx >= width - margin or jy >= height - margin:
-      when defined(brDebugExit):
-        if attempt == MaxAttempts - 1:
-          stderr.writeLine(&"  POI reject(margin) target=({targetX},{targetY}) tried=({jx},{jy}) margin={margin}")
-      continue
-    let p = MapPoint(x: jx, y: jy)
-    if tooCloseToAny(p, sites, minSep):
-      when defined(brDebugExit):
-        if attempt == MaxAttempts - 1:
-          stderr.writeLine(&"  POI reject(minSep={minSep}) target=({targetX},{targetY}) tried=({jx},{jy})")
-      continue
-    if tooCloseToAnyPocket(p, pockets, pocketClear):
-      when defined(brDebugExit):
-        if attempt == MaxAttempts - 1:
-          stderr.writeLine(&"  POI reject(pocket) target=({targetX},{targetY}) tried=({jx},{jy})")
-      continue
-    sites.add PoiSite(
-      center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
-    when defined(brDebugExit):
-      stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
-    return
-  when defined(brDebugExit):
-    stderr.writeLine(&"  POI FAILED entirely: target=({targetX},{targetY}) archetype={archetype}")
-  ## Every attempt collided — skip this site rather than force an overlap;
-  ## the place-count floor validator will report the true count honestly.
-
-const PoiPocketClearance = 110
-  ## ROUND 4 (Maxwell's correction, 2026-08-24): "the ~560-630px POI
-  ## clearance from spawn pockets is WRONG... a minor site adjacent to a
-  ## spawn is a LANDING SITE... not a fairness violation." Shrunk from a
-  ## scaled ~560-630px (spawnClearH + halfExtent + 40, which forced every
-  ## POI into a narrow horizontal band and made all six draws look like the
-  ## same map) down to a small FIXED margin: just enough that the pocket's
-  ## own floor stays clear and the exit-check ring (PocketExitMargin=24px)
-  ## holds with real margin. Wall-LEVEL safety near spawns (so a big
-  ## structure's near edge doesn't choke a pocket) is still enforced
-  ## downstream, per-shape, by dropShapesNearSpawns (70px) — a POI center
-  ## this close to a pocket routinely has its nearest wall segments pruned,
-  ## which reads as "the ruin's edge runs right up to the landing zone",
-  ## exactly the landing-site feel doctrine wants.
+## tooCloseToAnyPocket (spawn-keep-away for PLACEMENT) is GONE as of round 5
+## — "we banned that" — it lived here through round 4. dropShapesNearSpawns
+## is the only remaining pocket-aware step: a post-hoc carve, not a
+## placement exclusion.
 
 proc placeUniformPoi(
   rng: var Rand, sites: var seq[PoiSite], width, height, minSep: int,
-  pocketClear: int, pockets: seq[MapRect],
   archetype: PoiArchetype, halfExtent, lootTier: int
 ): bool =
-  ## TRUE uniform rejection sampling over the WHOLE playable field (no
-  ## artificial Y-band) — returns whether it found a spot, so callers can
-  ## track how many of a target count actually landed.
+  ## TRUE uniform rejection sampling over the WHOLE playable field. ROUND 5
+  ## (Maxwell's ruling, doctrine §4.2/§4.7): no pocket-avoidance at all —
+  ## "we banned that" — a structure landing next to a spawn is a landing
+  ## site, not a violation; only OTHER sites' minimum separation applies.
+  ## Returns whether it found a spot, so callers can track how many of a
+  ## target count actually landed.
   const MaxAttempts = 400
   let margin = halfExtent + 60
   let xLo = margin
@@ -548,7 +515,6 @@ proc placeUniformPoi(
     let y = yLo + rng.rand(yHi - yLo)
     let p = MapPoint(x: x, y: y)
     if tooCloseToAny(p, sites, minSep): continue
-    if tooCloseToAnyPocket(p, pockets, pocketClear): continue
     sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
     when defined(brDebugExit):
       stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
@@ -557,127 +523,44 @@ proc placeUniformPoi(
     stderr.writeLine(&"  POI FAILED entirely: archetype={archetype}")
   false
 
-proc inwardDir(edge: SpawnEdge): tuple[dx, dy: int]
-  ## Forward declaration — full body defined later in the file; placePois
-  ## (below) needs it for the ring-of-landing-sites offset.
-
 proc placePois(
-  rng: var Rand, width, height, gunRange: int, pockets: seq[MapRect], spawns: seq[BrSpawn]
+  rng: var Rand, width, height, gunRange: int
 ): seq[PoiSite] =
-  ## Deliberate composition, ROUND 4: one major (position now DRAWN, not
-  ## fixed dead-center — zone centers are drawn too, so an off-center major
-  ## is legitimate), a handful of mid POIs and corner-ish minors spread
-  ## across the WHOLE field (no more Y-band), plus a RING OF LANDING SITES
-  ## anchored near individual spawns so most of the ring has a near site —
-  ## this is what fills the corners/quadrants and makes landing a real
-  ## choice (near safe loot vs. contested center). K, archetype mix, and
-  ## the major's offset all vary per seed so six draws read as six
-  ## different maps.
-  let cx = width div 2
-  let cy = height div 2
+  ## ROUND 5 (Maxwell's ruling, doctrine §4.7): "the room and obstacle
+  ## density needs to be roughly uniform across the entire map, not
+  ## focused in the center." This KILLS round 3/4's tiered composition
+  ## (one dominant major near the middle, a ring of mid POIs, a ring of
+  ## landing sites anchored to individual spawns) entirely — that whole
+  ## apparatus existed to fight the old ring-spawn's keep-away geometry,
+  ## which is also gone (§4.2). Every POI is now placed the SAME way:
+  ## uniform rejection sampling over the whole field with a minimum-
+  ## separation disc, no pocket-avoidance. Variety comes from archetype
+  ## MIX and total COUNT, both of which vary per seed — not from a spatial
+  ## hierarchy.
   let minSep = int(1.15 * float(gunRange))  ## real travel distance between places
-  let majorHalf = int(0.85 * float(gunRange))
-  let midHalf = int(0.55 * float(gunRange))
-  let minorHalf = int(0.38 * float(gunRange))
-  let ringMinorHalf = int(0.30 * float(gunRange))
-
-  # The major's position is drawn within a modest radius of field center —
-  # off-center is legitimate (the zone-center sweep independently verifies
-  # viability wherever the drawn zone lands), but a wildly off-center major
-  # would make its OWN footprint collide with the field border, so the
-  # offset is capped well inside the field.
-  let majorOffsetMax = int(0.7 * float(gunRange))
-  let majorTheta = rng.rand(2.0 * PI)
-  let majorR = rng.rand(majorOffsetMax)
-  let majorX = clamp(cx + int(float(majorR) * cos(majorTheta)),
-    majorHalf + 80, width - majorHalf - 80)
-  let majorY = clamp(cy + int(float(majorR) * sin(majorTheta)),
-    majorHalf + 80, height - majorHalf - 80)
-  tryPlacePoi(rng, result, majorX, majorY, int(0.1 * float(gunRange)), int(0.1 * float(gunRange)),
-    width, height, minSep, pockets, poiCompound, majorHalf, 0, PoiPocketClearance)
-
-  # Mid POIs: count and archetype mix both vary per draw.
-  let midArchPool = [poiOutpost, poiYard]
-  let midCount = 2 + rng.rand(2)  # 2..4
-  for i in 0 ..< midCount:
-    discard placeUniformPoi(rng, result, width, height, minSep, PoiPocketClearance,
-      pockets, midArchPool[rng.rand(midArchPool.len - 1)], midHalf, 1)
-
-  # A handful of interior minor sites (ruins), count varies too.
-  let interiorMinorCount = 1 + rng.rand(2)  # 1..3
-  for i in 0 ..< interiorMinorCount:
-    discard placeUniformPoi(rng, result, width, height, minSep, PoiPocketClearance,
-      pockets, poiRuins, minorHalf, 2)
-
-  # THE RING OF LANDING SITES (round 4's main structural fix): try every
-  # spawn in random order, offset a small landing site just inside its
-  # pocket's clearance, until `ringMinorTarget` land — "roughly even
-  # coverage", enforced by the item/cover validators rather than an exact
-  # one-per-spawn guarantee.
-  let ringMinorTarget = 6 + rng.rand(4)  # 6..10, per doctrine round 4
-  var order = toSeq(0 ..< spawns.len)
-  rng.shuffle(order)
-  var ringMinorPlaced = 0
-  for idx in order:
-    if ringMinorPlaced >= ringMinorTarget: break
-    let s = spawns[idx]
-    let (idxDir, idyDir) = inwardDir(s.edge)
-    ## baseDist must clear the pocket's OWN radial half-extent (already
-    ## baked into pockets[idx] — the larger dimension per pocketRect's
-    ## "LARGER half-extent runs RADIAL" convention) before adding
-    ## PoiPocketClearance on top, or every candidate lands back inside the
-    ## pocket's own clearance zone (round-4 WIP bug: this used to be just
-    ## PoiPocketClearance + ringMinorHalf + 30, which is ~330px short of the
-    ## pocket's real ~338px radial reach, so it failed 100% of the time).
-    let radialHalf =
-      case s.edge
-      of seTop, seBottom: pockets[idx].h div 2
-      of seLeft, seRight: pockets[idx].w div 2
-    let baseDist = radialHalf + PoiPocketClearance + ringMinorHalf + 30
-    ## A ring-minor is a small filler site, not a full engagement POI — the
-    ## global `minSep` (1.15*G) is tuned so the MAJOR (0.85*G half-extent)
-    ## never overlaps its neighbours, and reusing it here made a ring-minor
-    ## compete for the same interior real estate as mid/major POIs (which
-    ## are sampled over the WHOLE field) and get rejected almost every time.
-    ## A footprint-scaled separation is enough to avoid literal overlap with
-    ## the common case (ruins/outpost/yard, half-extent 125-182) while still
-    ## tolerating a close tuck against the rarer major — which reads as
-    ## "landing site huddled next to the compound", not a bug.
-    let ringMinSep = ringMinorHalf + 190
-    var placedHere = false
-    for attempt in 0 ..< 80:
-      let dist = baseDist + rng.rand(160)
-      ## Wide tangential jitter: when a spawn's own local corridor is
-      ## crowded by a mid/major POI, sliding toward a NEIGHBOUR spawn's gap
-      ## along the same edge is still safe — tooCloseToAnyPocket below
-      ## checks against every pocket, not just this spawn's own.
-      let along = rng.rand(-360 .. 360)
-      let tx =
-        case s.edge
-        of seTop, seBottom: s.p.x + along
-        of seLeft, seRight: s.p.x + idxDir * dist
-      let ty =
-        case s.edge
-        of seTop, seBottom: s.p.y + idyDir * dist
-        of seLeft, seRight: s.p.y + along
-      let margin = ringMinorHalf + 60
-      if tx < margin or ty < margin or tx >= width - margin or ty >= height - margin:
-        continue
-      let p = MapPoint(x: tx, y: ty)
-      if tooCloseToAny(p, result, ringMinSep): continue
-      if tooCloseToAnyPocket(p, pockets, PoiPocketClearance): continue
-      let arch = if rng.rand(1) == 0: poiRuins else: poiOutpost
-      result.add PoiSite(center: p, archetype: arch, halfExtent: ringMinorHalf, lootTier: 2)
-      placedHere = true
-      inc ringMinorPlaced
-      when defined(brDebugExit):
-        stderr.writeLine(&"  ring-minor placed {arch} at ({p.x},{p.y}) near spawn edge={s.edge}")
-      break
-    if not placedHere:
-      when defined(brDebugExit):
-        stderr.writeLine(&"  ring-minor FAILED near spawn edge={s.edge} p=({s.p.x},{s.p.y})")
-
-  result
+  type ArchSpec = tuple[arch: PoiArchetype, halfFrac: float, lootTier: int]
+  ## Weighted pool (repeat an entry to raise its odds): compounds are the
+  ## biggest footprint and the richest loot tier, so they stay relatively
+  ## rare; ruins are the smallest and most common, giving the field a lot
+  ## of small, cheap texture between the bigger anchors.
+  let pool: seq[ArchSpec] = @[
+    (poiCompound, 0.60, 0),
+    (poiYard, 0.45, 1),
+    (poiYard, 0.45, 1),
+    (poiOutpost, 0.40, 1),
+    (poiOutpost, 0.40, 1),
+    (poiRuins, 0.28, 2),
+    (poiRuins, 0.28, 2),
+    (poiRuins, 0.28, 2),
+  ]
+  let poiCount = 10 + rng.rand(6)  ## 10..16 — the old 6-9 doctrine band was
+    ## sized for the ring-hierarchy composition; uniform density over the
+    ## WHOLE field (not just a safe band) can and should hold more sites.
+  for i in 0 ..< poiCount:
+    let spec = pool[rng.rand(pool.len - 1)]
+    let halfExtent = int(spec.halfFrac * float(gunRange))
+    discard placeUniformPoi(rng, result, width, height, minSep,
+      spec.arch, halfExtent, spec.lootTier)
 
 proc poiFootprintRect(site: PoiSite): MapRect =
   MapRect(x: site.center.x - site.halfExtent, y: site.center.y - site.halfExtent,
@@ -696,7 +579,7 @@ proc pointNearAnyPoi(p: MapPoint, pois: seq[PoiSite], pad: int): bool =
   false
 
 proc linearConnectors(
-  rng: var Rand, pois: seq[PoiSite], pockets: seq[MapRect]
+  rng: var Rand, pois: seq[PoiSite]
 ): seq[ArenaShape] =
   ## "Broken wall lines, fence/ridge runs with real mass" between POIs
   ## (coordinator, round 3) — screens for the rotation AND grain for the
@@ -745,10 +628,12 @@ proc linearConnectors(
         let midy = a.y.float + uy * t + py * jitter
         let p0 = MapPoint(x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
         let p1 = MapPoint(x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
-        if not tooCloseToAnyPocket(MapPoint(x: int(midx), y: int(midy)), pockets, 30):
-          result.add ArenaShape(
-            kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y,
-            thickness: SegThick)
+        ## ROUND 5: no pocket-avoidance at placement time (Maxwell's ruling
+        ## — "we banned that"). dropShapesNearSpawns still carves the tiny
+        ## duo pocket clear afterward, same as every other wall shape.
+        result.add ArenaShape(
+          kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y,
+          thickness: SegThick)
       t += Step
 
 proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
@@ -760,13 +645,16 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   result.height = h
   result.groups = Groups
   result.seatsPerGroup = SeatsPerGroup
-  result.ringK = RingK
   result.zoneZ = ZoneZ
   result.gunRange = deriveGunRange(w, h, Groups)
   let (cw, ch) = spawnClearance(GiantScale)
   result.spawnClearW = cw
   result.spawnClearH = ch
-  result.spawns = ringSpawns(w, h, RingK, Groups)
+  var spawnRng = initRand(seed xor 0x1A2B_3C4D)
+  result.spawns = gridSpawns(spawnRng, w, h, Groups)
+  ## `pockets` is now used ONLY as the post-hoc CARVE (dropShapesNearSpawns,
+  ## ensurePerSpawnCover, the exit-rule ring, zone-viability) — never as a
+  ## placement exclusion. Round 5 (Maxwell's ruling): "we banned that."
   let pockets = result.spawns.mapIt(pocketRect(it, cw, ch))
 
   ## ROUND 3 (Maxwell's rejection, 2026-08-24): "no rooms, no alleys, no
@@ -775,14 +663,14 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   ## layout grammar / intention — and everything else (connectors, caves
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
-  result.pois = placePois(poiRng, w, h, result.gunRange, pockets, result.spawns)
+  result.pois = placePois(poiRng, w, h, result.gunRange)
   var structures: seq[ArenaShape]
   for site in result.pois:
     var stampRng = initRand(seed xor 0x9B1E_44D7 xor (site.center.x * 131071 + site.center.y))
     structures.add stampPoi(stampRng, site)
 
   var connectorRng = initRand(seed xor 0x2E9D_7731)
-  let connectors = linearConnectors(connectorRng, result.pois, pockets)
+  let connectors = linearConnectors(connectorRng, result.pois)
 
   ## Caves DEMOTES to organic fill between structures — one pass, low
   ## density, dropped wherever it would overlap a POI footprint or a
@@ -915,7 +803,6 @@ proc brMapSpecJson(m: BrMap): string =
     "spawnClearH": m.spawnClearH,
     "groups": m.groups,
     "seatsPerGroup": m.seatsPerGroup,
-    "ringK": m.ringK,
     "zoneZ": m.zoneZ,
     "spawnPoints": spawnPts,          ## confirmed grammar, see comment above
     "leftObstacles": shapes,          ## full authored set; symNone = verbatim
@@ -949,19 +836,17 @@ proc brMapFromSpecJson(text: string): BrMap =
   result.spawnClearH = node["spawnClearH"].getInt()
   result.groups = node{"groups"}.getInt(Groups)
   result.seatsPerGroup = node{"seatsPerGroup"}.getInt(SeatsPerGroup)
-  result.ringK = node{"ringK"}.getFloat(RingK)
   result.zoneZ = node{"zoneZ"}.getFloat(ZoneZ)
   for item in node["leftObstacles"]:
     result.obstacles.add item.shapeFromSpecNode()
-  ## Re-derive edge tags from position (not pinned in the spec): the ring
-  ## walk is deterministic from width/height/ringK/groups, so this round-trips.
-  let ring = ringSpawns(result.width, result.height, result.ringK, result.groups)
+  ## Re-derive edge tags from position directly (round 5: spawns are a
+  ## jittered grid, not a deterministic ring walk, so there's no formula to
+  ## replay from width/height/groups alone — nearestFieldEdge is a pure
+  ## function of the loaded point, so it round-trips exactly regardless of
+  ## how the spawn was originally placed).
   let pts = pointsFromNode(node["spawnPoints"])
-  if pts.len != ring.len:
-    raise newException(CtfError,
-      "BR spec spawnPoints count " & $pts.len & " != groups " & $ring.len)
-  for i, p in pts:
-    result.spawns.add BrSpawn(p: p, edge: ring[i].edge)
+  for p in pts:
+    result.spawns.add BrSpawn(p: p, edge: nearestFieldEdge(p, result.width, result.height))
   result.structureCount = node{"structureCount"}.getInt(0)
   let poiNode = node{"pois"}
   if not poiNode.isNil and poiNode.kind == JArray:
@@ -1256,10 +1141,18 @@ type
     perSpawnCoverReason: string
     uncoveredSpawns: int
 
-    distributionPass: bool
-    distributionReason: string
-    emptyGridCells: int
-    gridCoverage: seq[bool]      ## 4x2, row-major, for the metrics dump
+    ## ROUND 5 (Maxwell's ruling, doctrine §4.7): "the room and obstacle
+    ## density needs to be roughly uniform across the entire map, not
+    ## focused in the center." Supersedes round 2's boolean 4x2 distribution
+    ## gate (any-mass-present per cell) with a finer 8x4 grid measuring
+    ## actual wall AREA per cell against a band of the field mean.
+    densityUniformityPass: bool
+    densityUniformityReason: string
+    densityCellArea: seq[int]    ## 8x4, row-major, grid-cell counts (for the metrics dump)
+    densityMeanArea: float
+    densityMinRatio: float       ## min(cellArea)/mean across all cells (diagnostic only)
+    densityMaxRatio: float       ## max(cellArea)/mean across all cells (diagnostic only)
+    densityEmptyCells: int       ## count of cells with ZERO wall area — the gated signal
     # ROUND 3 (Maxwell's rejection, 2026-08-24): "items, intention" is the
     # doctrine's PRIMARY BR lever (doc 4.4), absent from rounds 1-2 entirely.
     itemCoveragePass: bool
@@ -1286,20 +1179,33 @@ const
   SpecSizeBudgetBytes = 58000
   PlaceCountFloor = 6         ## round-2: >= 6 welded (non-confetti) masses
   PerSpawnCoverGR = 1.5       ## round-2 §2.3: rotation cover within 1.5 G
-  DistGridCols = 4            ## round-2: 4x2 distribution grid
-  DistGridRows = 2
   PocketExitMargin = 24       ## shared with ensurePerSpawnCover so a screen
                                ## blob can never be placed ON its own spawn's
                                ## exit-check ring (round-2 regression: it was
                                ## using the raw pocket's radius, not the
                                ## ring's, and choked 6 spawns down to 1 exit)
-  DistMaxEmptyCells = 0       ## ROUND 4: tightened from 1 to 0 now that POIs
-                               ## spread across the WHOLE field (no more
-                               ## y-band) instead of one horizontal strip —
-                               ## measured on a 40-seed sweep: 38/40 already
-                               ## land at 0 empty cells, and the 2 that don't
-                               ## already fail per-spawn coverage, so this
-                               ## costs nothing and makes the gate honest.
+  ## ROUND 5 (Maxwell's ruling, doctrine §4.7): density-uniformity supersedes
+  ## the old boolean 4x2 distribution gate. Finer 8x4 grid (32 cells).
+  ## MEASURED before picking the threshold (not guessed): a naive
+  ## ratio-to-mean band [0.35x, 3.0x] does NOT discriminate — BR content is
+  ## inherently clumpy (a single compound POI is already ~1 macro-cell wide),
+  ## so even genuinely uniform draws regularly clear 3x mean in their
+  ## richest cell (20 uniform-sampling seeds: out-of-band count 10-22 of 32,
+  ## mean 14.5) while a deliberately CENTER-CLUSTERED probe (POIs clamped to
+  ## the field's center quarter, standing in for the round-3/4 failure mode)
+  ## scored 19-24 of 32 — the ranges OVERLAP, so a ratio-band gate would be
+  ## unable to tell them apart. The EMPTY-cell count (cells with literally
+  ## ZERO wall area) does not have this problem: the same 20 uniform seeds
+  ## land at 4-14 empty cells (mean 8.5), the same 10 center-clustered
+  ## probes land at 15-20 (mean 17.8) — a clean gap, zero overlap. Gate on
+  ## empty-cell count; report the ratio range as a diagnostic only.
+  DensityGridCols = 8
+  DensityGridRows = 4
+  DensityMaxEmptyCells = 14   ## the uniform-sampling corpus's observed
+                               ## ceiling (max 14 of 32); the center-
+                               ## clustered probe's floor was 15 — this is
+                               ## the tightest honest threshold with a real
+                               ## margin from the failure mode it must catch.
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -1423,33 +1329,64 @@ proc validateBr(m: BrMap): BrValidation =
       else: &"{uncovered}/{m.spawns.len} spawns have no welded mass within " &
         &"{PerSpawnCoverGR}G ({radius}px) — unscreened rotation"
 
-  # 3d. Distribution grid (round 2) ---------------------------------------------
-  block distribution:
-    var coverage = newSeq[bool](DistGridCols * DistGridRows)
-    let cellW = (m.width + DistGridCols - 1) div DistGridCols
-    let cellH = (m.height + DistGridRows - 1) div DistGridRows
+  # 3d. Density uniformity (round 5, supersedes round 2's boolean 4x2
+  # distribution grid) ----------------------------------------------------------
+  block densityUniformity:
+    ## Structure+obstacle WALL AREA per cell of a finer 8x4 grid — "roughly
+    ## uniform... not focused in the center" (doctrine §4.7). Counts every
+    ## wall grid-cell EXCEPT the perimeter border wall (excluded the same
+    ## way confetti/per-spawn-cover already exclude it: by connected-
+    ## component label), so the outer ring of macro-cells isn't inflated
+    ## just by sitting next to the map edge. Unlike the old distribution
+    ## gate this is NOT confetti-filtered — small fragments are real
+    ## texture and should count toward "is this patch of field furnished",
+    ## while the anti-confetti gate separately governs whether there's too
+    ## much fragment clutter overall.
+    ##
+    ## Gates on EMPTY-cell count, not a ratio-to-mean band — measured (see
+    ## the DensityMaxEmptyCells comment) that a ratio band can't tell a
+    ## uniform draw from a center-clustered one at this resolution (BR
+    ## content is clumpy: one compound POI is already ~1 macro-cell wide,
+    ## so even good draws routinely have a cell well above the mean), while
+    ## the empty-cell count cleanly separates the two with zero overlap.
+    var cellArea = newSeq[int](DensityGridCols * DensityGridRows)
+    let cellW = (m.width + DensityGridCols - 1) div DensityGridCols
+    let cellH = (m.height + DensityGridRows - 1) div DensityGridRows
     for gy in 0 ..< rows:
       let y = gy * GridStride
       for gx in 0 ..< cols:
         if not wall[gy * cols + gx]: continue
         let lbl = wallComp.labels[gy * cols + gx]
-        if lbl < 0 or lbl == borderLabel: continue
-        if wallComp.sizes[lbl] * GridStride * GridStride < ConfettiFloorPx2: continue
+        if lbl >= 0 and lbl == borderLabel: continue
         let x = gx * GridStride
-        let cellX = min(DistGridCols - 1, x div cellW)
-        let cellY = min(DistGridRows - 1, y div cellH)
-        coverage[cellY * DistGridCols + cellX] = true
-    var empty = 0
-    for c in coverage:
-      if not c: inc empty
-    result.gridCoverage = coverage
-    result.emptyGridCells = empty
-    result.distributionPass = empty <= DistMaxEmptyCells
-    result.distributionReason =
-      if result.distributionPass: ""
-      else: &"{empty} of {DistGridCols * DistGridRows} field-grid cells have " &
-        &"zero cover mass (max {DistMaxEmptyCells} tolerated) — an empty half, " &
-        "not a deliberate open pan"
+        let cellX = min(DensityGridCols - 1, x div cellW)
+        let cellY = min(DensityGridRows - 1, y div cellH)
+        cellArea[cellY * DensityGridCols + cellX] += 1
+    let totalCells = DensityGridCols * DensityGridRows
+    let meanArea = float(cellArea.foldl(a + b, 0)) / float(totalCells)
+    var emptyCells = 0
+    var minRatio = 0.0
+    var maxRatio = 0.0
+    if meanArea > 0:
+      minRatio = Inf
+      for a in cellArea:
+        if a == 0: inc emptyCells
+        let ratio = float(a) / meanArea
+        minRatio = min(minRatio, ratio)
+        maxRatio = max(maxRatio, ratio)
+    else:
+      emptyCells = totalCells  ## no wall area anywhere is trivially non-uniform
+    result.densityCellArea = cellArea
+    result.densityMeanArea = meanArea
+    result.densityMinRatio = minRatio
+    result.densityMaxRatio = maxRatio
+    result.densityEmptyCells = emptyCells
+    result.densityUniformityPass = emptyCells <= DensityMaxEmptyCells
+    result.densityUniformityReason =
+      if result.densityUniformityPass: ""
+      else: &"{emptyCells} of {totalCells} field-grid cells have ZERO wall " &
+        &"area (max {DensityMaxEmptyCells} tolerated, mean {meanArea:.0f} " &
+        "grid cells/cell) — density is not uniform across the field"
 
   # 4. Zone-center viability sweep ----------------------------------------------
   let margin = max(zoneRect(m.width, m.height, m.zoneZ, 0, 0).w,
@@ -1552,7 +1489,7 @@ proc validateBr(m: BrMap): BrValidation =
 
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
-    result.placeCountPass and result.perSpawnCoverPass and result.distributionPass and
+    result.placeCountPass and result.perSpawnCoverPass and result.densityUniformityPass and
     result.itemCoveragePass and result.poiLootPass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
@@ -1620,13 +1557,6 @@ proc pruneConfetti(
 proc pocketRadialHalf(s: BrSpawn, clearW, clearH: int): int =
   clearH  ## pocketRect always puts the LARGER (radial) extent in clearH,
           ## regardless of which edge the spawn sits on.
-
-proc inwardDir(edge: SpawnEdge): tuple[dx, dy: int] =
-  case edge
-  of seTop: (0, 1)
-  of seBottom: (0, -1)
-  of seLeft: (1, 0)
-  of seRight: (-1, 0)
 
 proc pointInAnyPocket(
   x, y: int, spawns: seq[BrSpawn], clearW, clearH, buffer: int
@@ -1883,16 +1813,19 @@ proc printMetrics(m: BrMap) =
     let confetti = sizesPx2.filterIt(it < ConfettiFloorPx2).len
     echo &"  confetti (<{ConfettiFloorPx2}px^2): {confetti}"
 
-  echo "spawn ring (k=" & $m.ringK & "):"
-  let idealSpacing = m.ringK * float(m.width + m.height) / float(m.groups * 4) * 4.0 / 8.0
-  var dists: seq[float]
+  echo "spawn grid (4x4, jittered — round 5, supersedes the ring):"
+  var nearestDists: seq[float]
   for i in 0 ..< m.spawns.len:
-    let a = m.spawns[i].p
-    let b = m.spawns[(i + 1) mod m.spawns.len].p
-    dists.add sqrt(float((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)))
-  let meanD = dists.foldl(a + b, 0.0) / float(max(1, dists.len))
-  echo &"  spacing: mean(consecutive straight-line)={meanD:.1f}px ({meanD/float(m.gunRange):.2f}G)  ideal arc-length={idealSpacing:.1f}px ({idealSpacing/float(m.gunRange):.2f}G)"
-  echo &"  min pairwise gap: {dists.min():.1f}px  max: {dists.max():.1f}px"
+    var best = Inf
+    for j in 0 ..< m.spawns.len:
+      if i == j: continue
+      let a = m.spawns[i].p
+      let b = m.spawns[j].p
+      let d = sqrt(float((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)))
+      if d < best: best = d
+    nearestDists.add best
+  let meanD = nearestDists.foldl(a + b, 0.0) / float(max(1, nearestDists.len))
+  echo &"  nearest-neighbour spacing: mean={meanD:.1f}px ({meanD/float(m.gunRange):.2f}G)  min={nearestDists.min():.1f}px  max={nearestDists.max():.1f}px"
 
   let v = validateBr(m)
   echo "zone-center sweep (z=" & $m.zoneZ & "):"
@@ -1922,8 +1855,11 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "zoneViableFrac": v.zoneViableFrac,
     "bigMassCount": v.bigMassCount,
     "uncoveredSpawns": v.uncoveredSpawns,
-    "emptyGridCells": v.emptyGridCells,
-    "gridCoverage": v.gridCoverage,
+    "densityCellArea": v.densityCellArea,
+    "densityMeanArea": v.densityMeanArea,
+    "densityMinRatio": v.densityMinRatio,
+    "densityMaxRatio": v.densityMaxRatio,
+    "densityEmptyCells": v.densityEmptyCells,
     "specSizeBytes": v.specSizeBytes,
     "poiCount": m.pois.len,
     "medKitCount": m.medKitCandidates.len,
@@ -1938,7 +1874,7 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "specSize": v.specSizePass,
       "placeCount": v.placeCountPass,
       "perSpawnCover": v.perSpawnCoverPass,
-      "distribution": v.distributionPass,
+      "densityUniformity": v.densityUniformityPass,
       "itemCoverage": v.itemCoveragePass,
       "poiLoot": v.poiLootPass,
       "all": v.allPass,
@@ -2172,7 +2108,7 @@ proc printValidation(v: BrValidation) =
   echo &"spec size:     {(if v.specSizePass: \"PASS\" else: \"FAIL: \" & v.specSizeReason)}  ({v.specSizeBytes}B / {SpecSizeBudgetBytes}B budget)"
   echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, floor={PlaceCountFloor})"
   echo &"per-spawn cvr: {(if v.perSpawnCoverPass: \"PASS\" else: \"FAIL: \" & v.perSpawnCoverReason)}  (uncovered={v.uncoveredSpawns}/16 within {PerSpawnCoverGR}G)"
-  echo &"distribution:  {(if v.distributionPass: \"PASS\" else: \"FAIL: \" & v.distributionReason)}  (empty cells={v.emptyGridCells}/{DistGridCols*DistGridRows})"
+  echo &"density unif.: {(if v.densityUniformityPass: \"PASS\" else: \"FAIL: \" & v.densityUniformityReason)}  (empty={v.densityEmptyCells}/{DensityGridCols*DensityGridRows}, ratio range=[{v.densityMinRatio:.2f}x,{v.densityMaxRatio:.2f}x])"
   echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/16 within {PerSpawnCoverGR}G)"
   echo &"POI has loot:  {(if v.poiLootPass: \"PASS\" else: \"FAIL: \" & v.poiLootReason)}  (missing={v.poisWithoutLoot} POIs)"
 
