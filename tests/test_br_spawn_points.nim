@@ -121,6 +121,19 @@ proc fourTeamGame(flagless: bool, boardH = H): SimServer =
   for i in 0 ..< 8:
     discard result.addPlayer("p" & $i)
   result.startGame()
+  ## The endzone glow-fade bake (global.nim's EndzoneColdRgba/EndzoneDiffBox/
+  ## EndzoneStripCache) is a PROCESS-GLOBAL cache keyed only on byte SIZE
+  ## (MapWidth*MapHeight*4), not on which map is actually loaded — see
+  ## invalidateBoardMapCaches's doc comment ("a same-size map would keep
+  ## serving the previous arena's pixels to every new viewer"). This board's
+  ## 1235x659 footprint is the classic default CTF size shared by many other
+  ## tests in this same binary, so without this courtesy call (the same one
+  ## the production serve loop makes on every replay hot-switch — see
+  ## server.nim) a flagless sim run after any flagged same-size test reuses
+  ## the FLAGGED map's stale glow diff box and leaks `endzone <color> power
+  ## <n> band <n>` sprites that were never re-derived from THIS sim's own
+  ## (flagless, glow-free) map bake.
+  invalidateBoardMapCaches()
 
 proc collectFlagishLabels(sim: var SimServer): seq[string] =
   ## Every spkSprite label whose text is flag/pedestal/heart/endzone-shaped,
