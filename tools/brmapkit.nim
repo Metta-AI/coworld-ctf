@@ -1659,9 +1659,24 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
   ## inside another spawn's own pocket).
   const
     ScanStride = GridStride * 3   ## coarse disc scan: cheap, ~16px granularity
-    ScreenBlobRadius = 36          ## pi*36^2 ~= 4072px^2, > ConfettiFloorPx2;
-                                    ## shrunk from 45 in round-2 fix #2 below
-                                    ## to buy more room in a thin radial band
+    ScreenBlobRadius = 65          ## ROUND 5 fix: the round-2 sizing (36,
+                                    ## nominal area pi*36^2~=4072 > floor)
+                                    ## assumed the NOMINAL wobbled-circle
+                                    ## formula, not the actual rasterized
+                                    ## yield. Traced a live per-spawn-cover
+                                    ## failure to a repair blob that WAS
+                                    ## placed, well within radius, with no
+                                    ## exit-trim — but its own connected-
+                                    ## component measured only 1952px^2 after
+                                    ## rasterization (blobPolygon's wobble
+                                    ## can make the shape non-convex /
+                                    ## borderline self-intersecting at n=12
+                                    ## verts, and pointInPolygon's even-odd
+                                    ## fill doesn't preserve the shoelace
+                                    ## area for that case) — under the 3000
+                                    ## floor despite a comfortable 4072
+                                    ## nominal area. 65 targets ~2x margin
+                                    ## even at the same ~48% observed yield.
     PocketBuffer = 70              ## matches dropShapesNearSpawns' halo
   let (cols, rows) = gridDims(m.width, m.height)
   let wall = buildWallGrid(m)
