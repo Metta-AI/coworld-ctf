@@ -1,0 +1,238 @@
+## BR elimination ruleset (`config.brMode`, docs/designs/BR_MAPGEN.md §1):
+## no respawns (a death is permanent), the game ends the moment at most one
+## team has a living player, flags/captures never eliminate a team or end
+## the game, and a maxTicks timeout resolves by a pre-registered tiebreak
+## (most living players, then total damage dealt) instead of an automatic
+## draw. Generic over team count — tested at 2 and 4, the two team counts
+## the engine seats today (`activeTeams` asserts `[2, 4]`); nothing here
+## assumes either number, so it keeps working the day team16 lands.
+
+import
+  helpers,
+  std/[json, unittest],
+  bitworld/spriteprotocol,
+  ctf/sim
+
+proc brConfig(teams = 2): GameConfig =
+  result = defaultGameConfig()
+  result.brMode = true
+  result.teams = teams
+  if teams == 4:
+    result.mapPath = "gen"
+    result.mapGen.layout = "corners"
+    result.mapSeed = 42
+
+proc brGame(teams = 2): SimServer =
+  ## A started BR game with one player per team (slots deal round-robin —
+  ## the same one-per-team shape test_four_team.nim uses for its
+  ## capture/wipe tests).
+  result = initCtfForTest(brConfig(teams))
+  for i in 0 ..< teams:
+    discard result.addPlayer("p" & $i)
+  result.startGame()
+
+proc brDuoGame(teams = 4): SimServer =
+  ## A started BR game with two players per team (Red/Blue/Green/Yellow at
+  ## 2 seats each, slots dealing round-robin: 0,4=Red 1,5=Blue 2,6=Green
+  ## 3,7=Yellow) — enough headroom to give one team MORE living players
+  ## than another without fully wiping anyone, for the tiebreak tests.
+  result = initCtfForTest(brConfig(teams))
+  for i in 0 ..< teams * 2:
+    discard result.addPlayer("p" & $i)
+  result.startGame()
+
+proc centerOn(sim: var SimServer, playerIndex, x, y: int) =
+  ## Places one player so its collision CENTER sits at (x, y).
+  sim.players[playerIndex].x = x - CollisionW div 2
+  sim.players[playerIndex].y = y - CollisionH div 2
+
+suite "BR elimination ruleset":
+  test "brMode off leaves classic respawn untouched":
+    var sim = twoTeamGame()
+    check not sim.config.brMode
+    sim.killPlayer(1, 0)
+    check sim.players[1].lives == sim.config.lives - 1
+    check sim.players[1].respawnTimer == max(1, sim.config.respawnTicks)
+
+  test "brMode defaults to false and its echo is omitted when off":
+    check defaultGameConfig().brMode == false
+    let echoed = parseJson(defaultGameConfig().configJson())
+    check not echoed.hasKey("brMode")
+
+  test "brMode:true round-trips through config JSON":
+    var config = defaultGameConfig()
+    config.update("""{"brMode": true}""")
+    check config.brMode
+    let echoed = parseJson(config.configJson())
+    check echoed["brMode"].getBool == true
+
+  test "a killed player never re-enters, regardless of configured lives/respawnTicks":
+    var sim = brGame()
+    sim.config.lives = 5
+    sim.config.respawnTicks = 3
+
+    sim.killPlayer(1, 0)
+
+    check sim.players[1].lives == 0
+    check sim.players[1].respawnTimer == 0
+    check not sim.players[1].alive
+    # Step well past what would have been several respawn windows: the
+    # respawn scheduler (respawnPlayers) only acts when lives > 0, so a
+    # brMode death never gets a re-entry tick.
+    let none = newSeq[InputState](sim.players.len)
+    for _ in 1 .. 20:
+      sim.step(none, none)
+    check not sim.players[1].alive
+    check sim.players[1].lives == 0
+
+  test "win on last team standing: 2 teams":
+    var sim = brGame(2)
+    sim.players[1].alive = false
+    sim.players[1].lives = 0
+
+    sim.checkWinCondition()
+
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check not sim.isDraw
+
+  test "win on last team standing: 4 teams (one at a time, not a single wipe)":
+    var sim = brGame(4)
+    sim.players[1].alive = false  # Blue out
+    sim.players[1].lives = 0
+    sim.players[2].alive = false  # Green out
+    sim.players[2].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == Playing  # Red and Yellow both still stand
+
+    sim.players[3].alive = false  # Yellow out — Red is the last team.
+    sim.players[3].lives = 0
+    sim.checkWinCondition()
+
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check not sim.isDraw
+
+  test "simultaneous wipe is a draw":
+    var sim = brGame(2)
+    sim.players[0].alive = false
+    sim.players[0].lives = 0
+    sim.players[1].alive = false
+    sim.players[1].lives = 0
+
+    sim.checkWinCondition()
+
+    check sim.phase == GameOver
+    check sim.isDraw
+
+  test "flags never end or score a BR game: a capture is a no-op":
+    var sim = brGame(4)
+    let greenHome = sim.gameMap.flagHome(Green)
+    sim.centerOn(0, greenHome.x, greenHome.y)
+    sim.tryPickupFlags(0)
+    check sim.flags[Green].carrier == 0  # the pickup itself is unaffected —
+                                          # brMode gates checkWinCondition,
+                                          # not tryPickupFlags (that's the
+                                          # spawn-points lane's flagless gate).
+    let anchor = sim.gameMap.teamAnchor(Red)
+    sim.centerOn(0, anchor.x, anchor.y)
+
+    sim.checkWinCondition()
+
+    # The capture branch is skipped entirely in brMode: Green is NOT
+    # eliminated and the game is NOT over, unlike classic play (see
+    # test_four_team.nim's "a capture eliminates the captured team").
+    check sim.phase == Playing
+    check sim.players[2].alive
+    check sim.players[2].lives > 0
+    check not sim.flags[Green].captured
+
+  test "maxTicks tiebreak: most living players wins":
+    var sim = brDuoGame()
+    sim.config.maxTicks = 5
+    # Wipe Green (2,6) and Yellow (3,7) entirely, and one of Blue's two
+    # (5) — leaves Red with 2 living, Blue with 1. Two teams still stand
+    # (Red, Blue), so the wipe check can't resolve it before the clock
+    # does; the tiebreak must.
+    for i in [2, 3, 5, 6, 7]:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+
+    check sim.phase == GameOver
+    check sim.timeLimitReached
+    check not sim.isDraw
+    check sim.winner == Red
+
+  test "maxTicks tiebreak: tied living players breaks on damage dealt":
+    var sim = brDuoGame()
+    sim.config.maxTicks = 5
+    # Red and Blue tied at 1 living player each; Green/Yellow fully wiped.
+    for i in [2, 3, 4, 6, 7]:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    sim.players[5].alive = false
+    sim.players[5].lives = 0
+    sim.players[0].damageDealt = 50  # Red's lone survivor
+    sim.players[1].damageDealt = 10  # Blue's lone survivor
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+
+    check sim.phase == GameOver
+    check sim.timeLimitReached
+    check not sim.isDraw
+    check sim.winner == Red
+
+  test "maxTicks tiebreak: a full tie on both axes is a draw":
+    var sim = brDuoGame()
+    sim.config.maxTicks = 5
+    for i in [2, 3, 4, 5, 6, 7]:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    # Red's and Blue's lone survivors are tied on both living count (1
+    # each) and damage dealt (0 each, the default).
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+
+    check sim.phase == GameOver
+    check sim.timeLimitReached
+    check sim.isDraw
+    # A time-limit draw still pays the lose-lose TimeoutReward — unchanged
+    # from classic play (finishGame's isDraw branch isn't brMode-specific).
+    check sim.players[0].reward == TimeoutReward
+    check sim.players[1].reward == TimeoutReward
+
+  test "classic maxTicks (brMode off) is still an unconditional scoreless draw":
+    var sim = twoTeamGame()
+    sim.config.maxTicks = 5
+    sim.players[0].damageDealt = 999  # would win a BR tiebreak; must not
+                                       # matter here.
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+    check sim.isDraw
+    check sim.timeLimitReached
+
+  test "determinism: same seed twice gives the same winner and gameHash":
+    proc runGame(): SimServer =
+      result = brGame(4)
+      result.killPlayer(1, 0)  # Blue out
+      result.killPlayer(2, 0)  # Green out
+      result.killPlayer(3, 0)  # Yellow out — Red is the sole survivor.
+      let none = newSeq[InputState](0)
+      for tick in 0 ..< 50:
+        result.step(none, none)
+    var a = runGame()
+    let b = runGame()
+
+    check a.phase == GameOver
+    check a.phase == b.phase
+    check a.winner == Red
+    check a.winner == b.winner
+    check not a.isDraw
+    check a.gameHash() == b.gameHash()
+    check a.tickCount == b.tickCount

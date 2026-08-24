@@ -839,7 +839,15 @@ proc killPlayer*(
     y = float(sim.players[targetIndex].y + CollisionH div 2),
     targetSlot = killerSlot
   )
-  if sim.players[targetIndex].lives > 0:
+  if sim.config.brMode:
+    # BR: no respawns, ever — one death is out regardless of the configured
+    # `lives`/`respawnTicks`. Reuse eliminateTeam's existing "permanently
+    # out" contract (lives = 0) instead of a new sentinel, so every reader
+    # that already understands lives == 0 (respawnPlayers, teamHasLivePlayers,
+    # teamLivesRemaining, the HUD, gameHash) handles a BR death correctly
+    # with no further changes.
+    sim.players[targetIndex].lives = 0
+  elif sim.players[targetIndex].lives > 0:
     dec sim.players[targetIndex].lives
   sim.players[targetIndex].respawnTimer =
     if sim.players[targetIndex].lives > 0:
@@ -2830,6 +2838,40 @@ proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
       return true
   false
 
+proc brTiebreakWinner(sim: SimServer): tuple[winner: Team, isDraw: bool] =
+  ## BR maxTicks tiebreak (docs/designs/BR_MAPGEN.md §1, pre-registered
+  ## before any BR corpus exists): most LIVING players wins; a tie there
+  ## breaks on total damage dealt — `Player.damageDealt` is the nearest
+  ## already-tracked stat to "who was winning the fight," so this reuses it
+  ## rather than inventing new tracking just for the tiebreak. A tie on both
+  ## is a draw. Generic over `sim.teams()`, so this is unchanged whether the
+  ## game seats 2, 4, or (once the team-count ceiling widens) 16 teams.
+  var living, damage: array[Team, int]
+  for p in sim.players:
+    if p.alive:
+      inc living[p.team]
+    damage[p.team] += p.damageDealt
+  var maxLiving = -1
+  for team in sim.teams():
+    maxLiving = max(maxLiving, living[team])
+  var livingLeaders: seq[Team] = @[]
+  for team in sim.teams():
+    if living[team] == maxLiving:
+      livingLeaders.add team
+  if livingLeaders.len == 1:
+    return (livingLeaders[0], false)
+  var maxDamage = -1
+  for team in livingLeaders:
+    maxDamage = max(maxDamage, damage[team])
+  var damageLeaders: seq[Team] = @[]
+  for team in livingLeaders:
+    if damage[team] == maxDamage:
+      damageLeaders.add team
+  if damageLeaders.len == 1:
+    return (damageLeaders[0], false)
+  (Red, true)  # full tie on both criteria: a draw, same as the mutual-wipe
+               # convention (winner arg is a placeholder finishGame ignores).
+
 proc shouldAbortFiniteMatch*(sim: SimServer): bool =
   ## Returns true when a finite match cannot continue after roster loss.
   if sim.config.maxGames <= 0:
@@ -3009,12 +3051,18 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
   # rival heart or outlives the field; classic 2-team play still ends on
   # the first capture (eliminating the only rival leaves one team).
   #
-  # BR N-point spawn subsystem: both loops below are already provably inert
-  # on a flagless map (carrier is permanently -1 and captured is permanently
-  # true, from resetFlags), so this `if not flagless` is defense-in-depth —
-  # it also skips the "heart retired" bookkeeping/log line for a wiped team,
-  # which would otherwise fire even though the game never had a heart.
-  if not sim.gameMap.flagless:
+  # BR INTEGRATION: two lanes each disarmed this branch, for DIFFERENT and
+  # independently-true reasons, so the merged guard is their union:
+  #   * brMode (elim lane) — a BR episode is decided by elimination only. A
+  #     capture must not eliminate a team or end the game even on a map whose
+  #     flags CAN be carried, which is precisely what test_br_elim's "flags
+  #     never end or score a BR game" exercises (it picks a heart up first).
+  #   * flagless (spawn lane) — a flagless map's flags are permanently
+  #     `captured` with carrier -1 (resetFlags), so the loop below is already
+  #     provably inert; the guard is defense-in-depth.
+  # Note the SECOND loop (heart retirement) is guarded by flagless alone, not
+  # by this union — see its own comment.
+  if not sim.config.brMode and not sim.gameMap.flagless:
     for flagTeam in sim.teams():
       let carrierIndex = sim.flags[flagTeam].carrier
       if carrierIndex < 0 or carrierIndex >= sim.players.len or
@@ -3041,12 +3089,21 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
         sim.lastCaptureTick = sim.tickCount
         sim.lastCaptureIndex = carrierIndex
         sim.eliminateTeam(flagTeam, carrierIndex)
-    # GV33: a completely killed team's heart leaves play with it. A wiped
-    # team can never recover its heart, so it retires the moment the team is
-    # gone — even off the back of an enemy carrier, who drops it (recovering
-    # full speed and fire rate) rather than lugging an objective that can no
-    # longer score. Capture-eliminated teams take the branch above; hearts
-    # the wiped team itself was carrying already went home via killPlayer.
+  # GV33: a completely killed team's heart leaves play with it. A wiped
+  # team can never recover its heart, so it retires the moment the team is
+  # gone — even off the back of an enemy carrier, who drops it (recovering
+  # full speed and fire rate) rather than lugging an objective that can no
+  # longer score. Capture-eliminated teams take the branch above; hearts
+  # the wiped team itself was carrying already went home via killPlayer.
+  #
+  # BR INTEGRATION: the elim lane deliberately DEDENTED this loop out of its
+  # brMode guard — a brMode episode on a flagged map still retires the hearts
+  # of wiped teams — while the spawn lane kept it inside the flagless guard,
+  # to suppress a "heart retired" log line on a map that never had a heart.
+  # Both hold at once, so it keeps the flagless guard and NOT the brMode one.
+  # (On a flagless map the loop is inert regardless: every flag is already
+  # `captured`, so the `continue` fires for every team.)
+  if not sim.gameMap.flagless:
     for team in sim.teams():
       if sim.flags[team].captured or sim.teamHasLivePlayers(team):
         continue
@@ -3075,7 +3132,15 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
 proc checkMaxTicks(sim: var SimServer) =
   ## A game that hits the time limit before a capture or a wipe is a
   ## scoreless draw for both sides: no tiebreak, no rewards.
+  ## brMode: pre-registered tiebreak instead (see brTiebreakWinner) — a
+  ## clock-out still needs to crown a last-team-standing winner if the field
+  ## is ahead on any measured axis, since a BR episode has no captures to
+  ## fall back on.
   if not sim.maxTicksReached():
+    return
+  if sim.config.brMode:
+    let (winner, isDraw) = sim.brTiebreakWinner()
+    sim.finishGame(winner, isDraw = isDraw, timeLimitReached = true)
     return
   sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 
