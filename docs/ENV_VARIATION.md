@@ -91,7 +91,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `teams` | int / `2` | must be `2` or `4` | Active team count: 2 (classic sides) or 4 (corners/plus FFA). |
+| `teams` | int / `2` | must be `2`, `4`, or `16` | Active team count: 2 (classic sides), 4 (corners/plus FFA), or 16 (BR, [BR_MAPGEN.md §6.2](designs/BR_MAPGEN.md)). 16 passes config validation and `Team` dispatch today, but `generateMapAttempt`/`mapFromSpecJson` have no 16-team SHAPE yet — a 16-team config fails cleanly at map resolution ("map X seats N") until the map-generator/spawn lane lands. |
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
@@ -259,7 +259,7 @@ Non-config: `TrenchSpeedDivisor`=5 (climbing out of a trench caps that axis to 1
 1. **`mapPath="gen"` + `mapSeed` + `mapGen` locks** — by far the richest: field size
    (5 classes), symmetry, 2-vs-4 team layout, columns (3–24) & family, windows (0–6),
    center feature, endzone shape + radius + depth, trenches (0–64).
-2. **`teams`** (2/4) — changes layout, item counts, and win logic.
+2. **`teams`** (2/4/16) — changes layout, item counts, and win logic.
 3. **Combat/motion/vision fields** — same map, different game feel and skill ceiling.
 4. **`scoring`, `maxTicks`, `lives`, `hitPoints`** — match structure and stakes.
 
