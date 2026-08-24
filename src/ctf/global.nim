@@ -516,6 +516,21 @@ const
   ## policy reads the escalation without inferring it from shell traffic.
   BarrageMarkerSpriteId* = 35200 ## in the stain/diamond-paint gap.
   BarrageMarkerObjectId* = 36300 ## in the trench-marker/damage-pop gap.
+  ## --- Battle-royale shrink-zone hazard (BOARD + POV, config-gated) ---
+  ## Two invisible 1x1 stated markers per stream (the CURRENT rect and the
+  ## NEXT/target rect — see LabelPrefixZone / LabelPrefixZoneNext), plus a
+  ## minimal VISIBLE cosmetic band tracing the current rect's border (four
+  ## flat bars; the fancy paint-tide art is a later pass — see
+  ## docs/designs/BR_MAPGEN.md §4.3). Same numeric value on the object and
+  ## sprite side, like the puddle-marker pair above. The sprite-side
+  ## endzone-fade band pool (EndzoneFadeSpriteBase, 36600..38647) and the
+  ## object-side one (EndzoneFadeObjectBase, 39700..39955) leave no single
+  ## gap free on BOTH sides below them, so this sits just above the higher
+  ## of the two ceilings instead, with the u16/DynamicSpriteWireBase
+  ## ceiling (40000) proven by the static audit right below.
+  ZoneMarkerBase* = 39960
+  ZoneMarkerCount* = 6         ## 0=zone label, 1=zonenext label,
+                               ## 2..5=edge bars (top, bottom, left, right).
   DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
                                ## color×bucket×stage: 31000..31255 (above tracers).
                                ## The bucket is NOT amount-1: the amounts in
@@ -804,6 +819,7 @@ const
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
     ("barrage marker", BarrageMarkerObjectId, 1),
+    ("zone marker", ZoneMarkerBase, ZoneMarkerCount),
   ]
 
 static:
@@ -914,6 +930,7 @@ const
     ("paint stains", StainSpriteBase, StainMaxCount),
     ("barrage marker", BarrageMarkerSpriteId, 1),
     ("diamond paint", DiamondPaintSpriteBase, 8 * 16),
+    ("zone marker", ZoneMarkerBase, ZoneMarkerCount),
   ]
 
 static:
@@ -6258,6 +6275,101 @@ proc addBarrageMarker(
   packet.addBoardObject(
     BarrageMarkerObjectId, 0, 0, 0, MapLayerId, BarrageMarkerSpriteId)
 
+proc addZoneMarkers(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the shrink-zone's two stated markers on this stream whenever the
+  ## mode is configured on: invisible 1x1 objects declaring the CURRENT rect
+  ## and the NEXT (target) rect it is interpolating toward, inclusive map-
+  ## pixel corners (see labelZone/labelZoneNext). Re-sent only on ticks the
+  ## stated numbers actually changed (addBoardSpriteChanged dedup) — same
+  ## idiom as the barrage marker just above, except this one moves nearly
+  ## every tick while a phase is shrinking.
+  if sim.config.zonePhases.len == 0:
+    return
+  let
+    zoneSpriteId = ZoneMarkerBase
+    zoneObjectId = ZoneMarkerBase
+    nextSpriteId = ZoneMarkerBase + 1
+    nextObjectId = ZoneMarkerBase + 1
+    (cur, next, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+  currentIds.add(zoneObjectId)
+  packet.addBoardSpriteChanged(
+    spriteDefs, zoneSpriteId, 1, 1, newRgbaPixels(1, 1),
+    labelZone(cur.x, cur.y, cur.x + cur.w - 1, cur.y + cur.h - 1)
+  )
+  packet.addBoardObject(zoneObjectId, 0, 0, 0, MapLayerId, zoneSpriteId)
+  currentIds.add(nextObjectId)
+  packet.addBoardSpriteChanged(
+    spriteDefs, nextSpriteId, 1, 1, newRgbaPixels(1, 1),
+    labelZoneNext(next.x, next.y, next.x + next.w - 1, next.y + next.h - 1)
+  )
+  packet.addBoardObject(nextObjectId, 0, 0, 0, MapLayerId, nextSpriteId)
+
+const
+  ZoneEdgeBandThickness = 5    ## px thickness of the cosmetic border bars.
+  ZoneEdgeBandColor = rgba(255, 170, 40, 170)  ## flat warm amber; the
+                               ## paint-tide/stormfront treatment is a later
+                               ## pass (§4.3) — this is a legible line/band.
+  ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
+                               ## low(int16) + 2), well below players/HUD.
+  ZoneEdgeFxLabelTag = "fx 9c41"  ## deliberately OPAQUE, unlike damagePops'
+                               ## descriptive chrome text: the zone is a new
+                               ## headline mechanic, so its cosmetic art gets
+                               ## a hashed tag rather than a spelled-out
+                               ## label, and a policy grepping for a literal
+                               ## "zone"/"edge" string finds nothing here.
+                               ## The real, stable, policy-facing contract is
+                               ## labelZone/labelZoneNext, never this art.
+
+proc zoneEdgeBarPixels(width, height: int): seq[uint8] =
+  ## A flat, semi-transparent amber rectangle — the whole cosmetic art for
+  ## v1 of the shrink-zone edge (see ZoneEdgeBandColor).
+  result = newRgbaPixels(width, height)
+  for i in 0 ..< width * height:
+    result.putRawRgbaPixel(
+      i, ZoneEdgeBandColor.r, ZoneEdgeBandColor.g, ZoneEdgeBandColor.b,
+      ZoneEdgeBandColor.a)
+
+proc addZoneEdgeBand(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Minimal v1 of the closing zone's cosmetic edge: four flat amber bars
+  ## traced along the CURRENT rect's border, redrawn as it shrinks, so the
+  ## boundary is visible on both streams without a bot needing to parse the
+  ## label markers. Cosmetic only — never enters gameHash, and unlike
+  ## every rect coordinate above (which may legitimately sit off-board
+  ## during an early phase) this is pure decoration, so bars are clamped to
+  ## width/height >= 1 defensively and nothing else validates them.
+  if sim.config.zonePhases.len == 0:
+    return
+  let
+    (rect, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+    t = ZoneEdgeBandThickness
+    bars = [
+      (max(1, rect.w), t, rect.x, rect.y),                         # top
+      (max(1, rect.w), t, rect.x, rect.y + rect.h - t),             # bottom
+      (t, max(1, rect.h), rect.x, rect.y),                          # left
+      (t, max(1, rect.h), rect.x + rect.w - t, rect.y),             # right
+    ]
+  for i, bar in bars:
+    let
+      (w, h, bx, by) = bar
+      spriteId = ZoneMarkerBase + 2 + i
+      objectId = ZoneMarkerBase + 2 + i
+    currentIds.add(objectId)
+    packet.addBoardSpriteChanged(
+      spriteDefs, spriteId, w, h, zoneEdgeBarPixels(w, h),
+      ZoneEdgeFxLabelTag & " " & $i
+    )
+    packet.addBoardObject(objectId, bx, by, ZoneEdgeBandZ, MapLayerId, spriteId)
+
 proc damagePopBucket(amount: int): int =
   ## Maps a "-N" pop's HP-loss amount to one of DamagePopBucketCount sprite
   ## buckets. The amounts actually in play are sparse (1 shot/grenade-splash,
@@ -6510,6 +6622,10 @@ proc buildSpriteProtocolPlayerUpdates*(
     # The grenade-barrage stated marker: endgame escalation is world
     # knowledge every player viewer (bots included) reads outright.
     sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
+    # The shrink zone's stated markers + cosmetic edge band: same rule —
+    # the closing boundary is world knowledge, not fog-gated intel.
+    sim.addZoneMarkers(nextState.spriteDefs, currentIds, result)
+    sim.addZoneEdgeBand(nextState.spriteDefs, currentIds, result)
 
     sim.addAimIndicators(
       nextState.spriteDefs,
@@ -7435,6 +7551,8 @@ proc buildSpriteProtocolUpdates*(
   # intentionally NOT tracked in currentIds, so it persists like the map bands.
   sim.addPaintStains(nextState, result)
   sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
+  sim.addZoneMarkers(nextState.spriteDefs, currentIds, result)
+  sim.addZoneEdgeBand(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
