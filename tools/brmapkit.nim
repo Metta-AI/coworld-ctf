@@ -379,205 +379,207 @@ proc rectShapeBr(x, y, w, h: int): ArenaShape =
 
 type RoomSide = enum rsTop, rsRight, rsBottom, rsLeft
 
-proc stampRoom(
-  rect: MapRect, openSides: set[RoomSide], wallThick, doorW: int
+## ROUND 7 (Maxwell's verdict, doctrine anti-confetti directive): stampRoom,
+## stampRuinRoom, and stampColonnade — round 3-6's THIN-WALLED, sometimes
+## fully-open-sided room stampers — are RETIRED, not orphaned-and-forgotten.
+## They are the diagnosed root cause of "still confetti maps... on a larger
+## scale": a fully open side leaves its remaining walls disconnected from
+## each other, so no arrangement of them ever welds into one mass. Replaced
+## by stampShellRing (below) — a closed ring, every side always present,
+## gated instead of open, thick by construction.
+
+proc stampShellRing(
+  rect: MapRect, shellThick: int, gateSides: set[RoomSide], gateW: int
 ): seq[ArenaShape] =
-  ## One rectangular room: a wall on every side, OPEN sides split around a
-  ## centered door gap. `openSides` must have >= 2 members for the room to
-  ## satisfy the exit rule (doc §4.5, "leavable under fire") by construction
-  ## — every caller here picks 2 or more.
-  # top / bottom (horizontal walls, at y=rect.y and y=rect.y+rect.h-wallThick)
-  for (side, wy) in [(rsTop, rect.y), (rsBottom, rect.y + rect.h - wallThick)]:
-    if side in openSides:
-      let gapX = rect.x + (rect.w - doorW) div 2
+  ## ROUND 7 (Maxwell's verdict, doctrine anti-confetti directive): "these
+  ## are still confetti maps... on a larger scale with rooms and whatnot."
+  ## Root cause was architectural: stampRoom's walls were THIN (12-16px)
+  ## and archetypes routinely left 2 of 4 sides FULLY OPEN (no wall at
+  ## all) for exit-rule variety — opposite/non-adjacent sides then never
+  ## touch, so each surviving wall becomes its OWN small disconnected
+  ## mass, no matter how the rest of the map is arranged. This is the
+  ## SUBTRACTIVE fix: a closed rectangular ring where all FOUR sides are
+  ## ALWAYS present (never fully missing) at a THICK shell (24-48px,
+  ## caller's choice) — only a GATE GAP is ever cut into a side, and every
+  ## strip overlaps generously into its corners, so the ring stays ONE
+  ## topologically connected mass regardless of how many sides are gated.
+  ## The interior "void" (room/courtyard) is never drawn — it's just
+  ## whatever floor is left uncovered once the ring is stamped, which is
+  ## exactly subtraction without needing a subtraction primitive.
+  # top / bottom
+  for (side, wy) in [(rsTop, rect.y), (rsBottom, rect.y + rect.h - shellThick)]:
+    if side in gateSides:
+      let gapX = rect.x + (rect.w - gateW) div 2
       if gapX > rect.x:
-        result.add rectShapeBr(rect.x, wy, gapX - rect.x, wallThick)
-      if gapX + doorW < rect.x + rect.w:
-        result.add rectShapeBr(gapX + doorW, wy, rect.x + rect.w - (gapX + doorW), wallThick)
+        result.add rectShapeBr(rect.x, wy, gapX - rect.x, shellThick)
+      if gapX + gateW < rect.x + rect.w:
+        result.add rectShapeBr(gapX + gateW, wy, rect.x + rect.w - (gapX + gateW), shellThick)
     else:
-      result.add rectShapeBr(rect.x, wy, rect.w, wallThick)
-  # left / right (vertical walls)
-  for (side, wx) in [(rsLeft, rect.x), (rsRight, rect.x + rect.w - wallThick)]:
-    if side in openSides:
-      let gapY = rect.y + (rect.h - doorW) div 2
+      result.add rectShapeBr(rect.x, wy, rect.w, shellThick)
+  # left / right
+  for (side, wx) in [(rsLeft, rect.x), (rsRight, rect.x + rect.w - shellThick)]:
+    if side in gateSides:
+      let gapY = rect.y + (rect.h - gateW) div 2
       if gapY > rect.y:
-        result.add rectShapeBr(wx, rect.y, wallThick, gapY - rect.y)
-      if gapY + doorW < rect.y + rect.h:
-        result.add rectShapeBr(wx, gapY + doorW, wallThick, rect.y + rect.h - (gapY + doorW))
+        result.add rectShapeBr(wx, rect.y, shellThick, gapY - rect.y)
+      if gapY + gateW < rect.y + rect.h:
+        result.add rectShapeBr(wx, gapY + gateW, shellThick, rect.y + rect.h - (gapY + gateW))
     else:
-      result.add rectShapeBr(wx, rect.y, wallThick, rect.h)
+      result.add rectShapeBr(wx, rect.y, shellThick, rect.h)
 
-proc stampRuinRoom(
-  rng: var Rand, rect: MapRect, wallThick: int
+proc stampPartitionWall(
+  x0, y0, x1, y1, thick, gateW: int
 ): seq[ArenaShape] =
-  ## A "ruins" room: only 2 of 4 sides drawn (the other 2 are simply
-  ## missing, wide open — a collapsed structure, not a doored one), and
-  ## each drawn wall is broken into 2 segments with a gap, so even the
-  ## standing walls read as rubble. Trivially clears the exit rule: two
-  ## whole sides are open air.
-  let sides = [rsTop, rsRight, rsBottom, rsLeft]
-  var order = @sides
-  rng.shuffle(order)
-  let keep = order[0 .. 1]  ## keep exactly 2 of the 4 sides
-  for side in keep:
-    case side
-    of rsTop, rsBottom:
-      let wy = if side == rsTop: rect.y else: rect.y + rect.h - wallThick
-      let breakX = rect.x + rect.w div 3 + rng.rand(0 .. rect.w div 3)
-      let gap = 30 + rng.rand(0 .. 30)
-      result.add rectShapeBr(rect.x, wy, max(1, breakX - rect.x), wallThick)
-      if breakX + gap < rect.x + rect.w:
-        result.add rectShapeBr(breakX + gap, wy, rect.x + rect.w - (breakX + gap), wallThick)
-    of rsLeft, rsRight:
-      let wx = if side == rsLeft: rect.x else: rect.x + rect.w - wallThick
-      let breakY = rect.y + rect.h div 3 + rng.rand(0 .. rect.h div 3)
-      let gap = 30 + rng.rand(0 .. 30)
-      result.add rectShapeBr(wx, rect.y, wallThick, max(1, breakY - rect.y))
-      if breakY + gap < rect.y + rect.h:
-        result.add rectShapeBr(wx, breakY + gap, wallThick, rect.y + rect.h - (breakY + gap))
-
-proc stampColonnade(
-  rng: var Rand, rect: MapRect
-): seq[ArenaShape] =
-  ## A grid of small pillars inside a yard — cover with sightlines, not a
-  ## sealed room. Spacing wide enough for a 13px footprint to weave through.
-  const
-    Pitch = 90
-    PillarR = 16
-  var gy = rect.y + Pitch div 2
-  while gy < rect.y + rect.h - Pitch div 2:
-    var gx = rect.x + Pitch div 2
-    while gx < rect.x + rect.w - Pitch div 2:
-      let jx = gx + rng.rand(-14 .. 14)
-      let jy = gy + rng.rand(-14 .. 14)
-      result.add ArenaShape(kind: shapeDisc, cx: jx, cy: jy, radius: PillarR)
-      gx += Pitch
-    gy += Pitch
+  ## A single thick internal partition (axis-aligned, horizontal or
+  ## vertical) with ONE gate gap near its middle — used to carve a big
+  ## shell-ring mass into two or more interior cells (the warren grammar)
+  ## while the partition still physically touches (and so stays connected
+  ## to) the outer ring at both of its ends.
+  if abs(x1 - x0) >= abs(y1 - y0):
+    let y = y0
+    let gapX = x0 + (x1 - x0 - gateW) div 2
+    if gapX > x0: result.add rectShapeBr(x0, y, gapX - x0, thick)
+    if gapX + gateW < x1: result.add rectShapeBr(gapX + gateW, y, x1 - (gapX + gateW), thick)
+  else:
+    let x = x0
+    let gapY = y0 + (y1 - y0 - gateW) div 2
+    if gapY > y0: result.add rectShapeBr(x, y0, thick, gapY - y0)
+    if gapY + gateW < y1: result.add rectShapeBr(x, gapY + gateW, thick, y1 - (gapY + gateW))
 
 proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
-  ## Dispatch by archetype. Half-extent sets the footprint; each archetype
-  ## subdivides it differently so archetypes stay visually distinguishable
-  ## at thumbnail size (Maxwell's "could a caster name the places?" bar).
-  const WallThick = 16
-  const DoorW = 78
+  ## Dispatch by archetype. ROUND 7 (Maxwell's verdict, zoomed in on the
+  ## round-6 sheet): "these are still confetti maps. confetti on a larger
+  ## scale with rooms and whatnot." Root cause: additive thin-walled line
+  ## art can never weld the way a caves blob does, because open (missing)
+  ## sides leave disconnected wall fragments no matter the arrangement.
+  ## THE SUBTRACTIVE REFRAME: every archetype below is now ONE solid shell
+  ## RING (stampShellRing — all 4 sides always present, gated not open,
+  ## 28-44px thick) with interior floor left as uncarved negative space —
+  ## the same visual species as a caves blob (chunky, welded, real area),
+  ## never thin line art. A compound is now structurally ONE connected
+  ## mass regardless of gate count.
   let cx = site.center.x
   let cy = site.center.y
   let he = site.halfExtent
   case site.archetype
   of poiCompound:
-    ## Two buildings (2 rooms each), split by a real gap — the alley.
-    let alley = 70
-    let bw = (2 * he - alley) div 2
-    let bh = (he * 3) div 2
-    let leftX = cx - he
-    let rightX = cx + alley div 2
-    for (bx, mirrored) in [(leftX, false), (rightX, true)]:
-      ## Each building splits into an upper/lower room (the shared seam sits
-      ## at the building's own vertical midline).
-      let r1 = MapRect(x: bx, y: cy - bh div 2, w: bw, h: bh div 2 - 10)
-      let r2 = MapRect(x: bx, y: cy - 10, w: bw, h: bh div 2 - 10)
-      ## Each room: exterior side open (alley/outside), plus one more —
-      ## never both doors on the SAME pair of rooms' facing walls, so the
-      ## alley reads like a real seam rather than one continuous corridor.
-      let outward = if mirrored: rsRight else: rsLeft
-      result.add stampRoom(r1, {outward, rsTop}, WallThick, DoorW)
-      result.add stampRoom(r2, {outward, rsBottom}, WallThick, DoorW)
+    ## ONE big shell ring (not two split buildings — "a compound = ONE
+    ## mass," doctrine's element-count collapse), 2 gates on adjacent
+    ## sides so the alley-crossing decision survives as a routing choice
+    ## rather than a straight walk-through. One interior cover slab keeps
+    ## the courtyard from reading as a bare empty box.
+    ## Shell thickness SCALED to the footprint (~2/5 of the half-height,
+    ## matching poiAnchor's calibration) rather than a flat constant — a
+    ## flat 36-46px shell on a big footprint traces a thin outline around
+    ## a mostly-empty box; scaling it keeps the ring dominant regardless
+    ## of size (Maxwell's caves_404_thick bar, reached after two visual
+    ## iterations on poiAnchor first).
+    let shellThick = max(40, he * 2 div 5)
+    const GateW = 56
+    let footprint = MapRect(x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
+    var sides = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sides)
+    result.add stampShellRing(footprint, shellThick, {sides[0], sides[1]}, GateW)
+    let coverW = max(28, he * 2 div 5)
+    result.add rectShapeBr(cx - coverW div 2, cy - coverW div 2, coverW, coverW)
   of poiOutpost:
-    ## One building, 2 rooms side by side with independent exterior doors.
-    let bw = he
-    let bh = (he * 3) div 2
-    let r1 = MapRect(x: cx - bw, y: cy - bh div 2, w: bw - 8, h: bh)
-    let r2 = MapRect(x: cx + 8, y: cy - bh div 2, w: bw - 8, h: bh)
-    result.add stampRoom(r1, {rsLeft, rsTop}, WallThick, DoorW)
-    result.add stampRoom(r2, {rsRight, rsBottom}, WallThick, DoorW)
+    ## Smaller shell ring, 2 gates — the mid-tier single-mass building.
+    let shellThick = max(34, he * 2 div 5)
+    const GateW = 50
+    let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    var sides = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sides)
+    result.add stampShellRing(footprint, shellThick, {sides[0], sides[1]}, GateW)
   of poiYard:
-    ## A walled yard (2 doors) with a colonnade inside — open-air cover.
-    let yardRect = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
-    result.add stampRoom(yardRect, {rsTop, rsBottom}, WallThick, DoorW + 20)
-    let innerRect = MapRect(
-      x: yardRect.x + WallThick + 20, y: yardRect.y + WallThick + 20,
-      w: yardRect.w - 2 * (WallThick + 20), h: yardRect.h - 2 * (WallThick + 20))
-    result.add stampColonnade(rng, innerRect)
+    ## A walled yard, 2 gates, thick shell — a courtyard with real
+    ## perimeter mass, not a wireframe. A few bigger stone blocks (not the
+    ## old 16px-radius pillar grid, individually confetti-sized) give
+    ## interior cover without adding fragment count.
+    let shellThick = max(34, he * 2 div 5)
+    const GateW = 60
+    let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    result.add stampShellRing(footprint, shellThick, {rsTop, rsBottom}, GateW)
+    let blockW = max(28, he div 3)
+    result.add rectShapeBr(cx - he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
+    result.add rectShapeBr(cx + he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
   of poiRuins:
-    let r = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
-    result.add stampRuinRoom(rng, r, WallThick)
-    ## A second, smaller broken cluster nearby reads as a debris field
-    ## rather than one lonely wall stub.
-    let r2 = MapRect(
-      x: cx - he + he, y: cy - he div 2 + he, w: he, h: he)
-    result.add stampRuinRoom(rng, r2, WallThick - 4)
+    ## A SMALL solid shell ring, not a scatter of disconnected L-brackets
+    ## (the old design — exactly the "isolated small mass" doctrine now
+    ## bans). Still the cheapest, smallest archetype, but still ONE welded
+    ## mass with a single NARROW gate, not fragments.
+    let shellThick = max(28, he * 2 div 5)
+    const GateW = 46
+    let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    let side = [rsTop, rsRight, rsBottom, rsLeft][rng.rand(3)]
+    result.add stampShellRing(footprint, shellThick, {side}, GateW)
   of poiAnchor:
-    ## ROUND 6, zone-edge-holding: a BIGGER walled courtyard than poiYard,
-    ## deliberately not fully open — exactly 2 or 3 exits (never 4, never
-    ## 1), so holding it against a closing circle is a real decision
-    ## rather than a free walk-through. Two offset interior cover blocks
-    ## (not a full colonnade) keep it defensible without being a maze.
-    let courtyard = MapRect(
+    ## Zone-edge-holding: a HUGE shell ring — the biggest, thickest mass on
+    ## the map — with 2 NARROW gates and TWO solid interior cover slabs.
+    ## Doctrine: "one huge slab with a courtyard and 2-3 gates." Two visual
+    ## passes needed real iteration here (100px gates, then 56px gates at
+    ## 56px shell) before it stopped reading as several separated brackets:
+    ## shell thickness is now scaled to the footprint itself (~1/4 of the
+    ## half-height) so the solid ring dominates the footprint area instead
+    ## of tracing a thin outline around a mostly-empty box, and gate count
+    ## dropped to a flat 2 (3 fragmented the ring into 7 visible pieces).
+    let shellThick = max(48, he * 2 div 5)
+    const GateW = 50
+    let footprint = MapRect(
       x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
     var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sideOrder)
-    let exitCount = if rng.rand(3) == 0: 2 else: 3
-    var openSet: set[RoomSide] = {}
-    for i in 0 ..< exitCount: openSet.incl sideOrder[i]
-    result.add stampRoom(courtyard, openSet, WallThick, DoorW)
-    let coverW = max(24, he div 3)
+    var gateSet: set[RoomSide] = {sideOrder[0], sideOrder[1]}
+    result.add stampShellRing(footprint, shellThick, gateSet, GateW)
+    let coverW = max(32, he * 2 div 5)
     result.add rectShapeBr(cx - he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
     result.add rectShapeBr(cx + he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
   of poiCauseway:
-    ## ROUND 6, rotation-timing: a LONG broken-wall causeway — `he` is
-    ## HALF-LENGTH along a drawn axis (0/45/90/135deg), not a square
-    ## footprint. Segments run PERPENDICULAR to the travel direction with
-    ## real gaps (partial cover, never a solid barrier), so crossing it is
-    ## a timing decision, the same "fence/ridge run" grammar linearConnectors
-    ## uses between POIs, but first-class and much longer.
-    const SegLen = 50
-    const SegThick = 14
-    const Step = 95
-    const KeepChance = 0.68
+    ## Rotation-timing: ONE LONG mass with 1-2 GATE gaps — not a dash
+    ## train. `he` is HALF-LENGTH along a drawn axis (0/45/90/135deg).
+    ## Built as 2-3 long shapeDiagonal segments (thick, 30px) separated by
+    ## 1-2 real gaps, each segment individually well above the confetti
+    ## floor, so the whole causeway still reads (and validates) as one
+    ## deliberate barrier with a couple of crossing points, never scatter.
+    const Thick = 30
     let angles = [0.0, PI / 4.0, PI / 2.0, 3.0 * PI / 4.0]
     let theta = angles[rng.rand(angles.len - 1)]
     let ux = cos(theta)
     let uy = sin(theta)
-    let px = -uy
-    let py = ux
+    let totalLen = 2.0 * float(he)
+    let gateCount = 1 + rng.rand(1)  ## 1 or 2 gates
+    let gateW = 70.0 + float(rng.rand(30))
+    let pieceLen = (totalLen - float(gateCount) * gateW) / float(gateCount + 1)
     var t = -float(he)
-    while t < float(he):
-      if rng.rand(1.0) < KeepChance:
-        let jitter = float(rng.rand(-10 .. 10))
-        let midx = float(cx) + ux * t + px * jitter
-        let midy = float(cy) + uy * t + py * jitter
-        let p0 = MapPoint(
-          x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
-        let p1 = MapPoint(
-          x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
-        result.add ArenaShape(
-          kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y, thickness: SegThick)
-      t += float(Step)
+    for i in 0 ..< gateCount + 1:
+      let segStart = t
+      let segEnd = t + pieceLen
+      let p0x = float(cx) + ux * segStart
+      let p0y = float(cy) + uy * segStart
+      let p1x = float(cx) + ux * segEnd
+      let p1y = float(cy) + uy * segEnd
+      result.add ArenaShape(
+        kind: shapeDiagonal, x0: int(p0x), y0: int(p0y), x1: int(p1x), y1: int(p1y),
+        thickness: Thick)
+      t = segEnd + gateW
   of poiWarren:
-    ## ROUND 6, cqc-warren / third-party: a tight cluster of 2 small rooms,
-    ## NO sealed perimeter, many approaches. Each room opens on 2-3 random
-    ## sides independently — deliberately not door-to-door aligned, so it
-    ## reads as a warren of alleys rather than one corridor. Fixed at 2
-    ## rooms (was 2-4): measured that warren-heavy families were drowning
-    ## in confetti-sized fragments (each disconnected small room wall
-    ## segment counts as its own mass) — halving the room count roughly
-    ## halved the fragment contribution while the "small interconnected
-    ## rooms" read survives fine at 2.
-    let cellW = he
-    let cellH = he
-    let cols = 2
-    let rows = 1
-    for ry in 0 ..< max(1, rows):
-      for rx in 0 ..< cols:
-        let rectX = cx - he + rx * cellW
-        let rectY = cy - (rows * cellH) div 2 + ry * cellH
-        let r = MapRect(x: rectX, y: rectY, w: cellW - 14, h: cellH - 14)
-        var order = @[rsTop, rsRight, rsBottom, rsLeft]
-        rng.shuffle(order)
-        let openCount = 2 + rng.rand(1)
-        var openSet: set[RoomSide] = {}
-        for i in 0 ..< openCount: openSet.incl order[i]
-        result.add stampRoom(r, openSet, WallThick - 4, DoorW - 20)
+    ## Cqc-warren / third-party: ONE large shell-ring mass carved into 2-3
+    ## interior cells by thick internal partitions (each touching the
+    ## outer ring, so the whole warren stays ONE connected mass) — "one
+    ## large mass carved into many small rooms," not several small
+    ## disconnected boxes side by side.
+    let shellThick = max(32, he * 2 div 5)
+    let partThick = max(26, he * 3 div 10)
+    const GateW = 56
+    let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sideOrder)
+    result.add stampShellRing(footprint, shellThick, {sideOrder[0], sideOrder[1]}, GateW)
+    ## One vertical partition down the middle, gated, splitting the
+    ## interior into 2 cells; touches the top and bottom shell strips at
+    ## both ends so the partition is always connected to the ring.
+    let midX = cx - partThick div 2
+    result.add stampPartitionWall(
+      midX, footprint.y, midX, footprint.y + footprint.h, partThick, GateW)
 
 proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
   for s in sites:
@@ -656,37 +658,38 @@ proc placePois(
   ## what answers "a bunch of random rectangle rooms": a keystone map has
   ## a FEW LARGER organizing structures (anchors, causeways, clusters)
   ## rising out of the uniform field, not just more of the same four boxes.
+  ## ROUND 7 (Maxwell's verdict): "still confetti maps... on a larger
+  ## scale." A full-field side-by-side against Maxwell's reference
+  ## (/tmp/br-maps/caves_404_thick.png) showed the real problem AFTER the
+  ## subtractive rework — each mass reads solid now, but a giant 3211x1713
+  ## field with 10-22 of them still looks like scatter from an overview,
+  ## because each one is proportionally tiny. ELEMENT-COUNT COLLAPSE: every
+  ## family's POI count is cut roughly in half from round 6, and every
+  ## archetype's own half-extent (below, and in stampPoi) is bumped again
+  ## on top of round 6's sizing — fewer, much bigger masses, targeting the
+  ## doctrine's <=12-18-masses-per-map ceiling instead of round 6's 55-100.
   case keystone
   of ksLandingSelection:
     ## Steep loot/size gradient BETWEEN sites: a few rich, LARGE anchors
     ## (tier 0) against many poor, SMALL ruins (tier 2), almost nothing in
-    ## between — the drop decision is choosing which end of the gradient
-    ## to land on, not picking among lookalikes. Widened further after the
-    ## visual check (Maxwell's bar: "can YOU tell which family a draw
-    ## belongs to from the render alone?") — at 0.65G/0.18G the size
-    ## contrast read too close to third-party's more uniform warren
-    ## clusters at thumbnail scale; 0.85G/0.14G makes the few rich sites
-    ## visibly the biggest things on the map.
+    ## between.
     let pool: seq[ArchSpec] = @[
-      (poiCompound, 0.85, 0),
-      (poiAnchor, 0.75, 0),
-      (poiOutpost, 0.35, 1),
-      (poiRuins, 0.14, 2),
-      (poiRuins, 0.14, 2),
-      (poiRuins, 0.14, 2),
-      (poiRuins, 0.14, 2),
+      (poiCompound, 1.30, 0),
+      (poiAnchor, 1.15, 0),
+      (poiOutpost, 0.50, 1),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.15, 10 + rng.rand(6))
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.15, 6 + rng.rand(4))
   of ksRotationTiming:
     ## Long causeways + clusters separated by open seams: crossing timing
     ## is the skill. Clusters first (spread with a LARGE minSep so real
-    ## gaps survive between them), 1-2 small satellites per cluster, then
-    ## several long causeways (half-extent > gunRange, so length > 2G)
-    ## scattered with a looser minSep (they're long and thin — a full
-    ## engagement-scale minSep would refuse almost everywhere).
-    let clusterCount = 3 + rng.rand(2)
+    ## gaps survive between them), one satellite per cluster, then a
+    ## handful of long causeways (half-extent > gunRange, so length > 2G).
+    let clusterCount = 2 + rng.rand(2)
     let clusterMinSep = int(1.8 * float(gunRange))
-    let clusterHalf = int(0.42 * float(gunRange))
+    let clusterHalf = int(0.55 * float(gunRange))
     var clusterAnchors: seq[MapPoint]
     for i in 0 ..< clusterCount:
       let before = result.len
@@ -695,82 +698,75 @@ proc placePois(
       if result.len > before:
         clusterAnchors.add result[^1].center
     for anchor in clusterAnchors:
-      let satelliteCount = 1 + rng.rand(1)
-      for j in 0 ..< satelliteCount:
-        for attempt in 0 ..< 20:
-          let ang = rng.rand(2.0 * PI)
-          let dist = float(clusterHalf) + 40.0 + float(rng.rand(80))
-          let px = clamp(anchor.x + int(cos(ang) * dist),
-            clusterHalf + 60, width - clusterHalf - 60)
-          let py = clamp(anchor.y + int(sin(ang) * dist),
-            clusterHalf + 60, height - clusterHalf - 60)
-          let p = MapPoint(x: px, y: py)
-          let localMinSep = int(0.35 * float(gunRange))
-          if tooCloseToAny(p, result, localMinSep): continue
-          let arch = if rng.rand(1) == 0: poiRuins else: poiYard
-          let he = int((if arch == poiRuins: 0.25 else: 0.32) * float(gunRange))
-          result.add PoiSite(center: p, archetype: arch, halfExtent: he,
-            lootTier: (if arch == poiRuins: 2 else: 1))
-          break
-    let causewayCount = 4 + rng.rand(4)
-    let causewayHalf = int(1.15 * float(gunRange))  ## > G, so length > 2G
+      for attempt in 0 ..< 20:
+        let ang = rng.rand(2.0 * PI)
+        let dist = float(clusterHalf) + 50.0 + float(rng.rand(90))
+        let px = clamp(anchor.x + int(cos(ang) * dist),
+          clusterHalf + 60, width - clusterHalf - 60)
+        let py = clamp(anchor.y + int(sin(ang) * dist),
+          clusterHalf + 60, height - clusterHalf - 60)
+        let p = MapPoint(x: px, y: py)
+        let localMinSep = int(0.35 * float(gunRange))
+        if tooCloseToAny(p, result, localMinSep): continue
+        let arch = if rng.rand(1) == 0: poiRuins else: poiYard
+        let he = int((if arch == poiRuins: 0.30 else: 0.40) * float(gunRange))
+        result.add PoiSite(center: p, archetype: arch, halfExtent: he,
+          lootTier: (if arch == poiRuins: 2 else: 1))
+        break
+    let causewayCount = 3 + rng.rand(3)
+    let causewayHalf = int(1.4 * float(gunRange))  ## > G, so length > 2.8G
     let causewayMinSep = int(0.75 * float(gunRange))
     for i in 0 ..< causewayCount:
       discard placeUniformPoi(rng, result, width, height, causewayMinSep,
         poiCauseway, causewayHalf, 1)
   of ksZoneEdgeHolding:
     ## A handful of ANCHOR compounds, spread with a LARGE mutual minSep so
-    ## no two are ever close enough to trade one holder for another —
-    ## holding the circle edge is the skill, so anchors need real distance
-    ## between them. Filler on top for density-uniformity. Anchors sized
-    ## to be the LARGEST footprint on the map (bigger than poiCompound's
-    ## 0.65G, the previous biggest archetype) — Maxwell's bar was "a
-    ## keystone map has a FEW LARGER organizing structures rising out of
-    ## the uniform field," and at 0.55G an anchor didn't visibly pop
-    ## against the filler at thumbnail scale.
-    let anchorHalf = int(0.9 * float(gunRange))
+    ## no two are ever close enough to trade one holder for another.
+    ## Filler on top for density-uniformity, kept sparse (element-count
+    ## collapse) so the anchors stay the visually dominant thing.
+    let anchorHalf = int(1.3 * float(gunRange))
     let anchorMinSep = int(2.0 * float(gunRange))
-    let anchorCount = 3 + rng.rand(3)
+    let anchorCount = 3 + rng.rand(2)
     for i in 0 ..< anchorCount:
       discard placeUniformPoi(rng, result, width, height, anchorMinSep,
         poiAnchor, anchorHalf, 0)
     let fillerPool: seq[ArchSpec] = @[
-      (poiOutpost, 0.35, 1), (poiYard, 0.35, 1), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+      (poiOutpost, 0.42, 1), (poiYard, 0.42, 1), (poiRuins, 0.24, 2),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, fillerPool, 1.0, 8 + rng.rand(6))
+    placeWeightedPool(rng, result, width, height, gunRange, fillerPool, 1.0, 3 + rng.rand(3))
   of ksThirdParty:
     ## Open interiors only — NO sealed compounds (poiCompound/poiAnchor
     ## excluded from the pool entirely), warren-heavy so most sites have
-    ## 3+ approaches. Denser + tighter spacing than the baseline so fights
-    ## happen close enough together to interrupt each other.
+    ## 3+ approaches. Tighter spacing than the baseline so fights happen
+    ## close enough together to interrupt each other.
     let pool: seq[ArchSpec] = @[
-      (poiWarren, 0.45, 1), (poiWarren, 0.45, 1), (poiWarren, 0.45, 1),
-      (poiYard, 0.42, 1), (poiYard, 0.42, 1),
-      (poiOutpost, 0.38, 1),
-      (poiRuins, 0.26, 2), (poiRuins, 0.26, 2),
+      (poiWarren, 0.60, 1), (poiWarren, 0.60, 1), (poiWarren, 0.60, 1),
+      (poiYard, 0.55, 1),
+      (poiOutpost, 0.48, 1),
+      (poiRuins, 0.28, 2),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.0, 12 + rng.rand(6))
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.0, 7 + rng.rand(4))
   of ksCqcWarren:
-    ## Interior-share dial, HIGH pole: warren-heavy pool, dense K, TIGHT
-    ## minimum separation — packing is itself the grammar knob that reads
-    ## as close-quarters.
+    ## Interior-share dial, HIGH pole: warren-heavy pool, TIGHT minimum
+    ## separation — packing is itself the grammar knob that reads as
+    ## close-quarters.
     let pool: seq[ArchSpec] = @[
-      (poiWarren, 0.42, 1), (poiWarren, 0.42, 1), (poiWarren, 0.42, 1),
-      (poiWarren, 0.42, 1), (poiWarren, 0.42, 1),
-      (poiOutpost, 0.35, 1),
-      (poiRuins, 0.22, 2),
+      (poiWarren, 0.58, 1), (poiWarren, 0.58, 1), (poiWarren, 0.58, 1),
+      (poiWarren, 0.58, 1),
+      (poiOutpost, 0.48, 1),
+      (poiRuins, 0.26, 2),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 0.85, 16 + rng.rand(6))
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 0.85, 9 + rng.rand(4))
   of ksOpenSteppe:
     ## Interior-share dial, LOW pole: sparse pool (mostly small ruins),
     ## few sites, WIDE minimum separation — open ground between cover is
     ## the grammar knob that reads as steppe.
     let pool: seq[ArchSpec] = @[
-      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
-      (poiYard, 0.30, 1),
-      (poiOutpost, 0.30, 1),
+      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+      (poiYard, 0.34, 1),
+      (poiOutpost, 0.34, 1),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.5, 6 + rng.rand(4))
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.5, 4 + rng.rand(3))
 
 proc poiFootprintRect(site: PoiSite): MapRect =
   MapRect(x: site.center.x - site.halfExtent, y: site.center.y - site.halfExtent,
