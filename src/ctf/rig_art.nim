@@ -28,28 +28,17 @@ proc clientDataDir*(): string =
   else:
     bitworldClient.clientDir() / "data"
 
-var warnedMissingTeamArt: seq[string]  ## de-dupes the fallback warning below.
-
-proc teamArtOrFallback*(teamPath: string, fallbackPath: string): string =
-  ## Returns `teamPath` if the file/dir exists under `gameDir()`; otherwise
-  ## logs ONE warning per missing path and returns `fallbackPath` instead.
-  ##
-  ## TODO(tint): the 12 BR team identities (BR_MAPGEN.md §6.2) don't have
-  ## art yet — 4 authored families (soldier/rig/heart/pedestal) exist only
-  ## for Red/Blue/Green/Yellow, and the tint pipeline lands the rest at
-  ## integration. Until then this keeps a widened `Team` enum BOOTING
-  ## (loading Red's art) instead of crashing on a missing file the moment a
-  ## 16-team game asks for e.g. `soldier_black.png`. Remove the fallback
-  ## once every team has real art.
-  let full = gameDir() / teamPath
-  if fileExists(full) or dirExists(full):
-    return teamPath
-  if teamPath notin warnedMissingTeamArt:
-    warnedMissingTeamArt.add teamPath
-    stderr.writeLine(
-      "WARNING: missing team art '" & teamPath & "', falling back to '" &
-      fallbackPath & "' (TODO(tint): BR_MAPGEN.md §6.2)")
-  fallbackPath
+## TEAM ART IS COMPLETE FOR ALL 16 TEAMS (BR integration, 2026-08-24).
+## A `teamArtOrFallback` helper used to stand here and silently substitute
+## Red's art for any missing per-team file, so a widened `Team` enum could
+## boot before the tint pipeline existed. The tint lane landed all 12 BR
+## identities (soldier + crown + heart + pedestal + a 10-segment rig dir
+## each), so every path below resolves for every team and the fallback can
+## only ever hide a REGRESSION now — a renamed or dropped asset would read
+## as "Red plays in Red" instead of failing. Deleted deliberately: a
+## missing file is now a loud readImage error, and
+## tests/test_team_art.nim asserts the whole 16 x 4 matrix exists so the
+## failure lands in CI rather than in a match.
 
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
@@ -160,9 +149,7 @@ proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
   ## Hard alpha edge (cutoff 128) so the bold painted outline stays crisp at the
   ## sprite footprint instead of feathering into a fuzzy halo on the floor.
   loadRgbaSprite(
-    teamArtOrFallback(
-      "data/heart_" & teamText(team) & ".png",
-      "data/heart_" & teamText(Red) & ".png"),
+    "data/heart_" & teamText(team) & ".png",
     size,
     alphaCutoff = 128'u8
   )
@@ -207,8 +194,8 @@ func soldierMasterPath(skin: Skin, team: Team): string =
   ## per skin; computed now so widening `Team` (BR_MAPGEN.md §6.2) needs no
   ## edit here — Red/Blue/Green/Yellow resolve to their historical byte-
   ## identical paths, the 12 new teams get the same naming CONVENTION (the
-  ## files land from the tint pipeline; see `teamArtOrFallback` for the
-  ## until-then fallback).
+  ## files landed from the tint pipeline, and tests/test_team_art.nim keeps
+  ## the whole matrix present).
   "data/soldier_" & teamText(team) & (if skin == CrownSkin: "_crown" else: "") &
     ".png"
 
@@ -267,8 +254,7 @@ proc measureSoldierBody(skin: Skin, team: Team, master: Image) =
 proc ensureSoldierLoaded(skin: Skin, team: Team) =
   if soldierLoaded[skin][team]:
     return
-  let path = teamArtOrFallback(
-    SoldierMasterPaths[skin][team], SoldierMasterPaths[skin][Red])
+  let path = SoldierMasterPaths[skin][team]
   let master = readImage(gameDir() / path)
   soldierMasters[skin][team] = master
   measureSoldierBody(skin, team, master)
@@ -474,8 +460,7 @@ proc rigSegIsWheel*(seg: RigSeg): bool =
 proc ensureRigLoaded(team: Team) =
   if rigLoaded[team]:
     return
-  let dir = gameDir() / teamArtOrFallback(
-    "data/rig_real" / teamText(team), "data/rig_real" / teamText(Red))
+  let dir = gameDir() / ("data/rig_real" / teamText(team))
   for seg in RigSeg:
     rigSegImg[team][seg] = readImage(dir / rigSegPath(seg) & ".png")
   rigHeadImg[DefaultSkin][team] = rigSegImg[team][rsHead]
