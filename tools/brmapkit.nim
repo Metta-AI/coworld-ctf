@@ -1719,47 +1719,66 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
     var placed = false
     if maxCenterDist >= minCenterDist:
       const ScanStep = 28
-      block placement:
-        var dy = -maxCenterDist
-        while dy <= maxCenterDist:
-          var dx = -maxCenterDist
-          while dx <= maxCenterDist:
-            let d2 = dx * dx + dy * dy
-            if d2 >= minCenterDist * minCenterDist and d2 <= maxCenterDist * maxCenterDist:
-              let cx = s.p.x + dx
-              let cy = s.p.y + dy
-              if cx >= ArenaBorderPx + 20 and cy >= ArenaBorderPx + 20 and
-                  cx < m.width - ArenaBorderPx - 20 and cy < m.height - ArenaBorderPx - 20 and
-                  not pointInAnyPocket(cx, cy, m.spawns, m.spawnClearW, m.spawnClearH, 15):
-                let candidate = blobPolygon(
-                  rng, MapRect(x: 0, y: 0, w: m.width, h: m.height),
-                  cx, cy, ScreenBlobRadius, 12)
-                ## Cheap bbox-only pre-filter: reject any candidate whose
-                ## bounding box overlaps ANY spawn's ring outright, so phase 2
-                ## (the expensive, authoritative trim) mostly only has to
-                ## catch multi-candidate interactions instead of individually
-                ## doomed placements — most of round 2's "too much trimming"
-                ## was candidates that were never going to survive anyway.
-                let cb = shapeBounds(candidate)
-                var touchesRing = false
-                for s2 in m.spawns:
-                  let p2 = pocketRect(s2, m.spawnClearW, m.spawnClearH)
-                  let r2x0 = p2.x - PocketExitMargin
-                  let r2y0 = p2.y - PocketExitMargin
-                  let r2x1 = p2.x + p2.w + PocketExitMargin
-                  let r2y1 = p2.y + p2.h + PocketExitMargin
-                  if not (cb.x1 < r2x0 - 4 or cb.x0 > r2x1 + 4 or
-                      cb.y1 < r2y0 - 4 or cb.y0 > r2y1 + 4):
-                    touchesRing = true
-                    break
-                if not touchesRing:
-                  candidates.add candidate
-                  placed = true
-                  when defined(brDebugExit):
-                    stderr.writeLine(&"  candidate screen blob at ({cx},{cy}) dist={sqrt(float(d2)):.0f} radius={radius}")
-                  break placement
-            dx += ScanStep
-          dy += ScanStep
+      ## ROUND 5 fix: this used to `break` on the FIRST valid slot found in
+      ## raster (top-to-bottom, left-to-right) order — not the CLOSEST one.
+      ## With grid spawns (spread across the whole field, not just a
+      ## perimeter ring) the "touches another spawn's ring" filter below
+      ## rejects far more of the annulus than it used to (many more nearby
+      ## spawns to avoid), so raster order was landing candidates right at
+      ## the outer edge of maxCenterDist — close enough to `radius` that
+      ## blobPolygon's organic wobble could push the rendered shape's
+      ## qualifying mass just outside the coverage disc the validator scans
+      ## (measured: a spawn with an active repair still failed per-spawn
+      ## cover). Now scans the WHOLE annulus and keeps the CLOSEST valid
+      ## candidate, so a repair blob always lands with real margin inside
+      ## the radius it's meant to satisfy.
+      var bestD2 = high(int)
+      var bestCandidate: ArenaShape
+      var found = false
+      var dy = -maxCenterDist
+      while dy <= maxCenterDist:
+        var dx = -maxCenterDist
+        while dx <= maxCenterDist:
+          let d2 = dx * dx + dy * dy
+          if d2 >= minCenterDist * minCenterDist and d2 <= maxCenterDist * maxCenterDist and
+              d2 < bestD2:
+            let cx = s.p.x + dx
+            let cy = s.p.y + dy
+            if cx >= ArenaBorderPx + 20 and cy >= ArenaBorderPx + 20 and
+                cx < m.width - ArenaBorderPx - 20 and cy < m.height - ArenaBorderPx - 20 and
+                not pointInAnyPocket(cx, cy, m.spawns, m.spawnClearW, m.spawnClearH, 15):
+              let candidate = blobPolygon(
+                rng, MapRect(x: 0, y: 0, w: m.width, h: m.height),
+                cx, cy, ScreenBlobRadius, 12)
+              ## Cheap bbox-only pre-filter: reject any candidate whose
+              ## bounding box overlaps ANY spawn's ring outright, so phase 2
+              ## (the expensive, authoritative trim) mostly only has to
+              ## catch multi-candidate interactions instead of individually
+              ## doomed placements — most of round 2's "too much trimming"
+              ## was candidates that were never going to survive anyway.
+              let cb = shapeBounds(candidate)
+              var touchesRing = false
+              for s2 in m.spawns:
+                let p2 = pocketRect(s2, m.spawnClearW, m.spawnClearH)
+                let r2x0 = p2.x - PocketExitMargin
+                let r2y0 = p2.y - PocketExitMargin
+                let r2x1 = p2.x + p2.w + PocketExitMargin
+                let r2y1 = p2.y + p2.h + PocketExitMargin
+                if not (cb.x1 < r2x0 - 4 or cb.x0 > r2x1 + 4 or
+                    cb.y1 < r2y0 - 4 or cb.y0 > r2y1 + 4):
+                  touchesRing = true
+                  break
+              if not touchesRing:
+                bestD2 = d2
+                bestCandidate = candidate
+                found = true
+                when defined(brDebugExit):
+                  stderr.writeLine(&"  candidate screen blob at ({cx},{cy}) dist={sqrt(float(d2)):.0f} radius={radius}")
+          dx += ScanStep
+        dy += ScanStep
+      if found:
+        candidates.add bestCandidate
+        placed = true
     when defined(brDebugExit):
       if not placed:
         stderr.writeLine(&"WARNING: no candidate slot for spawn edge={s.edge} p=({s.p.x},{s.p.y}) minCenterDist={minCenterDist} maxCenterDist={maxCenterDist}")
