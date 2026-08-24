@@ -70,6 +70,7 @@ pool-preview/
 data/replays/
 barrier-demo.bitreplay
 perks-2v2-demo.bitreplay
+br-match-1.bitreplay
 
 # The mount point .caos-expr splices caos's std/ into. Never committed — the
 # loader REFUSES to overwrite an entry that is already there.
