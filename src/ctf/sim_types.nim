@@ -1078,6 +1078,68 @@ type
                                ## NOT do a full flood-CONNECTIVITY check at load
                                ## (too heavy); reachability/fairness is the
                                ## caller's measured gate. Ignored on symmetric maps.
+    # GVNEXT(spawn): new CtfMap field. Reachable from SimServer (sim.gameMap),
+    # so it enters the flatty keyframe layout — but keyframes are DERIVED
+    # in-process and never read from a replay file (the established "puddle
+    # contract": see puddles/teamPickups/barrierPickups, none of which bumped
+    # GameVersion), so this needs no bump on its own. Defaults empty, which is
+    # byte-identical to today. Flagged per the mandatory GVNEXT convention
+    # anyway, so an integration pass auditing every symbol touched since the
+    # last bump finds it; expected red replay fixtures: NONE (verified by
+    # running the suite — see the BR spawn-subsystem PR description).
+    spawnPoints*: seq[MapPoint]
+                               ## EXPLICIT player spawn locations (BR N-point
+                               ## spawn subsystem), team-major flattened
+                               ## EXACTLY like `teamPickups.barriers`: perTeam
+                               ## is IMPLICIT (`spawnPoints.len div teamCount`),
+                               ## not a fixed arity. Empty (the default) is the
+                               ## legacy behavior, byte-identical: `spawnPosition`
+                               ## keeps staggering players off `teamAnchor(team)`
+                               ## and `mapProtectedFloorAt` keeps carving the
+                               ## single per-team anchor pocket.
+                               ##
+                               ## When non-empty, spawnPoints OVERRIDES spawn
+                               ## PLACEMENT: seat (team, order) spawns at the
+                               ## team's order-th point (wrapping if seats
+                               ## outnumber points), and the pocket carve moves
+                               ## from the anchor to each point directly, sized
+                               ## by the same spawnClearW/spawnClearH half-
+                               ## extents (no separate per-point size field).
+                               ##
+                               ## Distinct from (and independent of) an
+                               ## unrelated sibling concept, coworld-ctf#285's
+                               ## `teamAnchors`: that field moves the FLAG
+                               ## PEDESTAL (exactly one point per team, fixed
+                               ## arity). spawnPoints never touches the
+                               ## pedestal — teamAnchor/flagHome stay exactly
+                               ## as they are — and the two may be authored
+                               ## together (a map with an off-axis pedestal AND
+                               ## explicit spawn slots) or independently. Only
+                               ## meaningful today on symNone (full-board) maps;
+                               ## validated in validateMap's symNone block like
+                               ## teamPickups. Only valid team counts are
+                               ## whatever teamCount()/teams() report — never
+                               ## hardcode 2/4 against this field.
+    # GVNEXT(spawn): see spawnPoints above — same reasoning applies.
+    flagless*: bool           ## Map-level boot toggle (BR N-point spawn
+                               ## subsystem): when true, flag pedestals are
+                               ## never armed (resetFlags still parks an inert
+                               ## FlagState so carrier/captured stay at their
+                               ## normal -1/false defaults, but tryPickupFlags
+                               ## refuses to pick one up) and the flag-ring /
+                               ## capture-approach carve in mapProtectedFloorAt
+                               ## (and its installed/float twins) is skipped
+                               ## entirely — there is no capture geometry to
+                               ## protect. checkWinCondition's capture branch
+                               ## needs no separate gate: it can never fire once
+                               ## pickup is refused. Lives/time-limit end
+                               ## conditions are untouched and unconditional.
+                               ## Defaults false (current behavior, unchanged).
+                               ## Independent of spawnPoints: an ordinary
+                               ## (non-flagless) map may set spawnPoints and
+                               ## keep its flag/endzone carve; a flagless map
+                               ## with no spawnPoints falls back to the legacy
+                               ## anchor-staggered spawn (still carved).
 
   CrewSprite* = ref object
     width*, height*: int

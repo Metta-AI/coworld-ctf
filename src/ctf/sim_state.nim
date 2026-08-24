@@ -283,6 +283,20 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
   ## players stagger along the edge, perpendicular to their home axis (down
   ## the side for east/west teams, across for the plus layout's north/south
   ## arms).
+  ##
+  ## BR N-point spawn subsystem: when gameMap.spawnPoints is authored, it
+  ## OVERRIDES this staggered placement entirely — seat (team, order) spawns
+  ## at the team's order-th point, wrapping with `mod` if more seats join
+  ## than points were authored for that team (extra seats simply re-share
+  ## points, in order). teamAnchor/flagHome stay exactly as they are either
+  ## way — spawnPoints never moves the flag pedestal, only where players
+  ## stand.
+  if sim.gameMap.spawnPoints.len > 0:
+    let
+      teamCount = sim.gameMap.teamCount()
+      perTeam = sim.gameMap.spawnPoints.len div teamCount
+      p = sim.gameMap.spawnPoints[ord(team) * perTeam + (order mod perTeam)]
+    return sim.nearestWalkable(p.x, p.y)
   let
     anchor = sim.gameMap.teamAnchor(team)
     strip = order div 2          ## stagger players down the edge.

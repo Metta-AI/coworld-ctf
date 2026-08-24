@@ -2105,6 +2105,14 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## GV42: `FlagPickupRange` covers the DRAWN heart, so standing on the
   ## pedestal is the whole interaction — there is no pinpoint to find and no
   ## grab button. See the constant for the art-derived derivation.
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms no flag at all — refuse
+  ## pickup outright rather than relying on carrier/captured defaults. This
+  ## is the ONLY gate flagless needs on the interaction side: with pickup
+  ## refused, carrier never leaves -1, so checkWinCondition's capture branch
+  ## can never fire and needs no separate flagless check of its own.
+  if sim.gameMap.flagless:
+    return
   if not sim.players[playerIndex].alive or sim.players[playerIndex].carryingFlag:
     return
   let
