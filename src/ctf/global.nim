@@ -6449,6 +6449,13 @@ proc zoneTideHash(a, b: int): int {.inline.} =
   h *= 1099511628211'u64
   int(h and 0x7FFFFFFF'u64)
 
+proc zoneTideLatticePoint(cell, side, seedMul, ampPx: int): int {.inline.} =
+  ## One value-noise LATTICE point: a deterministic pseudo-random value in
+  ## [-ampPx, ampPx] for a given integer `cell` index on a given `side`'s
+  ## axis. `seedMul` keeps the coarse and fine octaves (and the four sides)
+  ## drawing from independent streams of the same hash.
+  (zoneTideHash(cell, side * seedMul + 1) mod (2 * ampPx + 1)) - ampPx
+
 proc zoneTideFingerOffset(along, side: int): int {.inline.} =
   ## Deterministic, ALONG-axis-only organic displacement added to the
   ## churn band's local reach — no tick term, so a given edge keeps a
@@ -6456,17 +6463,34 @@ proc zoneTideFingerOffset(along, side: int): int {.inline.} =
   ## texture is terrain-driven, not flickering; all the "advancing" motion
   ## already comes from the rect shrinking underneath this fixed pattern).
   ## `side` (0=top, 1=bottom, 2=left, 3=right) seeds each edge independently
-  ## so the four sides don't mirror each other. Two hash octaves: a coarse
-  ## one (wide cells) decides which stretches are fingers (push outward,
-  ## positive) vs bays (pull inward, negative); a fine one (narrow cells)
-  ## roughens each stretch's own edge on top of that.
+  ## so the four sides don't mirror each other.
+  ##
+  ## Two octaves of 1D VALUE NOISE (linear interpolation between random
+  ## lattice points, integer math — the same lerp idiom as sim.nim's
+  ## lerpInt): a coarse one (wide cells) sets which stretches push outward
+  ## (fingers) vs pull inward (bays); a fine one (narrow cells) roughens
+  ## each stretch's own edge on top of that. An earlier version used the
+  ## per-cell hash as a flat STEP function (constant within a cell, jumping
+  ## at cell boundaries) — a screenshot review found this made a run of
+  ## same-signed cells (a real but small-sample possibility: 4 of 5 coarse
+  ## cells landing negative on one edge was the actual draw for the demo
+  ## replay) read as one long, flat, featureless "uniform ripple" stretch,
+  ## since nothing varied WITHIN that run. Interpolating between lattice
+  ## points instead means the curve is always genuinely rising or falling
+  ## somewhere along a stretch of same-signed cells (it is only flat
+  ## exactly at a cell's own center), so there is no span of the boundary
+  ## without visible large-scale shape.
   let
     coarseCell = along div ZoneTideFingerScale
+    coarseFrac = along mod ZoneTideFingerScale
+    c0 = zoneTideLatticePoint(coarseCell, side, 7, ZoneTideFingerAmpPx)
+    c1 = zoneTideLatticePoint(coarseCell + 1, side, 7, ZoneTideFingerAmpPx)
+    coarse = c0 + (c1 - c0) * coarseFrac div ZoneTideFingerScale
     fineCell = along div ZoneTideDetailScale
-    coarse = (zoneTideHash(coarseCell, side * 7 + 1) mod
-      (2 * ZoneTideFingerAmpPx + 1)) - ZoneTideFingerAmpPx
-    fine = (zoneTideHash(fineCell, side * 13 + 5) mod
-      (2 * ZoneTideDetailAmpPx + 1)) - ZoneTideDetailAmpPx
+    fineFrac = along mod ZoneTideDetailScale
+    f0 = zoneTideLatticePoint(fineCell, side, 13, ZoneTideDetailAmpPx)
+    f1 = zoneTideLatticePoint(fineCell + 1, side, 13, ZoneTideDetailAmpPx)
+    fine = f0 + (f1 - f0) * fineFrac div ZoneTideDetailScale
   coarse + fine
 
 proc zoneTideSplatterColor(d, along, localChurnReach, side: int): ColorRGBA {.inline.} =
