@@ -434,6 +434,26 @@ suite "sprite label contract":
         let normalized = message.sprite.label.normalizeLabel()
         if normalized.startsWith(LabelPrefixPuddle):
           emitted.incl(normalized)
+    # The battle-royale shrink zone (§4.3) is config-gated exactly like
+    # trenches/puddles — no fixture above configures it — so the
+    # `zone `/`zonenext ` marker families get the same minimal treatment.
+    # Unlike a trench or puddle the rect is stated every frame (it moves as
+    # the zone shrinks), so any single posed tick emits both; only the
+    # `zone `/`zonenext ` families are merged in.
+    var zoneConfig = defaultGameConfig()
+    zoneConfig.update(
+      """{"zonePhases": [{"z": 0.5, "waitTicks": 10, "shrinkTicks": 10, "dps": 1}]}""")
+    var zoneGame = initCtfForTest(zoneConfig)
+    discard zoneGame.addPlayer("p0")
+    discard zoneGame.addPlayer("p1")
+    zoneGame.startGame()
+    var zoneViewer = initGlobalViewerState()
+    for message in zoneGame.buildGlobalMessages(zoneViewer):
+      if message.kind == spkSprite:
+        let normalized = message.sprite.label.normalizeLabel()
+        if normalized.startsWith(LabelPrefixZone) or
+            normalized.startsWith(LabelPrefixZoneNext):
+          emitted.incl(normalized)
     # Regenerating: `nim r -d:writeLabelManifest tests/test_label_contract.nim`
     # rewrites the golden from what the engine emits NOW, and the resulting git
     # diff is the artifact to review. Deliberately opt-in — if the test could

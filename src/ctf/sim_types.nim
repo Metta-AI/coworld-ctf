@@ -718,6 +718,21 @@ const
                               ## the trench cap (and sizing the stated-marker
                               ## sprite/object pool).
 
+  ZoneDamageRollTicks* = TargetFps  ## one damage application per full SECOND
+                              ## a cog's center has stood CONTINUOUSLY outside
+                              ## the shrink-zone (24 ticks) — the same
+                              ## per-second cadence as PuddleRollTicks, kept
+                              ## as its own constant so retuning one hazard's
+                              ## cadence never silently retunes the other.
+                              ## Unlike a puddle's roll, the zone applies its
+                              ## phase's `dps` DIRECTLY (no RNG draw): dps is
+                              ## an authored RATE, not a chance, so there is
+                              ## nothing to roll — see updateZone.
+  MaxZonePhases* = 8          ## hard cap on zonePhases entries: generous
+                              ## against the design's own 5-phase schedule
+                              ## (docs/designs/BR_MAPGEN.md §4.3) while
+                              ## bounding the per-tick walk in zoneRectAndDps.
+
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
 
@@ -1423,6 +1438,40 @@ type
                                   ## the mode is off — the default,
                                   ## byte-identical to a build with no BR
                                   ## code at all.
+    # GVNEXT(zone): appended fields, same append-safety reasoning as
+    # brMode above (a seq and scalars on GameConfig, not an array[Team, X]
+    # run). BR INTEGRATION: elim's brMode and zone's zone* fields both
+    # landed at the END of GameConfig on their own lanes; merged as one
+    # union in merge order (elim, then zone) so neither lane's field
+    # offsets shuffle relative to the other.
+    zonePhases*: seq[ZonePhase]   ## the battle-royale shrink-zone schedule
+                                  ## (docs/designs/BR_MAPGEN.md §4.3). Empty
+                                  ## (the default) = the mode is off — no
+                                  ## center draw, no rect, no damage, no
+                                  ## label markers, byte-identical to an
+                                  ## engine without the field. See
+                                  ## resetZone/updateZone/zoneRectAndDps.
+    zoneCenterConfigured*: bool   ## true when the optional `zoneCenter`
+                                  ## config field was set: resetZone then
+                                  ## closes on that AUTHORED point instead
+                                  ## of drawing one from the sim RNG (no RNG
+                                  ## draw happens in that case — the
+                                  ## trajectory is fully pinned by config).
+                                  ## False (the default) keeps the existing
+                                  ## random draw — the shipping default,
+                                  ## byte-identical to a build without this
+                                  ## field. Meaningless (and never read)
+                                  ## when zonePhases is empty, exactly like
+                                  ## zoneCenter itself (see SimServer).
+    zoneCenterX*, zoneCenterY*: int  ## the authored close-on point (map
+                                  ## px), meaningful only when
+                                  ## zoneCenterConfigured. Validated at
+                                  ## config load — see readConfigZoneCenter
+                                  ## in sim_config.nim — to keep the FINAL
+                                  ## configured phase's rect fully on-board
+                                  ## with an ArenaBorder margin, the same
+                                  ## rule resetZone applies to its own
+                                  ## random draw.
 
   Player* = object
     x*, y*: int
@@ -1548,6 +1597,21 @@ type
                                ## victim's life (`assassin`); analysis-only.
     blastsSurvived*: int       ## grenade blasts this cog took and outlived
                                ## this game (`lucky`); analysis-only.
+    zoneOutsideTicks*: int     ## consecutive ticks this cog's center has
+                               ## stood outside the config-gated shrink zone;
+                               ## at ZoneDamageRollTicks the active phase's
+                               ## dps applies and the counter restarts.
+                               ## Resets on re-entry and on death — the
+                               ## puddleTicks rule. Deterministic gameplay
+                               ## state, but NOT mixed into gameHash: hashing
+                               ## a new always-zero field would shift every
+                               ## pre-zone replay's hash chain (keyframe
+                               ## scrub still restores it exactly via the
+                               ## flatty sim snapshot). # GVNEXT(zone): new
+                               ## Player field, appended at the end of the
+                               ## object like puddleTicks/hasBarrier before
+                               ## it — see the SimServer.zoneCenter note for
+                               ## why this needs no GameVersion bump.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -1765,6 +1829,32 @@ type
     present*: bool
     respawnAt*: int            ## tick the pickup refills (when not present).
 
+  ZonePhase* = object
+    ## One entry of the config-gated battle-royale shrink zone's schedule
+    ## (docs/designs/BR_MAPGEN.md §4.3). The zone is a rectangle of the map's
+    ## own aspect ratio, scaled by a scalar `z` about a center drawn once at
+    ## episode start (see resetZone); an EMPTY `zonePhases` (the default)
+    ## means the mechanic never runs — no draw, no rect, no damage, byte-
+    ## identical to an engine without it.
+    ##
+    ## Phase 0's "previous rect" is the IMPLICIT full-scale (z = 1.0) rect —
+    ## authors never spell that drop state, matching how barrageStartTick's
+    ## "off" state needs no explicit config entry either. Each entry then
+    ## holds the previous rect for `waitTicks`, shrinks linearly over
+    ## `shrinkTicks` into this entry's target rect, and deals `dps` to
+    ## anyone outside the CURRENT (possibly still-shrinking) rect for the
+    ## whole span — see zoneRectAndDps/updateZone. The last configured
+    ## phase's target rect and dps hold forever once its shrink completes.
+    zPermille*: int   ## target scale in permille (1..1000, i.e. (0, 1] as
+                      ## authored): must be STRICTLY LESS than the previous
+                      ## phase's (or 1000 for phase 0) — see validate().
+    waitTicks*: int   ## ticks to hold the previous rect before shrinking.
+    shrinkTicks*: int ## ticks to linearly interpolate into the target rect;
+                      ## 0 snaps to the target the instant the wait ends.
+    dps*: int         ## hit points/second dealt to a player outside the
+                      ## current rect while this phase is active (its wait
+                      ## AND its shrink) — see ZoneDamageRollTicks.
+
   PlacedBarrier* = object
     ## One standing cardboard barrier: three sides of a hexagon (a half-hex)
     ## whose flat middle side faces where the placer was aiming. It blocks
@@ -1908,6 +1998,23 @@ type
                                ## kept OUT of gameHash like puddleTicks so
                                ## barrier-free games hash identically to
                                ## pre-barrier builds.
+    zoneCenter*: MapPoint      ## the config-gated shrink zone's center,
+                               ## drawn ONCE per game from the sim RNG (see
+                               ## resetZone) — meaningless (and never read)
+                               ## when zonePhases is empty. Appended at the
+                               ## END of the type like barrierSpawns above:
+                               ## keyframes are flatty-positional but built
+                               ## and consumed in-process only (never read
+                               ## from a persisted cross-build replay file —
+                               ## see replays.nim's serializeReplaySim/
+                               ## deserializeReplaySim), so appending here
+                               ## is safe without a GameVersion bump.
+                               ## # GVNEXT(zone): new SimServer field. Mixed
+                               ## into gameHash only when zonePhases is
+                               ## non-empty (the barrageStartTick rule), so
+                               ## an unconfigured game's hash chain is
+                               ## byte-identical to a build without this
+                               ## field at all.
 
 
 # Team endzone display colors (shared by the map bake and the paint FX).

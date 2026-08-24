@@ -787,6 +787,52 @@ with no BR code at all.
   shrink-zone hazard, the grenade barrage — goes through the same
   no-respawn path; the mode doesn't care how a team lost its last player.
 
+## Battle-royale shrink zone (config-gated)
+
+A closing rectangular boundary for the battle-royale mode
+(`docs/designs/BR_MAPGEN.md` §4.3). Off by default; a league turns it on by
+setting `zonePhases` to a non-empty schedule. Unconfigured (the default), the
+mode draws nothing, deals no damage, and emits no markers — byte-identical to
+an engine without the field.
+
+- **The zone is a rectangle of the map's own aspect ratio**, scaled by a
+  scalar `z` about a CENTER drawn once per game from the deterministic sim
+  RNG — never a fixed map-center circle. The draw is uniform over positions
+  where the smallest (final-phase) rect fits fully on-board with a margin;
+  earlier, larger phases derived from that same center may extend slightly
+  past the map edge for an off-center draw, exactly like a real battle-royale
+  circle that is not always dead-center at the drop.
+- **The schedule is a list of phases**, each `{z, waitTicks, shrinkTicks,
+  dps}`: `z` (0..1, exclusive of 0) is the target scale; the rect holds its
+  PREVIOUS size for `waitTicks`, then linearly interpolates into the target
+  over `shrinkTicks` (0 snaps instantly once the wait ends). Phase 0's
+  "previous" size is the implicit full field (`z = 1.0`) — a hold at full
+  size before the first real shrink is authored as phase 0's own
+  `waitTicks`, not a degenerate `z = 1.0` entry (which is always rejected:
+  see below). `z` must fall STRICTLY across phases, including against that
+  implicit 1.0, so the pressure never eases mid-match.
+- **Standing outside the current rect for a full second (24 ticks,
+  continuous — the same cadence as a paint puddle's damage roll) deals that
+  phase's `dps` hit points, exactly** — through the shield layer first, like
+  every other source of damage. Unlike a puddle's percentage roll this is
+  deterministic: `dps` is an authored rate, not a chance, so there is no RNG
+  draw. Stepping back inside (or dying) restarts the second. Once every
+  configured phase has resolved, the rect holds at the last phase's target
+  and `dps` forever. A lethal tick is an **environmental death** (no kill
+  credit; the log reads "caught outside the zone").
+- **Observability**: the live rect is stated every frame on both streams as
+  two invisible markers, `zone <x0>,<y0> <x1>,<y1>` (the current rect) and
+  `zonenext <x0>,<y0> <x1>,<y1>` (the rect the current one is interpolating
+  toward, so a policy can pre-rotate before the boundary arrives) —
+  inclusive map-pixel corners, present from the first tick whenever the mode
+  is on. A minimal cosmetic band (four flat bars) traces the current rect's
+  border on both streams too, so the boundary is visible without parsing the
+  markers; the fuller paint-tide/stormfront treatment is a later pass.
+- **Config validation**: `z` must be a number greater than 0 and at most 1
+  per phase, and must fall strictly across the whole schedule (including the
+  implicit phase-0 value of 1.0); `waitTicks`/`shrinkTicks`/`dps` must not be
+  negative; at most 8 phases.
+
 ## Scoring
 
 Scoring is **sparse and win-only**:
@@ -871,6 +917,9 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Barrage start rate (`barrageStartPerSec`) | 4/s | Launch rate at the latch, along the map edges |
 | Barrage start (`barrageStartSec`) | 30s | Clock seconds remaining that latch the barrage (4:30 elapsed on the 5:00 clock); it only escalates once latched |
 | Barrage saturation (`barrageSaturateSec`) | 30s | Seconds from latch to full saturation — whole board at max rate, landing exactly at 5:00 with the defaults |
+| Shrink zone schedule (`zonePhases`) | [] (off) | Battle-royale closing rectangle: a list of `{z, waitTicks, shrinkTicks, dps}` phases; see "Battle-royale shrink zone" |
+| Shrink zone damage cadence | 24 ticks (1s) | Same per-second cadence as a paint puddle's roll, but deterministic — `dps` applies directly, no chance |
+| Shrink zone phase cap | 8 | Hard ceiling on `zonePhases` entries |
 | Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
@@ -992,6 +1041,17 @@ marker is the only signal it is there. Puddles are a config-gated 2-team
 generated-map feature (no map has any by default); a map without puddles
 emits zero markers, not an empty-box one. The marker pool holds 64 — the
 `mapPuddles` cap.
+
+**So is the battle-royale shrink zone.** Unlike every marker above, this pair
+is NOT stated once at t=0 — the zone moves, so both are re-stated EVERY
+frame the mode is on. Two invisible 1x1 markers, `zone <x0>,<y0> <x1>,<y1>`
+(the current rect) and `zonenext <x0>,<y0> <x1>,<y1>` (the rect it is
+interpolating toward), same INCLUSIVE-corner tail contract as the trench and
+puddle markers. Corners may legitimately sit outside the map's own
+`[0, width) x [0, height)` range during an early (large) phase — compare your
+own position against them directly rather than assuming they are on-board.
+Config-gated (`zonePhases`, empty by default): a game without the mode emits
+neither marker. See "Battle-royale shrink zone" above for the full rule.
 
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,

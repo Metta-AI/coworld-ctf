@@ -234,6 +234,54 @@ proc resetBarriers*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].hasBarrier = false
 
+proc resetZone*(sim: var SimServer) =
+  ## Draws this game's shrink-zone center ONCE (docs/designs/BR_MAPGEN.md
+  ## §4.3): either the AUTHORED `zoneCenter` config point, when set (see
+  ## readConfigZoneCenter — already validated at config load to keep the
+  ## final rect on-board, so no re-check or RNG draw happens here), or —
+  ## the shipping default — deterministically from the sim RNG, uniform
+  ## over positions where the FINAL configured phase's rect — the
+  ## smallest, most constraining target — fits fully on-board with an
+  ## ArenaBorder margin on every side. The whole trajectory (every earlier,
+  ## larger phase's rect) derives from this same center; an earlier rect
+  ## MAY hang slightly off-board for an off-center draw (only the final
+  ## rect's fit is guaranteed — see zoneRectAtScale), which just means
+  ## fewer players read as "outside" near that edge during the early game,
+  ## exactly like a real battle-royale circle that is not always
+  ## dead-center at the drop.
+  ##
+  ## A no-op when zonePhases is empty: zoneCenter stays (0, 0) and nothing
+  ## ever reads it, so an unconfigured game draws nothing extra from the RNG
+  ## (byte-identical sim-RNG stream to a build without this field).
+  sim.zoneCenter = MapPoint(x: 0, y: 0)
+  if sim.config.zonePhases.len == 0:
+    return
+  if sim.config.zoneCenterConfigured:
+    sim.zoneCenter =
+      MapPoint(x: sim.config.zoneCenterX, y: sim.config.zoneCenterY)
+    return
+  let
+    finalPermille = sim.config.zonePhases[^1].zPermille
+    fw = max(1, sim.gameMap.width * finalPermille div 1000)
+    fh = max(1, sim.gameMap.height * finalPermille div 1000)
+    loX = ArenaBorder + fw div 2
+    hiX = sim.gameMap.width - 1 - ArenaBorder - (fw - 1 - fw div 2)
+    loY = ArenaBorder + fh div 2
+    hiY = sim.gameMap.height - 1 - ArenaBorder - (fh - 1 - fh div 2)
+  sim.zoneCenter =
+    if hiX >= loX and hiY >= loY:
+      MapPoint(
+        x: loX + sim.rng.rand(hiX - loX),
+        y: loY + sim.rng.rand(hiY - loY)
+      )
+    else:
+      # The final rect is too large relative to ArenaBorder's margin for ANY
+      # center to satisfy the on-board rule (a pathologically large z on a
+      # small board) — pin to the map's own center rather than raise
+      # mid-match. Draws no RNG either way, so this branch cannot itself
+      # desync the rest of the tick's RNG-consuming calls.
+      sim.gameMap.center
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
@@ -285,6 +333,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].hurtByMask = 0
     sim.players[i].assassinKills = 0
     sim.players[i].blastsSurvived = 0
+    sim.players[i].zoneOutsideTicks = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
@@ -294,6 +343,7 @@ proc startGame*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
+  sim.resetZone()
   sim.emitPhaseChange(Playing)
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
@@ -2958,6 +3008,134 @@ proc updatePuddles*(sim: var SimServer) =
     if sim.players[i].hp <= 0:
       sim.killPlayer(i, -1, cause = "dissolved in a paint puddle")
 
+proc lerpInt(a, b, t, total: int): int {.inline.} =
+  ## Integer linear interpolation from `a` to `b`: exactly `a` at t=0 and
+  ## exactly `b` at t=total (the multiply-then-divide cancels precisely
+  ## regardless of sign), intermediate values integer-truncated. `total <= 0`
+  ## returns `b` outright (an instant snap, never a division by zero).
+  if total <= 0:
+    return b
+  a + (b - a) * t div total
+
+proc zoneRectAtScale*(sim: SimServer, zPermille: int): MapRect =
+  ## Returns the shrink-zone rectangle at scale `zPermille` (1..1000) about
+  ## `sim.zoneCenter`: the map's own aspect ratio (width and height scaled by
+  ## the SAME permille from gameMap.width/height), so it is geometrically
+  ## similar to the field at every phase. Integer math throughout — the only
+  ## float in the whole feature is parsing the AUTHORED 0..1 `z` at config
+  ## load (readZonePhaseZ), matching the handicaps/perkMods convention.
+  let
+    w = max(1, sim.gameMap.width * zPermille div 1000)
+    h = max(1, sim.gameMap.height * zPermille div 1000)
+  MapRect(x: sim.zoneCenter.x - w div 2, y: sim.zoneCenter.y - h div 2,
+    w: w, h: h)
+
+proc zoneRectAndDps*(
+  sim: SimServer, elapsedTicks: int
+): tuple[cur, next: MapRect, dps: int] =
+  ## Returns the shrink-zone's CURRENT rect, the NEXT (target) rect it is
+  ## heading toward, and the active phase's dps, `elapsedTicks` after the
+  ## game started (sim.tickCount - sim.gameStartTick). Pure function of
+  ## config + zoneCenter + elapsed ticks — no stored rect/phase-index state
+  ## on SimServer, so there is nothing else to keep in sync or hash.
+  ##
+  ## Walks the phases in order: each holds the PREVIOUS rect (phase 0's
+  ## previous is the implicit full-scale z=1.0 rect) for `waitTicks`, then
+  ## linearly interpolates into its own target over `shrinkTicks`. Once every
+  ## phase's wait+shrink has elapsed, the rect holds at the LAST phase's
+  ## target forever and `next` == `cur` (nothing left to pre-rotate toward).
+  ## Callers must not call this with an empty zonePhases (guard first, like
+  ## updateZone/addZoneMarkers do) — the loop below returns the implicit
+  ## full-field rect with dps=0 in that case, which is harmless but pointless
+  ## work.
+  var
+    previousPermille = 1000
+    t = max(0, elapsedTicks)
+  for phase in sim.config.zonePhases:
+    if t < phase.waitTicks:
+      return (
+        sim.zoneRectAtScale(previousPermille),
+        sim.zoneRectAtScale(phase.zPermille),
+        phase.dps
+      )
+    t -= phase.waitTicks
+    let target = sim.zoneRectAtScale(phase.zPermille)
+    if t < phase.shrinkTicks or phase.shrinkTicks <= 0:
+      if phase.shrinkTicks <= 0:
+        return (target, target, phase.dps)
+      let
+        prevRect = sim.zoneRectAtScale(previousPermille)
+        tShrink = min(t + 1, phase.shrinkTicks)
+        cur = MapRect(
+          x: lerpInt(prevRect.x, target.x, tShrink, phase.shrinkTicks),
+          y: lerpInt(prevRect.y, target.y, tShrink, phase.shrinkTicks),
+          w: lerpInt(prevRect.w, target.w, tShrink, phase.shrinkTicks),
+          h: lerpInt(prevRect.h, target.h, tShrink, phase.shrinkTicks)
+        )
+      return (cur, target, phase.dps)
+    t -= phase.shrinkTicks
+    previousPermille = phase.zPermille
+  let final = sim.zoneRectAtScale(previousPermille)
+  let lastDps = if sim.config.zonePhases.len > 0: sim.config.zonePhases[^1].dps
+    else: 0
+  (final, final, lastDps)
+
+proc updateZone*(sim: var SimServer) =
+  ## One tick of the battle-royale shrink-zone hazard (§4.3): a player whose
+  ## center has stood OUTSIDE the current zone rect for a full second
+  ## (ZoneDamageRollTicks — the same per-second cadence updatePuddles uses)
+  ## takes the active phase's `dps` hit points, exactly — no RNG roll, since
+  ## dps is an authored RATE rather than a chance (unlike puddleDamagePct).
+  ## Dipping back inside (or dying) restarts the second, exactly like
+  ## puddleTicks. A no-op — no RNG draw, no state read beyond the config
+  ## length check — when zonePhases is empty, so an unconfigured game is
+  ## untouched.
+  if sim.config.zonePhases.len == 0 or sim.phase != Playing:
+    return
+  let (rect, _, dps) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive:
+      sim.players[i].zoneOutsideTicks = 0
+      continue
+    let
+      px = sim.players[i].x + CollisionW div 2
+      py = sim.players[i].y + CollisionH div 2
+      inside = px >= rect.x and px <= rect.x + rect.w - 1 and
+        py >= rect.y and py <= rect.y + rect.h - 1
+    if inside:
+      sim.players[i].zoneOutsideTicks = 0
+      continue
+    inc sim.players[i].zoneOutsideTicks
+    if sim.players[i].zoneOutsideTicks < ZoneDamageRollTicks:
+      continue
+    sim.players[i].zoneOutsideTicks = 0
+    if dps <= 0:
+      continue
+    let
+      bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
+      blocked = sim.absorbDamage(i, dps)
+    # Zone paint marks the body the same way puddle/weapon paint does —
+    # unless the shield bubble ate the hit.
+    if not bubbleUp:
+      sim.players[i].paintHitTick = sim.tickCount
+    sim.emitEvent(
+      Damage, source = -1, target = i, weapon = "zone",
+      amount = dps, hp = max(0, sim.players[i].hp),
+      blocked = blocked,
+      x = float(px), y = float(py)
+    )
+    # A floating "-N" rises from the victim so the hazard's bite reads at a
+    # glance (cosmetic only, never in gameHash) — same idiom as the puddle
+    # roll above.
+    sim.damagePops.add DamageFx(
+      x: px, y: py,
+      tick: sim.tickCount,
+      amount: dps,
+      color: sim.players[i].color
+    )
+    if sim.players[i].hp <= 0:
+      sim.killPlayer(i, -1, cause = "caught outside the zone")
+
 proc launchBarrageShell(sim: var SimServer) =
   ## Launches one environment grenade: the landing point is drawn from the
   ## deterministic sim RNG inside the current target band (within
@@ -3774,8 +3952,11 @@ proc step*(
   sim.respawnPlayers()
   sim.updatePackTicks()
   # Puddle damage resolves after movement and pickups, before the win check,
-  # so a lethal roll feeds the same tick's wipe resolution.
+  # so a lethal roll feeds the same tick's wipe resolution. The shrink zone
+  # (config-gated, empty by default) resolves right alongside it, for the
+  # same reason.
   sim.updatePuddles()
+  sim.updateZone()
   sim.updateBarrage()
 
   sim.checkWinCondition()

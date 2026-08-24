@@ -537,6 +537,21 @@ const
   ## policy reads the escalation without inferring it from shell traffic.
   BarrageMarkerSpriteId* = 35200 ## in the stain/diamond-paint gap.
   BarrageMarkerObjectId* = 36300 ## in the trench-marker/damage-pop gap.
+  ## --- Battle-royale shrink-zone hazard (BOARD + POV, config-gated) ---
+  ## Two invisible 1x1 stated markers per stream (the CURRENT rect and the
+  ## NEXT/target rect — see LabelPrefixZone / LabelPrefixZoneNext), plus a
+  ## minimal VISIBLE cosmetic band tracing the current rect's border (four
+  ## flat bars; the fancy paint-tide art is a later pass — see
+  ## docs/designs/BR_MAPGEN.md §4.3). Same numeric value on the object and
+  ## sprite side, like the puddle-marker pair above. The sprite-side
+  ## endzone-fade band pool (EndzoneFadeSpriteBase, 36600..38647) and the
+  ## object-side one (EndzoneFadeObjectBase, 39700..39955) leave no single
+  ## gap free on BOTH sides below them, so this sits just above the higher
+  ## of the two ceilings instead, with the u16/DynamicSpriteWireBase
+  ## ceiling (40000) proven by the static audit right below.
+  ZoneMarkerBase* = 39960
+  ZoneMarkerCount* = 6         ## 0=zone label, 1=zonenext label,
+                               ## 2..5=edge bars (top, bottom, left, right).
   DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
                                ## color×bucket×stage: 31000..31255 (above tracers).
                                ## The bucket is NOT amount-1: the amounts in
@@ -846,6 +861,7 @@ const
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
     ("barrage marker", BarrageMarkerObjectId, 1),
+    ("zone marker", ZoneMarkerBase, ZoneMarkerCount),
   ]
 
 static:
@@ -962,6 +978,7 @@ const
     ("paint stains", StainSpriteBase, StainMaxCount),
     ("barrage marker", BarrageMarkerSpriteId, 1),
     ("diamond paint", DiamondPaintSpriteBase, 8 * 16),
+    ("zone marker", ZoneMarkerBase, ZoneMarkerCount),
   ]
 
 static:
@@ -6323,6 +6340,454 @@ proc addBarrageMarker(
   packet.addBoardObject(
     BarrageMarkerObjectId, 0, 0, 0, MapLayerId, BarrageMarkerSpriteId)
 
+proc addZoneMarkers(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the shrink-zone's two stated markers on this stream whenever the
+  ## mode is configured on: invisible 1x1 objects declaring the CURRENT rect
+  ## and the NEXT (target) rect it is interpolating toward, inclusive map-
+  ## pixel corners (see labelZone/labelZoneNext). Re-sent only on ticks the
+  ## stated numbers actually changed (addBoardSpriteChanged dedup) — same
+  ## idiom as the barrage marker just above, except this one moves nearly
+  ## every tick while a phase is shrinking.
+  if sim.config.zonePhases.len == 0:
+    return
+  let
+    zoneSpriteId = ZoneMarkerBase
+    zoneObjectId = ZoneMarkerBase
+    nextSpriteId = ZoneMarkerBase + 1
+    nextObjectId = ZoneMarkerBase + 1
+    (cur, next, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+  currentIds.add(zoneObjectId)
+  packet.addBoardSpriteChanged(
+    spriteDefs, zoneSpriteId, 1, 1, newRgbaPixels(1, 1),
+    labelZone(cur.x, cur.y, cur.x + cur.w - 1, cur.y + cur.h - 1)
+  )
+  packet.addBoardObject(zoneObjectId, 0, 0, 0, MapLayerId, zoneSpriteId)
+  currentIds.add(nextObjectId)
+  packet.addBoardSpriteChanged(
+    spriteDefs, nextSpriteId, 1, 1, newRgbaPixels(1, 1),
+    labelZoneNext(next.x, next.y, next.x + next.w - 1, next.y + next.h - 1)
+  )
+  packet.addBoardObject(nextObjectId, 0, 0, 0, MapLayerId, nextSpriteId)
+
+const
+  ## The shrink zone's cosmetic edge — SEEPING PAINT, v3 (Maxwell's review:
+  ## the v2 "paint tide" was three concentric bands of FIXED total width
+  ## that visibly TRANSLATED inward as the rect shrank, reading as "a bar
+  ## sliding over the map" rather than paint. v3 instead floods the ENTIRE
+  ## region outside the current rect, all the way out to the map's own
+  ## edges, every tick — see ensureZoneTideCache's bar geometry. Because the
+  ## rect only ever shrinks (zonePhases' z is strictly decreasing —
+  ## sim_config.nim's validate()), a map pixel that is ever outside the
+  ## rect stays outside for the rest of the match, so recomputing "is this
+  ## pixel outside the CURRENT rect" fresh every tick — with NO stored
+  ## per-pixel state — already gives monotone, persistent coverage: once
+  ## painted, always painted. Reuses the puddle hazard's established violet
+  ## paint palette (PuddleRimColor / PuddleFillTint / PuddleGlossTint,
+  ## map_art.nim) so this reads as the SAME paint-hazard language, not a
+  ## fire/electric effect.
+  ##
+  ## Layers, by distance `d` OUTSIDE the rect (see zoneTidePixelColor):
+  ##   1. wet edge   (d < ZoneTideEdgeGlintPx) — a thin, bright glint that
+  ##      pulses toward d=0 over time: the only FIXED-offset layer, a crisp
+  ##      cue right at the true (honest) boundary.
+  ##   2. churning front (d < the LOCAL churn reach) — thick wet-paint
+  ##      blobs, tick-cycled like a stage animation (ZoneTideFrameCount
+  ##      frames, held ZoneTideFrameHoldTicks ticks each). The reach itself
+  ##      is NOT a fixed width: zoneTideFingerOffset adds a per-edge-
+  ##      position organic displacement (two hash octaves — coarse clusters
+  ##      into fingers that push ahead and bays that lag, fine roughens
+  ##      each one), so this boundary reads as tendrils, never an offset
+  ##      rectangle.
+  ##   3. splatter dots — a sparse chance of a small round "advance drip"
+  ##      just past the local churn reach.
+  ##   4. dead paint (everywhere else, out to the bar's edge) — flat,
+  ##      unanimated, matte: ground the tide has already claimed. This is
+  ##      the layer that makes already-eaten territory read as PERSISTENT
+  ##      — it is not capped at a fixed width, so it runs all the way to
+  ##      the actual map border once the rect has shrunk that far.
+  ## Every layer is a pure function of (the current rect, sim.tickCount,
+  ## which edge); nothing here is stored on SimServer, so there is nothing
+  ## new to gameHash or replay-desync.
+  ##
+  ## HONEST BOUNDARY: painted pixels are EXACTLY those with
+  ## distanceOutsideRect(rect, p) > 0 — the true gameplay rect's complement,
+  ## nothing more (never inside the safe rect) and nothing less (the flood
+  ## covers the WHOLE outside region, unbounded, not just a band of it).
+  ## Damage (updateZone) and the labelZone/labelZoneNext markers key off
+  ## that same rect, untouched by any of this cosmetic layer.
+  ZoneTideEdgeGlintPx = 5      ## width of the fixed-offset wet-edge glint.
+  ZoneTideChurnBasePx = 26     ## base churn-front reach PAST the glint,
+                               ## before finger/bay noise is added.
+  ZoneTideFingerAmpPx = 46     ## max +/- px the coarse noise octave pushes
+                               ## the churn front's local reach — fingers
+                               ## push ahead, bays lag. Large relative to
+                               ## ZoneTideChurnBasePx on purpose: a screenshot
+                               ## review of an earlier, smaller amplitude
+                               ## (16px) found the underlying rectangle still
+                               ## traceable through a fairly uniform ring of
+                               ## same-sized churn blobs — this needs to read
+                               ## as the silhouette's dominant shape, not a
+                               ## fine ripple on top of a rectangle.
+  ZoneTideDetailAmpPx = 10     ## max +/- px the fine octave adds on top —
+                               ## roughens each finger/bay's own edge.
+  ZoneTideFingerScale = 260    ## along-edge px per coarse noise cell. The
+                               ## top/bottom bars' along-axis always spans
+                               ## the map's FULL width (they don't shrink
+                               ## with the rect — see ensureZoneTideCache),
+                               ## so this constant alone sets how many
+                               ## fingers those long, visually-dominant
+                               ## edges show for the WHOLE match: a
+                               ## follow-up screenshot review at the
+                               ## smaller 150px cell found mid-match (rect
+                               ## still large) reading as a fairly uniform
+                               ## ripple, because ~1235/150 = 8 cycles
+                               ## fit the top edge regardless of tick. 260
+                               ## drops that to ~5 dominant fingers, close
+                               ## to the few-big-fingers character the late-
+                               ## match small rect already showed (there,
+                               ## the left/right bars' along-axis — which
+                               ## DOES shrink with the rect, to rect.h —
+                               ## drops under one cell and reads as a
+                               ## single big finger per side).
+  ZoneTideDetailScale = 30     ## along-edge px per fine noise cell.
+  ZoneTideChurnReachFloorPx = ZoneTideEdgeGlintPx + 3  ## the local churn
+                               ## reach never drops below this, however
+                               ## negative the finger/detail noise sums —
+                               ## a bay pinches the churn band thin instead
+                               ## of inverting it.
+  ZoneTideSplatterBandPx = 20  ## how far past the local churn reach a
+                               ## splatter dot can land.
+  ZoneTideSplatterCellPx = 14  ## splatter dots are tested on this cell
+                               ## grid so they read as sparse dots, not
+                               ## per-pixel noise.
+  ZoneTideSplatterOdds = 17    ## 1-in-N grid cells hosts a dot.
+
+  ZoneTideBlobPeriod = 28      ## along-axis spacing of the front's blobs.
+  ZoneTideFrameCount = 6       ## distinct churn frames.
+  ZoneTideFrameHoldTicks = 4   ## ticks each churn frame holds (a full
+                               ## 6-frame churn cycle every 24 ticks = 1s
+                               ## at the engine's 24 ticks/sec).
+  ZoneTideShimmerPeriod = 24   ## ticks for one inward glint pulse cycle.
+  ZoneTideShimmerTickScale = 3 ## tick coefficient of the traveling pulse.
+  ZoneTideShimmerDepthScale = 3  ## per-px-of-depth coefficient — together
+                               ## with the tick coefficient this makes the
+                               ## bright glint migrate toward d=0 (the safe
+                               ## edge) as tick increases: an inward crawl.
+
+  ZoneTideDeadColor    = rgba(54, 18, 64, 225)    ## dried, settled paint.
+  ZoneTideFrontBase    = rgba(120, 30, 140, 235)  ## front band's trough tone.
+  ZoneTideFrontBlob    = rgba(178, 60, 202, 245)  ## front band's wet-blob tone.
+  ZoneTideShimmerDim   = rgba(196, 110, 220, 90)  ## glint band, resting.
+  ZoneTideShimmerGlint = rgba(236, 190, 245, 175) ## glint band, lit.
+
+  ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
+                               ## low(int16) + 2), well below players/HUD.
+  ZoneEdgeFxLabelTag = "fx 9c41"  ## deliberately OPAQUE, unlike damagePops'
+                               ## descriptive chrome text: the zone is a new
+                               ## headline mechanic, so its cosmetic art gets
+                               ## a hashed tag rather than a spelled-out
+                               ## label, and a policy grepping for a literal
+                               ## "zone"/"edge"/"tide" string finds nothing
+                               ## here. The real, stable, policy-facing
+                               ## contract is labelZone/labelZoneNext, never
+                               ## this art.
+
+proc zoneTideHash(a, b: int): int {.inline.} =
+  ## A cheap deterministic scramble for COSMETIC jitter only (the churning
+  ## front's blob placement) — never used for gameplay, never mixed into
+  ## gameHash. FNV-1a mixing in UNSIGNED 64-bit space, same idiom as
+  ## sim_state.nim's mixHash: a signed-int version of this overflows
+  ## int64 on realistic map coordinates (a chained multiply-by-~1e9 with
+  ## no wraparound is a checked OverflowDefect on signed ints), and
+  ## unsigned wraparound is exactly what a hash mix wants anyway. Result is
+  ## masked down to a small always-nonnegative range so every caller-side
+  ## shr/mod stays trivially in range.
+  var h = 14695981039346656037'u64
+  h = h xor cast[uint64](int64(a))
+  h *= 1099511628211'u64
+  h = h xor cast[uint64](int64(b))
+  h *= 1099511628211'u64
+  int(h and 0x7FFFFFFF'u64)
+
+proc zoneTideLatticePoint(cell, side, seedMul, ampPx: int): int {.inline.} =
+  ## One value-noise LATTICE point: a deterministic pseudo-random value in
+  ## [-ampPx, ampPx] for a given integer `cell` index on a given `side`'s
+  ## axis. `seedMul` keeps the coarse and fine octaves (and the four sides)
+  ## drawing from independent streams of the same hash.
+  (zoneTideHash(cell, side * seedMul + 1) mod (2 * ampPx + 1)) - ampPx
+
+proc zoneTideFingerOffset(along, side: int): int {.inline.} =
+  ## Deterministic, ALONG-axis-only organic displacement added to the
+  ## churn band's local reach — no tick term, so a given edge keeps a
+  ## stable finger/bay pattern for the whole match (a real paint front's
+  ## texture is terrain-driven, not flickering; all the "advancing" motion
+  ## already comes from the rect shrinking underneath this fixed pattern).
+  ## `side` (0=top, 1=bottom, 2=left, 3=right) seeds each edge independently
+  ## so the four sides don't mirror each other.
+  ##
+  ## Two octaves of 1D VALUE NOISE (linear interpolation between random
+  ## lattice points, integer math — the same lerp idiom as sim.nim's
+  ## lerpInt): a coarse one (wide cells) sets which stretches push outward
+  ## (fingers) vs pull inward (bays); a fine one (narrow cells) roughens
+  ## each stretch's own edge on top of that. An earlier version used the
+  ## per-cell hash as a flat STEP function (constant within a cell, jumping
+  ## at cell boundaries) — a screenshot review found this made a run of
+  ## same-signed cells (a real but small-sample possibility: 4 of 5 coarse
+  ## cells landing negative on one edge was the actual draw for the demo
+  ## replay) read as one long, flat, featureless "uniform ripple" stretch,
+  ## since nothing varied WITHIN that run. Interpolating between lattice
+  ## points instead means the curve is always genuinely rising or falling
+  ## somewhere along a stretch of same-signed cells (it is only flat
+  ## exactly at a cell's own center), so there is no span of the boundary
+  ## without visible large-scale shape.
+  let
+    coarseCell = along div ZoneTideFingerScale
+    coarseFrac = along mod ZoneTideFingerScale
+    c0 = zoneTideLatticePoint(coarseCell, side, 7, ZoneTideFingerAmpPx)
+    c1 = zoneTideLatticePoint(coarseCell + 1, side, 7, ZoneTideFingerAmpPx)
+    coarse = c0 + (c1 - c0) * coarseFrac div ZoneTideFingerScale
+    fineCell = along div ZoneTideDetailScale
+    fineFrac = along mod ZoneTideDetailScale
+    f0 = zoneTideLatticePoint(fineCell, side, 13, ZoneTideDetailAmpPx)
+    f1 = zoneTideLatticePoint(fineCell + 1, side, 13, ZoneTideDetailAmpPx)
+    fine = f0 + (f1 - f0) * fineFrac div ZoneTideDetailScale
+  coarse + fine
+
+proc zoneTideSplatterColor(d, along, localChurnReach, side: int): ColorRGBA {.inline.} =
+  ## A sparse, small round "advance drip" dot on a coarse (along, depth)
+  ## cell grid just past the local churn reach — sitting inside what would
+  ## otherwise be flat dead paint, reading as a fleck the tide already flung
+  ## ahead of itself. Returns fully transparent everywhere except the rare
+  ## grid cell that hosts one; the caller falls through to the flat dead
+  ## color on a transparent result.
+  let
+    fd = d - localChurnReach
+    cellAlong = along div ZoneTideSplatterCellPx
+    cellDepth = fd div ZoneTideSplatterCellPx
+    jitter = zoneTideHash(cellAlong, cellDepth + side * 101)
+  if jitter mod ZoneTideSplatterOdds != 0:
+    return rgba(0, 0, 0, 0)
+  let
+    dotAlong = cellAlong * ZoneTideSplatterCellPx +
+      ((jitter shr 6) mod ZoneTideSplatterCellPx)
+    dotDepth = cellDepth * ZoneTideSplatterCellPx +
+      ((jitter shr 14) mod ZoneTideSplatterCellPx)
+    dotRadius = 1 + ((jitter shr 22) mod 2)
+    dAlong = along - dotAlong
+    dDepth = fd - dotDepth
+  if dAlong * dAlong + dDepth * dDepth <= dotRadius * dotRadius:
+    ZoneTideFrontBlob
+  else:
+    rgba(0, 0, 0, 0)
+
+proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
+  ## Returns one tide pixel's color at rectangular (Chebyshev) distance `d`
+  ## OUTSIDE the current zone rect (0 = the pixel row/column touching the
+  ## border), `along`-axis position `along` (map x for a top/bottom bar,
+  ## map y for a left/right one — see buildTideBarPixels), and `side`
+  ## (which of the four edges this pixel is on, for independent per-edge
+  ## finger/splatter patterns). `tick` drives every animated term; nothing
+  ## else does. See the const block above for the four-layer design.
+  if d < ZoneTideEdgeGlintPx:
+    # Wet edge: a bright pulse that migrates from the churn front toward
+    # the safe interior (d=0) as tick advances — motion pointed AT the
+    # collapsing direction. Confined to a few px so it never itself reads
+    # as a translating band; only this innermost strip sits at a fixed
+    # offset from the rect.
+    let phase = (
+      (tick * ZoneTideShimmerTickScale + d * ZoneTideShimmerDepthScale) mod
+        ZoneTideShimmerPeriod + ZoneTideShimmerPeriod
+    ) mod ZoneTideShimmerPeriod
+    return (
+      if phase < ZoneTideShimmerPeriod div 3: ZoneTideShimmerGlint
+      else: ZoneTideShimmerDim
+    )
+  let localChurnReach = max(
+    ZoneTideChurnReachFloorPx,
+    ZoneTideEdgeGlintPx + ZoneTideChurnBasePx +
+      zoneTideFingerOffset(along, side)
+  )
+  if d < localChurnReach:
+    # Churning front: wet-paint blobs on a per-cell grid, jittered by a
+    # tick-cycled frame index so the front visibly churns without ever
+    # reading wall-clock time — the house "stage" idiom (see addDamagePops)
+    # applied to a continuous hazard instead of a one-shot event. The
+    # front's OUTER edge (localChurnReach) wanders with along/side per
+    # zoneTideFingerOffset, so this never reads as a uniform-width ring.
+    let
+      fd = d - ZoneTideEdgeGlintPx
+      frame = (tick div ZoneTideFrameHoldTicks) mod ZoneTideFrameCount
+      cell = along div ZoneTideBlobPeriod
+      jitter = zoneTideHash(cell, frame + side * 31)
+      # The blob tracks the LOCAL churn depth (localChurnReach), not a
+      # fixed offset: a long finger's blob sits out near its own tip and
+      # scales up with it, so a deep finger reads as a bigger wet patch
+      # reaching further, not a small fixed bubble near the rect edge with
+      # a flat, featureless trough color filling the rest of the finger.
+      reachFd = localChurnReach - ZoneTideEdgeGlintPx
+      blobAlong = cell * ZoneTideBlobPeriod + ZoneTideBlobPeriod div 2 +
+        (((jitter shr 4) mod 9) - 4)
+      blobDepth = reachFd div 2 + (((jitter shr 12) mod 5) - 2)
+      blobRadius = max(6, reachFd div 3) + ((jitter shr 20) mod 3)
+      dAlong = along - blobAlong
+      dDepth = fd - blobDepth
+    return (
+      if dAlong * dAlong + dDepth * dDepth <= blobRadius * blobRadius:
+        ZoneTideFrontBlob
+      else:
+        ZoneTideFrontBase
+    )
+  if d < localChurnReach + ZoneTideSplatterBandPx:
+    let dot = zoneTideSplatterColor(d, along, localChurnReach, side)
+    if dot.a > 0:
+      return dot
+  # Settled dead paint: flat and unanimated, all the way to the bar's own
+  # edge (the map border) — NOT capped at a fixed width, which is what
+  # makes already-eaten ground stay visibly painted instead of reverting
+  # to bare canvas once the churn front has moved on.
+  ZoneTideDeadColor
+
+proc distanceOutsideRect(rect: MapRect, px, py: int): int {.inline.} =
+  ## Rectangular (Chebyshev) distance of map point (px, py) outside `rect`:
+  ## 0 for any point on or inside the border, growing outward on whichever
+  ## axis (or both, in a corner) is furthest past it. This is what makes
+  ## the tide's three layers read as clean CONCENTRIC rectangles all the
+  ## way around, corners included, from one shared distance function.
+  let
+    dx = max(0, max(rect.x - px, px - (rect.x + rect.w - 1)))
+    dy = max(0, max(rect.y - py, py - (rect.y + rect.h - 1)))
+  max(dx, dy)
+
+proc buildTideBarPixels(
+  rect: MapRect, barX, barY, width, height, tick, side: int, alongIsX: bool
+): seq[uint8] =
+  ## Builds one edge bar's RGBA buffer by evaluating zoneTidePixelColor at
+  ## every pixel's true distance outside `rect` (distanceOutsideRect) and
+  ## an along-edge coordinate — map x for the top/bottom bars, map y for
+  ## the left/right ones. `alongIsX` is passed explicitly by the caller
+  ## rather than inferred from width/height: a left/right bar's width is
+  ## no longer capped at a small fixed band (see ensureZoneTideCache), so
+  ## it can exceed its own height, and an inferred guess would then pick
+  ## the wrong axis and run the churn texture sideways. A pixel with d <= 0
+  ## (inside the rect — should not happen given how the four bars are
+  ## placed, each spanning exactly the strip strictly outside the rect on
+  ## its side, but cosmetic code stays defensive) is left fully
+  ## transparent.
+  result = newRgbaPixels(width, height)
+  for ly in 0 ..< height:
+    let py = barY + ly
+    for lx in 0 ..< width:
+      let
+        px = barX + lx
+        d = distanceOutsideRect(rect, px, py)
+      if d <= 0:
+        continue
+      let
+        along = if alongIsX: px else: py
+        color = zoneTidePixelColor(d - 1, along, tick, side)
+      result.putRawRgbaPixel(ly * width + lx, color.r, color.g, color.b, color.a)
+
+var
+  ZoneTideCacheKey: tuple[tick, cx, cy, x, y, w, h: int] = (
+    low(int), 0, 0, 0, 0, 0, 0)
+  ZoneTideCachePixels: array[4, seq[uint8]]  ## top, bottom, left, right.
+  ZoneTideCacheGeom: array[4, tuple[x, y, w, h: int]]
+
+proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
+  ## Rebuilds the four tide-bar pixel buffers ONCE per (tick, center, rect)
+  ## and caches them at module scope — addZoneEdgeBand runs once per
+  ## CONNECTED VIEWER per tick (board stream plus every player stream), and
+  ## without this cache each of those calls would redo the same flood-fill
+  ## computation. Same pattern as EndzoneStripCache/EndzoneColdRgba above:
+  ## process-local cosmetic cache, never gameHash, never SimServer state.
+  ## Keyed on the rect itself (not just tick) so a fresh game's re-drawn
+  ## zoneCenter — or a stale cache from a PRIOR game reusing the same raw
+  ## tick number — can never serve a wrong frame.
+  ##
+  ## Each bar spans EXACTLY the strip strictly outside the current rect on
+  ## its side, all the way to the map's own edge — the top/bottom bars run
+  ## the map's full width (including the corners, like the v2 band did);
+  ## the left/right bars are sandwiched to the rect's own height so the
+  ## four strips exactly tile the rect's complement with no overlap and no
+  ## gap, however far the rect has shrunk. This — not any per-pixel
+  ## formula — is what makes the flood cover "at least everything outside
+  ## the rect": the bars ARE that region, unbounded. `max(0, ...)` clamps
+  ## any bar an off-center EARLY-phase rect would otherwise push off-board
+  ## (see resetZone's doc: only the FINAL phase's rect is guaranteed
+  ## on-board) down to an empty, harmless strip instead of a negative size.
+  ##
+  ## Despite covering up to the ENTIRE map (worst case: the final phase's
+  ## small rect leaves ~all of a 1235x659 board "outside"), this stays
+  ## cheap on the wire — the flood is almost all flat, identical-byte-run
+  ## dead paint, which the sprite channel's snappy compression crushes by
+  ## roughly 20x (measured: a 1235x600 worst-case bar's ~2.9 MB raw RGBA
+  ## compresses to ~136 KB), well inside the hosted replay's 1 MiB
+  ## WebSocket frame cap that forces the full map bake into bands (see
+  ## MapBandHeight above) — this cosmetic layer does not need that
+  ## treatment.
+  let key = (
+    sim.tickCount, sim.zoneCenter.x, sim.zoneCenter.y,
+    rect.x, rect.y, rect.w, rect.h
+  )
+  if key == ZoneTideCacheKey:
+    return
+  ZoneTideCacheKey = key
+  let
+    mapW = sim.gameMap.width
+    mapH = sim.gameMap.height
+    bars = [
+      (x: 0, y: 0, w: mapW, h: max(0, rect.y), alongIsX: true),        # top
+      (x: 0, y: rect.y + rect.h, w: mapW,
+        h: max(0, mapH - (rect.y + rect.h)), alongIsX: true),          # bottom
+      (x: 0, y: rect.y, w: max(0, rect.x), h: rect.h, alongIsX: false), # left
+      (x: rect.x + rect.w, y: rect.y, w: max(0, mapW - (rect.x + rect.w)),
+        h: rect.h, alongIsX: false),                                   # right
+    ]
+  for i, bar in bars:
+    ZoneTideCacheGeom[i] = (x: bar.x, y: bar.y, w: bar.w, h: bar.h)
+    ZoneTideCachePixels[i] =
+      if bar.w <= 0 or bar.h <= 0:
+        @[]
+      else:
+        buildTideBarPixels(
+          rect, bar.x, bar.y, bar.w, bar.h, sim.tickCount, i, bar.alongIsX)
+
+proc addZoneEdgeBand(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## The closing zone's cosmetic edge (docs/designs/BR_MAPGEN.md §4.3): a
+  ## seeping paint flood covering the map from its own edges in to the
+  ## CURRENT rect's border — see the const block above for the layer
+  ## design. Rendered on both streams so the boundary is visible without
+  ## parsing the label markers. A bar with zero extent (the rect currently
+  ## touches or exceeds that side of the map) is skipped rather than
+  ## emitted as a degenerate empty sprite.
+  if sim.config.zonePhases.len == 0:
+    return
+  let (rect, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+  ensureZoneTideCache(sim, rect)
+  for i in 0 ..< 4:
+    let (bx, by, w, h) = ZoneTideCacheGeom[i]
+    if w <= 0 or h <= 0:
+      continue
+    let
+      spriteId = ZoneMarkerBase + 2 + i
+      objectId = ZoneMarkerBase + 2 + i
+    currentIds.add(objectId)
+    packet.addBoardSpriteChanged(
+      spriteDefs, spriteId, w, h, ZoneTideCachePixels[i],
+      ZoneEdgeFxLabelTag & " " & $i, changed = true
+    )
+    packet.addBoardObject(objectId, bx, by, ZoneEdgeBandZ, MapLayerId, spriteId)
+
 proc damagePopBucket(amount: int): int =
   ## Maps a "-N" pop's HP-loss amount to one of DamagePopBucketCount sprite
   ## buckets. The amounts actually in play are sparse (1 shot/grenade-splash,
@@ -6580,6 +7045,10 @@ proc buildSpriteProtocolPlayerUpdates*(
     # The grenade-barrage stated marker: endgame escalation is world
     # knowledge every player viewer (bots included) reads outright.
     sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
+    # The shrink zone's stated markers + cosmetic edge band: same rule —
+    # the closing boundary is world knowledge, not fog-gated intel.
+    sim.addZoneMarkers(nextState.spriteDefs, currentIds, result)
+    sim.addZoneEdgeBand(nextState.spriteDefs, currentIds, result)
 
     sim.addAimIndicators(
       nextState.spriteDefs,
@@ -7505,6 +7974,8 @@ proc buildSpriteProtocolUpdates*(
   # intentionally NOT tracked in currentIds, so it persists like the map bands.
   sim.addPaintStains(nextState, result)
   sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
+  sim.addZoneMarkers(nextState.spriteDefs, currentIds, result)
+  sim.addZoneEdgeBand(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
