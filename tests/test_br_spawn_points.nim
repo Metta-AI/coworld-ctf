@@ -158,25 +158,20 @@ suite "BR N-point spawn subsystem":
 
   test "validator: a spawn point must be on-board":
     var node = parseJson(fourTeamSpec())
-    var pts = node["spawnPoints"]
-    pts[0] = %*[-5, 150]
-    node["spawnPoints"] = pts
+    node["spawnPoints"].elems[0] = %*[-5, 150]
     expect CtfError:
       discard mapFromSpecJson($node)
 
   test "validator: a spawn pocket must fit fully on the board":
     var node = parseJson(fourTeamSpec())
-    var pts = node["spawnPoints"]
-    pts[0] = %*[10, 150]   # SpawnClear=40 -> pocket runs to x=-30, off-board
-    node["spawnPoints"] = pts
+    node["spawnPoints"].elems[0] = %*[10, 150]  # SpawnClear=40 -> pocket runs
+                                                  # to x=-30, off-board
     expect CtfError:
       discard mapFromSpecJson($node)
 
   test "validator: overlapping spawn pockets are rejected":
     var node = parseJson(fourTeamSpec())
-    var pts = node["spawnPoints"]
-    pts[1] = pts[0]   # exact duplicate -> pockets fully overlap
-    node["spawnPoints"] = pts
+    node["spawnPoints"].elems[1] = node["spawnPoints"].elems[0]  # duplicate
     expect CtfError:
       discard mapFromSpecJson($node)
 
@@ -252,12 +247,16 @@ suite "BR N-point spawn subsystem":
       let (ex, ey) = ExpectedJoinOrderSpawn[i]
       check sim.players[i].x == ex
       check sim.players[i].y == ey
-    ## Steps to a normal (non-capture) finish: no flag can ever be captured
-    ## (proven above), so only the lives/time-limit path can end this
-    ## episode — run long enough to prove nothing crashes or hangs on the
-    ## capture path that no longer applies.
+    ## Steps a long stretch of the episode uneventfully: no flag can ever be
+    ## captured (proven above), so checkWinCondition's capture branch stays
+    ## permanently inert, and only the lives/time-limit path remains live to
+    ## end this episode eventually. Run enough ticks to prove nothing crashes
+    ## or hangs on the capture path that no longer applies; this does not by
+    ## itself run the match to completion (idle bots standing at spawn never
+    ## trigger a wipe or the full time limit).
     let inputs = sim.none()
     for tick in 0 ..< 300:
       sim.step(inputs, inputs)
+    check sim.phase == Playing        ## still a normal, un-crashed episode.
     check sim.lastCaptureTeam == Red  ## default zero-value: never assigned.
     check sim.lastCaptureTick == -1   ## never set — no capture ever fired.
