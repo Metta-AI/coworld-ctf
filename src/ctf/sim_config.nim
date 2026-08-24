@@ -53,7 +53,8 @@ proc defaultGameConfig*(): GameConfig =
     barrageStartPerSec: BarrageStartPerSec,
     barrageStartSec: BarrageStartSec,
     barrageSaturateSec: BarrageSaturateSec,
-    brMode: false
+    brMode: false,
+    zonePhases: @[]
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -496,6 +497,63 @@ proc readConfigHandicaps(node: JsonNode, config: var GameConfig) =
     config.handicaps[readTeamKey(teamName, "handicaps")] =
       readHandicapPermille(value, teamName)
 
+proc readZonePhaseZ(item: JsonNode, index: int): int =
+  ## Reads one required zonePhases[index].z scale, authored 0.0..1.0 like a
+  ## handicap fraction, and returns it as a permille (1..1000) so every
+  ## in-sim derivation (zoneRectAtScale) stays integer-only.
+  if not item.hasKey("z"):
+    raise newException(
+      CtfError, "Config field zonePhases[" & $index & "].z is required.")
+  let value = item["z"]
+  var f: float
+  case value.kind
+  of JFloat:
+    f = value.getFloat()
+  of JInt:
+    f = float(value.getInt())
+  else:
+    raise newException(
+      CtfError, "Config field zonePhases[" & $index & "].z must be a number.")
+  if f <= 0.0 or f > 1.0:
+    raise newException(
+      CtfError,
+      "Config field zonePhases[" & $index &
+        "].z must be greater than 0 and at most 1."
+    )
+  int(f * 1000.0 + 0.5)
+
+proc readConfigZonePhases(node: JsonNode, config: var GameConfig) =
+  ## Reads the optional battle-royale shrink-zone schedule (§4.3), e.g.
+  ## {"zonePhases": [
+  ##   {"z": 0.75, "waitTicks": 240, "shrinkTicks": 120, "dps": 1}, ...
+  ## ]}. Omitted (the default, an empty seq) is the mode OFF — no center
+  ## draw, no rect, no damage, no label markers, byte-identical to an
+  ## engine without the field. `z` is required per entry; `waitTicks` /
+  ## `shrinkTicks` / `dps` default to 0 when omitted. Schedule sanity (z
+  ## strictly decreasing phase over phase, in range) is checked in
+  ## validate() below, once the whole seq is parsed.
+  if not node.hasKey("zonePhases"):
+    return
+  let items = node["zonePhases"]
+  if items.kind != JArray:
+    raise newException(CtfError, "Config field zonePhases must be an array.")
+  if items.len > MaxZonePhases:
+    raise newException(
+      CtfError,
+      "Config field zonePhases cannot have more than " & $MaxZonePhases &
+        " entries."
+    )
+  config.zonePhases.setLen(0)
+  for i, item in items.elems:
+    if item.kind != JObject:
+      raise newException(
+        CtfError, "Config field zonePhases[" & $i & "] must be an object.")
+    var phase = ZonePhase(zPermille: item.readZonePhaseZ(i))
+    item.readConfigInt("waitTicks", phase.waitTicks)
+    item.readConfigInt("shrinkTicks", phase.shrinkTicks)
+    item.readConfigInt("dps", phase.dps)
+    config.zonePhases.add(phase)
+
 proc validate(config: GameConfig) =
   ## Raises if a gameplay config has invalid values.
   if config.motionScale <= 0:
@@ -581,6 +639,39 @@ proc validate(config: GameConfig) =
     if config.barrageSaturateSec < 1:
       raise newException(
         CtfError, "Config field barrageSaturateSec must be at least 1.")
+  # Shrink-zone schedule sanity (§4.3): z must fall STRICTLY across phases —
+  # including the implicit phase-0 scale of 1000 permille (full field) — so
+  # R/G (a group's territory radius in gun-ranges) never ticks back UP mid-
+  # match. zPermille's own (0, 1000] range is already enforced per entry by
+  # readZonePhaseZ; this is the CROSS-entry check that only makes sense once
+  # the whole seq is parsed.
+  var previousZPermille = 1000
+  for i, phase in config.zonePhases:
+    if phase.zPermille >= previousZPermille:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i & "].z (" &
+          $(phase.zPermille.float / 1000.0) &
+          ") must be strictly less than the previous phase's (" &
+          $(previousZPermille.float / 1000.0) & ")."
+      )
+    if phase.waitTicks < 0:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i & "].waitTicks must not be negative."
+      )
+    if phase.shrinkTicks < 0:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i &
+          "].shrinkTicks must not be negative."
+      )
+    if phase.dps < 0:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i & "].dps must not be negative."
+      )
+    previousZPermille = phase.zPermille
   if config.slots.len > MaxPlayers:
     raise newException(CtfError, "Config field slots cannot have more than 8 entries.")
   if config.closedRoster and config.slots.len < config.minPlayers:
@@ -697,6 +788,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigHandicaps(config)
   node.readConfigPerks(config)
   node.readConfigPerkMods(config)
+  node.readConfigZonePhases(config)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
@@ -859,6 +951,20 @@ proc configJson*(config: GameConfig): string =
     node["barrageStartPerSec"] = %config.barrageStartPerSec
     node["barrageStartSec"] = %config.barrageStartSec
     node["barrageSaturateSec"] = %config.barrageSaturateSec
+  # Echo the zone schedule only when configured, so a zone-free game's
+  # replay config stays byte-identical to a build without the field — the
+  # same rule as the barrage echo above. z is echoed back in its authored
+  # 0..1 float form (permille / 1000.0), not the internal permille.
+  if config.zonePhases.len > 0:
+    var zonePhases = newJArray()
+    for phase in config.zonePhases:
+      zonePhases.add(%*{
+        "z": phase.zPermille.float / 1000.0,
+        "waitTicks": phase.waitTicks,
+        "shrinkTicks": phase.shrinkTicks,
+        "dps": phase.dps
+      })
+    node["zonePhases"] = zonePhases
   if config.mapSpec.len > 0:
     node["mapSpec"] = fromJson(config.mapSpec)
   # GVNEXT(elim): echo only when on, so an off (default) game's replay

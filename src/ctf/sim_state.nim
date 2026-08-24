@@ -175,6 +175,15 @@ proc gameHash*(sim: SimServer): uint64 =
   if sim.barrageStartTick >= 0:
     result.mixHashInt(sim.barrageStartTick)
     result.mixHashInt(sim.barrageAccum)
+  # Mixed only when the shrink zone is configured: a zone-free game
+  # contributes nothing here (the barrageStartTick rule), while a configured
+  # one pins its once-drawn center into every replay hash — the rect
+  # trajectory and dps damage are themselves pure functions of this center
+  # plus already-hashed state (tickCount, gameStartTick, player hp/alive),
+  # so nothing else needs mixing in.
+  if sim.config.zonePhases.len > 0:
+    result.mixHashInt(sim.zoneCenter.x)
+    result.mixHashInt(sim.zoneCenter.y)
   result.mixHashBool(sim.isDraw)
   result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)

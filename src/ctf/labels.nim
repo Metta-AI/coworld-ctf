@@ -235,6 +235,28 @@ const
     ## movement or fire and never blocks shots or vision. Absent entirely on
     ## 4-team maps and on any map without puddles (the default) — zero
     ## markers, not an empty-box marker. See `labelPuddle` for the tail arity.
+  LabelPrefixZone* = "zone "
+    ## The config-gated battle-royale shrink zone's CURRENT rect,
+    ## `zone <x0>,<y0> <x1>,<y1>`: an invisible 1x1 object stating the
+    ## zone's live bounding box outright, in inclusive map pixels — same
+    ## tail contract as the trench/puddle markers above. Re-emitted (and
+    ## re-sent) every frame the numbers actually change, since — unlike a
+    ## trench or puddle — the rect moves continuously as the zone shrinks.
+    ## Standing outside it deals that phase's `dps` per full second of
+    ## continuous exposure (the puddle-hazard cadence; see
+    ## ZoneDamageRollTicks). Absent entirely when `zonePhases` is empty (the
+    ## default) — zero markers, not a full-map box. See `labelZone` for the
+    ## tail arity, and `LabelPrefixZoneNext` for the rect it is heading
+    ## toward.
+  LabelPrefixZoneNext* = "zonenext "
+    ## The shrink zone's NEXT (target) rect, `zonenext <x0>,<y0> <x1>,<y1>`:
+    ## same grammar and cadence as `LabelPrefixZone`, but stating where the
+    ## CURRENT rect is interpolating to — the phase's held rect during a
+    ## wait, or that phase's target during a shrink — so a policy can
+    ## pre-rotate toward the next safe area before the boundary arrives.
+    ## Once every configured phase has resolved, this equals the current
+    ## rect (nothing left to move toward). Absent under the same conditions
+    ## as `LabelPrefixZone`. See `labelZoneNext` for the tail arity.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -415,6 +437,25 @@ proc labelPuddle*(x0, y0, x1, y1: int): string =
   ## corner splitting once more on the comma; the corners are the INCLUSIVE
   ## bounding box of the puddle in map pixels.
   LabelPrefixPuddle & $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelZone*(x0, y0, x1, y1: int): string =
+  ## The shrink zone's CURRENT-rect marker label,
+  ## `zone <x0>,<y0> <x1>,<y1>`. Same tail contract as `labelTrench`/
+  ## `labelPuddle`: the tail splits on spaces into exactly
+  ## `["<x0>,<y0>", "<x1>,<y1>"]`, each corner splitting once more on the
+  ## comma; the corners are the INCLUSIVE bounding box of the live zone rect
+  ## in map pixels. May extend past the map's own [0, width) x [0, height)
+  ## range during an early (large) phase — see zoneRectAtScale — so a
+  ## consumer should compare its own position against the corners directly
+  ## rather than assume they are always on-board.
+  LabelPrefixZone & $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelZoneNext*(x0, y0, x1, y1: int): string =
+  ## The shrink zone's NEXT (target) rect marker label,
+  ## `zonenext <x0>,<y0> <x1>,<y1>` — identical tail grammar to `labelZone`,
+  ## stating where the current rect is interpolating toward so a policy can
+  ## pre-rotate before the boundary arrives.
+  LabelPrefixZoneNext & $x0 & "," & $y0 & " " & $x1 & "," & $y1
 
 proc labelBarrage*(depth, perSec, startSec, saturateSec: int): string =
   ## The grenade-barrage marker label,
