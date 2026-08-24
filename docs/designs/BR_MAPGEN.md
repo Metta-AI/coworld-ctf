@@ -177,15 +177,25 @@ colossal, and it avoids colossal's known wire problems (8 of 20 colossal seeds
 measured 65,555-73,549 bytes against the uint16 mapSpec ceiling, and map art
 degrades on the largest boards). Gameplay shape is identical either way.
 
-### 4.2 Ring spawn: 16 points equally spaced on an inset rectangle
-The ring is an inset rectangle of the field's own aspect at **k = 0.85**, with
-the 16 spawns equally spaced by arc length along its perimeter. Spacing is
-k(W+H)/8, which lands at **1.58 G** — also scale-invariant, and comfortably
-outside gun range, so a group must close ~1/3 of the gap to reach its nearest
-neighbour. k is bounded: k=1.0 puts spawns on the map edge (1.86 G) and below
-k~0.8 the ring tightens inside gun range. This gives positional fairness for
-arbitrary N without needing C_N obstacle symmetry — which does not exist and
-which the W1b-v2 ruling would not credit anyway. **BLOCKED — see §6.1.**
+### 4.2 Spawns are a JITTERED GRID — and spawn areas are NOT kept empty
+**(Maxwell's rulings, 2026-08-24, superseding the ring-spawn derivation that
+stood here.)** Three rules:
+
+1. **Spawns sit on a jittered grid across the WHOLE field** (16 groups ->
+   a 4x4 grid, jittered within cells, minimum separation enforced), not on a
+   perimeter ring. The ring was solving rotational fairness geometrically;
+   fairness is measured per spawn (§3.1), so the geometry constraint buys
+   nothing and starves the field edges of structure.
+2. **No spawn keep-away. "We banned that."** Spawn points need to BE on
+   walkable floor and nothing more; structures may stand immediately
+   adjacent — a spawn in a compound's yard is a feature (a landing site),
+   not a violation. The pocket carve is only the tiny floor a duo occupies
+   (~70px, unscaled — a duo is 2 bodies), never a placement exclusion zone
+   for terrain. Every prior round's mid-band clustering traced to
+   keep-away radii; the rule itself was the bug.
+3. **The exit rule (§4.5) still binds at spawns**: a spawn adjacent to
+   structure must still have >=2 ways out. That is the fairness floor for
+   spawn-adjacent terrain — not emptiness.
 
 ### 4.3 The zone is a RECTANGLE of the stock aspect, on a drawn center
 
@@ -263,6 +273,16 @@ shrink exists precisely to punish camping. The `interiorFrac` lever
 (subdivide the largest room) applies harder here than in CTF.
 
 ---
+
+### 4.7 Density is UNIFORM across the field (Maxwell's ruling)
+"For battle royale, the room and obstacle density needs to be roughly
+uniform across the entire map, not focused in the center." No center-heavy
+composition, no major-POI-dominates-the-middle grammar. Structures and
+obstacles place by uniform sampling with minimum separation over the whole
+field; archetype VARIETY provides the distinguishable places, not a density
+hierarchy. Enforced, not aspired: a density-uniformity validator (structure+
+obstacle area per cell of a fine grid within a band of the field mean) is a
+hard gate, the same class as the distribution gate it supersedes.
 
 ## 5. Draw and triage discipline — port the PROCESS, not just the rules
 
