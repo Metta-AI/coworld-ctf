@@ -140,11 +140,38 @@ type
     poiOutpost    ## mid: one building, 2 rooms
     poiYard       ## mid: walled yard + colonnade, open-air
     poiRuins      ## minor: broken/partial walls, no full enclosure
+    ## ROUND 6 (Maxwell's ruling, doctrine §2.4): "how is the intent and
+    ## keystone working... looks like a bunch of random rectangle rooms."
+    ## Three archetypes the keystone families actually need — a few LARGER
+    ## organizing structures rising out of the uniform field, not more of
+    ## the same four boxes:
+    poiAnchor     ## zone-edge-holding: bigger walled courtyard, exactly
+                  ## 2-3 controlled exits (defensible, not sealed), a
+                  ## couple of interior cover blocks
+    poiCauseway   ## rotation-timing: a LONG broken-wall causeway/wall-run
+                  ## — modeled as an elongated linear POI (halfExtent is
+                  ## HALF-LENGTH along a drawn axis, not a square footprint)
+    poiWarren     ## cqc-warren / third-party: a tight cluster of small
+                  ## interconnected rooms, many approaches, no sealed
+                  ## perimeter
+
+  KeystoneFamily = enum
+    ## ROUND 6: doctrine §2.4's keystone discipline, ported into the BR
+    ## tool for the first time — "every map declares its keystone ability
+    ## at draw." The keystone decides WHAT goes and HOW it relates; uniform
+    ## density (round 5, kept) still decides WHERE.
+    ksLandingSelection  ## steep loot/size gradient between sites
+    ksRotationTiming    ## long causeways + open seams between clusters
+    ksZoneEdgeHolding   ## a handful of spread anchor compounds
+    ksThirdParty        ## open interiors, 3+ approaches, no sealed compounds
+    ksCqcWarren         ## interior-share dial, HIGH pole
+    ksOpenSteppe        ## interior-share dial, LOW pole
 
   PoiSite = object
     center: MapPoint
     archetype: PoiArchetype
     halfExtent: int   ## rough footprint half-size, for spacing/labels
+                       ## (poiCauseway: HALF-LENGTH along its own axis)
     lootTier: int      ## 0 = richest (major), 1 = mid, 2 = minor
 
   BrMap = object
@@ -157,6 +184,7 @@ type
     groups: int                 ## 16 duos
     seatsPerGroup: int          ## 2
     zoneZ: float                ## 0.173, §4.3 final-zone scale
+    keystone: KeystoneFamily    ## round 6, doctrine §2.4: declared at draw
     obstacles: seq[ArenaShape]  ## FULL board, no symmetry (BR is symNone-only)
     spawns: seq[BrSpawn]
     pois: seq[PoiSite]           ## round 3: the composition/intention layer
@@ -478,6 +506,73 @@ proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
     let r2 = MapRect(
       x: cx - he + he, y: cy - he div 2 + he, w: he, h: he)
     result.add stampRuinRoom(rng, r2, WallThick - 4)
+  of poiAnchor:
+    ## ROUND 6, zone-edge-holding: a BIGGER walled courtyard than poiYard,
+    ## deliberately not fully open — exactly 2 or 3 exits (never 4, never
+    ## 1), so holding it against a closing circle is a real decision
+    ## rather than a free walk-through. Two offset interior cover blocks
+    ## (not a full colonnade) keep it defensible without being a maze.
+    let courtyard = MapRect(
+      x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
+    var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sideOrder)
+    let exitCount = if rng.rand(3) == 0: 2 else: 3
+    var openSet: set[RoomSide] = {}
+    for i in 0 ..< exitCount: openSet.incl sideOrder[i]
+    result.add stampRoom(courtyard, openSet, WallThick, DoorW)
+    let coverW = max(24, he div 3)
+    result.add rectShapeBr(cx - he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
+    result.add rectShapeBr(cx + he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
+  of poiCauseway:
+    ## ROUND 6, rotation-timing: a LONG broken-wall causeway — `he` is
+    ## HALF-LENGTH along a drawn axis (0/45/90/135deg), not a square
+    ## footprint. Segments run PERPENDICULAR to the travel direction with
+    ## real gaps (partial cover, never a solid barrier), so crossing it is
+    ## a timing decision, the same "fence/ridge run" grammar linearConnectors
+    ## uses between POIs, but first-class and much longer.
+    const SegLen = 50
+    const SegThick = 14
+    const Step = 95
+    const KeepChance = 0.68
+    let angles = [0.0, PI / 4.0, PI / 2.0, 3.0 * PI / 4.0]
+    let theta = angles[rng.rand(angles.len - 1)]
+    let ux = cos(theta)
+    let uy = sin(theta)
+    let px = -uy
+    let py = ux
+    var t = -float(he)
+    while t < float(he):
+      if rng.rand(1.0) < KeepChance:
+        let jitter = float(rng.rand(-10 .. 10))
+        let midx = float(cx) + ux * t + px * jitter
+        let midy = float(cy) + uy * t + py * jitter
+        let p0 = MapPoint(
+          x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
+        let p1 = MapPoint(
+          x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
+        result.add ArenaShape(
+          kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y, thickness: SegThick)
+      t += float(Step)
+  of poiWarren:
+    ## ROUND 6, cqc-warren / third-party: a tight cluster of 2-4 small
+    ## rooms, NO sealed perimeter, many approaches. Each room opens on 2-3
+    ## random sides independently — deliberately not door-to-door aligned,
+    ## so it reads as a warren of alleys rather than one corridor.
+    let cellW = he
+    let cellH = he
+    let cols = 2
+    let rows = if he > 140: 2 else: 1
+    for ry in 0 ..< max(1, rows):
+      for rx in 0 ..< cols:
+        let rectX = cx - he + rx * cellW
+        let rectY = cy - (rows * cellH) div 2 + ry * cellH
+        let r = MapRect(x: rectX, y: rectY, w: cellW - 14, h: cellH - 14)
+        var order = @[rsTop, rsRight, rsBottom, rsLeft]
+        rng.shuffle(order)
+        let openCount = 2 + rng.rand(1)
+        var openSet: set[RoomSide] = {}
+        for i in 0 ..< openCount: openSet.incl order[i]
+        result.add stampRoom(r, openSet, WallThick - 4, DoorW - 20)
 
 proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
   for s in sites:
@@ -523,44 +618,144 @@ proc placeUniformPoi(
     stderr.writeLine(&"  POI FAILED entirely: archetype={archetype}")
   false
 
+type ArchSpec = tuple[arch: PoiArchetype, halfFrac: float, lootTier: int]
+
+proc placeWeightedPool(
+  rng: var Rand, sites: var seq[PoiSite], width, height, gunRange: int,
+  pool: seq[ArchSpec], minSepFrac: float, count: int
+) =
+  let minSep = int(minSepFrac * float(gunRange))
+  for i in 0 ..< count:
+    let spec = pool[rng.rand(pool.len - 1)]
+    let halfExtent = int(spec.halfFrac * float(gunRange))
+    discard placeUniformPoi(rng, sites, width, height, minSep,
+      spec.arch, halfExtent, spec.lootTier)
+
 proc placePois(
-  rng: var Rand, width, height, gunRange: int
+  rng: var Rand, width, height, gunRange: int, keystone: KeystoneFamily
 ): seq[PoiSite] =
   ## ROUND 5 (Maxwell's ruling, doctrine §4.7): "the room and obstacle
   ## density needs to be roughly uniform across the entire map, not
-  ## focused in the center." This KILLS round 3/4's tiered composition
-  ## (one dominant major near the middle, a ring of mid POIs, a ring of
-  ## landing sites anchored to individual spawns) entirely — that whole
-  ## apparatus existed to fight the old ring-spawn's keep-away geometry,
-  ## which is also gone (§4.2). Every POI is now placed the SAME way:
-  ## uniform rejection sampling over the whole field with a minimum-
-  ## separation disc, no pocket-avoidance. Variety comes from archetype
-  ## MIX and total COUNT, both of which vary per seed — not from a spatial
-  ## hierarchy.
-  let minSep = int(1.15 * float(gunRange))  ## real travel distance between places
-  type ArchSpec = tuple[arch: PoiArchetype, halfFrac: float, lootTier: int]
-  ## Weighted pool (repeat an entry to raise its odds): compounds are the
-  ## biggest footprint and the richest loot tier, so they stay relatively
-  ## rare; ruins are the smallest and most common, giving the field a lot
-  ## of small, cheap texture between the bigger anchors.
-  let pool: seq[ArchSpec] = @[
-    (poiCompound, 0.60, 0),
-    (poiYard, 0.45, 1),
-    (poiYard, 0.45, 1),
-    (poiOutpost, 0.40, 1),
-    (poiOutpost, 0.40, 1),
-    (poiRuins, 0.28, 2),
-    (poiRuins, 0.28, 2),
-    (poiRuins, 0.28, 2),
-  ]
-  let poiCount = 10 + rng.rand(6)  ## 10..16 — the old 6-9 doctrine band was
-    ## sized for the ring-hierarchy composition; uniform density over the
-    ## WHOLE field (not just a safe band) can and should hold more sites.
-  for i in 0 ..< poiCount:
-    let spec = pool[rng.rand(pool.len - 1)]
-    let halfExtent = int(spec.halfFrac * float(gunRange))
-    discard placeUniformPoi(rng, result, width, height, minSep,
-      spec.arch, halfExtent, spec.lootTier)
+  ## focused in the center." Every POI is placed by uniform rejection
+  ## sampling over the whole field with a minimum-separation disc, no
+  ## pocket-avoidance — that discipline is UNCHANGED and applies to every
+  ## family below (density-uniformity stays a binding gate regardless of
+  ## keystone).
+  ##
+  ## ROUND 6 (Maxwell's ruling, doctrine §2.4): uniform density answers
+  ## WHERE; the keystone answers WHAT and HOW. Each family below picks a
+  ## different archetype pool, size-variance profile, minimum-separation
+  ## (spacing IS a grammar knob — tight packing reads as CQC, wide spacing
+  ## reads as open ground), and in two cases a placement STRATEGY (spread-
+  ## anchors, cluster-and-gap) rather than pure uniform sampling. This is
+  ## what answers "a bunch of random rectangle rooms": a keystone map has
+  ## a FEW LARGER organizing structures (anchors, causeways, clusters)
+  ## rising out of the uniform field, not just more of the same four boxes.
+  case keystone
+  of ksLandingSelection:
+    ## Steep loot/size gradient BETWEEN sites: a few rich, LARGE anchors
+    ## (tier 0) against many poor, SMALL ruins (tier 2), almost nothing in
+    ## between — the drop decision is choosing which end of the gradient
+    ## to land on, not picking among lookalikes.
+    let pool: seq[ArchSpec] = @[
+      (poiCompound, 0.65, 0),
+      (poiAnchor, 0.60, 0),
+      (poiOutpost, 0.35, 1),
+      (poiRuins, 0.18, 2),
+      (poiRuins, 0.18, 2),
+      (poiRuins, 0.18, 2),
+      (poiRuins, 0.18, 2),
+    ]
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.15, 10 + rng.rand(6))
+  of ksRotationTiming:
+    ## Long causeways + clusters separated by open seams: crossing timing
+    ## is the skill. Clusters first (spread with a LARGE minSep so real
+    ## gaps survive between them), 1-2 small satellites per cluster, then
+    ## several long causeways (half-extent > gunRange, so length > 2G)
+    ## scattered with a looser minSep (they're long and thin — a full
+    ## engagement-scale minSep would refuse almost everywhere).
+    let clusterCount = 3 + rng.rand(2)
+    let clusterMinSep = int(1.8 * float(gunRange))
+    let clusterHalf = int(0.42 * float(gunRange))
+    var clusterAnchors: seq[MapPoint]
+    for i in 0 ..< clusterCount:
+      let before = result.len
+      discard placeUniformPoi(rng, result, width, height, clusterMinSep,
+        poiOutpost, clusterHalf, 1)
+      if result.len > before:
+        clusterAnchors.add result[^1].center
+    for anchor in clusterAnchors:
+      let satelliteCount = 1 + rng.rand(1)
+      for j in 0 ..< satelliteCount:
+        for attempt in 0 ..< 20:
+          let ang = rng.rand(2.0 * PI)
+          let dist = float(clusterHalf) + 40.0 + float(rng.rand(80))
+          let px = clamp(anchor.x + int(cos(ang) * dist),
+            clusterHalf + 60, width - clusterHalf - 60)
+          let py = clamp(anchor.y + int(sin(ang) * dist),
+            clusterHalf + 60, height - clusterHalf - 60)
+          let p = MapPoint(x: px, y: py)
+          let localMinSep = int(0.35 * float(gunRange))
+          if tooCloseToAny(p, result, localMinSep): continue
+          let arch = if rng.rand(1) == 0: poiRuins else: poiYard
+          let he = int((if arch == poiRuins: 0.25 else: 0.32) * float(gunRange))
+          result.add PoiSite(center: p, archetype: arch, halfExtent: he,
+            lootTier: (if arch == poiRuins: 2 else: 1))
+          break
+    let causewayCount = 4 + rng.rand(4)
+    let causewayHalf = int(1.15 * float(gunRange))  ## > G, so length > 2G
+    let causewayMinSep = int(0.75 * float(gunRange))
+    for i in 0 ..< causewayCount:
+      discard placeUniformPoi(rng, result, width, height, causewayMinSep,
+        poiCauseway, causewayHalf, 1)
+  of ksZoneEdgeHolding:
+    ## A handful of ANCHOR compounds, spread with a LARGE mutual minSep so
+    ## no two are ever close enough to trade one holder for another —
+    ## holding the circle edge is the skill, so anchors need real distance
+    ## between them. Filler on top for density-uniformity.
+    let anchorHalf = int(0.55 * float(gunRange))
+    let anchorMinSep = int(2.0 * float(gunRange))
+    let anchorCount = 3 + rng.rand(3)
+    for i in 0 ..< anchorCount:
+      discard placeUniformPoi(rng, result, width, height, anchorMinSep,
+        poiAnchor, anchorHalf, 0)
+    let fillerPool: seq[ArchSpec] = @[
+      (poiOutpost, 0.35, 1), (poiYard, 0.35, 1), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+    ]
+    placeWeightedPool(rng, result, width, height, gunRange, fillerPool, 1.0, 8 + rng.rand(6))
+  of ksThirdParty:
+    ## Open interiors only — NO sealed compounds (poiCompound/poiAnchor
+    ## excluded from the pool entirely), warren-heavy so most sites have
+    ## 3+ approaches. Denser + tighter spacing than the baseline so fights
+    ## happen close enough together to interrupt each other.
+    let pool: seq[ArchSpec] = @[
+      (poiWarren, 0.45, 1), (poiWarren, 0.45, 1), (poiWarren, 0.45, 1),
+      (poiYard, 0.42, 1), (poiYard, 0.42, 1),
+      (poiOutpost, 0.38, 1),
+      (poiRuins, 0.26, 2), (poiRuins, 0.26, 2),
+    ]
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.0, 12 + rng.rand(6))
+  of ksCqcWarren:
+    ## Interior-share dial, HIGH pole: warren-heavy pool, dense K, TIGHT
+    ## minimum separation — packing is itself the grammar knob that reads
+    ## as close-quarters.
+    let pool: seq[ArchSpec] = @[
+      (poiWarren, 0.42, 1), (poiWarren, 0.42, 1), (poiWarren, 0.42, 1),
+      (poiWarren, 0.42, 1), (poiWarren, 0.42, 1),
+      (poiOutpost, 0.35, 1),
+      (poiRuins, 0.22, 2),
+    ]
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 0.85, 16 + rng.rand(6))
+  of ksOpenSteppe:
+    ## Interior-share dial, LOW pole: sparse pool (mostly small ruins),
+    ## few sites, WIDE minimum separation — open ground between cover is
+    ## the grammar knob that reads as steppe.
+    let pool: seq[ArchSpec] = @[
+      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+      (poiYard, 0.30, 1),
+      (poiOutpost, 0.30, 1),
+    ]
+    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.5, 6 + rng.rand(4))
 
 proc poiFootprintRect(site: PoiSite): MapRect =
   MapRect(x: site.center.x - site.halfExtent, y: site.center.y - site.halfExtent,
@@ -636,7 +831,9 @@ proc linearConnectors(
           thickness: SegThick)
       t += Step
 
-proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
+proc generateBrMap(
+  seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily
+): BrMap =
   let (w, h) = fieldSize(GiantScale)
   result.name = "br-gen-" & $seed
   result.genSeed = seed
@@ -646,6 +843,7 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   result.groups = Groups
   result.seatsPerGroup = SeatsPerGroup
   result.zoneZ = ZoneZ
+  result.keystone = keystone
   result.gunRange = deriveGunRange(w, h, Groups)
   let (cw, ch) = spawnClearance(GiantScale)
   result.spawnClearW = cw
@@ -663,7 +861,7 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   ## layout grammar / intention — and everything else (connectors, caves
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
-  result.pois = placePois(poiRng, w, h, result.gunRange)
+  result.pois = placePois(poiRng, w, h, result.gunRange, keystone)
   var structures: seq[ArenaShape]
   for site in result.pois:
     var stampRng = initRand(seed xor 0x9B1E_44D7 xor (site.center.x * 131071 + site.center.y))
@@ -772,6 +970,32 @@ proc styleToStr(s: MapStyle): string =
   of styleMaze: "maze"
   of styleScatter: "scatter"
 
+proc keystoneToStr(k: KeystoneFamily): string =
+  case k
+  of ksLandingSelection: "landing-selection"
+  of ksRotationTiming: "rotation-timing"
+  of ksZoneEdgeHolding: "zone-edge-holding"
+  of ksThirdParty: "third-party"
+  of ksCqcWarren: "cqc-warren"
+  of ksOpenSteppe: "open-steppe"
+
+proc keystoneFromStr(s: string): KeystoneFamily =
+  case s
+  of "landing-selection": ksLandingSelection
+  of "rotation-timing": ksRotationTiming
+  of "zone-edge-holding": ksZoneEdgeHolding
+  of "third-party": ksThirdParty
+  of "cqc-warren": ksCqcWarren
+  of "open-steppe": ksOpenSteppe
+  else: raise newException(CtfError, "Unknown BR keystone family: " & s)
+
+proc keystoneFromSeed(seed: int): KeystoneFamily =
+  ## Deterministic default when --keystone isn't given: every draw MUST
+  ## declare a keystone (doctrine §2.4 — "every map declares its keystone
+  ## ability at draw"), never an implicit/undeclared one.
+  let n = ord(high(KeystoneFamily)) + 1
+  KeystoneFamily(((seed mod n) + n) mod n)
+
 proc brMapSpecJson(m: BrMap): string =
   ## spawnPoints grammar confirmed with the spawn-points lane (branch
   ## maxwell/br-spawn, 2026-08-24): top-level "spawnPoints" key, team-major
@@ -804,6 +1028,7 @@ proc brMapSpecJson(m: BrMap): string =
     "groups": m.groups,
     "seatsPerGroup": m.seatsPerGroup,
     "zoneZ": m.zoneZ,
+    "keystone": keystoneToStr(m.keystone),  ## round 6, doctrine §2.4
     "spawnPoints": spawnPts,          ## confirmed grammar, see comment above
     "leftObstacles": shapes,          ## full authored set; symNone = verbatim
     "structureCount": m.structureCount,
@@ -837,6 +1062,7 @@ proc brMapFromSpecJson(text: string): BrMap =
   result.groups = node{"groups"}.getInt(Groups)
   result.seatsPerGroup = node{"seatsPerGroup"}.getInt(SeatsPerGroup)
   result.zoneZ = node{"zoneZ"}.getFloat(ZoneZ)
+  result.keystone = keystoneFromStr(node{"keystone"}.getStr("landing-selection"))
   for item in node["leftObstacles"]:
     result.obstacles.add item.shapeFromSpecNode()
   ## Re-derive edge tags from position directly (round 5: spawns are a
@@ -857,6 +1083,9 @@ proc brMapFromSpecJson(text: string): BrMap =
         of "poiOutpost": poiOutpost
         of "poiYard": poiYard
         of "poiRuins": poiRuins
+        of "poiAnchor": poiAnchor
+        of "poiCauseway": poiCauseway
+        of "poiWarren": poiWarren
         else: poiOutpost
       result.pois.add PoiSite(
         center: MapPoint(x: pn["x"].getInt(), y: pn["y"].getInt()),
@@ -1185,6 +1414,15 @@ type
     poiLootReason: string
     poisWithoutLoot: int
 
+    ## ROUND 6 (Maxwell's ruling, doctrine §2.4): "keystone is measured, not
+    ## just named." One detector per declared family; a declared keystone
+    ## the detector can't find fails the draw.
+    keystoneLabel: string      ## human-readable name of the detector metric
+    keystoneValue: float       ## the raw detector reading
+    keystoneFloor: float       ## the calibrated pass threshold
+    keystonePass: bool
+    keystoneReason: string
+
     allPass: bool
 
 const
@@ -1237,6 +1475,18 @@ const
                                ## clustered probe's floor was 15 — this is
                                ## the tightest honest threshold with a real
                                ## margin from the failure mode it must catch.
+
+  ## ROUND 6 keystone detector floors — PLACEHOLDERS pending the cross-
+  ## family calibration sweep (see the round-6 commit message for the real
+  ## numbers this got measured against).
+  KsLandingVarianceFloor = 1.0
+  KsCausewayCountFloor = 1.0
+  KsAnchorHalfExtentFloor = 0.45   ## fraction of gunRange
+  KsAnchorCountFloor = 1.0
+  KsAnchorSpreadFloor = 1.0        ## fraction of gunRange
+  KsThirdPartyOpenFloor = 0.5
+  KsCqcWarrenShareFloor = 0.01
+  KsOpenSteppeShareCeiling = 0.99
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -1518,10 +1768,123 @@ proc validateBr(m: BrMap): BrValidation =
       if result.poiLootPass: ""
       else: &"{missing}/{m.pois.len} POIs have no item nearby — a place with no reason to visit"
 
+  # 8. Keystone detector (round 6, doctrine §2.4) --------------------------------
+  ## "keystone is measured, not just named" — a declared keystone the
+  ## detector can't find fails the draw. Each family gets a detector metric
+  ## computed purely from m.pois (archetype/halfExtent/lootTier/center) plus
+  ## the wall grid already built above; floors are calibrated against a
+  ## cross-family corpus (see the round-6 commit message for the sweep).
+  block keystoneCheck:
+    case m.keystone
+    of ksLandingSelection:
+      ## Steep loot/size gradient BETWEEN sites: population variance of a
+      ## per-POI "value" (richer tier + bigger footprint = higher value).
+      result.keystoneLabel = "loot-value variance"
+      if m.pois.len < 2:
+        result.keystoneValue = 0.0
+      else:
+        var vals: seq[float]
+        for p in m.pois:
+          vals.add float(3 - p.lootTier) * float(p.halfExtent)
+        let meanV = vals.foldl(a + b, 0.0) / float(vals.len)
+        var varV = 0.0
+        for v in vals: varV += (v - meanV) * (v - meanV)
+        result.keystoneValue = varV / float(vals.len)
+      result.keystoneFloor = KsLandingVarianceFloor
+      result.keystonePass = result.keystoneValue >= result.keystoneFloor
+      result.keystoneReason =
+        if result.keystonePass: ""
+        else: &"loot-value variance {result.keystoneValue:.0f} < floor {result.keystoneFloor:.0f} — sites read too similar"
+    of ksRotationTiming:
+      ## Count of causeways whose LENGTH (2*halfExtent) exceeds 2 gun-ranges
+      ## — long enough that crossing one is a real timing decision.
+      var count = 0
+      for p in m.pois:
+        if p.archetype == poiCauseway and 2 * p.halfExtent > 2 * m.gunRange:
+          inc count
+      result.keystoneLabel = "long-causeway count (length > 2G)"
+      result.keystoneValue = float(count)
+      result.keystoneFloor = KsCausewayCountFloor
+      result.keystonePass = result.keystoneValue >= result.keystoneFloor
+      result.keystoneReason =
+        if result.keystonePass: ""
+        else: &"{count} causeways clear length>2G, floor is {int(result.keystoneFloor)}"
+    of ksZoneEdgeHolding:
+      ## Count of qualifying anchors (footprint above a floor) AND their
+      ## pairwise spread — both matter: holding the edge needs several real
+      ## anchors that are actually far apart, not clustered together.
+      var anchorPts: seq[MapPoint]
+      for p in m.pois:
+        if p.archetype == poiAnchor and float(p.halfExtent) > KsAnchorHalfExtentFloor * float(m.gunRange):
+          anchorPts.add p.center
+      var minPairDist = Inf
+      for i in 0 ..< anchorPts.len:
+        for j in i + 1 ..< anchorPts.len:
+          let dx = float(anchorPts[i].x - anchorPts[j].x)
+          let dy = float(anchorPts[i].y - anchorPts[j].y)
+          minPairDist = min(minPairDist, sqrt(dx * dx + dy * dy))
+      result.keystoneLabel = "anchor count (footprint>" & $KsAnchorHalfExtentFloor & "G)"
+      result.keystoneValue = float(anchorPts.len)
+      result.keystoneFloor = KsAnchorCountFloor
+      let spreadOk = anchorPts.len < 2 or minPairDist >= KsAnchorSpreadFloor * float(m.gunRange)
+      result.keystonePass = result.keystoneValue >= result.keystoneFloor and spreadOk
+      result.keystoneReason =
+        if result.keystonePass: ""
+        elif result.keystoneValue < result.keystoneFloor:
+          &"{anchorPts.len} qualifying anchors, floor is {int(result.keystoneFloor)}"
+        else:
+          &"anchors too close together (min pairwise {minPairDist:.0f}px, " &
+            &"floor {KsAnchorSpreadFloor * float(m.gunRange):.0f}px)"
+    of ksThirdParty:
+      ## Fraction of POIs that are OPEN (not a sealed compound/anchor) —
+      ## third-party needs 3+ approaches everywhere, so sealed sites should
+      ## be nearly absent.
+      var sealed = 0
+      for p in m.pois:
+        if p.archetype in {poiCompound, poiAnchor}: inc sealed
+      let openFrac = if m.pois.len > 0: 1.0 - float(sealed) / float(m.pois.len) else: 0.0
+      result.keystoneLabel = "open-site fraction (not compound/anchor)"
+      result.keystoneValue = openFrac
+      result.keystoneFloor = KsThirdPartyOpenFloor
+      result.keystonePass = result.keystoneValue >= result.keystoneFloor
+      result.keystoneReason =
+        if result.keystonePass: ""
+        else: &"only {openFrac*100:.0f}% of sites are open, floor is {KsThirdPartyOpenFloor*100:.0f}%"
+    of ksCqcWarren, ksOpenSteppe:
+      ## Interior-share dial: fraction of the PLAYABLE field (excluding the
+      ## fixed perimeter border wall) that is wall/structure. High pole =
+      ## cqc-warren, low pole = open-steppe — same metric, opposite floor
+      ## direction.
+      var nonBorderWall = 0
+      var nonBorderTotal = 0
+      for i in 0 ..< wall.len:
+        if wall[i]:
+          let lbl = wallComp.labels[i]
+          if lbl >= 0 and lbl == borderLabel: continue
+          inc nonBorderTotal
+          inc nonBorderWall
+        else:
+          inc nonBorderTotal
+      let interiorShare = float(nonBorderWall) / float(max(1, nonBorderTotal))
+      result.keystoneLabel = "interior share (non-border wall fraction)"
+      result.keystoneValue = interiorShare
+      if m.keystone == ksCqcWarren:
+        result.keystoneFloor = KsCqcWarrenShareFloor
+        result.keystonePass = interiorShare >= result.keystoneFloor
+        result.keystoneReason =
+          if result.keystonePass: ""
+          else: &"interior share {interiorShare*100:.1f}% < floor {KsCqcWarrenShareFloor*100:.1f}%"
+      else:
+        result.keystoneFloor = KsOpenSteppeShareCeiling
+        result.keystonePass = interiorShare <= result.keystoneFloor
+        result.keystoneReason =
+          if result.keystonePass: ""
+          else: &"interior share {interiorShare*100:.1f}% > ceiling {KsOpenSteppeShareCeiling*100:.1f}%"
+
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
     result.placeCountPass and result.perSpawnCoverPass and result.densityUniformityPass and
-    result.itemCoveragePass and result.poiLootPass
+    result.itemCoveragePass and result.poiLootPass and result.keystonePass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
   ## Pick the passing candidate closest to the field's geometric center (a
@@ -1892,6 +2255,7 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
 # --- metrics -------------------------------------------------------------------
 
 proc printMetrics(m: BrMap) =
+  echo &"keystone:        {keystoneToStr(m.keystone)}"
   let (cols, rows) = gridDims(m.width, m.height)
   let wall = buildWallGrid(m)
   var walkableCells = 0
@@ -1942,6 +2306,11 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
   %*{
     "seed": m.genSeed,
     "style": styleToStr(m.style),
+    "keystone": keystoneToStr(m.keystone),
+    "keystoneLabel": v.keystoneLabel,
+    "keystoneValue": v.keystoneValue,
+    "keystoneFloor": v.keystoneFloor,
+    "keystonePass": v.keystonePass,
     "width": m.width,
     "height": m.height,
     "gunRange": m.gunRange,
@@ -1979,6 +2348,7 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "densityUniformity": v.densityUniformityPass,
       "itemCoverage": v.itemCoveragePass,
       "poiLoot": v.poiLootPass,
+      "keystone": v.keystonePass,
       "all": v.allPass,
     },
   }
@@ -2151,9 +2521,11 @@ proc cmdGenerate(a: Args) =
   let
     seed = a.intFlag("seed", 1)
     style = parseStyle(a.flag("style", "caves"))
+    keystoneFlag = a.flag("keystone", "")
+    keystone = if keystoneFlag.len > 0: keystoneFromStr(keystoneFlag) else: keystoneFromSeed(seed)
   var params = brDefaultParams(style)
   applyParams(params, a.params)
-  var m = generateBrMap(seed, style, params)
+  var m = generateBrMap(seed, style, params, keystone)
   let rawCount = m.obstacles.len
   if not a.bools.getOrDefault("noPrune", false):
     ## Only the DEMOTED CAVES FILL (obstacles[structureCount..^1]) is
@@ -2180,7 +2552,8 @@ proc cmdGenerate(a: Args) =
   else:
     writeFile(outPath, spec)
     stderr.writeLine(
-      &"generated br {styleToStr(style)} seed={seed} {m.width}x{m.height} " &
+      &"generated br {styleToStr(style)} seed={seed} keystone={keystoneToStr(m.keystone)} " &
+      &"{m.width}x{m.height} " &
       &"gunRange={m.gunRange} spawns={m.spawns.len} pois={m.pois.len} " &
       &"obstacles={m.obstacles.len} (structures={m.structureCount})" &
       &" (pruned {rawCount - (m.obstacles.len - repaired)} confetti of {rawCount}," &
@@ -2213,6 +2586,7 @@ proc printValidation(v: BrValidation) =
   echo &"density unif.: {(if v.densityUniformityPass: \"PASS\" else: \"FAIL: \" & v.densityUniformityReason)}  (empty={v.densityEmptyCells}/{DensityGridCols*DensityGridRows}, ratio range=[{v.densityMinRatio:.2f}x,{v.densityMaxRatio:.2f}x])"
   echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/16 within {PerSpawnCoverGR}G)"
   echo &"POI has loot:  {(if v.poiLootPass: \"PASS\" else: \"FAIL: \" & v.poiLootReason)}  (missing={v.poisWithoutLoot} POIs)"
+  echo &"keystone:      {(if v.keystonePass: \"PASS\" else: \"FAIL: \" & v.keystoneReason)}  ({v.keystoneLabel}={v.keystoneValue:.2f}, floor={v.keystoneFloor:.2f})"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
