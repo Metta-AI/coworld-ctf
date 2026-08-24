@@ -6370,9 +6370,25 @@ const
                                ## fine ripple on top of a rectangle.
   ZoneTideDetailAmpPx = 10     ## max +/- px the fine octave adds on top —
                                ## roughens each finger/bay's own edge.
-  ZoneTideFingerScale = 150    ## along-edge px per coarse noise cell — wide
-                               ## enough that each finger/bay is a deliberate
-                               ## elongated shape, not choppy noise.
+  ZoneTideFingerScale = 260    ## along-edge px per coarse noise cell. The
+                               ## top/bottom bars' along-axis always spans
+                               ## the map's FULL width (they don't shrink
+                               ## with the rect — see ensureZoneTideCache),
+                               ## so this constant alone sets how many
+                               ## fingers those long, visually-dominant
+                               ## edges show for the WHOLE match: a
+                               ## follow-up screenshot review at the
+                               ## smaller 150px cell found mid-match (rect
+                               ## still large) reading as a fairly uniform
+                               ## ripple, because ~1235/150 = 8 cycles
+                               ## fit the top edge regardless of tick. 260
+                               ## drops that to ~5 dominant fingers, close
+                               ## to the few-big-fingers character the late-
+                               ## match small rect already showed (there,
+                               ## the left/right bars' along-axis — which
+                               ## DOES shrink with the rect, to rect.h —
+                               ## drops under one cell and reads as a
+                               ## single big finger per side).
   ZoneTideDetailScale = 30     ## along-edge px per fine noise cell.
   ZoneTideChurnReachFloorPx = ZoneTideEdgeGlintPx + 3  ## the local churn
                                ## reach never drops below this, however
