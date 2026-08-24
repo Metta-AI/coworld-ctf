@@ -453,7 +453,8 @@ proc tooCloseToAnyPocket(p: MapPoint, pockets: seq[MapRect], clear: int): bool =
 proc tryPlacePoi(
   rng: var Rand, sites: var seq[PoiSite],
   targetX, targetY, jitterX, jitterY, width, height, minSep: int,
-  pockets: seq[MapRect], archetype: PoiArchetype, halfExtent, lootTier: int
+  pockets: seq[MapRect], archetype: PoiArchetype, halfExtent, lootTier: int,
+  pocketClear: int
 ) =
   ## Pulled out of placePois as a top-level proc: a nested proc closing over
   ## a `var Rand` parameter fails Nim's capture-safety check ("cannot be
@@ -483,7 +484,7 @@ proc tryPlacePoi(
         if attempt == MaxAttempts - 1:
           stderr.writeLine(&"  POI reject(minSep={minSep}) target=({targetX},{targetY}) tried=({jx},{jy})")
       continue
-    if tooCloseToAnyPocket(p, pockets, halfExtent + 40):
+    if tooCloseToAnyPocket(p, pockets, pocketClear):
       when defined(brDebugExit):
         if attempt == MaxAttempts - 1:
           stderr.writeLine(&"  POI reject(pocket) target=({targetX},{targetY}) tried=({jx},{jy})")
@@ -580,7 +581,7 @@ proc placePois(
   let majorY = clamp(cy + int(float(majorR) * sin(majorTheta)),
     majorHalf + 80, height - majorHalf - 80)
   tryPlacePoi(rng, result, majorX, majorY, int(0.1 * float(gunRange)), int(0.1 * float(gunRange)),
-    width, height, minSep, pockets, poiCompound, majorHalf, 0)
+    width, height, minSep, pockets, poiCompound, majorHalf, 0, PoiPocketClearance)
 
   # Mid POIs: count and archetype mix both vary per draw.
   let midArchPool = [poiOutpost, poiYard]
@@ -608,11 +609,36 @@ proc placePois(
     if ringMinorPlaced >= ringMinorTarget: break
     let s = spawns[idx]
     let (idxDir, idyDir) = inwardDir(s.edge)
-    let baseDist = PoiPocketClearance + ringMinorHalf + 30
+    ## baseDist must clear the pocket's OWN radial half-extent (already
+    ## baked into pockets[idx] — the larger dimension per pocketRect's
+    ## "LARGER half-extent runs RADIAL" convention) before adding
+    ## PoiPocketClearance on top, or every candidate lands back inside the
+    ## pocket's own clearance zone (round-4 WIP bug: this used to be just
+    ## PoiPocketClearance + ringMinorHalf + 30, which is ~330px short of the
+    ## pocket's real ~338px radial reach, so it failed 100% of the time).
+    let radialHalf =
+      case s.edge
+      of seTop, seBottom: pockets[idx].h div 2
+      of seLeft, seRight: pockets[idx].w div 2
+    let baseDist = radialHalf + PoiPocketClearance + ringMinorHalf + 30
+    ## A ring-minor is a small filler site, not a full engagement POI — the
+    ## global `minSep` (1.15*G) is tuned so the MAJOR (0.85*G half-extent)
+    ## never overlaps its neighbours, and reusing it here made a ring-minor
+    ## compete for the same interior real estate as mid/major POIs (which
+    ## are sampled over the WHOLE field) and get rejected almost every time.
+    ## A footprint-scaled separation is enough to avoid literal overlap with
+    ## the common case (ruins/outpost/yard, half-extent 125-182) while still
+    ## tolerating a close tuck against the rarer major — which reads as
+    ## "landing site huddled next to the compound", not a bug.
+    let ringMinSep = ringMinorHalf + 190
     var placedHere = false
-    for attempt in 0 ..< 50:
-      let dist = baseDist + rng.rand(120)
-      let along = rng.rand(-140 .. 140)  ## tangential jitter along the ring
+    for attempt in 0 ..< 80:
+      let dist = baseDist + rng.rand(160)
+      ## Wide tangential jitter: when a spawn's own local corridor is
+      ## crowded by a mid/major POI, sliding toward a NEIGHBOUR spawn's gap
+      ## along the same edge is still safe — tooCloseToAnyPocket below
+      ## checks against every pocket, not just this spawn's own.
+      let along = rng.rand(-360 .. 360)
       let tx =
         case s.edge
         of seTop, seBottom: s.p.x + along
@@ -625,7 +651,7 @@ proc placePois(
       if tx < margin or ty < margin or tx >= width - margin or ty >= height - margin:
         continue
       let p = MapPoint(x: tx, y: ty)
-      if tooCloseToAny(p, result, minSep): continue
+      if tooCloseToAny(p, result, ringMinSep): continue
       if tooCloseToAnyPocket(p, pockets, PoiPocketClearance): continue
       let arch = if rng.rand(1) == 0: poiRuins else: poiOutpost
       result.add PoiSite(center: p, archetype: arch, halfExtent: ringMinorHalf, lootTier: 2)
