@@ -1233,6 +1233,44 @@ type
                                ## footprint; a flagless map with no
                                ## spawnPoints falls back to the legacy
                                ## anchor-staggered spawn (still carved).
+    # GVNEXT(bridge): see spawnPoints above — same append-safety reasoning.
+    spawnGroups*: int          ## How many GROUPS this map seats — the BR
+                               ## bridge between `spawnPoints` and the
+                               ## `Team` enum (BR_MAPGEN.md §1, §4.2).
+                               ##
+                               ## 0 (the default) means "not authored": the
+                               ## map seats whatever its TeamLayout seats,
+                               ## which is the entire pre-BR world and stays
+                               ## byte-identical. When > 0 it OVERRIDES
+                               ## `teamCount()`, and every consumer of team
+                               ## count — `teams()`/`activeTeams`, the roster
+                               ## round-robin, spawn seating, reward math,
+                               ## the validator's per-team arity rules —
+                               ## follows from that one source.
+                               ##
+                               ## Why the map must carry this rather than the
+                               ## config: a spawnPoints list CANNOT self-
+                               ## describe its grouping. 16 points is 16
+                               ## groups of 1 seat or 8 groups of 2, and
+                               ## nothing in the geometry distinguishes them.
+                               ## The count therefore has to be DECLARED, and
+                               ## it has to be declared on the MAP, because
+                               ## `validateMap` runs inside mapFromSpecJson /
+                               ## generateMapAttempt — strictly BEFORE
+                               ## resolveCtfMapMetadata ever sees a config.
+                               ## A config-side override would leave the
+                               ## validator checking BR seating against the
+                               ## layout's 2, where `spawnPoints.len mod 2`
+                               ## passes vacuously for every even draw and
+                               ## the arity gate silently stops gating.
+                               ##
+                               ## Seats per group is IMPLICIT and derived:
+                               ## `spawnPoints.len div spawnGroups` (16
+                               ## points, 16 groups, 32 players = one shared
+                               ## landing point per duo). Divisibility is
+                               ## enforced in validateMap; the config's
+                               ## `teams` must equal this value, enforced by
+                               ## resolveCtfMapMetadata's existing check.
 
   CrewSprite* = ref object
     width*, height*: int
@@ -2105,7 +2143,16 @@ proc teamCount*(layout: TeamLayout): int =
 
 proc teamCount*(gameMap: CtfMap): int =
   ## Returns how many teams play on one map.
-  gameMap.layout.teamCount()
+  ##
+  ## An authored `spawnGroups` wins: a BR map is symNone + layoutSides (it
+  ## has no sides, the layout is just the default) and seats 16 duos, so its
+  ## LAYOUT cannot answer this question — see the field's doc comment. Maps
+  ## that never author it (every map that existed before BR) fall through to
+  ## the layout exactly as before, so this is byte-identical for 2 and 4.
+  if gameMap.spawnGroups > 0:
+    gameMap.spawnGroups
+  else:
+    gameMap.layout.teamCount()
 
 proc activeTeams*(count: int): Slice[Team] =
   ## Returns the active-team slice for one team count. Active teams are

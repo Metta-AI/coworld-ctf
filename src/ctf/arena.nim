@@ -73,6 +73,30 @@ proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
   if gameMap.width <= 0 or gameMap.height <= 0:
     raise newException(CtfError, "Map dimensions must be positive.")
+  ## BR bridge: spawnGroups is what makes `teamCount()` say 16, so it is
+  ## checked FIRST and hard — everything downstream (activeTeams, the roster
+  ## round-robin, seat indexing, reward math) trusts it. Checked here rather
+  ## than only in the symNone block below because it is a well-formedness
+  ## property of the FIELD, not of a symmetry class, and because an
+  ## out-of-range value would otherwise reach `activeTeams`'s doAssert and
+  ## come out as a crash instead of a loadable-map error.
+  if gameMap.spawnGroups != 0:
+    if gameMap.spawnGroups notin [2, 4, 16]:
+      raise newException(CtfError,
+        "spawnGroups must be 2, 4 or 16 (got " & $gameMap.spawnGroups &
+        ") — it selects the active-team prefix of the Team enum, and no " &
+        "code path seats a count between 4 and 16 (BR_MAPGEN.md §6.2).")
+    if gameMap.spawnPoints.len == 0:
+      raise newException(CtfError,
+        "spawnGroups is " & $gameMap.spawnGroups & " but the map authors no " &
+        "spawnPoints — the group count only means anything as a division of " &
+        "the spawn points it groups.")
+    if gameMap.spawnPoints.len mod gameMap.spawnGroups != 0:
+      raise newException(CtfError,
+        "spawnPoints (" & $gameMap.spawnPoints.len & ") must divide evenly " &
+        "into spawnGroups (" & $gameMap.spawnGroups & ") — seats per group " &
+        "is implicit (spawnPoints.len div spawnGroups) and a remainder would " &
+        "seat some groups worse than others.")
   case gameMap.layout
   of layoutSides:
     if gameMap.symmetry in {symRot90, symQuadMirror}:
@@ -161,7 +185,16 @@ proc validateMap(gameMap: CtfMap) =
         ("teamPickups.cans", gameMap.teamPickups.cans, true),
         ("teamPickups.barriers", gameMap.teamPickups.barriers, false)]:
       if perTeamOne:
-        if pts.len != teamCount:
+        ## BR bridge: on a FLAGLESS map an empty set means "the mode is off",
+        ## exactly as it already does for barriers below. Per-team shield/can
+        ## points are a home-base concept — one per team, staged relative to
+        ## that team's anchor — and a BR map has no homes to stage them from;
+        ## BR loot is a §4.4 gradient over the whole field, not a per-team
+        ## allotment. A NON-empty set still has to be one-per-team, and a
+        ## flag-armed symNone map still has to author them, so every map that
+        ## loaded before this exemption loads identically.
+        let optionalHere = gameMap.flagless and pts.len == 0
+        if not optionalHere and pts.len != teamCount:
           raise newException(CtfError,
             "symNone map must author " & $teamCount & " explicit points for " &
             name & " (one per team); got " & $pts.len &
@@ -3321,6 +3354,11 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   ## teamPickups above. Round-trips with the parse in mapFromSpecJson.
   if gameMap.spawnPoints.len > 0:
     spec["spawnPoints"] = pointsNode(gameMap.spawnPoints)
+  ## spawnGroups pins only when authored, same idiom. It is NOT derivable
+  ## from spawnPoints (16 points is 16 groups of 1 or 8 groups of 2), so a
+  ## replay that did not pin it could not reproduce its own seating.
+  if gameMap.spawnGroups > 0:
+    spec["spawnGroups"] = %gameMap.spawnGroups
   ## flagless pins only when true — matches the barrierPickups idiom (only
   ## echo a feature toggle when it deviates from the default), so every
   ## existing (flag-armed) pinned spec's echo is unchanged.
@@ -3423,6 +3461,9 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## anchor-staggered spawn (byte-identical to every pre-BR pinned spec).
   result.spawnPoints = pointsFromNode(node{"spawnPoints"})
   result.flagless = node{"flagless"}.getBool(false)
+  ## Optional: absent -> 0, i.e. "seat whatever the layout seats" — the
+  ## pre-BR default, byte-identical for every pinned spec ever recorded.
+  result.spawnGroups = node{"spawnGroups"}.getInt(0)
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)
@@ -3454,9 +3495,21 @@ proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
       else:
         raise newException(CtfError, "Unknown map: " & name)
   if result.teamCount() != config.teams:
+    ## BR bridge: the map is the authority on how many groups it seats, and
+    ## the config must agree. The one confusing way to land here is a map
+    ## that authored spawnPoints but never declared spawnGroups: its
+    ## teamCount falls through to the LAYOUT, so a 16-group BR draw reports
+    ## "seats 2" and the honest reason is invisible. Say it outright.
+    let hint =
+      if result.spawnGroups == 0 and result.spawnPoints.len > 0:
+        " — the map authors " & $result.spawnPoints.len & " spawnPoints but " &
+        "no spawnGroups, so its team count fell back to its layout. A BR " &
+        "map must pin \"spawnGroups\" in its spec (BR_MAPGEN.md §4.2)."
+      else:
+        "."
     raise newException(
       CtfError, "Config asks for " & $config.teams & " teams but map " &
-        result.name & " seats " & $result.teamCount() & ".")
+        result.name & " seats " & $result.teamCount() & hint)
 
 ## The SELECTED map's layout, installed once per process by loadCtfMap and
 ## initialized to the default arena below so tooling that never selects a
