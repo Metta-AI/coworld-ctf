@@ -857,8 +857,14 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   ## The capture endzones: the exact score-columns from checkWinConditions'
   ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
   ## painted into the FLOOR below so a carrier can read where to run.
+  ##
+  ## BR N-point spawn subsystem: a flagless map has no capture geometry to
+  ## paint (gameMap.flagless's doc comment already skips the COLLISION carve
+  ## for the same reason) — an empty tints list makes endzoneColorAt a pure
+  ## passthrough (falls straight to `base` with no match), so this is enough
+  ## on its own without touching the per-pixel loop below at all.
   let
-    tints = endzoneTints(gameMap)
+    tints = if gameMap.flagless: newSeq[EndzoneTint]() else: endzoneTints(gameMap)
     playLo = ArenaBorder                     # inner playfield edges: the glow
     playHi = w - 1 - ArenaBorder             # anchors home, fades to the line.
     playLoY = ArenaBorder
@@ -906,12 +912,19 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   ## disc (see pedestalDimmed) so the broadcast crossfade dims the disc along with
   ## the floor glow when the heart is gone — otherwise a hot==cold pedestal never
   ## fades. The RGB/hot map (withEndzoneGlow) keeps the pedestal at full light.
-  for team in gameMap.teams():
-    let
-      home = gameMap.flagHome(team)
-      full = pedSprs[team]
-      spr = if withEndzoneGlow: full else: full.pedestalDimmed()
-    blitCover(result.mapImage, spr, home.x, home.y, PedestalCoverSize)
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms no flag, so there is no
+  ## pedestal to carve — skip the blit entirely rather than stamping one at
+  ## flagHome/teamAnchor, which (on a symNone map with layoutCorners/Plus on
+  ## a non-square board) can land far outside the board for a non-Red team
+  ## (the same rot90-orbit hazard resetFlags avoids for the same reason).
+  if not gameMap.flagless:
+    for team in gameMap.teams():
+      let
+        home = gameMap.flagHome(team)
+        full = pedSprs[team]
+        spr = if withEndzoneGlow: full else: full.pedestalDimmed()
+      blitCover(result.mapImage, spr, home.x, home.y, PedestalCoverSize)
 
 proc coldEndzoneMapRgba*(gameMap: CtfMap): seq[uint8] =
   ## Builds the map RGBA with the endzone crack-glow and capture line OMITTED —
