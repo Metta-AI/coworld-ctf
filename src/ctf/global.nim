@@ -6358,14 +6358,27 @@ const
   ZoneTideEdgeGlintPx = 5      ## width of the fixed-offset wet-edge glint.
   ZoneTideChurnBasePx = 26     ## base churn-front reach PAST the glint,
                                ## before finger/bay noise is added.
-  ZoneTideFingerAmpPx = 16     ## max +/- px the coarse noise octave pushes
+  ZoneTideFingerAmpPx = 46     ## max +/- px the coarse noise octave pushes
                                ## the churn front's local reach — fingers
-                               ## push ahead, bays lag.
-  ZoneTideDetailAmpPx = 6      ## max +/- px the fine octave adds on top —
+                               ## push ahead, bays lag. Large relative to
+                               ## ZoneTideChurnBasePx on purpose: a screenshot
+                               ## review of an earlier, smaller amplitude
+                               ## (16px) found the underlying rectangle still
+                               ## traceable through a fairly uniform ring of
+                               ## same-sized churn blobs — this needs to read
+                               ## as the silhouette's dominant shape, not a
+                               ## fine ripple on top of a rectangle.
+  ZoneTideDetailAmpPx = 10     ## max +/- px the fine octave adds on top —
                                ## roughens each finger/bay's own edge.
-  ZoneTideFingerScale = 96     ## along-edge px per coarse noise cell (wide
-                               ## enough to read as deliberate tendrils).
-  ZoneTideDetailScale = 22     ## along-edge px per fine noise cell.
+  ZoneTideFingerScale = 150    ## along-edge px per coarse noise cell — wide
+                               ## enough that each finger/bay is a deliberate
+                               ## elongated shape, not choppy noise.
+  ZoneTideDetailScale = 30     ## along-edge px per fine noise cell.
+  ZoneTideChurnReachFloorPx = ZoneTideEdgeGlintPx + 3  ## the local churn
+                               ## reach never drops below this, however
+                               ## negative the finger/detail noise sums —
+                               ## a bay pinches the churn band thin instead
+                               ## of inverting it.
   ZoneTideSplatterBandPx = 20  ## how far past the local churn reach a
                                ## splatter dot can land.
   ZoneTideSplatterCellPx = 14  ## splatter dots are tested on this cell
@@ -6489,8 +6502,11 @@ proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
       if phase < ZoneTideShimmerPeriod div 3: ZoneTideShimmerGlint
       else: ZoneTideShimmerDim
     )
-  let localChurnReach = ZoneTideEdgeGlintPx + ZoneTideChurnBasePx +
-    zoneTideFingerOffset(along, side)
+  let localChurnReach = max(
+    ZoneTideChurnReachFloorPx,
+    ZoneTideEdgeGlintPx + ZoneTideChurnBasePx +
+      zoneTideFingerOffset(along, side)
+  )
   if d < localChurnReach:
     # Churning front: wet-paint blobs on a per-cell grid, jittered by a
     # tick-cycled frame index so the front visibly churns without ever
@@ -6503,10 +6519,16 @@ proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
       frame = (tick div ZoneTideFrameHoldTicks) mod ZoneTideFrameCount
       cell = along div ZoneTideBlobPeriod
       jitter = zoneTideHash(cell, frame + side * 31)
+      # The blob tracks the LOCAL churn depth (localChurnReach), not a
+      # fixed offset: a long finger's blob sits out near its own tip and
+      # scales up with it, so a deep finger reads as a bigger wet patch
+      # reaching further, not a small fixed bubble near the rect edge with
+      # a flat, featureless trough color filling the rest of the finger.
+      reachFd = localChurnReach - ZoneTideEdgeGlintPx
       blobAlong = cell * ZoneTideBlobPeriod + ZoneTideBlobPeriod div 2 +
         (((jitter shr 4) mod 9) - 4)
-      blobDepth = ZoneTideChurnBasePx div 2 + (((jitter shr 12) mod 5) - 2)
-      blobRadius = ZoneTideChurnBasePx div 2 + ((jitter shr 20) mod 3)
+      blobDepth = reachFd div 2 + (((jitter shr 12) mod 5) - 2)
+      blobRadius = max(6, reachFd div 3) + ((jitter shr 20) mod 3)
       dAlong = along - blobAlong
       dDepth = fd - blobDepth
     return (
