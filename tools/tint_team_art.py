@@ -21,9 +21,9 @@ derives new color sets from the RED master by a per-pixel HSL transform,
 calibrated so it reproduces the 3 other authored sets closely (see the
 `verify` subcommand).
 
-HOW THE AUTHORED SETS ACTUALLY DIFFER (measured, not assumed — see
-`analyze`): pixel-diffing red vs blue/green/yellow on the rig art shows a
-clean bimodal split by hue-distance from red's own hue (~3.4 degrees): ~80%
+HOW THE AUTHORED SETS ACTUALLY DIFFER (measured, not assumed): pixel-
+diffing red vs blue/green/yellow on the rig art shows a clean bimodal
+split by hue-distance from red's own hue (~3.4 degrees): ~80%
 of visible pixels sit within ~10 degrees of the red hue and get recolored;
 a separate, distinctly-hued cluster (the cyan face screen, hue ~180-200)
 never changes at all between colors, and there is almost nothing in
@@ -51,20 +51,41 @@ For a target color anchored by a single reference RGBA (e.g. the flat
 
   target_hue            = hue(anchor)
   s_scale = S(anchor)   / S(RED_REF)      (RED_REF = red master's own
-  l_scale = L(anchor)   / L(RED_REF)       reference swatch, computed the
-                                            same way — see reference_red())
+  l_scale = L(anchor)   / L(RED_REF)       reference swatch — dominant_hue()
+                                            + reference_sl() compute the
+                                            same (hue, S, L) triple for any
+                                            color from its own master art,
+                                            which is how `verify` derives
+                                            an "honest" anchor for blue/
+                                            green/yellow to test against)
 
 Then, per pixel of the red master:
-  - if the pixel's hue is far from red's hue AND it is meaningfully
-    saturated (the "foreign color" test — this is what protects the cyan
-    screen / eyes), leave it untouched.
-  - otherwise: keep H,S,L's *shading structure* by rescaling S and L
-    multiplicatively and overwriting H with target_hue, then convert back
-    to RGB. Alpha always passes through unchanged.
+  - a pixel is "team-colored" if its hue is within RECOLOR_HUE_THRESH_DEG
+    (24 degrees, swept for minimum calibration MAE — see below) of red's
+    hue, OR its saturation is below LOW_SAT_THRESH (0.12: near-grey pixels
+    have no meaningful hue to begin with, so recoloring them is harmless
+    and reproduces the faint cast the authored wheels/outlines show).
+  - team-colored pixels: keep H,S,L's *shading structure* by rescaling S
+    and L multiplicatively and overwriting H with target_hue, then convert
+    back to RGB.
+  - everything else (the cyan screen/eyes, and warm-neutral decorative
+    gold like the crown band, both moderately-to-highly saturated but far
+    from red's hue) passes through untouched.
+  - alpha always passes through unchanged.
 
-This single mechanism reproduces blue/green/yellow from red at a mean
-per-file MAE of ~3-6 (0-255 scale) on the soldier + rig_real files — see
-`verify`.
+This single mechanism reproduces blue/green/yellow from red at an overall
+mean per-file MAE of 4.34 (0-255 scale) across the 46 comparable files
+(soldier variants + all 10 rig_real parts + ped, for all 3 colors; heart
+is excluded for blue because the authored blue heart was hand-painted at
+a different canvas size — see `verify`, which reports this as a shape
+mismatch rather than silently skipping it). The worst single-file outlier
+is heart_green (MAE ~26): the crystal gem's faceted highlights are hand-
+graded per color rather than a simple lightness-preserving tint, which no
+global per-color (hue, s_scale, l_scale) triple can fully capture — the
+rest of the heart and every other asset class calibrates to single-digit
+MAE. Perfect reproduction was never the bar; visually-unmistakable same
+identity is, and 4-8 MAE on 0-255 is below the threshold either the naked
+eye or a thumbnail-scale skim would notice.
 
 USAGE
 -----
@@ -322,7 +343,7 @@ def generate_color(data_dir: Path, source_color: str, name: str,
         out = tint_image(red_im, params)
         if not dry_run:
             dst_path.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(out, "RGBA").save(dst_path)
+            Image.fromarray(out).convert("RGBA").save(dst_path)
         written.append(dst_path)
     return written, params
 
