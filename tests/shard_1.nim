@@ -5,6 +5,7 @@
 {.warning[UnusedImport]: off.}
 import
   test_br_elim,
+  test_br_team_bridge,
   test_cog_drive,
   test_ctf_game,
   test_damage_pop,
