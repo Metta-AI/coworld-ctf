@@ -507,6 +507,24 @@ type
     clutchHeals*: int          ## heals taken at 1 hp.
     steals*, returns*, carrierKills*, denials*: int
     sprayKillsThisPickup*: int ## resets when the can is taken or lost.
+    starfallKills*: int        ## non-friendly kills on a level>=StarfallLevel
+                               ## victim -- the `Bounty` gate. Keyed on the
+                               ## victim's level directly (like
+                               ## `longshotKills`), independent of which deed
+                               ## the kill actually resolved to: a starfall
+                               ## kill that was ALSO a carrier kill still
+                               ## counts here.
+    sprayMultiKills*: int      ## spray cone activations that killed 2+
+                               ## ENEMIES in that ONE activation -- the
+                               ## `Double Splash` gate. Per-ACTIVATION, not
+                               ## per extra kill: a 3-enemy activation still
+                               ## increments this once. See
+                               ## `arcEnemyKillsThisFire`.
+    grenadeMultiKills*: int    ## grenade blasts that killed 2+ ENEMIES in
+                               ## that ONE blast -- the `Double Blast` gate.
+                               ## Per-BLAST, mirroring `sprayMultiKills`.
+    clutchCarryHeals*: int     ## clutch heals (1 hp) taken while carrying
+                               ## the enemy heart -- the `Lifeline` gate.
     stealTickThisLife*: int    ## tick this life stole a heart, -1 = never.
     clutchHealTick*: int       ## tick of the latest clutch heal, -1 = never.
     peelTick*: int             ## tick of the latest carrier kill, -1 = never.
@@ -526,6 +544,11 @@ type
     arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
+    arcEnemyKillsThisFire*: int ## non-friendly kills scored by the current
+                               ## spray activation; feeds `sprayMultiKills`
+                               ## the same way `arcKillsThisFire` feeds
+                               ## `multiKills2`/`multiKills3`, but excluding
+                               ## teammates. Transient, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3739,18 +3762,26 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     sim.logGameEvent(teamText(team) & " " & deedName(deed) &
                      (if amount < 0: " " else: " +") & $amount)
 
-proc teamHoldsDistinctKits(sim: SimServer, team: Team): int =
-  ## How many DISTINCT pickup types the team has live right now. The squad
-  ## tree's whole point is that a combined-arms loadout is a team achievement,
-  ## not an individual one.
+proc teamConvertedKits(sim: SimServer, team: Team): int =
+  ## How many of the four kits this team has CONVERTED -- at least one
+  ## teammate landed the kit's signature act -- not how many are live in
+  ## hand right now. Possession is arrival (law 2b's ruling, 2026-08-24: "an
+  ## act that already carries its own benefit... is NOT an achievement"), so
+  ## the squad tree reads the RESULT a kit bought, exactly like every
+  ## individual kit tree now does. `medkit` reads `clutchHeals`, never
+  ## `tookMedKit` -- the take is normal play, the save it buys is not.
+  ##
+  ## Cumulative per-game counters, so a teammate who converted a kit and then
+  ## died still counts: the squad already earned the tier, and death cannot
+  ## un-earn a team achievement the way it un-earns a per-life buff.
   var med, nade, spray, shield = false
   for player in sim.players:
-    if player.team != team or not player.alive:
+    if player.team != team:
       continue
-    if player.hasGrenade: nade = true
-    if player.hasPlasmaArc: spray = true
-    if player.hasShield: shield = true
-    if player.hp > sim.config.hitPoints: med = true
+    if player.clutchHeals >= 1: med = true
+    if player.grenadeKills >= 1: nade = true
+    if player.sprayKills >= 1: spray = true
+    if player.soakedHp >= 3: shield = true
   ord(med) + ord(nade) + ord(spray) + ord(shield)
 
 proc teamAliveCount(sim: SimServer, team: Team): int =
@@ -3837,11 +3868,21 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
   ## `NoCog` means it IS met but by the team as a whole (`treeSquad`). First
   ## writer wins: a tier is credited to the earliest cog in slot order that
   ## satisfies it, which is also the cog whose counter crossed the line for
-  ## the accumulating team-wide flags (`anyGunHit`).
+  ## the accumulating team-wide flags (`kits`).
+  ##
+  ## v3 (law 2b's ruling): no tier below reads a pickup/possession/arrival
+  ## fact -- `tookMedKit`, `tookSpray`, `tookGrenade`, `tookShield` and the
+  ## bystander-credited `returns` are never consulted here. Every tier reads
+  ## the CONVERTED result the pickup only made possible.
+  ##
+  ## `treeSquad` tier III (Clean Sheet) is DELIBERATELY absent below: it is a
+  ## FULL-GAME requirement, claimable only once the game has actually ended,
+  ## and this poll runs every tick while `phase == Playing`.
+  ## `evalCleanSheetAtConclusion` is its one and only mint site.
   var
     best: SatisfiedBy
-    anyGunHit, anyCapture = false
-    kits = sim.teamHoldsDistinctKits(team)
+    anyCapture = false
+    kits = sim.teamConvertedKits(team)
   for tree in Tree:
     for tier in 0 ..< AchievementTiers:
       best[tree][tier] = Unsatisfied
@@ -3850,36 +3891,34 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
       continue
     template earn(tr: Tree, ti: int) =
       if best[tr][ti] == Unsatisfied: best[tr][ti] = idx
-    if player.shotsHit > 0: anyGunHit = true
     if player.captures > 0: anyCapture = true
 
-    # GUN -- the weapon every cog spawns with.
-    if anyGunHit:                     earn(treeGun, 0)
-    if player.gunKills >= 1:          earn(treeGun, 1)
-    if player.gunKills >= 3:          earn(treeGun, 2)
+    # GUN -- the weapon every cog spawns with. No tier pays for a plain
+    # landed hit any more (2b): every rung below is a KILL or a rank.
+    if player.gunKills >= 1:          earn(treeGun, 0)
+    if player.gunKills >= 3:          earn(treeGun, 1)
+    if player.starfallKills >= 1:     earn(treeGun, 2)
     if player.longshotKills >= 1:     earn(treeGun, 3)
     if player.level >= MaxLevel:      earn(treeGun, 4)
 
     # SPRAY -- 28.5% of all kills in the field, historically 87% unfired.
-    if player.tookSpray:              earn(treeSpray, 0)
-    if player.sprayKills >= 1:        earn(treeSpray, 1)
-    if player.multiKills >= 1 and player.sprayKills >= 2:
-                                      earn(treeSpray, 2)
-    if player.sprayKillsThisPickup >= 2: earn(treeSpray, 3)
-    if player.sprayKillsThisPickup >= 3: earn(treeSpray, 4)
+    if player.sprayKills >= 1:        earn(treeSpray, 0)
+    if player.sprayKills >= 2:        earn(treeSpray, 1)
+    if player.sprayKillsThisPickup >= 2: earn(treeSpray, 2)
+    if player.sprayKillsThisPickup >= 3: earn(treeSpray, 3)
+    if player.sprayMultiKills >= 1:   earn(treeSpray, 4)
 
     # GRENADE -- the corner paint-bomb.
-    if player.tookGrenade:            earn(treeGrenade, 0)
-    if player.grenadeKills >= 1:      earn(treeGrenade, 1)
-    if player.grenadeKills >= 2:      earn(treeGrenade, 2)
+    if player.grenadeKills >= 1:      earn(treeGrenade, 0)
+    if player.grenadeKills >= 2:      earn(treeGrenade, 1)
+    if player.grenadeKills >= 3:      earn(treeGrenade, 2)
     if player.grenadeKills >= 1 and player.multiKills >= 1:
                                       earn(treeGrenade, 3)
-    if player.grenadeKills >= 3:      earn(treeGrenade, 4)
+    if player.grenadeMultiKills >= 1: earn(treeGrenade, 4)
 
     # SHIELD -- soak, not damage. `blocked` already exists on the wire.
-    if player.tookShield:             earn(treeShield, 0)
-    if player.soakedHp >= 3:          earn(treeShield, 1)
-    if player.soakedHp >= 6:          earn(treeShield, 2)
+    if player.soakedHp >= 3:          earn(treeShield, 0)
+    if player.soakedHp >= 6:          earn(treeShield, 1)
     # Enemy kills only: `player.kills` is the raw recordKill tally and it
     # COUNTS TEAMMATES, so gating on it let a friendly-fire kill complete
     # "Bulwark" (proven in the field: the banner announced it while the same
@@ -3887,18 +3926,21 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # incremented only on non-friendly kills, so their sum is the honest gate.
     if player.soakedHp >= 6 and
        player.gunKills + player.sprayKills + player.grenadeKills >= 1:
-                                      earn(treeShield, 3)
+                                      earn(treeShield, 2)
+    if player.soakedHp >= 9:          earn(treeShield, 3)
     if player.soakedHp >= 12:         earn(treeShield, 4)
 
-    # MED KIT -- the heal line, where we run 5.9x worse than winners.
-    if player.tookMedKit:             earn(treeMedKit, 0)
-    if player.clutchHeals >= 1:       earn(treeMedKit, 1)
-    if player.clutchHeals >= 2:       earn(treeMedKit, 2)
+    # MED KIT -- the heal line, where we run 5.9x worse than winners. No tier
+    # pays for TAKING a kit (2b): the take is normal play, the SAVE it buys
+    # is the achievement.
+    if player.clutchHeals >= 1:       earn(treeMedKit, 0)
+    if player.clutchHeals >= 2:       earn(treeMedKit, 1)
     if player.clutchHealTick >= 0 and
        player.gunKills + player.sprayKills + player.grenadeKills >= 1 and
        sim.tickCount - player.clutchHealTick <= 120:
-                                      earn(treeMedKit, 3)
-    if player.clutchHeals >= 3:       earn(treeMedKit, 4)
+                                      earn(treeMedKit, 2)
+    if player.clutchHeals >= 3:       earn(treeMedKit, 3)
+    if player.clutchCarryHeals >= 1:  earn(treeMedKit, 4)
 
     # CARRIER -- steal, run, score.
     if player.steals >= 1:            earn(treeCarrier, 0)
@@ -3913,10 +3955,14 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.captures >= 1 and player.stealTickThisLife >= 0:
                                       earn(treeCarrier, 4)
 
-    # DEFENDER -- peel, return, deny.
-    if player.returns >= 1:           earn(treeDefender, 0)
-    if player.carrierKills >= 1:      earn(treeDefender, 1)
-    if player.denials >= 1:           earn(treeDefender, 2)
+    # DEFENDER -- the peel, the doorstep, the counter. `returns` is EXCLUDED
+    # on purpose: `resetFlag` credits it to every LIVING teammate the instant
+    # a heart comes home, not to whoever caused it -- team-attributed
+    # bystander credit, banned as an achievement input the same way
+    # `player.kills` (which counts teammates) is banned above.
+    if player.carrierKills >= 1:      earn(treeDefender, 0)
+    if player.denials >= 1:           earn(treeDefender, 1)
+    if player.carrierKills >= 2:      earn(treeDefender, 2)
     if player.peelTick >= 0 and player.stealTickThisLife > player.peelTick and
        player.stealTickThisLife - player.peelTick <= RevengeTicks:
                                       earn(treeDefender, 3)
@@ -3926,13 +3972,8 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
   if kits >= 2:                       best[treeSquad][0] = NoCog
   if kits >= 3:                       best[treeSquad][1] = NoCog
   if kits >= 4:                       best[treeSquad][2] = NoCog
-  block cleanSheet:
-    if sim.tickCount - sim.gameStartTick < 600:
-      break cleanSheet
-    for player in sim.players:
-      if player.team == team and player.teamKills > 0:
-        break cleanSheet
-    best[treeSquad][3] = NoCog
+  # best[treeSquad][3] (Clean Sheet) stays Unsatisfied here BY DESIGN -- see
+  # the proc comment and `evalCleanSheetAtConclusion`.
   if kits >= 4 and anyCapture:        best[treeSquad][4] = NoCog
 
   result = best
@@ -3976,6 +4017,32 @@ proc evalAchievementsAllTeams*(sim: var SimServer) =
           sim.claimAchievement(team, tree, tier,
             isFirst = untakenAtTickStart[achievementKey(tree, tier)],
             byIndex = sat[team][tree][tier])
+
+proc evalCleanSheetAtConclusion*(sim: var SimServer) =
+  ## Clean Sheet (`treeSquad` tier IV) is FULL-GAME, not the old tick>=600
+  ## poll: zero team kills across the WHOLE roster for the ENTIRE game,
+  ## claimable only once the game has actually concluded (Maxwell's explicit
+  ## choice, 2026-08-24). `satisfiedAchievements` never reports this tier --
+  ## see its comment -- so neither `evalAchievements` nor
+  ## `evalAchievementsAllTeams` can ever claim it mid-game; this is the ONLY
+  ## mint site, called once from `finishGame`.
+  ##
+  ## Both teams finishing clean on the same concluding tick both take the
+  ## first-claim multiplier -- the exact same-tick tie law
+  ## `evalAchievementsAllTeams` already enforces for the per-tick trees,
+  ## reused here rather than re-derived: `wasUntaken` is read for BOTH teams
+  ## before either claims, so the second team's claim can never see the
+  ## first team's write and lose the tie by construction.
+  let key = achievementKey(treeSquad, 3)
+  let wasUntaken = not sim.claimedFirst[key]
+  for team in Team:
+    var clean = true
+    for player in sim.players:
+      if player.team == team and player.teamKills > 0:
+        clean = false
+        break
+    if clean:
+      sim.claimAchievement(team, treeSquad, 3, isFirst = wasUntaken)
 
 proc dropTithe(sim: var SimServer, playerIndex: int) =
   ## A veteran's heart spits out kit.
@@ -4076,6 +4143,12 @@ proc resetFlag*(sim: var SimServer, team: Team) =
       y = float(sim.flags[team].y)
     )
   if sim.phase == Playing and sim.flags[team].carrier >= 0:
+    # 🚨 `returns` is TEAM-ATTRIBUTED, not individual: every living teammate
+    # gets credited the instant a heart comes home, regardless of who (if
+    # anyone) actually caused it -- a kill elsewhere, a timeout, a disconnect
+    # all count. That bystander credit is why the old "Eyes Back" achievement
+    # died in the v3 curriculum rewrite and why this counter must never be
+    # read as an achievement input again.
     for i in 0 ..< sim.players.len:
       if sim.players[i].team == team:
         inc sim.players[i].returns
@@ -4834,7 +4907,11 @@ proc startGame*(sim: var SimServer) =
                   addr sim.players[i].returns,
                   addr sim.players[i].carrierKills,
                   addr sim.players[i].denials,
-                  addr sim.players[i].sprayKillsThisPickup]:
+                  addr sim.players[i].sprayKillsThisPickup,
+                  addr sim.players[i].starfallKills,
+                  addr sim.players[i].sprayMultiKills,
+                  addr sim.players[i].grenadeMultiKills,
+                  addr sim.players[i].clutchCarryHeals]:
       reset[] = 0
     sim.players[i].clutchHealTick = -1
     sim.players[i].peelTick = -1
@@ -4862,6 +4939,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].multiKills3 = 0
     sim.players[i].teamKills = 0
     sim.players[i].arcKillsThisFire = 0
+    sim.players[i].arcEnemyKillsThisFire = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -5191,6 +5269,8 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
         inc sim.players[killerIndex].gunKills
       if ctx.multi: inc sim.players[killerIndex].multiKills
       if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
+      if ctx.victimLevel >= StarfallLevel:
+        inc sim.players[killerIndex].starfallKills
       if ctx.victimCarrying:
         inc sim.players[killerIndex].carrierKills
         sim.players[killerIndex].peelTick = sim.tickCount
@@ -5366,6 +5446,7 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
+  sim.players[attackerIndex].arcEnemyKillsThisFire = 0
   sim.logGameEvent(
     playerColorText(sim.players[attackerIndex].color) & " sprayed paint"
   )
@@ -5457,6 +5538,14 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
             dec sim.players[arcFire.attacker].multiKills2
             inc sim.players[arcFire.attacker].multiKills3
+          # `Double Splash` -- the achievement gate, so it excludes teammates
+          # the way `sprayKills`/`multiKills` already do (mirrors the "==2"
+          # transition above exactly, just over the non-friendly sub-count,
+          # so a triple ONLY ever mints one Double Splash, never two).
+          if sim.players[victimIndex].team != sim.players[arcFire.attacker].team:
+            inc sim.players[arcFire.attacker].arcEnemyKillsThisFire
+            if sim.players[arcFire.attacker].arcEnemyKillsThisFire == 2:
+              inc sim.players[arcFire.attacker].sprayMultiKills
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
 
@@ -5773,6 +5862,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
   var blastKills = 0
+  var enemyBlastKills = 0
   for i in 0 ..< sim.players.len:
     if not sim.players[i].alive:
       continue
@@ -5818,6 +5908,9 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
           amount = GrenadeDamage, x = float(px), y = float(py)
         )
         inc blastKills
+        if grenade.thrower >= 0 and grenade.thrower < sim.players.len and
+            sim.players[grenade.thrower].team != sim.players[i].team:
+          inc enemyBlastKills
   # Multi-kill accounting per BLAST: one landing that kills 2 mints a double,
   # 3+ a triple (a self-kill in the blast never counts toward either).
   if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
@@ -5825,6 +5918,11 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       inc sim.players[grenade.thrower].multiKills3
     elif blastKills == 2:
       inc sim.players[grenade.thrower].multiKills2
+    # `Double Blast` -- the achievement gate, excluding teammates the same
+    # way the spray-side `sprayMultiKills` does; one blast can only ever
+    # mint this once, however many enemies it caught.
+    if enemyBlastKills >= 2:
+      inc sim.players[grenade.thrower].grenadeMultiKills
 
 proc updateGrenades(sim: var SimServer) =
   ## Refills corner pickups whose timer elapsed and lands due grenades.
@@ -5920,6 +6018,12 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
         sim.addXp(playerIndex, XpPerClutchHeal)
         inc sim.players[playerIndex].clutchHeals
         sim.players[playerIndex].clutchHealTick = sim.tickCount
+        # `Lifeline` -- the save taken WHILE the heart is on your back. Ground
+        # med kits carry no carrier guard (see `tryPickupFlags`'s own guard,
+        # which is about STEALING a second heart, not this), so a carrier at
+        # 1 hp can reach one exactly like anyone else.
+        if sim.players[playerIndex].carryingFlag:
+          inc sim.players[playerIndex].clutchCarryHeals
       let healed = ceiling - sim.players[playerIndex].hp
       # Bank the hit points FIRST, then pay the xp -- the same order the tithe
       # path already uses, and the reason the ceiling cannot move under us.
@@ -6490,6 +6594,13 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.isDraw = isDraw
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
+  # Clean Sheet is scored at THIS instant, exactly once (the `phase ==
+  # GameOver` guard above makes `finishGame` idempotent, and this proc has no
+  # other caller) -- covers every conclusion path below: a decisive win, a
+  # decisive wipe-loss, a mutual-wipe draw and a time-limit draw all reach
+  # here, and the wiped LOSER can still bank a clean game exactly like the
+  # winner can.
+  sim.evalCleanSheetAtConclusion()
   if isDraw:
     if timeLimitReached:
       # A time-limit draw is a lose-lose: every player on both teams takes

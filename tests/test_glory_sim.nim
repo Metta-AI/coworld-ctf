@@ -32,6 +32,49 @@ proc twoTeamGame(): SimServer =
   result.players[0].team = Red
   result.players[1].team = Blue
 
+proc redVsTwoBlue(): SimServer =
+  ## Red player 0 facing two Blue players (1, 2) -- for scenarios that need a
+  ## genuine multi-victim cone or blast, which a single-cog enemy team cannot
+  ## supply.
+  result = initCtfForTest(defaultGameConfig())
+  discard result.addPlayer("red0")
+  discard result.addPlayer("blue0")
+  discard result.addPlayer("blue1")
+  result.startGame()
+  result.players[0].team = Red
+  result.players[1].team = Blue
+  result.players[2].team = Blue
+
+proc twoRedOneBlue(): SimServer =
+  ## Two Red teammates (0, 1) and one Blue (2) -- for scenarios that need a
+  ## genuine FRIENDLY kill, which a single-cog team cannot supply.
+  result = initCtfForTest(defaultGameConfig())
+  discard result.addPlayer("red0")
+  discard result.addPlayer("red1")
+  discard result.addPlayer("blue0")
+  result.startGame()
+  result.players[0].team = Red
+  result.players[1].team = Red
+  result.players[2].team = Blue
+
+proc noInput(sim: SimServer): seq[InputState] =
+  newSeq[InputState](sim.players.len)
+
+proc stepWith(sim: var SimServer, inputs, prev: seq[InputState]) =
+  sim.step(inputs, prev)
+
+proc chargeAndThrow(sim: var SimServer, playerIndex, holdTicks: int) =
+  ## Holds C for holdTicks then releases -- the real grenade-throw input
+  ## path, so the landing point, flight and blast all run through the actual
+  ## engine rather than a hand-built `AirborneGrenade`.
+  var held = sim.noInput()
+  held[playerIndex].c = true
+  var prev = sim.noInput()
+  for _ in 0 ..< holdTicks:
+    sim.stepWith(held, prev)
+    prev = held
+  sim.stepWith(sim.noInput(), prev)
+
 proc viewerFrame(
   sim: var SimServer,
   state: GlobalViewerState,
@@ -176,6 +219,7 @@ suite "glory in the sim: deeds are priced where they happen":
     check sim.players[1].level >= StarfallLevel
     sim.killPlayer(1, 0, "gun")
     check sim.deedCounts[dStarfall] == 1
+    check sim.players[0].starfallKills == 1   # the `Bounty` achievement gate
 
   test "the site gradient reads nearest pedestal, not an x-midline":
     # Every spawn address in this engine is a 2-team formula, so a home/away
@@ -408,7 +452,7 @@ suite "glory in the sim: the achievement curriculum FIRES":
 
   test "tier I claims on the mechanic, once, and only once":
     var sim = twoTeamGame()
-    sim.players[0].shotsHit = 1
+    sim.players[0].gunKills = 1        # v3 tier I: First Tag (a gun kill)
     sim.phase = Playing
     sim.evalAchievements(Red)
     check sim.claimed[Red][achievementKey(treeGun, 0)]
@@ -424,10 +468,10 @@ suite "glory in the sim: the achievement curriculum FIRES":
     # must reach everyone.
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.players[0].shotsHit = 1
+    sim.players[0].gunKills = 1
     sim.evalAchievements(Red)
     let redGlory = sim.teamGlory[Red]
-    sim.players[1].shotsHit = 1
+    sim.players[1].gunKills = 1
     sim.evalAchievements(Blue)
     check sim.claimed[Blue][achievementKey(treeGun, 0)]
     check sim.teamGlory[Blue] > 0                 # Blue still earns
@@ -439,7 +483,7 @@ suite "glory in the sim: the achievement curriculum FIRES":
     # Law 4. Only combat drama lights flames.
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.players[0].shotsHit = 1
+    sim.players[0].gunKills = 1
     sim.evalAchievements(Red)
     check sim.deedCounts[dAchievement] > 0
     check sim.heatEmbers[Red] == 0
@@ -447,8 +491,7 @@ suite "glory in the sim: the achievement curriculum FIRES":
   test "the tiers escalate in what they actually pay":
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.players[0].shotsHit = 1
-    sim.players[0].gunKills = 1
+    sim.players[0].gunKills = 3        # First Tag (>=1) AND Marksman (>=3)
     sim.evalAchievements(Red)
     var tier0, tier1 = 0
     for claim in sim.achievementFeed:
@@ -463,51 +506,55 @@ suite "glory in the sim: the achievement curriculum FIRES":
     # dead code wearing a name. Drive one cog to satisfy everything, then
     # assert all 40 claimed -- an unreachable tier fails HERE, loudly,
     # instead of silently paying nothing in the field forever.
+    #
+    # v3: no tier below reads a pickup/possession flag any more (law 2b), so
+    # the old `tookX`/`hasX`/hp-trick simulation is gone -- every tier is now
+    # driven straight off the counter it actually gates on.
     var sim = twoTeamGame()
     sim.phase = Playing
     # Deed clocks are absolute ticks, so the scenario has to sit far enough
     # into a game that "200 ticks ago" is a real tick and not a negative one.
     sim.tickCount = 1200
-    sim.players[0].shotsHit = 1
     sim.players[0].gunKills = 6
     sim.players[0].longshotKills = 1
+    sim.players[0].starfallKills = 1         # Bounty
     sim.players[0].sprayKills = 2
     sim.players[0].sprayKillsThisPickup = 3
+    sim.players[0].sprayMultiKills = 1       # Double Splash
     sim.players[0].grenadeKills = 3
     sim.players[0].multiKills = 1
+    sim.players[0].grenadeMultiKills = 1     # Double Blast
     sim.players[0].soakedHp = 12
     sim.players[0].kills = 1
     sim.players[0].clutchHeals = 3
     sim.players[0].clutchHealTick = sim.tickCount
+    sim.players[0].clutchCarryHeals = 1      # Lifeline
     sim.players[0].steals = 1
-    sim.players[0].returns = 1
-    sim.players[0].carrierKills = 1
+    sim.players[0].carrierKills = 2          # The Peel + Double Peel
     sim.players[0].denials = 2
     sim.players[0].captures = 1
-    sim.players[0].tookMedKit = true
-    sim.players[0].tookGrenade = true
-    sim.players[0].tookSpray = true
-    sim.players[0].tookShield = true
-    sim.players[0].hasGrenade = true
-    sim.players[0].hasPlasmaArc = true
-    sim.players[0].hasShield = true
-    sim.players[0].hp = sim.config.hitPoints + 1   # med kit held: 4th kit
     sim.players[0].level = MaxLevel
     sim.players[0].stealTickThisLife = sim.tickCount - 200
     sim.players[0].peelTick = sim.tickCount - 300
     sim.players[0].carryingFlag = true
-    sim.gameStartTick = sim.tickCount - 700        # clean-sheet window elapsed
     sim.evalAchievements(Red)
 
     # A second pass in a state the first one cannot hold at the same instant.
-    # "Against the Odds" wants Red OUTNUMBERED, while the squad tiers want
-    # Red alive and holding four kits -- mutually exclusive in a two-cog
+    # "Uphill" wants Red OUTNUMBERED, while the squad tiers want Red alive
+    # and holding four converted kits -- mutually exclusive in a two-cog
     # scenario, and that is a property of the SCENARIO, not of the tier.
     # Claims are one-shot and cumulative, so reachability is still a fair
     # question to ask across passes.
     sim.players[0].alive = false
     sim.players[1].alive = true
     sim.evalAchievements(Red)
+
+    # Clean Sheet is FULL-GAME and conclusion-only (v3): no per-tick poll,
+    # however many times run above, can ever claim it -- `finishGame` is its
+    # one mint site. Red has taken no team kills anywhere in this scenario,
+    # so a clean conclusion claims it here, and only here.
+    check not sim.claimed[Red][achievementKey(treeSquad, 3)]
+    sim.finishGame(Red)
 
     echo ""
     echo "  achievement                        tier  glory  first"
@@ -530,6 +577,149 @@ suite "glory in the sim: the achievement curriculum FIRES":
     if missing.len > 0:
       echo "  UNREACHABLE: ", missing.join(", ")
     check missing.len == 0
+
+suite "glory in the sim: the v3 counters fire off REAL engine mechanics":
+  # The AUDIT above proves the PREDICATES read the right counters; it sets
+  # every counter directly, the same shortcut the pre-v3 file always used.
+  # That is not enough for the three counters this rewrite invented -- a
+  # per-activation tally is exactly the shape of bug the double-count
+  # warning in glory.nim's task brief called out, so these drive the REAL
+  # engine paths (a real cone, a real blast, a real pickup) end to end.
+
+  # The left capture column (x < 210) is protected floor -- never walled --
+  # so arc-fire tests anchor the attacker there for guaranteed line of
+  # sight, the same trick test_plasma_arc.nim uses.
+  let
+    ClearX = 60
+    ClearY = MapHeight div 2
+
+  test "a genuine one-activation spray double kill fires Double Splash once":
+    var sim = redVsTwoBlue()
+    sim.players[0].x = ClearX
+    sim.players[0].y = ClearY
+    sim.players[0].aimBrads = 0                # east
+    sim.players[0].hasPlasmaArc = true
+    sim.players[1].x = ClearX + 40
+    sim.players[1].y = ClearY
+    sim.players[1].hp = 1
+    sim.players[2].x = ClearX + 80
+    sim.players[2].y = ClearY
+    sim.players[2].hp = 1
+    sim.tryFireArc(0)
+    check not sim.players[1].alive
+    check not sim.players[2].alive
+    check sim.players[0].sprayMultiKills == 1
+    check sim.deedCounts[dSplashMultiKill] >= 1
+    # And a THIRD enemy in the same activation must not double-count it: a
+    # triple activation is still exactly one Double Splash.
+    var triple = redVsTwoBlue()
+    discard triple.addPlayer("blue2")
+    triple.players[3].team = Blue
+    triple.players[0].x = ClearX
+    triple.players[0].y = ClearY
+    triple.players[0].aimBrads = 0
+    triple.players[0].hasPlasmaArc = true
+    for i in [1, 2, 3]:
+      triple.players[i].x = ClearX + 30 * i
+      triple.players[i].y = ClearY
+      triple.players[i].hp = 1
+    triple.tryFireArc(0)
+    check not triple.players[1].alive
+    check not triple.players[2].alive
+    check not triple.players[3].alive
+    check triple.players[0].sprayMultiKills == 1
+
+  test "a genuine one-blast grenade double kill fires Double Blast once":
+    var sim = redVsTwoBlue()
+    sim.players[0].x = 300
+    sim.players[0].y = 300
+    sim.players[0].aimBrads = 0                # east
+    sim.players[0].hasGrenade = true
+    sim.players[1].x = 300 + GrenadeMaxRange
+    sim.players[1].y = 300
+    sim.players[1].hp = GrenadeDamage
+    sim.players[2].x = 300 + GrenadeMaxRange
+    sim.players[2].y = 300 + 10                # inside GrenadeBlastRadius
+    sim.players[2].hp = GrenadeDamage
+    sim.chargeAndThrow(0, GrenadeChargeTicks)
+    check sim.airborneGrenades.len == 1
+    let flight = sim.airborneGrenades[0].flightTicks
+    let prev = sim.noInput()
+    for _ in 0 .. flight:
+      sim.stepWith(sim.noInput(), prev)
+    check not sim.players[1].alive
+    check not sim.players[2].alive
+    check sim.players[0].grenadeMultiKills == 1
+    check sim.deedCounts[dSplashMultiKill] >= 1   # grenade multikills share the deed
+
+  test "a carrier's clutch heal at 1 hp fires Lifeline once":
+    # FIRST verifies the premise the reachability rule demands: nothing in
+    # `tryPickupMedKits` gates on `carryingFlag` (unlike `tryPickupFlags`,
+    # which guards against stealing a SECOND heart), so a carrier at 1 hp can
+    # reach a ground med kit exactly like anyone else.
+    var sim = twoTeamGame()
+    sim.flags[Blue].carrier = 0
+    sim.players[0].carryingFlag = true
+    sim.players[0].hp = 1
+    sim.players[0].x = sim.medKitSpawns[0].x
+    sim.players[0].y = sim.medKitSpawns[0].y
+    sim.tryPickupMedKits(0)
+    check sim.players[0].hp > 1
+    check sim.players[0].clutchHeals == 1
+    check sim.players[0].clutchCarryHeals == 1
+
+    # A clutch heal WITHOUT the heart must not credit Lifeline.
+    var grounded = twoTeamGame()
+    grounded.players[0].hp = 1
+    grounded.players[0].x = grounded.medKitSpawns[0].x
+    grounded.players[0].y = grounded.medKitSpawns[0].y
+    grounded.tryPickupMedKits(0)
+    check grounded.players[0].clutchHeals == 1
+    check grounded.players[0].clutchCarryHeals == 0
+
+suite "glory in the sim: Clean Sheet is full-game, conclusion-only":
+
+  test "the per-tick poll can never claim it, at tick 599 or anywhere else":
+    # v3's whole point: `satisfiedAchievements` never reports this tier, so
+    # no amount of polling -- at the OLD tick>=600 threshold or past it --
+    # can claim it, however clean the team actually is.
+    var sim = twoTeamGame()
+    sim.phase = Playing
+    sim.tickCount = 599
+    for _ in 1 .. 50:
+      sim.evalAchievementsAllTeams()
+      inc sim.tickCount
+    check not sim.claimed[Red][achievementKey(treeSquad, 3)]
+    check not sim.claimed[Blue][achievementKey(treeSquad, 3)]
+
+  test "a clean team claims it at conclusion; a dirty team never does":
+    var sim = twoRedOneBlue()
+    sim.killPlayer(1, 0, "gun")   # Red 0 backstabs Red 1: a real team kill
+    sim.recordTeamKill(0, 1)      # the counter every real call site pairs it with
+    check sim.players[0].teamKills == 1
+    sim.finishGame(Blue)
+    check not sim.claimed[Red][achievementKey(treeSquad, 3)]    # Red is dirty
+    check sim.claimed[Blue][achievementKey(treeSquad, 3)]       # Blue is clean
+
+    # And the loser can bank it too -- Clean Sheet is not a winner's prize.
+    var loser = twoRedOneBlue()
+    loser.killPlayer(1, 0, "gun")
+    loser.recordTeamKill(0, 1)
+    loser.finishGame(Blue)         # Red loses; Blue, the clean team, wins
+    check not loser.claimed[Red][achievementKey(treeSquad, 3)]
+
+  test "both teams clean at the same conclusion both take FIRST":
+    var sim = twoTeamGame()
+    sim.finishGame(Red)
+    check sim.claimed[Red][achievementKey(treeSquad, 3)]
+    check sim.claimed[Blue][achievementKey(treeSquad, 3)]
+    var redFirst, blueFirst = false
+    for claim in sim.achievementFeed:
+      if claim.tree == treeSquad and claim.tier == 3:
+        if claim.team == Red: redFirst = claim.first
+        if claim.team == Blue: blueFirst = claim.first
+    check redFirst
+    check blueFirst
 
 suite "glory in the sim: the hover inspector":
 

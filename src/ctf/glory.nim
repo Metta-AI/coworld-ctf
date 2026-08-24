@@ -79,9 +79,17 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 2
+  GloryVersion* = 3
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v3 (2026-08-24): the achievement curriculum rewrite that bans every
+    ## pickup/possession/arrival requirement from the tree (law 2b's ruling,
+    ## below) and moves Clean Sheet (`treeSquad` tier IV) from a per-tick
+    ## tick>=600 poll to a FULL-GAME conclusion-only mint. Both change WHEN
+    ## and WHETHER a claim mints, which moves `teamGlory` -- so a v2 ledger's
+    ## achievement claims are not comparable to a v3 one, even though
+    ## `TierGlory` itself did not move a single number.
     ##
     ## v2 (2026-08-21): `PointBlankPx` 150 -> 110 and `dPointBlankKill`
     ## 16 -> 12, after the deed was measured firing on HALF of all kills.
@@ -484,6 +492,21 @@ const
   #      teaches the other three teams nothing.
   #   2b. No achievement ever pays for travel, arrival or departure. Movement
   #      is how you reach plays; it is not a play.
+  #
+  #      🚨 RULING (Maxwell, 2026-08-24), extending 2b for the v3 curriculum
+  #      rewrite: "these are things where the player goes above and beyond
+  #      normal gameplay, not rewarding them for just normal gameplay." An
+  #      act that already carries its own benefit -- a pickup heals you or
+  #      arms you, arrival anywhere pays for itself mechanically -- is NOT an
+  #      achievement; the game already paid you once for doing it. So NO
+  #      pickup/possession/arrival requirement may exist ANYWHERE in the
+  #      curriculum. v3 deletes "Shake It" (pick up a spray can), "Pull the
+  #      Pin" (pick up a grenade), "Suit Up" (pick up a shield), "Field
+  #      Dressing" (take a med kit) and "Eyes Back" (a heart return -- which
+  #      also happened to retire the corrupt `returns` counter; see
+  #      `resetFlag`'s bystander-credit note in sim.nim) outright, and
+  #      replaces every kit tree's tier I with the CONVERTED act the pickup
+  #      was only ever a precondition for.
   #   3. Big enough to chase, too small to win on: a full sweep must stay
   #      under AchievementSweepBudgetPct of a median winner's episode glory.
   #      `tests/test_glory.nim` sums the table and asserts it.
@@ -522,59 +545,68 @@ type
     treeShield      ## the endzone armor: soak, not damage.
     treeMedKit      ## the heal line, where we run 5.9x worse than winners.
     treeCarrier     ## steal, run, score.
-    treeDefender    ## peel, return, deny.
+    treeDefender    ## peel, deny, turn the tables.
     treeSquad       ## TEAM: the full kit fielded at once.
 
 const
   AchievementNames*: array[Tree, array[AchievementTiers, string]] = [
-    # treeGun — "The Sidearm"
-    ["Trigger Discipline",  ## I    land a gun hit
-     "First Tag",           ## II   a gun kill
-     "Marksman",            ## III  3 gun kills in one game
+    # treeGun — "The Sidearm". v3: "Trigger Discipline" (any landed hit) is
+    # GONE -- landing a hit is normal gunplay, not an achievement (law 2b's
+    # ruling). Every tier below is a KILL or a rank now.
+    ["First Tag",           ## I    a gun kill
+     "Marksman",            ## II   3 gun kills in one game
+     "Bounty",              ## III  killed a level>=StarfallLevel enemy
      "Longshot",            ## IV   a kill past LongshotPx
      "Sharpshooter"],       ## V    a cog reaches max rank (L5)
-    # treeSpray — "The Can"
-    ["Shake It",            ## I    pick up a spray can
-     "First Coat",          ## II   a spray kill
-     "Full Coverage",       ## III  2 spray kills plus a multikill, one game
-     "Repainted",           ## IV   2 spray kills on one pickup
-     "The Muralist"],       ## V    3 spray kills on a single pickup
-    # treeGrenade — "The Bomb"
-    ["Pull the Pin",        ## I    pick up a grenade
-     "Delivery",            ## II   a grenade kill
-     "Fireball",            ## III  2 grenade kills in one game
+    # treeSpray — "The Can". v3: "Shake It" (pick up a can) is GONE.
+    ["First Coat",          ## I    a spray kill
+     "Full Coverage",       ## II   2 spray kills in one game
+     "Repainted",           ## III  2 spray kills on one pickup
+     "The Muralist",        ## IV   3 spray kills on a single pickup
+     "Double Splash"],      ## V    one cone activation kills 2+ enemies
+    # treeGrenade — "The Bomb". v3: "Pull the Pin" (pick up a nade) is GONE.
+    ["Delivery",            ## I    a grenade kill
+     "Fireball",            ## II   2 grenade kills in one game
+     "The Bombardier",      ## III  3 grenade kills in one game
      "Blast Radius",        ## IV   a grenade kill plus a 2+ multikill
-     "The Bombardier"],     ## V    3 grenade kills in one game
-    # treeShield — "The Wall"
-    ["Suit Up",             ## I    pick up a shield
-     "Aegis",               ## II   absorb 3 hp
-     "The Door Holds",      ## III  absorb 6 hp in one game
-     "Bulwark",             ## IV   absorb 6 hp AND land an enemy kill
+     "Double Blast"],       ## V    one blast kills 2+ enemies
+    # treeShield — "The Wall". v3: "Suit Up" (pick up a shield) is GONE.
+    ["Aegis",               ## I    absorb 3 hp
+     "Blockade",            ## II   absorb 6 hp in one game
+     "Bulwark",             ## III  absorb 6 hp AND land an enemy kill
+     "Rampart",             ## IV   absorb 9 hp in one game
      "Atlas"],              ## V    absorb 12 hp in one game
-    # treeMedKit — "The Patch"
-    ["Field Dressing",      ## I    take a med kit
-     "The Save",            ## II   heal at 1 hp
-     "Triage",              ## III  2 clutch heals in one episode
-     "Back in Play",        ## IV   clutch-heal then kill within 120 ticks
-     "Miracle Worker"],     ## V    3 clutch heals in one episode
-    # treeCarrier — "The Heart"
+    # treeMedKit — "The Patch". v3: "Field Dressing" (take a med kit) is
+    # GONE -- the take is normal play; the SAVE it buys is the achievement.
+    ["The Save",            ## I    heal at 1 hp
+     "Triage",              ## II   2 clutch heals in one episode
+     "Second Wind",         ## III  clutch-heal then kill within 120 ticks
+     "Miracle Worker",      ## IV   3 clutch heals in one episode
+     "Lifeline"],           ## V    a clutch heal taken WHILE CARRYING the heart
+    # treeCarrier — "The Heart". Unchanged in substance -- stealing, holding
+    # and scoring the enemy heart are all already above ordinary play.
     ["Hands On",            ## I    steal the enemy heart
      "Breakaway",           ## II   hold the heart for 120+ ticks
      "Delivered",           ## III  score the enemy heart
-     "Against the Odds",    ## IV   score while your team is outnumbered
-     "The Long Walk"],      ## V    steal and score on the same life
-    # treeDefender — "The Peel"
-    ["Eyes Back",           ## I    return your heart
-     "The Peel",            ## II   kill the enemy carrier
-     "Doorstep",            ## III  a denial inside DenialPx
-     "Turnaround",          ## IV   peel then steal within 240 ticks
-     "Nothing Gets Through"], ## V  2 denials in one episode
-    # treeSquad — "The Squad" (TEAM tree)
-    ["Kitted",              ## I    hold 2 distinct pickups at once, team-wide
-     "Combined Arms",       ## II   3 distinct pickups at once
-     "Full Kit",            ## III  all 4 pickups live at once
-     "Clean Sheet",         ## IV   reach tick 600 with zero team kills
-     "The Parade"],         ## V    all 4 pickups live AND a capture this game
+     "Uphill",              ## IV   score while your team is outnumbered
+     "Full Run"],           ## V    steal and score on the same life
+    # treeDefender — "The Peel". v3: "Eyes Back" (a heart return) is GONE --
+    # `resetFlag` credits `returns` to every LIVING teammate when a heart
+    # comes home, not to whoever caused it, so it was bystander credit, not
+    # an individual act (see the comment at `resetFlag` in sim.nim).
+    ["The Peel",            ## I    kill the enemy carrier
+     "Doorstep",            ## II   a denial inside DenialPx
+     "Double Peel",         ## III  2 carrier kills in one game
+     "Turnaround",          ## IV   peel then steal within RevengeTicks
+     "Lockdown"],           ## V    2 denials in one episode
+    # treeSquad — "The Squad" (TEAM tree). Kit tiers now read CONVERSION
+    # (`teamConvertedKits`) -- a teammate landed the kit's signature act --
+    # never live possession, which was arrival wearing a team hat.
+    ["Kitted",              ## I    2 of 4 kits CONVERTED, team-wide
+     "Combined Arms",       ## II   3 of 4 kits converted
+     "Full Kit",            ## III  4 of 4 kits converted
+     "Clean Sheet",         ## IV   FULL-GAME zero team kills (conclusion-only)
+     "The Parade"],         ## V    4 of 4 converted AND a capture this game
   ]
 
 # ───────────────────────────────────────────────────────────────────────────

@@ -309,6 +309,13 @@ garnish: rank changes what a cog can do.
 - **Achievements**: 8 kit-keyed trees x 5 tiers, one-shot per team per game.
   Every team can earn every tier; the first team in the episode to complete one
   claims at triple value. They never build the team's heat multiplier.
+  **No tier ever pays for a pickup, a possession, or an arrival** (Maxwell's
+  ruling: "these are things where the player goes above and beyond normal
+  gameplay, not rewarding them for just normal gameplay") -- every tier reads
+  the CONVERTED result a kit or an approach bought, never the act of reaching
+  it. The one full-game tier, `Clean Sheet` (zero team kills across the whole
+  roster), only ever scores at the game's conclusion, win, loss or draw --
+  never mid-game, and the losing side can bank it too.
 - The team scoreboard shows `<TEAM> <kills>/<deaths> <glory>g` plus the live
   heat multiplier (`x2`/`x4`/`x8`) while a team is on a streak.
 
