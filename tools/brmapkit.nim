@@ -286,7 +286,28 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   ## anti-confetti/zone validators are the real BR gate), so the anchors buy
   ## nothing here and only add unpredictably-placed blob mass. Always off.
   params.noAnchors = true
-  let raw = generateShapes(style, seed xor styleSalt, region, params)
+  var raw = generateShapes(style, seed xor styleSalt, region, params)
+  ## ROUND 2 (coordinator review, 2026-08-24): a single caves pass reads as
+  ## "empty pan with islands" — 2-4 big welded masses is a weld PASS but a
+  ## distribution FAIL. Layer a second, FINER-cell pass (precedent: the
+  ## sibling br-demo lane's dual-seeded symnone_giant_caves.nim) so mid-size
+  ## masses fill the gaps the coarse pass's big islands leave. A distinct xor
+  ## salt keeps the two streams independent; unioning before the prune (in
+  ## cmdGenerate) lets the SAME anti-confetti gate judge both layers as one
+  ## piece of terrain, not two.
+  if style == styleCaves:
+    var fine = defaultParams(styleCaves)
+    fine.cell = 36
+    fine.fillProb = 0.30
+    fine.steps = 5
+    fine.birth = 5
+    fine.death = 4
+    fine.blobScale = 1.0   ## big enough that a LONE fine blob (~pi*36^2 =
+                            ## ~4072px^2) still clears the confetti floor on
+                            ## its own — "no confetti" must not mean "no
+                            ## medium rocks".
+    fine.noAnchors = true
+    raw.add generateShapes(style, seed xor styleSalt xor 0x1F2E_3D4C, region, fine)
   result.obstacles = dropShapesNearSpawns(raw, pockets)
 
 # --- spec JSON (own schema; shape grammar matches arena.nim's wire format so
@@ -557,7 +578,8 @@ proc countExits(
   runs
 
 proc countBoundaryExits(
-  wall: seq[bool], cols, rows, width, height: int, rect: MapRect
+  wall: seq[bool], cols, rows, width, height: int, rect: MapRect,
+  extraBlockers: seq[ArenaShape] = @[]
 ): int =
   ## Same contiguous-arc count as countExits, walked around a RECTANGLE'S
   ## perimeter instead of a circle — used both for the zone-center viability
@@ -571,6 +593,14 @@ proc countBoundaryExits(
   ## before the fix. Off-field samples are dropped entirely instead: the
   ## circular run-count then naturally bridges the gap they leave, judging
   ## only the boundary that is actually part of the playable map.
+  ##
+  ## `extraBlockers` (round 2): shapes not yet baked into `wall`, tested live
+  ## at each sample — lets a repair-blob CANDIDATE be checked against "would
+  ## this choke the ring" directly, instead of via an approximate safety
+  ## margin. Margins turned out to be unreliable here: blobPolygon's organic
+  ## wobble can push its silhouette up to ~1.7x its nominal radius in one
+  ## lobe (a2+a3 amplitude up to 0.42+0.28), which quietly ate every fixed
+  ## margin tried and kept re-choking rings the arithmetic said were clear.
   var pts: seq[tuple[x, y: int]]
   const Step = GridStride
   ## Margin rounded UP to a full grid cell: a raw pixel just past ArenaBorderPx
@@ -607,6 +637,22 @@ proc countBoundaryExits(
     let (gx, gy) = toGrid(p.x, p.y)
     if gx >= 0 and gx < cols and gy >= 0 and gy < rows:
       open[i] = not wall[gy * cols + gx]
+      if open[i] and extraBlockers.len > 0:
+        ## Test at the GRID-ALIGNED point (gx*GridStride, gy*GridStride), not
+        ## the raw perimeter-walk pixel `p` — `wall` itself was populated by
+        ## buildWallGrid sampling shapes at grid-aligned points, so testing
+        ## extraBlockers at the unaligned pixel occasionally disagreed with
+        ## what the FINAL validate pass (which bakes candidates into a fresh
+        ## buildWallGrid, all grid-aligned) would find once a candidate was
+        ## accepted — a ring the trim sweep called safe still failed the real
+        ## exit-rule check afterward. Matching the sample point removes the
+        ## discrepancy: this call now predicts buildWallGrid exactly.
+        let sx = gx * GridStride
+        let sy = gy * GridStride
+        for shape in extraBlockers:
+          if inShape(sx, sy, shape):
+            open[i] = false
+            break
   if not anyIt(open, it): return 0
   if allIt(open, it): return NoEnclosureExits  # no wall nearby at all: trivially safe
   var runs = 0
@@ -660,6 +706,22 @@ type
     specSizeReason: string
     specSizeBytes: int
 
+    ## ROUND 2 (coordinator review, 2026-08-24): the round-1 gates all
+    ## passed on "empty pan with islands" draws because none of them
+    ## measured DISTRIBUTION. These three close that gap.
+    placeCountPass: bool
+    placeCountReason: string
+    bigMassCount: int            ## masses strictly above the confetti floor
+
+    perSpawnCoverPass: bool
+    perSpawnCoverReason: string
+    uncoveredSpawns: int
+
+    distributionPass: bool
+    distributionReason: string
+    emptyGridCells: int
+    gridCoverage: seq[bool]      ## 4x2, row-major, for the metrics dump
+
     allPass: bool
 
 const
@@ -674,6 +736,16 @@ const
   ## (bitworld/replays.nim:108-112, per the br-demo lane's 2026-08-24 giant
   ## symNone build, which hit this at 73KB). Budget well under the hard cap.
   SpecSizeBudgetBytes = 58000
+  PlaceCountFloor = 6         ## round-2: >= 6 welded (non-confetti) masses
+  PerSpawnCoverGR = 1.5       ## round-2 §2.3: rotation cover within 1.5 G
+  DistGridCols = 4            ## round-2: 4x2 distribution grid
+  DistGridRows = 2
+  PocketExitMargin = 24       ## shared with ensurePerSpawnCover so a screen
+                               ## blob can never be placed ON its own spawn's
+                               ## exit-check ring (round-2 regression: it was
+                               ## using the raw pocket's radius, not the
+                               ## ring's, and choked 6 spawns down to 1 exit)
+  DistMaxEmptyCells = 1       ## at most ONE deliberately-open cell tolerated
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -716,11 +788,10 @@ proc validateBr(m: BrMap): BrValidation =
     ## outside the guaranteed-clear zone on the tangential (narrow) sides,
     ## which reads real terrain there as a "choke" even when the pocket's
     ## own clear zone was never promised to extend that far.
-    const ExitMargin = 24
     let pocket = pocketRect(s, m.spawnClearW, m.spawnClearH)
     let ring = MapRect(
-      x: pocket.x - ExitMargin, y: pocket.y - ExitMargin,
-      w: pocket.w + 2 * ExitMargin, h: pocket.h + 2 * ExitMargin)
+      x: pocket.x - PocketExitMargin, y: pocket.y - PocketExitMargin,
+      w: pocket.w + 2 * PocketExitMargin, h: pocket.h + 2 * PocketExitMargin)
     let n = countBoundaryExits(wall, cols, rows, m.width, m.height, ring)
     when defined(brDebugExit):
       stderr.writeLine(&"spawn edge={s.edge} p=({s.p.x},{s.p.y}) ring=({ring.x},{ring.y},{ring.w},{ring.h}) exits={n}")
@@ -754,6 +825,77 @@ proc validateBr(m: BrMap): BrValidation =
   result.antiConfettiReason =
     if result.antiConfettiPass: ""
     else: &"{confetti} confetti-sized masses (< {ConfettiFloorPx2}px^2), ceiling {ConfettiCeiling}"
+  result.bigMassCount = result.massCount - confetti
+
+  # 3b. Place-count floor (round 2) --------------------------------------------
+  result.placeCountPass = result.bigMassCount >= PlaceCountFloor
+  result.placeCountReason =
+    if result.placeCountPass: ""
+    else: &"{result.bigMassCount} welded masses, need >= {PlaceCountFloor} " &
+      "(\"empty pan with islands\" if this stays low)"
+
+  # 3c. Per-spawn cover (round 2, doc §2.3 sharpened) ---------------------------
+  block perSpawnCover:
+    let radius = int(PerSpawnCoverGR * float(m.gunRange))
+    const ScanStride = GridStride * 3
+    var uncovered = 0
+    for s in m.spawns:
+      var covered = false
+      var dy = -radius
+      while dy <= radius and not covered:
+        var dx = -radius
+        while dx <= radius and not covered:
+          if dx * dx + dy * dy <= radius * radius:
+            let x = s.p.x + dx
+            let y = s.p.y + dy
+            if x >= 0 and x < m.width and y >= 0 and y < m.height:
+              let (gx, gy) = toGrid(x, y)
+              if gx >= 0 and gx < cols and gy >= 0 and gy < rows:
+                let i = gy * cols + gx
+                if wall[i]:
+                  let lbl = wallComp.labels[i]
+                  if lbl >= 0 and lbl != borderLabel and
+                      wallComp.sizes[lbl] * GridStride * GridStride >= ConfettiFloorPx2:
+                    covered = true
+          dx += ScanStride
+        dy += ScanStride
+      if not covered: inc uncovered
+      when defined(brDebugExit):
+        stderr.writeLine(&"perSpawnCover spawn edge={s.edge} p=({s.p.x},{s.p.y}) covered={covered}")
+    result.uncoveredSpawns = uncovered
+    result.perSpawnCoverPass = uncovered == 0
+    result.perSpawnCoverReason =
+      if result.perSpawnCoverPass: ""
+      else: &"{uncovered}/{m.spawns.len} spawns have no welded mass within " &
+        &"{PerSpawnCoverGR}G ({radius}px) — unscreened rotation"
+
+  # 3d. Distribution grid (round 2) ---------------------------------------------
+  block distribution:
+    var coverage = newSeq[bool](DistGridCols * DistGridRows)
+    let cellW = (m.width + DistGridCols - 1) div DistGridCols
+    let cellH = (m.height + DistGridRows - 1) div DistGridRows
+    for gy in 0 ..< rows:
+      let y = gy * GridStride
+      for gx in 0 ..< cols:
+        if not wall[gy * cols + gx]: continue
+        let lbl = wallComp.labels[gy * cols + gx]
+        if lbl < 0 or lbl == borderLabel: continue
+        if wallComp.sizes[lbl] * GridStride * GridStride < ConfettiFloorPx2: continue
+        let x = gx * GridStride
+        let cellX = min(DistGridCols - 1, x div cellW)
+        let cellY = min(DistGridRows - 1, y div cellH)
+        coverage[cellY * DistGridCols + cellX] = true
+    var empty = 0
+    for c in coverage:
+      if not c: inc empty
+    result.gridCoverage = coverage
+    result.emptyGridCells = empty
+    result.distributionPass = empty <= DistMaxEmptyCells
+    result.distributionReason =
+      if result.distributionPass: ""
+      else: &"{empty} of {DistGridCols * DistGridRows} field-grid cells have " &
+        &"zero cover mass (max {DistMaxEmptyCells} tolerated) — an empty half, " &
+        "not a deliberate open pan"
 
   # 4. Zone-center viability sweep ----------------------------------------------
   let margin = max(zoneRect(m.width, m.height, m.zoneZ, 0, 0).w,
@@ -811,7 +953,8 @@ proc validateBr(m: BrMap): BrValidation =
       &"(replay wire cap is 65535B) — prune more or thin blob density"
 
   result.allPass = result.connectivityPass and result.exitPass and
-    result.antiConfettiPass and result.zonePass and result.specSizePass
+    result.antiConfettiPass and result.zonePass and result.specSizePass and
+    result.placeCountPass and result.perSpawnCoverPass and result.distributionPass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
   ## Pick the passing candidate closest to the field's geometric center (a
@@ -874,6 +1017,168 @@ proc pruneConfetti(
     let lbl = comp.labels[gy * cols + gx]
     if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
       result.add shape
+
+proc pocketRadialHalf(s: BrSpawn, clearW, clearH: int): int =
+  clearH  ## pocketRect always puts the LARGER (radial) extent in clearH,
+          ## regardless of which edge the spawn sits on.
+
+proc inwardDir(edge: SpawnEdge): tuple[dx, dy: int] =
+  case edge
+  of seTop: (0, 1)
+  of seBottom: (0, -1)
+  of seLeft: (1, 0)
+  of seRight: (-1, 0)
+
+proc pointInAnyPocket(
+  x, y: int, spawns: seq[BrSpawn], clearW, clearH, buffer: int
+): bool =
+  for s in spawns:
+    let p = pocketRect(s, clearW, clearH)
+    if x >= p.x - buffer and x <= p.x + p.w + buffer and
+        y >= p.y - buffer and y <= p.y + p.h + buffer:
+      return true
+  false
+
+proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
+  ## ROUND 2 (coordinator review, 2026-08-24): "every rotation from spawn is
+  ## unscreened" — doctrine §2.3 (cover on the rotation) needs a welded mass
+  ## within ~coverGR gun-ranges of EVERY spawn, and organic terrain density
+  ## is not reliable enough to promise that on its own (that is exactly what
+  ## the round-1 draws got called out for). A hard per-spawn gate needs a
+  ## CONSTRUCTION, not a hope: measure each spawn against the terrain
+  ## AFTER the confetti prune (call this post-prune), and for any spawn with
+  ## no qualifying mass in range, author one small screen blob just past its
+  ## pocket, on the field-INWARD side (never toward the map edge, and never
+  ## inside another spawn's own pocket).
+  const
+    ScanStride = GridStride * 3   ## coarse disc scan: cheap, ~16px granularity
+    ScreenBlobRadius = 36          ## pi*36^2 ~= 4072px^2, > ConfettiFloorPx2;
+                                    ## shrunk from 45 in round-2 fix #2 below
+                                    ## to buy more room in a thin radial band
+    PocketBuffer = 70              ## matches dropShapesNearSpawns' halo
+  let (cols, rows) = gridDims(m.width, m.height)
+  let wall = buildWallGrid(m)
+  let comp = components(wall, cols, rows, true, true)
+  let borderLabel = comp.labels[0]
+  let radius = int(coverGR * float(m.gunRange))
+  var rng = initRand(m.genSeed xor 0x4B72_9E11)
+
+  proc hasQualifyingMassNear(cx, cy: int): bool =
+    var dy = -radius
+    while dy <= radius:
+      var dx = -radius
+      while dx <= radius:
+        if dx * dx + dy * dy <= radius * radius:
+          let x = cx + dx
+          let y = cy + dy
+          if x >= 0 and x < m.width and y >= 0 and y < m.height:
+            let (gx, gy) = toGrid(x, y)
+            if gx >= 0 and gx < cols and gy >= 0 and gy < rows:
+              let i = gy * cols + gx
+              if wall[i]:
+                let lbl = comp.labels[i]
+                if lbl >= 0 and lbl != borderLabel and
+                    comp.sizes[lbl] * GridStride * GridStride >= ConfettiFloorPx2:
+                  return true
+        dx += ScanStride
+      dy += ScanStride
+    false
+
+  ## TWO-PHASE, round-2 fix #6 (replaces three earlier attempts at an
+  ## incremental "accept only if provably safe" placement search — each
+  ## closed one failure mode and opened another, because blobPolygon's
+  ## organic wobble made every fixed safety margin unreliable and even a
+  ## per-candidate simulation missed cross-candidate interactions depending
+  ## on iteration order). This is simpler and provably correct instead:
+  ##   1. Place a best-effort candidate for every uncovered spawn, using only
+  ##      a cheap "don't land inside a pocket" filter — no ring-safety logic
+  ##      at all yet.
+  ##   2. Sweep to a fixpoint: recompute EVERY ring's exit count with ALL
+  ##      surviving candidates as blockers (the exact same countBoundaryExits
+  ##      the real exit-rule validator calls), and if any ring would drop
+  ##      below MinPocketExits, drop ONE overlapping candidate and re-sweep.
+  ## Step 2 can only ever REMOVE candidates, so it can never introduce a
+  ## choke — the worst case is an honest per-spawn-cover gap, which is
+  ## exactly the number the validator should report.
+  var candidates: seq[ArenaShape]
+  for s in m.spawns:
+    let alreadyCovered = hasQualifyingMassNear(s.p.x, s.p.y)
+    when defined(brDebugExit):
+      stderr.writeLine(&"ensurePerSpawnCover spawn edge={s.edge} p=({s.p.x},{s.p.y}) alreadyCovered={alreadyCovered} radius={radius}")
+    if alreadyCovered:
+      continue
+    let minCenterDist = pocketRadialHalf(s, m.spawnClearW, m.spawnClearH) + 10
+    let maxCenterDist = radius - 5
+    var placed = false
+    if maxCenterDist >= minCenterDist:
+      const ScanStep = 28
+      block placement:
+        var dy = -maxCenterDist
+        while dy <= maxCenterDist:
+          var dx = -maxCenterDist
+          while dx <= maxCenterDist:
+            let d2 = dx * dx + dy * dy
+            if d2 >= minCenterDist * minCenterDist and d2 <= maxCenterDist * maxCenterDist:
+              let cx = s.p.x + dx
+              let cy = s.p.y + dy
+              if cx >= ArenaBorderPx + 20 and cy >= ArenaBorderPx + 20 and
+                  cx < m.width - ArenaBorderPx - 20 and cy < m.height - ArenaBorderPx - 20 and
+                  not pointInAnyPocket(cx, cy, m.spawns, m.spawnClearW, m.spawnClearH, 15):
+                let candidate = blobPolygon(
+                  rng, MapRect(x: 0, y: 0, w: m.width, h: m.height),
+                  cx, cy, ScreenBlobRadius, 12)
+                ## Cheap bbox-only pre-filter: reject any candidate whose
+                ## bounding box overlaps ANY spawn's ring outright, so phase 2
+                ## (the expensive, authoritative trim) mostly only has to
+                ## catch multi-candidate interactions instead of individually
+                ## doomed placements — most of round 2's "too much trimming"
+                ## was candidates that were never going to survive anyway.
+                let cb = shapeBounds(candidate)
+                var touchesRing = false
+                for s2 in m.spawns:
+                  let p2 = pocketRect(s2, m.spawnClearW, m.spawnClearH)
+                  let r2x0 = p2.x - PocketExitMargin
+                  let r2y0 = p2.y - PocketExitMargin
+                  let r2x1 = p2.x + p2.w + PocketExitMargin
+                  let r2y1 = p2.y + p2.h + PocketExitMargin
+                  if not (cb.x1 < r2x0 - 4 or cb.x0 > r2x1 + 4 or
+                      cb.y1 < r2y0 - 4 or cb.y0 > r2y1 + 4):
+                    touchesRing = true
+                    break
+                if not touchesRing:
+                  candidates.add candidate
+                  placed = true
+                  when defined(brDebugExit):
+                    stderr.writeLine(&"  candidate screen blob at ({cx},{cy}) dist={sqrt(float(d2)):.0f} radius={radius}")
+                  break placement
+            dx += ScanStep
+          dy += ScanStep
+    when defined(brDebugExit):
+      if not placed:
+        stderr.writeLine(&"WARNING: no candidate slot for spawn edge={s.edge} p=({s.p.x},{s.p.y}) minCenterDist={minCenterDist} maxCenterDist={maxCenterDist}")
+
+  # Phase 2: trim to a fixpoint against the REAL exit check.
+  var stable = false
+  while not stable and candidates.len > 0:
+    stable = true
+    block sweep:
+      for s in m.spawns:
+        let pocket = pocketRect(s, m.spawnClearW, m.spawnClearH)
+        let ring = MapRect(
+          x: pocket.x - PocketExitMargin, y: pocket.y - PocketExitMargin,
+          w: pocket.w + 2 * PocketExitMargin, h: pocket.h + 2 * PocketExitMargin)
+        if countBoundaryExits(wall, cols, rows, m.width, m.height, ring, candidates) <
+            MinPocketExits:
+          for i, c in candidates:
+            let cb = shapeBounds(c)
+            if not (cb.x1 < ring.x - 8 or cb.x0 > ring.x + ring.w + 8 or
+                cb.y1 < ring.y - 8 or cb.y0 > ring.y + ring.h + 8):
+              when defined(brDebugExit):
+                stderr.writeLine(&"  trimming candidate {i} — it chokes ring for spawn edge={s.edge} p=({s.p.x},{s.p.y})")
+              candidates.delete(i)
+              stable = false
+              break sweep
+  result = candidates
 
 # --- metrics -------------------------------------------------------------------
 
@@ -938,11 +1243,20 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "pocketExits": v.pocketExits,
     "zoneCandidateCount": v.zoneCandidates.len,
     "zoneViableFrac": v.zoneViableFrac,
+    "bigMassCount": v.bigMassCount,
+    "uncoveredSpawns": v.uncoveredSpawns,
+    "emptyGridCells": v.emptyGridCells,
+    "gridCoverage": v.gridCoverage,
+    "specSizeBytes": v.specSizeBytes,
     "pass": %*{
       "connectivity": v.connectivityPass,
       "exitRule": v.exitPass,
       "antiConfetti": v.antiConfettiPass,
       "zoneViability": v.zonePass,
+      "specSize": v.specSizePass,
+      "placeCount": v.placeCountPass,
+      "perSpawnCover": v.perSpawnCoverPass,
+      "distribution": v.distributionPass,
       "all": v.allPass,
     },
   }
@@ -1112,6 +1426,11 @@ proc cmdGenerate(a: Args) =
   let rawCount = m.obstacles.len
   if not a.bools.getOrDefault("noPrune", false):
     m.obstacles = pruneConfetti(m.obstacles, m.width, m.height, ConfettiFloorPx2)
+  var repaired = 0
+  if not a.bools.getOrDefault("noRepair", false):
+    let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
+    repaired = screens.len
+    m.obstacles.add screens
   let spec = brMapSpecJson(m)
   let outPath = a.flag("out", "")
   if outPath.len == 0:
@@ -1121,7 +1440,8 @@ proc cmdGenerate(a: Args) =
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} {m.width}x{m.height} " &
       &"gunRange={m.gunRange} spawns={m.spawns.len} obstacles={m.obstacles.len}" &
-      &" (pruned {rawCount - m.obstacles.len} confetti of {rawCount}) -> {outPath}")
+      &" (pruned {rawCount - (m.obstacles.len - repaired)} confetti of {rawCount}," &
+      &" {repaired} spawn-cover repairs) -> {outPath}")
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
@@ -1144,6 +1464,9 @@ proc printValidation(v: BrValidation) =
   echo &"anti-confetti: {(if v.antiConfettiPass: \"PASS\" else: \"FAIL: \" & v.antiConfettiReason)}  (masses={v.massCount}, confetti={v.confettiCount}, largest={v.largestMassPx2}px^2)"
   echo &"zone-viable:   {(if v.zonePass: \"PASS\" else: \"FAIL: \" & v.zoneReason)}  (viable={v.zoneViableFrac*100:.1f}% of {v.zoneCandidates.len} candidates)"
   echo &"spec size:     {(if v.specSizePass: \"PASS\" else: \"FAIL: \" & v.specSizeReason)}  ({v.specSizeBytes}B / {SpecSizeBudgetBytes}B budget)"
+  echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, floor={PlaceCountFloor})"
+  echo &"per-spawn cvr: {(if v.perSpawnCoverPass: \"PASS\" else: \"FAIL: \" & v.perSpawnCoverReason)}  (uncovered={v.uncoveredSpawns}/16 within {PerSpawnCoverGR}G)"
+  echo &"distribution:  {(if v.distributionPass: \"PASS\" else: \"FAIL: \" & v.distributionReason)}  (empty cells={v.emptyGridCells}/{DistGridCols*DistGridRows})"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
