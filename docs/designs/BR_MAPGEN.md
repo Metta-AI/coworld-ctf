@@ -64,10 +64,16 @@ lever, different leg: **screened movement must exist between every adjacent
 pair of places.** An unscreened crossing under a closing circle is a
 firing squad, and it is the BR analogue of the walk-in that W1a-E2 fixed.
 
-### 2.4 Keystone-per-map discipline — transfers
+### 2.4 Keystone-per-map discipline — transfers, STRENGTHENED
 Every map declares the ability it exists to exercise at draw time. BR keystones
-differ from CTF's (no carrier-route-selection); expect families like
-landing-selection, rotation-timing, circle-edge-holding, third-partying.
+differ from CTF's (no carrier-route-selection): landing-selection,
+rotation-timing, zone-edge-holding, third-party, cqc-warren/open-steppe.
+**BR strengthening (2026-08-24): the keystone is MEASURED, not just named** —
+each family carries a detector metric with a floor that other families' draws
+mostly fail (calibrated with cross-family evidence, like the density gate). The
+keystone drives grammar knobs (archetype mix, size variance, connectors, loot
+gradient) and never density placement — §4.7 uniformity binds for every family.
+A declared keystone the detector cannot find fails the draw.
 
 ### 2.5 The measured-fairness ruling — transfers as the governing principle
 > "Static 'twin' structures don't balance; only measured per-home return
