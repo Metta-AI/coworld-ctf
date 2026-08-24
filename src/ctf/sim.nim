@@ -839,7 +839,15 @@ proc killPlayer*(
     y = float(sim.players[targetIndex].y + CollisionH div 2),
     targetSlot = killerSlot
   )
-  if sim.players[targetIndex].lives > 0:
+  if sim.config.brMode:
+    # BR: no respawns, ever — one death is out regardless of the configured
+    # `lives`/`respawnTicks`. Reuse eliminateTeam's existing "permanently
+    # out" contract (lives = 0) instead of a new sentinel, so every reader
+    # that already understands lives == 0 (respawnPlayers, teamHasLivePlayers,
+    # teamLivesRemaining, the HUD, gameHash) handles a BR death correctly
+    # with no further changes.
+    sim.players[targetIndex].lives = 0
+  elif sim.players[targetIndex].lives > 0:
     dec sim.players[targetIndex].lives
   sim.players[targetIndex].respawnTimer =
     if sim.players[targetIndex].lives > 0:
@@ -2814,6 +2822,40 @@ proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
       return true
   false
 
+proc brTiebreakWinner(sim: SimServer): tuple[winner: Team, isDraw: bool] =
+  ## BR maxTicks tiebreak (docs/designs/BR_MAPGEN.md §1, pre-registered
+  ## before any BR corpus exists): most LIVING players wins; a tie there
+  ## breaks on total damage dealt — `Player.damageDealt` is the nearest
+  ## already-tracked stat to "who was winning the fight," so this reuses it
+  ## rather than inventing new tracking just for the tiebreak. A tie on both
+  ## is a draw. Generic over `sim.teams()`, so this is unchanged whether the
+  ## game seats 2, 4, or (once the team-count ceiling widens) 16 teams.
+  var living, damage: array[Team, int]
+  for p in sim.players:
+    if p.alive:
+      inc living[p.team]
+    damage[p.team] += p.damageDealt
+  var maxLiving = -1
+  for team in sim.teams():
+    maxLiving = max(maxLiving, living[team])
+  var livingLeaders: seq[Team] = @[]
+  for team in sim.teams():
+    if living[team] == maxLiving:
+      livingLeaders.add team
+  if livingLeaders.len == 1:
+    return (livingLeaders[0], false)
+  var maxDamage = -1
+  for team in livingLeaders:
+    maxDamage = max(maxDamage, damage[team])
+  var damageLeaders: seq[Team] = @[]
+  for team in livingLeaders:
+    if damage[team] == maxDamage:
+      damageLeaders.add team
+  if damageLeaders.len == 1:
+    return (damageLeaders[0], false)
+  (Red, true)  # full tie on both criteria: a draw, same as the mutual-wipe
+               # convention (winner arg is a placeholder finishGame ignores).
+
 proc shouldAbortFiniteMatch*(sim: SimServer): bool =
   ## Returns true when a finite match cannot continue after roster loss.
   if sim.config.maxGames <= 0:
@@ -2992,32 +3034,39 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
   # most one team still stands, so a 4-team winner either captures every
   # rival heart or outlives the field; classic 2-team play still ends on
   # the first capture (eliminating the only rival leaves one team).
-  for flagTeam in sim.teams():
-    let carrierIndex = sim.flags[flagTeam].carrier
-    if carrierIndex < 0 or carrierIndex >= sim.players.len or
-        not sim.players[carrierIndex].alive:
-      continue
-    let
-      carrier = sim.players[carrierIndex]
-      zone = sim.captureZone(carrier.team)
-      cx = carrier.x + CollisionW div 2
-      cy = carrier.y + CollisionH div 2
-    if zone.inCaptureZone(cx, cy):
-      sim.recordCapture(carrierIndex)
-      sim.emitEvent(
-        Capture, source = carrierIndex,
-        x = float(cx), y = float(cy)
-      )
-      sim.logGameEvent(
-        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
-      )
-      sim.flags[flagTeam].captured = true
-      sim.flags[flagTeam].carrier = -1
-      sim.players[carrierIndex].carryingFlag = false
-      sim.lastCaptureTeam = carrier.team
-      sim.lastCaptureTick = sim.tickCount
-      sim.lastCaptureIndex = carrierIndex
-      sim.eliminateTeam(flagTeam, carrierIndex)
+  # brMode: this whole branch is skipped — flags/captures never eliminate a
+  # team or end a BR episode, only the wipe check below does. This is
+  # authoritative regardless of whether a map's flags can even be picked up
+  # (a flagless map already can't produce a carrier, so carrierIndex stays
+  # -1 and the loop body never runs either way; the brMode guard makes that
+  # true by construction instead of by relying on map state).
+  if not sim.config.brMode:
+    for flagTeam in sim.teams():
+      let carrierIndex = sim.flags[flagTeam].carrier
+      if carrierIndex < 0 or carrierIndex >= sim.players.len or
+          not sim.players[carrierIndex].alive:
+        continue
+      let
+        carrier = sim.players[carrierIndex]
+        zone = sim.captureZone(carrier.team)
+        cx = carrier.x + CollisionW div 2
+        cy = carrier.y + CollisionH div 2
+      if zone.inCaptureZone(cx, cy):
+        sim.recordCapture(carrierIndex)
+        sim.emitEvent(
+          Capture, source = carrierIndex,
+          x = float(cx), y = float(cy)
+        )
+        sim.logGameEvent(
+          teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
+        )
+        sim.flags[flagTeam].captured = true
+        sim.flags[flagTeam].carrier = -1
+        sim.players[carrierIndex].carryingFlag = false
+        sim.lastCaptureTeam = carrier.team
+        sim.lastCaptureTick = sim.tickCount
+        sim.lastCaptureIndex = carrierIndex
+        sim.eliminateTeam(flagTeam, carrierIndex)
   # GV33: a completely killed team's heart leaves play with it. A wiped
   # team can never recover its heart, so it retires the moment the team is
   # gone — even off the back of an enemy carrier, who drops it (recovering
@@ -3052,7 +3101,15 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
 proc checkMaxTicks(sim: var SimServer) =
   ## A game that hits the time limit before a capture or a wipe is a
   ## scoreless draw for both sides: no tiebreak, no rewards.
+  ## brMode: pre-registered tiebreak instead (see brTiebreakWinner) — a
+  ## clock-out still needs to crown a last-team-standing winner if the field
+  ## is ahead on any measured axis, since a BR episode has no captures to
+  ## fall back on.
   if not sim.maxTicksReached():
+    return
+  if sim.config.brMode:
+    let (winner, isDraw) = sim.brTiebreakWinner()
+    sim.finishGame(winner, isDraw = isDraw, timeLimitReached = true)
     return
   sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 

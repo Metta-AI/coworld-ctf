@@ -52,7 +52,8 @@ proc defaultGameConfig*(): GameConfig =
     barrageMaxPerSec: 0,
     barrageStartPerSec: BarrageStartPerSec,
     barrageStartSec: BarrageStartSec,
-    barrageSaturateSec: BarrageSaturateSec
+    barrageSaturateSec: BarrageSaturateSec,
+    brMode: false
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -703,6 +704,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
+  # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
+  node.readConfigBool("brMode", config.brMode)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -862,5 +865,9 @@ proc configJson*(config: GameConfig): string =
     node["barrageSaturateSec"] = %config.barrageSaturateSec
   if config.mapSpec.len > 0:
     node["mapSpec"] = fromJson(config.mapSpec)
+  # GVNEXT(elim): echo only when on, so an off (default) game's replay
+  # config stays byte-identical to a pre-BR build's echo.
+  if config.brMode:
+    node["brMode"] = %config.brMode
   $node
 
