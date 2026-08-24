@@ -144,16 +144,6 @@ proc collectFlagishLabels(sim: var SimServer): seq[string] =
   ## for a flagless one). addFlagSprites and addMapMarkers's endzone loop
   ## both run unconditionally at INIT (never lazily), so one fresh snapshot
   ## per stream is the complete surface — no stepping required.
-  ## The board/endzone bakes are PROCESS-WIDE and keyed by byte size alone
-  ## ("the arena is fixed per process"), so a sibling test module that left a
-  ## same-sized map cached would make this sweep read the PREVIOUS map's
-  ## pixels — a stale cold bake diffs non-empty everywhere and manufactures
-  ## endzone fade bands on a map that has no endzones. Production hits the
-  ## same hazard when the serve loop hot-switches replays and answers it the
-  ## same way (server.nim's invalidateBoardMapCaches call); this test is a
-  ## map switch, so it owes the same courtesy. Without it this test passes or
-  ## fails on its shard IMPORT ORDER, which is not a property of flagless.
-  invalidateBoardMapCaches()
   var
     gstate = initGlobalViewerState()
     livingState: PlayerViewerState
