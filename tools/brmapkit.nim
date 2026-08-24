@@ -543,6 +543,10 @@ proc placeUniformPoi(
     stderr.writeLine(&"  POI FAILED entirely: archetype={archetype}")
   false
 
+proc inwardDir(edge: SpawnEdge): tuple[dx, dy: int]
+  ## Forward declaration — full body defined later in the file; placePois
+  ## (below) needs it for the ring-of-landing-sites offset.
+
 proc placePois(
   rng: var Rand, width, height, gunRange: int, pockets: seq[MapRect], spawns: seq[BrSpawn]
 ): seq[PoiSite] =
@@ -732,7 +736,7 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   ## layout grammar / intention — and everything else (connectors, caves
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
-  result.pois = placePois(poiRng, w, h, result.gunRange, ch, pockets)
+  result.pois = placePois(poiRng, w, h, result.gunRange, pockets, result.spawns)
   var structures: seq[ArenaShape]
   for site in result.pois:
     var stampRng = initRand(seed xor 0x9B1E_44D7 xor (site.center.x * 131071 + site.center.y))
