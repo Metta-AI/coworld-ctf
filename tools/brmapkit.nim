@@ -130,6 +130,23 @@ type
     p: MapPoint
     edge: SpawnEdge
 
+  ## ROUND 3 (Maxwell's rejection, 2026-08-24): "no rooms, no alleys, no
+  ## items, no intention" — CA-blob terrain alone cannot BE a battle-royale
+  ## map. POIs are the composition unit; caves fill demotes to organic
+  ## texture between them. Each archetype is chosen to be nameable at a
+  ## glance (a caster's callout), per Maxwell's bar.
+  PoiArchetype = enum
+    poiCompound   ## major: two buildings (2 rooms each) split by an alley
+    poiOutpost    ## mid: one building, 2 rooms
+    poiYard       ## mid: walled yard + colonnade, open-air
+    poiRuins      ## minor: broken/partial walls, no full enclosure
+
+  PoiSite = object
+    center: MapPoint
+    archetype: PoiArchetype
+    halfExtent: int   ## rough footprint half-size, for spacing/labels
+    lootTier: int      ## 0 = richest (major), 1 = mid, 2 = minor
+
   BrMap = object
     name: string
     genSeed: int
@@ -143,6 +160,26 @@ type
     zoneZ: float                ## 0.173, §4.3 final-zone scale
     obstacles: seq[ArenaShape]  ## FULL board, no symmetry (BR is symNone-only)
     spawns: seq[BrSpawn]
+    pois: seq[PoiSite]           ## round 3: the composition/intention layer
+    structureCount: int         ## obstacles[0..<structureCount] are AUTHORED
+      ## (POI walls + connectors) — never confetti-pruned, since a broken
+      ## ruin's individual wall segment can be legitimately smaller than the
+      ## floor. obstacles[structureCount..^1] is the demoted caves fill,
+      ## which IS subject to the prune.
+    ## Round-3 items — doctrine §4.4, the PRIMARY BR balance lever, absent
+    ## from rounds 1-2 entirely. medKitSpawns/medKitCandidates mirror
+    ## CtfMap's own fields verbatim: plain seq[MapPoint], NEUTRAL (no team
+    ## keying at all), so they transfer to a 16-group draw with zero
+    ## adaptation — confirmed by reading src/ctf/sim_types.nim directly.
+    ## grenadeSpawns is BR's own analogue of CtfMap.grenadeSpawnPoints()
+    ## (also neutral there, just a fixed array[4,..] keyed off map layout,
+    ## which BR has none of) sized to the POI count instead of a fixed 4.
+    ## teamPickups (shields/cans/barriers) are DELIBERATELY ABSENT: see the
+    ## final report for why they cannot express a 16-group-fair pool under
+    ## the current engine.
+    medKitSpawns: seq[MapPoint]
+    medKitCandidates: seq[MapPoint]
+    grenadeSpawns: seq[MapPoint]
 
 const
   StandardW = 1235   ## the CTF "standard" field width scaledGenShell derives from
@@ -256,6 +293,362 @@ proc dropShapesNearSpawns(
     if not collides:
       result.add shape
 
+# --- POI structures (round 3) -------------------------------------------------
+## "bsp-lite applied as discrete local stamps" (coordinator, round 3): each
+## POI is a small, self-contained rect-wall compound, built the same way
+## mapgen_styles.genBsp builds rooms (walls inset from a leaf rect, a door
+## gap centered on each open side) but authored directly here instead of
+## via a global BSP split — global BSP is what the sibling br-demo lane
+## found gets eaten by the carve at giant scale; a local stamp has no carve
+## to dodge in the first place.
+
+proc rectShapeBr(x, y, w, h: int): ArenaShape =
+  ArenaShape(kind: shapeRect, rect: MapRect(x: x, y: y, w: w, h: h))
+
+type RoomSide = enum rsTop, rsRight, rsBottom, rsLeft
+
+proc stampRoom(
+  rect: MapRect, openSides: set[RoomSide], wallThick, doorW: int
+): seq[ArenaShape] =
+  ## One rectangular room: a wall on every side, OPEN sides split around a
+  ## centered door gap. `openSides` must have >= 2 members for the room to
+  ## satisfy the exit rule (doc §4.5, "leavable under fire") by construction
+  ## — every caller here picks 2 or more.
+  # top / bottom (horizontal walls, at y=rect.y and y=rect.y+rect.h-wallThick)
+  for (side, wy) in [(rsTop, rect.y), (rsBottom, rect.y + rect.h - wallThick)]:
+    if side in openSides:
+      let gapX = rect.x + (rect.w - doorW) div 2
+      if gapX > rect.x:
+        result.add rectShapeBr(rect.x, wy, gapX - rect.x, wallThick)
+      if gapX + doorW < rect.x + rect.w:
+        result.add rectShapeBr(gapX + doorW, wy, rect.x + rect.w - (gapX + doorW), wallThick)
+    else:
+      result.add rectShapeBr(rect.x, wy, rect.w, wallThick)
+  # left / right (vertical walls)
+  for (side, wx) in [(rsLeft, rect.x), (rsRight, rect.x + rect.w - wallThick)]:
+    if side in openSides:
+      let gapY = rect.y + (rect.h - doorW) div 2
+      if gapY > rect.y:
+        result.add rectShapeBr(wx, rect.y, wallThick, gapY - rect.y)
+      if gapY + doorW < rect.y + rect.h:
+        result.add rectShapeBr(wx, gapY + doorW, wallThick, rect.y + rect.h - (gapY + doorW))
+    else:
+      result.add rectShapeBr(wx, rect.y, wallThick, rect.h)
+
+proc stampRuinRoom(
+  rng: var Rand, rect: MapRect, wallThick: int
+): seq[ArenaShape] =
+  ## A "ruins" room: only 2 of 4 sides drawn (the other 2 are simply
+  ## missing, wide open — a collapsed structure, not a doored one), and
+  ## each drawn wall is broken into 2 segments with a gap, so even the
+  ## standing walls read as rubble. Trivially clears the exit rule: two
+  ## whole sides are open air.
+  let sides = [rsTop, rsRight, rsBottom, rsLeft]
+  var order = @sides
+  rng.shuffle(order)
+  let keep = order[0 .. 1]  ## keep exactly 2 of the 4 sides
+  for side in keep:
+    case side
+    of rsTop, rsBottom:
+      let wy = if side == rsTop: rect.y else: rect.y + rect.h - wallThick
+      let breakX = rect.x + rect.w div 3 + rng.rand(0 .. rect.w div 3)
+      let gap = 30 + rng.rand(0 .. 30)
+      result.add rectShapeBr(rect.x, wy, max(1, breakX - rect.x), wallThick)
+      if breakX + gap < rect.x + rect.w:
+        result.add rectShapeBr(breakX + gap, wy, rect.x + rect.w - (breakX + gap), wallThick)
+    of rsLeft, rsRight:
+      let wx = if side == rsLeft: rect.x else: rect.x + rect.w - wallThick
+      let breakY = rect.y + rect.h div 3 + rng.rand(0 .. rect.h div 3)
+      let gap = 30 + rng.rand(0 .. 30)
+      result.add rectShapeBr(wx, rect.y, wallThick, max(1, breakY - rect.y))
+      if breakY + gap < rect.y + rect.h:
+        result.add rectShapeBr(wx, breakY + gap, wallThick, rect.y + rect.h - (breakY + gap))
+
+proc stampColonnade(
+  rng: var Rand, rect: MapRect
+): seq[ArenaShape] =
+  ## A grid of small pillars inside a yard — cover with sightlines, not a
+  ## sealed room. Spacing wide enough for a 13px footprint to weave through.
+  const
+    Pitch = 90
+    PillarR = 16
+  var gy = rect.y + Pitch div 2
+  while gy < rect.y + rect.h - Pitch div 2:
+    var gx = rect.x + Pitch div 2
+    while gx < rect.x + rect.w - Pitch div 2:
+      let jx = gx + rng.rand(-14 .. 14)
+      let jy = gy + rng.rand(-14 .. 14)
+      result.add ArenaShape(kind: shapeDisc, cx: jx, cy: jy, radius: PillarR)
+      gx += Pitch
+    gy += Pitch
+
+proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
+  ## Dispatch by archetype. Half-extent sets the footprint; each archetype
+  ## subdivides it differently so archetypes stay visually distinguishable
+  ## at thumbnail size (Maxwell's "could a caster name the places?" bar).
+  const WallThick = 16
+  const DoorW = 78
+  let cx = site.center.x
+  let cy = site.center.y
+  let he = site.halfExtent
+  case site.archetype
+  of poiCompound:
+    ## Two buildings (2 rooms each), split by a real gap — the alley.
+    let alley = 70
+    let bw = (2 * he - alley) div 2
+    let bh = (he * 3) div 2
+    let leftX = cx - he
+    let rightX = cx + alley div 2
+    for (bx, mirrored) in [(leftX, false), (rightX, true)]:
+      ## Each building splits into an upper/lower room (the shared seam sits
+      ## at the building's own vertical midline).
+      let r1 = MapRect(x: bx, y: cy - bh div 2, w: bw, h: bh div 2 - 10)
+      let r2 = MapRect(x: bx, y: cy - 10, w: bw, h: bh div 2 - 10)
+      ## Each room: exterior side open (alley/outside), plus one more —
+      ## never both doors on the SAME pair of rooms' facing walls, so the
+      ## alley reads like a real seam rather than one continuous corridor.
+      let outward = if mirrored: rsRight else: rsLeft
+      result.add stampRoom(r1, {outward, rsTop}, WallThick, DoorW)
+      result.add stampRoom(r2, {outward, rsBottom}, WallThick, DoorW)
+  of poiOutpost:
+    ## One building, 2 rooms side by side with independent exterior doors.
+    let bw = he
+    let bh = (he * 3) div 2
+    let r1 = MapRect(x: cx - bw, y: cy - bh div 2, w: bw - 8, h: bh)
+    let r2 = MapRect(x: cx + 8, y: cy - bh div 2, w: bw - 8, h: bh)
+    result.add stampRoom(r1, {rsLeft, rsTop}, WallThick, DoorW)
+    result.add stampRoom(r2, {rsRight, rsBottom}, WallThick, DoorW)
+  of poiYard:
+    ## A walled yard (2 doors) with a colonnade inside — open-air cover.
+    let yardRect = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    result.add stampRoom(yardRect, {rsTop, rsBottom}, WallThick, DoorW + 20)
+    let innerRect = MapRect(
+      x: yardRect.x + WallThick + 20, y: yardRect.y + WallThick + 20,
+      w: yardRect.w - 2 * (WallThick + 20), h: yardRect.h - 2 * (WallThick + 20))
+    result.add stampColonnade(rng, innerRect)
+  of poiRuins:
+    let r = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    result.add stampRuinRoom(rng, r, WallThick)
+    ## A second, smaller broken cluster nearby reads as a debris field
+    ## rather than one lonely wall stub.
+    let r2 = MapRect(
+      x: cx - he + he, y: cy - he div 2 + he, w: he, h: he)
+    result.add stampRuinRoom(rng, r2, WallThick - 4)
+
+proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
+  for s in sites:
+    let dx = p.x - s.center.x
+    let dy = p.y - s.center.y
+    if dx * dx + dy * dy < minDist * minDist:
+      return true
+  false
+
+proc tooCloseToAnyPocket(p: MapPoint, pockets: seq[MapRect], clear: int): bool =
+  for pocket in pockets:
+    if p.x >= pocket.x - clear and p.x <= pocket.x + pocket.w + clear and
+        p.y >= pocket.y - clear and p.y <= pocket.y + pocket.h + clear:
+      return true
+  false
+
+proc tryPlacePoi(
+  rng: var Rand, sites: var seq[PoiSite],
+  targetX, targetY, jitterX, jitterY, width, height, minSep: int,
+  pockets: seq[MapRect], archetype: PoiArchetype, halfExtent, lootTier: int
+) =
+  ## Pulled out of placePois as a top-level proc: a nested proc closing over
+  ## a `var Rand` parameter fails Nim's capture-safety check ("cannot be
+  ## captured as it would violate memory safety") — passing `rng` explicitly
+  ## sidesteps it.
+  ##
+  ## jitterX/jitterY are DELIBERATELY asymmetric: a giant field is wide
+  ## (3211px) but short (1713px), and every spawn pocket's tangential
+  ## clearance leaves only narrow gaps ALONG the top/bottom edges — so the
+  ## rejection sampler needs plenty of room to slide horizontally to find
+  ## one of those gaps, but only a little vertically before it either
+  ## crosses back into a pocket's radial reach or a spawn pocket on the far
+  ## side (measured: symmetric jitter placed 3/7 POIs; this placed 7/7).
+  const MaxAttempts = 200
+  for attempt in 0 ..< MaxAttempts:
+    let jx = targetX + (if jitterX > 0: rng.rand(-jitterX .. jitterX) else: 0)
+    let jy = targetY + (if jitterY > 0: rng.rand(-jitterY .. jitterY) else: 0)
+    let margin = halfExtent + 60
+    if jx < margin or jy < margin or jx >= width - margin or jy >= height - margin:
+      when defined(brDebugExit):
+        if attempt == MaxAttempts - 1:
+          stderr.writeLine(&"  POI reject(margin) target=({targetX},{targetY}) tried=({jx},{jy}) margin={margin}")
+      continue
+    let p = MapPoint(x: jx, y: jy)
+    if tooCloseToAny(p, sites, minSep):
+      when defined(brDebugExit):
+        if attempt == MaxAttempts - 1:
+          stderr.writeLine(&"  POI reject(minSep={minSep}) target=({targetX},{targetY}) tried=({jx},{jy})")
+      continue
+    if tooCloseToAnyPocket(p, pockets, halfExtent + 40):
+      when defined(brDebugExit):
+        if attempt == MaxAttempts - 1:
+          stderr.writeLine(&"  POI reject(pocket) target=({targetX},{targetY}) tried=({jx},{jy})")
+      continue
+    sites.add PoiSite(
+      center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
+    when defined(brDebugExit):
+      stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
+    return
+  when defined(brDebugExit):
+    stderr.writeLine(&"  POI FAILED entirely: target=({targetX},{targetY}) archetype={archetype}")
+  ## Every attempt collided — skip this site rather than force an overlap;
+  ## the place-count floor validator will report the true count honestly.
+
+proc placeUniformPoi(
+  rng: var Rand, sites: var seq[PoiSite], width, height, minSep: int,
+  yLo, yHi: int, pockets: seq[MapRect], archetype: PoiArchetype, halfExtent, lootTier: int
+) =
+  ## TRUE uniform rejection sampling over the whole safe region, rather than
+  ## jittering around a hand-picked target — three rounds of hand-derived
+  ## trig/target-point placements each mis-modeled the safe zone (a circle
+  ## tied to field aspect, then hand offsets that didn't account for the
+  ## major's own jitter) and left 4-6 of 7 POIs unplaced. Uniform sampling
+  ## over the CORRECT band (below) doesn't need the safe zone's shape
+  ## guessed in advance — it just needs the band's bounds to be right, and
+  ## enough attempts to find one of the (narrow but real) gaps between
+  ## adjacent spawn pockets' tangential clearance.
+  const MaxAttempts = 400
+  let margin = halfExtent + 60
+  let xLo = margin
+  let xHi = width - margin
+  let effYLo = max(yLo, margin)
+  let effYHi = min(yHi, height - margin)
+  if effYHi <= effYLo or xHi <= xLo:
+    return  ## degenerate band (should not happen at giant scale); skip honestly
+  for attempt in 0 ..< MaxAttempts:
+    let x = xLo + rng.rand(xHi - xLo)
+    let y = effYLo + rng.rand(effYHi - effYLo)
+    let p = MapPoint(x: x, y: y)
+    if tooCloseToAny(p, sites, minSep): continue
+    if tooCloseToAnyPocket(p, pockets, halfExtent + 40): continue
+    sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
+    when defined(brDebugExit):
+      stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
+    return
+  when defined(brDebugExit):
+    stderr.writeLine(&"  POI FAILED entirely: archetype={archetype} band=[{xLo}..{xHi}]x[{effYLo}..{effYHi}]")
+
+proc placePois(
+  rng: var Rand, width, height, gunRange, spawnClearH: int, pockets: seq[MapRect]
+): seq[PoiSite] =
+  ## Deliberate composition (coordinator, round 3): one major central POI, a
+  ## ring of mid POIs, minor sites toward the corners — K=7, inside the
+  ## doctrine's 6-9 band. Each candidate is rejection-sampled against a
+  ## minimum-separation disc (a Poisson-disc STOPPING RULE, not a full
+  ## Bridson grid — sufficient at K=7-9) and against every spawn pocket, so
+  ## POIs never crowd a landing zone or stack on top of each other.
+  ##
+  ## The SAFE Y BAND (three tuning passes' worth of lesson): on a giant
+  ## field the vertical extent is short (1713px) and every spawn pocket's
+  ## RADIAL reach eats deep into it from the ring's own y — not the field
+  ## border. y0/y1 below are the ring's own top/bottom y (the exact formula
+  ## ringSpawns uses), and the safe band excludes each archetype's own
+  ## pocket-radial-reach from both edges.
+  let cx = width div 2
+  let cy = height div 2
+  let y0 = int((1.0 - RingK) * float(height) / 2.0)
+  let y1 = height - y0
+  let minSep = int(1.15 * float(gunRange))  ## real travel distance between places
+  let midHalf = int(0.55 * float(gunRange))
+  let minorHalf = int(0.38 * float(gunRange))
+  let midReach = spawnClearH + midHalf + 40
+  let minorReach = spawnClearH + minorHalf + 40
+
+  # 1 major, dead center (the field's own composition anchor).
+  tryPlacePoi(rng, result, cx, cy, int(0.15 * float(gunRange)), int(0.15 * float(gunRange)),
+    width, height, minSep, pockets, poiCompound, int(0.85 * float(gunRange)), 0)
+
+  # 3 mid POIs, uniformly sampled within the safe band.
+  let midArchetypes = [poiOutpost, poiYard, poiOutpost]
+  for i in 0 ..< 3:
+    placeUniformPoi(rng, result, width, height, minSep,
+      y0 + midReach, y1 - midReach, pockets, midArchetypes[i], midHalf, 1)
+
+  # 3 minor POIs, same band (a smaller footprint buys a touch more room,
+  # but the dominant constraint — the pocket radial reach — is the same
+  # order of magnitude either way).
+  for i in 0 ..< 3:
+    placeUniformPoi(rng, result, width, height, minSep,
+      y0 + minorReach, y1 - minorReach, pockets, poiRuins, minorHalf, 2)
+
+  result
+
+proc poiFootprintRect(site: PoiSite): MapRect =
+  MapRect(x: site.center.x - site.halfExtent, y: site.center.y - site.halfExtent,
+    w: 2 * site.halfExtent, h: 2 * site.halfExtent)
+
+proc rectsOverlap(a, b: MapRect, pad: int): bool =
+  not (a.x + a.w + pad < b.x or b.x + b.w + pad < a.x or
+    a.y + a.h + pad < b.y or b.y + b.h + pad < a.y)
+
+proc pointNearAnyPoi(p: MapPoint, pois: seq[PoiSite], pad: int): bool =
+  for site in pois:
+    let f = poiFootprintRect(site)
+    if p.x >= f.x - pad and p.x <= f.x + f.w + pad and
+        p.y >= f.y - pad and p.y <= f.y + f.h + pad:
+      return true
+  false
+
+proc linearConnectors(
+  rng: var Rand, pois: seq[PoiSite], pockets: seq[MapRect]
+): seq[ArenaShape] =
+  ## "Broken wall lines, fence/ridge runs with real mass" between POIs
+  ## (coordinator, round 3) — screens for the rotation AND grain for the
+  ## field, the anti-confetti directive's "continuous linear features".
+  ## Connects each POI to its nearest neighbour (a cheap near-MST: not
+  ## every pair, so the field doesn't turn into a lattice) with a segmented
+  ## line, each segment perpendicular to the run and offset with jitter so
+  ## it reads as a fence/ridge, not a ruler.
+  const
+    SegLen = 46
+    SegThick = 13
+    Step = 85       ## distance between segment attempts along the run
+    KeepChance = 0.62 ## fraction of steps that actually place a segment (the BREAK)
+  var connected: seq[(int, int)]
+  for i in 0 ..< pois.len:
+    var bestJ = -1
+    var bestD = high(int)
+    for j in 0 ..< pois.len:
+      if i == j: continue
+      let dx = pois[i].center.x - pois[j].center.x
+      let dy = pois[i].center.y - pois[j].center.y
+      let d = dx * dx + dy * dy
+      if d < bestD:
+        bestD = d
+        bestJ = j
+    if bestJ >= 0:
+      let key = if i < bestJ: (i, bestJ) else: (bestJ, i)
+      if key notin connected:
+        connected.add key
+  for (i, j) in connected:
+    let a = pois[i].center
+    let b = pois[j].center
+    let dx = float(b.x - a.x)
+    let dy = float(b.y - a.y)
+    let length = sqrt(dx * dx + dy * dy)
+    if length < 1.0: continue
+    let ux = dx / length
+    let uy = dy / length
+    let px = -uy  ## perpendicular unit vector, for the segment's own orientation
+    let py = ux
+    var t = float(pois[i].halfExtent) + 40.0
+    while t < length - float(pois[j].halfExtent) - 40.0:
+      if rng.rand(1.0) < KeepChance:
+        let jitter = float(rng.rand(-18 .. 18))
+        let midx = a.x.float + ux * t + px * jitter
+        let midy = a.y.float + uy * t + py * jitter
+        let p0 = MapPoint(x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
+        let p1 = MapPoint(x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
+        if not tooCloseToAnyPocket(MapPoint(x: int(midx), y: int(midy)), pockets, 30):
+          result.add ArenaShape(
+            kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y,
+            thickness: SegThick)
+      t += Step
+
 proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   let (w, h) = fieldSize(GiantScale)
   result.name = "br-gen-" & $seed
@@ -273,42 +666,51 @@ proc generateBrMap(seed: int, style: MapStyle, paramsIn: StyleParams): BrMap =
   result.spawnClearH = ch
   result.spawns = ringSpawns(w, h, RingK, Groups)
   let pockets = result.spawns.mapIt(pocketRect(it, cw, ch))
+
+  ## ROUND 3 (Maxwell's rejection, 2026-08-24): "no rooms, no alleys, no
+  ## items, no intention — the generator is clearly not working here." CA
+  ## blobs alone cannot BE a battle-royale map. POIs are drawn FIRST — the
+  ## layout grammar / intention — and everything else (connectors, caves
+  ## fill) composes around them instead of the other way around.
+  var poiRng = initRand(seed xor 0x7F4A_2C11)
+  result.pois = placePois(poiRng, w, h, result.gunRange, ch, pockets)
+  var structures: seq[ArenaShape]
+  for site in result.pois:
+    var stampRng = initRand(seed xor 0x9B1E_44D7 xor (site.center.x * 131071 + site.center.y))
+    structures.add stampPoi(stampRng, site)
+
+  var connectorRng = initRand(seed xor 0x2E9D_7731)
+  let connectors = linearConnectors(connectorRng, result.pois, pockets)
+
+  ## Caves DEMOTES to organic fill between structures — one pass, low
+  ## density, dropped wherever it would overlap a POI footprint or a
+  ## connector run (a blob eating a doorway reads as a bug, not terrain).
   let region = placementRegion(w, h)
   var params = paramsIn
-  ## the sibling br-demo lane found (2026-08-24) that mapgen_styles'
-  ## `verticalAnchors` places its safety band at a FIXED FRACTION (50-82%)
-  ## of the REGION it's handed — correct only for a half-board about to be
-  ## mirrored. Fed BR's full-width region directly, that band lands off
-  ##-center and covers nothing near either edge, and (on the CTF path) can
-  ## drift onto protected floor where mapWallAt forces it open regardless of
-  ## any shape drawn there. BR has no protected floor / no sightline gate to
-  ## satisfy in the first place (this generator's own connectivity/exit/
-  ## anti-confetti/zone validators are the real BR gate), so the anchors buy
-  ## nothing here and only add unpredictably-placed blob mass. Always off.
   params.noAnchors = true
-  var raw = generateShapes(style, seed xor styleSalt, region, params)
-  ## ROUND 2 (coordinator review, 2026-08-24): a single caves pass reads as
-  ## "empty pan with islands" — 2-4 big welded masses is a weld PASS but a
-  ## distribution FAIL. Layer a second, FINER-cell pass (precedent: the
-  ## sibling br-demo lane's dual-seeded symnone_giant_caves.nim) so mid-size
-  ## masses fill the gaps the coarse pass's big islands leave. A distinct xor
-  ## salt keeps the two streams independent; unioning before the prune (in
-  ## cmdGenerate) lets the SAME anti-confetti gate judge both layers as one
-  ## piece of terrain, not two.
-  if style == styleCaves:
-    var fine = defaultParams(styleCaves)
-    fine.cell = 36
-    fine.fillProb = 0.30
-    fine.steps = 5
-    fine.birth = 5
-    fine.death = 4
-    fine.blobScale = 1.0   ## big enough that a LONE fine blob (~pi*36^2 =
-                            ## ~4072px^2) still clears the confetti floor on
-                            ## its own — "no confetti" must not mean "no
-                            ## medium rocks".
-    fine.noAnchors = true
-    raw.add generateShapes(style, seed xor styleSalt xor 0x1F2E_3D4C, region, fine)
-  result.obstacles = dropShapesNearSpawns(raw, pockets)
+  params.fillProb = min(params.fillProb, 0.16)
+  params.blobScale = min(params.blobScale, 0.75)
+  let caveRaw = generateShapes(style, seed xor styleSalt, region, params)
+  var caveFill: seq[ArenaShape]
+  for shape in caveRaw:
+    let b = shapeBounds(shape)
+    var clash = false
+    for site in result.pois:
+      if rectsOverlap(MapRect(x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0),
+          poiFootprintRect(site), 50):
+        clash = true
+        break
+    if not clash:
+      caveFill.add shape
+
+  ## Kept as two separately-dropped groups (not one merged list) so the
+  ## authored/fill split survives dropShapesNearSpawns' filtering intact —
+  ## structureCount has to describe the FINAL obstacles list, after pockets
+  ## have already removed whatever they're going to remove from each half.
+  let structuresKept = dropShapesNearSpawns(structures & connectors, pockets)
+  let caveFillKept = dropShapesNearSpawns(caveFill, pockets)
+  result.structureCount = structuresKept.len
+  result.obstacles = structuresKept & caveFillKept
 
 # --- spec JSON (own schema; shape grammar matches arena.nim's wire format so
 # it stays engine-compatible once the BR spawn/flagless lanes land) ----------
@@ -390,6 +792,13 @@ proc brMapSpecJson(m: BrMap): string =
   for shape in m.obstacles: shapes.add shape.shapeSpecNode()
   var spawnPts = newJArray()
   for s in m.spawns: spawnPts.add %*[s.p.x, s.p.y]
+  var poiNodes = newJArray()
+  for site in m.pois:
+    poiNodes.add %*{
+      "x": site.center.x, "y": site.center.y,
+      "archetype": $site.archetype, "halfExtent": site.halfExtent,
+      "lootTier": site.lootTier,
+    }
   let spec = %*{
     "name": m.name,
     "genSeed": m.genSeed,
@@ -408,6 +817,15 @@ proc brMapSpecJson(m: BrMap): string =
     "zoneZ": m.zoneZ,
     "spawnPoints": spawnPts,          ## confirmed grammar, see comment above
     "leftObstacles": shapes,          ## full authored set; symNone = verbatim
+    "structureCount": m.structureCount,
+    "pois": poiNodes,                 ## round-3 layout grammar; art-only, the
+                                       ## sim reads leftObstacles/items instead
+    ## round-3 items — medKitSpawns/medKitCandidates mirror CtfMap's own
+    ## (NEUTRAL, not team-keyed) field names verbatim. teamPickups is
+    ## deliberately absent; see the final report.
+    "medKitSpawns": pointsNode(m.medKitSpawns),
+    "medKitCandidates": pointsNode(m.medKitCandidates),
+    "grenadeSpawns": pointsNode(m.grenadeSpawns),
   }
   $spec
 
@@ -442,6 +860,25 @@ proc brMapFromSpecJson(text: string): BrMap =
       "BR spec spawnPoints count " & $pts.len & " != groups " & $ring.len)
   for i, p in pts:
     result.spawns.add BrSpawn(p: p, edge: ring[i].edge)
+  result.structureCount = node{"structureCount"}.getInt(0)
+  let poiNode = node{"pois"}
+  if not poiNode.isNil and poiNode.kind == JArray:
+    for pn in poiNode:
+      let archetype =
+        case pn{"archetype"}.getStr("poiOutpost")
+        of "poiCompound": poiCompound
+        of "poiOutpost": poiOutpost
+        of "poiYard": poiYard
+        of "poiRuins": poiRuins
+        else: poiOutpost
+      result.pois.add PoiSite(
+        center: MapPoint(x: pn["x"].getInt(), y: pn["y"].getInt()),
+        archetype: archetype,
+        halfExtent: pn{"halfExtent"}.getInt(150),
+        lootTier: pn{"lootTier"}.getInt(1))
+  result.medKitSpawns = pointsFromNode(node{"medKitSpawns"})
+  result.medKitCandidates = pointsFromNode(node{"medKitCandidates"})
+  result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
 
 # --- geometry / grid helpers for validators + render -------------------------
 
@@ -721,6 +1158,15 @@ type
     distributionReason: string
     emptyGridCells: int
     gridCoverage: seq[bool]      ## 4x2, row-major, for the metrics dump
+    # ROUND 3 (Maxwell's rejection, 2026-08-24): "items, intention" is the
+    # doctrine's PRIMARY BR lever (doc 4.4), absent from rounds 1-2 entirely.
+    itemCoveragePass: bool
+    itemCoverageReason: string
+    uncoveredSpawnsItems: int
+
+    poiLootPass: bool
+    poiLootReason: string
+    poisWithoutLoot: int
 
     allPass: bool
 
@@ -952,9 +1398,54 @@ proc validateBr(m: BrMap): BrValidation =
     else: &"spec is {result.specSizeBytes}B, budget {SpecSizeBudgetBytes}B " &
       &"(replay wire cap is 65535B) — prune more or thin blob density"
 
+  # 6. Item coverage (round 3, doctrine §4.4) ------------------------------------
+  ## Every spawn's nearest item within ~1.5 gun-ranges of its ring position.
+  block itemCoverage:
+    let radius = int(PerSpawnCoverGR * float(m.gunRange))
+    let allItems = m.medKitCandidates & m.grenadeSpawns
+    var uncovered = 0
+    for s in m.spawns:
+      var best = high(int)
+      for it in allItems:
+        let dx = s.p.x - it.x
+        let dy = s.p.y - it.y
+        let d2 = dx * dx + dy * dy
+        if d2 < best: best = d2
+      let dist = if best == high(int): high(int) else: int(sqrt(float(best)))
+      if dist > radius: inc uncovered
+    result.uncoveredSpawnsItems = uncovered
+    result.itemCoveragePass = uncovered == 0
+    result.itemCoverageReason =
+      if result.itemCoveragePass: ""
+      else: &"{uncovered}/{m.spawns.len} spawns have no item within " &
+        &"{PerSpawnCoverGR}G ({radius}px)"
+
+  # 7. Every POI has a reason to visit (round 3) ----------------------------------
+  block poiLoot:
+    var missing = 0
+    for site in m.pois:
+      var hasLoot = false
+      let checkR = site.halfExtent + 60
+      for it in m.medKitCandidates:
+        if abs(it.x - site.center.x) <= checkR and abs(it.y - site.center.y) <= checkR:
+          hasLoot = true
+          break
+      if not hasLoot:
+        for it in m.grenadeSpawns:
+          if abs(it.x - site.center.x) <= checkR and abs(it.y - site.center.y) <= checkR:
+            hasLoot = true
+            break
+      if not hasLoot: inc missing
+    result.poisWithoutLoot = missing
+    result.poiLootPass = missing == 0
+    result.poiLootReason =
+      if result.poiLootPass: ""
+      else: &"{missing}/{m.pois.len} POIs have no item nearby — a place with no reason to visit"
+
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
-    result.placeCountPass and result.perSpawnCoverPass and result.distributionPass
+    result.placeCountPass and result.perSpawnCoverPass and result.distributionPass and
+    result.itemCoveragePass and result.poiLootPass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
   ## Pick the passing candidate closest to the field's geometric center (a
@@ -1038,6 +1529,84 @@ proc pointInAnyPocket(
         y >= p.y - buffer and y <= p.y + p.h + buffer:
       return true
   false
+
+# --- items (round 3, doctrine §4.4) -------------------------------------------
+## Items are BR's PRIMARY balance lever per doctrine — absent from rounds 1
+## and 2 entirely. Read against the actual engine (src/ctf/sim.nim,
+## sim_types.nim): CtfMap.medKitSpawns/medKitCandidates are plain
+## seq[MapPoint], NOT team-keyed at all, so they transfer to a 16-group
+## draw with zero adaptation — this is BR's primary loot channel.
+## teamPickups (shields/cans/barriers) are deliberately NOT emitted: see
+## the final report for why (validateMap hard-codes symNone's teamCount to
+## 2; barrierSpawnPoints derives its count from TeamLayout.teamCount(),
+## which only knows 2 or 4 — neither expresses a 16-group-fair pool today).
+
+proc walkableNear(
+  obstacles: seq[ArenaShape], cx, cy, radius: int, rng: var Rand
+): MapPoint =
+  ## Best-effort: a handful of random offsets within `radius`, first one not
+  ## inside any obstacle wins. Correct regardless of which POI archetype
+  ## placed the geometry — no need to hand-derive "the doorway is here" per
+  ## archetype when we can just test the real obstacle list directly.
+  for attempt in 0 ..< 24:
+    let x = cx + (if radius > 0: rng.rand(-radius .. radius) else: 0)
+    let y = cy + (if radius > 0: rng.rand(-radius .. radius) else: 0)
+    var blocked = false
+    for shape in obstacles:
+      if inShape(x, y, shape):
+        blocked = true
+        break
+    if not blocked:
+      return MapPoint(x: x, y: y)
+  MapPoint(x: cx, y: cy)  ## fall back to the POI center; rare in practice
+
+proc placeItems(m: var BrMap, rng: var Rand) =
+  ## The loot gradient (doctrine §4.4): the richest kit sits at the most
+  ## exposed/central POI (tier 0, the compound), less at mid POIs (tier 1),
+  ## a minor find at outer ruins (tier 2) — "no POI without a reason to
+  ## visit" is satisfied by construction: every site gets >= 1 item.
+  for site in m.pois:
+    let n = case site.lootTier
+      of 0: 3
+      of 1: 2
+      else: 1
+    for k in 0 ..< n:
+      let searchR = max(20, site.halfExtent - 30)
+      let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
+      m.medKitCandidates.add p
+    if site.lootTier <= 1:
+      let p = walkableNear(m.obstacles, site.center.x, site.center.y,
+        max(20, site.halfExtent - 40), rng)
+      m.grenadeSpawns.add p
+  m.medKitSpawns = m.medKitCandidates  ## BR is flagless: no candidate-pool
+    ## narrowing step exists (that's a CTF pre-game mechanic), so every
+    ## drawn point is "active" — kept as a separate field only to mirror
+    ## CtfMap's shape for a future engine-side consumer.
+
+proc nearestItemDist(p: MapPoint, items: seq[MapPoint]): int =
+  result = high(int)
+  for it in items:
+    let dx = p.x - it.x
+    let dy = p.y - it.y
+    let d2 = dx * dx + dy * dy
+    if d2 < result: result = d2
+  if result == high(int): return high(int)
+  result = int(sqrt(float(result)))
+
+proc ensureItemCoverage(m: var BrMap, coverGR: float, rng: var Rand) =
+  ## Round-3 gate: every spawn's nearest item within ~1.5 gun-ranges of its
+  ## ring position. Items are pure POINTS (no collision), so — unlike the
+  ## round-2 terrain screen-blob repair — this repair can never choke an
+  ## exit ring; it just adds a supplementary medkit at the spawn's own
+  ## pocket (always walkable by construction) when nothing organic is close
+  ## enough.
+  let radius = int(coverGR * float(m.gunRange))
+  let allItems = m.medKitCandidates & m.grenadeSpawns
+  for s in m.spawns:
+    if nearestItemDist(s.p, allItems) > radius:
+      let p = walkableNear(m.obstacles, s.p.x, s.p.y, m.spawnClearW div 2, rng)
+      m.medKitCandidates.add p
+      m.medKitSpawns.add p
 
 proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
   ## ROUND 2 (coordinator review, 2026-08-24): "every rotation from spawn is
@@ -1248,6 +1817,11 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "emptyGridCells": v.emptyGridCells,
     "gridCoverage": v.gridCoverage,
     "specSizeBytes": v.specSizeBytes,
+    "poiCount": m.pois.len,
+    "medKitCount": m.medKitCandidates.len,
+    "grenadeCount": m.grenadeSpawns.len,
+    "uncoveredSpawnsItems": v.uncoveredSpawnsItems,
+    "poisWithoutLoot": v.poisWithoutLoot,
     "pass": %*{
       "connectivity": v.connectivityPass,
       "exitRule": v.exitPass,
@@ -1257,6 +1831,8 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "placeCount": v.placeCountPass,
       "perSpawnCover": v.perSpawnCoverPass,
       "distribution": v.distributionPass,
+      "itemCoverage": v.itemCoveragePass,
+      "poiLoot": v.poiLootPass,
       "all": v.allPass,
     },
   }
@@ -1276,6 +1852,8 @@ const
   SpawnRingColor = rgba(235, 145, 35, 90)
   ZoneColor = rgba(230, 45, 45, 220)
   ZoneFillColor = rgba(230, 45, 45, 40)
+  MedKitColor = rgba(60, 200, 90, 255)     ## round 3: the loot gradient, drawn
+  GrenadeColor = rgba(235, 200, 40, 255)   ## round 3: minor supplementary pickup
 
 proc fillDiscPx(image: Image, cx, cy, radius: int, color: ColorRGBA) =
   for y in max(0, cy - radius) .. min(image.height - 1, cy + radius):
@@ -1357,6 +1935,14 @@ proc renderBrMap(
     result.fillDiscPx(toOut(s.p.x), toOut(s.p.y), max(2, toOut(10)), SpawnColor)
     result.drawCrossPx(toOut(s.p.x), toOut(s.p.y), max(3, toOut(16)), BorderColor)
 
+  # Round-3 items — the loot gradient made visible: medkits (green cross)
+  # denser at the major/mid POIs, grenades (yellow disc) as the minor extra.
+  for p in m.medKitCandidates:
+    result.fillDiscPx(toOut(p.x), toOut(p.y), max(2, toOut(7)), MedKitColor)
+    result.drawCrossPx(toOut(p.x), toOut(p.y), max(2, toOut(10)), BorderColor)
+  for p in m.grenadeSpawns:
+    result.fillDiscPx(toOut(p.x), toOut(p.y), max(2, toOut(6)), GrenadeColor)
+
   # One example final-zone rect (§4.3), a thing to look at, not just a line.
   if drawZone:
     result.drawRectOutlinePx(
@@ -1400,21 +1986,20 @@ proc readSpec(path: string): BrMap =
 
 proc brDefaultParams(style: MapStyle): StyleParams =
   ## mapgen_styles.defaultParams is tuned for a HALF-board about to be
-  ## mirrored at up to ~2.6x field scale; fed BR's full 3211x1713 board with
-  ## no mirror to double the density, those defaults read as thin scattered
-  ## marks (measured: 96.8% walkable, 68 confetti-sized masses, 0% viable
-  ## zone centers on seed 1). These values are BR's OWN validated defaults —
-  ## swept across 40 held-out seeds at a 90% BR-validator pass rate — kept
-  ## here rather than in mapgen_styles.nim since they are wrong for CTF's
-  ## own (mirrored, smaller) use of the same style.
+  ## mirrored; fed BR's full 3211x1713 board directly it reads as thin
+  ## scattered marks. Round-3 (Maxwell's "no rooms, no intention" rejection)
+  ## demoted caves from BR's PRIMARY content to organic fill BETWEEN
+  ## authored POI structures (generateBrMap clamps fillProb/blobScale down
+  ## further still for that role) — these are now just a sane starting
+  ## point before that clamp, not the tuned round-1/2 primary-terrain values.
   result = defaultParams(style)
   if style == styleCaves:
     result.cell = 55
-    result.fillProb = 0.42
+    result.fillProb = 0.16
     result.steps = 5
     result.birth = 5
     result.death = 4
-    result.blobScale = 1.15
+    result.blobScale = 0.7
 
 proc cmdGenerate(a: Args) =
   let
@@ -1425,12 +2010,23 @@ proc cmdGenerate(a: Args) =
   var m = generateBrMap(seed, style, params)
   let rawCount = m.obstacles.len
   if not a.bools.getOrDefault("noPrune", false):
-    m.obstacles = pruneConfetti(m.obstacles, m.width, m.height, ConfettiFloorPx2)
+    ## Only the DEMOTED CAVES FILL (obstacles[structureCount..^1]) is
+    ## subject to the anti-confetti prune — POI structures are authored,
+    ## not organic, and a broken ruin's lone wall segment can legitimately
+    ## sit below the confetti floor without being scatter.
+    let protectedShapes = m.obstacles[0 ..< m.structureCount]
+    let fillShapes = m.obstacles[m.structureCount .. ^1]
+    let prunedFill = pruneConfetti(fillShapes, m.width, m.height, ConfettiFloorPx2)
+    m.obstacles = protectedShapes & prunedFill
   var repaired = 0
   if not a.bools.getOrDefault("noRepair", false):
     let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
     repaired = screens.len
     m.obstacles.add screens
+  var itemRng = initRand(seed xor 0x6C5D_E812)
+  if not a.bools.getOrDefault("noItems", false):
+    placeItems(m, itemRng)
+    ensureItemCoverage(m, PerSpawnCoverGR, itemRng)
   let spec = brMapSpecJson(m)
   let outPath = a.flag("out", "")
   if outPath.len == 0:
@@ -1439,9 +2035,11 @@ proc cmdGenerate(a: Args) =
     writeFile(outPath, spec)
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} {m.width}x{m.height} " &
-      &"gunRange={m.gunRange} spawns={m.spawns.len} obstacles={m.obstacles.len}" &
+      &"gunRange={m.gunRange} spawns={m.spawns.len} pois={m.pois.len} " &
+      &"obstacles={m.obstacles.len} (structures={m.structureCount})" &
       &" (pruned {rawCount - (m.obstacles.len - repaired)} confetti of {rawCount}," &
-      &" {repaired} spawn-cover repairs) -> {outPath}")
+      &" {repaired} spawn-cover repairs, medkits={m.medKitCandidates.len}" &
+      &" grenades={m.grenadeSpawns.len}) -> {outPath}")
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
@@ -1467,6 +2065,8 @@ proc printValidation(v: BrValidation) =
   echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, floor={PlaceCountFloor})"
   echo &"per-spawn cvr: {(if v.perSpawnCoverPass: \"PASS\" else: \"FAIL: \" & v.perSpawnCoverReason)}  (uncovered={v.uncoveredSpawns}/16 within {PerSpawnCoverGR}G)"
   echo &"distribution:  {(if v.distributionPass: \"PASS\" else: \"FAIL: \" & v.distributionReason)}  (empty cells={v.emptyGridCells}/{DistGridCols*DistGridRows})"
+  echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/16 within {PerSpawnCoverGR}G)"
+  echo &"POI has loot:  {(if v.poiLootPass: \"PASS\" else: \"FAIL: \" & v.poiLootReason)}  (missing={v.poisWithoutLoot} POIs)"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
