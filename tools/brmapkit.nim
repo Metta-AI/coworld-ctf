@@ -661,15 +661,20 @@ proc placePois(
     ## Steep loot/size gradient BETWEEN sites: a few rich, LARGE anchors
     ## (tier 0) against many poor, SMALL ruins (tier 2), almost nothing in
     ## between — the drop decision is choosing which end of the gradient
-    ## to land on, not picking among lookalikes.
+    ## to land on, not picking among lookalikes. Widened further after the
+    ## visual check (Maxwell's bar: "can YOU tell which family a draw
+    ## belongs to from the render alone?") — at 0.65G/0.18G the size
+    ## contrast read too close to third-party's more uniform warren
+    ## clusters at thumbnail scale; 0.85G/0.14G makes the few rich sites
+    ## visibly the biggest things on the map.
     let pool: seq[ArchSpec] = @[
-      (poiCompound, 0.65, 0),
-      (poiAnchor, 0.60, 0),
+      (poiCompound, 0.85, 0),
+      (poiAnchor, 0.75, 0),
       (poiOutpost, 0.35, 1),
-      (poiRuins, 0.18, 2),
-      (poiRuins, 0.18, 2),
-      (poiRuins, 0.18, 2),
-      (poiRuins, 0.18, 2),
+      (poiRuins, 0.14, 2),
+      (poiRuins, 0.14, 2),
+      (poiRuins, 0.14, 2),
+      (poiRuins, 0.14, 2),
     ]
     placeWeightedPool(rng, result, width, height, gunRange, pool, 1.15, 10 + rng.rand(6))
   of ksRotationTiming:
@@ -717,8 +722,13 @@ proc placePois(
     ## A handful of ANCHOR compounds, spread with a LARGE mutual minSep so
     ## no two are ever close enough to trade one holder for another —
     ## holding the circle edge is the skill, so anchors need real distance
-    ## between them. Filler on top for density-uniformity.
-    let anchorHalf = int(0.55 * float(gunRange))
+    ## between them. Filler on top for density-uniformity. Anchors sized
+    ## to be the LARGEST footprint on the map (bigger than poiCompound's
+    ## 0.65G, the previous biggest archetype) — Maxwell's bar was "a
+    ## keystone map has a FEW LARGER organizing structures rising out of
+    ## the uniform field," and at 0.55G an anchor didn't visibly pop
+    ## against the filler at thumbnail scale.
+    let anchorHalf = int(0.9 * float(gunRange))
     let anchorMinSep = int(2.0 * float(gunRange))
     let anchorCount = 3 + rng.rand(3)
     for i in 0 ..< anchorCount:
