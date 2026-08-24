@@ -498,82 +498,141 @@ proc tryPlacePoi(
   ## Every attempt collided — skip this site rather than force an overlap;
   ## the place-count floor validator will report the true count honestly.
 
+const PoiPocketClearance = 110
+  ## ROUND 4 (Maxwell's correction, 2026-08-24): "the ~560-630px POI
+  ## clearance from spawn pockets is WRONG... a minor site adjacent to a
+  ## spawn is a LANDING SITE... not a fairness violation." Shrunk from a
+  ## scaled ~560-630px (spawnClearH + halfExtent + 40, which forced every
+  ## POI into a narrow horizontal band and made all six draws look like the
+  ## same map) down to a small FIXED margin: just enough that the pocket's
+  ## own floor stays clear and the exit-check ring (PocketExitMargin=24px)
+  ## holds with real margin. Wall-LEVEL safety near spawns (so a big
+  ## structure's near edge doesn't choke a pocket) is still enforced
+  ## downstream, per-shape, by dropShapesNearSpawns (70px) — a POI center
+  ## this close to a pocket routinely has its nearest wall segments pruned,
+  ## which reads as "the ruin's edge runs right up to the landing zone",
+  ## exactly the landing-site feel doctrine wants.
+
 proc placeUniformPoi(
   rng: var Rand, sites: var seq[PoiSite], width, height, minSep: int,
-  yLo, yHi: int, pockets: seq[MapRect], archetype: PoiArchetype, halfExtent, lootTier: int
-) =
-  ## TRUE uniform rejection sampling over the whole safe region, rather than
-  ## jittering around a hand-picked target — three rounds of hand-derived
-  ## trig/target-point placements each mis-modeled the safe zone (a circle
-  ## tied to field aspect, then hand offsets that didn't account for the
-  ## major's own jitter) and left 4-6 of 7 POIs unplaced. Uniform sampling
-  ## over the CORRECT band (below) doesn't need the safe zone's shape
-  ## guessed in advance — it just needs the band's bounds to be right, and
-  ## enough attempts to find one of the (narrow but real) gaps between
-  ## adjacent spawn pockets' tangential clearance.
+  pocketClear: int, pockets: seq[MapRect],
+  archetype: PoiArchetype, halfExtent, lootTier: int
+): bool =
+  ## TRUE uniform rejection sampling over the WHOLE playable field (no
+  ## artificial Y-band) — returns whether it found a spot, so callers can
+  ## track how many of a target count actually landed.
   const MaxAttempts = 400
   let margin = halfExtent + 60
   let xLo = margin
   let xHi = width - margin
-  let effYLo = max(yLo, margin)
-  let effYHi = min(yHi, height - margin)
-  if effYHi <= effYLo or xHi <= xLo:
-    return  ## degenerate band (should not happen at giant scale); skip honestly
+  let yLo = margin
+  let yHi = height - margin
+  if yHi <= yLo or xHi <= xLo:
+    return false
   for attempt in 0 ..< MaxAttempts:
     let x = xLo + rng.rand(xHi - xLo)
-    let y = effYLo + rng.rand(effYHi - effYLo)
+    let y = yLo + rng.rand(yHi - yLo)
     let p = MapPoint(x: x, y: y)
     if tooCloseToAny(p, sites, minSep): continue
-    if tooCloseToAnyPocket(p, pockets, halfExtent + 40): continue
+    if tooCloseToAnyPocket(p, pockets, pocketClear): continue
     sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
     when defined(brDebugExit):
       stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
-    return
+    return true
   when defined(brDebugExit):
-    stderr.writeLine(&"  POI FAILED entirely: archetype={archetype} band=[{xLo}..{xHi}]x[{effYLo}..{effYHi}]")
+    stderr.writeLine(&"  POI FAILED entirely: archetype={archetype}")
+  false
 
 proc placePois(
-  rng: var Rand, width, height, gunRange, spawnClearH: int, pockets: seq[MapRect]
+  rng: var Rand, width, height, gunRange: int, pockets: seq[MapRect], spawns: seq[BrSpawn]
 ): seq[PoiSite] =
-  ## Deliberate composition (coordinator, round 3): one major central POI, a
-  ## ring of mid POIs, minor sites toward the corners — K=7, inside the
-  ## doctrine's 6-9 band. Each candidate is rejection-sampled against a
-  ## minimum-separation disc (a Poisson-disc STOPPING RULE, not a full
-  ## Bridson grid — sufficient at K=7-9) and against every spawn pocket, so
-  ## POIs never crowd a landing zone or stack on top of each other.
-  ##
-  ## The SAFE Y BAND (three tuning passes' worth of lesson): on a giant
-  ## field the vertical extent is short (1713px) and every spawn pocket's
-  ## RADIAL reach eats deep into it from the ring's own y — not the field
-  ## border. y0/y1 below are the ring's own top/bottom y (the exact formula
-  ## ringSpawns uses), and the safe band excludes each archetype's own
-  ## pocket-radial-reach from both edges.
+  ## Deliberate composition, ROUND 4: one major (position now DRAWN, not
+  ## fixed dead-center — zone centers are drawn too, so an off-center major
+  ## is legitimate), a handful of mid POIs and corner-ish minors spread
+  ## across the WHOLE field (no more Y-band), plus a RING OF LANDING SITES
+  ## anchored near individual spawns so most of the ring has a near site —
+  ## this is what fills the corners/quadrants and makes landing a real
+  ## choice (near safe loot vs. contested center). K, archetype mix, and
+  ## the major's offset all vary per seed so six draws read as six
+  ## different maps.
   let cx = width div 2
   let cy = height div 2
-  let y0 = int((1.0 - RingK) * float(height) / 2.0)
-  let y1 = height - y0
   let minSep = int(1.15 * float(gunRange))  ## real travel distance between places
+  let majorHalf = int(0.85 * float(gunRange))
   let midHalf = int(0.55 * float(gunRange))
   let minorHalf = int(0.38 * float(gunRange))
-  let midReach = spawnClearH + midHalf + 40
-  let minorReach = spawnClearH + minorHalf + 40
+  let ringMinorHalf = int(0.30 * float(gunRange))
 
-  # 1 major, dead center (the field's own composition anchor).
-  tryPlacePoi(rng, result, cx, cy, int(0.15 * float(gunRange)), int(0.15 * float(gunRange)),
-    width, height, minSep, pockets, poiCompound, int(0.85 * float(gunRange)), 0)
+  # The major's position is drawn within a modest radius of field center —
+  # off-center is legitimate (the zone-center sweep independently verifies
+  # viability wherever the drawn zone lands), but a wildly off-center major
+  # would make its OWN footprint collide with the field border, so the
+  # offset is capped well inside the field.
+  let majorOffsetMax = int(0.7 * float(gunRange))
+  let majorTheta = rng.rand(2.0 * PI)
+  let majorR = rng.rand(majorOffsetMax)
+  let majorX = clamp(cx + int(float(majorR) * cos(majorTheta)),
+    majorHalf + 80, width - majorHalf - 80)
+  let majorY = clamp(cy + int(float(majorR) * sin(majorTheta)),
+    majorHalf + 80, height - majorHalf - 80)
+  tryPlacePoi(rng, result, majorX, majorY, int(0.1 * float(gunRange)), int(0.1 * float(gunRange)),
+    width, height, minSep, pockets, poiCompound, majorHalf, 0)
 
-  # 3 mid POIs, uniformly sampled within the safe band.
-  let midArchetypes = [poiOutpost, poiYard, poiOutpost]
-  for i in 0 ..< 3:
-    placeUniformPoi(rng, result, width, height, minSep,
-      y0 + midReach, y1 - midReach, pockets, midArchetypes[i], midHalf, 1)
+  # Mid POIs: count and archetype mix both vary per draw.
+  let midArchPool = [poiOutpost, poiYard]
+  let midCount = 2 + rng.rand(2)  # 2..4
+  for i in 0 ..< midCount:
+    discard placeUniformPoi(rng, result, width, height, minSep, PoiPocketClearance,
+      pockets, midArchPool[rng.rand(midArchPool.len - 1)], midHalf, 1)
 
-  # 3 minor POIs, same band (a smaller footprint buys a touch more room,
-  # but the dominant constraint — the pocket radial reach — is the same
-  # order of magnitude either way).
-  for i in 0 ..< 3:
-    placeUniformPoi(rng, result, width, height, minSep,
-      y0 + minorReach, y1 - minorReach, pockets, poiRuins, minorHalf, 2)
+  # A handful of interior minor sites (ruins), count varies too.
+  let interiorMinorCount = 1 + rng.rand(2)  # 1..3
+  for i in 0 ..< interiorMinorCount:
+    discard placeUniformPoi(rng, result, width, height, minSep, PoiPocketClearance,
+      pockets, poiRuins, minorHalf, 2)
+
+  # THE RING OF LANDING SITES (round 4's main structural fix): try every
+  # spawn in random order, offset a small landing site just inside its
+  # pocket's clearance, until `ringMinorTarget` land — "roughly even
+  # coverage", enforced by the item/cover validators rather than an exact
+  # one-per-spawn guarantee.
+  let ringMinorTarget = 6 + rng.rand(4)  # 6..10, per doctrine round 4
+  var order = toSeq(0 ..< spawns.len)
+  rng.shuffle(order)
+  var ringMinorPlaced = 0
+  for idx in order:
+    if ringMinorPlaced >= ringMinorTarget: break
+    let s = spawns[idx]
+    let (idxDir, idyDir) = inwardDir(s.edge)
+    let baseDist = PoiPocketClearance + ringMinorHalf + 30
+    var placedHere = false
+    for attempt in 0 ..< 50:
+      let dist = baseDist + rng.rand(120)
+      let along = rng.rand(-140 .. 140)  ## tangential jitter along the ring
+      let tx =
+        case s.edge
+        of seTop, seBottom: s.p.x + along
+        of seLeft, seRight: s.p.x + idxDir * dist
+      let ty =
+        case s.edge
+        of seTop, seBottom: s.p.y + idyDir * dist
+        of seLeft, seRight: s.p.y + along
+      let margin = ringMinorHalf + 60
+      if tx < margin or ty < margin or tx >= width - margin or ty >= height - margin:
+        continue
+      let p = MapPoint(x: tx, y: ty)
+      if tooCloseToAny(p, result, minSep): continue
+      if tooCloseToAnyPocket(p, pockets, PoiPocketClearance): continue
+      let arch = if rng.rand(1) == 0: poiRuins else: poiOutpost
+      result.add PoiSite(center: p, archetype: arch, halfExtent: ringMinorHalf, lootTier: 2)
+      placedHere = true
+      inc ringMinorPlaced
+      when defined(brDebugExit):
+        stderr.writeLine(&"  ring-minor placed {arch} at ({p.x},{p.y}) near spawn edge={s.edge}")
+      break
+    if not placedHere:
+      when defined(brDebugExit):
+        stderr.writeLine(&"  ring-minor FAILED near spawn edge={s.edge} p=({s.p.x},{s.p.y})")
 
   result
 
