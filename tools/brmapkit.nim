@@ -1280,7 +1280,13 @@ const
                                ## exit-check ring (round-2 regression: it was
                                ## using the raw pocket's radius, not the
                                ## ring's, and choked 6 spawns down to 1 exit)
-  DistMaxEmptyCells = 1       ## at most ONE deliberately-open cell tolerated
+  DistMaxEmptyCells = 0       ## ROUND 4: tightened from 1 to 0 now that POIs
+                               ## spread across the WHOLE field (no more
+                               ## y-band) instead of one horizontal strip —
+                               ## measured on a 40-seed sweep: 38/40 already
+                               ## land at 0 empty cells, and the 2 that don't
+                               ## already fail per-spawn coverage, so this
+                               ## costs nothing and makes the gate honest.
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
