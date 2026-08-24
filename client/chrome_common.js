@@ -52,8 +52,21 @@ window.ChromeCommon = function (ctx) {
   // the RIGHT — so classic red/blue keeps its exact old layout and a 4-team
   // game reads red+green vs blue+yellow. Colors must stay in sync with the
   // CSS --red/--blue/--green/--yellow team utility classes.
-  var TEAM_ORDER = ['red', 'blue', 'green', 'yellow'];
-  var TEAM_COLOR = { red: RED, blue: BLUE, green: GREEN, yellow: YELLOW };
+  // Both tables come from the ENGINE via window.CTF_WIRE (wire_constants.nim
+  // derives them from the Team enum). The literals below are the file://
+  // fallback this file has always kept for un-spliced opens — and they are
+  // exactly what the engine emits for these four, so a spliced page and a
+  // raw open agree to the byte.
+  //
+  // They used to be the only table, which meant a 16-team BR board drew
+  // twelve of its teams in the fallback amber: the scoreboard could not tell
+  // plum from azure from lime. Deriving them fixes that class, not just this
+  // instance — a 17th team would arrive here with a colour already.
+  var WIRE_EARLY = window.CTF_WIRE || {};
+  var TEAM_ORDER = WIRE_EARLY.teamOrder ||
+    ['red', 'blue', 'green', 'yellow'];
+  var TEAM_COLOR = WIRE_EARLY.teamColors ||
+    { red: RED, blue: BLUE, green: GREEN, yellow: YELLOW };
   function teamCol(team) { return TEAM_COLOR[team] || null; }
   function activeTeams(s) {
     var keys = (s && s.teams) ? Object.keys(s.teams) : [];
