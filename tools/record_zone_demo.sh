@@ -25,6 +25,11 @@ cfg["zonePhases"] = [
     {"z": 0.35, "waitTicks": 100, "shrinkTicks": 200, "dps": 2},
     {"z": 0.15, "waitTicks": 80, "shrinkTicks": 160, "dps": 3},
 ]
+# Close on the map's own center rather than the random per-game draw —
+# easier to eyeball in a fixed demo, and exercises the authored zoneCenter
+# path (§4.3). (617, 329) is the standard "arena" map's own CtfMap.center
+# (1235x659); re-derive if this demo ever moves off that map.
+cfg["zoneCenter"] = [617, 329]
 json.dump(cfg, open(sys.argv[1], "w"))
 PY
 LOG="${LOG:-/tmp/ctf-zone-demo-server.log}"
