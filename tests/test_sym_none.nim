@@ -227,3 +227,89 @@ suite "symNone full-board authoring (#280)":
     let none = newSeq[InputState](0)
     for tick in 0 ..< 120: sim.step(none, none)
     check sim.gameMap.name == "symnone-demo"
+
+suite "symNone per-team anchors (#285)":
+  ## Optional explicit per-team home anchors: the ONLY way to place a 2-team
+  ## pedestal off the center-row axis (homeDepth moves X only, Y is otherwise cy).
+  ## Backward-compatible (absent -> derive from homeDepth); gated by validateMap.
+
+  proc specWithAnchors(anchors: JsonNode): string =
+    ## The demo symNone spec + an explicit teamAnchors field.
+    var node = parseJson(demoSymNoneSpec())
+    node["teamAnchors"] = anchors
+    $node
+
+  test "absent teamAnchors -> anchors derive from homeDepth (unchanged)":
+    ## The default path: no field, teamAnchor returns the classic center+homeDepth
+    ## points. This is the backward-compat guarantee — every existing spec.
+    let gm = demoSymNoneMap()
+    check gm.teamAnchors.len == 0
+    let cx = gm.center.x
+    let d = (if gm.homeDepth > 0: gm.homeDepth else: 700)
+    check gm.teamAnchor(Red) == MapPoint(x: cx - (cx * d div 1000), y: gm.center.y)
+    check gm.teamAnchor(Blue) ==
+      MapPoint(x: cx + ((gm.width - cx) * d div 1000), y: gm.center.y)
+
+  test "explicit teamAnchors place pedestals off the center-row axis":
+    ## The feature: corner-ish / off-cy anchors are returned VERBATIM.
+    let gm = mapFromSpecJson(specWithAnchors(%*[[240, 180], [995, 480]]))
+    check gm.teamAnchors.len == 2
+    check gm.teamAnchor(Red) == MapPoint(x: 240, y: 180)   # off cy (=329)
+    check gm.teamAnchor(Blue) == MapPoint(x: 995, y: 480)
+    ## teamHomeX reads the override too (it delegates to teamAnchor).
+    check gm.teamHomeX(Red) == 240
+
+  test "teamAnchors round-trips through the spec JSON":
+    let gm = mapFromSpecJson(specWithAnchors(%*[[240, 180], [995, 480]]))
+    let once = mapSpecJson(gm)
+    let twice = mapSpecJson(mapFromSpecJson(once))
+    check once == twice
+    let node = parseJson(once)
+    check node["teamAnchors"] == %*[[240, 180], [995, 480]]
+
+  test "an emitted spec WITHOUT anchors carries no teamAnchors key (parity)":
+    ## The derived-anchor map (every existing map) must serialize byte-identically
+    ## to before — the key is present ONLY when authored.
+    let node = parseJson(mapSpecJson(demoSymNoneMap()))
+    check not node.hasKey("teamAnchors")
+
+  test "validation REJECTS a half-specified teamAnchors (one team only)":
+    expect CtfError:
+      discard mapFromSpecJson(specWithAnchors(%*[[240, 120]]))
+
+  test "validation REJECTS a wrong-half anchor (Red in the right half)":
+    expect CtfError:
+      discard mapFromSpecJson(specWithAnchors(%*[[900, 329], [995, 329]]))
+
+  test "validation REJECTS an anchor whose spawn pocket clips the board edge":
+    ## spawnClearW=70 in the demo -> an anchor at x=20 clips the left border.
+    expect CtfError:
+      discard mapFromSpecJson(specWithAnchors(%*[[20, 329], [995, 329]]))
+
+  test "validation REJECTS an off-board anchor":
+    expect CtfError:
+      discard mapFromSpecJson(specWithAnchors(%*[[240, 180], [9999, 480]]))
+
+  test "PARITY: teamAnchors is ignored on symmetric + 4-team maps":
+    ## The override is symNone+sides only; the mirror/rot derivation is untouched.
+    ## (No spec carries it there, but assert the code path can't be hijacked.)
+    var gm = CtfMap(width: W, height: H, center: MapPoint(x: 617, y: 329),
+                    symmetry: symMirror, layout: layoutSides,
+                    teamAnchors: @[MapPoint(x: 240, y: 120), MapPoint(x: 995, y: 540)])
+    ## symMirror ignores teamAnchors -> classic derivation (Y = cy = 329).
+    check gm.teamAnchor(Red).y == 329
+    check gm.teamAnchor(Red).x == 617 - (617 * 700 div 1000)
+
+  test "a symNone map with off-axis anchors boots and steps deterministically":
+    proc runGame(): SimServer =
+      var config = defaultGameConfig()
+      config.mapSpec = specWithAnchors(%*[[260, 180], [975, 480]])
+      result = initCtfForTest(config)
+      for i in 0 ..< 2: discard result.addPlayer("p" & $i)
+      result.startGame()
+      let none = newSeq[InputState](0)
+      for tick in 0 ..< 200: result.step(none, none)
+    var a = runGame()
+    let b = runGame()
+    check a.gameMap.teamAnchor(Red) == MapPoint(x: 260, y: 180)
+    check a.gameHash() == b.gameHash()

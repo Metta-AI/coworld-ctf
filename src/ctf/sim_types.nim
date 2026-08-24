@@ -1078,6 +1078,21 @@ type
                                ## NOT do a full flood-CONNECTIVITY check at load
                                ## (too heavy); reachability/fairness is the
                                ## caller's measured gate. Ignored on symmetric maps.
+    teamAnchors*: seq[MapPoint]
+                               ## OPTIONAL explicit per-team home anchors (the
+                               ## pedestal centers), in team order (Red, Blue) —
+                               ## coworld-ctf#285. Empty (the default) => teamAnchor
+                               ## derives every anchor from center+homeDepth as
+                               ## before (100% backward-compatible; no existing
+                               ## spec carries this). When NON-empty on a symNone
+                               ## layoutSides map, teamAnchor returns these points
+                               ## verbatim — the ONLY way to place a 2-team pedestal
+                               ## off the center-row axis (homeDepth moves X only,
+                               ## Y is otherwise cy). The loader validates them:
+                               ## one per team, in-bounds, each in its OWN half, and
+                               ## the spawn pocket around it fitting on-board.
+                               ## Reachability stays the caller's measured gate (as
+                               ## with teamPickups). Ignored unless symNone+sides.
 
   CrewSprite* = ref object
     width*, height*: int
