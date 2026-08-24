@@ -39,6 +39,16 @@ These are already proven causal on the CTF corpus. Do not re-litigate them;
 port them.
 
 ### 2.1 Anti-confetti directive (2026-08-20) — transfers, and gets MORE load-bearing
+
+**BR strengthening (2026-08-24, after three generator rounds drifted into
+"confetti on a larger scale with rooms"): structures are SUBTRACTIVE.** A place
+is a large solid welded mass — the same visual species as an organic caves
+blob — with rooms/courtyards/alleys CARVED INTO it as negative space. Never
+thin walls placed additively on open ground; shell thickness is structural
+(24-48px), and a compound counts as ONE mass. **The anti-confetti ceiling is a
+STANDARD derived from the banked reference aesthetic (caves_404, the Pod
+Field), never retuned to fit the current generator's corpus** — the round-5
+ceiling drift (28 -> 52) was the backwards ratchet and is the case study.
 Weld test + thumbnail test at triage. Welded masses, continuous linear
 features, walls with mass, **distinct places**.
 
