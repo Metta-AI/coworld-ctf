@@ -200,10 +200,23 @@ proc deriveGunRange(w, h, groups: int): int =
   int(round(sqrt(float(w) * float(h) / (float(groups) * PI))))
 
 proc spawnClearance(scale: float): tuple[w, h: int] =
-  ## CtfMap.spawnClearW/H semantics: s(70), s(130) at the size class's own
-  ## scale (spawnClearW/H are CLEARANCES, which scale with the field, unlike
-  ## obstacle geometry — see arena.nim's scaledGenShell comment).
-  (int(round(70.0 * scale)), int(round(130.0 * scale)))
+  ## ROUND 5 (coordinator correction, 2026-08-24): the old body returned
+  ## s(70), s(130) at GiantScale = 182x338 — CtfMap.spawnClearW/H semantics,
+  ## sized to hold a full CTF TEAM (8+ players) and deliberately SCALING
+  ## with the field. A BR pocket holds exactly one DUO (SeatsPerGroup=2).
+  ## Verified against the engine's actual spawn stagger before touching
+  ## this (sim_state.spawnPosition: PlayerHalf=6, stagger spread=36) — a
+  ## 2-seat group's real footprint is two 12x12 boxes ~24px apart at most,
+  ## nowhere near even one scale step of the old formula. A duo pocket must
+  ## NOT scale with the field (that's exactly how 338px of radial reach ate
+  ## 66% of a giant field's short axis — round 4's mid-band finding).
+  ## `scale` is accepted but unused: kept in the signature so callers don't
+  ## need to change, but the return value is now a flat, unscaled duo
+  ## pocket (70px half-extent both axes — about 3x the ~24px a 2-seat
+  ## stagger actually needs, margin without reintroducing a
+  ## CTF-team-sized exclusion zone).
+  discard scale
+  (70, 70)
 
 # --- ring spawns (§4.2) -------------------------------------------------------
 
