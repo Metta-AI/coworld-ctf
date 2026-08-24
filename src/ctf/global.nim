@@ -354,13 +354,26 @@ const
   GloryChipGapNM = 1          ## logical px between the name and money lines.
   GloryChipGapMF = 2          ## logical px between the money line and the
                                ## tier-pip / FIRST-tag footer strip.
-  GloryChipNameLineH = 9      ## the headline's line box: one size step above
+  GloryChipNameLineH = 13     ## the headline's line box: one size step above
                                ## GloryChipMoneyLineH, so SIZE (not just
-                               ## colour) is what makes the name lead.
-  GloryChipMoneyLineH = TextLineHeight
-                               ## the payout rides the ordinary HUD line
-                               ## height — it supports the name, it does not
-                               ## compete with it.
+                               ## colour) is what makes the name lead. Raised
+                               ## from 9: the board renders once at
+                               ## RenderScale=2 and a 640x360 embed then
+                               ## downscales that ~2x again, and 9 logical px
+                               ## (18 native, ~9 displayed) fell below this
+                               ## vector face's legibility floor there — a
+                               ## clean read at 1280 but an amber smudge at
+                               ## 640, with no readable name at all.
+  GloryChipMoneyLineH = 10    ## the payout's own line box. No longer tied to
+                               ## the ordinary HUD line height (TextLineHeight
+                               ## = 7): it needs to grow with the name line
+                               ## above it to survive the same 640x360
+                               ## downscale, and TextLineHeight is a shared
+                               ## HUD constant this chip must not drag along
+                               ## with it. Scaled by the same ~1.44x as
+                               ## GloryChipNameLineH (9->13), so the payout
+                               ## still supports the name rather than
+                               ## competing with it.
   GloryChipFooterH = 6        ## logical px tall: the tier-pip / FIRST row.
   GloryChipRadius = 3'f32     ## logical corner radius of the plaque.
   GloryChipEdgePx = 1         ## logical stroke width of the plaque's amber edge.
@@ -370,6 +383,13 @@ const
                                ## loud.
   GloryChipHaloPx = 2         ## logical margin reserved around a first
                                ## claim's plaque for its soft outer-edge glow.
+  GloryChipKillAirPx = 4      ## logical px of clear air a claim chip keeps
+                               ## between its own bottom edge and the
+                               ## co-sited "SPLAT" kill marker's worst-case
+                               ## reach (see gloryPopBaseLiftPx) — the common
+                               ## case is a kill and its achievement claim
+                               ## landing on the same cog, so the two must
+                               ## never so much as kiss, let alone overlap.
   GloryChipPipR = 1.1'f32     ## logical radius of one tier pip.
   GloryChipPipGap = 3         ## logical gap between tier-pip centers.
   GloryChipMaxTierPips = 5    ## AchievementClaim.tier is 0..4 (1..5 pips);
@@ -5073,11 +5093,12 @@ proc buildGloryChipSprite(
       float32(haloPad) + half, float32(haloPad) + half,
       float32(innerW) - edgeW, float32(innerH) - edgeW)
   var path = newPath()
-  # A hairline daub, not a dialog box: the four corners are NOT quite equal,
-  # which is enough asymmetry to read as painted rather than drafted -- tried
-  # a separate splat notch on the lower edge instead, and at this size (a
-  # 640x360 embed floor) it read as clip art, not paint, so it was cut.
-  path.roundedRect(plaqueRect, r * 0.85'f32, r, r * 1.2'f32, r * 0.95'f32)
+  # A plain rounded rect, one radius on all four corners. A per-corner
+  # asymmetry ("hairline daub") was tried here to read as painted rather
+  # than drafted, and separately a splat notch on the lower edge -- at this
+  # size (a 640x360 embed floor, or even 3x zoomed) neither was visible at
+  # all: pure cost, no payoff, cut.
+  path.roundedRect(plaqueRect, r, r, r, r)
   image.fillPath(path, ink8(GloryChipFillInk[0], GloryChipFillInk[1],
     GloryChipFillInk[2], GloryChipFillAlpha))
   if isFirst:
@@ -5147,29 +5168,65 @@ proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
   elif abs(pop.amount) >= GloryPopMidGlory:
     result += GloryPopMidLiftPx
 
+proc gloryPopBaseLiftPx(sim: SimServer, pop: GloryFx): int =
+  ## The floor ONE row needs on its own account, before any stacking: for a
+  ## plain deed pop this is just the flat GloryPopLiftPx (small, and the
+  ## per-magnitude stagger in gloryPopLineBox already keeps it clear of the
+  ## damage pop below). A claim CHIP needs more: the common case is a kill
+  ## and the achievement it just satisfied landing at the SAME cog, and the
+  ## "SPLAT" kill marker there rises KillPopRisePx over its life on top of
+  ## its own logical height (sim.asciiSprites.height + 2, the same box
+  ## buildFloatingPopSprite gives it) -- so its worst-case reach above the
+  ## cog is (marker height + KillPopRisePx). A flat GloryPopLiftPx=13 is
+  ## nowhere near that once the plaque is more than a line or two tall, and
+  ## a verifier confirmed the marker was buried at three separate co-sited
+  ## kills. Lift the chip's OWN CENTER by half its real height
+  ## (gloryChipLogicalHeight, D1's single source of truth for that number)
+  ## plus the marker's full worst-case band plus a few px of air, so the
+  ## plaque's BOTTOM edge — not just its center — clears the marker.
+  if pop.label.len > 0:
+    gloryChipLogicalHeight(pop) div 2 + sim.asciiSprites.height + 2 +
+      KillPopRisePx + GloryChipKillAirPx
+  else:
+    GloryPopLiftPx
+
 proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
-  ## How far ABOVE its own anchor a stacked pop must sit, in logical px.
+  ## The FULL lift, in logical px above its own anchor, to the BOTTOM edge of
+  ## THIS pop's own box — everything the caller needs beyond "sprite.height
+  ## div 2" to find the sprite's top-left draw position. Subsumes the old
+  ## flat GloryPopLiftPx the caller used to add on top of this: that was
+  ## fine when every row wanted the same floor, but a claim chip now wants a
+  ## much taller one (see gloryPopBaseLiftPx / D2), and either type can end
+  ## up on the bottom row -- the per-tick prune drops expired pops, so a
+  ## plain pop's row 0 can expire and vanish while a longer-lived chip above
+  ## it (AchievementFxTicks=84 ticks vs GloryFxTicks=40) stays live and
+  ## becomes the effective floor for whatever stacks on next.
   ##
-  ## This used to be `pop.row * gloryPopLineBox(pop)` -- the row index times
-  ## THIS pop's own height -- which is only correct when every pop in a stack
-  ## is the same size. A claim chip is several times taller than a "+10g", so
-  ## the multiply was wrong in one direction and invisible in the other: a
-  ## chip stacked ON a plain pop cleared it easily (its own height is huge),
-  ## but a plain pop stacked on a still-live CHIP lifted by its own small line
-  ## box and landed INSIDE the plaque. Easy to hit -- the cog that just claimed
-  ## an achievement gets another tag within the chip's ~3.5s life without
-  ## moving 10px.
-  ##
-  ## Sum the ACTUAL height of whatever occupies the rows underneath instead.
-  ## Rows at one site are distinct by construction (addGloryPop assigns
-  ## max+1 against the pops already in the seq), so this never double-counts.
-  if pop.row <= 0:
-    return 0
+  ## So walk every LIVE pop at this site, in row order up to and including
+  ## this one, and stack bottom-up: each row's floor is the taller of (a)
+  ## the row directly below it plus that row's own real height
+  ## (gloryPopLineBox, unchanged -- this part was already correct), or (b)
+  ## its OWN type's required floor (gloryPopBaseLiftPx). The max keeps a
+  ## chip clear of the kill marker on its own account no matter which row it
+  ## lands on, and anything stacked above it inherits ITS floor rather than
+  ## the old flat one. Rows at one site are distinct by construction
+  ## (addGloryPop assigns max+1 against the pops already in the seq).
+  var rowsAtSite: seq[GloryFx] = @[]
   for other in sim.gloryPops:
-    if other.row < pop.row and
+    if other.row <= pop.row and
         abs(other.x - pop.x) <= GloryPopCoalescePx and
         abs(other.y - pop.y) <= GloryPopCoalescePx:
-      result += sim.gloryPopLineBox(other)
+      rowsAtSite.add other
+  for i in 1 ..< rowsAtSite.len:
+    var j = i
+    while j > 0 and rowsAtSite[j].row < rowsAtSite[j - 1].row:
+      swap rowsAtSite[j], rowsAtSite[j - 1]
+      dec j
+  var belowHeight = 0
+  for i, rowPop in rowsAtSite:
+    let ownFloor = sim.gloryPopBaseLiftPx(rowPop)
+    result = if i == 0: ownFloor else: max(result + belowHeight, ownFloor)
+    belowHeight = sim.gloryPopLineBox(rowPop)
 
 proc buildGloryPopSprite(
   sim: SimServer, pop: GloryFx, stage: int
@@ -5203,7 +5260,10 @@ proc addGloryPops(
   ## Sited exactly like the damage pops it stacks above (same pool discipline,
   ## same fog honesty: the map view passes no viewer and shows every pop, a
   ## player view passes its index and sees only what it can see), but lifted
-  ## GloryPopLiftPx so the wound below and the reward above never collide.
+  ## by gloryStackLift so the wound below and the reward above never collide
+  ## -- a flat GloryPopLiftPx for a plain "+Ng", a taller chip-aware floor
+  ## for a claim, so its plaque clears the "SPLAT" kill marker at a co-sited
+  ## kill instead of painting over it (D2).
   ## The pool is chosen by PRIORITY, not by arrival. Insertion order looked
   ## harmless and was a silent cap: with 16 slots, sixteen older small pops
   ## still alive meant a 250g capture minted after them was never drawn AT ALL
@@ -5245,8 +5305,7 @@ proc addGloryPops(
       sprite = sim.buildGloryPopSprite(pop, stage)
       rise = GloryPopRisePx * age div max(1, life)
       px = pop.x - sprite.width div 2
-      py = pop.y - sprite.height div 2 - GloryPopLiftPx - rise -
-           sim.gloryStackLift(pop)
+      py = pop.y - sprite.height div 2 - sim.gloryStackLift(pop) - rise
       # Content-addressed, NOT rank-addressed. Keying the slot off `nextPop`
       # (this frame's sort position) meant a stable claim changed slots the
       # moment another claim arrived or expired and re-ranked it -- so its
