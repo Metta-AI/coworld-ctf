@@ -136,9 +136,10 @@ suite "sprite id collisions":
     check game.buildGlobalMessages(gstate).conflicts() == newSeq[string]()
 
   test "a 4-team frame defines no colliding sprite ids":
-    # The widened pools (soldier/corpse/selected strides, rig blocks, flag
-    # 700..703, carry hearts 600..663, endzone fades 4100..4131) all get
-    # exercised by a full 4-team frame with green/yellow seated.
+    # The widened pools (soldier/corpse/selected strides, rig blocks, flags,
+    # carry hearts, endzone fades — see the BoardSpritePools audit in
+    # global.nim for their current bases) all get exercised by a full
+    # 4-team frame with green/yellow seated.
     var config = defaultGameConfig()
     config.teams = 4
     config.mapPath = "gen"

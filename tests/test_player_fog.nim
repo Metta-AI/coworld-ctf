@@ -53,9 +53,10 @@ suite "player fog-of-war protocol":
     # The fogged enemy is culled; the viewer itself is present.
     check not messages.hasObject(1000 + game.players[foe].joinOrder)
     check messages.hasObject(1000 + game.players[viewer].joinOrder)
-    # Both pedestal flags are always present (5009 red, 5010 blue).
-    check messages.hasObject(5009)
-    check messages.hasObject(5010)
+    # Both pedestal flags are always present (Red's and Blue's own-view
+    # flag markers).
+    check messages.hasObject(SpritePlayerFlagObjectBase + ord(Red))
+    check messages.hasObject(SpritePlayerFlagObjectBase + ord(Blue))
 
     # Turn the viewer around: the enemy enters the cone and appears.
     game.players[viewer].aimBrads = 192
@@ -89,14 +90,14 @@ suite "player fog-of-war protocol":
     # The mate is behind the viewer (aiming north): fogged, flag and all.
     let messages = game.buildPlayerMessages(viewer, state)
     check not messages.hasObject(1000 + game.players[mate].joinOrder)
-    check not messages.hasObject(5010)
+    check not messages.hasObject(SpritePlayerFlagObjectBase + ord(Blue))
 
     # Turn around: the mate and its carried flag appear.
     game.players[viewer].aimBrads = 192
     var state2: PlayerViewerState
     let turned = game.buildPlayerMessages(viewer, state2)
     check turned.hasObject(1000 + game.players[mate].joinOrder)
-    check turned.hasObject(5010)
+    check turned.hasObject(SpritePlayerFlagObjectBase + ord(Blue))
 
   test "only a shot's landing rings for players; tracers are spectator-only":
     var game = initCtfForTest(defaultGameConfig())

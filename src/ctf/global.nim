@@ -495,8 +495,10 @@ const
                                ## buildPaintStainSprite) and that mask depends on
                                ## the map under that exact spot. Lives in the gap
                                ## between the kill pops (..31191) and the rig
-                               ## pools (40000..), below the endzone fade
-                               ## bands at 36600+.
+                               ## pools (40000..). (The endzone fade bands used
+                               ## to sit right above this pool at 36600+; they
+                               ## moved to EndzoneFadeSpriteBase — 22100+ — to
+                               ## fit their 16-team width; see its own const.)
   DiamondPaintSpriteBase = 35300 ## per-(diamond, frame) painted stone:
                                ## 35300..35427 (8 diamonds x 16 frames). A
                                ## diamond claims ids here only once paint lands
@@ -618,18 +620,21 @@ const
   TransportX = 2
   TransportY = 1
   ## Sprite/object id pools (sprites and objects are separate namespaces).
-  ## Sprites: team flags 700..703 (FlagSpriteBase), hp pips 720+, tracer
+  ## Sprites: team flags (FlagSpriteBase), hp pips 720+, tracer
   ## dots 900..963 (color×fade-stage), muzzle blooms 964..967 (stage), tracer
   ## heads 968..1031 (color×stage), aim dots 780..795, identity badges
-  ## 4200..4231 (team×identity), self markers 5100..5131, team score text
-  ## 12100..12103, splatters 16000..16063, fog runs 21000..21155
-  ## (one per run width in cells), map markers 20000. Objects: flags 6500..6503
-  ## (map view) / 5009..5012 (player view), team score text 9600..9603,
-  ## muzzle blooms 16800..16831, tracer heads 16840..16871, hit flashes
-  ## 16880..16911, splatters 17000..17063, identity badges 19040..19071,
-  ## map markers 20000, fog runs 21000..23047, tracer dots 24000..35327.
-  ## The full board object layout is enforced by the compile-time audit at
-  ## the end of this const section (BoardObjectPools).
+  ## (team×identity), self markers 5100..5131, team score text
+  ## 12100+, splatters 16000..16063, fog runs 21000..21155
+  ## (one per run width in cells), map markers 20000. Objects: flags 6500+
+  ## (map view) / SpritePlayerFlagObjectBase+ (player view), team score text
+  ## 9600..9603, muzzle blooms 16800..16831, tracer heads 16840..16871, hit
+  ## flashes 16880..16911, splatters 17000..17063, identity badges
+  ## 19040..19071, map markers 20000, fog runs 21000..23047, tracer dots
+  ## 24000..35327. Team-indexed pool WIDTHS all derive from TeamPoolWidth
+  ## (16 at BR, BR_MAPGEN.md §6.2) — see each pool's own const declaration
+  ## for its exact current base/range, not this overview comment. The full
+  ## board object layout is enforced by the compile-time audit at the end of
+  ## this const section (BoardObjectPools).
   ## Player debug sprites and objects use per-player pools at 40000+.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
@@ -638,21 +643,18 @@ const
   SpritePlayerWalkabilitySpriteId = 5007
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
-  SpritePlayerFlagObjectBase = 5009  ## 5009..5012 by team.
-    ## TEAM-INDEXED (SpritePlayerFlagObjectBase + ord(team)) but NOT in
-    ## BoardObjectPools: it is nested inside the "player HUD" envelope pool
-    ## (SpritePlayerInterstitialObjectId, base 5006 width 16) by original
-    ## layout, not a disjoint range, so it cannot be given its own
-    ## TeamPoolWidth-derived audit entry without a false-positive overlap
-    ## against that envelope at ANY team count. # GVNEXT(team16): at
-    ## TeamPoolWidth >= 13 this walks onto SpritePlayerWeaponObjectId (5021,
-    ## ord(team)=12) and at >= 15 onto SpritePlayerOwnAimObjectId (5023,
-    ## ord(team)=14) — a real collision once Team has 13+ members. Left
-    ## UNFIXED here: relocating it changes wire object ids for every team
-    ## count, which risks fixture/golden-output breakage this stage must not
-    ## cause. Needs a dedicated relocation (new base with real headroom)
-    ## before 16-team play ships; do not add it to BoardObjectPools until
-    ## that lands.
+  SpritePlayerFlagObjectBase* = 6520  ## TeamPoolWidth-wide: 6520..6535 (BR,
+    ## BR_MAPGEN.md §6.2). MOVED off 5009: that slot was nested INSIDE the
+    ## "player HUD" envelope pool (SpritePlayerInterstitialObjectId, base
+    ## 5006 width 16) by original layout, not a disjoint range, so it had no
+    ## room of its own and — once Team actually reached 13+ members —
+    ## silently walked onto SpritePlayerWeaponObjectId (5021, at
+    ## ord(team)=12) and SpritePlayerOwnAimObjectId (5023, at ord(team)=14).
+    ## Now audited in BoardObjectPools like every other team pool: the
+    ## FlagObjectBase (6500..6515) to PlayerNameObjectBase (7000) gap has
+    ## room. (Wire object ids are broadcast-only, never in gameHash, so
+    ## relocating this is not a GameVersion-bump change — verified by the
+    ## full suite staying green across every other pool this lane moved.)
   SpritePlayerWeaponSpriteId = 5020  ## own-weapon HUD text ("weapon gun|arc").
   SpritePlayerWeaponObjectId = 5021
   SpritePlayerOwnAimSpriteId = 5022  ## invisible own-aim readback marker
@@ -797,6 +799,7 @@ const
     ("replay UI", ReplayTickObjectId, 5),
     ("player HUD", SpritePlayerInterstitialObjectId, 16),
     ("flags", FlagObjectBase, TeamPoolWidth),
+    ("own-view flag markers", SpritePlayerFlagObjectBase, TeamPoolWidth),
     ("player names", PlayerNameObjectBase, MaxPlayers),
     ("protocol text", ProtocolTextObjectBase, 100),
     ("team score", TeamScoreObjectBase, TeamPoolWidth),
@@ -931,7 +934,8 @@ const
     # Was declared `4 * 32` (128): understated even at 4 teams. The real
     # index is (ord(team)*IdentityNames.len + identity) * SoldierRotations +
     # aimStep, i.e. TeamPoolWidth*IdentityNames.len*SoldierRotations ids
-    # (512 at 4 teams, matching the 4200..4711 the doc comment states).
+    # (512 at 4 teams; see IdentityBadgeSpriteBase's own const for its
+    # current base and range at TeamPoolWidth=16).
     ("identity badges", IdentityBadgeSpriteBase,
       TeamPoolWidth * IdentityNames.len * SoldierRotations),
     ("player HUD", SpritePlayerFireSpriteId, 23),
