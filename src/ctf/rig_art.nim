@@ -28,6 +28,29 @@ proc clientDataDir*(): string =
   else:
     bitworldClient.clientDir() / "data"
 
+var warnedMissingTeamArt: seq[string]  ## de-dupes the fallback warning below.
+
+proc teamArtOrFallback*(teamPath: string, fallbackPath: string): string =
+  ## Returns `teamPath` if the file/dir exists under `gameDir()`; otherwise
+  ## logs ONE warning per missing path and returns `fallbackPath` instead.
+  ##
+  ## TODO(tint): the 12 BR team identities (BR_MAPGEN.md §6.2) don't have
+  ## art yet — 4 authored families (soldier/rig/heart/pedestal) exist only
+  ## for Red/Blue/Green/Yellow, and the tint pipeline lands the rest at
+  ## integration. Until then this keeps a widened `Team` enum BOOTING
+  ## (loading Red's art) instead of crashing on a missing file the moment a
+  ## 16-team game asks for e.g. `soldier_black.png`. Remove the fallback
+  ## once every team has real art.
+  let full = gameDir() / teamPath
+  if fileExists(full) or dirExists(full):
+    return teamPath
+  if teamPath notin warnedMissingTeamArt:
+    warnedMissingTeamArt.add teamPath
+    stderr.writeLine(
+      "WARNING: missing team art '" & teamPath & "', falling back to '" &
+      fallbackPath & "' (TODO(tint): BR_MAPGEN.md §6.2)")
+  fallbackPath
+
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
   gameDir() / SpriteSheetAsepritePath
@@ -137,7 +160,9 @@ proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
   ## Hard alpha edge (cutoff 128) so the bold painted outline stays crisp at the
   ## sprite footprint instead of feathering into a fuzzy halo on the floor.
   loadRgbaSprite(
-    "data/heart_" & teamText(team) & ".png",
+    teamArtOrFallback(
+      "data/heart_" & teamText(team) & ".png",
+      "data/heart_" & teamText(Red) & ".png"),
     size,
     alphaCutoff = 128'u8
   )
@@ -177,20 +202,22 @@ proc loadSprayCanSprite*(size: int): seq[uint8] =
 ## with its barrel on the aim ray, and body + gun pre-rotate TOGETHER around
 ## the body center — the cog spins with its gun, so east aim (rot 0) shows the
 ## master exactly as drawn and tracers always line up with the muzzle.
-const SoldierMasterPaths: array[Skin, array[Team, string]] = [
-  DefaultSkin: [
-    Red: "data/soldier_red.png",
-    Blue: "data/soldier_blue.png",
-    Green: "data/soldier_green.png",
-    Yellow: "data/soldier_yellow.png"
-  ],
-  CrownSkin: [
-    Red: "data/soldier_red_crown.png",
-    Blue: "data/soldier_blue_crown.png",
-    Green: "data/soldier_green_crown.png",
-    Yellow: "data/soldier_yellow_crown.png"
-  ]
-]
+func soldierMasterPath(skin: Skin, team: Team): string =
+  ## `data/soldier_<team>[_crown].png`. Was a hand-written 4-entry literal
+  ## per skin; computed now so widening `Team` (BR_MAPGEN.md §6.2) needs no
+  ## edit here — Red/Blue/Green/Yellow resolve to their historical byte-
+  ## identical paths, the 12 new teams get the same naming CONVENTION (the
+  ## files land from the tint pipeline; see `teamArtOrFallback` for the
+  ## until-then fallback).
+  "data/soldier_" & teamText(team) & (if skin == CrownSkin: "_crown" else: "") &
+    ".png"
+
+const SoldierMasterPaths: array[Skin, array[Team, string]] = block:
+  var paths: array[Skin, array[Team, string]]
+  for skin in Skin:
+    for team in Team:
+      paths[skin][team] = soldierMasterPath(skin, team)
+  paths
 
 var
   soldierMasters: array[Skin, array[Team, Image]]
@@ -240,7 +267,9 @@ proc measureSoldierBody(skin: Skin, team: Team, master: Image) =
 proc ensureSoldierLoaded(skin: Skin, team: Team) =
   if soldierLoaded[skin][team]:
     return
-  let master = readImage(gameDir() / SoldierMasterPaths[skin][team])
+  let path = teamArtOrFallback(
+    SoldierMasterPaths[skin][team], SoldierMasterPaths[skin][Red])
+  let master = readImage(gameDir() / path)
   soldierMasters[skin][team] = master
   measureSoldierBody(skin, team, master)
   soldierLoaded[skin][team] = true
@@ -445,7 +474,8 @@ proc rigSegIsWheel*(seg: RigSeg): bool =
 proc ensureRigLoaded(team: Team) =
   if rigLoaded[team]:
     return
-  let dir = gameDir() / "data/rig_real" / teamText(team)
+  let dir = gameDir() / teamArtOrFallback(
+    "data/rig_real" / teamText(team), "data/rig_real" / teamText(Red))
   for seg in RigSeg:
     rigSegImg[team][seg] = readImage(dir / rigSegPath(seg) & ".png")
   rigHeadImg[DefaultSkin][team] = rigSegImg[team][rsHead]

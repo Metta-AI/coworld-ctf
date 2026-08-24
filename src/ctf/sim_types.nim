@@ -760,7 +760,15 @@ const
   ZoomableLayerFlag* = 1
   UiLayerFlag* = 2
   PlayerSpriteBase* = 100
-  FlagSpriteBase* = 700       ## team flag sprites: 700..703 by team.
+  FlagSpriteBase* = 2700      ## team flag sprites: 2700..2715 at
+                               ## TeamPoolWidth=16 (BR, BR_MAPGEN.md §6.2).
+                               ## MOVED off 700 (only 4 ids of headroom
+                               ## before the flag-aura pool in the packed
+                               ## 700-block in global.nim); the spraypaint-
+                               ## fx-to-replay-UI gap (global.nim
+                               ## 2386..4001) has room for the whole
+                               ## flag/aura/planted/game-over/carry-heart
+                               ## cluster — see CarryHeartSpriteBase et al.
   SelectedPlayerSpriteBase* = 6000  ## outlined selected-soldier pool:
                               ## 4 teams x 16 rotations per skin — default
                               ## 6000..6063, crown 6064..6127. Moved from
@@ -812,6 +820,22 @@ const
   BlueTeamColor* = 13'u8
   GreenTeamColor* = 10'u8
   YellowTeamColor* = 8'u8
+  ## The 12 BR team colors (§6.2): the retro `Palette` is exactly 16 entries,
+  ## so with Red/Blue/Green/Yellow already spent (3, 13, 10, 8) every
+  ## remaining index maps 1:1 to one of these names, in ascending index
+  ## order — no palette resize, no index left unclaimed.
+  BlackTeamColor* = 0'u8
+  SilverTeamColor* = 1'u8
+  IvoryTeamColor* = 2'u8
+  PinkTeamColor* = 4'u8
+  UmberTeamColor* = 5'u8
+  RustTeamColor* = 6'u8
+  OrangeTeamColor* = 7'u8
+  PlumTeamColor* = 9'u8
+  LimeTeamColor* = 11'u8
+  NavyTeamColor* = 12'u8
+  AzureTeamColor* = 14'u8
+  PeachTeamColor* = 15'u8
   ShadowMap* = [
     0'u8,  #  0 black       -> black
     12,    #  1 gray         -> dark navy
@@ -860,6 +884,25 @@ type
     Blue
     Green
     Yellow
+    ## The 12 members below exist for BR (16-team) play — see
+    ## docs/designs/BR_MAPGEN.md §6.2. Order is LOCKED: the tint art
+    ## pipeline generated 192 files keyed to this exact sequence, so
+    ## reordering these silently mismatches every team's art to another
+    ## team's color. `activeTeams()`/`teamCount()` gate active play to a
+    ## PREFIX of the enum (2, 4, or 16 — never e.g. 8), so a 4-team game
+    ## never sees these; only 16-team BR does.
+    Black
+    Silver
+    Ivory
+    Pink
+    Umber
+    Rust
+    Orange
+    Plum
+    Lime
+    Navy
+    Azure
+    Peach
 
 const
   TeamPoolWidth* = Team.high.ord + 1
@@ -1811,6 +1854,46 @@ const
     ## like the vivid cerulean the soldier art (116,168,255) and the endzone
     ## floor actually show. Any NEW team-colored art should tint from these four
     ## so it matches what a viewer sees on the board.
+  ## The 12 BR endzone colors (§6.2). Same contract as the four above: a
+  ## true-color reading of the NAME, not the quantized `Palette` swatch —
+  ## the tint pipeline anchored its 192 art files on these RGBA values, so
+  ## changing one after art lands is an art regen, not a free edit.
+  BlackEndzoneColor* = rgba(38, 38, 42, 255)     ## team onyx.
+  SilverEndzoneColor* = rgba(192, 192, 197, 255) ## team silver.
+  IvoryEndzoneColor* = rgba(240, 234, 214, 255)  ## team ivory.
+  PinkEndzoneColor* = rgba(237, 111, 158, 255)   ## team flamingo pink.
+  UmberEndzoneColor* = rgba(122, 93, 68, 255)    ## team raw umber.
+  RustEndzoneColor* = rgba(183, 65, 14, 255)     ## team rust.
+  OrangeEndzoneColor* = rgba(230, 138, 30, 255)  ## team tangerine.
+  PlumEndzoneColor* = rgba(122, 63, 110, 255)    ## team plum.
+  LimeEndzoneColor* = rgba(151, 204, 58, 255)    ## team lime, yellow-green.
+  NavyEndzoneColor* = rgba(38, 55, 110, 255)     ## team navy, deep blue.
+  AzureEndzoneColor* = rgba(56, 150, 219, 255)   ## team azure, sky blue.
+  PeachEndzoneColor* = rgba(240, 178, 140, 255)  ## team peach.
+
+proc teamEndzoneColor*(team: Team): ColorRGBA =
+  ## THE single team -> true-color-RGBA mapping. Was duplicated three ways
+  ## (map_art.nim's private `teamEndzoneColor`, global.nim's
+  ## `barrierTeamTint`, sim_state.nim's `teamPaintRgba`) — collapsed here
+  ## per BR_MAPGEN.md §6.2 so widening `Team` only means adding an arm in
+  ## ONE place instead of three.
+  case team
+  of Red: RedEndzoneColor
+  of Blue: BlueEndzoneColor
+  of Green: GreenEndzoneColor
+  of Yellow: YellowEndzoneColor
+  of Black: BlackEndzoneColor
+  of Silver: SilverEndzoneColor
+  of Ivory: IvoryEndzoneColor
+  of Pink: PinkEndzoneColor
+  of Umber: UmberEndzoneColor
+  of Rust: RustEndzoneColor
+  of Orange: OrangeEndzoneColor
+  of Plum: PlumEndzoneColor
+  of Lime: LimeEndzoneColor
+  of Navy: NavyEndzoneColor
+  of Azure: AzureEndzoneColor
+  of Peach: PeachEndzoneColor
 
 # Pure aim-angle math (needed on both sides of the art/gameplay split).
 proc distSq*(ax, ay, bx, by: int): int =
@@ -1852,8 +1935,10 @@ proc teamCount*(gameMap: CtfMap): int =
 proc activeTeams*(count: int): Slice[Team] =
   ## Returns the active-team slice for one team count. Active teams are
   ## always a prefix of the enum, so 2-team games iterate exactly Red..Blue
-  ## — every historical loop, hash, and wire frame is unchanged.
-  doAssert count in [2, 4], "team count must be 2 or 4"
+  ## — every historical loop, hash, and wire frame is unchanged. 16 is BR
+  ## play (see BR_MAPGEN.md §6.2); 8 is deliberately excluded — no code path
+  ## seats a team count between 4 and 16.
+  doAssert count in [2, 4, 16], "team count must be 2, 4, or 16"
   Red .. Team(count - 1)
 
 proc teams*(gameMap: CtfMap): Slice[Team] =
@@ -1876,6 +1961,30 @@ proc teamText*(team: Team): string =
     "green"
   of Yellow:
     "yellow"
+  of Black:
+    "black"
+  of Silver:
+    "silver"
+  of Ivory:
+    "ivory"
+  of Pink:
+    "pink"
+  of Umber:
+    "umber"
+  of Rust:
+    "rust"
+  of Orange:
+    "orange"
+  of Plum:
+    "plum"
+  of Lime:
+    "lime"
+  of Navy:
+    "navy"
+  of Azure:
+    "azure"
+  of Peach:
+    "peach"
 
 proc teamColor*(team: Team): uint8 =
   ## Returns the palette color for one team.
@@ -1888,6 +1997,30 @@ proc teamColor*(team: Team): uint8 =
     GreenTeamColor
   of Yellow:
     YellowTeamColor
+  of Black:
+    BlackTeamColor
+  of Silver:
+    SilverTeamColor
+  of Ivory:
+    IvoryTeamColor
+  of Pink:
+    PinkTeamColor
+  of Umber:
+    UmberTeamColor
+  of Rust:
+    RustTeamColor
+  of Orange:
+    OrangeTeamColor
+  of Plum:
+    PlumTeamColor
+  of Lime:
+    LimeTeamColor
+  of Navy:
+    NavyTeamColor
+  of Azure:
+    AzureTeamColor
+  of Peach:
+    PeachTeamColor
 
 # Per-team handicap accessors. The handicap is stored as a permille (0..1000);
 # every derivation below is pure integer math and returns the EXACT base config

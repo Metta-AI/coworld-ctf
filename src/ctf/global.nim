@@ -95,12 +95,15 @@ const
                                ## one 27px — but the icons keep this anchor so
                                ## they don't slide with every armor/shield
                                ## state change.
-  IdentityBadgeSpriteBase = 4200 ## Greek identity badges keyed
+  IdentityBadgeSpriteBase = 9200 ## Greek identity badges keyed
                                  ## (ord(team)*IdentityNames.len + identity) *
-                                 ## SoldierRotations + aim step: 4200..4711
-                                 ## (the endzone fade crops that used to sit at
-                                 ## 4100..4131 moved to the banded pool at
-                                 ## 36600+; the player HUD starts at 5000).
+                                 ## SoldierRotations + aim step:
+                                 ## 9200..11247 at TeamPoolWidth=16 (BR,
+                                 ## BR_MAPGEN.md §6.2). MOVED off 4200 (only
+                                 ## 800 ids before the player HUD at 5000, the
+                                 ## 16-team pool needs 2048): the protocol
+                                 ## text pool (end 9099) to the scoreboard
+                                 ## text pool (12000) gap has room.
                                  ## One id per AIM STEP because the glyph is
                                  ## baked turned to the aim — it is painted ON
                                  ## the cog, not floating upright over it.
@@ -157,19 +160,29 @@ const
                                ## (PlantedFlagW div 2), which is the honest
                                ## "pixels under your feet" figure — the pedestal
                                ## disc, not the gem, is what a player stands on.
-  PlantedFlagSpriteBase = 708  ## scaled home-heart sprites: 708..711 by team.
-  GameOverIconSpriteBase = 712 ## compact roster-chip soldiers: 712..715 by team.
+  PlantedFlagSpriteBase = 2800  ## scaled home-heart sprites: 2800..2815 at
+                               ## TeamPoolWidth=16 (BR, BR_MAPGEN.md §6.2).
+                               ## MOVED off 708 (only 4 ids of headroom in the
+                               ## packed 700-block); the spraypaint-fx-to-
+                               ## replay-UI gap (2386..4001) has room for the
+                               ## whole flag/aura/planted/game-over cluster.
+  GameOverIconSpriteBase = 2850 ## compact roster-chip soldiers: 2850..2865 at
+                               ## TeamPoolWidth=16. MOVED off 712 for the same
+                               ## reason as PlantedFlagSpriteBase above.
   GameOverIconSize = 14        ## roster chip footprint (fits the game-over row).
-  CarryHeartSpriteBase = 600   ## carried-heart sprites, baked per team×aim so the
+  CarryHeartSpriteBase = 2400  ## carried-heart sprites, baked per team×aim so the
                                ## held heart rotates WITH the cog: team×16 aim →
-                               ## 600..663 (red 600.., blue 616.., green 632..,
-                               ## yellow 648..663) — the 6xx block is otherwise
-                               ## free, clear of the flag pools at 700+ and the
-                               ## aim dots at 780.
+                               ## 2400..2655 at TeamPoolWidth=16 (BR,
+                               ## BR_MAPGEN.md §6.2). MOVED off 600 (the
+                               ## soldiers pool right below it now runs
+                               ## 100..611 at 16 teams and would collide);
+                               ## same spraypaint-fx-to-replay-UI gap as the
+                               ## flag/aura/planted/game-over cluster.
   CarryHeartFwdPx = 12         ## px the carried heart rides FORWARD of the body along
                                ## the aim, so it sits between the head and the arms.
-  FlagAuraSpriteBase = 704     ## carrier-glow sprites: 704..707 by team
-                               ## (700..703 are the carried flag banners).
+  FlagAuraSpriteBase = 2750    ## carrier-glow sprites: 2750..2765 at
+                               ## TeamPoolWidth=16. MOVED off 704 for the same
+                               ## reason as PlantedFlagSpriteBase above.
   FlagAuraObjectBase = 19200   ## carrier-glow object pool (one per carried flag).
   FlagAuraSize = 26            ## px diameter of the carrier halo.
   ## Heart-taken endzone power-down (broadcast/spectator only): when a team's
@@ -192,12 +205,16 @@ const
   ## its bands past the cap instead of overflowing the pools — those boards
   ## are the colossal class, which emits at 1x, so an oversized band is still
   ## a moderate bake.
-  EndzoneFadeSpriteBase = 36600 ## per-(team, stage, band) fade-crop bands:
-                               ## 36600 + (ord(team)*GlowFadeStages + stage) *
-                               ## MaxEndzoneFadeBands + band → 36600..38647.
-                               ## Sits between the diamond-paint pool (ends
-                               ## 35427: 8 diamonds × 16 frames) and the rig
-                               ## pools at 40000+. Every band owns an id so
+  EndzoneFadeSpriteBase = 22100 ## per-(team, stage, band) fade-crop bands:
+                               ## 22100 + (ord(team)*GlowFadeStages + stage) *
+                               ## MaxEndzoneFadeBands + band →
+                               ## 22100..30291 at TeamPoolWidth=16 (BR,
+                               ## BR_MAPGEN.md §6.2). MOVED off 36600 (which
+                               ## only had room to 40000, 3400 ids, and the
+                               ## 16-team pool needs 8192): the shout bubbles
+                               ## (end 22031) to the damage pops (31000) gap
+                               ## is the only span in the whole static-pool
+                               ## range wide enough. Every band owns an id so
                                ## the crops can be pre-shipped once per
                                ## connection and the event-time ramp is a pure
                                ## object remap (bytes ≈ 0) instead of a sprite
@@ -211,15 +228,17 @@ const
                                ## ~15 ms to bake + compress on a laptop
                                ## (roughly 2× that in the wasm viewer), so
                                ## one band fits inside a 24 fps frame.
-  EndzoneFadeObjectBase* = 39700  ## band overlays, team-major: 39700 +
+  EndzoneFadeObjectBase* = 36700  ## band overlays, team-major: 36700 +
                                  ## ord(team)*MaxEndzoneFadeBands + band →
-                                 ## 39700..39955, in the gap between the
-                                 ## stains (end 39699) and the per-player
-                                 ## debug pool at DebugObjectBase (40000) —
-                                 ## the audit's debug-floor assert covers
-                                 ## this pool. (The 19520 slot the old
-                                 ## one-object-per-team scheme used has only
-                                 ## 40 free ids before the shields at 19560.)
+                                 ## 36700..37723 at TeamPoolWidth=16 (BR,
+                                 ## BR_MAPGEN.md §6.2). MOVED off 39700 (only
+                                 ## 300 ids before DebugObjectBase at 40000,
+                                 ## the 16-team pool needs 1024): the barriers
+                                 ## standing pool (end 36675) to the damage
+                                 ## pops (38000) gap has room. (The 19520 slot
+                                 ## the old one-object-per-team scheme used
+                                 ## has only 40 free ids before the shields at
+                                 ## 19560.)
   EndzoneRampBandsPerFrame* = 4   ## on-demand fade bands one frame may ship
                                  ## when a steal outruns the prewarm; the ramp
                                  ## HOLDS its stage until the next stage's
@@ -641,12 +660,18 @@ const
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
-  CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
-                               ## per skin: default 1500..1563, crown 1564..1627.
-                               ## A corpse must never read as a
-                               ## live soldier for a label-scanning ghost
-                               ## viewer. Moved off 850: that range overlapped
-                               ## the blue paint-blast sprites (868..871).
+  CorpseSpriteBase = 2900      ## grey dead-soldier sprites, one per team×rot
+                               ## per skin: 2900..3411 at TeamPoolWidth=16
+                               ## (BR, BR_MAPGEN.md §6.2). A corpse must never
+                               ## read as a live soldier for a label-scanning
+                               ## ghost viewer. MOVED off 1500 (which only had
+                               ## room to the spraypaint pickups at 2000, 500
+                               ## ids, just short of the 512 a 16-team pool
+                               ## needs) — same spraypaint-fx-to-replay-UI gap
+                               ## as the flag/aura/planted/game-over/carry-
+                               ## heart cluster (was itself moved off 850,
+                               ## which overlapped the blue paint-blast
+                               ## sprites at 868..871).
   FlagObjectBase = 6500        ## 6500..6503 by team.
   ## Per-viewer fog of war: a second zoomable map-sized layer of translucent
   ## dark row-run sprites over the unseen 8px visibility cells. It draws over
@@ -5580,12 +5605,9 @@ proc addGrenades(
 proc barrierTeamTint(team: Team): (uint8, uint8, uint8) =
   ## The team display color for a barrier's tape stripe, from the exported
   ## endzone colors (the canonical "new team-colored art tints from these").
-  let c =
-    case team
-    of Red: RedEndzoneColor
-    of Blue: BlueEndzoneColor
-    of Green: GreenEndzoneColor
-    of Yellow: YellowEndzoneColor
+  ## Thin wrapper over sim_types' `teamEndzoneColor` — this used to carry
+  ## its own `case team` (collapsed per BR_MAPGEN.md §6.2).
+  let c = teamEndzoneColor(team)
   (c.r, c.g, c.b)
 
 proc buildBarrierSheetSprite(): seq[uint8] =

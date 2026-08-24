@@ -82,23 +82,25 @@ proc readConfigString(node: JsonNode, name: string, value: var string) =
     raise newException(CtfError, "Config field " & name & " must be a string.")
   value = item.getStr()
 
+proc teamNameList(): string =
+  ## All valid team-name tokens (`teamText` order), comma-joined for error
+  ## messages. Looping the enum here (rather than a literal string) means
+  ## the message stays correct as `Team` widens — see BR_MAPGEN.md §6.2.
+  for team in Team:
+    if result.len > 0: result.add ", "
+    result.add teamText(team)
+
 proc readSlotTeam(text: string, slotIndex: int): Team =
   ## Reads one slot team string.
-  case text.strip().toLowerAscii()
-  of "red":
-    Red
-  of "blue":
-    Blue
-  of "green":
-    Green
-  of "yellow":
-    Yellow
-  else:
-    raise newException(
-      CtfError,
-      "Config field slots[" & $slotIndex &
-        "].team must be red, blue, green, or yellow."
-    )
+  let key = text.strip().toLowerAscii()
+  for team in Team:
+    if key == teamText(team):
+      return team
+  raise newException(
+    CtfError,
+    "Config field slots[" & $slotIndex & "].team must be one of: " &
+      teamNameList() & "."
+  )
 
 proc normalizedSlotColor(text: string): string =
   ## Returns a normalized slot color name.
@@ -301,21 +303,15 @@ proc readConfigTokens(
 
 proc readTeamKey(text, field: string): Team =
   ## Reads one team-keyed map key (handicaps, perks).
-  case text.strip().toLowerAscii()
-  of "red":
-    Red
-  of "blue":
-    Blue
-  of "green":
-    Green
-  of "yellow":
-    Yellow
-  else:
-    raise newException(
-      CtfError,
-      "Config field " & field & " has key " & text &
-        "; expected red, blue, green, or yellow."
-    )
+  let key = text.strip().toLowerAscii()
+  for team in Team:
+    if key == teamText(team):
+      return team
+  raise newException(
+    CtfError,
+    "Config field " & field & " has key " & text &
+      "; expected one of: " & teamNameList() & "."
+  )
 
 proc readHandicapPermille(value: JsonNode, teamName: string): int =
   ## Reads one 0.0..1.0 handicap and returns it as a permille (0..1000).
@@ -507,8 +503,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field frictionDen must be positive.")
   if config.minPlayers < 1:
     raise newException(CtfError, "Config field minPlayers must be at least 1.")
-  if config.teams notin [2, 4]:
-    raise newException(CtfError, "Config field teams must be 2 or 4.")
+  if config.teams notin [2, 4, 16]:
+    raise newException(CtfError, "Config field teams must be 2, 4, or 16.")
   if config.scoring notin [ClassicScoring, PotScoring]:
     raise newException(
       CtfError,
