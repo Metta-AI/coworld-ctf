@@ -26,14 +26,22 @@
 
 :root {
   --stage-lo: #16110d;
+  /* -rgb companions exist ONLY where the file needs the same ink at a second
+     alpha (a wash, a hairline, a hover tint) -- every such spot used to repeat
+     the literal triplet by hand, which drifts silently the day the hex above
+     is retuned. Derive, don't duplicate. */
+  --stage-lo-rgb: 22, 17, 13;
   --stage-hi: #241a12;
   --paper: #f2e8d8;
+  --paper-rgb: 242, 232, 216;
   --paper-dim: #b8ac98;
   --ink: #2a1f16;
-  --ink-soft: rgba(20, 14, 9, 0.62);
+  --ink-soft-rgb: 20, 14, 9;
+  --ink-soft: rgba(var(--ink-soft-rgb), 0.62);
   --red: #e0523a;
   --blue: #3f7cc4;
   --amber: #e8a33d;
+  --amber-rgb: 232, 163, 61;
   --ghost: #8a7f72;
   --hudscale: 1;
   /* chrome measures derive off the CONTAINER via --hudscale, not the viewport */
@@ -155,7 +163,7 @@ html, body {
      the bottom transport band. */
   box-sizing: border-box;
   background: var(--stage-lo);
-  box-shadow: inset 0 calc(-1 * var(--u)) 0 rgba(242, 232, 216, 0.06);
+  box-shadow: inset 0 calc(-1 * var(--u)) 0 rgba(var(--paper-rgb), 0.06);
 }
 
 .plate {
@@ -523,7 +531,7 @@ html, body {
   max-height: calc(100% - var(--topband, 0px) - 120 * var(--u));
   overflow: hidden;
   padding: calc(5 * var(--u)) calc(8 * var(--u));
-  background: rgba(22, 17, 13, 0.88);
+  background: rgba(var(--stage-lo-rgb), 0.88);
   font-family: var(--pixfont);
   font-size: calc(8 * var(--u));
   line-height: 1.45;
@@ -562,15 +570,41 @@ html, body {
   outline: 1px solid var(--amber);
   outline-offset: calc(1 * var(--u));
 }
-#achpanel .ach-head .ach-caret { color: var(--amber); }
+/* A pointer user got zero feedback before the click (`.ins-btn` next door
+   always had a hover state; this header never did) -- same quiet paper wash
+   as the buttons, so hover and the amber focus-visible ring above stay
+   two visibly different signals rather than the ring being the only one. */
+#achpanel .ach-head:hover { background: rgba(var(--paper-rgb), 0.06); }
+/* Amber is this chrome's one "you earned this" accent (glory numeral, carrier
+   pip, .tbtn.on, the heat flames) -- it should mean glory here too, and only
+   glory. The caret is disclosure chrome, not an earned value, so it takes the
+   same quiet paper-dim as every other label-adjacent glyph in the HUD instead
+   of competing with the payout column for the one accent that's supposed to
+   mean something. */
+#achpanel .ach-head .ach-caret { color: var(--paper-dim); }
 #achpanel .ach-head .red { color: var(--red); }
 #achpanel .ach-head .blue { color: var(--blue); }
+/* Stepped one size above the rows it introduces (matches .ach-head's 9u) so
+   the eye has a subhead to land on before the list -- at equal size with the
+   rows beneath, "RED" read as just the first row instead of a header. */
 #achpanel .ach-team {
   margin-top: calc(4 * var(--u));
+  font-size: calc(9 * var(--u));
   letter-spacing: 0.06em;
 }
 #achpanel .ach-team.red { color: var(--red); }
 #achpanel .ach-team.blue { color: var(--blue); }
+/* The one hairline this dense a panel is allowed (principles.md: minimise
+   dividers, but a bounded dashboard panel earns one at a real seam). RED and
+   BLUE are two independent ledgers, not one continuous list, and at up to six
+   rows a side the seam needs more than a 4u margin to read as a break rather
+   than a wrap. Scoped to the blue block ONLY -- one seam, not a rule between
+   every row. */
+#achpanel .ach-team.blue {
+  margin-top: calc(9 * var(--u));
+  padding-top: calc(6 * var(--u));
+  border-top: 1px solid rgba(var(--paper-rgb), 0.14);
+}
 /* The team subhead's own denominator + payout sit quiet next to the colored
    name: the name is the label, the rest is context, and one weight step is
    enough to say so without a divider. */
@@ -593,12 +627,31 @@ html, body {
    first. `normal` (not `pre`) so the ellipsis can actually engage. */
 #achpanel .ach-row .ach-name {
   flex: 1 1 auto;
+  /* min-width:0 is load-bearing: a flex child defaults to min-width:auto and
+     could otherwise never shrink, pushing the amber payout out of the panel --
+     the payout must be the LAST thing to go, never the first.
+     nowrap is equally load-bearing, and for a subtler reason: text-overflow
+     only ever fires on a NON-wrapping line. Paired with `normal` the ellipsis
+     is dead code and the name silently wraps to two lines instead, which
+     re-introduces the height overflow one level down -- rows clipped by
+     max-height UNDER the honest "+ N earlier" row, a second truncation the
+     panel never admits to. One line, one ellipsis, one stated cutoff. */
   min-width: 0;
-  white-space: normal;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#achpanel .ach-row .ach-first { color: var(--amber); }
+/* FIRST used to share the payout's amber, which put THREE things on this
+   panel in the one "you earned this" colour (caret, FIRST, +Ng) -- the eye
+   couldn't tell which amber was the number that mattered. FIRST earns its
+   distinction through weight + tracking + a hairline underline instead, so
+   amber keeps exactly one meaning: glory paid. */
+#achpanel .ach-row .ach-first {
+  color: var(--paper);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid rgba(var(--paper-rgb), 0.4);
+}
 #achpanel .ach-row .ach-pay {
   flex: none;
   margin-left: auto;
@@ -635,7 +688,7 @@ html, body {
   max-height: calc(100% - var(--topband, 0px) - 174 * var(--u));
   overflow: hidden;
   padding: calc(6 * var(--u)) calc(9 * var(--u));
-  background: rgba(22, 17, 13, 0.92);
+  background: rgba(var(--stage-lo-rgb), 0.92);
   font-family: var(--pixfont);
   /* 8u is the kill feed's own register — the card is a dense stat block, and
      sizing it with the feed keeps the two lower-thirds reading as one system. */
@@ -660,8 +713,8 @@ html, body {
   font-size: calc(8 * var(--u));
   letter-spacing: 0.06em;
   padding: calc(3 * var(--u)) calc(7 * var(--u));
-  background: rgba(242, 232, 216, 0.08);
-  border: 1px solid rgba(242, 232, 216, 0.25);
+  background: rgba(var(--paper-rgb), 0.08);
+  border: 1px solid rgba(var(--paper-rgb), 0.25);
   color: var(--paper-dim);
   cursor: pointer;
 }
@@ -671,7 +724,7 @@ html, body {
    the clamp range, not just in tiny embeds. An absolute floor is the only
    thing that holds at every scale. */
 #inspector .ins-btn { min-height: 24px; }
-#inspector .ins-btn:hover { background: rgba(242, 232, 216, 0.16); color: var(--paper); }
+#inspector .ins-btn:hover { background: rgba(var(--paper-rgb), 0.16); color: var(--paper); }
 #inspector.on { display: block; }
 /* WHOSE cog this is, said by a pip in the headline rather than a left accent
    stripe down the card. The stripe was banned visual language and it was also
@@ -703,7 +756,7 @@ html, body {
    team GLORY block); render it as the hairline it means, not as dead space. */
 #inspector .ins-rule {
   height: 1px;
-  background: rgba(242, 232, 216, 0.14);
+  background: rgba(var(--paper-rgb), 0.14);
   margin: calc(4 * var(--u)) 0;
 }
 
@@ -723,7 +776,7 @@ html, body {
   display: none;
   z-index: 11;
   background: rgba(12, 9, 6, 0.42);
-  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.34),
+  box-shadow: 0 0 0 1px rgba(var(--amber-rgb), 0.34),
     0 calc(6 * var(--u)) calc(18 * var(--u)) rgba(8, 5, 3, 0.45);
   overflow: hidden;
   /* See-through so it never fully hides the arena beneath; grab anywhere to
@@ -760,10 +813,10 @@ html, body {
   cursor: nwse-resize;
   z-index: 5;
   background:
-    linear-gradient(-45deg, transparent 40%, rgba(232, 163, 61, 0.55) 42%,
-      rgba(232, 163, 61, 0.55) 46%, transparent 48%,
-      transparent 58%, rgba(232, 163, 61, 0.55) 60%,
-      rgba(232, 163, 61, 0.55) 64%, transparent 66%);
+    linear-gradient(-45deg, transparent 40%, rgba(var(--amber-rgb), 0.55) 42%,
+      rgba(var(--amber-rgb), 0.55) 46%, transparent 48%,
+      transparent 58%, rgba(var(--amber-rgb), 0.55) 60%,
+      rgba(var(--amber-rgb), 0.55) 64%, transparent 66%);
   opacity: 0.6;
 }
 .fpv-grip:hover { opacity: 1; }
@@ -824,7 +877,7 @@ html, body {
   box-shadow: 0 0 0 1px rgba(8, 5, 3, 0.7);
   display: inline-block;
 }
-.fpv-hp i.spent { background: rgba(242, 232, 216, 0.16); box-shadow: inset 0 0 0 1px rgba(242, 232, 216, 0.28); }
+.fpv-hp i.spent { background: rgba(var(--paper-rgb), 0.16); box-shadow: inset 0 0 0 1px rgba(var(--paper-rgb), 0.28); }
 .fpv-gear {
   margin-left: auto;
   display: inline-flex;
@@ -846,7 +899,7 @@ html, body {
   width: 38%;
   aspect-ratio: 1235 / 659;
   background: rgba(8, 5, 3, 0.42);
-  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.28);
+  box-shadow: 0 0 0 1px rgba(var(--amber-rgb), 0.28);
   overflow: hidden;
   z-index: 2;
   opacity: 0.9;
@@ -875,7 +928,7 @@ html, body {
   gap: calc(5 * var(--u));
   padding: calc(8 * var(--u)) calc(12 * var(--u)) calc(8 * var(--u));
   background: var(--stage-lo);
-  box-shadow: inset 0 calc(1 * var(--u)) 0 rgba(242, 232, 216, 0.06);
+  box-shadow: inset 0 calc(1 * var(--u)) 0 rgba(var(--paper-rgb), 0.06);
 }
 #transport.disabled { opacity: 0.35; pointer-events: none; }
 
@@ -891,7 +944,7 @@ html, body {
   position: absolute;
   left: 0; right: 0; top: calc(6 * var(--u));
   height: calc(4 * var(--u));
-  background: rgba(242, 232, 216, 0.16);
+  background: rgba(var(--paper-rgb), 0.16);
 }
 .scrub-fill {
   position: absolute;
@@ -1010,14 +1063,14 @@ html, body {
   font-family: var(--pixfont);
   font-size: calc(11 * var(--u));
   color: var(--paper);
-  background: rgba(242, 232, 216, 0.08);
+  background: rgba(var(--paper-rgb), 0.08);
   border: none;
   padding: calc(5 * var(--u)) calc(8 * var(--u));
   min-width: calc(26 * var(--u));
   cursor: pointer;
   line-height: 1;
 }
-.tbtn:hover { background: rgba(242, 232, 216, 0.2); }
+.tbtn:hover { background: rgba(var(--paper-rgb), 0.2); }
 .tbtn.on { color: var(--amber); box-shadow: inset 0 calc(-2 * var(--u)) 0 var(--amber); }
 .tbtn svg { width: calc(12 * var(--u)); height: calc(12 * var(--u)); display: block; fill: currentColor; }
 .tsep { flex: 1; }
@@ -1044,7 +1097,7 @@ html, body {
   font-family: var(--pixfont);
   font-size: calc(9 * var(--u));
   color: var(--paper-dim);
-  background: rgba(242, 232, 216, 0.06);
+  background: rgba(var(--paper-rgb), 0.06);
   border: none;
   padding: calc(4 * var(--u)) calc(5 * var(--u));
   cursor: pointer;
@@ -1123,7 +1176,7 @@ html, body {
   text-transform: uppercase;
   color: var(--amber);
   padding: calc(3 * var(--u)) calc(10 * var(--u));
-  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(var(--amber-rgb), 0.5);
 }
 #endcard .how {
   margin-top: calc(-4 * var(--u));
@@ -1133,16 +1186,16 @@ html, body {
 #endcard .ec-team {
   width: calc(215 * var(--u));
   padding: calc(9 * var(--u)) calc(12 * var(--u));
-  background: rgba(20, 14, 9, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(242, 232, 216, 0.12);
+  background: rgba(var(--ink-soft-rgb), 0.55);
+  box-shadow: inset 0 0 0 1px rgba(var(--paper-rgb), 0.12);
   display: flex;
   flex-direction: column;
   gap: calc(5 * var(--u));
   text-align: left;
 }
 #endcard .ec-team.win {
-  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.65),
-    0 0 calc(14 * var(--u)) rgba(232, 163, 61, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(var(--amber-rgb), 0.65),
+    0 0 calc(14 * var(--u)) rgba(var(--amber-rgb), 0.18);
 }
 #endcard .ec-tname {
   font-family: var(--pixfont);
@@ -1178,7 +1231,7 @@ html, body {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--paper-dim);
-  border-bottom: 1px solid rgba(242, 232, 216, 0.18);
+  border-bottom: 1px solid rgba(var(--paper-rgb), 0.18);
   padding-bottom: calc(3 * var(--u));
 }
 #endcard .ec-thead span:not(:first-child) { text-align: center; }
@@ -1283,14 +1336,23 @@ html, body {
    achievement ledger) would cover ~a quarter of the frame at unreadable
    size, over live play. Below the same 620px threshold the killfeed uses,
    swap it for a MINIMAL card instead of dropping it outright: name, rank,
-   hp/lives, and the two action buttons -- the scorebug already carries the
-   team's glory/heat ledger at this size, so the deed counters and the
-   achievement list are the part that can go. renderInspector marks the two
-   kept stat lines .ins-vital by CONTENT, not by position -- `buffs` is an
-   optional line, so rank/hp-lives don't sit at a fixed index. Everything
-   else (xp, buffs, counters, the rule, glory/heat, achievements) still
-   ships in the DOM; it just hides here, same as the achievement ledger
-   already does off-card at full size via overflow. */
+   hp/lives, the team's ACHIEVEMENTS n/40 count, and the two action buttons.
+   renderInspector marks the kept stat lines .ins-vital by CONTENT, not by
+   position -- `buffs` is an optional line, so rank/hp-lives/ACHIEVEMENTS
+   don't sit at a fixed index. Everything else (xp, buffs, the per-weapon
+   deed counters, the rule, glory/heat, the named claim list) still ships in
+   the DOM; it just hides here, same as the achievement ledger already does
+   off-card at full size via overflow.
+   Why ACHIEVEMENTS survives here but the deed counters and named claims
+   don't: #achpanel (the sibling ledger panel) already keeps its own header
+   counts visible at this exact breakpoint when its body collapses -- so a
+   card that dropped its OWN team-achievement read with nothing carried over
+   would be the one inconsistent panel on the HUD. The team GLORY/HEAT line
+   doesn't need the same treatment: the scorebug's glory numeral (see
+   .lives-num.glory) is always on-screen regardless of breakpoint, so hiding
+   it here duplicates nothing lost. Per-player deed counters (tags/gun/soak/
+   steals) have no such standby elsewhere -- they're genuinely detail-on-
+   demand, the trade-off progressive disclosure is supposed to make. */
 #stage.tiny #inspector {
   max-width: calc(140 * var(--u));
   padding: calc(8 * var(--u)) calc(10 * var(--u));
@@ -1818,12 +1880,18 @@ body[data-embed] #board { top: 0; height: 100%; }
             esc(line) + '</div>';
           continue;
         }
-        // #stage.tiny's compact card keeps only rank + hp/lives and hides
-        // every other .ins-line by class (see the #stage.tiny #inspector
-        // rule). `buffs` is an optional line, so those two don't sit at a
-        // fixed index -- content is the only stable way to tag them.
+        // #stage.tiny's compact card keeps only rank + hp/lives + the team's
+        // ACHIEVEMENTS n/40 count and hides every other .ins-line by class
+        // (see the #stage.tiny #inspector rule). None of the three sit at a
+        // fixed index (`buffs` is optional, and the achievement lines only
+        // exist past a variable-length deed-counter block) -- content is the
+        // only stable way to tag them. ACHIEVEMENTS rides along so the tiny
+        // inspector carries the same compact read #achpanel already keeps in
+        // its own header at this breakpoint -- see the #stage.tiny #inspector
+        // comment for why the deed counters and named claims don't join it.
         if (cls === 'ins-line' &&
-            (line.indexOf('rank ') === 0 || line.indexOf('hp ') === 0)) {
+            (line.indexOf('rank ') === 0 || line.indexOf('hp ') === 0 ||
+             line.indexOf('ACHIEVEMENTS ') === 0)) {
           cls += ' ins-vital';
         }
         // The `buffs` line is the one most likely to hit the card's width: at
@@ -2018,7 +2086,14 @@ body[data-embed] #board { top: 0; height: 100%; }
   // Rows shown per team before the panel says so. The panel is bounded by
   // max-height, and a CSS clip is a SILENT truncation: it drops the oldest
   // claims while looking exactly like a complete list. Bounding by COUNT
-  // instead makes the overflow a fact the panel can state.
+  // instead makes the overflow a fact the panel can state -- but that only
+  // holds if the count genuinely fits under max-height. It does, because
+  // `.ach-name` is nowrap+ellipsis, so a row is a GUARANTEED single line no
+  // matter how long the claim ("***** Nothing Gets Through FIRST" ellipsizes
+  // rather than wrapping). 11 rows x 2 teams of single lines, plus the heads
+  // and the overflow row, sits well inside the budget. If that rule ever goes
+  // back to wrapping, this number has to come down with it -- the two are one
+  // decision, not two.
   var ACH_MAX_ROWS = 11;
   function renderAchPanel(s) {
     var el = $('achpanel');

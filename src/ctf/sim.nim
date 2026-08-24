@@ -6573,6 +6573,53 @@ proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
       return true
   false
 
+proc awardWipe(sim: var SimServer, winner, loser: Team) =
+  ## Mints `dWipe` at the exact in-sim site of the deciding kill: the losing
+  ## team's last player to fall THIS tick, paid out over their killer -- the
+  ## same convention `killPlayer` uses for every kill-class deed (price at
+  ## the VICTIM, pay the EARNER). `checkWinCondition` never calls this for a
+  ## mutual wipe (`isDraw`), so a draw can never pay two 400g windfalls.
+  ##
+  ## Pricing at the victim's death site (not the winner's home) is
+  ## deliberate: `deedSitePct` reads nearest-home-pedestal ownership, so a
+  ## team that closes the game out deep in the ENEMY's own territory prices
+  ## at `SiteMultEnemyPct` (150%, the initiative-into-defended-ground rate),
+  ## while a team that wipes attackers pushed onto its OWN ground prices at
+  ## the `SiteMultHomePct` floor (100%). That mirrors exactly how every other
+  ## kill deed already prices -- a wipe earned by a deep push should outpay
+  ## a wipe earned by turtling at home.
+  var
+    siteX, siteY: int
+    killerIndex = -1
+    found = false
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team != loser:
+      continue
+    if sim.players[i].lastKilledByTick == sim.tickCount:
+      siteX = sim.players[i].x
+      siteY = sim.players[i].y
+      # Credit the score pop to the killer only when they're on the WINNING
+      # team. A team can wipe itself out with friendly fire on its own last
+      # life; that killer is on `loser` and must never draw the winner's pop.
+      let by = sim.players[i].lastKilledBy
+      if by >= 0 and by < sim.players.len and sim.players[by].team == winner:
+        killerIndex = by
+      found = true
+      break
+  if not found:
+    # Defensive fallback -- should not happen, since the wipe fires the same
+    # tick the losing team's last life is spent -- but price at the loser's
+    # last-known position rather than silently drop the deed.
+    for i in 0 ..< sim.players.len:
+      if sim.players[i].team == loser:
+        siteX = sim.players[i].x
+        siteY = sim.players[i].y
+        found = true
+        break
+  if not found:
+    return
+  sim.awardDeed(winner, dWipe, siteX, siteY, byIndex = killerIndex)
+
 proc shouldAbortFiniteMatch*(sim: SimServer): bool =
   ## Returns true when a finite match cannot continue after roster loss.
   if sim.config.maxGames <= 0:
@@ -6612,10 +6659,14 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     redAlive = sim.teamHasLivePlayers(Red)
     blueAlive = sim.teamHasLivePlayers(Blue)
   if not redAlive and blueAlive:
+    sim.awardWipe(Blue, Red)
     sim.finishGame(Blue)
   elif not blueAlive and redAlive:
+    sim.awardWipe(Red, Blue)
     sim.finishGame(Red)
   elif not redAlive and not blueAlive:
+    # A mutual wipe is a draw -- never mint dWipe here, or both teams would
+    # bank the 400g windfall for losing.
     sim.finishGame(Red, isDraw = true)
 
 proc checkMaxTicks(sim: var SimServer) =

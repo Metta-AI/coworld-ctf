@@ -189,6 +189,44 @@ suite "glory in the sim: deeds are priced where they happen":
     check sim.deedSitePct(Red, blueHome.x, blueHome.y) >
           sim.deedSitePct(Red, redHome.x, redHome.y)
 
+suite "glory in the sim: the wipe deed":
+  # `dWipe` is the largest single deed in the table (400g/400 drama) and once
+  # shipped with ZERO mint sites -- `sim.deedCounts[dWipe]` was permanently 0,
+  # exactly the dead-layer class this whole file exists to catch. These two
+  # tests are the guard: the next deed that goes dead fails HERE instead of
+  # sitting silent for months.
+
+  test "eliminating the enemy's last life mints the wipe, once, at the site":
+    var sim = twoTeamGame()
+    sim.players[1].lives = 0        # this life is Blue's last
+    sim.killPlayer(1, 0, "gun")     # Red eliminates Blue
+    sim.checkWinCondition()
+
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check not sim.isDraw
+    check sim.deedCounts[dWipe] == 1
+    check sim.deedGloryMass[dWipe] > 0
+    check sim.teamGlory[Red] >= sim.deedGloryMass[dWipe]
+
+    # A second poll (the win-condition check runs every tick) must never
+    # mint twice -- `finishGame`'s GameOver guard makes checkWinCondition a
+    # no-op past the first resolve.
+    sim.checkWinCondition()
+    check sim.deedCounts[dWipe] == 1
+
+  test "a mutual wipe is a draw -- neither side banks the 400g windfall":
+    var sim = twoTeamGame()
+    sim.players[0].lives = 0
+    sim.players[1].lives = 0
+    sim.killPlayer(1, 0, "gun")     # both fall on the same tick
+    sim.killPlayer(0, 1, "gun")
+    sim.checkWinCondition()
+
+    check sim.phase == GameOver
+    check sim.isDraw
+    check sim.deedCounts[dWipe] == 0
+
 suite "glory in the sim: the tithe cannot be farmed":
 
   test "a veteran that stops earning stops producing":

@@ -4903,9 +4903,17 @@ proc gloryPopText(pop: GloryFx): string =
   ## (buildGloryChipSprite). An achievement leads with the name it just
   ## earned, so the moment is legible without the ledger.
   let money = gloryPopMoneyText(pop)
-  if pop.label.len > 0: pop.label.toUpperAscii() & "  " & money else: money
+  if pop.label.len == 0:
+    return money
+  # The plaque says FIRST with a gold edge and a wordmark, but the plaque only
+  # exists at boardScale > 1. On a POV stream this string IS the whole pop, so
+  # without this a player has no way to tell the rarest thing in the Episode
+  # (one team, one tier, paid x3) from an ordinary claim.
+  result = pop.label.toUpperAscii() & "  " & money
+  if pop.first:
+    result.add "  FIRST"
 
-proc gloryPopLabelKey(text: string): uint32 =
+proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
   ## FNV-1a digest of a pop's rendered TEXT, for use in the sprite LABEL only
   ## (never the pixels — gloryPopText above is still what the player reads).
   ## addBoardSpriteChanged dedupes a sprite by comparing its label, so the
@@ -4917,7 +4925,19 @@ proc gloryPopLabelKey(text: string): uint32 =
   ## it by 40 entries. A numeric key is exact-on-content for the dedupe (any
   ## text change flips the hash) while collapsing every achievement to the
   ## same manifest pattern: one `<n>`.
+  ##
+  ## `tier` and `first` are folded in as well, because the CHIP's pixels depend
+  ## on them (pip count, gold edge, halo) while the text may not. Two claims
+  ## whose rendered strings matched but whose tier or first-flag differed would
+  ## otherwise hash the same and one would render as the other. That is not
+  ## reachable under today's numbers -- a first claim always outpays a non-first
+  ## of the same tier, so the amounts differ -- but that separation is an
+  ## accident of AchievementFirstMultPct vs the site multipliers, not a rule
+  ## anyone stated. Hash what you DRAW, then it cannot rot.
   result = 2166136261'u32
+  for b in [uint32(pop.tier + 2), uint32(ord(pop.first))]:
+    result = result xor b
+    result = result * 16777619'u32
   for ch in text:
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
@@ -4974,6 +4994,18 @@ proc gloryChipLogicalHeight(pop: GloryFx): int =
   if pop.first:
     result += GloryChipHaloPx * 2
 
+var gloryChipCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
+  ## Composed plaques, keyed by everything that changes their pixels.
+  ##
+  ## The chip's TEXT runs already ride smoothTextCache, but the plaque around
+  ## them -- a pixie Image, a roundedRect fill, up to three strokePath passes,
+  ## the pip/wordmark footer, a full-buffer alpha remultiply and two blits --
+  ## had no cache and was rebuilt unconditionally, BEFORE addBoardSpriteChanged
+  ## ever got the chance to dedupe it. That check gates the WIRE, not the CPU.
+  ## So one claim cost a full compose every tick of its ~3.5s life, times the
+  ## map view plus every connected POV -- roughly 84 composes per viewer where
+  ## the design comment promised at most GloryPopStages (5).
+
 proc buildGloryChipSprite(
   pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
@@ -4985,6 +5017,16 @@ proc buildGloryChipSprite(
   ## iconography drawn directly, never text parsed back out of the name.
   ## boardScale > 1 only; the caller falls back to plain type at 1x, where
   ## there is no vector budget for a plaque.
+  let cacheKey = pop.label & "\x1f" & $pop.amount & "\x1f" & $pop.tier &
+    "\x1f" & $ord(pop.first) & "\x1f" & $stage & "\x1f" & $boardScale
+  if gloryChipCache.hasKey(cacheKey):
+    return gloryChipCache[cacheKey]
+  defer:
+    # Bounded like smoothTextCache: a long Episode mints many distinct claims
+    # and this must not grow without end.
+    if gloryChipCache.len > 512:
+      gloryChipCache.clear()
+    gloryChipCache[cacheKey] = result
   let
     k = boardScale
     fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
@@ -5105,6 +5147,30 @@ proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
   elif abs(pop.amount) >= GloryPopMidGlory:
     result += GloryPopMidLiftPx
 
+proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
+  ## How far ABOVE its own anchor a stacked pop must sit, in logical px.
+  ##
+  ## This used to be `pop.row * gloryPopLineBox(pop)` -- the row index times
+  ## THIS pop's own height -- which is only correct when every pop in a stack
+  ## is the same size. A claim chip is several times taller than a "+10g", so
+  ## the multiply was wrong in one direction and invisible in the other: a
+  ## chip stacked ON a plain pop cleared it easily (its own height is huge),
+  ## but a plain pop stacked on a still-live CHIP lifted by its own small line
+  ## box and landed INSIDE the plaque. Easy to hit -- the cog that just claimed
+  ## an achievement gets another tag within the chip's ~3.5s life without
+  ## moving 10px.
+  ##
+  ## Sum the ACTUAL height of whatever occupies the rows underneath instead.
+  ## Rows at one site are distinct by construction (addGloryPop assigns
+  ## max+1 against the pops already in the seq), so this never double-counts.
+  if pop.row <= 0:
+    return 0
+  for other in sim.gloryPops:
+    if other.row < pop.row and
+        abs(other.x - pop.x) <= GloryPopCoalescePx and
+        abs(other.y - pop.y) <= GloryPopCoalescePx:
+      result += sim.gloryPopLineBox(other)
+
 proc buildGloryPopSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
@@ -5179,18 +5245,24 @@ proc addGloryPops(
       sprite = sim.buildGloryPopSprite(pop, stage)
       rise = GloryPopRisePx * age div max(1, life)
       px = pop.x - sprite.width div 2
-      # `pop.row` staggers pops that could not coalesce at one site (a claim on
-      # top of the kill that earned it), so they read as a stack, not a smear.
       py = pop.y - sprite.height div 2 - GloryPopLiftPx - rise -
-           pop.row * sim.gloryPopLineBox(pop)
-      spriteId = GloryPopSpriteBase + nextPop * GloryPopStages + stage
+           sim.gloryStackLift(pop)
+      # Content-addressed, NOT rank-addressed. Keying the slot off `nextPop`
+      # (this frame's sort position) meant a stable claim changed slots the
+      # moment another claim arrived or expired and re-ranked it -- so its
+      # cached label no longer matched its slot and the wire re-uploaded a
+      # sprite whose pixels had not changed. addDamagePops derives its sprite
+      # id from CONTENT for exactly this reason; match it. `nextPop` still
+      # owns the object id, which is a per-frame draw slot and rightly is.
+      slot = int(gloryPopLabelKey(pop, text) mod uint32(GloryPopMaxCount))
+      spriteId = GloryPopSpriteBase + slot * GloryPopStages + stage
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       sprite.width,
       sprite.height,
       sprite.pixels,
-      "glory pop " & $gloryPopLabelKey(text) & " stage " & $stage,
+      "glory pop " & $gloryPopLabelKey(pop, text) & " stage " & $stage,
       native = boardScale
     )
     let objectId = GloryPopObjectBase + nextPop
