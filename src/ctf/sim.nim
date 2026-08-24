@@ -2147,6 +2147,14 @@ proc updateFlags(sim: var SimServer) =
   ## Keeps each carried flag glued to its carrier; a carrier that stops
   ## carrying for any reason other than capture sends the flag straight back
   ## to its own pedestal.
+  ##
+  ## BR N-point spawn subsystem: already provably inert on a flagless map
+  ## (carrier is permanently -1, so the loop below always `continue`s
+  ## immediately) — this explicit return is defense-in-depth, not load-
+  ## bearing, so a future change to that invariant fails loudly here rather
+  ## than resurrecting a stale flag position on-screen.
+  if sim.gameMap.flagless:
+    return
   for team in sim.teams():
     let carrier = sim.flags[team].carrier
     if carrier < 0:
@@ -3006,47 +3014,54 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
   # most one team still stands, so a 4-team winner either captures every
   # rival heart or outlives the field; classic 2-team play still ends on
   # the first capture (eliminating the only rival leaves one team).
-  for flagTeam in sim.teams():
-    let carrierIndex = sim.flags[flagTeam].carrier
-    if carrierIndex < 0 or carrierIndex >= sim.players.len or
-        not sim.players[carrierIndex].alive:
-      continue
-    let
-      carrier = sim.players[carrierIndex]
-      zone = sim.captureZone(carrier.team)
-      cx = carrier.x + CollisionW div 2
-      cy = carrier.y + CollisionH div 2
-    if zone.inCaptureZone(cx, cy):
-      sim.recordCapture(carrierIndex)
-      sim.emitEvent(
-        Capture, source = carrierIndex,
-        x = float(cx), y = float(cy)
-      )
-      sim.logGameEvent(
-        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
-      )
-      sim.flags[flagTeam].captured = true
-      sim.flags[flagTeam].carrier = -1
-      sim.players[carrierIndex].carryingFlag = false
-      sim.lastCaptureTeam = carrier.team
-      sim.lastCaptureTick = sim.tickCount
-      sim.lastCaptureIndex = carrierIndex
-      sim.eliminateTeam(flagTeam, carrierIndex)
-  # GV33: a completely killed team's heart leaves play with it. A wiped
-  # team can never recover its heart, so it retires the moment the team is
-  # gone — even off the back of an enemy carrier, who drops it (recovering
-  # full speed and fire rate) rather than lugging an objective that can no
-  # longer score. Capture-eliminated teams take the branch above; hearts
-  # the wiped team itself was carrying already went home via killPlayer.
-  for team in sim.teams():
-    if sim.flags[team].captured or sim.teamHasLivePlayers(team):
-      continue
-    let carrier = sim.flags[team].carrier
-    if carrier >= 0:
-      sim.players[carrier].carryingFlag = false
-      sim.flags[team].carrier = -1
-    sim.flags[team].captured = true
-    sim.logGameEvent(teamText(team) & " heart retired")
+  #
+  # BR N-point spawn subsystem: both loops below are already provably inert
+  # on a flagless map (carrier is permanently -1 and captured is permanently
+  # true, from resetFlags), so this `if not flagless` is defense-in-depth —
+  # it also skips the "heart retired" bookkeeping/log line for a wiped team,
+  # which would otherwise fire even though the game never had a heart.
+  if not sim.gameMap.flagless:
+    for flagTeam in sim.teams():
+      let carrierIndex = sim.flags[flagTeam].carrier
+      if carrierIndex < 0 or carrierIndex >= sim.players.len or
+          not sim.players[carrierIndex].alive:
+        continue
+      let
+        carrier = sim.players[carrierIndex]
+        zone = sim.captureZone(carrier.team)
+        cx = carrier.x + CollisionW div 2
+        cy = carrier.y + CollisionH div 2
+      if zone.inCaptureZone(cx, cy):
+        sim.recordCapture(carrierIndex)
+        sim.emitEvent(
+          Capture, source = carrierIndex,
+          x = float(cx), y = float(cy)
+        )
+        sim.logGameEvent(
+          teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
+        )
+        sim.flags[flagTeam].captured = true
+        sim.flags[flagTeam].carrier = -1
+        sim.players[carrierIndex].carryingFlag = false
+        sim.lastCaptureTeam = carrier.team
+        sim.lastCaptureTick = sim.tickCount
+        sim.lastCaptureIndex = carrierIndex
+        sim.eliminateTeam(flagTeam, carrierIndex)
+    # GV33: a completely killed team's heart leaves play with it. A wiped
+    # team can never recover its heart, so it retires the moment the team is
+    # gone — even off the back of an enemy carrier, who drops it (recovering
+    # full speed and fire rate) rather than lugging an objective that can no
+    # longer score. Capture-eliminated teams take the branch above; hearts
+    # the wiped team itself was carrying already went home via killPlayer.
+    for team in sim.teams():
+      if sim.flags[team].captured or sim.teamHasLivePlayers(team):
+        continue
+      let carrier = sim.flags[team].carrier
+      if carrier >= 0:
+        sim.players[carrier].carryingFlag = false
+        sim.flags[team].carrier = -1
+      sim.flags[team].captured = true
+      sim.logGameEvent(teamText(team) & " heart retired")
   # Wipe: the game ends when at most one team still has live players — the
   # survivor wins, and a mutual wipe is a draw. A 4-team game continues
   # while two or more teams stand; a wiped team just stays out. Classic

@@ -93,6 +93,22 @@ proc validateMap(gameMap: CtfMap) =
     ## rot90 rotates about the center of a SQUARE; a non-square board would
     ## silently produce team-unfair obstacle images.
     raise newException(CtfError, "rot90 symmetry needs a square map.")
+  if gameMap.symmetry == symNone and gameMap.layout in {layoutCorners, layoutPlus} and
+      not gameMap.flagless and gameMap.width != gameMap.height:
+    ## BR spawn subsystem: symNone corners/plus has no quadMirror image to
+    ## fall back on, so teamAnchor reaches its rot90-orbit path for every
+    ## team but Red — the SAME machinery the check above requires a square
+    ## board for, and for the same reason (a non-square rotation lands a
+    ## non-Red anchor far outside the board; addMapMarkers' corner-marker
+    ## contract doAssert is where that surfaces as a hard crash rather than
+    ## just bad geometry). flagless is the escape hatch: it never calls
+    ## teamAnchor for a real purpose (spawnPoints replaces every use; the
+    ## flag pedestal is parked at the inert (0,0) sentinel and never read),
+    ## so a flagless map is exempt regardless of aspect ratio.
+    raise newException(CtfError,
+      "symNone corner/plus maps need EITHER flagless=true (spawnPoints " &
+      "replaces every teamAnchor use) OR a square board (teamAnchor's " &
+      "rot90-orbit fallback needs one, same as rot90 symmetry itself).")
   if gameMap.homeDepth != 0 and
       (gameMap.homeDepth < HomeDepthMin or gameMap.homeDepth > HomeDepthMax):
     raise newException(
