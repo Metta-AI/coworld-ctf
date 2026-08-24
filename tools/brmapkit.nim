@@ -554,14 +554,19 @@ proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
           kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y, thickness: SegThick)
       t += float(Step)
   of poiWarren:
-    ## ROUND 6, cqc-warren / third-party: a tight cluster of 2-4 small
-    ## rooms, NO sealed perimeter, many approaches. Each room opens on 2-3
-    ## random sides independently — deliberately not door-to-door aligned,
-    ## so it reads as a warren of alleys rather than one corridor.
+    ## ROUND 6, cqc-warren / third-party: a tight cluster of 2 small rooms,
+    ## NO sealed perimeter, many approaches. Each room opens on 2-3 random
+    ## sides independently — deliberately not door-to-door aligned, so it
+    ## reads as a warren of alleys rather than one corridor. Fixed at 2
+    ## rooms (was 2-4): measured that warren-heavy families were drowning
+    ## in confetti-sized fragments (each disconnected small room wall
+    ## segment counts as its own mass) — halving the room count roughly
+    ## halved the fragment contribution while the "small interconnected
+    ## rooms" read survives fine at 2.
     let cellW = he
     let cellH = he
     let cols = 2
-    let rows = if he > 140: 2 else: 1
+    let rows = 1
     for ry in 0 ..< max(1, rows):
       for rx in 0 ..< cols:
         let rectX = cx - he + rx * cellW
@@ -1436,7 +1441,23 @@ const
   ## (11001-11040, post repair-radius fix): confetti count range [28,60],
   ## mean 42.9, p80=51. 52 keeps ~80% of the corpus passing (matching the
   ## historical ~75-85% honest-pass bar) without being a rubber stamp.
-  ConfettiCeiling = 52        ## max confetti masses tolerated on the whole board
+  ## ROUND 6: re-measured across all 6 keystone families (15 seeds each).
+  ## Four families (landing-selection, rotation-timing, zone-edge-holding,
+  ## open-steppe) sit in the SAME range round 5 was tuned against. Two
+  ## (third-party, cqc-warren) are structurally denser BY DESIGN — a
+  ## warren cluster's disconnected small-room walls are individually
+  ## confetti-sized, and cqc-warren specifically draws far more warrens
+  ## than any other family (mean 13.9 vs third-party's 5.4). Cut warren
+  ## room count 2-4 -> fixed 2 (halved third-party's mean 69.5 -> 52.2;
+  ## cqc-warren barely moved, 67.9 -> 67.9, since its sheer WARREN COUNT
+  ## compensates) before retuning. 60 keeps the four unaffected families
+  ## at ~100%, brings third-party to ~85%, but cqc-warren only reaches
+  ## ~40% (6/15) even here — an HONEST, reported limitation: cqc-warren's
+  ## whole design intent is maximum interior density, which is in direct
+  ## tension with a global confetti ceiling built for the other five
+  ## families. Flagged for round 7 (a family-aware ceiling, or welding
+  ## adjacent warren-room walls into fewer, larger connected masses).
+  ConfettiCeiling = 60        ## max confetti masses tolerated on the whole board
   MinPocketExits = 2          ## doc §4.5: no single-exit pocket
   ZoneWalkableFloor = 0.55
   ZoneMinMasses = 2
@@ -1476,17 +1497,36 @@ const
                                ## the tightest honest threshold with a real
                                ## margin from the failure mode it must catch.
 
-  ## ROUND 6 keystone detector floors — PLACEHOLDERS pending the cross-
-  ## family calibration sweep (see the round-6 commit message for the real
-  ## numbers this got measured against).
-  KsLandingVarianceFloor = 1.0
-  KsCausewayCountFloor = 1.0
-  KsAnchorHalfExtentFloor = 0.45   ## fraction of gunRange
-  KsAnchorCountFloor = 1.0
-  KsAnchorSpreadFloor = 1.0        ## fraction of gunRange
-  KsThirdPartyOpenFloor = 0.5
-  KsCqcWarrenShareFloor = 0.01
-  KsOpenSteppeShareCeiling = 0.99
+  ## ROUND 6 keystone detector floors — calibrated against a cross-family
+  ## corpus (15 seeds x 6 families; every OTHER family's draws scored
+  ## against each formula for comparison, same methodology as round 5's
+  ## density-uniformity gate). See the round-6 commit message for the full
+  ## sweep numbers and honestly-reported overlaps.
+  KsLandingVarianceFloor = 20000.0 ## own min 26779; excludes third-party
+                                     ## (max 9706), cqc-warren (max 7448),
+                                     ## open-steppe (max 3969), rotation-
+                                     ## timing (max 8342, post causeway-
+                                     ## exclusion) cleanly. Overlaps zone-
+                                     ## edge-holding (max 48818) — reported.
+  KsCausewayCountFloor = 3.0        ## own min 5; every other family = 0
+                                     ## always. Clean, no overlap measured.
+  KsAnchorHalfExtentFloor = 0.45    ## fraction of gunRange
+  KsAnchorCountFloor = 3.0          ## own min 3; every other family = 0
+                                     ## except landing-selection (max 3,
+                                     ## boundary overlap — reported).
+  KsAnchorSpreadFloor = 1.8         ## fraction of gunRange; own min 2.01G
+  KsThirdPartyOpenFloor = 0.85      ## combined with warren-count below
+  KsThirdPartyMinWarrens = 1.0      ## own min 1; excludes rotation-timing
+                                     ## and open-steppe (both always 0).
+                                     ## cqc-warren overlaps (9-18, both
+                                     ## families favor warrens) — reported.
+  KsCqcWarrenShareFloor = 0.15      ## own min 0.170; excludes rotation-
+                                     ## timing (max 0.133), open-steppe
+                                     ## (max 0.051). Overlaps landing-
+                                     ## selection/zone-edge/third-party's
+                                     ## high end — reported.
+  KsOpenSteppeShareCeiling = 0.06   ## own max 0.051; every other family's
+                                     ## MINIMUM is 0.065+. Clean, no overlap.
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -1779,13 +1819,21 @@ proc validateBr(m: BrMap): BrValidation =
     of ksLandingSelection:
       ## Steep loot/size gradient BETWEEN sites: population variance of a
       ## per-POI "value" (richer tier + bigger footprint = higher value).
-      result.keystoneLabel = "loot-value variance"
-      if m.pois.len < 2:
+      ## poiCauseway is EXCLUDED — it's a terrain feature, not a landing
+      ## site with loot value, and including it was the single biggest
+      ## calibration miss (see the round-6 commit): a causeway's large
+      ## halfExtent inflated variance enough that rotation-timing draws
+      ## (which also place causeways) scored HIGHER than landing-selection
+      ## itself. Excluding it drops rotation-timing's range from
+      ## [68594,90930] to [4608,8342] — clean separation.
+      result.keystoneLabel = "loot-value variance (excl. causeways)"
+      var vals: seq[float]
+      for p in m.pois:
+        if p.archetype != poiCauseway:
+          vals.add float(3 - p.lootTier) * float(p.halfExtent)
+      if vals.len < 2:
         result.keystoneValue = 0.0
       else:
-        var vals: seq[float]
-        for p in m.pois:
-          vals.add float(3 - p.lootTier) * float(p.halfExtent)
         let meanV = vals.foldl(a + b, 0.0) / float(vals.len)
         var varV = 0.0
         for v in vals: varV += (v - meanV) * (v - meanV)
@@ -1836,50 +1884,70 @@ proc validateBr(m: BrMap): BrValidation =
           &"anchors too close together (min pairwise {minPairDist:.0f}px, " &
             &"floor {KsAnchorSpreadFloor * float(m.gunRange):.0f}px)"
     of ksThirdParty:
-      ## Fraction of POIs that are OPEN (not a sealed compound/anchor) —
-      ## third-party needs 3+ approaches everywhere, so sealed sites should
-      ## be nearly absent.
+      ## Fraction of POIs that are OPEN (not a sealed compound/anchor) PLUS
+      ## a minimum warren count. openFraction alone doesn't discriminate:
+      ## measured that rotation-timing, cqc-warren, and open-steppe ALSO
+      ## score 1.00 (their pools avoid sealed compounds too, for unrelated
+      ## reasons) — warren count is what actually separates third-party
+      ## from the families that just happen to avoid compounds: rotation-
+      ## timing and open-steppe never place a warren at all (measured
+      ## count=0 across 15 seeds each), so requiring >=1 excludes both
+      ## cleanly. cqc-warren is warren-heavy TOO (an honest, expected
+      ## overlap — both families favor many-approach interiors, reported
+      ## rather than hidden) and remains only partially separated.
       var sealed = 0
+      var warrens = 0
       for p in m.pois:
         if p.archetype in {poiCompound, poiAnchor}: inc sealed
+        if p.archetype == poiWarren: inc warrens
       let openFrac = if m.pois.len > 0: 1.0 - float(sealed) / float(m.pois.len) else: 0.0
       result.keystoneLabel = "open-site fraction (not compound/anchor)"
       result.keystoneValue = openFrac
       result.keystoneFloor = KsThirdPartyOpenFloor
-      result.keystonePass = result.keystoneValue >= result.keystoneFloor
+      let warrenOk = float(warrens) >= KsThirdPartyMinWarrens
+      result.keystonePass = result.keystoneValue >= result.keystoneFloor and warrenOk
       result.keystoneReason =
         if result.keystonePass: ""
-        else: &"only {openFrac*100:.0f}% of sites are open, floor is {KsThirdPartyOpenFloor*100:.0f}%"
-    of ksCqcWarren, ksOpenSteppe:
-      ## Interior-share dial: fraction of the PLAYABLE field (excluding the
-      ## fixed perimeter border wall) that is wall/structure. High pole =
-      ## cqc-warren, low pole = open-steppe — same metric, opposite floor
-      ## direction.
-      var nonBorderWall = 0
-      var nonBorderTotal = 0
-      for i in 0 ..< wall.len:
-        if wall[i]:
-          let lbl = wallComp.labels[i]
-          if lbl >= 0 and lbl == borderLabel: continue
-          inc nonBorderTotal
-          inc nonBorderWall
+        elif result.keystoneValue < result.keystoneFloor:
+          &"only {openFrac*100:.0f}% of sites are open, floor is {KsThirdPartyOpenFloor*100:.0f}%"
         else:
-          inc nonBorderTotal
-      let interiorShare = float(nonBorderWall) / float(max(1, nonBorderTotal))
-      result.keystoneLabel = "interior share (non-border wall fraction)"
-      result.keystoneValue = interiorShare
+          &"only {warrens} warrens, floor is {int(KsThirdPartyMinWarrens)} — not enough multi-approach interiors"
+    of ksCqcWarren, ksOpenSteppe:
+      ## Interior-share dial. FIRST attempt used the wall-grid's own
+      ## non-border wall fraction — measured (see round-6 commit) that it
+      ## barely varies across ANY family (0.93-0.96 walkable everywhere):
+      ## wall LINE pixels are a tiny fraction of a 5.5M-px^2 field
+      ## regardless of room count, so it was a rubber stamp. Switched to
+      ## POI FOOTPRINT-AREA share (sum of each site's own (2*halfExtent)^2
+      ## bounding box, excluding causeways which are linear not areal,
+      ## divided by field area) — this scales directly with both count and
+      ## size, which is what packing/spacing actually changes. Measured:
+      ## open-steppe [0.026,0.051], every other family's MINIMUM is
+      ## 0.065+ — clean separation on the low pole. cqc-warren
+      ## [0.170,0.280]; landing-selection/zone-edge-holding/third-party
+      ## can also reach into that range at their own high end (an honest,
+      ## reported overlap — a rich landing-selection or third-party draw
+      ## can coincidentally pack as densely as a cqc-warren one), but
+      ## rotation-timing (max 0.133) and open-steppe (max 0.051) never do.
+      var area = 0.0
+      for p in m.pois:
+        if p.archetype != poiCauseway:
+          area += float(2 * p.halfExtent) * float(2 * p.halfExtent)
+      let footprintShare = area / (float(m.width) * float(m.height))
+      result.keystoneLabel = "POI footprint-area share (excl. causeways)"
+      result.keystoneValue = footprintShare
       if m.keystone == ksCqcWarren:
         result.keystoneFloor = KsCqcWarrenShareFloor
-        result.keystonePass = interiorShare >= result.keystoneFloor
+        result.keystonePass = footprintShare >= result.keystoneFloor
         result.keystoneReason =
           if result.keystonePass: ""
-          else: &"interior share {interiorShare*100:.1f}% < floor {KsCqcWarrenShareFloor*100:.1f}%"
+          else: &"footprint share {footprintShare*100:.1f}% < floor {KsCqcWarrenShareFloor*100:.1f}%"
       else:
         result.keystoneFloor = KsOpenSteppeShareCeiling
-        result.keystonePass = interiorShare <= result.keystoneFloor
+        result.keystonePass = footprintShare <= result.keystoneFloor
         result.keystoneReason =
           if result.keystonePass: ""
-          else: &"interior share {interiorShare*100:.1f}% > ceiling {KsOpenSteppeShareCeiling*100:.1f}%"
+          else: &"footprint share {footprintShare*100:.1f}% > ceiling {KsOpenSteppeShareCeiling*100:.1f}%"
 
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
