@@ -56,6 +56,9 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       AimBradsTurn div 8                     ## bottom-left faces north-east.
     of Yellow:
       AimBradsTurn div 2 - AimBradsTurn div 8  ## bottom-right faces north-west.
+    else: raiseAssert(
+      "spawnAimBrads: layoutCorners is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
   of layoutPlus:
     case team
     of Red:
@@ -66,6 +69,9 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       3 * AimBradsTurn div 4   ## north arm faces south.
     of Yellow:
       AimBradsTurn div 4       ## south arm faces north.
+    else: raiseAssert(
+      "spawnAimBrads: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
 proc spawnFlipH*(gameMap: CtfMap, team: Team): bool =
   ## Returns whether a team's sprite spawns horizontally flipped: any spawn
@@ -81,16 +87,14 @@ proc teamPaintRgba*(color: uint8): ColorRGBA =
   ## `Palette[BlueTeamColor]` is a muted lavender (131,118,156) that matches the
   ## blue a viewer sees nowhere else on the board. A non-team color (an
   ## individual player slot) falls back to its palette entry.
-  if color == RedTeamColor:
-    RedEndzoneColor
-  elif color == BlueTeamColor:
-    BlueEndzoneColor
-  elif color == GreenTeamColor:
-    GreenEndzoneColor
-  elif color == YellowTeamColor:
-    YellowEndzoneColor
-  else:
-    Palette[color and 0x0f]
+  ##
+  ## Loops `Team` (was a 4-way `elif` chain on the named *TeamColor consts,
+  ## collapsed per BR_MAPGEN.md §6.2) and reuses the shared
+  ## `teamEndzoneColor`, so this stays correct with no edit as `Team` widens.
+  for team in Team:
+    if color == teamColor(team):
+      return teamEndzoneColor(team)
+  Palette[color and 0x0f]
 
 
 proc playerText*(sim: SimServer, playerIndex: int): string =

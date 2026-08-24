@@ -354,6 +354,9 @@ proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
     of Blue: 1
     of Yellow: 2
     of Green: 3
+    else: raiseAssert(
+      "rot90Quarter: layoutCorners is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
   of layoutPlus:
     ## Orbit west -> north -> east -> south.
     case team
@@ -361,6 +364,9 @@ proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
     of Green: 1
     of Blue: 2
     of Yellow: 3
+    else: raiseAssert(
+      "rot90Quarter: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
 proc rot90TeamPoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
   ## RED's point walked round the orbit to `team`'s quadrant. Anything one
@@ -418,6 +424,9 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
       of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
       of Green: green
       of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
+      else: raiseAssert(
+        "teamImagePoint: quadmirror layoutPlus is 4-team only, got " &
+          $team & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
     else:
       case team
       of Red: red
@@ -425,6 +434,9 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
       of Green: MapPoint(x: red.x, y: gameMap.height - 1 - red.y)
       of Yellow: MapPoint(
         x: gameMap.width - 1 - red.x, y: gameMap.height - 1 - red.y)
+      else: raiseAssert(
+        "teamImagePoint: quadmirror layoutCorners is 4-team only, got " &
+          $team & " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
 
 proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
@@ -472,6 +484,9 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
           of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
           of Green: green
           of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
+          else: raiseAssert(
+            "teamAnchor: quadmirror layoutPlus is 4-team only, got " &
+              $team & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
       return
     ## Red seeds the rot90 orbit: top-left on corner maps, west on plus maps.
     result =
@@ -728,6 +743,9 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
       result.yLo = anchor.y - half
       result.xLo = bandX.lo
       result.xHi = bandX.hi
+    else: raiseAssert(
+      "captureZone: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
 proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
   ## Returns whether a map point sits inside one capture zone.
@@ -1956,7 +1974,13 @@ proc generateMapAttempt*(
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed. `teams` selects the family: 2 draws the
   ## classic left/right half-map, 4 draws a square rot90 corner/plus map.
-  doAssert teams in [2, 4], "team count must be 2 or 4"
+  ## 16 (BR, BR_MAPGEN.md §6.2) is accepted here so the type-level gate
+  ## matches sim_config/activeTeams, but this proc has NO 16-team SHAPE yet
+  ## (falls through to the 2-team shell below) — that generator is a
+  ## separate, not-yet-landed piece of work; a 16-team draw currently comes
+  ## out mismatched and is rejected downstream by
+  ## resolveCtfMapMetadata's teamCount() check.
+  doAssert teams in [2, 4, 16], "team count must be 2, 4, or 16"
   var rng = MapRng(state: uint64(seed))
 
   ## One draw over ALL size classes. Widening this bound (3 -> 5 when the

@@ -468,13 +468,10 @@ proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
   let a = strength * crack * crack * EndzoneCrackGlow.float
   overTint(base, rgba(ember.r, ember.g, ember.b, uint8(clamp(a, 0.0, 255.0))))
 
-proc teamEndzoneColor(team: Team): ColorRGBA =
-  ## Returns the floor-glow ember color for one team's endzone.
-  case team
-  of Red: RedEndzoneColor
-  of Blue: BlueEndzoneColor
-  of Green: GreenEndzoneColor
-  of Yellow: YellowEndzoneColor
+## `teamEndzoneColor*` (the floor-glow ember color for one team's endzone)
+## now lives in sim_types.nim — this module used to declare its own copy;
+## collapsed per BR_MAPGEN.md §6.2 so widening `Team` means one edit, not
+## three.
 
 type EndzoneTint = object
   ## One team's precomputed endzone paint job: its capture-zone box, ember
@@ -626,7 +623,9 @@ proc renderArenaRgbaPair*(
     floorTex = readImage(dir / "data/arena_floor.png")
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
-    pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
+    pedSprs[team] = readImage(dir / teamArtOrFallback(
+      "data/ped_" & teamText(team) & ".png",
+      "data/ped_" & teamText(Red) & ".png"))
   # The art mask at output resolution: border + obstacle shapes from float
   # geometry, minus the spinning center diamonds (drawn live as objects).
   # Window pixels (glass) get their own mask in the same per-shape pass: wall
@@ -799,7 +798,9 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     floorTex = readImage(dir / "data/arena_floor.png")
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
-    pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
+    pedSprs[team] = readImage(dir / teamArtOrFallback(
+      "data/ped_" & teamText(team) & ".png",
+      "data/ped_" & teamText(Red) & ".png"))
   ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
   ## bevel and the collision masks so art and geometry can never disagree.
   ## Rasterized per shape (isArenaWall per pixel scans the whole obstacle
