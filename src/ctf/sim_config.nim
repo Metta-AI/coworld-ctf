@@ -557,6 +557,61 @@ proc readConfigZonePhases(node: JsonNode, config: var GameConfig) =
     item.readConfigInt("dps", phase.dps)
     config.zonePhases.add(phase)
 
+proc readConfigZoneCenter(
+  node: JsonNode, config: var GameConfig, mapMeta: CtfMap
+) =
+  ## Reads the optional {"zoneCenter": [x, y]} config field (docs/designs/
+  ## BR_MAPGEN.md §4.3): when present, the battle-royale shrink zone closes
+  ## on this AUTHORED map-pixel point instead of the default random draw
+  ## (resetZone) — for ease of editing/authoring a specific match, e.g. a
+  ## league wanting the zone to always close on the map's own center.
+  ## Omitted (the default) leaves zoneCenterConfigured false, which keeps
+  ## the existing random draw untouched.
+  ##
+  ## Validates the FINAL configured zonePhases entry's rect fits fully
+  ## on-board around this point with an ArenaBorder margin — the exact rule
+  ## resetZone applies to its own random draw (see its doc), just checked
+  ## here instead of re-drawn. Uses `mapMeta` (the map already resolved
+  ## earlier in update(), same idiom as the gunRange default above) rather
+  ## than a stored width/height, since GameConfig itself never pins the
+  ## resolved map's dimensions. Skipped when zonePhases is empty: the point
+  ## is never read in that case (see SimServer.zoneCenter), so there is
+  ## nothing meaningful to validate yet — an author may set zoneCenter
+  ## before zonePhases in a config-building pipeline without an ordering
+  ## trap, since validation only bites once zonePhases actually lands.
+  if not node.hasKey("zoneCenter"):
+    return
+  let item = node["zoneCenter"]
+  if item.kind != JArray or item.len != 2 or
+      item[0].kind != JInt or item[1].kind != JInt:
+    raise newException(
+      CtfError,
+      "Config field zoneCenter must be a [x, y] array of two integers."
+    )
+  config.zoneCenterConfigured = true
+  config.zoneCenterX = item[0].getInt()
+  config.zoneCenterY = item[1].getInt()
+  if config.zonePhases.len == 0:
+    return
+  let
+    finalPermille = config.zonePhases[^1].zPermille
+    fw = max(1, mapMeta.width * finalPermille div 1000)
+    fh = max(1, mapMeta.height * finalPermille div 1000)
+    loX = ArenaBorder + fw div 2
+    hiX = mapMeta.width - 1 - ArenaBorder - (fw - 1 - fw div 2)
+    loY = ArenaBorder + fh div 2
+    hiY = mapMeta.height - 1 - ArenaBorder - (fh - 1 - fh div 2)
+  if config.zoneCenterX < loX or config.zoneCenterX > hiX or
+      config.zoneCenterY < loY or config.zoneCenterY > hiY:
+    raise newException(
+      CtfError,
+      "Config field zoneCenter (" & $config.zoneCenterX & ", " &
+        $config.zoneCenterY &
+        ") does not keep the final zonePhases rect fully on-board " &
+        "(needs x in " & $loX & ".." & $hiX & ", y in " & $loY & ".." &
+        $hiY & ")."
+    )
+
 proc validate(config: GameConfig) =
   ## Raises if a gameplay config has invalid values.
   if config.motionScale <= 0:
@@ -792,6 +847,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPerks(config)
   node.readConfigPerkMods(config)
   node.readConfigZonePhases(config)
+  node.readConfigZoneCenter(config, mapMeta)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
@@ -966,6 +1022,11 @@ proc configJson*(config: GameConfig): string =
         "dps": phase.dps
       })
     node["zonePhases"] = zonePhases
+  # Echo the authored center only when configured, so a random-draw game's
+  # replay config stays byte-identical to a build without the field — same
+  # rule as the zonePhases/barrage echoes above.
+  if config.zoneCenterConfigured:
+    node["zoneCenter"] = %*[config.zoneCenterX, config.zoneCenterY]
   if config.mapSpec.len > 0:
     node["mapSpec"] = fromJson(config.mapSpec)
   $node

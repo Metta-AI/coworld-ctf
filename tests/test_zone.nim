@@ -192,6 +192,125 @@ suite "shrink zone rect geometry":
     check sim.zoneCenter.x == 0
     check sim.zoneCenter.y == 0
 
+suite "shrink zone authored center":
+  test "off by default, and the config echo carries no zoneCenter key":
+    let config = defaultGameConfig()
+    check not config.zoneCenterConfigured
+    let echoed = parseJson(config.configJson())
+    check not echoed.hasKey("zoneCenter")
+
+  test "JSON round-trip through update and the config echo":
+    var config = defaultGameConfig()
+    config.update("""{"zonePhases": """ & ToyPhases &
+      """, "zoneCenter": [617, 329]}""")
+    check config.zoneCenterConfigured
+    check config.zoneCenterX == 617
+    check config.zoneCenterY == 329
+    let echo = config.configJson()
+    var reread = defaultGameConfig()
+    reread.update(echo)
+    check reread.zoneCenterConfigured
+    check reread.zoneCenterX == 617
+    check reread.zoneCenterY == 329
+
+  test "zoneCenter must be a [x, y] array of exactly two integers":
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{"zoneCenter": [1]}""")
+    expect CtfError:
+      config.update("""{"zoneCenter": [1, 2, 3]}""")
+    expect CtfError:
+      config.update("""{"zoneCenter": [1.5, 2]}""")
+    expect CtfError:
+      config.update("""{"zoneCenter": "617,329"}""")
+
+  test "an authored center is used exactly, drawing no RNG":
+    var sim = zoneGame(ToyPhases, """"zoneCenter": [400, 200]""")
+    check sim.zoneCenter.x == 400
+    check sim.zoneCenter.y == 200
+    # Two different seeds with the same authored center land on the exact
+    # same point (the random draw is skipped entirely — a differing seed
+    # would only matter if the RNG were consulted).
+    var config = defaultGameConfig()
+    config.seed = 999
+    config.update("""{"zonePhases": """ & ToyPhases &
+      """, "zoneCenter": [400, 200]}""")
+    var sim2 = initCtfForTest(config)
+    discard sim2.addPlayer("red0")
+    discard sim2.addPlayer("blue0")
+    sim2.startGame()
+    check sim2.zoneCenter.x == 400
+    check sim2.zoneCenter.y == 200
+
+  test "an authored center can close on the map's own center":
+    var sim = zoneGame(ToyPhases, "")
+    let mapCenter = sim.gameMap.center
+    var config = defaultGameConfig()
+    config.update("""{"zonePhases": """ & ToyPhases & """, "zoneCenter": [""" &
+      $mapCenter.x & ", " & $mapCenter.y & "]}")
+    var centered = initCtfForTest(config)
+    discard centered.addPlayer("red0")
+    discard centered.addPlayer("blue0")
+    centered.startGame()
+    check centered.zoneCenter.x == mapCenter.x
+    check centered.zoneCenter.y == mapCenter.y
+    let final = centered.zoneRectAtScale(150)
+    check final.x == mapCenter.x - final.w div 2
+    check final.y == mapCenter.y - final.h div 2
+
+  test "absent zoneCenter still draws randomly, unaffected by the new field":
+    var
+      simA = zoneGame(ToyPhases, """"seed": 1""")
+      simB = zoneGame(ToyPhases, """"seed": 2""")
+    check not simA.config.zoneCenterConfigured
+    # Different seeds still (almost certainly) draw different centers, same
+    # as before this field existed.
+    check simA.zoneCenter.x != simB.zoneCenter.x or
+      simA.zoneCenter.y != simB.zoneCenter.y
+
+  test "a zoneCenter that cannot keep the final rect on-board is rejected":
+    var config = defaultGameConfig()
+    # Standard map is 1235x659; a final z=0.62 rect is ~766x409 — anchoring
+    # it dead in a corner cannot keep it on-board with the ArenaBorder
+    # margin.
+    expect CtfError:
+      config.update(
+        """{"zonePhases": [{"z": 0.62}], "zoneCenter": [5, 5]}""")
+    expect CtfError:
+      config.update(
+        """{"zonePhases": [{"z": 0.62}], "zoneCenter": [1230, 655]}""")
+    # The same map (a corner is always out of reach for a large rect) but a
+    # near-center point is accepted once the final phase is small enough.
+    config.update(
+      """{"zonePhases": [{"z": 0.05}], "zoneCenter": [600, 300]}""")
+    check config.zoneCenterConfigured
+
+  test "a zoneCenter with no zonePhases configured is stored but unchecked":
+    var config = defaultGameConfig()
+    # Off-board for ANY realistic rect, but zonePhases is empty, so nothing
+    # is validated against it (it is never read either — see resetZone).
+    config.update("""{"zoneCenter": [5, 5]}""")
+    check config.zoneCenterConfigured
+    check config.zoneCenterX == 5
+    check config.zoneCenterY == 5
+    var sim = initCtfForTest(config)
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    check sim.zoneCenter.x == 0
+    check sim.zoneCenter.y == 0
+
+  test "an authored center round-trips a mid-shrink keyframe like the random draw":
+    var sim = zoneGame(ToyPhases, """"zoneCenter": [500, 300]""")
+    sim.stepTicks(25)
+    let
+      hash = sim.gameHash()
+      bytes = serializeReplaySim(sim)
+    var restored = deserializeReplaySim(bytes, sim)
+    check restored.gameHash() == hash
+    check restored.zoneCenter.x == 500
+    check restored.zoneCenter.y == 300
+
 suite "shrink zone damage":
   test "outside for a full second deals the phase's dps; inside is untouched":
     # z tiny enough that BOTH default spawn points land outside it, wait/
