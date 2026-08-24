@@ -600,6 +600,24 @@ proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
   ## full-clearance base columns; 4-team layouts box each pocket instead.
   result.add Room(name: "Center", x: gameMap.width div 2 - 80,
     y: gameMap.height div 2 - 80, w: 160, h: 160)
+  if gameMap.spawnPoints.len > 0:
+    ## BR N-point spawn subsystem: base rooms follow the AUTHORED spawn
+    ## points directly, one per point, never teamAnchor. teamAnchor's
+    ## corners/plus branch (below, and in the compact-endzone branch above
+    ## it) walks the rot90 orbit via rot90Point, which is only well-defined
+    ## on a SQUARE board (rot90 symmetry itself is validated square-only);
+    ## a symNone map carries no such constraint, so on a rectangular BR
+    ## field that walk lands anchors far outside the board — which is
+    ## exactly what spawnPoints exists to route around. Clamped to the
+    ## board like the corners/plus case below.
+    for i, p in gameMap.spawnPoints:
+      let
+        x0 = max(0, p.x - gameMap.spawnClearW)
+        y0 = max(0, p.y - gameMap.spawnClearH)
+        x1 = min(gameMap.width, p.x + gameMap.spawnClearW)
+        y1 = min(gameMap.height, p.y + gameMap.spawnClearH)
+      result.add Room(name: "Spawn " & $i, x: x0, y: y0, w: x1 - x0, h: y1 - y0)
+    return
   if gameMap.endzone != ezColumn:
     ## Compact endzones ARE the base: the room is the zone's bounding box.
     let r = gameMap.endzoneRadius
