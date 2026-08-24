@@ -499,7 +499,11 @@ proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
     const GateW = 60
     let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
     result.add stampShellRing(footprint, shellThick, {rsTop, rsBottom}, GateW)
-    let blockW = max(28, he div 3)
+    ## Cover blocks must each individually clear the confetti floor
+    ## (3000px^2, i.e. >=55x55) since they don't touch the ring — a smaller
+    ## block reads fine at thumbnail scale but registers as its own tiny
+    ## isolated mass.
+    let blockW = max(60, he div 3)
     result.add rectShapeBr(cx - he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
     result.add rectShapeBr(cx + he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
   of poiRuins:
@@ -787,18 +791,19 @@ proc pointNearAnyPoi(p: MapPoint, pois: seq[PoiSite], pad: int): bool =
 proc linearConnectors(
   rng: var Rand, pois: seq[PoiSite]
 ): seq[ArenaShape] =
-  ## "Broken wall lines, fence/ridge runs with real mass" between POIs
-  ## (coordinator, round 3) — screens for the rotation AND grain for the
-  ## field, the anti-confetti directive's "continuous linear features".
+  ## "Continuous linear features" between POIs (coordinator, round 3) —
+  ## screens for the rotation AND grain for the field. ROUND 7 (Maxwell's
+  ## verdict): "continuous thick walls with 1-2 deliberate gate gaps —
+  ## never dash runs." The old design (46px segments, ~38% dropped every
+  ## 85px) was EXACTLY a dash run — a direct confetti source, each
+  ## surviving segment (598px^2) individually far under the 3000px^2
+  ## floor and disconnected from its neighbours by the deliberate gaps.
+  ## Rebuilt on the SAME construction as poiCauseway: one run split into
+  ## 1-2 pieces by 1-2 real gate gaps, each piece thick (26px) and long
+  ## enough to individually clear the confetti floor on its own.
   ## Connects each POI to its nearest neighbour (a cheap near-MST: not
-  ## every pair, so the field doesn't turn into a lattice) with a segmented
-  ## line, each segment perpendicular to the run and offset with jitter so
-  ## it reads as a fence/ridge, not a ruler.
-  const
-    SegLen = 46
-    SegThick = 13
-    Step = 85       ## distance between segment attempts along the run
-    KeepChance = 0.62 ## fraction of steps that actually place a segment (the BREAK)
+  ## every pair, so the field doesn't turn into a lattice).
+  const Thick = 26
   var connected: seq[(int, int)]
   for i in 0 ..< pois.len:
     var bestJ = -1
@@ -820,27 +825,40 @@ proc linearConnectors(
     let b = pois[j].center
     let dx = float(b.x - a.x)
     let dy = float(b.y - a.y)
-    let length = sqrt(dx * dx + dy * dy)
-    if length < 1.0: continue
-    let ux = dx / length
-    let uy = dy / length
-    let px = -uy  ## perpendicular unit vector, for the segment's own orientation
-    let py = ux
-    var t = float(pois[i].halfExtent) + 40.0
-    while t < length - float(pois[j].halfExtent) - 40.0:
-      if rng.rand(1.0) < KeepChance:
-        let jitter = float(rng.rand(-18 .. 18))
-        let midx = a.x.float + ux * t + px * jitter
-        let midy = a.y.float + uy * t + py * jitter
-        let p0 = MapPoint(x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
-        let p1 = MapPoint(x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
-        ## ROUND 5: no pocket-avoidance at placement time (Maxwell's ruling
-        ## — "we banned that"). dropShapesNearSpawns still carves the tiny
-        ## duo pocket clear afterward, same as every other wall shape.
-        result.add ArenaShape(
-          kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y,
-          thickness: SegThick)
-      t += Step
+    let fullLength = sqrt(dx * dx + dy * dy)
+    if fullLength < 1.0: continue
+    let ux = dx / fullLength
+    let uy = dy / fullLength
+    ## Run only spans the gap BETWEEN the two POI footprints, not center
+    ## to center — same margin the old dash run used.
+    let runStart = float(pois[i].halfExtent) + 40.0
+    let runEnd = fullLength - float(pois[j].halfExtent) - 40.0
+    let runLen = runEnd - runStart
+    ## Each piece doesn't touch the POI shells (there's a deliberate 40px
+    ## gap so it never overlaps a POI's own footprint), so it must clear
+    ## the confetti floor ON ITS OWN: at Thick=26, that's >=116px long.
+    ## Skip the whole connector rather than emit a piece that can't.
+    const MinPieceLen = 120.0
+    if runLen < MinPieceLen: continue
+    let gateCount = if runLen > 2.0 * MinPieceLen + 150.0: 1 + rng.rand(1) else: 0
+    let gateW = if gateCount == 0: 0.0 else: 60.0 + float(rng.rand(30))
+    let pieceLen = (runLen - float(gateCount) * gateW) / float(gateCount + 1)
+    if pieceLen < MinPieceLen: continue
+    var t = runStart
+    for k in 0 ..< gateCount + 1:
+      let segStart = t
+      let segEnd = t + pieceLen
+      let p0x = a.x.float + ux * segStart
+      let p0y = a.y.float + uy * segStart
+      let p1x = a.x.float + ux * segEnd
+      let p1y = a.y.float + uy * segEnd
+      ## ROUND 5: no pocket-avoidance at placement time (Maxwell's ruling
+      ## — "we banned that"). dropShapesNearSpawns still carves the tiny
+      ## duo pocket clear afterward, same as every other wall shape.
+      result.add ArenaShape(
+        kind: shapeDiagonal, x0: int(p0x), y0: int(p0y), x1: int(p1x), y1: int(p1y),
+        thickness: Thick)
+      t = segEnd + gateW
 
 proc generateBrMap(
   seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily
