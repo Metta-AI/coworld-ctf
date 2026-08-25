@@ -8,6 +8,7 @@ import
   test_endzone_shapes,
   test_fast_mode,
   test_first_person_pip,
+  test_home_rotation,
   test_lull_spans,
   test_mapgen,
   test_player_collision,

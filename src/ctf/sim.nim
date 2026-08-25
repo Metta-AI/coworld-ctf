@@ -76,6 +76,12 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## the only one chosen; every other team's is its image under the map's own
   ## symmetry (`teamImagePoint`), so no team's shield sits in terrain the
   ## others' don't get. Under symNone the points are authored explicitly.
+  ##
+  ## Every pickup family here seeds from `slotAnchor(Red)`, the board's OWN
+  ## west / top-left pad, never from `teamAnchor(Red)`: a pickup belongs to a
+  ## PLACE, not to a team, so the GV44 home rotation must leave the physical
+  ## pickup set untouched. Seeding from a rotated anchor would carry an
+  ## unrotated offset off a rotated pad and slide the whole orbit.
   let
     inset = ArenaBorder + GrenadeSpawnInset
     red =
@@ -83,7 +89,7 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
         ## A compact endzone has no back column to hide a pickup in: park it
         ## below the pedestal, inside the zone (protected floor, so always
         ## walkable and always connected) and clear of the pedestal art.
-        let anchor = gameMap.teamAnchor(Red)
+        let anchor = gameMap.slotAnchor(Red)
         MapPoint(x: anchor.x, y: anchor.y + 2 * gameMap.endzoneRadius div 3)
       else:
         case gameMap.layout
@@ -93,7 +99,7 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
         of layoutCorners:
           ## Red's own x edge at anchor height. Blue's copy is the quarter
           ## turn of that — the TOP edge — not the right edge a mirror picks.
-          MapPoint(x: inset, y: gameMap.teamAnchor(Red).y)
+          MapPoint(x: inset, y: gameMap.slotAnchor(Red).y)
         of layoutPlus:
           ## The lower half of Red's arm mouth. Anchoring each team's copy to
           ## the integer `center` instead lands it a pixel off the orbit,
@@ -112,7 +118,7 @@ proc sprayPaintSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
       if gameMap.endzone != ezColumn:
         ## The compact-endzone counterpart of the shield spot: same zone,
         ## other side of the pedestal (cans high, shields low).
-        let anchor = gameMap.teamAnchor(Red)
+        let anchor = gameMap.slotAnchor(Red)
         MapPoint(x: anchor.x, y: anchor.y - 2 * gameMap.endzoneRadius div 3)
       else:
         case gameMap.layout
@@ -121,7 +127,7 @@ proc sprayPaintSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
         of layoutCorners:
           ## Red's shield spot reflected across the diagonal — its own y edge
           ## at anchor width — so the two orbits never share an edge spot.
-          MapPoint(x: gameMap.teamAnchor(Red).x, y: inset)
+          MapPoint(x: gameMap.slotAnchor(Red).x, y: inset)
         of layoutPlus:
           MapPoint(x: inset, y: gameMap.center.y - gameMap.plusArmHalf() div 2)
   gameMap.explicitOrOrbit(gameMap.teamPickups.cans, red)
@@ -149,7 +155,7 @@ proc barrierSpawnPoints*(gameMap: CtfMap, perTeam: int): seq[tuple[x, y: int]] =
     for p in gameMap.teamPickups.barriers: result.add((p.x, p.y))
     return
   let
-    anchor = gameMap.teamAnchor(Red)
+    anchor = gameMap.slotAnchor(Red)
     center = gameMap.center
   for k in 0 ..< perTeam:
     let red = MapPoint(

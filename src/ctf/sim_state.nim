@@ -34,20 +34,25 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
   ## team wakes facing the fight. Sides maps keep the classic east/west pair;
   ## corner teams face the diagonal, plus arms face along their arm.
   ##
-  ## The table keys on layout + team only, and that already serves BOTH
+  ## The table keys on layout + OCCUPIED SLOT, and that already serves BOTH
   ## 4-team symmetries: the corner aims are exactly the reflections of Red's
   ## south-east (Blue = its x-mirror SW, Green = its y-mirror NE, Yellow =
   ## its rot180 NW), which is what quad-mirror demands, and they equal the
   ## rot90 quarter turns of it too. Plus aims point along each arm either way.
+  ##
+  ## Keyed on `homeSlot`, not on team identity: after a GV44 home rotation the
+  ## aim has to face the center from the pad the team ACTUALLY woke up on, or
+  ## a rotated seat spawns staring into its own back wall.
+  let slot = gameMap.homeSlot(team)
   case gameMap.layout
   of layoutSides:
-    if team == Red:
+    if slot == Red:
       0                        ## east, toward Blue.
     else:
       AimBradsTurn div 2       ## west, toward Red.
   of layoutCorners:
     ## 0 = east, counter-clockwise: SE 224, SW 160, NE 32, NW 96.
-    case team
+    case slot
     of Red:
       AimBradsTurn - AimBradsTurn div 8      ## top-left faces south-east.
     of Blue:
@@ -57,7 +62,7 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
     of Yellow:
       AimBradsTurn div 2 - AimBradsTurn div 8  ## bottom-right faces north-west.
   of layoutPlus:
-    case team
+    case slot
     of Red:
       0                        ## west arm faces east.
     of Blue:
@@ -289,7 +294,12 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
     spread = 36
     stepMajor = (strip - 1) * spread
     stepMinor = (if order mod 2 == 0: -6 else: 6)
-    vertical = sim.gameMap.layout != layoutPlus or team in {Red, Blue}
+    ## Which arm the team OCCUPIES this episode, not which one its colour
+    ## implies: the GV44 home rotation moves a team between the plus layout's
+    ## W/E and N/S arms, and a strip that kept its old axis would stagger
+    ## players straight across the arm mouth into the wall.
+    slot = sim.gameMap.homeSlot(team)
+    vertical = sim.gameMap.layout != layoutPlus or slot in {Red, Blue}
     targetX = if vertical: anchor.x + stepMinor else: anchor.x + stepMajor
     targetY = if vertical: anchor.y + stepMajor else: anchor.y + stepMinor
   sim.nearestWalkable(targetX, targetY)

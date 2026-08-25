@@ -18,7 +18,30 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "43"  ## GV43 (puddle rule): PUDDLES BITE TWICE AS HARD.
+  GameVersion* = "44"  ## GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
+    ## On every board with more than two teams, WHICH TEAM OWNS WHICH HOME is
+    ## now drawn per episode from the game seed instead of being fixed for all
+    ## time. The pads do not move: the same four congruent anchors, pedestals,
+    ## capture zones and spawn pockets are carved exactly as before, and the
+    ## protected floor, the pickup orbits and the terrain are byte-identical.
+    ## What rotates is OWNERSHIP — by a whole number of quarter-turns around
+    ## the home orbit, so adjacency is preserved (a team a quarter turn from
+    ## you before is a quarter turn from you after) and the plus layout's
+    ## opposite/adjacent arm structure survives intact. A home is a BUNDLE, so
+    ## the rotation carries all of it together through one remap (`homeSlot`):
+    ## spawn strip AND its arm orientation, pedestal, capture zone, spawn aim,
+    ## room naming and endzone paint. Motivation is measured, not aesthetic:
+    ## the live 4-team field wins 8.9 / 8.9 / 23.2 / 58.9% by home slot,
+    ## replicated across every policy, so a fixed assignment is a standing
+    ## handicap draw. Dealing the homes makes slot advantage a population-level
+    ## WASH without touching a single tuning number.
+    ##
+    ## TWO-TEAM PLAY IS UNCHANGED, byte for byte: Red left, Blue right is a
+    ## game contract, and the rotation is the identity at teamCount <= 2. But
+    ## 4-team spawn positions, pedestals and capture zones now depend on the
+    ## seed, so no 4-team GV43 replay re-simulates: fixtures re-recorded.
+    ##
+    ## Previously GV43 (puddle rule): PUDDLES BITE TWICE AS HARD.
     ## `DefaultPuddleDamagePct` goes 10 -> 20: a full second of continuous
     ## paint-puddle occupancy now rolls a 20% chance of 1 damage instead of
     ## 10%. The default matters because spec-pinned puddles (the campaign's
@@ -1078,6 +1101,24 @@ type
                                ## NOT do a full flood-CONNECTIVITY check at load
                                ## (too heavy); reachability/fairness is the
                                ## caller's measured gate. Ignored on symmetric maps.
+    homeRotation*: int         ## GV44: per-episode rotation of TEAM -> HOME
+                               ## OWNERSHIP, in quarter-turns around the home
+                               ## orbit (0..3; 0 = the historical fixed
+                               ## assignment). The pads themselves never move —
+                               ## the board carves the same four congruent
+                               ## homes either way — only which team owns which
+                               ## one changes, so that a 4-team season deals
+                               ## every seat every slot instead of pinning it
+                               ## to one. Derived from the GAME seed by
+                               ## `homeRotationFor` and applied in
+                               ## `resolveCtfMapMetadata`, so it is a pure
+                               ## function of the config a replay already
+                               ## carries and never needs pinning into
+                               ## `mapSpec`. ALWAYS 0 for teamCount <= 2:
+                               ## Red-left / Blue-right is a game contract.
+                               ## Read it ONLY through `homeSlot` — that remap
+                               ## is the single choke point the whole home
+                               ## bundle rotates through.
 
   CrewSprite* = ref object
     width*, height*: int

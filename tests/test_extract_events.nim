@@ -6,10 +6,12 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 43, seed 907, lives 9:
+  # CURRENT gameplay rules (GameVersion 44, seed 907, lives 9:
   #   record_fixture.sh tests/replays/ctf.bitreplay 907 10000 '{"lives":9}')
-  # The GV43 take kept all three weapon kills on the FIRST recording
-  # (gun 70 / grenade 5 / spray 8, one capture, eight steals).
+  # The GV44 take kept all three weapon kills on the FIRST recording, as
+  # the GV43 one did. (GV44 rotates 4-team home OWNERSHIP and leaves the
+  # 2-team board these fixtures run on byte-identical, so every fixture was
+  # a straight re-record at the same seed and recipe.)
   # Seed 907 survives the GV42 heart rule, but the SEED ALONE DOES NOT PIN
   # THE KILL MIX: the bots are separate processes, so two recordings of one
   # seed differ, and the grenade kill in particular is rare (5 of 105 kills

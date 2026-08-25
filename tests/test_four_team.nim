@@ -1,8 +1,18 @@
 import
   helpers,
-  std/unittest,
+  std/[sequtils, unittest],
   bitworld/spriteprotocol,
   ctf/sim
+
+proc ownerOf(gameMap: CtfMap, slot: Team): Team =
+  ## Which team was dealt this home SLOT. The four arms/corners are fixed
+  ## board furniture; GV44 deals ownership per episode, so a test about the
+  ## GEOMETRY of an arm has to ask for the arm and then find its tenant,
+  ## instead of assuming Red is forever west.
+  result = slot
+  for team in gameMap.teams():
+    if gameMap.homeSlot(team) == slot:
+      return team
 
 proc fourTeamConfig(layout: string): GameConfig =
   result = defaultGameConfig()
@@ -197,45 +207,56 @@ suite "four team ctf":
     let sim = fourTeamGame("plus")
     let gameMap = sim.gameMap
     check gameMap.layout == layoutPlus
+    # The four arm PADS are the board's own geometry and never move.
     let
-      red = gameMap.teamAnchor(Red)
-      blue = gameMap.teamAnchor(Blue)
-      green = gameMap.teamAnchor(Green)
-      yellow = gameMap.teamAnchor(Yellow)
-    check red.x < gameMap.center.x
-    check blue.x > gameMap.center.x
-    check green.y < gameMap.center.y
-    check yellow.y > gameMap.center.y
+      westPad = gameMap.slotAnchor(Red)
+      eastPad = gameMap.slotAnchor(Blue)
+      northPad = gameMap.slotAnchor(Green)
+      southPad = gameMap.slotAnchor(Yellow)
+    check westPad.x < gameMap.center.x
+    check eastPad.x > gameMap.center.x
+    check northPad.y < gameMap.center.y
+    check southPad.y > gameMap.center.y
     # Each opposing pair straddles the board's TRUE symmetry axis at
     # (side-1)/2 — a half pixel off the integer center on an even side, so
     # the pair sums to side-1 rather than both sitting on center exactly.
     # Pinning them to center would put the anchors off the rot90 orbit.
-    check red.y + blue.y == gameMap.height - 1
-    check green.x + yellow.x == gameMap.width - 1
-    # North team's capture zone is the arm mouth: bounded on y by the
+    check westPad.y + eastPad.y == gameMap.height - 1
+    check northPad.x + southPad.x == gameMap.width - 1
+    # Exactly one team per arm, and each team's anchor IS its arm's pad.
+    var dealt: seq[Team]
+    for team in gameMap.teams():
+      dealt.add gameMap.homeSlot(team)
+      check gameMap.teamAnchor(team) ==
+        gameMap.slotAnchor(gameMap.homeSlot(team))
+    check dealt.deduplicate().len == 4
+    # The NORTH tenant's capture zone is the arm mouth: bounded on y by the
     # anchor threshold and on x by the arm span (the corners are open
     # field, not endzone).
     let
-      zone = gameMap.captureZone(Green)
+      zone = gameMap.captureZone(gameMap.ownerOf(Green))
       band = gameMap.plusArmBand()
     check zone.yHi < gameMap.height - 1
     check zone.xLo == band.lo
     check zone.xHi == band.hi
     # The arm mouth is its own quarter turn: the north zone's x-span is the
     # west zone's y-span rotated, exactly.
-    let west = gameMap.captureZone(Red)
+    let west = gameMap.captureZone(gameMap.ownerOf(Red))
     check west.yLo == zone.xLo
     check west.yHi == zone.xHi
     check gameMap.width - 1 - west.yHi == zone.xLo
 
   test "corner endzones are diagonal":
     let sim = fourTeamGame()
-    let zone = sim.gameMap.captureZone(Red)
+    # Whoever was dealt the TOP-LEFT corner this episode.
+    let
+      tenant = sim.gameMap.ownerOf(Red)
+      zone = sim.gameMap.captureZone(tenant)
     check zone.diag
     # The map corner itself is deep inside; the anchor is inside; a point
     # past the 45-degree threshold on one axis alone is not.
     check zone.inCaptureZone(ArenaBorder, ArenaBorder)
-    let anchor = sim.gameMap.teamAnchor(Red)
+    let anchor = sim.gameMap.teamAnchor(tenant)
     check zone.inCaptureZone(anchor.x, anchor.y)
     check not zone.inCaptureZone(zone.diagLimit - 5, zone.diagLimit - 5)
 
