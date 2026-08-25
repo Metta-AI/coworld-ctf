@@ -614,7 +614,28 @@ proc homeSlot*(gameMap: CtfMap, team: Team): Team =
   ## were a quarter turn apart stay a quarter turn apart, and the plus
   ## layout's opposite arms stay opposite — which an arbitrary permutation of
   ## the four teams would not.
-  if gameMap.homeRotation == 0 or gameMap.teamCount() <= 2:
+  ##
+  ## BR INTEGRATION: `rot90Quarter` only has a real orbit under layoutCorners
+  ## / layoutPlus — every team maps to quarter-turn 0 under layoutSides (see
+  ## its own `of layoutSides: 0` branch), by design, for the 2-team case this
+  ## proc already returns early on above. A 16-team BR board is symNone but
+  ## still reports `layoutSides` (BR_MAPGEN.md §6.1 authors no sides/corners
+  ## concept, so it takes the harmless default), and `homeRotationFor` does
+  ## not know that: it derives a nonzero rotation for ANY teamCount > 2,
+  ## BR included. Without this guard `target` collapses to `homeRotation mod
+  ## 4`, and since every team's own quarter-turn is 0 too, the search below
+  ## either matches EVERY team (target == 0, so it always returns Red — every
+  ## team's anchor collapses onto one point) or NO team (target != 0, falling
+  ## through to identity by accident rather than by contract). Both are only
+  ## harmless today because BR's authored `spawnPoints` bypasses `teamAnchor`
+  ## for every consumer that matters (spawnPosition, spawnAimBrads,
+  ## defaultCtfRooms all early-return before reaching it) — but `teamAnchor`
+  ## itself is still called unconditionally per team by `selectCtfMap`
+  ## (ArenaAnchors), so leaving the collapse live is one new caller away from
+  ## a real bug. Pin it to identity outright: a layout with no rot90 orbit
+  ## has nothing to rotate through, exactly like the teamCount <= 2 case.
+  if gameMap.homeRotation == 0 or gameMap.teamCount() <= 2 or
+      gameMap.layout == layoutSides:
     return team
   let target = (gameMap.rot90Quarter(team) + gameMap.homeRotation) mod 4
   for slot in gameMap.teams():
@@ -672,8 +693,8 @@ proc slotAnchor*(gameMap: CtfMap, slot: Team): MapPoint =
           of Green: green
           of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
           else: raiseAssert(
-            "teamAnchor: quadmirror layoutPlus is 4-team only, got " &
-              $team & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
+            "slotAnchor: quadmirror layoutPlus is 4-team only, got " &
+              $slot & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
       return
     ## Red seeds the rot90 orbit: top-left on corner maps, west on plus maps.
     result =
