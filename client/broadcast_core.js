@@ -48,6 +48,36 @@
   const CHROME_SPRITE_ID =
     (window.CTF_WIRE && window.CTF_WIRE.chromeSpriteId) || 4090;
 
+  // BR zone paint (round 3): the shrinking zone's cosmetic flood is a STATIC
+  // per-episode arrival-time field (src/ctf/global.nim's addZoneEdgeBand),
+  // shipped once as a data sprite — never drawn as an image, decoded into
+  // typed arrays below — plus a 1x1 "clock" object whose X position IS the
+  // elapsed tick, updated every tick. The clock rides the motion-glide
+  // system above (built for player movement) for true sub-tick
+  // interpolation with no new client-side timing code: renderZonePaint
+  // reads its already-interpolated dispX as a continuous "now" and paints a
+  // pure per-cell READOUT of the field against it. This is what fixes the
+  // old "SUPER laggy" defect: the field's bytes cross the wire exactly
+  // once, never per tick.
+  const ZONE_ARRIVAL_FIELD_SPRITE_ID =
+    (window.CTF_WIRE && window.CTF_WIRE.zoneArrivalFieldSpriteId) || 39962;
+  const ZONE_CLOCK_OBJECT_ID =
+    (window.CTF_WIRE && window.CTF_WIRE.zoneClockObjectId) || 39963;
+  const ZONE_PAINT_BODY_HEX =
+    (window.CTF_WIRE && window.CTF_WIRE.zonePaintBody) || '#d63eb2';
+  const ZONE_PAINT_BODY = [
+    parseInt(ZONE_PAINT_BODY_HEX.slice(1, 3), 16),
+    parseInt(ZONE_PAINT_BODY_HEX.slice(3, 5), 16),
+    parseInt(ZONE_PAINT_BODY_HEX.slice(5, 7), 16)
+  ];
+  // A backward or large forward jump in the clock's dispX (a real seek/
+  // scrub, not a normal tick-to-tick glide) forces renderZonePaint to
+  // re-threshold the WHOLE field instead of walking forward incrementally —
+  // "one full re-threshold pass" on seek. 48 mirrors the glide system's own
+  // SNAP_DISTANCE (a big forward jump already snaps dispX itself; this just
+  // makes the paint layer agree with that same snap).
+  const ZONE_SNAP_REBUILD_GAP_TICKS = 48;
+
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
   }
@@ -236,6 +266,25 @@
     const layers = new Map();
     const sprites = new Map();
     const objects = new Map();
+
+    // BR zone paint (round 3) state — see ZONE_ARRIVAL_FIELD_SPRITE_ID
+    // above. `zoneField` stays null until the one data sprite for this
+    // episode arrives; everything else below is derived from it once
+    // (decodeZoneField) and then only ever touched incrementally per frame
+    // (renderZonePaint).
+    let zoneField = null;          // { gridW, gridH, arrival: Uint16Array,
+                                    //   order: Uint32Array of cell indices
+                                    //   SORTED by arrival tick }
+    let zoneCanvas = null;         // offscreen canvas at the field's own
+    let zoneCtx = null;            // coarse grid resolution — upscaled into
+    let zoneImage = null;          // the board layer on every draw.
+    let zoneLastAppliedTick = -1;  // last INTEGER tick fully applied.
+    let zoneOrderPtr = 0;          // pointer into zoneField.order: the
+                                    // incremental-accumulation cursor — each
+                                    // cell is painted exactly once as it's
+                                    // crossed, never rescanned.
+    let zoneLastTouchedCells = 0;  // last frame's touched-cell count, for
+                                    // the perf probe (getZonePaintStats).
 
     let socket = null;
     let rafHandle = null;
@@ -720,9 +769,94 @@
     }
 
     function drawObject(targetCtx, obj) {
+      if (obj.id === ZONE_CLOCK_OBJECT_ID) {
+        // Not a drawable sprite at all: this object's whole job is to carry
+        // a smoothly-interpolated tick in dispX (see the glide system
+        // above) — reaching this z-slot in the composite order is exactly
+        // when the paint layer belongs, so paint it here instead of a
+        // sprite image.
+        renderZonePaint(targetCtx, obj.dispX);
+        return;
+      }
       const sprite = sprites.get(obj.spriteId);
       if (!sprite || !sprite.pixels) return;
       targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
+    }
+
+    // Decodes the one-time arrival-field data sprite (see
+    // ZONE_ARRIVAL_FIELD_SPRITE_ID) into typed arrays: `arrival[cell]` is
+    // the paint-arrival tick (R|G<<8 — see zoneArrivalFieldBytes in
+    // global.nim), and `order` is every cell index SORTED by that tick once
+    // up front, so per-frame incremental accumulation is just an advancing
+    // pointer — O(newly-arrived cells), never a rescan of the whole grid.
+    function decodeZoneField(width, height, pixels) {
+      const n = width * height;
+      const arrival = new Uint16Array(n);
+      for (let i = 0; i < n; i++) {
+        const o = i * 4;
+        arrival[i] = pixels[o] | (pixels[o + 1] << 8);
+      }
+      const order = new Uint32Array(n);
+      for (let i = 0; i < n; i++) order[i] = i;
+      order.sort((a, b) => arrival[a] - arrival[b]);
+      zoneField = { gridW: width, gridH: height, arrival, order };
+      zoneCanvas = createCanvasSurface();
+      zoneCanvas.width = width;
+      zoneCanvas.height = height;
+      zoneCtx = zoneCanvas.getContext('2d');
+      zoneImage = zoneCtx.createImageData(width, height);
+      zoneLastAppliedTick = -1;
+      zoneOrderPtr = 0;
+    }
+
+    function paintZoneCell(data, idx) {
+      const o = idx * 4;
+      data[o] = ZONE_PAINT_BODY[0];
+      data[o + 1] = ZONE_PAINT_BODY[1];
+      data[o + 2] = ZONE_PAINT_BODY[2];
+      data[o + 3] = 255;
+    }
+
+    // The ENTIRE per-frame paint render: touch only cells whose arrival
+    // just crossed `dispTick` (a persistent accumulation buffer that only
+    // ever grows — see the field's own MONOTONE guarantee), upscale the
+    // coarse result into the board layer. `dispTick` is the zone clock
+    // object's already-interpolated dispX, so this glides continuously at
+    // display cadence instead of stepping once per sim tick (~24/s).
+    function renderZonePaint(targetCtx, dispTick) {
+      if (!zoneField) return;
+      const nowInt = Math.floor(dispTick);
+      const arrival = zoneField.arrival;
+      const order = zoneField.order;
+      const n = arrival.length;
+      const needFull = zoneLastAppliedTick < 0 ||
+        nowInt < zoneLastAppliedTick ||
+        (nowInt - zoneLastAppliedTick) > ZONE_SNAP_REBUILD_GAP_TICKS;
+      let touched = 0;
+      const data = zoneImage.data;
+      if (needFull) {
+        zoneOrderPtr = 0;
+        data.fill(0);
+      }
+      while (zoneOrderPtr < n && arrival[order[zoneOrderPtr]] <= nowInt) {
+        paintZoneCell(data, order[zoneOrderPtr]);
+        zoneOrderPtr++;
+        touched++;
+      }
+      zoneLastTouchedCells = touched;
+      if (touched > 0 || needFull) {
+        zoneCtx.putImageData(zoneImage, 0, 0);
+      }
+      zoneLastAppliedTick = nowInt;
+      const wasSmooth = targetCtx.imageSmoothingEnabled;
+      targetCtx.imageSmoothingEnabled = true;  // the coarse grid upscales
+                                                // blended, never blocky —
+                                                // reset after so this never
+                                                // leaks into the pixel-art
+                                                // sprites drawn after it.
+      targetCtx.drawImage(zoneCanvas, 0, 0, zoneField.gridW, zoneField.gridH,
+        0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
+      targetCtx.imageSmoothingEnabled = wasSmooth;
     }
 
     function composite() {
@@ -927,6 +1061,15 @@
             // packet), and marking the board dirty for it would re-composite
             // an identical frame per packet forever.
             if (label) onText(label);
+          } else if (id === ZONE_ARRIVAL_FIELD_SPRITE_ID) {
+            // The static BR zone paint-arrival field (see
+            // ZONE_ARRIVAL_FIELD_SPRITE_ID above): raw per-cell DATA, never
+            // a drawable image. Decode into typed arrays once; every later
+            // frame is a pure readout of them (renderZonePaint), driven by
+            // the zone clock object's glide. Sent exactly once per episode
+            // and paints no board pixels itself, so — like chrome — not a
+            // `changed` event.
+            if (pixels) decodeZoneField(width, height, pixels);
           } else {
             if (spriteAwaitsRetry(sprites.get(id))) pendingDecodes--;
             sprites.set(id, {
@@ -1383,6 +1526,20 @@
       };
     }
 
+    function getZonePaintStats() {
+      // Perf probe for the arrival-field render (see renderZonePaint) — the
+      // per-frame touched-cell count is the D1 fix's own headline number:
+      // "a few thousand," never the whole grid.
+      return {
+        hasField: Boolean(zoneField),
+        gridW: zoneField ? zoneField.gridW : 0,
+        gridH: zoneField ? zoneField.gridH : 0,
+        totalCells: zoneField ? zoneField.arrival.length : 0,
+        lastTouchedCells: zoneLastTouchedCells,
+        lastAppliedTick: zoneLastAppliedTick
+      };
+    }
+
     return {
       start,
       ingest,
@@ -1392,6 +1549,7 @@
       setViewportFit,
       setViewportSize,
       getPaceStats,
+      getZonePaintStats,
       zoomAt,
       setZoom,
       panBy,

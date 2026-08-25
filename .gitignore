@@ -75,6 +75,7 @@ br-final-match.bitreplay
 br-match-2-huntfix.bitreplay
 br-showmatch.bitreplay
 br-showmatch2.bitreplay
+br-paint3-match.bitreplay
 
 # The mount point .caos-expr splices caos's std/ into. Never committed — the
 # loader REFUSES to overwrite an entry that is already there.
