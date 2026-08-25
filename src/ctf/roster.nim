@@ -513,7 +513,15 @@ proc addPlayer*(
     arcAimBrads: -1,
     team: team,
     alive: true,
-    lives: sim.config.livesFor(team),
+    ## brMode seats a cog with ZERO spare lives, not the configured
+    ## allotment. The elimination rule already forces lives to 0 on the
+    ## first death, so those spares could never be spent — but every reader
+    ## of teamLivesRemaining (the scorebug numeral, the momentum series,
+    ## the game-over card) counted them until then, and a 16-duo BR header
+    ## advertised "4 LIVES" for a duo that could absorb exactly two deaths.
+    ## Making it true at the SOURCE keeps all those readers honest instead
+    ## of teaching each one the mode's arithmetic.
+    lives: (if sim.config.brMode: 0 else: sim.config.livesFor(team)),
     hp: sim.config.maxHpFor(team, perks),
     perks: perks,
     joinOrder: order,

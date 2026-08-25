@@ -193,6 +193,40 @@ html, body {
   gap: calc(9 * var(--u));
   min-width: 0;
 }
+/* BR colour swatch: the flag glyph's replacement on a flagless board. Same
+   box as .flagicon so the plate's layout is identical either way — only the
+   iconography changes, not the geometry. */
+.swatchicon {
+  width: calc(26 * var(--u));
+  height: calc(30 * var(--u));
+  flex: none;
+}
+.swatchicon svg { width: 100%; height: 100%; display: block; }
+
+/* MANY teams (BR seats 16). Minimal compaction only — smaller chips, tighter
+   gaps, no name wrapping — deliberately NOT a redesign: the plate keeps its
+   swatch + name + numeral structure and its DOM, so everything that reads or
+   updates a plate keeps working. Without this the 16 chips overflow the bar
+   and the outermost ones clip. */
+.plates.row.many { gap: calc(7 * var(--u)); }
+.plates.row.many .plate { gap: calc(3 * var(--u)); }
+.plates.row.many .swatchicon,
+.plates.row.many .flagicon {
+  width: calc(13 * var(--u));
+  height: calc(15 * var(--u));
+}
+.plates.row.many .team-name {
+  font-size: calc(7 * var(--u));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(46 * var(--u));
+}
+.plates.row.many .lives-label { display: none; }   /* the numeral carries it */
+.plates.row.many .lives-num { font-size: calc(11 * var(--u)); }
+.plates.row.many .squad { display: none; }  /* per-seat pips are unreadable
+                                               at 16 chips; the numeral is
+                                               the honest summary. */
 /* Orientation is a SIDE property, not a color property: right-side plates
    mirror so both team names stay innermost, flanking the clock. */
 .plate.side-r { flex-direction: row-reverse; text-align: right; }
@@ -1941,6 +1975,21 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   }
 
   // ---- flag icon svg (HOME/TAKEN/CAPTURED — F2; captured draws as taken) ----
+  // BR: a colour SWATCH where a flagged game puts its flag glyph. "BATTLE
+  // ROYALE HAS NO FLAGS" — the field was cleaned at the wire level (no flag
+  // sprites, no pedestals, no heart), but the header kept rendering CTF
+  // identity per team, which is the one place the mode was still lying.
+  // The swatch does the job the flag was actually doing here: carry the
+  // team's colour at a glance. No pole, no cloth, no carrier tag.
+  function buildSwatch(el, color) {
+    el.innerHTML =
+      '<svg viewBox="0 0 26 30" aria-hidden="true">' +
+      '<rect x="5" y="7" width="16" height="16" rx="2" fill="' + color + '"/>' +
+      '<rect x="5" y="7" width="16" height="16" rx="2" fill="none" ' +
+      'stroke="rgba(0,0,0,0.45)" stroke-width="1.5"/>' +
+      '</svg>';
+  }
+
   function buildFlag(el, color) {
     el.innerHTML =
       '<svg viewBox="0 0 26 30" aria-hidden="true">' +
@@ -2180,38 +2229,55 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // match in practice). Plates alternate sides in TEAM_ORDER — index 0/2 left,
   // 1/3 right — so both team names stay innermost, flanking the clock.
   var sbTeams = null;
-  function ensureScorebug(teams) {
-    var key = teams.join(',');
+  function ensureScorebug(teams, flagless, elim) {
+    // The mode is part of the rebuild key: a frame that flips it must
+    // rebuild the plates, not repaint stale flag glyphs forever.
+    var key = teams.join(',') + '|' + (flagless ? 'f' : '') + (elim ? 'e' : '');
     if (sbTeams === key) return;
     sbTeams = key;
     var sides = [$('plates-l'), $('plates-r')];
+    // Many teams: mark the bar so CSS can compact the chips (see .plates.many).
+    var many = teams.length > 4;
     sides[0].innerHTML = '';
     sides[1].innerHTML = '';
     sides[0].classList.toggle('row', teams.length > 2);
     sides[1].classList.toggle('row', teams.length > 2);
+    sides[0].classList.toggle('many', many);
+    sides[1].classList.toggle('many', many);
     teams.forEach(function (team, i) {
       var plate = document.createElement('div');
       plate.className = 'plate ' + team + ' ' + (i % 2 === 0 ? 'side-l' : 'side-r');
       plate.setAttribute('data-team', team);
+      // BR: a colour swatch, and "Alive" rather than "Lives" — with no
+      // respawns the numeral is cogs still standing, not a spare pool.
       plate.innerHTML =
-        '<div class="flagicon" id="flag-' + team + '"></div>' +
+        '<div class="' + (flagless ? 'swatchicon' : 'flagicon') +
+        '" id="flag-' + team + '"></div>' +
         '<div class="team-id">' +
         '<div class="lives-line">' +
         '<span class="team-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
         '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
-        '<span class="lives-label">Lives</span>' +
+        '<span class="lives-label">' + (elim ? 'Alive' : 'Lives') + '</span>' +
         '<span class="lives-num" id="lives-' + team + '">—</span>' +
         '</div>' +
         '<div class="squad" id="squad-' + team + '"></div>' +
         '</div>';
       sides[i % 2].appendChild(plate);
-      buildFlag($('flag-' + team), teamCol(team) || AMBER);
+      if (flagless) buildSwatch($('flag-' + team), teamCol(team) || AMBER);
+      else buildFlag($('flag-' + team), teamCol(team) || AMBER);
     });
   }
 
+  // The mode comes from the FRAME (broadcast state's `br` block), never
+  // inferred from missing flag keys — a pre-roster frame is missing them
+  // too. Absent block = classic CTF, so every existing replay is unchanged.
+  function isFlagless(s) { return !!(s && s.br && s.br.flagless); }
+  function isElim(s) { return !!(s && s.br && s.br.elim); }
+
   function renderScorebug(s) {
     var teams = activeTeams(s);
-    ensureScorebug(teams);
+    var flagless = isFlagless(s);
+    ensureScorebug(teams, flagless, isElim(s));
     var tr = s.teams || {};
     var lives = {};
     teams.forEach(function (team) {
@@ -2227,7 +2293,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // Squad pips grouped by policy with perk badges around each group
       // (the pip strip is the life meter; see renderSquad).
       renderSquad($('squad-' + team), s, team, s.pov);
-      updateFlag('flag-' + team, team, tr[team] || {}, s);
+      // A swatch has no cloth to flip and no carrier to name.
+      if (!flagless) updateFlag('flag-' + team, team, tr[team] || {}, s);
       // leader pulse when this team leads EVERY rival by >= 3
       var bestRival = -Infinity;
       teams.forEach(function (o) {

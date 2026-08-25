@@ -722,6 +722,22 @@ proc buildStateJson*(
     "events": (if events.isNil: newJArray() else: events)
   }
 
+  # BR mode, for the CHROME. The header bakes CTF identity into itself — a
+  # flag glyph per team, a "Lives" label — and a battle royale has neither.
+  # The chrome cannot infer the mode from the absence of flag keys: absence
+  # is also what a pre-roster frame looks like, and inferring a whole
+  # presentation from a missing key is how a header ends up lying in one
+  # direction or the other. So state it.
+  #
+  # Pinned ONLY when a BR toggle is actually on, matching the omit-when-
+  # default idiom the rest of this frame uses (hcap, pmods, flag keys), so
+  # every classic frame stays byte-identical.
+  if sim.gameMap.flagless or sim.config.brMode:
+    state["br"] = %*{
+      "flagless": sim.gameMap.flagless,   ## no flag/pedestal/heart anywhere
+      "elim": sim.config.brMode           ## no respawns; lives are absolute
+    }
+
   # Resolved perk magnitudes for the scorebug icon tooltips (the sim is the
   # single source of the mods, like the handicap deltas). Fractions are
   # permille ints; present only when some active team actually has perks, so
