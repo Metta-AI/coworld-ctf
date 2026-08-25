@@ -888,7 +888,7 @@ proc stampPoi(
     ## room-count-variety regression). 75 clears 2x75=150 <= 185 with
     ## margin and still stays the largest minRoomSize of any archetype.
     let plan = stampFloorPlan(rng, footprint, shellThick, gateSet, GateW,
-      targetRooms, 75, 30, 54)
+      targetRooms, 62, 26, 48)
     shapes.add plan.shapes
     rooms = plan.rooms
     let coverW = max(32, he * 2 div 5)
@@ -1287,7 +1287,7 @@ proc placePois(
     ## confetti floor clip; a full anchor shell side is well above that,
     ## so it still drops exactly as round 8 calibrated. anchorHalf stays
     ## at round 8's own 1.05G.
-    let anchorHalf = int(0.70 * float(gunRange))
+    let anchorHalf = int(0.62 * float(gunRange))
     let anchorMinSep = int(1.9 * float(gunRange))
     let anchorCount = 4 + rng.rand(3)
     let (acols, arows) = regionGrid(anchorCount, width, height)
