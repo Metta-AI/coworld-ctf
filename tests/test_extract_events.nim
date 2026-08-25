@@ -14,6 +14,11 @@ const
   # kill mix under the current engine/bot pairing (it resolves to gun-only
   # kills) -- picked by OUTCOME, not habit: verify with
   # `nim r tools/extract_events.nim <path>` before committing a re-record.
+  # Re-recorded AGAIN for the v6 GLORY economy (2026-08-25): same seed 600,
+  # but bot connection order is not fully deterministic run to run, and the
+  # majority of same-seed attempts under v6 resolved to gun-only kills or a
+  # capture-less game -- this is the recording (of ~16 tried) that hit all
+  # three weapons, a steal, a return, a heal, AND a capture in one game.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":

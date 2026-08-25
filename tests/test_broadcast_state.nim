@@ -9,7 +9,7 @@ const
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
   #   capture-seed7:  record_fixture.sh <out> 7
-  #   wipe-lives1:    record_fixture.sh <out> 9 10000 \
+  #   wipe-lives1:    record_fixture.sh <out> 12 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
   #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
@@ -17,11 +17,16 @@ const
   # preempted by a capture; record on an otherwise idle machine — a
   # CPU-starved server at speed 16 drops its bots and ends degenerate.)
   # wipe-lives1 moved off seed 7 in the /proof engine-lane cycle
-  # (2026-08-24): under the current baseline matchup seed 7 resolves as a
-  # MUTUAL wipe (a draw, dWipe never mints), which defeats this fixture's
-  # whole purpose -- seed 9 is the first tried that resolves as a clean
-  # one-sided wipe. Pick a seed by outcome, not by habit: try a few and read
-  # the herald log's last line before committing a recording.
+  # (2026-08-24): under that baseline matchup seed 7 resolved as a MUTUAL
+  # wipe (a draw, dWipe never mints), which defeats this fixture's whole
+  # purpose -- seed 9 was the first tried that resolved as a clean
+  # one-sided wipe THEN. Moved AGAIN in the v6 GLORY /proof wave
+  # (2026-08-25): seed 9 itself now resolves as a mutual-wipe draw under the
+  # v6 economy (bot connection order is not fully deterministic across
+  # recordings even at a fixed seed, and the tuned buffs/xp this wave shipped
+  # can shift which team survives longer) -- seed 12 is the seed that
+  # resolved clean this time. Pick a seed by outcome, not by habit: try a
+  # few and read the herald log's last line before committing a recording.
   # Then re-pin the capture winner asserted below to the new recording.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"

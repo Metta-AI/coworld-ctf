@@ -22,9 +22,9 @@
 ##
 ## **Three things here are causal, not analysis.** Unlike the tier-2 SimEvent
 ## channel, glory changes gameplay: XP drives levels, levels grant buffs, and
-## buffs change hit points, fire timing and range. So every number below is
-## INTEGER (no float drift across platforms), the ledger enters `gameHash`,
-## and nothing here may be gated on `collectEvents`.
+## buffs change hit points, fire timing and grenade capacity. So every number
+## below is INTEGER (no float drift across platforms), the ledger enters
+## `gameHash`, and nothing here may be gated on `collectEvents`.
 ##
 ## **The anti-snowball rule is that levels are PER LIFE.** A cog's XP resets
 ## to zero on death and its buffs go with it. A runaway cog is therefore also

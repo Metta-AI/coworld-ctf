@@ -7,8 +7,10 @@ const
   GameDir = currentSourcePath.parentDir.parentDir
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
   # (Phase-1 set, tools/record_fixture.sh). This capture-ending fixture
-  # (6245 ticks as of the /proof engine-lane re-record, 2026-08-24) exceeds
-  # every tick target below and hash-verifies clean end to end.
+  # (re-recorded for the v6 glory economy, 2026-08-25, GLORY /proof wave --
+  # over 2400 ticks) exceeds every tick target below and hash-verifies clean
+  # end to end. Winner-pin held: still a RED capture (unchanged from the v5
+  # recording), so no re-pin was needed here or in test_broadcast_state.nim.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture: GameVersion
   # 24, seed 600, lives 9, kills by all three weapons — see
   # test_extract_events.)
