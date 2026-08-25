@@ -4169,15 +4169,24 @@ proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
   ## offset PERPENDICULAR to the wall into walkable space (never on top of
   ## it): a MIDPOINT (isMouth=false) and its two ENDPOINTS (isMouth=true —
   ## doctrine: "grenade sites at alley mouths, not midpoints").
-  proc walkableOffset(wx, wy, px, py, offset: float): MapPoint =
+  proc walkableOffset(wx, wy, px, py, offset: float): tuple[p: MapPoint, ok: bool] =
     for sgn in [1.0, -1.0]:
       let cx = int(wx + px * offset * sgn)
       let cy = int(wy + py * offset * sgn)
       var blocked = false
       for s in m.obstacles:
         if inShape(cx, cy, s): blocked = true; break
-      if not blocked: return MapPoint(x: cx, y: cy)
-    MapPoint(x: int(wx), y: int(wy))  ## fallback: rare, still a legible point
+      if not blocked: return (MapPoint(x: cx, y: cy), true)
+    ## ROUND 14 FIX (confirmed): both perpendicular offsets landed inside a
+    ## wall (obstacles hugging the diagonal on both sides — a tightly-boxed
+    ## alley). The old fallback returned (wx, wy) itself: the wall's OWN
+    ## centerline point, which is BY CONSTRUCTION inside the diagonal's own
+    ## solid fill (distance 0 to its axis, always <= thickness/2), silently
+    ## handing placeItemsGraded an item candidate sitting on an unreachable
+    ## wall pixel. DROP the candidate instead — no walkable offset exists
+    ## here, so this mouth/midpoint contributes nothing rather than a
+    ## guaranteed-bad one.
+    (MapPoint(x: int(wx), y: int(wy)), false)
   for shape in m.obstacles:
     if shape.kind != shapeDiagonal: continue
     let dx = float(shape.x1 - shape.x0)
@@ -4191,14 +4200,15 @@ proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
     let offset = float(shape.thickness) / 2.0 + 24.0
     let midx = float(shape.x0 + shape.x1) / 2.0
     let midy = float(shape.y0 + shape.y1) / 2.0
-    result.add ClassifiedSite(
-      p: walkableOffset(midx, midy, px, py, offset), class: scAlley, isMouth: false)
-    result.add ClassifiedSite(
-      p: walkableOffset(float(shape.x0), float(shape.y0), px, py, offset),
-      class: scAlley, isMouth: true)
-    result.add ClassifiedSite(
-      p: walkableOffset(float(shape.x1), float(shape.y1), px, py, offset),
-      class: scAlley, isMouth: true)
+    let (midP, midOk) = walkableOffset(midx, midy, px, py, offset)
+    if midOk:
+      result.add ClassifiedSite(p: midP, class: scAlley, isMouth: false)
+    let (p0, ok0) = walkableOffset(float(shape.x0), float(shape.y0), px, py, offset)
+    if ok0:
+      result.add ClassifiedSite(p: p0, class: scAlley, isMouth: true)
+    let (p1, ok1) = walkableOffset(float(shape.x1), float(shape.y1), px, py, offset)
+    if ok1:
+      result.add ClassifiedSite(p: p1, class: scAlley, isMouth: true)
 
 proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
   ## Reuses THE BURROW REQUIREMENT's own technique (round 12,
@@ -5412,6 +5422,32 @@ proc placeItemsGraded(m: var BrMap) =
   ## inserting or removing a decision anywhere else in the generator can
   ## never shift this draw.
   let sites = classifySites(m)
+  ## ROUND 14 FIX (4b): alleyCandidatesFromDiagonals used to be able to
+  ## hand back a candidate sitting ON A WALL cell (its walkableOffset
+  ## dead-end fallback, now dropped instead of returned — see that proc's
+  ## own comment). Assert the invariant holds for every ALLEY site this
+  ## draw actually places items over, so a regression in that specific
+  ## fallback crashes loud here instead of quietly shipping an item on an
+  ## unreachable wall pixel.
+  ##
+  ## SCOPED to scAlley on purpose, not every class: a broader sweep across
+  ## 30 real seeds (temporary diagnostic, not shipped) found scRoom and
+  ## scHotspot sites landing on a wall cell too — 79 occurrences across
+  ## 23/30 seeds (43 hotspot, 36 room), NONE of them alley. That is a
+  ## real, separate, PRE-EXISTING defect (almost certainly authored POI
+  ## `center`/`rooms` points that generation-time carving/complex-accretion
+  ## later builds wall over, never re-validated against the FINISHED
+  ## geometry) — out of scope for this lane's four fixes and not something
+  ## an assertion here should turn into a hard crash. Flagged for a
+  ## follow-up, not fixed in this commit.
+  for s in sites:
+    if s.class != scAlley: continue
+    var onWall = false
+    for ob in m.obstacles:
+      if inShape(s.p.x, s.p.y, ob): onWall = true; break
+    doAssert not onWall,
+      &"placeItemsGraded: classified alley site at ({s.p.x},{s.p.y}) " &
+      &"is inside an obstacle (seed={m.genSeed})"
   var byClass: array[SiteClass, seq[ClassifiedSite]]
   for s in sites: byClass[s.class].add s
 
@@ -6196,6 +6232,34 @@ proc ensureFullAccessibility(
     if sealRects.len > 0:
       for r in sealRects: m.obstacles.add rectShapeBr(r.x, r.y, r.w, r.h)
     carveCorridors(m, corridors)
+  ## ROUND 14 FIX (4a): MaxIters used to be a SILENT cap — if the loop ran
+  ## out of iterations with unreachable cells still standing, the proc just
+  ## returned whatever tunneled/sealed counts it had accumulated, with no
+  ## record that the repair gave up early rather than actually converging.
+  ## With fix 3's strict generate gate, a map left in this state is refused
+  ## anyway (fullAccessPass reads unreachableFloorCells != 0) — but refusal
+  ## alone doesn't say WHY, and --lenient bypasses the refusal entirely. Do
+  ## one more cheap flood-fill pass (same cost as any other iteration) and,
+  ## if it still finds more than one walkable component, name the seed and
+  ## the outstanding orphan mass loudly on stderr.
+  block finalAccessibilityCheck:
+    let (cols, rows) = gridDims(m.width, m.height)
+    let wall = buildWallGrid(m)
+    var walkable = newSeq[bool](wall.len)
+    for i in 0 ..< wall.len: walkable[i] = not wall[i]
+    let comp = components(walkable, cols, rows, true, false)
+    if comp.sizes.len <= 1: break finalAccessibilityCheck
+    var mainSize = -1
+    var totalWalkable = 0
+    for lbl, sz in comp.sizes:
+      totalWalkable += sz
+      if sz > mainSize: mainSize = sz
+    let orphanPx2 = (totalWalkable - mainSize) * GridStride * GridStride
+    stderr.writeLine(
+      &"WARNING: ensureFullAccessibility HIT MaxIters={MaxIters} on seed={m.genSeed} " &
+      &"— {comp.sizes.len - 1} orphan component(s), {orphanPx2}px^2 STILL unreachable " &
+      &"after repair. This map will be REFUSED by the strict generate gate " &
+      &"(fullAccessPass) unless --lenient is passed.")
   (totalTunneled, totalSealed)
 
 # --- metrics -------------------------------------------------------------------
@@ -7085,10 +7149,53 @@ proc selftestClassifierGoldens(failCount: var int) =
     expectOk("rich-poi/center-classifies-scHotspot",
       classifyPoint(MapPoint(x: 450, y: 450), sites) == scHotspot, failCount)
 
+proc selftestAlleyFallbackDrops(failCount: var int) =
+  ## ROUND 14 fix 4b: when BOTH perpendicular offsets are blocked,
+  ## walkableOffset must DROP the candidate, not fall back onto the wall's
+  ## own centerline (inside solid, by construction — the pre-fix
+  ## behavior). Box the diagonal's midpoint in on both perpendicular sides
+  ## so neither offset attempt can succeed; the two MOUTH candidates (at
+  ## the segment's endpoints, un-boxed) must still place normally.
+  stderr.writeLine("-- fix 4b: blocked-both-sides alley offset drops, never lands on a wall --")
+  var m = BrMap(width: 900, height: 900, gunRange: 300)
+  let diag = ArenaShape(
+    kind: shapeDiagonal, x0: 200, y0: 200, x1: 400, y1: 400, thickness: 30)
+  m.obstacles.add diag
+  let dx = float(diag.x1 - diag.x0)
+  let dy = float(diag.y1 - diag.y0)
+  let length = sqrt(dx * dx + dy * dy)
+  let ux = dx / length
+  let uy = dy / length
+  let px = -uy
+  let py = ux
+  let offset = float(diag.thickness) / 2.0 + 24.0
+  let midx = float(diag.x0 + diag.x1) / 2.0
+  let midy = float(diag.y0 + diag.y1) / 2.0
+  for sgn in [1.0, -1.0]:
+    let cx = int(midx + px * offset * sgn)
+    let cy = int(midy + py * offset * sgn)
+    m.obstacles.add ArenaShape(kind: shapeDisc, cx: cx, cy: cy, radius: 25)
+  let alleys = alleyCandidatesFromDiagonals(m)
+  expectOk("alley-fallback/mouths-still-placed", alleys.len == 2, failCount,
+    &"got {alleys.len}")
+  var midpointCount = 0
+  for a in alleys:
+    if not a.isMouth: inc midpointCount
+  expectOk(
+    "alley-fallback/boxed-midpoint-DROPPED-not-returned-on-the-wall",
+    midpointCount == 0, failCount, &"got {midpointCount} midpoint candidate(s)")
+  for a in alleys:
+    var onWall = false
+    for s in m.obstacles:
+      if inShape(a.p.x, a.p.y, s): onWall = true
+    expectOk(&"alley-fallback/candidate-not-on-wall-({a.p.x},{a.p.y})",
+      not onWall, failCount)
+
 proc cmdSelftest(a: Args) =
   var failCount = 0
   selftestConfettiPrune(failCount)
   selftestClassifierGoldens(failCount)
+  selftestAlleyFallbackDrops(failCount)
   stderr.writeLine("")
   if failCount == 0:
     stderr.writeLine("selftest: ALL PASS")
