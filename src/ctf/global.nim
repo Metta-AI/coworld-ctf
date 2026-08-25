@@ -6489,9 +6489,15 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
   ## outside it (the caller skips d <= 0). Splats near the frontier may
   ## overhang the boundary line by design — that reads as a paint edge
   ## rather than a ruler line — while the safe rect's floor stays clean.
-  if d >= ZoneDrownDepthPx:
-    return ZoneDrownPaint
+  ## The drowned fill RAMPS IN rather than switching on at a depth. A hard
+  ## `if d >= drownDepth` threshold draws a perfectly straight line at that
+  ## depth, parallel to the rect — the traceable-rectangle failure this art
+  ## exists to avoid, just moved inland. Screenshot review caught exactly
+  ## that seam. Above the ramp's top the fill is opaque and the line is
+  ## invisible because there is nothing to contrast with.
   let depthPct = clamp(d * 100 div max(1, ZoneDrownDepthPx), 0, 100)
+  if d >= ZoneDrownDepthPx * 2:
+    return ZoneDrownPaint
   var best = 0.0
   let
     cell = ZoneSplatCellPx
@@ -6523,7 +6529,9 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
         float(px), float(py),
         float(cellPx) + jitterX, float(cellPy) + jitterY,
         float(ZoneSplatSizePx), variant))
-  if best <= 0.02:
+  if best <= 0.02 and d < ZoneDrownDepthPx div 2:
+    ## Only the shallow frontier leaves bare floor; deeper in, an unsplatted
+    ## pixel still takes the flood below so the mass has no pinholes.
     return rgba(0, 0, 0, 0)
   ## Grain frays every outline so no splat shows an analytic edge — the same
   ## reason buildPaintStainSprite does it.
@@ -6531,15 +6539,34 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
     g = zoneSplatHash(px, py)
     grain = float(int((g shr 16) mod 1000'u32)) / 1000.0
     frayed = best - 0.28 * grain
-  if frayed <= 0.02:
+  if frayed <= 0.02 and d < ZoneDrownDepthPx div 2:
     return rgba(0, 0, 0, 0)
   ## Deeper ground is wetter with paint: alpha rises across the band, so the
   ## frontier's scouts are faint and the mass behind them is opaque.
   let
     cover = clamp(frayed, 0.0, 1.0)
     depthGain = 0.55 + 0.45 * float(depthPct) / 100.0
-    a = clamp(255.0 * cover * depthGain, 0.0, 255.0)
-  rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b, uint8(a))
+    splatA = 255.0 * cover * depthGain
+    ## Flood: nothing until the splats are already dense, then rising to
+    ## full by twice the drown depth. Because it is a RAMP the eye never
+    ## finds an edge, and because the splats above it stay brighter the
+    ## surface keeps its texture instead of going flat the moment the flood
+    ## arrives.
+    floodT = clamp(
+      (float(d) - float(ZoneDrownDepthPx) * 0.55) /
+        (float(ZoneDrownDepthPx) * 1.45), 0.0, 1.0)
+    floodA = floodT * float(ZoneDrownPaint.a)
+    a = clamp(max(splatA, floodA), 0.0, 255.0)
+    ## Old paint settles darker; fresh splats at the lip stay pink. Blend
+    ## the two by the same ramp so colour and coverage agree.
+    mixT = floodT
+    mixR = uint8(float(ZoneSplatPaint.r) * (1.0 - mixT) +
+      float(ZoneDrownPaint.r) * mixT)
+    mixG = uint8(float(ZoneSplatPaint.g) * (1.0 - mixT) +
+      float(ZoneDrownPaint.g) * mixT)
+    mixB = uint8(float(ZoneSplatPaint.b) * (1.0 - mixT) +
+      float(ZoneDrownPaint.b) * mixT)
+  rgba(mixR, mixG, mixB, uint8(a))
 
 proc buildTideBarPixels(
   rect: MapRect, barX, barY, width, height: int
