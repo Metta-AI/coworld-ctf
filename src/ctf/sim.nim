@@ -5307,6 +5307,12 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
       # product of separation and victim velocity: positive means opening the
       # gap, which is the chase the crowd came to watch.
       opening = dx * victim.velX + dy * victim.velY
+      # Escort = a TEAMMATE, not the killer, is currently running the enemy
+      # heart. `sim.flags[enemy(team)].carrier`'s owner is always on `team`
+      # by construction (`tryPickupFlags` only ever sets it to the stealing
+      # player), so the team check is a defensive mirror of `awardDeed`'s own
+      # `carrying` computation rather than a load-bearing one.
+      escortCarrier = sim.flags[enemy(killer.team)].carrier
       ctx = KillContext(
         friendly: victim.team == killer.team,
         victimCarrying: victim.carryingFlag,
@@ -5320,7 +5326,9 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
         avengesKiller: killer.lastKilledBy == targetIndex and
                        killer.lastKilledByTick >= 0 and
                        sim.tickCount - killer.lastKilledByTick <= RevengeTicks,
-        fleeing: opening > 0
+        fleeing: opening > 0,
+        escorted: escortCarrier >= 0 and escortCarrier != killerIndex and
+                  sim.players[escortCarrier].team == killer.team
       )
     let deed = killDeed(ctx)
     sim.awardDeed(killer.team, deed, victim.x, victim.y,

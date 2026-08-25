@@ -448,6 +448,226 @@ suite "glory in the sim: determinism and the audit":
     check sim.deedCounts[dFirstBlood] == 1
     check sim.deedCounts[dLevelUp] > 0
 
+suite "glory in the sim: every priced deed mints somewhere (fire-counter audit)":
+
+  test "AUDIT -- every nonzero-priced deed is minted in a scripted scenario":
+    # glory.nim section 8's rule, made an assertion rather than a readout: a
+    # deed with a price and zero mint sites is dead code wearing a name, and
+    # it is indistinguishable from a live one until something COUNTS. Every
+    # deed below gets its own minimal, real-engine trigger; `seen` is proof it
+    # actually fired, not a hand-set counter standing in for one.
+    #
+    # `dFlagReturn` is not here: it no longer exists in the enum. The
+    # tombstone comment on `Deed` (glory.nim) is the record of why it was
+    # retired instead of wired -- every path that can return a heart traces
+    # back to either a kill (already priced as dCarrierKill/dDenial) or a
+    # non-act (disconnect / stale index) with no honest earner to credit.
+    var seen: array[Deed, int]
+    template mark(sim: SimServer) =
+      for deed in Deed:
+        seen[deed] += sim.deedCounts[deed]
+
+    # dFirstBlood (stacks on the episode's first kill) + dHonorableKill (a
+    # plain gun kill at mid-range: clear of both PointBlankPx and LongshotPx).
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 600
+      sim.players[1].y = 300
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dSprayKill
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 600
+      sim.players[1].y = 300
+      sim.killPlayer(1, 0, "spray")
+      mark(sim)
+
+    # dGrenadeKill
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 600
+      sim.players[1].y = 300
+      sim.killPlayer(1, 0, "grenade")
+      mark(sim)
+
+    # dPointBlankKill
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 300 + PointBlankPx - 10
+      sim.players[1].y = 300
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dLongshotKill
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 100
+      sim.players[0].y = 300
+      sim.players[1].x = 100 + LongshotPx + 10
+      sim.players[1].y = 300
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dRevengeKill: the killer answers the cog that killed them, in-window.
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 600
+      sim.players[1].y = 300
+      sim.players[0].lastKilledBy = 1
+      sim.players[0].lastKilledByTick = sim.tickCount
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dRunDown: the victim's velocity is opening the gap.
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 600
+      sim.players[1].y = 300
+      sim.players[1].velX = 50
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dStarfall: a level>=StarfallLevel victim.
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[1].x = 600
+      sim.players[1].y = 300
+      sim.addXp(1, LevelThresholds[StarfallLevel - 1])
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dTeamKill: a friendly kill.
+    block:
+      var sim = twoRedOneBlue()
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dCarrierKill: the victim carries, far from their OWN home.
+    block:
+      var sim = twoTeamGame()
+      let farHome = sim.gameMap.flagHome(Red)   # far from Blue's own home
+      sim.flags[Red].carrier = 1
+      sim.players[1].carryingFlag = true
+      sim.players[1].x = farHome.x
+      sim.players[1].y = farHome.y
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dDenial: the victim carries, inside DenialPx of their OWN home.
+    block:
+      var sim = twoTeamGame()
+      let ownHome = sim.gameMap.flagHome(Blue)
+      sim.flags[Red].carrier = 1
+      sim.players[1].carryingFlag = true
+      sim.players[1].x = ownHome.x
+      sim.players[1].y = ownHome.y
+      sim.killPlayer(1, 0, "gun")
+      mark(sim)
+
+    # dEscortKill: a kill lands while a TEAMMATE (not the killer) carries.
+    block:
+      var sim = twoRedOneBlue()      # Red 0, Red 1, Blue 2
+      sim.flags[Blue].carrier = 1    # Red 1 (a teammate of the killer) runs it
+      sim.players[1].carryingFlag = true
+      sim.players[0].x = 300
+      sim.players[0].y = 300
+      sim.players[2].x = 600
+      sim.players[2].y = 300
+      sim.killPlayer(2, 0, "gun")    # Red 0 kills Blue while Red 1 carries
+      mark(sim)
+
+    # dSplashMultiKill
+    block:
+      var sim = twoTeamGame()
+      sim.killPlayer(1, 0, "gun", multi = true)
+      mark(sim)
+
+    # dFlagSteal
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].x = sim.flags[Blue].x
+      sim.players[0].y = sim.flags[Blue].y
+      sim.tryPickupFlags(0)
+      mark(sim)
+
+    # dCapture: a live carrier inside their own capture zone.
+    block:
+      var sim = twoTeamGame()
+      let home = sim.gameMap.flagHome(Red)
+      sim.flags[Blue].carrier = 0
+      sim.players[0].carryingFlag = true
+      sim.players[0].x = home.x
+      sim.players[0].y = home.y
+      sim.checkWinCondition()
+      mark(sim)
+
+    # dClutchHeal
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].hp = 1
+      sim.players[0].x = sim.medKitSpawns[0].x
+      sim.players[0].y = sim.medKitSpawns[0].y
+      sim.tryPickupMedKits(0)
+      mark(sim)
+
+    # dShieldSoak
+    block:
+      var sim = twoTeamGame()
+      sim.players[0].hasShield = true
+      sim.players[0].shieldHp = 3
+      sim.absorbDamage(0, 3)
+      mark(sim)
+
+    # dWipe
+    block:
+      var sim = twoTeamGame()
+      sim.players[1].lives = 0
+      sim.killPlayer(1, 0, "gun")
+      sim.checkWinCondition()
+      mark(sim)
+
+    # dLevelUp
+    block:
+      var sim = twoTeamGame()
+      sim.addXp(0, LevelThresholds[0])
+      mark(sim)
+
+    # dAchievement
+    block:
+      var sim = twoTeamGame()
+      sim.phase = Playing
+      sim.players[0].gunKills = 1
+      sim.evalAchievements(Red)
+      mark(sim)
+
+    var missing: seq[string]
+    for deed in Deed:
+      if deed == dNone:
+        continue
+      if deedGlory(deed) == 0 and deedDrama(deed) == 0:
+        continue          # priced at nothing: not this test's business
+      if seen[deed] == 0:
+        missing.add deedName(deed)
+    if missing.len > 0:
+      echo "  DEAD DEED(S): ", missing.join(", ")
+    check missing.len == 0
+
 suite "glory in the sim: the achievement curriculum FIRES":
 
   test "tier I claims on the mechanic, once, and only once":

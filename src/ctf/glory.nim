@@ -56,15 +56,39 @@ type
                        ## death gap before v59; pricing it keeps it closed.
 
     # ── Objective ────────────────────────────────────────────────────────
+    #
+    # 🚨 RETIRED (2026-08-24, LEDGER audit C2): `dFlagReturn` (was priced 35g)
+    # used to sit here, between `dFlagSteal` and `dCapture`, and never had a
+    # mint site. Traced every path that can move `sim.flags[team].carrier`
+    # back to -1 (`resetFlag`'s four call sites, sim.nim): (1) the carrier
+    # dies -- priced ALREADY, as `dCarrierKill`/`dDenial` at the kill site;
+    # `killXp`'s own comment says it outright ("the heart returns home when
+    # its carrier dies, so in THIS game the peel IS the return"), so wiring a
+    # second deed here would DOUBLE-PAY one act. (2) the carrier disconnects
+    # (`removePlayerAt`) or its index goes stale (`updateFlags`'s "vanished"
+    # branch) -- neither is a player ACT: nobody did anything, so there is no
+    # honest `byIndex` to credit, the same bystander-credit problem that
+    # already killed the `returns` counter and the old "Eyes Back"
+    # achievement (see `resetFlag`'s comment). This engine has no third path
+    # -- no dropped-flag-lies-on-the-ground-until-touched mechanic exists; a
+    # flag is always either on its pedestal or glued to a live carrier. So
+    # there is no act left for `dFlagReturn` to price. Deleted from the enum,
+    # `DeedGloryTable`, `DeedDramaTable` and `deedName` rather than left as
+    # inert dead weight.
     dFlagSteal         ## the heart left its pedestal on your back.
-    dFlagReturn        ## you sent your heart home.
     dCapture           ## you scored the enemy heart.
     dCarrierKill       ## THE PEEL: killing the enemy carrier. Invisible in
                        ## every readout we own today, and the highest-value
                        ## defensive act in the game.
     dDenial            ## killing a carrier inside DenialPx of their home —
                        ## the capture stopped on the doorstep.
-    dEscortKill        ## a kill landed while a teammate carries: the escort.
+    dEscortKill        ## a kill landed while a TEAMMATE carries -- not the
+                       ## killer, who gets `dCarrierKill`'s own carry
+                       ## multiplier for that. This is covering the runner:
+                       ## a kill that happens because your own attack is live
+                       ## is still a distinct act from the carry itself, so it
+                       ## does not double-pay the steal or the eventual
+                       ## capture. Wired via `KillContext.escorted`.
 
     # ── Survival and support ─────────────────────────────────────────────
     dClutchHeal        ## healing at 1 hp. Our medkit rate is 0.62/Ep against
@@ -139,7 +163,6 @@ const
     -60,    # dTeamKill  (NEGATIVE: a teammate's life at full price)
     # objective
     40,     # dFlagSteal
-    35,     # dFlagReturn
     250,    # dCapture
     90,     # dCarrierKill
     120,    # dDenial
@@ -169,7 +192,6 @@ const
     0,      # dTeamKill — anti-drama; it costs glory but must never light heat
     # objective
     25,     # dFlagSteal
-    15,     # dFlagReturn
     70,     # dCapture
     35,     # dCarrierKill
     45,     # dDenial
@@ -801,12 +823,26 @@ type
     weaponGrenade*: bool
     avengesKiller*: bool   ## the victim had killed this cog inside RevengeTicks.
     fleeing*: bool         ## the victim was moving away from the killer.
+    escorted*: bool        ## a TEAMMATE of the killer -- not the killer --
+                           ## currently carries the enemy heart. Distinct from
+                           ## `victimCarrying`, which is about what the VICTIM
+                           ## held; this is about what the KILLER's own side
+                           ## is running. The killer's own carry already gets
+                           ## `CarrierHoldMultPct`'s multiplier through
+                           ## `mintGlory`, so this prices covering the runner
+                           ## as its own act rather than double-counting theirs.
 
 func killDeed*(ctx: KillContext): Deed =
   ## Resolve a kill to its ONE deed. Order is the pricing hierarchy: the
   ## penalty first so a friendly kill can never be dressed up as a highlight,
   ## then the objective context (what the victim was DOING outranks how they
-  ## were shot), then the shot itself.
+  ## were shot), then the shot itself. `escorted` sits below every marquee
+  ## kill descriptor (starfall, multi, longshot, point-blank, revenge,
+  ## rundown) -- it describes the surrounding TEAM context, not the kill
+  ## itself, so a kill that is ALSO one of those stays classified as the more
+  ## specific, rarer feat. It sits above the plain weapon/floor tiers so an
+  ## escort kill is reachable at all: those three would otherwise catch every
+  ## remaining kill first.
   if ctx.friendly: return dTeamKill
   if ctx.victimCarrying and ctx.nearVictimHome: return dDenial
   if ctx.victimCarrying: return dCarrierKill
@@ -816,6 +852,7 @@ func killDeed*(ctx: KillContext): Deed =
   if ctx.rangePx <= PointBlankPx: return dPointBlankKill
   if ctx.avengesKiller: return dRevengeKill
   if ctx.fleeing: return dRunDown
+  if ctx.escorted: return dEscortKill
   if ctx.weaponSpray: return dSprayKill
   if ctx.weaponGrenade: return dGrenadeKill
   dHonorableKill
@@ -872,7 +909,6 @@ func deedName*(deed: Deed): string =
   of dStarfall: "starfall"
   of dTeamKill: "own paint"
   of dFlagSteal: "heart steal"
-  of dFlagReturn: "heart return"
   of dCapture: "capture"
   of dCarrierKill: "the peel"
   of dDenial: "doorstep stop"
