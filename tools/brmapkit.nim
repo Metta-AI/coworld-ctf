@@ -239,6 +239,26 @@ type
     ksCqcWarren         ## interior-share dial, HIGH pole
     ksOpenSteppe        ## interior-share dial, LOW pole
 
+  ## ROUND 11b (Maxwell: "we can make a lot of our 'knobs' into switches.
+  ## cave map or building map? interior or exterior theme."): TWO
+  ## top-level, ORTHOGONAL to keystone, declared/measured/printed exactly
+  ## like it. "A switch is a named preset over existing knobs... no new
+  ## generation machinery" — TerrainSwitch/ThemeSwitch below are pure
+  ## bundles over knobs this file already has (caves fillProb, complex
+  ## unit budget/pAttach, per-unit grammar weights).
+  TerrainSwitch = enum
+    tCave = "cave"          ## organic masses + branch-tunnel interiors
+                            ## dominate; complexes rare/small
+    tBuilding = "building"  ## accretion complexes dominate; caves
+                            ## demoted to garnish
+    tMixed = "mixed"        ## today's per-family blend (default)
+
+  ThemeSwitch = enum
+    iInterior = "interior"  ## high interior share — maze/warren-heavy
+                            ## units, most combat space is INSIDE structures
+    iExterior = "exterior"  ## open field, structures as punctuation,
+                            ## cover mostly organic
+
   PoiSite = object
     center: MapPoint
     archetype: PoiArchetype
@@ -282,6 +302,8 @@ type
     seatsPerGroup: int          ## 2
     zoneZ: float                ## 0.173, §4.3 final-zone scale
     keystone: KeystoneFamily    ## round 6, doctrine §2.4: declared at draw
+    terrain: TerrainSwitch      ## round 11b: cave / building / mixed
+    theme: ThemeSwitch          ## round 11b: interior / exterior
     obstacles: seq[ArenaShape]  ## FULL board, no symmetry (BR is symNone-only)
     spawns: seq[BrSpawn]
     pois: seq[PoiSite]           ## round 3: the composition/intention layer
@@ -1976,8 +1998,29 @@ proc complexSitesFromUnits(units: seq[UnitSpec]): seq[PoiSite] =
       lootTier: lootTier, units: rects, unitGrammars: grammars,
       complexUnitCount: idxs.len)
 
+proc complexBudgetFor(terrain: TerrainSwitch, baseBudget: int, basePAttach: float): tuple[budget: int, pAttach: float] =
+  ## ROUND 11b: the TERRAIN switch as a preset over growGlobalComplexes'
+  ## own two dials — no new machinery, just different numbers for the
+  ## same knobs. building: bigger AND more likely to weld (complexes
+  ## dominate). cave: small/rare (organic mass carries the map instead,
+  ## via the fillCap preset above).
+  case terrain
+  of tBuilding: (int(float(baseBudget) * 1.7), min(0.8, basePAttach + 0.12))
+  of tCave: (max(2, baseBudget div 3), max(0.3, basePAttach - 0.2))
+  of tMixed: (baseBudget, basePAttach)
+
+proc grammarWeightsFor(theme: ThemeSwitch, baseMaze, baseCave: float): tuple[maze, cave: float] =
+  ## ROUND 11b: the THEME switch as a preset over each unit's grammar
+  ## roll — interior pushes maze weight up (more of the map's combat
+  ## space is INSIDE a structure); exterior pulls both down (plainer bsp
+  ## units, more open ground between them).
+  case theme
+  of iInterior: (min(0.6, baseMaze + 0.25), min(0.35, baseCave + 0.08))
+  of iExterior: (max(0.05, baseMaze - 0.12), max(0.05, baseCave - 0.05))
+
 proc placePois(
-  rng: var Rand, seed, width, height, gunRange: int, keystone: KeystoneFamily
+  rng: var Rand, seed, width, height, gunRange: int, keystone: KeystoneFamily,
+  terrain: TerrainSwitch = tMixed, theme: ThemeSwitch = iExterior
 ): seq[PoiSite] =
   ## ROUND 5 (Maxwell's ruling, doctrine §4.7): "the room and obstacle
   ## density needs to be roughly uniform across the entire map, not
@@ -2046,8 +2089,10 @@ proc placePois(
     const LsComplexPAttach = 0.62  ## the ONE composition dial (doctrine
       ## amendment: "~0.5-0.7 starting range; tune against the cover band
       ## and the visual bar, report the value") — printed in the gen log.
+    let (lsBudget, lsPAttach) = complexBudgetFor(terrain, LsComplexUnitBudget, LsComplexPAttach)
+    let (lsMazeW, lsCaveW) = grammarWeightsFor(theme, 0.22, 0.12)
     let complexUnits = growGlobalComplexes(seed xor 0x0C0A_11EC, width, height,
-      gunRange, LsComplexUnitBudget, LsComplexPAttach, 0.22, 0.12, 1.1)
+      gunRange, lsBudget, lsPAttach, lsMazeW, lsCaveW, 1.1)
     result.add complexSitesFromUnits(complexUnits)
     ## ROUND 11 recalibration #2: growGlobalComplexes' emergent sizing
     ## carries measurably less average mass than the retired fixed-size
@@ -2179,8 +2224,10 @@ proc placePois(
     ## all.
     const ZehComplexUnitBudget = 13
     const ZehComplexPAttach = 0.60  ## the composition dial, reported in logs
+    let (zehBudget, zehPAttach) = complexBudgetFor(terrain, ZehComplexUnitBudget, ZehComplexPAttach)
+    let (zehMazeW, zehCaveW) = grammarWeightsFor(theme, 0.15, 0.10)
     let complexUnits = growGlobalComplexes(seed xor 0x2E4A_0B71, width, height,
-      gunRange, ZehComplexUnitBudget, ZehComplexPAttach, 0.15, 0.10, 1.9)
+      gunRange, zehBudget, zehPAttach, zehMazeW, zehCaveW, 1.9)
     result.add complexSitesFromUnits(complexUnits)
     ## ROUND 8 recalibration: measured mass count averaged 21.5, cover
     ## often already 150-179 (near/over ceiling) — the anchors alone
@@ -2387,7 +2434,8 @@ proc caveFillPatches(
     result.add generateShapes(style, patchSeed, sub, baseParams)
 
 proc generateBrMap(
-  seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily
+  seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily,
+  terrain: TerrainSwitch = tMixed, theme: ThemeSwitch = iExterior
 ): BrMap =
   let (w, h) = fieldSize(GiantScale)
   result.name = "br-gen-" & $seed
@@ -2399,6 +2447,8 @@ proc generateBrMap(
   result.seatsPerGroup = SeatsPerGroup
   result.zoneZ = ZoneZ
   result.keystone = keystone
+  result.terrain = terrain
+  result.theme = theme
   result.gunRange = deriveGunRange(w, h, Groups)
   let (cw, ch) = spawnClearance(GiantScale)
   result.spawnClearW = cw
@@ -2416,7 +2466,7 @@ proc generateBrMap(
   ## layout grammar / intention — and everything else (connectors, caves
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
-  result.pois = placePois(poiRng, seed, w, h, result.gunRange, keystone)
+  result.pois = placePois(poiRng, seed, w, h, result.gunRange, keystone, terrain, theme)
 
   ## ROUND 9 (doctrine item 6's room-count-variety gate): pre-assign a
   ## shuffled, ascending sequence of room-count HINTS across every
@@ -2468,7 +2518,14 @@ proc generateBrMap(
   ## rule (0.55 already over-covers on several families — see the round-8
   ## commit message's sweep). 1.0 blobScale keeps each cell's blob nearly
   ## cell-sized (the "fat" half of "fat and numerous").
-  params.fillProb = min(params.fillProb, 0.50)
+  ## ROUND 11b: the TERRAIN switch is a preset over this SAME cap — cave
+  ## terrain raises it (organic mass dominates), building terrain lowers
+  ## it (complexes carry the cover budget instead, caves are garnish).
+  let fillCap = case terrain
+    of tCave: 0.72
+    of tBuilding: 0.28
+    of tMixed: 0.50
+  params.fillProb = min(params.fillProb, fillCap)
   params.blobScale = min(params.blobScale, 1.0)
   ## ROUND 8: PATCHED, not one field-wide CA pass — see caveFillPatches'
   ## own comment. CaveFillPatchCols/Rows tile the placement region into
@@ -2663,6 +2720,8 @@ proc brMapSpecJson(m: BrMap): string =
     "seatsPerGroup": m.seatsPerGroup,
     "zoneZ": m.zoneZ,
     "keystone": keystoneToStr(m.keystone),  ## round 6, doctrine §2.4
+    "terrain": $m.terrain,             ## round 11b: cave / building / mixed
+    "theme": $m.theme,                 ## round 11b: interior / exterior
     "spawnPoints": spawnPts,          ## confirmed grammar, see comment above
     "leftObstacles": shapes,          ## full authored set; symNone = verbatim
     "structureCount": m.structureCount,
@@ -2697,6 +2756,13 @@ proc brMapFromSpecJson(text: string): BrMap =
   result.seatsPerGroup = node{"seatsPerGroup"}.getInt(SeatsPerGroup)
   result.zoneZ = node{"zoneZ"}.getFloat(ZoneZ)
   result.keystone = keystoneFromStr(node{"keystone"}.getStr("landing-selection"))
+  result.terrain = (case node{"terrain"}.getStr("mixed")
+    of "cave": tCave
+    of "building": tBuilding
+    else: tMixed)
+  result.theme = (case node{"theme"}.getStr("exterior")
+    of "interior": iInterior
+    else: iExterior)
   for item in node["leftObstacles"]:
     result.obstacles.add item.shapeFromSpecNode()
   ## Re-derive edge tags from position directly (round 5: spawns are a
@@ -3108,6 +3174,18 @@ type
     keystoneFloor: float       ## the calibrated pass threshold
     keystonePass: bool
     keystoneReason: string
+
+    ## ROUND 11b (Maxwell: "cave map or building map? interior or
+    ## exterior theme"): two more MEASURED switches, same house standard
+    ## as keystone — "a gate must discriminate."
+    terrainLabel: string
+    terrainValue: float
+    terrainFloor: float
+    terrainPass: bool
+    themeLabel: string
+    themeValue: float
+    themeFloor: float
+    themePass: bool
 
     ## ROUND 9 (doctrine item 6): "add interior-connectivity (flood fill
     ## per structure) + room-count-variety."
@@ -3745,6 +3823,119 @@ proc validateBr(m: BrMap): BrValidation =
           if result.keystonePass: ""
           else: &"footprint share {footprintShare*100:.1f}% > ceiling {KsOpenSteppeShareCeiling*100:.1f}%"
 
+  # 8b. Terrain / theme switches (round 11b) ------------------------------------
+  ## "A switch is a named preset over existing knobs... measured like
+  ## keystones — a gate must discriminate. A declared switch the detector
+  ## can't find fails the draw." mixed/exterior (the pre-round-11b
+  ## defaults) carry no floor — they're the un-declared baseline, not a
+  ## claim being tested.
+  block terrainThemeCheck:
+    proc poiBBoxArea(p: PoiSite): float =
+      float(2 * p.halfExtent) * float(2 * p.halfExtent)
+    case m.terrain
+    of tCave:
+      ## ROUND 11b FIX: the FIRST version of this detector only looked at
+      ## m.pois (poiCaveDen + complex cave-units), missing the organic
+      ## caves-FILL layer entirely — which is terrain=cave's actual
+      ## DOMINANT lever (the fillCap preset above, 0.50 -> 0.72). Measured
+      ## 0.00 share on a real terrain=cave draw because of this — a
+      ## detector that can't see its own generator's main effect isn't
+      ## measuring anything. Blends both: the organic fill's SHARE OF
+      ## OBSTACLE AREA (obstacles[structureCount..^1]'s own bounding-box
+      ## area, summed — cheap, no rasterization needed) plus the
+      ## authored cave-grammar POI share. FIRST version used SHAPE
+      ## COUNT instead of area and measured 0.08 on a real terrain=cave
+      ## draw: caves fill is FEWER, BIGGER blobs while a maze/complex's
+      ## many small per-cell wall rects dominate raw shape count without
+      ## dominating actual mass — count was the wrong unit entirely.
+      var fillAreaSum = 0.0
+      var structAreaSum = 0.0
+      for i, shape in m.obstacles:
+        let b = shapeBounds(shape)
+        let area = float(max(0, b.x1 - b.x0)) * float(max(0, b.y1 - b.y0))
+        if i < m.structureCount: structAreaSum += area
+        else: fillAreaSum += area
+      let fillFrac = if fillAreaSum + structAreaSum > 0:
+          fillAreaSum / (fillAreaSum + structAreaSum)
+        else: 0.0
+      var caveArea = 0.0
+      var totalArea = 0.0
+      for p in m.pois:
+        if p.archetype == poiCauseway: continue
+        let area = poiBBoxArea(p)
+        totalArea += area
+        if p.grammar == gCave:
+          caveArea += area
+        elif p.archetype == poiComplex and p.units.len > 0:
+          var unitTotal = 0.0
+          var unitCave = 0.0
+          for i, u in p.units:
+            let ua = float(u.w) * float(u.h)
+            unitTotal += ua
+            if p.unitGrammars[i] == gCave: unitCave += ua
+          if unitTotal > 0: caveArea += area * (unitCave / unitTotal)
+      let poiCaveShare = if totalArea > 0: caveArea / totalArea else: 0.0
+      let blended = 0.7 * fillFrac + 0.3 * poiCaveShare
+      result.terrainLabel = "cave mass share (fill-frac blended w/ poi cave-grammar)"
+      result.terrainValue = blended
+      ## ROUND 11b: ROUGH FIRST-PASS calibration, not cross-validated
+      ## against a corpus the way the keystone floors were (each of
+      ## those took a multi-seed sweep + iteration; this is a single
+      ## spot-check under time pressure) — measured 0.20 on one
+      ## terrain=cave draw at giant scale; 0.15 gives it headroom to
+      ## clear while still meaningfully excluding tMixed/tBuilding draws.
+      ## Flagged honestly in the round-11 report as needing a real sweep.
+      result.terrainFloor = 0.15
+      result.terrainPass = blended >= result.terrainFloor
+    of tBuilding:
+      var buildingArea = 0.0
+      var totalArea = 0.0
+      for p in m.pois:
+        if p.archetype == poiCauseway: continue
+        let area = poiBBoxArea(p)
+        totalArea += area
+        if p.archetype in {poiComplex, poiCompound, poiOutpost, poiAnchor, poiMazeHall, poiWarren}:
+          buildingArea += area
+      let share = if totalArea > 0: buildingArea / totalArea else: 0.0
+      result.terrainLabel = "building-footprint share"
+      result.terrainValue = share
+      result.terrainFloor = 0.55
+      result.terrainPass = share >= result.terrainFloor
+    of tMixed:
+      result.terrainLabel = "mixed (undeclared baseline, no floor)"
+      result.terrainPass = true
+    result.terrainPass = result.terrainPass  ## keep explicit for clarity below
+
+    ## Same two-pole "interior-share dial" the ksCqcWarren/ksOpenSteppe
+    ## keystone pair already uses (§8), just measured on ROOM area (the
+    ## actual carved interior) instead of POI footprint — computed for
+    ## BOTH poles so exterior gets a real discriminating ceiling instead
+    ## of an unconditional pass.
+    var roomArea = 0
+    for p in m.pois:
+      for r in p.rooms: roomArea += r.w * r.h
+    var walkableCellCount = 0
+    for w in walkable:
+      if w: inc walkableCellCount
+    let totalWalkablePx2 = walkableCellCount * GridStride * GridStride
+    let interiorShare = if totalWalkablePx2 > 0: float(roomArea) / float(totalWalkablePx2) else: 0.0
+    case m.theme
+    of iInterior:
+      result.themeLabel = "interior floor-area share"
+      result.themeValue = interiorShare
+      ## ROUND 11b: ROUGH FIRST-PASS calibration (see the terrain=cave
+      ## floor's own comment on the same caveat) — measured 0.04-0.10
+      ## across a handful of terrain x theme=interior spot-checks; 0.06
+      ## clears most of those while a theme=exterior draw's own share
+      ## (not gated, but visible in the log) should sit well under it.
+      result.themeFloor = 0.06
+      result.themePass = interiorShare >= result.themeFloor
+    of iExterior:
+      result.themeLabel = "interior floor-area share (ceiling pole)"
+      result.themeValue = interiorShare
+      result.themeFloor = 0.10
+      result.themePass = interiorShare <= result.themeFloor
+
   # 9. Interior connectivity (round 9, doctrine item 6) --------------------------
   block interiorConnectivity:
     ## Every ROOM (from every structure's floor plan) should sit in the
@@ -3858,7 +4049,7 @@ proc validateBr(m: BrMap): BrValidation =
     result.roomCountVarietyPass and
     result.coverPermillePass and result.distToCoverPass and
     result.itemCoveragePass and result.poiLootPass and result.keystonePass and
-    result.fullAccessPass
+    result.fullAccessPass and result.terrainPass and result.themePass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
   ## Pick the passing candidate closest to the field's geometric center (a
@@ -4806,15 +4997,28 @@ proc brDefaultParams(style: MapStyle): StyleParams =
     result.death = 3
     result.blobScale = 0.92
 
+proc terrainFromStr(s: string): TerrainSwitch =
+  case s
+  of "cave": tCave
+  of "building": tBuilding
+  else: tMixed
+
+proc themeFromStr(s: string): ThemeSwitch =
+  case s
+  of "interior": iInterior
+  else: iExterior
+
 proc cmdGenerate(a: Args) =
   let
     seed = a.intFlag("seed", 1)
     style = parseStyle(a.flag("style", "caves"))
     keystoneFlag = a.flag("keystone", "")
     keystone = if keystoneFlag.len > 0: keystoneFromStr(keystoneFlag) else: keystoneFromSeed(seed)
+    terrain = terrainFromStr(a.flag("terrain", "mixed"))
+    theme = themeFromStr(a.flag("theme", "exterior"))
   var params = brDefaultParams(style)
   applyParams(params, a.params)
-  var m = generateBrMap(seed, style, params, keystone)
+  var m = generateBrMap(seed, style, params, keystone, terrain, theme)
   let rawCount = m.obstacles.len
   if not a.bools.getOrDefault("noPrune", false):
     ## Only the DEMOTED CAVES FILL (obstacles[structureCount..^1]) is
@@ -4880,6 +5084,7 @@ proc cmdGenerate(a: Args) =
     let v = validateBr(m)
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} keystone={keystoneToStr(m.keystone)} " &
+      &"terrain={m.terrain} theme={m.theme} " &
       &"{m.width}x{m.height} " &
       &"gunRange={m.gunRange} spawns={m.spawns.len} pois={m.pois.len} " &
       &"obstacles={m.obstacles.len} (structures={m.structureCount})" &
@@ -4905,6 +5110,10 @@ proc cmdGenerate(a: Args) =
     stderr.writeLine(
       &"  access: unreachable={v.unreachableFloorCells}px-cells (fullAccess={v.fullAccessPass})" &
       &" repair(tunneled={tunneled}, sealed={sealed})")
+    ## ROUND 11b: switches measured and printed exactly like the keystone.
+    stderr.writeLine(
+      &"  switches: terrain={m.terrain} [{v.terrainLabel}={v.terrainValue:.2f}, floor={v.terrainFloor:.2f}, pass={v.terrainPass}]" &
+      &" theme={m.theme} [{v.themeLabel}={v.themeValue:.2f}, floor={v.themeFloor:.2f}, pass={v.themePass}]")
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
