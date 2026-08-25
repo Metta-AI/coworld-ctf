@@ -1270,11 +1270,24 @@ proc stampPoi(
     ## compound's 1.6:1) since caves read as a blob, not a building.
     grammar = gCave
     let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
-    let cellSize = max(24, he div 8)
+    ## ROUND 10 FIX: the first pass sized cellSize at he/8 with a
+    ## trunkSteps budget of cols*2 and a flat chamberRadius=2 — on a
+    ## small pool entry (he~105, an 8x8 grid after the corner cut) that
+    ## over-carves nearly the WHOLE footprint in one entrance's walk,
+    ## leaving only a couple of disconnected wall scraps (reads as loose
+    ## rubble, not "a cave with branches cut OUT of solid mass"). Smaller
+    ## cells (finer grid) plus a budget and chamber size that both scale
+    ## DOWN with grid size keeps the carve a minority of the footprint at
+    ## any he.
+    let cellSize = max(18, he div 11)
     let cols = footprint.w div cellSize
+    let rows = footprint.h div cellSize
     let entranceCount = 1 + rng.rand(2)  ## 1-3
+    let trunkSteps = cols + rows
+    let chamberRadius = max(1, min(cols, rows) div 8)
+    let branchSteps = max(3, cols div 2)
     let plan = stampBranchCave(rng, footprint, cellSize, entranceCount,
-      cols * 2, 2 + rng.rand(2), cols, 2)
+      trunkSteps, 1 + rng.rand(2), branchSteps, chamberRadius)
     shapes.add plan.shapes
     rooms = plan.rooms
   (shapes, rooms, grammar)
@@ -1619,7 +1632,7 @@ proc placePois(
     ## stays sized like the yard entry it sits next to, not anchor-scale.
     let genFillerPool: seq[ArchSpec] = @[
       (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiYard, 0.30, 1),
-      (poiCaveDen, 0.32, 1),
+      (poiCaveDen, 0.55, 1),
     ]
     placeStratifiedPool(rng, result, width, height, gunRange, genFillerPool, 0.9, 5 + rng.rand(4))
   of ksZoneEdgeHolding:
@@ -1702,7 +1715,7 @@ proc placePois(
     let pool: seq[ArchSpec] = @[
       (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
       (poiYard, 0.34, 1),
-      (poiCaveDen, 0.34, 1),
+      (poiCaveDen, 0.55, 1),
     ]
     placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.5, 6 + rng.rand(3))
 
