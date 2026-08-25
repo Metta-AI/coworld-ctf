@@ -4429,22 +4429,114 @@ proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
     tryAdd(gp)
   acc
 
+const ItemSiteWallSnapRadiusPx = 24  ## ROUND 15 (fix 2, doctrine §4.9
+  ## instrument integrity): a candidate site landing on a wall cell
+  ## distorts both the declared-vs-realized occupancy gate and the
+  ## 16-spawn walk-graph fairness gate (they measure classifySites' own
+  ## points directly, never the engine's runtime spawn-time nudge). Small
+  ## enough that a snap is still legibly "the same place" — a few grid
+  ## cells, never a meaningfully different site.
+
+proc nearestWalkableCell(
+  wall: seq[bool], cols, rows: int, x, y, maxRadiusPx: int
+): tuple[p: MapPoint, ok: bool] =
+  ## Ring search (Chebyshev rings, grid-aligned) outward from (x, y)'s own
+  ## grid cell for the nearest non-wall cell, snapping to that cell's own
+  ## sample corner (buildWallGrid's convention: a cell's world position IS
+  ## gx*GridStride, gy*GridStride — the same grid classifyPoint/the
+  ## fairness gate's walk-graph BFS both already read). Deterministic, no
+  ## RNG, so re-classifying a point loaded fresh from spec.json snaps to
+  ## the exact same cell classifySites placed it on. Drops (ok=false) if
+  ## nothing walkable turns up within maxRadiusPx.
+  let (gx0, gy0) = toGrid(x, y)
+  proc idx(gx, gy: int): int = gy * cols + gx
+  proc isWalkable(gx, gy: int): bool =
+    gx >= 0 and gx < cols and gy >= 0 and gy < rows and not wall[idx(gx, gy)]
+  if isWalkable(gx0, gy0):
+    return (MapPoint(x: x, y: y), true)
+  let maxRing = maxRadiusPx div GridStride + 1
+  for ring in 1 .. maxRing:
+    if ring * GridStride > maxRadiusPx: break  ## every cell in this (and
+                                                 ## any further) ring is
+                                                 ## already past the radius
+    var bestD2 = high(int)
+    var bestP = MapPoint(x: x, y: y)
+    var found = false
+    for dgy in -ring .. ring:
+      for dgx in -ring .. ring:
+        if max(abs(dgx), abs(dgy)) != ring: continue  ## this ring's own
+                                                         ## border only —
+                                                         ## interior cells
+                                                         ## were already
+                                                         ## tried at a
+                                                         ## smaller ring
+        let gx = gx0 + dgx
+        let gy = gy0 + dgy
+        if not isWalkable(gx, gy): continue
+        let wx = gx * GridStride
+        let wy = gy * GridStride
+        let d2 = (wx - x) * (wx - x) + (wy - y) * (wy - y)
+        if d2 <= maxRadiusPx * maxRadiusPx and d2 < bestD2:
+          bestD2 = d2
+          bestP = MapPoint(x: wx, y: wy)
+          found = true
+    if found: return (bestP, true)
+  (MapPoint(x: x, y: y), false)
+
 proc classifySites(m: BrMap): seq[ClassifiedSite] =
   ## THE site classifier. Hotspots first (everything else needs
   ## distance-to-nearest-hotspot: medkit's anti-adjacency filter, and
   ## alley's feedsHotspot bias).
-  var hotspots = hotspotCandidates(m)
+  ##
+  ## ROUND 15 FIX (fix 2): every candidate, every class, snaps to the
+  ## nearest walkable cell within ItemSiteWallSnapRadiusPx (or is DROPPED
+  ## if none exists that close) right here, before anything downstream —
+  ## distance-to-hotspot, placeItemsGraded's own draw pool, and the item-
+  ## gradient/fairness gates' re-classification of already-placed points —
+  ## ever sees it. A broader sweep (round 14's fix 4, temporary diagnostic)
+  ## found scRoom (authored room-rect centers) and scHotspot (authored POI
+  ## centers) candidates landing on a wall cell in 23/30 real seeds (79
+  ## occurrences, 43 hotspot + 36 room): generation-time carving/complex-
+  ## accretion can build wall directly over an authored center point after
+  ## it was recorded, and neither source is re-validated against the
+  ## FINISHED geometry. The running game engine nudges an item spawn off a
+  ## wall at spawn time, so this was never a gameplay bug — but the
+  ## declared-vs-realized occupancy gate and the walk-graph fairness gate
+  ## both measure classifySites' own (previously un-nudged) points
+  ## directly, so the INSTRUMENTS were distorted. Fixed at the source
+  ## instead of at the gate.
+  let (cols, rows) = gridDims(m.width, m.height)
+  let wall = buildWallGrid(m)
+  proc snap(sites: seq[ClassifiedSite]): seq[ClassifiedSite] =
+    when defined(brDebugSiteSnap):
+      var moved = 0
+      var dropped = 0
+    for s in sites:
+      let (np, ok) = nearestWalkableCell(wall, cols, rows, s.p.x, s.p.y, ItemSiteWallSnapRadiusPx)
+      if ok:
+        var s2 = s
+        s2.p = np
+        result.add s2
+        when defined(brDebugSiteSnap):
+          if np.x != s.p.x or np.y != s.p.y: inc moved
+      else:
+        when defined(brDebugSiteSnap):
+          inc dropped
+    when defined(brDebugSiteSnap):
+      if sites.len > 0:
+        stderr.writeLine(&"SITESNAP class={sites[0].class} total={sites.len} moved={moved} dropped={dropped}")
+  var hotspots = snap(hotspotCandidates(m))
   proc nearestHotspotDist(p: MapPoint): float =
     result = Inf
     for h in hotspots:
       let dx = float(p.x - h.p.x)
       let dy = float(p.y - h.p.y)
       result = min(result, sqrt(dx * dx + dy * dy))
-  var rooms = roomCandidates(m)
+  var rooms = snap(roomCandidates(m))
   for r in rooms.mitems: r.distToHotspot = nearestHotspotDist(r.p)
-  var corners = cornerCandidates(m)
+  var corners = snap(cornerCandidates(m))
   for c in corners.mitems: c.distToHotspot = nearestHotspotDist(c.p)
-  var alleys = alleyCandidatesFromDiagonals(m)
+  var alleys = snap(alleyCandidatesFromDiagonals(m))
   for a in alleys.mitems:
     a.distToHotspot = nearestHotspotDist(a.p)
     a.feedsHotspot = a.distToHotspot <= ItemAlleyFeedsHotspotFracG * float(m.gunRange)
@@ -5505,31 +5597,26 @@ proc placeItemsGraded(m: var BrMap) =
   ## inserting or removing a decision anywhere else in the generator can
   ## never shift this draw.
   let sites = classifySites(m)
-  ## ROUND 14 FIX (4b): alleyCandidatesFromDiagonals used to be able to
-  ## hand back a candidate sitting ON A WALL cell (its walkableOffset
-  ## dead-end fallback, now dropped instead of returned — see that proc's
-  ## own comment). Assert the invariant holds for every ALLEY site this
-  ## draw actually places items over, so a regression in that specific
-  ## fallback crashes loud here instead of quietly shipping an item on an
-  ## unreachable wall pixel.
-  ##
-  ## SCOPED to scAlley on purpose, not every class: a broader sweep across
-  ## 30 real seeds (temporary diagnostic, not shipped) found scRoom and
-  ## scHotspot sites landing on a wall cell too — 79 occurrences across
-  ## 23/30 seeds (43 hotspot, 36 room), NONE of them alley. That is a
-  ## real, separate, PRE-EXISTING defect (almost certainly authored POI
+  ## ROUND 14 FIX (4b) + ROUND 15 FIX (fix 2): alleyCandidatesFromDiagonals
+  ## used to be able to hand back a candidate sitting ON A WALL cell (its
+  ## walkableOffset dead-end fallback, now dropped instead of returned —
+  ## see that proc's own comment), and a broader sweep across 30 real seeds
+  ## then found scRoom/scHotspot candidates landing on a wall cell too —
+  ## 79 occurrences across 23/30 seeds (43 hotspot, 36 room): authored POI
   ## `center`/`rooms` points that generation-time carving/complex-accretion
   ## later builds wall over, never re-validated against the FINISHED
-  ## geometry) — out of scope for this lane's four fixes and not something
-  ## an assertion here should turn into a hard crash. Flagged for a
-  ## follow-up, not fixed in this commit.
+  ## geometry. classifySites now snaps (or drops) every candidate of every
+  ## class against the finished wall grid before returning it (see its own
+  ## comment) — this assertion is the load-bearing proof that guarantee
+  ## actually holds, for every class, not just alley: a regression in the
+  ## snap crashes loud here instead of quietly shipping an item on an
+  ## unreachable wall pixel.
   for s in sites:
-    if s.class != scAlley: continue
     var onWall = false
     for ob in m.obstacles:
       if inShape(s.p.x, s.p.y, ob): onWall = true; break
     doAssert not onWall,
-      &"placeItemsGraded: classified alley site at ({s.p.x},{s.p.y}) " &
+      &"placeItemsGraded: classified {s.class} site at ({s.p.x},{s.p.y}) " &
       &"is inside an obstacle (seed={m.genSeed})"
   var byClass: array[SiteClass, seq[ClassifiedSite]]
   for s in sites: byClass[s.class].add s
@@ -7171,6 +7258,24 @@ proc goldenGatedStructure(): BrMap =
   result = goldenRoomWithDoorway()
   result.structureCount = result.obstacles.len
 
+proc goldenSiteOnWall(): BrMap =
+  ## ROUND 15 (fix 2): a room whose authored center (300,300) sits inside
+  ## a LATER obstacle its own carving never accounted for — the exact
+  ## "generation-time carving builds wall over an authored center" defect
+  ## classifySites' snap now fixes. A 20px disc dead center of the room,
+  ## small enough that open floor is well within ItemSiteWallSnapRadiusPx
+  ## (24px) on every side.
+  result = goldenRoomWithDoorway()
+  result.obstacles.add ArenaShape(kind: shapeDisc, cx: 300, cy: 300, radius: 20)
+
+proc goldenSiteFullyWalled(): BrMap =
+  ## Same room, but this time boxed in by wall past
+  ## ItemSiteWallSnapRadiusPx on every side — nothing walkable within the
+  ## snap radius, so classifySites must DROP the candidate rather than
+  ## hand back a point still on (or near) a wall.
+  result = goldenRoomWithDoorway()
+  result.obstacles.add ArenaShape(kind: shapeDisc, cx: 300, cy: 300, radius: 40)
+
 proc selftestClassifierGoldens(failCount: var int) =
   stderr.writeLine("-- fix 2: classifySites/classifyPoint golden geometry --")
   block roomAndCorner:
@@ -7262,6 +7367,40 @@ proc selftestClassifierGoldens(failCount: var int) =
     if gates.len == 1:
       expectOk("gated-structure/gate-classifies-scHotspot",
         classifyPoint(gates[0], sites) == scHotspot, failCount)
+  block siteWallSnap:
+    ## ROUND 15 (fix 2): classifySites' snap-or-drop, isolated from the
+    ## rest of a real draw's noise. goldenSiteOnWall's room candidate
+    ## (authored center (300,300), now inside a 20px obstacle) must survive
+    ## as exactly one scRoom site, moved off the obstacle and within
+    ## ItemSiteWallSnapRadiusPx of its original center.
+    let mOnWall = goldenSiteOnWall()
+    let sitesOnWall = classifySites(mOnWall)
+    var roomsFound: seq[ClassifiedSite]
+    for s in sitesOnWall:
+      if s.class == scRoom: roomsFound.add s
+    expectOk("site-wall-snap/on-wall-room-survives-snapped", roomsFound.len == 1,
+      failCount, &"got {roomsFound.len}")
+    if roomsFound.len == 1:
+      let p = roomsFound[0].p
+      var onWall = false
+      for ob in mOnWall.obstacles:
+        if inShape(p.x, p.y, ob): onWall = true
+      expectOk("site-wall-snap/on-wall-room-snapped-off-obstacle", not onWall,
+        failCount, &"({p.x},{p.y})")
+      let dx = p.x - 300
+      let dy = p.y - 300
+      expectOk("site-wall-snap/on-wall-room-snap-within-radius",
+        dx * dx + dy * dy <= ItemSiteWallSnapRadiusPx * ItemSiteWallSnapRadiusPx,
+        failCount, &"({p.x},{p.y}) dist={sqrt(float(dx * dx + dy * dy)):.1f}")
+    ## goldenSiteFullyWalled's room candidate has NOTHING walkable within
+    ## the snap radius — must be DROPPED, not handed back on/near a wall.
+    let mWalled = goldenSiteFullyWalled()
+    let sitesWalled = classifySites(mWalled)
+    var roomsWalled = 0
+    for s in sitesWalled:
+      if s.class == scRoom: inc roomsWalled
+    expectOk("site-wall-snap/unreachable-room-dropped", roomsWalled == 0,
+      failCount, &"got {roomsWalled}")
 
 proc selftestAlleyFallbackDrops(failCount: var int) =
   ## ROUND 14 fix 4b: when BOTH perpendicular offsets are blocked,
