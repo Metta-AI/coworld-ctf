@@ -668,6 +668,62 @@ html, body {
    HEADER (the counts are the always-visible read) and collapse the body. */
 #stage.tiny #achpanel .ach-body { display: none; }
 
+/* Tiny-stage claim chip (#achtiny). The BOARD-rendered claim chip ("NAME +Ng"
+   popped over the earning cog) lands at ~3-4 screen px at the 640x360 floor —
+   one 13-logical-px line under a ~0.23 board scale — physically illegible even
+   knowing the words, and the chrome has no cog screen-positions to anchor a
+   fix to (the canvas is wasm-composited). So at #stage.tiny ONLY, each claim
+   gets this one-line DOM stand-in: the SAME line the board chip draws (name
+   uppercased, payout keeping its unit), the same near-black fill + amber ink +
+   hairline amber edge, one at a time with a short dwell. At full size it never
+   renders — the board chip is legible there, and Maxwell already cut the
+   top-center claim banner; this is the chip's stand-in where physics beats the
+   chip, not that banner lane back. */
+#achtiny {
+  position: absolute;
+  /* Below the achievement ledger's (collapsed-to-header at .tiny) top-left
+     panel: the killfeed owns bottom-right, the FPV pip bottom-left, and the
+     steal/return/capture banners the top-center lane, so under the
+     ACHIEVEMENTS header is the free spot over dead board margin — and the one
+     that files the moment next to the ledger that records it. */
+  top: calc(var(--topband, 0px) + 46 * var(--u));
+  left: calc(12 * var(--u));
+  display: none;
+  pointer-events: none;
+  z-index: 12;
+}
+#stage.tiny #achtiny { display: block; }
+.ach-claim-chip {
+  display: inline-block;
+  font-family: var(--pixfont);
+  /* Absolute px, NOT --u: this chip exists precisely because scaling took the
+     board chip under the legibility floor at this breakpoint — the same
+     absolute-floor reasoning as .ins-btn's min-height above. It renders only
+     inside #stage.tiny, so it can never bloat a full-size frame. */
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  padding: 4px 7px;
+  color: var(--amber);                          /* GloryPopInk */
+  background: rgba(var(--stage-lo-rgb), 0.88);  /* GloryChipFillInk @ FillAlpha */
+  box-shadow: 0 0 0 1px rgba(var(--amber-rgb), 0.8); /* GloryChipEdgePx */
+  animation: achchipin 250ms cubic-bezier(.2,1.3,.5,1);
+}
+/* A FIRST claim keeps the board chip's exact distinction: the whole line in
+   the hotter gold-white (GloryChipFirstInk, 250,222,156 — deliberately not a
+   :root token; it exists to match the sim constant, nothing else may use it)
+   plus the thicker edge (GloryChipFirstEdgePx). No wordmark, same words. */
+.ach-claim-chip.first {
+  color: rgb(250, 222, 156);
+  box-shadow: 0 0 0 2px rgba(250, 222, 156, 0.8);
+}
+.ach-claim-chip.leaving { animation: achchipout 260ms ease-in forwards; }
+/* feedin/feedout's overshoot-and-settle idiom, mirrored to slide from the
+   LEFT edge this chip is anchored to (the feed's rows slide from the right). */
+@keyframes achchipin { from { transform: translateX(calc(-30 * var(--u))); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes achchipout { to { opacity: 0; transform: translateX(calc(-14 * var(--u))); } }
+
 #inspector {
   display: none;
   position: absolute;
@@ -1387,7 +1443,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
   .plate.leader .lives-num { animation: none; }
-  .banner-chip, .feed-row { animation-duration: 1ms; }
+  .banner-chip, .feed-row, .ach-claim-chip { animation-duration: 1ms; }
 }
 
 /* ============================================================
@@ -1472,6 +1528,10 @@ body[data-embed] #board { top: 0; height: 100%; }
          glory.nim stays the single source of every number. -->
     <div id="inspector"></div>
     <div id="achpanel"></div>
+    <!-- Tiny-stage claim chip lane: the board claim chip's DOM stand-in at
+         #stage.tiny only (see the #achtiny CSS for the full why). Empty and
+         display:none at full size. -->
+    <div id="achtiny"></div>
     <!-- First-person picture-in-picture: the selected seat's Wolfenstein-style
          raycast view, shown only while a player is in POV. A window into what
          that soldier sees down the barrel, riding alongside their top-down fog.
@@ -1648,7 +1708,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, achchip: 2700 };
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -1808,7 +1868,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
     if (jumped) {
-      clearFeed(); clearBanners();
+      clearFeed(); clearBanners(); clearAchChips();
       // The verdict chip has no other clearing path (setVerdict early-returns
       // on a liveless frame), so without this a looping replay spoils its own
       // ending from tick 0 of the second loop onward.
@@ -3505,6 +3565,12 @@ body[data-embed] #board { top: 0; height: 100%; }
       '<span class="badge">' + esc(stars) +
       (e.first ? ' FIRST' : '') + ' +' + (e.glory || 0) + 'g</span>';
     pushFeed(row);
+    // At the #stage.tiny floor the board-rendered claim chip is ~3-4 screen px
+    // — illegible. Hand the SAME one line ("NAME +Ng", gloryPopText's exact
+    // vocabulary: name uppercased, the payout keeping its unit) to the DOM
+    // stand-in lane, which renders only at that breakpoint. achChip() itself
+    // gates on .tiny so a full-size frame never double-shouts the claim.
+    achChip(String(e.name || '').toUpperCase() + ' +' + (e.glory || 0) + 'g', !!e.first);
   }
 
   function onSteal(e, s) {
@@ -3578,6 +3644,59 @@ body[data-embed] #board { top: 0; height: 100%; }
     bannerQueue = [];
     bannerEl.innerHTML = '';
     bannerBusy = false;
+  }
+
+  // ---------- tiny-stage claim chip lane (one at a time, short dwell) ----------
+  // Event-driven transient FX like the feed and the banner lane above; cleared
+  // by the SAME jump guard (see the `jumped` block in onFrame), so a seek or a
+  // loop can never leave a phantom claim on screen.
+  var achTinyEl = $('achtiny');
+  var achChipQueue = [];
+  var achChipBusy = false;
+  var achChipGen = 0; // bumped by clearAchChips so a cleared chip's pending
+                      // timers can't un-busy a lane that has since moved on
+  var REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  function achChip(text, first) {
+    // Enqueue only while the stand-in is needed. At full size the board chip
+    // is legible and this lane must NOT re-become the removed claim banner.
+    if (!stage.classList.contains('tiny')) return;
+    // Small queue so a same-tick burst plays out in turn instead of
+    // overwriting mid-dwell; beyond that, keep the newest — the achievement
+    // panel and the feed are the durable record, this is the moment.
+    if (achChipQueue.length >= 4) achChipQueue.shift();
+    achChipQueue.push({ text: text, first: first });
+    pumpAchChip();
+  }
+  function pumpAchChip() {
+    if (achChipBusy || !achChipQueue.length) return;
+    achChipBusy = true;
+    var gen = achChipGen;
+    var c = achChipQueue.shift();
+    var chip = document.createElement('div');
+    chip.className = 'ach-claim-chip' + (c.first ? ' first' : '');
+    chip.textContent = c.text;
+    achTinyEl.appendChild(chip);
+    // lever 1 (animFactor cap) — but never as an inline style under reduced
+    // motion, where it would override the media rule that stills this chip.
+    if (!(REDUCED_MOTION && REDUCED_MOTION.matches))
+      chip.style.animationDuration = (250 / animFactor()) + 'ms';
+    var hold = dwellFloor('achchip'); // lever 2: wall-clock dwell floor (~2.7s)
+    setTimeout(function () {
+      if (gen !== achChipGen) return; // lane was cleared under this timer
+      chip.classList.add('leaving');
+      setTimeout(function () {
+        if (gen !== achChipGen) return;
+        if (chip.parentNode) chip.parentNode.removeChild(chip);
+        achChipBusy = false;
+        pumpAchChip();
+      }, 300);
+    }, hold);
+  }
+  function clearAchChips() {
+    achChipGen++;
+    achChipQueue = [];
+    achTinyEl.innerHTML = '';
+    achChipBusy = false;
   }
 
   // ---------- scrubber beat markers ----------
