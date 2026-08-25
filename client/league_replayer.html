@@ -327,7 +327,7 @@
         <span class="lives-num" id="lives-red">—</span>
         <span class="heat-chip" id="heat-red"></span>
         <span class="lives-num glory" id="glory-red">—</span>
-        <span class="team-tag">RED</span>
+        <span class="team-tag" id="teamtag-red">RED</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
@@ -346,7 +346,7 @@
         <span class="lives-num" id="lives-blue">—</span>
         <span class="heat-chip" id="heat-blue"></span>
         <span class="lives-num glory" id="glory-blue">—</span>
-        <span class="team-tag">BLUE</span>
+        <span class="team-tag" id="teamtag-blue">BLUE</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
@@ -670,6 +670,11 @@
 
     setName('name-red',  teamName(s,'red','RED'));
     setName('name-blue', teamName(s,'blue','BLUE'));
+    // The plaque's identity bond must be the REAL team name, same source as
+    // the wall — a hardcoded color word bonds the numeral to a placeholder
+    // (cycle-2 /proof finding).
+    setName('teamtag-red',  teamName(s,'red','RED'));
+    setName('teamtag-blue', teamName(s,'blue','BLUE'));
     $('lives-red').textContent  = (s.teams&&s.teams.red)?rl:'—';
     $('lives-blue').textContent = (s.teams&&s.teams.blue)?bl:'—';
 
