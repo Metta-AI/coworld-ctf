@@ -676,8 +676,12 @@ const
     ["First Tag",           ## I    a gun kill
      "Marksman",            ## II   3 gun kills in one game
      "Bounty",              ## III  killed a level>=StarfallLevel enemy
-     "Longshot",            ## IV   a kill past LongshotPx
-     "Sharpshooter"],       ## V    a cog reaches max rank (L5)
+     "Sharpshooter",        ## IV   a cog reaches max rank (L5) (v6, GLORY
+                            ##      C4: was V -- field claim rate 15.4% vs
+                            ##      "Longshot"'s 8.3% (n=240 team-eps) means
+                            ##      THIS is the easier act; swapped.
+     "Longshot"],           ## V    a kill past LongshotPx (v6, GLORY C4:
+                            ##      was IV -- the rarer act, moved up)
     # treeSpray — "The Can". v3: "Shake It" (pick up a can) is GONE.
     ["First Coat",          ## I    a spray kill
      "Full Coverage",       ## II   2 spray kills in one game
@@ -687,12 +691,20 @@ const
     # treeGrenade — "The Bomb". v3: "Pull the Pin" (pick up a nade) is GONE.
     ["Delivery",            ## I    a grenade kill
      "Fireball",            ## II   2 grenade kills in one game
-     "The Bombardier",      ## III  3 grenade kills in one game
-     "Blast Radius",        ## IV   a grenade blast that caught 2+ enemies
+     "Blast Radius",        ## III  a grenade blast that caught 2+ enemies
                             ##      (v6, GLORY C3a: gates on
                             ##      `grenadeMultiKills` alone now -- the old
-                            ##      form also accepted a SPRAY multi-kill)
-     "Double Blast"],       ## V    one blast kills 2+ enemies
+                            ##      form also accepted a SPRAY multi-kill.
+                            ##      GLORY C4: was IV -- see "The Bombardier"
+                            ##      below for why it shifted up.)
+     "Double Blast",        ## IV   one blast kills 2+ enemies (v6, GLORY
+                            ##      C4: was V, shifted up one)
+     "The Bombardier"],     ## V    3 grenade kills in one game (v6, GLORY
+                            ##      C4: was III -- field claim rate 2.1%,
+                            ##      the LOWEST of the tree's five (n=240
+                            ##      team-eps), below even "Blast Radius"
+                            ##      (2.9%) and "Double Blast" (2.9%) -- the
+                            ##      tree's actual hardest tier, moved to V.
     # treeShield — "The Wall". v3: "Suit Up" (pick up a shield) is GONE.
     ["Aegis",               ## I    absorb 3 hp
      "Blockade",            ## II   absorb 6 hp in one game
@@ -722,15 +734,20 @@ const
     ["Hands On",            ## I    a steal landed while a LIVE enemy stood
                             ##      within ContestedStealPx -- an uncontested
                             ##      walk-in no longer counts.
-     "Fighting Carry",      ## II   an enemy kill landed WHILE CARRYING the
+     "Delivered",           ## II   score the enemy heart (v6, GLORY C4: was
+                            ##      III -- field claim rate 18.8% vs
+                            ##      "Fighting Carry"'s 11.7% (n=240 team-
+                            ##      eps) means THIS is the easier act; swapped.
+     "Fighting Carry",      ## III  an enemy kill landed WHILE CARRYING the
                             ##      heart -- live possession alone (the old
                             ##      "hold for 120+ ticks") no longer counts.
-     "Delivered",           ## III  score the enemy heart
+                            ##      (v6, GLORY C4: was II -- the rarer act,
+                            ##      moved up; see "Delivered" above.)
      "Uphill",              ## IV   score while your team is outnumbered
      "Full Run"],           ## V    steal and score on the same life
                             ##
                             ## ⚠️⚠️ GLORY C3c (2026-08-25): "Full Run" is
-                            ## PROVABLY redundant with "Delivered" (III) in
+                            ## PROVABLY redundant with "Delivered" (II) in
                             ## THIS engine, not merely correlated with it.
                             ## There is no flag hand-off mechanic -- a carry
                             ## is set exactly once, at the steal
@@ -745,17 +762,19 @@ const
                             ## -- `stealTickThisLife >= 0` is not an
                             ## additional condition, it is an ALREADY-TRUE
                             ## fact about every capture this engine can ever
-                            ## produce. Field-confirmed: identical claim-tick
-                            ## distributions for ("carrier", 2) and
-                            ## ("carrier", 4) across every sampled team-
+                            ## produce. Field-confirmed (pre-C4 tier
+                            ## positions, "Delivered" at III): identical
+                            ## claim-tick distributions for ("carrier", 2)
+                            ## and ("carrier", 4) across every sampled team-
                             ## episode that claimed either (n=45,
-                            ## tools/ladder/gloryscore.py derivation). NOT
-                            ## fixed in this wave -- the check is left AS-IS
-                            ## per Maxwell's own instruction not to redesign
-                            ## it unreviewed; see the /proof report for 2-3
-                            ## proposed replacement requirements that would
-                            ## make tier V test something Delivered does not
-                            ## already cover.
+                            ## tools/ladder/gloryscore.py derivation) -- read
+                            ## as ("carrier", 1) and ("carrier", 4) post-C4.
+                            ## NOT fixed in this wave -- the check is left
+                            ## AS-IS per Maxwell's own instruction not to
+                            ## redesign it unreviewed; see the /proof report
+                            ## for 2-3 proposed replacement requirements that
+                            ## would make tier V test something Delivered
+                            ## does not already cover.
     # treeDefender — "The Peel". v3: "Eyes Back" (a heart return) is GONE --
     # `resetFlag` credits `returns` to every LIVING teammate when a heart
     # comes home, not to whoever caused it, so it was bystander credit, not

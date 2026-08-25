@@ -4051,11 +4051,15 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
 
     # GUN -- the weapon every cog spawns with. No tier pays for a plain
     # landed hit any more (2b): every rung below is a KILL or a rank.
+    # v6 (GLORY C4): tiers IV/V swapped -- field claim rate (n=240 team-eps)
+    # has "Sharpshooter" (a cog reaches L5) at 15.4%, easier than "Longshot"
+    # (a kill past LongshotPx) at 8.3%, so Longshot is the tree's real
+    # ceiling now. See AchievementNames' own comment on this tree.
     if player.gunKills >= 1:          earn(treeGun, 0)
     if player.gunKills >= 3:          earn(treeGun, 1)
     if player.starfallKills >= 1:     earn(treeGun, 2)
-    if player.longshotKills >= 1:     earn(treeGun, 3)
-    if player.level >= MaxLevel:      earn(treeGun, 4)
+    if player.level >= MaxLevel:      earn(treeGun, 3)
+    if player.longshotKills >= 1:     earn(treeGun, 4)
 
     # SPRAY -- 28.5% of all kills in the field, historically 87% unfired.
     if player.sprayKills >= 1:        earn(treeSpray, 0)
@@ -4065,9 +4069,13 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.sprayMultiKills >= 1:   earn(treeSpray, 4)
 
     # GRENADE -- the corner paint-bomb.
+    # v6 (GLORY C4): "The Bombardier" (3 grenade kills) moved from III to V
+    # -- field claim rate 2.1% (n=240 team-eps), the LOWEST of the tree's
+    # five tiers, below even the two multi-kill tiers it used to sit above.
+    # "Blast Radius"/"Double Blast" shift down to III/IV. See
+    # AchievementNames' own comment on this tree.
     if player.grenadeKills >= 1:      earn(treeGrenade, 0)
     if player.grenadeKills >= 2:      earn(treeGrenade, 1)
-    if player.grenadeKills >= 3:      earn(treeGrenade, 2)
     # "Blast Radius" used to gate on `multiKills`, which is incremented from
     # BOTH the spray path and the grenade path and counts a friendly-fire
     # kill in the same activation (CURRICULUM audit C6) -- so the tier's
@@ -4088,8 +4096,9 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # it. The clean per-activation, enemies-only counter is a complete gate
     # by itself.
     if player.grenadeMultiKills >= 1:
+      earn(treeGrenade, 2)
       earn(treeGrenade, 3)
-      earn(treeGrenade, 4)
+    if player.grenadeKills >= 3:      earn(treeGrenade, 4)
 
     # SHIELD -- soak, not damage. `blocked` already exists on the wire.
     if player.soakedHp >= 3:          earn(treeShield, 0)
@@ -4123,9 +4132,12 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # CARRIER -- steal, run, score. v3.1 (CURRICULUM audit C1/C8): tier I/II
     # re-cut off possession the same way every other tree already was --
     # see the block comment on `treeCarrier` in glory.nim's AchievementNames.
+    # v6 (GLORY C4): "Delivered"/"Fighting Carry" swapped (II/III) -- field
+    # claim rate 18.8% for a score vs 11.7% for a kill-while-carrying
+    # (n=240 team-eps) means scoring is the easier act.
     if player.contestedSteals >= 1:   earn(treeCarrier, 0)
-    if player.carryKills >= 1:        earn(treeCarrier, 1)
-    if player.captures >= 1:          earn(treeCarrier, 2)
+    if player.captures >= 1:          earn(treeCarrier, 1)
+    if player.carryKills >= 1:        earn(treeCarrier, 2)
     # "Uphill" (v6, GLORY C3b): reads the fact PINNED at the capture instant
     # (`recordCapture`) instead of re-reading `teamAliveCount` on every poll
     # -- see `capturedOutnumbered`'s field comment for the backdating bug
