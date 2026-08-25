@@ -99,9 +99,15 @@
      print). (Team NAME lives up in the top-wall corners — see .wallname —
      so long names never truncate.) GLORY IS THE SCORE, so its numeral sits
      innermost toward the center clock/floor — Maxwell's ruling — with the
-     Heat chip hugging it, the "Glory" label next, then Lives outermost.
+     Heat chip hugging it on one side and a small .team-tag hugging it on the
+     other (numeral SANDWICHED, not just adjacent) — that tag is the fix for
+     this shell's split-brain naming: the real team NAME lives up in
+     .wallname, so without it the numeral down here had no identity bound to
+     it at all. Lives stays outermost, a demoted resource. No floating
+     "Glory" label — the 26u size + team ink + position already say what the
+     numeral is, same ruling as the broadcast scorebug.
      .plaque.right double-reverses (team-head AND lives-line), so the same
-     DOM order (Lives → Glory-label → Heat → Glory-num) mirrors correctly
+     DOM order (Lives → Heat → Glory-num → team-tag) mirrors correctly
      on both sides — verified per-plate, not assumed. */
   .team-head{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0;
     margin-bottom:calc(8*var(--u))}
@@ -121,13 +127,22 @@
      theater is the surface most people actually watch. Same tokens, same x1
      suppression. The glory numeral is the HEADLINE and wears TEAM ink; amber
      stays the "earned" accent (heat chip / pops), never the score itself. */
-  .lives-num.glory{font-size:calc(26*var(--u))}
+  /* Jitter insurance, same law as the broadcast scorebug: reserve 4 digits'
+     width so a tick never reflows the chip/tag riding beside it. */
+  .lives-num.glory{font-size:calc(26*var(--u)); min-width:4ch}
   .plaque.left .lives-num.glory{color:var(--red)}
   .plaque.right .lives-num.glory{color:var(--blue)}
   .heat-chip{display:none; font-family:var(--finefont); font-size:calc(7*var(--u));
     letter-spacing:.1em; text-transform:uppercase; padding:calc(1*var(--u)) calc(4*var(--u));
     color:var(--stage-lo); background:var(--amber); flex:none; align-self:center}
   .heat-chip.show{display:block}
+  /* The identity bond for the split-brain fix above: small, quiet, team ink —
+     an affordance-weight label, never competing with the 26u numeral it
+     sits beside. */
+  .team-tag{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.12em;
+    text-transform:uppercase; flex:none; opacity:.82; text-shadow:0 calc(1*var(--u)) 0 #000}
+  .plaque.left .team-tag{color:var(--red)}
+  .plaque.right .team-tag{color:var(--blue)}
   /* Leader pulse rides the GLORY headline only — the demoted lives numeral
      must not pulse. */
   .team-head.leader .lives-num.glory{animation:leaderpulse 1.9s ease-in-out infinite}
@@ -304,14 +319,15 @@
   <div class="plaque left hud" id="kda-red">
     <div class="team-head red" data-team="red">
       <div class="flagicon" id="flag-red"></div>
-      <!-- GLORY numeral innermost (toward the center clock/floor), Heat
-           hugging it, Glory label next, Lives outermost. -->
+      <!-- GLORY numeral innermost (toward the center clock/floor), sandwiched
+           between the Heat chip and the team-tag (the identity bond — the
+           real name lives up in .wallname), Lives outermost. -->
       <div class="lives-line">
         <span class="lives-label">Lives</span>
         <span class="lives-num" id="lives-red">—</span>
-        <span class="lives-label">Glory</span>
         <span class="heat-chip" id="heat-red"></span>
         <span class="lives-num glory" id="glory-red">—</span>
+        <span class="team-tag">RED</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
@@ -322,14 +338,15 @@
   <div class="plaque right hud" id="kda-blue">
     <div class="team-head blue" data-team="blue">
       <div class="flagicon" id="flag-blue"></div>
-      <!-- Mirrored: GLORY numeral innermost, Heat, Glory label, Lives
-           outermost — same DOM order as red, see .team-head comment above. -->
+      <!-- Mirrored: GLORY numeral innermost, sandwiched between Heat and the
+           team-tag, Lives outermost — same DOM order as red, see .team-head
+           comment above. -->
       <div class="lives-line">
         <span class="lives-label">Lives</span>
         <span class="lives-num" id="lives-blue">—</span>
-        <span class="lives-label">Glory</span>
         <span class="heat-chip" id="heat-blue"></span>
         <span class="lives-num glory" id="glory-blue">—</span>
+        <span class="team-tag">BLUE</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>

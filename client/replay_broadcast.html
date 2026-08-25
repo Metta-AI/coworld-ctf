@@ -197,8 +197,10 @@ html, body {
 .plate.blue .team-name { color: var(--blue); }
 
 /* GLORY is the score, so the GLORY NUMERAL sits innermost (toward the center
-   clock) — Maxwell's ruling. Heat's flames hug the numeral they qualify,
-   then the "Glory" label, then the team name, then the achievements button
+   clock) — Maxwell's ruling. The bonded read is [numeral][flame chip]
+   [TEAM NAME][trophy button], nothing else between numeral and name — the
+   floating "Glory" label was deleted outright, the numeral's 26u size + team
+   ink + position already carry that meaning. The achievements button rides
    outermost of all — DOM-appended after the name, so it lands one step
    further from the clock than the name itself on both plates. That is
    deliberate, not incidental: the button now sits in the actual top corner
@@ -206,8 +208,8 @@ html, body {
    right), right where a viewer's eye already lands on the team name. Lives
    is a resource and rides the squad-pip row below instead (see .squad-row /
    .lives-mini). Red's lives-line reverses so the same DOM order (num → chip
-   → label → name → button) mirrors correctly on both sides — verified
-   per-plate, not assumed. */
+   → name → button) mirrors correctly on both sides — verified per-plate,
+   not assumed. */
 .plate .lives-line {
   display: flex;
   align-items: baseline;
@@ -249,13 +251,16 @@ html, body {
   outline: 1px solid var(--amber);
   outline-offset: calc(1 * var(--u));
 }
-.ach-btn .ach-lbl {
-  font-family: var(--finefont);
-  font-size: max(8px, calc(8 * var(--u)));
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
 .ach-btn .ach-count { font-variant-numeric: tabular-nums; }
+/* "8 [trophy]" — the count reads first, like the trophy is the unit
+   (Maxwell's ruling). No "ACH" text, no caret: the icon alone carries the
+   meaning, chunky 2px-outline per the paintbot style law, never an emoji. */
+.ach-btn .ach-trophy {
+  width: calc(11 * var(--u));
+  height: calc(11 * var(--u));
+  display: block;
+  flex: none;
+}
 /* The open state reads as a quiet pressed wash, not amber — amber in this
    HUD means glory PAID (the panel's own +Ng column), and a toggle isn't a
    payout. */
@@ -290,6 +295,11 @@ html, body {
   font-size: calc(26 * var(--u));
   font-variant-numeric: tabular-nums;
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
+  /* Jitter insurance: reserve width for 4 digits so a tick from "999" to
+     "1000" (or back on a seek) never reflows the flame chip / name / button
+     riding beside it. tabular-nums above already keeps each digit's own
+     advance constant; this just keeps the BOX constant too. */
+  min-width: 4ch;
 }
 /* Team ink, not amber. Amber is this chrome's one "you earned this" accent
    (carrier pip, .tbtn.on, the heat flames, achievement pops/toasts) — it
@@ -1629,21 +1639,22 @@ body[data-embed] #board { top: 0; height: 100%; }
         <div class="flagicon" id="flag-red"></div>
         <div class="team-id">
           <!-- GLORY IS THE SCORE: numeral innermost against the clock, flames
-               hugging it, then the label, then the name, then the
-               achievements button outermost of all (e.g.
-               "🔥940 Glory RED ▸ACH11" reading out from center). Lives is a
-               resource now, demoted to the squad-pip row below. -->
+               hugging it, then the name, then the achievements button
+               outermost of all (e.g. "940🔥 RED 8🏆" reading out from
+               center). No floating "Glory" label — the 26u numeral + team
+               ink + position already say what it is. Lives is a resource
+               now, demoted to the squad-pip row below. -->
           <div class="lives-line">
             <span class="lives-num glory" id="glory-red">—</span>
             <span class="heat-chip" id="heat-red"></span>
-            <span class="lives-label">Glory</span>
             <span class="team-name" id="name-red">RED</span>
             <!-- Achievements: collapsed by default, opens .ach-panel below
                  (state-driven from s.teams.red.claims — see
-                 renderAchievements). -->
+                 renderAchievements). Count reads LEFT of the trophy icon,
+                 like the trophy is the unit — no "ACH" text, no caret. -->
             <button type="button" class="ach-btn" id="achbtn-red"
                 aria-expanded="false" aria-controls="achpanel-red" title="RED achievements">
-              <span class="ach-caret" aria-hidden="true">▸</span><span class="ach-lbl">ACH</span><span class="ach-count" id="achcount-red">0</span>
+              <span class="ach-count" id="achcount-red">0</span><svg class="ach-trophy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3h10v4.2c0 3.4-2.1 6.1-5 6.7v3.1h2.5v2H9.5v-2H12v-3.1c-2.9-.6-5-3.3-5-6.7V3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path d="M7 5H4.5A1.5 1.5 0 0 0 3 6.5c0 2.5 1.7 4.4 4 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M17 5h2.5A1.5 1.5 0 0 1 21 6.5c0 2.5-1.7 4.4-4 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="7.3" y="19" width="9.4" height="2.2" fill="currentColor"/></svg>
             </button>
           </div>
           <!-- squad-row: one pip per player (8) — alive / down / eliminated,
@@ -1672,18 +1683,17 @@ body[data-embed] #board { top: 0; height: 100%; }
       <div class="plate blue" data-team="blue">
         <div class="flagicon" id="flag-blue"></div>
         <div class="team-id">
-          <!-- Mirrored: numeral innermost, flames, label, name, then the
-               achievements button outermost of all ("940🔥 Glory BLUE
-               ACH11▸" reading out from center). Same demotion as red, same
-               button — see above. -->
+          <!-- Mirrored: numeral innermost, flames, name, then the
+               achievements button outermost of all ("940🔥 BLUE 8🏆"
+               reading out from center). Same demotion as red, same
+               count-then-trophy button — see above. -->
           <div class="lives-line">
             <span class="lives-num glory" id="glory-blue">—</span>
             <span class="heat-chip" id="heat-blue"></span>
-            <span class="lives-label">Glory</span>
             <span class="team-name" id="name-blue">BLUE</span>
             <button type="button" class="ach-btn" id="achbtn-blue"
                 aria-expanded="false" aria-controls="achpanel-blue" title="BLUE achievements">
-              <span class="ach-caret" aria-hidden="true">▸</span><span class="ach-lbl">ACH</span><span class="ach-count" id="achcount-blue">0</span>
+              <span class="ach-count" id="achcount-blue">0</span><svg class="ach-trophy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3h10v4.2c0 3.4-2.1 6.1-5 6.7v3.1h2.5v2H9.5v-2H12v-3.1c-2.9-.6-5-3.3-5-6.7V3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path d="M7 5H4.5A1.5 1.5 0 0 0 3 6.5c0 2.5 1.7 4.4 4 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M17 5h2.5A1.5 1.5 0 0 1 21 6.5c0 2.5-1.7 4.4-4 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="7.3" y="19" width="9.4" height="2.2" fill="currentColor"/></svg>
             </button>
           </div>
           <div class="squad-row">
@@ -3963,8 +3973,6 @@ body[data-embed] #board { top: 0; height: 100%; }
     var btn = $('achbtn-' + team), panel = $('achpanel-' + team);
     if (!btn || !panel) return;
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    var caret = btn.querySelector('.ach-caret');
-    if (caret) caret.textContent = open ? '▾' : '▸';
     panel.classList.toggle('open', open);
   }
   ['red', 'blue'].forEach(function (team) {
