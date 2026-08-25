@@ -1108,13 +1108,16 @@ html, body {
 .scrub.has-glory .glory-readout { display: block; }
 .glory-readout .gr-red { color: var(--red); }
 .glory-readout .gr-blue { color: var(--blue); }
-/* At the embed floor the band has no room for the graph lane at all — but
-   that deferral is correct now, not a compromise: the scorebug's glory
-   numeral is the HEADLINE numeral there too (F1, .lives-num.glory), so
-   hiding this lane loses nothing, the read just moves up to the scorebug. */
-#stage.tiny .scrub.has-glory { height: calc(34 * var(--u)); }
-#stage.tiny .scrub.has-glory .scrub-head { height: calc(30 * var(--u)); }
-#stage.tiny .glory-track,
+/* Tiny keeps the race chart (Maxwell + SHOWTIME C10) — killing the ONE
+   momentum lane at exactly the size where a viewer can least afford to wait
+   for the scorebug numeral to tick was never right. Compact instead: the
+   readout text and the x4+ heat-window ticks drop (no room, and both would
+   compete with the 26u scorebug numeral at this size), but the two rising
+   fills — the actual SHAPE of the match — stay, just shorter. Heat-tick
+   suppression is JS-side, see renderGloryLine's stage.tiny check. */
+#stage.tiny .scrub.has-glory { height: calc(36 * var(--u)); }
+#stage.tiny .scrub.has-glory .scrub-head { height: calc(32 * var(--u)); }
+#stage.tiny .glory-track { height: calc(22 * var(--u)); }
 #stage.tiny .glory-label,
 #stage.tiny .glory-readout { display: none !important; }
 .beat-marker {
@@ -4155,8 +4158,10 @@ body[data-embed] #board { top: 0; height: 100%; }
       ctx.stroke();
     }
     // x4+ heat windows: subtle flame-amber ticks along the lane's top edge.
-    // Skipped cleanly when the series ships without the heat columns.
-    if (glorySeenHeat) {
+    // Skipped cleanly when the series ships without the heat columns, and
+    // dropped at the tiny floor (F5/SHOWTIME C10) — no room, and the fills
+    // themselves are the read that has to survive down there.
+    if (glorySeenHeat && !stage.classList.contains('tiny')) {
       ctx.strokeStyle = hexRgba(AMBER, 0.75);
       ctx.lineWidth = 2;
       ctx.setLineDash([2.5, 3]);
