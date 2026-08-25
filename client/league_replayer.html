@@ -95,28 +95,37 @@
      ============================================================ */
   .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u)); pointer-events:auto}
 
-  /* team header block: flag icon + LIVES counter. (Team NAME lives up in
-     the top-wall corners — see .wallname — so long names never truncate.) */
+  /* team header block: flag icon + GLORY headline (lives demoted to fine
+     print). (Team NAME lives up in the top-wall corners — see .wallname —
+     so long names never truncate.) */
   .team-head{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0;
     margin-bottom:calc(8*var(--u))}
   .plaque.right .team-head{flex-direction:row-reverse}
   .team-head .lives-line{display:flex; align-items:baseline; gap:calc(5*var(--u))}
   .plaque.right .team-head .lives-line{flex-direction:row-reverse}
-  .lives-num{font-family:var(--pixfont); font-size:calc(20*var(--u)); line-height:1;
-    color:var(--paper); flex:none; text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
+  /* GLORY IS THE SCORE: lives demote to 11u fine print (a resource readout,
+     not a score); the .glory numeral below is the 26u headline. */
+  .lives-num{font-family:var(--pixfont); font-size:calc(11*var(--u)); line-height:1;
+    color:var(--paper-dim); flex:none; font-variant-numeric:tabular-nums;
+    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
   .lives-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
     text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
   /* GLORY + HEAT, mirrored from the broadcast scorebug. The shell REDRAWS the
      scorebug from the postMessage frame stream (the in-frame one is hidden at
      ?embed=1), so anything added there and not here ships half-invisible: the
-     theater is the surface most people actually watch. Same tokens, same amber
-     "earned" accent, same x1 suppression. */
-  .lives-num.glory{font-size:calc(13*var(--u)); color:var(--amber)}
+     theater is the surface most people actually watch. Same tokens, same x1
+     suppression. The glory numeral is the HEADLINE and wears TEAM ink; amber
+     stays the "earned" accent (heat chip / pops), never the score itself. */
+  .lives-num.glory{font-size:calc(26*var(--u))}
+  .plaque.left .lives-num.glory{color:var(--red)}
+  .plaque.right .lives-num.glory{color:var(--blue)}
   .heat-chip{display:none; font-family:var(--finefont); font-size:calc(7*var(--u));
     letter-spacing:.1em; text-transform:uppercase; padding:calc(1*var(--u)) calc(4*var(--u));
     color:var(--stage-lo); background:var(--amber); flex:none; align-self:center}
   .heat-chip.show{display:block}
-  .team-head.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
+  /* Leader pulse rides the GLORY headline only — the demoted lives numeral
+     must not pulse. */
+  .team-head.leader .lives-num.glory{animation:leaderpulse 1.9s ease-in-out infinite}
   @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
     50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
 
@@ -176,8 +185,9 @@
 
   /* ============================================================
      TRANSPORT (bottom wall) — real designed chroma: tbar buttons +
-     speed chips over a full-timeline momentum (lives-lead) graph
-     with a click-to-seek track + beat markers.
+     speed chips over a full-timeline momentum graph (GLORY differential;
+     lives-lead only on pre-glory replays) with a click-to-seek track +
+     beat markers.
      ============================================================ */
   #transport{display:flex; flex-direction:column; gap:calc(5*var(--u));
     padding:calc(8*var(--u)) calc(12*var(--u)); pointer-events:auto; justify-content:center}
@@ -290,11 +300,11 @@
     <div class="team-head red" data-team="red">
       <div class="flagicon" id="flag-red"></div>
       <div class="lives-line">
-        <span class="lives-label">Lives</span>
-        <span class="lives-num" id="lives-red">—</span>
         <span class="lives-label">Glory</span>
         <span class="lives-num glory" id="glory-red">—</span>
         <span class="heat-chip" id="heat-red"></span>
+        <span class="lives-label">Lives</span>
+        <span class="lives-num" id="lives-red">—</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
@@ -306,11 +316,11 @@
     <div class="team-head blue" data-team="blue">
       <div class="flagicon" id="flag-blue"></div>
       <div class="lives-line">
-        <span class="lives-label">Lives</span>
-        <span class="lives-num" id="lives-blue">—</span>
         <span class="lives-label">Glory</span>
         <span class="lives-num glory" id="glory-blue">—</span>
         <span class="heat-chip" id="heat-blue"></span>
+        <span class="lives-label">Lives</span>
+        <span class="lives-num" id="lives-blue">—</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
@@ -336,7 +346,7 @@
     <div class="scrub" id="scrub">
       <svg class="momentum" id="momentum" viewBox="0 0 1000 100"
            preserveAspectRatio="none" aria-hidden="true"></svg>
-      <span class="momentum-label">LIVES LEAD</span>
+      <span class="momentum-label" id="momentum-label">LIVES LEAD</span>
       <div class="scrub-track"></div>
       <div class="scrub-fill" id="scrub-fill"></div>
       <div id="lulls"></div>
@@ -645,10 +655,18 @@
     updateFlag('flag-red',  'red',  red,  s);
     updateFlag('flag-blue', 'blue', blue, s);
 
+    // GLORY IS THE SCORE: the leader pulse keys on a >=100g glory lead
+    // (~8% of a typical full-match team total). Lives lead >=3 survives ONLY
+    // as the fallback for pre-glory replays that ship no glory numbers.
+    var gr=(typeof red.glory==='number')?red.glory:null;
+    var gb=(typeof blue.glory==='number')?blue.glory:null;
+    var haveGlory=(gr!=null&&gb!=null);
+    var redLeads =haveGlory ? (gr-gb>=100) : (rl-bl>=3);
+    var blueLeads=haveGlory ? (gb-gr>=100) : (bl-rl>=3);
     var rp=document.querySelector('.team-head.red');
     var bp=document.querySelector('.team-head.blue');
-    if(rp) rp.classList.toggle('leader', rl-bl>=3 && s.ph==='playing');
-    if(bp) bp.classList.toggle('leader', bl-rl>=3 && s.ph==='playing');
+    if(rp) rp.classList.toggle('leader', redLeads && s.ph==='playing');
+    if(bp) bp.classList.toggle('leader', blueLeads && s.ph==='playing');
   }
 
   // ---- clock ---------------------------------------------------------------
@@ -868,15 +886,28 @@
     chip.className='win-chip show '+cls;
   }
 
-  // ---- momentum graph (lives-lead over the WHOLE timeline) -----------------
+  // ---- momentum graph (GLORY differential over the WHOLE timeline; the old
+  //      lives-lead series survives only as the fallback for pre-glory
+  //      replays whose stream ships no gloryLine) ----------------------------
   var VBW=1000, VBH=100, MID=50, MOM_SVGNS='http://www.w3.org/2000/svg';
   var momentumSeen={}, momentumDirty=true, fullLeadSeries=null, momentumSamples=[];
+  // s.gloryLine ships ONCE (like s.lead); entries are
+  // [tick, redGlory, blueGlory, redHeat, blueHeat] (src/ctf/broadcast.nim).
+  // diff = redGlory-blueGlory. Called BEFORE ingestLeadSeries so lives-lead
+  // only ever wins on old replays with no glory series.
+  function ingestGlorySeries(s){
+    if(!s.gloryLine || fullLeadSeries) return;
+    fullLeadSeries = s.gloryLine.map(function(p){ return {t:p[0], diff:p[1]-p[2]}; });
+    var lbl=$('momentum-label'); if(lbl) lbl.textContent='GLORY';
+    momentumDirty=true;
+  }
   function ingestLeadSeries(s){
     if (!s.lead || fullLeadSeries) return;
     fullLeadSeries = s.lead.map(function(p){ return {t:p[0], diff:p[1]}; });
     momentumDirty=true;
   }
   function recordMomentum(s){
+    // A full series (glory OR lead) kills live lives-diff sampling for good.
     if (fullLeadSeries) return;
     if (s.ph!=='playing' && s.ph!=='gameover') return;
     if (momentumSeen[s.t]) return;
@@ -960,7 +991,8 @@
     renderRows(s,'blue', $('rows-blue'));
     renderStandings();
 
-    // beat markers from events; momentum from lead series
+    // beat markers from events; momentum from the glory series (lives-lead
+    // only for pre-glory replays)
     if (s.events && s.events.length && !jumped){
       for (var i=0;i<s.events.length;i++){
         var e=s.events[i];
@@ -970,6 +1002,7 @@
         else if (e.k==='capture') markBeat(e.t,'capture', otherTeam(e.flag));
       }
     }
+    ingestGlorySeries(s);
     ingestLeadSeries(s);
     ingestLullSpans(s);
     ingestBeats(s);
