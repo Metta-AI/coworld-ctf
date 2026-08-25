@@ -1825,7 +1825,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, heat: 3600, curtain: 2400, read: 600, achtoast: 4000 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, achtoast: 4000 };
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -1984,7 +1984,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
     if (jumped) {
-      clearFeed(); clearBanners(); clearAchToasts();
+      clearFeed(); clearBanners(); clearAchToasts(); resetGloryRoll();
       // The verdict chip has no other clearing path (setVerdict early-returns
       // on a liveless frame), so without this a looping replay spoils its own
       // ending from tick 0 of the second loop onward.
@@ -2224,11 +2224,60 @@ body[data-embed] #board { top: 0; height: 100%; }
     });
   }
 
+  // ---------- glory odometer (the score ROLLS, it doesn't teleport) ----------
+  // The ledger lands in chunks -- a deed pays all at once -- but a headline
+  // score that jumps +40 in one frame reads as a glitch, not an earning. The
+  // shown value rolls toward the ledger with an exponential approach (a fixed
+  // fraction of the remaining gap per unit time), so a bigger chunk visibly
+  // ticks FASTER yet every chunk settles in about the same half-second. Rolls
+  // only FORWARD from live play: a seek (the onFrame jump guard resets the
+  // roll state) or a backward target SNAPS -- rolling there would narrate an
+  // earning that never happened. Reduced motion always snaps.
+  var gloryRoll = { red: null, blue: null };
+  var gloryRollRaf = 0;
+  var GLORY_ROLL_TAU_MS = 140; // ~63% of the remaining gap covered per tau
+  function stepGloryRoll(now) {
+    gloryRollRaf = 0;
+    var again = false;
+    ['red', 'blue'].forEach(function (team) {
+      var st = gloryRoll[team];
+      if (!st || st.shown === st.target) return;
+      var dt = st.at ? Math.min(100, now - st.at) : 16;
+      st.at = now;
+      var gap = st.target - st.shown;
+      var step = gap * (1 - Math.exp(-dt / GLORY_ROLL_TAU_MS));
+      if (step < 1) step = Math.min(gap, 1); // the tail must tick, not crawl
+      st.shown += step;
+      if (st.target - st.shown < 0.5) st.shown = st.target;
+      var whole = Math.round(st.shown);
+      if (whole !== st.printed) { st.printed = whole; st.el.textContent = whole; }
+      if (st.shown !== st.target) again = true;
+    });
+    if (again) gloryRollRaf = requestAnimationFrame(stepGloryRoll);
+  }
+  function setGloryTarget(el, team, target) {
+    if (target == null) { gloryRoll[team] = null; el.textContent = '—'; return; }
+    var st = gloryRoll[team];
+    if (!st || st.el !== el || target < st.target ||
+        (REDUCED_MOTION && REDUCED_MOTION.matches)) {
+      gloryRoll[team] = { el: el, shown: target, target: target, printed: target, at: 0 };
+      el.textContent = target;
+      return;
+    }
+    if (target === st.target) return;
+    st.target = target;
+    st.at = 0;
+    if (!gloryRollRaf) gloryRollRaf = requestAnimationFrame(stepGloryRoll);
+  }
+  // A seek forgets the roll: the next frame re-seeds shown = ledger and the
+  // numeral lands instantly wherever the timeline landed.
+  function resetGloryRoll() { gloryRoll.red = null; gloryRoll.blue = null; }
+
   function renderGlory(team, t) {
     var num = $('glory-' + team);
     var chip = $('heat-' + team);
     if (!num || !chip) return;
-    num.textContent = (typeof t.glory === 'number') ? t.glory : '—';
+    setGloryTarget(num, team, (typeof t.glory === 'number') ? t.glory : null);
     var heat = t.heat || 1;
     // FLAMES, not the word (Maxwell's call): one flame per rung above x1 --
     // x2 one, x4 two, x8 three. Inline SVG in the chrome's amber (emoji-as-
@@ -3656,8 +3705,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   var bannerBusy = false;
   function banner(text, cls, opts) {
     bannerQueue.push({ text: text, cls: cls,
-      sub: (opts && opts.sub) || '', flames: (opts && opts.flames) || 0,
-      hold: (opts && opts.hold) || 'banner' });
+      sub: (opts && opts.sub) || '', flames: (opts && opts.flames) || 0 });
     pumpBanner();
   }
   function pumpBanner() {
@@ -3691,10 +3739,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     // up to the 2x ceiling, so a fast-forward scrub can't reduce the slam to
     // a subliminal flash.
     chip.style.setProperty('--bf', animFactor());
-    // lever 2: wall-clock dwell floor -- event banners ~1.9s, heat callouts
-    // ~3.6s (Maxwell: a streak chip that flashes reads as UI noise, not news;
-    // RAMPAGE is rare now, so the longer dwell can never queue-jam).
-    var hold = dwellFloor(b.hold);
+    var hold = dwellFloor('banner'); // lever 2: wall-clock dwell floor (~1.9s)
     setTimeout(function () {
       chip.classList.add('leaving');
       setTimeout(function () {
@@ -3756,7 +3801,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       heatCalled[team] = rung;
       heatCallTick[team] = s.t;
       banner(HEAT_CALLS[rung], 'heat ' + team + '-accent',
-        { sub: team.toUpperCase() + ' TEAM', flames: rung, hold: 'heat' });
+        { sub: team.toUpperCase() + ' TEAM', flames: rung });
     });
   }
 
