@@ -18,11 +18,34 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "43"  ## GV43 (puddle rule): PUDDLES BITE TWICE AS HARD.
+  GameVersion* = "44"  ## GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
+    ## On every board with more than two teams, WHICH TEAM OWNS WHICH HOME is
+    ## now drawn per episode from the game seed instead of being fixed for all
+    ## time. The pads do not move: the same four congruent anchors, pedestals,
+    ## capture zones and spawn pockets are carved exactly as before, and the
+    ## protected floor, the pickup orbits and the terrain are byte-identical.
+    ## What rotates is OWNERSHIP — by a whole number of quarter-turns around
+    ## the home orbit, so adjacency is preserved (a team a quarter turn from
+    ## you before is a quarter turn from you after) and the plus layout's
+    ## opposite/adjacent arm structure survives intact. A home is a BUNDLE, so
+    ## the rotation carries all of it together through one remap (`homeSlot`):
+    ## spawn strip AND its arm orientation, pedestal, capture zone, spawn aim,
+    ## room naming and endzone paint. Motivation is measured, not aesthetic:
+    ## the live 4-team field wins 8.9 / 8.9 / 23.2 / 58.9% by home slot,
+    ## replicated across every policy, so a fixed assignment is a standing
+    ## handicap draw. Dealing the homes makes slot advantage a population-level
+    ## WASH without touching a single tuning number.
+    ##
+    ## TWO-TEAM PLAY IS UNCHANGED, byte for byte: Red left, Blue right is a
+    ## game contract, and the rotation is the identity at teamCount <= 2. But
+    ## 4-team spawn positions, pedestals and capture zones now depend on the
+    ## seed, so no 4-team GV43 replay re-simulates: fixtures re-recorded.
+    ##
     ## ==================================================================
     ## A GameVersion BUMP IS OWED HERE AND IS DELIBERATELY NOT TAKEN YET.
-    ## (BR integration, 2026-08-24. GV44 is free — scanned every origin
-    ## branch; main and all 60+ live branches sit on 43.)
+    ## (BR integration, 2026-08-25. GV44 above landed independently on main,
+    ## for the seating-rule reason stated — not for BR. GV45 is free —
+    ## scanned every origin branch; main and all live branches sit on 44.)
     ##
     ## The BR lanes each deferred the bump to integration, citing
     ## BR_MAPGEN.md §6.2: `Team` widened from 4 to 16, and `array[Team, X]`
@@ -31,7 +54,7 @@ const
     ## was predicted to misalign every subsequent keyframe field SILENTLY.
     ##
     ## That prediction does NOT reproduce, and the evidence is this suite:
-    ## with `Team` 16 wide, every GV43 fixture in tests/fixtures still
+    ## with `Team` 16 wide, every fixture in tests/fixtures still
     ## loads, re-simulates and HASHES EQUAL ("hashes match", "sim
     ## serializes with flatty", "keyframed seek restores matching state").
     ## Keyframes are derived in-process and never read back from a replay
@@ -42,7 +65,7 @@ const
     ## The bump is still owed for the OTHER reason: the RULES changed. A
     ## replay's version string is supposed to identify the rules that
     ## produced it, and this build seats 16 teams, can run brMode
-    ## elimination and a closing zone. It is not taken in this branch
+    ## elimination and a closing zone. It is not taken in this commit
     ## because bumping invalidates every pinned fixture, and AGENTS.md
     ## requires re-recording them on an IDLE machine (a CPU-starved
     ## speed-16 server drops its bots and records degenerate endings). This
@@ -50,13 +73,15 @@ const
     ## there and then re-pinning the asserted winners to match is exactly
     ## how the GV42 draw-nokill fixture went wrong.
     ##
-    ## TO CLOSE: on an idle machine, bump to 44, re-record
+    ## TO CLOSE: on an idle machine, bump to 45, re-record
     ## tests/fixtures/*.bitreplay + tests/replays/ctf.bitreplay via
     ## tools/record_fixture.sh (recipes in tests/test_broadcast_state.nim),
     ## verify the required beats actually occur, and re-pin the capture
     ## fixture's asserted winner/ending. Re-scan for version claims first —
-    ## 44 may have been taken by then.
+    ## 45 may have been taken by then.
     ## ==================================================================
+    ##
+    ## Previously GV43 (puddle rule): PUDDLES BITE TWICE AS HARD.
     ## `DefaultPuddleDamagePct` goes 10 -> 20: a full second of continuous
     ## paint-puddle occupancy now rolls a 20% chance of 1 damage instead of
     ## 10%. The default matters because spec-pinned puddles (the campaign's
@@ -501,6 +526,27 @@ const
   TimeoutReward* = -1         ## EVERY player scores -1 on a time-limit draw
                               ## (GameVersion 21): stalling out the clock is
                               ## never better than losing, for either side.
+
+  BrPlacementBonus*: array[2..16, int] = [
+    #  2   3   4   5   6   7   8   9  10  11  12  13  14  15  16
+      5,  4,  4,  3,  3,  2,  2,  2,  1,  1,  1,  0,  0,  0,  0
+  ]
+    ## BR (§7.3) placement reward table: an ENGAGED losing team's reward is
+    ## `lossReward + BrPlacementBonus[placementRank]`, clamped in finishGame
+    ## to strictly below the winner's own reward for that game (so a
+    ## non-winning placement can never out-earn winning outright, at any
+    ## team count — the clamp matters most at 2/4-team BR games, where
+    ## winReward is small). Monotonically non-increasing in rank BY
+    ## CONSTRUCTION: 16th place (the worst rank a 16-team BR game can
+    ## produce) adds nothing, i.e. an engaged last-place team scores
+    ## exactly the plain loss floor, same as it always has. A team with NO
+    ## engagement evidence (no attack made, no damage dealt) never reads
+    ## this table at all — see finishGame — so it always scores the flat
+    ## loss floor regardless of how long it survived.
+    ##
+    ## UNCALIBRATED: this is a conservative placeholder shape (small,
+    ## monotone, bounded well under a win), not a tuned one — the evidence
+    ## phase (real BR replays) picks the actual numbers.
 
   # Achievement ids exported per slot in results.json (the platform's
   # achievement catalog in the coworld manifest uses the same ids). All are
@@ -1202,6 +1248,24 @@ type
                                ## NOT do a full flood-CONNECTIVITY check at load
                                ## (too heavy); reachability/fairness is the
                                ## caller's measured gate. Ignored on symmetric maps.
+    homeRotation*: int         ## GV44: per-episode rotation of TEAM -> HOME
+                               ## OWNERSHIP, in quarter-turns around the home
+                               ## orbit (0..3; 0 = the historical fixed
+                               ## assignment). The pads themselves never move —
+                               ## the board carves the same four congruent
+                               ## homes either way — only which team owns which
+                               ## one changes, so that a 4-team season deals
+                               ## every seat every slot instead of pinning it
+                               ## to one. Derived from the GAME seed by
+                               ## `homeRotationFor` and applied in
+                               ## `resolveCtfMapMetadata`, so it is a pure
+                               ## function of the config a replay already
+                               ## carries and never needs pinning into
+                               ## `mapSpec`. ALWAYS 0 for teamCount <= 2:
+                               ## Red-left / Blue-right is a game contract.
+                               ## Read it ONLY through `homeSlot` — that remap
+                               ## is the single choke point the whole home
+                               ## bundle rotates through.
     # GVNEXT(spawn): new CtfMap field. Reachable from SimServer (sim.gameMap),
     # so it enters the flatty keyframe layout — but keyframes are DERIVED
     # in-process and never read from a replay file (the established "puddle

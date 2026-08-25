@@ -335,13 +335,26 @@ const BrRosterColorNames = [
   "red", "blue", "green", "yellow", "black", "silver", "ivory", "pink",
   "umber", "rust", "orange", "plum", "lime", "navy", "azure", "peach",
 ]
-  ## The full BR duo roster (tools/record_br_match.sh's own TEAM_NAMES,
-  ## same order) — used ONLY to widen enemy-color enumeration when
+  ## same order) — widens ANY "which colors are in play" enumeration when
   ## RealTeamCount says more than TeamColorNames.len teams are actually in
-  ## play (see RealTeamCount above and its use below). GameTeams itself,
-  ## and every OTHER consumer keyed on it, stays clamped at 4: this list
-  ## exists so a threat scan can reach a color GameTeams was never meant
-  ## to address, not to relitigate what GameTeams bounds.
+  ## play (see RealTeamCount above, and rosterColor/rosterColorCount below).
+  ## GameTeams itself, and every OTHER consumer keyed on it, stays clamped
+  ## at 4: this list exists so a scan can reach a color GameTeams was never
+  ## meant to address, not to relitigate what GameTeams bounds.
+
+proc rosterColorCount(): int =
+  ## How many colors are actually in play, for whatever caller is about to
+  ## enumerate "every color this board seats". The BR roster's full width
+  ## on a wide (> 4 team) board, else exactly max(2, GameTeams) — so every
+  ## 2-4 team ladder game is byte-identical to before this proc existed.
+  if RealTeamCount > TeamColorNames.len: RealTeamCount else: max(2, GameTeams)
+
+proc rosterColor(i: int): string =
+  ## The i-th seat-deal color, from whichever roster `rosterColorCount`
+  ## picked. Two enumerations reading `rosterColorCount()`/`rosterColor(i)`
+  ## together always agree on which roster they are walking.
+  if RealTeamCount > TeamColorNames.len: BrRosterColorNames[i]
+  else: TeamColorNames[i]
 
 type
   Team = enum
@@ -1049,12 +1062,15 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) {.measure.} =
   # Multi-team boards deal the seats round GameTeams colors (slot mod
   # teams) — the startup red/blue parity guess is wrong for half the seats
   # there, and a wrong color makes every label scan blind (the "statues on
-  # green and yellow" bug). Re-deal the color and the per-team seat role now
+  # green and yellow" bug, and its wide-roster twin: a slot mod GameTeams
+  # guess NEVER lands past yellow on a 16-duo BR board, so those seats never
+  # find their own self marker below and stand still all game — see
+  # rosterColor's doc). Re-deal the color and the per-team seat role now
   # that the team count is stated; the self marker confirms (or corrects)
   # the color on the first alive frame.
   if GameTeams > 2:
     if not bot.colorLocked:
-      bot.myColor = TeamColorNames[bot.slot mod GameTeams]
+      bot.myColor = rosterColor(bot.slot mod rosterColorCount())
     bot.role = roleForSeat(clamp(bot.slot div GameTeams, 0, 7), bot.team)
   bot.deriveMultiFrame()
   artEvent(bot.tick, "game_params",
@@ -1535,9 +1551,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # Our wire color: the slot-dealt guess until the self marker — the one
   # sprite only WE ever see — confirms it. Explicit slot configs can deal
   # colors in any order, and a wrong color makes every scan below blind.
+  # rosterColorCount/rosterColor widen this to the full BR roster on a wide
+  # (> 4 team) board — otherwise a seat past yellow could never confirm
+  # (or even guess) its own color, findSelf(myColor) would report "not
+  # alive" every tick regardless of the true wire state, and the seat would
+  # send zero input for the whole match: not a passive bot, an invisible
+  # one to itself.
   if not bot.colorLocked:
-    for i in 0 ..< max(2, GameTeams):
-      let c = TeamColorNames[i]
+    for i in 0 ..< rosterColorCount():
+      let c = rosterColor(i)
       if client.findSelf(c).alive:
         bot.colorLocked = true
         if c != bot.myColor:
@@ -1553,9 +1575,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   if GameTeams > 2 and bot.targetColor.len > 0:
     enemyColor = bot.targetColor
   else:
-    for i in 0 ..< max(2, GameTeams):
-      if TeamColorNames[i] != myColor:
-        enemyColor = TeamColorNames[i]
+    for i in 0 ..< rosterColorCount():
+      let c = rosterColor(i)
+      if c != myColor:
+        enemyColor = c
         break
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
@@ -1799,18 +1822,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     seenMates = client.actorsFor(myColor)
   var seenEnemies: seq[Actor]
   # EVERY other color is a combat threat on a free-for-all board, not just
-  # the flag-raid target — track them all. RealTeamCount (unclamped) picks
-  # the roster when a match actually has more teams than GameTeams's own
-  # 2-4 clamp allows for — a BR duo board — so a color GameTeams was never
-  # meant to address (see its own comment above) still gets scanned. Any
-  # non-BR board keeps enumerating exactly TeamColorNames[0 ..< GameTeams]
-  # as before: RealTeamCount == GameTeams whenever GameTeams's own clamp
-  # never bound anything, i.e. every 2-4 team ladder game, unchanged.
-  let
-    wideRoster = RealTeamCount > TeamColorNames.len
-    enemyColorCount = if wideRoster: RealTeamCount else: max(2, GameTeams)
-  for i in 0 ..< enemyColorCount:
-    let c = if wideRoster: BrRosterColorNames[i] else: TeamColorNames[i]
+  # the flag-raid target — track them all. rosterColorCount/rosterColor
+  # pick the full BR roster when a match actually has more teams than
+  # GameTeams's own 2-4 clamp allows for — a BR duo board — so a color
+  # GameTeams was never meant to address (see its own comment above) still
+  # gets scanned. Any non-BR board keeps enumerating exactly
+  # TeamColorNames[0 ..< GameTeams] as before: RealTeamCount == GameTeams
+  # whenever GameTeams's own clamp never bound anything, i.e. every 2-4
+  # team ladder game, unchanged.
+  for i in 0 ..< rosterColorCount():
+    let c = rosterColor(i)
     if c != myColor:
       seenEnemies.add(client.actorsFor(c))
   bot.updateTracks(bot.enemies, seenEnemies)

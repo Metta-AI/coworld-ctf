@@ -678,7 +678,14 @@ proc renderArenaRgbaPair*(
       tileBlock[y * tileW + x] =
         tileSampleF(floorTex, (float(x) + 0.5) / float(scale), fy)
   let
-    tints = endzoneTints(gameMap)
+    ## BR N-point spawn subsystem: mirror loadMapLayers' identical gate
+    ## (below, same comment in full) — a flagless map has no capture
+    ## geometry to paint, and an empty tints list makes endzoneColorAt a
+    ## pure passthrough, so this is enough on its own without touching the
+    ## per-pixel loop below at all.
+    tints =
+      if gameMap.flagless: newSeq[EndzoneTint]()
+      else: endzoneTints(gameMap)
     playLo = ArenaBorder
     playHi = w - 1 - ArenaBorder
     playLoY = ArenaBorder
@@ -730,42 +737,51 @@ proc renderArenaRgbaPair*(
       put(result.cold, i * 4, coldColor)
   # Pedestals: pixie still resizes the painted masters, but the composite onto
   # the board is a manual straight-alpha src-over into the byte buffers.
-  for team in gameMap.teams():
-    let
-      home = gameMap.flagHome(team)
-      full = pedSprs[team]
-      size = PedestalCoverSize * scale
-      scaled = full.resize(size, size)
-      dimmed = scaled.pedestalDimmed()
-      px0 = home.x * scale - size div 2
-      py0 = home.y * scale - size div 2
-    for sy in 0 ..< size:
-      let dy = py0 + sy
-      if dy < 0 or dy >= oh:
-        continue
-      for sx in 0 ..< size:
-        let dx = px0 + sx
-        if dx < 0 or dx >= ow:
+  #
+  # BR N-point spawn subsystem: a flagless map arms no flag, so there is no
+  # pedestal to composite — skip the whole pass rather than stamping one at
+  # flagHome/teamAnchor, which teamAnchor's layoutSides fallback collapses to
+  # ONE point for every non-Red team (the same collapse loadMapLayers' twin
+  # gate below avoids): every BR match's board texture would otherwise show
+  # 15 pedestals stacked on Red's single anchor pixel. Mirrors loadMapLayers'
+  # `if not gameMap.flagless:` gate exactly.
+  if not gameMap.flagless:
+    for team in gameMap.teams():
+      let
+        home = gameMap.flagHome(team)
+        full = pedSprs[team]
+        size = PedestalCoverSize * scale
+        scaled = full.resize(size, size)
+        dimmed = scaled.pedestalDimmed()
+        px0 = home.x * scale - size div 2
+        py0 = home.y * scale - size div 2
+      for sy in 0 ..< size:
+        let dy = py0 + sy
+        if dy < 0 or dy >= oh:
           continue
-        let
-          litPx = scaled.data[sy * size + sx].rgba
-          dimPx = dimmed.data[sy * size + sx].rgba
-          offset = (dy * ow + dx) * 4
-        template blend(buf: seq[uint8], src: ColorRGBA) =
-          if src.a == 255'u8:
-            buf[offset] = src.r
-            buf[offset + 1] = src.g
-            buf[offset + 2] = src.b
-          elif src.a > 0'u8:
-            let a = src.a.int
-            buf[offset] =
-              uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
-            buf[offset + 1] =
-              uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
-            buf[offset + 2] =
-              uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
-        blend(result.hot, litPx)
-        blend(result.cold, dimPx)
+        for sx in 0 ..< size:
+          let dx = px0 + sx
+          if dx < 0 or dx >= ow:
+            continue
+          let
+            litPx = scaled.data[sy * size + sx].rgba
+            dimPx = dimmed.data[sy * size + sx].rgba
+            offset = (dy * ow + dx) * 4
+          template blend(buf: seq[uint8], src: ColorRGBA) =
+            if src.a == 255'u8:
+              buf[offset] = src.r
+              buf[offset + 1] = src.g
+              buf[offset + 2] = src.b
+            elif src.a > 0'u8:
+              let a = src.a.int
+              buf[offset] =
+                uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
+              buf[offset + 1] =
+                uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
+              buf[offset + 2] =
+                uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
+          blend(result.hot, litPx)
+          blend(result.cold, dimPx)
 
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =

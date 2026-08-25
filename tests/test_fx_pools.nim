@@ -120,3 +120,76 @@ suite "combat FX pools hold a full 32-player roster":
       setCurrentDir(previousDir)
     let counts = game.labelCounts([packet])
     check counts["shot impact"] == MaxPlayers
+
+suite "neutral item pools survive BR-scale authored counts (finding 1)":
+  ## The four NEUTRAL pickup pools (grenades/shields/med kits/spray cans)
+  ## declared width 4 — a <=4-team holdover — while BR authors runtime-sized
+  ## pools (the showmatch: 33 med kits, 36 sprays, 14 grenades, 7 shields).
+  ## `Base + i` past the declared width wrote straight into the NEXT pool's
+  ## id range (medkit i=10 into RotDiamondObjectBase, spray i=20 into
+  ## SprayPaintCarryObjectBase): two families claiming the same wire object
+  ## id in one packet, so the client's per-id object table can only keep
+  ## one — the other silently vanishes or shows the wrong sprite. The fix
+  ## widens all four to NeutralItemPoolWidth (64) and relocates them to
+  ## fresh, non-colliding headroom (global.nim, PaintBombPickupObjectBase's
+  ## comment); these tests exercise the two guards that keep it that way:
+  ## the runtime clamp+assert in the render loop itself, and an end-to-end
+  ## check that a realistic BR-scale load never collides on the wire.
+
+  test "med kits / shields / spray pickups / grenade pickups assert rather than silently overflow their pool":
+    ## Bypasses the map entirely — sets the SIM's runtime spawn arrays
+    ## directly past NeutralItemPoolWidth, so this exercises the render
+    ## loop's own defense (finding 1), independent of validateMap's
+    ## separate map-authoring gate (finding 4).
+    for family in ["medKitSpawns", "shieldSpawns", "sprayPaintSpawns", "grenadeSpawns"]:
+      var game = fullRosterGame()
+      let overflowLen = NeutralItemPoolWidth + 1
+      template fill(spawnsField: untyped) =
+        game.spawnsField.setLen(overflowLen)
+        for i in 0 ..< overflowLen:
+          game.spawnsField[i] =
+            PickupSpawn(x: 60, y: 60, present: true, respawnAt: 0)
+      case family
+      of "medKitSpawns": fill(medKitSpawns)
+      of "shieldSpawns": fill(shieldSpawns)
+      of "sprayPaintSpawns": fill(sprayPaintSpawns)
+      of "grenadeSpawns": fill(grenadeSpawns)
+      else: discard
+      var state = initGlobalViewerState()
+      var raised = false
+      try:
+        discard game.boardPacket(state)
+      except AssertionDefect:
+        raised = true
+      check raised
+
+  test "BR-scale item pools (33 med kits, 36 spray cans, 14 grenades, 7 shields) never collide with each other or any other object pool":
+    var game = fullRosterGame()
+    template seat(spawnsField: untyped, n: int, row: int) =
+      game.spawnsField.setLen(n)
+      for i in 0 ..< n:
+        game.spawnsField[i] =
+          PickupSpawn(x: 60 + i * 4, y: 60 + row * 40, present: true, respawnAt: 0)
+    seat(medKitSpawns, 33, 0)
+    seat(shieldSpawns, 7, 1)
+    seat(sprayPaintSpawns, 36, 2)
+    seat(grenadeSpawns, 14, 3)
+    # Every player also carries every carriable item, so the (already
+    # MaxPlayers-wide) carry-marker pools are maximally live in the SAME
+    # packet as the pickups above — the exact conditions the historical
+    # medkit-vs-rotdiamond and spray-vs-spraycarry collisions needed.
+    for i in 0 ..< game.players.len:
+      game.players[i].hasSprayPaint = true
+      game.players[i].hasShield = true
+      game.players[i].shieldHp = 1
+      game.players[i].hasGrenade = true
+    var state = initGlobalViewerState()
+    let packet = game.boardPacket(state)
+    var seenIds: seq[int]
+    for message in packet.parseSpritePacket():
+      if message.kind == spkObject:
+        check message.objectDef.id notin seenIds
+        seenIds.add message.objectDef.id
+    # Sanity: the packet really is item-dense, not vacuously passing on an
+    # empty frame.
+    check seenIds.len > 200

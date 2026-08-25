@@ -497,7 +497,9 @@ proc addPlayer*(
         teamColor(team)
     accountIndex = sim.ensureRewardAccount(address)
     perks = sim.perkSetForJoin(team, address)
-  let spawn = sim.spawnPosition(team, order div sim.gameMap.teamCount())
+  let
+    spawn = sim.spawnPosition(team, order div sim.gameMap.teamCount())
+    groupOffset = sim.spawnGroupOffset()
   sim.bindRewardAccountSlot(accountIndex, order)
   sim.rewardAccounts[accountIndex].hasTeam = false
   sim.rewardAccounts[accountIndex].won = false
@@ -507,8 +509,8 @@ proc addPlayer*(
     y: spawn.y,
     homeX: spawn.x,
     homeY: spawn.y,
-    aimBrads: sim.gameMap.spawnAimBrads(team),
-    flipH: sim.gameMap.spawnFlipH(team),
+    aimBrads: sim.gameMap.spawnAimBrads(team, groupOffset),
+    flipH: sim.gameMap.spawnFlipH(team, groupOffset),
     windupBrads: -1,
     arcAimBrads: -1,
     team: team,

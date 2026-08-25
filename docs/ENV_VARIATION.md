@@ -191,6 +191,41 @@ the barrage configured ignores `maxTicks` entirely (it ends only on capture/wipe
 capturing a heart eliminates that team; last team standing wins; 2-team ends on
 first capture.
 
+`brMode` placement reward (`finishGame`, `BrPlacementBonus` array `2..16` in
+sim_types.nim): every losing team's reward is `lossReward + BrPlacementBonus[rank]`
+(clamped below the winner's own reward) instead of the flat `lossReward`, where
+`rank` is that team's 1..N finish (`brPlacements()`/`brRankedTeams()` — same
+living/last-death/kills/damage/seat order `brTiebreakWinner` uses). Gated on
+engagement evidence (`attacksMade>0 or damageDealt>0` somewhere on the team) —
+no evidence collapses the reward back to the plain `lossReward` floor, so a team
+that never fought never earns placement credit for merely outlasting others.
+`brMode:false` games never read this table (byte-identical to before). The
+table is an UNCALIBRATED placeholder pending the field-evidence phase. The same
+engagement gate also applies to `AchievementPacifist`/`AchievementSpotless` in
+`brMode`: neither can pay on top of a win with zero engagement (classic/non-BR
+games are unaffected).
+
+---
+
+## Battle-royale shrink zone (config-gated)
+
+| Field | Type / default | JSON key | Bounds | Effect |
+|---|---|---|---|---|
+| `zonePhases` | `seq[ZonePhase]` / `@[]` (off) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for the battle-royale mode (docs/designs/BR_MAPGEN.md §4.3); empty = the mechanic never runs — no center draw, no rect, no damage, no markers, byte-identical to a build without the field. |
+| `zonePhases[].z` | float, required | `z` | `(0, 1]`, and STRICTLY less than the previous phase's (implicit `1.0` for phase 0) | Target scale of the aspect-matched rect for this phase; stored internally as a permille like the handicap/perk fractions. |
+| `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
+| `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
+| `zonePhases[].dps` | int / `0` | `dps` | `>=0` | Hit points/second dealt to a player outside the current rect while this phase is active — applied directly on the puddle-hazard per-second cadence (`ZoneDamageRollTicks`=24), no RNG roll. |
+
+The zone's CENTER is drawn once per game from the sim RNG (`resetZone`,
+[sim.nim](../src/ctf/sim.nim)) — uniform over positions where the FINAL
+phase's rect fits fully on-board with an `ArenaBorder` margin — never a
+fixed map-center circle. `zoneRectAtScale`/`zoneRectAndDps`
+([sim.nim](../src/ctf/sim.nim)) derive every phase's rect from
+`gameMap.width`/`gameMap.height` and that one center, integer math
+throughout. See RULES.md "Battle-royale shrink zone" for the full rule and
+the `zone`/`zonenext` stated-marker grammar.
+
 ---
 
 ## Battle-royale shrink zone (config-gated)

@@ -97,6 +97,31 @@ proc validateMap(gameMap: CtfMap) =
         "into spawnGroups (" & $gameMap.spawnGroups & ") — seats per group " &
         "is implicit (spawnPoints.len div spawnGroups) and a remainder would " &
         "seat some groups worse than others.")
+  ## BR item-pool defense: a real BR map (flagless AND spawnGroups>1 — both,
+  ## not either; a smaller symNone+flagless map that still authors real
+  ## per-team teamPickups, like the generic N-point spawn demo, is unaffected)
+  ## has no per-team endzone for the classic med kit/shield/spray/grenade
+  ## FORMULAS to anchor into — resetMedKits/resetShields/resetSprayPaints/
+  ## resetGrenades (sim.nim) all fall back to those formulas whenever the
+  ## map's own neutral pool is empty, and on a spawnGroups map the fallback
+  ## either returns nothing (shieldSpawnPoints/sprayPaintSpawnPoints go
+  ## through the symNone explicit-only branch, which is empty here) or seats
+  ## a fixed 4 un-nudged points regardless of how many seats the map has
+  ## (grenadeSpawnPoints — see resetGrenades). Silently shipping either is
+  ## the launch-blocking bug this closes: reject the map outright instead,
+  ## naming exactly which pool is missing.
+  if gameMap.flagless and gameMap.spawnGroups > 1:
+    for (name, count) in [
+        ("medKitSpawns", gameMap.medKitSpawns.len),
+        ("shieldSpawns", gameMap.shieldSpawns.len),
+        ("spraySpawns", gameMap.spraySpawns.len),
+        ("grenadeSpawns", gameMap.grenadeSpawns.len)]:
+      if count == 0:
+        raise newException(CtfError,
+          "a flagless, spawnGroups=" & $gameMap.spawnGroups & " (BR) map " &
+          "must author a non-empty " & name & " pool — the classic " &
+          "per-team formula it would otherwise fall back to has no " &
+          "per-team endzone to anchor into on a map this shape.")
   case gameMap.layout
   of layoutSides:
     if gameMap.symmetry in {symRot90, symQuadMirror}:
@@ -535,9 +560,95 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
         "teamImagePoint: quadmirror layoutCorners is 4-team only, got " &
           $team & " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
 
-proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
-  ## Returns one team's home anchor: the center of its protected spawn
-  ## pocket, where its pedestal stands.
+proc homeRotationFor*(seed, teams: int): int =
+  ## The per-episode rotation of TEAM -> HOME ownership, in quarter-turns
+  ## around the home orbit: an avalanche hash of the game seed and the team
+  ## count, reduced mod the team count.
+  ##
+  ## ALWAYS 0 for two teams (or fewer). Red-left / Blue-right is a game
+  ## contract that predates everything else in this file, so the 2-team board
+  ## is bit-identical to its whole history — the identity is spelled out here
+  ## rather than left to the hash, so no seed can ever produce it by accident.
+  ##
+  ## Hashing rather than `seed mod teams` because consecutive league seeds are
+  ## not independent: a strided or incrementing seed schedule (which is what a
+  ## ladder actually deals) would lock a policy onto one slot for a whole
+  ## season under a bare modulo. The mix is FNV-style with an explicit
+  ## avalanche, so neighbouring seeds land in unrelated rotations.
+  if teams <= 2:
+    return 0
+  var hash = 14695981039346656037'u64
+  for value in [seed, teams]:
+    ## Mixed as the low 32 bits of the two's-complement pattern, NOT as
+    ## `cast[uint64](value)`: `int` is 64 bits on the server and 32 bits in
+    ## the wasm replay viewer, and a widening `cast` leaves the high half
+    ## undefined. The viewer re-derives this deal when it re-simulates a
+    ## replay, so a word-size disagreement here would desync every 4-team
+    ## replay in the observatory while the native suite stayed green.
+    ## Same-size `cast` to uint32 is a well-defined reinterpretation on both.
+    hash = hash xor uint64(cast[uint32](value))
+    hash = hash * 1099511628211'u64
+  hash = hash xor (hash shr 30)
+  hash = hash * 13787848793156543929'u64
+  hash = hash xor (hash shr 27)
+  hash = hash * 1099511628211'u64
+  hash = hash xor (hash shr 31)
+  int(hash mod uint64(teams))
+
+proc homeSlot*(gameMap: CtfMap, team: Team): Team =
+  ## THE remap: which PHYSICAL home slot `team` owns this episode.
+  ##
+  ## This is the single choke point the whole home BUNDLE turns on. A home is
+  ## not just a spawn point — it is an anchor, a pedestal, a capture zone, a
+  ## spawn strip WITH an arm orientation, and a spawn aim — and every one of
+  ## those is derived from this remap (directly, or through `teamAnchor`),
+  ## which is what stops a rotation from tearing the bundle in half. Code that
+  ## wants the board's own geometry rather than a team's property asks for a
+  ## SLOT instead (`slotAnchor`, `teamImagePoint`, `rot90Quarter`): those are
+  ## the map's fixed furniture and they never rotate.
+  ##
+  ## The rotation runs in ORBIT-INDEX space (`rot90Quarter`), not in Team enum
+  ## order, so it is a genuine geometric quarter-turn of ownership: corner maps
+  ## step top-left -> top-right -> bottom-right -> bottom-left, plus maps west
+  ## -> north -> east -> south. That preserves adjacency exactly — teams that
+  ## were a quarter turn apart stay a quarter turn apart, and the plus
+  ## layout's opposite arms stay opposite — which an arbitrary permutation of
+  ## the four teams would not.
+  ##
+  ## BR INTEGRATION: `rot90Quarter` only has a real orbit under layoutCorners
+  ## / layoutPlus — every team maps to quarter-turn 0 under layoutSides (see
+  ## its own `of layoutSides: 0` branch), by design, for the 2-team case this
+  ## proc already returns early on above. A 16-team BR board is symNone but
+  ## still reports `layoutSides` (BR_MAPGEN.md §6.1 authors no sides/corners
+  ## concept, so it takes the harmless default), and `homeRotationFor` does
+  ## not know that: it derives a nonzero rotation for ANY teamCount > 2,
+  ## BR included. Without this guard `target` collapses to `homeRotation mod
+  ## 4`, and since every team's own quarter-turn is 0 too, the search below
+  ## either matches EVERY team (target == 0, so it always returns Red — every
+  ## team's anchor collapses onto one point) or NO team (target != 0, falling
+  ## through to identity by accident rather than by contract). Both are only
+  ## harmless today because BR's authored `spawnPoints` bypasses `teamAnchor`
+  ## for every consumer that matters (spawnPosition, spawnAimBrads,
+  ## defaultCtfRooms all early-return before reaching it) — but `teamAnchor`
+  ## itself is still called unconditionally per team by `selectCtfMap`
+  ## (ArenaAnchors), so leaving the collapse live is one new caller away from
+  ## a real bug. Pin it to identity outright: a layout with no rot90 orbit
+  ## has nothing to rotate through, exactly like the teamCount <= 2 case.
+  if gameMap.homeRotation == 0 or gameMap.teamCount() <= 2 or
+      gameMap.layout == layoutSides:
+    return team
+  let target = (gameMap.rot90Quarter(team) + gameMap.homeRotation) mod 4
+  for slot in gameMap.teams():
+    if gameMap.rot90Quarter(slot) == target:
+      return slot
+  team
+
+proc slotAnchor*(gameMap: CtfMap, slot: Team): MapPoint =
+  ## Returns one HOME SLOT's anchor: the center of that protected spawn
+  ## pocket, where a pedestal stands. This is the board's own furniture and
+  ## does NOT rotate — `teamAnchor` is what maps a team onto one of these.
+  ## Call this (never `teamAnchor`) when seeding a symmetry orbit or asking a
+  ## question about the terrain rather than about a team.
   ##
   ## rot90 4-team anchors are RED's anchor walked around the rot90 orbit, so
   ## every team's home is EXACTLY a quarter turn of every other team's.
@@ -561,7 +672,7 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   case gameMap.layout
   of layoutSides:
     result =
-      case team
+      case slot
       of Red:
         MapPoint(x: axisHomeLo(cx, d), y: cy)
       else:
@@ -570,20 +681,20 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
     if gameMap.symmetry == symQuadMirror:
       if gameMap.layout == layoutCorners:
         result = gameMap.teamImagePoint(
-          MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d)), team)
+          MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d)), slot)
       else:
         let
           red = MapPoint(x: axisHomeLo(cx, d), y: cy)
           green = MapPoint(x: cx, y: axisHomeLo(cy, d))
         result =
-          case team
+          case slot
           of Red: red
           of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
           of Green: green
           of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
           else: raiseAssert(
-            "teamAnchor: quadmirror layoutPlus is 4-team only, got " &
-              $team & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
+            "slotAnchor: quadmirror layoutPlus is 4-team only, got " &
+              $slot & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
       return
     ## Red seeds the rot90 orbit: top-left on corner maps, west on plus maps.
     result =
@@ -591,8 +702,19 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
         MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
       else:
         MapPoint(x: axisHomeLo(cx, d), y: cy)
-    for _ in 0 ..< gameMap.rot90Quarter(team):
+    for _ in 0 ..< gameMap.rot90Quarter(slot):
       result = result.rot90Point(gameMap.width)
+
+proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
+  ## Returns one TEAM's home anchor for this episode: the pad it owns.
+  ##
+  ## Precedence is authored anchor > seed rotation > default derivation. The
+  ## pads are fixed board furniture (`slotAnchor`); all this does is deal them
+  ## out. Everything else that is home-keyed — pedestal, capture zone, spawn
+  ## strip, spawn aim, base room, endzone paint — reads a team's home from
+  ## here or from `homeSlot` directly, so the bundle can only ever rotate as
+  ## one piece.
+  gameMap.slotAnchor(gameMap.homeSlot(team))
 
 proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
   ## The half-extents of one team's protected spawn pocket, around its
@@ -606,7 +728,11 @@ proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
   ## Mirror, rot180 and quad-mirror symmetries preserve the axes, so 2-team
   ## maps — and every quad-mirror team — keep the single upright box: the
   ## reflections carry an upright W x H box onto an upright W x H box.
-  if gameMap.symmetry == symRot90 and gameMap.rot90Quarter(team) mod 2 == 1:
+  ## Keyed on the OCCUPIED SLOT (`homeSlot`), not on team identity: after a
+  ## GV44 home rotation the pocket has to keep the shape of the pad it wraps,
+  ## or the protected floor stops agreeing with its own quarter turn again.
+  if gameMap.symmetry == symRot90 and
+      gameMap.rot90Quarter(gameMap.homeSlot(team)) mod 2 == 1:
     (gameMap.spawnClearH, gameMap.spawnClearW)
   else:
     (gameMap.spawnClearW, gameMap.spawnClearH)
@@ -786,6 +912,12 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
   ## battlefield.
   let
     anchor = gameMap.teamAnchor(team)
+    ## Which ARM/CORNER the team actually occupies this episode. Every branch
+    ## below keys on this rather than on team identity: after a GV44 home
+    ## rotation a team sitting in the north arm needs the NORTH mouth's box,
+    ## not the west one its colour used to imply. The anchor is already
+    ## rotated (teamAnchor), so the two agree by construction.
+    slot = gameMap.homeSlot(team)
     half = CaptureZoneWidth div 2
     w = gameMap.width
     h = gameMap.height
@@ -807,7 +939,7 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
     return
   case gameMap.layout
   of layoutSides:
-    if team == Red:
+    if slot == Red:
       result.xHi = anchor.x + half
     else:
       result.xLo = anchor.x - half
@@ -841,7 +973,7 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
     let
       bandY = gameMap.plusArmBandOn(h)
       bandX = gameMap.plusArmBandOn(w)
-    case team
+    case slot
     of Red:
       result.xHi = anchor.x + half
       result.yLo = bandY.lo
@@ -3537,6 +3669,21 @@ proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
     raise newException(
       CtfError, "Config asks for " & $config.teams & " teams but map " &
         result.name & " seats " & $result.teamCount() & hint)
+  ## GV44: deal the homes. This is the ONLY place a rotation is ever applied,
+  ## and it is applied to the FINISHED map — after generation, after spec
+  ## parsing, after validation — because none of those care who owns a pad:
+  ## the terrain, the protected floor, the pickup orbits and the four pads
+  ## themselves are all rotation-invariant by construction (the map validator
+  ## proves the four homes congruent and separately reachable). Derived from
+  ## the GAME seed, not the map seed: the terrain must stay reproducible from
+  ## `mapSeed` alone, and a replay's config already carries `seed`, so nothing
+  ## has to be pinned into `mapSpec` for playback to land on the same deal.
+  result.homeRotation = homeRotationFor(config.seed, result.teamCount())
+  if result.homeRotation != 0:
+    ## The base rooms are NAMED for their owner, so they are re-derived once
+    ## the deal is known. The boxes are the same boxes (they wrap the same
+    ## pads); only which team's name sits on which one changes.
+    result.rooms = result.defaultCtfRooms()
 
 ## The SELECTED map's layout, installed once per process by loadCtfMap and
 ## initialized to the default arena below so tooling that never selects a
