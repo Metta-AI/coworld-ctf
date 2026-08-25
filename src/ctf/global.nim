@@ -412,6 +412,17 @@ const
                                ## gold-white fleck chance (see
                                ## buildGloryChipSprite): a normal claim's rim
                                ## never rolls a fleck at all.
+  GloryChipFirstFleckDepthPx = 2
+                               ## logical px a hot fleck may reach IN from
+                               ## the true silhouette edge on a first claim
+                               ## (measured independently of the wider
+                               ## GloryChipFirstRimPx shading band). Kept
+                               ## tight on purpose: the first pass rolled
+                               ## flecks across the whole rim-shade depth and
+                               ## they read as wandering across the
+                               ## interior instead of trailing the edge like
+                               ## the death splatter's own dither — this
+                               ## keeps every hot fleck fused to the border.
   GloryChipDripCount = 3      ## small paint drips hung off the blob's lower
                                ## edge — gravity, not a symmetric rounded
                                ## rect. Position and size are HASHED from the
@@ -420,6 +431,33 @@ const
                                ## drips the same way on every replay run.
   GloryChipDripMinPx = 2'f32  ## smallest drip radius, logical px.
   GloryChipDripMaxPx = 4'f32  ## largest drip radius, logical px.
+  GloryChipPaintSatBoost = 1.5'f32
+                               ## how far the "wet paint" core (see
+                               ## gloryChipPaintCore) pushes each channel
+                               ## AWAY from the team color's own average
+                               ## brightness -- its hue axis -- instead of
+                               ## blending toward white. A flat white-mix
+                               ## (the buildHitSparkSprite droplet idiom)
+                               ## over-bleached blue: this game's "blue"
+                               ## (palette 13, ~131,118,156) is already a
+                               ## pale, fairly desaturated blue-violet, so
+                               ## ANY white blend pushes it toward a
+                               ## near-neutral lavender no viewer could
+                               ## attribute to a team at a glance, while the
+                               ## identical blend barely touches red
+                               ## (255,0,77) because red's R channel is
+                               ## already pinned at 255. Boosting AWAY from
+                               ## the color's own average instead widens
+                               ## exactly the channel spread that carries
+                               ## hue -- it reads as "more itself," not
+                               ## "more white" -- so one shared formula does
+                               ## the right thing for a saturated hue AND a
+                               ## desaturated one without a per-team branch.
+  GloryChipPaintLiftPx = 18'f32
+                               ## flat brightness lift on top of the boost,
+                               ## for the "wet"/glossy read -- small, since
+                               ## the boost above already does the real work
+                               ## of keeping blue legible as blue.
   GloryChipNameInk = (22'u8, 17'u8, 13'u8)
                                ## the achievement NAME's ink — this HUD's own
                                ## near-black, rgba(22,17,13,*), the exact tone
@@ -5088,6 +5126,17 @@ proc mix8(a, b: uint8, t: float32): uint8 =
   uint8(clamp(float32(a) + (float32(b) - float32(a)) * clamp(t, 0'f32, 1'f32),
     0'f32, 255'f32))
 
+proc gloryChipPaintCore(team: Team): tuple[r, g, b: uint8] =
+  ## The blob's flat "wet paint" core color. See GloryChipPaintSatBoost.
+  let
+    base = Palette[teamColor(team) and 0x0f]
+    avg = float32(base.r.int + base.g.int + base.b.int) / 3.0'f32
+  proc boosted(c: uint8): uint8 =
+    uint8(clamp(
+      avg + (float32(c.int) - avg) * GloryChipPaintSatBoost +
+        GloryChipPaintLiftPx, 0'f32, 255'f32))
+  (boosted(base.r), boosted(base.g), boosted(base.b))
+
 proc buildGloryChipSprite(
   pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
@@ -5180,14 +5229,15 @@ proc buildGloryChipSprite(
   # hanging off the bottom edge, hashed from the chip's own text so they are
   # fixed per achievement+payout and identical on every replay run.
   let
-    teamBase = Palette[teamColor(pop.team) and 0x0f]
-    paintR = uint8((teamBase.r.int * 3 + 255) div 4)
-    paintG = uint8((teamBase.g.int * 3 + 255) div 4)
-    paintB = uint8((teamBase.b.int * 3 + 255) div 4)
+    paintCore = gloryChipPaintCore(pop.team)
+    paintR = paintCore.r
+    paintG = paintCore.g
+    paintB = paintCore.b
     rimBase = Palette[ShadowMap[teamColor(pop.team) and 0x0f] and 0x0f]
     radius = GloryChipRadius * k.float32
     rimBandPx = float32(k) * float32(
       if isFirst: GloryChipFirstRimPx else: GloryChipRimPx)
+    firstFleckDepthPx = float32(GloryChipFirstFleckDepthPx * k)
     halfW = innerW.float32 / 2
     halfH = innerH.float32 / 2
     dripSeed = gloryChipTextHash(text)
@@ -5233,8 +5283,8 @@ proc buildGloryChipSprite(
           r = mix8(paintR, rimBase.r, t)
           g = mix8(paintG, rimBase.g, t)
           b = mix8(paintB, rimBase.b, t)
-        if isFirst and dist > -rimBandPx and
-            int(gloryChipNoise(x, y, 991'u32) mod 100) < 10:
+        if isFirst and dist > -firstFleckDepthPx and
+            int(gloryChipNoise(x, y, 991'u32) mod 100) < 22:
           (r, g, b) = (GloryChipFirstInk[0], GloryChipFirstInk[1],
             GloryChipFirstInk[2])
         pixels[i] = r
