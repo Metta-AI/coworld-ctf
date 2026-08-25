@@ -2338,6 +2338,24 @@ proc livesFor*(config: GameConfig, team: Team): int =
   if p <= 0: config.lives
   else: max(1, config.lives - (config.lives - 1) * p div 1000)
 
+proc seatLivesFor*(config: GameConfig, team: Team): int =
+  ## SPARE lives a cog is seated with — livesFor, except in brMode, where it
+  ## is 0.
+  ##
+  ## A BR cog never respawns (killPlayer forces lives to 0 on the first
+  ## death), so any spare it was seated with could never be spent — but
+  ## teamLivesRemaining counts spares PLUS the current life, so until that
+  ## first death every reader of it overstated the team. A 16-duo header
+  ## advertised "4 LIVES" for a duo that could absorb exactly two deaths.
+  ##
+  ## Seating the true number instead of teaching each reader the mode's
+  ## arithmetic keeps the scorebug numeral, the momentum series and the
+  ## game-over card honest together. Both seating sites (roster.addPlayer
+  ## and the match-start reset in sim) call THIS, because the reset used to
+  ## silently overwrite the roster's value — which is exactly how the first
+  ## attempt at this fix appeared to work and did not.
+  if config.brMode: 0 else: config.livesFor(team)
+
 proc maxSpeedFor*(config: GameConfig, team: Team): int =
   ## Max speed for `team`: interpolates from config.maxSpeed down to half.
   let p = config.handicaps[team]
