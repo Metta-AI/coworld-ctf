@@ -228,7 +228,18 @@ abandons the long axis, so ~47% of the field could never host an endgame.
 drawn center.** A single scalar z drives it, no axis is wasted, and the endgame
 arena is geometrically similar to the field the policies trained on.
 
-**Render the edge as a THING, not a line.** The advancing boundary is the
+**Zone art ruling (Maxwell, 2026-08-24, FINAL — supersedes the tide/stormfront
+and seepage-noise directives below): the dead region is rendered with the
+game's OWN floor-splat paint decals (David's existing paint-on-ground style) —
+overlapping splats drowning the floor deep in the dead area, discrete splats
+creeping inward at the frontier. Reuse the existing splat rendering; invent no
+custom frontier renderer. "We already have the design style, just do that."
+The zone then reads as what it mechanically is: painted floor that hurts to
+stand on. Honest boundary unchanged (damage = clamped rect; splat coverage ⊇
+rect complement; safe rect clean).**
+
+**Render the edge as a THING, not a line.** (Historical directive — see the
+splat ruling above.) The advancing boundary is the
 mode's protagonist-clock and deserves art: an advancing paint tide / spray
 stormfront with body, animated (approach shimmer outside, a churning front at
 the edge, dead paint behind). Build it on the cosmetic-FX-seq channel (copy
