@@ -30,6 +30,7 @@ transplanting a CTF number would be a category error (see §3.1).
 | Spawns | 16 positions equally spaced on an inset rectangle ring, k = 0.85 (§4.2) |
 | Convergence | **rectangular** zone, same aspect, drawn center, z: 1.00 -> 0.17 (§4.3) |
 | Win | last group standing, scored in glory |
+| Ships as | **a dedicated LEAGUE on the paintbot coworld** (DECIDED 2026-08-24) — never a duplicate coworld (the talk's constraint), not a variant diluted into an existing league's rotation. The `br16` variant machinery stands; the BR league simply configures it at 100%. Seating is a league-design question owned at league creation: 16 distinct policies wanted per episode; multi-duo self-play and filler policy must be decided explicitly (field intel: `player_name` LIES on filler seats). |
 
 ---
 
