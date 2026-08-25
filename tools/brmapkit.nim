@@ -5199,6 +5199,79 @@ proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
         any = true
   best
 
+proc shapeMassLabel(
+  shape: ArenaShape, comp: tuple[labels: seq[int], sizes: Table[int, int]],
+  cols, rows, width, height: int
+): int =
+  ## Which wall-grid connected-component this shape's own mass belongs to
+  ## (the label whose SIZE decides the confetti-prune verdict), or -1 if
+  ## none. Rect/disc/diamond/diagonal shapes sample their bbox centroid —
+  ## always interior for those kinds by construction (a rect's centroid is
+  ## inside the rect; a disc/diamond's centroid IS its declared center; a
+  ## diagonal's bbox centroid sits on its own axis, inside the stroke).
+  ##
+  ## ROUND 14 FIX (confirmed silent deletion): a POLYGON's bbox centroid is
+  ## NOT guaranteed interior. genCaves' blobPolygon wobbles a base radius
+  ## by two sinusoids whose combined amplitude can reach ~1.7x on one lobe
+  ## and well under 1x on the opposite lobe — lopsided/crescent enough that
+  ## the AABB centroid lands in the shape's own concave notch: a hole (or a
+  ## DIFFERENT, unrelated component), not the shape's own fill. Sampling
+  ## that one point then reads the wrong mass (often none at all, label
+  ## -1) and pruneConfetti silently DELETES an otherwise legitimate,
+  ## well-welded shape. Fixed in two tiers, both keyed off the shape's own
+  ## geometry (no new ArenaShape metadata, no touching mapgen_styles.nim):
+  ##   1. Try the polygon's own VERTEX-MEAN as a fast "generation center"
+  ##      proxy — blobPolygon samples its points at even angles around the
+  ##      true (cx, cy) it was drawn from, so the mean recovers something
+  ##      close to that center without carrying it separately. Verified
+  ##      via `inShape` (a bbox-centroid sample never was) before trusting
+  ##      its grid cell.
+  ##   2. If that still misses the shape's own fill (a genuinely
+  ##      crescent/star shape where even the vertex mean falls outside),
+  ##      fall back to scanning every grid cell the shape's OWN raster
+  ##      actually covers (the exact same rp=GridStride sampling used to
+  ##      build the wall grid) and keep whichever component it touches
+  ##      with the LARGEST mass. This is membership by ACTUAL FILL, never
+  ##      a single point — it can never under-count a shape's own mass,
+  ##      only ever find the true component(s) it welds into.
+  proc labelAt(x, y: int): int =
+    let cx = clamp(x, 0, width - 1)
+    let cy = clamp(y, 0, height - 1)
+    let (gx, gy) = toGrid(cx, cy)
+    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: return -1
+    comp.labels[gy * cols + gx]
+  let b = shapeBounds(shape)
+  if shape.kind != shapePolygon:
+    return labelAt((b.x0 + b.x1) div 2, (b.y0 + b.y1) div 2)
+  if shape.points.len > 0:
+    var sx, sy: int
+    for p in shape.points:
+      sx += p.x
+      sy += p.y
+    let vcx = sx div shape.points.len
+    let vcy = sy div shape.points.len
+    if inShape(vcx, vcy, shape):
+      let lbl = labelAt(vcx, vcy)
+      if lbl >= 0: return lbl
+  let gx0 = max(0, b.x0 div GridStride)
+  let gy0 = max(0, b.y0 div GridStride)
+  let gx1 = min(cols - 1, b.x1 div GridStride)
+  let gy1 = min(rows - 1, b.y1 div GridStride)
+  var bestLbl = -1
+  var bestSize = -1
+  for gy in gy0 .. gy1:
+    let y = gy * GridStride
+    for gx in gx0 .. gx1:
+      let x = gx * GridStride
+      if inShape(x, y, shape):
+        let lbl = comp.labels[gy * cols + gx]
+        if lbl >= 0:
+          let sz = comp.sizes.getOrDefault(lbl, 0)
+          if sz > bestSize:
+            bestSize = sz
+            bestLbl = lbl
+  bestLbl
+
 proc pruneConfetti(
   obstacles: seq[ArenaShape], width, height: int, floorPx2: int
 ): seq[ArenaShape] =
@@ -5206,10 +5279,11 @@ proc pruneConfetti(
   ## not just measured after the fact: drop any shape whose 8-connected wall
   ## mass (the mass it welds into, sharing an edge or corner with a
   ## neighbour) is smaller than the confetti floor. A shape with no welded
-  ## neighbours at all is its own 1-cell mass and is always dropped. Sampling
-  ## each shape's CENTROID against the mass grid (rather than re-deriving
-  ## membership analytically) keeps this consistent with validateBr's own
-  ## mass measurement by construction.
+  ## neighbours at all is its own 1-cell mass and is always dropped.
+  ## Membership is decided by shapeMassLabel (see its own comment for the
+  ## round-14 fix) rather than a raw centroid sample, so a lopsided polygon
+  ## whose bbox centroid misses its own fill can no longer be silently
+  ## dropped.
   let (cols, rows) = gridDims(width, height)
   var wall = newSeq[bool](cols * rows)
   for shape in obstacles:
@@ -5226,18 +5300,13 @@ proc pruneConfetti(
           wall[gy * cols + gx] = true
   let comp = components(wall, cols, rows, true, true)
   for shape in obstacles:
-    let b = shapeBounds(shape)
-    let ccx = clamp((b.x0 + b.x1) div 2, 0, width - 1)
-    let ccy = clamp((b.y0 + b.y1) div 2, 0, height - 1)
-    let (gx, gy) = toGrid(ccx, ccy)
-    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
-    let lbl = comp.labels[gy * cols + gx]
+    let lbl = shapeMassLabel(shape, comp, cols, rows, width, height)
     if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
       result.add shape
 
 proc pruneConfettiTrackBoundary(m: var BrMap, floorPx2: int) =
   ## Same confetti measurement as pruneConfetti (identical wall grid +
-  ## components + per-shape centroid sample — the kept set is byte-
+  ## components + per-shape shapeMassLabel — the kept set is byte-
   ## identical to calling pruneConfetti(m.obstacles, ...) directly),
   ## applied to the FULL obstacle list while keeping `structureCount`
   ## accurate. ROUND 13 FIX: cmdGenerate's second, full-obstacle-set
@@ -5275,12 +5344,7 @@ proc pruneConfettiTrackBoundary(m: var BrMap, floorPx2: int) =
   var kept: seq[ArenaShape]
   var newStructureCount = 0
   for idx, shape in m.obstacles:
-    let b = shapeBounds(shape)
-    let ccx = clamp((b.x0 + b.x1) div 2, 0, m.width - 1)
-    let ccy = clamp((b.y0 + b.y1) div 2, 0, m.height - 1)
-    let (gx, gy) = toGrid(ccx, ccy)
-    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
-    let lbl = comp.labels[gy * cols + gx]
+    let lbl = shapeMassLabel(shape, comp, cols, rows, m.width, m.height)
     if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
       kept.add shape
       if idx < m.structureCount: inc newStructureCount
@@ -6764,6 +6828,90 @@ proc cmdContactSheet(a: Args) =
   sheet.writeFile(outPath)
   stderr.writeLine(&"contact sheet: {images.len} images -> {outPath}")
 
+# --- self-test (round 14, launch-readiness fixes) -----------------------------
+## Deliberately independent of every real generated map: hand-built, tiny
+## geometry where the correct answer is known BY CONSTRUCTION (doctrine:
+## "assert against the SOURCE, not the prose" — a test that just calls the
+## same code under test and compares to itself can't catch a wrong answer).
+
+proc expectOk(name: string, cond: bool, failCount: var int, detail: string = "") =
+  if cond:
+    stderr.writeLine(&"  ok   {name}")
+  else:
+    stderr.writeLine(&"  FAIL {name}" & (if detail.len > 0: " — " & detail else: ""))
+    inc failCount
+
+proc oldCentroidOnlyPrune(
+  obstacles: seq[ArenaShape], width, height, floorPx2: int
+): seq[ArenaShape] =
+  ## Reproduces the PRE-round-14 pruneConfetti algorithm verbatim (a single
+  ## bbox-centroid sample decides a shape's mass membership). Kept ONLY
+  ## here, in the self-test, as a fixed reference point proving the
+  ## round-14 fix (shapeMassLabel) actually changes behavior on a shape it
+  ## should have kept all along — never called from the real draw path.
+  let (cols, rows) = gridDims(width, height)
+  var wall = newSeq[bool](cols * rows)
+  for shape in obstacles:
+    let b = shapeBounds(shape)
+    let gx0 = max(0, b.x0 div GridStride)
+    let gy0 = max(0, b.y0 div GridStride)
+    let gx1 = min(cols - 1, b.x1 div GridStride)
+    let gy1 = min(rows - 1, b.y1 div GridStride)
+    for gy in gy0 .. gy1:
+      let y = gy * GridStride
+      for gx in gx0 .. gx1:
+        let x = gx * GridStride
+        if inShape(x, y, shape):
+          wall[gy * cols + gx] = true
+  let comp = components(wall, cols, rows, true, true)
+  for shape in obstacles:
+    let b = shapeBounds(shape)
+    let ccx = clamp((b.x0 + b.x1) div 2, 0, width - 1)
+    let ccy = clamp((b.y0 + b.y1) div 2, 0, height - 1)
+    let (gx, gy) = toGrid(ccx, ccy)
+    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
+    let lbl = comp.labels[gy * cols + gx]
+    if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
+      result.add shape
+
+proc selftestConfettiPrune(failCount: var int) =
+  stderr.writeLine("-- fix 1: confetti-prune membership by fill, not one point --")
+  ## A rectilinear "C" bracket, open on its right side: top bar, left bar,
+  ## bottom bar. BY CONSTRUCTION its bounding box is (50,50)-(150,150), so
+  ## the bbox CENTROID is (100,100) — squarely inside the notch the "C"
+  ## cuts out of its own right side (x:[90,150), y:[70,130)), i.e. OUTSIDE
+  ## the shape's fill. The vertex-mean (the fast-path "generation center"
+  ## proxy) lands at (110,100) — also inside that same notch — so this one
+  ## shape forces BOTH tiers of the round-14 fix: the fast path misses too,
+  ## so only the full raster-scan fallback can find this shape's real mass.
+  let crescent = ArenaShape(kind: shapePolygon, points: @[
+    MapPoint(x: 50, y: 50), MapPoint(x: 150, y: 50), MapPoint(x: 150, y: 70),
+    MapPoint(x: 90, y: 70), MapPoint(x: 90, y: 130), MapPoint(x: 150, y: 130),
+    MapPoint(x: 150, y: 150), MapPoint(x: 50, y: 150)])
+  const W = 250
+  const H = 250
+  expectOk("setup/bbox-centroid-is-outside-fill",
+    not inShape(100, 100, crescent), failCount)
+  expectOk("setup/vertex-mean-is-also-outside-fill",
+    not inShape(110, 100, crescent), failCount)
+  let oldKept = oldCentroidOnlyPrune(@[crescent], W, H, ConfettiFloorPx2)
+  let newKept = pruneConfetti(@[crescent], W, H, ConfettiFloorPx2)
+  expectOk("old-centroid-only-prune-DELETES-the-lopsided-shape",
+    oldKept.len == 0, failCount, &"kept {oldKept.len}, want 0")
+  expectOk("new-fill-scan-prune-KEEPS-the-lopsided-shape",
+    newKept.len == 1, failCount, &"kept {newKept.len}, want 1")
+
+proc cmdSelftest(a: Args) =
+  var failCount = 0
+  selftestConfettiPrune(failCount)
+  stderr.writeLine("")
+  if failCount == 0:
+    stderr.writeLine("selftest: ALL PASS")
+    quit(0)
+  else:
+    stderr.writeLine(&"selftest: {failCount} FAILURE(S)")
+    quit(1)
+
 const usage = """
 brmapkit — author battle-royale maps (fork of tools/mapkit.nim; see
 docs/designs/BR_MAPGEN.md)
@@ -6778,6 +6926,7 @@ docs/designs/BR_MAPGEN.md)
   brmapkit validate spec.json          # BR gates: PASS/FAIL, exit code
   brmapkit metrics  spec.json [--json] [-o out.json]
   brmapkit contactsheet a.png b.png ... [-o sheet.png] [--cols N] [--cellw N]
+  brmapkit selftest                    # golden-geometry unit checks, exit code
 """
 
 when isMainModule:
@@ -6793,6 +6942,7 @@ when isMainModule:
     of "validate": cmdValidate(a)
     of "metrics": cmdMetrics(a)
     of "contactsheet": cmdContactSheet(a)
+    of "selftest": cmdSelftest(a)
     else:
       stderr.writeLine("unknown command: " & argv[0])
       echo usage
