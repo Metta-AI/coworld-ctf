@@ -239,8 +239,19 @@ proc resetMedKits*(sim: var SimServer) =
   ## Places both med kits on the map's active spawn points (generated maps
   ## draw the pair per map; hand-authored maps carry the classic center-line
   ## thirds), nudged to the nearest walkable floor, and refills them.
+  ##
+  ## Gates on `> 0`, not `>= 2`: the three sibling families (resetShields/
+  ## resetSprayPaints/resetGrenades, above) all prefer ANY map-authored pool
+  ## over their formula fallback, however small — a BR map always authors
+  ## far more than 2 (the showmatch: 33) so this never mattered for BR
+  ## itself, but the old `>= 2` silently ignored a map that deliberately
+  ## authored exactly 1 med kit spawn and fell back to the classic 2-point
+  ## formula instead of the author's own list. Every classic map either
+  ## authors 0 (falls to the formula, unaffected) or the classic 2 (still
+  ## non-empty, unaffected), so this is byte-identical for every existing
+  ## fixture.
   var targets: seq[tuple[x, y: int]]
-  if sim.gameMap.medKitSpawns.len >= 2:
+  if sim.gameMap.medKitSpawns.len > 0:
     for point in sim.gameMap.medKitSpawns:
       targets.add((point.x, point.y))
   else:
