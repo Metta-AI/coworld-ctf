@@ -454,3 +454,9 @@ their 62-key wire vocabulary (podium/assist/passivity — glory-port material).
    which makes the scoring ambiguous.
 3. Whether the shrink should damage or hard-kill, and whether glory prices
    circle-edge holding (it should — it is coup-counting in its purest form).
+   **Glory-port constraint (field evidence via the reference-BR study): any
+   survival-derived scoring term must CAP or TAPER late — in clock-capped
+   reference games, survival points outscored fighting and farming beat the
+   final fight. The timeout tiebreak's alive-count key is acceptable only
+   because lethal late phases make clock-outs rare; a glory-scored BR must
+   not reintroduce the farming vector through survival deeds.**
