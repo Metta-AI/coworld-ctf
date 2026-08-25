@@ -247,6 +247,31 @@ const
   # seconds, so the window is tighter and the cool-off is faster in absolute
   # ticks. The pinball law holds either way: a lit multiplier pays only when
   # you shoot.
+  #
+  # 🎖 THE FICTION DECISION (GLORY C8, 2026-08-25): flames stay. A streak
+  # mechanic needs SOME visual metaphor for "building heat," and "on fire"
+  # was the one already shipping (the flame chip on the scorebug/board, the
+  # rung-crossing callouts) before this audit ever asked the question.
+  # Considered and rejected two paint-native alternatives:
+  #   - PAINT-PRESSURE GAUGE (a tank/canister filling as the streak
+  #     builds): more literally paint-native, but a gauge reads as a
+  #     RESOURCE ("how much do I have left"), which is backwards -- heat is
+  #     the OPPOSITE of a depleting resource, it is a reward for spending
+  #     attention on offense. A gauge FILLING as you succeed also fights the
+  #     established videogame grammar where gauges drain with use.
+  #   - OVERSPRAY (a paint-cloud/haze effect that thickens with the streak):
+  #     reads as an accident or a mess, not an achievement -- the connotation
+  #     runs the wrong direction for a REWARD state, and it is a much harder
+  #     read at a glance than a flame (haze density vs. a flame's already-
+  #     legible rung count).
+  # "On fire" wins because it is an INSTANTLY legible, near-universal idiom
+  # for a hot streak (sports broadcasts, other games, playground language a
+  # kid already has) that needs zero paintball-specific translation to read
+  # -- and the flame chip already ships, so keeping it costs nothing while a
+  # switch would cost a full asset + HUD rework for a fiction change with no
+  # gameplay upside. STANDING unless Maxwell overrules; flagged explicitly
+  # in the /proof report per NATIVE C3's own instruction to write the
+  # decision down rather than let it sit as an unstated default.
 
   HeatLadder* = [1, 2, 4, 8]
     ## Multiplier by rung. x2 is a solo kill, x4 is a few back-to-back, x8 is
