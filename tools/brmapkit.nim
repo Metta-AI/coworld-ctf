@@ -878,8 +878,17 @@ proc stampPoi(
     rng.shuffle(sideOrder)
     let gateSet: set[RoomSide] = {sideOrder[0], sideOrder[1]}
     let targetRooms = if roomHint > 0: clamp(roomHint, 3, 5) else: 3 + rng.rand(2) ## 3-5
+    ## ROUND 9 FIX: minRoomSize was 100, tuned against the ORIGINAL
+    ## anchorHalf=1.05G (interior height ~279px, 2x100 fits easily). The
+    ## zone-edge-holding cover-permille recalibration (see git log) cut
+    ## anchorHalf to 0.70G, shrinking interior height to ~185px —
+    ## bspRoomSplit's own "won't split an axis under 2x minRoomSize"
+    ## guard then refused EVERY anchor split (measured: 159/159 anchors
+    ## across a 30-seed sweep landed on exactly 1 room, a silent
+    ## room-count-variety regression). 75 clears 2x75=150 <= 185 with
+    ## margin and still stays the largest minRoomSize of any archetype.
     let plan = stampFloorPlan(rng, footprint, shellThick, gateSet, GateW,
-      targetRooms, 100, 30, 54)
+      targetRooms, 75, 30, 54)
     shapes.add plan.shapes
     rooms = plan.rooms
     let coverW = max(32, he * 2 div 5)
