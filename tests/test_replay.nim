@@ -7,9 +7,10 @@ const
   GameDir = currentSourcePath.parentDir.parentDir
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
   # (Phase-1 set, tools/record_fixture.sh). This capture-ending fixture
-  # (2465 ticks) exceeds every tick target below and hash-verifies clean end
-  # to end. (tests/replays/ctf.bitreplay is the event-substrate fixture:
-  # GameVersion 18, seed 281, lives 9, kills by all three weapons — see
+  # (6245 ticks as of the /proof engine-lane re-record, 2026-08-24) exceeds
+  # every tick target below and hash-verifies clean end to end.
+  # (tests/replays/ctf.bitreplay is the event-substrate fixture: GameVersion
+  # 24, seed 600, lives 9, kills by all three weapons — see
   # test_extract_events.)
   CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
 

@@ -9,13 +9,19 @@ const
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
   #   capture-seed7:  record_fixture.sh <out> 7
-  #   wipe-lives1:    record_fixture.sh <out> 7 10000 \
+  #   wipe-lives1:    record_fixture.sh <out> 9 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
   #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
   # (carrierSpeedPct 1 pins the flag so the wipe/draw endings cannot be
   # preempted by a capture; record on an otherwise idle machine — a
   # CPU-starved server at speed 16 drops its bots and ends degenerate.)
+  # wipe-lives1 moved off seed 7 in the /proof engine-lane cycle
+  # (2026-08-24): under the current baseline matchup seed 7 resolves as a
+  # MUTUAL wipe (a draw, dWipe never mints), which defeats this fixture's
+  # whole purpose -- seed 9 is the first tried that resolves as a clean
+  # one-sided wipe. Pick a seed by outcome, not by habit: try a few and read
+  # the herald log's last line before committing a recording.
   # Then re-pin the capture winner asserted below to the new recording.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
@@ -149,12 +155,14 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (glory-era engine,
-      # seed 7: Blue captures -- the outcome flipped when work-based xp
-      # re-tuned the level buffs; re-pin on every re-record).
+      # is pinned to the current recording of the fixture (/proof engine-lane
+      # cycle, 2026-08-24: Red captures -- flipped from Blue on this
+      # re-record; nothing in that cycle touched combat/movement, so this is
+      # ordinary bot-connection-order variance across recordings, not a
+      # gameplay regression. Re-pin on every re-record).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
@@ -186,7 +194,7 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "blue"
+      check verdicts[0]["winner"].getStr == "red"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
