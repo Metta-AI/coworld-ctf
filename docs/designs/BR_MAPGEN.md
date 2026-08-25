@@ -45,7 +45,12 @@ port them.
 is a large solid welded mass — the same visual species as an organic caves
 blob — with rooms/courtyards/alleys CARVED INTO it as negative space. Never
 thin walls placed additively on open ground; shell thickness is structural
-(24-48px), and a compound counts as ONE mass. **The anti-confetti ceiling is a
+(24-48px), and a compound counts as ONE mass. **Coverage floor (2026-08-24, after round 7 shipped bold-but-barren):
+total obstacle cover binds to [110, 170] permille — the upper half of the CTF
+program's own validated band (caves_404, accepted, sits at 150‰) — plus a
+distance-to-cover gate at combat scale (p95 <= 0.75 gunRange). Mass quality
+(subtractive, welded) and mass quantity (the permille band) are separate
+gates; three generator rounds conflated them.** The anti-confetti ceiling is a
 STANDARD derived from the banked reference aesthetic (caves_404, the Pod
 Field), never retuned to fit the current generator's corpus** — the round-5
 ceiling drift (28 -> 52) was the backwards ratchet and is the case study.
