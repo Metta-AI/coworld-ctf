@@ -116,7 +116,7 @@ import statistics
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 5
+GLORY_VERSION = 6
 # Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
 # ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
 # run from the repo root and silently skip the guard from anywhere else.
@@ -162,7 +162,9 @@ def check_glory_version(path=GLORY_NIM_PATH, pinned=GLORY_VERSION):
             f"describe the game.")
 
 
-# v4 DeedGloryTable / DeedDramaTable, verbatim from glory.nim. dFlagReturn is
+# DeedGloryTable / DeedDramaTable, verbatim from glory.nim -- UNCHANGED since
+# v4 (the v6 /proof wave re-cut the curriculum, the xp ladder and several
+# constants' provenance, but never these two pricing tables). dFlagReturn is
 # GONE (retired in v4 -- zero mint sites, would double-pay the carrier's
 # death; see the tombstone on `Deed` in glory.nim). dRevengeKill/dRunDown/
 # dEscortKill are new since the v2 mirror; the first two are still undetected
@@ -197,17 +199,33 @@ LEVEL_THRESHOLDS = [10, 18, 24, 36, 50]
 # Maxwell's ruling: WORK levels, kills do not. Damage / healing / tool
 # pickups / flag actions; the carrier kill prices as the RETURN it causes.
 # Unchanged since v2 -- the v3/v4 bumps re-cut the ACHIEVEMENT curriculum,
-# never this ladder.
+# never this ladder. v6 (GLORY C1) zeroed xp on every BARE-TOUCH pickup
+# (grenade/spray_can/shield) and re-measured against the field with it
+# zeroed: byte-identical percentiles, because the sample this ladder was
+# fit from (v0.7.95-98) never had `item_pickup` events to zero in the first
+# place -- see glory.nim's own `LevelThresholds` comment for the numbers.
+# These thresholds are UNCHANGED, not re-derived.
 XP_KILL, XP_DAMAGE, XP_CARRIER_KILL = 0, 3, 12
 XP_STEAL, XP_CAPTURE, XP_RETURN = 12, 30, 12
 XP_SOAK, XP_CLUTCH, XP_TEAM_KILL = 2, 6, -20
 XP_HEAL, XP_PICKUP = 3, 4
+# XP_PICKUP (v6, GLORY C1): only still fires through the `heal` event path
+# below now -- a bare-touch grenade/spray_can/shield pickup pays zero xp in
+# the real engine (the `item_pickup` branch that used to price them is
+# retired, C10). The med-kit heal's own XP_PICKUP term survives because the
+# real engine gates that pickup on already being hurt, so it is never
+# actually "bare."
 STARFALL_LEVEL = 3
 TITHE_XP, TITHE_MAX, TITHE_COOLDOWN = 20, 4, 90
 
 TIER_GLORY = [2, 4, 8, 16, 32]
 FIRST_MULT = 3
-POINT_BLANK_PX, LONGSHOT_PX, DENIAL_PX = 110, 700, 220
+POINT_BLANK_PX, LONGSHOT_PX, DENIAL_PX = 110, 700, 600
+# DENIAL_PX (v6, GLORY C5): field-fit from 220 -- "Doorstep" claimed 0.0% of
+# 240 sampled team-episodes at the old value. See glory.nim's `DenialPx`
+# comment for the full measurement (157 carrier kills, this arena's home
+# pedestals are fixed at (186,329)/(1049,329), p50 kill-to-home distance
+# 776px). 600px lands the claim rate at 17.5%.
 CONTESTED_STEAL_PX = 300   ## v3.1 `Hands On` gate (glory.nim: UNCALIBRATED).
 REVENGE_TICKS = 240        ## `Turnaround`'s peel->steal window.
 
@@ -300,7 +318,7 @@ def dist(a, b):
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# THE v4 CURRICULUM, mirrored from glory.nim's `satisfiedAchievements`.
+# THE v6 CURRICULUM, mirrored from glory.nim's `satisfiedAchievements`.
 # ───────────────────────────────────────────────────────────────────────────
 #
 # Law 2b's ruling (2026-08-24) bans every pickup/possession/arrival
@@ -313,17 +331,26 @@ def dist(a, b):
 # `took_X` flag, a live-possession timer, or the bystander-credited
 # `returns` counter -- see `resetFlag`'s comment in sim.nim for why
 # `returns` is banned as an achievement input for good.
+#
+# v6 (GLORY /proof wave): three trees reordered on measured claim rates
+# (gun IV/V, grenade III/IV/V, carrier II/III -- see each block below);
+# "Blast Radius" (nade) now gates on `grenade_multi` alone (C3a); display
+# names renamed off borrowed vocabulary (C6) -- this file matches on
+# (tree_key, tier index) tuples, never display text, so the renames touch
+# only the trailing comments here, not any matching logic.
 def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     s = set()
     kills = cog.gun_kills + cog.spray_kills + cog.grenade_kills
 
     # gun -- "Trigger Discipline" (any landed hit) is GONE; every tier below
-    # is a KILL or a rank.
+    # is a KILL or a rank. v6: IV/V swapped -- L5 claims 15.4% in the field
+    # vs a longshot kill's 8.3% (n=240 team-eps), so Longshot is the real
+    # ceiling now.
     if cog.gun_kills >= 1:            s.add(("gun", 0))   # First Tag
     if cog.gun_kills >= 3:            s.add(("gun", 1))   # Marksman
     if cog.starfall_kills >= 1:       s.add(("gun", 2))   # Bounty
-    if cog.longshot_kills >= 1:       s.add(("gun", 3))   # Longshot
-    if cog.lifemax >= 5:              s.add(("gun", 4))   # Sharpshooter (L5)
+    if cog.lifemax >= 5:              s.add(("gun", 3))   # Sharpshooter (L5)
+    if cog.longshot_kills >= 1:       s.add(("gun", 4))   # Longshot
 
     # spray -- "Shake It" (pick up a can) is GONE.
     if cog.spray_kills >= 1:          s.add(("spray", 0))  # First Coat
@@ -332,37 +359,55 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     if cog.spray_kills_pickup >= 3:   s.add(("spray", 3))  # The Muralist
     if cog.spray_multi >= 1:          s.add(("spray", 4))  # Double Splash
 
-    # grenade -- "Pull the Pin" (pick up a nade) is GONE.
+    # grenade -- "Pull the Pin" (pick up a nade) is GONE. v6: "The
+    # Bombardier" (3 grenade kills) moved II->V -- field claim rate 2.1%,
+    # the LOWEST of the tree's five (n=240 team-eps), below both multi-kill
+    # tiers it used to outrank; "Blast Radius"/"Double Blast" shift down to
+    # III/IV. "Blast Radius" also drops the `spray_multi` alternative AND
+    # the `grenade_kills >= 1` term (C3a): a SPRAY multi-kill could complete
+    # a GRENADE tier, and the kills term was redundant -- every enemy a
+    # multi-kill blast catches already counts toward `grenade_kills` on the
+    # way to incrementing `grenade_multi`.
     if cog.grenade_kills >= 1:        s.add(("nade", 0))   # Delivery
-    if cog.grenade_kills >= 2:        s.add(("nade", 1))   # Fireball
-    if cog.grenade_kills >= 3:        s.add(("nade", 2))   # The Bombardier
-    # "Blast Radius" moved OFF the friendly-fire-contaminated `multiKills`
-    # (deleted from sim.nim entirely) onto the same clean, per-activation,
-    # enemies-only counters "Double Splash"/"Double Blast" already use.
-    if cog.grenade_kills >= 1 and cog.spray_multi + cog.grenade_multi >= 1:
-        s.add(("nade", 3))                                 # Blast Radius
-    if cog.grenade_multi >= 1:        s.add(("nade", 4))   # Double Blast
+    if cog.grenade_kills >= 2:        s.add(("nade", 1))   # Splatterbomb
+    if cog.grenade_multi >= 1:
+        s.add(("nade", 2))                                 # Blast Radius
+        s.add(("nade", 3))                                 # Double Blast
+    if cog.grenade_kills >= 3:        s.add(("nade", 4))   # The Bombardier
 
     # shield -- soak, not damage. "Suit Up" (pick up a shield) is GONE.
-    if cog.soak >= 3:                 s.add(("shield", 0))  # Aegis
+    if cog.soak >= 3:                 s.add(("shield", 0))  # Suit of Paint
     if cog.soak >= 6:                 s.add(("shield", 1))  # Blockade
-    if cog.soak >= 6 and kills >= 1:  s.add(("shield", 2))  # Bulwark
-    if cog.soak >= 9:                 s.add(("shield", 3))  # Rampart
-    if cog.soak >= 12:                s.add(("shield", 4))  # Atlas
+    if cog.soak >= 6 and kills >= 1:  s.add(("shield", 2))  # Paint Wall
+    if cog.soak >= 9:                 s.add(("shield", 3))  # The Bunker
+    if cog.soak >= 12:                s.add(("shield", 4))  # The Backstop
 
     # med kit -- "Field Dressing" (take a med kit) is GONE; the take is
     # normal play, the SAVE it buys is the achievement.
-    if cog.clutch_heals >= 1:         s.add(("med", 0))     # The Save
-    if cog.clutch_heals >= 2:         s.add(("med", 1))     # Triage
+    if cog.clutch_heals >= 1:         s.add(("med", 0))     # The Catch
+    if cog.clutch_heals >= 2:         s.add(("med", 1))     # Patch Job
     if cog.second_wind:               s.add(("med", 2))     # Second Wind
     if cog.clutch_heals >= 3:         s.add(("med", 3))     # Miracle Worker
     if cog.clutch_carry_heals >= 1:   s.add(("med", 4))     # Lifeline
 
     # carrier -- v3.1 re-cut off possession the same way every other tree
-    # already was.
+    # already was. v6: II/III swapped -- a score claims 18.8% in the field
+    # vs a kill-while-carrying's 11.7% (n=240 team-eps), so scoring is
+    # easier and Fighting Carry is the harder act.
+    #
+    # ⚠️ "Uphill" is a KNOWN DIVERGENCE from the real v6 engine as of this
+    # sync: sim.nim now pins the outnumbered fact ONCE, at the capture
+    # instant (`capturedOutnumbered`, GLORY C3b), specifically to stop a
+    # capture made EVEN from backdating into a claim if a teammate dies
+    # later. This offline mirror still re-checks `team_alive < enemy_alive`
+    # on every poll (the exact poll-time pattern the engine fix retired),
+    # because the tier-2 event stream carries no per-capture "was the team
+    # behind AT THAT INSTANT" flag to read instead -- reproducing the fix
+    # exactly would need a new capture-time alive-count sample this file
+    # does not have. Not fixed in this sync; flagged for a future pass.
     if cog.contested_steals >= 1:     s.add(("carrier", 0))  # Hands On
-    if cog.carry_kills >= 1:          s.add(("carrier", 1))  # Fighting Carry
-    if cog.caps >= 1:                 s.add(("carrier", 2))  # Delivered
+    if cog.caps >= 1:                 s.add(("carrier", 1))  # Delivered
+    if cog.carry_kills >= 1:          s.add(("carrier", 2))  # Fighting Carry
     if cog.caps >= 1 and team_alive < enemy_alive:
         s.add(("carrier", 3))                                # Uphill
     if cog.caps >= 1 and cog.steal_tick_life >= 0:
@@ -382,9 +427,9 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     # never live possession. Tier III (Clean Sheet) is DELIBERATELY absent
     # here -- it is FULL-GAME and conclusion-only; see `clean_sheet_claims`.
     if kits >= 2:                     s.add(("squad", 0))     # Kitted
-    if kits >= 3:                     s.add(("squad", 1))     # Combined Arms
+    if kits >= 3:                     s.add(("squad", 1))     # Full Loadout
     if kits >= 4:                     s.add(("squad", 2))     # Full Kit
-    if kits >= 4 and any_capture:     s.add(("squad", 4))     # The Parade
+    if kits >= 4 and any_capture:     s.add(("squad", 4))     # Victory Lap
     return s
 
 

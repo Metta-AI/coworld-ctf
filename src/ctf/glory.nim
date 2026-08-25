@@ -115,9 +115,47 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 5
+  GloryVersion* = 6
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v6 (2026-08-25, /proof fix cycle C1-C6): six changes, each moving
+    ## WHETHER or HOW MUCH something mints or levels, so a v5 ledger's xp,
+    ## achievement claims and per-kill deed pricing are not comparable to a
+    ## v6 one.
+    ##   - C1: `XpPerPickup` no longer pays on a BARE-TOUCH grenade, shield
+    ##     or spray-can pickup (six sim.nim sites zeroed) -- only the
+    ##     work-gated med-kit path still pays it. `LevelThresholds` was
+    ##     re-measured against the real field with the cut applied and came
+    ##     back unchanged (the sample it was fit from never had pickup xp to
+    ##     begin with; see its own comment).
+    ##   - C2: `LevelGunRangePct`'s +15% rung (L2+) retired -- geometrically
+    ##     dead, past the default arena's own diagonal, so it never gated a
+    ##     shot at any level. L2 now carries only its spray-reset -40%.
+    ##   - C3a: "Blast Radius" (treeGrenade) gates on `grenadeMultiKills`
+    ##     alone now, dropping the `sprayMultiKills` alternative (a SPRAY
+    ##     multi-kill could complete a GRENADE tier) and the redundant
+    ##     `grenadeKills >= 1` term.
+    ##   - C3b: "Uphill" (treeCarrier) reads a fact PINNED at the capture
+    ##     instant (`capturedOutnumbered`, set once in `recordCapture`)
+    ##     instead of re-reading live team-alive-counts on every
+    ##     achievement poll -- closes a backdating bug where a capture made
+    ##     EVEN could claim Uphill the instant a teammate died afterwards.
+    ##   - C4: three trees reordered on measured field claim rates (n=240
+    ##     team-eps) -- treeGun Longshot(IV)<->Sharpshooter(V);
+    ##     treeGrenade "The Bombardier" II->V (the tree's actual hardest,
+    ##     moved off III), Blast Radius/Double Blast shift to III/IV;
+    ##     treeCarrier Delivered(III)->II, Fighting Carry(II)->III. Same
+    ##     requirements, different `TierGlory`/`TierDrama` price per slot.
+    ##   - C5: `DenialPx` 220 -> 600, field-fit ("Doorstep" claimed 0.0% of
+    ##     240 team-episodes at the old value; see its own comment for the
+    ##     measurement). This ALSO reprices many real carrier kills: any
+    ##     kill 220-600px from the victim's own pedestal now resolves as
+    ##     `dDenial` (120g) instead of `dCarrierKill` (90g) in `killDeed`,
+    ##     not just an achievement-side change.
+    ## (C6, the achievement display-name renames, mints nothing differently
+    ## and is not part of this changelog's WHETHER/HOW-MUCH scope --
+    ## `achievementKey` is ordinal-derived, never name-derived.)
     ##
     ## v5 (2026-08-25, heat persistence): `HeatThresholds` [1,4,10] ->
     ## [2,5,10], `HeatEmberDecay` 4 -> 2, `HeatEmberCap` 12 -> 11. Measured
