@@ -164,9 +164,12 @@ template placeWalkablePickups(
   targets: seq[tuple[x, y: int]]
 ) =
   ## Shared placement core for the nudged pickup families (med kits, shields,
-  ## spray cans): sizes the spawn seq to the targets, nudges each target to
-  ## the nearest walkable floor, and refills every spawn. (Grenade spawns
-  ## keep their own placement — they are never nudged.)
+  ## spray cans, and an AUTHORED grenade pool): sizes the spawn seq to the
+  ## targets, nudges each target to the nearest walkable floor, and refills
+  ## every spawn. (The classic 4-corner/orbit grenade FORMULA keeps its own
+  ## placement in resetGrenades — its points are walkable by construction
+  ## and were never nudged before the authored path existed, so that branch
+  ## stays byte-identical rather than routing through here.)
   let targetsOnce = targets   # evaluate the expression once, not per use
   sim.spawnsField.setLen(targetsOnce.len)
   for i in 0 ..< sim.spawnsField.len:
@@ -176,12 +179,32 @@ template placeWalkablePickups(
     )
 
 proc resetGrenades*(sim: var SimServer) =
-  ## Refills every corner pickup and clears carried and airborne grenades.
-  let points = sim.gameMap.grenadeSpawnPoints()
-  for i in 0 ..< sim.grenadeSpawns.len:
-    sim.grenadeSpawns[i] = PickupSpawn(
-      x: points[i].x, y: points[i].y, present: true, respawnAt: 0
-    )
+  ## Refills every grenade pickup and clears carried and airborne grenades.
+  ##
+  ## A map that authored its own neutral pool (gameMap.grenadeSpawns —
+  ## brmapkit round 13's per-item gradient, sized to the POI count rather
+  ## than a fixed 4) wins over grenadeSpawnPoints()'s 4-corner/orbit
+  ## formula, the same "map's own list first, formula fallback" rule
+  ## resetShields/resetSprayPaints use. The authored path is nudged to the
+  ## nearest walkable floor via placeWalkablePickups, same as the other
+  ## three item families (generator points are not guaranteed walkable).
+  ## The classic formula path keeps its original UNNUDGED placement
+  ## byte-for-byte — those points are walkable by construction (§ the
+  ## formula's own layout-specific insets) and were never nudged before
+  ## this change, so this branch must stay a literal copy of the old loop
+  ## for every 2-4 team map's replay to hash identically.
+  if sim.gameMap.grenadeSpawns.len > 0:
+    var targets: seq[tuple[x, y: int]]
+    for point in sim.gameMap.grenadeSpawns:
+      targets.add((point.x, point.y))
+    sim.placeWalkablePickups(grenadeSpawns, targets)
+  else:
+    let points = sim.gameMap.grenadeSpawnPoints()
+    sim.grenadeSpawns.setLen(points.len)
+    for i in 0 ..< sim.grenadeSpawns.len:
+      sim.grenadeSpawns[i] = PickupSpawn(
+        x: points[i].x, y: points[i].y, present: true, respawnAt: 0
+      )
   sim.airborneGrenades = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].hasGrenade = false

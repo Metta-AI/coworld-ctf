@@ -1162,6 +1162,13 @@ type
                                   ## formula, exactly as medKitSpawns does.
     spraySpawns*: seq[MapPoint]   ## BR's neutral spray-can pool, same shape
                                   ## and fallback rule as shieldSpawns.
+    grenadeSpawns*: seq[MapPoint] ## BR's neutral grenade pool (brmapkit
+                                  ## round 13's per-item gradient, sized to
+                                  ## the POI count, not a fixed 4) — empty on
+                                  ## every map that has none, in which case
+                                  ## resetGrenades (sim.nim) falls back to
+                                  ## the classic grenadeSpawnPoints() formula,
+                                  ## exactly as the other three item pools.
     leftObstacles*: seq[ArenaShape]
     trenches*: seq[ArenaShape]  ## walkable dug pits (config-gated): standing
                                ## inside slows movement and fire, and most
@@ -2023,7 +2030,13 @@ type
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
-    grenadeSpawns*: array[4, PickupSpawn]
+    grenadeSpawns*: seq[PickupSpawn]      ## 4 on the classic formula (every
+                                          ## 2-4 team map); the map's own
+                                          ## authored count on a BR board
+                                          ## with a drawn pool (gameMap.
+                                          ## grenadeSpawns) — same "seq, not
+                                          ## a fixed array" shape as the
+                                          ## other three families below.
     medKitSpawns*: seq[PickupSpawn]       ## the map's active med kits (2 on
                                           ## sides maps, 4 on 4-team maps).
     shieldSpawns*: seq[PickupSpawn]       ## one shield per team endzone.

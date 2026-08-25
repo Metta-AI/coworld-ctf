@@ -3373,6 +3373,13 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     spec["shieldSpawns"] = pointsNode(gameMap.shieldSpawns)
   if gameMap.spraySpawns.len > 0:
     spec["spraySpawns"] = pointsNode(gameMap.spraySpawns)
+  ## grenadeSpawns (round 13's per-item gradient) pins only when present,
+  ## same idiom as shieldSpawns/spraySpawns just above. Empty on any map
+  ## that never authored one (every pre-existing pinned spec, every classic
+  ## 2-4 team map), in which case resetGrenades (sim.nim) falls back to the
+  ## classic grenadeSpawnPoints() 4-corner/orbit formula unchanged.
+  if gameMap.grenadeSpawns.len > 0:
+    spec["grenadeSpawns"] = pointsNode(gameMap.grenadeSpawns)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3479,6 +3486,11 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## classic formula when empty.
   result.shieldSpawns = pointsFromNode(node{"shieldSpawns"})
   result.spraySpawns = pointsFromNode(node{"spraySpawns"})
+  ## Optional: round 13's neutral grenade pool. Absent -> empty, same
+  ## "byte-identical for every pre-round-13 pinned spec" rule as
+  ## shieldSpawns/spraySpawns — resetGrenades falls back to the classic
+  ## formula when empty.
+  result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)

@@ -97,21 +97,18 @@ proc convert(br: JsonNode): JsonNode =
   if result["medKitCandidates"].isNil or
       result["medKitCandidates"].kind != JArray:
     result["medKitCandidates"] = newJArray()
-  # shieldSpawns/spraySpawns (brmapkit round 13, §4.9): mapFromSpecJson
-  # treats an ABSENT key as "no pool, fall back to the classic per-team
-  # endzone formula" (arena.nim's pointsFromNode(node{"shieldSpawns"})), so
-  # unlike medKitSpawns/medKitCandidates above this is only added when the
-  # draw actually authored a non-empty pool — an empty key and an absent
-  # key mean the same thing to the loader, so there is nothing to gain by
-  # forcing the key to exist. grenadeSpawns is NOT forwarded: the engine
-  # side (CtfMap.grenadeSpawns / sim.nim's resetGrenades) is still a fixed
-  # array[4, PickupSpawn], not the seq[MapPoint] neutral-pool shape
-  # shieldSpawns/spraySpawns/medKitSpawns share, so there is no ingest path
-  # for a drawn grenade pool yet — that is a real engine change (the array
-  # is sized 4 everywhere it's touched, including the wire/replay format),
-  # not a bridge-tool one, and out of scope here. Grenades still place via
-  # grenadeSpawnPoints()'s 4-corner formula on a BR map, same as before
-  # this round.
+  # shieldSpawns/spraySpawns/grenadeSpawns (brmapkit round 13, §4.9):
+  # mapFromSpecJson treats an ABSENT key as "no pool, fall back to the
+  # classic formula" (arena.nim's pointsFromNode(node{"shieldSpawns"}) and
+  # friends), so unlike medKitSpawns/medKitCandidates above these are only
+  # added when the draw actually authored a non-empty pool — an empty key
+  # and an absent key mean the same thing to the loader, so there is
+  # nothing to gain by forcing the key to exist. grenadeSpawns used to be
+  # excluded here (CtfMap.grenadeSpawns was a fixed array[4, PickupSpawn],
+  # not the seq[MapPoint] neutral-pool shape the other three share); the
+  # engine side is now a seq (sim_types.nim), so it forwards exactly like
+  # shieldSpawns/spraySpawns. Grenades fall back to grenadeSpawnPoints()'s
+  # 4-corner formula only when the draw carries none.
   let shieldSpawns = br{"shieldSpawns"}
   if not shieldSpawns.isNil and shieldSpawns.kind == JArray and
       shieldSpawns.len > 0:
@@ -120,6 +117,10 @@ proc convert(br: JsonNode): JsonNode =
   if not spraySpawns.isNil and spraySpawns.kind == JArray and
       spraySpawns.len > 0:
     result["spraySpawns"] = spraySpawns
+  let grenadeSpawns = br{"grenadeSpawns"}
+  if not grenadeSpawns.isNil and grenadeSpawns.kind == JArray and
+      grenadeSpawns.len > 0:
+    result["grenadeSpawns"] = grenadeSpawns
 
 when isMainModule:
   let args = commandLineParams()
@@ -151,8 +152,9 @@ when isMainModule:
     &"spawnGroups={gameMap.spawnGroups}  teamCount={gameMap.teamCount()}  " &
     &"flagless={gameMap.flagless}  obstacles={gameMap.leftObstacles.len}  " &
     &"medkits={gameMap.medKitSpawns.len}  shields={gameMap.shieldSpawns.len}  " &
-    &"sprays={gameMap.spraySpawns.len}  (grenades: still the 4-corner " &
-    &"formula, not drawn — see the shieldSpawns/spraySpawns comment above)"
+    &"sprays={gameMap.spraySpawns.len}  grenades={gameMap.grenadeSpawns.len} " &
+    &"(0 -> classic 4-corner formula, see the shieldSpawns/spraySpawns " &
+    &"comment above)"
   if br{"keystone"}.getStr("").len > 0:
     echo "keystone: ", br["keystone"].getStr()
 

@@ -42,6 +42,27 @@ independently-built policies.
   real engine type change. Grenades still place via the classic 4-corner
   `grenadeSpawnPoints()` formula, same as before this lane. Flagged per the
   brief rather than attempted tonight.
+
+  **Update (same lane, later): grenades are wired too.**
+  `CtfMap.grenadeSpawns` became a `seq[MapPoint]` (mirroring
+  `shieldSpawns`/`spraySpawns`) and `SimServer.grenadeSpawns` became
+  `seq[PickupSpawn]` (was `array[4, PickupSpawn]`). `resetGrenades`
+  (sim.nim) takes the map's authored pool when present — nudged to
+  nearest-walkable via `placeWalkablePickups`, same as the other three
+  families, since generator points are not guaranteed walkable — and falls
+  back to the ORIGINAL unnudged classic-formula loop, byte-for-byte, when
+  absent. Byte-identical proof: resimulating the pre-existing
+  `tests/fixtures/capture-seed1.bitreplay` fixture (a classic 2-team map,
+  recorded 2026-08-11, well before this change) end to end reproduces all
+  5424 recorded per-tick hashes exactly. Re-recorded as
+  `br-showmatch2.bitreplay` (same map draw seed 4242, same match seed
+  90210, same roster machinery, `br-showmatch.bitreplay` left untouched
+  alongside it) — `tools/extract_events` shows grenade pickups at
+  `(1713,346)`, `(2073,381)`, `(662,258)` (exact matches to the draw's
+  `grenadeSpawns` list) and `(1526,554)` (6px off its authored
+  `(1532,560)`, the expected nearest-walkable nudge) — nowhere near the
+  classic 4-corner formula's `(50,50)`/`(50,1663)`/`(3161,50)`/
+  `(3161,1663)` on this 3211x1713 map.
 - **Roster**: 32 seats, 16 duos, one life per seat, no respawns, the same
   five-phase closing zone as the final-match report
   (`z` 0.75→0.55→0.40→0.28→0.17, `dps` 0/2/4/8/12). Every seat runs a real,
