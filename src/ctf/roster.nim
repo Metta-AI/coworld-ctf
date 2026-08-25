@@ -515,6 +515,7 @@ proc addPlayer*(
     alive: true,
     # brMode seats ZERO spare lives — see seatLivesFor.
     lives: sim.config.seatLivesFor(team),
+    lastDeathTick: -1,
     hp: sim.config.maxHpFor(team, perks),
     perks: perks,
     joinOrder: order,
