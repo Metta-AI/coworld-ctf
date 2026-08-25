@@ -173,6 +173,16 @@ type
     halfExtent: int   ## rough footprint half-size, for spacing/labels
                        ## (poiCauseway: HALF-LENGTH along its own axis)
     lootTier: int      ## 0 = richest (major), 1 = mid, 2 = minor
+    ## ROUND 9 (Maxwell: "why are there no multi-room buildings... every
+    ## interior is one room with a doorway"): the floor plan carved into
+    ## this site's shell, in world coordinates. Populated by stampPoi via
+    ## generateBrMap's caller (stampPoi itself is pure/rng-only and
+    ## returns the rooms alongside its shapes; the site's own copy is
+    ## written back after stamping). Empty for archetypes with no interior
+    ## subdivision (poiRuins, poiCauseway) — poiYard gets exactly one
+    ## room (its open interior), so it still counts as a room-count data
+    ## point without being force-partitioned.
+    rooms: seq[MapRect]
 
   BrMap = object
     name: string
@@ -454,7 +464,209 @@ proc stampPartitionWall(
     if gapY > y0: result.add rectShapeBr(x, y0, thick, gapY - y0)
     if gapY + gateW < y1: result.add rectShapeBr(x, gapY + gateW, thick, y1 - (gapY + gateW))
 
-proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
+# Union-Find for connected-component labeling — moved above the round-9
+# floor-plan section (originally lived down with the other geometry/grid
+# validators) since buildDoorGraph's spanning tree needs it too.
+type DSU = object
+  parent: seq[int]
+  size: seq[int]
+
+proc initDSU(n: int): DSU =
+  result.parent = newSeq[int](n)
+  result.size = newSeq[int](n)
+  for i in 0 ..< n:
+    result.parent[i] = i
+    result.size[i] = 1
+
+proc find(d: var DSU, x: int): int =
+  var x = x
+  while d.parent[x] != x:
+    d.parent[x] = d.parent[d.parent[x]]
+    x = d.parent[x]
+  x
+
+proc union(d: var DSU, a, b: int) =
+  let ra = d.find(a)
+  let rb = d.find(b)
+  if ra == rb: return
+  if d.size[ra] < d.size[rb]:
+    d.parent[ra] = rb
+    d.size[rb] += d.size[ra]
+  else:
+    d.parent[rb] = ra
+    d.size[ra] += d.size[rb]
+
+# --- floor plans (round 9) -----------------------------------------------------
+## Maxwell, on round 8's density sheet: "why are there no multi-room
+## buildings?/interiors. every interior is one room with a doorway. can we
+## fix this generator to have a wide array of possible interiors and room
+## counts (connected in one structure)." Round 7-8's stampShellRing left the
+## carved interior as bare uncarved floor (correct for the ANTI-CONFETTI
+## mass, wrong for what's actually playable inside). This section subdivides
+## that same interior with a BSP-lite room split, wires the rooms into a
+## doorway graph (spanning tree + a couple of loop doors), and returns the
+## room list so callers can report room counts and place loot per room.
+
+type
+  RoomAdjacency = tuple[i, j, x0, y0, x1, y1: int]
+    ## Two room indices plus the shared boundary SEGMENT (a straight run,
+    ## either x0==x1 [vertical boundary] or y0==y1 [horizontal boundary])
+    ## — enough to draw the exact partition wall between them.
+
+proc bspRoomSplit(
+  rng: var Rand, rect: MapRect, minRoomSize, targetCount, maxDepth: int
+): seq[MapRect] =
+  ## Recursive random axis-aligned splits — the same technique
+  ## mapgen_styles.bspSplit uses for terrain, applied here to ROOM
+  ## interiors. Always splits the LONGER axis (keeps rooms from going
+  ## needle-thin). Stops — deliberately BEFORE `targetCount` is reached,
+  ## per doctrine item 1's "stop probabilistically so room counts VARY" —
+  ## on any of: target satisfied, depth exhausted, the rect too small for
+  ## another cut, or (only when the remaining target is already down to
+  ## "maybe 1 more room") a flat early-stop roll. This is what makes two
+  ## same-archetype buildings on the same map land on different room
+  ## counts instead of always maxing out.
+  const EarlyStopProb = 0.15
+  if targetCount <= 1: return @[rect]
+  if maxDepth <= 0 or rect.w < 2 * minRoomSize or rect.h < 2 * minRoomSize:
+    return @[rect]
+  if targetCount <= 2 and rng.rand(1.0) < EarlyStopProb:
+    return @[rect]
+  let splitVertical = rect.w >= rect.h
+  let leftCount = max(1, targetCount div 2)
+  let rightCount = max(1, targetCount - leftCount)
+  if splitVertical:
+    let minX = rect.x + minRoomSize
+    let maxX = rect.x + rect.w - minRoomSize
+    if maxX <= minX: return @[rect]
+    let splitX = minX + rng.rand(maxX - minX)
+    let a = MapRect(x: rect.x, y: rect.y, w: splitX - rect.x, h: rect.h)
+    let b = MapRect(x: splitX, y: rect.y, w: rect.x + rect.w - splitX, h: rect.h)
+    result = bspRoomSplit(rng, a, minRoomSize, leftCount, maxDepth - 1) &
+             bspRoomSplit(rng, b, minRoomSize, rightCount, maxDepth - 1)
+  else:
+    let minY = rect.y + minRoomSize
+    let maxY = rect.y + rect.h - minRoomSize
+    if maxY <= minY: return @[rect]
+    let splitY = minY + rng.rand(maxY - minY)
+    let a = MapRect(x: rect.x, y: rect.y, w: rect.w, h: splitY - rect.y)
+    let b = MapRect(x: rect.x, y: splitY, w: rect.w, h: rect.y + rect.h - splitY)
+    result = bspRoomSplit(rng, a, minRoomSize, leftCount, maxDepth - 1) &
+             bspRoomSplit(rng, b, minRoomSize, rightCount, maxDepth - 1)
+
+proc computeRoomAdjacency(rooms: seq[MapRect]): seq[RoomAdjacency] =
+  ## Two rooms are adjacent if they share a border run of at least
+  ## MinOverlap px. Every pair of SIBLING leaves from the same BSP split
+  ## always qualifies (they share the FULL split line by construction);
+  ## this also catches adjacency ACROSS different branches of the tree
+  ## (two leaves from different subtrees that happen to touch), which is
+  ## what turns a pure tree into a real graph with loop candidates.
+  const MinOverlap = 20
+  const Tol = 2 ## px slack for split-coordinate rounding
+  for i in 0 ..< rooms.len:
+    for j in (i + 1) ..< rooms.len:
+      let a = rooms[i]
+      let b = rooms[j]
+      if abs((a.x + a.w) - b.x) <= Tol or abs((b.x + b.w) - a.x) <= Tol:
+        let y0 = max(a.y, b.y)
+        let y1 = min(a.y + a.h, b.y + b.h)
+        if y1 - y0 >= MinOverlap:
+          let wallX = if abs((a.x + a.w) - b.x) <= Tol: a.x + a.w else: b.x + b.w
+          result.add (i, j, wallX, y0, wallX, y1)
+          continue
+      if abs((a.y + a.h) - b.y) <= Tol or abs((b.y + b.h) - a.y) <= Tol:
+        let x0 = max(a.x, b.x)
+        let x1 = min(a.x + a.w, b.x + b.w)
+        if x1 - x0 >= MinOverlap:
+          let wallY = if abs((a.y + a.h) - b.y) <= Tol: a.y + a.h else: b.y + b.h
+          result.add (i, j, x0, wallY, x1, wallY)
+
+proc buildDoorGraph(
+  rng: var Rand, n: int, adjacency: seq[RoomAdjacency], extraLoops: int
+): seq[(int, int)] =
+  ## Doctrine item 3: "build a spanning tree over the room adjacency
+  ## graph (every room reachable), then add 0-2 extra doors for loops."
+  ## Shuffled-Kruskal via the same DSU the mass validators already use —
+  ## every accepted edge connects two previously-separate components, so
+  ## the result is a genuine spanning tree (every room reachable from
+  ## every other) as long as the adjacency graph itself is connected,
+  ## which a BSP tiling always is by construction.
+  if n <= 1 or adjacency.len == 0: return
+  var edges = adjacency
+  rng.shuffle(edges)
+  var dsu = initDSU(n)
+  var remaining: seq[(int, int)]
+  for e in edges:
+    if dsu.find(e.i) != dsu.find(e.j):
+      dsu.union(e.i, e.j)
+      result.add (e.i, e.j)
+    else:
+      remaining.add (e.i, e.j)
+  rng.shuffle(remaining)
+  for k in 0 ..< min(extraLoops, remaining.len):
+    result.add remaining[k]
+
+proc stampFloorPlan(
+  rng: var Rand, footprint: MapRect, shellThick: int, gateSides: set[RoomSide],
+  gateW, targetRoomCount, minRoomSize, partitionThick, doorW: int
+): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect]] =
+  ## The round-9 floor-plan generator: shell (unchanged from round 7) +
+  ## a BSP-lite room split of the carved interior (item 1) + a doorway
+  ## graph over room adjacency (item 3). Every partition wall is drawn
+  ## EXACTLY on a BSP split line, so it always spans the full boundary
+  ## between two cells and therefore always touches two existing walls
+  ## (the shell or an earlier partition) at both ends — the "always
+  ## attached, weld preserved by construction" requirement falls out of
+  ## the BSP construction for free, no separate check needed.
+  var shapes = stampShellRing(footprint, shellThick, gateSides, gateW)
+  let interior = MapRect(
+    x: footprint.x + shellThick, y: footprint.y + shellThick,
+    w: footprint.w - 2 * shellThick, h: footprint.h - 2 * shellThick)
+  if interior.w < minRoomSize or interior.h < minRoomSize or targetRoomCount <= 1:
+    return (shapes, @[interior])
+  let rooms = bspRoomSplit(rng, interior, minRoomSize, targetRoomCount, 4)
+  if rooms.len <= 1:
+    return (shapes, rooms)
+  let adjacency = computeRoomAdjacency(rooms)
+  let extraLoops = rng.rand(2) ## 0-2, doctrine item 3
+  let doors = buildDoorGraph(rng, rooms.len, adjacency, extraLoops)
+  for adj in adjacency:
+    let hasDoor = (adj.i, adj.j) in doors
+    if adj.x0 == adj.x1:
+      ## Vertical shared boundary: centre a `partitionThick`-wide wall on
+      ## the split line (matches the existing warren partition's own
+      ## `midX = cx - partThick div 2` centring convention).
+      let wx = adj.x0 - partitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(wx, adj.y0, wx, adj.y1, partitionThick, doorW)
+      else:
+        shapes.add rectShapeBr(wx, adj.y0, partitionThick, adj.y1 - adj.y0)
+    else:
+      let wy = adj.y0 - partitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(adj.x0, wy, adj.x1, wy, partitionThick, doorW)
+      else:
+        shapes.add rectShapeBr(adj.x0, wy, adj.x1 - adj.x0, partitionThick)
+  (shapes, rooms)
+
+proc stampPoi(
+  rng: var Rand, site: PoiSite, roomHint: int = 0
+): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect]] =
+  ## `roomHint` (round 9, doctrine item 6's room-count-variety gate): 0
+  ## means "pick a target room count the old random way"; >0 means "use
+  ## exactly this many, clamped to this archetype's own valid range."
+  ## Measured that leaving every structure's target purely to chance
+  ## under-delivered: with only ~4-5 room-having structures per map and
+  ## each one independently rolling from a 2-4-value range, the odds that
+  ## >=3 DISTINCT values actually show up by luck alone were under 50%
+  ## (a small-sample coupon-collector problem, not a bug in any one
+  ## archetype's own spread). generateBrMap pre-assigns a shuffled,
+  ## ascending sequence of hints across every room-eligible POI so the
+  ## draw is diverse BY CONSTRUCTION, while bspRoomSplit's own probabilistic
+  ## early-stop/min-size logic still gets the final say on what actually
+  ## gets built — the hint raises the odds, it doesn't override the
+  ## "stop probabilistically" requirement.
+  ##
   ## Dispatch by archetype. ROUND 7 (Maxwell's verdict, zoomed in on the
   ## round-6 sheet): "these are still confetti maps. confetti on a larger
   ## scale with rooms and whatnot." Root cause: additive thin-walled line
@@ -469,82 +681,102 @@ proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
   let cx = site.center.x
   let cy = site.center.y
   let he = site.halfExtent
+  var shapes: seq[ArenaShape]
+  var rooms: seq[MapRect]
   case site.archetype
   of poiCompound:
-    ## ONE big shell ring (not two split buildings — "a compound = ONE
-    ## mass," doctrine's element-count collapse), 2 gates on adjacent
-    ## sides so the alley-crossing decision survives as a routing choice
-    ## rather than a straight walk-through. One interior cover slab keeps
-    ## the courtyard from reading as a bare empty box.
-    ## Shell thickness SCALED to the footprint (~2/5 of the half-height,
-    ## matching poiAnchor's calibration) rather than a flat constant — a
-    ## flat 36-46px shell on a big footprint traces a thin outline around
-    ## a mostly-empty box; scaling it keeps the ring dominant regardless
-    ## of size (Maxwell's caves_404_thick bar, reached after two visual
-    ## iterations on poiAnchor first).
+    ## ROUND 9 (doctrine item 1/2): the shell is unchanged (still ONE
+    ## mass, still 2 gates), but the interior is now a real floor plan —
+    ## 2-4 rooms via BSP-lite split, doorway graph, doors gated per the
+    ## spanning tree. Compound's own "one interior cover slab" is DROPPED
+    ## (a BSP room already reads as a place; a bare cover slab inside a
+    ## carved room would look like clutter, not a courtyard feature).
     let shellThick = max(40, he * 2 div 5)
     const GateW = 56
     let footprint = MapRect(x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
     var sides = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sides)
-    result.add stampShellRing(footprint, shellThick, {sides[0], sides[1]}, GateW)
-    let coverW = max(28, he * 2 div 5)
-    result.add rectShapeBr(cx - coverW div 2, cy - coverW div 2, coverW, coverW)
+    let targetRooms = if roomHint > 0: clamp(roomHint, 2, 4) else: 2 + rng.rand(2) ## 2-4, doctrine item 2
+    let plan = stampFloorPlan(rng, footprint, shellThick, {sides[0], sides[1]}, GateW,
+      targetRooms, 70, 26, 50)
+    shapes.add plan.shapes
+    rooms = plan.rooms
   of poiOutpost:
-    ## Smaller shell ring, 2 gates — the mid-tier single-mass building.
+    ## ROUND 9: 1-3 rooms (doctrine calls for "1-2"; widened to 1-3 —
+    ## outpost is the ONE archetype every keystone family places multiple
+    ## of, including families with no compound/anchor/warren at all like
+    ## rotation-timing/open-steppe, so its OWN room-count spread is what
+    ## keeps room-count-variety [item 6] achievable for those families).
     let shellThick = max(34, he * 2 div 5)
     const GateW = 50
     let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
     var sides = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sides)
-    result.add stampShellRing(footprint, shellThick, {sides[0], sides[1]}, GateW)
+    let targetRooms = if roomHint > 0: clamp(roomHint, 1, 3) else: 1 + rng.rand(2) ## 1-3
+    ## minRoomSize=38 (not the compound/anchor/warren-scale 48-100): an
+    ## outpost's own interior can be as small as ~80x136px at the smallest
+    ## halfExtent any pool uses (0.34G) — measured that minRoomSize=60
+    ## made almost every outpost fail the "2x minRoomSize" split-eligible
+    ## check and land on 1 room regardless of targetRooms, which is what
+    ## was capping room-count-variety for keystones with no compound/
+    ## anchor/warren at all.
+    let plan = stampFloorPlan(rng, footprint, shellThick, {sides[0], sides[1]}, GateW,
+      targetRooms, 38, 20, 42)
+    shapes.add plan.shapes
+    rooms = plan.rooms
   of poiYard:
-    ## A walled yard, 2 gates, thick shell — a courtyard with real
-    ## perimeter mass, not a wireframe. A few bigger stone blocks (not the
-    ## old 16px-radius pillar grid, individually confetti-sized) give
-    ## interior cover without adding fragment count.
+    ## Left as an open-air courtyard (doctrine's own framing: "walled
+    ## yard... open-air", not a building) — no BSP interior. Recorded as
+    ## exactly ONE room (its own interior) so it still contributes a data
+    ## point to room-count reporting/variety without being force-carved.
     let shellThick = max(34, he * 2 div 5)
     const GateW = 60
     let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
-    result.add stampShellRing(footprint, shellThick, {rsTop, rsBottom}, GateW)
+    shapes.add stampShellRing(footprint, shellThick, {rsTop, rsBottom}, GateW)
     ## Cover blocks must each individually clear the confetti floor
     ## (3000px^2, i.e. >=55x55) since they don't touch the ring — a smaller
     ## block reads fine at thumbnail scale but registers as its own tiny
     ## isolated mass.
     let blockW = max(60, he div 3)
-    result.add rectShapeBr(cx - he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
-    result.add rectShapeBr(cx + he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
+    shapes.add rectShapeBr(cx - he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
+    shapes.add rectShapeBr(cx + he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
+    rooms = @[MapRect(x: footprint.x + shellThick, y: footprint.y + shellThick,
+      w: footprint.w - 2 * shellThick, h: footprint.h - 2 * shellThick)]
   of poiRuins:
     ## A SMALL solid shell ring, not a scatter of disconnected L-brackets
     ## (the old design — exactly the "isolated small mass" doctrine now
-    ## bans). Still the cheapest, smallest archetype, but still ONE welded
-    ## mass with a single NARROW gate, not fragments.
+    ## bans). Still the cheapest, smallest archetype, no interior plan
+    ## (thematically "broken/partial walls, no full enclosure" — a real
+    ## floor plan would contradict its own archetype description).
     let shellThick = max(28, he * 2 div 5)
     const GateW = 46
     let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
     let side = [rsTop, rsRight, rsBottom, rsLeft][rng.rand(3)]
-    result.add stampShellRing(footprint, shellThick, {side}, GateW)
+    shapes.add stampShellRing(footprint, shellThick, {side}, GateW)
   of poiAnchor:
-    ## Zone-edge-holding: a HUGE shell ring — the biggest, thickest mass on
-    ## the map — with 2 NARROW gates and TWO solid interior cover slabs.
-    ## Doctrine: "one huge slab with a courtyard and 2-3 gates." Two visual
-    ## passes needed real iteration here (100px gates, then 56px gates at
-    ## 56px shell) before it stopped reading as several separated brackets:
-    ## shell thickness is now scaled to the footprint itself (~1/4 of the
-    ## half-height) so the solid ring dominates the footprint area instead
-    ## of tracing a thin outline around a mostly-empty box, and gate count
-    ## dropped to a flat 2 (3 fragmented the ring into 7 visible pieces).
+    ## ROUND 9: 3-5 rooms + courtyard (doctrine item 2). "Courtyard" is
+    ## approximated rather than ring-modelled (a true perimeter-rooms-
+    ## around-a-void ring split was scoped out for time — see the round-9
+    ## report): a LARGER minRoomSize than the other archetypes biases the
+    ## BSP split toward fewer, BIGGER cells, so at least one leaf usually
+    ## reads as a big open hall; the two existing interior cover slabs are
+    ## kept (now landing inside whichever room they fall in) as the
+    ## courtyard's own furniture rather than being replaced.
     let shellThick = max(48, he * 2 div 5)
     const GateW = 50
     let footprint = MapRect(
       x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
     var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sideOrder)
-    var gateSet: set[RoomSide] = {sideOrder[0], sideOrder[1]}
-    result.add stampShellRing(footprint, shellThick, gateSet, GateW)
+    let gateSet: set[RoomSide] = {sideOrder[0], sideOrder[1]}
+    let targetRooms = if roomHint > 0: clamp(roomHint, 3, 5) else: 3 + rng.rand(2) ## 3-5
+    let plan = stampFloorPlan(rng, footprint, shellThick, gateSet, GateW,
+      targetRooms, 100, 30, 54)
+    shapes.add plan.shapes
+    rooms = plan.rooms
     let coverW = max(32, he * 2 div 5)
-    result.add rectShapeBr(cx - he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
-    result.add rectShapeBr(cx + he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
+    shapes.add rectShapeBr(cx - he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
+    shapes.add rectShapeBr(cx + he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
   of poiCauseway:
     ## Rotation-timing: ONE LONG mass with 1-2 GATE gaps — not a dash
     ## train. `he` is HALF-LENGTH along a drawn axis (0/45/90/135deg).
@@ -552,6 +784,7 @@ proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
     ## 1-2 real gaps, each segment individually well above the confetti
     ## floor, so the whole causeway still reads (and validates) as one
     ## deliberate barrier with a couple of crossing points, never scatter.
+    ## No interior — a linear barrier, not a building.
     const Thick = 30
     let angles = [0.0, PI / 4.0, PI / 2.0, 3.0 * PI / 4.0]
     let theta = angles[rng.rand(angles.len - 1)]
@@ -569,29 +802,26 @@ proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
       let p0y = float(cy) + uy * segStart
       let p1x = float(cx) + ux * segEnd
       let p1y = float(cy) + uy * segEnd
-      result.add ArenaShape(
+      shapes.add ArenaShape(
         kind: shapeDiagonal, x0: int(p0x), y0: int(p0y), x1: int(p1x), y1: int(p1y),
         thickness: Thick)
       t = segEnd + gateW
   of poiWarren:
-    ## Cqc-warren / third-party: ONE large shell-ring mass carved into 2-3
-    ## interior cells by thick internal partitions (each touching the
-    ## outer ring, so the whole warren stays ONE connected mass) — "one
-    ## large mass carved into many small rooms," not several small
-    ## disconnected boxes side by side.
+    ## ROUND 9: "many small rooms" (doctrine item 2: "5-8 small rooms")
+    ## replaces round 7's flat 2-cell split — the SAME shell/gate setup,
+    ## but a real BSP floor plan with a small minRoomSize so it actually
+    ## carves into several small cells instead of one central divider.
     let shellThick = max(32, he * 2 div 5)
-    let partThick = max(26, he * 3 div 10)
     const GateW = 56
     let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
     var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sideOrder)
-    result.add stampShellRing(footprint, shellThick, {sideOrder[0], sideOrder[1]}, GateW)
-    ## One vertical partition down the middle, gated, splitting the
-    ## interior into 2 cells; touches the top and bottom shell strips at
-    ## both ends so the partition is always connected to the ring.
-    let midX = cx - partThick div 2
-    result.add stampPartitionWall(
-      midX, footprint.y, midX, footprint.y + footprint.h, partThick, GateW)
+    let targetRooms = if roomHint > 0: clamp(roomHint, 5, 8) else: 5 + rng.rand(4) ## 5-8
+    let plan = stampFloorPlan(rng, footprint, shellThick, {sideOrder[0], sideOrder[1]}, GateW,
+      targetRooms, 48, 24, 42)
+    shapes.add plan.shapes
+    rooms = plan.rooms
+  (shapes, rooms)
 
 proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
   for s in sites:
@@ -1157,10 +1387,35 @@ proc generateBrMap(
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
   result.pois = placePois(poiRng, w, h, result.gunRange, keystone)
+
+  ## ROUND 9 (doctrine item 6's room-count-variety gate): pre-assign a
+  ## shuffled, ascending sequence of room-count HINTS across every
+  ## room-eligible POI before stamping any of them — see stampPoi's own
+  ## comment for why this replaced "let each structure roll its own
+  ## target independently."
+  var roomEligibleIdx: seq[int]
+  for i in 0 ..< result.pois.len:
+    if result.pois[i].archetype in {poiCompound, poiOutpost, poiAnchor, poiWarren}:
+      roomEligibleIdx.add i
+  var diversityRng = initRand(seed xor 0x5A11_9902)
+  diversityRng.shuffle(roomEligibleIdx)
+  var roomHints = newSeq[int](result.pois.len)
+  const DiversityTargets = [1, 2, 3, 4, 5, 6, 7, 8]
+  for k, idx in roomEligibleIdx:
+    if k < DiversityTargets.len:
+      roomHints[idx] = DiversityTargets[k]
+
   var structures: seq[ArenaShape]
-  for site in result.pois:
+  for i in 0 ..< result.pois.len:
+    let site = result.pois[i]
     var stampRng = initRand(seed xor 0x9B1E_44D7 xor (site.center.x * 131071 + site.center.y))
-    structures.add stampPoi(stampRng, site)
+    ## ROUND 9: stampPoi now also returns the site's floor plan (the room
+    ## list) — written back into result.pois[i] so item placement
+    ## (per-room, doctrine item 5) and metrics (per-structure room
+    ## counts, item 2) can read it later.
+    let plan = stampPoi(stampRng, site, roomHints[i])
+    structures.add plan.shapes
+    result.pois[i].rooms = plan.rooms
 
   var connectorRng = initRand(seed xor 0x2E9D_7731)
   let connectors = linearConnectors(connectorRng, result.pois)
@@ -1342,10 +1597,13 @@ proc brMapSpecJson(m: BrMap): string =
   for s in m.spawns: spawnPts.add %*[s.p.x, s.p.y]
   var poiNodes = newJArray()
   for site in m.pois:
+    var roomNodes = newJArray()
+    for r in site.rooms: roomNodes.add %*[r.x, r.y, r.w, r.h]
     poiNodes.add %*{
       "x": site.center.x, "y": site.center.y,
       "archetype": $site.archetype, "halfExtent": site.halfExtent,
       "lootTier": site.lootTier,
+      "rooms": roomNodes,  ## round 9: the floor plan, [x,y,w,h] per room
     }
   let spec = %*{
     "name": m.name,
@@ -1421,11 +1679,18 @@ proc brMapFromSpecJson(text: string): BrMap =
         of "poiCauseway": poiCauseway
         of "poiWarren": poiWarren
         else: poiOutpost
+      var rooms: seq[MapRect]
+      let roomsNode = pn{"rooms"}
+      if not roomsNode.isNil and roomsNode.kind == JArray:
+        for rn in roomsNode:
+          rooms.add MapRect(x: rn[0].getInt(), y: rn[1].getInt(),
+            w: rn[2].getInt(), h: rn[3].getInt())
       result.pois.add PoiSite(
         center: MapPoint(x: pn["x"].getInt(), y: pn["y"].getInt()),
         archetype: archetype,
         halfExtent: pn{"halfExtent"}.getInt(150),
-        lootTier: pn{"lootTier"}.getInt(1))
+        lootTier: pn{"lootTier"}.getInt(1),
+        rooms: rooms)
   result.medKitSpawns = pointsFromNode(node{"medKitSpawns"})
   result.medKitCandidates = pointsFromNode(node{"medKitCandidates"})
   result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
@@ -1492,36 +1757,6 @@ proc buildWallGrid(m: BrMap): seq[bool] =
         let x = gx * GridStride
         if inShape(x, y, shape):
           result[gy * cols + gx] = true
-
-# Union-Find for connected-component labeling.
-type DSU = object
-  parent: seq[int]
-  size: seq[int]
-
-proc initDSU(n: int): DSU =
-  result.parent = newSeq[int](n)
-  result.size = newSeq[int](n)
-  for i in 0 ..< n:
-    result.parent[i] = i
-    result.size[i] = 1
-
-proc find(d: var DSU, x: int): int =
-  var x = x
-  while d.parent[x] != x:
-    d.parent[x] = d.parent[d.parent[x]]
-    x = d.parent[x]
-  x
-
-proc union(d: var DSU, a, b: int) =
-  let ra = d.find(a)
-  let rb = d.find(b)
-  if ra == rb: return
-  if d.size[ra] < d.size[rb]:
-    d.parent[ra] = rb
-    d.size[rb] += d.size[ra]
-  else:
-    d.parent[rb] = ra
-    d.size[ra] += d.size[rb]
 
 proc components(
   mask: seq[bool], cols, rows: int, want: bool, diag: bool
@@ -1804,6 +2039,18 @@ type
     keystonePass: bool
     keystoneReason: string
 
+    ## ROUND 9 (doctrine item 6): "add interior-connectivity (flood fill
+    ## per structure) + room-count-variety."
+    interiorConnPass: bool
+    interiorConnReason: string
+    strandedRooms: int          ## rooms whose center isn't in the map's
+                                  ## dominant walkable component
+    roomCountVarietyPass: bool
+    roomCountVarietyReason: string
+    distinctRoomCounts: int      ## how many distinct room-count values
+                                  ## appear across the draw's structures
+    roomCountsByArchetype: seq[(string, int)]  ## per-structure, for the log
+
     allPass: bool
 
 const
@@ -1961,6 +2208,16 @@ proc validateBr(m: BrMap): BrValidation =
   var walkable = newSeq[bool](wall.len)
   for i in 0 ..< wall.len: walkable[i] = not wall[i]
   let walkComp = components(walkable, cols, rows, true, false)
+  ## The single LARGEST walkable component — used by the round-9 interior-
+  ## connectivity check below regardless of whether spawns all share it
+  ## (that's connectivityPass's own job); this is just "the map's main
+  ## playable area."
+  var dominantWalkLabel = -1
+  var dominantWalkSize = -1
+  for lbl, sz in walkComp.sizes:
+    if sz > dominantWalkSize:
+      dominantWalkSize = sz
+      dominantWalkLabel = lbl
   var labelOf: seq[int]
   for s in m.spawns:
     let (gx, gy) = toGrid(clamp(s.p.x, 0, cols * GridStride - 1),
@@ -2379,9 +2636,75 @@ proc validateBr(m: BrMap): BrValidation =
           if result.keystonePass: ""
           else: &"footprint share {footprintShare*100:.1f}% > ceiling {KsOpenSteppeShareCeiling*100:.1f}%"
 
+  # 9. Interior connectivity (round 9, doctrine item 6) --------------------------
+  block interiorConnectivity:
+    ## Every ROOM (from every structure's floor plan) should sit in the
+    ## SAME dominant walkable component as the rest of the map — if NO
+    ## sample point inside a room reads as that component, its
+    ## structure's doorway graph didn't actually connect it to the
+    ## outside. Samples FIVE points per room (center + 4 quarter-offset
+    ## points), not just the exact centroid: measured that a room's own
+    ## geometric center can coincide with a decorative furniture block
+    ## (e.g. poiAnchor's courtyard cover slabs, placed at a fixed offset
+    ## from the SITE's center rather than the BSP room's own center) even
+    ## though the room is otherwise fully walkable and properly doored —
+    ## a probe-point false positive, not a real stranding. A room only
+    ## counts as stranded if ALL five samples miss the dominant component.
+    var stranded = 0
+    var totalRooms = 0
+    for site in m.pois:
+      for r in site.rooms:
+        inc totalRooms
+        var connected = false
+        let samples = [
+          (r.x + r.w div 2, r.y + r.h div 2),
+          (r.x + r.w div 4, r.y + r.h div 4),
+          (r.x + r.w * 3 div 4, r.y + r.h div 4),
+          (r.x + r.w div 4, r.y + r.h * 3 div 4),
+          (r.x + r.w * 3 div 4, r.y + r.h * 3 div 4),
+        ]
+        for (sx, sy) in samples:
+          let px = clamp(sx, 0, m.width - 1)
+          let py = clamp(sy, 0, m.height - 1)
+          let (gx, gy) = toGrid(px, py)
+          if gx >= 0 and gx < cols and gy >= 0 and gy < rows:
+            if walkComp.labels[gy * cols + gx] == dominantWalkLabel:
+              connected = true
+              break
+        if not connected:
+          inc stranded
+          when defined(brDebugRooms):
+            stderr.writeLine(&"STRANDED room archetype={site.archetype} center=({site.center.x},{site.center.y}) room=({r.x},{r.y},{r.w},{r.h})")
+    result.strandedRooms = stranded
+    result.interiorConnPass = stranded == 0
+    result.interiorConnReason =
+      if result.interiorConnPass: ""
+      else: &"{stranded}/{totalRooms} room centers are NOT in the map's dominant walkable component"
+
+  # 10. Room-count variety (round 9, doctrine item 6) -----------------------------
+  block roomCountVariety:
+    ## "A draw's structures must span >=3 distinct room counts" — the
+    ## measured proof that "wide array of possible interiors and room
+    ## counts" (Maxwell's ask) actually happened, not just that SOME
+    ## buildings got subdivided.
+    var counts: seq[int]
+    var byArch: seq[(string, int)]
+    for site in m.pois:
+      if site.rooms.len >= 1:
+        counts.add site.rooms.len
+        byArch.add ($site.archetype, site.rooms.len)
+    let distinctCounts = counts.deduplicate().len
+    result.distinctRoomCounts = distinctCounts
+    result.roomCountsByArchetype = byArch
+    result.roomCountVarietyPass = distinctCounts >= 3
+    result.roomCountVarietyReason =
+      if result.roomCountVarietyPass: ""
+      else: &"only {distinctCounts} distinct room count(s) across {counts.len} structures, need >= 3"
+
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
     result.placeCountPass and result.perSpawnCoverPass and
+    result.interiorConnPass and result.roomCountVarietyPass and
     result.coverPermillePass and result.distToCoverPass and
     result.itemCoveragePass and result.poiLootPass and result.keystonePass
 
@@ -2496,19 +2819,54 @@ proc placeItems(m: var BrMap, rng: var Rand) =
   ## exposed/central POI (tier 0, the compound), less at mid POIs (tier 1),
   ## a minor find at outer ruins (tier 2) — "no POI without a reason to
   ## visit" is satisfied by construction: every site gets >= 1 item.
+  ## ROUND 9 (doctrine item 5): "loot uses the plan" — sites with a real
+  ## floor plan (>=2 rooms) place loot PER ROOM instead of near the site's
+  ## center, and the room closest to the site's own centroid (a cheap
+  ## proxy for "graph-deepest room" that doesn't need the door graph
+  ## re-threaded through to item placement) gets the extra item — inner
+  ## rooms richer, real risk/reward depth instead of one loot pile by the
+  ## front door.
   for site in m.pois:
-    let n = case site.lootTier
-      of 0: 3
-      of 1: 2
-      else: 1
-    for k in 0 ..< n:
-      let searchR = max(20, site.halfExtent - 30)
-      let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
-      m.medKitCandidates.add p
-    if site.lootTier <= 1:
-      let p = walkableNear(m.obstacles, site.center.x, site.center.y,
-        max(20, site.halfExtent - 40), rng)
-      m.grenadeSpawns.add p
+    if site.rooms.len >= 2:
+      var ranked: seq[tuple[idx: int, d: float]]
+      for i, r in site.rooms:
+        let rcx = r.x + r.w div 2
+        let rcy = r.y + r.h div 2
+        let dx = float(rcx - site.center.x)
+        let dy = float(rcy - site.center.y)
+        ranked.add (i, sqrt(dx * dx + dy * dy))
+      ranked.sort(proc(a, b: tuple[idx: int, d: float]): int = cmp(a.d, b.d))
+      let baseN = case site.lootTier
+        of 0: 2
+        of 1: 1
+        else: 1
+      for rank, entry in ranked:
+        let r = site.rooms[entry.idx]
+        let rcx = r.x + r.w div 2
+        let rcy = r.y + r.h div 2
+        let searchR = max(15, min(r.w, r.h) div 2 - 10)
+        let n = if rank == 0: baseN + 1 else: baseN ## innermost room richest
+        for k in 0 ..< n:
+          let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
+          m.medKitCandidates.add p
+        if rank == 0 and site.lootTier <= 1:
+          let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
+          m.grenadeSpawns.add p
+    else:
+      ## No real floor plan (ruins, causeway, or a single-room roll) —
+      ## the original per-site placement, unchanged.
+      let n = case site.lootTier
+        of 0: 3
+        of 1: 2
+        else: 1
+      for k in 0 ..< n:
+        let searchR = max(20, site.halfExtent - 30)
+        let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
+        m.medKitCandidates.add p
+      if site.lootTier <= 1:
+        let p = walkableNear(m.obstacles, site.center.x, site.center.y,
+          max(20, site.halfExtent - 40), rng)
+        m.grenadeSpawns.add p
   m.medKitSpawns = m.medKitCandidates  ## BR is flagless: no candidate-pool
     ## narrowing step exists (that's a CTF pre-game mechanic), so every
     ## drawn point is "active" — kept as a separate field only to mirror
@@ -2837,6 +3195,12 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "grenadeCount": m.grenadeSpawns.len,
     "uncoveredSpawnsItems": v.uncoveredSpawnsItems,
     "poisWithoutLoot": v.poisWithoutLoot,
+    # ROUND 9: per-structure room counts (doctrine item 2: "print
+    # per-structure room counts in the gen log and metrics") + the two
+    # new floor-plan validators.
+    "roomCountsByArchetype": %*(v.roomCountsByArchetype.mapIt(%*[it[0], it[1]])),
+    "distinctRoomCounts": v.distinctRoomCounts,
+    "strandedRooms": v.strandedRooms,
     "pass": %*{
       "connectivity": v.connectivityPass,
       "exitRule": v.exitPass,
@@ -2850,6 +3214,8 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "itemCoverage": v.itemCoveragePass,
       "poiLoot": v.poiLootPass,
       "keystone": v.keystonePass,
+      "interiorConnectivity": v.interiorConnPass,
+      "roomCountVariety": v.roomCountVarietyPass,
       "all": v.allPass,
     },
   }
@@ -3091,6 +3457,12 @@ proc cmdGenerate(a: Args) =
       &" distToCover p95={v.distToCoverP95Px:.0f}px max={v.distToCoverMaxPx:.0f}px" &
       &" specSize={v.specSizeBytes}B headroom={SpecSizeBudgetBytes - v.specSizeBytes}B" &
       &" allPass={v.allPass}")
+    ## ROUND 9 (doctrine item 2: "print per-structure room counts in the
+    ## gen log and metrics").
+    stderr.writeLine(
+      &"  rooms: distinct-counts={v.distinctRoomCounts} (floor 3, variety={v.roomCountVarietyPass})" &
+      &" stranded={v.strandedRooms} (interiorConn={v.interiorConnPass})" &
+      &" by-structure={v.roomCountsByArchetype}")
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
@@ -3120,6 +3492,9 @@ proc printValidation(v: BrValidation) =
   echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/16 within {PerSpawnCoverGR}G)"
   echo &"POI has loot:  {(if v.poiLootPass: \"PASS\" else: \"FAIL: \" & v.poiLootReason)}  (missing={v.poisWithoutLoot} POIs)"
   echo &"keystone:      {(if v.keystonePass: \"PASS\" else: \"FAIL: \" & v.keystoneReason)}  ({v.keystoneLabel}={v.keystoneValue:.2f}, floor={v.keystoneFloor:.2f})"
+  echo &"interior conn: {(if v.interiorConnPass: \"PASS\" else: \"FAIL: \" & v.interiorConnReason)}  (stranded rooms={v.strandedRooms})"
+  echo &"room variety:  {(if v.roomCountVarietyPass: \"PASS\" else: \"FAIL: \" & v.roomCountVarietyReason)}  (distinct counts={v.distinctRoomCounts}, floor=3)"
+  echo &"  room counts by structure: {v.roomCountsByArchetype}"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
