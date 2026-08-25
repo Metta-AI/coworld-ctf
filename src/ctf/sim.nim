@@ -539,8 +539,11 @@ type
     multiKills3*: int          ## grenade blasts / spray bursts that
                                ## killed 3 or more; analysis-only, excluded
                                ## from gameHash.
-    teamKills*: int            ## teammates this player killed (backstabs);
-                               ## analysis-only, excluded from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs).
+                               ## CAUSAL, not analysis-only: v3's Clean Sheet
+                               ## (`evalCleanSheetAtConclusion`) gates on
+                               ## `teamKills > 0` directly, so this is in
+                               ## gameHash (see the entry there for why).
     arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
@@ -3441,9 +3444,58 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.titheCredit)
     result.mixHashInt(player.tithesThisLife)
     result.mixHashInt(player.grenadeCharges)
+    # ACHIEVEMENT-ELIGIBILITY STATE is causal, not analysis: it gates
+    # `claimAchievement`, which mints `teamGlory` (hashed above) -- so two
+    # runs can hold an IDENTICAL hash while their eligibility to cross a
+    # threshold has already diverged, and the desync only surfaces later, on
+    # whichever tick one run claims a tier the other cannot yet. `player.kills`
+    # (already hashed) is NOT a stand-in for these: it counts friendly-fire
+    # kills too, while every counter below excludes them. `returns` stays OUT
+    # -- it is bystander credit (`resetFlag`), never an achievement input, so
+    # it cannot gate a claim and has no causal weight.
+    result.mixHashInt(player.gunKills)
+    result.mixHashInt(player.sprayKills)
+    result.mixHashInt(player.grenadeKills)
+    result.mixHashInt(player.longshotKills)
+    result.mixHashInt(player.multiKills)
+    result.mixHashInt(player.soakedHp)
+    result.mixHashInt(player.clutchHeals)
+    result.mixHashInt(player.steals)
+    result.mixHashInt(player.carrierKills)
+    result.mixHashInt(player.denials)
+    result.mixHashInt(player.sprayKillsThisPickup)
+    result.mixHashInt(player.starfallKills)
+    result.mixHashInt(player.sprayMultiKills)
+    result.mixHashInt(player.grenadeMultiKills)
+    result.mixHashInt(player.clutchCarryHeals)
+    result.mixHashInt(player.stealTickThisLife)
+    result.mixHashInt(player.clutchHealTick)
+    result.mixHashInt(player.peelTick)
+    # `teamKills` reads as "analysis-only" in its own field comment, but v3
+    # promoted it to causal: `evalCleanSheetAtConclusion` gates Clean Sheet on
+    # `player.teamKills > 0` directly (never on the raw `.kills` tally), so a
+    # divergence here silently changes who claims the tier. The field comment
+    # is stale; this hash entry is the actual contract now.
+    result.mixHashInt(player.teamKills)
+  # GLORY: the ledger itself, its rampage state, and the one-shot claim gates
+  # -- every one of these decides a FUTURE mint, so a hash match must mean
+  # they match too.
+  #
+  # A ledger is only meaningful next to the pricing table that produced it, so
+  # GloryVersion rides along too: a replay recorded against an older
+  # `DeedGloryTable`/`TierGlory` fails hash validation immediately instead of
+  # silently re-pricing under new numbers.
+  result.mixHashInt(GloryVersion)
   for team in Team:
     result.mixHashInt(sim.teamGlory[team])
     result.mixHashInt(sim.heatEmbers[team])
+    result.mixHashInt(sim.heatLastDeed[team])
+    result.mixHashInt(sim.heatLastDecay[team])
+    for key in 0 ..< sim.claimed[team].len:
+      result.mixHashBool(sim.claimed[team][key])
+  for key in 0 ..< sim.claimedFirst.len:
+    result.mixHashBool(sim.claimedFirst[key])
+  result.mixHashBool(sim.firstBloodDone)
   result.mixHashInt(sim.tithePickups.len)
   for pickup in sim.tithePickups:
     result.mixHashInt(pickup.x)
