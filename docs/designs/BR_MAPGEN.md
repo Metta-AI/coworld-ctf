@@ -429,6 +429,21 @@ v1 targets giant, which the pool draws.
 4. The zone mechanic (new; §4.3) + its per-frame label.
 5. First BR family draw under §3's ungated bootstrap.
 
+### 6.6 Adopted from the reference-BR study (peer session, 2026-08-24)
+Three findings from treeform's battleroyale coworld + 8 hosted replays, folded
+into the mode:
+- **Timeout is DRAW-FREE**: a strict total order (living > last-death tick >
+  kills > damage > slot) — the reference eliminated draws because draws bred
+  passive double-death play. Mid-match simultaneous-wipe draws remain.
+- **Late-phase zone pricing must be lethal**: field evidence — weak rings
+  (0.5 HP/s vs 20 HP) failed to force endgames; 2/8 reference matches hit the
+  clock and were won by survival farming. Final phases kill in seconds.
+- **Per-episode spawn-assignment rotation**: team→grid-point binding rotates
+  by episode seed, so no team owns a position across episodes (composes with
+  the measured per-spawn fairness floor, does not replace it).
+Noted, not adopted: exposure-drain (our damage has no ramp to exploit);
+their 62-key wire vocabulary (podium/assist/passivity — glory-port material).
+
 ## 7. Open questions
 
 1. The BR corpus floor (§3.1) cannot be derived until a BR corpus exists.
