@@ -34,7 +34,14 @@
 ## giant (2.6x) 3211x1713 field, derived gunRange, the 16-point k=0.85 ring,
 ## the z=0.173 rectangular final zone, and the four BR static validators.
 
-import std/[os, math, random, strformat, strutils, tables, json, algorithm, sequtils, deques, times]
+import std/[os, math, random, strformat, strutils, tables, json, algorithm, sequtils, deques]
+## `times` (epochTime, the round-12 TIMING instrumentation) is gated behind
+## the SAME `-d:brDebugBurrow` define its every use already lives under —
+## wall-clock must never be silently available to a draw path in a
+## deterministic generator; an unconditional import is a loaded gun for a
+## future edit that reaches for it outside that guard.
+when defined(brDebugBurrow):
+  import std/times
 import pixie
 import ../src/ctf/sim, ../src/ctf/mapgen_styles
 
@@ -259,6 +266,45 @@ type
     iExterior = "exterior"  ## open field, structures as punctuation,
                             ## cover mostly organic
 
+  ## ROUND 13 (doctrine §4.9, Maxwell's ruling: "creating a gradient for each
+  ## item type based on rooms then corners, alleys, and exciting hotspots").
+  ## The site-class taxonomy every item's placement gradient is defined
+  ## over — ordered by exposure, same discipline as the keystone detector
+  ## (§2.4): a MEASURED artifact of the finished geometry, not a label
+  ## carried from generation-time bookkeeping. See classifySites' own
+  ## comment for how each class is detected.
+  SiteClass = enum
+    scRoom      ## unit interiors (a POI's own site.rooms)
+    scCorner    ## wall nooks / building-corner L-junctions
+    scAlley     ## the carved lanes between complexes (causeway/connector
+                ## shapeDiagonal wall runs)
+    scHotspot   ## keystones, causeway/gate mouths, major junctions
+
+  ClassifiedSite = object
+    p: MapPoint
+    class: SiteClass
+    ## Alley-only: is this candidate a MOUTH (segment endpoint, doctrine's
+    ## "grenade sites at alley mouths, not midpoints") vs a midpoint: and
+    ## does the alley/mouth FEED a hotspot (the "bias toward alleys that
+    ## feed a hotspot" rule)? Unused (false) for non-alley classes.
+    isMouth: bool
+    feedsHotspot: bool
+    ## Filled in for every class post-hoc: distance to the nearest hotspot,
+    ## the secondary filter medkit's anti-adjacency rule needs.
+    distToHotspot: float
+
+  ItemType = enum
+    ## The four wire items the engine serves (doctrine §4.9). Declaration
+    ## order matters: itShield precedes itGrenade so the shield<->grenade
+    ## co-location exclusion (placeItemsGraded) can place shields first and
+    ## have grenade's turn see them already placed — a one-directional
+    ## "the major goes down, the area-wipe tool avoids it" ordering, not a
+    ## symmetric mutual-exclusion pass.
+    itMedkit = "medkit"
+    itShield = "shield"
+    itGrenade = "grenade"
+    itSpray = "spray"
+
   PoiSite = object
     center: MapPoint
     archetype: PoiArchetype
@@ -320,12 +366,30 @@ type
     ## grenadeSpawns is BR's own analogue of CtfMap.grenadeSpawnPoints()
     ## (also neutral there, just a fixed array[4,..] keyed off map layout,
     ## which BR has none of) sized to the POI count instead of a fixed 4.
-    ## teamPickups (shields/cans/barriers) are DELIBERATELY ABSENT: see the
-    ## final report for why they cannot express a 16-group-fair pool under
-    ## the current engine.
+    ## ROUND 13 (doctrine §4.9, Maxwell's ruling: "feature ALL items"):
+    ## shieldSpawns/spraySpawns are NEW, same NEUTRAL seq[MapPoint] shape as
+    ## medKitSpawns — a flat, unkeyed 16-group-fair pool, exactly like the
+    ## other two. The round-3 comment this replaces claimed teamPickups
+    ## (shields/cans/barriers) "cannot express a 16-group-fair pool"; that
+    ## was true of the engine's TEAM-KEYED `teamPickups.shields/cans` path
+    ## (arena.nim's validateMap hard-codes symNone's teamCount to 2, and
+    ## barrierSpawnPoints derives its count from TeamLayout.teamCount(),
+    ## which still only knows 2 or 4) — but it was never a claim about a
+    ## NEUTRAL point list, which is exactly what medKitSpawns/grenadeSpawns
+    ## already prove works fine at 16 groups. shieldSpawns/spraySpawns
+    ## follow that same neutral shape; RULED STALE (2026-08-24) and amended.
+    ## Engine-side ingest is a SEPARATE integrate-lane task: today's loader
+    ## reads shields/sprays only from the team-keyed `teamPickups.shields`/
+    ## `teamPickups.cans` (src/ctf/sim.nim's shieldSpawnPoints/explicitOrOrbit);
+    ## consuming these two new neutral fields needs either a new neutral
+    ## ingest path (mirroring medKitSpawns') or an adapter that fans one
+    ## flat 16-group pool out into per-duo team pickups. This lane only
+    ## defines and populates the contract.
     medKitSpawns: seq[MapPoint]
     medKitCandidates: seq[MapPoint]
     grenadeSpawns: seq[MapPoint]
+    shieldSpawns: seq[MapPoint]
+    spraySpawns: seq[MapPoint]
 
 const
   StandardW = 1235   ## the CTF "standard" field width scaledGenShell derives from
@@ -2904,12 +2968,16 @@ proc brMapSpecJson(m: BrMap): string =
     "structureCount": m.structureCount,
     "pois": poiNodes,                 ## round-3 layout grammar; art-only, the
                                        ## sim reads leftObstacles/items instead
-    ## round-3 items — medKitSpawns/medKitCandidates mirror CtfMap's own
-    ## (NEUTRAL, not team-keyed) field names verbatim. teamPickups is
-    ## deliberately absent; see the final report.
+    ## round-3/13 items — medKitSpawns/medKitCandidates mirror CtfMap's own
+    ## (NEUTRAL, not team-keyed) field names verbatim. ROUND 13: shieldSpawns
+    ## and spraySpawns are the same neutral shape, newly populated by the
+    ## per-item site-class gradient (doctrine §4.9). Engine ingest for these
+    ## two is a separate integrate-lane task — see the BrMap field comment.
     "medKitSpawns": pointsNode(m.medKitSpawns),
     "medKitCandidates": pointsNode(m.medKitCandidates),
     "grenadeSpawns": pointsNode(m.grenadeSpawns),
+    "shieldSpawns": pointsNode(m.shieldSpawns),
+    "spraySpawns": pointsNode(m.spraySpawns),
   }
   $spec
 
@@ -3007,6 +3075,8 @@ proc brMapFromSpecJson(text: string): BrMap =
   result.medKitSpawns = pointsFromNode(node{"medKitSpawns"})
   result.medKitCandidates = pointsFromNode(node{"medKitCandidates"})
   result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
+  result.shieldSpawns = pointsFromNode(node{"shieldSpawns"})
+  result.spraySpawns = pointsFromNode(node{"spraySpawns"})
 
 # --- geometry / grid helpers for validators + render -------------------------
 
@@ -3419,6 +3489,23 @@ type
     burrowPass: bool
     burrowReason: string
 
+    ## ROUND 13 (doctrine §4.9). Two gates: (a) declared-vs-realized
+    ## per-class occupancy per item — the site classifier's own discipline
+    ## applied to items, discriminating (a mis-weighted draw fails); (b)
+    ## fairness — per-spawn WALK-GRAPH distance (never Euclidean) to the
+    ## nearest instance of each item type, gated on the spread across the
+    ## 16 ring spawns.
+    itemGradientPass: bool
+    itemGradientReason: string
+    itemGradientChecked: int  ## (item, class) cells actually evaluated
+                                ## (an item type with zero placed instances
+                                ## contributes zero — see the reason string)
+
+    itemFairnessPass: bool
+    itemFairnessReason: string
+    itemFairnessStdDevPx: array[ItemType, float]
+    itemFairnessSpreadPx: array[ItemType, float]  ## max - min
+
     allPass: bool
 
 const
@@ -3548,6 +3635,81 @@ const
                               ## zero-defect rubber stamp — calibrated
                               ## alongside the corpus sweep in the round-12
                               ## report.
+
+## ROUND 13 (doctrine §4.9, Maxwell's ruling 2026-08-24: "feature ALL
+## items... create a gradient for each item type based on rooms then
+## corners, alleys, and exciting hotspots"). The derived, research-backed
+## weight table (percent per item x site class, each row sums to 100 —
+## see the doctrine table for the sourced derivation) plus the hard rules
+## the table itself cannot express. (ItemType itself is declared up with
+## SiteClass, near PoiSite/BrMap — BrValidation's own itemFairness fields
+## need it in scope before this point.)
+const
+  ## Row order matches SiteClass's own declaration order (room, corner,
+  ## alley, hotspot) — the doctrine table's own column order.
+  ItemClassWeightPct: array[ItemType, array[SiteClass, int]] = [
+    itMedkit:  [scRoom: 40, scCorner: 20, scAlley: 25, scHotspot: 15],
+    itShield:  [scRoom: 25, scCorner: 10, scAlley: 25, scHotspot: 40],
+    itGrenade: [scRoom: 15, scCorner: 25, scAlley: 40, scHotspot: 20],
+    itSpray:   [scRoom: 40, scCorner: 30, scAlley: 20, scHotspot: 10],
+  ]
+  ## Hard rules the weight table alone cannot express (doctrine §4.9):
+  ItemSameTypeMinSepPx = 90.0        ## same-type minimum separation, EVERY
+                                       ## class — two instances of the same
+                                       ## item never crowd one spot.
+  ItemHotspotShieldMinSepFracG = 2.5  ## "hotspot-tier shield sites sit
+                                        ## >=2-3x gunRange apart, so one duo
+                                        ## can never control two majors
+                                        ## inside a single fight window" —
+                                        ## picked the midpoint of the
+                                        ## doctrine's own 2-3x range.
+  ItemShieldGrenadeExclusionPx = 90.0 ## shield and grenade NEVER co-locate
+                                        ## — same radius as the same-type
+                                        ## floor (one fight-window's worth
+                                        ## of separation reads the same
+                                        ## whether it's two of the same item
+                                        ## or these two specifically).
+  ItemMedkitHotspotAntiAdjFracG = 1.0 ## medkit's anti-adjacency SECONDARY
+                                        ## filter on room candidates: "a
+                                        ## room two steps from a hotspot is
+                                        ## not a quiet room."
+  ItemAlleyFeedsHotspotFracG = 2.0    ## an alley mouth counts as "feeding"
+                                        ## a hotspot (shield/grenade's alley
+                                        ## bias) within this many gun-ranges.
+  ## Declared-vs-realized per-class occupancy tolerance (round 13's own
+  ## discrimination gate, doctrine: "a gate that discriminates"). Percentage
+  ## points, per (item, class) cell — a finite candidate pool plus the hard
+  ## filters above (anti-adjacency, mouths-only, hotspot-tier separation,
+  ## co-location exclusion) mechanically caps some cells' achievable share
+  ## BELOW the raw declared weight even under a fully correct
+  ## implementation — shield/hotspot is the clearest case (its 2.5x-gunRange
+  ## same-class separation floor structurally limits how many hotspot-tier
+  ## majors a modest hotspot-candidate count can ever hold). Calibrated
+  ## against an 80-sample corpus sweep (40 seeds x 2 reads, round-13
+  ## report): per-cell delta distribution is fat-tailed (median 2-18pp
+  ## depending on cell, worst observed 40pp on grenade/alley — a bimodal
+  ## "normal or entirely filtered to zero" cell, not a gradual drift). 18pp
+  ## failed HALF the corpus outright (shield/hotspot's own median sits
+  ## exactly there); 30pp clears 92.5% while still catching real mismatches
+  ## — the swapped-item-arrays discrimination proof blows past 30pp by a
+  ## wide margin (see the round-13 report), so this isn't a rubber stamp.
+  ItemGradientTolerancePct = 30.0
+  ## Fairness gate (doctrine §4.9 / §2.5/§3.4 applied to items): per-spawn
+  ## WALK-GRAPH distance (never Euclidean) to the nearest instance of each
+  ## item type, gated on the spread across the 16 ring spawns. PER-ITEM
+  ## ceilings, not one global multiple of gunRange: shield is DESIGNED to
+  ## be rare and hotspot-clustered (§4.9's own "the contested MAJOR"),
+  ## medkit/spray are DESIGNED to be common and spread through rooms/
+  ## corners — a single shared ceiling either rubber-stamps shield's much
+  ## wider natural spread or fails medkit/spray for a spread that's
+  ## actually tight. Calibrated against a 40-seed corpus sweep (round-13
+  ## report): shield's own p90 stddev/spread (574px/1936px) sit roughly
+  ## 2x medkit's (220px/832px) on the SAME corpus — a measured property of
+  ## the design, not noise. Comfortable margin over each item's own p90,
+  ## landing at ~82.5% honest pass on the calibration sample.
+  ItemFairnessStdDevCeilPx: array[ItemType, float] = [250.0, 650.0, 450.0, 260.0]
+  ItemFairnessSpreadCeilPx: array[ItemType, float] = [900.0, 2100.0, 1550.0, 950.0]
+    ## order: medkit, shield, grenade, spray (ItemType's own declaration order)
 
   ## ROUND 6 keystone detector floors, RECALIBRATED round 8 (doctrine:
   ## "recalibrate on the denser corpus, same cross-family method" — the
@@ -3724,7 +3886,21 @@ proc enclosureOpenFraction(wallLocal: seq[bool], cols, rows: int): float =
   ## footprint = wall OR enclosed interior floor (a hole this component's
   ## own mass fully surrounds). Flood-fills "outside" from the crop
   ## border over non-wall cells; a footprint cell touching "outside" is a
-  ## perimeter cell, classified walled or open (a gap in the shell).
+  ## boundary cell, classified walled or open.
+  ## CORRECTED (Fable review, round-13 wake): this is NOT the fraction of
+  ## the component's own OUTER perimeter that's open — the "outside" flood
+  ## enters through every gate and then fills EVERY carved room/corridor
+  ## reachable from it, so an interior room's own walls count as boundary
+  ## cells too (their interior face touches "outside" floor once the flood
+  ## has entered). The metric is really TOTAL-SURFACE openness: outer shell
+  ## gaps PLUS every interior doorway, summed. This means more interior
+  ## partitioning (more doorways) DILUTES the fraction toward "more open"
+  ## even with the same outer shell — an intentional, calibrated property
+  ## (BurrowMaxOpenFrac's own comment already picks its 0.34 ceiling and
+  ## the seed-601 vs healthy-structure spread empirically, on THIS metric,
+  ## not on a pure-outer-perimeter one), not a bug — just a wrong comment.
+  ## Do not "fix" a structure that reads as open-fronted by editing this
+  ## proc; the instrument is correct, read the number it actually reports.
   proc idx(x, y: int): int = y * cols + x
   var outside = newSeq[bool](cols * rows)
   var queue: seq[int]
@@ -3863,6 +4039,326 @@ proc computeBurrow(m: BrMap): tuple[thin, dangling, enclosureFail, splitComplexe
       if cnt * GridStride * GridStride >= ConfettiFloorPx2: inc bigLabels
     if bigLabels > 1: inc splitComplexes
   (thin, dangling, enclosureFail, splitComplexes, checked)
+
+# --- item gradient gates (round 13, doctrine §4.9) ----------------------------
+
+proc walkGraphDistanceField(
+  walkable: seq[bool], cols, rows: int, sources: seq[MapPoint]
+): seq[int] =
+  ## Plain multi-source BFS over the WALKABLE grid ONLY — never digs
+  ## through a wall, unlike weightedConnectivityField's repair-carving cost
+  ## model (that one answers "what's the cheapest wall to cut through";
+  ## this one answers "how far does a duo actually have to WALK," the
+  ## doctrine's own "never Euclidean" fairness distance). -1 where
+  ## unreached (shouldn't happen once fullAccess holds — the whole board is
+  ## one walkable component by construction — kept as a defensive read
+  ## rather than an assumption).
+  result = newSeq[int](cols * rows)
+  for i in 0 ..< result.len: result[i] = -1
+  var queue: seq[int]
+  for p in sources:
+    let (gx, gy) = toGrid(p.x, p.y)
+    if gx >= 0 and gx < cols and gy >= 0 and gy < rows:
+      let i = gy * cols + gx
+      if walkable[i] and result[i] == -1:
+        result[i] = 0
+        queue.add i
+  var qi = 0
+  while qi < queue.len:
+    let i = queue[qi]
+    inc qi
+    let x = i mod cols
+    let y = i div cols
+    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+      let nx = x + dx
+      let ny = y + dy
+      if nx >= 0 and nx < cols and ny >= 0 and ny < rows:
+        let ni = ny * cols + nx
+        if walkable[ni] and result[ni] == -1:
+          result[ni] = result[i] + 1
+          queue.add ni
+
+proc itemPointsFor(m: BrMap, itype: ItemType): seq[MapPoint] =
+  case itype
+  of itMedkit: m.medKitCandidates
+  of itShield: m.shieldSpawns
+  of itGrenade: m.grenadeSpawns
+  of itSpray: m.spraySpawns
+
+proc classifyPoint(p: MapPoint, sites: seq[ClassifiedSite]): SiteClass =
+  ## Nearest classified site's own class — re-derived from the FINISHED
+  ## geometry independent of how the point was placed (same discipline as
+  ## every other measured artifact in this file: it must classify a point
+  ## loaded fresh from a spec.json exactly the same way it classifies one
+  ## placeItemsGraded just placed in memory, or the gate below isn't really
+  ## measuring anything).
+  var bestI = 0
+  var bestD = high(int)
+  for i, s in sites:
+    let dx = p.x - s.p.x
+    let dy = p.y - s.p.y
+    let d = dx * dx + dy * dy
+    if d < bestD:
+      bestD = d
+      bestI = i
+  sites[bestI].class
+
+# --- site classifier (round 13, doctrine §4.9) --------------------------------
+## The site-class taxonomy the item gradient places over: MEASURED from the
+## finished map (same discipline as burrowPass, round 12), never from
+## generation-time bookkeeping — classifySites can run on a freshly loaded
+## spec.json exactly as well as on a map still in memory.
+
+proc roomCandidates(m: BrMap): seq[ClassifiedSite] =
+  ## ROOMS: unit interiors. Every PoiSite already carries its own
+  ## authored floor plan in `.rooms` regardless of archetype/grammar
+  ## (stampPoi writes it back for every family, including poiComplex's
+  ## per-unit aggregate — see stampComplex) — reused verbatim, not
+  ## re-derived.
+  for site in m.pois:
+    for r in site.rooms:
+      result.add ClassifiedSite(
+        p: MapPoint(x: r.x + r.w div 2, y: r.y + r.h div 2), class: scRoom)
+
+proc cornerCandidates(m: BrMap): seq[ClassifiedSite] =
+  ## CORNERS: wall nooks / building-corner L-junctions. A walkable grid
+  ## cell with wall on exactly two ADJACENT orthogonal sides (N+E, E+S,
+  ## S+W, W+N — an L) is geometrically a nook: cover on two sides, open on
+  ## the other two. A straight corridor's N+S or E+W wall pair is
+  ## deliberately excluded — that is a hallway, not a corner. Scanned off
+  ## the SAME wall grid every other validator uses, so a corner is
+  ## whatever THIS map's finished geometry actually carved.
+  ## Clustered via a coarse bucket table (O(1) per cell, not the O(n) scan
+  ## against every already-accepted corner a naive version would do — see
+  ## round 12's own O(n^2) lesson) since a real corner reads as a small RUN
+  ## of qualifying cells, not one isolated pixel.
+  let (cols, rows) = gridDims(m.width, m.height)
+  let wall = buildWallGrid(m)
+  proc idx(x, y: int): int = y * cols + x
+  const MinSepPx = 70
+  const BucketPx = MinSepPx
+  var bucket = initTable[(int, int), bool]()
+  for gy in 1 ..< rows - 1:
+    for gx in 1 ..< cols - 1:
+      let i = idx(gx, gy)
+      if wall[i]: continue
+      let n = wall[idx(gx, gy - 1)]
+      let s = wall[idx(gx, gy + 1)]
+      let w = wall[idx(gx - 1, gy)]
+      let e = wall[idx(gx + 1, gy)]
+      if not ((n and e) or (n and w) or (s and e) or (s and w)): continue
+      let wx = gx * GridStride
+      let wy = gy * GridStride
+      let key = (wx div BucketPx, wy div BucketPx)
+      var near = false
+      for ddx in -1 .. 1:
+        for ddy in -1 .. 1:
+          if (key[0] + ddx, key[1] + ddy) in bucket: near = true
+      if not near:
+        bucket[key] = true
+        result.add ClassifiedSite(p: MapPoint(x: wx, y: wy), class: scCorner)
+
+proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
+  ## ALLEYS: the carved lanes between complexes. Measured directly off
+  ## m.obstacles' own shapeDiagonal shapes — the ONLY two producers in this
+  ## generator are poiCauseway's own broken-wall run and linearConnectors'
+  ## inter-POI connectors (verified: `grep shapeDiagonal` has exactly these
+  ## two call sites), both literally "continuous linear features between
+  ## places" per doctrine §2.1/§2.3, so a diagonal wall segment IS an
+  ## alley wall by construction. Each segment offers up to 3 candidates,
+  ## offset PERPENDICULAR to the wall into walkable space (never on top of
+  ## it): a MIDPOINT (isMouth=false) and its two ENDPOINTS (isMouth=true —
+  ## doctrine: "grenade sites at alley mouths, not midpoints").
+  proc walkableOffset(wx, wy, px, py, offset: float): MapPoint =
+    for sgn in [1.0, -1.0]:
+      let cx = int(wx + px * offset * sgn)
+      let cy = int(wy + py * offset * sgn)
+      var blocked = false
+      for s in m.obstacles:
+        if inShape(cx, cy, s): blocked = true; break
+      if not blocked: return MapPoint(x: cx, y: cy)
+    MapPoint(x: int(wx), y: int(wy))  ## fallback: rare, still a legible point
+  for shape in m.obstacles:
+    if shape.kind != shapeDiagonal: continue
+    let dx = float(shape.x1 - shape.x0)
+    let dy = float(shape.y1 - shape.y0)
+    let length = sqrt(dx * dx + dy * dy)
+    if length < 1.0: continue
+    let ux = dx / length
+    let uy = dy / length
+    let px = -uy
+    let py = ux
+    let offset = float(shape.thickness) / 2.0 + 24.0
+    let midx = float(shape.x0 + shape.x1) / 2.0
+    let midy = float(shape.y0 + shape.y1) / 2.0
+    result.add ClassifiedSite(
+      p: walkableOffset(midx, midy, px, py, offset), class: scAlley, isMouth: false)
+    result.add ClassifiedSite(
+      p: walkableOffset(float(shape.x0), float(shape.y0), px, py, offset),
+      class: scAlley, isMouth: true)
+    result.add ClassifiedSite(
+      p: walkableOffset(float(shape.x1), float(shape.y1), px, py, offset),
+      class: scAlley, isMouth: true)
+
+proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
+  ## Reuses THE BURROW REQUIREMENT's own technique (round 12,
+  ## computeBurrow/enclosureOpenFraction) verbatim: per connected wall
+  ## component of the authored structure set, flood-fill "outside" from
+  ## the crop border, then collect boundary cells that are OPEN (not
+  ## wall) — exactly the declared gate gaps the burrow gate already
+  ## measures as a FRACTION; this collects their actual world positions
+  ## instead, clustered into one point per contiguous open run.
+  let (cols, rows) = gridDims(m.width, m.height)
+  let sc = min(m.structureCount, m.obstacles.len)
+  let wall = buildWallGridFor(m.obstacles[0 ..< sc], m.width, m.height)
+  let comp = components(wall, cols, rows, true, true)
+  var bboxByLabel = initTable[int, tuple[x0, y0, x1, y1: int]]()
+  for gy in 0 ..< rows:
+    for gx in 0 ..< cols:
+      let i = gy * cols + gx
+      if not wall[i]: continue
+      let lbl = comp.labels[i]
+      if lbl in bboxByLabel:
+        let b = bboxByLabel[lbl]
+        bboxByLabel[lbl] = (min(b.x0, gx), min(b.y0, gy), max(b.x1, gx), max(b.y1, gy))
+      else:
+        bboxByLabel[lbl] = (gx, gy, gx, gy)
+  const ClusterCells = 10  ## ~40px buckets: a physical gate (60-90px per
+                             ## linearConnectors' own gateW) collapses to
+                             ## 1-2 points instead of one per open cell.
+  for lbl, bbox in bboxByLabel:
+    let sizePx2 = comp.sizes[lbl] * GridStride * GridStride
+    if sizePx2 < ConfettiFloorPx2: continue
+    let lcols = (bbox.x1 - bbox.x0 + 1) + 2 * BurrowPadCells
+    let lrows = (bbox.y1 - bbox.y0 + 1) + 2 * BurrowPadCells
+    let ox = bbox.x0 - BurrowPadCells
+    let oy = bbox.y0 - BurrowPadCells
+    var localWall = newSeq[bool](lcols * lrows)
+    for ly in 0 ..< lrows:
+      let gy = oy + ly
+      if gy < 0 or gy >= rows: continue
+      for lx in 0 ..< lcols:
+        let gx = ox + lx
+        if gx < 0 or gx >= cols: continue
+        let gi = gy * cols + gx
+        if wall[gi] and comp.labels[gi] == lbl:
+          localWall[ly * lcols + lx] = true
+    proc lidx(x, y: int): int = y * lcols + x
+    var outside = newSeq[bool](lcols * lrows)
+    var queue: seq[int]
+    for x in 0 ..< lcols:
+      for y in [0, lrows - 1]:
+        let i = lidx(x, y)
+        if not localWall[i] and not outside[i]:
+          outside[i] = true; queue.add i
+    for y in 0 ..< lrows:
+      for x in [0, lcols - 1]:
+        let i = lidx(x, y)
+        if not localWall[i] and not outside[i]:
+          outside[i] = true; queue.add i
+    var qi = 0
+    while qi < queue.len:
+      let i = queue[qi]
+      inc qi
+      let x = i mod lcols
+      let y = i div lcols
+      for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        let nx = x + ddx
+        let ny = y + ddy
+        if nx >= 0 and nx < lcols and ny >= 0 and ny < lrows:
+          let ni = lidx(nx, ny)
+          if not localWall[ni] and not outside[ni]:
+            outside[ni] = true; queue.add ni
+    var clusterBucket = initTable[(int, int), bool]()
+    for y in 0 ..< lrows:
+      for x in 0 ..< lcols:
+        let i = lidx(x, y)
+        if localWall[i]: continue
+        let isFootprint = not outside[i]
+        if not isFootprint: continue  ## enclosed floor only (not true outside)
+        var isBoundary = false
+        for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+          let nx = x + ddx
+          let ny = y + ddy
+          if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
+          if outside[lidx(nx, ny)]: isBoundary = true
+        if not isBoundary: continue
+        let key = ((ox + x) div ClusterCells, (oy + y) div ClusterCells)
+        if key notin clusterBucket:
+          clusterBucket[key] = true
+          result.add MapPoint(x: (ox + x) * GridStride, y: (oy + y) * GridStride)
+
+proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
+  ## HOTSPOTS: "the exciting contested places" — keystones, causeway/gate
+  ## mouths, major junctions (doctrine §4.9). Four measured sources, merged
+  ## with a coarse de-dupe bucket (first-found wins, so the cheapest/most-
+  ## certain source — declared major POIs — has priority):
+  ##  (a) every lootTier==0 POI center: the doctrine's OWN "richest kit at
+  ##      the most exposed place" signal (§4.4), already measured per site.
+  ##  (b) every poiCauseway/poiAnchor center: the archetypes the keystone
+  ##      detector itself keys rotation-timing/zone-edge-holding on (§2.4)
+  ##      — reusing that same detector's own archetype vocabulary.
+  ##  (c) JUNCTIONS: a POI whose connector degree (linearConnectors' own
+  ##      shapeDiagonal endpoints landing within its footprint) is >= 3.
+  ##  (d) GATE MOUTHS: structureGateMouthPoints above, reusing round 12's
+  ##      burrow enclosure-opening detector verbatim.
+  const MinSepPx = 120
+  var bucket = initTable[(int, int), bool]()
+  var acc: seq[ClassifiedSite]  ## `result` can't be captured by a nested
+                                  ## closure (Nim memory-safety rule) — a
+                                  ## plain local, assigned to `result` once
+                                  ## at the end, sidesteps that.
+  proc tryAdd(p: MapPoint) =
+    let key = (p.x div MinSepPx, p.y div MinSepPx)
+    var near = false
+    for ddx in -1 .. 1:
+      for ddy in -1 .. 1:
+        if (key[0] + ddx, key[1] + ddy) in bucket: near = true
+    if not near:
+      bucket[key] = true
+      acc.add ClassifiedSite(p: p, class: scHotspot)
+  for p in m.pois:
+    if p.lootTier == 0: tryAdd(p.center)
+  for p in m.pois:
+    if p.archetype in {poiCauseway, poiAnchor}: tryAdd(p.center)
+  var degree = newSeq[int](m.pois.len)
+  for shape in m.obstacles:
+    if shape.kind != shapeDiagonal: continue
+    for i, p in m.pois:
+      let r = p.halfExtent + 100
+      if abs(shape.x0 - p.center.x) <= r and abs(shape.y0 - p.center.y) <= r:
+        inc degree[i]
+      if abs(shape.x1 - p.center.x) <= r and abs(shape.y1 - p.center.y) <= r:
+        inc degree[i]
+  for i, p in m.pois:
+    if degree[i] >= 3: tryAdd(p.center)
+  for gp in structureGateMouthPoints(m):
+    tryAdd(gp)
+  acc
+
+proc classifySites(m: BrMap): seq[ClassifiedSite] =
+  ## THE site classifier. Hotspots first (everything else needs
+  ## distance-to-nearest-hotspot: medkit's anti-adjacency filter, and
+  ## alley's feedsHotspot bias).
+  var hotspots = hotspotCandidates(m)
+  proc nearestHotspotDist(p: MapPoint): float =
+    result = Inf
+    for h in hotspots:
+      let dx = float(p.x - h.p.x)
+      let dy = float(p.y - h.p.y)
+      result = min(result, sqrt(dx * dx + dy * dy))
+  var rooms = roomCandidates(m)
+  for r in rooms.mitems: r.distToHotspot = nearestHotspotDist(r.p)
+  var corners = cornerCandidates(m)
+  for c in corners.mitems: c.distToHotspot = nearestHotspotDist(c.p)
+  var alleys = alleyCandidatesFromDiagonals(m)
+  for a in alleys.mitems:
+    a.distToHotspot = nearestHotspotDist(a.p)
+    a.feedsHotspot = a.distToHotspot <= ItemAlleyFeedsHotspotFracG * float(m.gunRange)
+  result.add hotspots
+  result.add rooms
+  result.add corners
+  result.add alleys
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -4133,9 +4629,15 @@ proc validateBr(m: BrMap): BrValidation =
 
   # 6. Item coverage (round 3, doctrine §4.4) ------------------------------------
   ## Every spawn's nearest item within ~1.5 gun-ranges of its ring position.
+  ## ROUND 13: KEPT, extended to the full 4-item pool (medkit/grenade/
+  ## shield/spray) rather than superseded — this is a coarser "some item is
+  ## nearby" check that the new per-item fairness gate (itemFairness, below)
+  ## doesn't make redundant: fairness gates the SPREAD of each item's own
+  ## distance across all 16 spawns, this gates the ABSOLUTE worst case for
+  ## "any item at all." Both stay; see the round-13 report.
   block itemCoverage:
     let radius = int(PerSpawnCoverGR * float(m.gunRange))
-    let allItems = m.medKitCandidates & m.grenadeSpawns
+    let allItems = m.medKitCandidates & m.grenadeSpawns & m.shieldSpawns & m.spraySpawns
     var uncovered = 0
     for s in m.spawns:
       var best = high(int)
@@ -4154,20 +4656,18 @@ proc validateBr(m: BrMap): BrValidation =
         &"{PerSpawnCoverGR}G ({radius}px)"
 
   # 7. Every POI has a reason to visit (round 3) ----------------------------------
+  ## ROUND 13: KEPT, extended to the full 4-item pool — see itemCoverage's
+  ## own comment above for why this and the new per-item gates coexist.
   block poiLoot:
     var missing = 0
+    let allLootItems = m.medKitCandidates & m.grenadeSpawns & m.shieldSpawns & m.spraySpawns
     for site in m.pois:
       var hasLoot = false
       let checkR = site.halfExtent + 60
-      for it in m.medKitCandidates:
+      for it in allLootItems:
         if abs(it.x - site.center.x) <= checkR and abs(it.y - site.center.y) <= checkR:
           hasLoot = true
           break
-      if not hasLoot:
-        for it in m.grenadeSpawns:
-          if abs(it.x - site.center.x) <= checkR and abs(it.y - site.center.y) <= checkR:
-            hasLoot = true
-            break
       if not hasLoot: inc missing
     result.poisWithoutLoot = missing
     result.poiLootPass = missing == 0
@@ -4568,6 +5068,102 @@ proc validateBr(m: BrMap): BrValidation =
         &"(thin={b.thin} dangling={b.dangling} overOpen={b.enclosureFail} " &
         &"splitComplex={b.splitComplexes}), tolerance {tolerance}"
 
+  # 13. Item gradient: declared-vs-realized per-class occupancy (round 13,
+  # doctrine §4.9) -----------------------------------------------------------
+  ## "The site classifier is a MEASURED artifact... a draw whose declared
+  ## gradient the realized per-class occupancy does not match fails." Every
+  ## placed item point is re-classified from the FINISHED geometry (never
+  ## from placement bookkeeping — classifyPoint works identically on a
+  ## point loaded fresh from JSON), and its class distribution is compared
+  ## against the declared weight table per item type.
+  block itemGradientCheck:
+    let sites = classifySites(m)
+    var sitesByClass: array[SiteClass, int]
+    for s in sites: inc sitesByClass[s.class]
+    var worst = ""
+    var worstDelta = 0.0
+    var checked = 0
+    var allOk = true
+    for itype in ItemType:
+      let pts = itemPointsFor(m, itype)
+      if pts.len == 0: continue  ## itemFairness (below) already fails a
+                                   ## zero-instance item type; don't double-
+                                   ## count it here as a gradient mismatch.
+      var counts: array[SiteClass, int]
+      for p in pts: inc counts[classifyPoint(p, sites)]
+      for cls in SiteClass:
+        ## A class with ZERO candidate SITES on this map at all is a
+        ## structural fact about this draw's composition, not a placement
+        ## mismatch — nothing could ever have been placed there regardless
+        ## of the algorithm, so it's excluded from the check entirely
+        ## rather than counted as a failure (matches itemFairness's own
+        ## "zero instances" exemption logic just above, applied at the
+        ## class level instead of the item level).
+        if sitesByClass[cls] == 0: continue
+        inc checked
+        let realizedPct = 100.0 * float(counts[cls]) / float(pts.len)
+        let declaredPct = float(ItemClassWeightPct[itype][cls])
+        let delta = abs(realizedPct - declaredPct)
+        when defined(brDebugItemCalib):
+          stderr.writeLine(&"CALIB {itype} {cls} declared={declaredPct:.0f} realized={realizedPct:.0f} delta={delta:.0f}")
+        if delta > ItemGradientTolerancePct:
+          allOk = false
+          if delta > worstDelta:
+            worstDelta = delta
+            worst = &"{itype}/{cls}: declared {declaredPct:.0f}% realized {realizedPct:.0f}%"
+    result.itemGradientChecked = checked
+    result.itemGradientPass = allOk
+    result.itemGradientReason =
+      if allOk: ""
+      else: &"worst mismatch {worst} (tolerance {ItemGradientTolerancePct:.0f}pp)"
+
+  # 14. Item fairness: per-spawn walk-graph distance spread (round 13,
+  # doctrine §4.9/§2.5/§3.4 applied to items) --------------------------------
+  ## "Item-access equity is MEASURED per spawn (distance-to-nearest per item
+  ## type from each ring spawn), never inferred from symmetry." One
+  ## multi-source BFS per item type over the REAL walkable grid (never
+  ## Euclidean), gated on the spread (stddev, max-min) across the 16 ring
+  ## spawns.
+  block itemFairnessCheck:
+    let (fcols, frows) = gridDims(m.width, m.height)
+    let fwall = buildWallGrid(m)
+    var fwalkable = newSeq[bool](fwall.len)
+    for i in 0 ..< fwall.len: fwalkable[i] = not fwall[i]
+    var allOk = true
+    var worst = ""
+    for itype in ItemType:
+      let pts = itemPointsFor(m, itype)
+      if pts.len == 0:
+        allOk = false
+        worst = &"{itype} has zero placed instances"
+        continue
+      let field = walkGraphDistanceField(fwalkable, fcols, frows, pts)
+      var dists: seq[float]
+      for s in m.spawns:
+        let (gx, gy) = toGrid(s.p.x, s.p.y)
+        let d =
+          if gx >= 0 and gx < fcols and gy >= 0 and gy < frows: field[gy * fcols + gx]
+          else: -1
+        ## Unreached (shouldn't happen under fullAccess) reads as the
+        ## board's own diagonal — a large, honest penalty rather than a
+        ## crash or a silently-dropped sample.
+        dists.add (if d < 0: float(fcols + frows) * float(GridStride) else: float(d * GridStride))
+      let meanD = dists.foldl(a + b, 0.0) / float(dists.len)
+      var varD = 0.0
+      for d in dists: varD += (d - meanD) * (d - meanD)
+      let stddev = sqrt(varD / float(dists.len))
+      let spread = dists.max - dists.min
+      result.itemFairnessStdDevPx[itype] = stddev
+      result.itemFairnessSpreadPx[itype] = spread
+      let stddevCeil = ItemFairnessStdDevCeilPx[itype]
+      let spreadCeil = ItemFairnessSpreadCeilPx[itype]
+      if stddev > stddevCeil or spread > spreadCeil:
+        allOk = false
+        worst = &"{itype}: stddev={stddev:.0f}px (ceil {stddevCeil:.0f}) " &
+          &"spread={spread:.0f}px (ceil {spreadCeil:.0f})"
+    result.itemFairnessPass = allOk
+    result.itemFairnessReason = if allOk: "" else: worst
+
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
     result.placeCountPass and result.perSpawnCoverPass and
@@ -4575,7 +5171,7 @@ proc validateBr(m: BrMap): BrValidation =
     result.coverPermillePass and result.distToCoverPass and
     result.itemCoveragePass and result.poiLootPass and result.keystonePass and
     result.fullAccessPass and result.terrainPass and result.themePass and
-    result.burrowPass
+    result.burrowPass and result.itemGradientPass and result.itemFairnessPass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
   ## Pick the passing candidate closest to the field's geometric center (a
@@ -4639,6 +5235,58 @@ proc pruneConfetti(
     if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
       result.add shape
 
+proc pruneConfettiTrackBoundary(m: var BrMap, floorPx2: int) =
+  ## Same confetti measurement as pruneConfetti (identical wall grid +
+  ## components + per-shape centroid sample — the kept set is byte-
+  ## identical to calling pruneConfetti(m.obstacles, ...) directly),
+  ## applied to the FULL obstacle list while keeping `structureCount`
+  ## accurate. ROUND 13 FIX: cmdGenerate's second, full-obstacle-set
+  ## prune (round 10) used to call plain pruneConfetti and reassign
+  ## `m.obstacles` from the filtered result without ever touching
+  ## `m.structureCount` — silently desyncing the structure/fill boundary
+  ## whenever a STRUCTURE-zone fragment (not just fill) got pruned here,
+  ## which is exactly this prune's own stated job ("a poiMazeHall exterior-
+  ## wall remainder... clipped down to 62x30 and 26x30 px"). Measured:
+  ## structureCount reading 160 against an actual obstacles.len of 148 on
+  ## seed 1 — a PRE-EXISTING bug (present since at least round 10, i.e.
+  ## before round 12 too), never caught because every reader clamps via
+  ## `min(structureCount, obstacles.len)`, which fails SAFE (silently
+  ## over-inclusive: treats organic fill as "structure" too) rather than
+  ## loud — round 13's gate-mouth detector is the first thing that made
+  ## the boundary's PRECISION load-bearing enough to go looking. Same fix
+  ## shape as carveCorridors' own round-12 fix: shapes are filtered in
+  ## their original order, so counting how many SURVIVING shapes
+  ## originated below the OLD boundary gives the new one exactly.
+  let (cols, rows) = gridDims(m.width, m.height)
+  var wall = newSeq[bool](cols * rows)
+  for shape in m.obstacles:
+    let b = shapeBounds(shape)
+    let gx0 = max(0, b.x0 div GridStride)
+    let gy0 = max(0, b.y0 div GridStride)
+    let gx1 = min(cols - 1, b.x1 div GridStride)
+    let gy1 = min(rows - 1, b.y1 div GridStride)
+    for gy in gy0 .. gy1:
+      let y = gy * GridStride
+      for gx in gx0 .. gx1:
+        let x = gx * GridStride
+        if inShape(x, y, shape):
+          wall[gy * cols + gx] = true
+  let comp = components(wall, cols, rows, true, true)
+  var kept: seq[ArenaShape]
+  var newStructureCount = 0
+  for idx, shape in m.obstacles:
+    let b = shapeBounds(shape)
+    let ccx = clamp((b.x0 + b.x1) div 2, 0, m.width - 1)
+    let ccy = clamp((b.y0 + b.y1) div 2, 0, m.height - 1)
+    let (gx, gy) = toGrid(ccx, ccy)
+    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
+    let lbl = comp.labels[gy * cols + gx]
+    if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
+      kept.add shape
+      if idx < m.structureCount: inc newStructureCount
+  m.obstacles = kept
+  m.structureCount = newStructureCount
+
 proc pocketRadialHalf(s: BrSpawn, clearW, clearH: int): int =
   clearH  ## pocketRect always puts the LARGER (radial) extent in clearH,
           ## regardless of which edge the spawn sits on.
@@ -4653,16 +5301,20 @@ proc pointInAnyPocket(
       return true
   false
 
-# --- items (round 3, doctrine §4.4) -------------------------------------------
+
+# --- items (round 3/13, doctrine §4.4/§4.9) ------------------------------------
 ## Items are BR's PRIMARY balance lever per doctrine — absent from rounds 1
 ## and 2 entirely. Read against the actual engine (src/ctf/sim.nim,
 ## sim_types.nim): CtfMap.medKitSpawns/medKitCandidates are plain
 ## seq[MapPoint], NOT team-keyed at all, so they transfer to a 16-group
 ## draw with zero adaptation — this is BR's primary loot channel.
-## teamPickups (shields/cans/barriers) are deliberately NOT emitted: see
-## the final report for why (validateMap hard-codes symNone's teamCount to
-## 2; barrierSpawnPoints derives its count from TeamLayout.teamCount(),
-## which only knows 2 or 4 — neither expresses a 16-group-fair pool today).
+## ROUND 13 (Maxwell's ruling: "feature ALL items"): round 3's claim that
+## shields/sprays "cannot express a 16-group-fair pool" was about the
+## engine's TEAM-KEYED teamPickups.shields/cans path specifically (2/4-team
+## assumptions baked into validateMap/barrierSpawnPoints) — RULED STALE and
+## amended (see the BrMap field comment above shieldSpawns/spraySpawns).
+## Both now place through the same neutral, un-team-keyed shape
+## medKitSpawns already proved works at 16 groups.
 
 proc walkableNear(
   obstacles: seq[ArenaShape], cx, cy, radius: int, rng: var Rand
@@ -4683,90 +5335,103 @@ proc walkableNear(
       return MapPoint(x: x, y: y)
   MapPoint(x: cx, y: cy)  ## fall back to the POI center; rare in practice
 
-proc placeItems(m: var BrMap, rng: var Rand) =
-  ## The loot gradient (doctrine §4.4): the richest kit sits at the most
-  ## exposed/central POI (tier 0, the compound), less at mid POIs (tier 1),
-  ## a minor find at outer ruins (tier 2) — "no POI without a reason to
-  ## visit" is satisfied by construction: every site gets >= 1 item.
-  ## ROUND 9 (doctrine item 5): "loot uses the plan" — sites with a real
-  ## floor plan (>=2 rooms) place loot PER ROOM instead of near the site's
-  ## center, and the room closest to the site's own centroid (a cheap
-  ## proxy for "graph-deepest room" that doesn't need the door graph
-  ## re-threaded through to item placement) gets the extra item — inner
-  ## rooms richer, real risk/reward depth instead of one loot pile by the
-  ## front door.
-  for site in m.pois:
-    if site.grammar != gBsp and site.rooms.len > 0:
-      ## ROUND 10: maze/cave `rooms` are CELLS/CHAMBERS, not BSP rooms —
-      ## a building-sized maze can report 40-80 of them (honest for the
-      ## room-count-variety metric, see stampRoomMaze's own comment), and
-      ## the round-9 per-room loot loop below would place an item in
-      ## EVERY one of them, blowing both loot balance and spec size. Cap
-      ## at a handful of RANDOMLY chosen cells instead — still spreads
-      ## loot through the interior (not one pile at the front door),
-      ## just bounded regardless of grammar cell count.
-      let n = min(site.rooms.len, (case site.lootTier
-        of 0: 5
-        of 1: 3
-        else: 2))
-      var pickIdx = toSeq(0 ..< site.rooms.len)
-      rng.shuffle(pickIdx)
-      for k in 0 ..< n:
-        let r = site.rooms[pickIdx[k]]
-        let rcx = r.x + r.w div 2
-        let rcy = r.y + r.h div 2
-        let searchR = max(12, min(r.w, r.h) div 2)
-        let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
-        m.medKitCandidates.add p
-      if site.lootTier <= 1:
-        let r = site.rooms[pickIdx[0]]
-        let p = walkableNear(m.obstacles, r.x + r.w div 2, r.y + r.h div 2,
-          max(12, min(r.w, r.h) div 2), rng)
-        m.grenadeSpawns.add p
-    elif site.rooms.len >= 2:
-      var ranked: seq[tuple[idx: int, d: float]]
-      for i, r in site.rooms:
-        let rcx = r.x + r.w div 2
-        let rcy = r.y + r.h div 2
-        let dx = float(rcx - site.center.x)
-        let dy = float(rcy - site.center.y)
-        ranked.add (i, sqrt(dx * dx + dy * dy))
-      ranked.sort(proc(a, b: tuple[idx: int, d: float]): int = cmp(a.d, b.d))
-      let baseN = case site.lootTier
-        of 0: 2
-        of 1: 1
-        else: 1
-      for rank, entry in ranked:
-        let r = site.rooms[entry.idx]
-        let rcx = r.x + r.w div 2
-        let rcy = r.y + r.h div 2
-        let searchR = max(15, min(r.w, r.h) div 2 - 10)
-        let n = if rank == 0: baseN + 1 else: baseN ## innermost room richest
-        for k in 0 ..< n:
-          let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
-          m.medKitCandidates.add p
-        if rank == 0 and site.lootTier <= 1:
-          let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
-          m.grenadeSpawns.add p
-    else:
-      ## No real floor plan (ruins, causeway, or a single-room roll) —
-      ## the original per-site placement, unchanged.
-      let n = case site.lootTier
-        of 0: 3
-        of 1: 2
-        else: 1
-      for k in 0 ..< n:
-        let searchR = max(20, site.halfExtent - 30)
-        let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
-        m.medKitCandidates.add p
-      if site.lootTier <= 1:
-        let p = walkableNear(m.obstacles, site.center.x, site.center.y,
-          max(20, site.halfExtent - 40), rng)
-        m.grenadeSpawns.add p
+proc placeItemsGraded(m: var BrMap) =
+  ## ROUND 13 (doctrine §4.9, Maxwell's ruling: "feature ALL items... a
+  ## gradient for each item type based on rooms then corners, alleys, and
+  ## exciting hotspots"). Replaces round-3/9's placeItems (medkit/grenade
+  ## only, POI-tier based) outright: every item type draws from the SAME
+  ## classified site pool, weighted by its own declared gradient
+  ## (ItemClassWeightPct), filtered by the hard rules the weight table
+  ## can't express. Fully deterministic from mapSeed — no shared `Rand`
+  ## stream consumed; every (item, class) decision gets its OWN hash lane
+  ## (round-11 accretion idiom: hashLaneSeed(mapSeed, lane, idx)), so
+  ## inserting or removing a decision anywhere else in the generator can
+  ## never shift this draw.
+  let sites = classifySites(m)
+  var byClass: array[SiteClass, seq[ClassifiedSite]]
+  for s in sites: byClass[s.class].add s
+
+  ## Per-item TOTAL budget. medkit/grenade/spray scale with POI count (the
+  ## existing §4.4 loot-density baseline); shield — the hotspot-dominant
+  ## major — scales with the number of DETECTED hotspots instead, so its
+  ## density tracks §4.7's own uniform-per-area POI density rather than an
+  ## arbitrary constant (a field with more hotspots earns more majors, not
+  ## a fixed count regardless of field composition). The hard hotspot-
+  ## shield minimum separation below is what actually caps realized
+  ## density per area — the budget only needs to be generous enough that
+  ## the separation rule, not a starved pool, is what binds.
+  let poiN = max(1, m.pois.len)
+  let hotspotN = max(1, byClass[scHotspot].len)
+  let budget: array[ItemType, int] = [max(16, 2 * poiN), max(8, 2 * hotspotN),
+    max(10, poiN), max(16, 2 * poiN)]  ## medkit, shield, grenade, spray
+
+  var placed: array[ItemType, seq[ClassifiedSite]]
+  proc farEnough(p: MapPoint, existing: seq[ClassifiedSite], minSepPx: float): bool =
+    for e in existing:
+      let dx = float(p.x - e.p.x)
+      let dy = float(p.y - e.p.y)
+      if dx * dx + dy * dy < minSepPx * minSepPx: return false
+    true
+
+  for itype in ItemType:
+    for cls in SiteClass:
+      var pool = byClass[cls]
+      ## Hard rule: grenade sites at alley MOUTHS, not midpoints.
+      if itype == itGrenade and cls == scAlley:
+        pool = pool.filterIt(it.isMouth)
+      ## Hard rule: medkit's anti-adjacency SECONDARY filter on rooms.
+      if itype == itMedkit and cls == scRoom:
+        pool = pool.filterIt(
+          it.distToHotspot >= ItemMedkitHotspotAntiAdjFracG * float(m.gunRange))
+      if pool.len == 0: continue
+      ## Hard rule: shield/grenade alley placements bias toward alleys
+      ## that FEED a hotspot — try those candidates first, fall back to
+      ## the rest only if the target count isn't met from FED alleys alone.
+      if cls == scAlley and itype in {itShield, itGrenade}:
+        pool = pool.filterIt(it.feedsHotspot) & pool.filterIt(not it.feedsHotspot)
+      let targetCount = (ItemClassWeightPct[itype][cls] * budget[itype] + 50) div 100
+      if targetCount <= 0: continue
+      var order = toSeq(0 ..< pool.len)
+      var lane = initRand(hashLaneSeed(m.genSeed, "itemPlace|" & $itype & "|" & $cls, 0))
+      lane.shuffle(order)
+      var got = 0
+      for oi in order:
+        if got >= targetCount: break
+        let cand = pool[oi]
+        ## Same-type minimum separation, EVERYWHERE (doctrine's own
+        ## unqualified rule): checked against every instance of this item
+        ## placed so far, any class.
+        if not farEnough(cand.p, placed[itype], ItemSameTypeMinSepPx): continue
+        ## Hard rule: hotspot-tier shield sites sit >=2-3x gunRange apart —
+        ## a rule about OTHER HOTSPOTS specifically, not about "is there
+        ## already a shield anywhere nearby" (a room/corner/alley shield a
+        ## normal 90px away must never block a genuinely separate hotspot
+        ## candidate the doctrine never asked to be kept clear of it).
+        ## Checked against only the HOTSPOT-class subset of what's placed
+        ## so far — order-independent, unlike gating this on SiteClass
+        ## iteration order would be.
+        if itype == itShield and cls == scHotspot:
+          let hotspotMinSep = ItemHotspotShieldMinSepFracG * float(m.gunRange)
+          if not farEnough(cand.p, placed[itype].filterIt(it.class == scHotspot), hotspotMinSep): continue
+        ## Hard rule: shield and grenade NEVER co-locate. Shield is
+        ## declared before grenade in ItemType, so by the time grenade's
+        ## turn runs, `placed[itShield]` already holds this draw's final
+        ## shield set — grenade avoids them; shield never had to avoid an
+        ## empty grenade set, so this is a one-directional "the major goes
+        ## down first" ordering, not a symmetric mutual pass.
+        if itype == itShield and not farEnough(cand.p, placed[itGrenade], ItemShieldGrenadeExclusionPx): continue
+        if itype == itGrenade and not farEnough(cand.p, placed[itShield], ItemShieldGrenadeExclusionPx): continue
+        placed[itype].add cand
+        inc got
+
+  for s in placed[itMedkit]: m.medKitCandidates.add s.p
   m.medKitSpawns = m.medKitCandidates  ## BR is flagless: no candidate-pool
     ## narrowing step exists (that's a CTF pre-game mechanic), so every
     ## drawn point is "active" — kept as a separate field only to mirror
     ## CtfMap's shape for a future engine-side consumer.
+  for s in placed[itGrenade]: m.grenadeSpawns.add s.p
+  for s in placed[itShield]: m.shieldSpawns.add s.p
+  for s in placed[itSpray]: m.spraySpawns.add s.p
 
 proc nearestItemDist(p: MapPoint, items: seq[MapPoint]): int =
   result = high(int)
@@ -4786,10 +5451,43 @@ proc ensureItemCoverage(m: var BrMap, coverGR: float, rng: var Rand) =
   ## pocket (always walkable by construction) when nothing organic is close
   ## enough.
   let radius = int(coverGR * float(m.gunRange))
-  let allItems = m.medKitCandidates & m.grenadeSpawns
+  ## ROUND 13: extended to the full 4-item pool — a spawn covered only by
+  ## a shield/spray with no medkit/grenade in range used to read as
+  ## "uncovered" here even though it has an item; this gate is "some item
+  ## nearby," not "a medkit nearby" specifically.
+  let allItems = m.medKitCandidates & m.grenadeSpawns & m.shieldSpawns & m.spraySpawns
   for s in m.spawns:
     if nearestItemDist(s.p, allItems) > radius:
       let p = walkableNear(m.obstacles, s.p.x, s.p.y, m.spawnClearW div 2, rng)
+      m.medKitCandidates.add p
+      m.medKitSpawns.add p
+
+proc ensurePoiLoot(m: var BrMap, rng: var Rand) =
+  ## ROUND 13 FIX: round-3's original placeItems was POI-CENTRIC — it
+  ## iterated `for site in m.pois` and always placed something, so "every
+  ## POI has a reason to visit" held BY CONSTRUCTION. placeItemsGraded is
+  ## CLASS-centric instead (draws from a global pool of classified sites,
+  ## weighted per item type) — nothing in that design guarantees every
+  ## individual POI ends up within reach of at least one of its own
+  ## candidate sites actually getting drawn. Measured: poiLoot's pass rate
+  ## fell to 4/100 on the round-13 sweep, always 1-2 POIs short, once the
+  ## class-centric draw replaced the old per-POI loop. Same repair shape as
+  ## ensureItemCoverage's own per-spawn repair, applied per-POI instead:
+  ## any POI with no item of ANY type within its own check radius (must
+  ## match poiLoot's gate radius exactly) gets one supplementary medkit
+  ## near its center.
+  const CheckRMargin = 60  ## matches the poiLoot gate's own halfExtent+60
+  let allItems = m.medKitCandidates & m.grenadeSpawns & m.shieldSpawns & m.spraySpawns
+  for site in m.pois:
+    let checkR = site.halfExtent + CheckRMargin
+    var hasLoot = false
+    for it in allItems:
+      if abs(it.x - site.center.x) <= checkR and abs(it.y - site.center.y) <= checkR:
+        hasLoot = true
+        break
+    if not hasLoot:
+      let searchR = max(20, site.halfExtent - 30)
+      let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
       m.medKitCandidates.add p
       m.medKitSpawns.add p
 
@@ -5279,12 +5977,18 @@ proc repairComplexUnity(m: var BrMap): seq[MapRect] =
           pairs.add (dx * dx + dy * dy, a[0], a[1], b[0], b[1])
       pairs.sort(proc(x, y: PairD): int = cmp(x.d, y.d))
       const MinSepCells = 15  ## ~60px — keep the two bridges genuinely apart
-      var chosen: seq[PairD]
+      var chosen: seq[tuple[p: PairD, rect: MapRect]]  ## rect computed ONCE
+                                                          ## per candidate,
+                                                          ## reused below
+                                                          ## instead of
+                                                          ## recomputed
+                                                          ## (Fable review,
+                                                          ## round-13 wake)
       for p in pairs:
         var farEnough = true
         for c in chosen:
-          let mdx = p.ax - c.ax
-          let mdy = p.ay - c.ay
+          let mdx = p.ax - c.p.ax
+          let mdy = p.ay - c.p.ay
           if mdx * mdx + mdy * mdy < MinSepCells * MinSepCells:
             farEnough = false
             break
@@ -5297,18 +6001,10 @@ proc repairComplexUnity(m: var BrMap): seq[MapRect] =
           x: min(pax, pbx) - BridgeThick div 2, y: min(pay, pby) - BridgeThick div 2,
           w: max(BridgeThick, abs(pbx - pax) + BridgeThick), h: max(BridgeThick, abs(pby - pay) + BridgeThick))
         if collidesSpawnPocket(candRect): continue
-        chosen.add p
+        chosen.add (p, candRect)
         if chosen.len >= 2: break
-      for p in chosen:
-        let ax = p.ax * GridStride + GridStride div 2
-        let ay = p.ay * GridStride + GridStride div 2
-        let bx = p.bx * GridStride + GridStride div 2
-        let by = p.by * GridStride + GridStride div 2
-        let x0 = min(ax, bx) - BridgeThick div 2
-        let y0 = min(ay, by) - BridgeThick div 2
-        let x1 = max(ax, bx) + BridgeThick div 2
-        let y1 = max(ay, by) + BridgeThick div 2
-        let bridgeRect = MapRect(x: x0, y: y0, w: max(BridgeThick, x1 - x0), h: max(BridgeThick, y1 - y0))
+      for entry in chosen:
+        let bridgeRect = entry.rect
         ## ROUND 12 FIX: `m.obstacles.add` appends PAST `structureCount`,
         ## which lands the bridge in the "demoted caves fill" zone (see the
         ## BrMap field comment: obstacles[structureCount..^1] is fill). A
@@ -5333,7 +6029,7 @@ proc repairComplexUnity(m: var BrMap): seq[MapRect] =
         result.add bridgeRect
         when defined(brDebugBurrow):
           stderr.writeLine(&"UNITY BRIDGE complex@({site.center.x},{site.center.y}) " &
-            &"({ax},{ay})-({bx},{by}) thick={BridgeThick}")
+            &"rect=({bridgeRect.x},{bridgeRect.y},{bridgeRect.w},{bridgeRect.h}) thick={BridgeThick}")
 
 proc ensureFullAccessibility(
   m: var BrMap, protectedRects: seq[MapRect] = @[]
@@ -5522,6 +6218,8 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "poiCount": m.pois.len,
     "medKitCount": m.medKitCandidates.len,
     "grenadeCount": m.grenadeSpawns.len,
+    "shieldCount": m.shieldSpawns.len,
+    "sprayCount": m.spraySpawns.len,
     "uncoveredSpawnsItems": v.uncoveredSpawnsItems,
     "poisWithoutLoot": v.poisWithoutLoot,
     # ROUND 9: per-structure room counts (doctrine item 2: "print
@@ -5540,6 +6238,22 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "burrowSplitComplexes": v.burrowSplitComplexes,
     "burrowComponentsChecked": v.burrowComponentsChecked,
     "burrowPass": v.burrowPass,
+    # ROUND 13: item gradient + fairness (doctrine §4.9).
+    "itemGradientPass": v.itemGradientPass,
+    "itemGradientChecked": v.itemGradientChecked,
+    "itemFairnessPass": v.itemFairnessPass,
+    "itemFairnessStdDevPx": %*{
+      "medkit": v.itemFairnessStdDevPx[itMedkit],
+      "shield": v.itemFairnessStdDevPx[itShield],
+      "grenade": v.itemFairnessStdDevPx[itGrenade],
+      "spray": v.itemFairnessStdDevPx[itSpray],
+    },
+    "itemFairnessSpreadPx": %*{
+      "medkit": v.itemFairnessSpreadPx[itMedkit],
+      "shield": v.itemFairnessSpreadPx[itShield],
+      "grenade": v.itemFairnessSpreadPx[itGrenade],
+      "spray": v.itemFairnessSpreadPx[itSpray],
+    },
     "pass": %*{
       "connectivity": v.connectivityPass,
       "exitRule": v.exitPass,
@@ -5557,6 +6271,8 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "roomCountVariety": v.roomCountVarietyPass,
       "fullAccess": v.fullAccessPass,
       "burrow": v.burrowPass,
+      "itemGradient": v.itemGradientPass,
+      "itemFairness": v.itemFairnessPass,
       "all": v.allPass,
     },
   }
@@ -5578,6 +6294,13 @@ const
   ZoneFillColor = rgba(230, 45, 45, 40)
   MedKitColor = rgba(60, 200, 90, 255)     ## round 3: the loot gradient, drawn
   GrenadeColor = rgba(235, 200, 40, 255)   ## round 3: minor supplementary pickup
+  ## ROUND 13 (doctrine §4.9, "feature ALL items"): shield/spray get their
+  ## OWN colors AND their own glyph SHAPES (square / diamond, vs the
+  ## existing disc+cross / plain disc) — "so Maxwell can SEE all four types
+  ## featured at a glance" needs to survive a quick glance at thumbnail
+  ## scale, where color alone is easy to misread.
+  ShieldColor = rgba(70, 140, 230, 255)    ## blue square: the hotspot major
+  SprayColor = rgba(200, 70, 190, 255)     ## magenta diamond: the CQC ambush
 
 proc fillDiscPx(image: Image, cx, cy, radius: int, color: ColorRGBA) =
   for y in max(0, cy - radius) .. min(image.height - 1, cy + radius):
@@ -5592,6 +6315,17 @@ proc drawCrossPx(image: Image, cx, cy, radius: int, color: ColorRGBA) =
         image.unsafe[cx + d, cy + t] = color
       if cx + t >= 0 and cx + t < image.width and cy + d >= 0 and cy + d < image.height:
         image.unsafe[cx + t, cy + d] = color
+
+proc fillSquarePx(image: Image, cx, cy, half: int, color: ColorRGBA) =
+  for y in max(0, cy - half) .. min(image.height - 1, cy + half):
+    for x in max(0, cx - half) .. min(image.width - 1, cx + half):
+      image.unsafe[x, y] = color
+
+proc fillDiamondPx(image: Image, cx, cy, half: int, color: ColorRGBA) =
+  for y in max(0, cy - half) .. min(image.height - 1, cy + half):
+    for x in max(0, cx - half) .. min(image.width - 1, cx + half):
+      if abs(x - cx) + abs(y - cy) <= half:
+        image.unsafe[x, y] = color
 
 proc drawRectOutlinePx(image: Image, x0, y0, x1, y1: int, color: ColorRGBA, thick = 1) =
   let
@@ -5659,13 +6393,21 @@ proc renderBrMap(
     result.fillDiscPx(toOut(s.p.x), toOut(s.p.y), max(2, toOut(10)), SpawnColor)
     result.drawCrossPx(toOut(s.p.x), toOut(s.p.y), max(3, toOut(16)), BorderColor)
 
-  # Round-3 items — the loot gradient made visible: medkits (green cross)
-  # denser at the major/mid POIs, grenades (yellow disc) as the minor extra.
+  # Round-3/13 items — the per-item site-class gradient made visible, four
+  # distinct glyphs so all four read at a glance: medkits (green disc+cross,
+  # rooms/alleys), grenades (yellow disc, alley mouths), shields (blue
+  # square, hotspots), sprays (magenta diamond, rooms/corners).
   for p in m.medKitCandidates:
     result.fillDiscPx(toOut(p.x), toOut(p.y), max(2, toOut(7)), MedKitColor)
     result.drawCrossPx(toOut(p.x), toOut(p.y), max(2, toOut(10)), BorderColor)
   for p in m.grenadeSpawns:
     result.fillDiscPx(toOut(p.x), toOut(p.y), max(2, toOut(6)), GrenadeColor)
+  for p in m.shieldSpawns:
+    result.fillSquarePx(toOut(p.x), toOut(p.y), max(2, toOut(7)), ShieldColor)
+    result.drawRectOutlinePx(toOut(p.x) - max(2, toOut(7)), toOut(p.y) - max(2, toOut(7)),
+      toOut(p.x) + max(2, toOut(7)), toOut(p.y) + max(2, toOut(7)), BorderColor)
+  for p in m.spraySpawns:
+    result.fillDiamondPx(toOut(p.x), toOut(p.y), max(3, toOut(8)), SprayColor)
 
   # One example final-zone rect (§4.3), a thing to look at, not just a line.
   if drawZone:
@@ -5814,7 +6556,7 @@ proc cmdGenerate(a: Args) =
     ## the last word on what stays in the obstacle list.
     when defined(brDebugBurrow):
       let pruneT0 = epochTime()
-    m.obstacles = pruneConfetti(m.obstacles, m.width, m.height, ConfettiFloorPx2)
+    pruneConfettiTrackBoundary(m, ConfettiFloorPx2)
     when defined(brDebugBurrow):
       stderr.writeLine(&"TIMING secondPrune={(epochTime()-pruneT0)*1000:.0f}ms")
   if not a.bools.getOrDefault("noRepair", false):
@@ -5852,7 +6594,11 @@ proc cmdGenerate(a: Args) =
   if not a.bools.getOrDefault("noItems", false):
     when defined(brDebugBurrow):
       let itemT0 = epochTime()
-    placeItems(m, itemRng)
+    placeItemsGraded(m)  ## round 13: deterministic from mapSeed, own hash
+                          ## lanes — doesn't touch itemRng at all.
+    ensurePoiLoot(m, itemRng)  ## round-13 fix: restores the round-3 "every
+                                ## POI has a reason to visit" guarantee the
+                                ## class-centric draw doesn't provide alone.
     ensureItemCoverage(m, PerSpawnCoverGR, itemRng)
     when defined(brDebugBurrow):
       stderr.writeLine(&"TIMING items={(epochTime()-itemT0)*1000:.0f}ms")
@@ -5880,7 +6626,8 @@ proc cmdGenerate(a: Args) =
       &"obstacles={m.obstacles.len} (structures={m.structureCount})" &
       &" (pruned {prunedCount} confetti of {rawCount}," &
       &" {repaired} spawn-cover repairs, medkits={m.medKitCandidates.len}" &
-      &" grenades={m.grenadeSpawns.len}) -> {outPath}")
+      &" grenades={m.grenadeSpawns.len} shields={m.shieldSpawns.len}" &
+      &" sprays={m.spraySpawns.len}) -> {outPath}")
     stderr.writeLine(
       &"  cover={v.coverPermille}‰ (band [{CoverPermilleMinBr},{CoverPermilleMaxBr}])" &
       &" masses={v.bigMassCount} (band [{PlaceCountFloor},{PlaceCountCeiling}], confetti={v.confettiCount}/{ConfettiCeiling})" &
@@ -5891,6 +6638,13 @@ proc cmdGenerate(a: Args) =
       &"  burrow: {v.burrowPass} (checked={v.burrowComponentsChecked}" &
       &" thin={v.burrowThinComponents} dangling={v.burrowDanglingComponents}" &
       &" overOpen={v.burrowEnclosureFails} splitComplex={v.burrowSplitComplexes})")
+    ## ROUND 13: the item gradient (doctrine §4.9).
+    stderr.writeLine(
+      &"  items: gradient={v.itemGradientPass} fairness={v.itemFairnessPass}" &
+      &" (stddev px: medkit={v.itemFairnessStdDevPx[itMedkit]:.0f}" &
+      &" shield={v.itemFairnessStdDevPx[itShield]:.0f}" &
+      &" grenade={v.itemFairnessStdDevPx[itGrenade]:.0f}" &
+      &" spray={v.itemFairnessStdDevPx[itSpray]:.0f})")
     ## ROUND 9 (doctrine item 2: "print per-structure room counts in the
     ## gen log and metrics").
     stderr.writeLine(
@@ -5945,6 +6699,10 @@ proc printValidation(v: BrValidation) =
     &"(checked={v.burrowComponentsChecked}, thin={v.burrowThinComponents}, " &
     &"dangling={v.burrowDanglingComponents}, overOpen={v.burrowEnclosureFails}, " &
     &"splitComplex={v.burrowSplitComplexes})"
+  echo &"item gradient: {(if v.itemGradientPass: \"PASS\" else: \"FAIL: \" & v.itemGradientReason)}  (cells checked={v.itemGradientChecked}, tolerance={ItemGradientTolerancePct:.0f}pp)"
+  echo &"item fairness: {(if v.itemFairnessPass: \"PASS\" else: \"FAIL: \" & v.itemFairnessReason)}"
+  for itype in ItemType:
+    echo &"  {itype}: stddev={v.itemFairnessStdDevPx[itype]:.0f}px spread={v.itemFairnessSpreadPx[itype]:.0f}px"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
