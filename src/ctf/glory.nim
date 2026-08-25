@@ -688,7 +688,10 @@ const
     ["Delivery",            ## I    a grenade kill
      "Fireball",            ## II   2 grenade kills in one game
      "The Bombardier",      ## III  3 grenade kills in one game
-     "Blast Radius",        ## IV   a grenade kill plus a 2+ multikill
+     "Blast Radius",        ## IV   a grenade blast that caught 2+ enemies
+                            ##      (v6, GLORY C3a: gates on
+                            ##      `grenadeMultiKills` alone now -- the old
+                            ##      form also accepted a SPRAY multi-kill)
      "Double Blast"],       ## V    one blast kills 2+ enemies
     # treeShield — "The Wall". v3: "Suit Up" (pick up a shield) is GONE.
     ["Aegis",               ## I    absorb 3 hp
@@ -725,6 +728,34 @@ const
      "Delivered",           ## III  score the enemy heart
      "Uphill",              ## IV   score while your team is outnumbered
      "Full Run"],           ## V    steal and score on the same life
+                            ##
+                            ## ⚠️⚠️ GLORY C3c (2026-08-25): "Full Run" is
+                            ## PROVABLY redundant with "Delivered" (III) in
+                            ## THIS engine, not merely correlated with it.
+                            ## There is no flag hand-off mechanic -- a carry
+                            ## is set exactly once, at the steal
+                            ## (`tryPickupFlags`), and only ever cleared by
+                            ## that same carrier's death or their own
+                            ## capture (`resetFlag`/`recordCapture`); a
+                            ## carrier's death resets `stealTickThisLife` to
+                            ## -1 for the NEXT life along with everything
+                            ## else `resetLadder` clears. So any life that
+                            ## satisfies `captures >= 1` MUST have stolen the
+                            ## heart itself, in that SAME uninterrupted life
+                            ## -- `stealTickThisLife >= 0` is not an
+                            ## additional condition, it is an ALREADY-TRUE
+                            ## fact about every capture this engine can ever
+                            ## produce. Field-confirmed: identical claim-tick
+                            ## distributions for ("carrier", 2) and
+                            ## ("carrier", 4) across every sampled team-
+                            ## episode that claimed either (n=45,
+                            ## tools/ladder/gloryscore.py derivation). NOT
+                            ## fixed in this wave -- the check is left AS-IS
+                            ## per Maxwell's own instruction not to redesign
+                            ## it unreviewed; see the /proof report for 2-3
+                            ## proposed replacement requirements that would
+                            ## make tier V test something Delivered does not
+                            ## already cover.
     # treeDefender — "The Peel". v3: "Eyes Back" (a heart return) is GONE --
     # `resetFlag` credits `returns` to every LIVING teammate when a heart
     # comes home, not to whoever caused it, so it was bystander credit, not

@@ -791,19 +791,15 @@ suite "glory in the sim: the achievement curriculum FIRES":
     sim.players[0].carrierKills = 2          # The Peel + Double Peel
     sim.players[0].denials = 2
     sim.players[0].captures = 1
+    sim.players[0].capturedOutnumbered = true  # Uphill (v6, GLORY C3b: set
+                                                # ONCE at recordCapture in the
+                                                # real engine -- see the
+                                                # dedicated real-mechanic
+                                                # test below -- not re-read
+                                                # from live alive-counts here)
     sim.players[0].level = MaxLevel
     sim.players[0].stealTickThisLife = sim.tickCount - 200
     sim.players[0].peelTick = sim.tickCount - 300
-    sim.evalAchievements(Red)
-
-    # A second pass in a state the first one cannot hold at the same instant.
-    # "Uphill" wants Red OUTNUMBERED, while the squad tiers want Red alive
-    # and holding four converted kits -- mutually exclusive in a two-cog
-    # scenario, and that is a property of the SCENARIO, not of the tier.
-    # Claims are one-shot and cumulative, so reachability is still a fair
-    # question to ask across passes.
-    sim.players[0].alive = false
-    sim.players[1].alive = true
     sim.evalAchievements(Red)
 
     # Clean Sheet is FULL-GAME and conclusion-only (v3): no per-tick poll,
@@ -1030,6 +1026,32 @@ suite "glory in the sim: the v3.1 counters fire off REAL engine mechanics":
     tooLate.players[1].y = tooLate.players[0].y
     tooLate.killPlayer(1, 0, "gun")
     check not tooLate.players[0].secondWind
+
+  test "a capture while outnumbered fires Uphill; an even capture does not":
+    # v6 (GLORY C3b): capturedOutnumbered is PINNED at recordCapture, so this
+    # drives the real steal -> carry -> checkWinCondition path rather than
+    # setting the flag by hand, the same discipline every other real-
+    # mechanic test in this suite already holds itself to.
+    var outnumbered = redVsTwoBlue()   # Red 1 body, Blue 2 -- Red is behind
+    let redHome = outnumbered.gameMap.flagHome(Red)
+    outnumbered.flags[Blue].carrier = 0
+    outnumbered.players[0].carryingFlag = true
+    outnumbered.players[0].x = redHome.x
+    outnumbered.players[0].y = redHome.y
+    outnumbered.checkWinCondition()
+    check outnumbered.players[0].captures == 1
+    check outnumbered.players[0].capturedOutnumbered
+
+    # The identical capture, but the sides are EVEN (1v1): must NOT claim.
+    var even = twoTeamGame()
+    let evenHome = even.gameMap.flagHome(Red)
+    even.flags[Blue].carrier = 0
+    even.players[0].carryingFlag = true
+    even.players[0].x = evenHome.x
+    even.players[0].y = evenHome.y
+    even.checkWinCondition()
+    check even.players[0].captures == 1
+    check not even.players[0].capturedOutnumbered
 
 suite "glory in the sim: Clean Sheet is full-game, conclusion-only":
 

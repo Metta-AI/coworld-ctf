@@ -553,6 +553,18 @@ type
                                ## tick fields at poll time (that was the bug:
                                ## comparing "now" to `clutchHealTick` on every
                                ## poll needed no kill in the window at all).
+    capturedOutnumbered*: bool ## true once a capture has landed while this
+                               ## cog's team was strictly behind on live
+                               ## bodies -- the `Uphill` gate. Set ONCE, at
+                               ## `recordCapture` (v6, GLORY C3b), the same
+                               ## pin-the-fact-at-the-event pattern
+                               ## `secondWind`/`Turnaround` already use. The
+                               ## old form re-read `teamAliveCount` on EVERY
+                               ## achievement poll for as long as
+                               ## `captures >= 1` stayed true, so a capture
+                               ## made EVEN could backdate into an "Uphill"
+                               ## claim the instant a teammate died later --
+                               ## a poll-time read standing in for an event.
     tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool
     shotsFired*: int           ## shots this player released; analysis-only,
                                ## excluded from gameHash (see gameHash).
@@ -3544,6 +3556,9 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.contestedSteals)
     result.mixHashInt(player.carryKills)
     result.mixHashBool(player.secondWind)
+    # v6 (GLORY C3b): capturedOutnumbered gates the re-cut `Uphill` tier,
+    # causal for the same reason every flag above it is.
+    result.mixHashBool(player.capturedOutnumbered)
   # GLORY: the ledger itself, its rampage state, and the one-shot claim gates
   # -- every one of these decides a FUTURE mint, so a hash match must mean
   # they match too.
@@ -4062,10 +4077,19 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # ACTIVATION, enemies-only counters already exist (they feed "Double
     # Splash"/"Double Blast" one tier over) -- reuse them instead of a third
     # counter.
-    if player.grenadeKills >= 1 and
-       player.sprayMultiKills + player.grenadeMultiKills >= 1:
-                                      earn(treeGrenade, 3)
-    if player.grenadeMultiKills >= 1: earn(treeGrenade, 4)
+    #
+    # v6 (GLORY C3a): dropped the `sprayMultiKills` alternative AND the
+    # standalone `grenadeKills >= 1` term -- a SPRAY multi-kill completing a
+    # GRENADE tier was the same tree-crossing bug the shield tree's own
+    # `Bulwark` fix (below) already closed for `player.kills`, and the
+    # `grenadeKills >= 1` clause was dead weight: every enemy a multi-kill
+    # blast catches is ALSO counted into `grenadeKills` on the way to
+    # incrementing this counter, so `grenadeMultiKills >= 1` already implies
+    # it. The clean per-activation, enemies-only counter is a complete gate
+    # by itself.
+    if player.grenadeMultiKills >= 1:
+      earn(treeGrenade, 3)
+      earn(treeGrenade, 4)
 
     # SHIELD -- soak, not damage. `blocked` already exists on the wire.
     if player.soakedHp >= 3:          earn(treeShield, 0)
@@ -4102,10 +4126,11 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.contestedSteals >= 1:   earn(treeCarrier, 0)
     if player.carryKills >= 1:        earn(treeCarrier, 1)
     if player.captures >= 1:          earn(treeCarrier, 2)
-    if player.captures >= 1 and
-       sim.teamAliveCount(team) <
-       sim.teamAliveCount(if team == Red: Blue else: Red):
-                                      earn(treeCarrier, 3)
+    # "Uphill" (v6, GLORY C3b): reads the fact PINNED at the capture instant
+    # (`recordCapture`) instead of re-reading `teamAliveCount` on every poll
+    # -- see `capturedOutnumbered`'s field comment for the backdating bug
+    # this replaces.
+    if player.capturedOutnumbered:    earn(treeCarrier, 3)
     if player.captures >= 1 and player.stealTickThisLife >= 0:
                                       earn(treeCarrier, 4)
 
@@ -4865,6 +4890,14 @@ proc recordCapture*(sim: var SimServer, playerIndex: int) =
   if index >= 0:
     inc sim.rewardAccounts[index].captures
   inc sim.players[playerIndex].captures
+  # "Uphill" (v6, GLORY C3b): pin the outnumbered fact AT THE CAPTURE
+  # INSTANT, mirroring `secondWind`/`Turnaround`'s own pattern -- a fact read
+  # once at the event site, never re-derived by a later poll. See
+  # `capturedOutnumbered`'s field comment for the bug this replaces.
+  let team = sim.players[playerIndex].team
+  let enemyTeam = if team == Red: Blue else: Red
+  if sim.teamAliveCount(team) < sim.teamAliveCount(enemyTeam):
+    sim.players[playerIndex].capturedOutnumbered = true
   sim.awardDeed(sim.players[playerIndex].team, dCapture,
                 sim.players[playerIndex].x, sim.players[playerIndex].y)
   sim.addXp(playerIndex, XpPerCapture)
@@ -5103,6 +5136,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].clutchHealTick = -1
     sim.players[i].peelTick = -1
     sim.players[i].secondWind = false
+    sim.players[i].capturedOutnumbered = false
     sim.players[i].tookMedKit = false
     sim.players[i].tookGrenade = false
     sim.players[i].tookSpray = false
