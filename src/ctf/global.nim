@@ -6455,6 +6455,9 @@ const
                                ## drops under one cell and reads as a
                                ## single big finger per side).
   ZoneTideDetailScale = 30     ## along-edge px per fine noise cell.
+  ZoneTideTunedBoardW = 1235   ## the board every constant above was tuned
+                               ## and screenshot-reviewed on (the standard
+                               ## class). See ZoneTideGrainP.
   ZoneTideChurnReachFloorPx = ZoneTideEdgeGlintPx + 3  ## the local churn
                                ## reach never drops below this, however
                                ## negative the finger/detail noise sums —
@@ -6521,6 +6524,27 @@ proc zoneTideLatticePoint(cell, side, seedMul, ampPx: int): int {.inline.} =
   ## drawing from independent streams of the same hash.
   (zoneTideHash(cell, side * seedMul + 1) mod (2 * ampPx + 1)) - ampPx
 
+var ZoneTideGrainP = 1000
+  ## The tide's GRAIN as permille of the tuned board — set per map by
+  ## ensureZoneTideCache, 1000 on the standard 1235px board.
+  ##
+  ## Every constant above is an absolute pixel count tuned by screenshot
+  ## review on the standard board, and the review it survived was
+  ## specifically about the underlying RECTANGLE not being traceable
+  ## through the churn. Those pixel amounts are only correct relative to a
+  ## field of that size: on the giant BR board (3211px, 2.6x) the identical
+  ## amplitudes read 2.6x finer, so the fingers shrink back into a uniform
+  ## ripple and the rectangle silhouette returns — exactly the failure the
+  ## 16px-amplitude and 150px-cell revisions were rejected for.
+  ##
+  ## So the grain is a FRACTION OF THE FIELD, not a pixel count. Anchored at
+  ## the tuned board, which therefore reproduces today's art exactly.
+
+proc zoneTideGrain(px: int): int {.inline.} =
+  ## One tuned pixel amount, scaled into this map's grain. Never below 1:
+  ## a zero cell size would divide by zero in the lattice walk.
+  max(1, px * ZoneTideGrainP div 1000)
+
 proc zoneTideFingerOffset(along, side: int): int {.inline.} =
   ## Deterministic, ALONG-axis-only organic displacement added to the
   ## churn band's local reach — no tick term, so a given edge keeps a
@@ -6546,16 +6570,22 @@ proc zoneTideFingerOffset(along, side: int): int {.inline.} =
   ## exactly at a cell's own center), so there is no span of the boundary
   ## without visible large-scale shape.
   let
-    coarseCell = along div ZoneTideFingerScale
-    coarseFrac = along mod ZoneTideFingerScale
-    c0 = zoneTideLatticePoint(coarseCell, side, 7, ZoneTideFingerAmpPx)
-    c1 = zoneTideLatticePoint(coarseCell + 1, side, 7, ZoneTideFingerAmpPx)
-    coarse = c0 + (c1 - c0) * coarseFrac div ZoneTideFingerScale
-    fineCell = along div ZoneTideDetailScale
-    fineFrac = along mod ZoneTideDetailScale
-    f0 = zoneTideLatticePoint(fineCell, side, 13, ZoneTideDetailAmpPx)
-    f1 = zoneTideLatticePoint(fineCell + 1, side, 13, ZoneTideDetailAmpPx)
-    fine = f0 + (f1 - f0) * fineFrac div ZoneTideDetailScale
+    fingerScale = zoneTideGrain(ZoneTideFingerScale)
+    detailScale = zoneTideGrain(ZoneTideDetailScale)
+    coarseCell = along div fingerScale
+    coarseFrac = along mod fingerScale
+    c0 = zoneTideLatticePoint(
+      coarseCell, side, 7, zoneTideGrain(ZoneTideFingerAmpPx))
+    c1 = zoneTideLatticePoint(
+      coarseCell + 1, side, 7, zoneTideGrain(ZoneTideFingerAmpPx))
+    coarse = c0 + (c1 - c0) * coarseFrac div fingerScale
+    fineCell = along div detailScale
+    fineFrac = along mod detailScale
+    f0 = zoneTideLatticePoint(
+      fineCell, side, 13, zoneTideGrain(ZoneTideDetailAmpPx))
+    f1 = zoneTideLatticePoint(
+      fineCell + 1, side, 13, zoneTideGrain(ZoneTideDetailAmpPx))
+    fine = f0 + (f1 - f0) * fineFrac div detailScale
   coarse + fine
 
 proc zoneTideSplatterColor(d, along, localChurnReach, side: int): ColorRGBA {.inline.} =
@@ -6593,7 +6623,7 @@ proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
   ## (which of the four edges this pixel is on, for independent per-edge
   ## finger/splatter patterns). `tick` drives every animated term; nothing
   ## else does. See the const block above for the four-layer design.
-  if d < ZoneTideEdgeGlintPx:
+  if d < zoneTideGrain(ZoneTideEdgeGlintPx):
     # Wet edge: a bright pulse that migrates from the churn front toward
     # the safe interior (d=0) as tick advances — motion pointed AT the
     # collapsing direction. Confined to a few px so it never itself reads
@@ -6607,9 +6637,12 @@ proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
       if phase < ZoneTideShimmerPeriod div 3: ZoneTideShimmerGlint
       else: ZoneTideShimmerDim
     )
+  ## Depth amounts scale with the field for the same reason the along-edge
+  ## amounts do (see ZoneTideGrainP): a 26px churn band that reads as a
+  ## substantial wet front on a 1235px board is a hairline on a 3211px one.
   let localChurnReach = max(
-    ZoneTideChurnReachFloorPx,
-    ZoneTideEdgeGlintPx + ZoneTideChurnBasePx +
+    zoneTideGrain(ZoneTideChurnReachFloorPx),
+    zoneTideGrain(ZoneTideEdgeGlintPx) + zoneTideGrain(ZoneTideChurnBasePx) +
       zoneTideFingerOffset(along, side)
   )
   if d < localChurnReach:
@@ -6620,7 +6653,7 @@ proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
     # front's OUTER edge (localChurnReach) wanders with along/side per
     # zoneTideFingerOffset, so this never reads as a uniform-width ring.
     let
-      fd = d - ZoneTideEdgeGlintPx
+      fd = d - zoneTideGrain(ZoneTideEdgeGlintPx)
       frame = (tick div ZoneTideFrameHoldTicks) mod ZoneTideFrameCount
       cell = along div ZoneTideBlobPeriod
       jitter = zoneTideHash(cell, frame + side * 31)
@@ -6629,7 +6662,7 @@ proc zoneTidePixelColor(d, along, tick, side: int): ColorRGBA {.inline.} =
       # scales up with it, so a deep finger reads as a bigger wet patch
       # reaching further, not a small fixed bubble near the rect edge with
       # a flat, featureless trough color filling the rest of the finger.
-      reachFd = localChurnReach - ZoneTideEdgeGlintPx
+      reachFd = localChurnReach - zoneTideGrain(ZoneTideEdgeGlintPx)
       blobAlong = cell * ZoneTideBlobPeriod + ZoneTideBlobPeriod div 2 +
         (((jitter shr 4) mod 9) - 4)
       blobDepth = reachFd div 2 + (((jitter shr 12) mod 5) - 2)
@@ -6737,6 +6770,11 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
   if key == ZoneTideCacheKey:
     return
   ZoneTideCacheKey = key
+  ## The grain is a property of the FIELD, so it is set here, where the map
+  ## is in hand, before any bar pixel is computed. Anchored on the board the
+  ## constants were tuned against, so the standard class is unchanged.
+  ZoneTideGrainP = max(
+    1, sim.gameMap.width * 1000 div ZoneTideTunedBoardW)
   let
     mapW = sim.gameMap.width
     mapH = sim.gameMap.height
