@@ -9,9 +9,18 @@
 .*
 !.caos-expr
 !DEPS
-# The nim image's /worker trampoline — extensionless, and caos only ever
+
+# Secrets. Already covered by the `.*` above — spelled out anyway because that
+# coverage is incidental, and the cost of someone adding a `!` rule that
+# happens to re-include this directory is a committed API token. caos reads
+# .caos-secrets/<name> for `value=` and the `reader=` lines that say which
+# worker may see it (caos SPEC, "Secrets"); the values must never reach git,
+# and caos separately refuses to `caos put` a new file containing one.
+.caos-secrets/
+# The worker images' /worker trampolines — extensionless, and caos only ever
 # sees git-tracked files, so an ignored worker is an invisible failure.
 !caos/nim/worker
+!caos/imgtools/worker
 !.github/
 !.github/**
 !.gitignore
