@@ -325,6 +325,24 @@ const
     ## career, so we get to ship ONE ladder and skip the scar Muster carries:
     ## its two 5-star ladders sit ~4x apart, and any analysis joining them
     ## joins on a false key.
+    ##
+    ## RE-MEASURED 2026-08-25 (GLORY C1, after zeroing the bare-touch pickup
+    ## xp below): monkeypatched a copy of `score_episode_derived` with the
+    ## grenade/spray_can/shield `item_pickup` branches paying 0 instead of
+    ## `XP_PICKUP` (the med_kit branch untouched, matching the sim-side cut),
+    ## re-ran over the SAME 120-episode selection gloryscore.py's own
+    ## `--min-version 0.7.200` default resolves today. Result: BYTE-IDENTICAL
+    ## percentiles (p25:6 p50:9 p75:15 p90:24 p95:30 p98:39 p99:48, 4820/6870
+    ## active lives) and cadence (L3+ mean 2.04/team-ep, L5 mean 0.32/ep) --
+    ## because that version filter is a STRING compare ("0.7.95" >= "0.7.200"
+    ## is true lexically), the selected sample is still entirely v0.7.95-98,
+    ## which emits ZERO `item_pickup` events (confirmed directly: 0 pickup
+    ## rows across all 120 selected files). So the bare-touch xp this wave
+    ## deletes was ALREADY contributing nothing to the distribution that fit
+    ## these thresholds -- they hold unchanged, not re-derived. The real test
+    ## (does the cut change anything once pickups are on the wire) still
+    ## needs the 0.7.2xx cache the original comment above was already
+    ## waiting on.
 
   # ── What levels a cog: WORK, not kills (Maxwell's ruling, 2026-08-21) ──
   #
@@ -355,11 +373,23 @@ const
                               ## clutch save -- and it is aimed at our
                               ## measured 0.62 kits/Ep vs winners' 1.84-2.60.
   XpPerClutchHeal* = 6        ## ON TOP of the restore: the save at 1 hp.
-  XpPerPickup* = 4            ## taking ANY kit (med kit, grenade, spray can,
-                              ## shield). One-shot per pickup and bounded by
-                              ## the spawn timers, so it cannot be farmed;
-                              ## it pays the go-and-get-tools behaviour that
-                              ## is our measured conversion weakness.
+  XpPerPickup* = 4            ## ⚠️ v6 (GLORY C1, Maxwell's own law: "these
+                              ## are things where the player goes above and
+                              ## beyond normal gameplay" -- extended here from
+                              ## achievements to xp): a BARE touch is not
+                              ## work, so this only still pays at the ONE
+                              ## pickup site that is genuinely work-gated --
+                              ## `tryPickupMedKits`/the med-kit tithe, where
+                              ## the engine refuses the pickup entirely unless
+                              ## the cog is already hurt (`hp < playerMaxHp`),
+                              ## so every mint of this constant sits on top of
+                              ## a real heal. Taking a grenade, spray can or
+                              ## shield mints ZERO xp now -- see the "no xp
+                              ## here" comments at their pickup sites in
+                              ## sim.nim. Re-measured against the real field
+                              ## post-cut: no change (see `LevelThresholds`'s
+                              ## own re-measurement note -- this era's cache
+                              ## never had pickup xp in it to begin with).
   XpPerShieldSoak* = 2        ## per hit point absorbed for the team.
   XpPerSteal* = 12            ## flag actions are the objective spine.
   XpPerCapture* = 30

@@ -6161,7 +6161,10 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
       spawn.respawnAt = sim.tickCount + GrenadeRespawnTicks
       sim.players[playerIndex].hasGrenade = true
       sim.players[playerIndex].tookGrenade = true
-      sim.addXp(playerIndex, XpPerPickup)
+      # No xp here (GLORY C1, Maxwell's law: work levels, touch does not). A
+      # bare grenade pickup does no work by itself -- see `tryPickupMedKits`
+      # for the one pickup site that stays paid, because ITS xp is gated on
+      # already being hurt.
       sim.players[playerIndex].grenadeCharges =
         levelGrenadeCharges(sim.buffLevel(playerIndex))  # observer: base charges
       sim.logGameEvent(
@@ -6275,7 +6278,7 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
       sim.players[playerIndex].tookShield = true
-      sim.addXp(playerIndex, XpPerPickup)
+      # No xp here (GLORY C1): a bare touch, no work done yet.
       sim.players[playerIndex].shieldHp = ShieldLayerHp
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
@@ -6297,7 +6300,7 @@ proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
       spawn.respawnAt = sim.tickCount + PlasmaArcRespawnTicks
       sim.players[playerIndex].hasPlasmaArc = true
       sim.players[playerIndex].tookSpray = true
-      sim.addXp(playerIndex, XpPerPickup)
+      # No xp here (GLORY C1): a bare touch, no work done yet.
       # A fresh can is a fresh streak: the Repainted/Muralist tiers ask what
       # ONE pickup produced, so the counter belongs to the can, not the cog.
       sim.players[playerIndex].sprayKillsThisPickup = 0
@@ -6420,20 +6423,21 @@ proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
       if sim.players[playerIndex].hasGrenade: continue
       sim.players[playerIndex].hasGrenade = true
       sim.players[playerIndex].tookGrenade = true
-      sim.addXp(playerIndex, XpPerPickup)
+      # No xp here (GLORY C1): same bare-touch rule as the ground pickup --
+      # a tithed kit is still just a touch, not work.
       sim.players[playerIndex].grenadeCharges =
         levelGrenadeCharges(sim.buffLevel(playerIndex))  # observer: base charges
     of "spray can":
       if sim.players[playerIndex].hasPlasmaArc: continue
       sim.players[playerIndex].hasPlasmaArc = true
       sim.players[playerIndex].tookSpray = true
-      sim.addXp(playerIndex, XpPerPickup)
+      # No xp here (GLORY C1): bare touch.
       sim.players[playerIndex].sprayKillsThisPickup = 0
     of "shield":
       if sim.players[playerIndex].hasShield: continue
       sim.players[playerIndex].hasShield = true
       sim.players[playerIndex].tookShield = true
-      sim.addXp(playerIndex, XpPerPickup)
+      # No xp here (GLORY C1): bare touch.
       sim.players[playerIndex].shieldHp = ShieldLayerHp
     else: continue
     taken = i
