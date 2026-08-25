@@ -3947,7 +3947,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       var paid = claimsPaid(claims);
       var html = '<div class="ach-pnl-head"><span class="team">' +
         team.toUpperCase() + '</span> ' + claims.length + '/' + ACH_TOTAL +
-        (paid ? ' &middot; <span class="amber">+' + paid + 'g</span>' : '') +
+        (paid ? ' &middot; <span class="amber">+' + paid + '</span>' : '') +
         '</div>';
       var shown = Math.min(sorted.length, ACH_ROWS_MAX);
       for (var i = 0; i < shown; i++) {
@@ -3956,7 +3956,7 @@ body[data-embed] #board { top: 0; height: 100%; }
           new Array((c.t || 1) + 1).join('*') + '</span>' +
           '<span class="ach-name">' + esc(c.n) +
           (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</span>' +
-          '<span class="ach-pay">+' + (c.g || 0) + 'g</span></div>';
+          '<span class="ach-pay">+' + (c.g || 0) + '</span></div>';
       }
       if (sorted.length > shown) {
         html += '<div class="ach-row ach-more"><span class="ach-name">+ ' +
@@ -4282,8 +4282,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     // reads -- a match that scores glory all game must settle it at the end.
     var gRed = (s.teams && s.teams.red && s.teams.red.glory) || 0;
     var gBlue = (s.teams && s.teams.blue && s.teams.blue.glory) || 0;
-    $('ec-glory-red').textContent = gRed + 'g';
-    $('ec-glory-blue').textContent = gBlue + 'g';
+    $('ec-glory-red').textContent = gRed;
+    $('ec-glory-blue').textContent = gBlue;
     // The achievements ledger settles HERE (the in-match panel is gone):
     // count over the curriculum plus what it PAID, per team, from the same
     // teams.*.claims state the toasts announced. Absent claims (a pre-glory
@@ -4296,7 +4296,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       var paid = 0;
       for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
       el.innerHTML = 'Achievements ' + claims.length + '/' + ACH_TOTAL +
-        (paid ? ' &middot; <span class="amber">+' + paid + 'g</span>' : '');
+        (paid ? ' &middot; <span class="amber">+' + paid + '</span>' : '');
     });
     // MATCH GLORY: the COMBINED total (see GLORY_TIERS for the design law
     // and threshold provenance). Winner-agnostic on purpose — it renders
