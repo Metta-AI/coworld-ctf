@@ -502,7 +502,14 @@ type
     # are one-shot per team per game), except the two marked per-pickup /
     # per-life, which reset where their subject does.
     gunKills*, sprayKills*, grenadeKills*: int
-    longshotKills*, multiKills*: int
+    longshotKills*: int
+    # `multiKills` (any-weapon, friendly-fire-contaminated) is GONE: it was
+    # `Blast Radius`'s only reader and that gate now uses the clean,
+    # per-activation `sprayMultiKills`/`grenadeMultiKills` (CURRICULUM audit
+    # C6). Removing it rather than leaving it incremented-but-unread is the
+    # same "a fire counter proves a layer alive" discipline this file's
+    # achievement audit already enforces -- an orphaned counter is a tombstone
+    # wearing a name.
     soakedHp*: int             ## hit points this cog's shields absorbed.
     clutchHeals*: int          ## heals taken at 1 hp.
     steals*, returns*, carrierKills*, denials*: int
@@ -528,6 +535,24 @@ type
     stealTickThisLife*: int    ## tick this life stole a heart, -1 = never.
     clutchHealTick*: int       ## tick of the latest clutch heal, -1 = never.
     peelTick*: int             ## tick of the latest carrier kill, -1 = never.
+    contestedSteals*: int      ## steals landed while a LIVE enemy was within
+                               ## `ContestedStealPx` -- the v3.1 `Hands On`
+                               ## gate (law 2b: an UNCONTESTED steal is a
+                               ## pickup with a team hat on, banned the same
+                               ## as any other arrival credit).
+    carryKills*: int           ## non-friendly kills landed WHILE THIS COG
+                               ## carried the enemy heart -- the v3.1
+                               ## `Fighting Carry` gate (was `Breakaway`,
+                               ## which paid live possession-plus-duration,
+                               ## a second law-2b violation).
+    secondWind*: bool          ## true once a non-friendly kill has landed
+                               ## within 120 ticks of (and strictly after)
+                               ## this cog's latest clutch heal -- the
+                               ## `Second Wind` gate. Set ONCE, at the KILL
+                               ## site, never re-derived from two independent
+                               ## tick fields at poll time (that was the bug:
+                               ## comparing "now" to `clutchHealTick` on every
+                               ## poll needed no kill in the window at all).
     tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool
     shotsFired*: int           ## shots this player released; analysis-only,
                                ## excluded from gameHash (see gameHash).
@@ -3457,7 +3482,6 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.sprayKills)
     result.mixHashInt(player.grenadeKills)
     result.mixHashInt(player.longshotKills)
-    result.mixHashInt(player.multiKills)
     result.mixHashInt(player.soakedHp)
     result.mixHashInt(player.clutchHeals)
     result.mixHashInt(player.steals)
@@ -3477,6 +3501,12 @@ proc gameHash*(sim: SimServer): uint64 =
     # divergence here silently changes who claims the tier. The field comment
     # is stale; this hash entry is the actual contract now.
     result.mixHashInt(player.teamKills)
+    # v3.1: contestedSteals/carryKills/secondWind gate the re-cut Carrier and
+    # Med Kit tiers (see satisfiedAchievements) -- causal for the same reason
+    # every counter above it is.
+    result.mixHashInt(player.contestedSteals)
+    result.mixHashInt(player.carryKills)
+    result.mixHashBool(player.secondWind)
   # GLORY: the ledger itself, its rampage state, and the one-shot claim gates
   # -- every one of these decides a FUTURE mint, so a hash match must mean
   # they match too.
@@ -3964,7 +3994,17 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.grenadeKills >= 1:      earn(treeGrenade, 0)
     if player.grenadeKills >= 2:      earn(treeGrenade, 1)
     if player.grenadeKills >= 3:      earn(treeGrenade, 2)
-    if player.grenadeKills >= 1 and player.multiKills >= 1:
+    # "Blast Radius" used to gate on `multiKills`, which is incremented from
+    # BOTH the spray path and the grenade path and counts a friendly-fire
+    # kill in the same activation (CURRICULUM audit C6) -- so the tier's
+    # actual requirement was "any grenade kill, ever, plus any multi-kill
+    # flag, ever, from any weapon, possibly seeded by a teamkill", not "a
+    # grenade blast that also caught 2+ enemies." The two clean, per-
+    # ACTIVATION, enemies-only counters already exist (they feed "Double
+    # Splash"/"Double Blast" one tier over) -- reuse them instead of a third
+    # counter.
+    if player.grenadeKills >= 1 and
+       player.sprayMultiKills + player.grenadeMultiKills >= 1:
                                       earn(treeGrenade, 3)
     if player.grenadeMultiKills >= 1: earn(treeGrenade, 4)
 
@@ -3987,18 +4027,21 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # is the achievement.
     if player.clutchHeals >= 1:       earn(treeMedKit, 0)
     if player.clutchHeals >= 2:       earn(treeMedKit, 1)
-    if player.clutchHealTick >= 0 and
-       player.gunKills + player.sprayKills + player.grenadeKills >= 1 and
-       sim.tickCount - player.clutchHealTick <= 120:
-                                      earn(treeMedKit, 2)
+    # "Second Wind" is detected ONCE, at the KILL site (`killPlayer`), never
+    # re-derived here from two independent tick fields -- the old form
+    # compared "now" to `clutchHealTick` on every poll, which needed no kill
+    # inside the window at all (a lifetime kill count >= 1 plus a recent heal
+    # satisfied it, order unchecked; CURRICULUM audit C6/C7). Mirrors
+    # `Turnaround` below, which already gets this right.
+    if player.secondWind:              earn(treeMedKit, 2)
     if player.clutchHeals >= 3:       earn(treeMedKit, 3)
     if player.clutchCarryHeals >= 1:  earn(treeMedKit, 4)
 
-    # CARRIER -- steal, run, score.
-    if player.steals >= 1:            earn(treeCarrier, 0)
-    if player.carryingFlag and player.stealTickThisLife >= 0 and
-       sim.tickCount - player.stealTickThisLife >= 120:
-                                      earn(treeCarrier, 1)
+    # CARRIER -- steal, run, score. v3.1 (CURRICULUM audit C1/C8): tier I/II
+    # re-cut off possession the same way every other tree already was --
+    # see the block comment on `treeCarrier` in glory.nim's AchievementNames.
+    if player.contestedSteals >= 1:   earn(treeCarrier, 0)
+    if player.carryKills >= 1:        earn(treeCarrier, 1)
     if player.captures >= 1:          earn(treeCarrier, 2)
     if player.captures >= 1 and
        sim.teamAliveCount(team) <
@@ -4970,7 +5013,7 @@ proc startGame*(sim: var SimServer) =
     for reset in [addr sim.players[i].gunKills, addr sim.players[i].sprayKills,
                   addr sim.players[i].grenadeKills,
                   addr sim.players[i].longshotKills,
-                  addr sim.players[i].multiKills, addr sim.players[i].soakedHp,
+                  addr sim.players[i].soakedHp,
                   addr sim.players[i].clutchHeals, addr sim.players[i].steals,
                   addr sim.players[i].returns,
                   addr sim.players[i].carrierKills,
@@ -4979,10 +5022,13 @@ proc startGame*(sim: var SimServer) =
                   addr sim.players[i].starfallKills,
                   addr sim.players[i].sprayMultiKills,
                   addr sim.players[i].grenadeMultiKills,
-                  addr sim.players[i].clutchCarryHeals]:
+                  addr sim.players[i].clutchCarryHeals,
+                  addr sim.players[i].contestedSteals,
+                  addr sim.players[i].carryKills]:
       reset[] = 0
     sim.players[i].clutchHealTick = -1
     sim.players[i].peelTick = -1
+    sim.players[i].secondWind = false
     sim.players[i].tookMedKit = false
     sim.players[i].tookGrenade = false
     sim.players[i].tookSpray = false
@@ -5343,7 +5389,6 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
         inc sim.players[killerIndex].grenadeKills
       else:
         inc sim.players[killerIndex].gunKills
-      if ctx.multi: inc sim.players[killerIndex].multiKills
       if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
       if ctx.victimLevel >= StarfallLevel:
         inc sim.players[killerIndex].starfallKills
@@ -5351,6 +5396,16 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
         inc sim.players[killerIndex].carrierKills
         sim.players[killerIndex].peelTick = sim.tickCount
         if ctx.nearVictimHome: inc sim.players[killerIndex].denials
+      # "Fighting Carry": a kill landed while THIS cog held the enemy heart --
+      # live possession alone no longer counts (CURRICULUM audit C1/C8).
+      if killer.carryingFlag: inc sim.players[killerIndex].carryKills
+      # "Second Wind": detected HERE, at the kill, so the heal is guaranteed
+      # to have happened first -- `clutchHealTick` can only be a tick at or
+      # before `sim.tickCount`, so this is genuinely an ordered window, not
+      # two independent facts compared at poll time.
+      if killer.clutchHealTick >= 0 and
+         sim.tickCount - killer.clutchHealTick <= 120:
+        sim.players[killerIndex].secondWind = true
     # First blood stacks, alone among the kill deeds: it is one-shot per
     # episode so it cannot be farmed by construction.
     if not sim.firstBloodDone and not ctx.friendly:
@@ -6321,6 +6376,23 @@ proc expireTithes*(sim: var SimServer) =
       kept.add pickup
   sim.tithePickups = kept
 
+proc stealIsContested(sim: SimServer, playerIndex: int): bool =
+  ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer at
+  ## the exact moment the heart leaves its pedestal -- the fact `Hands On`
+  ## gates on (CURRICULUM audit C1/C8: an uncontested walk-in into an empty
+  ## base is a pickup with a team hat on, not an achievement).
+  let
+    team = sim.players[playerIndex].team
+    px = sim.players[playerIndex].x
+    py = sim.players[playerIndex].y
+    rangeSq = ContestedStealPx * ContestedStealPx
+  for i, other in sim.players:
+    if i == playerIndex or other.team == team or not other.alive:
+      continue
+    if distSq(px, py, other.x, other.y) <= rangeSq:
+      return true
+  false
+
 proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player steal the ENEMY team's flag off its pedestal by
   ## touch. A player's own flag cannot be interacted with by their own team.
@@ -6334,6 +6406,9 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     py = sim.players[playerIndex].y + CollisionH div 2
     rangeSq = FlagPickupRange * FlagPickupRange
   if distSq(px, py, sim.flags[flagTeam].x, sim.flags[flagTeam].y) <= rangeSq:
+    # Read BEFORE the steal mutates anything -- consistent with the kill
+    # site's own discipline of pricing the context before it changes.
+    let contested = sim.stealIsContested(playerIndex)
     sim.flags[flagTeam].carrier = playerIndex
     sim.players[playerIndex].carryingFlag = true
     # A steal is action: keep at least ActionClockFloorTicks on the clock.
@@ -6341,6 +6416,8 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     sim.awardDeed(sim.players[playerIndex].team, dFlagSteal,
                   sim.players[playerIndex].x, sim.players[playerIndex].y)
     sim.addXp(playerIndex, XpPerSteal)
+    if contested:
+      inc sim.players[playerIndex].contestedSteals
     inc sim.players[playerIndex].steals
     sim.players[playerIndex].stealTickThisLife = sim.tickCount
     sim.emitEvent(

@@ -103,9 +103,22 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 3
+  GloryVersion* = 4
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v4 (2026-08-24, /proof fix cycle): `dFlagReturn` retired (dead, zero
+    ## mint sites, would double-pay the carrier's death -- see the tombstone
+    ## on `Deed`); `dEscortKill` wired via `KillContext.escorted`; treeCarrier
+    ## tier I/II re-cut off possession ("Hands On" -> a CONTESTED steal,
+    ## "Breakaway" -> "Fighting Carry", a kill while carrying); "Blast Radius"
+    ## moved off the friendly-fire-contaminated `multiKills` onto the clean
+    ## per-activation counters (that field is deleted, having lost its only
+    ## reader); "Second Wind" now requires the kill to land AFTER the heal,
+    ## inside the window, instead of comparing two independent tick fields at
+    ## poll time. Every one of these changes WHETHER or HOW MUCH a claim
+    ## mints, so a v3 ledger's achievement claims are not comparable to a v4
+    ## one.
     ##
     ## v3 (2026-08-24): the achievement curriculum rewrite that bans every
     ## pickup/possession/arrival requirement from the tree (law 2b's ruling,
@@ -494,6 +507,19 @@ const
   DenialPx* = 220             ## a carrier killed this close to their own
                               ## pedestal died on the doorstep.
   RevengeTicks* = 240         ## ~10s to answer your killer.
+  ContestedStealPx* = 300     ## a live enemy within this radius at the
+                              ## moment the heart leaves its pedestal makes
+                              ## the steal CONTESTED, not a walk-in -- the
+                              ## `Hands On` gate (law 2b's ruling below: an
+                              ## uncontested pickup is not an achievement).
+                              ## ⚠️ UNCALIBRATED, same honesty as
+                              ## `AchievementSweepBudgetPct`: reasoned from
+                              ## the existing combat bands (wider than
+                              ## `PointBlankPx`'s duel range, tighter than a
+                              ## gun's full reach) rather than fit from a
+                              ## measured contest rate. Re-derive once a
+                              ## field query for "enemy proximity at steal
+                              ## time" exists.
 
   # ───────────────────────────────────────────────────────────────────────
   # §5  THE ACHIEVEMENT CURRICULUM
@@ -529,6 +555,17 @@ const
   #      `resetFlag`'s bystander-credit note in sim.nim) outright, and
   #      replaces every kit tree's tier I with the CONVERTED act the pickup
   #      was only ever a precondition for.
+  #
+  #      🚨 v3.1 (2026-08-24, CURRICULUM audit C1/C8): the SAME rewrite
+  #      missed `treeCarrier` tier I/II ("Hands On"/"Breakaway"), which read
+  #      `steals >= 1` (an uncontested pickup) and live `carryingFlag` plus a
+  #      hold timer (pure possession-plus-duration) -- exempted only by a
+  #      comment ASSERTING "stealing, holding and scoring the enemy heart are
+  #      all already above ordinary play," which directly contradicts this
+  #      ruling's own text two paragraphs up. Re-cut to the same standard:
+  #      tier I now needs a CONTESTED steal (a live enemy within
+  #      `ContestedStealPx`), tier II a kill made WHILE CARRYING (not mere
+  #      possession). See the tree's own comment below for the counters.
   #   3. Big enough to chase, too small to win on: a full sweep must stay
   #      under AchievementSweepBudgetPct of a median winner's episode glory.
   #      `tests/test_glory.nim` sums the table and asserts it.
@@ -602,13 +639,28 @@ const
     # GONE -- the take is normal play; the SAVE it buys is the achievement.
     ["The Save",            ## I    heal at 1 hp
      "Triage",              ## II   2 clutch heals in one episode
-     "Second Wind",         ## III  clutch-heal then kill within 120 ticks
+     "Second Wind",         ## III  a KILL landing within 120 ticks of your
+                            ##      latest clutch heal -- detected at the
+                            ##      kill site, so the heal must come FIRST
+                            ##      (v3.1: the poll used to compare "now" to
+                            ##      the heal tick and never checked order or
+                            ##      that a kill fell inside the window at
+                            ##      all -- CURRICULUM audit C6/C7).
      "Miracle Worker",      ## IV   3 clutch heals in one episode
      "Lifeline"],           ## V    a clutch heal taken WHILE CARRYING the heart
-    # treeCarrier — "The Heart". Unchanged in substance -- stealing, holding
-    # and scoring the enemy heart are all already above ordinary play.
-    ["Hands On",            ## I    steal the enemy heart
-     "Breakaway",           ## II   hold the heart for 120+ ticks
+    # treeCarrier — "The Heart". v3.1 (CURRICULUM audit C1/C8): tier I/II used
+    # to read `steals >= 1` (an uncontested pickup, satisfiable by walking
+    # into an empty base) and live `carryingFlag` plus a hold timer (pure
+    # possession-plus-duration) -- both law-2b violations no different from
+    # the pickup tiers v3 already deleted everywhere else, exempted only by a
+    # comment's ASSERTION that carrier play is special. It is not: re-cut to
+    # the same standard as every other tree -- a CONVERTED, contested act.
+    ["Hands On",            ## I    a steal landed while a LIVE enemy stood
+                            ##      within ContestedStealPx -- an uncontested
+                            ##      walk-in no longer counts.
+     "Fighting Carry",      ## II   an enemy kill landed WHILE CARRYING the
+                            ##      heart -- live possession alone (the old
+                            ##      "hold for 120+ ticks") no longer counts.
      "Delivered",           ## III  score the enemy heart
      "Uphill",              ## IV   score while your team is outnumbered
      "Full Run"],           ## V    steal and score on the same life

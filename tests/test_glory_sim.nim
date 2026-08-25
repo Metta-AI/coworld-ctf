@@ -770,21 +770,27 @@ suite "glory in the sim: the achievement curriculum FIRES":
     sim.players[0].sprayKillsThisPickup = 3
     sim.players[0].sprayMultiKills = 1       # Double Splash
     sim.players[0].grenadeKills = 3
-    sim.players[0].multiKills = 1
-    sim.players[0].grenadeMultiKills = 1     # Double Blast
+    sim.players[0].grenadeMultiKills = 1     # Double Blast + Blast Radius
+                                              # (reuses sprayMultiKills/
+                                              # grenadeMultiKills -- see the
+                                              # gate's comment)
     sim.players[0].soakedHp = 12
     sim.players[0].kills = 1
     sim.players[0].clutchHeals = 3
     sim.players[0].clutchHealTick = sim.tickCount
     sim.players[0].clutchCarryHeals = 1      # Lifeline
-    sim.players[0].steals = 1
+    sim.players[0].secondWind = true         # Second Wind (set at the kill
+                                              # site in the real engine; see
+                                              # the dedicated real-mechanic
+                                              # test below)
+    sim.players[0].contestedSteals = 1       # Hands On
+    sim.players[0].carryKills = 1            # Fighting Carry
     sim.players[0].carrierKills = 2          # The Peel + Double Peel
     sim.players[0].denials = 2
     sim.players[0].captures = 1
     sim.players[0].level = MaxLevel
     sim.players[0].stealTickThisLife = sim.tickCount - 200
     sim.players[0].peelTick = sim.tickCount - 300
-    sim.players[0].carryingFlag = true
     sim.evalAchievements(Red)
 
     # A second pass in a state the first one cannot hold at the same instant.
@@ -924,6 +930,103 @@ suite "glory in the sim: the v3 counters fire off REAL engine mechanics":
     grounded.tryPickupMedKits(0)
     check grounded.players[0].clutchHeals == 1
     check grounded.players[0].clutchCarryHeals == 0
+
+suite "glory in the sim: the v3.1 counters fire off REAL engine mechanics":
+  # v3.1 re-cut treeCarrier tier I/II off possession (CURRICULUM audit
+  # C1/C8) and fixed Second Wind's missing order check (C6/C7). Same rule as
+  # the v3 suite above: drive the REAL engine path, with a negative control,
+  # rather than trusting a hand-set counter to mean what its gate claims.
+
+  test "a steal next to a live enemy fires the CONTESTED counter; an unguarded one does not":
+    var contested = twoTeamGame()
+    contested.players[1].x = contested.flags[Blue].x + 10
+    contested.players[1].y = contested.flags[Blue].y
+    contested.players[0].x = contested.flags[Blue].x
+    contested.players[0].y = contested.flags[Blue].y
+    contested.tryPickupFlags(0)
+    check contested.players[0].carryingFlag
+    check contested.players[0].contestedSteals == 1
+
+    # The same steal, but the enemy is far away: an uncontested walk-in.
+    var alone = twoTeamGame()
+    alone.players[1].x = 0
+    alone.players[1].y = 0
+    alone.players[0].x = alone.flags[Blue].x
+    alone.players[0].y = alone.flags[Blue].y
+    check distSq(alone.players[0].x, alone.players[0].y,
+                 alone.players[1].x, alone.players[1].y) >
+          ContestedStealPx * ContestedStealPx
+    alone.tryPickupFlags(0)
+    check alone.players[0].carryingFlag
+    check alone.players[0].steals == 1        # still a steal...
+    check alone.players[0].contestedSteals == 0   # ...but not a contested one
+
+    # A DEAD nearby enemy does not manufacture a contest either.
+    var deadNearby = twoTeamGame()
+    deadNearby.players[1].x = deadNearby.flags[Blue].x + 10
+    deadNearby.players[1].y = deadNearby.flags[Blue].y
+    deadNearby.players[1].alive = false
+    deadNearby.players[0].x = deadNearby.flags[Blue].x
+    deadNearby.players[0].y = deadNearby.flags[Blue].y
+    deadNearby.tryPickupFlags(0)
+    check deadNearby.players[0].contestedSteals == 0
+
+  test "a kill while carrying fires Fighting Carry; the same kill unarmed does not":
+    var carrying = twoTeamGame()
+    carrying.flags[Blue].carrier = 0
+    carrying.players[0].carryingFlag = true
+    carrying.killPlayer(1, 0, "gun")
+    check carrying.players[0].carryKills == 1
+
+    var unarmed = twoTeamGame()
+    unarmed.killPlayer(1, 0, "gun")
+    check unarmed.players[0].carryKills == 0
+
+  test "Second Wind requires the KILL after the heal, inside the window -- not just both having happened":
+    # The bug this replaces: the old gate compared "now" to `clutchHealTick`
+    # on every poll, so ANY lifetime kill plus a recent heal satisfied it,
+    # order unchecked. This proves the fix three ways: heal-then-kill inside
+    # the window sets it, a kill BEFORE the heal does not, and a kill outside
+    # the window does not either.
+    var healThenKill = twoTeamGame()
+    healThenKill.players[0].hp = 1
+    healThenKill.players[0].x = healThenKill.medKitSpawns[0].x
+    healThenKill.players[0].y = healThenKill.medKitSpawns[0].y
+    healThenKill.tryPickupMedKits(0)
+    check healThenKill.players[0].clutchHeals == 1
+    healThenKill.tickCount += 10
+    healThenKill.players[1].x = healThenKill.players[0].x + 300
+    healThenKill.players[1].y = healThenKill.players[0].y
+    healThenKill.killPlayer(1, 0, "gun")
+    check healThenKill.players[0].secondWind
+
+    # A kill BEFORE any heal: no clutch heal has landed yet, so this must not
+    # arm the flag even though a later heal will make `clutchHealTick` recent.
+    var killThenHeal = twoTeamGame()
+    killThenHeal.players[1].x = killThenHeal.players[0].x + 300
+    killThenHeal.players[1].y = killThenHeal.players[0].y
+    killThenHeal.killPlayer(1, 0, "gun")
+    check not killThenHeal.players[0].secondWind
+    killThenHeal.players[1].alive = true
+    killThenHeal.players[0].hp = 1
+    killThenHeal.players[0].x = killThenHeal.medKitSpawns[0].x
+    killThenHeal.players[0].y = killThenHeal.medKitSpawns[0].y
+    killThenHeal.tryPickupMedKits(0)
+    # The heal came AFTER the only kill this life has made -- nothing should
+    # retroactively arm the flag, and there is no second kill to arm it now.
+    check not killThenHeal.players[0].secondWind
+
+    # A kill outside the 120-tick window: too late to be "an answer".
+    var tooLate = twoTeamGame()
+    tooLate.players[0].hp = 1
+    tooLate.players[0].x = tooLate.medKitSpawns[0].x
+    tooLate.players[0].y = tooLate.medKitSpawns[0].y
+    tooLate.tryPickupMedKits(0)
+    tooLate.tickCount += 121
+    tooLate.players[1].x = tooLate.players[0].x + 300
+    tooLate.players[1].y = tooLate.players[0].y
+    tooLate.killPlayer(1, 0, "gun")
+    check not tooLate.players[0].secondWind
 
 suite "glory in the sim: Clean Sheet is full-game, conclusion-only":
 
