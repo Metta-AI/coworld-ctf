@@ -1622,6 +1622,110 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
       objective: "ring", action: "run", engageDist: -1))
     return octantBits(toSafety)
   # ---- end ring safety -------------------------------------------------
+
+  # ---- HUNT ENDGAME OVERRIDE -------------------------------------------
+  # Late in a BR match the paint has done its job (the field is small, or
+  # most duos are gone) and standing around waiting to be found is a worse
+  # bet than closing the distance ourselves. This is ONE PRIORITY BELOW ring
+  # safety: it sits after that block's early return, so any frame the ring
+  # claims never reaches here — safety preempts aggression, never the other
+  # way around. Same commitment-canceling shape as ring safety: an early
+  # return, gated on the zone marker's presence, so a game with no zone
+  # configured (every non-BR ladder match) never enters it and stays
+  # byte-identical to before.
+  block huntEndgame:
+    var
+      haveZone = false
+      zx0, zy0, zx1, zy1: int
+    for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixZone):
+      let parts = label[LabelPrefixZone.len .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      let
+        lo = parts[0].split(',')
+        hi = parts[1].split(',')
+      if lo.len != 2 or hi.len != 2:
+        continue
+      try:
+        zx0 = parseInt(lo[0])
+        zy0 = parseInt(lo[1])
+        zx1 = parseInt(hi[0])
+        zy1 = parseInt(hi[1])
+        haveZone = true
+      except ValueError:
+        discard
+      break
+    if not haveZone:
+      break huntEndgame
+    # Alive-team readback: no new wire vocabulary, just the scoreboard the
+    # engine already broadcasts every frame regardless of who reads it (see
+    # addTeamScoreboard, "team score <NAME> <kills>/<deaths>" — one chip per
+    # team, win or lose, for the life of the episode). BR duos play one life
+    # per seat (record_br_match.sh pins config lives=1, and brMode forces no
+    # respawns), so a team's own DEATHS field is the tell: two dead seats is
+    # the whole roster gone.
+    const
+      TeamScoreLabelPrefix = "team score "
+      BrTeamSize = 2
+    var aliveTeams = 0
+    when defined(huntProbe):
+      var chipsSeen: seq[string]
+    for (o, label) in client.spriteObjectsWithLabelPrefix(TeamScoreLabelPrefix):
+      when defined(huntProbe):
+        chipsSeen.add(label)
+      let tail = label[TeamScoreLabelPrefix.len .. ^1]
+      let parts = tail.split(' ')
+      if parts.len != 2:
+        continue
+      let kd = parts[1].split('/')
+      if kd.len != 2:
+        continue
+      try:
+        if parseInt(kd[1]) < BrTeamSize:
+          inc aliveTeams
+      except ValueError:
+        discard
+    const
+      EndgameZoneFrac = 0.18    # ~15-20% of board area: the shrunk-ring case
+      EndgameAliveTeams = 4     # few enough duos left to call it an endgame
+    let
+      zoneArea = float(max(0, zx1 - zx0)) * float(max(0, zy1 - zy0))
+      boardArea = float(MapW) * float(MapH)
+      zoneFrac = (if boardArea > 0.0: zoneArea / boardArea else: 1.0)
+    if zoneFrac > EndgameZoneFrac and aliveTeams > EndgameAliveTeams:
+      break huntEndgame
+    # Nearest known/visible enemy: reuse the existing track store (fed every
+    # frame by actorsFor sightings, the same perception the rest of the
+    # policy already trusts for aim and peel decisions) rather than growing
+    # a second perception path. A stale-but-recent track beats idling.
+    var
+      nearest = -1
+      nearestD = Inf
+    for i in 0 ..< bot.enemies.len:
+      let d = dist(bot.enemies[i].pos, me)
+      if d < nearestD:
+        nearestD = d
+        nearest = i
+    if nearest < 0:
+      break huntEndgame
+    let toEnemy = bot.enemies[nearest].pos - me
+    if toEnemy.len() < 1.0:
+      break huntEndgame
+    when defined(huntProbe):
+      stderr.writeLine("HUNTFIRE tick=" & $bot.tick &
+        " aliveTeams=" & $aliveTeams &
+        " zoneFrac=" & $zoneFrac &
+        " me=" & $int(me.x) & "," & $int(me.y) &
+        " target=" & $int(bot.enemies[nearest].pos.x) & "," &
+        $int(bot.enemies[nearest].pos.y) &
+        " d=" & $int(nearestD) &
+        " chips=" & $chipsSeen.len & " [" & chipsSeen.join("|") & "]")
+    artFrame(FrameSnap(tick: bot.tick, alive: true,
+      x: int(me.x), y: int(me.y), hp: -1,
+      objective: "hunt", action: "chase", engageDist: int(nearestD)))
+    return octantBits(toEnemy)
+  # ---- end hunt endgame --------------------------------------------------
+
   # Spray cans and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
