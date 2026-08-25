@@ -127,7 +127,10 @@ suite "glory in the sim: the ladder is causal":
 
   test "a level actually changes what the cog can do":
     # The whole point of inverting Muster's ruling: levelling must grant real
-    # power, not a cosmetic pip. Every buff site must move.
+    # power, not a cosmetic pip. Every REMAINING buff site must move. (v6,
+    # GLORY C2: gun range is no longer one of them -- the +15% rung was
+    # geometrically dead, always past the map's own diagonal, so it never
+    # gated a single shot at any level; see `LevelGunRangePct`'s comment.)
     var sim = twoTeamGame()
     let
       baseWindup = sim.playerWindupTicks(0)
@@ -141,7 +144,7 @@ suite "glory in the sim: the ladder is causal":
 
     check sim.playerWindupTicks(0) < baseWindup
     check sim.playerFireCooldown(0) < baseCooldown
-    check sim.playerGunRange(0) > baseRange
+    check sim.playerGunRange(0) == baseRange         # retired (C2): dead reach
     check sim.playerMaxHp(0) > baseHp
     check sim.playerCarrierSpeedPct(0) > baseCarry   # the heart stops slowing you
 

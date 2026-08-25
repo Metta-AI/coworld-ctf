@@ -473,8 +473,7 @@ const
   # in `sim.nim`; all arithmetic stays integer.
   #
   #   L1 Tagger     windup -1 tick        the lead we measured at +70pp
-  #   L2 Marksman   gun range +15%,       reach, and the spray finally recycles
-  #                 spray reset -40%
+  #   L2 Marksman   spray reset -40%     the spray finally recycles
   #   L3 Ironhide   +1 max hp             now a real threat -- and a bounty
   #   L4 Quickdraw  fire cooldown -25%,   rate of fire, and two nade charges
   #                 grenade holds 2
@@ -489,8 +488,20 @@ const
 
   LevelWindupDelta*: array[0 .. MaxLevel, int] = [0, -1, -1, -1, -1, -2]
     ## Ticks off the trigger windup (FireWindupTicks 5 -> 4 at L1, -> 3 at L5).
-  LevelGunRangePct*: array[0 .. MaxLevel, int] = [100, 100, 115, 115, 115, 115]
-    ## Gun range as a percentage of the map's default.
+  LevelGunRangePct*: array[0 .. MaxLevel, int] = [100, 100, 100, 100, 100, 100]
+    ## v6 (GLORY C2): the +15% range rung ("Marksman", L2+) is RETIRED --
+    ## geometrically dead on arrival. The default arena is 1235x659px, a
+    ## 1399.8px diagonal; `GunRange` (sim.nim) already ships at 1300, ~93% of
+    ## that diagonal. +15% pushes the levelled range to 1495px, PAST the
+    ## longest line of sight the map can ever draw -- no shot at any level
+    ## can be range-gated by a buff that only extends reach beyond the
+    ## farthest two points on the board are ever apart. It never fired, on
+    ## any map, for any cog: an unreachable number is the same dead-lever
+    ## class the module header's §8 audit exists to catch, just geometric
+    ## instead of behavioural. L2 keeps ONLY its spray-reset -40% now; see
+    ## `tests/test_glory.nim`'s power-cap and ladder-monotonicity checks,
+    ## which still pass at 100% flat (the ladder's L1->L2 step is now a tie
+    ## on this component and carried entirely by the spray-reset).
   LevelBonusHp*: array[0 .. MaxLevel, int] = [0, 0, 0, 1, 1, 1]
     ## Hit points added to the base ceiling. Capped at +1 TOTAL (reached at
     ## L3): the original +2-at-L5 measured 2.69x effective power against the
