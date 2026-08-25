@@ -1549,6 +1549,79 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   let statedAim = client.ownAimBrads()
   if statedAim >= 0:
     bot.estAim = statedAim
+
+  # ---- RING SAFETY OVERRIDE -------------------------------------------
+  # The shrink zone is the only hazard on the board that kills you for
+  # standing still, and it is the mode's clock. A policy that treats it as
+  # one more consideration alongside its objectives will die holding a
+  # perfectly good plan — so this is an OVERRIDE, expressed as an early
+  # return: it preempts every objective below rather than competing with
+  # them. A zone warning that defers to existing commitments is a dead
+  # lever.
+  #
+  # Reads the published `zone <x0>,<y0> <x1>,<y1>` marker (inclusive
+  # corners, map pixels) and nothing else — no new wire contract. The whole
+  # block is gated on that marker being present, so a game without a zone
+  # configured never enters it and is byte-identical to before.
+  block ringSafety:
+    var
+      haveZone = false
+      zx0, zy0, zx1, zy1: int
+    for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixZone):
+      let parts = label[LabelPrefixZone.len .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      let
+        lo = parts[0].split(',')
+        hi = parts[1].split(',')
+      if lo.len != 2 or hi.len != 2:
+        continue
+      try:
+        zx0 = parseInt(lo[0])
+        zy0 = parseInt(lo[1])
+        zx1 = parseInt(hi[0])
+        zy1 = parseInt(hi[1])
+        haveZone = true
+      except ValueError:
+        discard
+      break
+    if not haveZone:
+      break ringSafety
+    # Aim for a margin INSIDE the edge, not the edge itself: the rect is
+    # still shrinking while we walk to it, so arriving exactly on the
+    # boundary means arriving outside it.
+    const SafeMarginPx = 90
+    let
+      mx = int(me.x)
+      my = int(me.y)
+      outside = mx < zx0 or mx > zx1 or my < zy0 or my > zy1
+      nearEdge =
+        mx < zx0 + SafeMarginPx or mx > zx1 - SafeMarginPx or
+        my < zy0 + SafeMarginPx or my > zy1 - SafeMarginPx
+    if not (outside or nearEdge):
+      break ringSafety
+    # Head for the nearest point that is a full margin inside, clamped so a
+    # rect narrower than two margins still yields its own centre rather
+    # than an inverted target.
+    let
+      loX = min(zx0 + SafeMarginPx, (zx0 + zx1) div 2)
+      hiX = max(zx1 - SafeMarginPx, (zx0 + zx1) div 2)
+      loY = min(zy0 + SafeMarginPx, (zy0 + zy1) div 2)
+      hiY = max(zy1 - SafeMarginPx, (zy0 + zy1) div 2)
+      targetX = clamp(mx, loX, hiX)
+      targetY = clamp(my, loY, hiY)
+      toSafety = vec(float(targetX) - me.x, float(targetY) - me.y)
+    if toSafety.len() < 1.0:
+      break ringSafety
+    when defined(ringProbe):
+      stderr.writeLine("RINGFIRE tick=" & $bot.tick & " outside=" & $outside &
+        " me=" & $mx & "," & $my & " rect=" & $zx0 & "," & $zy0 & " " &
+        $zx1 & "," & $zy1)
+    artFrame(FrameSnap(tick: bot.tick, alive: true,
+      x: mx, y: my, hp: -1,
+      objective: "ring", action: "run", engageDist: -1))
+    return octantBits(toSafety)
+  # ---- end ring safety -------------------------------------------------
   # Spray cans and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
