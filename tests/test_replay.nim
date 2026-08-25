@@ -1,6 +1,6 @@
 import
   helpers,
-  std/[json, os, unittest],
+  std/[json, os, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, replay_runtime, replays, sim]
 
@@ -26,6 +26,32 @@ proc initReplaySim(data: ReplayData): SimServer =
     setCurrentDir(previousDir)
 
 suite "ctf replay":
+  test "EVERY committed .bitreplay carries the current GameVersion":
+    ## A GV bump invalidates every recorded fixture, and the codec rejects a
+    ## stale one outright — but the native shards only ever LOAD the handful
+    ## they assert on, so a fixture read exclusively by another CI job (the
+    ## wasm viewer smoke reads tests/fixtures/gen-*.bitreplay, which no test
+    ## here opens) can sit stale until that job fails. This sweeps the repo
+    ## instead of the test's own reading list: a re-record pass that misses
+    ## one now fails HERE, before CI.
+    var checked = 0
+    for path in walkDirRec(GameDir / "tests"):
+      if not path.endsWith(".bitreplay"):
+        continue
+      inc checked
+      ## parseReplayBytes is the codec's own gate — it raises on a stamp
+      ## mismatch, which is exactly the failure being guarded.
+      var loaded = false
+      try:
+        discard parseReplayBytes(readFile(path))
+        loaded = true
+      except CatchableError as error:
+        checkpoint path.extractFilename & ": " & error.msg &
+          " (re-record it: see AGENTS.md 'Replay fixtures')"
+      check loaded
+    ## ...and the sweep itself must not silently find nothing.
+    check checked >= 6
+
   test "shared runtime initializes, advances, controls, and renders replay":
     let
       data = loadReplay(CtfReplayPath)

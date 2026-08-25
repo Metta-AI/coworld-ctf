@@ -445,7 +445,14 @@ proc homeRotationFor*(seed, teams: int): int =
     return 0
   var hash = 14695981039346656037'u64
   for value in [seed, teams]:
-    hash = hash xor cast[uint64](value)
+    ## Mixed as the low 32 bits of the two's-complement pattern, NOT as
+    ## `cast[uint64](value)`: `int` is 64 bits on the server and 32 bits in
+    ## the wasm replay viewer, and a widening `cast` leaves the high half
+    ## undefined. The viewer re-derives this deal when it re-simulates a
+    ## replay, so a word-size disagreement here would desync every 4-team
+    ## replay in the observatory while the native suite stayed green.
+    ## Same-size `cast` to uint32 is a well-defined reinterpretation on both.
+    hash = hash xor uint64(cast[uint32](value))
     hash = hash * 1099511628211'u64
   hash = hash xor (hash shr 30)
   hash = hash * 13787848793156543929'u64
