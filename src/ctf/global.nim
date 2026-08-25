@@ -255,9 +255,23 @@ const
                                  ## is covered by the ramp's own gated sends
                                  ## (EndzoneRampBandsPerFrame).
   GlowFadeStages* = 8          ## crossfade steps; 0 = full glow, 7 = fully cold.
+  NeutralItemPoolWidth* = 64
+    ## Shared object-id pool width for the four NEUTRAL pickup families
+    ## (grenades/shields/med kits/spray cans): the render loop below indexes
+    ## each one Base + i for every point the MAP authors, and BR authors
+    ## runtime-sized pools (the showmatch: 33 med kits, 36 sprays, 14
+    ## grenades, 7 shields) — a 4-team map only ever needed 4. This is the
+    ## ONE constant both the BoardObjectPools declared width (the compile-time
+    ## overlap audit below) and each render loop's runtime clamp reference,
+    ## so a widened map and a narrowed pool can never drift apart silently
+    ## again the way the old literal `4` did. 64 is headroom past the largest
+    ## known BR site count, not a measured ceiling.
   ## Grenades (0.7.0): a paint-bomb orb PNG shared by three placements plus a
   ## drawn charge ring and blast flash. Sprite ids 840..845 sit above the sound
-  ## ring (830) and below the tracer dots (900). Object pools live at 19300+.
+  ## ring (830) and below the tracer dots (900). The AIR/CARRY/throw/blast
+  ## object pools live at 19320+; the PICKUP pool (below) needed BR headroom
+  ## the tight 19300s block didn't have, so it moved out to 35330+ along with
+  ## the other three neutral pickup pools — see PaintBombPickupObjectBase.
   PaintBombPickupSpriteId = 840  ## corner pickup orb (native size).
   PaintBombAirSpriteId = 841     ## in-flight orb (slightly smaller).
   PaintBombCarrySpriteId = 842   ## the "grenade carried" marker over a carrier.
@@ -286,24 +300,37 @@ const
     ## so the flash reads as trapped in the pit rather than spilling over
     ## its rim.
   BlastStages = 4                ## landing-splat fade stages across BlastFxTicks.
-  PaintBombPickupObjectBase = 19300  ## corner pickups: 19300..19303 (four corners).
+  PaintBombPickupObjectBase = 35330
+    ## grenade corner/neutral pickups, NeutralItemPoolWidth-wide: 35330..35393.
+    ## MOVED off 19300 (four-corners-only headroom: only 16 spare ids sat
+    ## before PaintBombAirObjectBase at 19320, nowhere near the 64 a BR neutral
+    ## pool needs) into the gap right after the tracer dots (end 35327, see
+    ## TracerDotObjectBase) and well clear of the trench markers at 36000 —
+    ## the same "MOVED off X, the only span with room" idiom the endzone fade
+    ## pools already use below. AIR/CARRY/throw/blast stay at 19320+
+    ## unchanged: only the four PICKUP-style pools (this one, shields, med
+    ## kits, spray cans) needed widening, and none of their siblings needed to
+    ## move to make room since this one left instead of growing in place.
   MedKitSpriteId = 1400          ## center med kit pickup (native size);
                                  ## 845 collided with red blast stage 1
                                  ## (BlastSpriteBase 844..847).
   MedKitSize = 26                ## px footprint of a med kit pickup.
-  MedKitObjectBase = 19600       ## med kits: 19600..19603 (2 on sides maps,
-                                 ## 4 on 4-team maps).
+  MedKitObjectBase = 35458
+    ## med kits, NeutralItemPoolWidth-wide: 35458..35521. MOVED off 19600
+    ## (only 4-wide headroom before the rot diamonds at 19610) into the same
+    ## post-tracer-dot gap as PaintBombPickupObjectBase above — see its
+    ## comment for why that gap and not a local shuffle.
   ShieldSpriteId = 1420          ## endzone shield pickup (native size).
   ShieldCarrySpriteId = 1421     ## the "shield carried" marker over a carrier.
   ShieldSize = 26                ## px footprint of an endzone shield pickup.
   ShieldCarrySize = 12           ## px footprint of the carried shield marker.
-  ShieldObjectBase = 19560       ## endzone shields: 19560..19563, one per
-                                 ## team — clear of the med kits (19600+)
-                                 ## (the endzone-fade overlays that used to
-                                 ## sit at 19520..19523 moved to the banded
-                                 ## pool at EndzoneFadeObjectBase),
-                                 ## and the PER-PLAYER carried-shield markers
-                                 ## at 19900..19931.
+  ShieldObjectBase = 35394
+    ## endzone/neutral shield pickups, NeutralItemPoolWidth-wide: 35394..35457.
+    ## MOVED off 19560 (only 4-wide headroom before the med kits at 19600)
+    ## into the same post-tracer-dot gap as the grenade pickups above; the
+    ## PER-PLAYER carried-shield markers (ShieldCarryObjectBase) stay at
+    ## 19900..19931, unaffected by this move, and the endzone-fade overlays
+    ## still live at the banded pool EndzoneFadeObjectBase, as before.
   ShieldCarryObjectBase = 19900  ## carried shield markers: one per player,
                                  ## 19900..19931. Moved off 19620: a 32-wide
                                  ## per-player pool there runs into the spraypaint
@@ -344,7 +371,13 @@ const
                                  ## plume instead of beads on a string.
   SprayPaintPickupSize = 20
   SprayPaintCarrySize = 10
-  SprayPaintPickupObjectBase = 19640
+  SprayPaintPickupObjectBase = 35522
+    ## spray can/neutral pickups, NeutralItemPoolWidth-wide: 35522..35585.
+    ## MOVED off 19640 (only 20-wide headroom before SprayPaintCarryObjectBase
+    ## at 19660 — a BR-scale authored pool at index 20+ collided straight into
+    ## the carry markers) into the same post-tracer-dot gap as the other three
+    ## neutral pickup pools; see PaintBombPickupObjectBase's comment. Ends at
+    ## 35585, 415 ids clear of the trench markers at 36000.
   SprayPaintCarryObjectBase = 19660
   SprayPaintFxObjectBase* = 19700 ## 19700..19891 (32 flashes x 6 pulses),
                                  ## clear of the carried-shield markers at
@@ -829,17 +862,17 @@ const
     ("identity badges", IdentityBadgeObjectBase, MaxPlayers),
     ("impact rings", ShotImpactObjectBase, TracerMaxShots),
     ("flag auras", FlagAuraObjectBase, TeamPoolWidth),
-    ("grenade pickups", PaintBombPickupObjectBase, 4),
+    ("grenade pickups", PaintBombPickupObjectBase, NeutralItemPoolWidth),
     ("airborne grenades", PaintBombAirObjectBase, GrenadeMaxAirborne),
     ("grenade carry markers", PaintBombCarryObjectBase, MaxPlayers),
     ("throw-target rings", ThrowTargetObjectBase, MaxPlayers),
     ("blast flashes", BlastObjectBase, GrenadeMaxBlasts),
     ("shout bubbles", ShoutObjectBase, ShoutMaxCount),
     ("endzone fades", EndzoneFadeObjectBase, TeamPoolWidth * MaxEndzoneFadeBands),
-    ("endzone shields", ShieldObjectBase, 4),
-    ("med kits", MedKitObjectBase, 4),
+    ("endzone shields", ShieldObjectBase, NeutralItemPoolWidth),
+    ("med kits", MedKitObjectBase, NeutralItemPoolWidth),
     ("rot diamonds", RotDiamondObjectBase, 8),
-    ("spray can pickups", SprayPaintPickupObjectBase, 4),
+    ("spray can pickups", SprayPaintPickupObjectBase, NeutralItemPoolWidth),
     ("spray can carry markers", SprayPaintCarryObjectBase, MaxPlayers),
     ("spray can fx", SprayPaintFxObjectBase,
       SprayPaintMaxFlashes * SprayPaintFxPulses),
@@ -5196,7 +5229,11 @@ proc addSprayPaints(
   viewerIndex = -1
 ) {.measure.} =
   ## Places side-center spray can pickups and carried markers.
-  for i in 0 ..< sim.sprayPaintSpawns.len:
+  doAssert sim.sprayPaintSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.sprayPaintSpawns.len & " spray can pickups, more " &
+    "than the " & $NeutralItemPoolWidth & "-wide SprayPaintPickupObjectBase " &
+    "pool can address without colliding with the next pool."
+  for i in 0 ..< min(sim.sprayPaintSpawns.len, NeutralItemPoolWidth):
     let spawn = sim.sprayPaintSpawns[i]
     if not spawn.present:
       continue
@@ -5351,8 +5388,14 @@ proc addMedKits(
 ) {.measure.} =
   ## Places the two center-field med kit pickups, fog-gated by map position
   ## like the grenade pickups. The map/replay view passes no viewer and shows
-  ## both. The sprite is defined lazily on first need per connection.
-  for i in 0 ..< sim.medKitSpawns.len:
+  ## both. The sprite is defined lazily on first need per connection. A BR
+  ## map authors far more than two (the showmatch: 33) — sized to
+  ## NeutralItemPoolWidth (see MedKitObjectBase).
+  doAssert sim.medKitSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.medKitSpawns.len & " med kits, more than the " &
+    $NeutralItemPoolWidth & "-wide MedKitObjectBase pool can address " &
+    "without colliding with the next pool."
+  for i in 0 ..< min(sim.medKitSpawns.len, NeutralItemPoolWidth):
     let spawn = sim.medKitSpawns[i]
     if not spawn.present:
       continue
@@ -5386,8 +5429,13 @@ proc addShields(
   ## (gated on seeing that player), plus a protective bubble drawn around a
   ## carrier while the shield layer holds (it pops when shieldHp hits 0).
   ## The map/replay view passes no viewer and shows all. Sprites are defined
-  ## lazily on first need per connection.
-  for i in 0 ..< sim.shieldSpawns.len:
+  ## lazily on first need per connection. A BR map authors far more than two
+  ## (the showmatch: 7) — sized to NeutralItemPoolWidth (see ShieldObjectBase).
+  doAssert sim.shieldSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.shieldSpawns.len & " endzone shields, more than " &
+    "the " & $NeutralItemPoolWidth & "-wide ShieldObjectBase pool can " &
+    "address without colliding with the next pool."
+  for i in 0 ..< min(sim.shieldSpawns.len, NeutralItemPoolWidth):
     let spawn = sim.shieldSpawns[i]
     if not spawn.present:
       continue
@@ -5512,8 +5560,14 @@ proc addGrenades(
   # Corner pickups: the paint-bomb orb sitting on its spawn, sorted into the
   # world by row so players in front occlude it. Decoding the PNG is the
   # expensive part, so — like the fog runs — only build the pixel buffer the
-  # first time the sprite is needed on this connection, never per frame.
-  for i in 0 ..< sim.grenadeSpawns.len:
+  # first time the sprite is needed on this connection, never per frame. A BR
+  # map authors far more than four (the showmatch: 14) — sized to
+  # NeutralItemPoolWidth (see PaintBombPickupObjectBase).
+  doAssert sim.grenadeSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.grenadeSpawns.len & " grenade pickups, more than " &
+    "the " & $NeutralItemPoolWidth & "-wide PaintBombPickupObjectBase pool " &
+    "can address without colliding with the next pool."
+  for i in 0 ..< min(sim.grenadeSpawns.len, NeutralItemPoolWidth):
     let spawn = sim.grenadeSpawns[i]
     if not spawn.present or not mapVisible(spawn.x, spawn.y):
       continue
