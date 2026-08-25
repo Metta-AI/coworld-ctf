@@ -1340,6 +1340,73 @@ html, body {
 #endcard .how {
   margin-top: calc(-4 * var(--u));
 }
+/* MATCH GLORY splash — celebrates the MATCH, not the winner. Both teams
+   high in glory is a really glorious match (wrestling, not fighting: the
+   show is the product), so the big number is the COMBINED total in amber
+   with each team's share beneath in its own color — every number keeps
+   its context, and a close slugfest outranks a stomp. Lands on the
+   banner medal-slam grammar (overshoot punch + brightness flash + amber
+   rule-sweep; slam-flash/rule-sweep keyframes reused verbatim, mg-slam
+   is slam-in minus the chip skew) a beat (~400ms) after the headline's
+   420ms cardfade settles. The one-liner is the show review: quiet
+   italic caps, faded in last. */
+#endcard .mg-splash {
+  position: relative;
+  padding: calc(2 * var(--u)) calc(18 * var(--u)) 0;
+  animation:
+    mg-slam 160ms cubic-bezier(.18, 1.9, .32, 1) 400ms both,
+    slam-flash 60ms ease-out 540ms;
+}
+#endcard .mg-box {
+  position: relative;
+  padding-bottom: calc(7 * var(--u));
+}
+#endcard .mg-total {
+  font-family: var(--pixfont);
+  font-size: calc(18 * var(--u));
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+  text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
+  white-space: nowrap;
+}
+#endcard .mg-total b { font-size: calc(24 * var(--u)); }
+#endcard .mg-teams {
+  margin-top: calc(2 * var(--u));
+  font-family: var(--pixfont);
+  font-size: calc(11 * var(--u));
+  letter-spacing: 0.12em;
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+#endcard .mg-teams .mg-red { color: var(--red); }
+#endcard .mg-teams .mg-blue { color: var(--blue); }
+#endcard .mg-teams .mg-plus { margin: 0 calc(5 * var(--u)); }
+/* the amber "earned" rule, swept under the number once the slam lands */
+#endcard .mg-box .mg-rule {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: calc(2 * var(--u));
+  background: var(--amber);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: rule-sweep 140ms ease-out 540ms forwards;
+}
+/* the show review — ALL-CAPS quiet italic, <=6 words, tiered on the total */
+#endcard .mg-line {
+  margin-top: calc(6 * var(--u));
+  font-family: var(--finefont);
+  font-style: italic;
+  font-size: calc(10 * var(--u));
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  animation: cardfade 200ms ease-out 640ms both;
+}
+@keyframes mg-slam {
+  from { transform: scale(1.55); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
 /* match-stats scoreboard — one panel per team, winner ringed in amber */
 #endcard .ec-teams { display: flex; gap: calc(22 * var(--u)); align-items: stretch; }
 #endcard .ec-team {
@@ -1546,7 +1613,8 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
   .plate.leader .lives-num { animation: none; }
-  .banner-chip, .banner-chip .slam-rule, .feed-row, .ach-claim-chip { animation-duration: 1ms; animation-delay: 0ms; }
+  .banner-chip, .banner-chip .slam-rule, .feed-row, .ach-claim-chip,
+  .mg-splash, .mg-box .mg-rule, .mg-line { animation-duration: 1ms; animation-delay: 0ms; }
 }
 
 /* ============================================================
@@ -1705,6 +1773,14 @@ body[data-embed] #board { top: 0; height: 100%; }
       <div class="headline" id="ec-headline">—</div>
       <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
+      <div class="mg-splash" id="mg-splash">
+        <div class="mg-box">
+          <div class="mg-total">MATCH GLORY <b id="mg-num">0</b></div>
+          <div class="mg-teams"><span class="mg-red" id="mg-red">0</span><span class="mg-plus">+</span><span class="mg-blue" id="mg-blue">0</span></div>
+          <div class="mg-rule"></div>
+        </div>
+        <div class="mg-line" id="mg-line"></div>
+      </div>
       <div class="ec-teams">
         <div class="ec-team" id="ec-team-red">
           <div class="ec-tname red" id="ec-tname-red">RED</div>
@@ -4189,6 +4265,59 @@ body[data-embed] #board { top: 0; height: 100%; }
     el.innerHTML = html;
   }
 
+  // ── MATCH GLORY splash ─────────────────────────────────────────────
+  // The combined red+blue glory total. Design law (Maxwell, verbatim):
+  // "both teams being high in glory is a REALLY GLORIOUS match! So it
+  // isn't about 'killing your enemy' like fighting, it is more about
+  // having a 'glorious match' like wrestling." The match itself is the
+  // performance; the combined total measures how much SHOW was
+  // delivered — so a close slugfest outranks a stomp, and a draw can
+  // still be one for the archives.
+  //
+  // TIER THRESHOLDS — approx quintiles of the REAL field, not guesses:
+  // tools/ladder/gloryscore.py's scoring path run over the ~/.ctf/scout
+  // cache (2026-08-25: n=120 two-team episodes, glory v4, derived path
+  // plus the inferred dWipe mint on wipe-ended episodes — the live sim
+  // mints dWipe in-engine, so the wipe-corrected numbers are the scale
+  // this endcard's s.teams.*.glory actually reads).
+  // Combined per-episode glory: p20=1983 p40=2296 p60=2616 p80=3101
+  // (min 1363, median 2403, max 4739). Cuts rounded to 2000 / 2300 /
+  // 2600 / 3100. Line pick is total % pool.length — deterministic, so
+  // a replay always reviews its own show the same way.
+  var GLORY_TIERS = [
+    { floor: 3100, lines: [ // legendary — top quintile
+      'ONE FOR THE ARCHIVES',
+      'AN ABSOLUTE CLASSIC',
+      "THEY'LL TALK ABOUT THIS ONE",
+      'FRAME IT AND HANG IT'] },
+    { floor: 2600, lines: [ // great
+      'A BARNBURNER!',
+      "THE CROWD GOT THEIR MONEY'S WORTH",
+      'PAINT ON THE RAFTERS'] },
+    { floor: 2300, lines: [ // good
+      "NOW THAT'S A PAINT FIGHT",
+      'WORTH THE TICKET',
+      'THE CANVAS EARNED ITS KEEP'] },
+    { floor: 2000, lines: [ // decent
+      "AN HONEST NIGHT'S PAINT",
+      'SOLID CARD, NO CLASSIC',
+      'A FAIR SCRAP, FAIRLY PAINTED'] },
+    { floor: 0, lines: [ // dud — bottom quintile
+      'A QUIET NIGHT AT THE SHOP',
+      'BOTH COATS CAME HOME CLEAN',
+      'THE PAINT STAYED IN THE CANS'] }
+  ];
+
+  function matchGloryLine(total) {
+    for (var i = 0; i < GLORY_TIERS.length; i++) {
+      if (total >= GLORY_TIERS[i].floor) {
+        var pool = GLORY_TIERS[i].lines;
+        return pool[total % pool.length];
+      }
+    }
+    return '';
+  }
+
   function renderEndcard(s) {
     var card = $('endcard');
     if (!s.over) return;
@@ -4211,10 +4340,25 @@ body[data-embed] #board { top: 0; height: 100%; }
     $('ec-blue').textContent = blueL;
     // The final glory ledger, from the same shipped teams block the scorebug
     // reads -- a match that scores glory all game must settle it at the end.
-    $('ec-glory-red').textContent =
-      ((s.teams && s.teams.red && s.teams.red.glory) || 0) + 'g';
-    $('ec-glory-blue').textContent =
-      ((s.teams && s.teams.blue && s.teams.blue.glory) || 0) + 'g';
+    var gRed = (s.teams && s.teams.red && s.teams.red.glory) || 0;
+    var gBlue = (s.teams && s.teams.blue && s.teams.blue.glory) || 0;
+    $('ec-glory-red').textContent = gRed + 'g';
+    $('ec-glory-blue').textContent = gBlue + 'g';
+    // MATCH GLORY: the COMBINED total (see GLORY_TIERS for the design law
+    // and threshold provenance). Winner-agnostic on purpose — it renders
+    // identically for draws, and observer mode reads the same teams block.
+    // Hidden only when the replay predates the glory ledger entirely: a
+    // real 0 is an honest dud, an absent field is not a dud.
+    var hasGlory = !!(s.teams && s.teams.red && s.teams.red.glory != null &&
+      s.teams.blue && s.teams.blue.glory != null);
+    $('mg-splash').style.display = hasGlory ? '' : 'none';
+    if (hasGlory) {
+      var mg = gRed + gBlue;
+      $('mg-num').textContent = mg;
+      $('mg-red').textContent = gRed;
+      $('mg-blue').textContent = gBlue;
+      $('mg-line').textContent = matchGloryLine(mg);
+    }
     $('ec-wincond').textContent = endcardWinCondition(o);
     $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
     $('ec-tname-blue').textContent = teamName(s, 'blue', 'BLUE');
