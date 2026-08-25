@@ -3030,7 +3030,36 @@ proc zoneRectAtScale*(sim: SimServer, zPermille: int): MapRect =
   MapRect(x: sim.zoneCenter.x - w div 2, y: sim.zoneCenter.y - h div 2,
     w: w, h: h)
 
-proc zoneRectAndDps*(
+proc zoneClampToBoard*(sim: SimServer, rect: MapRect): MapRect =
+  ## One zone rect INTERSECTED with the board — the EFFECTIVE zone.
+  ##
+  ## zoneRectAtScale is a pure geometric statement: a rect of the field's
+  ## aspect, scaled about the DRAWN center. At small z that rect sits wholly
+  ## on the board and the two are the same thing. At large z it does not:
+  ## a full-SIZE rect centered anywhere but the board's own center hangs off
+  ## one edge, and leaves an equal band of real field OUTSIDE the zone. So
+  ## the doctrine's "phase 0 (drop), z = 1.00" — the whole field is safe —
+  ## was false for every drawn center, and the drop phase killed 6 of 16
+  ## duos at tick 256 of the first BR match without a shot being fired.
+  ##
+  ## Maxwell's ruling (2026-08-24): the effective rect is rect INTERSECT
+  ## board at EVERY phase. z = 1.0 therefore means the whole board is safe
+  ## whatever the drawn center, and the center only starts to express itself
+  ## once the rect has shrunk inside the board's edges — which is exactly
+  ## when it should matter.
+  ##
+  ## This is applied in ONE place, wrapping the schedule, because damage,
+  ## art and the published label must never disagree about where the
+  ## boundary is (the honest-boundary rule). Clamping per-consumer would be
+  ## three chances to drift.
+  let
+    x0 = max(0, rect.x)
+    y0 = max(0, rect.y)
+    x1 = min(sim.gameMap.width, rect.x + rect.w)
+    y1 = min(sim.gameMap.height, rect.y + rect.h)
+  MapRect(x: x0, y: y0, w: max(0, x1 - x0), h: max(0, y1 - y0))
+
+proc zoneRectAndDpsRaw(
   sim: SimServer, elapsedTicks: int
 ): tuple[cur, next: MapRect, dps: int] =
   ## Returns the shrink-zone's CURRENT rect, the NEXT (target) rect it is
@@ -3079,6 +3108,28 @@ proc zoneRectAndDps*(
   let lastDps = if sim.config.zonePhases.len > 0: sim.config.zonePhases[^1].dps
     else: 0
   (final, final, lastDps)
+
+proc zoneRectAndDps*(
+  sim: SimServer, elapsedTicks: int
+): tuple[cur, next: MapRect, dps: int] =
+  ## The schedule above, with both rects clamped to the board — see
+  ## zoneClampToBoard. EVERY consumer goes through here (updateZone's
+  ## damage test, the seepage art, the published zone label), so all three
+  ## read one boundary.
+  ##
+  ## The interpolation deliberately runs on the RAW rects and is clamped
+  ## afterwards, not the other way round: the geometric rect shrinks
+  ## continuously from the drawn center, and clamping the result means a
+  ## shrink that is still off-board simply does not move the visible edge
+  ## yet. Clamping the endpoints first would instead drag the board-edge
+  ## edges inward from tick 0 and invent motion that the schedule never
+  ## asked for.
+  let raw = sim.zoneRectAndDpsRaw(elapsedTicks)
+  (
+    sim.zoneClampToBoard(raw.cur),
+    sim.zoneClampToBoard(raw.next),
+    raw.dps
+  )
 
 proc updateZone*(sim: var SimServer) =
   ## One tick of the battle-royale shrink-zone hazard (§4.3): a player whose
