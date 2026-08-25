@@ -4378,6 +4378,46 @@ proc addTithePickups(
       pickup.y, MapLayerId, spriteId
     )
 
+const
+  VeteranPipSize = 5           ## logical px: a small flat paint pip -- about
+                               ## a third the footprint of even a single L3
+                               ## star glyph, so an L1/L2 mark reads as a
+                               ## quieter nudge and the StarfallLevel star row
+                               ## still wins the eye once a cog crosses it.
+                               ## Raw (native=1) pixels: nearest-neighbor
+                               ## upscaled by addBoardSpriteChanged like every
+                               ## other hand-drawn blob in this file -- no
+                               ## vector antialiasing on a mark this small.
+  VeteranPipRadius = 2'f32
+  VeteranPipOutlineInPx = 1'f32  ## 1 logical px: proportionally thick for a
+                               ## shape this size (the 2-4px outline the
+                               ## style law asks for on a full chip would
+                               ## swallow a 5px pip whole).
+
+proc buildVeteranPipSprite(team: Team): seq[uint8] {.measure.} =
+  ## The L1-L2 rank mark: one small flat team-paint dot with a thin dark
+  ## outline -- a lighter cousin of the L3+ star row for the SAME signal
+  ## (this cog is buffed), not a second vocabulary. A recruit's windup and hp
+  ## are already stock; L1 shaves the windup (LevelWindupDelta) and that is a
+  ## real, checkable combat edge a viewer has no other way to see land.
+  result = newRgbaPixels(VeteranPipSize, VeteranPipSize)
+  let
+    base = Palette[teamColor(team) and 0x0f]
+    c = float32(VeteranPipSize - 1) / 2
+  for y in 0 ..< VeteranPipSize:
+    for x in 0 ..< VeteranPipSize:
+      let
+        dx = float32(x) - c
+        dy = float32(y) - c
+        d = sqrt(dx * dx + dy * dy)
+      if d > VeteranPipRadius:
+        continue
+      if d > VeteranPipRadius - VeteranPipOutlineInPx:
+        result.putRawRgbaPixel(y * VeteranPipSize + x, 22, 17, 13, 255)
+      else:
+        result.putRawRgbaPixel(
+          y * VeteranPipSize + x, base.r, base.g, base.b, 255)
+
 proc addVeteranMarks(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -4385,19 +4425,22 @@ proc addVeteranMarks(
   packet: var seq[uint8],
   viewerIndex = -1
 ) {.measure.} =
-  ## The rank plume over a levelled cog: one star per level, in team colour,
-  ## and only from StarfallLevel up -- the threshold that also makes the cog a
-  ## bounty and opens its heart's tithe. Below it the field stays quiet.
+  ## The rank mark over a levelled cog: from StarfallLevel up, one star per
+  ## level in team colour (the threshold that also makes the cog a bounty and
+  ## opens its heart's tithe); below that but above L0, a single flat paint
+  ## pip (buildVeteranPipSprite) so an L1/L2 buff -- real, per LevelWindupDelta
+  ## -- is not invisible just because it has not reached Starfall yet. A
+  ## fresh L0 recruit still draws nothing.
   ##
-  ## Stars are the whole reason a levelled cog is READABLE. Without them a
-  ## veteran with four hit points and a shorter windup looks exactly like the
-  ## recruit beside it, and the single most consequential piece of state in a
-  ## fight is invisible to whoever is watching.
+  ## The mark is the whole reason a levelled cog is READABLE. Without it a
+  ## veteran with a shorter windup looks exactly like the recruit beside it,
+  ## and the single most consequential piece of state in a fight is invisible
+  ## to whoever is watching.
   if sim.phase != Playing:
     return
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
-    if not player.alive or player.level < StarfallLevel:
+    if not player.alive or player.level < 1:
       continue
     if viewerIndex >= 0 and viewerIndex != i and
         not sim.fovVisibleAt(viewerIndex, player.x + CollisionW div 2,
@@ -4406,29 +4449,44 @@ proc addVeteranMarks(
     let
       spriteId = VeteranMarkSpriteBase + i
       objectId = VeteranMarkObjectBase + i
-      stars = repeat("*", min(player.level, MaxLevel))
-      # Board sprite, so it must be built and emitted like one. This used to
-      # rasterise at 1x and ship through the raw addSpriteChanged, which on the
-      # supersampled board (RenderScale) drew the plume at HALF its intended
-      # footprint AND doubled the `- width div 2` centering shift, so the stars
-      # sat small and off to the left of the cog they belong to -- while every
-      # sibling on this layer (addShouts, addIdentityBadges) already used the
-      # smooth + native=boardScale pair. Same two-line pattern here: vector face
-      # at boardScale, LOGICAL dims out, native pixels on the wire.
-      mark = sim.buildSpriteProtocolTextSprite(
-        [stars], teamColor(player.team), smooth = true)
     currentIds.add(objectId)
-    packet.addBoardSpriteChanged(
-      spriteDefs, spriteId, mark.width, mark.height, mark.pixels,
-      LabelVeteranMark & " " & $player.level,
-      native = boardScale
-    )
-    packet.addBoardObject(
-      objectId,
-      player.x + CollisionW div 2 - mark.width div 2,
-      player.overheadAnchorY() - OverheadYOffset - mark.height - 10,
-      30007, MapLayerId, spriteId
-    )
+    if player.level >= StarfallLevel:
+      let
+        stars = repeat("*", min(player.level, MaxLevel))
+        # Board sprite, so it must be built and emitted like one. This used to
+        # rasterise at 1x and ship through the raw addSpriteChanged, which on
+        # the supersampled board (RenderScale) drew the plume at HALF its
+        # intended footprint AND doubled the `- width div 2` centering shift,
+        # so the stars sat small and off to the left of the cog they belong
+        # to -- while every sibling on this layer (addShouts,
+        # addIdentityBadges) already used the smooth + native=boardScale
+        # pair. Same two-line pattern here: vector face at boardScale,
+        # LOGICAL dims out, native pixels on the wire.
+        mark = sim.buildSpriteProtocolTextSprite(
+          [stars], teamColor(player.team), smooth = true)
+      packet.addBoardSpriteChanged(
+        spriteDefs, spriteId, mark.width, mark.height, mark.pixels,
+        LabelVeteranMark & " " & $player.level,
+        native = boardScale
+      )
+      packet.addBoardObject(
+        objectId,
+        player.x + CollisionW div 2 - mark.width div 2,
+        player.overheadAnchorY() - OverheadYOffset - mark.height - 10,
+        30007, MapLayerId, spriteId
+      )
+    else:
+      let pip = buildVeteranPipSprite(player.team)
+      packet.addBoardSpriteChanged(
+        spriteDefs, spriteId, VeteranPipSize, VeteranPipSize, pip,
+        LabelVeteranMark & " " & $player.level
+      )
+      packet.addBoardObject(
+        objectId,
+        player.x + CollisionW div 2 - VeteranPipSize div 2,
+        player.overheadAnchorY() - OverheadYOffset - VeteranPipSize - 10,
+        30007, MapLayerId, spriteId
+      )
 
 proc addShields(
   sim: SimServer,
