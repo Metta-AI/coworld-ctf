@@ -513,9 +513,6 @@ html, body {
 .feed-row .who.red { color: var(--red); }
 .feed-row .who.blue { color: var(--blue); }
 .feed-row .glyph { color: var(--paper); font-size: calc(9 * var(--u)); }
-/* The achievement's NAME in a feed row: the row's subject, so it reads at the
-   glyph's weight rather than as a second badge competing with the payout. */
-.feed-row .ach-title { color: var(--paper); white-space: nowrap; }
 .feed-row .badge {
   font-family: var(--finefont);
   font-size: calc(7 * var(--u));
@@ -572,13 +569,20 @@ html, body {
    visible that shows each team's achievements earned"). Left rail, mirroring
    the inspector's glass-chip language on the right. State-driven from
    teams.*.claims (never accumulated from events), so seeks and loops can
-   never leave it stale. Collapsible via its header; DEFAULT OPEN. */
+   never leave it stale. Collapsible via its header; DEFAULT CLOSED-body:
+   the one-line header (counts + paid totals) is the durable read, the
+   corner toasts are the live surface, and the full ledger is
+   detail-on-demand behind the caret. */
 #achpanel {
   position: absolute;
   top: calc(var(--topband, 0px) + 10 * var(--u));
   left: calc(12 * var(--u));
   width: max-content;
-  max-width: calc(200 * var(--u));
+  /* 260u, was 200u: the one-line header is the panel's whole read now and it
+     carries BOTH paid totals — at 200u it clipped blue's total (an overflow
+     the header, unlike the body rows, has no ellipsis to admit to). Sized to
+     the worst real header (RED 40/40 +999g . BLUE 40/40 +999g) at 9u type. */
+  max-width: calc(260 * var(--u));
   max-height: calc(100% - var(--topband, 0px) - 120 * var(--u));
   overflow: hidden;
   padding: calc(5 * var(--u)) calc(8 * var(--u));
@@ -719,59 +723,73 @@ html, body {
    HEADER (the counts are the always-visible read) and collapse the body. */
 #stage.tiny #achpanel .ach-body { display: none; }
 
-/* Tiny-stage claim chip (#achtiny). The BOARD-rendered claim chip ("NAME +Ng"
-   popped over the earning cog) lands at ~3-4 screen px at the 640x360 floor —
-   one 13-logical-px line under a ~0.23 board scale — physically illegible even
-   knowing the words, and the chrome has no cog screen-positions to anchor a
-   fix to (the canvas is wasm-composited). So at #stage.tiny ONLY, each claim
-   gets this one-line DOM stand-in: the SAME line the board chip draws (name
-   uppercased, payout keeping its unit), the same near-black fill + amber ink +
-   hairline amber edge, one at a time with a short dwell. At full size it never
-   renders — the board chip is legible there, and Maxwell already cut the
-   top-center claim banner; this is the chip's stand-in where physics beats the
-   chip, not that banner lane back. */
-#achtiny {
+/* Per-team claim toasts — fading chat lanes in the bottom corners. Each achv
+   claim spawns one compact line (stars + NAME + right-anchored payout, the
+   ledger row's exact vocabulary) in its team's corner: RED bottom-LEFT, BLUE
+   bottom-RIGHT. Chat order: newest at the bottom, the stack grows upward,
+   ~4s dwell, cap 4 visible per side with the oldest fading early. The
+   BOARD-rendered chip over the earning cog stays as the spatial pointer;
+   this is the corner record — and because it works at every stage size it
+   REPLACES the old #achtiny tiny-breakpoint stand-in outright (one system,
+   all sizes, per-team).
+   Corner tenants: BLUE sits ABOVE the killfeed's fixed reserve (feed bottom
+   76u + 4x22u rows + 8u air = 172u) so the two never fight for rows; RED
+   mirrors the feed's transport clearance on the left, over the FPV pip's
+   default berth — acceptable overlap for a dev surface, and the pip is
+   draggable. */
+#achtoast-red, #achtoast-blue {
   position: absolute;
-  /* Below the achievement ledger's (collapsed-to-header at .tiny) top-left
-     panel: the killfeed owns bottom-right, the FPV pip bottom-left, and the
-     steal/return/capture banners the top-center lane, so under the
-     ACHIEVEMENTS header is the free spot over dead board margin — and the one
-     that files the moment next to the ledger that records it. */
-  top: calc(var(--topband, 0px) + 46 * var(--u));
-  left: calc(12 * var(--u));
-  display: none;
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--u));
+  z-index: 11;
   pointer-events: none;
-  z-index: 12;
 }
-#stage.tiny #achtiny { display: block; }
-.ach-claim-chip {
-  display: inline-block;
-  font-family: var(--pixfont);
-  /* Absolute px, NOT --u: this chip exists precisely because scaling took the
-     board chip under the legibility floor at this breakpoint — the same
-     absolute-floor reasoning as .ins-btn's min-height above. It renders only
-     inside #stage.tiny, so it can never bloat a full-size frame. */
-  font-size: 12px;
-  line-height: 1;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-  padding: 4px 7px;
-  color: var(--amber);                          /* GloryPopInk */
+#achtoast-red { left: calc(12 * var(--u)); bottom: calc(76 * var(--u)); align-items: flex-start; }
+#achtoast-blue { right: calc(12 * var(--u)); bottom: calc(172 * var(--u)); align-items: flex-end; }
+.ach-toast {
+  display: flex;
+  align-items: baseline;
+  gap: calc(6 * var(--u));
+  min-width: calc(118 * var(--u));
+  max-width: calc(210 * var(--u));
+  padding: calc(3 * var(--u)) calc(7 * var(--u));
   background: rgba(var(--stage-lo-rgb), 0.88);  /* GloryChipFillInk @ FillAlpha */
   box-shadow: 0 0 0 1px rgba(var(--amber-rgb), 0.8); /* GloryChipEdgePx */
-  animation: achchipin 250ms cubic-bezier(.2,1.3,.5,1);
+  font-family: var(--pixfont);
+  /* Absolute legibility floor inherited from the deleted #achtiny chip: --u
+     bottoms out at 0.5, and this toast is now the claim's only off-board
+     record at the 640x360 floor — it must never scale below reading size. */
+  font-size: max(11px, calc(8 * var(--u)));
+  line-height: 1.2;
+  white-space: nowrap;
+  animation: feedin 250ms cubic-bezier(.2,1.3,.5,1);
 }
+.ach-toast.leaving { animation: feedout 260ms ease-in forwards; }
+/* the red lane hugs the LEFT edge, so its slide mirrors to enter from it */
+#achtoast-red .ach-toast { animation-name: achchipin; }
+#achtoast-red .ach-toast.leaving { animation-name: achchipout; }
+.ach-toast .at-stars { color: var(--amber); letter-spacing: 0.06em; }
+.ach-toast .at-name {
+  flex: 1 1 auto;
+  min-width: 0; /* load-bearing, same as the panel rows: the payout must be
+                   the LAST thing to go, never the first */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--paper);
+}
+.ach-toast.red .at-name { color: var(--red); }
+.ach-toast.blue .at-name { color: var(--blue); }
+.ach-toast .at-pay { flex: none; margin-left: auto; color: var(--amber); font-variant-numeric: tabular-nums; }
 /* A FIRST claim keeps the board chip's exact distinction: the whole line in
    the hotter gold-white (GloryChipFirstInk, 250,222,156 — deliberately not a
    :root token; it exists to match the sim constant, nothing else may use it)
    plus the thicker edge (GloryChipFirstEdgePx). No wordmark, same words. */
-.ach-claim-chip.first {
-  color: rgb(250, 222, 156);
-  box-shadow: 0 0 0 2px rgba(250, 222, 156, 0.8);
-}
-.ach-claim-chip.leaving { animation: achchipout 260ms ease-in forwards; }
+.ach-toast.first, .ach-toast.first .at-stars, .ach-toast.first .at-name,
+.ach-toast.first .at-pay { color: rgb(250, 222, 156); }
+.ach-toast.first { box-shadow: 0 0 0 2px rgba(250, 222, 156, 0.8); }
 /* feedin/feedout's overshoot-and-settle idiom, mirrored to slide from the
-   LEFT edge this chip is anchored to (the feed's rows slide from the right). */
+   LEFT edge the red lane is anchored to (blue rides feedin/feedout as-is). */
 @keyframes achchipin { from { transform: translateX(calc(-30 * var(--u))); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes achchipout { to { opacity: 0; transform: translateX(calc(-14 * var(--u))); } }
 
@@ -1613,7 +1631,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
   .plate.leader .lives-num { animation: none; }
-  .banner-chip, .banner-chip .slam-rule, .feed-row, .ach-claim-chip,
+  .banner-chip, .banner-chip .slam-rule, .feed-row, .ach-toast,
   .mg-splash, .mg-box .mg-rule, .mg-line { animation-duration: 1ms; animation-delay: 0ms; }
 }
 
@@ -1699,10 +1717,11 @@ body[data-embed] #board { top: 0; height: 100%; }
          glory.nim stays the single source of every number. -->
     <div id="inspector"></div>
     <div id="achpanel"></div>
-    <!-- Tiny-stage claim chip lane: the board claim chip's DOM stand-in at
-         #stage.tiny only (see the #achtiny CSS for the full why). Empty and
-         display:none at full size. -->
-    <div id="achtiny"></div>
+    <!-- Per-team claim toast lanes: fading chat stacks in the bottom corners
+         (red LEFT, blue RIGHT — see the .ach-toast CSS for the geometry).
+         Transient event FX, cleared by the same jump guard as the feed. -->
+    <div id="achtoast-red"></div>
+    <div id="achtoast-blue"></div>
     <!-- First-person picture-in-picture: the selected seat's Wolfenstein-style
          raycast view, shown only while a player is in POV. A window into what
          that soldier sees down the barrel, riding alongside their top-down fog.
@@ -1901,7 +1920,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, achchip: 2700 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, achtoast: 4000 };
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -2061,7 +2080,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
     if (jumped) {
-      clearFeed(); clearBanners(); clearAchChips();
+      clearFeed(); clearBanners(); clearAchToasts();
       // The verdict chip has no other clearing path (setVerdict early-returns
       // on a liveless frame), so without this a looping replay spoils its own
       // ending from tick 0 of the second loop onward.
@@ -2333,7 +2352,10 @@ body[data-embed] #board { top: 0; height: 100%; }
     chip.classList.toggle('show', rungs > 0);
   }
 
-  var achOpen = true;   // default VISIBLE; the header click flips it
+  var achOpen = false;  // default COLLAPSED to the one-line header: the
+                        // corner toasts carry the live claims, the header
+                        // carries the durable counts + paid totals, and the
+                        // click expands the full ledger for whoever wants it
   // The full curriculum: 8 kit-keyed trees x 5 tiers, per team. Every count on
   // this panel carries it as its denominator -- "3" alone says nothing about
   // whether a team is doing well.
@@ -2361,19 +2383,29 @@ body[data-embed] #board { top: 0; height: 100%; }
       (blue.length ? blue[blue.length - 1].n : '');
     if (key === el._key) return;
     el._key = key;
+    // What each team's curriculum has PAID. Summed from the same per-claim
+    // `g` the rows print, so header and subheads can never disagree.
+    var paidOf = function (claims) {
+      var paid = 0;
+      for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
+      return paid;
+    };
+    var redPaid = paidOf(red), bluePaid = paidOf(blue);
+    // The header IS the panel now: counts + paid totals on one line is the
+    // durable, state-driven, seek-safe read. The body ledger is the
+    // exception behind the caret; live claims land as corner toasts.
     var html = '<button type="button" class="ach-head" data-act="toggle"' +
       ' aria-expanded="' + (achOpen ? 'true' : 'false') + '">' +
       '<span class="ach-caret">' + (achOpen ? '▾' : '▸') + '</span>' +
       ' ACHIEVEMENTS  <span class="red">RED ' + red.length + '/' + ACH_TOTAL +
+      (redPaid ? ' +' + redPaid + 'g' : '') +
       '</span> · <span class="blue">BLUE ' + blue.length + '/' + ACH_TOTAL +
+      (bluePaid ? ' +' + bluePaid + 'g' : '') +
       '</span></button>';
     html += '<div class="ach-body">';
     [['red', red], ['blue', blue]].forEach(function (pair) {
       var team = pair[0], claims = pair[1];
-      // What this team's curriculum has PAID. Summed from the same per-claim
-      // `g` the rows print, so the subhead can never disagree with them.
-      var paid = 0;
-      for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
+      var paid = paidOf(claims);
       html += '<div class="ach-team ' + team + '">' + team.toUpperCase() +
         '<span class="ach-sub">  ' + claims.length + ' of ' + ACH_TOTAL +
         (paid ? '  ·  +' + paid + 'g' : '') + '</span></div>';
@@ -3735,38 +3767,23 @@ body[data-embed] #board { top: 0; height: 100%; }
     pushFeed(row);
   }
 
-  // An achievement claim. ONE lane now: the kill feed, plus the scrubber mark
-  // applyEvent already sets. The banner lane is gone deliberately — the claim
-  // is popped OVER THE COG THAT EARNED IT, sim-side (sim.gloryPops, drawn by
-  // global.addGloryPops), and a top-middle toast saying the same words a
-  // moment later just pulls the eye off the cog the pop is pointing at. The
-  // feed is the durable record, the pop is the moment, the panel is the state.
-  //
-  // `e.slot` is the join slot of the cog whose counters satisfied the tier, or
-  // -1 for a team tree (treeSquad) that no single cog can own — those file
-  // under the team, which is exactly what they are.
+  // An achievement claim. ONE transient lane: the claiming team's corner
+  // TOAST, plus the scrubber mark applyEvent already sets. The banner lane is
+  // gone deliberately — the claim is popped OVER THE COG THAT EARNED IT,
+  // sim-side (sim.gloryPops, drawn by global.addGloryPops), and a top-middle
+  // toast saying the same words a moment later just pulls the eye off the cog
+  // the pop is pointing at. The KILL FEED row this used to push is gone too:
+  // the blue toast lane stacks directly above the feed's reserve, so feeding
+  // the same claim into both would double the record in one corner — the feed
+  // is kills again, the pop is the moment and the pointer, the toast is the
+  // corner record, the panel header is the state.
   function onAchievement(e, s) {
-    var stars = new Array((e.tier || 0) + 2).join('*');
     var team = e.team === 'red' ? 'red' : 'blue';
-    var slot = (typeof e.slot === 'number') ? e.slot : -1;
-    var who = slot >= 0 ? shortName(rosterName(s, slot)) : team.toUpperCase();
     // A FIRST (first team in the Episode to complete that tier) or a deep tier
     // still gets the heartbeat pulse: it is a rarer moment and the transport
     // should say so. It just no longer takes over the top of the frame.
     if (e.first || (e.tier || 0) >= 3) beatPulse();
-    var row = document.createElement('div');
-    row.className = 'feed-row';
-    row.innerHTML = '<span class="who ' + team + '">' + esc(who) + '</span>' +
-      '<span class="ach-title">' + esc(e.name) + '</span>' +
-      '<span class="badge">' + esc(stars) +
-      (e.first ? ' FIRST' : '') + ' +' + (e.glory || 0) + 'g</span>';
-    pushFeed(row);
-    // At the #stage.tiny floor the board-rendered claim chip is ~3-4 screen px
-    // — illegible. Hand the SAME one line ("NAME +Ng", gloryPopText's exact
-    // vocabulary: name uppercased, the payout keeping its unit) to the DOM
-    // stand-in lane, which renders only at that breakpoint. achChip() itself
-    // gates on .tiny so a full-size frame never double-shouts the claim.
-    achChip(String(e.name || '').toUpperCase() + ' +' + (e.glory || 0) + 'g', !!e.first);
+    achToast(team, e);
   }
 
   function onSteal(e, s) {
@@ -3887,57 +3904,54 @@ body[data-embed] #board { top: 0; height: 100%; }
     });
   }
 
-  // ---------- tiny-stage claim chip lane (one at a time, short dwell) ----------
+  // ---------- per-team claim toast lanes (chat stacks, ~4s fade) ----------
   // Event-driven transient FX like the feed and the banner lane above; cleared
   // by the SAME jump guard (see the `jumped` block in onFrame), so a seek or a
-  // loop can never leave a phantom claim on screen.
-  var achTinyEl = $('achtiny');
-  var achChipQueue = [];
-  var achChipBusy = false;
-  var achChipGen = 0; // bumped by clearAchChips so a cleared chip's pending
-                      // timers can't un-busy a lane that has since moved on
+  // loop can never leave a phantom claim on screen. Chat-style per team: RED
+  // stacks in the bottom-left, BLUE in the bottom-right above the killfeed's
+  // reserve. Newest APPENDS at the bottom and the stack grows upward; each
+  // toast holds the 'achtoast' dwell floor (~4s) then fades; over the visible
+  // cap the OLDEST fades early, so a burst reads as scrolling chat, not a wall.
+  var achToastLanes = { red: $('achtoast-red'), blue: $('achtoast-blue') };
+  var ACH_TOAST_MAX = 4; // visible cap per side
+  var achToastGen = 0;   // bumped by clearAchToasts so a cleared toast's
+                         // pending timers can't touch a lane that moved on
   var REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
-  function achChip(text, first) {
-    // Enqueue only while the stand-in is needed. At full size the board chip
-    // is legible and this lane must NOT re-become the removed claim banner.
-    if (!stage.classList.contains('tiny')) return;
-    // Small queue so a same-tick burst plays out in turn instead of
-    // overwriting mid-dwell; beyond that, keep the newest — the achievement
-    // panel and the feed are the durable record, this is the moment.
-    if (achChipQueue.length >= 4) achChipQueue.shift();
-    achChipQueue.push({ text: text, first: first });
-    pumpAchChip();
-  }
-  function pumpAchChip() {
-    if (achChipBusy || !achChipQueue.length) return;
-    achChipBusy = true;
-    var gen = achChipGen;
-    var c = achChipQueue.shift();
-    var chip = document.createElement('div');
-    chip.className = 'ach-claim-chip' + (c.first ? ' first' : '');
-    chip.textContent = c.text;
-    achTinyEl.appendChild(chip);
-    // lever 1 (animFactor cap) — but never as an inline style under reduced
-    // motion, where it would override the media rule that stills this chip.
-    if (!(REDUCED_MOTION && REDUCED_MOTION.matches))
-      chip.style.animationDuration = (250 / animFactor()) + 'ms';
-    var hold = dwellFloor('achchip'); // lever 2: wall-clock dwell floor (~2.7s)
+  function achToastLeave(t, gen) {
+    if (gen !== achToastGen || !t.parentNode || t.classList.contains('leaving')) return;
+    t.classList.add('leaving');
     setTimeout(function () {
-      if (gen !== achChipGen) return; // lane was cleared under this timer
-      chip.classList.add('leaving');
-      setTimeout(function () {
-        if (gen !== achChipGen) return;
-        if (chip.parentNode) chip.parentNode.removeChild(chip);
-        achChipBusy = false;
-        pumpAchChip();
-      }, 300);
-    }, hold);
+      if (gen === achToastGen && t.parentNode) t.parentNode.removeChild(t);
+    }, 300);
   }
-  function clearAchChips() {
-    achChipGen++;
-    achChipQueue = [];
-    achTinyEl.innerHTML = '';
-    achChipBusy = false;
+  function achToast(team, e) {
+    var lane = achToastLanes[team];
+    if (!lane) return;
+    var gen = achToastGen;
+    var t = document.createElement('div');
+    t.className = 'ach-toast ' + team + (e.first ? ' first' : '');
+    // The ledger row's exact vocabulary: stars, name, right-anchored payout.
+    t.innerHTML = '<span class="at-stars">' +
+      new Array((e.tier || 0) + 2).join('*') + '</span>' +
+      '<span class="at-name">' + esc(e.name) + '</span>' +
+      '<span class="at-pay">+' + (e.glory || 0) + 'g</span>';
+    lane.appendChild(t); // append = newest at the BOTTOM (chat order)
+    // lever 1 (animFactor cap) — but never as an inline style under reduced
+    // motion, where it would override the media rule that stills the toast.
+    if (!(REDUCED_MOTION && REDUCED_MOTION.matches))
+      t.style.animationDuration = (250 / animFactor()) + 'ms';
+    // over the cap: the oldest still-live toasts (top of the stack) fade early
+    var live = [];
+    for (var i = 0; i < lane.children.length; i++)
+      if (!lane.children[i].classList.contains('leaving')) live.push(lane.children[i]);
+    for (var k = 0; k < live.length - ACH_TOAST_MAX; k++) achToastLeave(live[k], gen);
+    var hold = dwellFloor('achtoast'); // lever 2: wall-clock ~4s chat dwell
+    setTimeout(function () { achToastLeave(t, gen); }, hold);
+  }
+  function clearAchToasts() {
+    achToastGen++;
+    if (achToastLanes.red) achToastLanes.red.innerHTML = '';
+    if (achToastLanes.blue) achToastLanes.blue.innerHTML = '';
   }
 
   // ---------- scrubber beat markers ----------
