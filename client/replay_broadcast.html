@@ -198,16 +198,68 @@ html, body {
 
 /* GLORY is the score, so the GLORY NUMERAL sits innermost (toward the center
    clock) — Maxwell's ruling. Heat's flames hug the numeral they qualify,
-   then the "Glory" label, then the team name outermost; lives is a resource
-   and rides the squad-pip row below instead (see .squad-row / .lives-mini).
-   Red's lives-line reverses so the same DOM order (num → chip → label →
-   name) mirrors correctly on both sides — verified per-plate, not assumed. */
+   then the "Glory" label, then the team name, then the achievements button
+   outermost of all — DOM-appended after the name, so it lands one step
+   further from the clock than the name itself on both plates. That is
+   deliberate, not incidental: the button now sits in the actual top corner
+   the ruling asks for (red's at the screen's far left, blue's at the far
+   right), right where a viewer's eye already lands on the team name. Lives
+   is a resource and rides the squad-pip row below instead (see .squad-row /
+   .lives-mini). Red's lives-line reverses so the same DOM order (num → chip
+   → label → name → button) mirrors correctly on both sides — verified
+   per-plate, not assumed. */
 .plate .lives-line {
   display: flex;
   align-items: baseline;
   gap: calc(6 * var(--u));
 }
 .plate.red .lives-line { flex-direction: row-reverse; }
+/* Achievements affordance — a real <button>, not a div with a click handler
+   (same a11y idiom the deleted in-match panel used): reachable by keyboard,
+   announces its own open/closed state via aria-expanded. Fine-print
+   register on purpose (paper-dim, small, no background chrome at rest) so
+   it never competes with the 26u glory numeral it stands beside — this is
+   an affordance, not a second headline. The count is driven entirely from
+   state (see renderAchievements / s.teams.*.claims), never accumulated from
+   events, so a seek can never leave it stale — the exact law the deleted
+   toast lanes and panel both followed. */
+.ach-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: calc(2 * var(--u)) calc(3 * var(--u));
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(3 * var(--u));
+  flex: none;
+  font-family: var(--pixfont);
+  /* Absolute legibility floor, same law as the deleted toast's: this row
+     lives inside #scorebug's LOCAL --u (0.8x hudscale, itself clamped to
+     0.5 at the 640x360 floor), so a bare calc() alone would print type well
+     under reading size at small embeds. */
+  font-size: max(10px, calc(9 * var(--u)));
+  color: var(--paper-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.ach-btn:hover { color: var(--paper); background: rgba(var(--paper-rgb), 0.08); }
+.ach-btn:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: calc(1 * var(--u));
+}
+.ach-btn .ach-lbl {
+  font-family: var(--finefont);
+  font-size: max(8px, calc(8 * var(--u)));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ach-btn .ach-count { font-variant-numeric: tabular-nums; }
+/* The open state reads as a quiet pressed wash, not amber — amber in this
+   HUD means glory PAID (the panel's own +Ng column), and a toggle isn't a
+   payout. */
+.ach-btn[aria-expanded="true"] { color: var(--paper); background: rgba(var(--paper-rgb), 0.1); }
 /* The demoted LIVES numeral (squad-pip row): a quiet secondary read, well
    under the glory headline it used to outrank. */
 .lives-num {
@@ -603,82 +655,97 @@ html, body {
    over play. Every line is server-composed text (see broadcast.buildStateJson's
    `insp`); the browser only styles what it is handed. */
 
-/* The achievement ledger PANEL is gone (Maxwell's ruling: the board is the
-   show — achievements are corner chat toasts, not lists parked over play).
-   Live claims: the per-team toast lanes below. Durable record: the endcard's
-   per-team Achievements line (.ec-ach). Mid-match state read: the inspector
-   card's server-composed ACHIEVEMENTS line. */
-
-/* Per-team claim toasts — fading chat lanes in the bottom corners. Each achv
-   claim spawns one compact line (stars + NAME + right-anchored payout, the
-   ledger row's exact vocabulary) in its team's corner: RED bottom-LEFT, BLUE
-   bottom-RIGHT. Chat order: newest at the bottom, the stack grows upward,
-   ~4s dwell, cap 4 visible per side with the oldest fading early. The
-   BOARD-rendered chip over the earning cog stays as the spatial pointer;
-   this is the corner record — and because it works at every stage size it
-   REPLACES the old #achtiny tiny-breakpoint stand-in outright (one system,
-   all sizes, per-team).
-   Corner tenants: every bottom anchor rides --band (the transport's MEASURED
-   height, written by relayout) — a fixed offset went stale the moment the
-   glory lane grew the band, and parked this lane ON the transport buttons.
-   RED sits 8u above the band, over the FPV pip's default berth (acceptable
-   overlap — the pip is draggable); BLUE also clears the killfeed's reserve
-   (band + 8u feed bottom + 88u four-row reserve + 8u air). */
-#achtoast-red, #achtoast-blue {
+/* The achievement ledger PANEL is back, in a different shape (Maxwell's
+   ruling, third pass): the board is still the show, so no achievements
+   surface may run unattended over play — the corner chat toasts are gone
+   outright. In their place: a minimal button beside each team's name (see
+   .ach-btn on .lives-line) that starts collapsed and opens THIS panel,
+   anchored under the plate it belongs to. Live claims: the board-rendered
+   chip over the earning cog stays the spatial pointer (unchanged, styled
+   elsewhere). Durable record: the endcard's per-team Achievements line
+   (.ec-ach). Mid-match state read: the inspector card's server-composed
+   ACHIEVEMENTS line, and now this panel on demand.
+   RED drops top-left (RED's name is the outermost element of its plate, at
+   the screen's left edge), BLUE top-right (mirrored) — see renderAchievements
+   for the state-driven build, and #chrome > * for why pointer-events reach
+   it despite living outside #scorebug. #inspector already claims this same
+   top-right real estate when a cog is hovered; both are on-demand and
+   dismissible, so the rare simultaneous overlap is an acceptable trade for
+   anchoring the ledger where its own trigger button lives, not in a third
+   corner nobody would look for it in. */
+.ach-panel {
   position: absolute;
-  display: flex;
-  flex-direction: column;
-  gap: calc(4 * var(--u));
-  z-index: 11;
-  pointer-events: none;
+  top: calc(var(--topband, 0px) + 6 * var(--u));
+  z-index: 13;
+  display: none;
+  width: max-content;
+  max-width: calc(210 * var(--u));
+  /* Bounded by the STAGE, not a flat guess: never lets the ledger reach the
+     transport band no matter how many claims a team banks. Below that soft
+     ceiling, overflow-y:auto is the backstop — see ACH_ROWS_MAX for why the
+     row-count cap it backs up almost never needs it. */
+  max-height: calc(100% - var(--topband, 0px) - var(--band, 0px) - 16 * var(--u));
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: calc(6 * var(--u)) calc(9 * var(--u));
+  background: rgba(var(--stage-lo-rgb), 0.92);
+  box-shadow: 0 0 0 1px rgba(var(--paper-rgb), 0.14);
+  font-family: var(--pixfont);
+  /* Same absolute legibility floor the deleted toast used: --u bottoms out
+     at 0.5 (lower still if this were scorebug-scoped, which it isn't), and
+     this panel must stay readable at the 640x360 floor. */
+  font-size: max(10px, calc(8 * var(--u)));
+  line-height: 1.4;
+  color: var(--paper-dim);
+  text-align: left;
+  pointer-events: auto;
 }
-#achtoast-red { left: calc(12 * var(--u)); bottom: calc(var(--band, 0px) + 8 * var(--u)); align-items: flex-start; }
-#achtoast-blue { right: calc(12 * var(--u)); bottom: calc(var(--band, 0px) + 104 * var(--u)); align-items: flex-end; }
-.ach-toast {
+.ach-panel.open { display: block; }
+#achpanel-red { left: calc(12 * var(--u)); }
+#achpanel-blue { right: calc(12 * var(--u)); }
+.ach-panel .ach-pnl-head {
+  font-size: max(11px, calc(9 * var(--u)));
+  letter-spacing: 0.06em;
+  color: var(--paper);
+  margin-bottom: calc(4 * var(--u));
+  white-space: nowrap;
+}
+.ach-panel .ach-pnl-head .team { letter-spacing: 0.08em; }
+#achpanel-red .ach-pnl-head .team { color: var(--red); }
+#achpanel-blue .ach-pnl-head .team { color: var(--blue); }
+.ach-panel .ach-pnl-head .amber { color: var(--amber); }
+/* A row is stars, NAME, an optional FIRST marker, then +Ng right-anchored —
+   the same vocabulary the deleted toast used, minus the toast's amber
+   stars: amber is reserved for what glory PAID (the payout column here),
+   never for a difficulty marker. */
+.ach-panel .ach-row {
   display: flex;
   align-items: baseline;
   gap: calc(6 * var(--u));
-  min-width: calc(118 * var(--u));
-  max-width: calc(210 * var(--u));
-  padding: calc(3 * var(--u)) calc(7 * var(--u));
-  background: rgba(var(--stage-lo-rgb), 0.88);  /* GloryChipFillInk @ FillAlpha */
-  box-shadow: 0 0 0 1px rgba(var(--amber-rgb), 0.8); /* GloryChipEdgePx */
-  font-family: var(--pixfont);
-  /* Absolute legibility floor inherited from the deleted #achtiny chip: --u
-     bottoms out at 0.5, and this toast is now the claim's only off-board
-     record at the 640x360 floor — it must never scale below reading size. */
-  font-size: max(11px, calc(8 * var(--u)));
-  line-height: 1.2;
-  white-space: nowrap;
-  animation: feedin 250ms cubic-bezier(.2,1.3,.5,1);
+  padding: calc(1.5 * var(--u)) 0;
 }
-.ach-toast.leaving { animation: feedout 260ms ease-in forwards; }
-/* the red lane hugs the LEFT edge, so its slide mirrors to enter from it */
-#achtoast-red .ach-toast { animation-name: achchipin; }
-#achtoast-red .ach-toast.leaving { animation-name: achchipout; }
-.ach-toast .at-stars { color: var(--amber); letter-spacing: 0.06em; }
-.ach-toast .at-name {
+.ach-panel .ach-stars { flex: none; color: var(--paper-dim); letter-spacing: 0.06em; }
+.ach-panel .ach-name {
   flex: 1 1 auto;
-  min-width: 0; /* load-bearing, same as the panel rows: the payout must be
-                   the LAST thing to go, never the first */
+  /* min-width:0 is load-bearing: a flex child defaults to min-width:auto and
+     could otherwise never shrink, pushing the amber payout out of the panel
+     — the payout must be the LAST thing to go, never the first. */
+  min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--paper);
 }
-.ach-toast.red .at-name { color: var(--red); }
-.ach-toast.blue .at-name { color: var(--blue); }
-.ach-toast .at-pay { flex: none; margin-left: auto; color: var(--amber); font-variant-numeric: tabular-nums; }
-/* A FIRST claim keeps the board chip's exact distinction: the whole line in
-   the hotter gold-white (GloryChipFirstInk, 250,222,156 — deliberately not a
-   :root token; it exists to match the sim constant, nothing else may use it)
-   plus the thicker edge (GloryChipFirstEdgePx). No wordmark, same words. */
-.ach-toast.first, .ach-toast.first .at-stars, .ach-toast.first .at-name,
-.ach-toast.first .at-pay { color: rgb(250, 222, 156); }
-.ach-toast.first { box-shadow: 0 0 0 2px rgba(250, 222, 156, 0.8); }
-/* feedin/feedout's overshoot-and-settle idiom, mirrored to slide from the
-   LEFT edge the red lane is anchored to (blue rides feedin/feedout as-is). */
-@keyframes achchipin { from { transform: translateX(calc(-30 * var(--u))); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes achchipout { to { opacity: 0; transform: translateX(calc(-14 * var(--u))); } }
+.ach-panel .ach-first {
+  color: var(--paper);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid rgba(var(--paper-rgb), 0.4);
+}
+.ach-panel .ach-pay { flex: none; margin-left: auto; color: var(--amber); font-variant-numeric: tabular-nums; }
+/* The overflow line. A CSS clip here would say "that is all of them" — the
+   one thing a bounded panel must never say without meaning it. */
+.ach-panel .ach-more, .ach-panel .ach-none { color: var(--paper-dim); opacity: 0.72; }
 
 #inspector {
   display: none;
@@ -1468,6 +1535,11 @@ html, body {
 /* very small floor (≤620px stage): tighten reserves */
 #stage.tiny #killfeed { min-height: calc(3 * 20 * var(--u)); width: calc(190 * var(--u)); }
 #stage.tiny .plate .squad-pip { width: calc(6 * var(--u)); height: calc(6 * var(--u)); }
+/* The achievements BUTTON stays at every size (Maxwell: "the button stays,
+   it is minimal") — only the OPEN panel needs help at the 640x360 floor,
+   where the stage-relative max-height/width calc()s alone would starve it.
+   Absolute px floors, same law as the button's own font-size max(). */
+#stage.tiny .ach-panel { max-width: max(150px, calc(180 * var(--u))); }
 /* At the embed floor a FULL card (rank/buffs/every deed counter/the
    achievement ledger) would cover ~a quarter of the frame at unreadable
    size, over live play. Below the same 620px threshold the killfeed uses,
@@ -1523,7 +1595,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
   .plate.leader .lives-num.glory { animation: none; }
-  .banner-chip, .banner-chip .slam-rule, .feed-row, .ach-toast,
+  .banner-chip, .banner-chip .slam-rule, .feed-row,
   .mg-splash, .mg-box .mg-rule, .mg-line { animation-duration: 1ms; animation-delay: 0ms; }
 }
 
@@ -1557,14 +1629,22 @@ body[data-embed] #board { top: 0; height: 100%; }
         <div class="flagicon" id="flag-red"></div>
         <div class="team-id">
           <!-- GLORY IS THE SCORE: numeral innermost against the clock, flames
-               hugging it, then the label, then the name outermost (e.g.
-               "🔥940 Glory RED" reading out from center). Lives is a
+               hugging it, then the label, then the name, then the
+               achievements button outermost of all (e.g.
+               "🔥940 Glory RED ▸ACH11" reading out from center). Lives is a
                resource now, demoted to the squad-pip row below. -->
           <div class="lives-line">
             <span class="lives-num glory" id="glory-red">—</span>
             <span class="heat-chip" id="heat-red"></span>
             <span class="lives-label">Glory</span>
             <span class="team-name" id="name-red">RED</span>
+            <!-- Achievements: collapsed by default, opens .ach-panel below
+                 (state-driven from s.teams.red.claims — see
+                 renderAchievements). -->
+            <button type="button" class="ach-btn" id="achbtn-red"
+                aria-expanded="false" aria-controls="achpanel-red" title="RED achievements">
+              <span class="ach-caret" aria-hidden="true">▸</span><span class="ach-lbl">ACH</span><span class="ach-count" id="achcount-red">0</span>
+            </button>
           </div>
           <!-- squad-row: one pip per player (8) — alive / down / eliminated,
                the roster IS the counter (Valorant/R6/Apex), clickable → POV
@@ -1592,14 +1672,19 @@ body[data-embed] #board { top: 0; height: 100%; }
       <div class="plate blue" data-team="blue">
         <div class="flagicon" id="flag-blue"></div>
         <div class="team-id">
-          <!-- Mirrored: numeral innermost, flames, label, name outermost
-               ("940🔥 Glory BLUE" reading out from center). Same demotion
-               as red — see above. -->
+          <!-- Mirrored: numeral innermost, flames, label, name, then the
+               achievements button outermost of all ("940🔥 Glory BLUE
+               ACH11▸" reading out from center). Same demotion as red, same
+               button — see above. -->
           <div class="lives-line">
             <span class="lives-num glory" id="glory-blue">—</span>
             <span class="heat-chip" id="heat-blue"></span>
             <span class="lives-label">Glory</span>
             <span class="team-name" id="name-blue">BLUE</span>
+            <button type="button" class="ach-btn" id="achbtn-blue"
+                aria-expanded="false" aria-controls="achpanel-blue" title="BLUE achievements">
+              <span class="ach-caret" aria-hidden="true">▸</span><span class="ach-lbl">ACH</span><span class="ach-count" id="achcount-blue">0</span>
+            </button>
           </div>
           <div class="squad-row">
             <div class="squad" id="squad-blue"></div>
@@ -1622,11 +1707,12 @@ body[data-embed] #board { top: 0; height: 100%; }
          server-side by global.inspectorLines and shipped as finished lines —
          glory.nim stays the single source of every number. -->
     <div id="inspector"></div>
-    <!-- Per-team claim toast lanes: fading chat stacks in the bottom corners
-         (red LEFT, blue RIGHT — see the .ach-toast CSS for the geometry).
-         Transient event FX, cleared by the same jump guard as the feed. -->
-    <div id="achtoast-red"></div>
-    <div id="achtoast-blue"></div>
+    <!-- Per-team achievements ledger: collapsed by default, opened by the
+         button beside that team's name (#achbtn-red / #achbtn-blue). RED
+         drops top-left, BLUE top-right — see the .ach-panel CSS for the
+         geometry and renderAchievements for the state-driven build. -->
+    <div class="ach-panel" id="achpanel-red"></div>
+    <div class="ach-panel" id="achpanel-blue"></div>
     <!-- First-person picture-in-picture: the selected seat's Wolfenstein-style
          raycast view, shown only while a player is in POV. A window into what
          that soldier sees down the barrel, riding alongside their top-down fog.
@@ -1829,7 +1915,10 @@ body[data-embed] #board { top: 0; height: 100%; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, achtoast: 4000 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600 };
+  // Reduced-motion signal: read by the glory odometer (rolls only under full
+  // motion; reduced-motion always snaps) — see setGloryTarget below.
+  var REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -1988,7 +2077,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
     if (jumped) {
-      clearFeed(); clearBanners(); clearAchToasts(); resetGloryRoll();
+      clearFeed(); clearBanners(); resetGloryRoll();
       // The verdict chip has no other clearing path (setVerdict early-returns
       // on a liveless frame), so without this a looping replay spoils its own
       // ending from tick 0 of the second loop onward.
@@ -1998,6 +2087,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     lastFf = !!s.ff;
 
     renderScorebug(s);
+    renderAchievements(s);
     renderClock(s);
     renderTransport(s);
     renderPov(s);
@@ -3645,23 +3735,20 @@ body[data-embed] #board { top: 0; height: 100%; }
     pushFeed(row);
   }
 
-  // An achievement claim. ONE transient lane: the claiming team's corner
-  // TOAST, plus the scrubber mark applyEvent already sets. The banner lane is
-  // gone deliberately — the claim is popped OVER THE COG THAT EARNED IT,
-  // sim-side (sim.gloryPops, drawn by global.addGloryPops), and a top-middle
-  // toast saying the same words a moment later just pulls the eye off the cog
-  // the pop is pointing at. The KILL FEED row this used to push is gone too:
-  // the blue toast lane stacks directly above the feed's reserve, so feeding
-  // the same claim into both would double the record in one corner — the feed
-  // is kills again, the pop is the moment and the pointer, the toast is the
-  // corner record, the panel header is the state.
+  // An achievement claim. The corner toast lane is gone (Maxwell's ruling,
+  // third pass): the claim is popped OVER THE COG THAT EARNED IT, sim-side
+  // (sim.gloryPops, drawn by global.addGloryPops) — that pop stays the one
+  // transient moment. The durable record is now the per-team button + panel
+  // beside each name, and it is entirely STATE-driven off s.teams.*.claims
+  // (see renderAchievements, called every frame from onFrame) rather than
+  // built from this event — so a seek or a loop can never desync the count
+  // or the list, the same law the deleted toast lane and panel both
+  // followed. This handler's only remaining job is the heartbeat pulse.
   function onAchievement(e, s) {
-    var team = e.team === 'red' ? 'red' : 'blue';
     // A FIRST (first team in the Episode to complete that tier) or a deep tier
     // still gets the heartbeat pulse: it is a rarer moment and the transport
     // should say so. It just no longer takes over the top of the frame.
     if (e.first || (e.tier || 0) >= 3) beatPulse();
-    achToast(team, e);
   }
 
   function onSteal(e, s) {
@@ -3809,55 +3896,85 @@ body[data-embed] #board { top: 0; height: 100%; }
     });
   }
 
-  // ---------- per-team claim toast lanes (chat stacks, ~4s fade) ----------
-  // Event-driven transient FX like the feed and the banner lane above; cleared
-  // by the SAME jump guard (see the `jumped` block in onFrame), so a seek or a
-  // loop can never leave a phantom claim on screen. Chat-style per team: RED
-  // stacks in the bottom-left, BLUE in the bottom-right above the killfeed's
-  // reserve. Newest APPENDS at the bottom and the stack grows upward; each
-  // toast holds the 'achtoast' dwell floor (~4s) then fades; over the visible
-  // cap the OLDEST fades early, so a burst reads as scrolling chat, not a wall.
-  var achToastLanes = { red: $('achtoast-red'), blue: $('achtoast-blue') };
-  var ACH_TOAST_MAX = 4; // visible cap per side
-  var achToastGen = 0;   // bumped by clearAchToasts so a cleared toast's
-                         // pending timers can't touch a lane that moved on
-  var REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
-  function achToastLeave(t, gen) {
-    if (gen !== achToastGen || !t.parentNode || t.classList.contains('leaving')) return;
-    t.classList.add('leaving');
-    setTimeout(function () {
-      if (gen === achToastGen && t.parentNode) t.parentNode.removeChild(t);
-    }, 300);
+  // ---------- per-team achievements ledger (button + drop-down) ----------
+  // STATE-driven, like the deleted panel and unlike the deleted toast lane:
+  // rebuilt from s.teams.*.claims every frame (called from onFrame), keyed
+  // on claim count + the last claim's tick so a no-op frame is a no-op
+  // rebuild. A seek or a loop can never desync the count or the list — there
+  // is no accumulated/event-driven state here to go stale. Open/closed is
+  // local UI state per team, untouched by the jump guard on purpose: closing
+  // the panel on every seek would be its own kind of desync.
+  var achOpen = { red: false, blue: false };
+  function claimsPaid(claims) {
+    var paid = 0;
+    for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
+    return paid;
   }
-  function achToast(team, e) {
-    var lane = achToastLanes[team];
-    if (!lane) return;
-    var gen = achToastGen;
-    var t = document.createElement('div');
-    t.className = 'ach-toast ' + team + (e.first ? ' first' : '');
-    // The ledger row's exact vocabulary: stars, name, right-anchored payout.
-    t.innerHTML = '<span class="at-stars">' +
-      new Array((e.tier || 0) + 2).join('*') + '</span>' +
-      '<span class="at-name">' + esc(e.name) + '</span>' +
-      '<span class="at-pay">+' + (e.glory || 0) + 'g</span>';
-    lane.appendChild(t); // append = newest at the BOTTOM (chat order)
-    // lever 1 (animFactor cap) — but never as an inline style under reduced
-    // motion, where it would override the media rule that stills the toast.
-    if (!(REDUCED_MOTION && REDUCED_MOTION.matches))
-      t.style.animationDuration = (250 / animFactor()) + 'ms';
-    // over the cap: the oldest still-live toasts (top of the stack) fade early
-    var live = [];
-    for (var i = 0; i < lane.children.length; i++)
-      if (!lane.children[i].classList.contains('leaving')) live.push(lane.children[i]);
-    for (var k = 0; k < live.length - ACH_TOAST_MAX; k++) achToastLeave(live[k], gen);
-    var hold = dwellFloor('achtoast'); // lever 2: wall-clock ~4s chat dwell
-    setTimeout(function () { achToastLeave(t, gen); }, hold);
+  // Bounded by ROW COUNT, not a silent CSS clip (the file's standing rule: a
+  // cut list has to say so). 14 rows + the stated "+N more" line comfortably
+  // clears the panel's stage-relative max-height at every hudscale this side
+  // of the 640x360 floor; overflow-y:auto on .ach-panel is the backstop if a
+  // future curriculum ever grows past that.
+  var ACH_ROWS_MAX = 14;
+  function renderAchievements(s) {
+    var tr = (s && s.teams) || {};
+    ['red', 'blue'].forEach(function (team) {
+      var btn = $('achbtn-' + team), panel = $('achpanel-' + team);
+      if (!btn || !panel) return;
+      var claims = (tr[team] && tr[team].claims) || [];
+      var last = claims.length ? claims[claims.length - 1] : null;
+      var key = claims.length + '|' + (last ? (last.tk != null ? last.tk : last.n) : '');
+      if (btn._key === key) return; // no change since the last frame
+      btn._key = key;
+      var countEl = $('achcount-' + team);
+      if (countEl) countEl.textContent = claims.length;
+      // Sorted by SIZE/DIFFICULTY (Maxwell's ruling): tier — the star count
+      // — descending, then payout descending within a tier. Never claim
+      // order; the ledger reads biggest-first, not newest-first.
+      var sorted = claims.slice().sort(function (a, b) {
+        return (b.t || 0) - (a.t || 0) || (b.g || 0) - (a.g || 0);
+      });
+      var paid = claimsPaid(claims);
+      var html = '<div class="ach-pnl-head"><span class="team">' +
+        team.toUpperCase() + '</span> ' + claims.length + '/' + ACH_TOTAL +
+        (paid ? ' &middot; <span class="amber">+' + paid + 'g</span>' : '') +
+        '</div>';
+      var shown = Math.min(sorted.length, ACH_ROWS_MAX);
+      for (var i = 0; i < shown; i++) {
+        var c = sorted[i];
+        html += '<div class="ach-row"><span class="ach-stars">' +
+          new Array((c.t || 1) + 1).join('*') + '</span>' +
+          '<span class="ach-name">' + esc(c.n) +
+          (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</span>' +
+          '<span class="ach-pay">+' + (c.g || 0) + 'g</span></div>';
+      }
+      if (sorted.length > shown) {
+        html += '<div class="ach-row ach-more"><span class="ach-name">+ ' +
+          (sorted.length - shown) + ' more</span></div>';
+      }
+      if (!sorted.length) {
+        html += '<div class="ach-row ach-none"><span class="ach-name">none yet</span></div>';
+      }
+      panel.innerHTML = html;
+    });
   }
-  function clearAchToasts() {
-    achToastGen++;
-    if (achToastLanes.red) achToastLanes.red.innerHTML = '';
-    if (achToastLanes.blue) achToastLanes.blue.innerHTML = '';
+  function setAchOpen(team, open) {
+    achOpen[team] = open;
+    var btn = $('achbtn-' + team), panel = $('achpanel-' + team);
+    if (!btn || !panel) return;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    var caret = btn.querySelector('.ach-caret');
+    if (caret) caret.textContent = open ? '▾' : '▸';
+    panel.classList.toggle('open', open);
   }
+  ['red', 'blue'].forEach(function (team) {
+    var btn = $('achbtn-' + team);
+    if (!btn) return;
+    // The button toggle alone is sufficient (no outside-click handler): a
+    // second click on the same button, or the other team's button, closes
+    // it just as readily as clicking away would.
+    btn.addEventListener('click', function () { setAchOpen(team, !achOpen[team]); });
+  });
 
   // ---------- scrubber beat markers ----------
   var scrubEl = $('scrub');
