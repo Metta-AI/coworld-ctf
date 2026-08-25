@@ -1,0 +1,15 @@
+{"tick":0,"kind":"phase","source":-1,"target":-1,"weapon":"playing","amount":1,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":100,"kind":"damage","source":0,"target":1,"weapon":"gun","amount":1,"hp":2,"blocked":0,"x":10.0,"y":10.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":120,"kind":"achievement","source":0,"target":-1,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"pacifist","damages":[],"deed":"pacifist","level":3}
+{"tick":150,"kind":"damage","source":1,"target":0,"weapon":"gun","amount":1,"hp":2,"blocked":0,"x":11.0,"y":11.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":200,"kind":"damage","source":0,"target":1,"weapon":"gun","amount":1,"hp":1,"blocked":0,"x":12.0,"y":12.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":210,"kind":"damage","source":-1,"target":0,"weapon":"puddle","amount":1,"hp":0,"blocked":0,"x":12.0,"y":12.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":220,"kind":"damage","source":2,"target":2,"weapon":"grenade","amount":1,"hp":0,"blocked":0,"x":13.0,"y":13.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":300,"kind":"damage","source":0,"target":2,"weapon":"gun","amount":1,"hp":2,"blocked":0,"x":14.0,"y":14.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":400,"kind":"damage","source":1,"target":3,"weapon":"gun","amount":1,"hp":2,"blocked":0,"x":15.0,"y":15.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":800,"kind":"damage","source":0,"target":1,"weapon":"gun","amount":2,"hp":0,"blocked":0,"x":16.0,"y":16.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":800,"kind":"kill","source":0,"target":1,"weapon":"gun","amount":2,"hp":-1,"blocked":0,"x":16.0,"y":16.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":800,"kind":"death","source":1,"target":0,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":16.0,"y":16.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":810,"kind":"glory_deed","source":0,"target":-1,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[],"deedKind":"revenge","xp":40}
+{"tick":850,"kind":"phase","source":-1,"target":-1,"weapon":"gameover","amount":2,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"type":"summary","ticks":900,"events":14,"gameVersion":"99","gloryVersion":"1","finished":true,"draw":false,"winner":"red","slot_address":["softmaxwell","relh","softmaxwell (2)","Baseline"],"slot_team":["red","blue","red","blue"],"slot_shots_fired":[10,8,5,6],"slot_shots_hit":[5,4,2,3]}
