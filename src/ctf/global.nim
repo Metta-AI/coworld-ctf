@@ -6396,8 +6396,8 @@ proc addZoneMarkers(
 ## that proc, which is the only thing that reads them.)
 
 var
-  ZoneTideCacheKey: tuple[tick, cx, cy, x, y, w, h: int] = (
-    low(int), 0, 0, 0, 0, 0, 0)
+  ZoneTideCacheKey: tuple[cx, cy, x, y, w, h: int] = (
+    low(int), 0, 0, 0, 0, 0)
   ZoneTideCachePixels: array[4, seq[uint8]]  ## top, bottom, left, right.
   ZoneTideCacheGeom: array[4, tuple[x, y, w, h: int]]
   ZoneWallArtMaskKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
@@ -6778,16 +6778,34 @@ proc buildTideBarPixels(
       result.putRawRgbaPixel(
         ly * width + lx, color.r, color.g, color.b, color.a)
 
-proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
-  ## Rebuilds the four tide-bar pixel buffers ONCE per (tick, center, rect)
-  ## and caches them at module scope — addZoneEdgeBand runs once per
+proc ensureZoneTideCache(sim: SimServer, rect: MapRect): bool {.discardable.} =
+  ## Rebuilds the four tide-bar pixel buffers when (center, rect) actually
+  ## CHANGES and caches them at module scope — addZoneEdgeBand runs once per
   ## CONNECTED VIEWER per tick (board stream plus every player stream), and
   ## without this cache each of those calls would redo the same flood-fill
   ## computation. Same pattern as EndzoneStripCache/EndzoneColdRgba above:
   ## process-local cosmetic cache, never gameHash, never SimServer state.
-  ## Keyed on the rect itself (not just tick) so a fresh game's re-drawn
-  ## zoneCenter — or a stale cache from a PRIOR game reusing the same raw
-  ## tick number — can never serve a wrong frame.
+  ## Returns true on an actual rebuild (a cache MISS), false on a hit, so
+  ## the caller can propagate an honest `changed` flag to the wire instead
+  ## of claiming "changed" on every call.
+  ##
+  ## Maxwell (2026-08-24): "the replay is way too laggy to watch." The key
+  ## used to include `sim.tickCount`, which is a DIFFERENT value on every
+  ## single tick by definition — so despite the doc claiming "once per
+  ## (tick, center, rect)", this was a cache that could only ever hit
+  ## WITHIN one tick (deduping multiple viewers), never ACROSS ticks, even
+  ## during a zonePhases "wait" window where the rect sits perfectly still
+  ## for hundreds of ticks (roughly half the match's duration, see
+  ## record_br_match.sh's waitTicks/shrinkTicks table). That meant the full
+  ## multi-octave meniscus repaint — up to the whole board's worth of
+  ## pixels — ran EVERY tick, for nothing: the design's own stated
+  ## invariant is that identical (center, rect) always produces identical
+  ## pixels ("a splat that has appeared stay exactly as it is"), which is
+  ## exactly what a (center, rect)-only key gives for free. Tick was never
+  ## load-bearing for correctness — the same-numbers-from-a-different-game
+  ## worry the old comment raised is already covered by (center, rect)
+  ## matching, and if it ever did coincide, the cached pixels would be
+  ## correct for that geometry by the same invariant, not stale.
   ##
   ## Each bar spans EXACTLY the strip strictly outside the current rect on
   ## its side, all the way to the map's own edge — the top/bottom bars run
@@ -6811,11 +6829,11 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
   ## MapBandHeight above) — this cosmetic layer does not need that
   ## treatment.
   let key = (
-    sim.tickCount, sim.zoneCenter.x, sim.zoneCenter.y,
+    sim.zoneCenter.x, sim.zoneCenter.y,
     rect.x, rect.y, rect.w, rect.h
   )
   if key == ZoneTideCacheKey:
-    return
+    return false
   ZoneTideCacheKey = key
   ensureZoneWallArtMask(sim)  ## a no-op past the first call for this map.
   ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
@@ -6839,6 +6857,7 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
         @[]
       else:
         buildTideBarPixels(sim, rect, bar.x, bar.y, bar.w, bar.h)
+  true
 
 proc addZoneEdgeBand(
   sim: SimServer,
@@ -6853,10 +6872,27 @@ proc addZoneEdgeBand(
   ## parsing the label markers. A bar with zero extent (the rect currently
   ## touches or exceeds that side of the map) is skipped rather than
   ## emitted as a degenerate empty sprite.
+  when defined(zonePaintOff):
+    ## Diagnostic-only build flag (never shipped default-on): emits none of
+    ## the zone-paint sprites at all, for an apples-to-apples viewer
+    ## frame-time A/B against a normal build on the SAME replay/ticks —
+    ## Maxwell's "the replay is way too laggy" report needed attribution
+    ## before any optimization, per the fleet-load-corrupts-timings rule
+    ## (the dev machine runs many agents at once; an unattributed slowdown
+    ## could just as easily be load as this layer).
+    return
   if sim.config.zonePhases.len == 0:
     return
   let (rect, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
-  ensureZoneTideCache(sim, rect)
+  # `rebuilt` is true only on a cache MISS (center/rect actually moved this
+  # tick). Passing that through as `changed` — rather than an unconditional
+  # `true` — lets addBoardSpriteChanged's own dedup check skip the upscale
+  # and wire re-encode on every tick a "wait" phase holds the rect still
+  # (roughly half the match by ticks): Maxwell's "the replay is way too
+  # laggy" report traced partly to this sprite being marked changed, and
+  # therefore re-uploaded, on EVERY tick regardless of whether its pixels
+  # had moved at all.
+  let rebuilt = ensureZoneTideCache(sim, rect)
   for i in 0 ..< 4:
     let (bx, by, w, h) = ZoneTideCacheGeom[i]
     if w <= 0 or h <= 0:
@@ -6867,7 +6903,7 @@ proc addZoneEdgeBand(
     currentIds.add(objectId)
     packet.addBoardSpriteChanged(
       spriteDefs, spriteId, w, h, ZoneTideCachePixels[i],
-      ZoneEdgeFxLabelTag & " " & $i, changed = true
+      ZoneEdgeFxLabelTag & " " & $i, changed = rebuilt
     )
     packet.addBoardObject(objectId, bx, by, ZoneEdgeBandZ, MapLayerId, spriteId)
 
