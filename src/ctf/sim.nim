@@ -4916,19 +4916,20 @@ proc resetPlasmaArcs*(sim: var SimServer) =
     sim.players[i].arcTicksLeft = 0
     sim.players[i].arcHitMask = 0
 
-proc startGame*(sim: var SimServer) =
-  sim.logGameEvent("game started: players=" & $sim.players.len)
-  sim.recentShots = @[]
-  sim.hitFlashes = @[]
-  sim.bubbleImpacts = @[]
-  sim.splatters = @[]
-  sim.damagePops = @[]
-  sim.gloryPops = @[]
-  sim.recentShouts = @[]
-  sim.arrangeHomePositions()
-  # GLORY: every ledger, multiplier and one-shot resets at the game boundary.
-  # A per-episode economy that leaks across games would make the first game's
-  # heat and achievement claims silently price the second one.
+proc resetGloryLedger*(sim: var SimServer) =
+  ## Zeroes every TEAM/GAME-level glory field: the ledger, its rampage state,
+  ## the one-shot claim gates, the fire-counter audit and the cosmetic pop
+  ## queue. Deliberately does NOT touch per-player counters -- those are
+  ## either reset by `startGame`'s own per-player loop (a fresh episode) or
+  ## moot because `resetToLobby` clears `sim.players` outright (a fresh
+  ## roster has nothing to reset).
+  ##
+  ## Called from BOTH `startGame` and `resetToLobby`, because a full lobby
+  ## reset used to skip this block entirely: `resetToLobby` cleared
+  ## `gloryPops` but left `teamGlory`, `heatEmbers`, `claimed`, `claimedFirst`,
+  ## `firstBloodDone`, `deedCounts`, `deedGloryMass` and `achievementFeed`
+  ## sitting stale through the whole Lobby phase, only scrubbed by the NEXT
+  ## `startGame`. One proc, one place this can drift.
   for team in Team:
     sim.teamGlory[team] = 0
     sim.heatEmbers[team] = 0
@@ -4942,8 +4943,23 @@ proc startGame*(sim: var SimServer) =
     sim.deedCounts[deed] = 0
     sim.deedGloryMass[deed] = 0
   sim.firstBloodDone = false
-  sim.tithePickups = @[]
   sim.achievementFeed = @[]
+  sim.gloryPops = @[]
+
+proc startGame*(sim: var SimServer) =
+  sim.logGameEvent("game started: players=" & $sim.players.len)
+  sim.recentShots = @[]
+  sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
+  sim.splatters = @[]
+  sim.damagePops = @[]
+  sim.recentShouts = @[]
+  sim.arrangeHomePositions()
+  # GLORY: every ledger, multiplier and one-shot resets at the game boundary.
+  # A per-episode economy that leaks across games would make the first game's
+  # heat and achievement claims silently price the second one.
+  sim.resetGloryLedger()
+  sim.tithePickups = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
@@ -6974,7 +6990,9 @@ proc resetToLobby*(sim: var SimServer) =
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
-  sim.gloryPops = @[]
+  # GLORY: the team/game-level ledger must not survive a lobby reset either --
+  # see `resetGloryLedger`'s own comment for the bug this closes.
+  sim.resetGloryLedger()
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1

@@ -312,7 +312,7 @@ suite "broadcast state channel: the glory ledger":
       setCurrentDir(previousDir)
 
   test "a seek does NOT replay the achievement ledger":
-    # `restartGame` clears sim.achievementFeed and a seek re-runs from a
+    # `startGame` clears sim.achievementFeed and a seek re-runs from a
     # keyframe, so the tracker's cached length can EXCEED the live one. Without
     # the clamp in stepEvents a scrub-to-start indexes off the end of the feed
     # or re-shouts every claim the episode ever made.

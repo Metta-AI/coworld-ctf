@@ -479,6 +479,34 @@ suite "glory in the sim: the achievement curriculum FIRES":
     check sim.achievementFeed[0].first
     check not sim.achievementFeed[1].first
 
+  test "a genuine SAME-TICK tie pays FIRST to both teams, not enum order":
+    # C10's gap: the naive `for team in Team: evalAchievements(team)` marked
+    # `claimedFirst` as it went, so when both teams completed a tier on the
+    # SAME tick the x3 went to Red purely because Team's enum order puts Red
+    # first -- a systematic bias, not a real "who got there first". The fix
+    # is `evalAchievementsAllTeams`, which snapshots every team's satisfied
+    # tiers BEFORE any team claims. This test drives that exact path: both
+    # teams satisfy First Tag on the identical tick via ONE
+    # evalAchievementsAllTeams() call, and both must read as first.
+    var sim = twoTeamGame()
+    sim.phase = Playing
+    sim.players[0].gunKills = 1        # Red satisfies First Tag...
+    sim.players[1].gunKills = 1        # ...and so does Blue, same tick.
+    sim.evalAchievementsAllTeams()
+    check sim.claimed[Red][achievementKey(treeGun, 0)]
+    check sim.claimed[Blue][achievementKey(treeGun, 0)]
+    check sim.achievementFeed.len == 2
+    var redFirst, blueFirst = false
+    for claim in sim.achievementFeed:
+      if claim.tree == treeGun and claim.tier == 0:
+        if claim.team == Red: redFirst = claim.first
+        if claim.team == Blue: blueFirst = claim.first
+    check redFirst
+    check blueFirst
+    # And the glory minted must actually match -- both took the x3, not one
+    # of them quietly paid base while still flagged `first` on the wire.
+    check sim.teamGlory[Red] == sim.teamGlory[Blue]
+
   test "an achievement never climbs the heat ladder":
     # Law 4. Only combat drama lights flames.
     var sim = twoTeamGame()

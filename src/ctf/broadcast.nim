@@ -35,7 +35,7 @@ type
     achievements: int         ## sim.achievementFeed.len at the last snapshot.
                               ## The feed is APPEND-ONLY within a life of the
                               ## sim but is cleared on restart (sim.nim's
-                              ## `restartGame`), and a seek re-runs from a
+                              ## `startGame`), and a seek re-runs from a
                               ## keyframe -- so this is a high-water mark that
                               ## can legitimately EXCEED the live length, and
                               ## every read of it must clamp.
@@ -196,7 +196,7 @@ proc stepEvents*(
   # kinds would break the story the timeline tool tells. A new kind at the end
   # is invisible to that comparison.
   #
-  # The `min` is NOT belt-and-braces. `restartGame` clears the feed and a seek
+  # The `min` is NOT belt-and-braces. `startGame` clears the feed and a seek
   # replays from a keyframe, so the cached length routinely exceeds the live
   # one; without the clamp a scrub-to-start would index off the end (or, once
   # the feed refilled, re-shout the whole ledger at the viewer).
