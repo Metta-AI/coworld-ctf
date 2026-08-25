@@ -1275,12 +1275,58 @@ html, body {
   padding: calc(20 * var(--u));
   text-align: center;
 }
-#endcard.on { display: flex; animation: cardfade 420ms ease-out; }
+/* The endcard is an EXCITING PAINT-SPLAT FINISH now (Maxwell + SHOWTIME C7),
+   not a quiet text fade: a brief flash/shake on reveal, then a paint volley
+   (see .ec-splat below and its ecSeq driver in JS), the headline wiping open
+   through paint rather than fading, and the MATCH GLORY total rolling up
+   behind a splat stamp. The card itself no longer fades in (that job now
+   belongs to the flash) — it shakes, once, on impact. */
+#endcard.on { display: flex; animation: ec-shake 150ms ease-out; }
+@keyframes ec-shake {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(calc(-3 * var(--u)), calc(1 * var(--u))); }
+  40% { transform: translate(calc(2.5 * var(--u)), calc(-1.5 * var(--u))); }
+  60% { transform: translate(calc(-2 * var(--u)), calc(1 * var(--u))); }
+  80% { transform: translate(calc(1.5 * var(--u)), calc(-0.5 * var(--u))); }
+  100% { transform: translate(0, 0); }
+}
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
+/* Paint-splat canvas: the volley/settle/drip layer, retargeted from the FPV
+   visor splat machinery (makeSplat/drawSplat — see the JS §END-CARD SPLAT
+   comment) onto its own full-bleed layer. Sits BEHIND the card's text: a
+   negative z-index inside #endcard's own stacking context (#endcard already
+   carries an explicit z-index, so this stays local and never leaks below
+   the board underneath). */
+#endcard .ec-splat {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+/* Impact flash: a full-bleed wash in the WINNER'S color (paper for a draw),
+   set by JS at reveal (ecStartSequence) since the class needs to be known
+   before the headline's own .red/.blue/.draw class lands. Above the text
+   briefly — nothing legible is on screen yet at 0-150ms anyway (the
+   headline is still paint-clipped shut, see below). */
+#endcard .ec-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+}
+#endcard .ec-flash.red { background: var(--red); }
+#endcard .ec-flash.blue { background: var(--blue); }
+#endcard .ec-flash.draw { background: var(--paper); }
+#endcard.on .ec-flash { animation: ec-flash-fade 150ms ease-out; }
+@keyframes ec-flash-fade { 0% { opacity: 0.85; } 100% { opacity: 0; } }
 #endcard .headline.red { color: var(--red); }
 #endcard .headline.blue { color: var(--blue); }
 #endcard .headline.draw { color: var(--ghost); }
 #endcard .headline {
+  position: relative;
   font-family: var(--pixfont);
   font-size: calc(30 * var(--u));
   line-height: 1.05;
@@ -1291,6 +1337,35 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Headline reveal is a PAINT WIPE (a clip-path mask sweep), not a fade —
+   item 3 of the finish. Shut through the 500ms delay (fill-mode both holds
+   the "from" keyframe for the whole wait), then wipes open left-to-right in
+   ragged steps (a smooth linear sweep reads too polished for this style
+   law). A blurred currentColor bar rides the same window as the "wet
+   roller" doing the uncovering — currentColor so it's free team ink, no
+   extra class needed. */
+#endcard.on .headline {
+  animation: ec-headline-wipe 260ms steps(7, jump-end) 500ms both;
+}
+#endcard.on .headline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0.6;
+  filter: blur(2px);
+  pointer-events: none;
+  animation: ec-headline-roller 260ms linear 500ms both;
+}
+@keyframes ec-headline-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+@keyframes ec-headline-roller {
+  from { transform: translateX(-100%); opacity: 0.6; }
+  85% { opacity: 0.6; }
+  to { transform: translateX(100%); opacity: 0; }
 }
 #endcard .how {
   font-family: var(--finefont);
@@ -1312,26 +1387,60 @@ html, body {
 #endcard .how {
   margin-top: calc(-4 * var(--u));
 }
+/* Everything BESIDES the headline (which gets its own paint-wipe reveal
+   below) still needs a gentle entrance — the flash+shake replaced the old
+   whole-card cardfade, so without this the win chip/description/stats table
+   would just hard-pop the instant #endcard shows. Reuses the cardfade
+   keyframes (still used by mg-line) rather than inventing a new one. */
+#endcard.on .wincond,
+#endcard.on .how,
+#endcard.on .ec-teams,
+#endcard.on .ec-replay {
+  animation: cardfade 260ms ease-out both;
+}
 /* MATCH GLORY splash — celebrates the MATCH, not the winner. Both teams
    high in glory is a really glorious match (wrestling, not fighting: the
    show is the product), so the big number is the COMBINED total in amber
    with each team's share beneath in its own color — every number keeps
-   its context, and a close slugfest outranks a stomp. Lands on the
-   banner medal-slam grammar (overshoot punch + brightness flash + amber
-   rule-sweep; slam-flash/rule-sweep keyframes reused verbatim, mg-slam
-   is slam-in minus the chip skew) a beat (~400ms) after the headline's
-   420ms cardfade settles. The one-liner is the show review: quiet
-   italic caps, faded in last. */
+   its context, and a close slugfest outranks a stomp. Lands on the banner
+   medal-slam grammar (overshoot punch + brightness flash + amber
+   rule-sweep; slam-flash/rule-sweep keyframes reused verbatim, mg-slam is
+   slam-in minus the chip skew) right as the headline's paint wipe finishes
+   (750ms — item 4 of the finish). The NUMBER itself doesn't snap-print on
+   this slam: JS (ecStartMgRoll) reseeds it to 0 the instant the slam starts
+   and rolls it up on the existing glory-odometer approach (setGloryTarget/
+   stepGloryRoll), landing behind a splat stamp (.mg-box::before) instead of
+   a bare pop. The one-liner is the show review: quiet italic caps, faded in
+   last. */
 #endcard .mg-splash {
   position: relative;
   padding: calc(2 * var(--u)) calc(18 * var(--u)) 0;
   animation:
-    mg-slam 160ms cubic-bezier(.18, 1.9, .32, 1) 400ms both,
-    slam-flash 60ms ease-out 540ms;
+    mg-slam 160ms cubic-bezier(.18, 1.9, .32, 1) 750ms both,
+    slam-flash 60ms ease-out 890ms;
 }
 #endcard .mg-box {
   position: relative;
   padding-bottom: calc(7 * var(--u));
+}
+/* the splat stamp behind the rolled-up number, landing right as it settles */
+#endcard .mg-box::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 150%; height: 260%;
+  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(circle, rgba(var(--amber-rgb), 0.5), rgba(var(--amber-rgb), 0) 68%);
+  z-index: -1;
+  pointer-events: none;
+}
+#endcard.on .mg-box::before {
+  animation: ec-stamp-pop 240ms cubic-bezier(.2, 1.7, .4, 1) 950ms both;
+}
+@keyframes ec-stamp-pop {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
 }
 #endcard .mg-total {
   font-family: var(--pixfont);
@@ -1362,7 +1471,7 @@ html, body {
   background: var(--amber);
   transform: scaleX(0);
   transform-origin: left center;
-  animation: rule-sweep 140ms ease-out 540ms forwards;
+  animation: rule-sweep 140ms ease-out 890ms forwards;
 }
 /* the show review — ALL-CAPS quiet italic, <=6 words, tiered on the total */
 #endcard .mg-line {
@@ -1373,7 +1482,7 @@ html, body {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--paper-dim);
-  animation: cardfade 200ms ease-out 640ms both;
+  animation: cardfade 200ms ease-out 990ms both;
 }
 @keyframes mg-slam {
   from { transform: scale(1.55); opacity: 0; }
@@ -1612,6 +1721,16 @@ html, body {
   .plate.leader .lives-num.glory { animation: none; }
   .banner-chip, .banner-chip .slam-rule, .feed-row,
   .mg-splash, .mg-box .mg-rule, .mg-line { animation-duration: 1ms; animation-delay: 0ms; }
+  /* End-card finish: still a PAINTED card (the JS side draws the settled
+     volley directly, no flight — see ecStartSequence's reduced-motion
+     branch), just not an animated one. Every timed CSS piece here collapses
+     to its end state instantly instead of playing out. */
+  #endcard.on, #endcard .ec-flash, #endcard.on .headline,
+  #endcard.on .headline::after, #endcard.on .mg-box::before,
+  #endcard.on .wincond, #endcard.on .how,
+  #endcard.on .ec-teams, #endcard.on .ec-replay {
+    animation-duration: 1ms; animation-delay: 0ms;
+  }
 }
 
 /* ============================================================
@@ -1793,6 +1912,12 @@ body[data-embed] #board { top: 0; height: 100%; }
     </div>
 
     <div id="endcard">
+      <!-- Paint-splat finish layer (Maxwell + SHOWTIME C7): the volley/settle/
+           drip canvas sits behind everything (.ec-splat, z-index:-1), the
+           impact flash briefly rides above everything (.ec-flash). Both are
+           driven from JS — see the "END-CARD PAINT-SPLAT FINISH" section. -->
+      <canvas class="ec-splat" id="ec-splat" aria-hidden="true"></canvas>
+      <div class="ec-flash" id="ec-flash" aria-hidden="true"></div>
       <div class="headline" id="ec-headline">—</div>
       <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
@@ -2071,6 +2196,13 @@ body[data-embed] #board { top: 0; height: 100%; }
   var lastFf = false;   // previous frame's fast-forward flag (jump detection)
   var lullSpans = null; // full-match [[a,b]] quiet spans, shipped once
   var lullsRendered = false;
+  var gameoverEntered = false; // off→on edge for the gameover phase itself,
+  // decoupled from renderEndcard's own content dedupe (card._key): a loop's
+  // Nth pass ships the IDENTICAL verdict content, so that key never changes,
+  // but the paint-splat reveal (startEndcardSequence) still has to replay
+  // every time the card is freshly SHOWN.
+  var ecSequenceStarted = false; // separate from gameoverEntered: s.over can
+  // lag the phase flip by a frame or two, so the sequence waits for it.
 
   function onFrame(txt) {
     var s;
@@ -2125,8 +2257,25 @@ body[data-embed] #board { top: 0; height: 100%; }
     ingestLullSpans(s);
     ingestBeats(s);
 
-    if (s.ph === 'gameover') { renderEndcard(s); if (s.over) setVerdict(s.over); }
-    else { $('endcard').classList.remove('on'); }
+    if (s.ph === 'gameover') {
+      // Fresh entry only: a mid-dwell banner (a kill/steal callout that was
+      // still sliding out when the match ended) must never sit over the
+      // endcard — clear it here, once, not every 24Hz frame of the hold.
+      if (!gameoverEntered) { gameoverEntered = true; clearBanners(); }
+      renderEndcard(s);
+      if (s.over) {
+        setVerdict(s.over);
+        // startEndcardSequence must run AFTER renderEndcard on this same
+        // tick (it reads ecMgTargets, which renderEndcard just populated,
+        // and reseeds the MATCH GLORY numerals to 0 before the browser ever
+        // paints renderEndcard's synchronous final-value write).
+        if (!ecSequenceStarted) { ecSequenceStarted = true; startEndcardSequence(s); }
+      }
+    } else {
+      gameoverEntered = false;
+      ecSequenceStarted = false;
+      $('endcard').classList.remove('on');
+    }
 
     lastTick = s.t;
   }
@@ -2342,13 +2491,18 @@ body[data-embed] #board { top: 0; height: 100%; }
   // only FORWARD from live play: a seek (the onFrame jump guard resets the
   // roll state) or a backward target SNAPS -- rolling there would narrate an
   // earning that never happened. Reduced motion always snaps.
+  // Slots beyond 'red'/'blue': the end-card's MATCH GLORY roll-up
+  // (mgTotal/mgRed/mgBlue — see ecStartMgRoll) rides this SAME odometer,
+  // just under its own keys so it never fights the live scorebug's roll
+  // state. stepGloryRoll iterates whatever keys exist, so adding a slot
+  // here is the only wiring a new caller needs.
   var gloryRoll = { red: null, blue: null };
   var gloryRollRaf = 0;
   var GLORY_ROLL_TAU_MS = 140; // ~63% of the remaining gap covered per tau
   function stepGloryRoll(now) {
     gloryRollRaf = 0;
     var again = false;
-    ['red', 'blue'].forEach(function (team) {
+    Object.keys(gloryRoll).forEach(function (team) {
       var st = gloryRoll[team];
       if (!st || st.shown === st.target) return;
       var dt = st.at ? Math.min(100, now - st.at) : 16;
@@ -2380,7 +2534,10 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
   // A seek forgets the roll: the next frame re-seeds shown = ledger and the
   // numeral lands instantly wherever the timeline landed.
-  function resetGloryRoll() { gloryRoll.red = null; gloryRoll.blue = null; }
+  function resetGloryRoll() {
+    gloryRoll.red = null; gloryRoll.blue = null;
+    gloryRoll.mgTotal = null; gloryRoll.mgRed = null; gloryRoll.mgBlue = null;
+  }
 
   function renderGlory(team, t) {
     var num = $('glory-' + team);
@@ -4290,6 +4447,265 @@ body[data-embed] #board { top: 0; height: 100%; }
     return '';
   }
 
+  // ============================================================
+  //  END-CARD PAINT-SPLAT FINISH (§8, Maxwell + SHOWTIME C7) — an exciting
+  //  paint-volley finish, not a quiet text card:
+  //    0-150ms    flash + shake in the winner's color (pure CSS, see
+  //               #endcard.on / .ec-flash)
+  //    150-500ms+ 8-14 paint blobs volley in from the edges and SPLAT onto
+  //               the card, winner-dominant, squash-then-settle (THIS
+  //               module, canvas-drawn onto #ec-splat)
+  //    500-750ms  the headline wipes open through paint (pure CSS, see
+  //               .headline / .headline::after)
+  //    750-1050ms MATCH GLORY rolls up on the existing glory-odometer
+  //               approach (setGloryTarget/stepGloryRoll) behind a splat
+  //               stamp (THIS module kicks the roll off; the stamp itself
+  //               is pure CSS, see .mg-box::before)
+  //    ambient    a couple of the biggest blobs keep dripping through the
+  //               hold (THIS module)
+  //  One deterministic sequence, seeded off the VERDICT (not the tick — the
+  //  endcard has no single "impact tick" the way a paint hit does), so a
+  //  loop replays the IDENTICAL volley, never a new roll of the dice.
+  //  Reuses the FPV splat's technique (a sine-hash deterministic rnd(), one
+  //  main gob + satellite lobes, radial-gradient body + quadratic drip —
+  //  see makeSplat/drawSplat above) tuned bolder for a backdrop role
+  //  instead of a translucent visor overlay. Honesty: win-condition copy is
+  //  untouched (renderEndcard owns every word) — this is pure paint
+  //  flourish layered behind and around it.
+  // ============================================================
+  var ecCanvas = null, ecCtx = null;
+  var ecMgTargets = null; // { mg, red, blue } — captured by renderEndcard, read by ecStartMgRoll
+  var ecGen = 0;          // bumped per reveal so a stale RAF from a previous verdict no-ops
+  var ecSeq = { blobs: [], t0: 0, active: false, rolled: false };
+  var EC_BLOB_START = 150, EC_STAGGER_MAX = 40, EC_FLIGHT_MS = 180, EC_SETTLE_MS = 120;
+  var EC_ROLL_AT = 750, EC_STAMP_AT = 950, EC_STOP_AT = EC_ROLL_AT + 1600;
+
+  function ecHash(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    return h;
+  }
+  // One cohesive gob + satellite lobes — same shape technique as makeSplat,
+  // just seeded off a stable per-blob id instead of the fire tick (there is
+  // no tick here, only a verdict).
+  function ecMakeGob(seed, cx, cy, mainR) {
+    function rnd(i) { var x = Math.sin(seed * 0.0001 + i * 7.77) * 43758.5453; return x - Math.floor(x); }
+    var blobs = [{ x: cx, y: cy, r: mainR, drip: 0.8 + rnd(0) * 0.6 }];
+    var count = 3 + Math.floor(rnd(1) * 2);
+    for (var i = 0; i < count; i++) {
+      var ang = rnd(i * 3 + 2) * Math.PI * 2;
+      blobs.push({
+        x: cx + Math.cos(ang) * mainR * (0.7 + rnd(i * 3 + 3) * 0.5),
+        y: cy + Math.sin(ang) * mainR * (0.6 + rnd(i * 3 + 4) * 0.5),
+        r: mainR * (0.3 + rnd(i * 3 + 5) * 0.32),
+        drip: rnd(i * 5 + 6) * 0.6
+      });
+    }
+    return blobs;
+  }
+  // Build the volley: 8-14 blobs, winner-color dominant (~68% of the count
+  // AND the larger size band), landing on off-center anchors (never dead
+  // center — the verdict text has to stay readable through it, same law as
+  // the FPV splat's anchor list) after flying in from a random screen edge.
+  // Stagger scales down from the nominal ~40ms at high blob counts so the
+  // whole launch window still fits the volley's ~350ms slot instead of
+  // trailing off the end of it.
+  function ecBuildBlobs(o, key) {
+    var seed = ecHash(key);
+    function rnd(i) { var x = Math.sin(seed * 0.0001 + i * 91.7) * 43758.5453; return x - Math.floor(x); }
+    var winner = o.draw ? null : o.winner;
+    var n = 8 + Math.floor(rnd(0) * 7); // 8..14
+    var stagger = Math.min(EC_STAGGER_MAX, 300 / Math.max(1, n - 1));
+    var anchors = [
+      { x: 0.08, y: 0.12 }, { x: 0.92, y: 0.12 },
+      { x: 0.06, y: 0.45 }, { x: 0.94, y: 0.45 },
+      { x: 0.12, y: 0.90 }, { x: 0.88, y: 0.90 },
+      { x: 0.32, y: 0.06 }, { x: 0.68, y: 0.06 }
+    ];
+    var blobs = [];
+    for (var i = 0; i < n; i++) {
+      var isWin = winner ? rnd(i * 5 + 1) < 0.68 : (i % 2 === 0);
+      var color = winner
+        ? (isWin ? (winner === 'red' ? RED : BLUE) : (winner === 'red' ? BLUE : RED))
+        : (i % 2 === 0 ? RED : BLUE);
+      var a = anchors[Math.floor(rnd(i * 5 + 2) * anchors.length) % anchors.length];
+      var jx = (rnd(i * 5 + 3) - 0.5) * 0.08, jy = (rnd(i * 5 + 4) - 0.5) * 0.08;
+      var edge = Math.floor(rnd(i * 5 + 5) * 4);
+      var x0, y0;
+      if (edge === 0) { x0 = rnd(i * 5 + 6); y0 = -0.3; }
+      else if (edge === 1) { x0 = 1.3; y0 = rnd(i * 5 + 6); }
+      else if (edge === 2) { x0 = rnd(i * 5 + 6); y0 = 1.3; }
+      else { x0 = -0.3; y0 = rnd(i * 5 + 6); }
+      var big = isWin || !winner;
+      var r = (big ? 0.05 : 0.028) + rnd(i * 5 + 7) * (big ? 0.028 : 0.016);
+      blobs.push({
+        seed: seed + i * 101, color: color,
+        x0: x0, y0: y0, x1: a.x + jx, y1: a.y + jy, r: r,
+        delay: EC_BLOB_START + i * stagger,
+        isBig: false // set on the top-2-by-radius pass below
+      });
+    }
+    var byR = blobs.slice().sort(function (a, b) { return b.r - a.r; });
+    for (var k = 0; k < Math.min(2, byR.length); k++) byR[k].isBig = true;
+    return blobs;
+  }
+  // Squash-then-settle: a cheap hand-rolled damped spring (canvas has no CSS
+  // easing) — a quick flatten rebounding past 1 before resting there, so a
+  // landed blob reads as an IMPACT, not a blob that just faded into place.
+  function ecSquash(p) {
+    if (p >= 1) return { sx: 1, sy: 1 };
+    var decay = Math.exp(-p * 5);
+    var wob = Math.sin(p * Math.PI * 2.4) * decay;
+    return { sx: 1 - wob * 0.28, sy: 1 + wob * 0.34 };
+  }
+  function ecDrawGob(ctx, W, H, gobBlobs, color, alpha, cx, cy, sx, sy) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx * W, cy * H);
+    ctx.scale(sx, sy);
+    ctx.translate(-cx * W, -cy * H);
+    for (var i = 0; i < gobBlobs.length; i++) {
+      var b = gobBlobs[i];
+      var bx = b.x * W, by = b.y * H, br = b.r * Math.min(W, H);
+      var g = ctx.createRadialGradient(bx, by, br * 0.1, bx, by, br);
+      g.addColorStop(0, color); g.addColorStop(0.78, color);
+      g.addColorStop(1, hexA(color, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // A slow ambient drip off the biggest landed blobs — lengthens through the
+  // hold (capped) rather than firing once, the "still wet" read item 5 asks
+  // for.
+  function ecDrawDrip(ctx, W, H, cx, cy, r, color, grow) {
+    var dl = r * Math.min(W, H) * (0.6 + grow * 1.1);
+    var dw = r * Math.min(W, H) * 0.3;
+    var bx = cx * W, by = cy * H;
+    var dg = ctx.createLinearGradient(bx, by, bx, by + dl);
+    dg.addColorStop(0, color); dg.addColorStop(1, hexA(color, 0));
+    ctx.fillStyle = dg;
+    ctx.beginPath();
+    ctx.moveTo(bx - dw, by);
+    ctx.quadraticCurveTo(bx - dw * 0.4, by + dl * 0.6, bx, by + dl);
+    ctx.quadraticCurveTo(bx + dw * 0.4, by + dl * 0.6, bx + dw, by);
+    ctx.closePath(); ctx.fill();
+  }
+  function ecResizeCanvas() {
+    var cv = ecCanvas;
+    if (!cv) return null;
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    if (!ecCtx) ecCtx = cv.getContext('2d');
+    ecCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: h };
+  }
+  // Draw every blob at its FINAL landed state, no flight, no squash — the
+  // reduced-motion path: "static, but still painted" (item honesty rule).
+  function ecDrawSettledStatic() {
+    var dim = ecResizeCanvas();
+    if (!dim) { requestAnimationFrame(ecDrawSettledStatic); return; }
+    var ctx = ecCtx, blobs = ecSeq.blobs;
+    ctx.clearRect(0, 0, dim.w, dim.h);
+    for (var i = 0; i < blobs.length; i++) {
+      var b = blobs[i];
+      if (!b.gob) b.gob = ecMakeGob(b.seed, b.x1, b.y1, b.r);
+      ecDrawGob(ctx, dim.w, dim.h, b.gob, b.color, 0.95, b.x1, b.y1, 1, 1);
+      if (b.isBig) ecDrawDrip(ctx, dim.w, dim.h, b.x1, b.y1, b.r, b.color, 0.9);
+    }
+  }
+  function ecFrame(now, gen) {
+    if (gen !== ecGen || !ecSeq.active) return;
+    var dim = ecResizeCanvas();
+    if (!dim) { requestAnimationFrame(function (n) { ecFrame(n, gen); }); return; }
+    var ctx = ecCtx, w = dim.w, h = dim.h;
+    ctx.clearRect(0, 0, w, h);
+    var elapsed = now - ecSeq.t0, blobs = ecSeq.blobs;
+    for (var i = 0; i < blobs.length; i++) {
+      var b = blobs[i];
+      var t = elapsed - b.delay;
+      if (t < 0) continue;
+      if (t < EC_FLIGHT_MS) {
+        var p = t / EC_FLIGHT_MS, ep = p * p; // ease-in: accelerating off the edge
+        var cx = b.x0 + (b.x1 - b.x0) * ep, cy = b.y0 + (b.y1 - b.y0) * ep;
+        var gob = ecMakeGob(b.seed, cx, cy, b.r * (0.55 + p * 0.45));
+        ecDrawGob(ctx, w, h, gob, b.color, 0.9, cx, cy, 1, 1);
+      } else {
+        var sp = (t - EC_FLIGHT_MS) / EC_SETTLE_MS;
+        var sq = ecSquash(Math.min(1, sp));
+        if (!b.gob) b.gob = ecMakeGob(b.seed, b.x1, b.y1, b.r);
+        ecDrawGob(ctx, w, h, b.gob, b.color, 0.95, b.x1, b.y1, sq.sx, sq.sy);
+        if (b.isBig && sp > 1) {
+          var grow = Math.min(1.6, (t - EC_FLIGHT_MS - EC_SETTLE_MS) / 1400);
+          ecDrawDrip(ctx, w, h, b.x1, b.y1, b.r, b.color, grow);
+        }
+      }
+    }
+    if (!ecSeq.rolled && elapsed >= EC_ROLL_AT) { ecSeq.rolled = true; ecStartMgRoll(); }
+    if (elapsed < EC_STOP_AT) {
+      requestAnimationFrame(function (n) { ecFrame(n, gen); });
+    } else {
+      ecSeq.active = false; // settled — the canvas holds its last drawn frame
+    }
+  }
+  // MATCH GLORY rolls up on the SAME odometer the scorebug numeral uses
+  // (setGloryTarget/stepGloryRoll — see "glory odometer" above), just keyed
+  // to its own slots instead of 'red'/'blue' so it never fights the live
+  // scorebug's roll state.
+  function ecStartMgRoll() {
+    if (!ecMgTargets) return;
+    var mgNum = $('mg-num'), mgRedEl = $('mg-red'), mgBlueEl = $('mg-blue');
+    if (!mgNum || !mgRedEl || !mgBlueEl) return;
+    gloryRoll.mgTotal = { el: mgNum, shown: 0, target: 0, printed: 0, at: 0 };
+    gloryRoll.mgRed = { el: mgRedEl, shown: 0, target: 0, printed: 0, at: 0 };
+    gloryRoll.mgBlue = { el: mgBlueEl, shown: 0, target: 0, printed: 0, at: 0 };
+    setGloryTarget(mgNum, 'mgTotal', ecMgTargets.mg);
+    setGloryTarget(mgRedEl, 'mgRed', ecMgTargets.red);
+    setGloryTarget(mgBlueEl, 'mgBlue', ecMgTargets.blue);
+  }
+  // Fires exactly once per fresh reveal (see onFrame's gameoverEntered
+  // guard) — never on a mid-hold re-render, so scrubbing around inside the
+  // hold can't replay the volley. A loop (or a seek straight back to the
+  // same verdict) DOES re-fire this, and rebuilds the identical volley
+  // (seeded off the verdict, not wall-clock) — "loops re-run cleanly".
+  function startEndcardSequence(s) {
+    var o = s.over;
+    if (!o) return;
+    ecGen++;
+    var gen = ecGen;
+    if (!ecCanvas) ecCanvas = $('ec-splat');
+    var flash = $('ec-flash');
+    if (flash) flash.className = 'ec-flash ' + (o.draw ? 'draw' : o.winner);
+    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length].join('|');
+    ecSeq.blobs = ecBuildBlobs(o, key);
+    ecSeq.t0 = performance.now();
+    ecSeq.rolled = false;
+    var reduced = !!(REDUCED_MOTION && REDUCED_MOTION.matches);
+    if (reduced) {
+      ecSeq.active = false;
+      ecDrawSettledStatic();
+      // renderEndcard already wrote the final ledger directly — nothing to
+      // roll, the static card is honest as-is.
+    } else {
+      ecSeq.active = true;
+      // renderEndcard (called just before this, same tick) already wrote the
+      // final MATCH GLORY numbers — reseed to 0 now, synchronously, before
+      // the next paint, so what the viewer actually sees is the roll landing
+      // at EC_ROLL_AT, not a flash of the final number followed by a jump
+      // back to 0.
+      if (ecMgTargets) {
+        var mgNum = $('mg-num'), mgRedEl = $('mg-red'), mgBlueEl = $('mg-blue');
+        if (mgNum) mgNum.textContent = 0;
+        if (mgRedEl) mgRedEl.textContent = 0;
+        if (mgBlueEl) mgBlueEl.textContent = 0;
+      }
+      requestAnimationFrame(function (n) { ecFrame(n, gen); });
+    }
+  }
+
   function renderEndcard(s) {
     var card = $('endcard');
     if (!s.over) return;
@@ -4340,10 +4756,17 @@ body[data-embed] #board { top: 0; height: 100%; }
     $('mg-splash').style.display = hasGlory ? '' : 'none';
     if (hasGlory) {
       var mg = gRed + gBlue;
+      // Stashed for startEndcardSequence's roll-up (ecStartMgRoll) — this
+      // write happens once per unique verdict (the card._key dedupe above),
+      // but the roll has to fire on EVERY fresh reveal including a loop's
+      // Nth pass, so the target needs to outlive this one content-build.
+      ecMgTargets = { mg: mg, red: gRed, blue: gBlue };
       $('mg-num').textContent = mg;
       $('mg-red').textContent = gRed;
       $('mg-blue').textContent = gBlue;
       $('mg-line').textContent = matchGloryLine(mg);
+    } else {
+      ecMgTargets = null;
     }
     $('ec-wincond').textContent = endcardWinCondition(o);
     $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
