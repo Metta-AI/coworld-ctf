@@ -4438,22 +4438,31 @@ const ItemSiteWallSnapRadiusPx = 24  ## ROUND 15 (fix 2, doctrine §4.9
   ## cells, never a meaningfully different site.
 
 proc nearestWalkableCell(
-  wall: seq[bool], cols, rows: int, x, y, maxRadiusPx: int
+  obstacles: seq[ArenaShape], cols, rows: int, x, y, maxRadiusPx: int
 ): tuple[p: MapPoint, ok: bool] =
   ## Ring search (Chebyshev rings, grid-aligned) outward from (x, y)'s own
-  ## grid cell for the nearest non-wall cell, snapping to that cell's own
-  ## sample corner (buildWallGrid's convention: a cell's world position IS
-  ## gx*GridStride, gy*GridStride — the same grid classifyPoint/the
-  ## fairness gate's walk-graph BFS both already read). Deterministic, no
-  ## RNG, so re-classifying a point loaded fresh from spec.json snaps to
-  ## the exact same cell classifySites placed it on. Drops (ok=false) if
-  ## nothing walkable turns up within maxRadiusPx.
-  let (gx0, gy0) = toGrid(x, y)
-  proc idx(gx, gy: int): int = gy * cols + gx
-  proc isWalkable(gx, gy: int): bool =
-    gx >= 0 and gx < cols and gy >= 0 and gy < rows and not wall[idx(gx, gy)]
-  if isWalkable(gx0, gy0):
+  ## grid cell for the nearest walkable point. Walkability is tested via
+  ## `inShape` against the REAL obstacle list — NOT the coarse GridStride
+  ## (4px) wall-grid sample: a grid cell's own corner can read non-wall
+  ## while a few px away, still inside that SAME cell, an obstacle
+  ## boundary actually cuts through it. Confirmed the hard way: an earlier
+  ## version that trusted buildWallGrid's per-cell sample crashed
+  ## placeItemsGraded's own inShape-based assertion on seed 50 — a
+  ## "snapped" room site the wall grid called walkable still tested
+  ## inside an obstacle at its exact pixel. Ring candidates still land on
+  ## grid-cell corners (gx*GridStride, gy*GridStride) — legible,
+  ## deterministic, and a point loaded fresh from spec.json re-snaps to
+  ## the identical cell — but each one is verified by the SAME exact-pixel
+  ## test the assertion uses, so the two can never disagree again. Drops
+  ## (ok=false) if nothing walkable turns up within maxRadiusPx.
+  proc isWalkable(px, py: int): bool =
+    if px < 0 or py < 0: return false
+    for ob in obstacles:
+      if inShape(px, py, ob): return false
+    true
+  if isWalkable(x, y):
     return (MapPoint(x: x, y: y), true)
+  let (gx0, gy0) = toGrid(x, y)
   let maxRing = maxRadiusPx div GridStride + 1
   for ring in 1 .. maxRing:
     if ring * GridStride > maxRadiusPx: break  ## every cell in this (and
@@ -4472,9 +4481,10 @@ proc nearestWalkableCell(
                                                          ## smaller ring
         let gx = gx0 + dgx
         let gy = gy0 + dgy
-        if not isWalkable(gx, gy): continue
+        if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
         let wx = gx * GridStride
         let wy = gy * GridStride
+        if not isWalkable(wx, wy): continue
         let d2 = (wx - x) * (wx - x) + (wy - y) * (wy - y)
         if d2 <= maxRadiusPx * maxRadiusPx and d2 < bestD2:
           bestD2 = d2
@@ -4506,13 +4516,12 @@ proc classifySites(m: BrMap): seq[ClassifiedSite] =
   ## directly, so the INSTRUMENTS were distorted. Fixed at the source
   ## instead of at the gate.
   let (cols, rows) = gridDims(m.width, m.height)
-  let wall = buildWallGrid(m)
   proc snap(sites: seq[ClassifiedSite]): seq[ClassifiedSite] =
     when defined(brDebugSiteSnap):
       var moved = 0
       var dropped = 0
     for s in sites:
-      let (np, ok) = nearestWalkableCell(wall, cols, rows, s.p.x, s.p.y, ItemSiteWallSnapRadiusPx)
+      let (np, ok) = nearestWalkableCell(m.obstacles, cols, rows, s.p.x, s.p.y, ItemSiteWallSnapRadiusPx)
       if ok:
         var s2 = s
         s2.p = np
