@@ -251,6 +251,14 @@ const
   HeatLadder* = [1, 2, 4, 8]
     ## Multiplier by rung. x2 is a solo kill, x4 is a few back-to-back, x8 is
     ## a genuine rampage.
+    ## ⚠️ UNCALIBRATED STEP SIZE (GLORY C7): the doubling PATTERN is ported
+    ## from Muster; `HeatThresholds`/`HeatEmberCap`/`HeatEmberDecay` (the
+    ## CADENCE -- how fast you climb and fall the ladder) are the pieces v5
+    ## actually re-fit from 3 real hosted episodes (see `GloryVersion`'s own
+    ## changelog). The multiplier MAGNITUDES themselves (1/2/4/8, as opposed
+    ## to e.g. 1/2/3/5) were never independently measured against how much a
+    ## rampage should actually be worth -- only how OFTEN a team should
+    ## reach one.
   HeatThresholds* = [2, 5, 10]
     ## Cumulative embers to reach each rung above x1. The first rung costs
     ## TWO embers (v5): one deed is an incident, not a streak -- at
@@ -290,8 +298,36 @@ const
   # combo table taught it what a layer monopoly costs.
 
   SiteMultHomePct* = 100      ## your own ground: defending your keep is table stakes.
-  SiteMultNeutralPct* = 120   ## the open field.
+                              ## ⚠️ UNCALIBRATED (GLORY C7). Ported at
+                              ## Muster's own ratio, not fit against a
+                              ## paintbot deed-site distribution. 100/150 is
+                              ## a directionally-safe design choice (initiative
+                              ## into defended ground should never be cheaper
+                              ## than sitting on your own pedestal) rather
+                              ## than a measured one.
   SiteMultEnemyPct* = 150     ## initiative into DEFENDED ground.
+                              ## ⚠️ UNCALIBRATED, same as `SiteMultHomePct`.
+  SiteMultNeutralPct* = 120   ## the open field.
+                              ## 🚨 DEAD IN THIS ENGINE, not merely
+                              ## uncalibrated (GLORY C7 audit finding).
+                              ## `deedSitePct` is the ONLY caller of
+                              ## `siteMultPct` and it hardcodes
+                              ## `ownerIsNone = false` unconditionally --
+                              ## `groundOwner` is a strict nearest-pedestal
+                              ## argmin over `Team` (a 2-value enum today),
+                              ## which always resolves to SOME team, never
+                              ## "none." No deed can ever price at this
+                              ## multiplier; ANY value assigned here is
+                              ## unfalsifiable by construction, the same
+                              ## unfired-reward-layer class the module
+                              ## header's §8 audit exists to catch, just on
+                              ## a multiplier branch instead of a deed. Not
+                              ## fixed in this wave (C7 is provenance, not a
+                              ## behavior change) -- flagged for Maxwell in
+                              ## the /proof report; a real "neutral ground"
+                              ## concept (e.g. a distance floor past which
+                              ## NEITHER pedestal is close) would need to
+                              ## exist before this constant can ever fire.
 
   CarrierHoldMultPct* = 200
     ## Muster's baton, our heart. Holding the enemy heart pays NOTHING per
@@ -391,8 +427,31 @@ const
                               ## own re-measurement note -- this era's cache
                               ## never had pickup xp in it to begin with).
   XpPerShieldSoak* = 2        ## per hit point absorbed for the team.
+                              ## ⚠️ UNCALIBRATED (GLORY C7): priced BELOW
+                              ## `XpPerDamage` (3) on the reasoning that
+                              ## absorbing a hit is passive income (the same
+                              ## law that prices `dShieldSoak` at zero drama)
+                              ## while landing one is active work -- a
+                              ## design ratio, not a field-fit one.
   XpPerSteal* = 12            ## flag actions are the objective spine.
+                              ## DESIGN-CONSISTENCY CHECK (GLORY C7, not a
+                              ## field-fit): with `LevelThresholds`
+                              ## [10,18,24,36,50], `levelForXp(XpPerSteal)`
+                              ## resolves to exactly L1 -- a steal alone
+                              ## promotes a fresh life to L1 and no further.
+                              ## `tests/test_glory.nim`'s "thresholds make
+                              ## L5 rare and L1 reachable" asserts the
+                              ## `>= 1` half of that (a steal reaches AT
+                              ## LEAST L1). Intentional: the objective
+                              ## spine should always read as SOME progress.
   XpPerCapture* = 30
+    ## DESIGN-CONSISTENCY CHECK (GLORY C7, not a field-fit):
+    ## `levelForXp(XpPerCapture) == 3` -- a single capture alone promotes a
+    ## fresh life straight to L3, the plume/tithe/starfall threshold.
+    ## Intentional: completing the objective should feel like an instant
+    ## power spike, not a fractional xp tick. Still ⚠️ UNCALIBRATED against
+    ## any real paintbot capture-value field measurement -- this only checks
+    ## that the number is INTERNALLY consistent with the ladder it feeds.
   XpPerReturn* = 12
     ## The heart returns home when its carrier dies, so in THIS game the peel
     ## IS the return: killXp prices the carrier kill as this FLAG ACTION, not
@@ -400,6 +459,9 @@ const
     ## consumers -- the third instance of the dead-layer class in this
     ## project. The mirror tool gloryscore.py greps would have caught it;
     ## now the wire is killXp itself.)
+    ## ⚠️ UNCALIBRATED (GLORY C7): set equal to `XpPerSteal` on the
+    ## reasoning that both are flag-spine actions of comparable weight, not
+    ## measured independently.
   XpTeamKill* = -20
     ## Friendly fire actively DE-LEVELS you. The one place the ladder bites
     ## back, and it is aimed at the loss that was once 0.81 lives/Ep.
@@ -612,6 +674,17 @@ const
                               ## 41.7% ceiling and zero. (For reference:
                               ## 470-480px -> 10.0%, 700px -> 20.8%.)
   RevengeTicks* = 240         ## ~10s to answer your killer.
+                              ## ⚠️ UNCALIBRATED (GLORY C7): a round
+                              ## 10-second design choice (matching
+                              ## `HeatDecayTicks`'s own ~1.9s-per-window
+                              ## register of "seconds a crowd can track"),
+                              ## not fit against a measured
+                              ## time-to-respawn-and-re-engage distribution.
+                              ## Same constant gates both `dRevengeKill` and
+                              ## the "Turnaround" achievement (peel then
+                              ## steal within the window) -- a real field
+                              ## measurement of typical respawn-to-re-engage
+                              ## latency would calibrate both at once.
   ContestedStealPx* = 300     ## a live enemy within this radius at the
                               ## moment the heart leaves its pedestal makes
                               ## the steal CONTESTED, not a walk-in -- the
@@ -681,9 +754,30 @@ const
   AchievementTiers* = 5
 
   TierGlory*: array[AchievementTiers, int] = [2, 4, 8, 16, 32]
+    ## ⚠️ UNCALIBRATED base magnitude (GLORY C7): a clean power-of-2 ladder
+    ## (each tier doubles the last), not fit against a measured "what should
+    ## a first tag be worth" number. The ONE bound this table is actually
+    ## HELD to is real and enforced: `tests/test_glory.nim`'s "law 3 -- big
+    ## enough to chase, too small to win on" asserts the full 40-claim sweep
+    ## (`sum(TierGlory) * AchievementTrees`) stays under `dCapture + dWipe`,
+    ## and that no single tier rivals the win condition it sits beside. The
+    ## doubling SHAPE, and law 3's ceiling on it, are load-bearing; the base
+    ## "2" is a guess.
   TierDrama*: array[AchievementTiers, int] = [5, 5, 15, 15, 30]  ## tenths
+    ## ⚠️ UNCALIBRATED (GLORY C7): law 4 (achievements never climb heat) is
+    ## enforced regardless of this table's values -- `paysHeat` excludes
+    ## `dAchievement` outright -- so these tenths only feed the replay feed's
+    ## own moment-ranking, never the ledger's rampage state. No field
+    ## measurement backs the specific step shape (flat T1-T2, flat T3-T4,
+    ## jump at T5); it mirrors `TierGlory`'s doubling by eye.
   AchievementFirstMultPct* = 300
     ## The first team in the episode to complete a tier claims at x3.
+    ## ⚠️ UNCALIBRATED (GLORY C7): a round "triple" -- big enough to be
+    ## worth racing for, per law 2's own stated intent ("a first-only reward
+    ## teaches the other teams nothing" argues AGAINST going higher, since a
+    ## bigger multiplier makes the other three teams' later claims feel more
+    ## like consolation prizes) -- but not fit against a measured
+    ## race-to-first-claim distribution.
   AchievementSweepBudgetPct* = 15
     ## Law 3 as Muster states it: a full sweep must stay under this share of a
     ## MEDIAN WINNER's episode glory.
