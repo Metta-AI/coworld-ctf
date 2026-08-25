@@ -46,7 +46,18 @@ port them.
 is a large solid welded mass — the same visual species as an organic caves
 blob — with rooms/courtyards/alleys CARVED INTO it as negative space. Never
 thin walls placed additively on open ground; shell thickness is structural
-(24-48px), and a compound counts as ONE mass. **Coverage floor (2026-08-24, after round 7 shipped bold-but-barren):
+(24-48px), and a compound counts as ONE mass. **THE BURROW REQUIREMENT (Maxwell, 2026-08-24, a HARD GATE): every structure
+at every scale must read as solid mass that rooms were DUG INTO — never drawn
+walls.** Construction order enforces it: footprint slabs union into one solid
+mass FIRST, then interiors/doors/gates are carved from the merged slab.
+Measured (burrowPass): (a) wall-thickness floor — erosion by structural
+thickness must never erase a wall entirely (a wall that vanishes was a line);
+(b) no dangling wall segments — skeleton endpoints terminate at gates or in
+mass; (c) enclosure — perimeter openings limited to the structure's 2-4
+deliberate gates. Negative reference: the round-11 3-unit crop (seed 601);
+positive: caves_404's masses.
+
+**Coverage floor (2026-08-24, after round 7 shipped bold-but-barren):
 total obstacle cover binds to [110, 170] permille — the upper half of the CTF
 program's own validated band (caves_404, accepted, sits at 150‰) — plus a
 distance-to-cover gate at combat scale (p95 <= 0.75 gunRange). Mass quality
