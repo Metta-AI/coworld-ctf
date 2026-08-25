@@ -18,7 +18,39 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "44"  ## GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
+  GameVersion* = "45"  ## GV45 (BR integration): SIXTEEN TEAMS, ELIMINATION,
+    ## A CLOSING ZONE. A replay's version string is supposed to identify the
+    ## rules that produced it, and this build can seat up to 16 teams (`Team`
+    ## widened from 4, BR_MAPGEN.md §6.2), run the no-respawn `brMode`
+    ## elimination ruleset instead of classic capture/wipe scoring, and close
+    ## a shrinking rectangular zone (`zonePhases`) that deals environmental
+    ## damage outside it — none of which any earlier GameVersion's rules
+    ## could produce. Re-scanned every origin branch first: nothing claims 45
+    ## yet (main and every live branch sit on 44).
+    ##
+    ## NOT taken for the reason some BR lanes originally deferred it on
+    ## (BR_MAPGEN.md §6.2's flatty-misalignment worry: `array[Team, X]`
+    ## fields reachable from the flatty-serialized SimServer are fixed-width
+    ## runs with no length prefix, so a 16-wide run read by a 4-wide reader
+    ## was predicted to desync every subsequent keyframe field SILENTLY).
+    ## That prediction never reproduced — every fixture already hashed and
+    ## re-simulated clean with `Team` 16 wide, because keyframes are derived
+    ## in-process and never read back from a replay file (the established
+    ## "puddle contract"), so the widened array runs never cross a file
+    ## boundary. Taken instead because the RULES changed, which is the one
+    ## reason a replay's version string exists at all.
+    ##
+    ## Classic (non-BR) play is UNCHANGED, byte for byte: brMode/zonePhases
+    ## both default off, `Team` widening only adds unused enum values a
+    ## 2-4-team board never reaches, and GV44's home-dealing rotation is
+    ## untouched. But BR play is genuinely new — no earlier GameVersion could
+    ## even boot a 16-team elimination-with-zone episode — so the six pinned
+    ## fixtures (all classic, 2-4 teams) re-record to the SAME content under
+    ## the new stamp: re-recorded on an idle machine (1-minute load ~4-5,
+    ## confirmed stable) via tools/record_all_fixtures.sh, hash-verified from
+    ## disk via tools/extract_events.nim, no beat or asserted winner changed.
+    ##
+    ## Previously GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
     ## On every board with more than two teams, WHICH TEAM OWNS WHICH HOME is
     ## now drawn per episode from the game seed instead of being fixed for all
     ## time. The pads do not move: the same four congruent anchors, pedestals,
@@ -40,46 +72,6 @@ const
     ## game contract, and the rotation is the identity at teamCount <= 2. But
     ## 4-team spawn positions, pedestals and capture zones now depend on the
     ## seed, so no 4-team GV43 replay re-simulates: fixtures re-recorded.
-    ##
-    ## ==================================================================
-    ## A GameVersion BUMP IS OWED HERE AND IS DELIBERATELY NOT TAKEN YET.
-    ## (BR integration, 2026-08-25. GV44 above landed independently on main,
-    ## for the seating-rule reason stated — not for BR. GV45 is free —
-    ## scanned every origin branch; main and all live branches sit on 44.)
-    ##
-    ## The BR lanes each deferred the bump to integration, citing
-    ## BR_MAPGEN.md §6.2: `Team` widened from 4 to 16, and `array[Team, X]`
-    ## fields reachable from the flatty-serialized SimServer are fixed-width
-    ## runs with no length prefix, so a 16-wide run read by a 4-wide reader
-    ## was predicted to misalign every subsequent keyframe field SILENTLY.
-    ##
-    ## That prediction does NOT reproduce, and the evidence is this suite:
-    ## with `Team` 16 wide, every fixture in tests/fixtures still
-    ## loads, re-simulates and HASHES EQUAL ("hashes match", "sim
-    ## serializes with flatty", "keyframed seek restores matching state").
-    ## Keyframes are derived in-process and never read back from a replay
-    ## file — the established "puddle contract" — so the widened array runs
-    ## never cross a file boundary. The corruption argument for the bump is
-    ## therefore refuted; do not repeat it as the reason.
-    ##
-    ## The bump is still owed for the OTHER reason: the RULES changed. A
-    ## replay's version string is supposed to identify the rules that
-    ## produced it, and this build seats 16 teams, can run brMode
-    ## elimination and a closing zone. It is not taken in this commit
-    ## because bumping invalidates every pinned fixture, and AGENTS.md
-    ## requires re-recording them on an IDLE machine (a CPU-starved
-    ## speed-16 server drops its bots and records degenerate endings). This
-    ## integration ran on a machine hosting a 20+ agent fleet. Recording
-    ## there and then re-pinning the asserted winners to match is exactly
-    ## how the GV42 draw-nokill fixture went wrong.
-    ##
-    ## TO CLOSE: on an idle machine, bump to 45, re-record
-    ## tests/fixtures/*.bitreplay + tests/replays/ctf.bitreplay via
-    ## tools/record_fixture.sh (recipes in tests/test_broadcast_state.nim),
-    ## verify the required beats actually occur, and re-pin the capture
-    ## fixture's asserted winner/ending. Re-scan for version claims first —
-    ## 45 may have been taken by then.
-    ## ==================================================================
     ##
     ## Previously GV43 (puddle rule): PUDDLES BITE TWICE AS HARD.
     ## `DefaultPuddleDamagePct` goes 10 -> 20: a full second of continuous
