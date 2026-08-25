@@ -317,6 +317,33 @@ const
   GloryPopObjectBase = 31400   ## one drawn glory pop per object: 31400..31415.
   GloryPopStages = 5           ## alpha fade stages across a pop's life.
   GloryPopMaxCount = 16        ## most score pops drawn at once.
+  GloryPopSpawnScalePct = 132  ## SPLAT C8: percent size a pop/chip renders
+                               ## at during its VERY FIRST alpha-fade stage
+                               ## (stage 0) -- a squash-pop overshoot that
+                               ## settles to 100% for every stage after.
+                               ## Shared by buildGloryChipSprite and the
+                               ## plain deed pop's daub (gloryPopSpawnScale /
+                               ## applySpawnOvershoot) so both families
+                               ## overshoot by the identical curve.
+                               ##
+                               ## Deterministic from `stage`, never raw age:
+                               ## the sprite cache/wire-dedup keys on
+                               ## (content, stage), so a continuously
+                               ## changing scale would force a re-upload
+                               ## every TICK of that stage instead of at most
+                               ## once per stage -- the exact regression a
+                               ## past fix here already undid (see
+                               ## gloryChipCache's own docstring). One
+                               ## consequence, measured and accepted rather
+                               ## than chased: the overshoot window is a
+                               ## whole stage's worth of ticks (~333ms for a
+                               ## plain pop's 5 stages over GloryFxTicks,
+                               ## ~700ms for a claim chip's 5 stages over the
+                               ## longer AchievementFxTicks) rather than a
+                               ## tuned 150-250ms -- this architecture cannot
+                               ## cheaply give a finer curve without
+                               ## resurrecting the per-tick recompute the
+                               ## cache exists to prevent.
   GloryPopRisePx = 20          ## px a "+Ng" floats upward over its full life.
   GloryPopLiftPx = 13          ## px the pop starts ABOVE the player center, so
                                ## it clears the "-1" damage pop stacking below
@@ -897,6 +924,32 @@ proc scaleSpritePixels(
         src = (srcRow + x div k) * bpp
         dst = (y * width * k + x) * bpp
       for c in 0 ..< bpp:
+        result[dst + c] = pixels[src + c]
+
+proc scaleSpritePixelsTo(
+  pixels: openArray[uint8],
+  srcW, srcH, dstW, dstH: int
+): seq[uint8] =
+  ## Nearest-neighbor RGBA resample into an EXACT dstW × dstH canvas, any
+  ## ratio (not just an integer k like scaleSpritePixels) -- the glory pop /
+  ## chip "squash-pop" spawn overshoot (SPLAT C8, addGloryPops) needs a
+  ## non-integer scale (e.g. 130%), and nearest-neighbor keeps every edge
+  ## hard, matching the style law's flat/chunky pixel-art fill instead of
+  ## introducing a soft resample blur.
+  if srcW == dstW and srcH == dstH:
+    return @pixels
+  doAssert pixels.len == srcW * srcH * 4,
+    "scaleSpritePixelsTo: expected RGBA " & $srcW & "x" & $srcH &
+    " (len " & $(srcW * srcH * 4) & "), got " & $pixels.len
+  result = newSeq[uint8](dstW * dstH * 4)
+  for y in 0 ..< dstH:
+    let sy = min(srcH - 1, (y * srcH) div max(1, dstH))
+    for x in 0 ..< dstW:
+      let
+        sx = min(srcW - 1, (x * srcW) div max(1, dstW))
+        src = (sy * srcW + sx) * 4
+        dst = (y * dstW + x) * 4
+      for c in 0 ..< 4:
         result[dst + c] = pixels[src + c]
 
 var TransportSheet: Sprite
@@ -5531,6 +5584,31 @@ proc buildChunkyBoardText(
     chunkyTextCache.clear()
   chunkyTextCache[key] = result
 
+proc gloryPopSpawnScale(stage: int): float32 =
+  ## SPLAT C8: the squash-pop spawn overshoot factor for one alpha-fade
+  ## stage. See GloryPopSpawnScalePct's own doc for why this is keyed on
+  ## `stage`, not raw age.
+  if stage == 0: GloryPopSpawnScalePct.float32 / 100.0'f32 else: 1.0'f32
+
+proc applySpawnOvershoot(
+  pixels: seq[uint8], logicalW, logicalH, k, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## Applies gloryPopSpawnScale to an already-composed LOGICAL-dims/NATIVE-
+  ## pixels sprite buffer (the shared tail of buildGloryChipSprite and the
+  ## plain deed pop's daub) -- one place so the two glory-pop families
+  ## overshoot by the identical curve, scaled up from CENTER by the caller's
+  ## own object-placement math (`sprite.width/height div 2`, already how
+  ## addGloryPops centers every pop on its anchor -- a bigger returned
+  ## sprite re-centers itself for free, no placement change needed here).
+  let scale = gloryPopSpawnScale(stage)
+  if scale == 1.0'f32:
+    return (logicalW, logicalH, pixels)
+  let
+    newW = max(1, round(logicalW.float32 * scale).int)
+    newH = max(1, round(logicalH.float32 * scale).int)
+  (newW, newH,
+    scaleSpritePixelsTo(pixels, logicalW * k, logicalH * k, newW * k, newH * k))
+
 proc buildGloryChipSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
@@ -5706,9 +5784,10 @@ proc buildGloryChipSprite(
   if alphaByte != 255'u8:
     for i in countup(3, pixels.len - 1, 4):
       pixels[i] = uint8(pixels[i].int * alphaByte.int div 255)
-  result.width = logicalW
-  result.height = logicalH
-  result.pixels = pixels
+  let overshoot = applySpawnOvershoot(pixels, logicalW, logicalH, k, stage)
+  result.width = overshoot.width
+  result.height = overshoot.height
+  result.pixels = overshoot.pixels
 
 proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
   ## Magnitude-scaled type size for a plain deed pop (kill vs capture vs
@@ -5895,6 +5974,11 @@ proc buildGloryPopSprite(
     if alphaByte != 255'u8:
       for i in countup(3, result.pixels.len - 1, 4):
         result.pixels[i] = uint8(result.pixels[i].int * alphaByte.int div 255)
+    let overshoot = applySpawnOvershoot(
+      result.pixels, result.width, result.height, boardScale, stage)
+    result.width = overshoot.width
+    result.height = overshoot.height
+    result.pixels = overshoot.pixels
   else:
     result = sim.buildPopLabelSprite(
       text, stage, GloryPopStages,
