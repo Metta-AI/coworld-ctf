@@ -97,6 +97,29 @@ proc convert(br: JsonNode): JsonNode =
   if result["medKitCandidates"].isNil or
       result["medKitCandidates"].kind != JArray:
     result["medKitCandidates"] = newJArray()
+  # shieldSpawns/spraySpawns (brmapkit round 13, §4.9): mapFromSpecJson
+  # treats an ABSENT key as "no pool, fall back to the classic per-team
+  # endzone formula" (arena.nim's pointsFromNode(node{"shieldSpawns"})), so
+  # unlike medKitSpawns/medKitCandidates above this is only added when the
+  # draw actually authored a non-empty pool — an empty key and an absent
+  # key mean the same thing to the loader, so there is nothing to gain by
+  # forcing the key to exist. grenadeSpawns is NOT forwarded: the engine
+  # side (CtfMap.grenadeSpawns / sim.nim's resetGrenades) is still a fixed
+  # array[4, PickupSpawn], not the seq[MapPoint] neutral-pool shape
+  # shieldSpawns/spraySpawns/medKitSpawns share, so there is no ingest path
+  # for a drawn grenade pool yet — that is a real engine change (the array
+  # is sized 4 everywhere it's touched, including the wire/replay format),
+  # not a bridge-tool one, and out of scope here. Grenades still place via
+  # grenadeSpawnPoints()'s 4-corner formula on a BR map, same as before
+  # this round.
+  let shieldSpawns = br{"shieldSpawns"}
+  if not shieldSpawns.isNil and shieldSpawns.kind == JArray and
+      shieldSpawns.len > 0:
+    result["shieldSpawns"] = shieldSpawns
+  let spraySpawns = br{"spraySpawns"}
+  if not spraySpawns.isNil and spraySpawns.kind == JArray and
+      spraySpawns.len > 0:
+    result["spraySpawns"] = spraySpawns
 
 when isMainModule:
   let args = commandLineParams()
@@ -127,7 +150,9 @@ when isMainModule:
     &"gunRange={gameMap.gunRange}  spawnPoints={gameMap.spawnPoints.len}  " &
     &"spawnGroups={gameMap.spawnGroups}  teamCount={gameMap.teamCount()}  " &
     &"flagless={gameMap.flagless}  obstacles={gameMap.leftObstacles.len}  " &
-    &"medkits={gameMap.medKitSpawns.len}"
+    &"medkits={gameMap.medKitSpawns.len}  shields={gameMap.shieldSpawns.len}  " &
+    &"sprays={gameMap.spraySpawns.len}  (grenades: still the 4-corner " &
+    &"formula, not drawn — see the shieldSpawns/spraySpawns comment above)"
   if br{"keystone"}.getStr("").len > 0:
     echo "keystone: ", br["keystone"].getStr()
 
