@@ -71,6 +71,14 @@ proc broadcastBeats(path: string): seq[Beat] =
           result.add((e["t"].getInt, "capture", e["by"].getInt, -1))
         of "gameover":
           result.add((e["t"].getInt, "gameover", -1, -1))
+        of "achv":
+          # Cross-checks broadcast's "achv" wire kind (read straight off
+          # sim.achievementFeed) against expand_replay's OWN independent read
+          # of the same feed (tools/expand_replay.nim's Achievement kind,
+          # STAGE 5). (tier, slot) is the fingerprint both sides carry --
+          # not team/tree/glory/first too, since broadcast's payload is a
+          # fixed wire shape this suite may not widen.
+          result.add((e["t"].getInt, "achv", e["tier"].getInt, e["slot"].getInt))
         else:
           discard
   finally:
@@ -96,6 +104,8 @@ proc timelineBeats(path: string): seq[Beat] =
         result.add((e.tick, "capture", e.actorSlot, -1))
       of GameOver:
         result.add((e.tick, "gameover", -1, -1))
+      of Achievement:
+        result.add((e.tick, "achv", e.achvTier, e.actorSlot))
       else:
         discard
   finally:

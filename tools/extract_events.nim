@@ -8,6 +8,7 @@
 
 import
   std/[json, os, strutils],
+  ../src/ctf/glory,
   ../src/ctf/replays,
   ../src/ctf/sim
 
@@ -72,6 +73,9 @@ proc key*(kind: SimEventKind): string =
   of Respawn: "respawn"
   of Heal: "heal"
   of PhaseChange: "phase"
+  of Achievement: "achievement"
+  of GloryDeed: "glory_deed"
+  of LevelUp: "level_up"
 
 proc jsonRow*(event: SimEvent): JsonNode =
   ## Returns one JSON-lines row for a tier-2 sim event.
@@ -140,6 +144,10 @@ proc extractEventsJsonl*(data: ReplayData): string =
   summary["ticks"] = %extraction.ticks
   summary["events"] = %extraction.events.len
   summary["gameVersion"] = %GameVersion
+  # So a downstream reader can attribute every Achievement/GloryDeed row in
+  # this extraction to the pricing table that actually produced it (the same
+  # reason GloryVersion rides in gameHash now -- see sim.nim's gameHash).
+  summary["gloryVersion"] = %GloryVersion
   lines.add($summary)
   lines.join("\n") & "\n"
 

@@ -1,5 +1,6 @@
 import
   std/[json, os, strutils],
+  ../src/ctf/glory,
   ../src/ctf/replays,
   ../src/ctf/sim
 
@@ -18,6 +19,10 @@ type
     Respawn
     ScoreChanged
     GameOver
+    Achievement  ## one claim off `sim.achievementFeed`, read the same
+                 ## high-water-mark way `broadcast.nim`'s tracker does --
+                 ## the feed is the authoritative append-only record, so this
+                 ## is a direct read, not a counter-diff.
 
   ReplayEvent* = object
     tick*: int
@@ -31,6 +36,10 @@ type
     flagTeam*: Team
     winner*: Team
     isDraw*: bool
+    achvTree*: Tree      ## Achievement only.
+    achvTier*: int       ## Achievement only, 0..4.
+    achvGlory*: int      ## Achievement only.
+    achvFirst*: bool     ## Achievement only.
 
   ReplayTimeline* = object
     events*: seq[ReplayEvent]
@@ -108,6 +117,7 @@ type
     rewards: seq[int]
     shotsFired: seq[int]
     shotsHit: seq[int]
+    achv: int   ## sim.achievementFeed.len already emitted into the timeline.
 
 proc syncPlayers(
   sim: SimServer,
@@ -204,6 +214,39 @@ proc printCaptures(
       )
     track.captures[i] = p.captures
 
+proc printAchievements(
+  sim: SimServer,
+  events: var seq[ReplayEvent],
+  track: var TrackState
+) =
+  ## Adds one event per NEW entry appended to `sim.achievementFeed` since the
+  ## last call -- a direct high-water-mark read of the authoritative record
+  ## (the same pattern `broadcast.nim`'s tracker uses for its own "achv" wire
+  ## kind), not a counter-diff. The clamp mirrors that tracker's too: a seek
+  ## or reset can shrink the live feed below what was already emitted.
+  for i in min(track.achv, sim.achievementFeed.len) ..< sim.achievementFeed.len:
+    let claim = sim.achievementFeed[i]
+    var earnerIndex = -1
+    if claim.slot >= 0:
+      for j, p in sim.players:
+        if p.joinOrder == claim.slot:
+          earnerIndex = j
+          break
+    events.add ReplayEvent(
+      tick: claim.tick,
+      kind: Achievement,
+      actorSlot: claim.slot,
+      actorLabel: (if earnerIndex >= 0: sim.player(earnerIndex) else: ""),
+      secondarySlot: -1,
+      flagTeam: claim.team,
+      achvTree: claim.tree,
+      achvTier: claim.tier,
+      achvGlory: claim.glory,
+      achvFirst: claim.first,
+      phase: sim.phase
+    )
+  track.achv = sim.achievementFeed.len
+
 proc printScoreChanges(
   sim: SimServer,
   tick: int,
@@ -292,6 +335,8 @@ proc key*(event: ReplayEvent): string =
     "score"
   of GameOver:
     "game_over"
+  of Achievement:
+    "achievement"
 
 proc text*(event: ReplayEvent): string =
   ## Renders one replay event as a human-readable CLI line.
@@ -323,6 +368,10 @@ proc text*(event: ReplayEvent): string =
       "  game over: draw"
     else:
       "  game over: " & teamText(event.winner) & " wins"
+  of Achievement:
+    "  " & teamText(event.flagTeam) & " achievement: " &
+      achievementName(event.achvTree, event.achvTier) &
+      (if event.achvFirst: " (FIRST!)" else: "") & " +" & $event.achvGlory
 
 proc jsonRow*(event: ReplayEvent): JsonNode =
   ## Returns one event-log JSON row for a replay event.
@@ -348,6 +397,13 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
     value["draw"] = %event.isDraw
     if not event.isDraw:
       value["winner"] = %teamText(event.winner)
+  of Achievement:
+    value["label"] = %event.actorLabel
+    value["team"] = %teamText(event.flagTeam)
+    value["name"] = %achievementName(event.achvTree, event.achvTier)
+    value["tier"] = %event.achvTier
+    value["glory"] = %event.achvGlory
+    value["first"] = %event.achvFirst
 
   result = newJObject()
   result["ts"] = %event.tick
@@ -415,6 +471,7 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
       sim.printFlagChanges(tick, result.events, prevCarriers)
       sim.printCaptures(tick, result.events, track)
       sim.printScoreChanges(tick, result.events, track)
+      sim.printAchievements(result.events, track)
   finally:
     setCurrentDir(previousDir)
 

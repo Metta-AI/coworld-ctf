@@ -1,6 +1,6 @@
 import
-  std/[json, os, unittest],
-  ctf/[replays, sim],
+  std/[json, os, strutils, unittest],
+  ctf/[glory, replays, sim],
   "../tools/extract_events"
 
 const
@@ -43,6 +43,9 @@ suite "tier-2 event extraction (tools/extract_events)":
       sawKill = false
       sawPlayingPhase = false
       sawGameOverPhase = false
+      sawAchievement = false
+      sawGloryDeed = false
+      sawLevelUp = false
     for slot in 0 ..< slotCount:
       lastHp[slot] = -1
     for event in extraction.events:
@@ -92,11 +95,36 @@ suite "tier-2 event extraction (tools/extract_events)":
         # A phase boundary resets every hp (new game / lobby): restart traces.
         for slot in 0 ..< slotCount:
           lastHp[slot] = -1
+      of Achievement:
+        sawAchievement = true
+        # `hp`/`blocked` are reused here (tier, first-claim flag) rather than
+        # meaning hit points/shield-soak -- the one kind that deviates from
+        # the "n/a" convention every other kind here follows, so it gets its
+        # own checks instead of falling into the blanket `else` below.
+        check event.hp >= 0 and event.hp < AchievementTiers
+        check event.blocked == 0 or event.blocked == 1
+        check event.weapon.startsWith("tree")
+        check event.target == 0 or event.target == 1     # ord(Team)
+        check event.amount > 0                            # glory always > 0
+      of GloryDeed:
+        sawGloryDeed = true
+        check event.weapon.startsWith("d")                # $Deed, e.g. "dCapture"
+        check event.target == 0 or event.target == 1
+        check event.hp == -1
+        check event.blocked == 0
+      of LevelUp:
+        sawLevelUp = true
+        check event.amount >= 1 and event.amount <= MaxLevel
+        check event.hp == -1
+        check event.blocked == 0
       else:
         check event.hp == -1
         # `blocked` is Damage-only; every other kind carries 0.
         check event.blocked == 0
     check sawKill
+    check sawAchievement
+    check sawGloryDeed
+    check sawLevelUp
     # The fixture plays a full match: it enters Playing and ends at GameOver.
     check sawPlayingPhase
     check sawGameOverPhase
@@ -140,6 +168,10 @@ suite "tier-2 event extraction (tools/extract_events)":
     check summary["events"].getInt == rows.len - 1
     check summary["ticks"].getInt > 0
     check summary["gameVersion"].getStr == GameVersion
+    # So a ledger's Achievement/GloryDeed rows can be attributed to the
+    # pricing table that produced them (mirrors gameHash's own GloryVersion
+    # mix -- see sim.nim's gameHash).
+    check summary["gloryVersion"].getInt == GloryVersion
     # Every non-summary row carries the full event shape.
     for row in rows[0 ..< ^1]:
       for field in ["tick", "kind", "source", "target", "weapon", "amount",

@@ -702,6 +702,28 @@ type
     Heal        ## hit points restored (med kit or shield pickup).
     PhaseChange ## the game phase moved (lobby / playing / gameover):
                 ## weapon = the new phase name, amount = its ordinal.
+    Achievement ## an achievement tier was claimed (`claimAchievement`).
+                ## Reuses the generic fields like `PhaseChange` does:
+                ## source = the earning cog's stable slot, -1 for a team-wide
+                ## claim (`treeSquad`, `AchievementClaim.slot`'s own NoCog
+                ## convention); target = ord(team); weapon = $tree (e.g.
+                ## "treeCarrier"); amount = glory minted (post site gradient
+                ## and the first-claim x3); hp = the tier index 0..4 (reused,
+                ## NOT a hit-point reading); blocked = 1 when this claim took
+                ## the first-claim bonus, else 0 (reused as a 0/1 flag); x,y
+                ## = the mint site. GLORY ITSELF is causal (gameHash), but
+                ## this tier-2 mirror is pure analysis and gated on
+                ## collectEvents like every other kind here.
+    GloryDeed   ## one deed minted through `awardDeed`. source = the earning
+                ## cog's stable slot when known, -1 for a deed with no single
+                ## owner (e.g. dWipe); target = ord(team); weapon = $deed
+                ## (e.g. "dCapture"); amount = glory minted, POST every
+                ## multiplier, negative for a penalty (dTeamKill); hp = -1,
+                ## blocked = 0 (n/a on this kind); x,y = the pricing site.
+    LevelUp     ## a cog gained a level (`addXp`'s level-up branch). source =
+                ## the cog's stable slot; amount = the level just reached;
+                ## x,y = the cog's position; target = -1, weapon = "",
+                ## hp = -1, blocked = 0 (n/a on this kind).
 
   SimEvent* = object
     ## One tier-2 analysis event; never enters gameHash (replay-safe).
@@ -3843,6 +3865,13 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     # A penalty is negative, so a hardcoded "+" prints "+-60".
     sim.logGameEvent(teamText(team) & " " & deedName(deed) &
                      (if amount < 0: " " else: " +") & $amount)
+  # Tier-2 mirror of this mint: a no-op unless collectEvents is on, so this
+  # never touches a live server's budget. GLORY ITSELF (teamGlory, above) is
+  # already causal and always live; this is analysis only.
+  sim.emitEvent(
+    GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
+    amount = amount, x = float(x), y = float(y)
+  )
 
 proc teamConvertedKits(sim: SimServer, team: Team): int =
   ## How many of the four kits this team has CONVERTED -- at least one
@@ -3917,6 +3946,14 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
       teamText(team) & " achievement: " & achievementName(tree, tier) &
       (if isFirst: " (FIRST!)" else: "") & " +" & $amount
     )
+  # Tier-2 mirror, gated on collectEvents like every other analysis event.
+  # `source` mirrors the SAME byCog gate `AchievementClaim.slot` used, so the
+  # two never disagree about who (if anyone) earned it.
+  sim.emitEvent(
+    Achievement, source = (if byCog: byIndex else: -1), target = ord(team),
+    weapon = $tree, amount = amount, hp = tier, blocked = ord(isFirst),
+    x = float(home.x), y = float(home.y)
+  )
 
 proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
                        byIndex = -1) =
@@ -4201,6 +4238,16 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
         playerColorText(sim.players[playerIndex].color) & " is " &
         levelName(after)
       )
+    # Tier-2 mirror: distinct from GloryDeed's own dLevelUp mint (that one
+    # reports the LEDGER side; this one reports the PROGRESSION side -- the
+    # rank itself, readable without decoding a deed name). One event per
+    # crossing addXp call, same granularity as the deed mint above (a
+    # multi-level jump is one event reporting the level FINALLY reached, not
+    # one per rung).
+    sim.emitEvent(
+      LevelUp, source = playerIndex, amount = after,
+      x = float(sim.players[playerIndex].x), y = float(sim.players[playerIndex].y)
+    )
 
 proc resetLadder*(sim: var SimServer, playerIndex: int) =
   ## Death forfeits the whole per-life ladder: xp, level, buffs and the tithe

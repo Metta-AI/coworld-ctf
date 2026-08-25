@@ -26,6 +26,9 @@ proc key(kind: SimEventKind): string =
   of Respawn: "respawn"
   of Heal: "heal"
   of PhaseChange: "phase"
+  of Achievement: "achievement"
+  of GloryDeed: "glory_deed"
+  of LevelUp: "level_up"
 
 let params = commandLineParams()
 if params.len < 2:
