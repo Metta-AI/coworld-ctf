@@ -550,29 +550,23 @@ def score_episode_derived(events, n_slots):
         if k == "phase" and e.get("weapon") == "playing":
             start_tick = tick
         elif k == "item_pickup":
-            s = e["source"]
-            if s < 0 or s >= n_slots:
-                continue
-            c = cogs[s]
-            item = e.get("item")
-            c.pos = (e["x"], e["y"])
-            if item == "med_kit":
-                if c.hp <= 1:
-                    c.clutch_heals += 1
-                    c.clutch_heal_t = tick
-                    if c.carrying:
-                        c.clutch_carry_heals += 1
-                    mint(team(s), "clutch_heal", e["x"], e["y"])
-                    add_xp(s, XP_CLUTCH, tick)
-                add_xp(s, XP_PICKUP + XP_HEAL * max(0, 3 - c.hp), tick)
-                c.hp = 3
-            elif item == "grenade":
-                add_xp(s, XP_PICKUP, tick)
-            elif item == "spray_can":
-                c.spray_kills_pickup = 0
-                add_xp(s, XP_PICKUP, tick)
-            elif item == "shield":
-                add_xp(s, XP_PICKUP, tick)
+            # 🚨 RETIRED (GLORY C10 audit): this branch is dead code, not
+            # merely stale for the old v0.7.9x cache the module docstring
+            # blamed. `item_pickup` is not a `SimEventKind` this engine has
+            # EVER carried (see sim.nim's `SimEventKind` enum -- there is no
+            # such kind, at any version, for `extract_events.nim` to have
+            # emitted it from) -- so every sub-case below was always
+            # unreachable, on every cached episode regardless of vintage.
+            # The med_kit sub-case (clutch-heal detection, which fed the
+            # medkit tree AND the squad tree's kit-conversion count, so
+            # "Full Kit"/(the tier formerly "The Parade") could never see a
+            # 4th converted kit) is repointed at the `heal` branch below,
+            # which reads the event the engine actually emits. The
+            # grenade/spray_can/shield sub-cases have nothing left to
+            # recover even if a pickup event existed: GLORY C1 zeroed their
+            # xp in the real engine (a bare touch is not work), so their
+            # correct contribution is zero either way.
+            pass
         elif k in ("shot", "spray_use", "grenade_throw", "gun_trigger"):
             s = e.get("source", -1)
             if 0 <= s < n_slots:
@@ -590,9 +584,53 @@ def score_episode_derived(events, n_slots):
                     team(s) != team(t):
                 add_xp(s, XP_DAMAGE * e.get("amount", 1), tick)
         elif k == "heal":
-            t = e.get("target", e.get("source", -1))
+            # v6 (GLORY C10): the clutch-heal/xp read moved here from the
+            # dead `item_pickup` branch above -- this is the event
+            # sim.nim's `tryPickupMedKits`/`tryPickupTithes` actually emit
+            # (Heal, `amount` = hit points restored, `hp` = the cog's POST-
+            # heal hp), for EVERY medkit source, ground or tithed. Mirrors
+            # BOTH halves of `tryPickupMedKits`'s formula exactly:
+            # `XpPerClutchHeal` when the cog was at 1 hp or less BEFORE this
+            # heal (reconstructed as `hp - amount`, since the wire never
+            # carries pre-heal hp directly), and `XpPerPickup +
+            # XpPerHeal * healed` unconditionally.
+            #
+            # ⚠️ KNOWN OVER-COUNT vs. the real engine: `tryPickupTithes`'s
+            # med-kit case emits an IDENTICAL Heal event but never awards
+            # clutch credit in sim.nim (only the GROUND pickup does) --
+            # the wire shape does not distinguish the two sources, so a
+            # tithed heal landing at 1 hp counts as clutch here when it
+            # would not in-engine. Bounded by how rare a tithe pickup is
+            # (Starfall-level only, `TitheCooldownTicks`=90,
+            # `TitheMaxPerLife`=4), not eliminated.
+            #
+            # 🚨 Also fixed here (found chasing why this branch measured
+            # ZERO clutch heals against a cache that has 433 real `heal`
+            # rows, 199 of them at pre-heal hp<=1): `t` used to read
+            # `e.get("target", e.get("source", -1))`, but
+            # extract_events.nim's `jsonRow` writes EVERY field
+            # unconditionally (`result["target"] = %event.target`), so the
+            # key is always PRESENT -- at its default -1 for a Heal event,
+            # which never sets a target (sim.nim's `emitEvent` calls for
+            # Heal only ever pass `source`). The `.get(...)` fallback could
+            # therefore never fire; `t` silently resolved to -1 on every
+            # single heal, all along. Reading `source` directly is correct.
+            t = e.get("source", -1)
             if 0 <= t < n_slots:
-                cogs[t].hp = e.get("hp", 3)
+                c = cogs[t]
+                amount = e.get("amount", 0)
+                post_hp = e.get("hp", 3)
+                pre_hp = post_hp - amount
+                if amount > 0 and pre_hp <= 1:
+                    c.clutch_heals += 1
+                    c.clutch_heal_t = tick
+                    if c.carrying:
+                        c.clutch_carry_heals += 1
+                    mint(team(t), "clutch_heal", e.get("x", 0), e.get("y", 0))
+                    add_xp(t, XP_CLUTCH, tick)
+                if amount > 0:
+                    add_xp(t, XP_PICKUP + XP_HEAL * amount, tick)
+                c.hp = post_hp
         elif k == "flag_steal":
             s = e["source"]
             if 0 <= s < n_slots:
@@ -907,15 +945,18 @@ def main():
             # Python (lexical '9' > '2'), so every v0.7.9x episode silently
             # PASSES this filter though it predates v0.7.200 by 100+ builds.
             # Measured effect: the 120-episode field this file scores today
-            # is entirely v0.7.95-98, which ships with NO item_pickup events
-            # at all (0 across the whole sample) -- that's why spray/nade/
-            # shield/med tier I ("took a kit") can never claim in the PER-TREE
-            # RUNG ORDER report below. NOT fixed here: swapping in a numeric
-            # (dotted-tuple) compare finds 144 real v0.7.207 candidates, but
-            # the local scout cache has zero downloaded event files for any
-            # of them today -- a numeric fix would print "scoring 0 real
-            # episodes", not a better field. Fix belongs with re-fetching the
-            # cache at a current version, not with this comparison.
+            # is entirely v0.7.95-98. This USED to matter for `item_pickup`
+            # events (0 across the whole sample), but GLORY C10's audit found
+            # that premise itself was wrong: `item_pickup` is not a
+            # `SimEventKind` this engine has EVER carried, at any version --
+            # see the retired branch's own comment above -- so a version fix
+            # here would not have recovered anything regardless. NOT fixed
+            # here: swapping in a numeric (dotted-tuple) compare finds 144
+            # real v0.7.207 candidates, but the local scout cache has zero
+            # downloaded event files for any of them today -- a numeric fix
+            # would print "scoring 0 real episodes", not a better field. Fix
+            # belongs with re-fetching the cache at a current version, not
+            # with this comparison.
             if v < args.min_version:
                 continue
             # 2-TEAM ONLY. The cache mixes 4ffa/4ffa8 episodes, and there
