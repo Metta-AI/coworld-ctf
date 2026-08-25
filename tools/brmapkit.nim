@@ -897,8 +897,16 @@ type UnitSpec = object
   grammar: Grammar
 
 proc rollUnitSize(seed: int, idx: int, gunRange: int): tuple[w, h: int] =
+  ## ROUND 11 recalibration: 0.32-0.70G (the first pass) made a
+  ## SINGLE unit smaller than the retired poiAnchor (0.62G half-extent,
+  ## i.e. ~1.24G across) ever was — more units couldn't compensate for
+  ## that on their own (measured: bumping the unit BUDGET 12->18->24
+  ## made cover WORSE, not better, since a bigger budget under fixed
+  ## minSep also means more founding attempts get spacing-rejected,
+  ## capping the effective count). 0.40-0.85G brings a single unit back
+  ## toward the old anchor's own scale.
   let sizeRoll = hashLaneFloat(seed, "unit_size", idx)
-  let w = int((0.32 + sizeRoll * 0.38) * float(gunRange))
+  let w = int((0.40 + sizeRoll * 0.45) * float(gunRange))
   let aspectRoll = hashLaneFloat(seed, "unit_aspect", idx)
   let h = int(float(w) * (0.65 + aspectRoll * 0.7))
   (w, h)
@@ -2029,14 +2037,29 @@ proc placePois(
     ## Ruins/outposts below are UNCHANGED and place normally around
     ## whatever the growth pass produced (they already respect spacing
     ## against `result`, which the complexes are added to FIRST).
-    const LsComplexUnitBudget = 12
+    ## ROUND 11 recalibration: unit budget 12 -> 18. A 30-seed sweep at
+    ## 12 measured cover mean 111‰, median RIGHT AT the [110,170] floor
+    ## (min 78!) — growGlobalComplexes' emergent sizing carries measurably
+    ## less average mass than the retired fixed-size compound/anchor/
+    ## mazeHall trio did, so the unit count needs to go up to compensate.
+    const LsComplexUnitBudget = 16
     const LsComplexPAttach = 0.62  ## the ONE composition dial (doctrine
       ## amendment: "~0.5-0.7 starting range; tune against the cover band
       ## and the visual bar, report the value") — printed in the gen log.
     let complexUnits = growGlobalComplexes(seed xor 0x0C0A_11EC, width, height,
-      gunRange, LsComplexUnitBudget, LsComplexPAttach, 0.22, 0.12, 1.3)
+      gunRange, LsComplexUnitBudget, LsComplexPAttach, 0.22, 0.12, 1.1)
     result.add complexSitesFromUnits(complexUnits)
+    ## ROUND 11 recalibration #2: growGlobalComplexes' emergent sizing
+    ## carries measurably less average mass than the retired fixed-size
+    ## compound/anchor/mazeHall trio (bumping the complex unit budget
+    ## 12->18->24 alone made cover WORSE, not better — a bigger budget
+    ## under a fixed founding minSep also means more founding attempts
+    ## get spacing-rejected, capping the effective landed count well
+    ## under the requested budget). Compensating through the well-tested
+    ## filler pool instead of continuing to fight the growth process's
+    ## own saturation dynamics: outpost/ruins count 12-17 -> 16-23.
     let pool: seq[ArchSpec] = @[
+      (poiOutpost, 0.50, 1),
       (poiOutpost, 0.50, 1),
       (poiOutpost, 0.50, 1),
       (poiRuins, 0.16, 2),
@@ -2046,7 +2069,7 @@ proc placePois(
       (poiRuins, 0.16, 2),
       (poiRuins, 0.16, 2),
     ]
-    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.0, 12 + rng.rand(5))
+    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.0, 16 + rng.rand(8))
   of ksRotationTiming:
     ## Long causeways + clusters separated by open seams: crossing timing
     ## is the skill. Clusters first (STRATIFIED across regions so they
