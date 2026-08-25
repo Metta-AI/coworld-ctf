@@ -1179,6 +1179,14 @@ type
     medKitCandidates*: seq[MapPoint] ## the drawn candidate set (4 on
                                      ## generated maps; equals the active
                                      ## pair on hand-authored maps).
+    shieldSpawns*: seq[MapPoint]  ## BR's neutral shield pool (brmapkit round
+                                  ## 13, docs/designs/BR_MAPGEN.md §4.9) —
+                                  ## empty on every map that has none, in
+                                  ## which case resetShields (sim.nim) falls
+                                  ## back to the classic per-team endzone
+                                  ## formula, exactly as medKitSpawns does.
+    spraySpawns*: seq[MapPoint]   ## BR's neutral spray-can pool, same shape
+                                  ## and fallback rule as shieldSpawns.
     leftObstacles*: seq[ArenaShape]
     trenches*: seq[ArenaShape]  ## walkable dug pits (config-gated): standing
                                ## inside slows movement and fire, and most

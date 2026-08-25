@@ -213,14 +213,34 @@ proc resetShields*(sim: var SimServer) =
   ## as the corner grenade pickups but in the BOTTOM half (three quarters of
   ## the map height down) — the spray cans hold the matching top-half spots —
   ## nudged to the nearest walkable floor, and refills both.
-  sim.placeWalkablePickups(shieldSpawns, sim.gameMap.shieldSpawnPoints())
+  ##
+  ## A map that authored its own neutral pool (gameMap.shieldSpawns —
+  ## brmapkit round 13, a flagless BR board has no per-team endzone for the
+  ## classic formula to anchor into) wins over shieldSpawnPoints()'s
+  ## per-team formula, exactly the same "map's own list first, formula
+  ## fallback" rule resetMedKits already uses above.
+  var targets: seq[tuple[x, y: int]]
+  if sim.gameMap.shieldSpawns.len > 0:
+    for point in sim.gameMap.shieldSpawns:
+      targets.add((point.x, point.y))
+  else:
+    targets = sim.gameMap.shieldSpawnPoints()
+  sim.placeWalkablePickups(shieldSpawns, targets)
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
     sim.players[i].shieldHp = 0
 
 proc resetSprayPaints*(sim: var SimServer) =
-  ## Refills every team's spray can pickup and clears carried cans.
-  sim.placeWalkablePickups(sprayPaintSpawns, sim.gameMap.sprayPaintSpawnPoints())
+  ## Refills every team's spray can pickup and clears carried cans. Same
+  ## "map's own neutral pool first, per-team formula fallback" rule as
+  ## resetShields just above (gameMap.spraySpawns — brmapkit round 13).
+  var targets: seq[tuple[x, y: int]]
+  if sim.gameMap.spraySpawns.len > 0:
+    for point in sim.gameMap.spraySpawns:
+      targets.add((point.x, point.y))
+  else:
+    targets = sim.gameMap.sprayPaintSpawnPoints()
+  sim.placeWalkablePickups(sprayPaintSpawns, targets)
   sim.sprayPaintFlashes = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].hasSprayPaint = false

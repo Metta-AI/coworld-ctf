@@ -3450,6 +3450,15 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   ## existing (flag-armed) pinned spec's echo is unchanged.
   if gameMap.flagless:
     spec["flagless"] = %true
+  ## shieldSpawns/spraySpawns (brmapkit round 13) pin only when present,
+  ## same "unconditional key would move every existing pinned spec" idiom
+  ## as puddles/teamPickups/spawnPoints above. Empty on any map that never
+  ## authored them, in which case resetShields/resetSprayPaints (sim.nim)
+  ## fall back to the classic per-team endzone formula unchanged.
+  if gameMap.shieldSpawns.len > 0:
+    spec["shieldSpawns"] = pointsNode(gameMap.shieldSpawns)
+  if gameMap.spraySpawns.len > 0:
+    spec["spraySpawns"] = pointsNode(gameMap.spraySpawns)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3550,6 +3559,12 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## Optional: absent -> 0, i.e. "seat whatever the layout seats" — the
   ## pre-BR default, byte-identical for every pinned spec ever recorded.
   result.spawnGroups = node{"spawnGroups"}.getInt(0)
+  ## Optional: brmapkit round 13's neutral shield/spray pools. Absent ->
+  ## empty, same "byte-identical for every pre-round-13 pinned spec" rule
+  ## as spawnPoints — resetShields/resetSprayPaints fall back to the
+  ## classic formula when empty.
+  result.shieldSpawns = pointsFromNode(node{"shieldSpawns"})
+  result.spraySpawns = pointsFromNode(node{"spraySpawns"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)
