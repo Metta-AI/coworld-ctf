@@ -94,12 +94,18 @@ cfg["barrageMaxPerSec"] = 0
 # tick 256 without a shot being fired, purely because their grid spawns sat
 # in that band. Spawns span the WHOLE field by ruling (§4.2, no keep-away,
 # not inset), so this is not a bad draw, it is structural.
+# Late phases are LETHAL, and that pricing is deliberate. A weak ring does
+# not force an endgame: it lets episodes run to the clock and be decided by
+# survival farming rather than by fighting, which is the same passive-play
+# failure the draw-free tiebreak closes from the other end. A cog has 3 hp,
+# so the last two phases kill in roughly a second and a half outside — long
+# enough to run back in, far too short to camp.
 cfg["zonePhases"] = [
     {"z": 0.75, "waitTicks": 600, "shrinkTicks": 420, "dps": 0},
     {"z": 0.55, "waitTicks": 480, "shrinkTicks": 360, "dps": 2},
-    {"z": 0.40, "waitTicks": 360, "shrinkTicks": 300, "dps": 3},
-    {"z": 0.28, "waitTicks": 240, "shrinkTicks": 240, "dps": 5},
-    {"z": 0.17, "waitTicks": 180, "shrinkTicks": 180, "dps": 8},
+    {"z": 0.40, "waitTicks": 360, "shrinkTicks": 300, "dps": 4},
+    {"z": 0.28, "waitTicks": 240, "shrinkTicks": 240, "dps": 8},
+    {"z": 0.17, "waitTicks": 180, "shrinkTicks": 180, "dps": 12},
 ]
 # zoneCenter is ABSENT ON PURPOSE. §4.3's central guarantee is that the
 # center is DRAWN, not fixed at map center: a fixed center makes a strong
