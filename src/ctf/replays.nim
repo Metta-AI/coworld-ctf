@@ -46,17 +46,30 @@ type
       ## PLAYERS" span before this is dead air a spectator should never have to
       ## watch). Playback auto-starts here, loops back here, and the scrubber /
       ## tick clock are offset by it so the shown timeline is 0 = first action.
-    livesSeries*: seq[seq[int]]
-      ## [tick, livesPerTeam…] change-points across the WHOLE match (one lives
-      ## count per team, in Team order), precomputed on the deterministic
-      ## keyframe walk so the momentum graph can draw its full-timeline shape
-      ## all at once (not accumulate as it plays). Only points where some
-      ## team's lives CHANGE are stored (compact step series); the client holds
-      ## each value to the next point and to maxTick.
+    leadSeries*: seq[seq[int]]
+      ## [tick, leadPerTeam…] change-points across the WHOLE match/episode
+      ## (one value per team, in Team order): remaining LIVES for classic
+      ## games, CUMULATIVE HILL TICKS for KotH games (scanTeamLead).
+      ## Precomputed on the deterministic keyframe walk so the momentum graph
+      ## can draw its full-timeline shape all at once (not accumulate as it
+      ## plays). Only points where some team's value CHANGES are stored
+      ## (compact step series); the client holds each value to the next point
+      ## and to maxTick.
     endHoldFrames*: int
       ## Real-time frames left to HOLD on the final game-over frame before a
       ## looping replay restarts, so the end segment (winner, win condition,
       ## stats) is readable instead of flashing for one frame. 0 = not holding.
+    pendingSeekTick*: int
+      ## A seek still converging, or -1. A seek lands on the newest keyframe
+      ## at or before its target and then RE-SIMULATES the gap, and while the
+      ## precompute walk is still running the keyframes only cover its
+      ## prefix — on a 4 405-tick hosted replay the 50 % scrub had ~2 000
+      ## ticks of gap and re-simulated all of them inside ONE presentation
+      ## frame, so the viewer showed nothing for seconds and the
+      ## viewer-check's 50 % clock probe read identically to its 0 % probe.
+      ## The gap is now walked SeekTicksPerFrame at a time (like the
+      ## precompute scan), so the first frame after a click already moves and
+      ## no frame stalls.
     skipLulls*: bool
       ## When on, playback fast-forwards through the lull spans below. ON for
       ## every replay `initReplayPlayer` builds: a spectator's default watch
@@ -101,7 +114,7 @@ type
     builder: ReplayPlayer
     beatTracker: BroadcastTracker
     beatTicks: seq[int]
-    lastLives: seq[int]
+    lastLead: seq[int]
     interval: int
     maxTick: int
 
@@ -122,6 +135,10 @@ const
     ## Speed multiplier applied inside a lull span.
   MaxLullTicksPerFrame* = 64
     ## Per-frame cap on boosted stepping so the server stays responsive.
+  SeekTicksPerFrame* = 240
+    ## Per-frame cap on the re-simulation a SEEK may do (10 s of sim time).
+    ## A seek past the keyframed prefix converges over this many ticks per
+    ## presentation frame instead of blocking one frame for the whole gap.
   CtfReplayMagic = "COWLDCTF"
   CtfReplayFormatVersion = 1'u16
   CtfReplaySpec = ReplaySpec(
@@ -140,6 +157,29 @@ export replayCodec
 proc tickTime*(tick: int): uint32 =
   ## Converts a simulation tick to replay milliseconds.
   replayCodec.tickTime(tick, ReplayFps)
+
+proc writeInputMaskChange*(
+  replayWriter: var ReplayWriter,
+  time: uint32,
+  playerIndex: int,
+  mask: uint8
+) =
+  ## Writes one replay input event when a COG's applied mask changes.
+  ##
+  ## Lives here rather than in server.nim because the mask log IS the replay's
+  ## action stream: the tests that prove the recorded masks re-simulate to the
+  ## identical hash chain have to write it exactly the way the server does, and
+  ## two copies of this would be two chances to drift.
+  if playerIndex < 0 or playerIndex >= replayWriter.lastMasks.len:
+    return
+  if replayWriter.lastMasks[playerIndex] == mask:
+    return
+  replayWriter.writeInput(ReplayInput(
+    time: time,
+    player: uint8(playerIndex),
+    keys: mask
+  ))
+  replayWriter.lastMasks[playerIndex] = mask
 
 proc openReplayWriter*(path: string, configJson: string): ReplayWriter =
   ## Opens a replay file and writes the header.
@@ -212,6 +252,7 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.speedIndex = 0
   result.skipLulls = true
   result.hashMismatchTick = -1
+  result.pendingSeekTick = -1
 
 proc replaySpeed*(replay: ReplayPlayer): int =
   ## Returns the current integer replay speed.
@@ -318,14 +359,25 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
     if int(leave.player) < 0 or int(leave.player) >= sim.players.len:
       raise newException(ReplayError, "Replay player leave is invalid")
     sim.removePlayerAt(int(leave.player))
-    if int(leave.player) < replay.masks.len:
-      replay.masks.delete(int(leave.player))
-    if int(leave.player) < replay.pressedMasks.len:
-      replay.pressedMasks.delete(int(leave.player))
-    if int(leave.player) < replay.lastAppliedMasks.len:
-      replay.lastAppliedMasks.delete(int(leave.player))
-    if int(leave.player) < replay.overlays.len:
-      replay.overlays.delete(int(leave.player))
+    if sim.config.numAgents > 0:
+      ## Paintball: a leave does NOT shift the mask arrays. The cogs are fixed
+      ## for the whole episode and the recorded masks are indexed BY COG, so
+      ## deleting a row would silently re-point every mask after it at the
+      ## wrong cog for the rest of playback. The roster entry goes; the cog
+      ## mask slots stay where they are. (Only the /global kick path writes a
+      ## leave mid-episode — a dropped seat never does.)
+      discard
+    else:
+      ## Classic: the mask rows are renumbered with the roster, exactly as
+      ## every recorded classic replay expects.
+      if int(leave.player) < replay.masks.len:
+        replay.masks.delete(int(leave.player))
+      if int(leave.player) < replay.pressedMasks.len:
+        replay.pressedMasks.delete(int(leave.player))
+      if int(leave.player) < replay.lastAppliedMasks.len:
+        replay.lastAppliedMasks.delete(int(leave.player))
+      if int(leave.player) < replay.overlays.len:
+        replay.overlays.delete(int(leave.player))
     inc replay.leaveIndex
 
   while replay.joinIndex < replay.data.joins.len and
@@ -350,7 +402,17 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
   while replay.chatIndex < replay.data.chats.len and
       replay.data.chats[replay.chatIndex].time <= time:
     let chat = replay.data.chats[replay.chatIndex]
-    sim.applyShout(int(chat.player), chat.message)
+    # Paintball CONTROL records (register / directive / fallback /
+    # budget_guard / result) ride the chat stream as JSON objects and are
+    # NOT shouts: the live server never applied them as shouts either, so
+    # applying them here would move the hash chain. Everything else is a
+    # cog's real in-game shout, hashed state both sides hear. Classic games
+    # keep the unconditional apply: every recorded chat there IS a shout.
+    if sim.config.numAgents > 0 and
+        chat.message.len > 0 and chat.message[0] == '{':
+      sim.pushFeedDirective(chat.message)
+    else:
+      sim.applyShout(int(chat.player), chat.message)
     inc replay.chatIndex
 
   # Leaves are consumed first, so equal-time debug records use shifted indices.
@@ -425,13 +487,32 @@ proc checkReplayHash(replay: var ReplayPlayer, sim: SimServer) =
     return
   inc replay.hashIndex
 
+proc advanceReplayGame(sim: var SimServer) =
+  ## The playback mirror of the server's regime switch (its named edit #4).
+  ## `gameIndex`, `regime`, `gameHill` and `gameRegimes` are written only by
+  ## the live loop, and none of them is in `gameHash` — so without this the
+  ## readouts a spectator reads off a replay ("GAME 1/2 · RESIDENT") stay
+  ## frozen on game 1 for the whole episode and the visitor half is never
+  ## announced. Archiving here is also what lets the momentum series stay
+  ## cumulative across the two games.
+  if sim.config.numAgents <= 0 or sim.config.regimes.len == 0:
+    return
+  sim.gameHill.add(sim.hillTicks)
+  sim.gameRegimes.add(sim.regime)
+  sim.gameIndex = sim.gameHill.len
+  sim.regime = sim.config.regimes[
+    min(sim.gameIndex, sim.config.regimes.high)]
+
 proc stepReplay*(replay: var ReplayPlayer, sim: var SimServer) =
   ## Advances replay by one simulation tick.
   replay.clearReplayPressedMasks()
   replay.applyReplayEvents(sim)
   let prevInputs = replay.replayPrevInputs(sim.players.len)
   let inputs = replay.replayInputs(sim.players.len)
+  let phaseBefore = sim.phase
   sim.step(inputs, prevInputs)
+  if phaseBefore != GameOver and sim.phase == GameOver:
+    sim.advanceReplayGame()
   replay.clearReplayPressedMasks()
   replay.checkReplayHash(sim)
 
@@ -459,19 +540,34 @@ proc buildLullSpans*(
     if i < beatTicks.len:
       prevBeat = nextBeat
 
-proc scanTeamLives(sim: SimServer): seq[int] =
-  ## One lives count per team, in Team order, so the series reads the same
-  ## for any team count.
-  for team in sim.teams():
-    result.add(sim.teamLivesRemaining(team))
+proc scanTeamLead(sim: SimServer): seq[int] =
+  ## One lead value per team, in Team order — the metric the momentum graph
+  ## plots the difference of.
+  ##
+  ## Classic: the team's remaining lives, as always.
+  ##
+  ## KotH (hill on): the CUMULATIVE hill-tick count — the archived totals of
+  ## the games already finished plus this game's running count. With
+  ## `lives: 12` a paintball series of lives is near-flat and shows tag
+  ## attrition, not hill momentum, and the hill-tick difference over the
+  ## whole episode is the thing a KotH spectator is watching.
+  if sim.config.hill:
+    for team in sim.teams():
+      var total = sim.hillTicks[team]
+      for archived in sim.gameHill:
+        total += archived[team]
+      result.add(total)
+  else:
+    for team in sim.teams():
+      result.add(sim.teamLivesRemaining(team))
 
-proc scanSeriesPoint(tick: int, lives: seq[int]): seq[int] =
-  ## One [tick, livesPerTeam…] change-point of the momentum series.
+proc scanSeriesPoint(tick: int, lead: seq[int]): seq[int] =
+  ## One [tick, leadPerTeam…] change-point of the momentum series.
   result = @[tick]
-  result.add(lives)
+  result.add(lead)
 
 proc scanComplete*(replay: ReplayPlayer): bool =
-  ## True once the precompute walk has finished: livesSeries, beatEvents and
+  ## True once the precompute walk has finished: leadSeries, beatEvents and
   ## lullSpans hold the whole match and the lead chrome may ship. Until then
   ## keyframes only cover the walked prefix (seeks past it re-simulate
   ## forward, exactly like seeking between keyframes) and skip-lulls has no
@@ -491,7 +587,7 @@ proc initReplayScan*(
   ## advanceReplayScan — a bounded slice per presentation frame in the
   ## hosted viewer, or all at once via buildReplayKeyframes.
   replay.keyframes = @[]
-  replay.livesSeries = @[]
+  replay.leadSeries = @[]
   replay.lullSpans = @[]
   replay.beatEvents = newJArray()
   replay.achievementBadges = newJArray()
@@ -504,8 +600,8 @@ proc initReplayScan*(
   scan.builder.mismatchQuit = replay.mismatchQuit
   scan.maxTick = scan.builder.replayMaxTick()
   replay.keyframes.add(scan.builder.saveReplayKeyframe(scan.sim))
-  scan.lastLives = scanTeamLives(scan.sim)
-  replay.livesSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastLives))
+  scan.lastLead = scanTeamLead(scan.sim)
+  replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastLead))
   # Beat ticks for the lull map are derived by the SAME tracker the broadcast
   # channel uses, so "nothing happens here" agrees with the story the kill
   # feed and banners tell. Respawns are excluded: they trail kills on a fixed
@@ -551,20 +647,26 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
       break
     if replay.startTick < 0 and scan.sim.phase == Playing:
       replay.startTick = scan.sim.gameStartTick
-    # Record the per-team lives change-points across the full match so the
-    # momentum graph draws its whole-timeline shape up front (deterministic
-    # replay: a tick's lives are fixed). Only points where some team's lives
-    # change are stored to keep the series compact.
-    let lives = scanTeamLives(scan.sim)
-    if lives != scan.lastLives:
-      replay.livesSeries.add(scanSeriesPoint(scan.sim.tickCount, lives))
-      scan.lastLives = lives
+    # Record the per-team hill-tick change-points across the full episode so
+    # the momentum graph draws its whole-timeline shape up front
+    # (deterministic replay: a tick's hill counts are fixed). Only points
+    # where some team's count changes are stored to keep the series compact.
+    let lead = scanTeamLead(scan.sim)
+    if lead != scan.lastLead:
+      replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, lead))
+      scan.lastLead = lead
     var stepBeats = newJArray()
     scan.sim.stepEvents(scan.beatTracker, stepBeats)
     for event in stepBeats:
-      # The flag story + verdict for the scrubber's up-front timeline. Kills
-      # stay out: dozens of same-looking ticks would bury the flag beats.
-      if event["k"].getStr() in ["steal", "return", "capture", "gameover"]:
+      # The objective story + verdict for the scrubber's up-front timeline.
+      # Kills stay out: dozens of same-looking ticks would bury the beats.
+      # Classic replays keep the flag beats; KotH replays get the hill beats.
+      let scrubberBeats =
+        if scan.sim.config.hill:
+          @["gamestart", "hillflip", "tagout", "gameover"]
+        else:
+          @["steal", "return", "capture", "gameover"]
+      if event["k"].getStr() in scrubberBeats:
         replay.beatEvents.add(event)
     for event in stepBeats:
       if event["k"].getStr() != "respawn":
@@ -577,10 +679,10 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
   if scan.builder.playing and scan.sim.tickCount < scan.maxTick:
     return                              # more slices to come.
   # Anchor the final tick so the client can hold the last value to the end.
-  if replay.livesSeries.len == 0 or
-      replay.livesSeries[^1][0] != scan.sim.tickCount:
-    replay.livesSeries.add(
-      scanSeriesPoint(scan.sim.tickCount, scan.lastLives))
+  if replay.leadSeries.len == 0 or
+      replay.leadSeries[^1][0] != scan.sim.tickCount:
+    replay.leadSeries.add(
+      scanSeriesPoint(scan.sim.tickCount, scan.lastLead))
   replay.lullSpans = buildLullSpans(
     scan.beatTicks,
     replay.replayStartTick(),
@@ -654,14 +756,60 @@ proc seekReplay*(replay: var ReplayPlayer, sim: var SimServer, tick: int) =
   while sim.tickCount < tick and replay.hashIndex < replay.data.hashes.len:
     replay.stepReplay(sim)
 
+proc convergeSeek*(
+  replay: var ReplayPlayer,
+  sim: var SimServer
+): bool =
+  ## Walks a pending seek up to SeekTicksPerFrame ticks closer to its target.
+  ## Returns true when it moved the sim, so the caller can resync its
+  ## broadcast tracker. Clears the pending seek once the target (or the end of
+  ## the recording) is reached.
+  if replay.pendingSeekTick < 0:
+    return false
+  var stepped = 0
+  while sim.tickCount < replay.pendingSeekTick and
+      replay.hashIndex < replay.data.hashes.len and
+      stepped < SeekTicksPerFrame:
+    replay.stepReplay(sim)
+    inc stepped
+  if sim.tickCount >= replay.pendingSeekTick or
+      replay.hashIndex >= replay.data.hashes.len:
+    replay.pendingSeekTick = -1
+  stepped > 0
+
+proc beginSeek*(
+  replay: var ReplayPlayer,
+  sim: var SimServer,
+  tick: int
+) =
+  ## Starts a BOUNDED seek: land on the newest keyframe at or before `tick`
+  ## (instant) and record the target. Convergence happens SeekTicksPerFrame
+  ## at a time from advanceReplayPlayback — which every host calls in the same
+  ## frame — so a seek inside the keyframed region still lands on this frame
+  ## while a seek past the precompute walk's prefix costs one bounded slice
+  ## per frame instead of stalling the viewer. The keyframe restore alone
+  ## already moves the clock, which is what makes a scrubber click visible in
+  ## the very next frame. Call convergeSeek in a loop for a synchronous seek.
+  let target = clamp(tick, replay.replayStartTick(), replay.replayMaxTick())
+  if replay.keyframes.len > 0:
+    replay.restoreReplayKeyframe(
+      sim, replay.keyframes[replay.replayKeyframeIndex(target)])
+  else:
+    let gameEventLoggingEnabled = sim.gameEventLoggingEnabled
+    sim = initSimServer(sim.config)
+    sim.gameEventLoggingEnabled = gameEventLoggingEnabled
+    replay.resetReplay()
+  replay.pendingSeekTick = target
+
 proc applyReplaySeek*(
   replay: var ReplayPlayer,
   sim: var SimServer,
   tick: int
 ) =
-  ## Seeks replay playback and pauses on the target tick.
+  ## Seeks replay playback and pauses on the target tick. The seek itself is
+  ## bounded per frame (beginSeek); playback stays paused while it converges.
   replay.playing = false
-  replay.seekReplay(sim, clamp(tick, replay.replayStartTick(), replay.replayMaxTick()))
+  replay.beginSeek(sim, tick)
 
 proc applySpeedCommand*(speedIndex: var int, command: char) =
   ## Applies one live playback speed command.
@@ -702,20 +850,21 @@ proc applyReplayCommand*(
     applySpeedCommand(replay.speedIndex, command)
   of ',', '<':
     replay.playing = false
+    replay.pendingSeekTick = -1
     replay.seekReplay(sim, replay.replayStartTick())
   of 'b':
     replay.playing = false
-    replay.seekReplay(sim, max(replay.replayStartTick(), sim.tickCount - 1))
+    replay.beginSeek(sim, max(replay.replayStartTick(), sim.tickCount - 1))
   of 'e':
     replay.playing = false
-    replay.seekReplay(sim, replay.replayMaxTick())
+    replay.beginSeek(sim, replay.replayMaxTick())
   of 'r':
     replay.looping = not replay.looping
   of 'f':
     replay.skipLulls = not replay.skipLulls
   of '.', '>':
     replay.playing = false
-    replay.seekReplay(sim, sim.tickCount + ReplayFps * 5)
+    replay.beginSeek(sim, sim.tickCount + ReplayFps * 5)
   else:
     discard
 
@@ -748,6 +897,15 @@ proc advanceReplayPlayback*(
   ## end segment: winner, win condition, stats) holds for
   ## ReplayEndHoldSeconds of real time first. A play command during the hold
   ## skips the wait and loops immediately.
+  # A seek the viewer asked for OWNS the frame. Converging it takes priority
+  # over the background precompute walk (a scan slice plus a seek slice in one
+  # frame is what made the hosted 50 % scrub read stale) and over playback:
+  # the seek is paused by definition, and the next frame either converges
+  # further or resumes.
+  if replay.pendingSeekTick >= 0:
+    if replay.convergeSeek(sim):
+      onJump()
+    return
   # Advance the background precompute walk a bounded slice per frame (no-op
   # once complete). Runs while paused too: a paused frame has budget to
   # spare, and finishing the walk is what unlocks the momentum graph, beat

@@ -23,5 +23,9 @@ import
   # caches self-heal on a map size mismatch (both pinned by its own tests).
   test_replay_switch_caches,
   test_rich_events,
-  test_trade_pair
+  test_trade_pair,
+  test_pb_buff,
+  test_pb_hill,
+  test_pb_paint,
+  test_pb_scoring
 {.warning[UnusedImport]: on.}

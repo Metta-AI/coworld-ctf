@@ -17,5 +17,9 @@ import
   test_replay_controls,
   test_trenches,
   test_weapon_observability,
-  test_windows
+  test_windows,
+  test_pb_identity_privacy,
+  test_pb_perf,
+  test_pb_shouts,
+  test_pb_viewer
 {.warning[UnusedImport]: on.}
