@@ -812,6 +812,53 @@ proc insideFootprint(x, y: int, pieces: seq[MapRect]): bool =
       return true
   false
 
+proc weldOrDropIsolated(shapes: seq[ArenaShape], floorPx2: int): seq[ArenaShape] =
+  ## ROUND 10 FIX: a maze's wall network can leave CORNER PILLARS
+  ## isolated from the rest of the mass — a single wall segment at a
+  ## grid vertex where all four surrounding cell-edges happen to be
+  ## carved passages (more likely with braiding, which opens EXTRA
+  ## passages beyond the base spanning tree). Measured: 14-30px-wide
+  ## fragments (exactly wallThick/shellThick) reading as confetti on a
+  ## poiMazeHall sweep, even after bleeding adjacent same-side segments
+  ## into each other (that fix helped but didn't cover this case — a
+  ## pillar isolated on ALL sides, not just along one boundary run).
+  ## This is the SAME confetti rule (component below floorPx2 gets
+  ## dropped) but self-contained to just THIS structure's own shapes —
+  ## `pruneConfetti`/`components`/`buildWallGrid` all live later in the
+  ## file (after the validator consts) and can't be called this early,
+  ## so this is a local DSU over bounding-box touch/overlap instead of a
+  ## shared grid — exact for axis-aligned rects, which is all a maze or
+  ## cave ever emits.
+  let n = shapes.len
+  if n <= 1: return shapes
+  var parent = toSeq(0 ..< n)
+  proc find(xIn: int): int =
+    var x = xIn
+    while parent[x] != x:
+      parent[x] = parent[parent[x]]
+      x = parent[x]
+    x
+  proc union(a, b: int) =
+    let ra = find(a)
+    let rb = find(b)
+    if ra != rb: parent[ra] = rb
+  var bnds: seq[tuple[x0, y0, x1, y1: int]]
+  for s in shapes: bnds.add shapeBounds(s)
+  for i in 0 ..< n:
+    for j in (i + 1) ..< n:
+      let a = bnds[i]
+      let b = bnds[j]
+      if a.x0 - 1 <= b.x1 and a.x1 + 1 >= b.x0 and a.y0 - 1 <= b.y1 and a.y1 + 1 >= b.y0:
+        union(i, j)
+  var areaByRoot = initTable[int, int]()
+  for i in 0 ..< n:
+    let r = find(i)
+    let b = bnds[i]
+    areaByRoot[r] = areaByRoot.getOrDefault(r, 0) + (b.x1 - b.x0) * (b.y1 - b.y0)
+  for i in 0 ..< n:
+    if areaByRoot[find(i)] >= floorPx2:
+      result.add shapes[i]
+
 proc stampRoomMaze(
   rng: var Rand, pieces: seq[MapRect], shellThick, cellSize, wallThick: int,
   braid: float, gateCount: int
@@ -890,6 +937,19 @@ proc stampRoomMaze(
     false
   var shapes: seq[ArenaShape]
   let halfInner = max(1, wallThick div 2)
+  ## ROUND 10 FIX: each cell used to emit its OWN independent wall rect,
+  ## confined strictly to that cell's own box. Two cells on the SAME
+  ## boundary side, both walled, only touched at a single shared pixel
+  ## edge — fine geometrically, but a cell adjacent to a GATE (whose
+  ## neighbour draws nothing) could end up with a wall segment that
+  ## doesn't reach anything else, isolated and confetti-sized (measured:
+  ## 14-30px-wide fragments — exactly wallThick/shellThick — on a
+  ## poiMazeHall sweep). `Bleed` extends every wall rect a few px past
+  ## its own cell along the boundary direction so adjacent segments
+  ## overlap and weld into one component, the same "generous corner
+  ## overlap" property stampShellRing already relies on. Small relative
+  ## to cell size (64-80px), so it never meaningfully narrows a gate.
+  let bleed = max(6, wallThick div 2)
   for r in 0 ..< rows:
     for c in 0 ..< cols:
       if not isIn(c, r): continue
@@ -897,24 +957,24 @@ proc stampRoomMaze(
       let cy0 = outer.y + r * cell
       if isIn(c + 1, r):
         if not right[idx(c, r)]:
-          shapes.add rectShapeBr(cx0 + cell - halfInner, cy0, wallThick, cell)
+          shapes.add rectShapeBr(cx0 + cell - halfInner, cy0 - bleed, wallThick, cell + 2 * bleed)
       elif not isGate(c, r, 0):
-        shapes.add rectShapeBr(cx0 + cell - shellThick, cy0, shellThick, cell)
+        shapes.add rectShapeBr(cx0 + cell - shellThick, cy0 - bleed, shellThick, cell + 2 * bleed)
       if isIn(c, r + 1):
         if not down[idx(c, r)]:
-          shapes.add rectShapeBr(cx0, cy0 + cell - halfInner, cell, wallThick)
+          shapes.add rectShapeBr(cx0 - bleed, cy0 + cell - halfInner, cell + 2 * bleed, wallThick)
       elif not isGate(c, r, 2):
-        shapes.add rectShapeBr(cx0, cy0 + cell - shellThick, cell, shellThick)
+        shapes.add rectShapeBr(cx0 - bleed, cy0 + cell - shellThick, cell + 2 * bleed, shellThick)
       if not isIn(c - 1, r) and not isGate(c, r, 1):
-        shapes.add rectShapeBr(cx0, cy0, shellThick, cell)
+        shapes.add rectShapeBr(cx0, cy0 - bleed, shellThick, cell + 2 * bleed)
       if not isIn(c, r - 1) and not isGate(c, r, 3):
-        shapes.add rectShapeBr(cx0, cy0, cell, shellThick)
+        shapes.add rectShapeBr(cx0 - bleed, cy0, cell + 2 * bleed, shellThick)
   var rooms: seq[MapRect]
   for r in 0 ..< rows:
     for c in 0 ..< cols:
       if isIn(c, r):
         rooms.add MapRect(x: outer.x + c * cell, y: outer.y + r * cell, w: cell, h: cell)
-  (shapes, rooms)
+  (weldOrDropIsolated(shapes, 3000), rooms)
 
 # --- grammar 3: branching cave (round 10) -------------------------------------
 ## Maxwell, round 10: "or caves with multiple branches cut out." A
@@ -1023,7 +1083,7 @@ proc stampBranchCave(
         c = c2 + 1
       else:
         inc c
-  (shapes, rooms)
+  (weldOrDropIsolated(shapes, 3000), rooms)
 
 proc stampPoi(
   rng: var Rand, site: PoiSite, roomHint: int = 0
@@ -3739,37 +3799,47 @@ proc carveCorridors(m: var BrMap, corridors: seq[MapRect]) =
         kept.add shape
   m.obstacles = kept
 
-proc findBridgePath(
-  orphanCells: seq[int], mainLabel: int, labels: seq[int], cols, rows: int
-): seq[int] =
-  ## THE TUNNEL-CARVING STEP — isolated on purpose so a proven house
-  ## carver (Maxwell referenced one; not yet located in this repo) can
-  ## replace just this proc without touching ensureFullAccessibility's
-  ## own verify/seal/iterate shape. Contract: given a set of orphan grid
-  ## cells and the label of the map's main walkable component, return the
-  ## grid-index PATH (inclusive of both ends) from whichever orphan cell
-  ## is closest to the main component, through however many wall cells
-  ## stand between them, to the first main-component cell reached —
-  ## i.e. literally "the shortest tunnel through the thinnest wall."
-  ##
-  ## Implementation: multi-source BFS, seeded from every orphan cell
-  ## simultaneously, expanding across ALL cells (wall or floor — the
-  ## whole point is to cross walls) until any cell labeled `mainLabel` is
-  ## reached. Parent pointers reconstruct the exact path to carve.
-  if orphanCells.len == 0: return @[]
-  var visited = newSeq[bool](cols * rows)
-  var parent = newSeq[int](cols * rows)
-  var queue = initDeque[int]()
-  for c in orphanCells:
-    visited[c] = true
-    parent[c] = c
-    queue.addLast(c)
-  var foundAt = -1
-  while queue.len > 0:
-    let cur = queue.popFirst()
-    if labels[cur] == mainLabel:
-      foundAt = cur
-      break
+proc weightedConnectivityField(
+  wall: seq[bool], cols, rows: int, sourceMask: seq[bool]
+): tuple[dist: seq[int], pred: seq[int]] =
+  ## Weighted shortest-path connectivity carving: Dial's algorithm
+  ## (bucket-queue Dijkstra for small integer weights) computed ONCE,
+  ## multi-source from every cell in `sourceMask` (the map's main
+  ## walkable component) — O(n * WallCost), effectively O(n). Step cost
+  ## 1 through existing floor, `WallCost` through wall, so the resulting
+  ## distance field naturally prefers walking existing corridors and
+  ## digs through whichever wall is THINNEST only where it must — the
+  ## same distance field serves every orphan component in one pass
+  ## (see tracePathToSource below), rather than recomputing per orphan.
+  ## This repo's own grid is 2-tier (floor/wall), so there is one dig
+  ## cost, not the 3-tier floor/wall/placed-object scheme a richer scene
+  ## graph could support.
+  const WallCost = 10
+  let n = cols * rows
+  var dist = newSeq[int](n)
+  var pred = newSeq[int](n)
+  for i in 0 ..< n:
+    dist[i] = high(int) div 4
+    pred[i] = -1
+  let numBuckets = WallCost + 1
+  var buckets = newSeq[Deque[int]](numBuckets)
+  for i in 0 ..< numBuckets: buckets[i] = initDeque[int]()
+  for i in 0 ..< n:
+    if sourceMask[i]:
+      dist[i] = 0
+      pred[i] = -2  ## -2 marks a source cell; -1 marks never-reached
+      buckets[0].addLast(i)
+  var currentCost = 0
+  var processed = 0
+  let costCap = n * WallCost + 1
+  while processed < n and currentCost <= costCap:
+    let bucketIdx = currentCost mod numBuckets
+    if buckets[bucketIdx].len == 0:
+      inc currentCost
+      continue
+    let cur = buckets[bucketIdx].popFirst()
+    if dist[cur] < currentCost: continue  ## stale entry, already finalized cheaper
+    inc processed
     let cx = cur mod cols
     let cy = cur div cols
     for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -3777,15 +3847,36 @@ proc findBridgePath(
       let ny = cy + dy
       if nx >= 0 and nx < cols and ny >= 0 and ny < rows:
         let ni = ny * cols + nx
-        if not visited[ni]:
-          visited[ni] = true
-          parent[ni] = cur
-          queue.addLast(ni)
-  if foundAt < 0: return @[]
-  result = @[foundAt]
-  var cur = foundAt
-  while parent[cur] != cur:
-    cur = parent[cur]
+        let stepCost = if not wall[ni]: 1 else: WallCost
+        let newCost = currentCost + stepCost
+        if newCost < dist[ni]:
+          dist[ni] = newCost
+          pred[ni] = cur
+          buckets[newCost mod numBuckets].addLast(ni)
+  (dist, pred)
+
+proc tracePathToSource(orphanCells: seq[int], dist, pred: seq[int]): seq[int] =
+  ## THE TUNNEL-CARVING STEP — isolated on purpose so a proven carver can
+  ## replace just this shape without touching ensureFullAccessibility's
+  ## own verify/seal/iterate structure. Given an orphan's cells and the
+  ## distance/predecessor field from weightedConnectivityField, picks the
+  ## cell with MINIMUM distance (argmin over the orphan's own cells) —
+  ## automatically the thinnest-wall crossing, since that's exactly what
+  ## the weighted field measures — and traces predecessors back to a
+  ## source cell. Returns the grid-index PATH to dig, both ends inclusive.
+  if orphanCells.len == 0: return @[]
+  var bestCell = orphanCells[0]
+  var bestDist = dist[bestCell]
+  for c in orphanCells:
+    if dist[c] < bestDist:
+      bestDist = dist[c]
+      bestCell = c
+  if pred[bestCell] == -1: return @[]  ## unreached (shouldn't happen; main
+                                        ## component's field covers the grid)
+  result = @[bestCell]
+  var cur = bestCell
+  while pred[cur] != -2:
+    cur = pred[cur]
     result.add cur
 
 proc corridorRectsFromPath(path: seq[int], cols, width: int): seq[MapRect] =
@@ -3824,15 +3915,24 @@ proc ensureFullAccessibility(m: var BrMap): tuple[tunneled, sealed: int] =
   ## bookkeeping at all, could be sealed and that check would never see
   ## it. This is the HARD, zero-tolerance version: flood-fill the WHOLE
   ## walkable grid, and for every walkable cell NOT in the map's largest
-  ## (dominant) component, either TUNNEL it to that component (a
-  ## multi-source BFS finds the literal shortest crossing — see
-  ## findBridgePath) or, if the whole orphan pocket is tiny, SEAL it by
-  ## filling it with mass instead of spending a tunnel on a crack. Iterates
-  ## because a single pass's carve can occasionally interact with a
-  ## neighbouring orphan; stops when exactly one walkable component
-  ## remains or a hard iteration cap is hit (never silently gives up
-  ## without at least trying every orphan once more).
-  const MaxIters = 25
+  ## (dominant) component, either TUNNEL it to that component or, if the
+  ## whole orphan pocket is tiny, SEAL it by filling it with mass instead
+  ## of spending a corridor on a crack.
+  ##
+  ## Tunneling is weighted shortest-path connectivity carving
+  ## (weightedConnectivityField + tracePathToSource above): a single
+  ## multi-source Dial's-algorithm pass computes, for every cell on the
+  ## board, the cheapest route back to the map's main component (cost 1
+  ## through existing floor, 10 through wall) — so one orphan's tunnel
+  ## can route through ANOTHER orphan's floor for free before digging,
+  ## and the argmin crossing point is automatically the thinnest wall
+  ## available, not just the nearest cell by raw distance. One field
+  ## computation serves every orphan in the current pass. Iterates
+  ## (small cap — the algorithm is analytically single-pass-complete
+  ## once digging is applied; this defends against a carve happening to
+  ## interact with a neighbouring orphan, not the primary mechanism)
+  ## until exactly one walkable component remains.
+  const MaxIters = 6
   const SealFloorPx2 = 2500  ## ~50x50 — a pocket this tiny reads as a
                               ## crack between masses, not a place worth
                               ## a corridor.
@@ -3859,6 +3959,7 @@ proc ensureFullAccessibility(m: var BrMap): tuple[tunneled, sealed: int] =
     if orphanCellsByLabel.len == 0: break
     var corridors: seq[MapRect]
     var sealRects: seq[MapRect]
+    var tunnelOrphans: seq[seq[int]]
     for lbl, cells in orphanCellsByLabel:
       let areaPx2 = cells.len * GridStride * GridStride
       if areaPx2 < SealFloorPx2:
@@ -3867,12 +3968,19 @@ proc ensureFullAccessibility(m: var BrMap): tuple[tunneled, sealed: int] =
         when defined(brDebugRooms):
           stderr.writeLine(&"ACCESS SEAL orphan lbl={lbl} area={areaPx2}px^2 cells={cells.len}")
       else:
-        let path = findBridgePath(cells, mainLabel, comp.labels, cols, rows)
+        tunnelOrphans.add cells
+    if tunnelOrphans.len > 0:
+      var sourceMask = newSeq[bool](walkable.len)
+      for i in 0 ..< walkable.len:
+        sourceMask[i] = walkable[i] and comp.labels[i] == mainLabel
+      let field = weightedConnectivityField(wall, cols, rows, sourceMask)
+      for cells in tunnelOrphans:
+        let path = tracePathToSource(cells, field.dist, field.pred)
         if path.len >= 1:
           corridors.add corridorRectsFromPath(path, cols, CorridorWidth)
           inc totalTunneled
           when defined(brDebugRooms):
-            stderr.writeLine(&"ACCESS TUNNEL orphan lbl={lbl} area={areaPx2}px^2 pathLen={path.len}")
+            stderr.writeLine(&"ACCESS TUNNEL orphan area={cells.len * GridStride * GridStride}px^2 pathLen={path.len}")
     if sealRects.len == 0 and corridors.len == 0: break
     if sealRects.len > 0:
       for r in sealRects: m.obstacles.add rectShapeBr(r.x, r.y, r.w, r.h)
@@ -4205,6 +4313,23 @@ proc cmdGenerate(a: Args) =
     repaired = screens.len
     m.obstacles.add screens
     (tunneled, sealed) = ensureFullAccessibility(m)
+  if not a.bools.getOrDefault("noPrune", false):
+    ## ROUND 10: a SECOND, FULL-OBSTACLE-SET confetti prune. The first
+    ## pass (above, structures protected) only ever saw organic cave
+    ## fill; this one runs after dropShapesNearSpawns' clip-not-drop
+    ## fix (round 9) and the maze/cave grammars' own per-cell wall
+    ## emission (round 10) have both had a chance to leave small
+    ## leftover fragments a clip or a corner-pillar coincidence
+    ## isolated from their own structure. Confirmed by tracing one such
+    ## fragment (a poiMazeHall exterior-wall remainder, clipped by a
+    ## nearby spawn's buffer down to 62x30 and 26x30 px) all the way
+    ## from --noRepair output: it exists before any repair pass runs, so
+    ## no repair step could have caught it — only a prune can. A fully
+    ## intact small archetype (the smallest, poiRuins) welds to
+    ## ~7000px^2 even alone, well above the 3000px^2 floor, so this
+    ## should only ever remove genuine post-clip fragments, not
+    ## authored small structures.
+    m.obstacles = pruneConfetti(m.obstacles, m.width, m.height, ConfettiFloorPx2)
   var itemRng = initRand(seed xor 0x6C5D_E812)
   if not a.bools.getOrDefault("noItems", false):
     placeItems(m, itemRng)
