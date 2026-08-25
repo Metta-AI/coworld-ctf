@@ -4343,11 +4343,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 <!-- ============================================================
      PAINTBALL additions to the inherited coworld-ctf chrome
      ============================================================
-     Everything above this banner is the starter's broadcast page, edited only
-     where the design note names: the scorebug plates' CONTENTS, the feed and
-     beat routing, the endcard's stat columns, and the removal of #viewpanel
-     (the zoom bar + minimap) — the arena is the fixed 1235x659 board and
-     relayout() always fits it whole inside the frame.
+     Everything above this banner is the classic broadcast page, edited only
+     where the mode demands and always behind PB_MODE: the scorebug plates'
+     CONTENTS, the feed and beat routing, and the endcard's stat columns all
+     branch on PB_MODE, which latches on the first frame that carries a squad
+     field — a classic replay never enters any of it. The classic #viewpanel
+     (zoom bar + minimap) is kept for both modes: classic boards can be
+     colossal, and on the fixed paintball arena it simply reads FIT.
 
      Nothing here touches the transport band. relayout() still owns --hudscale,
      --topband and --band on :root; the endcard still stops at
