@@ -331,17 +331,44 @@ const
   GloryPopBigGlory = 150       ## |glory| at or above this reads two steps up.
   GloryPopMidLiftPx = 3        ## extra line box for a mid-magnitude pop.
   GloryPopBigLiftPx = 8        ## extra line box for a big-magnitude pop.
-  GloryPopInk = (232'u8, 163'u8, 61'u8)
-                               ## the chrome's warm amber (--amber #e8a33d).
-                               ## Glory is ONE currency, so it is one colour —
-                               ## never the team tint, which means "damage".
-  GloryPopPenaltyInk = (168'u8, 96'u8, 56'u8)
-                               ## a dulled ember, same warm family as the
-                               ## reward amber (never a cool tone, and never
-                               ## the team-red "damage" tint) but visibly
-                               ## duller and redder, so a team-kill penalty
-                               ## ("-60g") reads as a LOSS at a glance without
-                               ## borrowing red's "you got hit" meaning.
+  GloryPopInk = (255'u8, 163'u8, 0'u8)
+                               ## SPLAT C9: used to be byte-copied from the
+                               ## DOM broadcast chrome's --amber (#e8a33d,
+                               ## 232/163/61) -- a value with no relationship
+                               ## to this game's own asset palette. Re-derived
+                               ## from data/pallete.png index 7, this game's
+                               ## own "orange" (also PlayerColors[1], the
+                               ## orange team's own hue): (255,163,0) exactly,
+                               ## read straight off the PNG, not tinted toward
+                               ## white -- the style law's "saturated hues via
+                               ## channel spread, never a white blend" applies
+                               ## to this HUD's own ink same as it does to
+                               ## every paint splat. Orange over gold on
+                               ## purpose: real paintball gear (hoppers,
+                               ## practice-ball shells, range cones) is
+                               ## safety-orange, so a kid who has seen the
+                               ## rest of this game's art reads "+120" in the
+                               ## same hue as the equipment, not a jewelry-
+                               ## store gold. It also cannot be confused with
+                               ## either team tint (red 255/0/77, the muted
+                               ## blue-lavender 131/118/156) or with the
+                               ## penalty ink below. Glory is ONE currency, so
+                               ## it is one colour — never the team tint,
+                               ## which means "damage".
+  GloryPopPenaltyInk = (185'u8, 96'u8, 0'u8)
+                               ## A dulled ember, re-derived from the new
+                               ## GloryPopInk by the SAME per-channel ratios
+                               ## the old (232,163,61) -> (168,96,56) pair
+                               ## used (R x0.72, G x0.59, B x0.92) rather than
+                               ## picked fresh, so the two inks keep reading
+                               ## as one warm family with the reward the
+                               ## brighter of the pair. Same warm family as
+                               ## the reward orange (never a cool tone, and
+                               ## never the team-red "damage" tint) but
+                               ## visibly duller and redder, so a team-kill
+                               ## penalty ("-60") reads as a LOSS at a glance
+                               ## without borrowing red's "you got hit"
+                               ## meaning.
   ## --- Achievement claim CHIP (the named pop's own backing, not bare text).
   ## USED TO be a two-line plaque: a 13px name line, a 10px money line
   ## beneath it, and a footer row of tier pips + a "FIRST" wordmark, plus a
