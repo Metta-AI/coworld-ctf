@@ -1,6 +1,18 @@
-## Glory: the priced-deed economy, the achievement curriculum, and the
-## per-life unit ladder. Ported from Muster's `src/server/glory_spec.py` +
-## `patronage.py`, re-fit to paintbot (see docs/designs/GLORY.md).
+## Glory: paintbot's own score. Every kill, save, steal and clean play mints
+## GLORY to a team's ledger; a streak of it lights HEAT, a rung of rampage
+## multiplier that only pays while you keep playing. Separately, each cog
+## climbs a five-rung PER-LIFE ladder by doing real work -- damage landed,
+## kits converted, flag play -- and each rung buys a real, playable buff.
+## Achievements are the third leg: an eight-tree, five-tier curriculum of
+## named feats a team can chase without needing to win outright. Read
+## docs/designs/GLORY.md for the full, paintbot-native tour (score fiction,
+## deeds, heat, achievements, xp/stars, the tithe, versioning) -- nothing
+## here requires knowing any OTHER game to make sense. (Lineage note, a
+## secondary aside: the shape -- priced deeds, a heat ladder, a tithe that
+## can't be farmed -- began as a port from an internal research sim's own
+## reward economy, `glory_spec.py` + `patronage.py`; paintbot re-fit every
+## number to its own field and inverted at least one of that source's core
+## rulings on purpose, noted inline below where it matters.)
 ##
 ## **This module is the SINGLE SOURCE OF TRUTH for every glory number.** The
 ## sim mints through `deedGlory`/`deedDrama`, the achievement tracker prices

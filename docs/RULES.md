@@ -281,20 +281,28 @@ Every consequential act mints **glory** to the acting team, and each cog runs a
 garnish: rank changes what a cog can do.
 
 - **Ranks are per LIFE, and WORK levels a cog -- kills do not.** XP comes
-  from damage landed (any weapon), healing taken (per hit point restored),
-  kit pickups, shield soak, and flag play (steal, capture, and the peel --
-  priced as the flag RETURN it causes). A kill levels nobody: the damage
-  that produced it already did, in proportion to who dealt it. The ladder is
+  from damage landed (any weapon), healing taken (per hit point restored,
+  plus the med-kit pickup itself -- the one kit pickup that still pays,
+  because the engine refuses it unless the cog is already hurt), shield
+  soak, and flag play (steal, capture, and the peel -- priced as the flag
+  RETURN it causes). Picking up a grenade, spray can or shield by BARE
+  TOUCH pays no xp -- taking a kit is normal play, not work, the same
+  ruling that already bans a bare pickup from the achievement curriculum.
+  A kill levels nobody: the damage that produced it already did, in
+  proportion to who dealt it. The ladder is
   `recruit → tagger → marksman → ironhide → quickdraw → legend`. **Getting
   tagged out resets the ladder to zero** and the buffs go with it, so a
   dominant cog is bounded to one life. Killing a rank-3+ cog pays a
   `starfall` bounty, and friendly fire subtracts xp.
-- **What a rank buys** (cumulative): shorter trigger windup, then +15% gun
-  range and a faster spray recharge, then +1 hit point, then a faster fire
-  cooldown and two throws per grenade pickup, then a shorter windup again and
-  no heart-carry speed penalty -- the hp ceiling stops climbing at rank 3 and
-  never gets a second bump. A rank raises the hp **ceiling** only -- the
-  points still have to be earned back from a med kit.
+- **What a rank buys** (cumulative): shorter trigger windup, then a faster
+  spray recharge, then +1 hit point, then a faster fire cooldown and two
+  throws per grenade pickup, then a shorter windup again and no heart-carry
+  speed penalty -- the hp ceiling stops climbing at rank 3 and never gets a
+  second bump. A rank raises the hp **ceiling** only -- the points still
+  have to be earned back from a med kit. (Rank 2 no longer extends gun
+  range: the old +15% pushed the levelled range past the longest line of
+  sight the default arena can ever draw, so it could never gate a single
+  shot -- retired as dead weight.)
 - **Observation labels**: a cog at rank 3 or above wears a `veteran mark <n>`
   plume, one star per rank, fog-gated like any overhead marker. The scoreboard
   shows the same stars for any ranked cog, from rank 1 up -- not gated to the

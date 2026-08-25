@@ -3874,8 +3874,15 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     return
   let
     sitePct = sim.deedSitePct(team, x, y)
-    carrying = sim.flags[if team == Red: Blue else: Red].carrier >= 0 and
-               sim.players[sim.flags[if team == Red: Blue else: Red].carrier].team == team
+    # v6 (GLORY C9, 4-team port inventory): was an inline `if team == Red:
+    # Blue else: Red` 2-team formula, duplicated twice -- the exact class of
+    # hardcode `enemy()` (sim.nim) already exists to replace, and every
+    # other enemy-flag lookup in this file already goes through it. Reads
+    # identically for today's 2-team game; the point is that it now
+    # generalizes for free the day `Team` grows past two.
+    enemyCarrierIdx = sim.flags[enemy(team)].carrier
+    carrying = enemyCarrierIdx >= 0 and
+               sim.players[enemyCarrierIdx].team == team
     amount = mintGlory(deed, sim.heatEmbers[team], sitePct, carrying) * times
   sim.teamGlory[team] += amount
   inc sim.deedCounts[deed], times
