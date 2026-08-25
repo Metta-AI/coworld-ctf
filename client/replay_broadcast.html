@@ -196,11 +196,12 @@ html, body {
 .plate.red .team-name { color: var(--red); }
 .plate.blue .team-name { color: var(--blue); }
 
-/* One baseline row with the COLOR NAME innermost (toward the center clock),
-   GLORY beside it — GLORY IS THE SCORE, so it is the headline numeral of the
-   row now; lives is a resource and rides the squad-pip row below instead
-   (see .squad-row / .lives-mini). Red reverses; blue keeps DOM order
-   (name → label → num). */
+/* GLORY is the score, so the GLORY NUMERAL sits innermost (toward the center
+   clock) — Maxwell's ruling. Heat's flames hug the numeral they qualify,
+   then the "Glory" label, then the team name outermost; lives is a resource
+   and rides the squad-pip row below instead (see .squad-row / .lives-mini).
+   Red's lives-line reverses so the same DOM order (num → chip → label →
+   name) mirrors correctly on both sides — verified per-plate, not assumed. */
 .plate .lives-line {
   display: flex;
   align-items: baseline;
@@ -1554,14 +1555,15 @@ body[data-embed] #board { top: 0; height: 100%; }
       <div class="plate red" data-team="red">
         <div class="flagicon" id="flag-red"></div>
         <div class="team-id">
-          <!-- GLORY IS THE SCORE: one inline row, NAME · Glory · count, flames
-               riding the headline (e.g. "RED Glory 940 🔥"). Lives is a
+          <!-- GLORY IS THE SCORE: numeral innermost against the clock, flames
+               hugging it, then the label, then the name outermost (e.g.
+               "🔥940 Glory RED" reading out from center). Lives is a
                resource now, demoted to the squad-pip row below. -->
           <div class="lives-line">
-            <span class="team-name" id="name-red">RED</span>
-            <span class="lives-label">Glory</span>
             <span class="lives-num glory" id="glory-red">—</span>
             <span class="heat-chip" id="heat-red"></span>
+            <span class="lives-label">Glory</span>
+            <span class="team-name" id="name-red">RED</span>
           </div>
           <!-- squad-row: one pip per player (8) — alive / down / eliminated,
                the roster IS the counter (Valorant/R6/Apex), clickable → POV
@@ -1589,13 +1591,14 @@ body[data-embed] #board { top: 0; height: 100%; }
       <div class="plate blue" data-team="blue">
         <div class="flagicon" id="flag-blue"></div>
         <div class="team-id">
-          <!-- Mirrored: NAME · Glory · count, flames on the headline
-               ("BLUE Glory 940 🔥"). Same demotion as red — see above. -->
+          <!-- Mirrored: numeral innermost, flames, label, name outermost
+               ("940🔥 Glory BLUE" reading out from center). Same demotion
+               as red — see above. -->
           <div class="lives-line">
-            <span class="team-name" id="name-blue">BLUE</span>
-            <span class="lives-label">Glory</span>
             <span class="lives-num glory" id="glory-blue">—</span>
             <span class="heat-chip" id="heat-blue"></span>
+            <span class="lives-label">Glory</span>
+            <span class="team-name" id="name-blue">BLUE</span>
           </div>
           <div class="squad-row">
             <div class="squad" id="squad-blue"></div>

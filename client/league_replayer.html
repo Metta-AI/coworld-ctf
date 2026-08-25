@@ -97,7 +97,12 @@
 
   /* team header block: flag icon + GLORY headline (lives demoted to fine
      print). (Team NAME lives up in the top-wall corners — see .wallname —
-     so long names never truncate.) */
+     so long names never truncate.) GLORY IS THE SCORE, so its numeral sits
+     innermost toward the center clock/floor — Maxwell's ruling — with the
+     Heat chip hugging it, the "Glory" label next, then Lives outermost.
+     .plaque.right double-reverses (team-head AND lives-line), so the same
+     DOM order (Lives → Glory-label → Heat → Glory-num) mirrors correctly
+     on both sides — verified per-plate, not assumed. */
   .team-head{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0;
     margin-bottom:calc(8*var(--u))}
   .plaque.right .team-head{flex-direction:row-reverse}
@@ -299,12 +304,14 @@
   <div class="plaque left hud" id="kda-red">
     <div class="team-head red" data-team="red">
       <div class="flagicon" id="flag-red"></div>
+      <!-- GLORY numeral innermost (toward the center clock/floor), Heat
+           hugging it, Glory label next, Lives outermost. -->
       <div class="lives-line">
-        <span class="lives-label">Glory</span>
-        <span class="lives-num glory" id="glory-red">—</span>
-        <span class="heat-chip" id="heat-red"></span>
         <span class="lives-label">Lives</span>
         <span class="lives-num" id="lives-red">—</span>
+        <span class="lives-label">Glory</span>
+        <span class="heat-chip" id="heat-red"></span>
+        <span class="lives-num glory" id="glory-red">—</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
@@ -315,12 +322,14 @@
   <div class="plaque right hud" id="kda-blue">
     <div class="team-head blue" data-team="blue">
       <div class="flagicon" id="flag-blue"></div>
+      <!-- Mirrored: GLORY numeral innermost, Heat, Glory label, Lives
+           outermost — same DOM order as red, see .team-head comment above. -->
       <div class="lives-line">
-        <span class="lives-label">Glory</span>
-        <span class="lives-num glory" id="glory-blue">—</span>
-        <span class="heat-chip" id="heat-blue"></span>
         <span class="lives-label">Lives</span>
         <span class="lives-num" id="lives-blue">—</span>
+        <span class="lives-label">Glory</span>
+        <span class="heat-chip" id="heat-blue"></span>
+        <span class="lives-num glory" id="glory-blue">—</span>
       </div>
     </div>
     <div class="khead"><span>Name</span><span title="Tags">T</span><span title="Outs">O</span><span>Lives</span></div>
