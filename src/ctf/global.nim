@@ -422,238 +422,81 @@ const
   ## like the pop consts above; the sprite id POOL is unchanged
   ## (buildGloryPopSprite feeds the same GloryPopSpriteBase slot the plain
   ## pop used to).
-  GloryChipPadX = 3           ## logical px around the line, left/right.
-  GloryChipPadY = 2           ## logical px above/below the line — tight, so
-                               ## the chip hugs the text instead of padding
-                               ## out toward the old plaque's footprint.
-  GloryChipLineH = 13         ## the one line's box. This is the OLD name
-                               ## line's size (raised from 9 for the same
-                               ## reason then as now: the board renders once
-                               ## at RenderScale=2 and a 640x360 embed then
-                               ## downscales that ~2x again, and 9 logical px
-                               ## fell below this vector face's legibility
-                               ## floor there — a clean read at 1280 but an
-                               ## amber smudge at 640). Proven readable at
-                               ## that size with a LONGER two-line string, so
-                               ## the shorter one-line chip keeps it rather
-                               ## than re-risking a smaller, unproven size.
+  ## --- D1 REDIRECT: the claim chip lost its backing entirely ---
+  ## Maxwell's live-board ruling: the opaque blob backing (SPLAT C2-C10 built
+  ## it; this file's first D1 pass only patched its FIRST-claim gold ring)
+  ## was a dark CARD sitting on top of the exact action it was pointing at --
+  ## "loses the function in a video game." Deleted outright, not shrunk or
+  ## re-colored. A claim now renders as pure FLOATING TEXT, the same
+  ## register the game's own damage pops already use (buildPopLabelSprite):
+  ## chunky pixel letters (buildChunkyBoardText, SPLAT C7) with that proc's
+  ## own baked-in dark contour standing in for a backing -- no separate
+  ## outline pass needed here. The achievement NAME inks in the claiming
+  ## TEAM's own paint (gloryChipPaintCore); the payout keeps "orange =
+  ## earned" (GloryPopInk). A first claim's whole distinction is now SIZE
+  ## (bigger type, an integer bump a bitmap font can scale by cleanly) plus a
+  ## one-shot burst of a few paint specks flung off one corner AT SPAWN ONLY
+  ## -- seasoning, never a card, never gold.
   GloryChipTextGapPx = 3      ## logical px gap between the name run and the
-                               ## payout run on a normal (non-first) claim —
-                               ## they bake as two separate smoothTextSprite
-                               ## calls now (two inks), composited side by
-                               ## side into one line rather than one string.
-  GloryChipRadius = 4'f32     ## logical corner radius of the blob's base
-                               ## rounded-rect silhouette, before the wobble
-                               ## and the flung droplets union onto it —
-                               ## rounder than the old vector chip's 2, so
-                               ## even this un-perturbed core reads as a daub,
-                               ## not a UI panel.
-  GloryChipBlobMarginPx = 12  ## logical px of extra canvas beyond the padded
-                               ## pill, reserved for the outline ring + the
-                               ## angle-wobble bulge + the flung droplets
-                               ## (SPLAT C2/C4/C10) -- and, on a first claim,
-                               ## the outer double ring riding a droplet's OWN
-                               ## worst-case reach too (SPLAT C6 scales the
-                               ## whole blob up) -- so the irregular paint can
-                               ## never clip against its own canvas. A rare
-                               ## extreme hash roll on a very long achievement
-                               ## name can still clip a single far-flung
-                               ## droplet's own outline against this margin;
-                               ## harmless (it just reads as a slightly
-                               ## truncated fleck) and far cheaper than sizing
-                               ## the canvas per-text-width for one edge case.
-                               ## Folded into gloryChipContentLogicalHeight
-                               ## below — the row-stacking math's single
-                               ## source of truth — so a chip stacked above
-                               ## this one still gets a floor that matches
-                               ## what actually gets drawn.
-  GloryChipEdgeBandPx = 3     ## logical px band, measured IN from the
-                               ## silhouette's true (pre-outline) edge, where
-                               ## the fill turns from the flat team-paint core
-                               ## to a flat darker "drying paint" edge tone —
-                               ## a HARD cutoff, not the old mix8 gradient
-                               ## (the style law rules gradients out). Same
-                               ## width for a first claim as any other -- a
-                               ## THICKER border shrinks the visible core on
-                               ## a short chip instead of making it louder;
-                               ## SPLAT C6's first-claim distinction (bigger,
-                               ## brighter, more droplets, never gilded) lives
-                               ## elsewhere.
-  GloryChipOutlinePx = 2      ## logical px of the thick dark ink outline,
-                               ## measured OUT from the silhouette's true
-                               ## edge — the style law's "2-4 logical px"
-                               ## floor, replacing the old per-pixel-hash
-                               ## speckle fade with a flat, solid ring (every
-                               ## rounded organic silhouette in this game's
-                               ## own art — soldiers, splatters — carries one
-                               ## of these; the chip never did).
-  GloryChipWobblePx = 1.5'f32 ## logical px the silhouette's radius bulges or
-                               ## pinches per angle around the blob's own
-                               ## center — cheap value noise on a circle (see
-                               ## gloryChipAngleWobble), hashed from the
-                               ## chip's own text (gloryChipTextHash) so a
-                               ## given achievement+payout string always
-                               ## wobbles the same way on every replay run —
-                               ## what turns the base pill into a genuinely
-                               ## irregular blob instead of a rounded rect.
-  GloryChipDripCount = 3      ## paint droplets FLUNG in all directions
-                               ## around the blob's perimeter — angle,
-                               ## distance and size all HASHED from the
-                               ## chip's own text (gloryChipTextHash), so a
-                               ## given achievement+payout string always
-                               ## flings the same way on every replay run.
-                               ## Used to hang only off the bottom edge
-                               ## (gravity); the style law asks for chaotic
-                               ## flung energy in every direction, not a drip.
-  GloryChipDripMinPx = 1.5'f32  ## smallest droplet radius, logical px.
-  GloryChipDripMaxPx = 3.5'f32  ## largest droplet radius, logical px.
-  GloryChipDropletMinFrac = 0.5'f32  ## a droplet's center sits at LEAST this
-                               ## fraction of the pill's own half-extent from
-                               ## center (so it can land inside the
-                               ## silhouette and read as a lobe fused to the
-                               ## body, not always a detached fleck).
-  GloryChipDropletMaxFrac = 1.4'f32  ## ...and at MOST this fraction — far
-                               ## enough past the true edge that at least
-                               ## some droplets read as fully DETACHED flecks
-                               ## (chaotic flung energy, style law), not just
-                               ## bumps on the silhouette. Bounded by
-                               ## GloryChipBlobMarginPx's canvas reservation.
-  GloryChipHighlightR = 1.5'f32  ## logical px radius of the optional glossy
-                               ## highlight blob — ONE small flat lighter-tint
-                               ## patch near the pill's upper-left corner,
-                               ## the style law's "at most one glossy
-                               ## highlight blob." A flat tint step, not a
-                               ## gradient: computed once, painted solid.
+                               ## payout run -- two separate buildChunkyBoardText
+                               ## calls (two inks), composited side by side
+                               ## into one line.
   GloryChipPaintSatBoost = 1.5'f32
-                               ## how far the "wet paint" core (see
-                               ## gloryChipPaintCore) pushes each channel
-                               ## AWAY from the team color's own average
-                               ## brightness -- its hue axis -- instead of
-                               ## blending toward white. A flat white-mix
-                               ## (the buildHitSparkSprite droplet idiom)
-                               ## over-bleached blue: this game's "blue"
-                               ## (palette 13, ~131,118,156) is already a
-                               ## pale, fairly desaturated blue-violet, so
+                               ## how far the claim NAME's "wet paint" ink (see
+                               ## gloryChipPaintCore) pushes each channel AWAY
+                               ## from the team color's own average brightness
+                               ## -- its hue axis -- instead of blending toward
+                               ## white. A flat white-mix over-bleaches blue:
+                               ## this game's "blue" (palette 13, ~131,118,156)
+                               ## is already a pale, desaturated blue-violet, so
                                ## ANY white blend pushes it toward a
                                ## near-neutral lavender no viewer could
                                ## attribute to a team at a glance, while the
                                ## identical blend barely touches red
                                ## (255,0,77) because red's R channel is
-                               ## already pinned at 255. Boosting AWAY from
-                               ## the color's own average instead widens
-                               ## exactly the channel spread that carries
-                               ## hue -- it reads as "more itself," not
-                               ## "more white" -- so one shared formula does
-                               ## the right thing for a saturated hue AND a
-                               ## desaturated one without a per-team branch.
+                               ## already pinned at 255. Boosting AWAY from the
+                               ## color's own average instead widens exactly
+                               ## the channel spread that carries hue.
   GloryChipPaintLiftPx = 18'f32
-                               ## flat brightness lift on top of the boost,
-                               ## for the "wet"/glossy read -- small, since
-                               ## the boost above already does the real work
-                               ## of keeping blue legible as blue.
-  ## --- SPLAT C6: FIRST claims are bigger + splashier, never gilded ---
-  ## Used to be a hot gold-white FLECK chance rolled across the rim (dead
-  ## code with the old rim/speckle mechanism it lived in -- see B1's rewrite
-  ## of buildGloryChipSprite). A first claim's distinction now lives in the
-  ## same three levers the style law asks for: size, saturation and droplet
-  ## count -- all still the CLAIMING TEAM's own paint, never a gold tint on
-  ## the blob itself (that stays reserved for GloryChipFirstInk's TEXT and
-  ## the outer ring below).
-  GloryChipFirstScale = 1.22'f32  ## a first claim's whole blob -- padding,
-                               ## corner radius, edge band and outline all
-                               ## scale up by this factor before the wobble
-                               ## and droplets are placed. The text itself
-                               ## stays the same size (it is already the
-                               ## hottest ink on the HUD); the BACKING grows
-                               ## around it, so the distinction survives a
-                               ## 640-embed downscale even at a glance.
-  GloryChipFirstDropCountBonus = 2  ## extra flung droplets on a first claim,
-                               ## on top of GloryChipDripCount -- bigger AND
-                               ## splashier.
-  GloryChipFirstPaintSatBoost = 1.9'f32  ## a first claim's own
-                               ## GloryChipPaintSatBoost -- pushed further
-                               ## from the team color's average, same axis,
-                               ## same formula, just louder. Still the
-                               ## CLAIMING TEAM's hue, never gold: "brighter,"
-                               ## not "gilded."
-  GloryChipFirstPaintLiftPx = 26'f32  ## a first claim's own
-                               ## GloryChipPaintLiftPx, correspondingly
-                               ## brighter.
-  GloryChipFirstRingGapPx = 1'f32  ## logical px of transparent gap between a
-                               ## first claim's outline and its outer ring --
-                               ## without a gap the two fuse into one thicker
-                               ## band and the "double" reads as a smudge.
-  GloryChipFirstRingPx = 2'f32  ## logical px thickness of a first claim's
-                               ## outer ring, in GloryChipFirstInk -- the
-                               ## "maybe a double-ring splat" the style law
-                               ## calls out, so FIRST is unmistakable even at
-                               ## 640-embed scale without leaning on a fleck.
-  GloryChipNameInk = (22'u8, 17'u8, 13'u8)
-                               ## the achievement NAME's ink — this HUD's own
-                               ## near-black, rgba(22,17,13,*), the exact tone
-                               ## the old chip used to FILL its whole backing
-                               ## with. Now it's stamped INTO the wet paint
-                               ## instead: near-zero luminance reads on both
-                               ## team hues (red ~255,0,77 and the muted
-                               ## blue-lavender ~131,118,156 this game calls
-                               ## "blue"), so one ink serves both without a
-                               ## per-team branch.
-  GloryChipKillAirPx = 4      ## logical px of clear air a claim chip keeps
-                               ## between its own bottom edge and the
-                               ## co-sited "SPLAT" kill marker's worst-case
-                               ## reach (see gloryPopBaseLiftPx) — the common
-                               ## case is a kill and its achievement claim
-                               ## landing on the same cog, so the two must
-                               ## never so much as kiss, let alone overlap.
-  GloryChipFirstInk = (250'u8, 222'u8, 156'u8)
-                               ## a hot gold-white, brighter than the standard
-                               ## orange edge — the one accent in this HUD
-                               ## brighter than GloryPopInk itself. Still used
-                               ## for the WHOLE first-claim line (name and
-                               ## payout share one ink, one smoothTextSprite
-                               ## call, same as pre-restyle) AND now doubles
-                               ## as the outer double-ring color a first claim
-                               ## draws around its blob (GloryChipFirstRingPx,
-                               ## SPLAT C6) — the one place gold appears on
-                               ## this HUD, and only as a thin detached ring,
-                               ## never the blob's own fill.
-  ## --- SPLAT C5: the plain deed pop's own small paint-daub backing ---
-  ## A bare "+N"/"-N" deed pop used to lean on addDarkContour -- a per-glyph
-  ## 1px dilate halo -- for contrast on the supersampled board, the only
-  ## glory-pop family with no chip to stand on. Replaced with a TINY version
-  ## of the claim chip's own blob (built from the SAME shape primitives --
-  ## paintBlobSilhouetteDist / paintBlobZoneColor / gloryChipDroplets -- so a
-  ## chip and a plain pop read as one material, not two hand-tuned ones), so
-  ## the material system covers every glory pop on the board, not just the
-  ## named claims. Deliberately NOT team-tinted -- GloryPopInk's whole point
-  ## is that glory reads as one currency, never the team tint that means
-  ## "damage" elsewhere on this board -- so the daub is a flat near-black
-  ## fill (GloryChipNameInk) and the ink (amber reward / dulled-ember
-  ## penalty) stays the only color that means anything here.
-  GloryPopDaubPadX = 2         ## logical px around the text, left/right --
-                               ## tighter than the chip's (GloryChipPadX):
-                               ## this is a bare number, not a named claim,
-                               ## so it should read as a small accent, not a
-                               ## second chip.
-  GloryPopDaubPadY = 1         ## logical px around the text, top/bottom.
-  GloryPopDaubMarginPx = 4     ## logical px of extra canvas beyond the
-                               ## padded pill, for the outline + wobble +
-                               ## droplets -- smaller than the chip's
-                               ## (GloryChipBlobMarginPx) since this daub
-                               ## never scales up for a "first" case and
-                               ## carries far fewer, smaller droplets.
-  GloryPopDaubRadius = 2'f32   ## logical corner radius of the daub's base
-                               ## silhouette -- smaller than the chip's
-                               ## (GloryChipRadius), proportional to its
-                               ## much smaller footprint.
-  GloryPopDaubOutlinePx = 2    ## logical px of the daub's outline -- the
-                               ## style law's 2-4px floor, same idea as the
-                               ## chip's GloryChipOutlinePx.
-  GloryPopDaubDropCount = 2    ## flung droplets -- fewer than the chip's
-                               ## (GloryChipDripCount): "tiny blob," per the
-                               ## audit, not a second chip's worth of paint.
-  GloryPopDaubDripMinPx = 1'f32  ## smallest droplet radius, logical px.
-  GloryPopDaubDripMaxPx = 2'f32  ## largest droplet radius, logical px.
+                               ## flat brightness lift on top of the boost, so
+                               ## the name ink reads as "wet paint," not a flat
+                               ## team swatch.
+  GloryChipFirstTextExtraScale = 2  ## D1: a first claim's ONLY size lever --
+                               ## an integer multiple of buildChunkyBoardText's
+                               ## own natural size (a bitmap font can only
+                               ## scale cleanly by whole numbers, SPLAT C7).
+                               ## Applied to BOTH the name and payout runs so
+                               ## the whole line grows together.
+  GloryChipFirstBurstMinPx = 4'f32  ## D1: radius floor of a first claim's
+                               ## one-shot corner-burst specks, logical px.
+  GloryChipFirstBurstMaxPx = 5'f32  ## D1: radius ceiling.
+  GloryChipFirstBurstOffsetMinPx = 1'f32  ## D1: how far (logical px) a burst
+                               ## speck's CENTER sits past the text's own
+                               ## corner, floor.
+  GloryChipFirstBurstOffsetMaxPx = 3'f32  ## ...and ceiling. Kept small:
+                               ## offset(max) + radius(max) + the speck's own
+                               ## outline must stay under GloryChipBurstMarginPx
+                               ## on every axis or the burst clips its own
+                               ## canvas -- see gloryClaimBurstSpecks' own doc.
+  GloryChipBurstMarginPx = 10  ## logical px of extra canvas a FIRST claim
+                               ## reserves beyond its own text bbox for the
+                               ## corner burst (0 for every other claim --
+                               ## plain floating text needs no margin beyond
+                               ## what buildChunkyBoardText already bakes in).
+                               ## Folded into gloryClaimTextLogicalHeight, the
+                               ## row-stacking math's single source of truth.
+  GloryClaimSpeckOutlinePx = 1'f32  ## logical px outline on a burst speck --
+                               ## the style law's floor for a mark this size
+                               ## (matches the D2 veteran pip's own
+                               ## VeteranPipOutlineInPx=1: a thicker ring would
+                               ## swallow a dab this small).
+  GloryChipKillAirPx = 4      ## logical px of clear air a claim's text keeps
+                               ## between its own bottom edge and the co-sited
+                               ## "SPLAT" kill marker's worst-case reach (see
+                               ## gloryPopBaseLiftPx) -- the common case is a
+                               ## kill and its achievement claim landing on the
+                               ## same cog, so the two must never so much as
+                               ## kiss, let alone overlap.
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
   ## The cog draws as 9 z-stacked segments + a held gun, each its own board object
   ## so the head/arms track AIM while the legs/wheels track MOVEMENT (a true turret
@@ -5289,10 +5132,10 @@ proc gloryPopText(pop: GloryFx): string =
   let money = gloryPopMoneyText(pop)
   if pop.label.len == 0:
     return money
-  # No "FIRST" wordmark here or on the chip: a first claim now tells itself
-  # apart with ink alone (buildGloryPopSprite/buildGloryChipSprite pick
-  # GloryChipFirstInk over GloryPopInk when pop.first), which both draw
-  # paths already apply to this exact string — so this stays one line, one
+  # No "FIRST" wordmark here or on the chip: a first claim tells itself apart
+  # on the CHIP's own backing (buildGloryChipSprite: bigger, hotter, a corner
+  # burst -- D1) plus a whole-line GloryPopInk ink instead of the usual
+  # name/payout split, never a separate word -- so this stays one line, one
   # or two words and a number, full stop.
   result = pop.label.toUpperAscii() & " " & money
 
@@ -5324,202 +5167,158 @@ proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
 
-proc gloryChipPillHeightLogical(pop: GloryFx): int =
-  ## The PILL's own nominal height in LOGICAL (1x) px: padding above and
-  ## below the ONE text line, padding scaled up by GloryChipFirstScale on a
-  ## first claim (SPLAT C6 -- a visibly bigger blob, not just louder ink).
-  ## The single source both buildGloryChipSprite (native pillH = this * k)
-  ## and gloryChipContentLogicalHeight (below) build from, so the canvas the
-  ## drawer allocates and the footprint the row-stacking math assumes can
-  ## never drift apart by a rounding step.
-  let scale = if pop.first: GloryChipFirstScale else: 1.0'f32
-  int(ceil(GloryChipPadY.float32 * scale * 2 + GloryChipLineH.float32))
+proc gloryClaimTextExtraScale(pop: GloryFx): int =
+  ## D1: a first claim's ONLY size lever now that the backing is gone --
+  ## an integer multiple of buildChunkyBoardText's own natural size (a
+  ## bitmap font can only scale cleanly by whole numbers, SPLAT C7).
+  if pop.first: GloryChipFirstTextExtraScale else: 1
 
-proc gloryChipContentLogicalHeight(pop: GloryFx): int =
-  ## The chip's own footprint in LOGICAL (1x) px: the pill's own height
-  ## (gloryChipPillHeightLogical) plus GloryChipBlobMarginPx on each side —
-  ## canvas room the splat blob's outline ring, angle wobble and flung
-  ## droplets need so the paint can never clip against its own canvas (see
-  ## buildGloryChipSprite). `gloryChipLogicalHeight` below is this repo's
-  ## single source of truth for the full drawn extent — the row-stacking
-  ## math (gloryStackLift) reads THIS number, not the sprite's actual
-  ## returned height, so it has to already include whatever margin the
-  ## drawer actually uses. Kept as a separate proc (rather than inlined at
-  ## the two call sites) so a future halo-style addition has one place to
-  ## land instead of three.
-  gloryChipPillHeightLogical(pop) + GloryChipBlobMarginPx * 2
-
-proc gloryChipLogicalHeight(pop: GloryFx): int =
-  ## Single source of truth for a claim chip's FULL logical footprint,
-  ## shared by the sprite builder (canvas sizing) and the row-stack math in
-  ## addGloryPops (via gloryPopLineBox below), so a second pop stacked on
-  ## the same cog can never overlap a chip that grew taller than expected.
-  ## Equal to gloryChipContentLogicalHeight now that the first-claim halo
-  ## margin is gone (GloryChipHaloPx, deleted with the halo bands it sized)
-  ## — a first claim no longer grows the canvas, only its ink and edge.
-  gloryChipContentLogicalHeight(pop)
+proc gloryClaimTextLogicalHeight(sim: SimServer, pop: GloryFx): int =
+  ## The claim's own text-only footprint height, in LOGICAL (1x) px: exactly
+  ## what buildChunkyBoardText itself will report for one run at this pop's
+  ## own extraScale (glyphH + 2, its own baked-in contour margin, times the
+  ## scale) -- plus GloryChipBurstMarginPx on each side for a first claim's
+  ## one-shot corner burst, so the canvas the sprite builder actually
+  ## allocates and the floor the row-stacking math assumes (gloryPopLineBox /
+  ## gloryStackLift, below) can never drift apart. Zero extra margin for
+  ## every other claim: plain floating text needs no reservation beyond what
+  ## buildChunkyBoardText already bakes in.
+  let scale = gloryClaimTextExtraScale(pop)
+  (max(1, sim.shoutFont.height) + 2) * scale +
+    (if pop.first: GloryChipBurstMarginPx * 2 else: 0)
 
 var gloryChipCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
-  ## Composed chips, keyed by everything that changes their pixels.
+  ## Composed claim sprites, keyed by everything that changes their pixels.
   ##
-  ## The chip's TEXT run already rides smoothTextCache, but the chip around
-  ## it -- a pixie Image, a roundedRect fill, one strokePath pass, a
-  ## full-buffer alpha remultiply and a blit -- had no cache of its own and
-  ## was rebuilt unconditionally, BEFORE addBoardSpriteChanged ever got the
-  ## chance to dedupe it. That check gates the WIRE, not the CPU. So one
-  ## claim cost a full compose every tick of its ~3.5s life, times the map
-  ## view plus every connected POV -- roughly 84 composes per viewer where
-  ## the design comment promised at most GloryPopStages (5).
+  ## The claim's TEXT runs already ride chunkyTextCache, but the composite
+  ## around them (canvas alloc, the burst specks, the alpha remultiply, the
+  ## final blit) had no cache of its own and was rebuilt unconditionally,
+  ## BEFORE addBoardSpriteChanged ever got the chance to dedupe it. That
+  ## check gates the WIRE, not the CPU. So one claim cost a full compose
+  ## every tick of its ~3.5s life, times the map view plus every connected
+  ## POV -- roughly 84 composes per viewer where the design comment promised
+  ## at most GloryPopStages (5).
 
 proc gloryChipNoise(x, y: int, salt: uint32): uint32 =
-  ## Cheap deterministic per-pixel hash -- the identical mix
+  ## Cheap deterministic per-pixel/per-index hash -- the identical mix
   ## buildSplatterSprite (death splatter) and buildHitSparkSprite (on-hit
   ## paint splat) already use for their dither/wobble, reused here rather
-  ## than invented fresh so the claim chip's paint speckle is drawn from the
-  ## SAME idiom as every other paint FX in this file. `salt` decorrelates
-  ## independent uses (the edge speckle vs. the first-claim fleck roll)
-  ## against the same (x, y) without needing a second coordinate space.
+  ## than invented fresh so the claim's burst specks are drawn from the SAME
+  ## idiom as every other paint FX in this file. `salt` decorrelates
+  ## independent uses against the same (x, y) without needing a second
+  ## coordinate space.
   var noise = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32 +
     salt * 2246822519'u32
   noise = (noise xor (noise shr 13)) * 1274126177'u32
   noise xor (noise shr 16)
 
 proc gloryChipTextHash(text: string): uint32 =
-  ## FNV-1a over the chip's rendered TEXT -- the one input already governing
-  ## the chip's cache key (see buildGloryChipSprite's cacheKey), so a drip's
-  ## layout is fixed per achievement+payout string: identical on every
-  ## replay run, never per-instance, per-site or Math.random-style.
+  ## FNV-1a over the claim's rendered TEXT -- the one input already governing
+  ## the claim's cache key (see buildGloryChipSprite's cacheKey), so a first
+  ## claim's burst layout is fixed per achievement+payout string: identical
+  ## on every replay run, never per-instance or Math.random-style.
   result = 2166136261'u32
   for ch in text:
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
 
-proc gloryChipPaintCore(
-  team: Team, isFirst = false
-): tuple[r, g, b: uint8] =
-  ## The blob's flat "wet paint" core color. See GloryChipPaintSatBoost. A
-  ## first claim pushes the SAME formula further (GloryChipFirstPaintSatBoost
-  ## / GloryChipFirstPaintLiftPx, SPLAT C6) -- brighter, more saturated
-  ## CLAIMING-TEAM paint, never a shift toward gold.
+proc gloryChipPaintCore(team: Team): tuple[r, g, b: uint8] =
+  ## The achievement NAME's flat "wet paint" ink -- the claiming TEAM's own
+  ## color, boosted (GloryChipPaintSatBoost / GloryChipPaintLiftPx) so it
+  ## reads as paint rather than a flat, possibly-washed-out team swatch (this
+  ## game's "blue" is a pale blue-violet that a naive team-color fill would
+  ## leave nearly illegible against a busy floor). D1 REDIRECT: no longer
+  ## takes an `isFirst` branch -- a first claim's distinction is SIZE and the
+  ## one-shot corner burst (buildGloryChipSprite), never a different color.
   let
     base = Palette[teamColor(team) and 0x0f]
     avg = float32(base.r.int + base.g.int + base.b.int) / 3.0'f32
-    boost = if isFirst: GloryChipFirstPaintSatBoost else: GloryChipPaintSatBoost
-    lift = if isFirst: GloryChipFirstPaintLiftPx else: GloryChipPaintLiftPx
   proc boosted(c: uint8): uint8 =
-    uint8(clamp(avg + (float32(c.int) - avg) * boost + lift, 0'f32, 255'f32))
+    uint8(clamp(
+      avg + (float32(c.int) - avg) * GloryChipPaintSatBoost +
+        GloryChipPaintLiftPx,
+      0'f32, 255'f32))
   (boosted(base.r), boosted(base.g), boosted(base.b))
 
-proc gloryChipAngleWobble(px, py, halfW, halfH: float32, seed: uint32): float32 =
-  ## Smoothly-interpolated per-angle radius perturbation around the blob's
-  ## own center -- cheap value noise on a circle (two hashed bucket lookups
-  ## plus a smoothstep lerp per pixel), hashed from the chip's own text
-  ## (gloryChipTextHash / gloryChipNoise) so the lumpy silhouette is fixed
-  ## per achievement+payout string and identical on every replay run, never
-  ## per-frame. Bucketed rather than continuous so it stays cheap; smoothstep
-  ## interpolation keeps the undulation rounded instead of faceted -- a raw
-  ## stepped hash reads as a gear, not a splat. Returns roughly -1..1; the
-  ## caller scales by GloryChipWobblePx.
-  const Buckets = 10
-  let
-    angle = arctan2(py - halfH, px - halfW)
-    t = (angle + PI.float32) / (2'f32 * PI.float32) * Buckets.float32
-    i0 = ((int(t) mod Buckets) + Buckets) mod Buckets
-    i1 = (i0 + 1) mod Buckets
-    frac = t - floor(t)
-    s = frac * frac * (3'f32 - 2'f32 * frac)
-  proc bucketVal(i: int): float32 =
-    float32(int(gloryChipNoise(i, 503, seed) mod 1000)) / 999.0'f32 *
-      2.0'f32 - 1.0'f32
-  bucketVal(i0) * (1.0'f32 - s) + bucketVal(i1) * s
-
-proc gloryChipDroplets(
-  count: int, cx, cy, pillHalfW, pillHalfH, minR, maxR: float32, seed: uint32
+proc gloryClaimBurstSpecks(
+  halfW, halfH, cx, cy, minR, maxR, offsetMin, offsetMax: float32,
+  seed: uint32
 ): seq[tuple[cx, cy, r: float32]] =
-  ## Paint droplets flung in ALL directions around the blob's own perimeter
-  ## (angle, distance and radius all hashed from `seed` -- the chip's own
-  ## text, see gloryChipTextHash), placed on an ellipse matching the PILL's
-  ## own aspect ratio (pillHalfW/pillHalfH -- the nominal text+pad box, NOT
-  ## the bigger canvas GloryChipBlobMarginPx reserves around it) so a wide
-  ## chip's droplets orbit its actual edge rather than overshooting a short
-  ## chip's. `cx, cy` is the canvas/pill's shared center. Shared by
-  ## buildGloryChipSprite (the claim chip's own blob) and
-  ## buildPaintDaubBacking (the plain deed pop's small backing, SPLAT C5) so
-  ## both read as one material.
-  result = newSeq[tuple[cx, cy, r: float32]](count)
-  for i in 0 ..< count:
+  ## D1 REDIRECT: a first claim's "more excited paint" -- 1-2 LARGE paint
+  ## specks clustered ASYMMETRICALLY off ONE corner of the claim's TEXT
+  ## bounding box (halfW/halfH are the text's own half-extents, `cx, cy` its
+  ## center), drawn once at spawn only (buildGloryChipSprite gates this on
+  ## stage == 0). Replaces the deleted blob backing's corner burst -- same
+  ## placement math, now hung off plain text instead of a card. The corner
+  ## and every speck's angle/offset/radius are all hashed from `seed` (the
+  ## claim's own text, gloryChipTextHash), so the burst is fixed per
+  ## achievement+payout string and identical on every replay run.
+  ##
+  ## Each returned speck gets painted directly (paintSpeckDab) in the SAME
+  ## already-boosted CLAIMING TEAM paint the name ink uses (gloryChipPaintCore)
+  ## -- no separate color path, so there is no way for this to grow a second
+  ## "rare" hue by accident.
+  ##
+  ## Bounded well inside GloryChipBurstMarginPx: worst case is
+  ## offsetMax + maxR + the speck's own outline (GloryClaimSpeckOutlinePx)
+  ## landing on ONE axis, which with the consts as tuned (offset 1-3, radius
+  ## 4-5, outline 1) tops out at 3 + 5 + 1 = 9 -- under the 10px margin with
+  ## room to spare, so the burst can never clip its own canvas regardless of
+  ## which corner or jitter angle the hash lands on.
+  let
+    cornerIdx = gloryChipNoise(0, 701, seed) mod 4
+    sx = if (cornerIdx.int and 1) == 0: -1'f32 else: 1'f32
+    sy = if (cornerIdx.int shr 1 and 1) == 0: -1'f32 else: 1'f32
+    cornerAngle = arctan2(sy, sx)
+    dropCount = 1 + int(gloryChipNoise(1, 709, seed) mod 2)
+  result = newSeq[tuple[cx, cy, r: float32]](dropCount)
+  for i in 0 ..< dropCount:
     let
-      hAngle = gloryChipNoise(i, 31, seed)
-      angle = (float32(hAngle mod 1000) / 999.0'f32) * (2'f32 * PI.float32)
-      hFrac = gloryChipNoise(i, 47, seed)
-      distFrac = GloryChipDropletMinFrac +
-        (float32(hFrac mod 1000) / 999.0'f32) *
-        (GloryChipDropletMaxFrac - GloryChipDropletMinFrac)
-      hR = gloryChipNoise(i, 61, seed)
-      r = minR + float32(hR mod 100) / 99.0'f32 * (maxR - minR)
+      hJitter = gloryChipNoise(i, 719, seed)
+      # +/- ~0.45 rad (~26 deg) around the corner's own diagonal -- enough to
+      # feel flung and asymmetric, never so wide it drifts onto a different
+      # axis and blows the margin budget above.
+      jitter = (float32(hJitter mod 1000) / 999.0'f32 - 0.5'f32) * 0.9'f32
+      angle = cornerAngle + jitter
+      hOff = gloryChipNoise(i, 733, seed)
+      offset = offsetMin + float32(hOff mod 1000) / 999.0'f32 *
+        (offsetMax - offsetMin)
+      hR = gloryChipNoise(i, 743, seed)
+      r = minR + float32(hR mod 1000) / 999.0'f32 * (maxR - minR)
     result[i] = (
-      cx: cx + cos(angle) * pillHalfW * distFrac,
-      cy: cy + sin(angle) * pillHalfH * distFrac,
+      cx: cx + sx * halfW + cos(angle) * offset,
+      cy: cy + sy * halfH + sin(angle) * offset,
       r: r
     )
 
-proc paintBlobSilhouetteDist(
-  px, py, cx, cy, pillHalfW, pillHalfH, radius, wobblePx: float32,
-  droplets: openArray[tuple[cx, cy, r: float32]],
-  seed: uint32
-): float32 =
-  ## Signed distance (native px; negative = inside) from one pixel to the
-  ## irregular splat silhouette: a rounded-rect base sized to the PILL's own
-  ## half-extents (pillHalfW/pillHalfH -- NOT the bigger canvas, or the pill
-  ## would auto-expand to fill it and leave the droplets nowhere to detach
-  ## into), centered at (cx, cy) and perturbed by gloryChipAngleWobble, then
-  ## unioned with every droplet. Shared by every paint-blob backing in this
-  ## file (the claim chip, the deed-pop daub) so they read as one shape
-  ## language, not two hand-tuned ones.
+proc paintSpeckDab(
+  pixels: var seq[uint8], canvasW, canvasH: int,
+  cx, cy, r, outlinePx: float32, fill: tuple[r, g, b: uint8]
+) =
+  ## D1 REDIRECT: paints ONE small flat paint speck -- a filled circle with a
+  ## thin dark ink ring, hard cutoff, no gradient -- directly onto an
+  ## existing canvas. This is the whole "blob" this file draws now: a single
+  ## flat fill zone and a single outline zone, sized for a mark this small
+  ## (the style law's 2-4px outline floor would swallow a dab this size, the
+  ## same reasoning the D2 veteran pip's own outline follows).
   let
-    qx = abs(px - cx) - (pillHalfW - radius)
-    qy = abs(py - cy) - (pillHalfH - radius)
-    ax = max(qx, 0'f32)
-    ay = max(qy, 0'f32)
-  result = (if ax > 0 or ay > 0: sqrt(ax * ax + ay * ay)
-            else: max(qx, qy)) - radius
-  result -= wobblePx * gloryChipAngleWobble(px, py, cx, cy, seed)
-  for d in droplets:
-    let
-      ddx = px - d.cx
-      ddy = py - d.cy
-    result = min(result, sqrt(ddx * ddx + ddy * ddy) - d.r)
-
-proc paintBlobZoneColor(
-  dist, edgeBandPx, outlinePx: float32,
-  core, edge: tuple[r, g, b: uint8],
-  ringGapPx = 0'f32, ringPx = 0'f32,
-  ringColor: tuple[r, g, b: uint8] = (0'u8, 0'u8, 0'u8)
-): tuple[r, g, b, a: uint8] =
-  ## Classifies one pixel into the style law's flat zones by distance from
-  ## the silhouette's true (pre-outline) edge -- a HARD cutoff between each,
-  ## never a gradient: core paint (deep inside) -> darker "drying paint" edge
-  ## paint (a thin band just inside the edge) -> a thick dark ink outline
-  ## (just OUTSIDE the edge, the style law's 2-4 logical px) -> transparent.
-  ##
-  ## `ringPx > 0` (a first claim only, SPLAT C6) adds a SECOND thin band --
-  ## GloryChipFirstInk -- past a transparent gap beyond the outline: "maybe a
-  ## double-ring splat," unmistakable at 640-embed scale. `ringPx = 0` (every
-  ## other claim) skips it entirely; the gap and ring collapse to the plain
-  ## outline-then-transparent cutoff above.
-  let ringOuter = outlinePx + ringGapPx + ringPx
-  if dist > ringOuter:
-    (0'u8, 0'u8, 0'u8, 0'u8)
-  elif ringPx > 0'f32 and dist > outlinePx + ringGapPx:
-    (ringColor.r, ringColor.g, ringColor.b, 255'u8)
-  elif dist > outlinePx:
-    (0'u8, 0'u8, 0'u8, 0'u8)  # the gap between the outline and the ring.
-  elif dist > 0'f32:
-    (GloryChipNameInk[0], GloryChipNameInk[1], GloryChipNameInk[2], 255'u8)
-  elif dist > -edgeBandPx:
-    (edge.r, edge.g, edge.b, 255'u8)
-  else:
-    (core.r, core.g, core.b, 255'u8)
+    x0 = max(0, int(floor(cx - r - outlinePx)))
+    x1 = min(canvasW - 1, int(ceil(cx + r + outlinePx)))
+    y0 = max(0, int(floor(cy - r - outlinePx)))
+    y1 = min(canvasH - 1, int(ceil(cy + r + outlinePx)))
+  for y in y0 .. y1:
+    for x in x0 .. x1:
+      let
+        px = x.float32 + 0.5'f32
+        py = y.float32 + 0.5'f32
+        d = sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) - r
+      if d > outlinePx:
+        continue
+      let i = y * canvasW + x
+      if d > 0'f32:
+        pixels.putRawRgbaPixel(i, 22, 17, 13, 255)
+      else:
+        pixels.putRawRgbaPixel(i, fill.r, fill.g, fill.b, 255)
 
 var chunkyTextCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
   ## Bounded like smoothTextCache -- see buildChunkyBoardText below.
@@ -5639,47 +5438,37 @@ proc applySpawnOvershoot(
 proc buildGloryChipSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
-  ## The achievement CLAIM pop: ONE line -- "NAME +Ng" -- on an irregular
-  ## PAINT-SPLAT blob in the claiming team's own paint, not the old
-  ## near-black ink&print rounded rect ("gold/luxe ink&print softmax
-  ## default," Maxwell's verdict, and wrong for a game whose whole identity
-  ## is team-colored paint). The one-line cut itself stands: that call was
-  ## "so big and obnoxious" for something that fires this often, and the
-  ## achievements panel/feed already carry the tier in full (addInspector,
-  ## above), so the chip still doesn't repeat it -- one short line, one or
-  ## two words and a number.
+  ## The achievement CLAIM pop: ONE line -- "NAME +Ng" -- as pure FLOATING
+  ## TEXT. D1 REDIRECT (Maxwell's live-board ruling): this used to sit on an
+  ## irregular paint-splat BLOB (SPLAT C2-C10, then D1's own first pass at a
+  ## gold ring). The blob was an opaque dark card occluding the action it was
+  ## pointing at -- "loses the function in a video game." Deleted outright.
+  ## What is left is exactly the game's OWN floating-pop register
+  ## (buildPopLabelSprite, the "-N"/"SPLAT" damage numbers): chunky pixel
+  ## letters (buildChunkyBoardText, SPLAT C7) whose own baked-in dark contour
+  ## does all the contrast work a backing used to. No card, no blob, no ring.
   ##
-  ## SPLAT C2/C4/C10 (style-law audit): the backing used to be a rounded-rect
-  ## signed distance field with a linear mix8 gradient rim and a per-pixel
-  ## hashed speckle fade -- a soft, geometric silhouette the style law rules
-  ## out twice over (rounded RECT, not organic; gradient band, not flat
-  ## zones). Rebuilt as a genuinely irregular blob: the same base rounded
-  ## rect, but its radius now wobbles per angle (gloryChipAngleWobble, value
-  ## noise on a circle) and a few paint droplets are flung around its whole
-  ## perimeter (gloryChipDroplets), not hung off the bottom edge like a
-  ## gravity drip. The fill is exactly THREE flat zones with hard cutoffs, no
-  ## gradient and no per-pixel dither (paintBlobZoneColor): a flat team-paint
-  ## core, a flat darker "drying paint" edge band, and a thick dark ink
-  ## outline ring (2 logical px, the style law's floor) standing in for the
-  ## hand-inked contour every OTHER rounded silhouette in this game's own art
-  ## already carries. One small flat glossy highlight blob sits in the
-  ## core's upper-left corner -- the style law's "at most one."
+  ## "amber = earned" survives as "orange = earned" (GloryPopInk, SPLAT C9)
+  ## for the payout run; the achievement NAME inks in the claiming TEAM's own
+  ## paint (gloryChipPaintCore) instead of a fixed near-black, since there is
+  ## no longer a backing to guarantee contrast against -- team color now
+  ## carries the "whose paint is this" read the blob used to.
   ##
-  ## "amber = earned" survives as "orange = earned" (GloryPopInk, SPLAT C9):
-  ## the payout run keeps it; only the achievement NAME moved to a stamped
-  ## near-black ink (GloryChipNameInk) for contrast against whichever team's
-  ## paint it lands on -- the SAME ink the new outline ring uses, so the name
-  ## text reads as "more outline," not a fourth color. A first claim still
-  ## tells itself apart on ink alone (GloryChipFirstInk, whole line, same as
-  ## pre-restyle); SPLAT C6 (bigger/brighter/more droplets, no gilding) lives
-  ## in the edge/outline width below for now.
+  ## A first claim's WHOLE distinction is now bigger type
+  ## (GloryChipFirstTextExtraScale, an integer bump a bitmap font can scale
+  ## by cleanly) plus a one-shot burst of a few paint specks flung off one
+  ## corner AT SPAWN ONLY (stage == 0) -- seasoning the text, never building
+  ## a second structure around it. Never gold: the burst paints in the exact
+  ## same boosted team ink the name run uses.
   ##
   ## boardScale > 1 only; the caller falls back to plain type at 1x, where
-  ## there is no vector budget for a chip (gloryPopText is what's drawn
+  ## there is no vector budget for a claim (gloryPopText is what's drawn
   ## there instead, and it now renders the identical "NAME +Ng" string).
   let
     text = gloryPopText(pop)
-    cacheKey = text & "\x1f" & $ord(pop.first) & "\x1f" & $stage & "\x1f" &
+    isFirst = pop.first
+    extraScale = gloryClaimTextExtraScale(pop)
+    cacheKey = text & "\x1f" & $ord(isFirst) & "\x1f" & $stage & "\x1f" &
       $boardScale
   if gloryChipCache.hasKey(cacheKey):
     return gloryChipCache[cacheKey]
@@ -5693,119 +5482,62 @@ proc buildGloryChipSprite(
     k = boardScale
     fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
     alphaByte = uint8(clamp(255.0 * fade, 0.0, 255.0))
-    isFirst = pop.first
-  # Text: a first claim fuses name+payout into one hot-ink run (unchanged
-  # from pre-restyle -- the whole line runs hotter, no split needed). A
-  # normal claim splits into two separately-inked runs -- near-black name,
-  # orange payout -- composited side by side, so the payout keeps reading as
-  # the currency-colored "+Ng" it always has even though the backing is no
-  # longer this HUD's own near-black.
-  var textNativeW, textNativeH: int
-  var textPixels: seq[uint8]
-  if isFirst:
-    let lineSpr = sim.buildChunkyBoardText(
-      text, GloryChipFirstInk[0], GloryChipFirstInk[1], GloryChipFirstInk[2])
-    textNativeW = lineSpr.width * k
-    textNativeH = lineSpr.height * k
-    textPixels = lineSpr.pixels
-  else:
-    let
-      nameSpr = sim.buildChunkyBoardText(
-        pop.label.toUpperAscii(), GloryChipNameInk[0], GloryChipNameInk[1],
-        GloryChipNameInk[2])
-      moneySpr = sim.buildChunkyBoardText(
-        gloryPopMoneyText(pop), GloryPopInk[0], GloryPopInk[1],
-        GloryPopInk[2])
-      gap = GloryChipTextGapPx * k
+    nameColor = gloryChipPaintCore(pop.team)
+  # Two separately-inked runs -- TEAM-paint name, orange payout -- composited
+  # side by side, same layout every other claim always used; a first claim
+  # now differs only by `extraScale` (both runs grow together) plus the
+  # burst added below, never a fused single-color line.
+  let
+    nameSpr = sim.buildChunkyBoardText(
+      pop.label.toUpperAscii(), nameColor.r, nameColor.g, nameColor.b,
+      extraScale)
+    moneySpr = sim.buildChunkyBoardText(
+      gloryPopMoneyText(pop), GloryPopInk[0], GloryPopInk[1], GloryPopInk[2],
+      extraScale)
+    gap = GloryChipTextGapPx * k * extraScale
     textNativeW = nameSpr.width * k + gap + moneySpr.width * k
     textNativeH = max(nameSpr.height, moneySpr.height) * k
-    textPixels = newRgbaPixels(textNativeW, textNativeH)
-    textPixels.blitRgbaBuffer(textNativeW, textNativeH, nameSpr.pixels,
-      nameSpr.width * k, nameSpr.height * k, 0, 0)
-    textPixels.blitRgbaBuffer(textNativeW, textNativeH, moneySpr.pixels,
-      moneySpr.width * k, moneySpr.height * k, nameSpr.width * k + gap, 0)
+  var textPixels = newRgbaPixels(textNativeW, textNativeH)
+  textPixels.blitRgbaBuffer(textNativeW, textNativeH, nameSpr.pixels,
+    nameSpr.width * k, nameSpr.height * k, 0, 0)
+  textPixels.blitRgbaBuffer(textNativeW, textNativeH, moneySpr.pixels,
+    moneySpr.width * k, moneySpr.height * k, nameSpr.width * k + gap, 0)
   let
-    # SPLAT C6: a first claim's whole blob -- padding, radius, edge band and
-    # outline -- scales up together. The text itself never scales (it is
-    # already the hottest ink on the HUD); only its backing grows around it.
-    scale = if isFirst: GloryChipFirstScale else: 1.0'f32
-    # The PILL's own nominal footprint -- text plus its (possibly scaled)
-    # padding, NOT the margin below -- is what the silhouette's true edge
-    # sits on.
-    pillW = textNativeW + int(GloryChipPadX.float32 * scale * 2) * k
-    pillH = gloryChipPillHeightLogical(pop) * k
-    marginNative = GloryChipBlobMarginPx * k
-    # The CANVAS is bigger than the pill by that margin on every side, so the
-    # wobble bulge, the outline ring and the flung droplets all have real
-    # room to render without clipping. gloryChipContentLogicalHeight (the
-    # row-stacking math's single source of truth) already bakes the LARGER
-    # (first-claim-worst-case) margin into its own height, so innerH must
-    # match its formula exactly.
-    innerW = pillW + marginNative * 2
-    innerH = gloryChipContentLogicalHeight(pop) * k
+    # A first claim reserves canvas room beyond its own text bbox for the
+    # corner burst; every other claim's canvas is exactly its text (D1: no
+    # backing means no margin needed beyond buildChunkyBoardText's own
+    # 1-cell contour, already inside textNativeW/H). gloryClaimTextLogicalHeight
+    # is the shared single source of truth the row-stacking math also reads,
+    # so innerH must match its formula exactly.
+    burstMargin = if isFirst: GloryChipBurstMarginPx * k else: 0
+    innerW = textNativeW + burstMargin * 2
+    innerH = sim.gloryClaimTextLogicalHeight(pop) * k
     logicalW = max(1, (innerW + k - 1) div k)
     logicalH = max(1, (innerH + k - 1) div k)
-  let
-    paintCore = gloryChipPaintCore(pop.team, isFirst)
-    edgeBase = Palette[ShadowMap[teamColor(pop.team) and 0x0f] and 0x0f]
-    radius = GloryChipRadius * k.float32 * scale
-    edgeBandPx = float32(k) * float32(GloryChipEdgeBandPx) * scale
-    outlinePx = float32(k) * float32(GloryChipOutlinePx) * scale
-    wobblePx = GloryChipWobblePx * k.float32
-    dropCount = GloryChipDripCount +
-      (if isFirst: GloryChipFirstDropCountBonus else: 0)
-    ringGapPx = if isFirst: GloryChipFirstRingGapPx * k.float32 else: 0'f32
-    ringPx = if isFirst: GloryChipFirstRingPx * k.float32 else: 0'f32
-    maxReach = outlinePx + ringGapPx + ringPx
-    # Canvas center == pill center (the pill sits centered in the bigger
-    # canvas), but the SDF/droplet placement below scale by the pill's OWN
-    # half-extents, never the canvas's -- see paintBlobSilhouetteDist's doc.
     cx = innerW.float32 / 2
     cy = innerH.float32 / 2
-    pillHalfW = pillW.float32 / 2
-    pillHalfH = pillH.float32 / 2
-    textHash = gloryChipTextHash(text)
-    dropMinR = GloryChipDripMinPx * k.float32
-    dropMaxR = GloryChipDripMaxPx * k.float32
-    droplets = gloryChipDroplets(
-      dropCount, cx, cy, pillHalfW, pillHalfH, dropMinR, dropMaxR, textHash)
-    highlightR = GloryChipHighlightR * k.float32
-    highlightCx = cx - pillHalfW + radius * 1.1'f32 + highlightR
-    highlightCy = cy - pillHalfH + radius * 0.7'f32 + highlightR
-    highlightColor = (
-      r: uint8(min(255, paintCore.r.int + 70)),
-      g: uint8(min(255, paintCore.g.int + 70)),
-      b: uint8(min(255, paintCore.b.int + 70))
-    )
-  var pixels = newRgbaPixels(innerW, innerH)
-  for y in 0 ..< innerH:
-    for x in 0 ..< innerW:
-      let
-        px = x.float32 + 0.5'f32
-        py = y.float32 + 0.5'f32
-        dist = paintBlobSilhouetteDist(
-          px, py, cx, cy, pillHalfW, pillHalfH, radius, wobblePx, droplets,
-          textHash)
-      if dist > maxReach:
-        continue  # clearly outside the blob, its outline, ring and droplets.
-      let
-        i = (y * innerW + x) * 4
-        inHighlight = dist <= -edgeBandPx and
-          (px - highlightCx) * (px - highlightCx) +
-          (py - highlightCy) * (py - highlightCy) <= highlightR * highlightR
-        zone =
-          if inHighlight: (r: highlightColor.r, g: highlightColor.g,
-                            b: highlightColor.b, a: 255'u8)
-          else: paintBlobZoneColor(dist, edgeBandPx, outlinePx,
-                                    paintCore, (edgeBase.r, edgeBase.g, edgeBase.b),
-                                    ringGapPx, ringPx, GloryChipFirstInk)
-      pixels[i] = zone.r
-      pixels[i + 1] = zone.g
-      pixels[i + 2] = zone.b
-      pixels[i + 3] = zone.a
-  let
     textX = (innerW - textNativeW) div 2
     textY = (innerH - textNativeH) div 2
+  var pixels = newRgbaPixels(innerW, innerH)
+  # D1: a first claim's one-shot corner burst -- painted BEFORE the text so
+  # the text always wins any incidental overlap -- fires on spawn only
+  # (stage == 0); every later stage (and every non-first claim) draws no
+  # specks at all, so the cache key's own `stage` term makes "one-shot"
+  # automatic with no extra state.
+  if isFirst and stage == 0:
+    let
+      textHash = gloryChipTextHash(text)
+      specks = gloryClaimBurstSpecks(
+        textNativeW.float32 / 2, textNativeH.float32 / 2, cx, cy,
+        GloryChipFirstBurstMinPx * k.float32,
+        GloryChipFirstBurstMaxPx * k.float32,
+        GloryChipFirstBurstOffsetMinPx * k.float32,
+        GloryChipFirstBurstOffsetMaxPx * k.float32,
+        textHash)
+      speckOutline = GloryClaimSpeckOutlinePx * k.float32
+    for speck in specks:
+      pixels.paintSpeckDab(
+        innerW, innerH, speck.cx, speck.cy, speck.r, speckOutline, nameColor)
   pixels.blitRgbaBuffer(innerW, innerH, textPixels, textNativeW, textNativeH,
     textX, textY)
   if alphaByte != 255'u8:
@@ -5818,13 +5550,11 @@ proc buildGloryChipSprite(
 
 proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
   ## Magnitude-scaled type size for a plain deed pop (kill vs capture vs
-  ## wipe), OR a claim chip's own logical footprint height. The two no longer
-  ## share one "make it BIG" hack: the chip earns its contrast from the
-  ## plaque itself, not from oversized type, so it is sized by its own
-  ## content (gloryChipLogicalHeight) instead of forcing the deed pop's
-  ## biggest step regardless of price.
+  ## wipe), OR a claim's own text-only logical footprint height
+  ## (gloryClaimTextLogicalHeight, D1 REDIRECT -- no more backing to size
+  ## around, just the text plus a first claim's own burst margin).
   if pop.label.len > 0:
-    return gloryChipLogicalHeight(pop)
+    return sim.gloryClaimTextLogicalHeight(pop)
   result = max(1, sim.asciiSprites.height) + 2
   if abs(pop.amount) >= GloryPopBigGlory:
     result += GloryPopBigLiftPx
@@ -5835,20 +5565,20 @@ proc gloryPopBaseLiftPx(sim: SimServer, pop: GloryFx): int =
   ## The floor ONE row needs on its own account, before any stacking: for a
   ## plain deed pop this is just the flat GloryPopLiftPx (small, and the
   ## per-magnitude stagger in gloryPopLineBox already keeps it clear of the
-  ## damage pop below). A claim CHIP needs more: the common case is a kill
-  ## and the achievement it just satisfied landing at the SAME cog, and the
-  ## "SPLAT" kill marker there rises KillPopRisePx over its life on top of
-  ## its own logical height (sim.asciiSprites.height + 2, the same box
+  ## damage pop below). A claim needs more: the common case is a kill and the
+  ## achievement it just satisfied landing at the SAME cog, and the "SPLAT"
+  ## kill marker there rises KillPopRisePx over its life on top of its own
+  ## logical height (sim.asciiSprites.height + 2, the same box
   ## buildFloatingPopSprite gives it) -- so its worst-case reach above the
   ## cog is (marker height + KillPopRisePx). A flat GloryPopLiftPx=13 is
-  ## nowhere near that once the plaque is more than a line or two tall, and
-  ## a verifier confirmed the marker was buried at three separate co-sited
-  ## kills. Lift the chip's OWN CENTER by half its real height
-  ## (gloryChipLogicalHeight, D1's single source of truth for that number)
-  ## plus the marker's full worst-case band plus a few px of air, so the
-  ## plaque's BOTTOM edge — not just its center — clears the marker.
+  ## nowhere near that once the claim is more than a line or two tall, and a
+  ## verifier confirmed the marker was buried at three separate co-sited
+  ## kills. Lift the claim's OWN CENTER by half its real height
+  ## (gloryClaimTextLogicalHeight, the single source of truth for that
+  ## number) plus the marker's full worst-case band plus a few px of air, so
+  ## the claim's BOTTOM edge — not just its center — clears the marker.
   if pop.label.len > 0:
-    gloryChipLogicalHeight(pop) div 2 + sim.asciiSprites.height + 2 +
+    sim.gloryClaimTextLogicalHeight(pop) div 2 + sim.asciiSprites.height + 2 +
       KillPopRisePx + GloryChipKillAirPx
   else:
     GloryPopLiftPx
@@ -5858,19 +5588,19 @@ proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
   ## THIS pop's own box — everything the caller needs beyond "sprite.height
   ## div 2" to find the sprite's top-left draw position. Subsumes the old
   ## flat GloryPopLiftPx the caller used to add on top of this: that was
-  ## fine when every row wanted the same floor, but a claim chip now wants a
-  ## much taller one (see gloryPopBaseLiftPx / D2), and either type can end
-  ## up on the bottom row -- the per-tick prune drops expired pops, so a
-  ## plain pop's row 0 can expire and vanish while a longer-lived chip above
-  ## it (AchievementFxTicks=84 ticks vs GloryFxTicks=40) stays live and
-  ## becomes the effective floor for whatever stacks on next.
+  ## fine when every row wanted the same floor, but a claim now wants a
+  ## taller one (see gloryPopBaseLiftPx), and either type can end up on the
+  ## bottom row -- the per-tick prune drops expired pops, so a plain pop's
+  ## row 0 can expire and vanish while a longer-lived claim above it
+  ## (AchievementFxTicks=84 ticks vs GloryFxTicks=40) stays live and becomes
+  ## the effective floor for whatever stacks on next.
   ##
   ## So walk every LIVE pop at this site, in row order up to and including
   ## this one, and stack bottom-up: each row's floor is the taller of (a)
   ## the row directly below it plus that row's own real height
   ## (gloryPopLineBox, unchanged -- this part was already correct), or (b)
   ## its OWN type's required floor (gloryPopBaseLiftPx). The max keeps a
-  ## chip clear of the kill marker on its own account no matter which row it
+  ## claim clear of the kill marker on its own account no matter which row it
   ## lands on, and anything stacked above it inherits ITS floor rather than
   ## the old flat one. Rows at one site are distinct by construction
   ## (addGloryPop assigns max+1 against the pops already in the seq).
@@ -5891,102 +5621,37 @@ proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
     result = if i == 0: ownFloor else: max(result + belowHeight, ownFloor)
     belowHeight = sim.gloryPopLineBox(rowPop)
 
-proc buildPaintDaubBacking(
-  textLogicalW, textLogicalH: int, textNativePixels: seq[uint8], seed: uint32
-): tuple[width, height: int, pixels: seq[uint8]] =
-  ## SPLAT C5: the plain deed pop's own small backing -- a TINY paint daub
-  ## built from the SAME shape primitives the claim chip uses
-  ## (paintBlobSilhouetteDist / paintBlobZoneColor / gloryChipDroplets), so a
-  ## chip and a plain "+Ng" pop read as one material system. Just two flat
-  ## zones (a near-black fill and its own thin outline -- edgeBandPx=0 folds
-  ## paintBlobZoneColor's middle "edge" zone away, since a daub this small
-  ## has no room for three), a couple of small flung droplets, no highlight,
-  ## no scale-up: "tiny blob," not a second chip. NOT team-tinted on purpose
-  ## -- see the const block's own note on why the ink alone carries the
-  ## reward/penalty read here. `textLogicalW/H` + `textNativePixels` are
-  ## boardScale's own native-resolution text buffer (whatever the caller
-  ## already rasterized); this composites it centered on top and hands back
-  ## the same LOGICAL-dims/native-pixels contract every board sprite uses.
-  let
-    k = boardScale
-    textNativeW = textLogicalW * k
-    textNativeH = textLogicalH * k
-    padX = GloryPopDaubPadX * k
-    padY = GloryPopDaubPadY * k
-    pillW = textNativeW + padX * 2
-    pillH = textNativeH + padY * 2
-    marginNative = GloryPopDaubMarginPx * k
-    innerW = pillW + marginNative * 2
-    innerH = pillH + marginNative * 2
-    logicalW = max(1, (innerW + k - 1) div k)
-    logicalH = max(1, (innerH + k - 1) div k)
-    cx = innerW.float32 / 2
-    cy = innerH.float32 / 2
-    pillHalfW = pillW.float32 / 2
-    pillHalfH = pillH.float32 / 2
-    radius = GloryPopDaubRadius * k.float32
-    outlinePx = float32(GloryPopDaubOutlinePx * k)
-    wobblePx = GloryChipWobblePx * k.float32
-    dropMinR = GloryPopDaubDripMinPx * k.float32
-    dropMaxR = GloryPopDaubDripMaxPx * k.float32
-    droplets = gloryChipDroplets(
-      GloryPopDaubDropCount, cx, cy, pillHalfW, pillHalfH, dropMinR, dropMaxR,
-      seed)
-    fill = (GloryChipNameInk[0], GloryChipNameInk[1], GloryChipNameInk[2])
-  var pixels = newRgbaPixels(innerW, innerH)
-  for y in 0 ..< innerH:
-    for x in 0 ..< innerW:
-      let
-        px = x.float32 + 0.5'f32
-        py = y.float32 + 0.5'f32
-        dist = paintBlobSilhouetteDist(
-          px, py, cx, cy, pillHalfW, pillHalfH, radius, wobblePx, droplets,
-          seed)
-      if dist > outlinePx:
-        continue
-      let
-        i = (y * innerW + x) * 4
-        zone = paintBlobZoneColor(dist, 0'f32, outlinePx, fill, fill)
-      pixels[i] = zone.r
-      pixels[i + 1] = zone.g
-      pixels[i + 2] = zone.b
-      pixels[i + 3] = zone.a
-  pixels.blitRgbaBuffer(innerW, innerH, textNativePixels, textNativeW,
-    textNativeH, (innerW - textNativeW) div 2, (innerH - textNativeH) div 2)
-  result.width = logicalW
-  result.height = logicalH
-  result.pixels = pixels
-
 proc buildGloryPopSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Dispatches a glory pop to its family's own renderer: a claim earns a
-  ## slim chip (buildGloryChipSprite); a plain deed gets its own small paint
-  ## daub (buildPaintDaubBacking, SPLAT C5) on the supersampled board, since
-  ## it has no chip to lean on for contrast -- used to be a per-glyph dark
-  ## contour halo; now it is the SAME material the chip is, text set in the
-  ## SAME chunky bitmap face (buildChunkyBoardText, SPLAT C7). Below
+  ## Dispatches a glory pop to its family's own renderer: a claim earns
+  ## bigger, team-inked floating text (buildGloryChipSprite); a plain deed
+  ## gets the SAME chunky bitmap face (buildChunkyBoardText, SPLAT C7) with
+  ## no backing at all -- D1 REDIRECT deleted the small paint-daub backing
+  ## (SPLAT C5) alongside the claim's blob for the identical reason: it was
+  ## an opaque card occluding the action at smaller scale. Both families are
+  ## now pure floating text, the game's own damage-pop register
+  ## (buildPopLabelSprite), just paint-flavored by ink color. Below
   ## boardScale > 1 (or for a plain deed at any scale) a claim still renders
   ## through the plain pixel-font path with gloryPopText's identical
-  ## "NAME +Ng" string, so a first claim needs its ink picked here too -- the
-  ## hotter GloryChipFirstInk instead of the standard orange -- or the two
-  ## draw paths would say the same text but stop agreeing on which claims
-  ## are rare.
+  ## "NAME +Ng" string; that fallback has no vector budget to distinguish a
+  ## first claim (D1: there is no longer a separate "rare" ink anywhere in
+  ## this file for it to duplicate), so every claim there inks identically,
+  ## same as a plain deed's payout.
   if pop.label.len > 0 and boardScale > 1:
     return sim.buildGloryChipSprite(pop, stage)
   let
     text = gloryPopText(pop)
     ink =
       if pop.amount < 0: GloryPopPenaltyInk
-      elif pop.label.len > 0 and pop.first: GloryChipFirstInk
       else: GloryPopInk
   if boardScale > 1:
     # Bypasses buildPopLabelSprite's own boardScale>1 branch (the vector
     # Rajdhani path shared with the "-N"/"SPLAT" damage pops, which stay
     # vector -- this proc is glory-only) so the text is set in the chunky
-    # face before it ever gets a backing. A bitmap font scales by clean
-    # integers only; gloryPopLineBox's magnitude tiers become an extra
-    # integer multiplier on top of boardScale instead of a continuous size.
+    # face. A bitmap font scales by clean integers only; gloryPopLineBox's
+    # magnitude tiers become an extra integer multiplier on top of
+    # boardScale instead of a continuous size.
     let
       fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
       alphaByte = uint8(clamp(255.0 * fade, 0.0, 255.0))
@@ -5995,9 +5660,9 @@ proc buildGloryPopSprite(
         (lineBoxPx + sim.shoutFont.height - 1) div sim.shoutFont.height)
       textSpr = sim.buildChunkyBoardText(text, ink[0], ink[1], ink[2],
         extraScale)
-    result = buildPaintDaubBacking(
-      textSpr.width, textSpr.height, textSpr.pixels,
-      gloryPopLabelKey(pop, text))
+    result.width = textSpr.width
+    result.height = textSpr.height
+    result.pixels = textSpr.pixels
     if alphaByte != 255'u8:
       for i in countup(3, result.pixels.len - 1, 4):
         result.pixels[i] = uint8(result.pixels[i].int * alphaByte.int div 255)
