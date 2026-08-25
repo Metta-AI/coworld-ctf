@@ -2802,7 +2802,7 @@ proc addTeamScoreboard(
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Adds the team kills/deaths scoreboard above the field: red on the left,
+  ## Adds the team glory scoreboard above the field: red on the left,
   ## blue on the right, each in its team color. Playing only — interstitial
   ## screens put their own title in the same top-center spot.
   if sim.phase != Playing:
@@ -2812,17 +2812,18 @@ proc addTeamScoreboard(
     kills[p.team] += p.kills
     deaths[p.team] += p.deaths
   let
-    # Glory and the live heat multiplier ride the same line as kills/deaths.
-    # A number with no context is unreadable, so heat only shows when it is
-    # actually lit (x1 is the resting state and saying so is noise).
+    # GLORY IS THE SCORE: glory leads the line with the live heat multiplier
+    # riding it, and kills/deaths demoted to the tail as deed detail. A number
+    # with no context is unreadable, so heat only shows when it is actually
+    # lit (x1 is the resting state and saying so is noise).
     redHeat = heatMult(sim.heatEmbers[Red])
     blueHeat = heatMult(sim.heatEmbers[Blue])
-    redText = "RED " & $kills[Red] & "/" & $deaths[Red] &
-      "  " & $sim.teamGlory[Red] & "g" &
-      (if redHeat > 1: "  x" & $redHeat else: "")
-    blueText = "BLUE " & $kills[Blue] & "/" & $deaths[Blue] &
-      "  " & $sim.teamGlory[Blue] & "g" &
-      (if blueHeat > 1: "  x" & $blueHeat else: "")
+    redText = "RED " & $sim.teamGlory[Red] & "g" &
+      (if redHeat > 1: " x" & $redHeat else: "") &
+      "  " & $kills[Red] & "/" & $deaths[Red]
+    blueText = "BLUE " & $sim.teamGlory[Blue] & "g" &
+      (if blueHeat > 1: " x" & $blueHeat else: "") &
+      "  " & $kills[Blue] & "/" & $deaths[Blue]
     red = sim.buildSpriteProtocolTextSprite([redText], teamColor(Red))
     blue = sim.buildSpriteProtocolTextSprite([blueText], teamColor(Blue))
     totalWidth = red.width + TeamScoreGap + blue.width

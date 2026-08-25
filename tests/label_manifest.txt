@@ -60,8 +60,8 @@ splatter <color> stage <n>
 spray can
 spray can carried
 spray paint puff
-team score BLUE <n>/1  <n>g
-team score RED <n>/0  <n>g  x<n>
+team score BLUE <n>g  <n>/1
+team score RED <n>g x<n>  <n>/0
 throw target
 tithe halo
 veteran mark <n>
