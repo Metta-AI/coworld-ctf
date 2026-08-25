@@ -4210,7 +4210,30 @@ proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
     if ok1:
       result.add ClassifiedSite(p: p1, class: scAlley, isMouth: true)
 
-proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
+type GateMouthInfo = object
+  p: MapPoint
+  parentMassPx2: int   ## the parent wall component's own footprint, px^2
+  parentLootTier: int  ## min lootTier of any POI whose center falls inside
+                        ## the parent structure's own bbox; -1 if none found
+
+proc structureLootTier(m: BrMap, bbox: tuple[x0, y0, x1, y1: int]): int =
+  ## The doctrine's own "richest kit at the most exposed place" signal
+  ## (§4.4) is a per-POI lootTier; a wall COMPONENT doesn't carry one
+  ## directly, so read it off whichever POI's own center lands inside this
+  ## component's wall bbox (world px) — the tier the structure was
+  ## authored at. -1 (unknown/no POI found) is the least significant tier
+  ## on this axis, never a guaranteed-admit.
+  result = -1
+  let wx0 = bbox.x0 * GridStride
+  let wy0 = bbox.y0 * GridStride
+  let wx1 = bbox.x1 * GridStride
+  let wy1 = bbox.y1 * GridStride
+  for poi in m.pois:
+    if poi.center.x >= wx0 and poi.center.x <= wx1 and
+       poi.center.y >= wy0 and poi.center.y <= wy1:
+      if result == -1 or poi.lootTier < result: result = poi.lootTier
+
+proc allStructureGateMouths(m: BrMap): seq[GateMouthInfo] =
   ## ROUND 15 REBUILD (fix 1): the original version reused THE BURROW
   ## REQUIREMENT's technique (round 12, computeBurrow/enclosureOpenFraction)
   ## LITERALLY — same per-component flood-fill of "outside" from the crop
@@ -4377,9 +4400,52 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
         if outside[lidx(nx, ny)]:
           px = nx; py = ny
           break
-      result.add MapPoint(x: (ox + px) * GridStride, y: (oy + py) * GridStride)
+      result.add GateMouthInfo(
+        p: MapPoint(x: (ox + px) * GridStride, y: (oy + py) * GridStride),
+        parentMassPx2: sizePx2, parentLootTier: structureLootTier(m, bbox))
   when defined(brDebugGateMouth):
     stderr.writeLine(&"GATEMOUTH count={result.len} points={result}")
+
+const GateMouthTopK = 8  ## COORDINATOR RULING (round 15, post fix-1/2):
+  ## the doctrine's scHotspot means "the exciting contested FEW" —
+  ## keystones, causeway mouths, zone-favored junctions, MAJOR-structure
+  ## gates — never every doorway on every hut just because the detector
+  ## can now see them all. Ranks every detected gate by its parent
+  ## structure's own significance and admits only the top K map-wide (a
+  ## lootTier-0 parent always qualifies, uncapped — doctrine's own
+  ## "richest kit at the most exposed place" signal). 8 sits mid-range of
+  ## the ruling's 6-10 band; measured (round 15, 10-seed building-terrain
+  ## sample) to land total hotspotN (this source + lootTier0 POI +
+  ## causeway/anchor + junction, deduped) at 11-19 — the ~10-18 regime the
+  ## item budgets were originally calibrated against.
+
+proc topSignificantGates(gates: seq[GateMouthInfo], k: int): seq[GateMouthInfo] =
+  ## The ranking/admission logic itself, factored out and k-parameterized
+  ## so a golden can prove the filter directly (a tiny k forces a real
+  ## small-vs-large exclusion in a 2-structure synthetic map) independent
+  ## of the production K above. A lootTier-0 parent always qualifies
+  ## (never trimmed by k); everything else ranks by parent wall mass
+  ## descending, admitting only enough of the top to bring the total up
+  ## to k. Stable sort: ties break on original detection order.
+  var guaranteed: seq[GateMouthInfo]
+  var ranked: seq[GateMouthInfo]
+  for g in gates:
+    if g.parentLootTier == 0: guaranteed.add g
+    else: ranked.add g
+  ranked.sort(proc(a, b: GateMouthInfo): int = cmp(b.parentMassPx2, a.parentMassPx2))
+  result = guaranteed
+  for g in ranked:
+    if result.len >= k: break
+    result.add g
+
+proc significantGateMouths(m: BrMap, k: int = GateMouthTopK): seq[MapPoint] =
+  ## The FILTERED gate-mouth list hotspotCandidates actually consumes —
+  ## see topSignificantGates' own comment. allStructureGateMouths above
+  ## stays available (and unfiltered) under its own name for any future
+  ## consumer that wants every detected gate, not just the significant
+  ## ones.
+  for g in topSignificantGates(allStructureGateMouths(m), k):
+    result.add g.p
 
 proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
   ## HOTSPOTS: "the exciting contested places" — keystones, causeway/gate
@@ -4393,8 +4459,11 @@ proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
   ##      — reusing that same detector's own archetype vocabulary.
   ##  (c) JUNCTIONS: a POI whose connector degree (linearConnectors' own
   ##      shapeDiagonal endpoints landing within its footprint) is >= 3.
-  ##  (d) GATE MOUTHS: structureGateMouthPoints above, reusing round 12's
-  ##      burrow enclosure-opening detector verbatim.
+  ##  (d) GATE MOUTHS: significantGateMouths above, reusing round 12's
+  ##      burrow enclosure-opening detector (allStructureGateMouths) but
+  ##      admitting only the significance-filtered top K (coordinator
+  ##      ruling, round 15) — every doorway on every hut is NOT a hotspot,
+  ##      only a major structure's.
   const MinSepPx = 120
   var bucket = initTable[(int, int), bool]()
   var acc: seq[ClassifiedSite]  ## `result` can't be captured by a nested
@@ -4425,7 +4494,7 @@ proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
         inc degree[i]
   for i, p in m.pois:
     if degree[i] >= 3: tryAdd(p.center)
-  for gp in structureGateMouthPoints(m):
+  for gp in significantGateMouths(m):
     tryAdd(gp)
   acc
 
@@ -5641,7 +5710,15 @@ proc placeItemsGraded(m: var BrMap) =
   ## the separation rule, not a starved pool, is what binds.
   let poiN = max(1, m.pois.len)
   let hotspotN = max(1, byClass[scHotspot].len)
-  let budget: array[ItemType, int] = [max(16, 2 * poiN), max(8, 2 * hotspotN),
+  ## COORDINATOR RULING (round 15): an absolute ceiling on the shield
+  ## budget regardless of hotspotN — "a cap is a guarantee, tuning is
+  ## not." hotspotN already stays in the ~10-18 regime the budget formula
+  ## was calibrated for (significantGateMouths' own K), but a future
+  ## taxonomy/detector change should never be able to silently blow the
+  ## item economy open again the way the pre-filter gate-mouth fix did.
+  const ShieldBudgetCeiling = 16
+  let budget: array[ItemType, int] = [max(16, 2 * poiN),
+    min(ShieldBudgetCeiling, max(8, 2 * hotspotN)),
     max(10, poiN), max(16, 2 * poiN)]  ## medkit, shield, grenade, spray
 
   var placed: array[ItemType, seq[ClassifiedSite]]
@@ -7260,11 +7337,47 @@ proc goldenGatedStructure(): BrMap =
   ## ROUND 15 (fix 1): exactly goldenRoomWithDoorway's own geometry — a
   ## closed ring, one doorway gap of 40px (x in [280,320]) in the south
   ## wall (y in [450,470]) — but marked as an AUTHORED structure
-  ## (structureCount = obstacles.len) so structureGateMouthPoints treats
-  ## it as one connected wall component with a known-by-construction gate.
+  ## (structureCount = obstacles.len) so allStructureGateMouths treats it
+  ## as one connected wall component with a known-by-construction gate.
   ## This is the exact synthetic case the pre-fix algorithm found NOTHING
   ## on (see goldenRichPoiHotspot's retired note above).
   result = goldenRoomWithDoorway()
+  result.structureCount = result.obstacles.len
+
+proc goldenTwoGatedStructures(): BrMap =
+  ## COORDINATOR RULING (round 15, post fix-1/2): two SEPARATE gated
+  ## structures, far apart, of deliberately different wall mass, NEITHER
+  ## lootTier==0 (so ranking falls purely on mass, not the guaranteed-
+  ## admit path) — proves topSignificantGates' ranking directly.
+  ## LARGE: goldenRoomWithDoorway's own 300x300/20px-wall room (~20000+
+  ## px^2 of wall), unmoved.
+  ## SMALL: a 120x120/12px-wall room (~5500px^2 of wall — comfortably
+  ## above ConfettiFloorPx2 so it's a real detected structure, comfortably
+  ## below the large room's mass), placed 400+px away so the two never
+  ## share a wall component or padding ring.
+  result = BrMap(width: 1400, height: 900, gunRange: 300)
+  let large = goldenRoomWithDoorway()
+  result.obstacles.add large.obstacles
+  result.pois.add large.pois
+  const sx0 = 900
+  const sy0 = 400
+  const sx1 = 1020
+  const sy1 = 520
+  const swallThick = 12
+  const sdoorHalf = 12
+  let smidX = (sx0 + sx1) div 2
+  result.obstacles.add rectShapeBr(sx0 - swallThick, sy0 - swallThick,
+    (sx1 - sx0) + 2 * swallThick, swallThick)                                    ## N
+  result.obstacles.add rectShapeBr(sx0 - swallThick, sy1,
+    smidX - sdoorHalf - (sx0 - swallThick), swallThick)                          ## S, left of door
+  result.obstacles.add rectShapeBr(smidX + sdoorHalf, sy1,
+    (sx1 + swallThick) - (smidX + sdoorHalf), swallThick)                        ## S, right of door
+  result.obstacles.add rectShapeBr(sx0 - swallThick, sy0, swallThick, sy1 - sy0)  ## W
+  result.obstacles.add rectShapeBr(sx1, sy0, swallThick, sy1 - sy0)              ## E
+  result.pois.add PoiSite(
+    center: MapPoint(x: (sx0 + sx1) div 2, y: (sy0 + sy1) div 2),
+    archetype: poiYard, halfExtent: 20, lootTier: 1,
+    rooms: @[MapRect(x: sx0, y: sy0, w: sx1 - sx0, h: sy1 - sy0)])
   result.structureCount = result.obstacles.len
 
 proc goldenSiteOnWall(): BrMap =
@@ -7353,16 +7466,18 @@ proc selftestClassifierGoldens(failCount: var int) =
   block gatedStructure:
     ## ROUND 15 (fix 1): the known-by-construction gate is the 40px south-
     ## wall doorway centered at x=300, with the wall's own outer face at
-    ## y=470 — structureGateMouthPoints must return exactly one point,
+    ## y=470 — allStructureGateMouths must return exactly one point,
     ## within the doorway's own width of x=300 and just past y=470 (pushed
     ## one cell OUTWARD into confirmed walkable space, never still inside
-    ## the wall band).
+    ## the wall band). This map has exactly one structure, so
+    ## significantGateMouths (production K) must admit it too — alone, it
+    ## is trivially inside the top K.
     let m = goldenGatedStructure()
-    let gates = structureGateMouthPoints(m)
+    let gates = allStructureGateMouths(m)
     expectOk("gated-structure/gate-count", gates.len == 1, failCount,
       &"got {gates.len}")
     if gates.len == 1:
-      let g = gates[0]
+      let g = gates[0].p
       expectOk("gated-structure/gate-near-door-x", abs(g.x - 300) <= 24,
         failCount, &"got x={g.x}")
       expectOk("gated-structure/gate-just-past-south-wall-y",
@@ -7372,10 +7487,40 @@ proc selftestClassifierGoldens(failCount: var int) =
         if inShape(g.x, g.y, ob): onWall = true
       expectOk("gated-structure/gate-not-on-wall", not onWall, failCount,
         &"({g.x},{g.y})")
+    let admitted = significantGateMouths(m)
+    expectOk("gated-structure/lone-structure-admitted", admitted.len == 1,
+      failCount, &"got {admitted.len}")
     let sites = classifySites(m)
     if gates.len == 1:
       expectOk("gated-structure/gate-classifies-scHotspot",
-        classifyPoint(gates[0], sites) == scHotspot, failCount)
+        classifyPoint(gates[0].p, sites) == scHotspot, failCount)
+  block gateSignificanceFilter:
+    ## COORDINATOR RULING (round 15): a doorway on a random hut is NOT a
+    ## hotspot just because the detector can now see it — only a
+    ## significant (highest-mass, or lootTier-0) structure's gate should
+    ## be admitted. Proven directly against topSignificantGates at k=1
+    ## (independent of the production K=8) so the exclusion is
+    ## deterministic regardless of how many real structures a live map
+    ## happens to have.
+    let m = goldenTwoGatedStructures()
+    let allGates = allStructureGateMouths(m)
+    expectOk("gate-significance/both-detected", allGates.len == 2, failCount,
+      &"got {allGates.len}")
+    if allGates.len == 2:
+      var large = allGates[0]
+      var small = allGates[1]
+      if large.parentMassPx2 < small.parentMassPx2: swap(large, small)
+      expectOk("gate-significance/mass-ordering-sane",
+        large.parentMassPx2 > small.parentMassPx2, failCount,
+        &"large={large.parentMassPx2} small={small.parentMassPx2}")
+      let admitted = topSignificantGates(allGates, 1)
+      expectOk("gate-significance/top1-admits-exactly-one",
+        admitted.len == 1, failCount, &"got {admitted.len}")
+      if admitted.len == 1:
+        expectOk("gate-significance/large-structure-admitted",
+          admitted[0].p == large.p, failCount)
+        expectOk("gate-significance/small-structure-NOT-admitted",
+          admitted[0].p != small.p, failCount)
   block siteWallSnap:
     ## ROUND 15 (fix 2): classifySites' snap-or-drop, isolated from the
     ## rest of a real draw's noise. goldenSiteOnWall's room candidate
