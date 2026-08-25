@@ -26,7 +26,7 @@
 
 import
   helpers,
-  std/[json, sequtils, strutils, unittest],
+  std/[json, math, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[arena, global, labels, sim, sim_config, sim_types]
 
@@ -386,3 +386,94 @@ suite "BR N-point spawn subsystem":
     check labelFlagPlanted("blue") in labels
     check labels.anyIt(it.startsWith(LabelPrefixEndzone))
     check labels.anyIt(" flag carrier glow" in it)
+
+## --- Spawn facing (finding 2 of the launch-readiness review) ---
+##
+## spawnAimBrads/spawnFlipH used to be a Red-faces-east/everyone-else-faces-
+## west binary (the layoutSides branch), which is all a 2-4 team map ever
+## needed — but every BR team falls through to that SAME branch regardless
+## of where its authored spawn point sits, so 15 of 16 duos woke facing due
+## west no matter their ring position. The fix aims each team from the
+## CENTROID of its own assigned spawnPoints group toward gameMap.center
+## instead, whenever the map authors spawnPoints — the same condition
+## spawnPosition already gates its own N-point placement on — and leaves the
+## classic layout table completely unreached (so untouched) for any map
+## that does not.
+
+const RingCenter = 800
+
+proc ringBrMap(teams = 16, radius = 600): CtfMap =
+  ## A minimal BR-shaped map for spawnAimBrads/spawnFlipH: NOT run through
+  ## mapFromSpecJson/validateMap (this is a pure geometry function of
+  ## CtfMap, no SimServer needed) — `teams` points spaced evenly around a
+  ## circle centered on (RingCenter, RingCenter), one per team (perTeam=1),
+  ## far enough apart that a real map's SpawnClear pockets would never
+  ## overlap either.
+  result = CtfMap(
+    width: RingCenter * 2, height: RingCenter * 2,
+    center: MapPoint(x: RingCenter, y: RingCenter),
+    layout: layoutSides,   # a BR board has no sides; spawnGroups overrides
+    symmetry: symNone,
+    spawnGroups: teams,
+  )
+  for i in 0 ..< teams:
+    let angle = float(i) * 2.0 * PI / float(teams)
+    result.spawnPoints.add MapPoint(
+      x: RingCenter + int(round(float(radius) * cos(angle))),
+      y: RingCenter + int(round(float(radius) * sin(angle)))
+    )
+
+suite "BR spawn facing (finding 2)":
+  test "16 BR teams get 16 distinct facings, each within a quarter turn of the true bearing to center":
+    let gm = ringBrMap()
+    var seen: seq[int]
+    for i in 0 ..< 16:
+      let
+        team = Team(i)
+        p = gm.spawnPoints[i]           # perTeam=1: point i IS team i's own.
+        brads = gm.spawnAimBrads(team)  # groupOffset default 0 (unrotated).
+        (ux, uy) = aimVector(brads)
+        dx = float(gm.center.x - p.x)
+        dy = float(gm.center.y - p.y)
+        mag = sqrt(dx * dx + dy * dy)
+        # Independent geometric check (via aimVector, NOT a re-derivation of
+        # spawnAimBrads' own bradsOfVector call): the returned facing's unit
+        # vector must have a non-negative dot product with the TRUE
+        # direction to center, i.e. within +/-90 degrees (a quarter turn).
+        dot = (ux * dx + uy * dy) / mag
+      check mag > 100.0   # sanity: this point is really off-center.
+      check dot >= 0.0
+      check brads notin seen
+      seen.add brads
+    check seen.len == 16
+
+  test "classic 2-team sides map: spawnAimBrads/spawnFlipH are byte-identical to the pre-BR formula":
+    ## No spawnPoints authored -> the BR branch is never reached; the
+    ## classic table's own literal outputs (0 = east, AimBradsTurn div 2 =
+    ## west) must be exactly what comes back, for every call site's default
+    ## groupOffset too (classic maps never rotate).
+    let gm = CtfMap(width: W, height: H, layout: layoutSides, symmetry: symMirror)
+    check gm.spawnPoints.len == 0
+    check gm.spawnAimBrads(Red) == 0
+    check gm.spawnAimBrads(Blue) == AimBradsTurn div 2
+    check gm.spawnFlipH(Red) == false
+    check gm.spawnFlipH(Blue) == true
+    # groupOffset is ignored entirely on the classic path.
+    check gm.spawnAimBrads(Red, groupOffset = 7) == 0
+    check gm.spawnAimBrads(Blue, groupOffset = 7) == AimBradsTurn div 2
+
+  test "groupOffset rotates which physical point a team is aimed from, matching spawnPosition's own rotation":
+    ## spawnGroupOffset rotates WHICH group each team lands in per episode;
+    ## a team aimed with offset o must face exactly like the UNROTATED team
+    ## that owns group (ord(team)+o) mod teamCount at offset 0 — proving the
+    ## facing tracks the SAME physical point the player actually spawns at,
+    ## not always its raw ordinal group.
+    let gm = ringBrMap()
+    for offset in [0, 1, 5, 15]:
+      for i in 0 ..< 16:
+        let
+          team = Team(i)
+          rotatedTeam = Team((i + offset) mod 16)
+        check gm.spawnAimBrads(team, offset) == gm.spawnAimBrads(rotatedTeam, 0)
+        check gm.spawnFlipH(team, offset) == gm.spawnFlipH(rotatedTeam, 0)
+

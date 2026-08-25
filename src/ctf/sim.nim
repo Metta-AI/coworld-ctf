@@ -342,6 +342,10 @@ proc startGame*(sim: var SimServer) =
   sim.damagePops = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
+  let groupOffset = sim.spawnGroupOffset()
+    ## Same offset arrangeHomePositions just used to place every seat (a pure
+    ## function of the config seed) — spawnAimBrads' BR path needs it too, so
+    ## a rotated team's facing matches the point it actually spawned at.
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
@@ -356,8 +360,10 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
     sim.players[i].windupBrads = -1
-    sim.players[i].aimBrads = sim.gameMap.spawnAimBrads(sim.players[i].team)
-    sim.players[i].flipH = sim.gameMap.spawnFlipH(sim.players[i].team)
+    sim.players[i].aimBrads =
+      sim.gameMap.spawnAimBrads(sim.players[i].team, groupOffset)
+    sim.players[i].flipH =
+      sim.gameMap.spawnFlipH(sim.players[i].team, groupOffset)
     sim.players[i].carryingFlag = false
     sim.players[i].hasShield = false
     sim.players[i].shieldHp = 0
@@ -4025,6 +4031,9 @@ proc updatePackTicks*(sim: var SimServer) =
 proc respawnPlayers(sim: var SimServer) =
   ## Ticks respawn timers and brings dead players back at a random spot in
   ## their endzone, so a fixed respawn point can't be camped.
+  let groupOffset = sim.spawnGroupOffset()
+    ## Pure function of the config seed, same value all game — see the
+    ## identical hoist in resetPlayers/startGame.
   for i in 0 ..< sim.players.len:
     if sim.players[i].alive:
       continue
@@ -4038,8 +4047,10 @@ proc respawnPlayers(sim: var SimServer) =
         sim.players[i].alive = true
         sim.players[i].hp =
           sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
-        sim.players[i].aimBrads = sim.gameMap.spawnAimBrads(sim.players[i].team)
-        sim.players[i].flipH = sim.gameMap.spawnFlipH(sim.players[i].team)
+        sim.players[i].aimBrads =
+          sim.gameMap.spawnAimBrads(sim.players[i].team, groupOffset)
+        sim.players[i].flipH =
+          sim.gameMap.spawnFlipH(sim.players[i].team, groupOffset)
         sim.emitEvent(
           Respawn, source = i,
           x = float(sim.players[i].x + CollisionW div 2),

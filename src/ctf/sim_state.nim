@@ -29,11 +29,48 @@ proc lobbyStartSecondsRemaining*(sim: SimServer): int =
     return 0
   max(1, (ticks + TargetFps - 1) div TargetFps)
 
-proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
+proc spawnAimBrads*(gameMap: CtfMap, team: Team, groupOffset = 0): int =
   ## Returns the spawn/respawn aim angle: toward the map center, so every
   ## team wakes facing the fight. Sides maps keep the classic east/west pair;
   ## corner teams face the diagonal, plus arms face along their arm.
   ##
+  ## BR N-point spawn subsystem: when the map carries authored spawnPoints
+  ## (the exact condition spawnPosition already gates its own N-point
+  ## placement on), the classic layout table below has nothing useful to say
+  ## — a BR board has no "sides" or "corners", just points scattered around
+  ## the field — so every team is aimed from the CENTROID of its OWN
+  ## assigned spawn-point group toward gameMap.center instead, via
+  ## bradsOfVector (the exact inverse of aimVector). Before this fix every
+  ## non-Red team fell through to the classic sides-map formula regardless
+  ## of layout: a Red-faces-east/everyone-else-faces-west binary, so all 15
+  ## non-Red BR duos woke facing due west no matter where on the ring they
+  ## actually spawned.
+  ##
+  ## `groupOffset` is spawnPosition's own per-episode spawnGroupOffset
+  ## (default 0, i.e. the raw/unrotated group): pass the SAME offset used to
+  ## place this team's players so the computed bearing matches the point
+  ## they actually stand on — spawnGroupOffset rotates WHICH physical group
+  ## each team lands in every episode (so no team owns a ring cell forever),
+  ## and a facing computed from the wrong (unrotated) group would point
+  ## toward center from a ring position this team never actually occupies.
+  ##
+  ## Classic (non-BR) maps never author spawnPoints, so this branch is never
+  ## reached for them and the table below stays byte-identical to the
+  ## pre-BR formula.
+  if gameMap.spawnPoints.len > 0:
+    let
+      teamCount = gameMap.teamCount()
+      perTeam = gameMap.spawnPoints.len div teamCount
+      group = (ord(team) + groupOffset) mod teamCount
+    var sx, sy = 0
+    for i in 0 ..< perTeam:
+      let p = gameMap.spawnPoints[group * perTeam + i]
+      sx += p.x
+      sy += p.y
+    let
+      cx = sx div perTeam
+      cy = sy div perTeam
+    return bradsOfVector(gameMap.center.x - cx, gameMap.center.y - cy)
   ## The table keys on layout + OCCUPIED SLOT, and that already serves BOTH
   ## 4-team symmetries: the corner aims are exactly the reflections of Red's
   ## south-east (Blue = its x-mirror SW, Green = its y-mirror NE, Yellow =
@@ -78,11 +115,13 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       "spawnAimBrads: layoutPlus is 4-team only, got " & $team &
         " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
-proc spawnFlipH*(gameMap: CtfMap, team: Team): bool =
+proc spawnFlipH*(gameMap: CtfMap, team: Team, groupOffset = 0): bool =
   ## Returns whether a team's sprite spawns horizontally flipped: any spawn
   ## aim with a westward component faces the body left. Exactly `team ==
-  ## Blue` on sides maps.
-  let brads = gameMap.spawnAimBrads(team)
+  ## Blue` on sides maps; on a BR (spawnPoints) map, any team whose own-point
+  ## bearing to center has a westward component. `groupOffset` forwards to
+  ## spawnAimBrads unchanged — see its doc comment.
+  let brads = gameMap.spawnAimBrads(team, groupOffset)
   brads > AimBradsTurn div 4 and brads < 3 * AimBradsTurn div 4
 
 proc teamPaintRgba*(color: uint8): ColorRGBA =
