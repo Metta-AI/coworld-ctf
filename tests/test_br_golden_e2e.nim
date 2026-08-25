@@ -28,11 +28,14 @@
 ## episode as the permanent golden).
 ##
 ## The two numeric floors below (MinDisplacementPx, MinTeamsFiring) are
-## read off THIS fixture's own recorded numbers with margin, not invented:
-## the recording's least-active team moved ~1737px and every one of the 16
-## fired at least 2 shots. The contract is "the bug this lane fixed cannot
-## silently come back", not an arbitrary tuning target — re-derive both
-## honestly from whatever a re-record actually produces.
+## read off THIS fixture's own recorded numbers (seed 4242) with margin, not
+## invented: the recording's least-active team (plum) still moved ~1547px,
+## and all 16 teams fired at least one shot (several duos fired only once —
+## MinTeamsFiring stays at 12, not 16, so a re-record that legitimately
+## silences one or two early-eliminated duos does not itself fail this
+## suite). The contract is "the bug this lane fixed cannot silently come
+## back", not an arbitrary tuning target — re-derive both honestly from
+## whatever a re-record actually produces.
 ##
 ## This fixture ALSO carries the "hunt-fix" evidence a separate recording
 ## (the gitignored br-showmatch2.bitreplay) was originally kept around to
@@ -55,8 +58,9 @@ const
   MapSpecPath = GameDir / "tests" / "fixtures" / "br-golden-map.json"
   Teams = 16
   MinDisplacementPx = 500.0
-    ## floor: the recording's quietest team still moved ~1737px; 500 leaves
-    ## wide margin while still catching a team that never left its pocket.
+    ## floor: the recording's quietest team (plum) still moved ~1547px; 500
+    ## leaves wide margin while still catching a team that never left its
+    ## pocket.
   MinTeamsFiring = 12
     ## floor: all 16 fired in the recording; 12 leaves margin for a
     ## legitimately quiet duo (eliminated early) without masking the
@@ -104,10 +108,19 @@ suite "16-team BR golden: end-to-end":
       check extraction.winner in BrRosterColors
 
   test "eliminations are monotone: once a team has zero living players, it never has one again":
+    ## Frame 0 of a captured replay is the LOBBY, before `startGame` has
+    ## marked anyone alive — every team legitimately reads 0 alive there,
+    ## which is not an elimination, just "the match hasn't started yet".
+    ## Only track a team's elimination once it has been observed alive at
+    ## least once; a team that never turns up alive (should not happen on
+    ## this fixture, see the join-count check below) is excluded rather
+    ## than counted as "eliminated before the match began".
     let extraction = extractEvents(loadReplay(FixturePath), captureFrames = true)
     check extraction.slotTeam.len == extraction.frameSlots
     let teams = extraction.slotTeam.deduplicate()
-    var everEliminated = initTable[string, bool]()
+    var
+      everAlive = initTable[string, bool]()
+      everEliminated = initTable[string, bool]()
     for idx in 0 ..< extraction.frameCount:
       var aliveByTeam = initTable[string, int]()
       for seat in 0 ..< extraction.frameSlots:
@@ -116,12 +129,17 @@ suite "16-team BR golden: end-to-end":
           aliveByTeam[team] = aliveByTeam.getOrDefault(team, 0) + 1
       for team in teams:
         let alive = aliveByTeam.getOrDefault(team, 0)
+        if alive > 0:
+          everAlive[team] = true
         if everEliminated.getOrDefault(team, false):
           check alive == 0             ## an eliminated team never comes back.
-        elif alive == 0:
+        elif everAlive.getOrDefault(team, false) and alive == 0:
           everEliminated[team] = true
-    ## The episode actually eliminated someone — otherwise the monotonicity
-    ## check above is vacuously true and proves nothing.
+    ## Every team was actually seen alive at some point (the lobby-frame
+    ## exclusion above did not silently swallow a real seat), and the
+    ## episode actually eliminated someone — otherwise the monotonicity
+    ## check is vacuously true and proves nothing.
+    check everAlive.len == teams.len
     check everEliminated.len > 0
 
   test "zone damage fired at least once":
