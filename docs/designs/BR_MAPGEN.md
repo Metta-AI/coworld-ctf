@@ -299,7 +299,8 @@ column monotone or the map stops applying pressure mid-match:
 The item-pull lever (§2.2), strengthened into a gradient: the richest kit sits
 in the most exposed place. This is what makes the landing decision a decision
 rather than a lottery, and it is the mechanism that keeps early game from
-being uniform.
+being uniform. §4.9 makes this executable: a site-class taxonomy ordered by
+exposure, with a declared gradient per item type.
 
 ### 4.5 Every place must be leavable under fire
 **No place has a single exit.** In CTF a dead end costs you a fight; in BR,
@@ -343,6 +344,46 @@ Two late rulings on the generator's shape:
   parameters, declared in the spec, and MEASURED like keystones (a declared
   switch the detector cannot find fails the draw). Keystone families compose
   with switches; incoherent combos are reported, not forced.
+
+### 4.9 Feature ALL items — a per-item gradient over site classes (Maxwell's ruling, 2026-08-24)
+On the round-11 maps: "definitely the best yet! but they only have med kits.
+we need to feature all items. and we should do that by creating a gradient for
+each item type based on rooms then corners, alleys, and exciting hotspots."
+
+Two requirements in one ruling:
+- **The full item vocabulary features on every draw.** The engine serves four
+  map items on the wire (`medkit`, `grenade`, `shield`, `spray`); a BR draw
+  places all four. Medkit-only was a scaffolding stage, not a design.
+- **Placement is a per-item GRADIENT over a SITE-CLASS taxonomy.** The
+  generator classifies candidate sites from the built geometry — ROOMS (unit
+  interiors), CORNERS (wall nooks and building corners), ALLEYS (the carved
+  lanes between complexes), and HOTSPOTS (the exciting contested places:
+  keystones, causeway mouths, zone-favored junctions). Each item type
+  declares its own weight vector over that ordering, so different items pull
+  players toward different site classes. This is §4.4 made executable: the
+  classes are ordered by exposure, so "richest kit in the most exposed
+  place" becomes an assignment the generator performs per item.
+
+The concrete per-item weights are being derived from a dedicated
+loot-placement research pass over BR genre practice (this is a large,
+well-studied design space — the weights should come from prior art plus our
+own play evidence, not from a guess). They enter here as declared constants
+when derived.
+
+Discipline, same as every ruling before it:
+- The site classifier is a MEASURED artifact (§4.8's standard): classes are
+  detected on the finished map, and a draw whose declared gradient the
+  realized per-class occupancy does not match fails. Declared vs realized,
+  per item — a gate that discriminates.
+- Item-access equity is MEASURED per spawn (distance-to-nearest per item
+  type from each ring spawn), never inferred from symmetry (§2.5, §3.4).
+- Engine plumbing: medkits already travel as neutral lists in the map JSON.
+  Grenade/shield/spray need the JSON to carry them and the loader to ingest
+  them (shield/spray already have the symNone explicit-points path in
+  `sim.nim`; grenades are a fixed `array[4]` formula that must learn to
+  accept an authored list). brmapkit's round-3 note that team pickups
+  "cannot express a 16-group-fair pool" predates the br16 machinery —
+  re-verify against the current engine, do not inherit it.
 
 ## 5. Draw and triage discipline — port the PROCESS, not just the rules
 
