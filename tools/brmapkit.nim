@@ -6901,9 +6901,171 @@ proc selftestConfettiPrune(failCount: var int) =
   expectOk("new-fill-scan-prune-KEEPS-the-lopsided-shape",
     newKept.len == 1, failCount, &"kept {newKept.len}, want 1")
 
+## --- fix 2: classifySites/classifyPoint golden geometry ----------------------
+## ROUND 14 fix 2's whole point is that itemGradientCheck re-runs
+## classifySites/classifyPoint on placeItemsGraded's own output, so a
+## classifier bug makes placement and validation agree even when both are
+## wrong — a shared-defect loop. These golden maps give the classifier ITS
+## OWN ground truth instead: hand-built geometry where the correct class of
+## specific points is known BY CONSTRUCTION.
+
+proc goldenRoomWithDoorway(): BrMap =
+  ## A room with a doorway gap in its south wall: interior 300x300 box at
+  ## (150,150)-(450,450), 20px walls. roomCandidates must route the room's
+  ## authored center to scRoom; cornerCandidates must independently
+  ## RE-DERIVE the room's four real geometric corners from the drawn wall
+  ## grid (it never reads PoiSite.rooms) at (152,152)/(448,152)/(152,448)/
+  ## (448,448). Sized deliberately large (not the doctrine's usual small
+  ## room) so all four corners land in DISTINCT, non-adjacent dedup buckets
+  ## (cornerCandidates' own MinSepPx=70 clustering only suppresses a
+  ## same-bucket-OR-adjacent-bucket neighbor — a small room can have two
+  ## genuinely-distinct corners fall into adjacent buckets by construction
+  ## and get coarsely deduped down to one, which would be an artifact of
+  ## the test's OWN geometry, not something under test here) and clear of
+  ## the field border's own corners (buildWallGrid's ArenaBorderPx band
+  ## registers as its own four "corners").
+  result = BrMap(width: 600, height: 600, gunRange: 300)
+  const ix0 = 150
+  const iy0 = 150
+  const ix1 = 450
+  const iy1 = 450
+  const wallThick = 20
+  const doorHalf = 20
+  let midX = (ix0 + ix1) div 2
+  result.obstacles.add rectShapeBr(ix0 - wallThick, iy0 - wallThick,
+    (ix1 - ix0) + 2 * wallThick, wallThick)                              ## N
+  result.obstacles.add rectShapeBr(ix0 - wallThick, iy1,
+    midX - doorHalf - (ix0 - wallThick), wallThick)                      ## S, left of door
+  result.obstacles.add rectShapeBr(midX + doorHalf, iy1,
+    (ix1 + wallThick) - (midX + doorHalf), wallThick)                    ## S, right of door
+  result.obstacles.add rectShapeBr(ix0 - wallThick, iy0, wallThick, iy1 - iy0)   ## W
+  result.obstacles.add rectShapeBr(ix1, iy0, wallThick, iy1 - iy0)              ## E
+  result.pois.add PoiSite(
+    center: MapPoint(x: (ix0 + ix1) div 2, y: (iy0 + iy1) div 2),
+    archetype: poiYard, halfExtent: 50, lootTier: 1,
+    rooms: @[MapRect(x: ix0, y: iy0, w: ix1 - ix0, h: iy1 - iy0)])
+
+proc goldenLCornerAndCorridor(): BrMap =
+  ## A minimal two-wall L (nook in its inside elbow) FAR from a separate
+  ## straight two-wall corridor. cornerCandidates must find the nook and
+  ## must NOT report a false corner anywhere along the corridor's straight
+  ## run (doctrine: "a straight corridor's N+S or E+W wall pair is
+  ## deliberately excluded — that is a hallway, not a corner"). The elbow
+  ## is placed away from (0,0): buildWallGrid's own ArenaBorderPx band
+  ## registers the field's four corners as corners too, and
+  ## cornerCandidates' coarse dedup bucket (MinSepPx=70, ±1-bucket
+  ## neighborhood) would otherwise swallow a nook placed too close to one
+  ## of them even though the two are well over MinSepPx apart in real px.
+  result = BrMap(width: 900, height: 900, gunRange: 300)
+  const wallThick = 20
+  result.obstacles.add rectShapeBr(300, 300, wallThick, 200)   ## vertical leg
+  result.obstacles.add rectShapeBr(300, 300, 200, wallThick)   ## horizontal leg
+  result.obstacles.add rectShapeBr(700, 100, wallThick, 400)   ## corridor west wall
+  result.obstacles.add rectShapeBr(850, 100, wallThick, 400)   ## corridor east wall
+
+proc goldenDiagonalAlley(): BrMap =
+  ## One shapeDiagonal wall segment, nothing else — the ONLY two producers
+  ## of shapeDiagonal in this generator (poiCauseway, linearConnectors) are
+  ## both literal alley walls, so any diagonal IS an alley by construction.
+  result = BrMap(width: 900, height: 900, gunRange: 300)
+  result.obstacles.add ArenaShape(
+    kind: shapeDiagonal, x0: 200, y0: 200, x1: 400, y1: 400, thickness: 30)
+
+proc goldenRichPoiHotspot(): BrMap =
+  ## A single lootTier==0 (richest/major) POI, no other geometry —
+  ## hotspotCandidates' source (a): "every lootTier==0 POI center: the
+  ## doctrine's OWN 'richest kit at the most exposed place' signal (§4.4)."
+  ##
+  ## NOTE: the doc's other suggested example for this slot, a "gate-mouth
+  ## hotspot" via structureGateMouthPoints, was tried FIRST — a closed ring
+  ## with one doorway gap (the same shape as goldenRoomWithDoorway, marked
+  ## structureCount = obstacles.len). It found NOTHING, on that synthetic
+  ## ring AND on every one of 10 real generated seeds probed directly
+  ## (structureGateMouthPoints returned 0 gates on all 10, obstacles up to
+  ## 263). Traced to the algorithm itself: it flood-fills "outside" from
+  ## the crop border using ONLY that one wall component as an obstruction,
+  ## then reports enclosed (UNREACHED) floor touching that flood — but any
+  ## single opening lets the flood fill absorb the ENTIRE interior (the
+  ## same "outside enters through every gate" behavior enclosureOpenFraction's
+  ## own round-13 correction already documents), so only a fully SEALED,
+  ## zero-opening wall mass could ever register — which never occurs in a
+  ## real draw. This reads as a genuine dead/null hotspot source, OUT OF
+  ## SCOPE for this lane's four fixes — flagged, not touched here.
+  result = BrMap(width: 900, height: 900, gunRange: 300)
+  result.pois.add PoiSite(
+    center: MapPoint(x: 450, y: 450), archetype: poiCompound,
+    halfExtent: 100, lootTier: 0)
+
+proc selftestClassifierGoldens(failCount: var int) =
+  stderr.writeLine("-- fix 2: classifySites/classifyPoint golden geometry --")
+  block roomAndCorner:
+    let m = goldenRoomWithDoorway()
+    let rooms = roomCandidates(m)
+    expectOk("room-with-doorway/room-candidate-count", rooms.len == 1, failCount,
+      &"got {rooms.len}")
+    if rooms.len == 1:
+      expectOk("room-with-doorway/room-candidate-class-scRoom",
+        rooms[0].class == scRoom, failCount)
+    let corners = cornerCandidates(m)
+    for (ex, ey) in [(152, 152), (448, 152), (152, 448), (448, 448)]:
+      var found = false
+      for c in corners:
+        if abs(c.p.x - ex) <= 8 and abs(c.p.y - ey) <= 8: found = true
+      expectOk(&"room-with-doorway/corner-near-({ex},{ey})", found, failCount)
+    let sites = classifySites(m)
+    expectOk("room-with-doorway/center-classifies-scRoom",
+      classifyPoint(MapPoint(x: 300, y: 300), sites) == scRoom, failCount)
+    expectOk("room-with-doorway/corner-point-classifies-scCorner",
+      classifyPoint(MapPoint(x: 152, y: 152), sites) == scCorner, failCount)
+  block lCornerAndCorridor:
+    let m = goldenLCornerAndCorridor()
+    let corners = cornerCandidates(m)
+    var nookFound = false
+    for c in corners:
+      if abs(c.p.x - 320) <= 8 and abs(c.p.y - 320) <= 8: nookFound = true
+    expectOk("l-corner/nook-detected-near-(320,320)", nookFound, failCount)
+    var falseCorner = false
+    for c in corners:
+      if c.p.x >= 730 and c.p.x <= 840 and c.p.y >= 130 and c.p.y <= 470:
+        falseCorner = true
+    expectOk("l-corner/no-false-corner-in-straight-corridor",
+      not falseCorner, failCount)
+    let sites = classifySites(m)
+    expectOk("l-corner/nook-point-classifies-scCorner",
+      classifyPoint(MapPoint(x: 320, y: 320), sites) == scCorner, failCount)
+  block diagonalAlley:
+    let m = goldenDiagonalAlley()
+    let alleys = alleyCandidatesFromDiagonals(m)
+    expectOk("diagonal-alley/candidate-count", alleys.len == 3, failCount,
+      &"got {alleys.len}")
+    var mouths = 0
+    var mids = 0
+    for a in alleys:
+      if a.isMouth: inc mouths else: inc mids
+      expectOk(&"diagonal-alley/point-not-on-wall-({a.p.x},{a.p.y})",
+        not inShape(a.p.x, a.p.y, m.obstacles[0]), failCount)
+    expectOk("diagonal-alley/mouth-count", mouths == 2, failCount, &"got {mouths}")
+    expectOk("diagonal-alley/midpoint-count", mids == 1, failCount, &"got {mids}")
+    let sites = classifySites(m)
+    for a in alleys:
+      expectOk(&"diagonal-alley/self-classifies-scAlley-({a.p.x},{a.p.y})",
+        classifyPoint(a.p, sites) == scAlley, failCount)
+  block richPoiHotspot:
+    let m = goldenRichPoiHotspot()
+    let hotspots = hotspotCandidates(m)
+    var hFound = false
+    for h in hotspots:
+      if abs(h.p.x - 450) <= 4 and abs(h.p.y - 450) <= 4: hFound = true
+    expectOk("rich-poi/lootTier0-surfaces-as-hotspot", hFound, failCount,
+      &"got {hotspots.len} hotspot(s)")
+    let sites = classifySites(m)
+    expectOk("rich-poi/center-classifies-scHotspot",
+      classifyPoint(MapPoint(x: 450, y: 450), sites) == scHotspot, failCount)
+
 proc cmdSelftest(a: Args) =
   var failCount = 0
   selftestConfettiPrune(failCount)
+  selftestClassifierGoldens(failCount)
   stderr.writeLine("")
   if failCount == 0:
     stderr.writeLine("selftest: ALL PASS")
