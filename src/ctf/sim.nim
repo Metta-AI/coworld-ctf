@@ -2900,14 +2900,13 @@ proc brTiebreakWinner(sim: SimServer): tuple[winner: Team, isDraw: bool] =
   ## BR maxTicks tiebreak (docs/designs/BR_MAPGEN.md §1). A STRICT TOTAL
   ## ORDER: a timeout can never be a draw.
   ##
-  ## Draw-free is the point, not a detail. A reference BR implementation
-  ## (treeform's battleroyale coworld) removed draws outright because they
-  ## bred PASSIVE DOUBLE-DEATH play: if both sides survive to the clock and
+  ## Draw-free is the point, not a detail. A draw at the clock breeds
+  ## PASSIVE DOUBLE-DEATH play: if both sides survive to the timeout and
   ## split the result, the dominant strategy is to avoid the fight, and a
   ## battle royale whose optimal line is "do not engage" has lost its
-  ## thesis. Field evidence from that implementation agrees — of 8 hosted
-  ## reference replays, 2 reached the clock and were won by survival
-  ## farming rather than by fighting.
+  ## thesis. The failure is observable rather than theoretical — weakly
+  ## priced endgames let a share of episodes reach the clock and be won by
+  ## survival farming instead of by fighting.
   ##
   ## The order, each rank breaking the one above:
   ##   1. most LIVING cogs — the mode's own currency.
