@@ -238,8 +238,11 @@ html, body {
   font-variant-numeric: tabular-nums;
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
 }
-/* Team ink, not amber — amber stays the one "earned" accent for heat flames /
-   pops / carrier only (see the law comment on #achpanel .ach-head .ach-caret). */
+/* Team ink, not amber. Amber is this chrome's one "you earned this" accent
+   (carrier pip, .tbtn.on, the heat flames, achievement pops/toasts) — it
+   means glory PAID, and only that. The glory numeral is the score, not a
+   payout, so it takes team ink, and amber's job stays narrow: marking the
+   events that fed the ledger, never the running total. */
 .plate.red .lives-num.glory { color: var(--red); }
 .plate.blue .lives-num.glory { color: var(--blue); }
 /* HEAT is suppressed at x1 — the sim already refuses to print it there
@@ -505,9 +508,11 @@ html, body {
 #killfeed {
   position: absolute;
   /* Bottom-right, clear of the blue scorebug/roster (top) and the transport
-     bar (bottom). column-reverse so the newest row sits lowest, nearest the
-     transport, and older kills stack upward — a broadcast lower-third feed. */
-  bottom: calc(76 * var(--u));
+     bar (bottom) — anchored to --band, the transport's MEASURED height, so a
+     taller band (the glory lane) can never swallow the feed. column-reverse
+     so the newest row sits lowest, nearest the transport, and older kills
+     stack upward — a broadcast lower-third feed. */
+  bottom: calc(var(--band, 0px) + 8 * var(--u));
   right: calc(12 * var(--u));
   display: flex;
   flex-direction: column-reverse;
@@ -596,166 +601,11 @@ html, body {
    over play. Every line is server-composed text (see broadcast.buildStateJson's
    `insp`); the browser only styles what it is handed. */
 
-/* The persistent per-team achievement ledger (Maxwell: "something always
-   visible that shows each team's achievements earned"). Left rail, mirroring
-   the inspector's glass-chip language on the right. State-driven from
-   teams.*.claims (never accumulated from events), so seeks and loops can
-   never leave it stale. Collapsible via its header; DEFAULT CLOSED-body:
-   the one-line header (counts + paid totals) is the durable read, the
-   corner toasts are the live surface, and the full ledger is
-   detail-on-demand behind the caret. */
-#achpanel {
-  position: absolute;
-  top: calc(var(--topband, 0px) + 10 * var(--u));
-  left: calc(12 * var(--u));
-  width: max-content;
-  /* 260u, was 200u: the one-line header is the panel's whole read now and it
-     carries BOTH paid totals — at 200u it clipped blue's total (an overflow
-     the header, unlike the body rows, has no ellipsis to admit to). Sized to
-     the worst real header (RED 40/40 +999g . BLUE 40/40 +999g) at 9u type. */
-  max-width: calc(260 * var(--u));
-  max-height: calc(100% - var(--topband, 0px) - 120 * var(--u));
-  overflow: hidden;
-  padding: calc(5 * var(--u)) calc(8 * var(--u));
-  background: rgba(var(--stage-lo-rgb), 0.88);
-  font-family: var(--pixfont);
-  font-size: calc(8 * var(--u));
-  line-height: 1.45;
-  color: var(--paper-dim);
-  z-index: 10;
-  pointer-events: auto;
-}
-/* A real <button>, not a div with a click handler: the panel's only control
-   has to be reachable by keyboard and has to announce its open/closed state.
-   Everything below the first line is UA-reset so this is a pure a11y change
-   with no visual diff -- a button inherits neither the panel's pixel font nor
-   its color, and brings its own border, padding and centering. */
-#achpanel .ach-head {
-  appearance: none;
-  -webkit-appearance: none;
-  background: none;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-family: inherit;
-  line-height: inherit;
-  font-size: calc(9 * var(--u));
-  letter-spacing: 0.08em;
-  color: var(--paper);
-  cursor: pointer;
-  user-select: none;
-  white-space: pre;
-}
-/* Focus ring in the warm palette. The UA default satisfies the contrast rule
-   but renders as a blue halo that belongs to no other surface here. */
-#achpanel .ach-head:focus-visible,
-#inspector .ins-btn:focus-visible {
-  outline: 1px solid var(--amber);
-  outline-offset: calc(1 * var(--u));
-}
-/* A pointer user got zero feedback before the click (`.ins-btn` next door
-   always had a hover state; this header never did) -- same quiet paper wash
-   as the buttons, so hover and the amber focus-visible ring above stay
-   two visibly different signals rather than the ring being the only one. */
-#achpanel .ach-head:hover { background: rgba(var(--paper-rgb), 0.06); }
-/* Amber is this chrome's one "you earned this" accent (carrier pip, .tbtn.on,
-   the heat flames, achievement pops) -- it should mean glory PAID here too,
-   and only that. The scorebug's glory numeral itself moved to team ink (it is
-   the score, not a payout), so amber's remaining job is narrower: it marks
-   the achievement events that fed that ledger, not the running total. The
-   caret is disclosure chrome, not an earned value, so it takes the same
-   quiet paper-dim as every other label-adjacent glyph in the HUD instead of
-   competing with the payout column for the one accent that's supposed to
-   mean something. */
-#achpanel .ach-head .ach-caret { color: var(--paper-dim); }
-#achpanel .ach-head .red { color: var(--red); }
-#achpanel .ach-head .blue { color: var(--blue); }
-/* Stepped one size above the rows it introduces (matches .ach-head's 9u) so
-   the eye has a subhead to land on before the list -- at equal size with the
-   rows beneath, "RED" read as just the first row instead of a header. */
-#achpanel .ach-team {
-  margin-top: calc(4 * var(--u));
-  font-size: calc(9 * var(--u));
-  letter-spacing: 0.06em;
-}
-#achpanel .ach-team.red { color: var(--red); }
-#achpanel .ach-team.blue { color: var(--blue); }
-/* The one hairline this dense a panel is allowed (principles.md: minimise
-   dividers, but a bounded dashboard panel earns one at a real seam). RED and
-   BLUE are two independent ledgers, not one continuous list, and at up to six
-   rows a side the seam needs more than a 4u margin to read as a break rather
-   than a wrap. Scoped to the blue block ONLY -- one seam, not a rule between
-   every row. */
-#achpanel .ach-team.blue {
-  margin-top: calc(9 * var(--u));
-  padding-top: calc(6 * var(--u));
-  border-top: 1px solid rgba(var(--paper-rgb), 0.14);
-}
-/* The team subhead's own denominator + payout sit quiet next to the colored
-   name: the name is the label, the rest is context, and one weight step is
-   enough to say so without a divider. */
-#achpanel .ach-team .ach-sub { color: var(--paper-dim); letter-spacing: 0.02em; }
-/* A row is NAME (left) ... +Ng (right). The payout is right-anchored so the
-   amber column reads as one scannable ledger down the panel rather than
-   drifting with each name's length. */
-#achpanel .ach-row {
-  display: flex;
-  align-items: baseline;
-  gap: calc(8 * var(--u));
-  white-space: pre;
-}
-/* min-width:0 is load-bearing, not boilerplate. A flex child defaults to
-   min-width:auto, and with `pre` on the row the name can then never shrink
-   below its full text -- so the longest claim in the curriculum
-   ("***** Nothing Gets Through FIRST") pushes past the panel's max-width and
-   overflow:hidden clips from the RIGHT, eating the amber payout column this
-   row exists to show. The payout must be the last thing to go, never the
-   first. `normal` (not `pre`) so the ellipsis can actually engage. */
-#achpanel .ach-row .ach-name {
-  flex: 1 1 auto;
-  /* min-width:0 is load-bearing: a flex child defaults to min-width:auto and
-     could otherwise never shrink, pushing the amber payout out of the panel --
-     the payout must be the LAST thing to go, never the first.
-     nowrap is equally load-bearing, and for a subtler reason: text-overflow
-     only ever fires on a NON-wrapping line. Paired with `normal` the ellipsis
-     is dead code and the name silently wraps to two lines instead, which
-     re-introduces the height overflow one level down -- rows clipped by
-     max-height UNDER the honest "+ N earlier" row, a second truncation the
-     panel never admits to. One line, one ellipsis, one stated cutoff. */
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* FIRST used to share the payout's amber, which put THREE things on this
-   panel in the one "you earned this" colour (caret, FIRST, +Ng) -- the eye
-   couldn't tell which amber was the number that mattered. FIRST earns its
-   distinction through weight + tracking + a hairline underline instead, so
-   amber keeps exactly one meaning: glory paid. */
-#achpanel .ach-row .ach-first {
-  color: var(--paper);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  border-bottom: 1px solid rgba(var(--paper-rgb), 0.4);
-}
-#achpanel .ach-row .ach-pay {
-  flex: none;
-  margin-left: auto;
-  color: var(--amber);
-  font-variant-numeric: tabular-nums;
-}
-/* The overflow line. The panel used to clip its oldest rows against
-   max-height with nothing said about it, which reads as "that is all of
-   them" -- the one thing it must never say. */
-#achpanel .ach-more { color: var(--paper-dim); opacity: 0.72; }
-#achpanel .ach-none { color: var(--paper-dim); opacity: 0.72; }
-#achpanel.closed .ach-body { display: none; }
-/* At the embed floor the full ledger cannot fit beside the board: keep the
-   HEADER (the counts are the always-visible read) and collapse the body. */
-#stage.tiny #achpanel .ach-body { display: none; }
+/* The achievement ledger PANEL is gone (Maxwell's ruling: the board is the
+   show — achievements are corner chat toasts, not lists parked over play).
+   Live claims: the per-team toast lanes below. Durable record: the endcard's
+   per-team Achievements line (.ec-ach). Mid-match state read: the inspector
+   card's server-composed ACHIEVEMENTS line. */
 
 /* Per-team claim toasts — fading chat lanes in the bottom corners. Each achv
    claim spawns one compact line (stars + NAME + right-anchored payout, the
@@ -766,11 +616,12 @@ html, body {
    this is the corner record — and because it works at every stage size it
    REPLACES the old #achtiny tiny-breakpoint stand-in outright (one system,
    all sizes, per-team).
-   Corner tenants: BLUE sits ABOVE the killfeed's fixed reserve (feed bottom
-   76u + 4x22u rows + 8u air = 172u) so the two never fight for rows; RED
-   mirrors the feed's transport clearance on the left, over the FPV pip's
-   default berth — acceptable overlap for a dev surface, and the pip is
-   draggable. */
+   Corner tenants: every bottom anchor rides --band (the transport's MEASURED
+   height, written by relayout) — a fixed offset went stale the moment the
+   glory lane grew the band, and parked this lane ON the transport buttons.
+   RED sits 8u above the band, over the FPV pip's default berth (acceptable
+   overlap — the pip is draggable); BLUE also clears the killfeed's reserve
+   (band + 8u feed bottom + 88u four-row reserve + 8u air). */
 #achtoast-red, #achtoast-blue {
   position: absolute;
   display: flex;
@@ -779,8 +630,8 @@ html, body {
   z-index: 11;
   pointer-events: none;
 }
-#achtoast-red { left: calc(12 * var(--u)); bottom: calc(76 * var(--u)); align-items: flex-start; }
-#achtoast-blue { right: calc(12 * var(--u)); bottom: calc(172 * var(--u)); align-items: flex-end; }
+#achtoast-red { left: calc(12 * var(--u)); bottom: calc(var(--band, 0px) + 8 * var(--u)); align-items: flex-start; }
+#achtoast-blue { right: calc(12 * var(--u)); bottom: calc(var(--band, 0px) + 104 * var(--u)); align-items: flex-end; }
 .ach-toast {
   display: flex;
   align-items: baseline;
@@ -837,14 +688,14 @@ html, body {
      reach the transport band. */
   width: max-content;
   max-width: calc(230 * var(--u));
-  /* Bounded by the KILL FEED, not by the board: the feed is anchored
-     bottom:76u with a fixed 88u four-row reserve, so the last 164u of this
-     column is spoken for whether or not a row is live — and the feed is later
-     in the DOM, so it would paint straight over the card's oldest achievement
-     lines. 174u leaves a few u of air between them. The type below is set so a
-     FULL card (rank + buffs + every counter + ten named claims) fits inside
-     this budget rather than being silently clipped by the overflow. */
-  max-height: calc(100% - var(--topband, 0px) - 174 * var(--u));
+  /* Bounded by the KILL FEED, not by the board: the feed is anchored at
+     --band + 8u with a fixed 88u four-row reserve, so the bottom band + 96u
+     of this column is spoken for whether or not a row is live — and the feed
+     is later in the DOM, so it would paint straight over the card's oldest
+     achievement lines. 10u more leaves a few u of air between them. The type
+     below is set so a FULL card (rank + buffs + every counter + ten named
+     claims) fits inside this budget rather than being silently clipped. */
+  max-height: calc(100% - var(--topband, 0px) - var(--band, 0px) - 106 * var(--u));
   overflow: hidden;
   padding: calc(6 * var(--u)) calc(9 * var(--u));
   background: rgba(var(--stage-lo-rgb), 0.92);
@@ -926,8 +777,9 @@ html, body {
 #fpv {
   position: absolute;
   left: calc(12 * var(--u));
-  bottom: calc(64 * var(--u));
-  /* Sized/positioned in px once dragged or resized; these are the defaults. */
+  bottom: calc(var(--band, 0px) + 8 * var(--u));
+  /* Sized/positioned in px once dragged or resized; these are the defaults
+     (band-anchored so the transport can never swallow the pip). */
   width: 30%;
   min-width: calc(150 * var(--u));
   max-width: calc(460 * var(--u));
@@ -1488,6 +1340,18 @@ html, body {
   text-transform: uppercase;
   color: var(--paper-dim);
 }
+/* The durable achievements record — one quiet line of deed detail per team
+   (the in-match panel is gone; toasts are transient, this is the ledger's
+   settled read). Number-with-context: count over the full curriculum, plus
+   what it PAID, in the toasts' exact vocabulary. */
+#endcard .ec-ach {
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.08em;
+  color: var(--paper-dim);
+  margin: calc(2 * var(--u)) 0 calc(4 * var(--u));
+}
+#endcard .ec-ach .amber { color: var(--amber); }
 #endcard .ec-thead,
 #endcard .ec-row {
   display: grid;
@@ -1614,10 +1478,10 @@ html, body {
    the DOM; it just hides here, same as the achievement ledger already does
    off-card at full size via overflow.
    Why ACHIEVEMENTS survives here but the deed counters and named claims
-   don't: #achpanel (the sibling ledger panel) already keeps its own header
-   counts visible at this exact breakpoint when its body collapses -- so a
-   card that dropped its OWN team-achievement read with nothing carried over
-   would be the one inconsistent panel on the HUD. The team GLORY/HEAT line
+   don't: with the ledger panel gone (claims live as transient corner toasts
+   and settle on the endcard), this line is the HUD's only live
+   team-achievement state read -- a card that dropped it would leave that
+   state unreadable mid-match. The team GLORY/HEAT line
    doesn't need the same treatment: the scorebug's glory numeral (see
    .lives-num.glory) is always on-screen regardless of breakpoint, so hiding
    it here duplicates nothing lost. Per-player deed counters (tags/gun/soak/
@@ -1754,7 +1618,6 @@ body[data-embed] #board { top: 0; height: 100%; }
          server-side by global.inspectorLines and shipped as finished lines —
          glory.nim stays the single source of every number. -->
     <div id="inspector"></div>
-    <div id="achpanel"></div>
     <!-- Per-team claim toast lanes: fading chat stacks in the bottom corners
          (red LEFT, blue RIGHT — see the .ach-toast CSS for the geometry).
          Transient event FX, cleared by the same jump guard as the feed. -->
@@ -1849,6 +1712,7 @@ body[data-embed] #board { top: 0; height: 100%; }
             <span class="fl-num red res" id="ec-red">0</span>
             <span class="fl-cap">Lives left</span>
           </div>
+          <div class="ec-ach" id="ec-ach-red"></div>
           <div class="ec-thead"><span>Player</span><span>Tags</span><span>Outs</span><span>Clstr</span><span>Cap</span></div>
           <div id="ec-rows-red"></div>
         </div>
@@ -1860,6 +1724,7 @@ body[data-embed] #board { top: 0; height: 100%; }
             <span class="fl-num blue res" id="ec-blue">0</span>
             <span class="fl-cap">Lives left</span>
           </div>
+          <div class="ec-ach" id="ec-ach-blue"></div>
           <div class="ec-thead"><span>Player</span><span>Tags</span><span>Outs</span><span>Clstr</span><span>Cap</span></div>
           <div id="ec-rows-blue"></div>
         </div>
@@ -2129,7 +1994,6 @@ body[data-embed] #board { top: 0; height: 100%; }
     lastFf = !!s.ff;
 
     renderScorebug(s);
-    renderAchPanel(s);
     renderClock(s);
     renderTransport(s);
     renderPov(s);
@@ -2200,10 +2064,10 @@ body[data-embed] #board { top: 0; height: 100%; }
         // (see the #stage.tiny #inspector rule). None of the three sit at a
         // fixed index (`buffs` is optional, and the achievement lines only
         // exist past a variable-length deed-counter block) -- content is the
-        // only stable way to tag them. ACHIEVEMENTS rides along so the tiny
-        // inspector carries the same compact read #achpanel already keeps in
-        // its own header at this breakpoint -- see the #stage.tiny #inspector
-        // comment for why the deed counters and named claims don't join it.
+        // only stable way to tag them. ACHIEVEMENTS rides along because with
+        // the ledger panel gone it is the HUD's only live team-achievement
+        // state read -- see the #stage.tiny #inspector comment for why the
+        // deed counters and named claims don't join it.
         if (cls === 'ins-line' &&
             (line.indexOf('rank ') === 0 || line.indexOf('hp ') === 0 ||
              line.indexOf('ACHIEVEMENTS ') === 0)) {
@@ -2379,91 +2243,12 @@ body[data-embed] #board { top: 0; height: 100%; }
     chip.classList.toggle('show', rungs > 0);
   }
 
-  var achOpen = false;  // default COLLAPSED to the one-line header: the
-                        // corner toasts carry the live claims, the header
-                        // carries the durable counts + paid totals, and the
-                        // click expands the full ledger for whoever wants it
-  // The full curriculum: 8 kit-keyed trees x 5 tiers, per team. Every count on
-  // this panel carries it as its denominator -- "3" alone says nothing about
-  // whether a team is doing well.
+  // The full curriculum: 8 kit-keyed trees x 5 tiers, per team. Any count
+  // shown carries it as its denominator -- "3" alone says nothing about
+  // whether a team is doing well. (The in-match ledger PANEL is deliberately
+  // gone: claims are corner toasts in the moment and settle on the endcard's
+  // per-team Achievements line; the board is the show.)
   var ACH_TOTAL = 40;
-  // Rows shown per team before the panel says so. The panel is bounded by
-  // max-height, and a CSS clip is a SILENT truncation: it drops the oldest
-  // claims while looking exactly like a complete list. Bounding by COUNT
-  // instead makes the overflow a fact the panel can state -- but that only
-  // holds if the count genuinely fits under max-height. It does, because
-  // `.ach-name` is nowrap+ellipsis, so a row is a GUARANTEED single line no
-  // matter how long the claim ("***** Nothing Gets Through FIRST" ellipsizes
-  // rather than wrapping). 11 rows x 2 teams of single lines, plus the heads
-  // and the overflow row, sits well inside the budget. If that rule ever goes
-  // back to wrapping, this number has to come down with it -- the two are one
-  // decision, not two.
-  var ACH_MAX_ROWS = 11;
-  function renderAchPanel(s) {
-    var el = $('achpanel');
-    if (!el || !s.teams) return;
-    var red = (s.teams.red && s.teams.red.claims) || [];
-    var blue = (s.teams.blue && s.teams.blue.claims) || [];
-    // Rebuild only when the ledger actually changes -- 24Hz frames, ~80 rows.
-    var key = achOpen + '|' + red.length + '|' + blue.length + '|' +
-      (red.length ? red[red.length - 1].n : '') + '|' +
-      (blue.length ? blue[blue.length - 1].n : '');
-    if (key === el._key) return;
-    el._key = key;
-    // What each team's curriculum has PAID. Summed from the same per-claim
-    // `g` the rows print, so header and subheads can never disagree.
-    var paidOf = function (claims) {
-      var paid = 0;
-      for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
-      return paid;
-    };
-    var redPaid = paidOf(red), bluePaid = paidOf(blue);
-    // The header IS the panel now: counts + paid totals on one line is the
-    // durable, state-driven, seek-safe read. The body ledger is the
-    // exception behind the caret; live claims land as corner toasts.
-    var html = '<button type="button" class="ach-head" data-act="toggle"' +
-      ' aria-expanded="' + (achOpen ? 'true' : 'false') + '">' +
-      '<span class="ach-caret">' + (achOpen ? '▾' : '▸') + '</span>' +
-      ' ACHIEVEMENTS  <span class="red">RED ' + red.length + '/' + ACH_TOTAL +
-      (redPaid ? ' +' + redPaid + 'g' : '') +
-      '</span> · <span class="blue">BLUE ' + blue.length + '/' + ACH_TOTAL +
-      (bluePaid ? ' +' + bluePaid + 'g' : '') +
-      '</span></button>';
-    html += '<div class="ach-body">';
-    [['red', red], ['blue', blue]].forEach(function (pair) {
-      var team = pair[0], claims = pair[1];
-      var paid = paidOf(claims);
-      html += '<div class="ach-team ' + team + '">' + team.toUpperCase() +
-        '<span class="ach-sub">  ' + claims.length + ' of ' + ACH_TOTAL +
-        (paid ? '  ·  +' + paid + 'g' : '') + '</span></div>';
-      // newest first: the row a viewer just saw pop over a cog is on top
-      var shown = Math.min(claims.length, ACH_MAX_ROWS);
-      for (var i = claims.length - 1; i >= claims.length - shown; i--) {
-        var c = claims[i];
-        html += '<div class="ach-row"><span class="ach-name">' +
-          new Array((c.t || 1) + 1).join('*') + ' ' + esc(c.n) +
-          (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</span>' +
-          '<span class="ach-pay">+' + (c.g || 0) + 'g</span></div>';
-      }
-      if (claims.length > shown) {
-        html += '<div class="ach-row ach-more"><span class="ach-name">+ ' +
-          (claims.length - shown) + ' earlier</span></div>';
-      }
-      if (!claims.length) {
-        html += '<div class="ach-row ach-none"><span class="ach-name">' +
-          'none yet</span></div>';
-      }
-    });
-    html += '</div>';
-    el.innerHTML = html;
-    el.classList.toggle('closed', !achOpen);
-  }
-  $('achpanel').addEventListener('click', function (ev) {
-    var t = ev.target.closest ? ev.target.closest('.ach-head') : null;
-    if (!t) return;
-    achOpen = !achOpen;
-    $('achpanel')._key = null;   // force a re-render with the new state
-  });
 
   function renderScorebug(s) {
     var tr = s.teams || {};
@@ -3928,7 +3713,17 @@ body[data-embed] #board { top: 0; height: 100%; }
   // (the banner queue serialises collisions), and the dwell floor keeps each
   // slam readable at 16x.
   var HEAT_CALLS = ['', 'HEATING UP', 'ON A TEAR', 'RAMPAGE!'];
-  var heatSeen = { red: 0, blue: 0 };
+  var heatSeen = { red: 0, blue: 0 };  // current rung, for edge detection
+  // FIRST-ASCENT-ONLY (Maxwell's ruling): a streak that oscillates around one
+  // waterline is ONE story, not three. heatCalled is the announced high-water
+  // rung -- a demotion never calls out and never resets it, so dropping a
+  // flame and bouncing straight back to the same rung is silent. It re-arms
+  // two ways: a HIGHER rung (a genuinely new chapter), or the same rung after
+  // HEAT_RECALL_TICKS of match time (the streak cooled long enough that
+  // "heating up" is news again).
+  var heatCalled = { red: 0, blue: 0 };
+  var heatCallTick = { red: -1e9, blue: -1e9 };
+  var HEAT_RECALL_TICKS = 60 * FPS;
   function heatRungOf(h) { return h >= 8 ? 3 : h >= 4 ? 2 : h >= 2 ? 1 : 0; }
   function trackHeat(s, resync) {
     if (!s.teams) return;
@@ -3938,7 +3733,19 @@ body[data-embed] #board { top: 0; height: 100%; }
       var rung = heatRungOf(t.heat || 1);
       var prev = heatSeen[team];
       heatSeen[team] = rung;
-      if (resync || rung <= prev) return;
+      if (resync) {
+        // A seek lands mid-story: adopt the current rung as already-told
+        // (announcing a stale streak the viewer never watched build would be
+        // noise) and stamp NOW so a bounce-back stays silent until it cools.
+        heatCalled[team] = rung;
+        heatCallTick[team] = s.t;
+        return;
+      }
+      if (rung <= prev) return;              // only an ascent can call out
+      var cooled = (s.t - heatCallTick[team]) > HEAT_RECALL_TICKS;
+      if (rung <= heatCalled[team] && !cooled) return;  // already told
+      heatCalled[team] = rung;
+      heatCallTick[team] = s.t;
       banner(HEAT_CALLS[rung], 'heat ' + team + '-accent',
         { sub: team.toUpperCase() + ' TEAM', flames: rung });
     });
@@ -4293,6 +4100,20 @@ body[data-embed] #board { top: 0; height: 100%; }
     var gBlue = (s.teams && s.teams.blue && s.teams.blue.glory) || 0;
     $('ec-glory-red').textContent = gRed + 'g';
     $('ec-glory-blue').textContent = gBlue + 'g';
+    // The achievements ledger settles HERE (the in-match panel is gone):
+    // count over the curriculum plus what it PAID, per team, from the same
+    // teams.*.claims state the toasts announced. Absent claims (a pre-glory
+    // recording) leave the line empty rather than printing a false 0/40.
+    ['red', 'blue'].forEach(function (team) {
+      var el = $('ec-ach-' + team);
+      if (!el) return;
+      var claims = s.teams && s.teams[team] && s.teams[team].claims;
+      if (!claims) { el.textContent = ''; return; }
+      var paid = 0;
+      for (var j = 0; j < claims.length; j++) paid += (claims[j].g || 0);
+      el.innerHTML = 'Achievements ' + claims.length + '/' + ACH_TOTAL +
+        (paid ? ' &middot; <span class="amber">+' + paid + 'g</span>' : '');
+    });
     // MATCH GLORY: the COMBINED total (see GLORY_TIERS for the design law
     // and threshold provenance). Winner-agnostic on purpose — it renders
     // identically for draws, and observer mode reads the same teams block.
