@@ -590,6 +590,43 @@ const
                                ## SPLAT C6) — the one place gold appears on
                                ## this HUD, and only as a thin detached ring,
                                ## never the blob's own fill.
+  ## --- SPLAT C5: the plain deed pop's own small paint-daub backing ---
+  ## A bare "+N"/"-N" deed pop used to lean on addDarkContour -- a per-glyph
+  ## 1px dilate halo -- for contrast on the supersampled board, the only
+  ## glory-pop family with no chip to stand on. Replaced with a TINY version
+  ## of the claim chip's own blob (built from the SAME shape primitives --
+  ## paintBlobSilhouetteDist / paintBlobZoneColor / gloryChipDroplets -- so a
+  ## chip and a plain pop read as one material, not two hand-tuned ones), so
+  ## the material system covers every glory pop on the board, not just the
+  ## named claims. Deliberately NOT team-tinted -- GloryPopInk's whole point
+  ## is that glory reads as one currency, never the team tint that means
+  ## "damage" elsewhere on this board -- so the daub is a flat near-black
+  ## fill (GloryChipNameInk) and the ink (amber reward / dulled-ember
+  ## penalty) stays the only color that means anything here.
+  GloryPopDaubPadX = 2         ## logical px around the text, left/right --
+                               ## tighter than the chip's (GloryChipPadX):
+                               ## this is a bare number, not a named claim,
+                               ## so it should read as a small accent, not a
+                               ## second chip.
+  GloryPopDaubPadY = 1         ## logical px around the text, top/bottom.
+  GloryPopDaubMarginPx = 4     ## logical px of extra canvas beyond the
+                               ## padded pill, for the outline + wobble +
+                               ## droplets -- smaller than the chip's
+                               ## (GloryChipBlobMarginPx) since this daub
+                               ## never scales up for a "first" case and
+                               ## carries far fewer, smaller droplets.
+  GloryPopDaubRadius = 2'f32   ## logical corner radius of the daub's base
+                               ## silhouette -- smaller than the chip's
+                               ## (GloryChipRadius), proportional to its
+                               ## much smaller footprint.
+  GloryPopDaubOutlinePx = 2    ## logical px of the daub's outline -- the
+                               ## style law's 2-4px floor, same idea as the
+                               ## chip's GloryChipOutlinePx.
+  GloryPopDaubDropCount = 2    ## flung droplets -- fewer than the chip's
+                               ## (GloryChipDripCount): "tiny blob," per the
+                               ## audit, not a second chip's worth of paint.
+  GloryPopDaubDripMinPx = 1'f32  ## smallest droplet radius, logical px.
+  GloryPopDaubDripMaxPx = 2'f32  ## largest droplet radius, logical px.
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
   ## The cog draws as 9 z-stacked segments + a held gun, each its own board object
   ## so the head/arms track AIM while the legs/wheels track MOVEMENT (a true turret
@@ -5207,34 +5244,6 @@ proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
 
-proc addDarkContour(pixels: var seq[uint8], width, height: int) =
-  ## Dilates whatever is already drawn by one native pixel into a solid dark
-  ## ring wherever the source has none yet — the boardScale > 1 sibling of the
-  ## 1x pixel-font path's own 4-neighbor contour (buildPopLabelSprite, above).
-  ## A standalone "+Ng" deed pop has no plaque to lean on for contrast, unlike
-  ## a claim chip, so it is the one glory-pop family that still needs its own
-  ## halo to survive a busy floor. The ring borrows its alpha from whichever
-  ## neighbor triggered it, so it fades in lockstep with the glyph it outlines
-  ## instead of needing its own fade math.
-  let src = pixels
-  for y in 0 ..< height:
-    for x in 0 ..< width:
-      let i = (y * width + x) * 4
-      if src[i + 3] > 0:
-        continue
-      var near: uint8 = 0
-      for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-        let
-          nx = x + dx
-          ny = y + dy
-        if nx >= 0 and nx < width and ny >= 0 and ny < height:
-          near = max(near, src[(ny * width + nx) * 4 + 3])
-      if near > 0:
-        pixels[i] = 20
-        pixels[i + 1] = 16
-        pixels[i + 2] = 14
-        pixels[i + 3] = near
-
 proc gloryChipPillHeightLogical(pop: GloryFx): int =
   ## The PILL's own nominal height in LOGICAL (1x) px: padding above and
   ## below the ONE text line, padding scaled up by GloryChipFirstScale on a
@@ -5687,31 +5696,101 @@ proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
     result = if i == 0: ownFloor else: max(result + belowHeight, ownFloor)
     belowHeight = sim.gloryPopLineBox(rowPop)
 
+proc buildPaintDaubBacking(
+  textLogicalW, textLogicalH: int, textNativePixels: seq[uint8], seed: uint32
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## SPLAT C5: the plain deed pop's own small backing -- a TINY paint daub
+  ## built from the SAME shape primitives the claim chip uses
+  ## (paintBlobSilhouetteDist / paintBlobZoneColor / gloryChipDroplets), so a
+  ## chip and a plain "+Ng" pop read as one material system. Just two flat
+  ## zones (a near-black fill and its own thin outline -- edgeBandPx=0 folds
+  ## paintBlobZoneColor's middle "edge" zone away, since a daub this small
+  ## has no room for three), a couple of small flung droplets, no highlight,
+  ## no scale-up: "tiny blob," not a second chip. NOT team-tinted on purpose
+  ## -- see the const block's own note on why the ink alone carries the
+  ## reward/penalty read here. `textLogicalW/H` + `textNativePixels` are
+  ## boardScale's own native-resolution text buffer (whatever the caller
+  ## already rasterized); this composites it centered on top and hands back
+  ## the same LOGICAL-dims/native-pixels contract every board sprite uses.
+  let
+    k = boardScale
+    textNativeW = textLogicalW * k
+    textNativeH = textLogicalH * k
+    padX = GloryPopDaubPadX * k
+    padY = GloryPopDaubPadY * k
+    pillW = textNativeW + padX * 2
+    pillH = textNativeH + padY * 2
+    marginNative = GloryPopDaubMarginPx * k
+    innerW = pillW + marginNative * 2
+    innerH = pillH + marginNative * 2
+    logicalW = max(1, (innerW + k - 1) div k)
+    logicalH = max(1, (innerH + k - 1) div k)
+    cx = innerW.float32 / 2
+    cy = innerH.float32 / 2
+    pillHalfW = pillW.float32 / 2
+    pillHalfH = pillH.float32 / 2
+    radius = GloryPopDaubRadius * k.float32
+    outlinePx = float32(GloryPopDaubOutlinePx * k)
+    wobblePx = GloryChipWobblePx * k.float32
+    dropMinR = GloryPopDaubDripMinPx * k.float32
+    dropMaxR = GloryPopDaubDripMaxPx * k.float32
+    droplets = gloryChipDroplets(
+      GloryPopDaubDropCount, cx, cy, pillHalfW, pillHalfH, dropMinR, dropMaxR,
+      seed)
+    fill = (GloryChipNameInk[0], GloryChipNameInk[1], GloryChipNameInk[2])
+  var pixels = newRgbaPixels(innerW, innerH)
+  for y in 0 ..< innerH:
+    for x in 0 ..< innerW:
+      let
+        px = x.float32 + 0.5'f32
+        py = y.float32 + 0.5'f32
+        dist = paintBlobSilhouetteDist(
+          px, py, cx, cy, pillHalfW, pillHalfH, radius, wobblePx, droplets,
+          seed)
+      if dist > outlinePx:
+        continue
+      let
+        i = (y * innerW + x) * 4
+        zone = paintBlobZoneColor(dist, 0'f32, outlinePx, fill, fill)
+      pixels[i] = zone.r
+      pixels[i + 1] = zone.g
+      pixels[i + 2] = zone.b
+      pixels[i + 3] = zone.a
+  pixels.blitRgbaBuffer(innerW, innerH, textNativePixels, textNativeW,
+    textNativeH, (innerW - textNativeW) div 2, (innerH - textNativeH) div 2)
+  result.width = logicalW
+  result.height = logicalH
+  result.pixels = pixels
+
 proc buildGloryPopSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Dispatches a glory pop to its family's own renderer: a claim earns a
-  ## slim chip (buildGloryChipSprite); a plain deed stays honest floating
-  ## type (buildPopLabelSprite), amber for a reward and a duller ember for a
-  ## penalty, with its own dark contour added back on the supersampled board
-  ## since it has no chip to lean on for contrast. Below boardScale > 1 (or
-  ## for a plain deed at any scale) a claim still renders through this same
-  ## pixel-font path with gloryPopText's identical "NAME +Ng" string, so a
-  ## first claim needs its ink picked here too -- the hotter GloryChipFirstInk
-  ## instead of the standard amber -- or the two draw paths would say the
-  ## same text but stop agreeing on which claims are rare.
+  ## slim chip (buildGloryChipSprite); a plain deed gets its own small paint
+  ## daub (buildPaintDaubBacking, SPLAT C5) on the supersampled board, since
+  ## it has no chip to lean on for contrast -- used to be a per-glyph dark
+  ## contour halo; now it is the SAME material the chip is. Below
+  ## boardScale > 1 (or for a plain deed at any scale) a claim still renders
+  ## through the plain pixel-font path with gloryPopText's identical
+  ## "NAME +Ng" string, so a first claim needs its ink picked here too -- the
+  ## hotter GloryChipFirstInk instead of the standard orange -- or the two
+  ## draw paths would say the same text but stop agreeing on which claims
+  ## are rare.
   if pop.label.len > 0 and boardScale > 1:
     return buildGloryChipSprite(pop, stage)
-  let ink =
-    if pop.amount < 0: GloryPopPenaltyInk
-    elif pop.label.len > 0 and pop.first: GloryChipFirstInk
-    else: GloryPopInk
+  let
+    text = gloryPopText(pop)
+    ink =
+      if pop.amount < 0: GloryPopPenaltyInk
+      elif pop.label.len > 0 and pop.first: GloryChipFirstInk
+      else: GloryPopInk
   result = sim.buildPopLabelSprite(
-    gloryPopText(pop), stage, GloryPopStages,
+    text, stage, GloryPopStages,
     ink[0], ink[1], ink[2], heightPx = sim.gloryPopLineBox(pop))
   if boardScale > 1:
-    result.pixels.addDarkContour(
-      result.width * boardScale, result.height * boardScale)
+    result = buildPaintDaubBacking(
+      result.width, result.height, result.pixels,
+      gloryPopLabelKey(pop, text))
 
 proc addGloryPops(
   sim: SimServer,
