@@ -440,9 +440,9 @@ v1 targets giant, which the pool draws.
 4. The zone mechanic (new; §4.3) + its per-frame label.
 5. First BR family draw under §3's ungated bootstrap.
 
-### 6.6 Adopted from the reference-BR study (peer session, 2026-08-24)
-Three findings from treeform's battleroyale coworld + 8 hosted replays, folded
-into the mode:
+### 6.6 Mode hardening from prior-art field evidence (2026-08-24)
+Three findings from a study of hosted battle-royale replays, folded into the
+mode:
 - **Timeout is DRAW-FREE**: a strict total order (living > last-death tick >
   kills > damage > slot) — the reference eliminated draws because draws bred
   passive double-death play. Mid-match simultaneous-wipe draws remain.
@@ -465,9 +465,9 @@ their 62-key wire vocabulary (podium/assist/passivity — glory-port material).
    which makes the scoring ambiguous.
 3. Whether the shrink should damage or hard-kill, and whether glory prices
    circle-edge holding (it should — it is coup-counting in its purest form).
-   **Glory-port constraint (field evidence via the reference-BR study): any
+   **Glory-port constraint (from the same replay field evidence): any
    survival-derived scoring term must CAP or TAPER late — in clock-capped
-   reference games, survival points outscored fighting and farming beat the
+   games observed in the field, survival points outscored fighting and farming beat the
    final fight. The timeout tiebreak's alive-count key is acceptable only
    because lethal late phases make clock-outs rare; a glory-scored BR must
    not reintroduce the farming vector through survival deeds.**
