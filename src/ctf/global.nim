@@ -6405,6 +6405,21 @@ var
                                   ## the pixel — see ensureZoneWallArtMask.
   ZoneWallArtMaskW, ZoneWallArtMaskH: int
 
+when defined(zoneTideCacheProbe):
+  ## Diagnostic-only build flag (never shipped default-on, same discipline
+  ## as -d:zonePaintOff above): counts ensureZoneTideCache calls/hits/misses
+  ## so a before/after A/B can report a deterministic rebuild rate that is
+  ## immune to fleet-load wall-clock noise, instead of trusting a wall-clock
+  ## number alone (see BR_FINAL_MATCH_REPORT.md's perf section for why that
+  ## matters on a machine running many concurrent agents).
+  var
+    ZoneTideCacheCalls*: int
+    ZoneTideCacheHits*: int
+    ZoneTideCacheMisses*: int
+  proc zoneTideCacheProbeReport*(): string =
+    "ZTC calls=" & $ZoneTideCacheCalls & " hits=" & $ZoneTideCacheHits &
+      " misses=" & $ZoneTideCacheMisses
+
 const
   ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
                                ## low(int16) + 2), well below players/HUD.
@@ -6832,8 +6847,14 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect): bool {.discardable.} =
     sim.zoneCenter.x, sim.zoneCenter.y,
     rect.x, rect.y, rect.w, rect.h
   )
+  when defined(zoneTideCacheProbe):
+    inc ZoneTideCacheCalls
   if key == ZoneTideCacheKey:
+    when defined(zoneTideCacheProbe):
+      inc ZoneTideCacheHits
     return false
+  when defined(zoneTideCacheProbe):
+    inc ZoneTideCacheMisses
   ZoneTideCacheKey = key
   ensureZoneWallArtMask(sim)  ## a no-op past the first call for this map.
   ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
