@@ -9,6 +9,21 @@ on:
     branches: [ main ]
   workflow_dispatch:
 jobs:
+  # Fast, isolated job: it doesn't touch the matrix build/test shards or the
+  # wasm replay-viewer build below, so a GameVersion collision fails CI in
+  # seconds without slowing either of them down. See
+  # tools/ci/check_gameversion.sh for what it actually compares — not the
+  # number (a colliding branch and its base can both read e.g. "42") but the
+  # rule headline the number is attached to.
+  gameversion-tripwire:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: GameVersion is not a number the base already spent
+        run: |
+          git fetch --no-tags --depth=1 origin '${{ github.base_ref }}'
+          tools/ci/check_gameversion.sh FETCH_HEAD
   build:
     strategy:
       fail-fast: false
