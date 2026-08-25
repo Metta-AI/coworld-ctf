@@ -5249,7 +5249,10 @@ proc gloryPopMoneyText(pop: GloryFx): string =
   ## The payout half of a pop's text: its POST-multiplier amount with its unit
   ## attached — "+120g", never a bare 120 — and a penalty keeps its own sign
   ## ("-60g" for a team kill, which is the whole point of pricing it).
-  (if pop.amount < 0: "-" else: "+") & $abs(pop.amount) & "g"
+  # No trailing "g" unit (Maxwell: lowercase g "reads like gold") -- the
+  # paint-daub material and the amber ink already say "glory paid"; this
+  # matches the scoreboard's and inspector's own unit drop.
+  (if pop.amount < 0: "-" else: "+") & $abs(pop.amount)
 
 proc gloryPopText(pop: GloryFx): string =
   ## What one score pop reads, flattened to ONE line: used for the sprite
