@@ -312,6 +312,25 @@
       return a >= 1 ? 1 : (a < 0 ? 0 : a);
     }
 
+    // ---- Size interpolation (rendering only) ----
+    // A sprite SWAP applies instantly (never blended) above, which is right
+    // for content (a stage's baked alpha, a new pose) but wrong when the
+    // swap ALSO changes the sprite's own baked pixel DIMENSIONS -- e.g. a
+    // glory claim's one-shot spawn overshoot (SPLAT C8: 132% at stage 0, then
+    // 100%). The server only ever bakes a FEW discrete sizes per pop (so the
+    // compose cost stays bounded, see buildGloryChipSprite's own cache), so
+    // fixing the granularity server-side would either reintroduce that cost
+    // or still leave a client rendering at whatever tick rate it happens to
+    // receive packets. Instead ease the DRAWN width/height toward the new
+    // sprite's true size here, independently of position (a resize can land
+    // on a tick that does not move the object at all), the same way
+    // drawX/drawY already ease toward x/y above.
+    function sizeLerpAlpha(obj, now) {
+      if (!obj.slt) return 1;
+      const a = (now - obj.slt) / lerpWindow;
+      return a >= 1 ? 1 : (a < 0 ? 0 : a);
+    }
+
     function composite() {
       const now = interpolateEnabled ? performance.now() : 0;
       const orderedLayers = [...layers.values()]
@@ -339,7 +358,21 @@
               drawY = Math.round(obj.py + (obj.y - obj.py) * a);
             }
           }
-          layer.ctx.drawImage(baked, drawX, drawY);
+          let drawW = sprite.width, drawH = sprite.height;
+          if (interpolateEnabled && obj.slt) {
+            const sa = sizeLerpAlpha(obj, now);
+            if (sa < 1) {
+              drawW = Math.max(1, obj.pw + (sprite.width - obj.pw) * sa);
+              drawH = Math.max(1, obj.ph + (sprite.height - obj.ph) * sa);
+            }
+          }
+          // imageSmoothingEnabled stays false (set once on this layer's own
+          // ctx, ensureLayer) even while drawW/drawH differ from the baked
+          // canvas's true size: a nearest-neighbor resample keeps every
+          // single FRAME crisp (retro pixel art, never a bilinear wash)
+          // while the SIZE itself still glides smoothly frame to frame — the
+          // motion reads continuous even though each still is blocky.
+          layer.ctx.drawImage(baked, drawX, drawY, drawW, drawH);
         }
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
@@ -445,9 +478,17 @@
           const spriteId = readU16(bytes, offset + 9);
           const prev = objects.get(id);
           // px/py: where the blit renders FROM while easing toward x/y.
-          // Defaults snap (px = x): new objects, fog re-entries and cross-layer
-          // moves must appear at their true spot, never slide there.
-          const next = { id, x, y, z, layer, spriteId, px: x, py: y, lt: 0 };
+          // pw/ph: same idea for SIZE (see sizeLerpAlpha) -- 0/0 with slt
+          // left falsy reads as "no ease in flight" (sizeLerpAlpha returns 1
+          // when slt is falsy, which collapses the lerp formula to the
+          // sprite's own true size regardless of pw/ph's placeholder value).
+          // Defaults snap: new objects, fog re-entries and cross-layer moves
+          // must appear at their true spot/size, never slide or grow there.
+          const next = {
+            id, x, y, z, layer, spriteId,
+            px: x, py: y, lt: 0,
+            pw: 0, ph: 0, slt: 0
+          };
           if (interpolateEnabled && prev && prev.layer === layer) {
             const dx = x - prev.x;
             const dy = y - prev.y;
@@ -469,6 +510,30 @@
             }
             // else: beyond the snap threshold — seek, loop restart, respawn
             // or 8x/16x fast mover; px/py already snap to x/y.
+            // Size: independent of the position branches above (a resize can
+            // land on a tick that doesn't move the object at all).
+            if (prev.spriteId === spriteId) {
+              // Same sprite id: keep any in-flight size ease running.
+              next.pw = prev.pw;
+              next.ph = prev.ph;
+              next.slt = prev.slt;
+            } else {
+              const prevSprite = sprites.get(prev.spriteId);
+              const nextSprite = sprites.get(spriteId);
+              if (prevSprite && nextSprite &&
+                  (prevSprite.width !== nextSprite.width ||
+                   prevSprite.height !== nextSprite.height)) {
+                // Ease from prev's own CURRENTLY RENDERED size (mirrors the
+                // position branch above) so a second resize landing mid-ease
+                // never jumps.
+                const sa = sizeLerpAlpha(prev, parseNow);
+                next.pw = prev.pw + (prevSprite.width - prev.pw) * sa;
+                next.ph = prev.ph + (prevSprite.height - prev.ph) * sa;
+                next.slt = parseNow;
+              }
+              // else: swapped to a same-size (or not-yet-registered) sprite
+              // -- nothing to ease; pw/ph/slt stay at next's defaults above.
+            }
           }
           objects.set(id, next);
           offset += 11;
