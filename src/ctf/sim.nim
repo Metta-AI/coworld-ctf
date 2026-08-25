@@ -199,10 +199,29 @@ proc resetGrenades*(sim: var SimServer) =
   ## formula's own layout-specific insets) and were never nudged before
   ## this change, so this branch must stay a literal copy of the old loop
   ## for every 2-4 team map's replay to hash identically.
+  ##
+  ## BR path defense-in-depth: validateMap (arena.nim) now rejects any
+  ## flagless+spawnGroups>1 map that omits grenadeSpawns (the SAME `and`
+  ## condition below, not `or` — see validateMap's comment for why), so a
+  ## real BR map should never actually reach the classic-formula fallback —
+  ## but if one somehow does, nudge grenadeSpawnPoints()'s 4 points to the
+  ## nearest walkable floor via placeWalkablePickups (like the authored-pool
+  ## branch above) instead of seating them raw for however many seats the
+  ## map has: the formula's built-in walkability guarantee only holds for
+  ## the hand-authored sides/corners/plus layouts it was written for, not
+  ## procedurally-generated BR terrain. Classic (non-BR) maps, and the
+  ## smaller flagless-but-not-BR-scale maps validateMap still allows to skip
+  ## the neutral pools, never take this branch — they keep the exact
+  ## unnudged `else` below.
   if sim.gameMap.grenadeSpawns.len > 0:
     var targets: seq[tuple[x, y: int]]
     for point in sim.gameMap.grenadeSpawns:
       targets.add((point.x, point.y))
+    sim.placeWalkablePickups(grenadeSpawns, targets)
+  elif sim.gameMap.flagless and sim.gameMap.spawnGroups > 1:
+    var targets: seq[tuple[x, y: int]]
+    for point in sim.gameMap.grenadeSpawnPoints():
+      targets.add(point)
     sim.placeWalkablePickups(grenadeSpawns, targets)
   else:
     let points = sim.gameMap.grenadeSpawnPoints()

@@ -71,6 +71,16 @@ proc brSpec(
   node["spawnPoints"] = gridSpawnPointsNode(spawnPoints)
   if flagless:
     node["flagless"] = %true
+    ## BR item pools (round 13): validateMap now rejects a flagless,
+    ## spawnGroups>1 map that leaves any of the four neutral pools empty
+    ## (arena.nim's validateMap, finding 4 of the launch-readiness review) —
+    ## the classic per-team formulas they'd otherwise fall back to have no
+    ## per-team endzone to anchor into on a map this shape. Reuses the same
+    ## grid spawnPoints does; there is no overlap/pocket check on these
+    ## pools, only non-emptiness.
+    node["shieldSpawns"] = gridSpawnPointsNode(Groups)
+    node["spraySpawns"] = gridSpawnPointsNode(Groups)
+    node["grenadeSpawns"] = gridSpawnPointsNode(Groups)
   if pinGroups:
     node["spawnGroups"] = %spawnGroups
   $node
@@ -233,3 +243,56 @@ suite "BR team-count bridge (spawnGroups)":
       if o notin seen:
         seen.add o
     check seen.len > 1
+
+suite "BR item-pool defense (finding 4)":
+  ## grenadeSpawnPoints (sim.nim) still returns a fixed array[4] corner-point
+  ## formula that a real BR map (spawnGroups=16, no "sides") never
+  ## legitimately hits — if a BR spec omitted its own neutral grenadeSpawns
+  ## pool, the engine would silently seat 4 un-nudged corner points for 32
+  ## seats (and the shield/spray formulas fare even worse: their symNone
+  ## branch returns the EXPLICIT teamPickups set only, which a BR map never
+  ## authors, so they'd silently seat ZERO). validateMap now rejects a
+  ## flagless, spawnGroups>1 map outright if any of the four neutral pools
+  ## is missing, naming exactly which one — brSpec() (above) authors all
+  ## four whenever flagless=true, which is what keeps every OTHER test in
+  ## this file passing after this gate landed.
+  test "a BR map missing any one of the four neutral item pools is rejected, naming it":
+    for poolName in ["medKitSpawns", "shieldSpawns", "spraySpawns", "grenadeSpawns"]:
+      var node = parseJson(brSpec())
+      # medKitSpawns is a REQUIRED spec key (unlike the other three, which
+      # are optional and simply absent by default) — empty it rather than
+      # deleting it outright, so this exercises the "authored but empty"
+      # case for every pool uniformly instead of a raw JSON KeyError.
+      if poolName == "medKitSpawns":
+        node[poolName] = newJArray()
+      else:
+        node.delete(poolName)
+      let msg = errorFor($node, teams = Groups)
+      check msg.len > 0
+      check poolName in msg
+
+  test "a BR map authoring all four neutral item pools loads cleanly":
+    let gm = mapFromSpecJson(brSpec())
+    check gm.medKitSpawns.len > 0
+    check gm.shieldSpawns.len > 0
+    check gm.spraySpawns.len > 0
+    check gm.grenadeSpawns.len > 0
+
+  test "the gate needs BOTH flagless AND spawnGroups>1 — a flagless map that is NOT BR-scale is unaffected":
+    ## The smaller symNone+flagless N-point spawn demo (test_br_spawn_points.nim's
+    ## fourTeamMap, teamCount 4 via the layout, spawnGroups never pinned)
+    ## still uses the classic per-team teamPickups formula successfully —
+    ## unlike a real spawnGroups>1 BR map, it has a real per-team endzone for
+    ## that formula to anchor into, so it is NOT required to author the
+    ## neutral pools. Built here as a bare node (not brSpec, which always
+    ## injects the pools when flagless) to isolate exactly this condition.
+    var node = parseJson(brSpec(pinGroups = false))
+    node.delete("shieldSpawns")
+    node.delete("spraySpawns")
+    node.delete("grenadeSpawns")
+    let gm = mapFromSpecJson($node)   # does NOT raise
+    check gm.flagless
+    check gm.spawnGroups == 0
+    check gm.shieldSpawns.len == 0
+    check gm.spraySpawns.len == 0
+    check gm.grenadeSpawns.len == 0

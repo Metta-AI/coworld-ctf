@@ -97,6 +97,31 @@ proc validateMap(gameMap: CtfMap) =
         "into spawnGroups (" & $gameMap.spawnGroups & ") — seats per group " &
         "is implicit (spawnPoints.len div spawnGroups) and a remainder would " &
         "seat some groups worse than others.")
+  ## BR item-pool defense: a real BR map (flagless AND spawnGroups>1 — both,
+  ## not either; a smaller symNone+flagless map that still authors real
+  ## per-team teamPickups, like the generic N-point spawn demo, is unaffected)
+  ## has no per-team endzone for the classic med kit/shield/spray/grenade
+  ## FORMULAS to anchor into — resetMedKits/resetShields/resetSprayPaints/
+  ## resetGrenades (sim.nim) all fall back to those formulas whenever the
+  ## map's own neutral pool is empty, and on a spawnGroups map the fallback
+  ## either returns nothing (shieldSpawnPoints/sprayPaintSpawnPoints go
+  ## through the symNone explicit-only branch, which is empty here) or seats
+  ## a fixed 4 un-nudged points regardless of how many seats the map has
+  ## (grenadeSpawnPoints — see resetGrenades). Silently shipping either is
+  ## the launch-blocking bug this closes: reject the map outright instead,
+  ## naming exactly which pool is missing.
+  if gameMap.flagless and gameMap.spawnGroups > 1:
+    for (name, count) in [
+        ("medKitSpawns", gameMap.medKitSpawns.len),
+        ("shieldSpawns", gameMap.shieldSpawns.len),
+        ("spraySpawns", gameMap.spraySpawns.len),
+        ("grenadeSpawns", gameMap.grenadeSpawns.len)]:
+      if count == 0:
+        raise newException(CtfError,
+          "a flagless, spawnGroups=" & $gameMap.spawnGroups & " (BR) map " &
+          "must author a non-empty " & name & " pool — the classic " &
+          "per-team formula it would otherwise fall back to has no " &
+          "per-team endzone to anchor into on a map this shape.")
   case gameMap.layout
   of layoutSides:
     if gameMap.symmetry in {symRot90, symQuadMirror}:
