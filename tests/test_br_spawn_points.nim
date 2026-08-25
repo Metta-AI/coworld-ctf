@@ -26,7 +26,7 @@
 
 import
   helpers,
-  std/[json, math, sequtils, strutils, unittest],
+  std/[json, math, os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[arena, global, labels, sim, sim_config, sim_types]
 
@@ -476,4 +476,47 @@ suite "BR spawn facing (finding 2)":
           rotatedTeam = Team((i + offset) mod 16)
         check gm.spawnAimBrads(team, offset) == gm.spawnAimBrads(rotatedTeam, 0)
         check gm.spawnFlipH(team, offset) == gm.spawnFlipH(rotatedTeam, 0)
+
+## --- Flagless board bake (finding 3 of the launch-readiness review) ---
+##
+## renderArenaRgbaPair (map_art.nim, the native boardScale>1 board texture —
+## ensureBoardMaps' hot/cold pair) never checked gameMap.flagless: it baked
+## endzoneTints AND composited a per-team pedestal, even though
+## teamAnchor/flagHome collapse every non-Red team to Red's own point on a
+## layoutSides map — so every BR match's board texture showed 15 pedestals
+## stacked on Red's single anchor pixel. loadMapLayers (the 1x collision +
+## art layer builder) already gated both correctly; the fix mirrors that
+## exact gate into renderArenaRgbaPair.
+
+proc rgbaPairForTest(gameMap: CtfMap, scale: int): tuple[hot, cold: seq[uint8]] =
+  ## renderArenaRgbaPair loads its floor/pedestal art via gameDir()
+  ## (== getCurrentDir()) — the same cwd dance every other helper in this
+  ## suite does around asset loads.
+  let previousDir = getCurrentDir()
+  setCurrentDir(GameDir)
+  try:
+    result = renderArenaRgbaPair(gameMap, scale)
+  finally:
+    setCurrentDir(previousDir)
+
+suite "flagless board bake (finding 3)":
+  test "renderArenaRgbaPair skips the endzone tint AND pedestal pass entirely when flagless":
+    ## With BOTH gone, hot and cold are byte-identical: they are the ONLY
+    ## two things that ever make the pair diverge (see renderArenaRgbaPair's
+    ## per-pixel loop — walls set coldColor = hotColor explicitly, and the
+    ## trench/puddle/border passes apply identically to both once floor
+    ## color itself already agrees). A stray pedestal-composite call or a
+    ## live tints list would reintroduce a hot/cold difference immediately.
+    let flagOff = fourTeamMap(flagless = true)
+    let offPair = rgbaPairForTest(flagOff, 1)
+    check offPair.hot == offPair.cold
+
+  test "positive control: the SAME mechanism on a flag-armed map DOES diverge":
+    ## Proves the equality check above is a real gate closing over a live
+    ## mechanism, not a vacuous 'nothing ever differs' truth. Square board
+    ## (boardH = W) — see fourTeamSpec's doc comment: flags-armed symNone
+    ## corners/plus needs one.
+    let flagOn = fourTeamMap(flagless = false, boardH = W)
+    let onPair = rgbaPairForTest(flagOn, 1)
+    check onPair.hot != onPair.cold
 
