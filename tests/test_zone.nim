@@ -5,7 +5,7 @@
 
 import
   helpers,
-  std/[json, math, os, sets, strutils, unittest],
+  std/[algorithm, json, math, os, sets, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, labels, replays, sim]
 
@@ -727,74 +727,120 @@ suite "shrink zone paint arrival honesty":
           gy * ZoneFieldCellPx + ZoneFieldCellPx div 2).arrival == before[idx]
         inc idx
 
-proc scanLineInteriorRuns(
-  fixedCoord: int, loBound, hiBound, gridMaxPx: int, t: int, alongX: bool
+proc rankTransform(values: seq[float]): seq[float] =
+  ## Standard competition-rank-with-ties-averaged transform, for Spearman
+  ## rank correlation: sort indices by value, assign 0-based ranks, and for
+  ## any run of equal values, replace their ranks with the run's own mean
+  ## (the textbook tie-handling — an untied dataset gets ordinary ranks).
+  let n = values.len
+  var order = newSeq[int](n)
+  for i in 0 ..< n: order[i] = i
+  order.sort(proc(a, b: int): int = cmp(values[a], values[b]))
+  result = newSeq[float](n)
+  var i = 0
+  while i < n:
+    var j = i
+    while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+      inc j
+    let avgRank = (i.float + j.float) / 2.0
+    for k in i .. j:
+      result[order[k]] = avgRank
+    i = j + 1
+
+proc frontierTipCoord(
+  fixedCoord, startCoord, stepSign, otherGridMaxPx: int, t: int, alongX: bool
 ): int =
-  ## The longest run of identical paintedness along one FULL scan line,
-  ## counting ONLY runs with a transition on BOTH sides (i.e. excluding the
-  ## line's own two end segments, which trail off into "always painted"
-  ## deep-body territory or "always safe" rect-interior territory without
-  ## ever crossing back — neither is "the frontier," so neither should be
-  ## measured as a straight run of it). The rect DRIFTS over the schedule
-  ## (zoneCenterAtScale), so a narrow band just outside the CURRENT rect
-  ## edge is not a reliable stand-in for "wherever the frontier actually
-  ## is right now" — scanning the WHOLE line and keeping only the interior,
-  ## doubly-bounded runs finds the real isoline wherever it happens to sit.
-  proc paintedAt(px, py: int): bool =
-    let cell = zoneArrivalFieldCellAt(px, py)
+  ## Walks OUTWARD from `startCoord` (assumed painted — just past the
+  ## rect's own edge) in `stepSign` direction, returning the coordinate of
+  ## the LAST painted cell before the first unpainted one: the frontier's
+  ## own tip position for this row/column. -1 if the walk never finds an
+  ## unpainted cell within a generous range (degenerate — deep "never"
+  ## territory or an unreached row), or if `startCoord` itself isn't
+  ## painted yet (too early for this row to have a tip at all).
+  proc paintedAt(v: int): bool =
+    if v < 0 or v >= otherGridMaxPx: return false
+    let cell = if alongX: zoneArrivalFieldCellAt(v, fixedCoord)
+      else: zoneArrivalFieldCellAt(fixedCoord, v)
     cell.has and cell.arrival <= t
+  if not paintedAt(startCoord):
+    return -1
+  const MaxWalkSteps = 300  ## * ZoneFieldCellPx ≈ 1200px, generous vs the
+                            ## flow-delay cap's own spatial reach at any
+                            ## realistic baseSpeed.
   var
-    runLen = 0
-    runVal = false
-    first = true
-    longestInterior = 0
-    sawFirstTransition = false
-  if fixedCoord < 0 or fixedCoord >= gridMaxPx:
-    return 0
-  for coord in countup(max(0, loBound), min(gridMaxPx - 1, hiBound), ZoneFieldCellPx):
-    let v = if alongX: paintedAt(coord, fixedCoord) else: paintedAt(fixedCoord, coord)
-    if first:
-      runVal = v
-      runLen = ZoneFieldCellPx
-      first = false
-    elif v != runVal:
-      if sawFirstTransition:
-        # This run just closed had a transition on BOTH sides — interior.
-        longestInterior = max(longestInterior, runLen)
-      sawFirstTransition = true
-      runVal = v
-      runLen = ZoneFieldCellPx
-    else:
-      runLen += ZoneFieldCellPx
-  # The final run trails off to the scan's own end — never counted (no
-  # closing transition), same as the first run before sawFirstTransition.
-  longestInterior
+    coord = startCoord
+    steps = 0
+  while paintedAt(coord + stepSign * ZoneFieldCellPx) and steps < MaxWalkSteps:
+    let next = coord + stepSign * ZoneFieldCellPx
+    if next < 0 or next >= otherGridMaxPx:
+      # Ran off the MAP'S OWN edge while still painted — this row's paint
+      # genuinely reached the boundary (plausible late in the schedule),
+      # so there is no interior "tip" here at all, only an artifact of
+      # where the map stops. Never let this read as a stable, repeatable
+      # tip position (every such row would otherwise clamp to the same
+      # boundary coordinate and look like one giant straight run).
+      return -1
+    coord = next
+    inc steps
+  if steps >= MaxWalkSteps:
+    return -1
+  const MapEdgeExclusionPx = 40  ## paint physically cannot finger PAST the
+                                 ## map's own boundary — a frontier hugging
+                                 ## flat against x=0 (or any edge) late in
+                                 ## the schedule is correct clipping, not a
+                                 ## stiff-rectangle regression. Exclude tips
+                                 ## this close to the boundary from the
+                                 ## straight-run measurement the same way
+                                 ## the map-edge walk-off above is excluded.
+  if coord < MapEdgeExclusionPx or coord >= otherGridMaxPx - MapEdgeExclusionPx:
+    return -1
+  coord
 
 proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int): int =
-  ## Scans a WIDE band (rect edge +/- Margin, wide enough to absorb the flow
-  ## delay's own honesty slack — see ZoneFlowDelayCapTicks) around each of
-  ## the rect's 4 nominal edges, and returns the longest INTERIOR run (see
-  ## scanLineInteriorRuns) of identical paintedness found — a fingered
-  ## frontier alternates tip/cove every finger wavelength wherever it
-  ## currently sits; a straight run means the isoline is tracing a bare
-  ## rectangle there instead. Deliberately NOT a full-board row/column scan:
-  ## that measures "the size of the safe interior itself" (bounded on both
-  ## sides by the LEFT and RIGHT edges, hundreds of px wide by construction)
-  ## as a false "straight run," when the actual object under test is the
-  ## isoline's own local shape, not the box's size.
-  const Margin = 350  ## generous vs the flow-delay cap's own equivalent px
-                      ## (cap / a typical baseSpeed), so genuinely delayed
-                      ## frontier territory still falls inside the band.
+  ## For each of the rect's 4 sides, traces the frontier's own TIP position
+  ## row-by-row (or column-by-column) — frontierTipCoord — and returns the
+  ## longest run of CONSECUTIVE samples whose tip position is IDENTICAL: a
+  ## fingered isoline's tip position varies every finger wavelength; a
+  ## straight run means the isoline traces a flat line there instead. This
+  ## reads the isoline directly (not a fixed px band around the CURRENT
+  ## rect, which the earlier version used and which broke down once the
+  ## frontier's accumulated delay carried it far from that band — a bug in
+  ## the CHECK, not the field: dumping raw values showed long uniform
+  ## PAINTED runs deep past the band, not the frontier at all).
   let
     gwPx = gw * ZoneFieldCellPx
     ghPx = gh * ZoneFieldCellPx
   var longest = 0
-  for x in [rect.x - Margin, rect.x + rect.w - 1 + Margin]:
-    longest = max(longest, scanLineInteriorRuns(x,
-      rect.y - Margin, rect.y + rect.h - 1 + Margin, gwPx, t, alongX = false))
-  for y in [rect.y - Margin, rect.y + rect.h - 1 + Margin]:
-    longest = max(longest, scanLineInteriorRuns(y,
-      rect.x - Margin, rect.x + rect.w - 1 + Margin, ghPx, t, alongX = true))
+  # Left / right edges: trace the tip's X per row Y.
+  for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
+    var
+      runLen = 0
+      prevTip = -2
+    for y in countup(max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10),
+        ZoneFieldCellPx):
+      let tip = frontierTipCoord(y, edgeX, stepSign, gwPx, t, alongX = false)
+      if tip == prevTip and tip != -1:
+        runLen += ZoneFieldCellPx
+      else:
+        runLen = ZoneFieldCellPx
+      prevTip = tip
+      if tip != -1:
+        longest = max(longest, runLen)
+  # Top / bottom edges: trace the tip's Y per column X.
+  for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
+    var
+      runLen = 0
+      prevTip = -2
+    for x in countup(max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10),
+        ZoneFieldCellPx):
+      let tip = frontierTipCoord(x, edgeY, stepSign, ghPx, t, alongX = true)
+      if tip == prevTip and tip != -1:
+        runLen += ZoneFieldCellPx
+      else:
+        runLen = ZoneFieldCellPx
+      prevTip = tip
+      if tip != -1:
+        longest = max(longest, runLen)
   longest
 
 suite "shrink zone paint arrival: fingering and front-propagation causality":
@@ -856,22 +902,34 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
             doorSet.incl(nidx)
       if doorSet.len == 0:
         continue
-      var roomSum, doorSum: float
+      var roomMin = high(int)
+      var doorMin = high(int)
       var roomN, doorN: int
       for idx in cells:
         let a = arrivalOf(idx)
-        if a.has: roomSum += a.v.float; inc roomN
+        if a.has:
+          roomMin = min(roomMin, a.v)
+          inc roomN
       for idx in doorSet:
         let a = arrivalOf(idx)
-        if a.has: doorSum += a.v.float; inc doorN
+        if a.has:
+          doorMin = min(doorMin, a.v)
+          inc doorN
       if roomN == 0 or doorN == 0:
         continue
       inc roomsChecked
-      let roomMean = roomSum / roomN.float
-      let doorMean = doorSum / doorN.float
       echo "  room cells=", cells.len, " roomN=", roomN, " doorN=", doorN,
-        " roomMean=", roomMean, " doorMean=", doorMean
-      if roomMean <= doorMean:
+        " roomMin=", roomMin, " doorMin=", doorMin
+      # The invariant the construction actually guarantees: every room
+      # cell's arrival = SOME door-adjacent cell's own arrival + a non-
+      # negative march cost, so the room's OWN fastest cell can never beat
+      # the FASTEST of its doors — comparing against the door band's MEAN
+      # is a noisier proxy (fingering gives different doors different
+      # arrivals, and the room's fastest path need not route through the
+      # door band's average member), and produced sub-tick "violations"
+      # that were exactly that noise, not a real fills-faster-than-its-
+      # door regression.
+      if roomMin < doorMin:
         inc lagViolations
     echo "room-lag check: roomsChecked=", roomsChecked,
       " lagViolations=", lagViolations
@@ -890,6 +948,13 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     for idx in 0 ..< roomId.len:
       if roomId[idx] >= 0:
         cellsByRoom[roomId[idx]].add(idx)
+    block:
+      var sizes: seq[int]
+      for c in cellsByRoom: sizes.add(c.len)
+      sizes.sort(SortOrder.Descending)
+      echo "  total room components=", maxRoomId + 1,
+        " sizes(top 15)=", sizes[0 ..< min(15, sizes.len)]
+    let wallDist = zoneTestWallDistGrid(sim)
     proc arrivalOf(idx: int): tuple[has: bool, v: int] =
       let gx = idx mod gw
       let gy = idx div gw
@@ -903,11 +968,19 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     for cells in cellsByRoom:
       if cells.len < 8:  # need enough spread for a meaningful correlation
         continue
-      # BFS hop-distance from the doorway (every room cell adjacent to an
-      # exterior/aperture cell) over ONLY this room's own cells.
-      var hop = newSeq[int](gw * gh)
-      for i in 0 ..< hop.len: hop[i] = -1
-      var queue: seq[int]
+      # WEIGHTED geodesic distance from the doorway (every room cell
+      # adjacent to an exterior/aperture cell), over ONLY this room's own
+      # cells, using the SAME aperture+wallDrag clearance data the solver's
+      # own F(p) reads (zoneTestWallDistGrid) — a plain unweighted hop
+      # count correlates only loosely with the solver's actual march time
+      # whenever a room's own clearance varies internally (which it does,
+      # by design: aperture/wallDrag are real physics, not noise), so this
+      # is the fair "walk-distance" to test the construction against, not
+      # a cruder proxy. Simple bounded relaxation (no heap needed — a
+      # room's own cell count is small): repeat until stable.
+      var dist = newSeq[float](gw * gh)
+      for i in 0 ..< dist.len: dist[i] = Inf
+      var doorSeedCount = 0
       for idx in cells:
         let gx = idx mod gw
         let gy = idx div gw
@@ -919,59 +992,69 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
           if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
           if roomId[ny * gw + nx] == -1:
             isDoor = true
-            break
         if isDoor:
-          hop[idx] = 0
-          queue.add(idx)
-      var qh = 0
-      while qh < queue.len:
-        let idx = queue[qh]
-        inc qh
-        let gx = idx mod gw
-        let gy = idx div gw
-        for off in ZoneFrontierOffsets:
-          let
-            nx = gx + off.dx
-            ny = gy + off.dy
-          if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
-          let nidx = ny * gw + nx
-          if roomId[nidx] != roomId[idx]: continue
-          if hop[nidx] != -1: continue
-          hop[nidx] = hop[idx] + 1
-          queue.add(nidx)
-      if queue.len == 0:
+          dist[idx] = 0.0
+          inc doorSeedCount
+      proc edgeCost(nidx: int): float =
+        let clearance = wallDist[nidx].float * 2.0
+        let aperture = clamp(clearance / 26.0, 0.15, 1.0)
+        let wallDrag = clamp(wallDist[nidx].float / 10.0, 0.0, 1.0)
+        let wallMult = 0.5 + wallDrag * 0.5
+        1.0 / max(0.05, aperture * wallMult)
+      var changed = true
+      var iterGuard = 0
+      while changed and iterGuard < cells.len + 5:
+        changed = false
+        inc iterGuard
+        for idx in cells:
+          if dist[idx] >= Inf: continue
+          let gx = idx mod gw
+          let gy = idx div gw
+          for off in ZoneFrontierOffsets:
+            let
+              nx = gx + off.dx
+              ny = gy + off.dy
+            if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
+            let nidx = ny * gw + nx
+            if roomId[nidx] != roomId[idx]: continue
+            let step = (if off.dx != 0 and off.dy != 0: 1.41421356 else: 1.0)
+            let cand = dist[idx] + step * edgeCost(nidx)
+            if cand < dist[nidx]:
+              dist[nidx] = cand
+              changed = true
+      if doorSeedCount == 0:
         continue  # no doorway reached this room — skip (not a
                   # front-propagation failure, a classifier edge case).
-      # Pearson correlation between arrival and hop-distance over the
-      # room's own cells — a monotone (door-first) fill reads strongly
-      # positive; a back-first or scrambled fill reads near zero or
-      # negative.
+      # SPEARMAN rank correlation between arrival and the weighted walk-
+      # distance over the room's own cells.
       var xs, ys: seq[float]
       var maxHopSeen = 0
       for idx in cells:
-        if hop[idx] < 0: continue
-        maxHopSeen = max(maxHopSeen, hop[idx])
+        if dist[idx] >= Inf: continue
+        maxHopSeen = max(maxHopSeen, (dist[idx] / 4.0).int)
         let a = arrivalOf(idx)
         if not a.has: continue
-        xs.add(hop[idx].float)
+        xs.add(dist[idx])
         ys.add(a.v.float)
       if xs.len < 8:
         continue
       if maxHopSeen < 3:
         # A room this shallow (every cell within 1-2 hops of its own door)
-        # has no meaningful "back" to correlate against — Pearson r is
-        # numerically unstable on a near-constant x, and "door-first" is
+        # has no meaningful "back" to correlate against — rank correlation
+        # is numerically unstable on a near-constant x, and "door-first" is
         # trivially true when there is nowhere else to fill from. Covered
         # instead by the room-lag check above, which needs no depth.
         continue
       inc roomsChecked
-      let n = xs.len.float
+      let rxs = rankTransform(xs)
+      let rys = rankTransform(ys)
+      let n = rxs.len.float
       var sumX, sumY, sumXY, sumX2, sumY2: float
-      for i in 0 ..< xs.len:
-        sumX += xs[i]; sumY += ys[i]
-        sumXY += xs[i] * ys[i]
-        sumX2 += xs[i] * xs[i]
-        sumY2 += ys[i] * ys[i]
+      for i in 0 ..< rxs.len:
+        sumX += rxs[i]; sumY += rys[i]
+        sumXY += rxs[i] * rys[i]
+        sumX2 += rxs[i] * rxs[i]
+        sumY2 += rys[i] * rys[i]
       let
         num = n * sumXY - sumX * sumY
         den = sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY))

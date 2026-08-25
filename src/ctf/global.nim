@@ -6441,7 +6441,7 @@ const
                              ## ZoneEdgeBoundPx established: the boundary's
                              ## shape, before any flow delay, never deviates
                              ## from the sharp rect line by more than this.
-  ZoneFlowDelayCapTicks* = 600  ## HONESTY BOUND on the FLOW-DELAY term (round
+  ZoneFlowDelayCapTicks* = 750  ## HONESTY BOUND on the FLOW-DELAY term (round
                              ## 2's spatial ZoneEdgeBoundPx, restated in
                              ## time): however deep a cove or slow a
                              ## doorway, the visual boundary never lags the
@@ -6482,7 +6482,7 @@ const
                              ## are harder for the solve's own minimum-time
                              ## search to route laterally around than wide
                              ## round ones — see ZoneFingerMinMult.
-  ZoneFingerMinMult = 0.03    ## speed floor AT a noise peak (a cove) —
+  ZoneFingerMinMult = 0.55    ## speed floor AT a noise peak (a cove) —
                              ## deliberately lower than the aperture/wall-
                              ## drag floors: a fast-marching solve always
                              ## has some nearby faster lane to detour
@@ -6800,7 +6800,7 @@ proc ensureZoneFloorGrid(sim: SimServer) =
   var isAperture = newSeq[bool](gw * gh)
   for i in 0 ..< gw * gh:
     if ZoneFloorWalkable[i]:
-      isAperture[i] = ZoneFloorWallDistPx[i] * 2.0 < ZoneApertureDoorRefPx * 1.3
+      isAperture[i] = ZoneFloorWallDistPx[i] * 2.0 < ZoneApertureDoorRefPx * 2.5
   ZoneFloorRoomId = newSeq[int](gw * gh)
   for i in 0 ..< ZoneFloorRoomId.len:
     ZoneFloorRoomId[i] = -2  # unvisited
@@ -7071,11 +7071,24 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
       else: arctan2(gy, gx)
     ca = cos(angle)
     sa = sin(angle)
-    along = px * ca + py * sa
-    across = (px * -sa + py * ca) * ZoneFingerAcrossCompress
-    noise = zoneMeniscusOctave(along, across, ZoneFingerCellPx,
-      ZoneFieldSeed xor 0x9F)
-  clamp(noise * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFlowDelayCapTicks)
+    # `across` — the coordinate TANGENTIAL to the local edge (perpendicular
+    # to the advance direction) — is the ONLY spatial input the octaves
+    # below read. A flat rect edge crosses its whole length at the SAME
+    # tick (T0 is constant along it), so any variation driven by the
+    # ALONG (perpendicular) coordinate contributes nothing there — the
+    # coordinator's diagnosis: "give the nudge a component keyed to
+    # position ALONG the edge, which is exactly what makes tongues on a
+    # flat front." Two octaves (a dominant ~220px tongue spacing plus a
+    # finer ~85px one) so no single wavelength's own flat stretch can
+    # produce a long straight run either.
+    across = px * -sa + py * ca
+    n1 = zoneMeniscusOctave(across, 0.0, 160.0, ZoneFieldSeed xor 0x9F)
+    n2 = zoneMeniscusOctave(across, 0.0, 45.0, ZoneFieldSeed xor 0xB3)
+    combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
+  # Full [0, cap] amplitude — late-only (honesty untouched, the cap already
+  # bounds it), but no headroom held back: a shy amplitude is exactly what
+  # left runs long in the earlier passes.
+  clamp(combined * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFlowDelayCapTicks)
 
 proc computeZoneFrontierField(
   sim: SimServer, totalTicks: int, finalRect: MapRect, baseSpeed: float
@@ -7239,7 +7252,12 @@ proc computeZoneFrontierField(
       continue
     if result[i] < float32(t0[i]):
       result[i] = float32(t0[i])
-    result[i] = min(result[i], float32(totalTicks + ZoneFlowDelayCapTicks))
+    # Per-cell, not a global ceiling: a global `totalTicks + cap` bound let
+    # a cell sampled against an EARLY tick read as "overdue by" nearly the
+    # whole match length whenever its OWN t0 was early but its true march
+    # value approached the global ceiling — this is what the per-cell
+    # bound is for.
+    result[i] = min(result[i], float32(t0[i]) + float32(ZoneFlowDelayCapTicks))
 
 type
   ZoneArrivalField = object
@@ -7369,6 +7387,14 @@ proc zoneArrivalFieldCellAt*(px, py: int): tuple[has: bool, arrival: int] =
 
 proc zoneArrivalFieldGridDims*(): tuple[w, h: int] =
   (ZoneArrivalFieldValue.gridW, ZoneArrivalFieldValue.gridH)
+
+proc zoneTestWallDistGrid*(sim: SimServer): seq[float32] =
+  ## TEST accessor for ZoneFloorWallDistPx — lets a machine check build its
+  ## own independent geodesic reference distance using the SAME clearance
+  ## data the solver's own F(p) reads, without duplicating the solver's
+  ## march itself.
+  ensureZoneFloorGrid(sim)
+  ZoneFloorWallDistPx
 
 proc zoneTestClassifyRooms*(sim: SimServer): seq[int] =
   ## TEST accessor for ZoneFloorRoomId — the SAME classification
