@@ -6436,137 +6436,217 @@ proc distanceOutsideRect(rect: MapRect, px, py: int): int {.inline.} =
   max(dx, dy)
 
 const
-  ZoneSplatCellPx = 46      ## map px per splat cell. One splat max per cell,
-                            ## jittered inside it, so spacing reads organic
-                            ## without two splats ever landing identically.
-  ZoneSplatSizePx = 74      ## splat canvas size in MAP px — comfortably
-                            ## larger than the cell, so cells that host a
-                            ## splat overlap their neighbours and the mass
-                            ## reads as one flood rather than polka dots.
-                            ## A real size in map units is also why this
-                            ## needs no per-board grain scaler.
   ZoneDrownDepthPx = 150    ## past this depth outside the rect the floor is
                             ## fully drowned; inside it is the creeping
-                            ## frontier where individual splats read.
-  ZoneSplatPaint = rgba(214, 62, 178, 255)  ## the pink floor paint itself.
+                            ## meniscus where the boundary itself is the art.
+  ZoneSplatPaint = rgba(214, 62, 178, 255)  ## fresh pink, at the meniscus.
   ZoneDrownPaint = rgba(96, 24, 92, 236)    ## many coats, settled and dark.
+  ZoneRimColor = rgba(58, 12, 56, 255)      ## dark meniscus rim: a few px
+                            ## trace along the lobed boundary, the visual
+                            ## cue "this edge is WET" the way a puddle's own
+                            ## rim reads (see PuddleRimColor in map_art.nim)
+                            ## — a darker, deeper tone of the zone's own
+                            ## settled paint, not a borrowed palette.
+  ZoneGlossTint = rgba(238, 168, 232, 70)   ## soft streak highlight so the
+                            ## deep body reads as liquid, not flat card.
+  ZoneRimWidthPx = 3.0
+  ## MENISCUS SHAPE — Maxwell's ruling (2026-08-24, screenshot review): "this
+  ## does not look like solid paint seeping in from the screen edges. it
+  ## looks like a pink wall with pre-carved, normal-size paint splats at the
+  ## leading edge." Three separate elements (flat fill, stamped splat
+  ## silhouettes, a seam between them) pretending to be one substance. The
+  ## fix: the dead region is ONE LIQUID SPLAT and the boundary itself is the
+  ## art, not sprites stamped near it. `zoneMeniscusAdvance` is a smooth 2D
+  ## noise field, two octaves (a big rounded one for lobes/tongues, a small
+  ## one for texture), added to the honest rectangular distance so the
+  ## boundary bulges and tongues organically instead of tracing
+  ## `distanceOutsideRect`'s straight sides. Cosine interpolation between
+  ## lattice points is what gives the lobes their rounded (not jagged)
+  ## profile — the same idiom as map_art.nim's trenchEdgeWave, just 2D and
+  ## much lower frequency / higher amplitude, since this boundary is a
+  ## coastline, not a shovel-dug lip.
+  ZoneMeniscusCellPx = 190.0     ## big-lobe lattice spacing (120-250px band).
+  ZoneMeniscusAmpPx = 95.0       ## big-lobe displacement, px.
+  ZoneMeniscusFineCellPx = 55.0  ## second octave: texture, not new lobes.
+  ZoneMeniscusFineAmpPx = 22.0
+  ZoneMeniscusSeed = 0x2E15
+  ## The meniscus noise can shift the apparent boundary by at most
+  ## ZoneMeniscusAmpPx + ZoneMeniscusFineAmpPx either way. Past that margin
+  ## beyond the drown depth, force solid coverage regardless of noise phase
+  ## — the "no pinholes in the deep mass" guarantee the damage boundary
+  ## relies on (a tile taking zone damage must never render as clean floor),
+  ## now proven by a fixed bound instead of read off the splat math.
+  ZoneHardSolidDepthPx = ZoneDrownDepthPx * 2 +
+    ZoneMeniscusAmpPx.int + ZoneMeniscusFineAmpPx.int + 1
+  ## DROPLETS — small round advance spatter ahead of the meniscus, replacing
+  ## the old splat-with-arms marks entirely (those are weapon-hit language,
+  ## wrong scale for a flood). One per ~200px-square cell at most, radius
+  ## 6-24px, plain filled circles (no arms), placed only where the cell's
+  ## own center is outside the rect and just ahead of where the main body
+  ## has advanced.
+  ZoneDropletCellPx = 200
+  ZoneDropletMinRPx = 3.0
+  ZoneDropletMaxRPx = 12.0
+  ZoneDropletChancePct = 42
 
-proc zoneSplatHash(cx, cy: int): uint32 {.inline.} =
-  ## Deterministic per-cell hash — the house unsigned-FNV-ish idiom every
-  ## other splat feature in this file already uses.
-  var h = uint32(cx) * 374761393'u32 + uint32(cy) * 668265263'u32
-  h = (h xor (h shr 13)) * 1274126177'u32
-  h xor (h shr 16)
+proc zoneMeniscusHash(seed, kx, ky: int): float {.inline.} =
+  ## Deterministic 2D lattice noise in [-1, 1] — a pure function of its
+  ## inputs (no RNG state), so a live game and its recorded replay bake the
+  ## identical boundary. Same unsigned-mix idiom as trenchEdgeNoise/
+  ## zoneTideHash: uint64 throughout so the mix can't hit a checked overflow
+  ## on the wasm32 replay viewer.
+  let mixed = cast[uint64](seed) * 0x9E3779B97F4A7C15'u64 xor
+    cast[uint64](kx) * 73856093'u64 xor
+    cast[uint64](ky) * 19349663'u64
+  var h = uint32(mixed and 0x7FFFFFFF'u64)
+  h = h xor (h shr 13)
+  h = h * 0x85EBCA6B'u32
+  h = h xor (h shr 16)
+  float(h and 0xFFFF) / 32767.5 - 1.0
 
-proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
-  ## One pixel of the DEAD region, painted with the game's own floor splat.
-  ##
-  ## Maxwell's ruling (2026-08-24): "i want it to be the floor pink splat
-  ## paint david has. that paint on the floor creeping in. that way it works
-  ## like a br zone where standing on it does damage." So there is no
-  ## bespoke tide here any more — no churn band, no finger noise, no wet
-  ## glint. The dead region is the SAME splat the dried floor stains are
-  ## made of (paintSplatDensity, shared with buildPaintStainSprite), in the
-  ## zone's pink.
-  ##
-  ## Two regions, which is what makes it read as creeping rather than as a
-  ## filled rectangle:
-  ##   * DROWNED (d >= ZoneDrownDepthPx): solid settled paint. Ground the
-  ##     zone took long ago is under many coats.
-  ##   * FRONTIER (d < ZoneDrownDepthPx): discrete splats, thinning toward
-  ##     the safe rect. A cell hosts a splat with a probability that RISES
-  ##     with its depth, so paint arrives as scattered marks ahead of the
-  ##     mass and closes up behind it.
-  ##
-  ## PERSISTENCE. Splat identity is keyed on the CELL alone, not on the tick
-  ## the frontier reached it. The rect only ever shrinks, so a pixel's depth
-  ## only ever grows: a cell that has started hosting a splat keeps hosting
-  ## the same one, and cells only ever move frontier -> drowned. Keying on
-  ## the arrival tick would buy variety at the cost of a splat that could
-  ## restyle itself under a viewer mid-match, and stability is worth more.
-  ##
-  ## HONEST BOUNDARY. Damage keys off the clamped rect; this paints strictly
-  ## outside it (the caller skips d <= 0). Splats near the frontier may
-  ## overhang the boundary line by design — that reads as a paint edge
-  ## rather than a ruler line — while the safe rect's floor stays clean.
-  ## The drowned fill RAMPS IN rather than switching on at a depth. A hard
-  ## `if d >= drownDepth` threshold draws a perfectly straight line at that
-  ## depth, parallel to the rect — the traceable-rectangle failure this art
-  ## exists to avoid, just moved inland. Screenshot review caught exactly
-  ## that seam. Above the ramp's top the fill is opaque and the line is
-  ## invisible because there is nothing to contrast with.
-  let depthPct = clamp(d * 100 div max(1, ZoneDrownDepthPx), 0, 100)
-  if d >= ZoneDrownDepthPx * 2:
-    return ZoneDrownPaint
-  var best = 0.0
+proc zoneMeniscusOctave(px, py, cellPx: float, seed: int): float =
+  ## One octave of smooth value noise in [-1, 1]: bilinear blend of the four
+  ## surrounding lattice points, each axis eased with cosine interpolation
+  ## `(1-cos(t*PI))/2` rather than linear — a rounded liquid bulge profile
+  ## instead of a faceted diamond, the same easing trenchEdgeWave uses for
+  ## its (much smaller, 1D) wander.
   let
-    cell = ZoneSplatCellPx
-    baseCx = px div cell
-    baseCy = py div cell
+    cx = px / cellPx
+    cy = py / cellPx
+    kx0 = floor(cx).int
+    ky0 = floor(cy).int
+    fx = cx - float(kx0)
+    fy = cy - float(ky0)
+    sx = (1.0 - cos(fx * PI)) / 2.0
+    sy = (1.0 - cos(fy * PI)) / 2.0
+    n00 = zoneMeniscusHash(seed, kx0, ky0)
+    n10 = zoneMeniscusHash(seed, kx0 + 1, ky0)
+    n01 = zoneMeniscusHash(seed, kx0, ky0 + 1)
+    n11 = zoneMeniscusHash(seed, kx0 + 1, ky0 + 1)
+    nx0 = n00 + (n10 - n00) * sx
+    nx1 = n01 + (n11 - n01) * sx
+  nx0 + (nx1 - nx0) * sy
+
+proc zoneMeniscusAdvance(px, py: float): float =
+  ## How far the meniscus has advanced past the honest rect distance at map
+  ## point (px, py), px, + = further advanced (drowned sooner). Two octaves
+  ## only, per Maxwell's ruling — a third would start reading as grain
+  ## rather than lobes.
+  zoneMeniscusOctave(px, py, ZoneMeniscusCellPx, ZoneMeniscusSeed) *
+    ZoneMeniscusAmpPx +
+  zoneMeniscusOctave(px, py, ZoneMeniscusFineCellPx,
+    ZoneMeniscusSeed xor 0x51) * ZoneMeniscusFineAmpPx
+
+proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
+  ## Scans the 3x3 neighbourhood of ~200px droplet cells around (qx, qy) for
+  ## a small round drip covering this point. A cell hosts a droplet only
+  ## when its own center is outside the rect (never seeds one INSIDE the
+  ## safe area) — the caller further restricts this to cells sitting just
+  ## ahead of the meniscus, so droplets read as advance scouts, not
+  ## scattered confetti deep in either the safe zone or the flood.
+  result = (false, 0.0)
+  let
+    cell = float(ZoneDropletCellPx)
+    baseCx = floor(qx / cell).int
+    baseCy = floor(qy / cell).int
   for oy in -1 .. 1:
     for ox in -1 .. 1:
       let
         cx = baseCx + ox
         cy = baseCy + oy
-        h = zoneSplatHash(cx, cy)
-        cellPx = cx * cell + cell div 2
-        cellPy = cy * cell + cell div 2
-        ## Cell-local depth decides whether this cell has been reached, so
-        ## the thinning follows the FRONTIER's shape, not the pixel's.
-        cellD = distanceOutsideRect(rect, cellPx, cellPy)
-      if cellD <= 0:
-        continue
-      let cellPct = clamp(cellD * 100 div max(1, ZoneDrownDepthPx), 0, 100)
-      ## Sparse at the lip, solid by the drown depth. The +18 floor means
-      ## even the very front edge carries a few scouts of paint.
-      if int(h mod 100'u32) > cellPct + 18:
+        h = uint32(zoneMeniscusHash(cellSeed, cx, cy) * 1_000_000.0 + 2_000_000.0)
+      if int(h mod 100'u32) >= ZoneDropletChancePct:
         continue
       let
-        jitterX = float(int((h shr 7) mod uint32(cell)) - cell div 2) * 0.55
-        jitterY = float(int((h shr 17) mod uint32(cell)) - cell div 2) * 0.55
-        variant = int((h shr 3) mod 8'u32)
-      best = max(best, paintSplatDensity(
-        float(px), float(py),
-        float(cellPx) + jitterX, float(cellPy) + jitterY,
-        float(ZoneSplatSizePx), variant))
-  if best <= 0.02 and d < ZoneDrownDepthPx div 2:
-    ## Only the shallow frontier leaves bare floor; deeper in, an unsplatted
-    ## pixel still takes the flood below so the mass has no pinholes.
+        cellCx = (float(cx) + 0.5) * cell
+        cellCy = (float(cy) + 0.5) * cell
+        jx = cellCx + (float(int(h mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
+        jy = cellCy + (float(int((h shr 11) mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
+        r = ZoneDropletMinRPx +
+          (float(int((h shr 5) mod 101'u32)) / 100.0) *
+            (ZoneDropletMaxRPx - ZoneDropletMinRPx)
+        dx = qx - jx
+        dy = qy - jy
+        dist = sqrt(dx * dx + dy * dy)
+      if dist >= r:
+        continue
+      # Soft 1.5px anti-aliased edge so the drip is round, not a hard disc.
+      let a = clamp((r - dist) / 1.5, 0.0, 1.0)
+      if a > result.a:
+        result = (true, a)
+
+proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
+  ## One pixel of the DEAD region: ONE liquid splat whose boundary is the
+  ## art (a meniscus, a rim, a body — see the consts above), not stamped
+  ## sprites near an otherwise straight rectangular edge.
+  ##
+  ## `d` is the honest `distanceOutsideRect` (the caller already skips
+  ## d <= 0, so this is always > 0 here) — the gameplay-relevant, damage-
+  ## keyed distance. Everything below either paints using it directly (the
+  ## hard-solid deep guarantee) or through `effDepth`, the same distance
+  ## warped by `zoneMeniscusAdvance` so the boundary reads as an organic
+  ## coastline. The warp only ever reshapes WHICH outside pixels look
+  ## further/less advanced; a pixel with d <= 0 is never reached at all, so
+  ## the safe rect's floor stays exactly as clean as before.
+  let fx = float(px)
+  let fy = float(py)
+  # Deep interior: always fully opaque, regardless of noise phase — the
+  # "no pinholes the damage boundary can walk into" guarantee, now a fixed
+  # bound (ZoneHardSolidDepthPx safely exceeds the noise's max amplitude)
+  # rather than something read off splat coverage. Tonal variation and
+  # gloss still apply so the deep body is not a flat card.
+  let hardSolid = d >= ZoneHardSolidDepthPx
+  let effDepth = if hardSolid: float(ZoneDrownDepthPx) * 2.0
+                 else: float(d) + zoneMeniscusAdvance(fx, fy)
+  if not hardSolid and effDepth <= 0.0:
+    # Ahead of the meniscus: bare floor, except for sparse advance droplets.
+    let drop = zoneDropletAt(fx, fy, ZoneMeniscusSeed xor 0x77)
+    if drop.hit:
+      return rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b,
+        uint8(drop.a * float(ZoneSplatPaint.a)))
     return rgba(0, 0, 0, 0)
-  ## Grain frays every outline so no splat shows an analytic edge — the same
-  ## reason buildPaintStainSprite does it.
+  if not hardSolid and effDepth <= ZoneRimWidthPx:
+    return ZoneRimColor
+  # Body: fresh pink at the rim, settling to drowned purple by twice the
+  # drown depth — a RAMP, not a threshold, so there is no seam to find.
   let
-    g = zoneSplatHash(px, py)
-    grain = float(int((g shr 16) mod 1000'u32)) / 1000.0
-    frayed = best - 0.28 * grain
-  if frayed <= 0.02 and d < ZoneDrownDepthPx div 2:
-    return rgba(0, 0, 0, 0)
-  ## Deeper ground is wetter with paint: alpha rises across the band, so the
-  ## frontier's scouts are faint and the mass behind them is opaque.
+    rampT = clamp(
+      (effDepth - ZoneRimWidthPx) / (float(ZoneDrownDepthPx) * 2.0 - ZoneRimWidthPx),
+      0.0, 1.0)
+    baseR = uint8(float(ZoneSplatPaint.r) * (1.0 - rampT) + float(ZoneDrownPaint.r) * rampT)
+    baseG = uint8(float(ZoneSplatPaint.g) * (1.0 - rampT) + float(ZoneDrownPaint.g) * rampT)
+    baseB = uint8(float(ZoneSplatPaint.b) * (1.0 - rampT) + float(ZoneDrownPaint.b) * rampT)
+    baseA = uint8(float(ZoneSplatPaint.a) * (1.0 - rampT) + float(ZoneDrownPaint.a) * rampT)
+  var color = rgba(baseR, baseG, baseB, baseA)
+  # Low-frequency tonal variation across the whole body (deep mass
+  # included, via a THIRD, independently-seeded octave that never touches
+  # alpha/coverage — only how bright a given patch of liquid reads).
   let
-    cover = clamp(frayed, 0.0, 1.0)
-    depthGain = 0.55 + 0.45 * float(depthPct) / 100.0
-    splatA = 255.0 * cover * depthGain
-    ## Flood: nothing until the splats are already dense, then rising to
-    ## full by twice the drown depth. Because it is a RAMP the eye never
-    ## finds an edge, and because the splats above it stay brighter the
-    ## surface keeps its texture instead of going flat the moment the flood
-    ## arrives.
-    floodT = clamp(
-      (float(d) - float(ZoneDrownDepthPx) * 0.55) /
-        (float(ZoneDrownDepthPx) * 1.45), 0.0, 1.0)
-    floodA = floodT * float(ZoneDrownPaint.a)
-    a = clamp(max(splatA, floodA), 0.0, 255.0)
-    ## Old paint settles darker; fresh splats at the lip stay pink. Blend
-    ## the two by the same ramp so colour and coverage agree.
-    mixT = floodT
-    mixR = uint8(float(ZoneSplatPaint.r) * (1.0 - mixT) +
-      float(ZoneDrownPaint.r) * mixT)
-    mixG = uint8(float(ZoneSplatPaint.g) * (1.0 - mixT) +
-      float(ZoneDrownPaint.g) * mixT)
-    mixB = uint8(float(ZoneSplatPaint.b) * (1.0 - mixT) +
-      float(ZoneDrownPaint.b) * mixT)
-  rgba(mixR, mixG, mixB, uint8(a))
+    tone = zoneMeniscusOctave(fx, fy, ZoneMeniscusCellPx * 1.4,
+      ZoneMeniscusSeed xor 0x9C)
+    toneGain = 1.0 + tone * 0.12
+  color = rgba(
+    uint8(clamp(float(color.r) * toneGain, 0.0, 255.0)),
+    uint8(clamp(float(color.g) * toneGain, 0.0, 255.0)),
+    uint8(clamp(float(color.b) * toneGain, 0.0, 255.0)),
+    color.a)
+  # Occasional gloss streaks: a coarse, elongated field (stretched sampling
+  # on one axis reads as a streak rather than a round sheen) blended in only
+  # where it crests high, so the highlight stays sparse.
+  let streak = zoneMeniscusOctave(fx * 0.35, fy * 1.6, ZoneMeniscusCellPx,
+    ZoneMeniscusSeed xor 0xC3)
+  if streak > 0.55:
+    # Alpha-composite the gloss tint over the body color directly (no
+    # shared blend helper is reachable from this module — map_art.nim's
+    # overTint is the same one-liner, kept local here to avoid a new
+    # cross-module export for four lines of math).
+    let g = clamp((streak - 0.55) / 0.45, 0.0, 1.0) * (float(ZoneGlossTint.a) / 255.0)
+    color = rgba(
+      uint8(float(color.r) * (1.0 - g) + float(ZoneGlossTint.r) * g),
+      uint8(float(color.g) * (1.0 - g) + float(ZoneGlossTint.g) * g),
+      uint8(float(color.b) * (1.0 - g) + float(ZoneGlossTint.b) * g),
+      color.a)
+  color
 
 proc buildTideBarPixels(
   rect: MapRect, barX, barY, width, height: int
@@ -6633,10 +6713,9 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
   if key == ZoneTideCacheKey:
     return
   ZoneTideCacheKey = key
-  ## No per-map grain scaler any more: the splat is a real object with a real
-  ## size in MAP pixels (ZoneSplatSizePx), so it reads the same on any board
-  ## without a proportionality fudge. That scaler existed only to keep the
-  ## deleted procedural noise in proportion.
+  ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
+  ## is sized in real MAP pixels, so it reads the same lobe scale on any
+  ## board without a proportionality fudge.
   let
     mapW = sim.gameMap.width
     mapH = sim.gameMap.height
