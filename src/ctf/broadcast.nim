@@ -733,9 +733,11 @@ proc buildStateJson*(
   # default idiom the rest of this frame uses (hcap, pmods, flag keys), so
   # every classic frame stays byte-identical.
   if sim.gameMap.flagless or sim.config.brMode:
+    # flagless: no flag/pedestal/heart anywhere on the board.
+    # elim: no respawns, so a lives count is absolute rather than a pool.
     state["br"] = %*{
-      "flagless": sim.gameMap.flagless,   ## no flag/pedestal/heart anywhere
-      "elim": sim.config.brMode           ## no respawns; lives are absolute
+      "flagless": sim.gameMap.flagless,
+      "elim": sim.config.brMode
     }
 
   # Resolved perk magnitudes for the scorebug icon tooltips (the sim is the
