@@ -1825,7 +1825,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, achtoast: 4000 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, heat: 3600, curtain: 2400, read: 600, achtoast: 4000 };
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -3656,7 +3656,8 @@ body[data-embed] #board { top: 0; height: 100%; }
   var bannerBusy = false;
   function banner(text, cls, opts) {
     bannerQueue.push({ text: text, cls: cls,
-      sub: (opts && opts.sub) || '', flames: (opts && opts.flames) || 0 });
+      sub: (opts && opts.sub) || '', flames: (opts && opts.flames) || 0,
+      hold: (opts && opts.hold) || 'banner' });
     pumpBanner();
   }
   function pumpBanner() {
@@ -3690,7 +3691,10 @@ body[data-embed] #board { top: 0; height: 100%; }
     // up to the 2x ceiling, so a fast-forward scrub can't reduce the slam to
     // a subliminal flash.
     chip.style.setProperty('--bf', animFactor());
-    var hold = dwellFloor('banner'); // lever 2: wall-clock dwell floor (~1.9s)
+    // lever 2: wall-clock dwell floor -- event banners ~1.9s, heat callouts
+    // ~3.6s (Maxwell: a streak chip that flashes reads as UI noise, not news;
+    // RAMPAGE is rare now, so the longer dwell can never queue-jam).
+    var hold = dwellFloor(b.hold);
     setTimeout(function () {
       chip.classList.add('leaving');
       setTimeout(function () {
@@ -3742,12 +3746,17 @@ body[data-embed] #board { top: 0; height: 100%; }
         return;
       }
       if (rung <= prev) return;              // only an ascent can call out
+      // RAMPAGE-ONLY (Maxwell): the lower tiers fired too often to narrate --
+      // dark pending threshold tuning (their per-episode frequency is being
+      // measured off fullGlorySeries; see the round notes). The top tier is
+      // the only rung that is always a story.
+      if (rung < 3) return;
       var cooled = (s.t - heatCallTick[team]) > HEAT_RECALL_TICKS;
       if (rung <= heatCalled[team] && !cooled) return;  // already told
       heatCalled[team] = rung;
       heatCallTick[team] = s.t;
       banner(HEAT_CALLS[rung], 'heat ' + team + '-accent',
-        { sub: team.toUpperCase() + ' TEAM', flames: rung });
+        { sub: team.toUpperCase() + ' TEAM', flames: rung, hold: 'heat' });
     });
   }
 
