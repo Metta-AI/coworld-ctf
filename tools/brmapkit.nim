@@ -1208,7 +1208,19 @@ proc stampPoi(
     rng.shuffle(sideOrder)
     if rng.rand(1.0) < 0.5:
       grammar = gMaze
-      let mazePlan = stampRoomMaze(rng, @[footprint], shellThick, he * 2 div 6, 20, 0.15, 3)
+      ## ROUND 10 FIX: the BSP branch's own `shellThick` (he*2/5, sized for
+      ## ONE big shell ring around a single room) is WIDER than a maze
+      ## cell needs to be — reusing it as stampRoomMaze's shellThick made
+      ## boundary walls bigger than the cells they bound, swallowing
+      ## floor at the structure's own edge (measured: 45-104 stranded
+      ## "rooms" per draw on the first pass). A maze's exterior wall
+      ## doesn't need to scale with `he` the way a single-room shell
+      ## does; a small near-constant thickness plus a cellSize comfortably
+      ## bigger than it (>=2.5x) is what the grid-native carve needs.
+      let mazeShell = 26
+      let mazeWall = max(12, he div 30)
+      let mazeCell = max(64, he div 5)
+      let mazePlan = stampRoomMaze(rng, @[footprint], mazeShell, mazeCell, mazeWall, 0.15, 3)
       shapes.add mazePlan.shapes
       rooms = mazePlan.rooms
     else:
@@ -1225,7 +1237,11 @@ proc stampPoi(
     ## stampRoomMaze's own comment for why this grammar makes it cheap),
     ## with a full recursive-backtracker maze of rooms/corridors inside.
     grammar = gMaze
-    let shellThick = max(40, he * 2 div 5)
+    ## ROUND 10 FIX (same one as poiWarren's maze branch above): shellThick
+    ## must stay well under cellSize or boundary walls swallow whole cells.
+    ## Near-constant thickness, cellSize scales with `he` and stays >=2.5x
+    ## the shell so every boundary cell keeps real interior floor.
+    let mazeShell = 30
     let mainFootprint = MapRect(x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
     var pieces = @[mainFootprint]
     if rng.rand(1.0) < 0.4:
@@ -1241,8 +1257,9 @@ proc stampPoi(
                  else: mainFootprint.x - legW
       let legY = mainFootprint.y + rng.rand(mainFootprint.h - legH)
       pieces.add MapRect(x: legX, y: legY, w: legW, h: legH)
-    let cellSize = max(56, he div 5)
-    let plan = stampRoomMaze(rng, pieces, shellThick, cellSize, max(18, he div 12), 0.15, 3)
+    let cellSize = max(80, he div 4)
+    let wallThick = max(14, he div 30)
+    let plan = stampRoomMaze(rng, pieces, mazeShell, cellSize, wallThick, 0.15, 3)
     shapes.add plan.shapes
     rooms = plan.rooms
   of poiCaveDen:
@@ -4166,6 +4183,7 @@ proc cmdGenerate(a: Args) =
     let fillShapes = m.obstacles[m.structureCount .. ^1]
     let prunedFill = pruneConfetti(fillShapes, m.width, m.height, ConfettiFloorPx2)
     m.obstacles = protectedShapes & prunedFill
+  let prunedCount = rawCount - m.obstacles.len
   var repaired = 0
   var tunneled = 0
   var sealed = 0
@@ -4195,7 +4213,7 @@ proc cmdGenerate(a: Args) =
       &"{m.width}x{m.height} " &
       &"gunRange={m.gunRange} spawns={m.spawns.len} pois={m.pois.len} " &
       &"obstacles={m.obstacles.len} (structures={m.structureCount})" &
-      &" (pruned {rawCount - (m.obstacles.len - repaired)} confetti of {rawCount}," &
+      &" (pruned {prunedCount} confetti of {rawCount}," &
       &" {repaired} spawn-cover repairs, medkits={m.medKitCandidates.len}" &
       &" grenades={m.grenadeSpawns.len}) -> {outPath}")
     stderr.writeLine(
