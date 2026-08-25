@@ -6400,6 +6400,10 @@ var
     low(int), 0, 0, 0, 0, 0, 0)
   ZoneTideCachePixels: array[4, seq[uint8]]  ## top, bottom, left, right.
   ZoneTideCacheGeom: array[4, tuple[x, y, w, h: int]]
+  ZoneWallArtMaskKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
+  ZoneWallArtMask: seq[bool]      ## true wherever RENDERED wall art owns
+                                  ## the pixel — see ensureZoneWallArtMask.
+  ZoneWallArtMaskW, ZoneWallArtMaskH: int
 
 const
   ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
@@ -6670,6 +6674,59 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
       color.a)
   color
 
+proc ensureZoneWallArtMask(sim: SimServer) =
+  ## Precomputes, once per map, which pixels are covered by RENDERED wall
+  ## art — the SAME test renderArenaRgbaPair uses to build its own artMask
+  ## (the border ring, plus every obstacle shape via shapeWallAtF) — not
+  ## sim.wallMask/isWall, the PHYSICS collision mask. That mask is baked
+  ## from a separately-rasterized collision image and is not guaranteed to
+  ## line up pixel-for-pixel with a rooftop bevel or parapet drawn past the
+  ## collidable core; using it left thin art overhangs still getting
+  ## painted (Maxwell's pixel-sampled review: flooded walls still read the
+  ## paint's magenta family, not the wall's brown, i.e. the fix wasn't
+  ## reaching most of what a screenshot actually shows). This is the exact
+  ## art contract instead, cached so the per-pixel zone-band rebuild (which
+  ## can run every tick during an active shrink) pays an O(1) lookup, not a
+  ## per-obstacle shape retest.
+  ##
+  ## Spinning diamonds are excluded: they redraw themselves as their own
+  ## live sprite objects every frame, tracking their own rotation, so a
+  ## static hole for their base footprint would either gap open once
+  ## they've spun clear or fight their own live redraw.
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy)
+  if key == ZoneWallArtMaskKey and ZoneWallArtMask.len == w * h:
+    return
+  ZoneWallArtMaskKey = key
+  ZoneWallArtMaskW = w
+  ZoneWallArtMaskH = h
+  ZoneWallArtMask = newSeq[bool](w * h)
+  for y in 0 ..< h:
+    let borderRow = y < ArenaBorder or y >= h - ArenaBorder
+    for x in 0 ..< w:
+      if borderRow or x < ArenaBorder or x >= w - ArenaBorder:
+        ZoneWallArtMask[y * w + x] = true
+  for shape in ArenaObstacles:
+    if sim.gameMap.isSpinningDiamond(shape):
+      continue
+    let (bx0, by0, bx1, by1) = shapeBounds(shape)
+    for y in max(0, by0) .. min(h - 1, by1):
+      let fy = float(y) + 0.5
+      for x in max(0, bx0) .. min(w - 1, bx1):
+        if ZoneWallArtMask[y * w + x]:
+          continue
+        if shapeWallAtF(float(x) + 0.5, fy, shape, cx, cy):
+          ZoneWallArtMask[y * w + x] = true
+
+proc isZoneWallArt(x, y: int): bool {.inline.} =
+  if x < 0 or y < 0 or x >= ZoneWallArtMaskW or y >= ZoneWallArtMaskH:
+    return true
+  ZoneWallArtMask[y * ZoneWallArtMaskW + x]
+
 proc buildTideBarPixels(
   sim: SimServer, rect: MapRect, barX, barY, width, height: int
 ): seq[uint8] =
@@ -6691,14 +6748,19 @@ proc buildTideBarPixels(
   ## re-sent as the rect shrinks, necessarily composited AFTER (on top of)
   ## that already-baked static texture, wall art included. The fix has the
   ## same effect through the opposite mechanism: skip painting — leave the
-  ## pixel fully transparent — wherever `sim.isWall` says a wall already
-  ## owns this tile, so the pre-baked wall art shows through untouched. This
-  ## is render-only: it changes what the sprite's own pixels say, never the
-  ## rect, the damage boundary, or anything that feeds gameHash, so no
-  ## re-record is needed for it. `sim.isWall` is the same O(1) collision-mask
-  ## lookup the sim itself steps players against (not a per-pixel shape
-  ## geometry retest), so this costs nothing extra worth measuring even
-  ## rebuilt every tick during an active shrink.
+  ## pixel fully transparent — wherever `isZoneWallArt` says RENDERED wall
+  ## art already owns this tile, so the pre-baked wall art shows through
+  ## untouched. This is render-only: it changes what the sprite's own pixels
+  ## say, never the rect, the damage boundary, or anything that feeds
+  ## gameHash, so no re-record is needed for it.
+  ##
+  ## Deliberately `isZoneWallArt` (the cached ART mask, matching
+  ## renderArenaRgbaPair pixel-for-pixel), not `sim.isWall`/wallMask (the
+  ## PHYSICS collision mask, baked from a separately-rasterized image): a
+  ## first pass used the collision mask and a pixel-sampled screenshot
+  ## review caught it not lining up with a rooftop bevel or parapet drawn
+  ## past the collidable core, so most of a wall's visible footprint was
+  ## still reading as painted magenta rather than its own brown.
   result = newRgbaPixels(width, height)
   for ly in 0 ..< height:
     let py = barY + ly
@@ -6708,7 +6770,7 @@ proc buildTideBarPixels(
         d = distanceOutsideRect(rect, px, py)
       if d <= 0:
         continue
-      if sim.isWall(px, py):
+      if isZoneWallArt(px, py):
         continue
       let color = zoneDeadPixelColor(rect, px, py, d)
       if color.a == 0:
@@ -6755,6 +6817,7 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
   if key == ZoneTideCacheKey:
     return
   ZoneTideCacheKey = key
+  ensureZoneWallArtMask(sim)  ## a no-op past the first call for this map.
   ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
   ## is sized in real MAP pixels, so it reads the same lobe scale on any
   ## board without a proportionality fudge.
