@@ -725,7 +725,10 @@ const
                             ##      "Longshot"'s 8.3% (n=240 team-eps) means
                             ##      THIS is the easier act; swapped.
      "Longshot"],           ## V    a kill past LongshotPx (v6, GLORY C4:
-                            ##      was IV -- the rarer act, moved up)
+                            ##      was IV -- the rarer act, moved up.
+                            ##      GLORY C6: EVALUATED, kept -- already
+                            ##      neutral paintball/marksmanship
+                            ##      vocabulary, names no outside game.)
     # treeSpray — "The Can". v3: "Shake It" (pick up a can) is GONE.
     ["First Coat",          ## I    a spray kill
      "Full Coverage",       ## II   2 spray kills in one game
@@ -734,7 +737,10 @@ const
      "Double Splash"],      ## V    one cone activation kills 2+ enemies
     # treeGrenade — "The Bomb". v3: "Pull the Pin" (pick up a nade) is GONE.
     ["Delivery",            ## I    a grenade kill
-     "Fireball",            ## II   2 grenade kills in one game
+     "Splatterbomb",        ## II   2 grenade kills in one game (v6, GLORY
+                            ##      C6: was "Fireball" -- a nade throws
+                            ##      PAINT, not fire; kept "Delivery" as-is,
+                            ##      already paint-native register)
      "Blast Radius",        ## III  a grenade blast that caught 2+ enemies
                             ##      (v6, GLORY C3a: gates on
                             ##      `grenadeMultiKills` alone now -- the old
@@ -750,15 +756,27 @@ const
                             ##      (2.9%) and "Double Blast" (2.9%) -- the
                             ##      tree's actual hardest tier, moved to V.
     # treeShield — "The Wall". v3: "Suit Up" (pick up a shield) is GONE.
-    ["Aegis",               ## I    absorb 3 hp
+    # v6 (GLORY C6): the whole tier set read as Greek-mythology/fortress
+    # vocabulary borrowed from elsewhere (Aegis, Bulwark, Rampart, Atlas) --
+    # renamed to the paintball field's own language. "Blockade" is already
+    # paint-native (a body blocking incoming fire) and untouched.
+    ["Suit of Paint",       ## I    absorb 3 hp (was "Aegis")
      "Blockade",            ## II   absorb 6 hp in one game
-     "Bulwark",             ## III  absorb 6 hp AND land an enemy kill
-     "Rampart",             ## IV   absorb 9 hp in one game
-     "Atlas"],              ## V    absorb 12 hp in one game
+     "Paint Wall",          ## III  absorb 6 hp AND land an enemy kill
+                            ##      (was "Bulwark")
+     "The Bunker",          ## IV   absorb 9 hp in one game (was "Rampart" --
+                            ##      the bunker is THE iconic paintball-field
+                            ##      obstacle, not a borrowed fortress term)
+     "The Backstop"],       ## V    absorb 12 hp in one game (was "Atlas")
     # treeMedKit — "The Patch". v3: "Field Dressing" (take a med kit) is
     # GONE -- the take is normal play; the SAVE it buys is the achievement.
-    ["The Save",            ## I    heal at 1 hp
-     "Triage",              ## II   2 clutch heals in one episode
+    ["The Catch",           ## I    heal at 1 hp (v6, GLORY C6: was
+                            ##      "The Save" -- "catch" reads as the
+                            ##      teammate's play, not a medical term)
+     "Patch Job",           ## II   2 clutch heals in one episode (v6,
+                            ##      GLORY C6: was "Triage", a real-medicine
+                            ##      term; "patch" already lives in this
+                            ##      tree's own subtitle)
      "Second Wind",         ## III  a KILL landing within 120 ticks of your
                             ##      latest clutch heal -- detected at the
                             ##      kill site, so the heal must come FIRST
@@ -766,7 +784,10 @@ const
                             ##      the heal tick and never checked order or
                             ##      that a kill fell inside the window at
                             ##      all -- CURRICULUM audit C6/C7).
-     "Miracle Worker",      ## IV   3 clutch heals in one episode
+     "Miracle Worker",      ## IV   3 clutch heals in one episode (v6, GLORY
+                            ##      C6: EVALUATED, kept -- a common idiom,
+                            ##      not a borrowed franchise/mythology name;
+                            ##      reads fine cold to a kid)
      "Lifeline"],           ## V    a clutch heal taken WHILE CARRYING the heart
     # treeCarrier — "The Heart". v3.1 (CURRICULUM audit C1/C8): tier I/II used
     # to read `steals >= 1` (an uncontested pickup, satisfiable by walking
@@ -832,10 +853,16 @@ const
     # (`teamConvertedKits`) -- a teammate landed the kit's signature act --
     # never live possession, which was arrival wearing a team hat.
     ["Kitted",              ## I    2 of 4 kits CONVERTED, team-wide
-     "Combined Arms",       ## II   3 of 4 kits converted
+     "Full Loadout",        ## II   3 of 4 kits converted (v6, GLORY C6: was
+                            ##      "Combined Arms" -- real-world military
+                            ##      jargon, replaced with a gaming-neutral
+                            ##      term)
      "Full Kit",            ## III  4 of 4 kits converted
      "Clean Sheet",         ## IV   FULL-GAME zero team kills (conclusion-only)
-     "The Parade"],         ## V    4 of 4 converted AND a capture this game
+     "Victory Lap"],        ## V    4 of 4 converted AND a capture this game
+                            ##      (v6, GLORY C6: was "The Parade" --
+                            ##      "victory lap" is the paintball-league
+                            ##      idiom for a dominant, capped-off win)
   ]
 
 # ───────────────────────────────────────────────────────────────────────────

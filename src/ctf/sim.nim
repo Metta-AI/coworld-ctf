@@ -4089,7 +4089,8 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # v6 (GLORY C3a): dropped the `sprayMultiKills` alternative AND the
     # standalone `grenadeKills >= 1` term -- a SPRAY multi-kill completing a
     # GRENADE tier was the same tree-crossing bug the shield tree's own
-    # `Bulwark` fix (below) already closed for `player.kills`, and the
+    # "Paint Wall" fix (below, né "Bulwark") already closed for
+    # `player.kills`, and the
     # `grenadeKills >= 1` clause was dead weight: every enemy a multi-kill
     # blast catches is ALSO counted into `grenadeKills` on the way to
     # incrementing this counter, so `grenadeMultiKills >= 1` already implies
@@ -4105,9 +4106,10 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.soakedHp >= 6:          earn(treeShield, 1)
     # Enemy kills only: `player.kills` is the raw recordKill tally and it
     # COUNTS TEAMMATES, so gating on it let a friendly-fire kill complete
-    # "Bulwark" (proven in the field: the banner announced it while the same
-    # tick minted the -60 team-kill penalty). The per-weapon counters are
-    # incremented only on non-friendly kills, so their sum is the honest gate.
+    # "Paint Wall" (né "Bulwark" -- renamed GLORY C6; proven in the field:
+    # the banner announced it while the same tick minted the -60 team-kill
+    # penalty). The per-weapon counters are incremented only on non-friendly
+    # kills, so their sum is the honest gate.
     if player.soakedHp >= 6 and
        player.gunKills + player.sprayKills + player.grenadeKills >= 1:
                                       earn(treeShield, 2)

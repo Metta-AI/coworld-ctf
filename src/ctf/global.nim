@@ -5441,8 +5441,98 @@ proc paintBlobZoneColor(
   else:
     (core.r, core.g, core.b, 255'u8)
 
+var chunkyTextCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
+  ## Bounded like smoothTextCache -- see buildChunkyBoardText below.
+
+proc buildChunkyBoardText(
+  sim: SimServer, text: string, inkR, inkG, inkB: uint8, extraScale = 1
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## SPLAT C7: chip/pop text at boardScale>1, in the game's OWN chunky
+  ## bitmap face (sim.shoutFont -- the 7x9 grid font data/ascii.png already
+  ## decodes for shout bubbles) instead of the DOM broadcast chrome's vector
+  ## Rajdhani (smoothTextSprite) -- board text has to read as GAME type, not
+  ## broadcast chrome type.
+  ##
+  ## MEASURED, not assumed: the game's OTHER bitmap face -- the 5-6px tiny5
+  ## HUD font (sim.asciiSprites), nearest-neighbor-scaled the identical way
+  ## -- was rendered side by side with shoutFont and the shipping vector
+  ## Rajdhani at boardScale 2x native AND a simulated 640-embed downscale
+  ## (an achievement string, "MIRACLE WORKER +400g", the longest realistic
+  ## case). tiny5 came out visibly smaller and choppier than either
+  ## alternative at both sizes -- letters crowd together and the numerals
+  ## blur into each other past reading distance. shoutFont read cleanly at
+  ## both sizes, close to Rajdhani's own footprint, so it is the face this
+  ## proc actually uses -- "the closest chunky treatment that passes," not
+  ## the literal `asciiSprites` field the audit named by way of example.
+  ##
+  ## Nearest-neighbor upscaled by boardScale times an optional extra INTEGER
+  ## factor (a magnitude-scaled deed pop's own "bigger type" tier --
+  ## gloryPopLineBox feeds this in as extraScale from its caller -- a bitmap
+  ## font can only scale by clean integers, which reads as MORE chunky pixel
+  ## art, not a defect). A 1-logical-cell 4-neighbor dark contour keeps it
+  ## legible over the busy floor, the same idiom the 1x pixel-font path
+  ## already uses (buildPopLabelSprite). Cached like smoothTextSprite: a
+  ## small bounded set of distinct (text, ink, scale) triples, rebuilt once
+  ## and reused across every stage/tick it is unchanged.
+  let
+    k = boardScale * max(1, extraScale)
+    key = text & "\x1f" & $inkR & "," & $inkG & "," & $inkB & "\x1f" & $k
+  if chunkyTextCache.hasKey(key):
+    return chunkyTextCache[key]
+  let
+    font = sim.shoutFont
+    textW = max(1, font.textWidth(text))
+    glyphH = max(1, font.height)
+    logicalW = textW + 2
+    logicalH = glyphH + 2
+  var ink = newSeq[bool](logicalW * logicalH)
+  var penX = 1
+  for ch in text:
+    let glyph = font.glyphAt(ch)
+    for gy in 0 ..< glyph.height:
+      for gx in 0 ..< glyph.width:
+        if glyph.glyphPixel(gx, gy):
+          let
+            ix = penX + gx
+            iy = 1 + gy
+          if ix >= 0 and ix < logicalW and iy >= 0 and iy < logicalH:
+            ink[iy * logicalW + ix] = true
+    penX += font.glyphAdvance(ch)
+  let
+    nativeW = logicalW * k
+    nativeH = logicalH * k
+  var pixels = newRgbaPixels(nativeW, nativeH)
+  for iy in 0 ..< logicalH:
+    for ix in 0 ..< logicalW:
+      let isInk = ink[iy * logicalW + ix]
+      var nearInk = false
+      if not isInk:
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+          let
+            nx = ix + dx
+            ny = iy + dy
+          if nx >= 0 and nx < logicalW and ny >= 0 and ny < logicalH and
+              ink[ny * logicalW + nx]:
+            nearInk = true
+            break
+      if not isInk and not nearInk:
+        continue
+      for dy in 0 ..< k:
+        for dx in 0 ..< k:
+          let o = (iy * k + dy) * nativeW + (ix * k + dx)
+          if isInk:
+            pixels.putRawRgbaPixel(o, inkR, inkG, inkB, 255)
+          else:
+            pixels.putRawRgbaPixel(o, 20, 16, 14, 255)
+  result.width = logicalW * max(1, extraScale)
+  result.height = logicalH * max(1, extraScale)
+  result.pixels = pixels
+  if chunkyTextCache.len > 4096:
+    chunkyTextCache.clear()
+  chunkyTextCache[key] = result
+
 proc buildGloryChipSprite(
-  pop: GloryFx, stage: int
+  sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
   ## The achievement CLAIM pop: ONE line -- "NAME +Ng" -- on an irregular
   ## PAINT-SPLAT blob in the claiming team's own paint, not the old
@@ -5508,20 +5598,19 @@ proc buildGloryChipSprite(
   var textNativeW, textNativeH: int
   var textPixels: seq[uint8]
   if isFirst:
-    let lineSpr = smoothTextSprite(
-      [text], GloryChipFirstInk[0], GloryChipFirstInk[1],
-      GloryChipFirstInk[2], k, GloryChipLineH)
+    let lineSpr = sim.buildChunkyBoardText(
+      text, GloryChipFirstInk[0], GloryChipFirstInk[1], GloryChipFirstInk[2])
     textNativeW = lineSpr.width * k
     textNativeH = lineSpr.height * k
     textPixels = lineSpr.pixels
   else:
     let
-      nameSpr = smoothTextSprite(
-        [pop.label.toUpperAscii()], GloryChipNameInk[0], GloryChipNameInk[1],
-        GloryChipNameInk[2], k, GloryChipLineH)
-      moneySpr = smoothTextSprite(
-        [gloryPopMoneyText(pop)], GloryPopInk[0], GloryPopInk[1],
-        GloryPopInk[2], k, GloryChipLineH)
+      nameSpr = sim.buildChunkyBoardText(
+        pop.label.toUpperAscii(), GloryChipNameInk[0], GloryChipNameInk[1],
+        GloryChipNameInk[2])
+      moneySpr = sim.buildChunkyBoardText(
+        gloryPopMoneyText(pop), GloryPopInk[0], GloryPopInk[1],
+        GloryPopInk[2])
       gap = GloryChipTextGapPx * k
     textNativeW = nameSpr.width * k + gap + moneySpr.width * k
     textNativeH = max(nameSpr.height, moneySpr.height) * k
@@ -5769,7 +5858,8 @@ proc buildGloryPopSprite(
   ## slim chip (buildGloryChipSprite); a plain deed gets its own small paint
   ## daub (buildPaintDaubBacking, SPLAT C5) on the supersampled board, since
   ## it has no chip to lean on for contrast -- used to be a per-glyph dark
-  ## contour halo; now it is the SAME material the chip is. Below
+  ## contour halo; now it is the SAME material the chip is, text set in the
+  ## SAME chunky bitmap face (buildChunkyBoardText, SPLAT C7). Below
   ## boardScale > 1 (or for a plain deed at any scale) a claim still renders
   ## through the plain pixel-font path with gloryPopText's identical
   ## "NAME +Ng" string, so a first claim needs its ink picked here too -- the
@@ -5777,20 +5867,38 @@ proc buildGloryPopSprite(
   ## draw paths would say the same text but stop agreeing on which claims
   ## are rare.
   if pop.label.len > 0 and boardScale > 1:
-    return buildGloryChipSprite(pop, stage)
+    return sim.buildGloryChipSprite(pop, stage)
   let
     text = gloryPopText(pop)
     ink =
       if pop.amount < 0: GloryPopPenaltyInk
       elif pop.label.len > 0 and pop.first: GloryChipFirstInk
       else: GloryPopInk
-  result = sim.buildPopLabelSprite(
-    text, stage, GloryPopStages,
-    ink[0], ink[1], ink[2], heightPx = sim.gloryPopLineBox(pop))
   if boardScale > 1:
+    # Bypasses buildPopLabelSprite's own boardScale>1 branch (the vector
+    # Rajdhani path shared with the "-N"/"SPLAT" damage pops, which stay
+    # vector -- this proc is glory-only) so the text is set in the chunky
+    # face before it ever gets a backing. A bitmap font scales by clean
+    # integers only; gloryPopLineBox's magnitude tiers become an extra
+    # integer multiplier on top of boardScale instead of a continuous size.
+    let
+      fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
+      alphaByte = uint8(clamp(255.0 * fade, 0.0, 255.0))
+      lineBoxPx = sim.gloryPopLineBox(pop)
+      extraScale = max(1,
+        (lineBoxPx + sim.shoutFont.height - 1) div sim.shoutFont.height)
+      textSpr = sim.buildChunkyBoardText(text, ink[0], ink[1], ink[2],
+        extraScale)
     result = buildPaintDaubBacking(
-      result.width, result.height, result.pixels,
+      textSpr.width, textSpr.height, textSpr.pixels,
       gloryPopLabelKey(pop, text))
+    if alphaByte != 255'u8:
+      for i in countup(3, result.pixels.len - 1, 4):
+        result.pixels[i] = uint8(result.pixels[i].int * alphaByte.int div 255)
+  else:
+    result = sim.buildPopLabelSprite(
+      text, stage, GloryPopStages,
+      ink[0], ink[1], ink[2], heightPx = sim.gloryPopLineBox(pop))
 
 proc addGloryPops(
   sim: SimServer,
