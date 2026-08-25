@@ -4169,15 +4169,24 @@ proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
   ## offset PERPENDICULAR to the wall into walkable space (never on top of
   ## it): a MIDPOINT (isMouth=false) and its two ENDPOINTS (isMouth=true —
   ## doctrine: "grenade sites at alley mouths, not midpoints").
-  proc walkableOffset(wx, wy, px, py, offset: float): MapPoint =
+  proc walkableOffset(wx, wy, px, py, offset: float): tuple[p: MapPoint, ok: bool] =
     for sgn in [1.0, -1.0]:
       let cx = int(wx + px * offset * sgn)
       let cy = int(wy + py * offset * sgn)
       var blocked = false
       for s in m.obstacles:
         if inShape(cx, cy, s): blocked = true; break
-      if not blocked: return MapPoint(x: cx, y: cy)
-    MapPoint(x: int(wx), y: int(wy))  ## fallback: rare, still a legible point
+      if not blocked: return (MapPoint(x: cx, y: cy), true)
+    ## ROUND 14 FIX (confirmed): both perpendicular offsets landed inside a
+    ## wall (obstacles hugging the diagonal on both sides — a tightly-boxed
+    ## alley). The old fallback returned (wx, wy) itself: the wall's OWN
+    ## centerline point, which is BY CONSTRUCTION inside the diagonal's own
+    ## solid fill (distance 0 to its axis, always <= thickness/2), silently
+    ## handing placeItemsGraded an item candidate sitting on an unreachable
+    ## wall pixel. DROP the candidate instead — no walkable offset exists
+    ## here, so this mouth/midpoint contributes nothing rather than a
+    ## guaranteed-bad one.
+    (MapPoint(x: int(wx), y: int(wy)), false)
   for shape in m.obstacles:
     if shape.kind != shapeDiagonal: continue
     let dx = float(shape.x1 - shape.x0)
@@ -4191,23 +4200,78 @@ proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
     let offset = float(shape.thickness) / 2.0 + 24.0
     let midx = float(shape.x0 + shape.x1) / 2.0
     let midy = float(shape.y0 + shape.y1) / 2.0
-    result.add ClassifiedSite(
-      p: walkableOffset(midx, midy, px, py, offset), class: scAlley, isMouth: false)
-    result.add ClassifiedSite(
-      p: walkableOffset(float(shape.x0), float(shape.y0), px, py, offset),
-      class: scAlley, isMouth: true)
-    result.add ClassifiedSite(
-      p: walkableOffset(float(shape.x1), float(shape.y1), px, py, offset),
-      class: scAlley, isMouth: true)
+    let (midP, midOk) = walkableOffset(midx, midy, px, py, offset)
+    if midOk:
+      result.add ClassifiedSite(p: midP, class: scAlley, isMouth: false)
+    let (p0, ok0) = walkableOffset(float(shape.x0), float(shape.y0), px, py, offset)
+    if ok0:
+      result.add ClassifiedSite(p: p0, class: scAlley, isMouth: true)
+    let (p1, ok1) = walkableOffset(float(shape.x1), float(shape.y1), px, py, offset)
+    if ok1:
+      result.add ClassifiedSite(p: p1, class: scAlley, isMouth: true)
 
-proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
-  ## Reuses THE BURROW REQUIREMENT's own technique (round 12,
-  ## computeBurrow/enclosureOpenFraction) verbatim: per connected wall
-  ## component of the authored structure set, flood-fill "outside" from
-  ## the crop border, then collect boundary cells that are OPEN (not
-  ## wall) — exactly the declared gate gaps the burrow gate already
-  ## measures as a FRACTION; this collects their actual world positions
-  ## instead, clustered into one point per contiguous open run.
+type GateMouthInfo = object
+  p: MapPoint
+  parentMassPx2: int   ## the parent wall component's own footprint, px^2
+  parentLootTier: int  ## min lootTier of any POI whose center falls inside
+                        ## the parent structure's own bbox; -1 if none found
+
+proc structureLootTier(m: BrMap, bbox: tuple[x0, y0, x1, y1: int]): int =
+  ## The doctrine's own "richest kit at the most exposed place" signal
+  ## (§4.4) is a per-POI lootTier; a wall COMPONENT doesn't carry one
+  ## directly, so read it off whichever POI's own center lands inside this
+  ## component's wall bbox (world px) — the tier the structure was
+  ## authored at. -1 (unknown/no POI found) is the least significant tier
+  ## on this axis, never a guaranteed-admit.
+  result = -1
+  let wx0 = bbox.x0 * GridStride
+  let wy0 = bbox.y0 * GridStride
+  let wx1 = bbox.x1 * GridStride
+  let wy1 = bbox.y1 * GridStride
+  for poi in m.pois:
+    if poi.center.x >= wx0 and poi.center.x <= wx1 and
+       poi.center.y >= wy0 and poi.center.y <= wy1:
+      if result == -1 or poi.lootTier < result: result = poi.lootTier
+
+proc allStructureGateMouths(m: BrMap): seq[GateMouthInfo] =
+  ## ROUND 15 REBUILD (fix 1): the original version reused THE BURROW
+  ## REQUIREMENT's technique (round 12, computeBurrow/enclosureOpenFraction)
+  ## LITERALLY — same per-component flood-fill of "outside" from the crop
+  ## border, same boundary classification — and returned ZERO gates on
+  ## every real seed probed (see the retired note on goldenRichPoiHotspot
+  ## below, and confirmed again here by instrumenting enclosureOpenFraction
+  ## directly: openFrac == 0.000 on every structure across a dozen real
+  ## seeds, temporary diagnostic, not shipped). Root cause: that flood is
+  ## UNCAPPED — once it enters through any single opening it keeps
+  ## spreading through every interior room/corridor connected to it (the
+  ## exact behavior enclosureOpenFraction's own round-13 correction
+  ## documents: "the flood enters through every gate and then fills EVERY
+  ## carved room/corridor reachable from it"). That's fine for
+  ## enclosureOpenFraction's OWN job (a whole-component openness ratio,
+  ## deliberately calibrated on that blended reading — do not touch it,
+  ## its comment says so explicitly) but it means the door cells THEMSELVES
+  ## end up marked "outside" (reached) rather than enclosed, so they can
+  ## never satisfy "enclosed footprint cell touching a reached one" —
+  ## nothing at a real doorway could ever register as boundary-open, only
+  ## a fully-sealed mass with NO opening at all ever could (which never
+  ## occurs in a real draw).
+  ##
+  ## The fix keeps round 12's exact vocabulary (per component: flood
+  ## "outside" from the crop border; a GATE cell is a non-wall footprint
+  ## cell that's unreached but touches a reached one) but stops the flood
+  ## from ever crossing this component's OWN wall bbox at all — the crop
+  ## PADDING ring is unambiguously true exterior regardless of component
+  ## size/shape (a structure's own interior floor can never sit outside
+  ## its own wall bbox), so seeding and expanding "outside" over the
+  ## padding ring ONLY (never stepping into the bbox interior) can never
+  ## leak through a gate. A gate-mouth cell is then exactly: non-wall,
+  ## INSIDE the bbox, never reached by that padding-only flood, 4-adjacent
+  ## to a reached padding cell — precisely the doorway's own outer
+  ## threshold, one cell deep, never the room beyond it. Interior doorways
+  ## between rooms of the SAME structure are (correctly) never adjacent to
+  ## the padding ring, so they never qualify — "gate mouth" means the
+  ## structure's actual entrance from the true exterior, not any doorway
+  ## anywhere inside it.
   let (cols, rows) = gridDims(m.width, m.height)
   let sc = min(m.structureCount, m.obstacles.len)
   let wall = buildWallGridFor(m.obstacles[0 ..< sc], m.width, m.height)
@@ -4223,9 +4287,12 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
         bboxByLabel[lbl] = (min(b.x0, gx), min(b.y0, gy), max(b.x1, gx), max(b.y1, gy))
       else:
         bboxByLabel[lbl] = (gx, gy, gx, gy)
-  const ClusterCells = 10  ## ~40px buckets: a physical gate (60-90px per
-                             ## linearConnectors' own gateW) collapses to
-                             ## 1-2 points instead of one per open cell.
+  const GateMouthMinRunCells = 5  ## a real doorway floors at capGateW's own
+                                    ## 28px (7 cells at GridStride=4); this
+                                    ## sits below that with slack so it only
+                                    ## filters grid-quantization noise
+                                    ## (a 1-2 cell diagonal nick), never a
+                                    ## real doorway's own threshold run.
   for lbl, bbox in bboxByLabel:
     let sizePx2 = comp.sizes[lbl] * GridStride * GridStride
     if sizePx2 < ConfettiFloorPx2: continue
@@ -4244,17 +4311,27 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
         if wall[gi] and comp.labels[gi] == lbl:
           localWall[ly * lcols + lx] = true
     proc lidx(x, y: int): int = y * lcols + x
+    ## Local coords of this component's own wall bbox — the padding ring
+    ## is everything OUTSIDE this rect.
+    let ix0 = BurrowPadCells
+    let iy0 = BurrowPadCells
+    let ix1 = BurrowPadCells + (bbox.x1 - bbox.x0)
+    let iy1 = BurrowPadCells + (bbox.y1 - bbox.y0)
+    proc inInterior(x, y: int): bool =
+      x >= ix0 and x <= ix1 and y >= iy0 and y <= iy1
+    ## "outside": padding-margin flood ONLY — never steps into the bbox
+    ## interior, so it can never leak through a gate into the room beyond.
     var outside = newSeq[bool](lcols * lrows)
     var queue: seq[int]
     for x in 0 ..< lcols:
       for y in [0, lrows - 1]:
         let i = lidx(x, y)
-        if not localWall[i] and not outside[i]:
+        if not localWall[i] and not inInterior(x, y) and not outside[i]:
           outside[i] = true; queue.add i
     for y in 0 ..< lrows:
       for x in [0, lcols - 1]:
         let i = lidx(x, y)
-        if not localWall[i] and not outside[i]:
+        if not localWall[i] and not inInterior(x, y) and not outside[i]:
           outside[i] = true; queue.add i
     var qi = 0
     while qi < queue.len:
@@ -4265,28 +4342,110 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
       for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         let nx = x + ddx
         let ny = y + ddy
-        if nx >= 0 and nx < lcols and ny >= 0 and ny < lrows:
-          let ni = lidx(nx, ny)
-          if not localWall[ni] and not outside[ni]:
-            outside[ni] = true; queue.add ni
-    var clusterBucket = initTable[(int, int), bool]()
+        if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
+        if inInterior(nx, ny): continue  ## the fix: never cross the bbox
+        let ni = lidx(nx, ny)
+        if not localWall[ni] and not outside[ni]:
+          outside[ni] = true; queue.add ni
+    ## Gate-mouth cells: non-wall, inside the bbox, 4-adjacent to a reached
+    ## padding cell (never reached themselves — the flood above can't get
+    ## to them).
+    var openMask = newSeq[bool](lcols * lrows)
     for y in 0 ..< lrows:
       for x in 0 ..< lcols:
+        if not inInterior(x, y): continue
         let i = lidx(x, y)
         if localWall[i]: continue
-        let isFootprint = not outside[i]
-        if not isFootprint: continue  ## enclosed floor only (not true outside)
-        var isBoundary = false
         for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
           let nx = x + ddx
           let ny = y + ddy
           if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
-          if outside[lidx(nx, ny)]: isBoundary = true
-        if not isBoundary: continue
-        let key = ((ox + x) div ClusterCells, (oy + y) div ClusterCells)
-        if key notin clusterBucket:
-          clusterBucket[key] = true
-          result.add MapPoint(x: (ox + x) * GridStride, y: (oy + y) * GridStride)
+          if outside[lidx(nx, ny)]: openMask[i] = true
+    ## Contiguous runs of gate-mouth cells -> one point per run (a doorway,
+    ## however wide, is one gate; two runs separated by solid wall are two
+    ## gates).
+    let runs = components(openMask, lcols, lrows, true, false)
+    var cellsByRun = initTable[int, seq[int]]()
+    for i in 0 ..< openMask.len:
+      if not openMask[i]: continue
+      cellsByRun.mgetOrPut(runs.labels[i], @[]).add i
+    for _, cells in cellsByRun:
+      if cells.len < GateMouthMinRunCells: continue
+      var sx = 0
+      var sy = 0
+      for i in cells:
+        sx += i mod lcols
+        sy += i div lcols
+      let cxLocal = sx div cells.len
+      let cyLocal = sy div cells.len
+      ## Nearest actual run member to the centroid (the centroid cell
+      ## itself need not be IN the run for an L-shaped/corner opening).
+      var bestI = cells[0]
+      var bestD = high(int)
+      for i in cells:
+        let dx = (i mod lcols) - cxLocal
+        let dy = (i div lcols) - cyLocal
+        let d = dx * dx + dy * dy
+        if d < bestD: bestD = d; bestI = i
+      let mx = bestI mod lcols
+      let my = bestI div lcols
+      ## Push one cell OUTWARD: toward a reached (true-exterior) neighbor —
+      ## by construction every gate-mouth cell has at least one.
+      var px = mx
+      var py = my
+      for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        let nx = mx + ddx
+        let ny = my + ddy
+        if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
+        if outside[lidx(nx, ny)]:
+          px = nx; py = ny
+          break
+      result.add GateMouthInfo(
+        p: MapPoint(x: (ox + px) * GridStride, y: (oy + py) * GridStride),
+        parentMassPx2: sizePx2, parentLootTier: structureLootTier(m, bbox))
+  when defined(brDebugGateMouth):
+    stderr.writeLine(&"GATEMOUTH count={result.len} points={result}")
+
+const GateMouthTopK = 8  ## COORDINATOR RULING (round 15, post fix-1/2):
+  ## the doctrine's scHotspot means "the exciting contested FEW" —
+  ## keystones, causeway mouths, zone-favored junctions, MAJOR-structure
+  ## gates — never every doorway on every hut just because the detector
+  ## can now see them all. Ranks every detected gate by its parent
+  ## structure's own significance and admits only the top K map-wide (a
+  ## lootTier-0 parent always qualifies, uncapped — doctrine's own
+  ## "richest kit at the most exposed place" signal). 8 sits mid-range of
+  ## the ruling's 6-10 band; measured (round 15, 10-seed building-terrain
+  ## sample) to land total hotspotN (this source + lootTier0 POI +
+  ## causeway/anchor + junction, deduped) at 11-19 — the ~10-18 regime the
+  ## item budgets were originally calibrated against.
+
+proc topSignificantGates(gates: seq[GateMouthInfo], k: int): seq[GateMouthInfo] =
+  ## The ranking/admission logic itself, factored out and k-parameterized
+  ## so a golden can prove the filter directly (a tiny k forces a real
+  ## small-vs-large exclusion in a 2-structure synthetic map) independent
+  ## of the production K above. A lootTier-0 parent always qualifies
+  ## (never trimmed by k); everything else ranks by parent wall mass
+  ## descending, admitting only enough of the top to bring the total up
+  ## to k. Stable sort: ties break on original detection order.
+  var guaranteed: seq[GateMouthInfo]
+  var ranked: seq[GateMouthInfo]
+  for g in gates:
+    if g.parentLootTier == 0: guaranteed.add g
+    else: ranked.add g
+  ranked.sort(proc(a, b: GateMouthInfo): int = cmp(b.parentMassPx2, a.parentMassPx2))
+  result = guaranteed
+  for g in ranked:
+    if result.len >= k: break
+    result.add g
+
+proc significantGateMouths(m: BrMap, k: int = GateMouthTopK): seq[MapPoint] =
+  ## The FILTERED gate-mouth list hotspotCandidates actually consumes —
+  ## see topSignificantGates' own comment. allStructureGateMouths above
+  ## stays available (and unfiltered) under its own name for any future
+  ## consumer that wants every detected gate, not just the significant
+  ## ones.
+  for g in topSignificantGates(allStructureGateMouths(m), k):
+    result.add g.p
 
 proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
   ## HOTSPOTS: "the exciting contested places" — keystones, causeway/gate
@@ -4300,8 +4459,11 @@ proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
   ##      — reusing that same detector's own archetype vocabulary.
   ##  (c) JUNCTIONS: a POI whose connector degree (linearConnectors' own
   ##      shapeDiagonal endpoints landing within its footprint) is >= 3.
-  ##  (d) GATE MOUTHS: structureGateMouthPoints above, reusing round 12's
-  ##      burrow enclosure-opening detector verbatim.
+  ##  (d) GATE MOUTHS: significantGateMouths above, reusing round 12's
+  ##      burrow enclosure-opening detector (allStructureGateMouths) but
+  ##      admitting only the significance-filtered top K (coordinator
+  ##      ruling, round 15) — every doorway on every hut is NOT a hotspot,
+  ##      only a major structure's.
   const MinSepPx = 120
   var bucket = initTable[(int, int), bool]()
   var acc: seq[ClassifiedSite]  ## `result` can't be captured by a nested
@@ -4332,26 +4494,127 @@ proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
         inc degree[i]
   for i, p in m.pois:
     if degree[i] >= 3: tryAdd(p.center)
-  for gp in structureGateMouthPoints(m):
+  for gp in significantGateMouths(m):
     tryAdd(gp)
   acc
+
+const ItemSiteWallSnapRadiusPx = 24  ## ROUND 15 (fix 2, doctrine §4.9
+  ## instrument integrity): a candidate site landing on a wall cell
+  ## distorts both the declared-vs-realized occupancy gate and the
+  ## 16-spawn walk-graph fairness gate (they measure classifySites' own
+  ## points directly, never the engine's runtime spawn-time nudge). Small
+  ## enough that a snap is still legibly "the same place" — a few grid
+  ## cells, never a meaningfully different site.
+
+proc nearestWalkableCell(
+  obstacles: seq[ArenaShape], cols, rows: int, x, y, maxRadiusPx: int
+): tuple[p: MapPoint, ok: bool] =
+  ## Ring search (Chebyshev rings, grid-aligned) outward from (x, y)'s own
+  ## grid cell for the nearest walkable point. Walkability is tested via
+  ## `inShape` against the REAL obstacle list — NOT the coarse GridStride
+  ## (4px) wall-grid sample: a grid cell's own corner can read non-wall
+  ## while a few px away, still inside that SAME cell, an obstacle
+  ## boundary actually cuts through it. Confirmed the hard way: an earlier
+  ## version that trusted buildWallGrid's per-cell sample crashed
+  ## placeItemsGraded's own inShape-based assertion on seed 50 — a
+  ## "snapped" room site the wall grid called walkable still tested
+  ## inside an obstacle at its exact pixel. Ring candidates still land on
+  ## grid-cell corners (gx*GridStride, gy*GridStride) — legible,
+  ## deterministic, and a point loaded fresh from spec.json re-snaps to
+  ## the identical cell — but each one is verified by the SAME exact-pixel
+  ## test the assertion uses, so the two can never disagree again. Drops
+  ## (ok=false) if nothing walkable turns up within maxRadiusPx.
+  proc isWalkable(px, py: int): bool =
+    if px < 0 or py < 0: return false
+    for ob in obstacles:
+      if inShape(px, py, ob): return false
+    true
+  if isWalkable(x, y):
+    return (MapPoint(x: x, y: y), true)
+  let (gx0, gy0) = toGrid(x, y)
+  let maxRing = maxRadiusPx div GridStride + 1
+  for ring in 1 .. maxRing:
+    if ring * GridStride > maxRadiusPx: break  ## every cell in this (and
+                                                 ## any further) ring is
+                                                 ## already past the radius
+    var bestD2 = high(int)
+    var bestP = MapPoint(x: x, y: y)
+    var found = false
+    for dgy in -ring .. ring:
+      for dgx in -ring .. ring:
+        if max(abs(dgx), abs(dgy)) != ring: continue  ## this ring's own
+                                                         ## border only —
+                                                         ## interior cells
+                                                         ## were already
+                                                         ## tried at a
+                                                         ## smaller ring
+        let gx = gx0 + dgx
+        let gy = gy0 + dgy
+        if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
+        let wx = gx * GridStride
+        let wy = gy * GridStride
+        if not isWalkable(wx, wy): continue
+        let d2 = (wx - x) * (wx - x) + (wy - y) * (wy - y)
+        if d2 <= maxRadiusPx * maxRadiusPx and d2 < bestD2:
+          bestD2 = d2
+          bestP = MapPoint(x: wx, y: wy)
+          found = true
+    if found: return (bestP, true)
+  (MapPoint(x: x, y: y), false)
 
 proc classifySites(m: BrMap): seq[ClassifiedSite] =
   ## THE site classifier. Hotspots first (everything else needs
   ## distance-to-nearest-hotspot: medkit's anti-adjacency filter, and
   ## alley's feedsHotspot bias).
-  var hotspots = hotspotCandidates(m)
+  ##
+  ## ROUND 15 FIX (fix 2): every candidate, every class, snaps to the
+  ## nearest walkable cell within ItemSiteWallSnapRadiusPx (or is DROPPED
+  ## if none exists that close) right here, before anything downstream —
+  ## distance-to-hotspot, placeItemsGraded's own draw pool, and the item-
+  ## gradient/fairness gates' re-classification of already-placed points —
+  ## ever sees it. A broader sweep (round 14's fix 4, temporary diagnostic)
+  ## found scRoom (authored room-rect centers) and scHotspot (authored POI
+  ## centers) candidates landing on a wall cell in 23/30 real seeds (79
+  ## occurrences, 43 hotspot + 36 room): generation-time carving/complex-
+  ## accretion can build wall directly over an authored center point after
+  ## it was recorded, and neither source is re-validated against the
+  ## FINISHED geometry. The running game engine nudges an item spawn off a
+  ## wall at spawn time, so this was never a gameplay bug — but the
+  ## declared-vs-realized occupancy gate and the walk-graph fairness gate
+  ## both measure classifySites' own (previously un-nudged) points
+  ## directly, so the INSTRUMENTS were distorted. Fixed at the source
+  ## instead of at the gate.
+  let (cols, rows) = gridDims(m.width, m.height)
+  proc snap(sites: seq[ClassifiedSite]): seq[ClassifiedSite] =
+    when defined(brDebugSiteSnap):
+      var moved = 0
+      var dropped = 0
+    for s in sites:
+      let (np, ok) = nearestWalkableCell(m.obstacles, cols, rows, s.p.x, s.p.y, ItemSiteWallSnapRadiusPx)
+      if ok:
+        var s2 = s
+        s2.p = np
+        result.add s2
+        when defined(brDebugSiteSnap):
+          if np.x != s.p.x or np.y != s.p.y: inc moved
+      else:
+        when defined(brDebugSiteSnap):
+          inc dropped
+    when defined(brDebugSiteSnap):
+      if sites.len > 0:
+        stderr.writeLine(&"SITESNAP class={sites[0].class} total={sites.len} moved={moved} dropped={dropped}")
+  var hotspots = snap(hotspotCandidates(m))
   proc nearestHotspotDist(p: MapPoint): float =
     result = Inf
     for h in hotspots:
       let dx = float(p.x - h.p.x)
       let dy = float(p.y - h.p.y)
       result = min(result, sqrt(dx * dx + dy * dy))
-  var rooms = roomCandidates(m)
+  var rooms = snap(roomCandidates(m))
   for r in rooms.mitems: r.distToHotspot = nearestHotspotDist(r.p)
-  var corners = cornerCandidates(m)
+  var corners = snap(cornerCandidates(m))
   for c in corners.mitems: c.distToHotspot = nearestHotspotDist(c.p)
-  var alleys = alleyCandidatesFromDiagonals(m)
+  var alleys = snap(alleyCandidatesFromDiagonals(m))
   for a in alleys.mitems:
     a.distToHotspot = nearestHotspotDist(a.p)
     a.feedsHotspot = a.distToHotspot <= ItemAlleyFeedsHotspotFracG * float(m.gunRange)
@@ -5199,6 +5462,79 @@ proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
         any = true
   best
 
+proc shapeMassLabel(
+  shape: ArenaShape, comp: tuple[labels: seq[int], sizes: Table[int, int]],
+  cols, rows, width, height: int
+): int =
+  ## Which wall-grid connected-component this shape's own mass belongs to
+  ## (the label whose SIZE decides the confetti-prune verdict), or -1 if
+  ## none. Rect/disc/diamond/diagonal shapes sample their bbox centroid —
+  ## always interior for those kinds by construction (a rect's centroid is
+  ## inside the rect; a disc/diamond's centroid IS its declared center; a
+  ## diagonal's bbox centroid sits on its own axis, inside the stroke).
+  ##
+  ## ROUND 14 FIX (confirmed silent deletion): a POLYGON's bbox centroid is
+  ## NOT guaranteed interior. genCaves' blobPolygon wobbles a base radius
+  ## by two sinusoids whose combined amplitude can reach ~1.7x on one lobe
+  ## and well under 1x on the opposite lobe — lopsided/crescent enough that
+  ## the AABB centroid lands in the shape's own concave notch: a hole (or a
+  ## DIFFERENT, unrelated component), not the shape's own fill. Sampling
+  ## that one point then reads the wrong mass (often none at all, label
+  ## -1) and pruneConfetti silently DELETES an otherwise legitimate,
+  ## well-welded shape. Fixed in two tiers, both keyed off the shape's own
+  ## geometry (no new ArenaShape metadata, no touching mapgen_styles.nim):
+  ##   1. Try the polygon's own VERTEX-MEAN as a fast "generation center"
+  ##      proxy — blobPolygon samples its points at even angles around the
+  ##      true (cx, cy) it was drawn from, so the mean recovers something
+  ##      close to that center without carrying it separately. Verified
+  ##      via `inShape` (a bbox-centroid sample never was) before trusting
+  ##      its grid cell.
+  ##   2. If that still misses the shape's own fill (a genuinely
+  ##      crescent/star shape where even the vertex mean falls outside),
+  ##      fall back to scanning every grid cell the shape's OWN raster
+  ##      actually covers (the exact same rp=GridStride sampling used to
+  ##      build the wall grid) and keep whichever component it touches
+  ##      with the LARGEST mass. This is membership by ACTUAL FILL, never
+  ##      a single point — it can never under-count a shape's own mass,
+  ##      only ever find the true component(s) it welds into.
+  proc labelAt(x, y: int): int =
+    let cx = clamp(x, 0, width - 1)
+    let cy = clamp(y, 0, height - 1)
+    let (gx, gy) = toGrid(cx, cy)
+    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: return -1
+    comp.labels[gy * cols + gx]
+  let b = shapeBounds(shape)
+  if shape.kind != shapePolygon:
+    return labelAt((b.x0 + b.x1) div 2, (b.y0 + b.y1) div 2)
+  if shape.points.len > 0:
+    var sx, sy: int
+    for p in shape.points:
+      sx += p.x
+      sy += p.y
+    let vcx = sx div shape.points.len
+    let vcy = sy div shape.points.len
+    if inShape(vcx, vcy, shape):
+      let lbl = labelAt(vcx, vcy)
+      if lbl >= 0: return lbl
+  let gx0 = max(0, b.x0 div GridStride)
+  let gy0 = max(0, b.y0 div GridStride)
+  let gx1 = min(cols - 1, b.x1 div GridStride)
+  let gy1 = min(rows - 1, b.y1 div GridStride)
+  var bestLbl = -1
+  var bestSize = -1
+  for gy in gy0 .. gy1:
+    let y = gy * GridStride
+    for gx in gx0 .. gx1:
+      let x = gx * GridStride
+      if inShape(x, y, shape):
+        let lbl = comp.labels[gy * cols + gx]
+        if lbl >= 0:
+          let sz = comp.sizes.getOrDefault(lbl, 0)
+          if sz > bestSize:
+            bestSize = sz
+            bestLbl = lbl
+  bestLbl
+
 proc pruneConfetti(
   obstacles: seq[ArenaShape], width, height: int, floorPx2: int
 ): seq[ArenaShape] =
@@ -5206,10 +5542,11 @@ proc pruneConfetti(
   ## not just measured after the fact: drop any shape whose 8-connected wall
   ## mass (the mass it welds into, sharing an edge or corner with a
   ## neighbour) is smaller than the confetti floor. A shape with no welded
-  ## neighbours at all is its own 1-cell mass and is always dropped. Sampling
-  ## each shape's CENTROID against the mass grid (rather than re-deriving
-  ## membership analytically) keeps this consistent with validateBr's own
-  ## mass measurement by construction.
+  ## neighbours at all is its own 1-cell mass and is always dropped.
+  ## Membership is decided by shapeMassLabel (see its own comment for the
+  ## round-14 fix) rather than a raw centroid sample, so a lopsided polygon
+  ## whose bbox centroid misses its own fill can no longer be silently
+  ## dropped.
   let (cols, rows) = gridDims(width, height)
   var wall = newSeq[bool](cols * rows)
   for shape in obstacles:
@@ -5226,18 +5563,13 @@ proc pruneConfetti(
           wall[gy * cols + gx] = true
   let comp = components(wall, cols, rows, true, true)
   for shape in obstacles:
-    let b = shapeBounds(shape)
-    let ccx = clamp((b.x0 + b.x1) div 2, 0, width - 1)
-    let ccy = clamp((b.y0 + b.y1) div 2, 0, height - 1)
-    let (gx, gy) = toGrid(ccx, ccy)
-    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
-    let lbl = comp.labels[gy * cols + gx]
+    let lbl = shapeMassLabel(shape, comp, cols, rows, width, height)
     if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
       result.add shape
 
 proc pruneConfettiTrackBoundary(m: var BrMap, floorPx2: int) =
   ## Same confetti measurement as pruneConfetti (identical wall grid +
-  ## components + per-shape centroid sample — the kept set is byte-
+  ## components + per-shape shapeMassLabel — the kept set is byte-
   ## identical to calling pruneConfetti(m.obstacles, ...) directly),
   ## applied to the FULL obstacle list while keeping `structureCount`
   ## accurate. ROUND 13 FIX: cmdGenerate's second, full-obstacle-set
@@ -5275,12 +5607,7 @@ proc pruneConfettiTrackBoundary(m: var BrMap, floorPx2: int) =
   var kept: seq[ArenaShape]
   var newStructureCount = 0
   for idx, shape in m.obstacles:
-    let b = shapeBounds(shape)
-    let ccx = clamp((b.x0 + b.x1) div 2, 0, m.width - 1)
-    let ccy = clamp((b.y0 + b.y1) div 2, 0, m.height - 1)
-    let (gx, gy) = toGrid(ccx, ccy)
-    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
-    let lbl = comp.labels[gy * cols + gx]
+    let lbl = shapeMassLabel(shape, comp, cols, rows, m.width, m.height)
     if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
       kept.add shape
       if idx < m.structureCount: inc newStructureCount
@@ -5348,6 +5675,27 @@ proc placeItemsGraded(m: var BrMap) =
   ## inserting or removing a decision anywhere else in the generator can
   ## never shift this draw.
   let sites = classifySites(m)
+  ## ROUND 14 FIX (4b) + ROUND 15 FIX (fix 2): alleyCandidatesFromDiagonals
+  ## used to be able to hand back a candidate sitting ON A WALL cell (its
+  ## walkableOffset dead-end fallback, now dropped instead of returned —
+  ## see that proc's own comment), and a broader sweep across 30 real seeds
+  ## then found scRoom/scHotspot candidates landing on a wall cell too —
+  ## 79 occurrences across 23/30 seeds (43 hotspot, 36 room): authored POI
+  ## `center`/`rooms` points that generation-time carving/complex-accretion
+  ## later builds wall over, never re-validated against the FINISHED
+  ## geometry. classifySites now snaps (or drops) every candidate of every
+  ## class against the finished wall grid before returning it (see its own
+  ## comment) — this assertion is the load-bearing proof that guarantee
+  ## actually holds, for every class, not just alley: a regression in the
+  ## snap crashes loud here instead of quietly shipping an item on an
+  ## unreachable wall pixel.
+  for s in sites:
+    var onWall = false
+    for ob in m.obstacles:
+      if inShape(s.p.x, s.p.y, ob): onWall = true; break
+    doAssert not onWall,
+      &"placeItemsGraded: classified {s.class} site at ({s.p.x},{s.p.y}) " &
+      &"is inside an obstacle (seed={m.genSeed})"
   var byClass: array[SiteClass, seq[ClassifiedSite]]
   for s in sites: byClass[s.class].add s
 
@@ -5362,7 +5710,15 @@ proc placeItemsGraded(m: var BrMap) =
   ## the separation rule, not a starved pool, is what binds.
   let poiN = max(1, m.pois.len)
   let hotspotN = max(1, byClass[scHotspot].len)
-  let budget: array[ItemType, int] = [max(16, 2 * poiN), max(8, 2 * hotspotN),
+  ## COORDINATOR RULING (round 15): an absolute ceiling on the shield
+  ## budget regardless of hotspotN — "a cap is a guarantee, tuning is
+  ## not." hotspotN already stays in the ~10-18 regime the budget formula
+  ## was calibrated for (significantGateMouths' own K), but a future
+  ## taxonomy/detector change should never be able to silently blow the
+  ## item economy open again the way the pre-filter gate-mouth fix did.
+  const ShieldBudgetCeiling = 16
+  let budget: array[ItemType, int] = [max(16, 2 * poiN),
+    min(ShieldBudgetCeiling, max(8, 2 * hotspotN)),
     max(10, poiN), max(16, 2 * poiN)]  ## medkit, shield, grenade, spray
 
   var placed: array[ItemType, seq[ClassifiedSite]]
@@ -6132,6 +6488,34 @@ proc ensureFullAccessibility(
     if sealRects.len > 0:
       for r in sealRects: m.obstacles.add rectShapeBr(r.x, r.y, r.w, r.h)
     carveCorridors(m, corridors)
+  ## ROUND 14 FIX (4a): MaxIters used to be a SILENT cap — if the loop ran
+  ## out of iterations with unreachable cells still standing, the proc just
+  ## returned whatever tunneled/sealed counts it had accumulated, with no
+  ## record that the repair gave up early rather than actually converging.
+  ## With fix 3's strict generate gate, a map left in this state is refused
+  ## anyway (fullAccessPass reads unreachableFloorCells != 0) — but refusal
+  ## alone doesn't say WHY, and --lenient bypasses the refusal entirely. Do
+  ## one more cheap flood-fill pass (same cost as any other iteration) and,
+  ## if it still finds more than one walkable component, name the seed and
+  ## the outstanding orphan mass loudly on stderr.
+  block finalAccessibilityCheck:
+    let (cols, rows) = gridDims(m.width, m.height)
+    let wall = buildWallGrid(m)
+    var walkable = newSeq[bool](wall.len)
+    for i in 0 ..< wall.len: walkable[i] = not wall[i]
+    let comp = components(walkable, cols, rows, true, false)
+    if comp.sizes.len <= 1: break finalAccessibilityCheck
+    var mainSize = -1
+    var totalWalkable = 0
+    for lbl, sz in comp.sizes:
+      totalWalkable += sz
+      if sz > mainSize: mainSize = sz
+    let orphanPx2 = (totalWalkable - mainSize) * GridStride * GridStride
+    stderr.writeLine(
+      &"WARNING: ensureFullAccessibility HIT MaxIters={MaxIters} on seed={m.genSeed} " &
+      &"— {comp.sizes.len - 1} orphan component(s), {orphanPx2}px^2 STILL unreachable " &
+      &"after repair. This map will be REFUSED by the strict generate gate " &
+      &"(fullAccessPass) unless --lenient is passed.")
   (totalTunneled, totalSealed)
 
 # --- metrics -------------------------------------------------------------------
@@ -6604,20 +6988,40 @@ proc cmdGenerate(a: Args) =
       stderr.writeLine(&"TIMING items={(epochTime()-itemT0)*1000:.0f}ms")
   let spec = brMapSpecJson(m)
   let outPath = a.flag("out", "")
+  ## ROUND 14 FIX (launch-readiness item 3, confirmed): this used to write
+  ## the spec UNCONDITIONALLY and only run validateBr AFTERWARD, purely for
+  ## a stderr diagnostic — a map that fails a hard doctrine gate (or blows
+  ## the replay wire's 65535B string cap) shipped to the output path
+  ## exactly like a passing one, with allPass=false sitting right there in
+  ## the log nobody's required to read. Compute the verdict FIRST and make
+  ## it a REAL gate: by default, refuse to write (or echo) a failing map at
+  ## all and exit nonzero. --lenient restores the old unconditional-write
+  ## behavior for interactive iteration (eyeballing a rejected draw, tuning
+  ## params against a live failure, etc.) — it still computes and prints
+  ## the SAME verdict, it just doesn't act on it.
+  when defined(brDebugBurrow):
+    let valT0 = epochTime()
+  let v = validateBr(m)
+  when defined(brDebugBurrow):
+    stderr.writeLine(&"TIMING final validateBr={(epochTime()-valT0)*1000:.0f}ms")
+  let lenient = a.bools.getOrDefault("lenient", false)
+  let overCap = v.specSizeBytes > SpecSizeBudgetBytes
+  ## v.allPass already folds in specSizePass; overCap is checked again
+  ## explicitly (redundant with specSizePass by construction today) as a
+  ## defense-in-depth backstop specifically for the wire hard cap — the one
+  ## failure mode that corrupts a REPLAY, not just a doctrine metric.
+  let gatePass = v.allPass and not overCap
+  if not gatePass and not lenient:
+    stderr.writeLine(
+      &"REFUSED br {styleToStr(style)} seed={seed} — failing map NOT written" &
+      &"{(if outPath.len > 0: \" to \" & outPath else: \"\")} " &
+      &"(allPass={v.allPass}, specSizeBytes={v.specSizeBytes}/{SpecSizeBudgetBytes}" &
+      &"{(if overCap: \" OVER CAP\" else: \"\")}); pass --lenient to write anyway.")
   if outPath.len == 0:
-    echo spec
+    if gatePass or lenient: echo spec
   else:
-    writeFile(outPath, spec)
-    ## ROUND 8 (deliverable #1: "Print measured permille in every gen log +
-    ## metrics"): a full validateBr call here is the cheapest way to get
-    ## coverPermille/bigMassCount/specSizeBytes without duplicating the
-    ## measurement code — it's a single extra pass over one map at draw
-    ## time, not a hot loop.
-    when defined(brDebugBurrow):
-      let valT0 = epochTime()
-    let v = validateBr(m)
-    when defined(brDebugBurrow):
-      stderr.writeLine(&"TIMING final validateBr={(epochTime()-valT0)*1000:.0f}ms")
+    if gatePass or lenient: writeFile(outPath, spec)
+  block diagnostics:
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} keystone={keystoneToStr(m.keystone)} " &
       &"terrain={m.terrain} theme={m.theme} " &
@@ -6627,7 +7031,8 @@ proc cmdGenerate(a: Args) =
       &" (pruned {prunedCount} confetti of {rawCount}," &
       &" {repaired} spawn-cover repairs, medkits={m.medKitCandidates.len}" &
       &" grenades={m.grenadeSpawns.len} shields={m.shieldSpawns.len}" &
-      &" sprays={m.spraySpawns.len}) -> {outPath}")
+      &" sprays={m.spraySpawns.len})" &
+      &" -> {(if gatePass or lenient: outPath else: \"(refused)\")}")
     stderr.writeLine(
       &"  cover={v.coverPermille}‰ (band [{CoverPermilleMinBr},{CoverPermilleMaxBr}])" &
       &" masses={v.bigMassCount} (band [{PlaceCountFloor},{PlaceCountCeiling}], confetti={v.confettiCount}/{ConfettiCeiling})" &
@@ -6662,6 +7067,8 @@ proc cmdGenerate(a: Args) =
     stderr.writeLine(
       &"  switches: terrain={m.terrain} [{v.terrainLabel}={v.terrainValue:.2f}, floor={v.terrainFloor:.2f}, pass={v.terrainPass}]" &
       &" theme={m.theme} [{v.themeLabel}={v.themeValue:.2f}, floor={v.themeFloor:.2f}, pass={v.themePass}]")
+  if not gatePass and not lenient:
+    quit(1)
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
@@ -6764,6 +7171,446 @@ proc cmdContactSheet(a: Args) =
   sheet.writeFile(outPath)
   stderr.writeLine(&"contact sheet: {images.len} images -> {outPath}")
 
+# --- self-test (round 14, launch-readiness fixes) -----------------------------
+## Deliberately independent of every real generated map: hand-built, tiny
+## geometry where the correct answer is known BY CONSTRUCTION (doctrine:
+## "assert against the SOURCE, not the prose" — a test that just calls the
+## same code under test and compares to itself can't catch a wrong answer).
+
+proc expectOk(name: string, cond: bool, failCount: var int, detail: string = "") =
+  if cond:
+    stderr.writeLine(&"  ok   {name}")
+  else:
+    stderr.writeLine(&"  FAIL {name}" & (if detail.len > 0: " — " & detail else: ""))
+    inc failCount
+
+proc oldCentroidOnlyPrune(
+  obstacles: seq[ArenaShape], width, height, floorPx2: int
+): seq[ArenaShape] =
+  ## Reproduces the PRE-round-14 pruneConfetti algorithm verbatim (a single
+  ## bbox-centroid sample decides a shape's mass membership). Kept ONLY
+  ## here, in the self-test, as a fixed reference point proving the
+  ## round-14 fix (shapeMassLabel) actually changes behavior on a shape it
+  ## should have kept all along — never called from the real draw path.
+  let (cols, rows) = gridDims(width, height)
+  var wall = newSeq[bool](cols * rows)
+  for shape in obstacles:
+    let b = shapeBounds(shape)
+    let gx0 = max(0, b.x0 div GridStride)
+    let gy0 = max(0, b.y0 div GridStride)
+    let gx1 = min(cols - 1, b.x1 div GridStride)
+    let gy1 = min(rows - 1, b.y1 div GridStride)
+    for gy in gy0 .. gy1:
+      let y = gy * GridStride
+      for gx in gx0 .. gx1:
+        let x = gx * GridStride
+        if inShape(x, y, shape):
+          wall[gy * cols + gx] = true
+  let comp = components(wall, cols, rows, true, true)
+  for shape in obstacles:
+    let b = shapeBounds(shape)
+    let ccx = clamp((b.x0 + b.x1) div 2, 0, width - 1)
+    let ccy = clamp((b.y0 + b.y1) div 2, 0, height - 1)
+    let (gx, gy) = toGrid(ccx, ccy)
+    if gx < 0 or gx >= cols or gy < 0 or gy >= rows: continue
+    let lbl = comp.labels[gy * cols + gx]
+    if lbl >= 0 and comp.sizes[lbl] * GridStride * GridStride >= floorPx2:
+      result.add shape
+
+proc selftestConfettiPrune(failCount: var int) =
+  stderr.writeLine("-- fix 1: confetti-prune membership by fill, not one point --")
+  ## A rectilinear "C" bracket, open on its right side: top bar, left bar,
+  ## bottom bar. BY CONSTRUCTION its bounding box is (50,50)-(150,150), so
+  ## the bbox CENTROID is (100,100) — squarely inside the notch the "C"
+  ## cuts out of its own right side (x:[90,150), y:[70,130)), i.e. OUTSIDE
+  ## the shape's fill. The vertex-mean (the fast-path "generation center"
+  ## proxy) lands at (110,100) — also inside that same notch — so this one
+  ## shape forces BOTH tiers of the round-14 fix: the fast path misses too,
+  ## so only the full raster-scan fallback can find this shape's real mass.
+  let crescent = ArenaShape(kind: shapePolygon, points: @[
+    MapPoint(x: 50, y: 50), MapPoint(x: 150, y: 50), MapPoint(x: 150, y: 70),
+    MapPoint(x: 90, y: 70), MapPoint(x: 90, y: 130), MapPoint(x: 150, y: 130),
+    MapPoint(x: 150, y: 150), MapPoint(x: 50, y: 150)])
+  const W = 250
+  const H = 250
+  expectOk("setup/bbox-centroid-is-outside-fill",
+    not inShape(100, 100, crescent), failCount)
+  expectOk("setup/vertex-mean-is-also-outside-fill",
+    not inShape(110, 100, crescent), failCount)
+  let oldKept = oldCentroidOnlyPrune(@[crescent], W, H, ConfettiFloorPx2)
+  let newKept = pruneConfetti(@[crescent], W, H, ConfettiFloorPx2)
+  expectOk("old-centroid-only-prune-DELETES-the-lopsided-shape",
+    oldKept.len == 0, failCount, &"kept {oldKept.len}, want 0")
+  expectOk("new-fill-scan-prune-KEEPS-the-lopsided-shape",
+    newKept.len == 1, failCount, &"kept {newKept.len}, want 1")
+
+## --- fix 2: classifySites/classifyPoint golden geometry ----------------------
+## ROUND 14 fix 2's whole point is that itemGradientCheck re-runs
+## classifySites/classifyPoint on placeItemsGraded's own output, so a
+## classifier bug makes placement and validation agree even when both are
+## wrong — a shared-defect loop. These golden maps give the classifier ITS
+## OWN ground truth instead: hand-built geometry where the correct class of
+## specific points is known BY CONSTRUCTION.
+
+proc goldenRoomWithDoorway(): BrMap =
+  ## A room with a doorway gap in its south wall: interior 300x300 box at
+  ## (150,150)-(450,450), 20px walls. roomCandidates must route the room's
+  ## authored center to scRoom; cornerCandidates must independently
+  ## RE-DERIVE the room's four real geometric corners from the drawn wall
+  ## grid (it never reads PoiSite.rooms) at (152,152)/(448,152)/(152,448)/
+  ## (448,448). Sized deliberately large (not the doctrine's usual small
+  ## room) so all four corners land in DISTINCT, non-adjacent dedup buckets
+  ## (cornerCandidates' own MinSepPx=70 clustering only suppresses a
+  ## same-bucket-OR-adjacent-bucket neighbor — a small room can have two
+  ## genuinely-distinct corners fall into adjacent buckets by construction
+  ## and get coarsely deduped down to one, which would be an artifact of
+  ## the test's OWN geometry, not something under test here) and clear of
+  ## the field border's own corners (buildWallGrid's ArenaBorderPx band
+  ## registers as its own four "corners").
+  result = BrMap(width: 600, height: 600, gunRange: 300)
+  const ix0 = 150
+  const iy0 = 150
+  const ix1 = 450
+  const iy1 = 450
+  const wallThick = 20
+  const doorHalf = 20
+  let midX = (ix0 + ix1) div 2
+  result.obstacles.add rectShapeBr(ix0 - wallThick, iy0 - wallThick,
+    (ix1 - ix0) + 2 * wallThick, wallThick)                              ## N
+  result.obstacles.add rectShapeBr(ix0 - wallThick, iy1,
+    midX - doorHalf - (ix0 - wallThick), wallThick)                      ## S, left of door
+  result.obstacles.add rectShapeBr(midX + doorHalf, iy1,
+    (ix1 + wallThick) - (midX + doorHalf), wallThick)                    ## S, right of door
+  result.obstacles.add rectShapeBr(ix0 - wallThick, iy0, wallThick, iy1 - iy0)   ## W
+  result.obstacles.add rectShapeBr(ix1, iy0, wallThick, iy1 - iy0)              ## E
+  result.pois.add PoiSite(
+    center: MapPoint(x: (ix0 + ix1) div 2, y: (iy0 + iy1) div 2),
+    archetype: poiYard, halfExtent: 50, lootTier: 1,
+    rooms: @[MapRect(x: ix0, y: iy0, w: ix1 - ix0, h: iy1 - iy0)])
+
+proc goldenLCornerAndCorridor(): BrMap =
+  ## A minimal two-wall L (nook in its inside elbow) FAR from a separate
+  ## straight two-wall corridor. cornerCandidates must find the nook and
+  ## must NOT report a false corner anywhere along the corridor's straight
+  ## run (doctrine: "a straight corridor's N+S or E+W wall pair is
+  ## deliberately excluded — that is a hallway, not a corner"). The elbow
+  ## is placed away from (0,0): buildWallGrid's own ArenaBorderPx band
+  ## registers the field's four corners as corners too, and
+  ## cornerCandidates' coarse dedup bucket (MinSepPx=70, ±1-bucket
+  ## neighborhood) would otherwise swallow a nook placed too close to one
+  ## of them even though the two are well over MinSepPx apart in real px.
+  result = BrMap(width: 900, height: 900, gunRange: 300)
+  const wallThick = 20
+  result.obstacles.add rectShapeBr(300, 300, wallThick, 200)   ## vertical leg
+  result.obstacles.add rectShapeBr(300, 300, 200, wallThick)   ## horizontal leg
+  result.obstacles.add rectShapeBr(700, 100, wallThick, 400)   ## corridor west wall
+  result.obstacles.add rectShapeBr(850, 100, wallThick, 400)   ## corridor east wall
+
+proc goldenDiagonalAlley(): BrMap =
+  ## One shapeDiagonal wall segment, nothing else — the ONLY two producers
+  ## of shapeDiagonal in this generator (poiCauseway, linearConnectors) are
+  ## both literal alley walls, so any diagonal IS an alley by construction.
+  result = BrMap(width: 900, height: 900, gunRange: 300)
+  result.obstacles.add ArenaShape(
+    kind: shapeDiagonal, x0: 200, y0: 200, x1: 400, y1: 400, thickness: 30)
+
+proc goldenRichPoiHotspot(): BrMap =
+  ## A single lootTier==0 (richest/major) POI, no other geometry —
+  ## hotspotCandidates' source (a): "every lootTier==0 POI center: the
+  ## doctrine's OWN 'richest kit at the most exposed place' signal (§4.4)."
+  ##
+  ## NOTE: the doc's other suggested example for this slot, a "gate-mouth
+  ## hotspot" via structureGateMouthPoints, was tried FIRST here — a closed
+  ## ring with one doorway gap (the same shape as goldenRoomWithDoorway,
+  ## marked structureCount = obstacles.len). It found NOTHING, on that
+  ## synthetic ring AND on every one of 10 real generated seeds probed
+  ## directly (structureGateMouthPoints returned 0 gates on all 10,
+  ## obstacles up to 263) — the dead-gate defect structureGateMouthPoints'
+  ## own comment now documents and fixes (round 15). See
+  ## goldenGatedStructure below for that fix's own golden.
+  result = BrMap(width: 900, height: 900, gunRange: 300)
+  result.pois.add PoiSite(
+    center: MapPoint(x: 450, y: 450), archetype: poiCompound,
+    halfExtent: 100, lootTier: 0)
+
+proc goldenGatedStructure(): BrMap =
+  ## ROUND 15 (fix 1): exactly goldenRoomWithDoorway's own geometry — a
+  ## closed ring, one doorway gap of 40px (x in [280,320]) in the south
+  ## wall (y in [450,470]) — but marked as an AUTHORED structure
+  ## (structureCount = obstacles.len) so allStructureGateMouths treats it
+  ## as one connected wall component with a known-by-construction gate.
+  ## This is the exact synthetic case the pre-fix algorithm found NOTHING
+  ## on (see goldenRichPoiHotspot's retired note above).
+  result = goldenRoomWithDoorway()
+  result.structureCount = result.obstacles.len
+
+proc goldenTwoGatedStructures(): BrMap =
+  ## COORDINATOR RULING (round 15, post fix-1/2): two SEPARATE gated
+  ## structures, far apart, of deliberately different wall mass, NEITHER
+  ## lootTier==0 (so ranking falls purely on mass, not the guaranteed-
+  ## admit path) — proves topSignificantGates' ranking directly.
+  ## LARGE: goldenRoomWithDoorway's own 300x300/20px-wall room (~20000+
+  ## px^2 of wall), unmoved.
+  ## SMALL: a 120x120/12px-wall room (~5500px^2 of wall — comfortably
+  ## above ConfettiFloorPx2 so it's a real detected structure, comfortably
+  ## below the large room's mass), placed 400+px away so the two never
+  ## share a wall component or padding ring.
+  result = BrMap(width: 1400, height: 900, gunRange: 300)
+  let large = goldenRoomWithDoorway()
+  result.obstacles.add large.obstacles
+  result.pois.add large.pois
+  const sx0 = 900
+  const sy0 = 400
+  const sx1 = 1020
+  const sy1 = 520
+  const swallThick = 12
+  const sdoorHalf = 12
+  let smidX = (sx0 + sx1) div 2
+  result.obstacles.add rectShapeBr(sx0 - swallThick, sy0 - swallThick,
+    (sx1 - sx0) + 2 * swallThick, swallThick)                                    ## N
+  result.obstacles.add rectShapeBr(sx0 - swallThick, sy1,
+    smidX - sdoorHalf - (sx0 - swallThick), swallThick)                          ## S, left of door
+  result.obstacles.add rectShapeBr(smidX + sdoorHalf, sy1,
+    (sx1 + swallThick) - (smidX + sdoorHalf), swallThick)                        ## S, right of door
+  result.obstacles.add rectShapeBr(sx0 - swallThick, sy0, swallThick, sy1 - sy0)  ## W
+  result.obstacles.add rectShapeBr(sx1, sy0, swallThick, sy1 - sy0)              ## E
+  result.pois.add PoiSite(
+    center: MapPoint(x: (sx0 + sx1) div 2, y: (sy0 + sy1) div 2),
+    archetype: poiYard, halfExtent: 20, lootTier: 1,
+    rooms: @[MapRect(x: sx0, y: sy0, w: sx1 - sx0, h: sy1 - sy0)])
+  result.structureCount = result.obstacles.len
+
+proc goldenSiteOnWall(): BrMap =
+  ## ROUND 15 (fix 2): a room whose authored center (300,300) sits inside
+  ## a LATER obstacle its own carving never accounted for — the exact
+  ## "generation-time carving builds wall over an authored center" defect
+  ## classifySites' snap now fixes. A 20px disc dead center of the room,
+  ## small enough that open floor is well within ItemSiteWallSnapRadiusPx
+  ## (24px) on every side.
+  result = goldenRoomWithDoorway()
+  result.obstacles.add ArenaShape(kind: shapeDisc, cx: 300, cy: 300, radius: 20)
+
+proc goldenSiteFullyWalled(): BrMap =
+  ## Same room, but this time boxed in by wall past
+  ## ItemSiteWallSnapRadiusPx on every side — nothing walkable within the
+  ## snap radius, so classifySites must DROP the candidate rather than
+  ## hand back a point still on (or near) a wall.
+  result = goldenRoomWithDoorway()
+  result.obstacles.add ArenaShape(kind: shapeDisc, cx: 300, cy: 300, radius: 40)
+
+proc selftestClassifierGoldens(failCount: var int) =
+  stderr.writeLine("-- fix 2: classifySites/classifyPoint golden geometry --")
+  block roomAndCorner:
+    let m = goldenRoomWithDoorway()
+    let rooms = roomCandidates(m)
+    expectOk("room-with-doorway/room-candidate-count", rooms.len == 1, failCount,
+      &"got {rooms.len}")
+    if rooms.len == 1:
+      expectOk("room-with-doorway/room-candidate-class-scRoom",
+        rooms[0].class == scRoom, failCount)
+    let corners = cornerCandidates(m)
+    for (ex, ey) in [(152, 152), (448, 152), (152, 448), (448, 448)]:
+      var found = false
+      for c in corners:
+        if abs(c.p.x - ex) <= 8 and abs(c.p.y - ey) <= 8: found = true
+      expectOk(&"room-with-doorway/corner-near-({ex},{ey})", found, failCount)
+    let sites = classifySites(m)
+    expectOk("room-with-doorway/center-classifies-scRoom",
+      classifyPoint(MapPoint(x: 300, y: 300), sites) == scRoom, failCount)
+    expectOk("room-with-doorway/corner-point-classifies-scCorner",
+      classifyPoint(MapPoint(x: 152, y: 152), sites) == scCorner, failCount)
+  block lCornerAndCorridor:
+    let m = goldenLCornerAndCorridor()
+    let corners = cornerCandidates(m)
+    var nookFound = false
+    for c in corners:
+      if abs(c.p.x - 320) <= 8 and abs(c.p.y - 320) <= 8: nookFound = true
+    expectOk("l-corner/nook-detected-near-(320,320)", nookFound, failCount)
+    var falseCorner = false
+    for c in corners:
+      if c.p.x >= 730 and c.p.x <= 840 and c.p.y >= 130 and c.p.y <= 470:
+        falseCorner = true
+    expectOk("l-corner/no-false-corner-in-straight-corridor",
+      not falseCorner, failCount)
+    let sites = classifySites(m)
+    expectOk("l-corner/nook-point-classifies-scCorner",
+      classifyPoint(MapPoint(x: 320, y: 320), sites) == scCorner, failCount)
+  block diagonalAlley:
+    let m = goldenDiagonalAlley()
+    let alleys = alleyCandidatesFromDiagonals(m)
+    expectOk("diagonal-alley/candidate-count", alleys.len == 3, failCount,
+      &"got {alleys.len}")
+    var mouths = 0
+    var mids = 0
+    for a in alleys:
+      if a.isMouth: inc mouths else: inc mids
+      expectOk(&"diagonal-alley/point-not-on-wall-({a.p.x},{a.p.y})",
+        not inShape(a.p.x, a.p.y, m.obstacles[0]), failCount)
+    expectOk("diagonal-alley/mouth-count", mouths == 2, failCount, &"got {mouths}")
+    expectOk("diagonal-alley/midpoint-count", mids == 1, failCount, &"got {mids}")
+    let sites = classifySites(m)
+    for a in alleys:
+      expectOk(&"diagonal-alley/self-classifies-scAlley-({a.p.x},{a.p.y})",
+        classifyPoint(a.p, sites) == scAlley, failCount)
+  block richPoiHotspot:
+    let m = goldenRichPoiHotspot()
+    let hotspots = hotspotCandidates(m)
+    var hFound = false
+    for h in hotspots:
+      if abs(h.p.x - 450) <= 4 and abs(h.p.y - 450) <= 4: hFound = true
+    expectOk("rich-poi/lootTier0-surfaces-as-hotspot", hFound, failCount,
+      &"got {hotspots.len} hotspot(s)")
+    let sites = classifySites(m)
+    expectOk("rich-poi/center-classifies-scHotspot",
+      classifyPoint(MapPoint(x: 450, y: 450), sites) == scHotspot, failCount)
+  block gatedStructure:
+    ## ROUND 15 (fix 1): the known-by-construction gate is the 40px south-
+    ## wall doorway centered at x=300, with the wall's own outer face at
+    ## y=470 — allStructureGateMouths must return exactly one point,
+    ## within the doorway's own width of x=300 and just past y=470 (pushed
+    ## one cell OUTWARD into confirmed walkable space, never still inside
+    ## the wall band). This map has exactly one structure, so
+    ## significantGateMouths (production K) must admit it too — alone, it
+    ## is trivially inside the top K.
+    let m = goldenGatedStructure()
+    let gates = allStructureGateMouths(m)
+    expectOk("gated-structure/gate-count", gates.len == 1, failCount,
+      &"got {gates.len}")
+    if gates.len == 1:
+      let g = gates[0].p
+      expectOk("gated-structure/gate-near-door-x", abs(g.x - 300) <= 24,
+        failCount, &"got x={g.x}")
+      expectOk("gated-structure/gate-just-past-south-wall-y",
+        g.y > 470 and g.y <= 490, failCount, &"got y={g.y}")
+      var onWall = false
+      for ob in m.obstacles:
+        if inShape(g.x, g.y, ob): onWall = true
+      expectOk("gated-structure/gate-not-on-wall", not onWall, failCount,
+        &"({g.x},{g.y})")
+    let admitted = significantGateMouths(m)
+    expectOk("gated-structure/lone-structure-admitted", admitted.len == 1,
+      failCount, &"got {admitted.len}")
+    let sites = classifySites(m)
+    if gates.len == 1:
+      expectOk("gated-structure/gate-classifies-scHotspot",
+        classifyPoint(gates[0].p, sites) == scHotspot, failCount)
+  block gateSignificanceFilter:
+    ## COORDINATOR RULING (round 15): a doorway on a random hut is NOT a
+    ## hotspot just because the detector can now see it — only a
+    ## significant (highest-mass, or lootTier-0) structure's gate should
+    ## be admitted. Proven directly against topSignificantGates at k=1
+    ## (independent of the production K=8) so the exclusion is
+    ## deterministic regardless of how many real structures a live map
+    ## happens to have.
+    let m = goldenTwoGatedStructures()
+    let allGates = allStructureGateMouths(m)
+    expectOk("gate-significance/both-detected", allGates.len == 2, failCount,
+      &"got {allGates.len}")
+    if allGates.len == 2:
+      var large = allGates[0]
+      var small = allGates[1]
+      if large.parentMassPx2 < small.parentMassPx2: swap(large, small)
+      expectOk("gate-significance/mass-ordering-sane",
+        large.parentMassPx2 > small.parentMassPx2, failCount,
+        &"large={large.parentMassPx2} small={small.parentMassPx2}")
+      let admitted = topSignificantGates(allGates, 1)
+      expectOk("gate-significance/top1-admits-exactly-one",
+        admitted.len == 1, failCount, &"got {admitted.len}")
+      if admitted.len == 1:
+        expectOk("gate-significance/large-structure-admitted",
+          admitted[0].p == large.p, failCount)
+        expectOk("gate-significance/small-structure-NOT-admitted",
+          admitted[0].p != small.p, failCount)
+  block siteWallSnap:
+    ## ROUND 15 (fix 2): classifySites' snap-or-drop, isolated from the
+    ## rest of a real draw's noise. goldenSiteOnWall's room candidate
+    ## (authored center (300,300), now inside a 20px obstacle) must survive
+    ## as exactly one scRoom site, moved off the obstacle and within
+    ## ItemSiteWallSnapRadiusPx of its original center.
+    let mOnWall = goldenSiteOnWall()
+    let sitesOnWall = classifySites(mOnWall)
+    var roomsFound: seq[ClassifiedSite]
+    for s in sitesOnWall:
+      if s.class == scRoom: roomsFound.add s
+    expectOk("site-wall-snap/on-wall-room-survives-snapped", roomsFound.len == 1,
+      failCount, &"got {roomsFound.len}")
+    if roomsFound.len == 1:
+      let p = roomsFound[0].p
+      var onWall = false
+      for ob in mOnWall.obstacles:
+        if inShape(p.x, p.y, ob): onWall = true
+      expectOk("site-wall-snap/on-wall-room-snapped-off-obstacle", not onWall,
+        failCount, &"({p.x},{p.y})")
+      let dx = p.x - 300
+      let dy = p.y - 300
+      expectOk("site-wall-snap/on-wall-room-snap-within-radius",
+        dx * dx + dy * dy <= ItemSiteWallSnapRadiusPx * ItemSiteWallSnapRadiusPx,
+        failCount, &"({p.x},{p.y}) dist={sqrt(float(dx * dx + dy * dy)):.1f}")
+    ## goldenSiteFullyWalled's room candidate has NOTHING walkable within
+    ## the snap radius — must be DROPPED, not handed back on/near a wall.
+    let mWalled = goldenSiteFullyWalled()
+    let sitesWalled = classifySites(mWalled)
+    var roomsWalled = 0
+    for s in sitesWalled:
+      if s.class == scRoom: inc roomsWalled
+    expectOk("site-wall-snap/unreachable-room-dropped", roomsWalled == 0,
+      failCount, &"got {roomsWalled}")
+
+proc selftestAlleyFallbackDrops(failCount: var int) =
+  ## ROUND 14 fix 4b: when BOTH perpendicular offsets are blocked,
+  ## walkableOffset must DROP the candidate, not fall back onto the wall's
+  ## own centerline (inside solid, by construction — the pre-fix
+  ## behavior). Box the diagonal's midpoint in on both perpendicular sides
+  ## so neither offset attempt can succeed; the two MOUTH candidates (at
+  ## the segment's endpoints, un-boxed) must still place normally.
+  stderr.writeLine("-- fix 4b: blocked-both-sides alley offset drops, never lands on a wall --")
+  var m = BrMap(width: 900, height: 900, gunRange: 300)
+  let diag = ArenaShape(
+    kind: shapeDiagonal, x0: 200, y0: 200, x1: 400, y1: 400, thickness: 30)
+  m.obstacles.add diag
+  let dx = float(diag.x1 - diag.x0)
+  let dy = float(diag.y1 - diag.y0)
+  let length = sqrt(dx * dx + dy * dy)
+  let ux = dx / length
+  let uy = dy / length
+  let px = -uy
+  let py = ux
+  let offset = float(diag.thickness) / 2.0 + 24.0
+  let midx = float(diag.x0 + diag.x1) / 2.0
+  let midy = float(diag.y0 + diag.y1) / 2.0
+  for sgn in [1.0, -1.0]:
+    let cx = int(midx + px * offset * sgn)
+    let cy = int(midy + py * offset * sgn)
+    m.obstacles.add ArenaShape(kind: shapeDisc, cx: cx, cy: cy, radius: 25)
+  let alleys = alleyCandidatesFromDiagonals(m)
+  expectOk("alley-fallback/mouths-still-placed", alleys.len == 2, failCount,
+    &"got {alleys.len}")
+  var midpointCount = 0
+  for a in alleys:
+    if not a.isMouth: inc midpointCount
+  expectOk(
+    "alley-fallback/boxed-midpoint-DROPPED-not-returned-on-the-wall",
+    midpointCount == 0, failCount, &"got {midpointCount} midpoint candidate(s)")
+  for a in alleys:
+    var onWall = false
+    for s in m.obstacles:
+      if inShape(a.p.x, a.p.y, s): onWall = true
+    expectOk(&"alley-fallback/candidate-not-on-wall-({a.p.x},{a.p.y})",
+      not onWall, failCount)
+
+proc cmdSelftest(a: Args) =
+  var failCount = 0
+  selftestConfettiPrune(failCount)
+  selftestClassifierGoldens(failCount)
+  selftestAlleyFallbackDrops(failCount)
+  stderr.writeLine("")
+  if failCount == 0:
+    stderr.writeLine("selftest: ALL PASS")
+    quit(0)
+  else:
+    stderr.writeLine(&"selftest: {failCount} FAILURE(S)")
+    quit(1)
+
 const usage = """
 brmapkit — author battle-royale maps (fork of tools/mapkit.nim; see
 docs/designs/BR_MAPGEN.md)
@@ -6772,12 +7619,18 @@ docs/designs/BR_MAPGEN.md)
                     (caves is the only doctrine-validated style; bsp/maze/
                     scatter are wired for experimentation but unproven at
                     giant scale)
+                    [--lenient] writes/echoes the spec even if it fails a
+                    doctrine gate or blows the spec-size wire cap (default:
+                    refuse + exit nonzero, print why); for interactive
+                    iteration only — never pass this in an automated draw
+                    loop.
   brmapkit render   spec.json [-o out.png] [--max N] [--heatmap]
                     (--heatmap also writes <out>.zoneheat.png, the §5.4
                     circle-center-coverage view)
   brmapkit validate spec.json          # BR gates: PASS/FAIL, exit code
   brmapkit metrics  spec.json [--json] [-o out.json]
   brmapkit contactsheet a.png b.png ... [-o sheet.png] [--cols N] [--cellw N]
+  brmapkit selftest                    # golden-geometry unit checks, exit code
 """
 
 when isMainModule:
@@ -6793,6 +7646,7 @@ when isMainModule:
     of "validate": cmdValidate(a)
     of "metrics": cmdMetrics(a)
     of "contactsheet": cmdContactSheet(a)
+    of "selftest": cmdSelftest(a)
     else:
       stderr.writeLine("unknown command: " & argv[0])
       echo usage
