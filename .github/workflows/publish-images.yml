@@ -12,7 +12,38 @@ on:
       - "v*"
 
 jobs:
+  # workflow_run can't key on a tag ref, so nothing today stops a `v*` tag
+  # pushed at an untested (or red) commit from publishing straight to GHCR.
+  # This asks the API directly: is there a SUCCESSFUL "Github Actions" run
+  # (build.yml) recorded at this exact SHA? Manual workflow_dispatch skips
+  # the check entirely — that path stays available for a hand-publish.
+  verify-ci:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require a passing "Github Actions" run at this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ github.sha }}"
+          count=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$sha&per_page=100" \
+            --jq '[.workflow_runs[] | select(.name == "Github Actions" and .conclusion == "success")] | length')
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No successful \"Github Actions\" run found for $sha — refusing to publish an untested tag. Tag a commit that already has a green CI run on origin/main, or use workflow_dispatch to publish manually."
+            exit 1
+          fi
+          echo "OK: found $count successful Github Actions run(s) for $sha."
+
   publish:
+    needs: [verify-ci]
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       needs.verify-ci.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
