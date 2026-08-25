@@ -20,6 +20,17 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev
       - uses: treeform/setup-nim-action@v6
+      - name: Pin nimby 0.1.26
+        # The setup action's nim tarball bundles whatever nimby was current when
+        # the release asset was (re)built; it drifted 0.1.26 -> 0.2.1 under the
+        # same tag on 2026-08-23 and 0.2.1 refuses `sync -g` inside a git
+        # checkout, turning main red with zero repo changes. Pin the same
+        # version the Dockerfile already pins (Dockerfile:15) so CI and the
+        # image builds agree, on purpose, forever.
+        run: |
+          curl -sSL -o "$HOME/.nimby/nim/bin/nimby"             https://github.com/treeform/nimby/releases/download/0.1.26/nimby-Linux-X64
+          chmod +x "$HOME/.nimby/nim/bin/nimby"
+          nimby --version
       - run: nimby sync nimby.lock -g
       # Reuse compiled C objects across runs: the release build of the deps
       # (pixie et al.) dominates the compile step and rarely changes. The key
