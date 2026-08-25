@@ -409,8 +409,9 @@ html, body {
 .clock.amb { animation: clocktick 2s ease-in-out infinite; }
 @keyframes clocktick { 0%,100% { opacity: 0.94; } 50% { opacity: 1; } }
 
-/* leader pulse keys on GLORY lead (glory is the score) — >=100g, ~8% of a
-   typical full-match team total (~1200g, see GLORY_TIERS provenance).
+/* leader pulse keys on GLORY lead (glory is the score) — >=130g, ~8% of a
+   typical full-match team total (~1650g under glory v5, see GLORY_TIERS
+   provenance).
    Lives lead >=3 is kept only as the JS fallback for pre-glory replays, so
    this always targets the GLORY numeral, never the demoted lives one. */
 .plate.leader .lives-num.glory { animation: leaderpulse 1.9s ease-in-out infinite; }
@@ -2332,8 +2333,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     updateFlag('flag-blue', 'blue', blue, s);
 
     // leader pulse keys on GLORY lead (glory is the score, not lives) — a
-    // margin of 100g is ~8% of a typical full-match team total (~1200g,
-    // field-calibrated in GLORY_TIERS provenance). Lives lead >=3 is kept
+    // margin of 130g is ~8% of a typical full-match team total (~1650g under
+    // glory v5, field-calibrated in GLORY_TIERS provenance). Lives lead >=3 is kept
     // ONLY as the fallback for pre-glory replays that never shipped a glory
     // ledger, so the read stays honest on old bundles too.
     var rp = document.querySelector('.plate.red');
@@ -2342,8 +2343,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     var gb = (typeof blue.glory === 'number') ? blue.glory : null;
     var leadRed, leadBlue;
     if (gr != null && gb != null) {
-      leadRed = gr - gb >= 100;
-      leadBlue = gb - gr >= 100;
+      leadRed = gr - gb >= 130;
+      leadBlue = gb - gr >= 130;
     } else {
       leadRed = rl - bl >= 3;
       leadBlue = bl - rl >= 3;
@@ -4089,29 +4090,30 @@ body[data-embed] #board { top: 0; height: 100%; }
   //
   // TIER THRESHOLDS — approx quintiles of the REAL field, not guesses:
   // tools/ladder/gloryscore.py's scoring path run over the ~/.ctf/scout
-  // cache (2026-08-25: n=120 two-team episodes, glory v4, derived path
-  // plus the inferred dWipe mint on wipe-ended episodes — the live sim
-  // mints dWipe in-engine, so the wipe-corrected numbers are the scale
-  // this endcard's s.teams.*.glory actually reads).
-  // Combined per-episode glory: p20=1983 p40=2296 p60=2616 p80=3101
-  // (min 1363, median 2403, max 4739). Cuts rounded to 2000 / 2300 /
-  // 2600 / 3100. Line pick is total % pool.length — deterministic, so
-  // a replay always reviews its own show the same way.
+  // cache (2026-08-25 re-fit for glory v5's heat tune: newest n=120
+  // two-team episodes, derived path incl. the dWipe mint — the same
+  // methodology as the v4 fit, re-priced under the v5 heat constants
+  // [2,5,10]/decay 2/cap 11; the tune raises minted totals +16% median
+  // within-sample because gentler decay keeps multipliers lit longer).
+  // Combined per-episode glory under v5: p20=2485 p40=3022 p60=3576
+  // p80=4426 (min 89, median 3316, max 12616). Cuts rounded to 2500 /
+  // 3000 / 3600 / 4400. Line pick is total % pool.length —
+  // deterministic, so a replay always reviews its own show the same way.
   var GLORY_TIERS = [
-    { floor: 3100, lines: [ // legendary — top quintile
+    { floor: 4400, lines: [ // legendary — top quintile
       'ONE FOR THE ARCHIVES',
       'AN ABSOLUTE CLASSIC',
       "THEY'LL TALK ABOUT THIS ONE",
       'FRAME IT AND HANG IT'] },
-    { floor: 2600, lines: [ // great
+    { floor: 3600, lines: [ // great
       'A BARNBURNER!',
       "THE CROWD GOT THEIR MONEY'S WORTH",
       'PAINT ON THE RAFTERS'] },
-    { floor: 2300, lines: [ // good
+    { floor: 3000, lines: [ // good
       "NOW THAT'S A PAINT FIGHT",
       'WORTH THE TICKET',
       'THE CANVAS EARNED ITS KEEP'] },
-    { floor: 2000, lines: [ // decent
+    { floor: 2500, lines: [ // decent
       "AN HONEST NIGHT'S PAINT",
       'SOLID CARD, NO CLASSIC',
       'A FAIR SCRAP, FAIRLY PAINTED'] },

@@ -664,14 +664,14 @@
     updateFlag('flag-red',  'red',  red,  s);
     updateFlag('flag-blue', 'blue', blue, s);
 
-    // GLORY IS THE SCORE: the leader pulse keys on a >=100g glory lead
-    // (~8% of a typical full-match team total). Lives lead >=3 survives ONLY
+    // GLORY IS THE SCORE: the leader pulse keys on a >=130g glory lead
+    // (~8% of a typical full-match team total, ~1650g under glory v5). Lives lead >=3 survives ONLY
     // as the fallback for pre-glory replays that ship no glory numbers.
     var gr=(typeof red.glory==='number')?red.glory:null;
     var gb=(typeof blue.glory==='number')?blue.glory:null;
     var haveGlory=(gr!=null&&gb!=null);
-    var redLeads =haveGlory ? (gr-gb>=100) : (rl-bl>=3);
-    var blueLeads=haveGlory ? (gb-gr>=100) : (bl-rl>=3);
+    var redLeads =haveGlory ? (gr-gb>=130) : (rl-bl>=3);
+    var blueLeads=haveGlory ? (gb-gr>=130) : (bl-rl>=3);
     var rp=document.querySelector('.team-head.red');
     var bp=document.querySelector('.team-head.blue');
     if(rp) rp.classList.toggle('leader', redLeads && s.ph==='playing');
