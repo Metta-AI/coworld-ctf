@@ -6485,9 +6485,18 @@ const
   ## own center is outside the rect and just ahead of where the main body
   ## has advanced.
   ZoneDropletCellPx = 200
-  ZoneDropletMinRPx = 3.0
-  ZoneDropletMaxRPx = 12.0
+  ZoneDropletMinRPx = 6.0
+  ZoneDropletMaxRPx = 24.0
   ZoneDropletChancePct = 42
+  ## The band ahead of the meniscus where a droplet may seed, measured in
+  ## the HONEST (unwarped) distance outside the rect — a fixed, sign-
+  ## independent width rather than one that rides the meniscus noise's own
+  ## phase, so droplets get a reliable chance along the whole boundary
+  ## rather than only where a bay happens to be wide. 60px sits comfortably
+  ## inside where `effDepth <= 0` (bare floor) already commonly falls for a
+  ## zero-mean advance field, so this does not widen the bare region — it
+  ## only stops the droplet CHECK from being skipped near the honest edge.
+  ZoneDropletBandPx = 60
 
 proc zoneMeniscusHash(seed, kx, ky: int): float {.inline.} =
   ## Deterministic 2D lattice noise in [-1, 1] — a pure function of its
@@ -6537,13 +6546,26 @@ proc zoneMeniscusAdvance(px, py: float): float =
   zoneMeniscusOctave(px, py, ZoneMeniscusFineCellPx,
     ZoneMeniscusSeed xor 0x51) * ZoneMeniscusFineAmpPx
 
+proc zoneDropletCellHash(seed, cx, cy: int): uint32 {.inline.} =
+  ## Deterministic per-cell hash for droplet placement — the same unsigned
+  ## FNV-ish idiom every other cell-keyed feature in this file uses (this is
+  ## what zoneSplatHash used to be before the splat-frontier removal).
+  ## Deliberately NOT `zoneMeniscusHash`'s output rescaled into an int: that
+  ## proc already truncates its internal 32-bit mix down to 16 bits before
+  ## returning a float (it only needs to be a smooth noise VALUE), and
+  ## multiply-by-1e6-and-cast does not put fresh entropy back — four fields
+  ## (chance, jx, jy, r) derived from different bit ranges of THAT would be
+  ## correlated. This is a fresh 32-bit mix with entropy across every bit.
+  var h = uint32(seed) * 0x9E3779B1'u32 xor
+    uint32(cx) * 374761393'u32 xor uint32(cy) * 668265263'u32
+  h = (h xor (h shr 13)) * 1274126177'u32
+  h xor (h shr 16)
+
 proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
   ## Scans the 3x3 neighbourhood of ~200px droplet cells around (qx, qy) for
-  ## a small round drip covering this point. A cell hosts a droplet only
-  ## when its own center is outside the rect (never seeds one INSIDE the
-  ## safe area) — the caller further restricts this to cells sitting just
-  ## ahead of the meniscus, so droplets read as advance scouts, not
-  ## scattered confetti deep in either the safe zone or the flood.
+  ## a small round drip covering this point. The caller only invokes this
+  ## where the query point itself is already outside the rect and ahead of
+  ## the meniscus, so a droplet can never render inside the safe area.
   result = (false, 0.0)
   let
     cell = float(ZoneDropletCellPx)
@@ -6554,16 +6576,16 @@ proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
       let
         cx = baseCx + ox
         cy = baseCy + oy
-        h = uint32(zoneMeniscusHash(cellSeed, cx, cy) * 1_000_000.0 + 2_000_000.0)
+        h = zoneDropletCellHash(cellSeed, cx, cy)
       if int(h mod 100'u32) >= ZoneDropletChancePct:
         continue
       let
         cellCx = (float(cx) + 0.5) * cell
         cellCy = (float(cy) + 0.5) * cell
-        jx = cellCx + (float(int(h mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
-        jy = cellCy + (float(int((h shr 11) mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
+        jx = cellCx + (float(int((h shr 3) mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
+        jy = cellCy + (float(int((h shr 15) mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
         r = ZoneDropletMinRPx +
-          (float(int((h shr 5) mod 101'u32)) / 100.0) *
+          (float(int((h shr 24) mod 101'u32)) / 100.0) *
             (ZoneDropletMaxRPx - ZoneDropletMinRPx)
         dx = qx - jx
         dy = qy - jy
@@ -6649,7 +6671,7 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
   color
 
 proc buildTideBarPixels(
-  rect: MapRect, barX, barY, width, height: int
+  sim: SimServer, rect: MapRect, barX, barY, width, height: int
 ): seq[uint8] =
   ## Builds one edge bar's RGBA buffer by painting every pixel strictly
   ## outside `rect` with zoneDeadPixelColor. The four bars together tile the
@@ -6659,6 +6681,24 @@ proc buildTideBarPixels(
   ## No tick and no side index any more: the paint is a function of MAP
   ## position and the rect alone, which is what makes a splat that has
   ## appeared stay exactly as it is.
+  ##
+  ## Maxwell (2026-08-24, screenshot of the recorded match): "the terrain
+  ## should be on top of the paint too just like with puddles. it covers the
+  ## ground." Puddles get this for free — puddleArtColorAt only ever runs in
+  ## the FLOOR branch of the one-time static bake (renderArenaRgbaPair skips
+  ## it entirely wherever the wall art-mask is set), so a wall pixel is never
+  ## touched. The zone flood can't use that trick: it is a live sprite object
+  ## re-sent as the rect shrinks, necessarily composited AFTER (on top of)
+  ## that already-baked static texture, wall art included. The fix has the
+  ## same effect through the opposite mechanism: skip painting — leave the
+  ## pixel fully transparent — wherever `sim.isWall` says a wall already
+  ## owns this tile, so the pre-baked wall art shows through untouched. This
+  ## is render-only: it changes what the sprite's own pixels say, never the
+  ## rect, the damage boundary, or anything that feeds gameHash, so no
+  ## re-record is needed for it. `sim.isWall` is the same O(1) collision-mask
+  ## lookup the sim itself steps players against (not a per-pixel shape
+  ## geometry retest), so this costs nothing extra worth measuring even
+  ## rebuilt every tick during an active shrink.
   result = newRgbaPixels(width, height)
   for ly in 0 ..< height:
     let py = barY + ly
@@ -6667,6 +6707,8 @@ proc buildTideBarPixels(
         px = barX + lx
         d = distanceOutsideRect(rect, px, py)
       if d <= 0:
+        continue
+      if sim.isWall(px, py):
         continue
       let color = zoneDeadPixelColor(rect, px, py, d)
       if color.a == 0:
@@ -6733,7 +6775,7 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect) =
       if bar.w <= 0 or bar.h <= 0:
         @[]
       else:
-        buildTideBarPixels(rect, bar.x, bar.y, bar.w, bar.h)
+        buildTideBarPixels(sim, rect, bar.x, bar.y, bar.w, bar.h)
 
 proc addZoneEdgeBand(
   sim: SimServer,
