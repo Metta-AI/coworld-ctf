@@ -103,9 +103,23 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 4
+  GloryVersion* = 5
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v5 (2026-08-25, heat persistence): `HeatThresholds` [1,4,10] ->
+    ## [2,5,10], `HeatEmberDecay` 4 -> 2, `HeatEmberCap` 12 -> 11. Measured
+    ## on 3 real hosted episodes (change-point-exact gloryLine census):
+    ## flames lit ~12x/team/episode with a 2.5s MEAN lit spell -- one deed
+    ## lit x2 (threshold 1) and one ~1.9s quiet window erased a whole rung
+    ## (decay 4). Maxwell: "they earn it then it disappears." Now a lone
+    ## deed never lights (flames = a live STREAK), and cooling is a visible
+    ## descent through the rungs (~11s cap-to-dark) instead of a light
+    ## switch. The cap rides down 12 -> 11 so one quiet window still
+    ## demotes the top rung (11-2=9 < 10); at cap 12, decay 2 would have
+    ## let a maxed team hold x8 through a full quiet window. Every deed's
+    ## multiplier can differ under the new ladder, so a v4 ledger is not
+    ## comparable to a v5 one.
     ##
     ## v4 (2026-08-24, /proof fix cycle): `dFlagReturn` retired (dead, zero
     ## mint sites, would double-pay the carrier's death -- see the tombstone
@@ -237,14 +251,20 @@ const
   HeatLadder* = [1, 2, 4, 8]
     ## Multiplier by rung. x2 is a solo kill, x4 is a few back-to-back, x8 is
     ## a genuine rampage.
-  HeatThresholds* = [1, 4, 10]
-    ## Cumulative embers to reach each rung above x1.
-  HeatEmberCap* = 12
+  HeatThresholds* = [2, 5, 10]
+    ## Cumulative embers to reach each rung above x1. The first rung costs
+    ## TWO embers (v5): one deed is an incident, not a streak -- at
+    ## threshold 1 the field showed ~12 lightings/team/episode with a 2.5s
+    ## mean lit spell, pure flicker.
+  HeatEmberCap* = 11
     ## Just above the x8 floor: a tear maxes the ladder, but no streak can
-    ## HOARD heat that survives going quiet.
-  HeatEmberDecay* = 4
-    ## Embers shed per quiet window — about a rung, so flames bleed inside
-    ## one or two windows rather than minutes.
+    ## HOARD heat that survives going quiet. Sized so ONE quiet window
+    ## always demotes the top rung (cap - decay < x8 floor: 11-2=9 < 10).
+  HeatEmberDecay* = 2
+    ## Embers shed per quiet window (v5: was 4 -- a whole rung per window,
+    ## which read as a light switch). At 2, a maxed streak cools through
+    ## the rungs over ~6 windows (~11s): a visible descent with a story,
+    ## still nowhere near Muster's pinned-at-max scar.
   HeatDecayTicks* = 45
     ## Ticks of no drama before a window closes. ~1.9s at 24fps: react within
     ## a decision and a half.

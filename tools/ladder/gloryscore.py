@@ -116,7 +116,7 @@ import statistics
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 4
+GLORY_VERSION = 5
 # Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
 # ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
 # run from the repo root and silently skip the guard from anywhere else.
@@ -188,9 +188,9 @@ DEED_DRAMA = {
     "clutch_heal": 30, "shield_soak": 0, "wipe": 400, "level_up": 5,
 }
 HEAT_LADDER = [1, 2, 4, 8]
-HEAT_THRESHOLDS = [1, 4, 10]
-HEAT_EMBER_CAP = 12
-HEAT_EMBER_DECAY = 4
+HEAT_THRESHOLDS = [2, 5, 10]
+HEAT_EMBER_CAP = 11
+HEAT_EMBER_DECAY = 2
 HEAT_DECAY_TICKS = 45
 
 LEVEL_THRESHOLDS = [10, 18, 24, 36, 50]

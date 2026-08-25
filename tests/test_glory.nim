@@ -111,9 +111,10 @@ suite "glory: the heat ladder":
     # Muster's scar: +1 rung per deed pinned the WHOLE server at max flames
     # (measured heat_sum 14.7 = everyone maxed) because three kills bought x8.
     check heatMult(0) == 1
-    check heatMult(1) == 2
-    check heatMult(3) == 2      # still climbing, not yet x4
-    check heatMult(4) == 4
+    check heatMult(1) == 1      # ONE deed is an incident, not a streak (v5)
+    check heatMult(2) == 2
+    check heatMult(4) == 2      # still climbing, not yet x4
+    check heatMult(5) == 4
     check heatMult(10) == 8
 
   test "the ember cap bounds the multiplier":
