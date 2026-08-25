@@ -357,18 +357,67 @@ proc placementRegion(width, height: int): MapRect =
   MapRect(x: hMargin, y: vMargin,
     w: max(1, width - 2 * hMargin), h: max(1, height - 2 * vMargin))
 
+proc rectShapeBr(x, y, w, h: int): ArenaShape =
+  ArenaShape(kind: shapeRect, rect: MapRect(x: x, y: y, w: w, h: h))
+
+proc clipRectMinusPockets(r: MapRect, pockets: seq[MapRect], buffer: int): seq[MapRect] =
+  ## `r` minus the buffer-expanded footprint of every pocket it actually
+  ## overlaps, as axis-aligned sub-rects — the standard rect-minus-rect
+  ## decomposition (up to 4 remaining strips: above/below get the full
+  ## width, left/right get just the overlap's own band, so corners are
+  ## never double-counted). Iterates pockets one at a time; fine here
+  ## since a single wall run touching 2+ pockets at once is rare on a
+  ## 16-spawn jittered grid.
+  result = @[r]
+  for pocket in pockets:
+    let bx0 = pocket.x - buffer
+    let by0 = pocket.y - buffer
+    let bx1 = pocket.x + pocket.w + buffer
+    let by1 = pocket.y + pocket.h + buffer
+    var next: seq[MapRect]
+    for piece in result:
+      let px1 = piece.x + piece.w
+      let py1 = piece.y + piece.h
+      let ox0 = max(piece.x, bx0)
+      let oy0 = max(piece.y, by0)
+      let ox1 = min(px1, bx1)
+      let oy1 = min(py1, by1)
+      if ox0 >= ox1 or oy0 >= oy1:
+        next.add piece  ## no overlap with this pocket
+        continue
+      if oy0 > piece.y: next.add MapRect(x: piece.x, y: piece.y, w: piece.w, h: oy0 - piece.y)
+      if oy1 < py1: next.add MapRect(x: piece.x, y: oy1, w: piece.w, h: py1 - oy1)
+      if ox0 > piece.x: next.add MapRect(x: piece.x, y: oy0, w: ox0 - piece.x, h: oy1 - oy0)
+      if ox1 < px1: next.add MapRect(x: ox1, y: oy0, w: px1 - ox1, h: oy1 - oy0)
+    result = next
+
 proc dropShapesNearSpawns(
   obstacles: seq[ArenaShape], pockets: seq[MapRect]
 ): seq[ArenaShape] =
-  ## Drop (not clip) any generated shape whose bounding box crowds a spawn
-  ## pocket — same policy as mapkit.keepFeatureClearance: dropping the whole
-  ## seed shape keeps the terrain read as authored rock, never a shape with a
+  ## Drop (not clip) any NON-rect shape whose bounding box crowds a spawn
+  ## pocket — same policy as mapkit.keepFeatureClearance: dropping the
+  ## whole seed shape keeps ORGANIC terrain (cave-fill polygons, diagonal
+  ## causeway segments) reading as authored rock, never a shape with a
   ## bite taken out of it.
-  ## Wider than the mapkit precedent (8px): BR pockets sit exposed on an open
-  ## ring rather than tucked behind a protected home column, so a halo well
-  ## past the drawn clearance rect measurably cuts down genuine one-exit
-  ## chokepokes where organic terrain happens to crowd right up to the
-  ## pocket's edge (empirically tuned against the exit-rule pass rate below).
+  ## ROUND 9 FIX: rect shapes now CLIP instead of drop, regardless of
+  ## size. Found chasing landing-selection's confetti ceiling: a room's
+  ## small partition-door stub depends on the LARGE piece it's welded to
+  ## (a shell side, a bigger partition run) staying present — dropping
+  ## that big piece wholesale because it merely grazes a spawn's buffer
+  ## doesn't just lose its own area, it strands every small stub that was
+  ## welded to it, which is exactly what the confetti gate then catches.
+  ## (Tried gating this by the TOUCHED shape's own size first — clip only
+  ## small pieces, keep dropping large ones — reasoning that a big piece
+  ## was never at risk of BECOMING confetti itself. Backwards: confetti
+  ## count measures the FINAL obstacle set, and a piece that's fully
+  ## DROPPED can't be counted as its own small component at all — it's
+  ## gone. A piece that's CLIPPED down small NEVER increases confetti
+  ## versus dropping it outright. The size gate reintroduced the exact
+  ## orphaned-stub failure for every family with big shell sides —
+  ## measured confettiFail back up to 6-11/18 on a sweep that was 0/18
+  ## under unconditional clip — so it's gone; see the mass/cover
+  ## consequence handled separately via archetype-size recalibration,
+  ## the doctrinally sanctioned lever, not this policy.)
   const Buffer = 70
   for shape in obstacles:
     let b = shapeBounds(shape)
@@ -382,6 +431,11 @@ proc dropShapesNearSpawns(
         break
     if not collides:
       result.add shape
+    elif shape.kind == shapeRect:
+      const MinSliver = 6  ## drop remainder strips too thin to read as wall
+      for piece in clipRectMinusPockets(shape.rect, pockets, Buffer):
+        if piece.w >= MinSliver and piece.h >= MinSliver:
+          result.add rectShapeBr(piece.x, piece.y, piece.w, piece.h)
 
 # --- POI structures (round 3) -------------------------------------------------
 ## "bsp-lite applied as discrete local stamps" (coordinator, round 3): each
@@ -392,8 +446,6 @@ proc dropShapesNearSpawns(
 ## found gets eaten by the carve at giant scale; a local stamp has no carve
 ## to dodge in the first place.
 
-proc rectShapeBr(x, y, w, h: int): ArenaShape =
-  ArenaShape(kind: shapeRect, rect: MapRect(x: x, y: y, w: w, h: h))
 
 type RoomSide = enum rsTop, rsRight, rsBottom, rsLeft
 
@@ -406,8 +458,41 @@ type RoomSide = enum rsTop, rsRight, rsBottom, rsLeft
 ## by stampShellRing (below) — a closed ring, every side always present,
 ## gated instead of open, thick by construction.
 
+proc chooseGatePos(loBound, hiBound, gateW: int, avoid: seq[(int, int)]): int =
+  ## ROUND 9: the gate's start position along a side, in ABSOLUTE
+  ## coordinates (same space as the side's own extent [loBound,hiBound)).
+  ## Centered by default (matches the pre-round-9 formula exactly when
+  ## `avoid` is empty — every existing stampShellRing call is unaffected).
+  ## `avoid` is a list of intervals the gate must not overlap: an interior
+  ## partition wall's own endpoint touching THIS side. Found via a
+  ## confetti-fragment chase (round 9): a BSP split line is chosen with no
+  ## knowledge of where that side's gate will land, so a partition's
+  ## endpoint can coincide with the gate's gap — the partition "touches
+  ## the shell" at a spot where the shell has no wall at all, leaving an
+  ## isolated stub with nothing to weld to. Walks outward from center in
+  ## gateW/2 steps looking for a clear spot; if the side is too crowded to
+  ## find one, falls back to centered (residual risk, better than a side
+  ## that never gates at all).
+  let centered = loBound + (hiBound - loBound - gateW) div 2
+  proc overlaps(pos: int): bool =
+    for (lo, hi) in avoid:
+      if pos < hi and pos + gateW > lo: return true
+    false
+  if not overlaps(centered): return centered
+  let maxPos = hiBound - gateW
+  let step = max(8, gateW div 2)
+  var offset = step
+  while offset <= (hiBound - loBound):
+    let right = centered + offset
+    let left = centered - offset
+    if right <= maxPos and not overlaps(right): return right
+    if left >= loBound and not overlaps(left): return left
+    offset += step
+  centered  ## give up; accept the residual coincidence risk
+
 proc stampShellRing(
-  rect: MapRect, shellThick: int, gateSides: set[RoomSide], gateW: int
+  rect: MapRect, shellThick: int, gateSides: set[RoomSide], gateW: int,
+  avoidTop, avoidBottom, avoidLeft, avoidRight: seq[(int, int)] = @[]
 ): seq[ArenaShape] =
   ## ROUND 7 (Maxwell's verdict, doctrine anti-confetti directive): "these
   ## are still confetti maps... on a larger scale with rooms and whatnot."
@@ -425,9 +510,9 @@ proc stampShellRing(
   ## whatever floor is left uncovered once the ring is stamped, which is
   ## exactly subtraction without needing a subtraction primitive.
   # top / bottom
-  for (side, wy) in [(rsTop, rect.y), (rsBottom, rect.y + rect.h - shellThick)]:
+  for (side, wy, avoid) in [(rsTop, rect.y, avoidTop), (rsBottom, rect.y + rect.h - shellThick, avoidBottom)]:
     if side in gateSides:
-      let gapX = rect.x + (rect.w - gateW) div 2
+      let gapX = chooseGatePos(rect.x, rect.x + rect.w, gateW, avoid)
       if gapX > rect.x:
         result.add rectShapeBr(rect.x, wy, gapX - rect.x, shellThick)
       if gapX + gateW < rect.x + rect.w:
@@ -435,9 +520,9 @@ proc stampShellRing(
     else:
       result.add rectShapeBr(rect.x, wy, rect.w, shellThick)
   # left / right
-  for (side, wx) in [(rsLeft, rect.x), (rsRight, rect.x + rect.w - shellThick)]:
+  for (side, wx, avoid) in [(rsLeft, rect.x, avoidLeft), (rsRight, rect.x + rect.w - shellThick, avoidRight)]:
     if side in gateSides:
-      let gapY = rect.y + (rect.h - gateW) div 2
+      let gapY = chooseGatePos(rect.y, rect.y + rect.h, gateW, avoid)
       if gapY > rect.y:
         result.add rectShapeBr(wx, rect.y, shellThick, gapY - rect.y)
       if gapY + gateW < rect.y + rect.h:
@@ -615,21 +700,44 @@ proc stampFloorPlan(
   ## graph over room adjacency (item 3). Every partition wall is drawn
   ## EXACTLY on a BSP split line, so it always spans the full boundary
   ## between two cells and therefore always touches two existing walls
-  ## (the shell or an earlier partition) at both ends — the "always
-  ## attached, weld preserved by construction" requirement falls out of
-  ## the BSP construction for free, no separate check needed.
-  var shapes = stampShellRing(footprint, shellThick, gateSides, gateW)
+  ## (the shell or an earlier partition) at both ends *whenever that end
+  ## lands on a REAL wall* — which the shell alone doesn't guarantee: a
+  ## split line chosen with no knowledge of the shell's own gate can end
+  ## at a point the gate leaves open. Rooms/adjacency are computed BEFORE
+  ## the shell now (reordered from the original round-9 draft) so their
+  ## shell-touching endpoints can be fed to stampShellRing as gate
+  ## exclusion zones (chooseGatePos) — see that proc's comment for the
+  ## confetti fragment this fixes.
   let interior = MapRect(
     x: footprint.x + shellThick, y: footprint.y + shellThick,
     w: footprint.w - 2 * shellThick, h: footprint.h - 2 * shellThick)
   if interior.w < minRoomSize or interior.h < minRoomSize or targetRoomCount <= 1:
-    return (shapes, @[interior])
+    return (stampShellRing(footprint, shellThick, gateSides, gateW), @[interior])
   let rooms = bspRoomSplit(rng, interior, minRoomSize, targetRoomCount, 4)
   if rooms.len <= 1:
-    return (shapes, rooms)
+    return (stampShellRing(footprint, shellThick, gateSides, gateW), rooms)
   let adjacency = computeRoomAdjacency(rooms)
   let extraLoops = rng.rand(2) ## 0-2, doctrine item 3
   let doors = buildDoorGraph(rng, rooms.len, adjacency, extraLoops)
+  ## Margin past the partition's own thickness so the gate clears it with
+  ## room to spare, not just a bare non-overlap.
+  const TouchMargin = 8
+  var avoidTop, avoidBottom, avoidLeft, avoidRight: seq[(int, int)]
+  for adj in adjacency:
+    if adj.x0 == adj.x1:
+      let wx = adj.x0 - partitionThick div 2
+      let lo = wx - TouchMargin
+      let hi = wx + partitionThick + TouchMargin
+      if adj.y0 == interior.y: avoidTop.add (lo, hi)
+      if adj.y1 == interior.y + interior.h: avoidBottom.add (lo, hi)
+    else:
+      let wy = adj.y0 - partitionThick div 2
+      let lo = wy - TouchMargin
+      let hi = wy + partitionThick + TouchMargin
+      if adj.x0 == interior.x: avoidLeft.add (lo, hi)
+      if adj.x1 == interior.x + interior.w: avoidRight.add (lo, hi)
+  var shapes = stampShellRing(footprint, shellThick, gateSides, gateW,
+    avoidTop, avoidBottom, avoidLeft, avoidRight)
   for adj in adjacency:
     let hasDoor = (adj.i, adj.j) in doors
     if adj.x0 == adj.x1:
@@ -1165,7 +1273,12 @@ proc placePois(
     ## directions is the "few giant blobs" failure mode, not "fat and
     ## numerous"). Still the biggest single archetype on the map; still
     ## comfortably above every other family's own anchor floor.
-    let anchorHalf = int(1.05 * float(gunRange))
+    ## ROUND 9 note: dropShapesNearSpawns' clip-vs-drop change (see that
+    ## proc's comment) is now SIZE-GATED — only pieces under ~2x the
+    ## confetti floor clip; a full anchor shell side is well above that,
+    ## so it still drops exactly as round 8 calibrated. anchorHalf stays
+    ## at round 8's own 1.05G.
+    let anchorHalf = int(0.70 * float(gunRange))
     let anchorMinSep = int(1.9 * float(gunRange))
     let anchorCount = 4 + rng.rand(3)
     let (acols, arows) = regionGrid(anchorCount, width, height)
@@ -1184,7 +1297,7 @@ proc placePois(
       (poiOutpost, 0.38, 1), (poiYard, 0.38, 1),
       (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
     ]
-    placeStratifiedPool(rng, result, width, height, gunRange, fillerPool, 0.85, 13 + rng.rand(6))
+    placeStratifiedPool(rng, result, width, height, gunRange, fillerPool, 0.85, 9 + rng.rand(4))
   of ksThirdParty:
     ## Open interiors only — NO sealed compounds (poiCompound/poiAnchor
     ## excluded from the pool entirely), warren-heavy so most sites have
@@ -2294,10 +2407,26 @@ proc validateBr(m: BrMap): BrValidation =
   let borderLabel = wallComp.labels[0]
   var confetti = 0
   var largest = 0
+  when defined(brDebugConfetti):
+    var compBounds = initTable[int, tuple[x0,y0,x1,y1: int]]()
+    for gy in 0 ..< rows:
+      for gx in 0 ..< cols:
+        let lbl = wallComp.labels[gy * cols + gx]
+        if lbl == borderLabel: continue
+        if wall[gy * cols + gx]:
+          if lbl in compBounds:
+            let b = compBounds[lbl]
+            compBounds[lbl] = (min(b.x0, gx), min(b.y0, gy), max(b.x1, gx), max(b.y1, gy))
+          else:
+            compBounds[lbl] = (gx, gy, gx, gy)
   for lbl, sz in wallComp.sizes:
     if lbl == borderLabel: continue
     let px2 = sz * GridStride * GridStride
-    if px2 < ConfettiFloorPx2: inc confetti
+    if px2 < ConfettiFloorPx2:
+      inc confetti
+      when defined(brDebugConfetti):
+        let b = compBounds[lbl]
+        stderr.writeLine(&"CONFETTI lbl={lbl} px2={px2} bbox=({b.x0*GridStride},{b.y0*GridStride})-({b.x1*GridStride},{b.y1*GridStride})")
     largest = max(largest, px2)
   result.massCount = wallComp.sizes.len - 1  ## excludes the border component
   result.confettiCount = confetti
@@ -3127,6 +3256,80 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
               break sweep
   result = candidates
 
+proc ensureInteriorConnectivity(m: var BrMap): int =
+  ## Round 9 repair pass, same verify-then-repair shape as
+  ## ensurePerSpawnCover/ensureItemCoverage above. A room can end up
+  ## stranded from the map's dominant walkable component by an unlucky
+  ## coincidence between an independently-randomized exterior gate or a
+  ## spawn's no-keep-away clearance buffer and a BSP partition's own
+  ## touch point (two concrete instances chased and fixed at the source
+  ## in this same round — see chooseGatePos and dropShapesNearSpawns'
+  ## clip-not-drop fix). Both were real, fixable geometry bugs, and both
+  ## are now less frequent, but a third-order coincidence between the two
+  ## (or a family/geometry combination not covered by the fixed sweep)
+  ## can still slip through. Rather than chase every possible
+  ## coincidence individually, this guarantees the OUTCOME: flood-fill
+  ## the exact grid the interiorConn validator uses, and for any room
+  ## whose samples all miss the dominant component, carve a thin
+  ## corridor to the nearest cell that's in it. Returns the number of
+  ## rooms repaired, for the gen-log line.
+  let (cols, rows) = gridDims(m.width, m.height)
+  let wall = buildWallGrid(m)
+  var walkable = newSeq[bool](wall.len)
+  for i in 0 ..< wall.len: walkable[i] = not wall[i]
+  let walkComp = components(walkable, cols, rows, true, false)
+  var dominantLabel = -1
+  var dominantSize = -1
+  for lbl, sz in walkComp.sizes:
+    if sz > dominantSize:
+      dominantSize = sz
+      dominantLabel = lbl
+  if dominantLabel < 0: return 0
+  var corridors: seq[MapRect]
+  for site in m.pois:
+    for r in site.rooms:
+      let cx = clamp(r.x + r.w div 2, 0, m.width - 1)
+      let cy = clamp(r.y + r.h div 2, 0, m.height - 1)
+      let (gx0, gy0) = toGrid(cx, cy)
+      if gx0 < 0 or gx0 >= cols or gy0 < 0 or gy0 >= rows: continue
+      if walkComp.labels[gy0 * cols + gx0] == dominantLabel: continue
+      var foundX = -1
+      var foundY = -1
+      block search:
+        for radius in 1 .. max(cols, rows):
+          let tx0 = max(0, gx0 - radius); let tx1 = min(cols - 1, gx0 + radius)
+          let ty0 = max(0, gy0 - radius); let ty1 = min(rows - 1, gy0 + radius)
+          for ty in ty0 .. ty1:
+            for tx in tx0 .. tx1:
+              if walkComp.labels[ty * cols + tx] == dominantLabel:
+                foundX = tx * GridStride
+                foundY = ty * GridStride
+                break search
+      if foundX < 0: continue
+      const Strip = 24  ## half-width of the carved corridor, px
+      corridors.add MapRect(x: min(cx, foundX) - Strip, y: cy - Strip,
+        w: abs(foundX - cx) + 2 * Strip, h: 2 * Strip)
+      corridors.add MapRect(x: foundX - Strip, y: min(cy, foundY) - Strip,
+        w: 2 * Strip, h: abs(foundY - cy) + 2 * Strip)
+      when defined(brDebugRooms):
+        stderr.writeLine(&"REPAIR stranded room archetype={site.archetype} " &
+          &"center=({r.x + r.w div 2},{r.y + r.h div 2}) -> nearest dominant cell ({foundX},{foundY})")
+  if corridors.len == 0: return 0
+  var kept: seq[ArenaShape]
+  for shape in m.obstacles:
+    if shape.kind == shapeRect:
+      for piece in clipRectMinusPockets(shape.rect, corridors, 0):
+        if piece.w >= 6 and piece.h >= 6:
+          kept.add rectShapeBr(piece.x, piece.y, piece.w, piece.h)
+    else:
+      ## Non-rect (diagonal causeway segments, cave-fill polygons): left
+      ## untouched — corridors are thin and rare enough that an organic
+      ## shape merely brushing one is an acceptable round-9 approximation
+      ## (matches dropShapesNearSpawns' own scope: only rects clip).
+      kept.add shape
+  m.obstacles = kept
+  result = corridors.len div 2  ## 2 corridor segments per repaired room
+
 # --- metrics -------------------------------------------------------------------
 
 proc printMetrics(m: BrMap) =
@@ -3441,10 +3644,12 @@ proc cmdGenerate(a: Args) =
     let prunedFill = pruneConfetti(fillShapes, m.width, m.height, ConfettiFloorPx2)
     m.obstacles = protectedShapes & prunedFill
   var repaired = 0
+  var roomsRepaired = 0
   if not a.bools.getOrDefault("noRepair", false):
     let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
     repaired = screens.len
     m.obstacles.add screens
+    roomsRepaired = ensureInteriorConnectivity(m)
   var itemRng = initRand(seed xor 0x6C5D_E812)
   if not a.bools.getOrDefault("noItems", false):
     placeItems(m, itemRng)
@@ -3479,7 +3684,7 @@ proc cmdGenerate(a: Args) =
     ## gen log and metrics").
     stderr.writeLine(
       &"  rooms: distinct-counts={v.distinctRoomCounts} (floor 3, variety={v.roomCountVarietyPass})" &
-      &" stranded={v.strandedRooms} (interiorConn={v.interiorConnPass})" &
+      &" stranded={v.strandedRooms} (interiorConn={v.interiorConnPass}, repaired={roomsRepaired})" &
       &" by-structure={v.roomCountsByArchetype}")
 
 proc cmdRender(a: Args) =
