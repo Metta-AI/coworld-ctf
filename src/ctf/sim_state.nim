@@ -296,6 +296,21 @@ proc nearestWalkable*(sim: SimServer, x, y: int): tuple[x, y: int] =
           return (nx, ny)
   (x, y)
 
+proc spawnGroupOffset*(sim: SimServer): int =
+  ## How far to rotate the team -> spawn-group assignment this episode.
+  ##
+  ## Derived from the config seed alone (hashed, so consecutive seeds do not
+  ## give consecutive offsets, which on a 4x4 grid would walk the assignment
+  ## one cell at a time and keep neighbours as neighbours). Pure function of
+  ## the seed: a replay of one seed seats exactly as the recording did.
+  let teamCount = sim.gameMap.teamCount()
+  if teamCount <= 1:
+    return 0
+  var h = uint32(sim.config.seed) * 2654435761'u32
+  h = (h xor (h shr 15)) * 2246822519'u32
+  h = h xor (h shr 13)
+  int(h mod uint32(teamCount))
+
 proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
   ## Returns a deterministic spawn position just inside a team's home edge:
   ## players stagger along the edge, perpendicular to their home axis (down
@@ -313,7 +328,21 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
     let
       teamCount = sim.gameMap.teamCount()
       perTeam = sim.gameMap.spawnPoints.len div teamCount
-      p = sim.gameMap.spawnPoints[ord(team) * perTeam + (order mod perTeam)]
+      ## Team k does NOT always get spawn group k. A fixed team->position
+      ## binding means one team owns a grid cell for every episode ever
+      ## played on the map, so any positional advantage that cell carries
+      ## (§3.4's ring-bias, or simply better cover) is handed to the same
+      ## team every time, and per-spawn fairness — the measured floor the
+      ## whole BR programme rests on (§2.5, §3.1) — can no longer be
+      ## separated from per-team skill.
+      ##
+      ## Rotating by an episode-derived offset breaks the binding without
+      ## touching determinism: the offset is a pure function of the seed,
+      ## so one seed always replays identically, while consecutive seeds
+      ## deal the groups differently.
+      offset = sim.spawnGroupOffset()
+      group = (ord(team) + offset) mod teamCount
+      p = sim.gameMap.spawnPoints[group * perTeam + (order mod perTeam)]
     return sim.nearestWalkable(p.x, p.y)
   let
     anchor = sim.gameMap.teamAnchor(team)

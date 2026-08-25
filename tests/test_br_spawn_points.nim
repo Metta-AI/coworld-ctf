@@ -315,11 +315,30 @@ suite "BR N-point spawn subsystem":
     for i in 0 ..< 8:
       discard sim.addPlayer("p" & $i)
     sim.startGame()
-    ## Dump initial positions and assert each seat landed exactly on its
-    ## spec-authored spawn point (CollisionW/H are both 1, so player.x/y IS
-    ## the spawn point with no offset arithmetic to get wrong).
+    ## Assert each seat landed exactly on its spec-authored spawn point
+    ## (CollisionW/H are both 1, so player.x/y IS the spawn point with no
+    ## offset arithmetic to get wrong).
+    ##
+    ## ExpectedJoinOrderSpawn is the hand-written table for an UNROTATED
+    ## deal. Team k no longer always takes spawn group k — the assignment
+    ## rotates per episode so no team owns a grid cell across episodes — so
+    ## the expected point is that table read through the same rotation.
+    ## Still a statement about the GRAMMAR (team-major flattening, per-team
+    ## occurrence, then the rotation), not a re-derivation of the formula:
+    ## the table itself is untouched.
+    let
+      teams = 4
+      offset = sim.spawnGroupOffset()
     for i in 0 ..< sim.players.len:
-      let (ex, ey) = ExpectedJoinOrderSpawn[i]
+      let
+        team = i mod teams
+        occurrence = i div teams
+        group = (team + offset) mod teams
+        ## The table is indexed by JOIN ORDER, and join order j seats team
+        ## (j mod 4) at its (j div 4)-th point — so the entry holding the
+        ## point for (group, occurrence) is at occurrence * 4 + group.
+        rotated = occurrence * teams + group
+        (ex, ey) = ExpectedJoinOrderSpawn[rotated]
       check sim.players[i].x == ex
       check sim.players[i].y == ey
     ## Steps a long stretch of the episode uneventfully: no flag can ever be

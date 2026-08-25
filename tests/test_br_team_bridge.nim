@@ -134,9 +134,13 @@ suite "BR team-count bridge (spawnGroups)":
     ## Seats per group is 1 (16 points / 16 groups), so BOTH members of a duo
     ## land on their group's single point — the duo pocket of BR_MAPGEN.md
     ## §4.2, which is sized for two bodies.
-    let points = gridSpawnPointsNode()
+    let
+      points = gridSpawnPointsNode()
+      offset = sim.spawnGroupOffset()
     for i, player in sim.players:
-      let expected = points[i mod Groups]
+      ## Team k seats on group (k + offset) mod 16 — the per-episode
+      ## rotation, so no team owns a grid cell across episodes.
+      let expected = points[(i + offset) mod Groups]
       check player.x == expected[0].getInt()
       check player.y == expected[1].getInt()
 
@@ -197,3 +201,35 @@ suite "BR team-count bridge (spawnGroups)":
     check once == twice
     check mapFromSpecJson(once).spawnGroups == Groups
     check "\"spawnGroups\":16" in once.replace(" ", "")
+
+  test "the spawn assignment ROTATES per episode, and is fixed per seed":
+    ## A fixed team -> spawn-group binding would hand one team the same grid
+    ## cell in every episode ever played on the map, so any advantage that
+    ## cell carries becomes a permanent team advantage and per-spawn
+    ## fairness stops being measurable separately from team skill.
+    ##
+    ## Determinism is the other half: the offset is a pure function of the
+    ## seed, so a replay of one seed seats exactly as its recording did.
+    proc offsetForSeed(seed: int): int =
+      var config = defaultGameConfig()
+      config.teams = Groups
+      config.seed = seed
+      config.mapSpec = brSpec()
+      var sim = initCtfForTest(config)
+      discard sim.addPlayer("p0")
+      sim.startGame()
+      result = sim.spawnGroupOffset()
+      invalidateBoardMapCaches()
+
+    ## Same seed, twice: identical.
+    check offsetForSeed(4201) == offsetForSeed(4201)
+    ## Across a spread of seeds the assignment actually moves — if every
+    ## seed produced the same offset the rotation would be decorative.
+    var seen: seq[int] = @[]
+    for seed in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+      let o = offsetForSeed(seed)
+      check o >= 0
+      check o < Groups
+      if o notin seen:
+        seen.add o
+    check seen.len > 1
