@@ -395,28 +395,79 @@ html, body {
   justify-content: center;
   pointer-events: none;
   z-index: 12;
-  min-height: calc(26 * var(--u)); /* reserved slot: layout never jumps */
+  min-height: calc(46 * var(--u)); /* reserved slot: layout never jumps */
 }
+/* Medal-slam presentation (arena-shooter juice: IMPACT, then settle). The
+   chip slams in oversized on a hard-overshoot bezier (scale 1.55 past 1.0 to
+   ~0.96, back to rest), a 60ms brightness flash marks the arrival, then the
+   amber underline sweeps in (scaleX 0→1) once the type has landed. Exit is a
+   quick 160ms rise + fade. --bf is the animFactor cap set inline by
+   pumpBanner, so every duration/delay here scales with playback speed up to
+   the 2× ceiling — a 16× scrub can never reduce the slam to a subliminal
+   flash (lever 1); the dwell floor (lever 2) still owns the hold. */
 .banner-chip {
+  --bf: 1;
+  position: relative;
   font-family: var(--pixfont);
-  font-size: calc(13 * var(--u));
-  letter-spacing: 0.06em;
-  padding: calc(6 * var(--u)) calc(14 * var(--u));
+  font-size: calc(24 * var(--u));
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding: calc(7 * var(--u)) calc(20 * var(--u)) calc(9 * var(--u));
   color: var(--paper);
   background: var(--ink-soft);
-  border-bottom: calc(3 * var(--u)) solid var(--amber);
   text-transform: uppercase;
   white-space: nowrap;
-  animation: chippop 300ms cubic-bezier(.2,1.4,.4,1);
+  /* the competitive lean; every animated transform repeats the skew so the
+     slam never un-skews mid-flight */
+  transform: skewX(-6deg);
+  animation:
+    slam-in calc(120ms / var(--bf)) cubic-bezier(.18, 1.9, .32, 1) both,
+    slam-flash calc(60ms / var(--bf)) ease-out calc(110ms / var(--bf));
 }
-.banner-chip.steal { border-bottom-color: var(--amber); }
-.banner-chip.returned { border-bottom-color: var(--paper-dim); }
-.banner-chip.wipe { border-bottom-color: var(--red); font-size: calc(15 * var(--u)); }
-.banner-chip.red-accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--red); }
-.banner-chip.blue-accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--blue); }
-.banner-chip.leaving { animation: chipfade 260ms ease-in forwards; }
-@keyframes chippop { from { transform: translateY(calc(-8 * var(--u))) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes chipfade { to { opacity: 0; transform: translateY(calc(-4 * var(--u))); } }
+.banner-chip .slam-text { display: block; }
+.banner-chip .slam-sub {
+  display: block;
+  font-size: calc(9 * var(--u));
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--paper-dim);
+  margin-top: calc(3 * var(--u));
+}
+/* the amber "earned" rule, swept in after the slam lands */
+.banner-chip .slam-rule {
+  position: absolute;
+  left: calc(10 * var(--u)); right: calc(10 * var(--u)); bottom: 0;
+  height: calc(3 * var(--u));
+  background: var(--amber);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: rule-sweep calc(140ms / var(--bf)) ease-out calc(130ms / var(--bf)) forwards;
+}
+.banner-chip.returned .slam-rule { background: var(--paper-dim); }
+/* team ownership is the TYPE's color, not a side stripe: the medal reads
+   red/blue at a glance even mid-fight */
+.banner-chip.red-accent .slam-text { color: var(--red); }
+.banner-chip.blue-accent .slam-text { color: var(--blue); }
+.banner-chip.wipe { font-size: calc(28 * var(--u)); }
+/* heat-streak callouts ride the same slam; flames sit beside the words in the
+   chrome's amber (the scorebug flame language, sized up — amber = earned) */
+.banner-chip .slam-flames { display: inline-block; margin-right: calc(6 * var(--u)); }
+.banner-chip .slam-flames svg {
+  width: calc(15 * var(--u));
+  height: calc(20 * var(--u));
+  display: inline-block;
+  vertical-align: calc(-2 * var(--u));
+}
+.banner-chip.leaving { animation: slam-out calc(160ms / var(--bf)) ease-in forwards; }
+@keyframes slam-in {
+  from { transform: skewX(-6deg) scale(1.55); opacity: 0; }
+  to { transform: skewX(-6deg) scale(1); opacity: 1; }
+}
+@keyframes slam-flash { from { filter: brightness(1.9); } to { filter: brightness(1); } }
+@keyframes rule-sweep { to { transform: scaleX(1); } }
+@keyframes slam-out { to { opacity: 0; transform: skewX(-6deg) translateY(calc(-8 * var(--u))); } }
 
 /* ---------- 2. KILL FEED ---------- */
 #killfeed {
@@ -1045,6 +1096,58 @@ html, body {
   pointer-events: none;
   z-index: 2;
 }
+/* ---------- GLORY LINE: second lane of the dual-track timeline ----------
+   The glory differential rides IN the scrub band, under the lives-lead lane,
+   on the same trimmed 0→maxTicks x-axis — so the one amber playhead crosses
+   seek track, lives lead AND glory 1:1, and click-to-seek covers the graph
+   for free. Hidden (and the band stays at its old height) until the engine
+   ships s.gloryLine, so old bundles render exactly the chrome they had. */
+.scrub.has-glory { height: calc(64 * var(--u)); }
+.scrub.has-glory .scrub-head { height: calc(60 * var(--u)); }
+.glory-track {
+  position: absolute;
+  left: 0; width: 100%;
+  top: calc(36 * var(--u));
+  height: calc(26 * var(--u));
+  display: none;
+}
+.scrub.has-glory .glory-track { display: block; }
+.glory-label {
+  position: absolute;
+  left: 0; top: calc(37 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(6 * var(--u));
+  letter-spacing: 0.12em;
+  color: var(--paper-dim);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 2;
+  display: none;
+}
+.scrub.has-glory .glory-label { display: block; }
+/* end-of-line readout: the SAME numbers as the scorebug — small, quiet,
+   tabular — so the curve always ends in its current values */
+.glory-readout {
+  position: absolute;
+  right: calc(2 * var(--u)); top: calc(37 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(7 * var(--u));
+  font-variant-numeric: tabular-nums;
+  color: var(--paper-dim);
+  pointer-events: none;
+  z-index: 2;
+  display: none;
+}
+.scrub.has-glory .glory-readout { display: block; }
+.glory-readout .gr-red { color: var(--red); }
+.glory-readout .gr-blue { color: var(--blue); }
+/* at the embed floor the band has no room for a second lane; the scorebug
+   glory numerals carry the read there */
+#stage.tiny .scrub.has-glory { height: calc(34 * var(--u)); }
+#stage.tiny .scrub.has-glory .scrub-head { height: calc(30 * var(--u)); }
+#stage.tiny .glory-track,
+#stage.tiny .glory-label,
+#stage.tiny .glory-readout { display: none !important; }
 .beat-marker {
   position: absolute;
   top: 0;
@@ -1443,7 +1546,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
   .plate.leader .lives-num { animation: none; }
-  .banner-chip, .feed-row, .ach-claim-chip { animation-duration: 1ms; }
+  .banner-chip, .banner-chip .slam-rule, .feed-row, .ach-claim-chip { animation-duration: 1ms; animation-delay: 0ms; }
 }
 
 /* ============================================================
@@ -1582,6 +1685,12 @@ body[data-embed] #board { top: 0; height: 100%; }
         <svg class="momentum" id="momentum" viewBox="0 0 1000 100"
              preserveAspectRatio="none" aria-hidden="true"></svg>
         <span class="momentum-label">LIVES LEAD</span>
+        <!-- GLORY differential: the second lane, canvas-drawn. Mounts only
+             when the engine ships s.gloryLine (→ .has-glory), so an old
+             bundle keeps the band it always had. -->
+        <canvas class="glory-track" id="glorytrack" aria-hidden="true"></canvas>
+        <span class="glory-label">GLORY</span>
+        <span class="glory-readout" id="glory-readout" aria-hidden="true"></span>
         <div class="scrub-track"></div>
         <div class="scrub-fill" id="scrub-fill"></div>
         <!-- lull shading rides ABOVE track+fill so the quiet stretches read
@@ -1636,6 +1745,14 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   // ---- palette (mirrors board tints so chrome matches the arena) ----
   var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
+
+  // ---- flame glyph (scorebug heat chip + heat-streak slam banners) ----
+  // ONE path so the flame language never forks between the silent scorebug
+  // flames and the shouted streak callouts.
+  var FLAME_SVG = '<svg viewBox="0 0 12 16"><path d="M6 0 C7 3 10 5 10 9 ' +
+    'A4 4 0 0 1 2 9 C2 6 4 5 4 3 C5 5 6 5 6 3 Z" fill="var(--amber)"/>' +
+    '<path d="M6 8 C6.7 9.5 8 10 8 11.6 A2 2 0 0 1 4 11.6 ' +
+    'C4 10 5.3 9.5 6 8 Z" fill="var(--stage-lo)"/></svg>';
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -1885,6 +2002,11 @@ body[data-embed] #board { top: 0; height: 100%; }
     renderMismatch(s);
     renderInspector(s);
 
+    // Heat-streak callouts fire off STATE transitions (rung-UPS only): a seek
+    // or the first ingested frame resyncs silently instead of shouting a
+    // phantom streak (the same jump rule every transient lane follows).
+    trackHeat(s, jumped || lastTick < 0);
+
     if (s.events && s.events.length && !jumped) {
       for (var i = 0; i < s.events.length; i++) applyEvent(s.events[i], s);
     }
@@ -1892,6 +2014,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     // come from events only; on a jump the tracker resync'd (no events), so we
     // keep whatever markers we already collected.
     ingestLeadSeries(s);
+    ingestGlorySeries(s);
     ingestFpMap(s);
     ingestLullSpans(s);
     ingestBeats(s);
@@ -2128,11 +2251,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var rungs = heat >= 8 ? 3 : heat >= 4 ? 2 : heat >= 2 ? 1 : 0;
     if (rungs !== (chip._rungs || 0)) {
       chip._rungs = rungs;
-      var flame = '<svg viewBox="0 0 12 16"><path d="M6 0 C7 3 10 5 10 9 ' +
-        'A4 4 0 0 1 2 9 C2 6 4 5 4 3 C5 5 6 5 6 3 Z" fill="var(--amber)"/>' +
-        '<path d="M6 8 C6.7 9.5 8 10 8 11.6 A2 2 0 0 1 4 11.6 ' +
-        'C4 10 5.3 9.5 6 8 Z" fill="var(--stage-lo)"/></svg>';
-      chip.innerHTML = new Array(rungs + 1).join(flame);
+      chip.innerHTML = new Array(rungs + 1).join(FLAME_SVG);
     }
     chip.title = 'rampage x' + heat;
     chip.classList.toggle('show', rungs > 0);
@@ -2378,6 +2497,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     renderBeatMarkers(st, mx);
     renderLullSpans(st, mx);
     renderMomentum();
+    renderGloryLine();
   }
 
   // Shade the precomputed quiet stretches on the seek track. Spans are static
@@ -3576,7 +3696,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   function onSteal(e, s) {
     var heartTeam = e.flag; // the team whose heart was TAKEN (e.flag is the legacy event field)
     var thief = shortName(rosterName(s, e.by));
-    banner((heartTeam === 'red' ? 'RED' : 'BLUE') + ' HEART TAKEN', 'steal ' + (heartTeam + '-accent'));
+    banner((heartTeam === 'red' ? 'RED' : 'BLUE') + ' HEART STOLEN!', 'steal ' + (heartTeam + '-accent'));
   }
   function onReturn(e, s) {
     var heartTeam = e.flag;
@@ -3584,7 +3704,8 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
   function onCapture(e, s) {
     var byTeam = teamOf(s, e.by);
-    banner((byTeam === 'red' ? 'RED' : 'BLUE') + ' CAPTURES', 'wipe ' + (byTeam + '-accent'));
+    banner('CAPTURE!', 'wipe ' + (byTeam + '-accent'),
+      { sub: (byTeam === 'red' ? 'RED' : 'BLUE') + ' TEAM' });
   }
 
   function teamOf(s, slot) {
@@ -3615,8 +3736,9 @@ body[data-embed] #board { top: 0; height: 100%; }
   var bannerEl = $('bannerlane');
   var bannerQueue = [];
   var bannerBusy = false;
-  function banner(text, cls) {
-    bannerQueue.push({ text: text, cls: cls });
+  function banner(text, cls, opts) {
+    bannerQueue.push({ text: text, cls: cls,
+      sub: (opts && opts.sub) || '', flames: (opts && opts.flames) || 0 });
     pumpBanner();
   }
   function pumpBanner() {
@@ -3625,11 +3747,31 @@ body[data-embed] #board { top: 0; height: 100%; }
     var b = bannerQueue.shift();
     var chip = document.createElement('div');
     chip.className = 'banner-chip ' + b.cls;
-    chip.textContent = b.text;
+    var text = document.createElement('span');
+    text.className = 'slam-text';
+    if (b.flames) {
+      // heat callout: the scorebug flame glyph sized up, beside the words
+      var fl = document.createElement('span');
+      fl.className = 'slam-flames';
+      fl.innerHTML = new Array(b.flames + 1).join(FLAME_SVG);
+      text.appendChild(fl);
+    }
+    text.appendChild(document.createTextNode(b.text));
+    chip.appendChild(text);
+    if (b.sub) {
+      var sub = document.createElement('span');
+      sub.className = 'slam-sub';
+      sub.textContent = b.sub;
+      chip.appendChild(sub);
+    }
+    var rule = document.createElement('span');
+    rule.className = 'slam-rule';
+    chip.appendChild(rule);
     bannerEl.appendChild(chip);
-    // lever 1 (animFactor cap): the pop-in never plays faster than 2x, so a
-    // fast-forward scrub can't reduce a banner to a subliminal flash.
-    chip.style.animationDuration = (300 / animFactor()) + 'ms';
+    // lever 1 (animFactor cap): --bf scales every slam duration/delay in CSS
+    // up to the 2x ceiling, so a fast-forward scrub can't reduce the slam to
+    // a subliminal flash.
+    chip.style.setProperty('--bf', animFactor());
     var hold = dwellFloor('banner'); // lever 2: wall-clock dwell floor (~1.9s)
     setTimeout(function () {
       chip.classList.add('leaving');
@@ -3637,13 +3779,36 @@ body[data-embed] #board { top: 0; height: 100%; }
         if (chip.parentNode) chip.parentNode.removeChild(chip);
         bannerBusy = false;
         pumpBanner();
-      }, 260);
+      }, 180);
     }, hold);
   }
   function clearBanners() {
     bannerQueue = [];
     bannerEl.innerHTML = '';
     bannerBusy = false;
+  }
+
+  // ---------- heat-streak callouts (client-side rung-UP detection) ----------
+  // The wire already ships per-team heat every frame (s.teams.*.heat:
+  // 1/2/4/8) and the scorebug flames it silently; the CALLOUT is the state
+  // transition detected here. Rung-downs are silent, both teams can streak
+  // (the banner queue serialises collisions), and the dwell floor keeps each
+  // slam readable at 16x.
+  var HEAT_CALLS = ['', 'HEATING UP', 'ON A TEAR', 'RAMPAGE!'];
+  var heatSeen = { red: 0, blue: 0 };
+  function heatRungOf(h) { return h >= 8 ? 3 : h >= 4 ? 2 : h >= 2 ? 1 : 0; }
+  function trackHeat(s, resync) {
+    if (!s.teams) return;
+    ['red', 'blue'].forEach(function (team) {
+      var t = s.teams[team];
+      if (!t) return;
+      var rung = heatRungOf(t.heat || 1);
+      var prev = heatSeen[team];
+      heatSeen[team] = rung;
+      if (resync || rung <= prev) return;
+      banner(HEAT_CALLS[rung], 'heat ' + team + '-accent',
+        { sub: team.toUpperCase() + ' TEAM', flames: rung });
+    });
   }
 
   // ---------- tiny-stage claim chip lane (one at a time, short dwell) ----------
@@ -3833,6 +3998,135 @@ body[data-embed] #board { top: 0; height: 100%; }
     lineEl.setAttribute('stroke-opacity', '0.95');
     lineEl.setAttribute('vector-effect', 'non-scaling-stroke');
     el.appendChild(lineEl);
+  }
+
+  // ---------- glory line (glory differential over the WHOLE timeline) ----------
+  // The engine ships the full-match glory change-point series ONCE on the
+  // first HUD frame — s.gloryLine, entries [tick, redGlory, blueGlory] or
+  // [tick, rG, bG, rHeat, bHeat] — the same contract as s.lead. The lane
+  // draws red-minus-blue as a differential area in the scrub's second track:
+  // the leading team's color owns the bulge, zero is a quiet hairline
+  // mid-band, and the shared amber playhead rides a curve that is fully drawn
+  // from frame one (seek-safe by construction — only the head moves). An
+  // absent series (old bundle) means the lane never mounts at all.
+  var fullGlorySeries = null;
+  var gloryDirty = false;
+  var glorySeenHeat = false;
+  function hexRgba(hex, a) {
+    // canvas gradients have no stop-opacity: derive rgba from the shared hex
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  function ingestGlorySeries(s) {
+    if (!s.gloryLine || fullGlorySeries) return;
+    fullGlorySeries = s.gloryLine.map(function (p) {
+      return { t: p[0] || 0, r: p[1] || 0, b: p[2] || 0, rh: p[3] || 0, bh: p[4] || 0 };
+    });
+    if (!fullGlorySeries.length) return; // shipped-but-empty: keep the lane down
+    glorySeenHeat = fullGlorySeries.some(function (p) { return p.rh || p.bh; });
+    gloryDirty = true;
+    $('scrub').classList.add('has-glory');
+    relayout(); // the band grew a lane: re-reserve --band so it never overlaps play
+  }
+  function renderGloryLine() {
+    if (!fullGlorySeries || !fullGlorySeries.length || !lastState) return;
+    // end-of-line readout: the LIVE numbers (same source as the scorebug),
+    // refreshed every frame even though the finished curve never redraws
+    var ro = $('glory-readout');
+    var tr = lastState.teams || {};
+    var rg = (tr.red && tr.red.glory) || 0, bg = (tr.blue && tr.blue.glory) || 0;
+    var roKey = rg + '|' + bg;
+    if (ro._key !== roKey) {
+      ro._key = roKey;
+      ro.innerHTML = '<span class="gr-red">' + rg + '</span> · <span class="gr-blue">' + bg + '</span>';
+    }
+    var cv = $('glorytrack');
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return; // tiny stage (lane hidden) or pre-layout
+    var dpr = window.devicePixelRatio || 1;
+    var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; gloryDirty = true; }
+    if (!gloryDirty) return;
+    gloryDirty = false;
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    // same dark backing as the lives-lead lane: both tracks read on one ground
+    ctx.fillStyle = 'rgba(11,7,4,0.55)';
+    ctx.fillRect(0, 0, w, h);
+    var mid = h / 2;
+    // the seek track's trimmed [startTick, maxTick] axis, 1:1 with the playhead
+    var st = Math.max(0, lastState.st || 0);
+    var mx = Math.max(st + 1, lastState.mx || 1);
+    function xOf(t) { return Math.min(1, Math.max(0, (t - st) / (mx - st))) * w; }
+    // per-side autoscale with zero pinned mid — same policy as the lives lane:
+    // the biggest lead touches its edge while the red/blue split stays honest
+    var pts = fullGlorySeries;
+    var maxPos = 1, maxNeg = 1, i, d;
+    for (i = 0; i < pts.length; i++) {
+      d = pts[i].r - pts[i].b;
+      if (d > maxPos) maxPos = d;
+      if (-d > maxNeg) maxNeg = -d;
+    }
+    function yOf(dd) {
+      return dd >= 0 ? mid - (dd / maxPos) * (mid - 1.5)
+                     : mid + (-dd / maxNeg) * (mid - 1.5);
+    }
+    // change-point semantics: hold each value, step at the next entry, and
+    // hold the last value to the end of the axis
+    function traceStep() {
+      var py = yOf(pts[0].r - pts[0].b);
+      ctx.moveTo(xOf(pts[0].t), py);
+      for (var k = 1; k < pts.length; k++) {
+        var xk = xOf(pts[k].t);
+        ctx.lineTo(xk, py);
+        py = yOf(pts[k].r - pts[k].b);
+        ctx.lineTo(xk, py);
+      }
+      ctx.lineTo(w, py);
+    }
+    // zero axis: the quiet hairline the bulge reads against
+    ctx.strokeStyle = hexRgba(PAPER, 0.22);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(w, mid);
+    ctx.stroke();
+    // differential area: the leading team's color owns the bulge (hard
+    // gradient stop at the midline, exactly like the lives lane's momfill)
+    ctx.beginPath();
+    traceStep();
+    ctx.lineTo(w, mid);
+    ctx.lineTo(xOf(pts[0].t), mid);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, hexRgba(RED, 0.8));
+    grad.addColorStop(0.5, hexRgba(RED, 0.28));
+    grad.addColorStop(0.5, hexRgba(BLUE, 0.28));
+    grad.addColorStop(1, hexRgba(BLUE, 0.8));
+    ctx.fillStyle = grad;
+    ctx.fill();
+    // the step line itself, paper like the lives lane's stroke
+    ctx.beginPath();
+    traceStep();
+    ctx.strokeStyle = hexRgba(PAPER, 0.85);
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    // x4+ heat windows: subtle flame-amber ticks along the lane's top edge.
+    // Skipped cleanly when the series ships without the heat columns.
+    if (glorySeenHeat) {
+      ctx.strokeStyle = hexRgba(AMBER, 0.75);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([2.5, 3]);
+      ctx.beginPath();
+      for (i = 0; i < pts.length; i++) {
+        if (Math.max(pts[i].rh, pts[i].bh) < 4) continue;
+        ctx.moveTo(xOf(pts[i].t), 1);
+        ctx.lineTo(i + 1 < pts.length ? xOf(pts[i + 1].t) : w, 1);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   // ============================================================
@@ -4145,6 +4439,9 @@ body[data-embed] #board { top: 0; height: 100%; }
       root.style.setProperty('--band', band + 'px');
     }
     core.setViewportFit();
+    // A resize while paused would otherwise leave the glory lane's canvas
+    // stale/blank (renderGloryLine normally runs on ingested frames only).
+    renderGloryLine();
   }
   var ro = new ResizeObserver(relayout);
   ro.observe(viewport);
