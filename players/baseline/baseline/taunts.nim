@@ -29,6 +29,14 @@ const
     "THATS MEAN", "BE KIND :(", "IM HURT :(", "WOW RUDE", "LOVE U TOO",
     "HUGS?", "SO HOSTILE", "WHY MEAN?", "PEACE PLS", "NO NEED :("
   ]
+  # Reaction to a freshly-sighted VETERAN (a "veteran mark <n>" plume read
+  # off an enemy cog — see labels.nim / baseline.nim actorsFor). Kept in the
+  # same wide-eyed-innocent voice as the lines above: awed, not aggressive,
+  # never a threat assessment the enemy could mistake for a kill taunt.
+  CannedVeteranLines* = [
+    "BIG ONE!", "SO STRONG", "WHOA STAR", "TOUGH ONE", "CAREFUL!",
+    "STARRED!", "WATCH OUT"
+  ]
 
 type
   TauntJob = object

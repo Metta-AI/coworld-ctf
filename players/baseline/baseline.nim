@@ -127,6 +127,12 @@ const
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
+  VeteranMarkAttachDist = 40.0 # the rank plume (`veteran mark <n>`) floats
+                              # ~35px above a body's center on the same
+                              # x — a separate sprite object stacked above
+                              # the hp bar, not a wider search: measured
+                              # against the live sim (buildSpriteProtocol),
+                              # a few px of margin over the exact offset.
   HpFocusBonus = 60.0         # px of effective-distance credit per missing
                               # enemy hit point — a tiebreak between
                               # comparably-engageable targets, never a reason
@@ -280,6 +286,8 @@ type
     pos: Vec
     facingRight: bool
     hp: int                   # from the overhead pip bar; 0 = not read
+    level: int                # from the overhead veteran mark; 0 = no mark
+                               # seen (recruit, or the plume is out of fog)
 
   Track = object              # a remembered player
     pos, vel: Vec
@@ -330,6 +338,12 @@ type
     comebackWant: string      # pending reply to a heard enemy shout
     corpseCount: int          # visible enemy corpses last frame (kill signal)
     killMoodUntil: int        # taunt window opened by a fresh kill
+    sawVeteran: bool          # a ranked enemy (Actor.level > 0) was visible
+                              # last frame — edge detector for veteranMoodUntil
+    veteranMoodUntil: int     # -d:taunt: taunt window opened by a freshly
+                              # SIGHTED veteran (rank perceived, not combat)
+    lastVeteranMood: int      # rate limit: one veteran-sighting window per
+                               # stretch, so standing near one star doesn't spam
     nextPeaceTick: int        # slot-staggered cadence for the audible persona
     lastTeamShoutSeen: int    # any teammate bubble; peace lines keep clear of it
     nadeSpotPos: seq[Vec]     # -d:nadeRelay: learned grenade spawn spots
@@ -519,10 +533,15 @@ proc findSelf(
       return (alive: true, pos: client.mapPos(o))
 
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
-  ## Visible players of one color in map coordinates plus horizontal facing
-  ## and hit points. The overhead "hp <n>/<max>" pip bar is fog-culled with
-  ## its player, so whenever the player is visible its hp is too: attach the
-  ## nearest pip bar within HpPipRadius.
+  ## Visible players of one color in map coordinates plus horizontal facing,
+  ## hit points, and rank. The overhead "hp <n>/<max>" pip bar is fog-culled
+  ## with its player, so whenever the player is visible its hp is too: attach
+  ## the nearest pip bar within HpPipRadius. Same idea for the rank plume:
+  ## "veteran mark <n>" (see labels.nim) only ever renders from the 3-star
+  ## threshold up, floats a fixed offset above the SAME player, and is
+  ## fog-gated identically — so a visible leveled cog carries a visible mark,
+  ## attached the same way, just against a wider radius (VeteranMarkAttachDist)
+  ## since the plume floats further above the body than the pip bar does.
   for facingRight in [true, false]:
     let label = "player " & color & (if facingRight: " right" else: " left")
     for o in client.spriteObjectsWithLabel(label):
@@ -539,6 +558,31 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
           best = i
       if best >= 0:
         result[best].hp = hp
+  for o in client.spriteObjects():
+    if not o.label.startsWith(LabelVeteranMark):
+      continue
+    let tail = o.label[LabelVeteranMark.len .. ^1].strip()
+    var level = 0
+    try:
+      level = parseInt(tail)
+    except ValueError:
+      continue
+    if level <= 0:
+      continue
+    # The iterator's tuple carries the same fields as SpriteObjectInfo (plus
+    # the label mapPos does not need); rebuild one so mapPos's map-space
+    # math is shared with every other scan instead of duplicated here.
+    let p = client.mapPos(SpriteObjectInfo(
+      objectId: o.objectId, x: o.x, y: o.y, width: o.width, height: o.height))
+    var best = -1
+    var bestD = VeteranMarkAttachDist
+    for i in 0 ..< result.len:
+      let d = dist(result[i].pos, p)
+      if d < bestD:
+        bestD = d
+        best = i
+    if best >= 0:
+      result[best].level = level
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -1128,6 +1172,9 @@ proc resetTransient(bot: Bot) =
   bot.comebackWant = ""
   bot.corpseCount = 0
   bot.killMoodUntil = 0
+  bot.sawVeteran = false
+  bot.veteranMoodUntil = 0
+  bot.lastVeteranMood = 0
   bot.lastEnemyShout = ""
   bot.lastComebackReq = 0
   bot.wasMateCarry = false
@@ -1389,6 +1436,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if corpses > bot.corpseCount and bot.firedLast:
       bot.killMoodUntil = bot.tick + 72
     bot.corpseCount = corpses
+    # Rank perception: actorsFor already attaches each visible "veteran mark
+    # <n>" plume to its cog (Actor.level > 0), the same proximity match the
+    # hp pip bar uses — so a levelled enemy is not just seen, its RANK is
+    # read. Consumed the same way a fresh kill opens killMoodUntil: a newly
+    # sighted veteran (edge-triggered, rate-limited) opens its own taunt
+    # window so the persona reacts to the ONE thing on the field a game rule
+    # (the starfall tithe/bounty) says should be scary.
+    var veteranNear = false
+    for a in seenEnemies:
+      if a.level > 0:
+        veteranNear = true
+        break
+    if veteranNear and not bot.sawVeteran and
+        bot.tick - bot.lastVeteranMood > 300:
+      bot.veteranMoodUntil = bot.tick + 72
+      bot.lastVeteranMood = bot.tick
+    bot.sawVeteran = veteranNear
 
   when defined(shoutCoord):
     # Shout intel (0.7.5): teammates broadcast quantized fixes as 10-char
@@ -1691,17 +1755,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.wasMateCarry = mateCarry
     if bot.shoutWant.len == 0 and not iCarry and
         bot.tick - bot.lastShoutTick >= 26 and
-        (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil):
+        (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil or
+         bot.tick < bot.veteranMoodUntil):
       if bot.comebackWant.len > 0:
         bot.shoutWant = bot.comebackWant
         bot.comebackWant = ""
-      else:
+      elif bot.tick < bot.killMoodUntil:
         if bot.tauntBank.len > 0:
           bot.shoutWant = bot.tauntBank[0]
           bot.tauntBank.delete(0)
         else:
           bot.shoutWant = sample(CannedTaunts)
         bot.killMoodUntil = 0              # one taunt per window
+      else:
+        # A veteran was perceived (rank read off its plume, not combat) —
+        # a distinct line from the kill/comeback pools, so this window is
+        # legibly ABOUT the rank sighting and not mistaken for one of those.
+        bot.shoutWant = sample(CannedVeteranLines)
+        bot.veteranMoodUntil = 0           # one taunt per sighting window
       bot.lastShoutTick = bot.tick
     # Opening greeting: the persona speaks in the first ~12s, one staggered
     # line per bot. Enemies are 800+px away then — far outside the ~247px
