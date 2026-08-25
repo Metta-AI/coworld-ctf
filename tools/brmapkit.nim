@@ -34,7 +34,7 @@
 ## giant (2.6x) 3211x1713 field, derived gunRange, the 16-point k=0.85 ring,
 ## the z=0.173 rectangular final zone, and the four BR static validators.
 
-import std/[os, math, random, strformat, strutils, tables, json, algorithm, sequtils, deques]
+import std/[os, math, random, strformat, strutils, tables, json, algorithm, sequtils, deques, times]
 import pixie
 import ../src/ctf/sim, ../src/ctf/mapgen_styles
 
@@ -1166,6 +1166,18 @@ proc rasterCarveToShapes(
   ## own (already-subtractive) cave carve — this is that same technique,
   ## generalized so the maze/room grammars can share it instead of drawing
   ## wall lines additively.
+  ##
+  ## ROUND 12 FIX: the FIRST pass merged runs WITHIN a row only, same as
+  ## stampBranchCave's own carve. That is fine for a cave's irregular
+  ## carve, but at `rp`=4 a genuinely THICK slab of solid wall (exactly
+  ## the mass this whole round exists to produce) emits one skinny
+  ## `rp`-tall rect PER ROW instead of one rect for the whole block —
+  ## measured blowing a single map from ~200 to 1325 obstacles and the
+  ## spec past the 65535B wire hard cap. Rows now carry their run list
+  ## forward and EXTEND a still-open rect whenever the row below repeats
+  ## the exact same x-span (the standard histogram/skyline rect merge),
+  ## closing it out only when the span changes — a solid block collapses
+  ## back to the single rect it always should have been.
   let cols = max(1, (outer.w + rp - 1) div rp)
   let rows = max(1, (outer.h + rp - 1) div rp)
   var solid = newSeq[bool](cols * rows)
@@ -1180,16 +1192,39 @@ proc rasterCarveToShapes(
             carved = true
             break
         solid[ry * cols + rx] = not carved
+  type OpenRect = tuple[x0, x1, y0: int]
+  var active: seq[OpenRect]
   for ry in 0 ..< rows:
-    var rx = 0
-    while rx < cols:
-      if solid[ry * cols + rx]:
-        var rx2 = rx
-        while rx2 + 1 < cols and solid[ry * cols + rx2 + 1]: inc rx2
-        result.add rectShapeBr(outer.x + rx * rp, outer.y + ry * rp, (rx2 - rx + 1) * rp, rp)
-        rx = rx2 + 1
-      else:
-        inc rx
+    var runs: seq[(int, int)]
+    block collectRuns:
+      var rx = 0
+      while rx < cols:
+        if solid[ry * cols + rx]:
+          var rx2 = rx
+          while rx2 + 1 < cols and solid[ry * cols + rx2 + 1]: inc rx2
+          runs.add (rx, rx2 + 1)
+          rx = rx2 + 1
+        else:
+          inc rx
+    var runUsed = newSeq[bool](runs.len)
+    var nextActive: seq[OpenRect]
+    for a in active:
+      var matched = false
+      for ri, r in runs:
+        if not runUsed[ri] and r[0] == a.x0 and r[1] == a.x1:
+          nextActive.add (a.x0, a.x1, a.y0)
+          runUsed[ri] = true
+          matched = true
+          break
+      if not matched:
+        result.add rectShapeBr(
+          outer.x + a.x0 * rp, outer.y + a.y0 * rp, (a.x1 - a.x0) * rp, (ry - a.y0) * rp)
+    for ri, r in runs:
+      if not runUsed[ri]: nextActive.add (r[0], r[1], ry)
+    active = nextActive
+  for a in active:
+    result.add rectShapeBr(
+      outer.x + a.x0 * rp, outer.y + a.y0 * rp, (a.x1 - a.x0) * rp, (rows - a.y0) * rp)
 
 proc stampRoomMaze(
   rng: var Rand, pieces: seq[MapRect], shellThick, cellSize, wallThick: int,
@@ -1611,8 +1646,17 @@ proc stampComplex(
       shapes.add plan.shapes
       rooms.add plan.rooms
     of gMaze:
-      let cellSize = max(48, min(interior.w, interior.h) div 4)
-      let wallThick = max(12, cellSize div 6)
+      ## ROUND 12 (THE BURROW REQUIREMENT): cellSize/wallThick floors
+      ## bumped from 48/12 — a 12px wallThick is HALF the doctrine's own
+      ## named structural floor (24px, §2.1), measured firing the
+      ## thickness AND dangling-endpoint checks together at exactly this
+      ## scale (a uniformly-thin corridor wall reads as one long "stub" no
+      ## matter how far the skeleton walk looks for real depth, because
+      ## there never is any). cellSize floor scales with it so a bridge
+      ## still fits comfortably inside a cell (rasterCarveToShapes needs
+      ## cell - 2*halfWall - 8 to clear the doorway-width floor).
+      let cellSize = max(96, min(interior.w, interior.h) div 4)
+      let wallThick = max(32, cellSize div 4)
       let plan = stampRoomMaze(rng, @[interior], 0, cellSize, wallThick, 0.15, 0)
       shapes.add plan.shapes
       rooms.add plan.rooms
@@ -1828,9 +1872,12 @@ proc stampPoi(
       ## doesn't need to scale with `he` the way a single-room shell
       ## does; a small near-constant thickness plus a cellSize comfortably
       ## bigger than it (>=2.5x) is what the grid-native carve needs.
-      let mazeShell = 26
-      let mazeWall = max(12, he div 30)
-      let mazeCell = max(64, he div 5)
+      ## ROUND 12 (THE BURROW REQUIREMENT): floors bumped from 26/12/64 —
+      ## see the stampComplex gMaze branch's own comment for why a sub-24px
+      ## wallThick fails the thickness/dangling checks together.
+      let mazeShell = 32
+      let mazeWall = max(32, he div 12)
+      let mazeCell = max(96, he div 4)
       let mazePlan = stampRoomMaze(rng, @[footprint], mazeShell, mazeCell, mazeWall, 0.15, 3)
       shapes.add mazePlan.shapes
       rooms = mazePlan.rooms
@@ -1852,7 +1899,7 @@ proc stampPoi(
     ## must stay well under cellSize or boundary walls swallow whole cells.
     ## Near-constant thickness, cellSize scales with `he` and stays >=2.5x
     ## the shell so every boundary cell keeps real interior floor.
-    let mazeShell = 30
+    let mazeShell = 32  ## ROUND 12 (THE BURROW REQUIREMENT): 30 -> 32
     let mainFootprint = MapRect(x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
     var pieces = @[mainFootprint]
     if rng.rand(1.0) < 0.4:
@@ -1868,8 +1915,10 @@ proc stampPoi(
                  else: mainFootprint.x - legW
       let legY = mainFootprint.y + rng.rand(mainFootprint.h - legH)
       pieces.add MapRect(x: legX, y: legY, w: legW, h: legH)
-    let cellSize = max(80, he div 4)
-    let wallThick = max(14, he div 30)
+    ## ROUND 12 (THE BURROW REQUIREMENT): floors bumped from 80/14 — see
+    ## the stampComplex gMaze branch's own comment.
+    let cellSize = max(110, he div 4)
+    let wallThick = max(32, he div 12)
     let plan = stampRoomMaze(rng, pieces, mazeShell, cellSize, wallThick, 0.15, 3)
     shapes.add plan.shapes
     rooms = plan.rooms
@@ -3340,6 +3389,36 @@ type
     fullAccessPass: bool
     fullAccessReason: string
 
+    ## ROUND 12 (THE BURROW REQUIREMENT, doctrine §2.1: "every structure at
+    ## every scale must read as solid mass that rooms were DUG INTO — never
+    ## drawn walls"). Measured per connected WALL COMPONENT of the AUTHORED
+    ## structure set (obstacles[0..<structureCount] — the same population
+    ## anti-confetti already scores, organic caves fill excluded): (a) a
+    ## thickness floor via chamfer-depth erosion (a component that never
+    ## gets deep enough was a drawn line, not dug mass); (b) no dangling
+    ## wall segments via skeleton-endpoint depth (an endpoint whose branch
+    ## never reaches real depth nearby is a stub trailing into open air,
+    ## distinct from a genuine doorway cut, which stays thick right up to
+    ## the cut); (c) enclosure — the fraction of a structure's own outer
+    ## perimeter that is open floor, capped so only the declared 2-4 gates
+    ## show through, not a fixed-width gate reading as "half-open" on a
+    ## small structure. A fourth, structural check rides along: per
+    ## poiComplex site, its own units must weld into ONE component — the
+    ## historical seed-601 defect (a unit's shell fragment surviving
+    ## disconnected from the rest of its own complex, confirmed on the
+    ## r11smoke spec snapshot) is a mass-unity failure neither of the three
+    ## measured checks above would catch on its own.
+    burrowThinComponents: int      ## components that never clear the
+                                     ## thickness floor anywhere
+    burrowDanglingComponents: int  ## components with >=1 stub endpoint
+    burrowEnclosureFails: int      ## components over the opening-fraction
+                                     ## ceiling
+    burrowSplitComplexes: int      ## poiComplex sites whose own units
+                                     ## rendered as >1 welded piece
+    burrowComponentsChecked: int
+    burrowPass: bool
+    burrowReason: string
+
     allPass: bool
 
 const
@@ -3435,6 +3514,41 @@ const
   DistToCoverP95FracG = 0.75
   DistToCoverMaxFracG = 1.25
 
+  ## ROUND 12 (THE BURROW REQUIREMENT) — calibrated against the seed-601
+  ## negative reference (r11smoke's ls_601.json 3-unit complex, which
+  ## fails all four checks below on the historical geometry — see the
+  ## round-12 report) and the caves_404-style organic mass as the
+  ## positive: a caves blob's own carve leaves generous rock between
+  ## tunnels by construction, nowhere near either ceiling/floor here.
+  ## `BurrowStructuralPx` is the doctrine's own named "structural" class
+  ## (§2.1: "shell thickness is structural, 24-48px"); the survival
+  ## radius for the depth/erosion test is half that (a symmetric slab of
+  ## thickness T has max centerline depth T/2).
+  BurrowStructuralPx = 24
+  BurrowDepthFloor = BurrowStructuralPx div 2  ## chamfer depth (px) a
+                                                 ## component must reach
+                                                 ## SOMEWHERE to survive
+  BurrowPadCells = 10    ## crop padding around a component's bbox, in
+                          ## raster cells, so chamfer depth sees genuine
+                          ## surrounding floor, not the crop's own edge
+  BurrowSkeletonWalkSteps = 24  ## ~1.5x BurrowStructuralPx / BurrowRasterPx:
+                                 ## how far back from a skeleton endpoint to
+                                 ## look for real depth before calling it
+                                 ## a dangling stub
+  BurrowMaxOpenFrac = 0.34  ## enclosure ceiling: fraction of a component's
+                             ## own outer perimeter allowed to be open
+                             ## floor (the rest must be walled). Seed-601's
+                             ## historical 3-unit complex measures ~0.5+;
+                             ## a well-gated single/multi-unit structure
+                             ## after the round-12 proportional-gate fix
+                             ## measures under 0.30.
+  BurrowToleranceFrac = 0.10 ## like ConfettiCeiling's role for anti-
+                              ## confetti: a small honest tolerance on the
+                              ## TOTAL failing-component count, not a
+                              ## zero-defect rubber stamp — calibrated
+                              ## alongside the corpus sweep in the round-12
+                              ## report.
+
   ## ROUND 6 keystone detector floors, RECALIBRATED round 8 (doctrine:
   ## "recalibrate on the denser corpus, same cross-family method" — the
   ## POI counts/sizes changed enough across every family that the round-6
@@ -3493,6 +3607,262 @@ const
                                      ## ceiling — this is the fix); every
                                      ## other family's minimum is 0.121+
                                      ## (rotation-timing). Clean, no overlap.
+
+# --- THE BURROW REQUIREMENT (round 12) -----------------------------------------
+## Three measured checks per connected wall COMPONENT of the AUTHORED
+## structure set, plus a fourth structural check per poiComplex site. See
+## the BrValidation field comments for what each one means and why.
+
+proc buildWallGridFor(shapes: seq[ArenaShape], width, height: int): seq[bool] =
+  ## Same rasterization strategy as buildWallGrid (shape-by-shape, own
+  ## bounding box only) but over a CALLER-CHOSEN shape subset instead of
+  ## `m.obstacles` — used here to rasterize just the authored structures,
+  ## excluding organic caves fill and the border wall, so a component is
+  ## always "one structure" rather than "one structure fused to whatever
+  ## terrain happens to touch it."
+  let (cols, rows) = gridDims(width, height)
+  result = newSeq[bool](cols * rows)
+  for shape in shapes:
+    let b = shapeBounds(shape)
+    let gx0 = max(0, b.x0 div GridStride)
+    let gy0 = max(0, b.y0 div GridStride)
+    let gx1 = min(cols - 1, b.x1 div GridStride)
+    let gy1 = min(rows - 1, b.y1 div GridStride)
+    for gy in gy0 .. gy1:
+      let y = gy * GridStride
+      for gx in gx0 .. gx1:
+        let x = gx * GridStride
+        if inShape(x, y, shape):
+          result[gy * cols + gx] = true
+
+proc zhangSuenThin(mask: var seq[bool], cols, rows: int) =
+  ## Standard Zhang-Suen topological thinning to a 1px-wide skeleton.
+  ## Runs on a small per-component crop (a few hundred cells a side at
+  ## most), so the classic O(iterations * cells) cost is cheap here.
+  proc idx(x, y: int): int = y * cols + x
+  var iterGuard = 0
+  var changed = true
+  while changed and iterGuard < 200:
+    changed = false
+    inc iterGuard
+    for step in 0 .. 1:
+      var toRemove: seq[int]
+      for y in 1 ..< rows - 1:
+        for x in 1 ..< cols - 1:
+          let p0 = idx(x, y)
+          if not mask[p0]: continue
+          let p2 = mask[idx(x, y - 1)]
+          let p3 = mask[idx(x + 1, y - 1)]
+          let p4 = mask[idx(x + 1, y)]
+          let p5 = mask[idx(x + 1, y + 1)]
+          let p6 = mask[idx(x, y + 1)]
+          let p7 = mask[idx(x - 1, y + 1)]
+          let p8 = mask[idx(x - 1, y)]
+          let p9 = mask[idx(x - 1, y - 1)]
+          let neigh = [p2, p3, p4, p5, p6, p7, p8, p9]
+          var b = 0
+          for v in neigh:
+            if v: inc b
+          if b < 2 or b > 6: continue
+          var a = 0
+          for i in 0 .. 7:
+            if (not neigh[i]) and neigh[(i + 1) mod 8]: inc a
+          if a != 1: continue
+          if step == 0:
+            if p2 and p4 and p6: continue
+            if p4 and p6 and p8: continue
+          else:
+            if p2 and p4 and p8: continue
+            if p2 and p6 and p8: continue
+          toRemove.add p0
+      if toRemove.len > 0:
+        changed = true
+        for i in toRemove: mask[i] = false
+
+proc skeletonDanglingCount(
+  skel: seq[bool], depth: seq[float], cols, rows: int, walkSteps: int, depthFloor: float
+): int =
+  ## An endpoint (a skeleton pixel with <=1 skeleton neighbour) is a real
+  ## doorway/cut edge if walking a short distance back along its own
+  ## branch reaches genuine depth (the wall was thick right up to the
+  ## cut); if depth stays shallow the whole walk, the branch was thin its
+  ## entire length — a dangling stub, never dug from real mass.
+  proc idx(x, y: int): int = y * cols + x
+  proc skelNeighbors(x, y: int): seq[(int, int)] =
+    for dy in -1 .. 1:
+      for dx in -1 .. 1:
+        if dx == 0 and dy == 0: continue
+        let nx = x + dx
+        let ny = y + dy
+        if nx >= 0 and nx < cols and ny >= 0 and ny < rows and skel[idx(nx, ny)]:
+          result.add (nx, ny)
+  var visited = newSeq[bool](cols * rows)
+  result = 0
+  for y in 0 ..< rows:
+    for x in 0 ..< cols:
+      if not skel[idx(x, y)]: continue
+      let nbrs = skelNeighbors(x, y)
+      if nbrs.len > 1: continue  ## a through-pixel or junction, not an endpoint
+      for i in 0 ..< visited.len: visited[i] = false
+      visited[idx(x, y)] = true
+      var frontier = @[(x, y)]
+      var maxDepthSeen = depth[idx(x, y)]
+      for step in 0 ..< walkSteps:
+        var nextFrontier: seq[(int, int)]
+        for (cx, cy) in frontier:
+          for (nx, ny) in skelNeighbors(cx, cy):
+            let ni = idx(nx, ny)
+            if not visited[ni]:
+              visited[ni] = true
+              maxDepthSeen = max(maxDepthSeen, depth[ni])
+              nextFrontier.add (nx, ny)
+        frontier = nextFrontier
+        if frontier.len == 0: break
+      if maxDepthSeen < depthFloor: inc result
+
+proc enclosureOpenFraction(wallLocal: seq[bool], cols, rows: int): float =
+  ## footprint = wall OR enclosed interior floor (a hole this component's
+  ## own mass fully surrounds). Flood-fills "outside" from the crop
+  ## border over non-wall cells; a footprint cell touching "outside" is a
+  ## perimeter cell, classified walled or open (a gap in the shell).
+  proc idx(x, y: int): int = y * cols + x
+  var outside = newSeq[bool](cols * rows)
+  var queue: seq[int]
+  for x in 0 ..< cols:
+    for y in [0, rows - 1]:
+      let i = idx(x, y)
+      if not wallLocal[i] and not outside[i]:
+        outside[i] = true
+        queue.add i
+  for y in 0 ..< rows:
+    for x in [0, cols - 1]:
+      let i = idx(x, y)
+      if not wallLocal[i] and not outside[i]:
+        outside[i] = true
+        queue.add i
+  var qi = 0
+  while qi < queue.len:
+    let i = queue[qi]
+    inc qi
+    let x = i mod cols
+    let y = i div cols
+    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+      let nx = x + dx
+      let ny = y + dy
+      if nx >= 0 and nx < cols and ny >= 0 and ny < rows:
+        let ni = idx(nx, ny)
+        if not wallLocal[ni] and not outside[ni]:
+          outside[ni] = true
+          queue.add ni
+  var openCount = 0
+  var walledCount = 0
+  for y in 0 ..< rows:
+    for x in 0 ..< cols:
+      let i = idx(x, y)
+      let isFootprint = wallLocal[i] or (not outside[i])
+      if not isFootprint: continue
+      var isBoundary = false
+      for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        let nx = x + dx
+        let ny = y + dy
+        if nx < 0 or nx >= cols or ny < 0 or ny >= rows: continue
+        if outside[idx(nx, ny)]: isBoundary = true
+      if not isBoundary: continue
+      if wallLocal[i]: inc walledCount
+      else: inc openCount
+  if openCount + walledCount == 0: return 0.0
+  float(openCount) / float(openCount + walledCount)
+
+proc computeBurrow(m: BrMap): tuple[thin, dangling, enclosureFail, splitComplexes, checked: int] =
+  let (cols, rows) = gridDims(m.width, m.height)
+  let sc = min(m.structureCount, m.obstacles.len)
+  let structShapes = m.obstacles[0 ..< sc]
+  let wall = buildWallGridFor(structShapes, m.width, m.height)
+  let comp = components(wall, cols, rows, true, true)
+  var bboxByLabel = initTable[int, tuple[x0, y0, x1, y1: int]]()
+  for gy in 0 ..< rows:
+    for gx in 0 ..< cols:
+      let i = gy * cols + gx
+      if not wall[i]: continue
+      let lbl = comp.labels[i]
+      if lbl in bboxByLabel:
+        let b = bboxByLabel[lbl]
+        bboxByLabel[lbl] = (min(b.x0, gx), min(b.y0, gy), max(b.x1, gx), max(b.y1, gy))
+      else:
+        bboxByLabel[lbl] = (gx, gy, gx, gy)
+  var thin = 0
+  var dangling = 0
+  var enclosureFail = 0
+  var checked = 0
+  for lbl, bbox in bboxByLabel:
+    let sizePx2 = comp.sizes[lbl] * GridStride * GridStride
+    ## Below the confetti floor is already someone else's gate's job (a
+    ## fragment that small was never claiming to be a dug structure).
+    if sizePx2 < ConfettiFloorPx2: continue
+    inc checked
+    let lcols = (bbox.x1 - bbox.x0 + 1) + 2 * BurrowPadCells
+    let lrows = (bbox.y1 - bbox.y0 + 1) + 2 * BurrowPadCells
+    let ox = bbox.x0 - BurrowPadCells
+    let oy = bbox.y0 - BurrowPadCells
+    var localWall = newSeq[bool](lcols * lrows)
+    for ly in 0 ..< lrows:
+      let gy = oy + ly
+      if gy < 0 or gy >= rows: continue
+      for lx in 0 ..< lcols:
+        let gx = ox + lx
+        if gx < 0 or gx >= cols: continue
+        let gi = gy * cols + gx
+        if wall[gi] and comp.labels[gi] == lbl:
+          localWall[ly * lcols + lx] = true
+    var floorMask = newSeq[bool](lcols * lrows)
+    for i in 0 ..< localWall.len: floorMask[i] = not localWall[i]
+    let depth = chamferDistancePx(floorMask, lcols, lrows)
+    var maxDepth = 0.0
+    for i in 0 ..< localWall.len:
+      if localWall[i]: maxDepth = max(maxDepth, depth[i])
+    if maxDepth < float(BurrowDepthFloor): inc thin
+    var skel = localWall
+    zhangSuenThin(skel, lcols, lrows)
+    let danglingEnds = skeletonDanglingCount(
+      skel, depth, lcols, lrows, BurrowSkeletonWalkSteps, float(BurrowDepthFloor))
+    if danglingEnds > 0:
+      inc dangling
+      when defined(brDebugBurrow):
+        stderr.writeLine(&"DANGLING lbl={lbl} ends={danglingEnds} maxDepth={maxDepth:.1f} " &
+          &"bbox=({bbox.x0*GridStride},{bbox.y0*GridStride})-({bbox.x1*GridStride},{bbox.y1*GridStride})")
+    let openFrac = enclosureOpenFraction(localWall, lcols, lrows)
+    if openFrac > BurrowMaxOpenFrac: inc enclosureFail
+  ## (d) mass unity: every unit of a poiComplex must weld into the SAME
+  ## component as its siblings (doctrine §2.1: "a compound counts as ONE
+  ## mass") — checked directly against each unit's own footprint rather
+  ## than a shared bounding box, so an unrelated nearby structure can
+  ## never be mistaken for a second piece of THIS complex.
+  var splitComplexes = 0
+  for site in m.pois:
+    if site.archetype != poiComplex or site.units.len <= 1: continue
+    var labelPx2 = initTable[int, int]()
+    when defined(brDebugBurrow):
+      stderr.writeLine(&"complex@({site.center.x},{site.center.y}) units={site.units.len}")
+    for ui, u in site.units:
+      let gx0 = max(0, u.x div GridStride)
+      let gy0 = max(0, u.y div GridStride)
+      let gx1 = min(cols - 1, (u.x + u.w) div GridStride)
+      let gy1 = min(rows - 1, (u.y + u.h) div GridStride)
+      var unitLabelPx2 = initTable[int, int]()
+      for gy in gy0 .. gy1:
+        for gx in gx0 .. gx1:
+          let gi = gy * cols + gx
+          if wall[gi]:
+            let lbl = comp.labels[gi]
+            labelPx2[lbl] = labelPx2.getOrDefault(lbl, 0) + 1
+            unitLabelPx2[lbl] = unitLabelPx2.getOrDefault(lbl, 0) + 1
+      when defined(brDebugBurrow):
+        stderr.writeLine(&"  unit {ui} rect=({u.x},{u.y},{u.w},{u.h}) labels={unitLabelPx2}")
+    var bigLabels = 0
+    for lbl, cnt in labelPx2:
+      if cnt * GridStride * GridStride >= ConfettiFloorPx2: inc bigLabels
+    if bigLabels > 1: inc splitComplexes
+  (thin, dangling, enclosureFail, splitComplexes, checked)
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -4171,13 +4541,41 @@ proc validateBr(m: BrMap): BrValidation =
   ## independently confirms zero unreachable cells. Kept computed and
   ## reported (it's still a useful per-room diagnostic), just no longer
   ## blocking — accessibility above all is fullAccessPass's job now.
+
+  # 12. THE BURROW REQUIREMENT (round 12) --------------------------------------
+  block burrowRequirement:
+    let b = computeBurrow(m)
+    result.burrowThinComponents = b.thin
+    result.burrowDanglingComponents = b.dangling
+    result.burrowEnclosureFails = b.enclosureFail
+    result.burrowSplitComplexes = b.splitComplexes
+    result.burrowComponentsChecked = b.checked
+    let totalFails = b.thin + b.dangling + b.enclosureFail + b.splitComplexes
+    ## `splitComplexes` is ZERO-TOLERANCE: doctrine §2.1 states plainly "a
+    ## compound counts as ONE mass" — a complex that welded into two
+    ## pieces is unambiguously wrong regardless of corpus size, not a rare
+    ## edge case to average away. The other three get a small honest
+    ## tolerance (like ConfettiCeiling's role for anti-confetti) for
+    ## incidental small-sample noise (e.g. a spawn-pocket clip shaving a
+    ## corner) — calibrated so seed-601's historical geometry (splitComplex
+    ## = 2 alone) fails outright, the way the round-12 brief requires.
+    let tolerance = max(1, int(float(b.checked) * BurrowToleranceFrac))
+    result.burrowPass = b.splitComplexes == 0 and
+      (b.thin + b.dangling + b.enclosureFail) <= tolerance
+    result.burrowReason =
+      if result.burrowPass: ""
+      else: &"{totalFails} burrow failures across {b.checked} structures " &
+        &"(thin={b.thin} dangling={b.dangling} overOpen={b.enclosureFail} " &
+        &"splitComplex={b.splitComplexes}), tolerance {tolerance}"
+
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
     result.placeCountPass and result.perSpawnCoverPass and
     result.roomCountVarietyPass and
     result.coverPermillePass and result.distToCoverPass and
     result.itemCoveragePass and result.poiLootPass and result.keystonePass and
-    result.fullAccessPass and result.terrainPass and result.themePass
+    result.fullAccessPass and result.terrainPass and result.themePass and
+    result.burrowPass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
   ## Pick the passing candidate closest to the field's geometric center (a
@@ -4615,13 +5013,29 @@ proc carveCorridors(m: var BrMap, corridors: seq[MapRect]) =
   ## untouched" scope-out: a poiCaveDen or caves-fill polygon is now
   ## exactly the kind of mass that can seal an exterior pocket, so a
   ## tunnel must be able to cut through one, not just skirt it.
+  ##
+  ## ROUND 12 FIX: this rebuilds `m.obstacles` wholesale (a clipped rect
+  ## can become 0, 1, or several pieces) but used to leave `m.structureCount`
+  ## untouched — silently desyncing the structure/fill boundary every time a
+  ## tunnel clipped a structure rect. Harmless while nothing did bounds-
+  ## checked surgery on that boundary; turned into a hard IndexDefect the
+  ## moment `repairComplexUnity` started `m.obstacles.insert(_, structureCount)`
+  ## (a stale, too-large count is no longer a valid insert position once a
+  ## carve has shrunk the list). Fixed generally: since shapes are processed
+  ## in original order and pieces are appended in the same order they're
+  ## produced, every piece derived from an original structure-zone shape
+  ## (`idx < m.structureCount`) still lands before any fill-zone piece in
+  ## `kept` — so counting those pieces gives the correct new boundary.
   if corridors.len == 0: return
   var kept: seq[ArenaShape]
-  for shape in m.obstacles:
+  var newStructureCount = 0
+  for idx, shape in m.obstacles:
+    let isStruct = idx < m.structureCount
     if shape.kind == shapeRect:
       for piece in clipRectMinusPockets(shape.rect, corridors, 0):
         if piece.w >= 6 and piece.h >= 6:
           kept.add rectShapeBr(piece.x, piece.y, piece.w, piece.h)
+          if isStruct: inc newStructureCount
     else:
       let b = shapeBounds(shape)
       var overlaps = false
@@ -4631,10 +5045,13 @@ proc carveCorridors(m: var BrMap, corridors: seq[MapRect]) =
           break
       if not overlaps:
         kept.add shape
+        if isStruct: inc newStructureCount
   m.obstacles = kept
+  m.structureCount = newStructureCount
 
 proc weightedConnectivityField(
-  wall: seq[bool], cols, rows: int, sourceMask: seq[bool]
+  wall: seq[bool], cols, rows: int, sourceMask: seq[bool],
+  protectedMask: seq[bool] = @[]
 ): tuple[dist: seq[int], pred: seq[int]] =
   ## Weighted shortest-path connectivity carving: Dial's algorithm
   ## (bucket-queue Dijkstra for small integer weights) computed ONCE,
@@ -4645,17 +5062,23 @@ proc weightedConnectivityField(
   ## digs through whichever wall is THINNEST only where it must — the
   ## same distance field serves every orphan component in one pass
   ## (see tracePathToSource below), rather than recomputing per orphan.
-  ## This repo's own grid is 2-tier (floor/wall), so there is one dig
-  ## cost, not the 3-tier floor/wall/placed-object scheme a richer scene
-  ## graph could support.
+  ## ROUND 12 (THE BURROW REQUIREMENT): `protectedMask` adds a THIRD,
+  ## much higher cost tier for cells THE BURROW REPAIR just welded shut
+  ## (repairComplexUnity's own bridges) — without it, a tunnel dig
+  ## routinely chose to cut straight back through a freshly-added unity
+  ## bridge (it is, after all, the thinnest wall nearby), and the two
+  ## repairs oscillated forever instead of converging. Protected cells
+  ## are still diggable in extremis (no OTHER route exists), just
+  ## strongly disfavoured.
   const WallCost = 10
+  const ProtectedCost = 400
   let n = cols * rows
   var dist = newSeq[int](n)
   var pred = newSeq[int](n)
   for i in 0 ..< n:
     dist[i] = high(int) div 4
     pred[i] = -1
-  let numBuckets = WallCost + 1
+  let numBuckets = ProtectedCost + 1
   var buckets = newSeq[Deque[int]](numBuckets)
   for i in 0 ..< numBuckets: buckets[i] = initDeque[int]()
   for i in 0 ..< n:
@@ -4665,7 +5088,7 @@ proc weightedConnectivityField(
       buckets[0].addLast(i)
   var currentCost = 0
   var processed = 0
-  let costCap = n * WallCost + 1
+  let costCap = n * ProtectedCost + 1
   while processed < n and currentCost <= costCap:
     let bucketIdx = currentCost mod numBuckets
     if buckets[bucketIdx].len == 0:
@@ -4681,7 +5104,10 @@ proc weightedConnectivityField(
       let ny = cy + dy
       if nx >= 0 and nx < cols and ny >= 0 and ny < rows:
         let ni = ny * cols + nx
-        let stepCost = if not wall[ni]: 1 else: WallCost
+        let stepCost =
+          if not wall[ni]: 1
+          elif protectedMask.len > 0 and protectedMask[ni]: ProtectedCost
+          else: WallCost
         let newCost = currentCost + stepCost
         if newCost < dist[ni]:
           dist[ni] = newCost
@@ -4741,7 +5167,177 @@ proc sealRectsFromCells(cells: seq[int], cols: int): seq[MapRect] =
         w: (xs[j] - xs[i] + 1) * GridStride, h: GridStride)
       i = j + 1
 
-proc ensureFullAccessibility(m: var BrMap): tuple[tunneled, sealed: int] =
+proc wallBoundaryCells(
+  cells: seq[(int, int)], wall: seq[bool], cols, rows: int
+): seq[(int, int)] =
+  ## Cells on the OUTWARD-FACING surface of a wall mass (>=1 non-wall
+  ## 4-neighbour, including off-grid). The nearest point between two
+  ## separate masses can only ever be one of these — an interior cell is
+  ## strictly farther from the other mass than the surface cell between
+  ## them — so filtering to the surface before an O(n*m) nearest-pair
+  ## search is exact, not an approximation, while cutting candidate counts
+  ## from a solid block's full interior (thousands of cells for a big
+  ## complex) down to its perimeter (tens to low hundreds). Measured: this
+  ## is what turns repairComplexUnity's per-site search from a 5-13s stall
+  ## on a handful of seeds with large split complexes into sub-100ms.
+  proc idx(x, y: int): int = y * cols + x
+  for c in cells:
+    let (x, y) = c
+    var isBoundary = false
+    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+      let nx = x + dx
+      let ny = y + dy
+      if nx < 0 or nx >= cols or ny < 0 or ny >= rows or not wall[idx(nx, ny)]:
+        isBoundary = true
+        break
+    if isBoundary: result.add c
+  if result.len == 0: result = cells  ## degenerate: a fully-enclosed mass
+                                        ## (shouldn't happen for a component
+                                        ## touching the outer grid) — fall
+                                        ## back rather than search nothing.
+
+proc repairComplexUnity(m: var BrMap): seq[MapRect] =
+  ## ROUND 12 (THE BURROW REQUIREMENT, doctrine §2.1: "a compound counts as
+  ## ONE mass"). Root-caused on seed-601's own historical geometry AND on
+  ## freshly-regenerated draws alike: `dropShapesNearSpawns`'s clip-not-drop
+  ## policy (round 9) can slice a unit's wall/partition rect at a spawn
+  ## pocket's buffer and leave a small remnant on the far side — just
+  ## above the anti-confetti floor (measured: ~3400-3500px^2 fragments,
+  ## the floor is 3000), so the EXISTING confetti prune correctly does not
+  ## touch it, yet it is topologically stranded from the rest of its own
+  ## complex. Repairs it the same way `ensureFullAccessibility` repairs
+  ## walkable pockets: find the disconnected pieces, bridge the nearest
+  ## pair with a solid connector, same spirit as that proc's corridor
+  ## carve, just for WALL mass instead of walkable floor.
+  let (cols, rows) = gridDims(m.width, m.height)
+  const MinBridgeCells = 4  ## ~64px^2 at GridStride=4 — ignore anything
+                             ## smaller as measurement noise, not a piece
+                             ## worth reconnecting
+  const BridgeThick = 40
+  ## ROUND 12 FIX: measured a bridge landing squarely on a spawn point —
+  ## "a spawn point sampled onto a wall cell" / "a spawn pocket has only 1
+  ## exit" fails that didn't exist in part 1, traced to this proc alone
+  ## (17/200 and 39/200 of a 200-seed sweep, 0/200 before this proc
+  ## existed). Every OTHER wall-adding path (dropShapesNearSpawns at
+  ## generation time) keeps a `Buffer`-px halo clear of every spawn
+  ## pocket; this proc runs post-hoc and never checked at all. Same
+  ## buffer, same rect source (`pocketRect`) as that proc.
+  const SpawnBuffer = 70
+  var pockets: seq[MapRect]
+  for s in m.spawns: pockets.add pocketRect(s, m.spawnClearW, m.spawnClearH)
+  proc collidesSpawnPocket(r: MapRect): bool =
+    for pocket in pockets:
+      if r.x - SpawnBuffer <= pocket.x + pocket.w and
+          r.x + r.w + SpawnBuffer >= pocket.x and
+          r.y - SpawnBuffer <= pocket.y + pocket.h and
+          r.y + r.h + SpawnBuffer >= pocket.y:
+        return true
+    false
+  for site in m.pois:
+    if site.archetype != poiComplex or site.units.len <= 1: continue
+    ## Recompute the wall grid fresh each site: an earlier site's own
+    ## bridge can change labels for a LATER site sharing the same board,
+    ## and a stale label map would misjudge which pieces are still split.
+    let sc = min(m.structureCount, m.obstacles.len)
+    let wall = buildWallGridFor(m.obstacles[0 ..< sc], m.width, m.height)
+    let comp = components(wall, cols, rows, true, true)
+    var cellsByLabel = initTable[int, seq[(int, int)]]()
+    for u in site.units:
+      let gx0 = max(0, u.x div GridStride)
+      let gy0 = max(0, u.y div GridStride)
+      let gx1 = min(cols - 1, (u.x + u.w) div GridStride)
+      let gy1 = min(rows - 1, (u.y + u.h) div GridStride)
+      for gy in gy0 .. gy1:
+        for gx in gx0 .. gx1:
+          let gi = gy * cols + gx
+          if wall[gi]:
+            let lbl = comp.labels[gi]
+            cellsByLabel.mgetOrPut(lbl, @[]).add (gx, gy)
+    var labelSizes: seq[(int, int)]  ## (label, cellCount)
+    for lbl, cells in cellsByLabel: labelSizes.add (lbl, cells.len)
+    labelSizes.sort(proc(a, b: (int, int)): int = cmp(b[1], a[1]))
+    var bigLabels: seq[(int, int)]
+    for ls in labelSizes:
+      if ls[1] >= MinBridgeCells: bigLabels.add ls
+    if bigLabels.len <= 1: continue
+    let mainCells = wallBoundaryCells(cellsByLabel[bigLabels[0][0]], wall, cols, rows)
+    for k in 1 ..< bigLabels.len:
+      let otherCells = wallBoundaryCells(cellsByLabel[bigLabels[k][0]], wall, cols, rows)
+      ## ROUND 12 FIX: a SINGLE nearest-point bridge sits exactly where
+      ## ensureFullAccessibility's own tunnel wants to cross too (it is,
+      ## after all, the thinnest gap) — the ProtectedCost dig-penalty
+      ## discourages that but a genuinely cornered pocket can still force
+      ## it, re-severing the one connection this repair made. Two
+      ## independent, well-separated bridges mean a single corridor-width
+      ## cut can only ever take out ONE of them.
+      type PairD = tuple[d, ax, ay, bx, by: int]
+      var pairs: seq[PairD]
+      for a in mainCells:
+        for b in otherCells:
+          let dx = a[0] - b[0]
+          let dy = a[1] - b[1]
+          pairs.add (dx * dx + dy * dy, a[0], a[1], b[0], b[1])
+      pairs.sort(proc(x, y: PairD): int = cmp(x.d, y.d))
+      const MinSepCells = 15  ## ~60px — keep the two bridges genuinely apart
+      var chosen: seq[PairD]
+      for p in pairs:
+        var farEnough = true
+        for c in chosen:
+          let mdx = p.ax - c.ax
+          let mdy = p.ay - c.ay
+          if mdx * mdx + mdy * mdy < MinSepCells * MinSepCells:
+            farEnough = false
+            break
+        if not farEnough: continue
+        let pax = p.ax * GridStride + GridStride div 2
+        let pay = p.ay * GridStride + GridStride div 2
+        let pbx = p.bx * GridStride + GridStride div 2
+        let pby = p.by * GridStride + GridStride div 2
+        let candRect = MapRect(
+          x: min(pax, pbx) - BridgeThick div 2, y: min(pay, pby) - BridgeThick div 2,
+          w: max(BridgeThick, abs(pbx - pax) + BridgeThick), h: max(BridgeThick, abs(pby - pay) + BridgeThick))
+        if collidesSpawnPocket(candRect): continue
+        chosen.add p
+        if chosen.len >= 2: break
+      for p in chosen:
+        let ax = p.ax * GridStride + GridStride div 2
+        let ay = p.ay * GridStride + GridStride div 2
+        let bx = p.bx * GridStride + GridStride div 2
+        let by = p.by * GridStride + GridStride div 2
+        let x0 = min(ax, bx) - BridgeThick div 2
+        let y0 = min(ay, by) - BridgeThick div 2
+        let x1 = max(ax, bx) + BridgeThick div 2
+        let y1 = max(ay, by) + BridgeThick div 2
+        let bridgeRect = MapRect(x: x0, y: y0, w: max(BridgeThick, x1 - x0), h: max(BridgeThick, y1 - y0))
+        ## ROUND 12 FIX: `m.obstacles.add` appends PAST `structureCount`,
+        ## which lands the bridge in the "demoted caves fill" zone (see the
+        ## BrMap field comment: obstacles[structureCount..^1] is fill). A
+        ## bridge is exactly the field comment's own "POI walls + connectors"
+        ## case — it belongs IN the authored-structure zone — and
+        ## `computeBurrow`/`repairComplexUnity`'s own next-site rebuild both
+        ## slice `m.obstacles[0 ..< structureCount]` only, so an appended
+        ## bridge was structurally invisible to the very check it exists to
+        ## satisfy (measured: splitComplex barely moved with repair on vs
+        ## off across a 21-seed sweep — the repair fired but the gate never
+        ## saw it). Insert at the structure/fill boundary and grow the
+        ## boundary instead, so the bridge counts as structure everywhere
+        ## `structureCount` is the discriminator (burrow, terrain-switch
+        ## fill-share, cover-permille structure/fill split).
+        ## Defensive clamp matching the `sc = min(structureCount, obstacles.len)`
+        ## pattern used everywhere else this boundary is read — belt-and-
+        ## suspenders alongside the carveCorridors fix above, in case some
+        ## other future mutator ever desyncs the count again.
+        let insertAt = min(m.structureCount, m.obstacles.len)
+        m.obstacles.insert(rectShapeBr(bridgeRect.x, bridgeRect.y, bridgeRect.w, bridgeRect.h), insertAt)
+        m.structureCount = insertAt + 1
+        result.add bridgeRect
+        when defined(brDebugBurrow):
+          stderr.writeLine(&"UNITY BRIDGE complex@({site.center.x},{site.center.y}) " &
+            &"({ax},{ay})-({bx},{by}) thick={BridgeThick}")
+
+proc ensureFullAccessibility(
+  m: var BrMap, protectedRects: seq[MapRect] = @[]
+): tuple[tunneled, sealed: int] =
   ## ROUND 10 (Maxwell: "some rooms and places are not accessible... i
   ## still SEE inaccessible rooms"): supersedes round 9's
   ## ensureInteriorConnectivity, which only sampled POI ROOM CENTERS — a
@@ -4813,7 +5409,22 @@ proc ensureFullAccessibility(m: var BrMap): tuple[tunneled, sealed: int] =
       var sourceMask = newSeq[bool](walkable.len)
       for i in 0 ..< walkable.len:
         sourceMask[i] = walkable[i] and comp.labels[i] == mainLabel
-      let field = weightedConnectivityField(wall, cols, rows, sourceMask)
+      ## THE BURROW REQUIREMENT: strongly discourage digging back through
+      ## a unity bridge repairComplexUnity just welded — see
+      ## weightedConnectivityField's own comment for the oscillation this
+      ## fixes.
+      var protectedMask: seq[bool]
+      if protectedRects.len > 0:
+        protectedMask = newSeq[bool](wall.len)
+        for r in protectedRects:
+          let gx0 = max(0, r.x div GridStride)
+          let gy0 = max(0, r.y div GridStride)
+          let gx1 = min(cols - 1, (r.x + r.w) div GridStride)
+          let gy1 = min(rows - 1, (r.y + r.h) div GridStride)
+          for gy in gy0 .. gy1:
+            for gx in gx0 .. gx1:
+              protectedMask[gy * cols + gx] = true
+      let field = weightedConnectivityField(wall, cols, rows, sourceMask, protectedMask)
       for cells in tunnelOrphans:
         let path = tracePathToSource(cells, field.dist, field.pred)
         if path.len >= 1:
@@ -4922,6 +5533,13 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     # ROUND 10: the hard zero-tolerance accessibility gate.
     "unreachableFloorCells": v.unreachableFloorCells,
     "fullAccessPass": v.fullAccessPass,
+    # ROUND 12: THE BURROW REQUIREMENT.
+    "burrowThinComponents": v.burrowThinComponents,
+    "burrowDanglingComponents": v.burrowDanglingComponents,
+    "burrowEnclosureFails": v.burrowEnclosureFails,
+    "burrowSplitComplexes": v.burrowSplitComplexes,
+    "burrowComponentsChecked": v.burrowComponentsChecked,
+    "burrowPass": v.burrowPass,
     "pass": %*{
       "connectivity": v.connectivityPass,
       "exitRule": v.exitPass,
@@ -4938,6 +5556,7 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "interiorConnectivity": v.interiorConnPass,
       "roomCountVariety": v.roomCountVarietyPass,
       "fullAccess": v.fullAccessPass,
+      "burrow": v.burrowPass,
       "all": v.allPass,
     },
   }
@@ -5146,7 +5765,11 @@ proc cmdGenerate(a: Args) =
     theme = themeFromStr(a.flag("theme", "exterior"))
   var params = brDefaultParams(style)
   applyParams(params, a.params)
+  when defined(brDebugBurrow):
+    let genT0 = epochTime()
   var m = generateBrMap(seed, style, params, keystone, terrain, theme)
+  when defined(brDebugBurrow):
+    stderr.writeLine(&"TIMING generateBrMap={(epochTime()-genT0)*1000:.0f}ms")
   let rawCount = m.obstacles.len
   if not a.bools.getOrDefault("noPrune", false):
     ## Only the DEMOTED CAVES FILL (obstacles[structureCount..^1]) is
@@ -5161,6 +5784,7 @@ proc cmdGenerate(a: Args) =
   var repaired = 0
   var tunneled = 0
   var sealed = 0
+  var unityBridges = 0
   if not a.bools.getOrDefault("noPrune", false):
     ## ROUND 10: a SECOND, FULL-OBSTACLE-SET confetti prune. The first
     ## pass (above, structures protected) only ever saw organic cave
@@ -5188,16 +5812,50 @@ proc cmdGenerate(a: Args) =
     ## iteration's flood-fill ever saw it stay fixed. Moved BEFORE
     ## ensurePerSpawnCover/ensureFullAccessibility so repair always has
     ## the last word on what stays in the obstacle list.
+    when defined(brDebugBurrow):
+      let pruneT0 = epochTime()
     m.obstacles = pruneConfetti(m.obstacles, m.width, m.height, ConfettiFloorPx2)
+    when defined(brDebugBurrow):
+      stderr.writeLine(&"TIMING secondPrune={(epochTime()-pruneT0)*1000:.0f}ms")
   if not a.bools.getOrDefault("noRepair", false):
+    ## THE BURROW REQUIREMENT's mass-unity repair and ensureFullAccessibility
+    ## pull in opposite directions: unity ADDS wall mass to reweld a split
+    ## complex, accessibility CARVES THROUGH wall mass (carveCorridors clips
+    ## whatever rect a tunnel's path crosses) to open a walkable pocket —
+    ## and a tunnel is free to route straight through a just-added unity
+    ## bridge (it is, after all, the thinnest wall nearby). Measured:
+    ## running unity once before accessibility left it undone on seed 601
+    ## (a bridge got tunneled back open). Alternate a few rounds so each
+    ## gets the last word on the OTHER's side effect; both are no-ops once
+    ## nothing is left to fix, so this converges fast in the common case.
     let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
     repaired = screens.len
     m.obstacles.add screens
-    (tunneled, sealed) = ensureFullAccessibility(m)
+    var allBridges: seq[MapRect]
+    for round in 0 ..< 4:
+      when defined(brDebugBurrow):
+        let t0 = epochTime()
+      let bridgesThisRound = repairComplexUnity(m)
+      when defined(brDebugBurrow):
+        let t1 = epochTime()
+      unityBridges += bridgesThisRound.len
+      allBridges.add bridgesThisRound
+      let (t, s) = ensureFullAccessibility(m, allBridges)
+      when defined(brDebugBurrow):
+        let t2 = epochTime()
+        stderr.writeLine(&"TIMING round={round} repairComplexUnity={(t1-t0)*1000:.0f}ms" &
+          &" ensureFullAccessibility={(t2-t1)*1000:.0f}ms bridges={bridgesThisRound.len} tunneled={t} sealed={s}")
+      tunneled += t
+      sealed += s
+      if bridgesThisRound.len == 0 and t == 0 and s == 0: break
   var itemRng = initRand(seed xor 0x6C5D_E812)
   if not a.bools.getOrDefault("noItems", false):
+    when defined(brDebugBurrow):
+      let itemT0 = epochTime()
     placeItems(m, itemRng)
     ensureItemCoverage(m, PerSpawnCoverGR, itemRng)
+    when defined(brDebugBurrow):
+      stderr.writeLine(&"TIMING items={(epochTime()-itemT0)*1000:.0f}ms")
   let spec = brMapSpecJson(m)
   let outPath = a.flag("out", "")
   if outPath.len == 0:
@@ -5209,7 +5867,11 @@ proc cmdGenerate(a: Args) =
     ## coverPermille/bigMassCount/specSizeBytes without duplicating the
     ## measurement code — it's a single extra pass over one map at draw
     ## time, not a hot loop.
+    when defined(brDebugBurrow):
+      let valT0 = epochTime()
     let v = validateBr(m)
+    when defined(brDebugBurrow):
+      stderr.writeLine(&"TIMING final validateBr={(epochTime()-valT0)*1000:.0f}ms")
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} keystone={keystoneToStr(m.keystone)} " &
       &"terrain={m.terrain} theme={m.theme} " &
@@ -5225,6 +5887,10 @@ proc cmdGenerate(a: Args) =
       &" distToCover p95={v.distToCoverP95Px:.0f}px max={v.distToCoverMaxPx:.0f}px" &
       &" specSize={v.specSizeBytes}B headroom={SpecSizeBudgetBytes - v.specSizeBytes}B" &
       &" allPass={v.allPass}")
+    stderr.writeLine(
+      &"  burrow: {v.burrowPass} (checked={v.burrowComponentsChecked}" &
+      &" thin={v.burrowThinComponents} dangling={v.burrowDanglingComponents}" &
+      &" overOpen={v.burrowEnclosureFails} splitComplex={v.burrowSplitComplexes})")
     ## ROUND 9 (doctrine item 2: "print per-structure room counts in the
     ## gen log and metrics").
     stderr.writeLine(
@@ -5237,7 +5903,7 @@ proc cmdGenerate(a: Args) =
     ## found and fixed this draw (0 is the good case, not a red flag).
     stderr.writeLine(
       &"  access: unreachable={v.unreachableFloorCells}px-cells (fullAccess={v.fullAccessPass})" &
-      &" repair(tunneled={tunneled}, sealed={sealed})")
+      &" repair(tunneled={tunneled}, sealed={sealed}, unityBridges={unityBridges})")
     ## ROUND 11b: switches measured and printed exactly like the keystone.
     stderr.writeLine(
       &"  switches: terrain={m.terrain} [{v.terrainLabel}={v.terrainValue:.2f}, floor={v.terrainFloor:.2f}, pass={v.terrainPass}]" &
@@ -5275,6 +5941,10 @@ proc printValidation(v: BrValidation) =
   echo &"room variety:  {(if v.roomCountVarietyPass: \"PASS\" else: \"FAIL: \" & v.roomCountVarietyReason)}  (distinct counts={v.distinctRoomCounts}, floor=3)"
   echo &"  room counts by structure: {v.roomCountsByArchetype}"
   echo &"full access:   {(if v.fullAccessPass: \"PASS\" else: \"FAIL: \" & v.fullAccessReason)}  (unreachable={v.unreachableFloorCells} cells, HARD gate, must be 0)"
+  echo &"burrow reqmt:  {(if v.burrowPass: \"PASS\" else: \"FAIL: \" & v.burrowReason)}  " &
+    &"(checked={v.burrowComponentsChecked}, thin={v.burrowThinComponents}, " &
+    &"dangling={v.burrowDanglingComponents}, overOpen={v.burrowEnclosureFails}, " &
+    &"splitComplex={v.burrowSplitComplexes})"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
