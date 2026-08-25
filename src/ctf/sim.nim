@@ -306,6 +306,7 @@ proc startGame*(sim: var SimServer) =
     ## to overwrite the roster's seating, so a brMode cog got its spares
     ## back here and the header went on lying.
     sim.players[i].lives = sim.config.seatLivesFor(sim.players[i].team)
+    sim.players[i].lastDeathTick = -1
     sim.players[i].hp =
       sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
     sim.players[i].respawnTimer = 0
@@ -898,6 +899,10 @@ proc killPlayer*(
     y = float(sim.players[targetIndex].y + CollisionH div 2),
     targetSlot = killerSlot
   )
+  # When this cog died, for the BR timeout tiebreak's "stayed alive longer"
+  # rank. Written for every mode (it is one int and costs nothing), read
+  # only by brTiebreakWinner.
+  sim.players[targetIndex].lastDeathTick = sim.tickCount
   if sim.config.brMode:
     # BR: no respawns, ever — one death is out regardless of the configured
     # `lives`/`respawnTicks`. Reuse eliminateTeam's existing "permanently
@@ -2898,38 +2903,71 @@ proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
   false
 
 proc brTiebreakWinner(sim: SimServer): tuple[winner: Team, isDraw: bool] =
-  ## BR maxTicks tiebreak (docs/designs/BR_MAPGEN.md §1, pre-registered
-  ## before any BR corpus exists): most LIVING players wins; a tie there
-  ## breaks on total damage dealt — `Player.damageDealt` is the nearest
-  ## already-tracked stat to "who was winning the fight," so this reuses it
-  ## rather than inventing new tracking just for the tiebreak. A tie on both
-  ## is a draw. Generic over `sim.teams()`, so this is unchanged whether the
-  ## game seats 2, 4, or (once the team-count ceiling widens) 16 teams.
-  var living, damage: array[Team, int]
-  for p in sim.players:
+  ## BR maxTicks tiebreak (docs/designs/BR_MAPGEN.md §1). A STRICT TOTAL
+  ## ORDER: a timeout can never be a draw.
+  ##
+  ## Draw-free is the point, not a detail. A reference BR implementation
+  ## (treeform's battleroyale coworld) removed draws outright because they
+  ## bred PASSIVE DOUBLE-DEATH play: if both sides survive to the clock and
+  ## split the result, the dominant strategy is to avoid the fight, and a
+  ## battle royale whose optimal line is "do not engage" has lost its
+  ## thesis. Field evidence from that implementation agrees — of 8 hosted
+  ## reference replays, 2 reached the clock and were won by survival
+  ## farming rather than by fighting.
+  ##
+  ## The order, each rank breaking the one above:
+  ##   1. most LIVING cogs — the mode's own currency.
+  ##   2. latest LAST DEATH — of two teams equally reduced, the one that
+  ##      held its cogs longer was winning for longer. A team that never
+  ##      died at all ranks best (sentinel below), which matters because
+  ##      -1 would otherwise rank it WORST.
+  ##   3. most KILLS — took the fight to somebody.
+  ##   4. most DAMAGE DEALT — was winning fights it did not finish.
+  ##   5. lowest SLOT INDEX — arbitrary, and deliberately so: it exists
+  ##      only to guarantee totality, so no timeout can return a draw.
+  ##
+  ## Generic over sim.teams(), so it is unchanged at 2, 4 or 16 teams.
+  var
+    living, kills, damage: array[Team, int]
+    lastDeath: array[Team, int]
+    deaths: array[Team, int]
+    seat: array[Team, int]
+  for team in Team:
+    lastDeath[team] = -1
+    seat[team] = int.high
+  for i, p in sim.players:
     if p.alive:
       inc living[p.team]
+    kills[p.team] += p.kills
     damage[p.team] += p.damageDealt
-  var maxLiving = -1
+    if p.lastDeathTick >= 0:
+      inc deaths[p.team]
+      lastDeath[p.team] = max(lastDeath[p.team], p.lastDeathTick)
+    seat[p.team] = min(seat[p.team], i)
+  ## A team that never lost anybody outranks every team that did.
   for team in sim.teams():
-    maxLiving = max(maxLiving, living[team])
-  var livingLeaders: seq[Team] = @[]
+    if deaths[team] == 0:
+      lastDeath[team] = int.high
+
+  var best = Red
+  var haveBest = false
   for team in sim.teams():
-    if living[team] == maxLiving:
-      livingLeaders.add team
-  if livingLeaders.len == 1:
-    return (livingLeaders[0], false)
-  var maxDamage = -1
-  for team in livingLeaders:
-    maxDamage = max(maxDamage, damage[team])
-  var damageLeaders: seq[Team] = @[]
-  for team in livingLeaders:
-    if damage[team] == maxDamage:
-      damageLeaders.add team
-  if damageLeaders.len == 1:
-    return (damageLeaders[0], false)
-  (Red, true)  # full tie on both criteria: a draw, same as the mutual-wipe
-               # convention (winner arg is a placeholder finishGame ignores).
+    if not haveBest:
+      best = team
+      haveBest = true
+      continue
+    ## Lexicographic compare on the five ranks, in order.
+    let better =
+      if living[team] != living[best]: living[team] > living[best]
+      elif lastDeath[team] != lastDeath[best]: lastDeath[team] > lastDeath[best]
+      elif kills[team] != kills[best]: kills[team] > kills[best]
+      elif damage[team] != damage[best]: damage[team] > damage[best]
+      else: seat[team] < seat[best]
+    if better:
+      best = team
+  ## Never a draw: seat index is unique per team among seated teams, so the
+  ## comparison above is a strict total order.
+  (best, false)
 
 proc shouldAbortFiniteMatch*(sim: SimServer): bool =
   ## Returns true when a finite match cannot continue after roster loss.

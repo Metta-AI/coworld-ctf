@@ -2,7 +2,8 @@
 ## no respawns (a death is permanent), the game ends the moment at most one
 ## team has a living player, flags/captures never eliminate a team or end
 ## the game, and a maxTicks timeout resolves by a pre-registered tiebreak
-## (most living players, then total damage dealt) instead of an automatic
+## — most living, then latest last death, then kills, then damage, then
+## slot index — which is a strict TOTAL order, so a timeout is never a
 ## draw. Generic over team count — tested at 2 and 4, the two team counts
 ## the engine seats today (`activeTeams` asserts `[2, 4]`); nothing here
 ## assumes either number, so it keeps working the day team16 lands.
@@ -193,25 +194,78 @@ suite "BR elimination ruleset":
     check not sim.isDraw
     check sim.winner == Red
 
-  test "maxTicks tiebreak: a full tie on both axes is a draw":
+  test "maxTicks tiebreak: a total tie still crowns a winner, NEVER a draw":
+    ## This test asserted a DRAW until the draw-free ruling. Draws bred
+    ## passive double-death play — if surviving to the clock splits the
+    ## result, the dominant line is to avoid the fight — so the tiebreak is
+    ## now a strict total order ending in slot index, and a timeout cannot
+    ## return a draw however tied the teams are.
     var sim = brDuoGame()
     sim.config.maxTicks = 5
     for i in [2, 3, 4, 5, 6, 7]:
       sim.players[i].alive = false
       sim.players[i].lives = 0
-    # Red's and Blue's lone survivors are tied on both living count (1
-    # each) and damage dealt (0 each, the default).
+    # Red's and Blue's lone survivors are tied on EVERY measured axis:
+    # living (1 each), last death (neither of the survivors ever died),
+    # kills (0) and damage (0). Only the final arbitrary rank is left.
     let none = newSeq[InputState](sim.players.len)
     while sim.phase == Playing:
       sim.step(none, none)
 
     check sim.phase == GameOver
     check sim.timeLimitReached
-    check sim.isDraw
-    # A time-limit draw still pays the lose-lose TimeoutReward — unchanged
-    # from classic play (finishGame's isDraw branch isn't brMode-specific).
-    check sim.players[0].reward == TimeoutReward
-    check sim.players[1].reward == TimeoutReward
+    check not sim.isDraw
+    check sim.winner == Red      ## lowest seated slot index (0 vs 1).
+
+  test "maxTicks tiebreak: equal living breaks on who stayed alive LONGER":
+    ## Rank 2, ahead of kills and damage: of two teams equally reduced, the
+    ## one that held its cogs longer was winning for longer. Deaths go
+    ## through killPlayer so lastDeathTick is set the way a real match sets
+    ## it, rather than by poking `alive` directly.
+    var sim = brDuoGame()
+    sim.config.maxTicks = 400
+    # Wipe Green and Yellow outright so only Red and Blue stand.
+    for i in [2, 3, 6, 7]:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    let none = newSeq[InputState](sim.players.len)
+    # Blue loses a cog EARLY...
+    sim.step(none, none)
+    sim.killPlayer(5, -1)
+    # ...Red loses one much later, so Red held four-quarters of the match.
+    for _ in 0 ..< 50:
+      if sim.phase != Playing: break
+      sim.step(none, none)
+    sim.killPlayer(4, -1)
+    # Both are now 1 living, 0 kills, 0 damage — only last-death separates.
+    while sim.phase == Playing:
+      sim.step(none, none)
+
+    check sim.phase == GameOver
+    check sim.timeLimitReached
+    check not sim.isDraw
+    check sim.winner == Red
+
+  test "maxTicks tiebreak: equal living and equal survival breaks on KILLS":
+    ## Rank 3, ahead of damage: a team that finished its fights outranks one
+    ## that only chipped.
+    var sim = brDuoGame()
+    sim.config.maxTicks = 5
+    for i in [2, 3, 4, 6, 7]:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    sim.players[5].alive = false
+    sim.players[5].lives = 0
+    sim.players[0].kills = 2          ## Red's survivor finished two.
+    sim.players[1].kills = 0
+    sim.players[1].damageDealt = 999  ## Blue chipped far more, and loses.
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+
+    check sim.phase == GameOver
+    check not sim.isDraw
+    check sim.winner == Red
 
   test "classic maxTicks (brMode off) is still an unconditional scoreless draw":
     var sim = twoTeamGame()

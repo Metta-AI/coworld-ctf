@@ -1684,6 +1684,13 @@ type
                                ## (teammates included, self excluded);
                                ## analysis-only (the `grenadier`
                                ## achievement), excluded from gameHash.
+    lastDeathTick*: int        ## tick of this cog's most recent death, or -1
+                               ## if it has never died. Written by killPlayer
+                               ## and read only by the BR timeout tiebreak,
+                               ## which ranks "stayed alive longer" ahead of
+                               ## kills — see brTiebreakWinner. Appended
+                               ## scalar (GVNEXT), analysis-only, excluded
+                               ## from gameHash.
     grenadeDamageDealt*: int   ## the grenade-blast share of damageDealt;
                                ## analysis-only, excluded from gameHash.
     gunDamageDealt*: int       ## the paintball-gun share of damageDealt
