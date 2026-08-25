@@ -293,6 +293,23 @@ var
     # below run untouched; a bigger count re-deals this bot's color (seats
     # go round the teams, slot mod GameTeams) and swaps the geometry procs
     # onto the endzone-anchored multi-team frame (see deriveMultiFrame).
+    # CLAMPED to 4 (see adoptGameParams) because every OTHER GameTeams
+    # consumer in this file — spawn/kit addressing, the multi-team frame —
+    # was built for a 2-4 team ladder board and was never re-derived for a
+    # 16-team BR free-for-all; RealTeamCount below is the un-clamped twin,
+    # read where that 2-4 assumption does not apply.
+  RealTeamCount = 2
+    # the SAME marker's count, un-clamped. A BR match's 16 duos still only
+    # ever populate a 4-color GameTeams slice of enemy perception
+    # (seenEnemies below) without this: every bot's threat scan looped
+    # `TeamColorNames[0 ..< GameTeams]`, so 12 of BR's 16 colors were never
+    # tracked as a possible enemy by ANYONE, regardless of range or time
+    # spent adjacent. The first recorded BR match's endgame is the tell:
+    # the last two survivors (ivory, pink — both outside the 4-color
+    # slice) sat 599px apart, motionless, for the final 363 ticks; the
+    # close-on-nearest hunt override (its own eligibility gate open the
+    # whole time) never fired because bot.enemies could not contain either
+    # of them for the other, no matter how long the window stayed open.
   EndzoneMarks: seq[tuple[color, shape: string, x0, y0, x1, y1: int]]
     # every team's stated home capture region, from the per-team
     # `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers: the shape
@@ -313,6 +330,18 @@ var
 const TeamColorNames = ["red", "blue", "green", "yellow"]
   ## Wire color tokens in engine seat-deal order: a game's active teams are
   ## always a prefix of this list, and seats go round them (slot mod teams).
+
+const BrRosterColorNames = [
+  "red", "blue", "green", "yellow", "black", "silver", "ivory", "pink",
+  "umber", "rust", "orange", "plum", "lime", "navy", "azure", "peach",
+]
+  ## The full BR duo roster (tools/record_br_match.sh's own TEAM_NAMES,
+  ## same order) — used ONLY to widen enemy-color enumeration when
+  ## RealTeamCount says more than TeamColorNames.len teams are actually in
+  ## play (see RealTeamCount above and its use below). GameTeams itself,
+  ## and every OTHER consumer keyed on it, stays clamped at 4: this list
+  ## exists so a threat scan can reach a color GameTeams was never meant
+  ## to address, not to relitigate what GameTeams bounds.
 
 type
   Team = enum
@@ -904,7 +933,9 @@ proc adoptGameParams(client: ProtocolClient) =
       let parts = o.label[LabelPrefixGameParams.len .. ^1].split(' ')
       if parts.len == 3:
         try:
-          GameTeams = clamp(parseInt(parts[0]), 2, 4)
+          let n = parseInt(parts[0])
+          GameTeams = clamp(n, 2, 4)
+          RealTeamCount = clamp(n, 2, BrRosterColorNames.len)
         except ValueError:
           discard
       break
@@ -1768,9 +1799,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     seenMates = client.actorsFor(myColor)
   var seenEnemies: seq[Actor]
   # EVERY other color is a combat threat on a free-for-all board, not just
-  # the flag-raid target — track them all.
-  for i in 0 ..< max(2, GameTeams):
-    let c = TeamColorNames[i]
+  # the flag-raid target — track them all. RealTeamCount (unclamped) picks
+  # the roster when a match actually has more teams than GameTeams's own
+  # 2-4 clamp allows for — a BR duo board — so a color GameTeams was never
+  # meant to address (see its own comment above) still gets scanned. Any
+  # non-BR board keeps enumerating exactly TeamColorNames[0 ..< GameTeams]
+  # as before: RealTeamCount == GameTeams whenever GameTeams's own clamp
+  # never bound anything, i.e. every 2-4 team ladder game, unchanged.
+  let
+    wideRoster = RealTeamCount > TeamColorNames.len
+    enemyColorCount = if wideRoster: RealTeamCount else: max(2, GameTeams)
+  for i in 0 ..< enemyColorCount:
+    let c = if wideRoster: BrRosterColorNames[i] else: TeamColorNames[i]
     if c != myColor:
       seenEnemies.add(client.actorsFor(c))
   bot.updateTracks(bot.enemies, seenEnemies)
