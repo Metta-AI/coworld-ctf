@@ -1150,6 +1150,47 @@ proc weldOrDropIsolated(shapes: seq[ArenaShape], floorPx2: int): seq[ArenaShape]
     if areaByRoot[find(i)] >= floorPx2:
       result.add shapes[i]
 
+proc rasterCarveToShapes(
+  isFootprint: proc(x, y: int): bool {.closure.},
+  floorRegions: seq[MapRect], outer: MapRect, rp: int
+): seq[ArenaShape] =
+  ## ROUND 12 (THE BURROW REQUIREMENT): the shared SOLID-THEN-CARVE
+  ## primitive. `isFootprint` decides what counts as raw candidate mass
+  ## (a footprint, possibly a union of pieces); `floorRegions` are the
+  ## cavities (rooms, corridor bridges, door/gate punches) SUBTRACTED from
+  ## it. What is left over — never separately authored, never a drawn
+  ## line — is the wall. Sampled on an `rp`-px grid (fine enough to keep
+  ## corners honest; the caller's own wall/margin thickness should stay
+  ## several multiples of `rp`) and RLE-merged per row, the same
+  ## uncarved-run-to-rect conversion `stampBranchCave` already uses for its
+  ## own (already-subtractive) cave carve — this is that same technique,
+  ## generalized so the maze/room grammars can share it instead of drawing
+  ## wall lines additively.
+  let cols = max(1, (outer.w + rp - 1) div rp)
+  let rows = max(1, (outer.h + rp - 1) div rp)
+  var solid = newSeq[bool](cols * rows)
+  for ry in 0 ..< rows:
+    let cy = outer.y + ry * rp + rp div 2
+    for rx in 0 ..< cols:
+      let cx = outer.x + rx * rp + rp div 2
+      if isFootprint(cx, cy):
+        var carved = false
+        for fr in floorRegions:
+          if cx >= fr.x and cx < fr.x + fr.w and cy >= fr.y and cy < fr.y + fr.h:
+            carved = true
+            break
+        solid[ry * cols + rx] = not carved
+  for ry in 0 ..< rows:
+    var rx = 0
+    while rx < cols:
+      if solid[ry * cols + rx]:
+        var rx2 = rx
+        while rx2 + 1 < cols and solid[ry * cols + rx2 + 1]: inc rx2
+        result.add rectShapeBr(outer.x + rx * rp, outer.y + ry * rp, (rx2 - rx + 1) * rp, rp)
+        rx = rx2 + 1
+      else:
+        inc rx
+
 proc stampRoomMaze(
   rng: var Rand, pieces: seq[MapRect], shellThick, cellSize, wallThick: int,
   braid: float, gateCount: int
@@ -1226,40 +1267,83 @@ proc stampRoomMaze(
     for g in gateEdges:
       if g[0] == c and g[1] == r and g[2] == dir: return true
     false
-  var shapes: seq[ArenaShape]
-  let halfInner = max(1, wallThick div 2)
-  ## ROUND 10 FIX: each cell used to emit its OWN independent wall rect,
-  ## confined strictly to that cell's own box. Two cells on the SAME
-  ## boundary side, both walled, only touched at a single shared pixel
-  ## edge — fine geometrically, but a cell adjacent to a GATE (whose
-  ## neighbour draws nothing) could end up with a wall segment that
-  ## doesn't reach anything else, isolated and confetti-sized (measured:
-  ## 14-30px-wide fragments — exactly wallThick/shellThick — on a
-  ## poiMazeHall sweep). `Bleed` extends every wall rect a few px past
-  ## its own cell along the boundary direction so adjacent segments
-  ## overlap and weld into one component, the same "generous corner
-  ## overlap" property stampShellRing already relies on. Small relative
-  ## to cell size (64-80px), so it never meaningfully narrows a gate.
-  let bleed = max(6, wallThick div 2)
+  ## ROUND 12 (THE BURROW REQUIREMENT — root cause of Maxwell's seed-601
+  ## verdict "thin meandering walls, dangling stubs, open-ended corridors,
+  ## drawn walls not dug mass"): the round-10 emitter above drew a wall
+  ## rect ONLY where a cell-boundary lacked a passage, and left a
+  ## PASSAGE'S entire shared edge — the full `cell` width — wide open. That
+  ## has two failures at once: (1) a passage merges two cells into one big
+  ## open room rather than a dug corridor, so the surviving "walls" are
+  ## thin single-width lines with nothing behind them; (2) worse, a wall
+  ## run's tip sits flush against whatever the PERPENDICULAR neighbour
+  ## decided — if that neighbour's own matching side happens to be an open
+  ## passage, the tip has nothing to weld to and just stops in open air
+  ## (a literal dangling stub; `bleed` welded same-direction runs to each
+  ## other but never guaranteed a perpendicular partner). THE FIX: give
+  ## every in-footprint cell a floor cavity inset by the SAME margin on
+  ## ALL FOUR sides regardless of connectivity (shellThick on a footprint
+  ## boundary, wallThick/2 on an interior boundary — reproducing today's
+  ## exact wall thickness when unconnected) so CORNERS are always solid
+  ## mass no matter what a neighbour does; a passage or gate is then an
+  ## EXPLICIT bridge rect punched through that margin at a bounded
+  ## doorway width, never a full-cell-wide merge. Every remaining wall
+  ## pixel is the uncarved leftover of a solid cell block — dug mass, not
+  ## a drawn line — and a bridge's flanking wall stays full-margin-thick
+  ## right up to the cut, so an endpoint next to a real doorway reads as a
+  ## wall-with-a-door, not a stub trailing into nothing.
+  let halfWall = max(1, wallThick div 2)
+  ## Doorway/corridor width: comfortably inside the cell so it never eats
+  ## the corner margin that keeps neighbouring walls solid; floored so a
+  ## duo can still walk it, ceilinged so it never balloons into a
+  ## full-room merge (the very defect this replaces).
+  let bridgeW = clamp(cell - 2 * halfWall - 8, 32, 64)
+  let gateBridgeW = clamp(cell - 2 * shellThick - 8, 32, 64)
+  proc safeClampPos(want, lo, span: int): int =
+    ## Clamp `want` into [lo, lo+span], guarding against a caller-supplied
+    ## span too small to hold the bridge (tiny cells): never returns a
+    ## value that would make lo the wrong side of hi, unlike a raw
+    ## `clamp(x, lo, hi)` call when hi ends up < lo.
+    let hi = max(lo, lo + span)
+    max(lo, min(want, hi))
+  var floorRegions: seq[MapRect]
   for r in 0 ..< rows:
     for c in 0 ..< cols:
       if not isIn(c, r): continue
       let cx0 = outer.x + c * cell
       let cy0 = outer.y + r * cell
-      if isIn(c + 1, r):
-        if not right[idx(c, r)]:
-          shapes.add rectShapeBr(cx0 + cell - halfInner, cy0 - bleed, wallThick, cell + 2 * bleed)
-      elif not isGate(c, r, 0):
-        shapes.add rectShapeBr(cx0 + cell - shellThick, cy0 - bleed, shellThick, cell + 2 * bleed)
-      if isIn(c, r + 1):
-        if not down[idx(c, r)]:
-          shapes.add rectShapeBr(cx0 - bleed, cy0 + cell - halfInner, cell + 2 * bleed, wallThick)
-      elif not isGate(c, r, 2):
-        shapes.add rectShapeBr(cx0 - bleed, cy0 + cell - shellThick, cell + 2 * bleed, shellThick)
-      if not isIn(c - 1, r) and not isGate(c, r, 1):
-        shapes.add rectShapeBr(cx0, cy0 - bleed, shellThick, cell + 2 * bleed)
-      if not isIn(c, r - 1) and not isGate(c, r, 3):
-        shapes.add rectShapeBr(cx0 - bleed, cy0, cell + 2 * bleed, shellThick)
+      let loX = cx0 + (if isIn(c - 1, r): halfWall else: shellThick)
+      let hiX = cx0 + cell - (if isIn(c + 1, r): halfWall else: shellThick)
+      let loY = cy0 + (if isIn(c, r - 1): halfWall else: shellThick)
+      let hiY = cy0 + cell - (if isIn(c, r + 1): halfWall else: shellThick)
+      if hiX > loX and hiY > loY:
+        floorRegions.add MapRect(x: loX, y: loY, w: hiX - loX, h: hiY - loY)
+      ## Interior passages: a narrow bridge punched through the shared
+      ## margin, centered on the cell's own midline — never the whole edge.
+      if isIn(c + 1, r) and right[idx(c, r)]:
+        let bx0 = cx0 + cell - halfWall
+        let by0 = safeClampPos(cy0 + cell div 2 - bridgeW div 2, cy0, cell - bridgeW)
+        floorRegions.add MapRect(x: bx0, y: by0, w: 2 * halfWall, h: bridgeW)
+      if isIn(c, r + 1) and down[idx(c, r)]:
+        let by0 = cy0 + cell - halfWall
+        let bx0 = safeClampPos(cx0 + cell div 2 - bridgeW div 2, cx0, cell - bridgeW)
+        floorRegions.add MapRect(x: bx0, y: by0, w: bridgeW, h: 2 * halfWall)
+      ## Exterior gates: a bridge from this cell's cavity straight through
+      ## the shell margin to true outside.
+      if not isIn(c + 1, r) and isGate(c, r, 0):
+        let by0 = safeClampPos(cy0 + cell div 2 - gateBridgeW div 2, cy0, cell - gateBridgeW)
+        floorRegions.add MapRect(x: cx0 + cell - shellThick - 2, y: by0, w: shellThick + 4, h: gateBridgeW)
+      if not isIn(c - 1, r) and isGate(c, r, 1):
+        let by0 = safeClampPos(cy0 + cell div 2 - gateBridgeW div 2, cy0, cell - gateBridgeW)
+        floorRegions.add MapRect(x: cx0 - 2, y: by0, w: shellThick + 4, h: gateBridgeW)
+      if not isIn(c, r + 1) and isGate(c, r, 2):
+        let bx0 = safeClampPos(cx0 + cell div 2 - gateBridgeW div 2, cx0, cell - gateBridgeW)
+        floorRegions.add MapRect(x: bx0, y: cy0 + cell - shellThick - 2, w: gateBridgeW, h: shellThick + 4)
+      if not isIn(c, r - 1) and isGate(c, r, 3):
+        let bx0 = safeClampPos(cx0 + cell div 2 - gateBridgeW div 2, cx0, cell - gateBridgeW)
+        floorRegions.add MapRect(x: bx0, y: cy0 - 2, w: gateBridgeW, h: shellThick + 4)
+  proc isFootprint(x, y: int): bool = insideFootprint(x, y, pieces)
+  const RasterPx = 4
+  let shapes = rasterCarveToShapes(isFootprint, floorRegions, outer, RasterPx)
   var rooms: seq[MapRect]
   for r in 0 ..< rows:
     for c in 0 ..< cols:
@@ -1390,9 +1474,19 @@ proc stampComplex(
   ## complex (not per unit). Each unit then gets its own interior in its
   ## own rolled grammar — a bsp unit conjoined to a maze hall conjoined to
   ## a cave den is exactly the mixed-grammar complex the doctrine wants.
-  const ShellThick = 30
-  const PartitionThick = 32
+  const ShellThick = 34
+  const PartitionThick = 36
   const DoorW = 54
+  const MinGateW = 32
+  ## ROUND 12 (THE BURROW REQUIREMENT): a flat DoorW=54 gate on a SOLO
+  ## unit's own ~130-280px side was 20-40% of that side's whole length —
+  ## the direct cause of seed-601's "half-open bracket" complexes (75-88
+  ## of every corpus's complexes are solo units, per round 11's own
+  ## histogram). Gates now also respect a TOTAL opening budget across the
+  ## whole complex's exterior perimeter, not just a per-segment width cap
+  ## — a mega-fortress's longer perimeter earns more absolute gate width
+  ## without the FRACTION creeping up just because there's more of it.
+  const MaxOpenFrac = 0.22
   let adjacency = computeRoomAdjacency(units)
   let extraLoops = if units.len > 2: rng.rand(2) else: 0
   let doors = buildDoorGraph(rng, units.len, adjacency, extraLoops)
@@ -1446,13 +1540,34 @@ proc stampComplex(
     for (lo, hi) in subtractIntervals((u.x, u.x + u.w), occBottom[i]): extSegs.add (i, 2, lo, hi)
     for (lo, hi) in subtractIntervals((u.y, u.y + u.h), occLeft[i]): extSegs.add (i, 3, lo, hi)
 
+  var totalPerimeter = 0
+  for seg in extSegs: totalPerimeter += seg.hi - seg.lo
+  let openBudget = max(2 * MinGateW, int(float(totalPerimeter) * MaxOpenFrac))
   var gateCandidates: seq[int]
   for si, seg in extSegs:
-    if seg.hi - seg.lo >= DoorW + 16: gateCandidates.add si
+    if seg.hi - seg.lo >= MinGateW + 16: gateCandidates.add si
   rng.shuffle(gateCandidates)
-  let gateCount = min(gateCandidates.len, 2 + rng.rand(2))  ## 2-4 total, doctrine item 3
-  var gateSegSet: seq[int]
-  for i in 0 ..< gateCount: gateSegSet.add gateCandidates[i]
+  let wantGates = min(gateCandidates.len, 2 + rng.rand(2))  ## 2-4 total, doctrine item 3
+  var gateW = initTable[int, int]()
+  var usedWidth = 0
+  for i in 0 ..< wantGates:
+    let si = gateCandidates[i]
+    let segLen = extSegs[si].hi - extSegs[si].lo
+    ## Proportional to THIS segment's own length (never more than ~30% of
+    ## it) and to the complex's remaining opening budget — whichever is
+    ## tighter — so a solo small unit gets a small doorway while a
+    ## mega-fortress's much longer perimeter still earns full-size gates.
+    var w = min(DoorW, max(MinGateW, segLen * 3 div 10))
+    w = min(w, max(MinGateW, openBudget - usedWidth))
+    if w < MinGateW or w > segLen - 8: continue  ## budget or segment exhausted
+    gateW[si] = w
+    usedWidth += w
+  if gateW.len == 0 and gateCandidates.len > 0:
+    ## Never fully seal a complex: guarantee at least one gate even if the
+    ## opening budget alone would have refused every candidate.
+    let si = gateCandidates[0]
+    let segLen = extSegs[si].hi - extSegs[si].lo
+    gateW[si] = min(DoorW, max(MinGateW, segLen * 3 div 10))
 
   proc sideWall(u: MapRect, side, lo, hi: int): ArenaShape =
     case side
@@ -1463,10 +1578,11 @@ proc stampComplex(
 
   for si, seg in extSegs:
     let u = units[seg.unitIdx]
-    if si in gateSegSet:
-      let gapLo = seg.lo + (seg.hi - seg.lo - DoorW) div 2
+    if si in gateW:
+      let w = gateW[si]
+      let gapLo = seg.lo + (seg.hi - seg.lo - w) div 2
       if gapLo > seg.lo: shapes.add sideWall(u, seg.side, seg.lo, gapLo)
-      if gapLo + DoorW < seg.hi: shapes.add sideWall(u, seg.side, gapLo + DoorW, seg.hi)
+      if gapLo + w < seg.hi: shapes.add sideWall(u, seg.side, gapLo + w, seg.hi)
     else:
       shapes.add sideWall(u, seg.side, seg.lo, seg.hi)
 
@@ -1503,10 +1619,22 @@ proc stampComplex(
     of gBsp, gComplex:
       let minRoomSize = max(30, min(interior.w, interior.h) div 3)
       let targetRooms = 1 + rng.rand(2)
-      let plan = stampRoomsAndDoors(rng, interior, minRoomSize, targetRooms, 24, 44)
+      let plan = stampRoomsAndDoors(rng, interior, minRoomSize, targetRooms, 34, 44)
       shapes.add plan.shapes
       rooms.add plan.rooms
   (weldOrDropIsolated(shapes, 3000), rooms)
+
+proc capGateW(sideA, sideB, want: int): int =
+  ## ROUND 12 (THE BURROW REQUIREMENT, enclosure sub-gate): a fixed-px
+  ## gate width eats a much bigger FRACTION of a small structure's own
+  ## perimeter than a big one's — traced as a direct contributor to
+  ## seed-601's "half-open bracket" read (an outpost/ruins side can be as
+  ## little as ~120-150px, so a flat 44-56px gate was already 30-45% open
+  ## on that one side). Cap by the SHORTER footprint dimension — whichever
+  ## side ends up gated, this keeps the opening proportional — so a tiny
+  ## structure gets a tiny doorway and a mega one keeps its full-size gate.
+  let shortSide = min(sideA, sideB)
+  clamp(want, 28, max(28, shortSide * 3 div 10))
 
 proc stampPoi(
   rng: var Rand, site: PoiSite, roomHint: int = 0
@@ -1552,13 +1680,13 @@ proc stampPoi(
     ## (a BSP room already reads as a place; a bare cover slab inside a
     ## carved room would look like clutter, not a courtyard feature).
     let shellThick = max(40, he * 2 div 5)
-    const GateW = 56
     let footprint = MapRect(x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
+    let GateW = capGateW(footprint.w, footprint.h, 56)
     var sides = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sides)
     let targetRooms = if roomHint > 0: clamp(roomHint, 2, 4) else: 2 + rng.rand(2) ## 2-4, doctrine item 2
     let plan = stampFloorPlan(rng, footprint, shellThick, {sides[0], sides[1]}, GateW,
-      targetRooms, 70, 26, 50)
+      targetRooms, 70, 32, 50)
     shapes.add plan.shapes
     rooms = plan.rooms
   of poiOutpost:
@@ -1568,8 +1696,8 @@ proc stampPoi(
     ## rotation-timing/open-steppe, so its OWN room-count spread is what
     ## keeps room-count-variety [item 6] achievable for those families).
     let shellThick = max(34, he * 2 div 5)
-    const GateW = 50
     let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    let GateW = capGateW(footprint.w, footprint.h, 50)
     var sides = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sides)
     let targetRooms = if roomHint > 0: clamp(roomHint, 1, 3) else: 1 + rng.rand(2) ## 1-3
@@ -1581,7 +1709,7 @@ proc stampPoi(
     ## was capping room-count-variety for keystones with no compound/
     ## anchor/warren at all.
     let plan = stampFloorPlan(rng, footprint, shellThick, {sides[0], sides[1]}, GateW,
-      targetRooms, 38, 20, 42)
+      targetRooms, 38, 32, 42)
     shapes.add plan.shapes
     rooms = plan.rooms
   of poiYard:
@@ -1590,8 +1718,8 @@ proc stampPoi(
     ## exactly ONE room (its own interior) so it still contributes a data
     ## point to room-count reporting/variety without being force-carved.
     let shellThick = max(34, he * 2 div 5)
-    const GateW = 60
     let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    let GateW = capGateW(footprint.w, footprint.h, 60)
     shapes.add stampShellRing(footprint, shellThick, {rsTop, rsBottom}, GateW)
     ## Cover blocks must each individually clear the confetti floor
     ## (3000px^2, i.e. >=55x55) since they don't touch the ring — a smaller
@@ -1609,8 +1737,8 @@ proc stampPoi(
     ## (thematically "broken/partial walls, no full enclosure" — a real
     ## floor plan would contradict its own archetype description).
     let shellThick = max(28, he * 2 div 5)
-    const GateW = 46
     let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    let GateW = capGateW(footprint.w, footprint.h, 46)
     let side = [rsTop, rsRight, rsBottom, rsLeft][rng.rand(3)]
     shapes.add stampShellRing(footprint, shellThick, {side}, GateW)
   of poiAnchor:
@@ -1623,9 +1751,9 @@ proc stampPoi(
     ## kept (now landing inside whichever room they fall in) as the
     ## courtyard's own furniture rather than being replaced.
     let shellThick = max(48, he * 2 div 5)
-    const GateW = 50
     let footprint = MapRect(
       x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
+    let GateW = capGateW(footprint.w, footprint.h, 50)
     var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sideOrder)
     let gateSet: set[RoomSide] = {sideOrder[0], sideOrder[1]}
@@ -1640,7 +1768,7 @@ proc stampPoi(
     ## room-count-variety regression). 75 clears 2x75=150 <= 185 with
     ## margin and still stays the largest minRoomSize of any archetype.
     let plan = stampFloorPlan(rng, footprint, shellThick, gateSet, GateW,
-      targetRooms, 62, 26, 48)
+      targetRooms, 62, 34, 48)
     shapes.add plan.shapes
     rooms = plan.rooms
     let coverW = max(32, he * 2 div 5)
@@ -1685,8 +1813,8 @@ proc stampPoi(
     ## approaches") — roll the grammar instead of always going BSP, on
     ## the SAME footprint/shell either way.
     let shellThick = max(32, he * 2 div 5)
-    const GateW = 56
     let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    let GateW = capGateW(footprint.w, footprint.h, 56)
     var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sideOrder)
     if rng.rand(1.0) < 0.5:
@@ -1709,7 +1837,7 @@ proc stampPoi(
     else:
       let targetRooms = if roomHint > 0: clamp(roomHint, 5, 8) else: 5 + rng.rand(4) ## 5-8
       let plan = stampFloorPlan(rng, footprint, shellThick, {sideOrder[0], sideOrder[1]}, GateW,
-        targetRooms, 48, 24, 42)
+        targetRooms, 48, 32, 42)
       shapes.add plan.shapes
       rooms = plan.rooms
   of poiMazeHall:
