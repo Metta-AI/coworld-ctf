@@ -3023,18 +3023,70 @@ proc lerpInt(a, b, t, total: int): int {.inline.} =
     return b
   a + (b - a) * t div total
 
+proc zoneFinalPermille(sim: SimServer): int =
+  ## The LAST configured phase's scale — the z the schedule closes on, and
+  ## the z at which the zone has fully arrived at its drawn centre.
+  if sim.config.zonePhases.len > 0: sim.config.zonePhases[^1].zPermille
+  else: 1000
+
+proc zoneCenterAtScale*(sim: SimServer, zPermille: int): MapPoint =
+  ## The centre the zone rect is built about at scale `zPermille`. It DRIFTS,
+  ## from the board's own centre at z = 1.0 to the drawn `sim.zoneCenter` at
+  ## the schedule's final z.
+  ##
+  ## Why it must drift (Maxwell's ruling, 2026-08-24). A full-SIZE rect built
+  ## about a drawn centre hangs off one edge of the board and leaves an equal
+  ## band of real field OUTSIDE the zone. The doctrine calls phase 0 the DROP
+  ## and gives it z = 1.00 — the whole field is safe — and it was not: the
+  ## first BR match killed 6 of 16 duos at tick 256, before a shot was fired,
+  ## because their spawns sat in that band. Spawns span the WHOLE field by
+  ## ruling (BR_MAPGEN.md §4.2: no keep-away, not inset), so that is
+  ## structural, not a bad draw.
+  ##
+  ## Clamping the rect to the board does NOT fix it, which is worth stating
+  ## because it was the first thing tried: intersecting removes the part
+  ## that hangs OFF the board but cannot cover the strip on the OPPOSITE
+  ## side, so the far band stays lethal. Only moving the centre makes z = 1.0
+  ## mean the whole board.
+  ##
+  ## Drifting also says the right thing about the mode: at the drop everyone
+  ## is safe and the zone has no opinion about where the fight ends, and the
+  ## drawn centre — the thing that stops a fixed middle deciding every
+  ## episode (§4.3) — expresses itself progressively as the zone closes,
+  ## which is exactly when it should matter. It is also what real battle
+  ## royales do: the circle moves as it shrinks.
+  let
+    zFinal = sim.zoneFinalPermille()
+    boardCx = sim.gameMap.width div 2
+    boardCy = sim.gameMap.height div 2
+  ## Degenerate schedules (none configured, or one that never shrinks) keep
+  ## the drawn centre outright rather than dividing by zero.
+  if zFinal >= 1000:
+    return sim.zoneCenter
+  ## Progress from "full board" to "fully arrived", in permille of the span
+  ## the schedule actually covers.
+  let travelled = clamp(
+    (1000 - zPermille) * 1000 div (1000 - zFinal), 0, 1000)
+  MapPoint(
+    x: boardCx + (sim.zoneCenter.x - boardCx) * travelled div 1000,
+    y: boardCy + (sim.zoneCenter.y - boardCy) * travelled div 1000)
+
 proc zoneRectAtScale*(sim: SimServer, zPermille: int): MapRect =
   ## Returns the shrink-zone rectangle at scale `zPermille` (1..1000) about
-  ## `sim.zoneCenter`: the map's own aspect ratio (width and height scaled by
-  ## the SAME permille from gameMap.width/height), so it is geometrically
-  ## similar to the field at every phase. Integer math throughout — the only
-  ## float in the whole feature is parsing the AUTHORED 0..1 `z` at config
-  ## load (readZonePhaseZ), matching the handicaps/perkMods convention.
+  ## `zoneCenterAtScale(zPermille)`: the map's own aspect ratio (width and
+  ## height scaled by the SAME permille from gameMap.width/height), so it is
+  ## geometrically similar to the field at every phase. Integer math
+  ## throughout — the only float in the whole feature is parsing the AUTHORED
+  ## 0..1 `z` at config load (readZonePhaseZ), matching the handicaps/perkMods
+  ## convention.
+  ##
+  ## At z = 1.0 this is the board exactly, whatever centre was drawn — see
+  ## zoneCenterAtScale for why the centre drifts rather than sitting still.
   let
     w = max(1, sim.gameMap.width * zPermille div 1000)
     h = max(1, sim.gameMap.height * zPermille div 1000)
-  MapRect(x: sim.zoneCenter.x - w div 2, y: sim.zoneCenter.y - h div 2,
-    w: w, h: h)
+    c = sim.zoneCenterAtScale(zPermille)
+  MapRect(x: c.x - w div 2, y: c.y - h div 2, w: w, h: h)
 
 proc zoneClampToBoard*(sim: SimServer, rect: MapRect): MapRect =
   ## One zone rect INTERSECTED with the board — the EFFECTIVE zone.
