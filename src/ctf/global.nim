@@ -4574,44 +4574,67 @@ proc addTithePickups(
     )
 
 const
-  VeteranPipSize = 5           ## logical px: a small flat paint pip -- about
-                               ## a third the footprint of even a single L3
+  VeteranPipSize = 9           ## logical px: a small flat paint pip -- still
+                               ## well under the footprint of a single L3
                                ## star glyph, so an L1/L2 mark reads as a
                                ## quieter nudge and the StarfallLevel star row
                                ## still wins the eye once a cog crosses it.
-                               ## Raw (native=1) pixels: nearest-neighbor
-                               ## upscaled by addBoardSpriteChanged like every
-                               ## other hand-drawn blob in this file -- no
-                               ## vector antialiasing on a mark this small.
-  VeteranPipRadius = 2'f32
-  VeteranPipOutlineInPx = 1'f32  ## 1 logical px: proportionally thick for a
-                               ## shape this size (the 2-4px outline the
-                               ## style law asks for on a full chip would
-                               ## swallow a 5px pip whole).
+                               ## D2 (style-law audit ARC C4): was 5 -- at a 1
+                               ## logical px outline that left a fill radius
+                               ## of roughly 1px, so the outline ate almost
+                               ## the whole pip and it rasterized as an
+                               ## outline-colored smudge (measured ~5px on
+                               ## screen at a 1280 embed, ~2.6px at 640 --
+                               ## sub-pixel, invisible). 9 gives the SAME
+                               ## outline a fill radius of ~3px to sit inside
+                               ## of, so paint dominates the shape the way the
+                               ## star row's own thick vector glyphs do.
+  VeteranPipRadius = 4'f32     ## D2: was 2 (for the old size-5 pip; the same
+                               ## "touches the canvas edge" relationship,
+                               ## scaled up for size 9).
+  VeteranPipOutlineInPx = 1'f32  ## 1 logical px: still the style law's floor
+                               ## on a mark this size (a 2-4px outline at
+                               ## VeteranPipSize=9 would swallow the fill the
+                               ## same way it used to at 5) -- D2 fixes the
+                               ## fill:outline RATIO by growing the pip, not
+                               ## by thinning the outline further.
 
-proc buildVeteranPipSprite(team: Team): seq[uint8] {.measure.} =
+proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
   ## The L1-L2 rank mark: one small flat team-paint dot with a thin dark
   ## outline -- a lighter cousin of the L3+ star row for the SAME signal
   ## (this cog is buffed), not a second vocabulary. A recruit's windup and hp
   ## are already stock; L1 shaves the windup (LevelWindupDelta) and that is a
   ## real, checkable combat edge a viewer has no other way to see land.
-  result = newRgbaPixels(VeteranPipSize, VeteranPipSize)
+  ##
+  ## D2: renders directly at NATIVE resolution (`k` = boardScale) instead of
+  ## rasterizing a coarse VeteranPipSize×VeteranPipSize mask at native=1 and
+  ## letting addBoardSpriteChanged nearest-neighbor-blow it up -- the same
+  ## "logical dims out, native pixels" contract every other hand-drawn blob
+  ## in this file already uses (buildGloryChipSprite, buildTitheHaloSprite),
+  ## and the reason the L3+ star row (a true vector face at boardScale) reads
+  ## cleanly where the old native=1 pip didn't: computing the circle's edge
+  ## at k× the grid gives it k× the angular resolution to round off on,
+  ## instead of snapping to whichever of 5 raw pixels was closest.
+  let
+    size = VeteranPipSize * k
+    radius = VeteranPipRadius * k.float32
+    outlineIn = VeteranPipOutlineInPx * k.float32
+  result = newRgbaPixels(size, size)
   let
     base = Palette[teamColor(team) and 0x0f]
-    c = float32(VeteranPipSize - 1) / 2
-  for y in 0 ..< VeteranPipSize:
-    for x in 0 ..< VeteranPipSize:
+    c = float32(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
       let
         dx = float32(x) - c
         dy = float32(y) - c
         d = sqrt(dx * dx + dy * dy)
-      if d > VeteranPipRadius:
+      if d > radius:
         continue
-      if d > VeteranPipRadius - VeteranPipOutlineInPx:
-        result.putRawRgbaPixel(y * VeteranPipSize + x, 22, 17, 13, 255)
+      if d > radius - outlineIn:
+        result.putRawRgbaPixel(y * size + x, 22, 17, 13, 255)
       else:
-        result.putRawRgbaPixel(
-          y * VeteranPipSize + x, base.r, base.g, base.b, 255)
+        result.putRawRgbaPixel(y * size + x, base.r, base.g, base.b, 255)
 
 proc addVeteranMarks(
   sim: SimServer,
@@ -4671,10 +4694,11 @@ proc addVeteranMarks(
         30007, MapLayerId, spriteId
       )
     else:
-      let pip = buildVeteranPipSprite(player.team)
+      let pip = buildVeteranPipSprite(player.team, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs, spriteId, VeteranPipSize, VeteranPipSize, pip,
-        LabelVeteranMark & " " & $player.level
+        LabelVeteranMark & " " & $player.level,
+        native = boardScale
       )
       packet.addBoardObject(
         objectId,
