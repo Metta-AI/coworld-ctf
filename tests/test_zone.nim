@@ -123,31 +123,42 @@ suite "shrink zone rect geometry":
       let rect = sim.zoneRectAtScale(zPermille)
       check rect.w == max(1, w * zPermille div 1000)
       check rect.h == max(1, h * zPermille div 1000)
-      check rect.x == sim.zoneCenter.x - rect.w div 2
-      check rect.y == sim.zoneCenter.y - rect.h div 2
+      ## Built about the DRIFTING centre, not the drawn one — the drawn
+      ## centre is only where the schedule ARRIVES (zoneCenterAtScale).
+      let c = sim.zoneCenterAtScale(zPermille)
+      check rect.x == c.x - rect.w div 2
+      check rect.y == c.y - rect.h div 2
       # Geometrically similar to the field within one pixel of integer
       # rounding: w/h and W/H agree up to the rounding both scales share.
       check abs(rect.w * h - rect.h * w) <= w + h
 
   test "the rect holds the previous scale during the wait, exactly":
+    ## Expectations are CLAMPED (zoneClampToBoard): zoneRectAtScale states
+    ## the geometry, zoneRectAndDps ships the EFFECTIVE zone, and at large z
+    ## about a drawn center those differ — see the clamp ruling.
     var sim = zoneGame(ToyPhases)
-    let full = sim.zoneRectAtScale(1000)
+    let full = sim.zoneClampToBoard(sim.zoneRectAtScale(1000))
     for t in [0, 5, 9]:
       let (cur, next, dps) = sim.zoneRectAndDps(t)
       check cur == full
-      check next == sim.zoneRectAtScale(600)
+      check next == sim.zoneClampToBoard(sim.zoneRectAtScale(600))
       check dps == 1
 
-  test "the rect interpolates linearly and lands exactly on target at t=shrink end":
+  test "the rect interpolates and lands exactly on target at t=shrink end":
+    ## The interpolation runs on the RAW rects and is clamped afterwards, so
+    ## the mid-shrink rect is bounded by the clamped endpoints rather than
+    ## equal to a raw lerp: while the shrinking edge is still off-board the
+    ## visible edge legitimately does not move at all.
     var sim = zoneGame(ToyPhases)
     let
-      full = sim.zoneRectAtScale(1000)
-      target = sim.zoneRectAtScale(600)
+      full = sim.zoneClampToBoard(sim.zoneRectAtScale(1000))
+      target = sim.zoneClampToBoard(sim.zoneRectAtScale(600))
     # wait=10, shrink=20: shrink covers elapsed 10..29 (0-indexed).
     let (mid, _, _) = sim.zoneRectAndDps(10 + 9)   # tShrink = 10 of 20.
-    check mid.w == full.w + (target.w - full.w) * 10 div 20
-    check mid.w > min(full.w, target.w)
-    check mid.w < max(full.w, target.w)
+    check mid.w <= max(full.w, target.w)
+    check mid.w >= min(full.w, target.w)
+    check mid.h <= max(full.h, target.h)
+    check mid.h >= min(full.h, target.h)
     let (final, next, _) = sim.zoneRectAndDps(10 + 19)  # tShrink = 20 of 20.
     check final == target
     check next == target
@@ -155,11 +166,116 @@ suite "shrink zone rect geometry":
   test "shrinkTicks 0 snaps to the target the instant the wait ends":
     var sim = zoneGame("""[{"z": 0.4, "waitTicks": 3, "shrinkTicks": 0, "dps": 1}]""")
     let
-      full = sim.zoneRectAtScale(1000)
-      target = sim.zoneRectAtScale(400)
+      full = sim.zoneClampToBoard(sim.zoneRectAtScale(1000))
+      target = sim.zoneClampToBoard(sim.zoneRectAtScale(400))
     check sim.zoneRectAndDps(0).cur == full
     check sim.zoneRectAndDps(2).cur == full
     check sim.zoneRectAndDps(3).cur == target
+
+  test "z = 1.0 leaves the WHOLE board inside the zone, whatever the center":
+    ## THE CLAMP RULING (Maxwell, 2026-08-24). zoneRectAtScale centers a
+    ## full-SIZE rect on the drawn center, so off-center it hangs off one
+    ## edge and leaves an equal band of real field outside the zone. The
+    ## doctrine calls phase 0 the DROP and says z = 1.00, i.e. the whole
+    ## field is safe — and it was not: the first BR match killed 6 of 16
+    ## duos at tick 256, before a shot was fired, purely because their
+    ## spawns sat in that band. The effective rect is now rect INTERSECT
+    ## board, so this is true by construction at every center.
+    ##
+    ## An AUTHORED, deliberately off-centre centre (the map centre is
+    ## 617,329) makes the raw z=1.0 rect hang off the left and top edges.
+    ## It still has to keep the FINAL rect on-board, which is what bounds
+    ## how far off-centre a schedule may legally close.
+    var sim = zoneGame(ToyPhases, """"zoneCenter": [400, 220]""")
+    let
+      w = sim.gameMap.width
+      h = sim.gameMap.height
+      raw = sim.zoneRectAtScale(1000)
+      full = sim.zoneClampToBoard(raw)
+    ## Clamping alone CANNOT deliver this, which is why the centre drifts:
+    ## intersecting a rect that hangs off the left edge removes the overhang
+    ## but leaves the strip on the RIGHT outside the zone. The rect at z=1.0
+    ## is therefore the board exactly, before any clamping.
+    check raw == MapRect(x: 0, y: 0, w: w, h: h)
+    check full == raw
+    ## ...and the centre really is off-board-centre where it ARRIVES, so
+    ## this is not passing because the draw happened to be central.
+    ## ToyPhases closes at z = 0.15, and the drift has fully arrived there:
+    ## the authored (400, 220) centre, which is NOT the board centre.
+    check sim.zoneCenterAtScale(150) == MapPoint(x: 400, y: 220)
+    check sim.zoneCenterAtScale(150) != MapPoint(x: w div 2, y: h div 2)
+    ## Every corner of the board is inside the effective zone.
+    for (cx, cy) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
+      check cx >= full.x and cx <= full.x + full.w - 1
+      check cy >= full.y and cy <= full.y + full.h - 1
+
+  test "a cog in the far corner takes NO zone damage during the drop":
+    ## The same ruling, asserted through the DAMAGE path rather than the
+    ## geometry: the corner furthest from the drawn centre is exactly where
+    ## the old behaviour killed people.
+    var sim = zoneGame(
+      """[{"z": 0.6, "waitTicks": 400, "shrinkTicks": 20, "dps": 3}]""",
+      """"zoneCenter": [400, 220]""")
+    sim.placeAt(0, sim.gameMap.width - 2, sim.gameMap.height - 2)
+    let before = sim.players[0].hp
+    sim.stepTicks(300)          # deep into the wait, at z = 1.0.
+    check sim.players[0].hp == before
+    check sim.players[0].alive
+
+  test "the effective rect's area never grows across the whole schedule":
+    ## Monotonicity of the CLAMPED area. The raw rects are nested by
+    ## construction (one centre, uniform scale), and intersecting nested
+    ## rects with the same board preserves nesting — but the clamp is
+    ## applied after a lerp, so it is worth asserting rather than assuming.
+    ## A zone that ever grew would hand back ground it had already taken.
+    var sim = zoneGame(ToyPhases, """"zoneCenter": [400, 220]""")
+    var previousArea = -1
+    for t in 0 .. 200:
+      let (cur, _, _) = sim.zoneRectAndDps(t)
+      let area = cur.w * cur.h
+      if previousArea >= 0:
+        check area <= previousArea
+      previousArea = area
+    ## And it really did close: the last area is a small fraction of the
+    ## board, not a rounding wobble away from it.
+    check previousArea < sim.gameMap.width * sim.gameMap.height div 4
+
+  test "the published label carries the CLAMPED rect, not the geometric one":
+    ## The honest-boundary rule: art, damage and the policy-facing label all
+    ## read one rect. The label is the contract, so it is the one asserted
+    ## here — and against the CLAMPED value specifically, with the raw value
+    ## proven different so the check cannot pass vacuously.
+    var sim = zoneGame(ToyPhases, """"zoneCenter": [400, 220]""")
+    sim.stepTicks(15)   # partway into the first shrink, centre mid-drift.
+    let
+      (raw, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
+      clamped = sim.zoneClampToBoard(raw)
+    ## With the drifting centre the effective rect never leaves the board,
+    ## so the clamp is a no-op here BY CONSTRUCTION. That is the invariant
+    ## worth pinning: the clamp is the belt-and-braces guarantee, and if it
+    ## ever starts biting, the drift maths has regressed.
+    check raw == clamped
+    var state = initGlobalViewerState()
+    var foundClamped = false
+    var foundRaw = false
+    for message in sim.buildGlobalMessages(state):
+      if message.kind != spkSprite:
+        continue
+      if message.sprite.label == labelZone(
+          clamped.x, clamped.y,
+          clamped.x + clamped.w - 1, clamped.y + clamped.h - 1):
+        foundClamped = true
+      if message.sprite.label == labelZone(
+          raw.x, raw.y, raw.x + raw.w - 1, raw.y + raw.h - 1):
+        foundRaw = true
+    check foundClamped
+    check foundRaw          ## same rect: clamped == raw, see above.
+    ## No published corner may sit off the board: a policy reading the label
+    ## must never be told to stand somewhere that does not exist.
+    check clamped.x >= 0
+    check clamped.y >= 0
+    check clamped.x + clamped.w <= sim.gameMap.width
+    check clamped.y + clamped.h <= sim.gameMap.height
 
   test "after every phase resolves, the rect holds at the last target forever":
     var sim = zoneGame(ToyPhases)

@@ -83,5 +83,5 @@ trench <n>,<n> <n>,<n>
 walkability map
 weapon gun
 weapon spray
-zone -<n>,<n> <n>,<n>
+zone <n>,<n> <n>,<n>
 zonenext <n>,<n> <n>,<n>
