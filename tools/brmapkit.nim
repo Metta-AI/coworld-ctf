@@ -96,6 +96,42 @@ proc intFlag(a: Args, key: string, default: int): int =
 proc floatFlag(a: Args, key: string, default: float): float =
   if key in a.flags: a.flags[key].parseFloat else: default
 
+## ROUND 11 (Maxwell's addendum): "the attach-or-found chance must be
+## DETERMINISTIC... preferably not just 'consumes the shared seeded RNG
+## stream' (order-fragile under refactors) but derived per-decision: flip
+## = hash(mapSeed, unitIndex) via the unsigned FNV idiom." These four procs
+## are the whole hash-lane idiom: a pure function of (seed, a named LANE,
+## an integer index) that never touches — and is never touched by — the
+## sequential `Rand` object every other part of this generator still uses.
+## Structural decisions that determine the SHAPE of the complex graph
+## (attach-or-found, which complex to join, which side, how much stagger)
+## go through these lanes; a per-unit DETAILED generation stream (its own
+## room split / maze backtrack / cave walk) gets `hashLaneSeed`'s output
+## fed to a fresh `initRand`, so unit k's interior is unaffected by any
+## other unit's own RNG consumption or by inserting a new decision earlier
+## in the sequence.
+proc fnvHash64(s: string): uint64 =
+  const FnvOffset: uint64 = 14695981039346656037'u64
+  const FnvPrime: uint64 = 1099511628211'u64
+  result = FnvOffset
+  for ch in s:
+    result = result xor uint64(ord(ch))
+    result = result * FnvPrime
+
+proc hashLaneFloat(seed: int, lane: string, idx: int): float =
+  ## Deterministic float in [0,1).
+  let h = fnvHash64($seed & "|" & lane & "|" & $idx)
+  float(h mod 1_000_000_007'u64) / 1_000_000_007.0
+
+proc hashLaneInt(seed: int, lane: string, idx: int, modulus: int): int =
+  if modulus <= 0: return 0
+  let h = fnvHash64($seed & "|" & lane & "|" & $idx)
+  int(h mod uint64(modulus))
+
+proc hashLaneSeed(seed: int, lane: string, idx: int): int =
+  let h = fnvHash64($seed & "|" & lane & "|" & $idx)
+  int(h and 0x7FFFFFFF'u64)
+
 proc applyParams(p: var StyleParams, params: Table[string, string]) =
   ## Duplicated verbatim from mapkit.nim's applyParams — the style knob
   ## surface is identical, BR just draws from a smaller family (caves only,
@@ -166,6 +202,17 @@ type
     poiCaveDen    ## open-steppe / general filler: a big organic mass with
                   ## a BRANCHING drunkard's-walk tunnel system carved
                   ## inside — a cave you fight THROUGH, not just around
+    ## ROUND 11 (Maxwell: "rooms are still individual rectangles scaled up
+    ## or down... i have yet to see a building of 2 of these CONJOINED. or
+    ## THREE. or 16?!"): the honest why was minSep enforced between EVERY
+    ## structure, so every building was born solitary by construction.
+    ## poiComplex is a cluster of 1..N building UNITS grown by accretion
+    ## (growGlobalComplexes) — each unit attaches to a random wall of an
+    ## existing unit in the same complex, welding into ONE mass with
+    ## staggered silhouettes (L/T/U and richer shapes emerge from growth,
+    ## not authored). Replaces standalone poiCompound/poiAnchor/poiMazeHall
+    ## as the "building" placement unit for families wired into growth.
+    poiComplex
 
   Grammar = enum
     ## ROUND 10: which interior algorithm authored a site's floor plan —
@@ -174,6 +221,11 @@ type
     gBsp = "bsp"
     gMaze = "maze"
     gCave = "cave"
+    gComplex = "complex"  ## ROUND 11: a poiComplex's OWN top-level tag —
+                           ## its units each carry their own real grammar
+                           ## (see PoiSite.unitGrammars); this marks the
+                           ## site itself as "a grown multi-unit complex,"
+                           ## printed in logs as poiComplex:complex(N=...).
 
   KeystoneFamily = enum
     ## ROUND 6: doctrine §2.4's keystone discipline, ported into the BR
@@ -208,6 +260,16 @@ type
     ## chambers). Defaults to gBsp so every round-9 archetype (which never
     ## sets this) keeps reporting exactly as before.
     grammar: Grammar
+    ## ROUND 11: populated ONLY for archetype==poiComplex. `units` is the
+    ## grown footprint of every building unit in the complex (world
+    ## coords, from growGlobalComplexes); `unitGrammars` is each unit's
+    ## OWN interior grammar (mixed within one complex is the point).
+    ## `complexUnitCount` mirrors `units.len` as a plain int for the
+    ## per-complex unit-count reporting the doctrine asks for, without
+    ## every caller needing to know the field is a seq.
+    units: seq[MapRect]
+    unitGrammars: seq[Grammar]
+    complexUnitCount: int
 
   BrMap = object
     name: string
@@ -782,6 +844,205 @@ proc stampFloorPlan(
         shapes.add rectShapeBr(adj.x0, wy, adj.x1 - adj.x0, partitionThick)
   (shapes, rooms)
 
+proc stampRoomsAndDoors(
+  rng: var Rand, interior: MapRect, minRoomSize, targetRoomCount, partitionThick, doorW: int
+): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect]] =
+  ## ROUND 11: the ROOM-SPLIT-AND-DOORS half of stampFloorPlan, WITHOUT its
+  ## own shell — for a poiComplex's bsp-grammar UNIT, whose outer walls
+  ## (shared with a neighbour unit, or the complex's own exterior) are
+  ## drawn by stampComplex instead, exactly the way the round-10 grammars
+  ## already separate "boundary" from "interior". Same algorithm as
+  ## stampFloorPlan's own interior (bspRoomSplit + door-graph spanning
+  ## tree); added rather than refactoring stampFloorPlan itself, so every
+  ## existing archetype's call site is untouched.
+  if interior.w < minRoomSize or interior.h < minRoomSize or targetRoomCount <= 1:
+    return (@[], @[interior])
+  let rooms = bspRoomSplit(rng, interior, minRoomSize, targetRoomCount, 4)
+  if rooms.len <= 1:
+    return (@[], rooms)
+  let adjacency = computeRoomAdjacency(rooms)
+  let extraLoops = rng.rand(2)
+  let doors = buildDoorGraph(rng, rooms.len, adjacency, extraLoops)
+  var shapes: seq[ArenaShape]
+  for adj in adjacency:
+    let hasDoor = (adj.i, adj.j) in doors
+    if adj.x0 == adj.x1:
+      let wx = adj.x0 - partitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(wx, adj.y0, wx, adj.y1, partitionThick, doorW)
+      else:
+        shapes.add rectShapeBr(wx, adj.y0, partitionThick, adj.y1 - adj.y0)
+    else:
+      let wy = adj.y0 - partitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(adj.x0, wy, adj.x1, wy, partitionThick, doorW)
+      else:
+        shapes.add rectShapeBr(adj.x0, wy, adj.x1 - adj.x0, partitionThick)
+  (shapes, rooms)
+
+# --- complexes: global accretion growth (round 11) ----------------------------
+## Maxwell: "rooms are still individual rectangles scaled up or down...
+## i have yet to see a building of 2 of these CONJOINED. or THREE. or 16?!"
+## then, amending the first draft of this section to a global process:
+## "not just one mass. we can have multiple in the same map even. maybe a
+## chance it is attached to one or goes somewhere else." A GLOBAL budget of
+## building units is placed sequentially; each unit either ATTACHES to an
+## existing complex (probability pAttach) or FOUNDS a new one elsewhere.
+## Complex sizes EMERGE from that one dial instead of being drawn per
+## complex — many singles, some small clusters, rarely a mega-complex.
+
+type UnitSpec = object
+  rect: MapRect
+  complexId: int
+  grammar: Grammar
+
+proc rollUnitSize(seed: int, idx: int, gunRange: int): tuple[w, h: int] =
+  let sizeRoll = hashLaneFloat(seed, "unit_size", idx)
+  let w = int((0.32 + sizeRoll * 0.38) * float(gunRange))
+  let aspectRoll = hashLaneFloat(seed, "unit_aspect", idx)
+  let h = int(float(w) * (0.65 + aspectRoll * 0.7))
+  (w, h)
+
+proc rollUnitGrammar(seed: int, idx: int, mazeWeight, caveWeight: float): Grammar =
+  let r = hashLaneFloat(seed, "unit_grammar", idx)
+  if r < caveWeight: gCave
+  elif r < caveWeight + mazeWeight: gMaze
+  else: gBsp
+
+proc growAttachedUnit(base: MapRect, side: int, nw, nh: int, staggerFrac: float): MapRect =
+  ## Attach a new nw x nh unit to `base`'s `side` (0=right,1=left,
+  ## 2=bottom,3=top), guaranteeing a real shared edge (touching, not
+  ## overlapping) with at least 2/5 of the smaller dimension's overlap
+  ## along the perpendicular axis — `staggerFrac` (0..1) slides within
+  ## whatever overlap range remains, which is exactly what lets the
+  ## silhouette stagger instead of every unit aligning flush.
+  case side
+  of 0: # right
+    let minOv = min(base.h, nh) * 2 div 5
+    let loY = base.y - nh + minOv
+    let hiY = base.y + base.h - minOv
+    let ny = loY + int(staggerFrac * float(max(1, hiY - loY)))
+    MapRect(x: base.x + base.w, y: ny, w: nw, h: nh)
+  of 1: # left
+    let minOv = min(base.h, nh) * 2 div 5
+    let loY = base.y - nh + minOv
+    let hiY = base.y + base.h - minOv
+    let ny = loY + int(staggerFrac * float(max(1, hiY - loY)))
+    MapRect(x: base.x - nw, y: ny, w: nw, h: nh)
+  of 2: # bottom
+    let minOv = min(base.w, nw) * 2 div 5
+    let loX = base.x - nw + minOv
+    let hiX = base.x + base.w - minOv
+    let nx = loX + int(staggerFrac * float(max(1, hiX - loX)))
+    MapRect(x: nx, y: base.y + base.h, w: nw, h: nh)
+  else: # top
+    let minOv = min(base.w, nw) * 2 div 5
+    let loX = base.x - nw + minOv
+    let hiX = base.x + base.w - minOv
+    let nx = loX + int(staggerFrac * float(max(1, hiX - loX)))
+    MapRect(x: nx, y: base.y - nh, w: nw, h: nh)
+
+proc rectsOverlapArea(a, b: MapRect): int =
+  let ox0 = max(a.x, b.x)
+  let oy0 = max(a.y, b.y)
+  let ox1 = min(a.x + a.w, b.x + b.w)
+  let oy1 = min(a.y + a.h, b.y + b.h)
+  if ox1 > ox0 and oy1 > oy0: (ox1 - ox0) * (oy1 - oy0) else: 0
+
+proc growGlobalComplexes(
+  seed: int, width, height, gunRange: int, totalUnits: int, pAttach: float,
+  mazeWeight, caveWeight: float, minSiteSepFrac: float
+): seq[UnitSpec] =
+  ## THE global growth process. Every structural choice (attach-or-found,
+  ## which complex, which unit inside it, which side, how much stagger,
+  ## where a founded site lands) is a hash lane keyed by unit index `k` —
+  ## see the hashLane* procs' own comment for why. Unit SIZE and GRAMMAR
+  ## are hash-derived too, so the entire shape of the complex graph is a
+  ## pure function of (seed, k), independent of iteration/Table order and
+  ## insulated from any other unit's own detailed-interior RNG use.
+  var units: seq[UnitSpec]
+  var complexUnitIdx: seq[seq[int]]  ## complexId -> unit indices
+  let margin = gunRange div 2
+  let minSiteSep = minSiteSepFrac * float(gunRange)
+  for k in 0 ..< totalUnits:
+    let (nw, nh) = rollUnitSize(seed, k, gunRange)
+    let grammar = rollUnitGrammar(seed, k, mazeWeight, caveWeight)
+    var attachTo = -1
+    if k > 0 and complexUnitIdx.len > 0:
+      let attachRoll = hashLaneFloat(seed, "attach", k)
+      if attachRoll < pAttach:
+        ## Mildly size-weighted target pick (sqrt of unit count, so a
+        ## mega-complex draws more new growth than a lone unit does, but
+        ## not so much more that it eats every later roll) — "uniform, or
+        ## mildly size-weighted for preferential attachment" per the
+        ## amendment; picked size-weighted since a pure-uniform pick makes
+        ## every complex the same expected size, which contradicts the
+        ## heavy-tailed distribution this whole mechanism exists to grow.
+        var weights: seq[float]
+        var totalW = 0.0
+        for c in complexUnitIdx:
+          let w = sqrt(float(c.len))
+          weights.add w
+          totalW += w
+        let pick = hashLaneFloat(seed, "target", k) * totalW
+        var acc = 0.0
+        for ci, w in weights:
+          acc += w
+          if pick <= acc:
+            attachTo = ci
+            break
+        if attachTo < 0: attachTo = weights.len - 1
+    var grew = false
+    if attachTo >= 0:
+      let unitsHere = complexUnitIdx[attachTo]
+      let whichUnit = unitsHere[hashLaneInt(seed, "attach_unit", k, unitsHere.len)]
+      let base = units[whichUnit].rect
+      let stagger = hashLaneFloat(seed, "attach_stagger", k)
+      let side0 = hashLaneInt(seed, "attach_side", k, 4)
+      ## Try all 4 sides (deterministically, starting from the hash-picked
+      ## one) before giving up on attaching this unit — still a pure
+      ## function of (seed, k), no free-form retry loop.
+      for offset in 0 ..< 4:
+        let side = (side0 + offset) mod 4
+        let cand = growAttachedUnit(base, side, nw, nh, stagger)
+        var ok = true
+        for u in units:
+          if rectsOverlapArea(cand, u.rect) > min(cand.w * cand.h, u.rect.w * u.rect.h) div 2:
+            ok = false
+            break
+        if ok:
+          units.add UnitSpec(rect: cand, complexId: attachTo, grammar: grammar)
+          complexUnitIdx[attachTo].add (units.len - 1)
+          grew = true
+          break
+    if not grew:
+      ## FOUND a new site — stratified/rejection sample a new centre,
+      ## respecting inter-SITE spacing (minSep applies between complexes,
+      ## never within one).
+      for attempt in 0 ..< 60:
+        let jx = hashLaneFloat(seed, "found_x", k * 200 + attempt)
+        let jy = hashLaneFloat(seed, "found_y", k * 200 + attempt)
+        let cx = margin + int(jx * float(max(1, width - 2 * margin)))
+        let cy = margin + int(jy * float(max(1, height - 2 * margin)))
+        let cand = MapRect(x: cx - nw div 2, y: cy - nh div 2, w: nw, h: nh)
+        var farEnough = true
+        for u in units:
+          let dx = float((cand.x + cand.w div 2) - (u.rect.x + u.rect.w div 2))
+          let dy = float((cand.y + cand.h div 2) - (u.rect.y + u.rect.h div 2))
+          if dx * dx + dy * dy < minSiteSep * minSiteSep:
+            farEnough = false
+            break
+        if farEnough:
+          units.add UnitSpec(rect: cand, complexId: complexUnitIdx.len, grammar: grammar)
+          complexUnitIdx.add @[units.len - 1]
+          grew = true
+          break
+      ## If no site clears spacing after 60 tries, this unit of the global
+      ## budget is simply dropped — the budget is a target, not a
+      ## guarantee, same relationship placeStratifiedPool already has with
+      ## its own `count` parameter.
+  units
+
 # --- grammar 2: room-maze (round 10) ------------------------------------------
 ## Maxwell, round 10: "i still dont see any building sized mazes of rooms."
 ## Round 9 only ever spoke ONE interior grammar (BSP rect splits, which
@@ -1085,6 +1346,138 @@ proc stampBranchCave(
         inc c
   (weldOrDropIsolated(shapes, 3000), rooms)
 
+# --- complex stamping (round 11) ----------------------------------------------
+
+proc stampComplex(
+  rng: var Rand, units: seq[MapRect], grammars: seq[Grammar]
+): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect]] =
+  ## Welds `units` (grown by growGlobalComplexes) into ONE mass. Shared/
+  ## abutting boundaries between units get a PARTITION wall — spanning
+  ## tree + 0-2 extra doors over the UNIT-adjacency graph, exactly
+  ## computeRoomAdjacency/buildDoorGraph's own room-to-room pattern, just
+  ## one level up. Each unit's own non-shared boundary becomes the
+  ## complex's exterior shell, gated 2-4 times TOTAL across the whole
+  ## complex (not per unit). Each unit then gets its own interior in its
+  ## own rolled grammar — a bsp unit conjoined to a maze hall conjoined to
+  ## a cave den is exactly the mixed-grammar complex the doctrine wants.
+  const ShellThick = 30
+  const PartitionThick = 32
+  const DoorW = 54
+  let adjacency = computeRoomAdjacency(units)
+  let extraLoops = if units.len > 2: rng.rand(2) else: 0
+  let doors = buildDoorGraph(rng, units.len, adjacency, extraLoops)
+  var occTop = newSeq[seq[(int, int)]](units.len)
+  var occBottom = newSeq[seq[(int, int)]](units.len)
+  var occLeft = newSeq[seq[(int, int)]](units.len)
+  var occRight = newSeq[seq[(int, int)]](units.len)
+  var shapes: seq[ArenaShape]
+  for adj in adjacency:
+    let hasDoor = (adj.i, adj.j) in doors
+    if adj.x0 == adj.x1:
+      let wx = adj.x0 - PartitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(wx, adj.y0, wx, adj.y1, PartitionThick, DoorW)
+      else:
+        shapes.add rectShapeBr(wx, adj.y0, PartitionThick, adj.y1 - adj.y0)
+      if units[adj.i].x + units[adj.i].w == adj.x0: occRight[adj.i].add (adj.y0, adj.y1)
+      elif units[adj.i].x == adj.x0: occLeft[adj.i].add (adj.y0, adj.y1)
+      if units[adj.j].x + units[adj.j].w == adj.x0: occRight[adj.j].add (adj.y0, adj.y1)
+      elif units[adj.j].x == adj.x0: occLeft[adj.j].add (adj.y0, adj.y1)
+    else:
+      let wy = adj.y0 - PartitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(adj.x0, wy, adj.x1, wy, PartitionThick, DoorW)
+      else:
+        shapes.add rectShapeBr(adj.x0, wy, adj.x1 - adj.x0, PartitionThick)
+      if units[adj.i].y + units[adj.i].h == adj.y0: occBottom[adj.i].add (adj.x0, adj.x1)
+      elif units[adj.i].y == adj.y0: occTop[adj.i].add (adj.x0, adj.x1)
+      if units[adj.j].y + units[adj.j].h == adj.y0: occBottom[adj.j].add (adj.x0, adj.x1)
+      elif units[adj.j].y == adj.y0: occTop[adj.j].add (adj.x0, adj.x1)
+
+  proc subtractIntervals(full: (int, int), occ: seq[(int, int)]): seq[(int, int)] =
+    var remaining = @[full]
+    for o in occ:
+      var next: seq[(int, int)]
+      for r in remaining:
+        if o[1] <= r[0] or o[0] >= r[1]:
+          next.add r
+        else:
+          if o[0] > r[0]: next.add (r[0], o[0])
+          if o[1] < r[1]: next.add (o[1], r[1])
+      remaining = next
+    remaining
+
+  ## side convention: 0=top 1=right 2=bottom 3=left
+  type ExtSeg = tuple[unitIdx, side, lo, hi: int]
+  var extSegs: seq[ExtSeg]
+  for i, u in units:
+    for (lo, hi) in subtractIntervals((u.x, u.x + u.w), occTop[i]): extSegs.add (i, 0, lo, hi)
+    for (lo, hi) in subtractIntervals((u.y, u.y + u.h), occRight[i]): extSegs.add (i, 1, lo, hi)
+    for (lo, hi) in subtractIntervals((u.x, u.x + u.w), occBottom[i]): extSegs.add (i, 2, lo, hi)
+    for (lo, hi) in subtractIntervals((u.y, u.y + u.h), occLeft[i]): extSegs.add (i, 3, lo, hi)
+
+  var gateCandidates: seq[int]
+  for si, seg in extSegs:
+    if seg.hi - seg.lo >= DoorW + 16: gateCandidates.add si
+  rng.shuffle(gateCandidates)
+  let gateCount = min(gateCandidates.len, 2 + rng.rand(2))  ## 2-4 total, doctrine item 3
+  var gateSegSet: seq[int]
+  for i in 0 ..< gateCount: gateSegSet.add gateCandidates[i]
+
+  proc sideWall(u: MapRect, side, lo, hi: int): ArenaShape =
+    case side
+    of 0: rectShapeBr(lo, u.y, hi - lo, ShellThick)
+    of 1: rectShapeBr(u.x + u.w - ShellThick, lo, ShellThick, hi - lo)
+    of 2: rectShapeBr(lo, u.y + u.h - ShellThick, hi - lo, ShellThick)
+    else: rectShapeBr(u.x, lo, ShellThick, hi - lo)
+
+  for si, seg in extSegs:
+    let u = units[seg.unitIdx]
+    if si in gateSegSet:
+      let gapLo = seg.lo + (seg.hi - seg.lo - DoorW) div 2
+      if gapLo > seg.lo: shapes.add sideWall(u, seg.side, seg.lo, gapLo)
+      if gapLo + DoorW < seg.hi: shapes.add sideWall(u, seg.side, gapLo + DoorW, seg.hi)
+    else:
+      shapes.add sideWall(u, seg.side, seg.lo, seg.hi)
+
+  ## Each unit's own interior, in its own rolled grammar. Inset by
+  ## ShellThick uniformly on all 4 sides — a small simplification (a side
+  ## fully shared with a neighbour could extend a little further, since
+  ## PartitionThick < ShellThick there) whose only cost is a few px of
+  ## floor near a shared wall, not a correctness issue; the round-10
+  ## accessibility gate independently guarantees every unit's interior
+  ## reaches the complex's dominant walkable component regardless of this
+  ## approximation.
+  var rooms: seq[MapRect]
+  for i, u in units:
+    let interior = MapRect(x: u.x + ShellThick, y: u.y + ShellThick,
+      w: u.w - 2 * ShellThick, h: u.h - 2 * ShellThick)
+    if interior.w < 24 or interior.h < 24: continue
+    case grammars[i]
+    of gCave:
+      let cellSize = max(18, min(interior.w, interior.h) div 11)
+      let cols = max(3, interior.w div cellSize)
+      let rows = max(3, interior.h div cellSize)
+      let chamberRadius = max(1, min(cols, rows) div 8)
+      let branchSteps = max(3, cols div 2)
+      let plan = stampBranchCave(rng, interior, cellSize, 1 + rng.rand(1),
+        cols + rows, 1 + rng.rand(1), branchSteps, chamberRadius)
+      shapes.add plan.shapes
+      rooms.add plan.rooms
+    of gMaze:
+      let cellSize = max(48, min(interior.w, interior.h) div 4)
+      let wallThick = max(12, cellSize div 6)
+      let plan = stampRoomMaze(rng, @[interior], 0, cellSize, wallThick, 0.15, 0)
+      shapes.add plan.shapes
+      rooms.add plan.rooms
+    of gBsp, gComplex:
+      let minRoomSize = max(30, min(interior.w, interior.h) div 3)
+      let targetRooms = 1 + rng.rand(2)
+      let plan = stampRoomsAndDoors(rng, interior, minRoomSize, targetRooms, 24, 44)
+      shapes.add plan.shapes
+      rooms.add plan.rooms
+  (weldOrDropIsolated(shapes, 3000), rooms)
+
 proc stampPoi(
   rng: var Rand, site: PoiSite, roomHint: int = 0
 ): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect], grammar: Grammar] =
@@ -1350,6 +1743,16 @@ proc stampPoi(
       trunkSteps, 1 + rng.rand(2), branchSteps, chamberRadius)
     shapes.add plan.shapes
     rooms = plan.rooms
+  of poiComplex:
+    ## ROUND 11: units are ALREADY grown (growGlobalComplexes ran at
+    ## placement time — see placePois — because a complex's actual
+    ## footprint has to be known BEFORE the spacing check against other
+    ## sites, unlike every other archetype where a single halfExtent
+    ## estimate is enough). stampComplex does the welding/doors/interiors.
+    grammar = gComplex
+    let plan = stampComplex(rng, site.units, site.unitGrammars)
+    shapes.add plan.shapes
+    rooms = plan.rooms
   (shapes, rooms, grammar)
 
 proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
@@ -1539,8 +1942,34 @@ proc placeStratifiedPool(
     else:
       break  ## field genuinely has no room left; stop rather than spin
 
+proc complexSitesFromUnits(units: seq[UnitSpec]): seq[PoiSite] =
+  ## ROUND 11: turns growGlobalComplexes' flat unit list into ONE
+  ## PoiSite per complex (archetype=poiComplex), aggregating that
+  ## complex's own units/grammars — everything downstream (spacing
+  ## against other sites via halfExtent, loot tier, the keystone
+  ## detectors, room-count-variety, the accessibility gate) reads the
+  ## SAME PoiSite shape every other archetype already produces.
+  var byComplex = initTable[int, seq[int]]()
+  for i, u in units:
+    byComplex.mgetOrPut(u.complexId, @[]).add i
+  for cid, idxs in byComplex:
+    var rects: seq[MapRect]
+    var grammars: seq[Grammar]
+    for i in idxs:
+      rects.add units[i].rect
+      grammars.add units[i].grammar
+    let bb = footprintBounds(rects)
+    let cx = bb.x + bb.w div 2
+    let cy = bb.y + bb.h div 2
+    let he = max(bb.w, bb.h) div 2
+    let lootTier = if idxs.len >= 6: 0 elif idxs.len >= 2: 1 else: 2
+    result.add PoiSite(
+      center: MapPoint(x: cx, y: cy), archetype: poiComplex, halfExtent: he,
+      lootTier: lootTier, units: rects, unitGrammars: grammars,
+      complexUnitCount: idxs.len)
+
 proc placePois(
-  rng: var Rand, width, height, gunRange: int, keystone: KeystoneFamily
+  rng: var Rand, seed, width, height, gunRange: int, keystone: KeystoneFamily
 ): seq[PoiSite] =
   ## ROUND 5 (Maxwell's ruling, doctrine §4.7): "the room and obstacle
   ## density needs to be roughly uniform across the entire map, not
@@ -1590,19 +2019,24 @@ proc placePois(
     ## detector measures) plus a higher total count and a tighter minSep
     ## (1.15G -> 1.0G, since 6 ruins packing at the old spacing was itself
     ## limiting how many could land), not bigger anchors.
-    ## ROUND 10: poiMazeHall joins the rich-tier rotation (Maxwell:
-    ## "landing-selection rich sites favor big maze buildings") — a THIRD
-    ## possible outcome for the same rich-tier draw, not an extra
-    ## placement, so it doesn't add to the family's own structure count.
-    ## Also the round-10 cover-permille close-out: compound/anchor
-    ## trimmed 1.30G/1.15G -> 1.15G/1.00G (same recalibration pattern as
-    ## zone-edge-holding's own anchor fix — see git log) since this
-    ## family measured 14/30 draws over the [110,170] ceiling, median
-    ## close to it, in the round-9 sweep.
+    ## ROUND 11 (Maxwell: "i have yet to see a building of 2 of these
+    ## CONJOINED. or THREE. or 16?!", then amended to a GLOBAL growth
+    ## process — "not just one mass... multiple in the same map even"):
+    ## the standalone poiCompound/poiAnchor/poiMazeHall rich-tier pool
+    ## entries are RETIRED — the "rich site" role is now whatever emerges
+    ## from growGlobalComplexes' own accretion (a lone building some
+    ## draws, a real conjoined complex on others, rarely a mega-complex).
+    ## Ruins/outposts below are UNCHANGED and place normally around
+    ## whatever the growth pass produced (they already respect spacing
+    ## against `result`, which the complexes are added to FIRST).
+    const LsComplexUnitBudget = 12
+    const LsComplexPAttach = 0.62  ## the ONE composition dial (doctrine
+      ## amendment: "~0.5-0.7 starting range; tune against the cover band
+      ## and the visual bar, report the value") — printed in the gen log.
+    let complexUnits = growGlobalComplexes(seed xor 0x0C0A_11EC, width, height,
+      gunRange, LsComplexUnitBudget, LsComplexPAttach, 0.22, 0.12, 1.3)
+    result.add complexSitesFromUnits(complexUnits)
     let pool: seq[ArchSpec] = @[
-      (poiCompound, 1.15, 0),
-      (poiAnchor, 1.00, 0),
-      (poiMazeHall, 1.10, 0),
       (poiOutpost, 0.50, 1),
       (poiOutpost, 0.50, 1),
       (poiRuins, 0.16, 2),
@@ -1612,7 +2046,7 @@ proc placePois(
       (poiRuins, 0.16, 2),
       (poiRuins, 0.16, 2),
     ]
-    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.0, 18 + rng.rand(5))
+    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.0, 12 + rng.rand(5))
   of ksRotationTiming:
     ## Long causeways + clusters separated by open seams: crossing timing
     ## is the skill. Clusters first (STRATIFIED across regions so they
@@ -1709,21 +2143,22 @@ proc placePois(
     ## directions is the "few giant blobs" failure mode, not "fat and
     ## numerous"). Still the biggest single archetype on the map; still
     ## comfortably above every other family's own anchor floor.
-    ## ROUND 9 note: dropShapesNearSpawns' clip-vs-drop change (see that
-    ## proc's comment) is now SIZE-GATED — only pieces under ~2x the
-    ## confetti floor clip; a full anchor shell side is well above that,
-    ## so it still drops exactly as round 8 calibrated. anchorHalf stays
-    ## at round 8's own 1.05G.
-    let anchorHalf = int(0.62 * float(gunRange))
-    let anchorMinSep = int(1.9 * float(gunRange))
-    let anchorCount = 4 + rng.rand(3)
-    let (acols, arows) = regionGrid(anchorCount, width, height)
-    var anchorRegions = regionRects(width, height, acols, arows)
-    rng.shuffle(anchorRegions)
-    for i in 0 ..< anchorCount:
-      if i >= anchorRegions.len: break
-      discard placeUniformPoiInRect(rng, result, anchorRegions[i], width, height,
-        anchorMinSep, poiAnchor, anchorHalf, 0)
+    ## ROUND 11 (Maxwell, amended: "not just one mass... multiple in the
+    ## same map even"): the "prime anchor" role is now the same global
+    ## growth process as landing-selection's rich tier — the family's own
+    ## keystone identity (a HANDFUL of holdable strongpoints, spread far
+    ## apart) comes from minSiteSepFrac staying large (1.9G, unchanged
+    ## from the old anchorMinSep) and a bsp-heavy grammar mix (an anchor
+    ## complex should mostly read as courtyard/hall units), not from
+    ## authoring poiAnchor directly. ksZoneEdgeHolding's own keystone
+    ## detector is updated to count qualifying poiComplex sites (see
+    ## validateBr) since poiAnchor may no longer appear on this family at
+    ## all.
+    const ZehComplexUnitBudget = 13
+    const ZehComplexPAttach = 0.60  ## the composition dial, reported in logs
+    let complexUnits = growGlobalComplexes(seed xor 0x2E4A_0B71, width, height,
+      gunRange, ZehComplexUnitBudget, ZehComplexPAttach, 0.15, 0.10, 1.9)
+    result.add complexSitesFromUnits(complexUnits)
     ## ROUND 8 recalibration: measured mass count averaged 21.5, cover
     ## often already 150-179 (near/over ceiling) — the anchors alone
     ## already carry plenty of AREA; what's short is COUNT. More filler,
@@ -1958,7 +2393,7 @@ proc generateBrMap(
   ## layout grammar / intention — and everything else (connectors, caves
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
-  result.pois = placePois(poiRng, w, h, result.gunRange, keystone)
+  result.pois = placePois(poiRng, seed, w, h, result.gunRange, keystone)
 
   ## ROUND 9 (doctrine item 6's room-count-variety gate): pre-assign a
   ## shuffled, ascending sequence of room-count HINTS across every
@@ -2172,12 +2607,22 @@ proc brMapSpecJson(m: BrMap): string =
   for site in m.pois:
     var roomNodes = newJArray()
     for r in site.rooms: roomNodes.add %*[r.x, r.y, r.w, r.h]
+    var unitNodes = newJArray()
+    for u in site.units: unitNodes.add %*[u.x, u.y, u.w, u.h]
+    var unitGrammarNodes = newJArray()
+    for g in site.unitGrammars: unitGrammarNodes.add %($g)
     poiNodes.add %*{
       "x": site.center.x, "y": site.center.y,
       "archetype": $site.archetype, "halfExtent": site.halfExtent,
       "lootTier": site.lootTier,
       "rooms": roomNodes,  ## round 9: the floor plan, [x,y,w,h] per room
-      "grammar": $site.grammar,  ## round 10: bsp / maze / cave
+      "grammar": $site.grammar,  ## round 10: bsp / maze / cave / complex
+      ## round 11: poiComplex's own grown units, [x,y,w,h] each, + each
+      ## unit's own interior grammar — empty arrays for every other
+      ## archetype, which never populates them.
+      "units": unitNodes,
+      "unitGrammars": unitGrammarNodes,
+      "complexUnitCount": site.complexUnitCount,
     }
   let spec = %*{
     "name": m.name,
@@ -2254,11 +2699,13 @@ proc brMapFromSpecJson(text: string): BrMap =
         of "poiWarren": poiWarren
         of "poiMazeHall": poiMazeHall
         of "poiCaveDen": poiCaveDen
+        of "poiComplex": poiComplex
         else: poiOutpost
       let grammar =
         case pn{"grammar"}.getStr("bsp")
         of "maze": gMaze
         of "cave": gCave
+        of "complex": gComplex
         else: gBsp
       var rooms: seq[MapRect]
       let roomsNode = pn{"rooms"}
@@ -2266,13 +2713,31 @@ proc brMapFromSpecJson(text: string): BrMap =
         for rn in roomsNode:
           rooms.add MapRect(x: rn[0].getInt(), y: rn[1].getInt(),
             w: rn[2].getInt(), h: rn[3].getInt())
+      var units: seq[MapRect]
+      let unitsNode = pn{"units"}
+      if not unitsNode.isNil and unitsNode.kind == JArray:
+        for un in unitsNode:
+          units.add MapRect(x: un[0].getInt(), y: un[1].getInt(),
+            w: un[2].getInt(), h: un[3].getInt())
+      var unitGrammars: seq[Grammar]
+      let unitGrammarsNode = pn{"unitGrammars"}
+      if not unitGrammarsNode.isNil and unitGrammarsNode.kind == JArray:
+        for gn in unitGrammarsNode:
+          unitGrammars.add (case gn.getStr("bsp")
+            of "maze": gMaze
+            of "cave": gCave
+            of "complex": gComplex
+            else: gBsp)
       result.pois.add PoiSite(
         center: MapPoint(x: pn["x"].getInt(), y: pn["y"].getInt()),
         archetype: archetype,
         halfExtent: pn{"halfExtent"}.getInt(150),
         lootTier: pn{"lootTier"}.getInt(1),
         rooms: rooms,
-        grammar: grammar)
+        grammar: grammar,
+        units: units,
+        unitGrammars: unitGrammars,
+        complexUnitCount: pn{"complexUnitCount"}.getInt(0))
   result.medKitSpawns = pointsFromNode(node{"medKitSpawns"})
   result.medKitCandidates = pointsFromNode(node{"medKitCandidates"})
   result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
@@ -3159,9 +3624,14 @@ proc validateBr(m: BrMap): BrValidation =
       ## Count of qualifying anchors (footprint above a floor) AND their
       ## pairwise spread — both matter: holding the edge needs several real
       ## anchors that are actually far apart, not clustered together.
+      ## ROUND 11: poiAnchor is no longer authored directly on this family
+      ## (the "prime anchor" role is grown via growGlobalComplexes) — a
+      ## qualifying poiComplex's own halfExtent (its bounding-box radius)
+      ## counts the same way a standalone anchor's used to.
       var anchorPts: seq[MapPoint]
       for p in m.pois:
-        if p.archetype == poiAnchor and float(p.halfExtent) > KsAnchorHalfExtentFloor * float(m.gunRange):
+        if p.archetype in {poiAnchor, poiComplex} and
+            float(p.halfExtent) > KsAnchorHalfExtentFloor * float(m.gunRange):
           anchorPts.add p.center
       var minPairDist = Inf
       for i in 0 ..< anchorPts.len:
@@ -3307,7 +3777,14 @@ proc validateBr(m: BrMap): BrValidation =
         ## "poiWarren:maze") — same field, no schema change, so every
         ## existing consumer (gen log, metrics JSON) just starts printing
         ## a more informative string instead of needing a new column.
-        byArch.add ($site.archetype & ":" & $site.grammar, site.rooms.len)
+        ## ROUND 11: a complex additionally folds in its own UNIT count
+        ## (doctrine: "print per-complex unit counts") — the int column
+        ## stays total room/cell/chamber count across every unit, same
+        ## meaning as every other archetype.
+        let label = if site.archetype == poiComplex:
+            &"poiComplex:complex(units={site.complexUnitCount})"
+          else: $site.archetype & ":" & $site.grammar
+        byArch.add (label, site.rooms.len)
     let distinctCounts = counts.deduplicate().len
     result.distinctRoomCounts = distinctCounts
     result.roomCountsByArchetype = byArch
