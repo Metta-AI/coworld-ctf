@@ -5,7 +5,7 @@
 
 import
   helpers,
-  std/[json, strutils, unittest],
+  std/[json, math, os, sets, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, labels, replays, sim]
 
@@ -15,6 +15,26 @@ proc zoneGame(zonePhasesJson: string, extraJson = ""): SimServer =
   var config = defaultGameConfig()
   let extra = if extraJson.len > 0: ", " & extraJson else: ""
   config.update("""{"zonePhases": """ & zonePhasesJson & extra & "}")
+  result = initCtfForTest(config)
+  discard result.addPlayer("red0")
+  discard result.addPlayer("blue0")
+  result.startGame()
+  result.players[0].team = Red
+  result.players[1].team = Blue
+
+proc zoneGameOnRealMap(zonePhasesJson: string): SimServer =
+  ## A started game on the TRACKED showmatch map spec (br-match-showmatch-
+  ## 4242.json — the real giant, multi-room-building draw Fable's machine
+  ## checks are meant to run against; the default 1235x659 test map's own
+  ## interior nooks turned out too shallow, see the room-depth guard on the
+  ## door-first check). Only `teams` (must equal the map's own spawnGroups,
+  ## per resolveCtfMapMetadata) and the zone schedule are configured beyond
+  ## the map spec itself — no full 32-seat BR roster, since these checks
+  ## only touch the paint-arrival field, never combat/spawns.
+  let mapSpecJson = readFile(GameDir / "br-match-showmatch-4242.json")
+  var config = defaultGameConfig()
+  config.update("{\"mapSpec\": " & mapSpecJson & ", \"teams\": 16, " &
+    "\"zonePhases\": " & zonePhasesJson & "}")
   result = initCtfForTest(config)
   discard result.addPlayer("red0")
   discard result.addPlayer("blue0")
@@ -44,6 +64,19 @@ const
     {"z": 0.35, "waitTicks": 6, "shrinkTicks": 12, "dps": 2},
     {"z": 0.15, "waitTicks": 4, "shrinkTicks": 8, "dps": 3}
   ]"""
+  ## The doctrine's real five-phase table (record_br_match.sh, verbatim) —
+  ## used by the paint-arrival honesty gate below so it stresses the same
+  ## long-wait/short-shrink cadence a real match runs, not ToyPhases' much
+  ## faster synthetic one.
+  BrShowmatchPhases = """[
+    {"z": 0.75, "waitTicks": 600, "shrinkTicks": 420, "dps": 0},
+    {"z": 0.55, "waitTicks": 480, "shrinkTicks": 360, "dps": 2},
+    {"z": 0.40, "waitTicks": 360, "shrinkTicks": 300, "dps": 4},
+    {"z": 0.28, "waitTicks": 240, "shrinkTicks": 240, "dps": 8},
+    {"z": 0.17, "waitTicks": 180, "shrinkTicks": 180, "dps": 12}
+  ]"""
+  BrShowmatchTotalTicks = 600 + 420 + 480 + 360 + 360 + 300 + 240 + 240 +
+    180 + 180  ## 3360 — sum of every phase's wait+shrink.
 
 suite "shrink zone config":
   test "off by default, and the config echo carries no zonePhases key":
@@ -603,3 +636,357 @@ suite "shrink zone determinism":
     check restored.gameHash() == hash
     check restored.zoneCenter.x == sim.zoneCenter.x
     check restored.zoneCenter.y == sim.zoneCenter.y
+
+suite "shrink zone paint arrival honesty":
+  ## The round-3 arrival-time field's HARD ACCEPTANCE GATE (Fable's audit,
+  ## binding, not a style note): paint may only ever be LATE relative to the
+  ## true damage boundary, never early and never elsewhere. Checked as an
+  ## automated assertion over the WHOLE schedule against the SAME
+  ## roundedRectSignedDist/zoneRectAndDps math the render reads and the
+  ## damage system (sim.nim, untouched by this file) authorizes — not an
+  ## eyeball check, and it must pass before any screenshot is trusted.
+  test "painted(p) at tick T implies p is outside rect(T), zero tolerance beyond the corner-round bound":
+    var sim = zoneGame(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    check gw > 0
+    check gh > 0
+    var sampleTicks: seq[int]
+    for frac in [0.0, 0.05, 0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 1.0]:
+      sampleTicks.add(int(float(BrShowmatchTotalTicks) * frac))
+    var checkedCells = 0
+    for t in sampleTicks:
+      let rect = sim.zoneRectAndDps(t).cur
+      for gy in 0 ..< gh:
+        for gx in 0 ..< gw:
+          let
+            px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+            py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+            cell = zoneArrivalFieldCellAt(px, py)
+          if not cell.has:
+            continue
+          inc checkedCells
+          let
+            painted = cell.arrival <= t
+            sd = roundedRectSignedDist(rect, ZoneCornerRoundPx, px.float, py.float)
+          # painted ⇒ outside-rect(T), within the SAME rounded-corner bound
+          # every other consumer of this SDF already accepts (the honesty
+          # bound is spatial rounding, not a licence to paint the interior).
+          check (not painted) or sd >= -ZoneCornerRoundPx - 1.0
+
+  test "dry(p) ∧ outside-rect(p) ⇒ arrival delay at p never exceeds the flow-delay cap":
+    var sim = zoneGame(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    var sampleTicks: seq[int]
+    for frac in [0.0, 0.05, 0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 1.0]:
+      sampleTicks.add(int(float(BrShowmatchTotalTicks) * frac))
+    for t in sampleTicks:
+      let rect = sim.zoneRectAndDps(t).cur
+      for gy in 0 ..< gh:
+        for gx in 0 ..< gw:
+          let
+            px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+            py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+            cell = zoneArrivalFieldCellAt(px, py)
+          if not cell.has or cell.arrival == ZoneNeverArrives.int:
+            continue
+          let sd = roundedRectSignedDist(rect, ZoneCornerRoundPx, px.float, py.float)
+          # Clearly outside (past the corner-round bound) and still dry at
+          # T: its arrival may not be overdue past the capped flow delay —
+          # +60 is slack for the base term's own integer-tick bisection
+          # rounding, never the flow term itself.
+          if sd > ZoneCornerRoundPx and cell.arrival > t:
+            check cell.arrival - t <= ZoneFlowDelayCapTicks + 60
+
+  test "the field is built ONCE per episode: ensureZoneArrivalField is a no-op past the first call, and values never drift":
+    ## D1's whole fix hinges on this: nothing about the field may depend on
+    ## `sim.tickCount`, so calling ensureZoneArrivalField again later in the
+    ## SAME episode (exactly what addZoneEdgeBand does every tick) must be a
+    ## cache hit (returns false) with byte-identical values — never a
+    ## rebuild, and never a different answer for the same cell.
+    var sim = zoneGame(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)  # startGame() may have already
+                                          # built it (addZoneEdgeBand runs
+                                          # off tick 0 too) — either way,
+                                          # this call must not have rebuilt.
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    var before: seq[int]
+    for gy in countup(0, gh - 1, 7):
+      for gx in countup(0, gw - 1, 7):
+        before.add(zoneArrivalFieldCellAt(
+          gx * ZoneFieldCellPx + ZoneFieldCellPx div 2,
+          gy * ZoneFieldCellPx + ZoneFieldCellPx div 2).arrival)
+    sim.stepTicks(50)
+    check ensureZoneArrivalField(sim) == false  # cache hit, not a rebuild.
+    var idx = 0
+    for gy in countup(0, gh - 1, 7):
+      for gx in countup(0, gw - 1, 7):
+        check zoneArrivalFieldCellAt(
+          gx * ZoneFieldCellPx + ZoneFieldCellPx div 2,
+          gy * ZoneFieldCellPx + ZoneFieldCellPx div 2).arrival == before[idx]
+        inc idx
+
+proc scanLineInteriorRuns(
+  fixedCoord: int, loBound, hiBound, gridMaxPx: int, t: int, alongX: bool
+): int =
+  ## The longest run of identical paintedness along one FULL scan line,
+  ## counting ONLY runs with a transition on BOTH sides (i.e. excluding the
+  ## line's own two end segments, which trail off into "always painted"
+  ## deep-body territory or "always safe" rect-interior territory without
+  ## ever crossing back — neither is "the frontier," so neither should be
+  ## measured as a straight run of it). The rect DRIFTS over the schedule
+  ## (zoneCenterAtScale), so a narrow band just outside the CURRENT rect
+  ## edge is not a reliable stand-in for "wherever the frontier actually
+  ## is right now" — scanning the WHOLE line and keeping only the interior,
+  ## doubly-bounded runs finds the real isoline wherever it happens to sit.
+  proc paintedAt(px, py: int): bool =
+    let cell = zoneArrivalFieldCellAt(px, py)
+    cell.has and cell.arrival <= t
+  var
+    runLen = 0
+    runVal = false
+    first = true
+    longestInterior = 0
+    sawFirstTransition = false
+  if fixedCoord < 0 or fixedCoord >= gridMaxPx:
+    return 0
+  for coord in countup(max(0, loBound), min(gridMaxPx - 1, hiBound), ZoneFieldCellPx):
+    let v = if alongX: paintedAt(coord, fixedCoord) else: paintedAt(fixedCoord, coord)
+    if first:
+      runVal = v
+      runLen = ZoneFieldCellPx
+      first = false
+    elif v != runVal:
+      if sawFirstTransition:
+        # This run just closed had a transition on BOTH sides — interior.
+        longestInterior = max(longestInterior, runLen)
+      sawFirstTransition = true
+      runVal = v
+      runLen = ZoneFieldCellPx
+    else:
+      runLen += ZoneFieldCellPx
+  # The final run trails off to the scan's own end — never counted (no
+  # closing transition), same as the first run before sawFirstTransition.
+  longestInterior
+
+proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int): int =
+  ## Scans a WIDE band (rect edge +/- Margin, wide enough to absorb the flow
+  ## delay's own honesty slack — see ZoneFlowDelayCapTicks) around each of
+  ## the rect's 4 nominal edges, and returns the longest INTERIOR run (see
+  ## scanLineInteriorRuns) of identical paintedness found — a fingered
+  ## frontier alternates tip/cove every finger wavelength wherever it
+  ## currently sits; a straight run means the isoline is tracing a bare
+  ## rectangle there instead. Deliberately NOT a full-board row/column scan:
+  ## that measures "the size of the safe interior itself" (bounded on both
+  ## sides by the LEFT and RIGHT edges, hundreds of px wide by construction)
+  ## as a false "straight run," when the actual object under test is the
+  ## isoline's own local shape, not the box's size.
+  const Margin = 350  ## generous vs the flow-delay cap's own equivalent px
+                      ## (cap / a typical baseSpeed), so genuinely delayed
+                      ## frontier territory still falls inside the band.
+  let
+    gwPx = gw * ZoneFieldCellPx
+    ghPx = gh * ZoneFieldCellPx
+  var longest = 0
+  for x in [rect.x - Margin, rect.x + rect.w - 1 + Margin]:
+    longest = max(longest, scanLineInteriorRuns(x,
+      rect.y - Margin, rect.y + rect.h - 1 + Margin, gwPx, t, alongX = false))
+  for y in [rect.y - Margin, rect.y + rect.h - 1 + Margin]:
+    longest = max(longest, scanLineInteriorRuns(y,
+      rect.x - Margin, rect.x + rect.w - 1 + Margin, ghPx, t, alongX = true))
+  longest
+
+suite "shrink zone paint arrival: fingering and front-propagation causality":
+  ## The remaining four of Fable's six machine checks, all against the real
+  ## BrShowmatchPhases schedule: no straight runs (the frontier must read
+  ## as fingered, not a bare rectangle), a room never fills faster than the
+  ## open floor outside its own doorway, and a room fills door-first (its
+  ## arrival is monotone with walk-distance from the door — the emergent
+  ## proof that computeZoneFrontierField's causality, not a hand-built
+  ## room classifier, is what produces the shape).
+  test "no axis-aligned straight run longer than ~100px at any sampled tick":
+    var sim = zoneGame(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    var worst = 0
+    for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
+      let t = int(float(BrShowmatchTotalTicks) * frac)
+      let rect = sim.zoneRectAndDps(t).cur
+      worst = max(worst, longestStraightRunPx(sim, rect, t, gw, gh))
+    echo "straight-run check: worst=", worst
+    check worst <= 100
+
+  test "a room never fills faster than the open floor just outside its own doorway":
+    var sim = zoneGameOnRealMap(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    let roomId = zoneTestClassifyRooms(sim)
+    var maxRoomId = -1
+    for r in roomId:
+      if r > maxRoomId: maxRoomId = r
+    var cellsByRoom = newSeq[seq[int]](maxRoomId + 1)
+    for idx in 0 ..< roomId.len:
+      if roomId[idx] >= 0:
+        cellsByRoom[roomId[idx]].add(idx)
+    proc arrivalOf(idx: int): tuple[has: bool, v: int] =
+      let gx = idx mod gw
+      let gy = idx div gw
+      let c = zoneArrivalFieldCellAt(
+        gx * ZoneFieldCellPx + ZoneFieldCellPx div 2,
+        gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+      (c.has and c.arrival != ZoneNeverArrives.int, c.arrival)
+    var
+      roomsChecked = 0
+      lagViolations = 0
+    for cells in cellsByRoom:
+      if cells.len < 4:
+        continue
+      var doorSet = initHashSet[int]()
+      for idx in cells:
+        let gx = idx mod gw
+        let gy = idx div gw
+        for off in ZoneFrontierOffsets:
+          let
+            nx = gx + off.dx
+            ny = gy + off.dy
+          if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
+          let nidx = ny * gw + nx
+          if roomId[nidx] == -1:
+            doorSet.incl(nidx)
+      if doorSet.len == 0:
+        continue
+      var roomSum, doorSum: float
+      var roomN, doorN: int
+      for idx in cells:
+        let a = arrivalOf(idx)
+        if a.has: roomSum += a.v.float; inc roomN
+      for idx in doorSet:
+        let a = arrivalOf(idx)
+        if a.has: doorSum += a.v.float; inc doorN
+      if roomN == 0 or doorN == 0:
+        continue
+      inc roomsChecked
+      let roomMean = roomSum / roomN.float
+      let doorMean = doorSum / doorN.float
+      echo "  room cells=", cells.len, " roomN=", roomN, " doorN=", doorN,
+        " roomMean=", roomMean, " doorMean=", doorMean
+      if roomMean <= doorMean:
+        inc lagViolations
+    echo "room-lag check: roomsChecked=", roomsChecked,
+      " lagViolations=", lagViolations
+    check roomsChecked > 0
+    check lagViolations == 0
+
+  test "a room fills door-first: arrival correlates with walk-distance from the doorway":
+    var sim = zoneGameOnRealMap(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    let roomId = zoneTestClassifyRooms(sim)
+    var maxRoomId = -1
+    for r in roomId:
+      if r > maxRoomId: maxRoomId = r
+    var cellsByRoom = newSeq[seq[int]](maxRoomId + 1)
+    for idx in 0 ..< roomId.len:
+      if roomId[idx] >= 0:
+        cellsByRoom[roomId[idx]].add(idx)
+    proc arrivalOf(idx: int): tuple[has: bool, v: int] =
+      let gx = idx mod gw
+      let gy = idx div gw
+      let c = zoneArrivalFieldCellAt(
+        gx * ZoneFieldCellPx + ZoneFieldCellPx div 2,
+        gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+      (c.has and c.arrival != ZoneNeverArrives.int, c.arrival)
+    var
+      roomsChecked = 0
+      corrViolations = 0
+    for cells in cellsByRoom:
+      if cells.len < 8:  # need enough spread for a meaningful correlation
+        continue
+      # BFS hop-distance from the doorway (every room cell adjacent to an
+      # exterior/aperture cell) over ONLY this room's own cells.
+      var hop = newSeq[int](gw * gh)
+      for i in 0 ..< hop.len: hop[i] = -1
+      var queue: seq[int]
+      for idx in cells:
+        let gx = idx mod gw
+        let gy = idx div gw
+        var isDoor = false
+        for off in ZoneFrontierOffsets:
+          let
+            nx = gx + off.dx
+            ny = gy + off.dy
+          if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
+          if roomId[ny * gw + nx] == -1:
+            isDoor = true
+            break
+        if isDoor:
+          hop[idx] = 0
+          queue.add(idx)
+      var qh = 0
+      while qh < queue.len:
+        let idx = queue[qh]
+        inc qh
+        let gx = idx mod gw
+        let gy = idx div gw
+        for off in ZoneFrontierOffsets:
+          let
+            nx = gx + off.dx
+            ny = gy + off.dy
+          if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
+          let nidx = ny * gw + nx
+          if roomId[nidx] != roomId[idx]: continue
+          if hop[nidx] != -1: continue
+          hop[nidx] = hop[idx] + 1
+          queue.add(nidx)
+      if queue.len == 0:
+        continue  # no doorway reached this room — skip (not a
+                  # front-propagation failure, a classifier edge case).
+      # Pearson correlation between arrival and hop-distance over the
+      # room's own cells — a monotone (door-first) fill reads strongly
+      # positive; a back-first or scrambled fill reads near zero or
+      # negative.
+      var xs, ys: seq[float]
+      var maxHopSeen = 0
+      for idx in cells:
+        if hop[idx] < 0: continue
+        maxHopSeen = max(maxHopSeen, hop[idx])
+        let a = arrivalOf(idx)
+        if not a.has: continue
+        xs.add(hop[idx].float)
+        ys.add(a.v.float)
+      if xs.len < 8:
+        continue
+      if maxHopSeen < 3:
+        # A room this shallow (every cell within 1-2 hops of its own door)
+        # has no meaningful "back" to correlate against — Pearson r is
+        # numerically unstable on a near-constant x, and "door-first" is
+        # trivially true when there is nowhere else to fill from. Covered
+        # instead by the room-lag check above, which needs no depth.
+        continue
+      inc roomsChecked
+      let n = xs.len.float
+      var sumX, sumY, sumXY, sumX2, sumY2: float
+      for i in 0 ..< xs.len:
+        sumX += xs[i]; sumY += ys[i]
+        sumXY += xs[i] * ys[i]
+        sumX2 += xs[i] * xs[i]
+        sumY2 += ys[i] * ys[i]
+      let
+        num = n * sumXY - sumX * sumY
+        den = sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY))
+        corr = if den > 1e-6: num / den else: 0.0
+      var maxHop, minArr, maxArr: float
+      minArr = ys[0]
+      for i in 0 ..< xs.len:
+        if xs[i] > maxHop: maxHop = xs[i]
+        if ys[i] < minArr: minArr = ys[i]
+        if ys[i] > maxArr: maxArr = ys[i]
+      echo "  room cells=", cells.len, " n=", xs.len, " corr=", corr,
+        " maxHop=", maxHop, " arrRange=[", minArr, "..", maxArr, "]"
+      if corr <= 0.8:
+        inc corrViolations
+    echo "door-first check: roomsChecked=", roomsChecked,
+      " corrViolations=", corrViolations
+    check roomsChecked > 0
+    check corrViolations == 0

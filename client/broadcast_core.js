@@ -272,17 +272,16 @@
     // episode arrives; everything else below is derived from it once
     // (decodeZoneField) and then only ever touched incrementally per frame
     // (renderZonePaint).
-    let zoneField = null;          // { gridW, gridH, arrival: Uint16Array,
-                                    //   order: Uint32Array of cell indices
-                                    //   SORTED by arrival tick }
-    let zoneCanvas = null;         // offscreen canvas at the field's own
-    let zoneCtx = null;            // coarse grid resolution — upscaled into
-    let zoneImage = null;          // the board layer on every draw.
+    let zoneField = null;          // { gridW, gridH, arrival: Uint16Array
+                                    //   (RENDER resolution — bilinearly
+                                    //   upsampled from the solver's coarse
+                                    //   grid, see buildFineField), buckets:
+                                    //   {bucketStart, bucketed} — a counting
+                                    //   sort by tick, see buildZoneBuckets }
+    let zoneCanvas = null;         // offscreen canvas at render resolution —
+    let zoneCtx = null;            // ~1 native map px per cell, blitted
+    let zoneImage = null;          // into the board layer every draw.
     let zoneLastAppliedTick = -1;  // last INTEGER tick fully applied.
-    let zoneOrderPtr = 0;          // pointer into zoneField.order: the
-                                    // incremental-accumulation cursor — each
-                                    // cell is painted exactly once as it's
-                                    // crossed, never rescanned.
     let zoneLastTouchedCells = 0;  // last frame's touched-cell count, for
                                     // the perf probe (getZonePaintStats).
 
@@ -783,30 +782,119 @@
       targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
     }
 
-    // Decodes the one-time arrival-field data sprite (see
-    // ZONE_ARRIVAL_FIELD_SPRITE_ID) into typed arrays: `arrival[cell]` is
-    // the paint-arrival tick (R|G<<8 — see zoneArrivalFieldBytes in
-    // global.nim), and `order` is every cell index SORTED by that tick once
-    // up front, so per-frame incremental accumulation is just an advancing
-    // pointer — O(newly-arrived cells), never a rescan of the whole grid.
-    function decodeZoneField(width, height, pixels) {
-      const n = width * height;
-      const arrival = new Uint16Array(n);
-      for (let i = 0; i < n; i++) {
-        const o = i * 4;
-        arrival[i] = pixels[o] | (pixels[o + 1] << 8);
+    const ZONE_FIELD_CELL_PX =
+      (window.CTF_WIRE && window.CTF_WIRE.zoneFieldCellPx) || 4;
+    const ZONE_NEVER_ARRIVES = 0xFFFF;
+    // Supersample factor from the solver's coarse grid to the render grid:
+    // ZONE_FIELD_CELL_PX (4) × this = 1 native map px per render cell, i.e.
+    // the render resolution matches the map's own pixel resolution — "the
+    // solver resolution must be undetectable in the render" by construction,
+    // not by upscale blur. Each render cell's arrival tick is BILINEARLY
+    // interpolated from the 4 surrounding coarse cells once (buildFineField,
+    // below), so per-pixel thresholding against it traces a smooth isoline —
+    // equivalent to marching squares without ever extracting the polygon.
+    const ZONE_RENDER_SUPERSAMPLE = ZONE_FIELD_CELL_PX;
+    // Counting-sort bucket ceiling: real arrival ticks top out around a
+    // full schedule's length (a showmatch's is ~3360, +200 for the flow-
+    // delay cap) — 8192 is generous headroom. Anything above it (in
+    // practice only ZONE_NEVER_ARRIVES: a wall or a floor cell that never
+    // floods) lands in one overflow bucket that incremental advance never
+    // walks, only a full rebuild does.
+    const ZONE_MAX_TICK_BUCKET = 8192;
+
+    // Bilinear-upsamples the coarse solver grid to render resolution,
+    // renormalizing over only the NON-sentinel corners at each sample so a
+    // wall/never-floods neighbour (ZONE_NEVER_ARRIVES) never drags a real
+    // floor pixel's interpolated tick up toward a meaningless huge value —
+    // that would reopen a D4-shaped "dry pocket" hugging every wall. A fine
+    // pixel whose all 4 coarse corners are sentinel is unambiguously wall/
+    // never itself.
+    function buildFineField(coarse, gridW, gridH, fineW, fineH) {
+      const fine = new Uint16Array(fineW * fineH);
+      for (let fy = 0; fy < fineH; fy++) {
+        const cy = (fy - ZONE_FIELD_CELL_PX / 2) / ZONE_FIELD_CELL_PX;
+        const gy0 = Math.floor(cy);
+        const ty = cy - gy0;
+        const gy0c = Math.max(0, Math.min(gridH - 1, gy0));
+        const gy1c = Math.max(0, Math.min(gridH - 1, gy0 + 1));
+        const rowBase = fy * fineW;
+        for (let fx = 0; fx < fineW; fx++) {
+          const cx = (fx - ZONE_FIELD_CELL_PX / 2) / ZONE_FIELD_CELL_PX;
+          const gx0 = Math.floor(cx);
+          const tx = cx - gx0;
+          const gx0c = Math.max(0, Math.min(gridW - 1, gx0));
+          const gx1c = Math.max(0, Math.min(gridW - 1, gx0 + 1));
+          const v00 = coarse[gy0c * gridW + gx0c];
+          const v10 = coarse[gy0c * gridW + gx1c];
+          const v01 = coarse[gy1c * gridW + gx0c];
+          const v11 = coarse[gy1c * gridW + gx1c];
+          const w00 = (1 - tx) * (1 - ty);
+          const w10 = tx * (1 - ty);
+          const w01 = (1 - tx) * ty;
+          const w11 = tx * ty;
+          let acc = 0, wsum = 0;
+          if (v00 !== ZONE_NEVER_ARRIVES) { acc += v00 * w00; wsum += w00; }
+          if (v10 !== ZONE_NEVER_ARRIVES) { acc += v10 * w10; wsum += w10; }
+          if (v01 !== ZONE_NEVER_ARRIVES) { acc += v01 * w01; wsum += w01; }
+          if (v11 !== ZONE_NEVER_ARRIVES) { acc += v11 * w11; wsum += w11; }
+          fine[rowBase + fx] = wsum > 0 ? Math.round(acc / wsum) : ZONE_NEVER_ARRIVES;
+        }
       }
-      const order = new Uint32Array(n);
-      for (let i = 0; i < n; i++) order[i] = i;
-      order.sort((a, b) => arrival[a] - arrival[b]);
-      zoneField = { gridW: width, gridH: height, arrival, order };
+      return fine;
+    }
+
+    // Counting sort (O(n), no comparator sort of millions of elements): for
+    // every integer tick 0..ZONE_MAX_TICK_BUCKET, `bucketed.subarray(
+    // bucketStart[t], bucketStart[t+1])` is exactly the fine-cell indices
+    // that arrive at that tick — incremental advance from tick A to B is
+    // then a direct slice walk over (A, B], never a rescan or a sort.
+    function buildZoneBuckets(fine) {
+      const n = fine.length;
+      const bucketCount = ZONE_MAX_TICK_BUCKET + 2;  // + overflow bucket
+      const counts = new Uint32Array(bucketCount);
+      for (let i = 0; i < n; i++) {
+        const t = fine[i];
+        counts[t > ZONE_MAX_TICK_BUCKET ? bucketCount - 1 : t]++;
+      }
+      const bucketStart = new Uint32Array(bucketCount + 1);
+      for (let b = 0; b < bucketCount; b++) {
+        bucketStart[b + 1] = bucketStart[b] + counts[b];
+      }
+      const cursor = bucketStart.slice(0, bucketCount);
+      const bucketed = new Uint32Array(n);
+      for (let i = 0; i < n; i++) {
+        const t = fine[i];
+        const b = t > ZONE_MAX_TICK_BUCKET ? bucketCount - 1 : t;
+        bucketed[cursor[b]++] = i;
+      }
+      return { bucketStart, bucketed };
+    }
+
+    // Decodes the one-time arrival-field data sprite (see
+    // ZONE_ARRIVAL_FIELD_SPRITE_ID) — R|G<<8 per coarse cell is the solver's
+    // paint-arrival tick (zoneArrivalFieldBytes in global.nim) — then
+    // upsamples it to render resolution (buildFineField) and buckets the
+    // result by tick (buildZoneBuckets) so every later frame is O(newly-
+    // arrived render cells), never a rescan of the whole grid.
+    function decodeZoneField(width, height, pixels) {
+      const coarse = new Uint16Array(width * height);
+      for (let i = 0; i < coarse.length; i++) {
+        const o = i * 4;
+        coarse[i] = pixels[o] | (pixels[o + 1] << 8);
+      }
+      const fineW = width * ZONE_RENDER_SUPERSAMPLE;
+      const fineH = height * ZONE_RENDER_SUPERSAMPLE;
+      const fine = buildFineField(coarse, width, height, fineW, fineH);
+      zoneField = {
+        gridW: fineW, gridH: fineH,
+        arrival: fine, buckets: buildZoneBuckets(fine)
+      };
       zoneCanvas = createCanvasSurface();
-      zoneCanvas.width = width;
-      zoneCanvas.height = height;
+      zoneCanvas.width = fineW;
+      zoneCanvas.height = fineH;
       zoneCtx = zoneCanvas.getContext('2d');
-      zoneImage = zoneCtx.createImageData(width, height);
+      zoneImage = zoneCtx.createImageData(fineW, fineH);
       zoneLastAppliedTick = -1;
-      zoneOrderPtr = 0;
     }
 
     function paintZoneCell(data, idx) {
@@ -817,46 +905,45 @@
       data[o + 3] = 255;
     }
 
-    // The ENTIRE per-frame paint render: touch only cells whose arrival
-    // just crossed `dispTick` (a persistent accumulation buffer that only
-    // ever grows — see the field's own MONOTONE guarantee), upscale the
-    // coarse result into the board layer. `dispTick` is the zone clock
-    // object's already-interpolated dispX, so this glides continuously at
-    // display cadence instead of stepping once per sim tick (~24/s).
+    // The ENTIRE per-frame paint render: touch only render cells whose
+    // arrival just crossed `dispTick` (a persistent accumulation buffer that
+    // only ever grows — see the field's own MONOTONE guarantee), blit the
+    // render-resolution result into the board layer (a ~1:1 blit, not an
+    // upscale — the smoothing already happened once, in buildFineField).
+    // `dispTick` is the zone clock object's already-interpolated dispX, so
+    // this glides continuously at display cadence instead of stepping once
+    // per sim tick (~24/s).
     function renderZonePaint(targetCtx, dispTick) {
       if (!zoneField) return;
       const nowInt = Math.floor(dispTick);
-      const arrival = zoneField.arrival;
-      const order = zoneField.order;
-      const n = arrival.length;
       const needFull = zoneLastAppliedTick < 0 ||
         nowInt < zoneLastAppliedTick ||
         (nowInt - zoneLastAppliedTick) > ZONE_SNAP_REBUILD_GAP_TICKS;
-      let touched = 0;
       const data = zoneImage.data;
+      let touched = 0;
       if (needFull) {
-        zoneOrderPtr = 0;
+        const arrival = zoneField.arrival;
+        const n = arrival.length;
         data.fill(0);
-      }
-      while (zoneOrderPtr < n && arrival[order[zoneOrderPtr]] <= nowInt) {
-        paintZoneCell(data, order[zoneOrderPtr]);
-        zoneOrderPtr++;
-        touched++;
+        for (let i = 0; i < n; i++) {
+          if (arrival[i] <= nowInt) { paintZoneCell(data, i); touched++; }
+        }
+      } else if (nowInt > zoneLastAppliedTick) {
+        const { bucketStart, bucketed } = zoneField.buckets;
+        const lo = Math.max(0, zoneLastAppliedTick + 1);
+        const hi = Math.min(nowInt, ZONE_MAX_TICK_BUCKET);
+        for (let t = lo; t <= hi; t++) {
+          const s = bucketStart[t], e = bucketStart[t + 1];
+          for (let k = s; k < e; k++) { paintZoneCell(data, bucketed[k]); touched++; }
+        }
       }
       zoneLastTouchedCells = touched;
       if (touched > 0 || needFull) {
         zoneCtx.putImageData(zoneImage, 0, 0);
       }
       zoneLastAppliedTick = nowInt;
-      const wasSmooth = targetCtx.imageSmoothingEnabled;
-      targetCtx.imageSmoothingEnabled = true;  // the coarse grid upscales
-                                                // blended, never blocky —
-                                                // reset after so this never
-                                                // leaks into the pixel-art
-                                                // sprites drawn after it.
       targetCtx.drawImage(zoneCanvas, 0, 0, zoneField.gridW, zoneField.gridH,
         0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
-      targetCtx.imageSmoothingEnabled = wasSmooth;
     }
 
     function composite() {
