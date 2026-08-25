@@ -364,11 +364,56 @@ Two requirements in one ruling:
   classes are ordered by exposure, so "richest kit in the most exposed
   place" becomes an assignment the generator performs per item.
 
-The concrete per-item weights are being derived from a dedicated
-loot-placement research pass over BR genre practice (this is a large,
-well-studied design space — the weights should come from prior art plus our
-own play evidence, not from a guess). They enter here as declared constants
-when derived.
+The weights, derived 2026-08-24 from a three-lane research pass (arena
+respawning-pickup theory — the lineage that matches our refill mechanics —
+BR genre practice, and published placement/PCG research; full sourced
+reports live in the private research space):
+
+| item | rooms | corners | alleys | hotspots |
+|---|---|---|---|---|
+| medkit | 40 | 20 | 25 | 15 |
+| shield | 25 | 10 | 25 | 40 |
+| grenade | 15 | 25 | 40 | 20 |
+| spray | 40 | 30 | 20 | 10 |
+
+The shape, one line per item: the medkit is the RETREAT magnet (quiet
+interiors and rotation sustain — never itself the thing squads fight over);
+the shield is the contested MAJOR (hotspot-dominant, the item that makes a
+landmark worth fighting for); the grenade is the APPROACH tool (staged at
+alley mouths feeding chokes, not a defensive room resource); the spray is
+the CQC ambush weapon (rooms and corners, where a cone's kill zone lives).
+
+Rules the weight table cannot express (all hard, all checkable):
+- Same-type minimum separation everywhere; hotspot-tier shield sites sit
+  >= 2-3x gunRange apart, so one duo can never control two majors inside a
+  single fight window.
+- Shield and grenade sites NEVER co-locate — the winner of a contested
+  major must not also walk away with the area-wipe tool that punishes
+  whoever contests them there.
+- Medkits carry an anti-ADJACENCY bias to hotspots beyond their low class
+  weight: distance-to-nearest-hotspot is a secondary filter on candidate
+  sites, because a room two steps from a hotspot is not a quiet room.
+- Shield/grenade ALLEY placements bias toward alleys that FEED a hotspot
+  (gear up on the way to the fight); grenade sites sit at alley MOUTHS,
+  not midpoints.
+- medkit + spray co-location in rooms is allowed — sustain + CQC rearm
+  buys local room control only, and matches the room's geometry.
+- Hotspot-tier item density stays UNIFORM per unit area across the field:
+  the zone center is random, so a center-weighted item economy turns the
+  endgame footprint into a lottery. (Independently convergent with §4.7.)
+
+The fairness gate (§2.5/§3.4 applied to items): per-spawn PATHFINDING
+distance on the realized walk graph — never Euclidean — to the nearest
+instance of each item type; the gate metric is the spread (stddev and
+max−min) across the 16 ring spawns, per type, plus the declared-vs-realized
+per-class occupancy check. Published fairness work stops well short of 16
+simultaneous spawns, so at our scale the gate MUST be measured — there is
+no literature to lean on.
+
+A/B caveat banked from the research, for any future field claim: the one
+controlled result on traffic-steering shows TOPOLOGY dominates player
+traffic; loot-causes-traffic is unmeasured in the literature. A claim that
+our item weights moved routing needs a topology-held-constant control.
 
 Discipline, same as every ruling before it:
 - The site classifier is a MEASURED artifact (§4.8's standard): classes are
