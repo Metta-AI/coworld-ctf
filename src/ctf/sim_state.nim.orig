@@ -5,7 +5,7 @@
 ## docs/plans/2026-08-01-sim-split.md; re-exported by sim.nim.
 
 import
-  std/[json, random, strutils],
+  std/[random, strutils],
   bitworld/spriteprotocol, pixie,
   sim_types, arena, sim_config
 
@@ -172,16 +172,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(sim.barrageStartTick)
     result.mixHashInt(sim.barrageAccum)
   result.mixHashBool(sim.isDraw)
-  if sim.config.numAgents == 0:
-    ## In a seat-commanded (paintball) episode `needsReregister` is live-server
-    ## lobby plumbing: resetToLobby raises it and the SERVER lowers it as part
-    ## of re-seating the roster between the episode's games, and re-seating is
-    ## not a recorded event — a replay cannot re-derive the lowering, so the
-    ## flag would break the hash chain on the first tick of game two. It stays
-    ## OUT of the hash there (the puddleTicks rule; the flatty keyframe still
-    ## restores it exactly) and IN the hash for every classic game, where the
-    ## chain has always carried it.
-    result.mixHashBool(sim.needsReregister)
+  result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)
   for team in sim.teams():
     result.mixHashInt(sim.flags[team].x)
@@ -251,32 +242,6 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(grenade.launchTick)
     result.mixHashInt(grenade.flightTicks)
     result.mixHashInt(grenade.thrower)
-  # --- paintball state, APPENDED after every existing mix so the ordering of
-  # the inherited fields stays stable. All of it is gameplay state the wasm
-  # viewer re-derives from the recorded masks, so all of it is hashed:
-  # paintOwner (eight tiles at a time as a uint64 word), the hill counters,
-  # and per cog the heal streak and what it is standing on.
-  if sim.config.floorPaint:
-    var word = 0'u64
-    var filled = 0
-    for code in sim.paintOwner:
-      word = (word shl 8) or uint64(code)
-      inc filled
-      if filled == 8:
-        result.mixHash(word)
-        word = 0
-        filled = 0
-    if filled > 0:
-      result.mixHash(word)
-    for team in Red .. Blue:
-      result.mixHashInt(sim.paintCount[team])
-      result.mixHashInt(sim.hillPaint[team])
-      result.mixHashInt(sim.hillTicks[team])
-    result.mixHashInt(ord(sim.hillOwner))
-    result.mixHashBool(sim.hillOwned)
-    for player in sim.players:
-      result.mixHashInt(player.ownPaintTicks)
-      result.mixHashInt(ord(player.paintUnder))
   result.mixHashInt(sim.recentShouts.len)
   for shout in sim.recentShouts:
     for c in shout.address:
@@ -287,28 +252,6 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(shout.tick)
     result.mixHashInt(shout.x)
     result.mixHashInt(shout.y)
-
-const MaxFeedDirectives* = 8
-  ## How many commander lines the match feed keeps. The feed shows four rows
-  ## at a time and a seek re-hydrates from the keyframe, so a short ring is
-  ## all the client can ever draw.
-
-proc pushFeedDirective*(sim: var SimServer, record: string) =
-  ## Records one `directive` chat record for the broadcast feed. Called from
-  ## the live server as it writes the record AND from the replay's chat
-  ## re-application, so the feed tells the same story either way. Never
-  ## hashed: this is presentation state.
-  if record.len == 0 or record[0] != '{':
-    return
-  try:
-    let node = parseJson(record)
-    if node.kind != JObject or node{"k"}.getStr() != "directive":
-      return
-  except CatchableError:
-    return
-  sim.feedDirectives.add(record)
-  if sim.feedDirectives.len > MaxFeedDirectives:
-    sim.feedDirectives.delete(0)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:

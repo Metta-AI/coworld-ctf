@@ -208,21 +208,21 @@ suite "broadcast state channel":
       replay.mismatchQuit = true
       replay.buildReplayKeyframes(sim)
       # One lives count per team on every change point, ticks non-decreasing.
-      check replay.livesSeries.len >= 2
+      check replay.leadSeries.len >= 2
       var lastTick = -1
-      for point in replay.livesSeries:
+      for point in replay.leadSeries:
         check point.len == 1 + 2  # tick + one lives value per team
         check point[0] >= lastTick
         lastTick = point[0]
       # The chrome frame publishes it as {teams, pts} in Team order.
       let state = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
-        replay.livesSeries
+        replay.leadSeries
       ))
       check state["lead"]["teams"].len == 2
       check state["lead"]["teams"][0].getStr == "red"
       check state["lead"]["teams"][1].getStr == "blue"
-      check state["lead"]["pts"].len == replay.livesSeries.len
+      check state["lead"]["pts"].len == replay.leadSeries.len
       for row in state["lead"]["pts"]:
         check row.len == 3
     finally:

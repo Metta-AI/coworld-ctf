@@ -11,6 +11,13 @@
     // diagnostic instead of overwriting it with the generic one.
     if (failed) return;
     failed = true;
+    // The failure marker, on <html>, next to data-replay-loaded: without it a
+    // deadlocked bundle is indistinguishable from a slow one, and every
+    // failure mode below degrades to the harness's timeout instead of an
+    // immediate named failure (tools/ci/viewer_smoke.mjs reads this attribute
+    // and fails fast on it).
+    document.documentElement.setAttribute(
+      'data-replay-error', error && error.message ? error.message : String(error));
     console.error(error);
     var status = document.getElementById('status');
     if (status) {
@@ -32,6 +39,8 @@
     var started = false;
     var loaded = false;
     var advanceInFlight = false;
+    var advanceStarted = 0;
+    var lastAdvanceMs = 0;
     var lastFrame = 0;
     var accumulator = 0;
     var frameMs = 1000 / 24;
@@ -114,9 +123,17 @@
       accumulator = Math.min(accumulator + Math.min(now - lastFrame, 250), 250);
       lastFrame = now;
       if (!advanceInFlight && accumulator >= frameMs) {
-        var frames = Math.min(6, Math.floor(accumulator / frameMs));
+        // A batch of six frames is a catch-up for a Worker that is keeping up.
+        // When the previous batch overran its own frame budget — the
+        // background precompute walk on a long replay, or a seek converging —
+        // the Worker is the bottleneck, and a batch is exactly how long a
+        // click's seek then sits in the message queue. Drop to one frame per
+        // message so an input waits at most one frame.
+        var maxFrames = lastAdvanceMs > frameMs ? 1 : 6;
+        var frames = Math.min(maxFrames, Math.floor(accumulator / frameMs));
         accumulator -= frames * frameMs;
         advanceInFlight = true;
+        advanceStarted = now;
         worker.postMessage({ type: 'advance', frames: frames });
       }
       requestAnimationFrame(animate);
@@ -145,6 +162,9 @@
           requestAnimationFrame(animate);
         } else if (message.type === 'advanced') {
           setMismatchTick(message.mismatchTick);
+          lastAdvanceMs = advanceStarted
+            ? (typeof performance !== 'undefined' ? performance.now() : Date.now()) - advanceStarted
+            : 0;
           advanceInFlight = false;
           if (typeof message.draws === 'number') workerDraws = message.draws;
         } else if (message.type === 'error') {
