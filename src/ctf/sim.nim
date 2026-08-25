@@ -2706,6 +2706,96 @@ proc focusCog(
       best = v
       result = i
 
+proc brRankedTeams(sim: SimServer): seq[Team] =
+  ## Every seated team (sim.teams()), BEST TO WORST, by BR's one
+  ## pre-registered total order (docs/designs/BR_MAPGEN.md §1):
+  ##   1. most LIVING cogs — the mode's own currency.
+  ##   2. latest LAST DEATH — of two teams equally reduced, the one that
+  ##      held its cogs longer was winning for longer. A team that never
+  ##      died at all ranks best (sentinel below), which matters because
+  ##      -1 would otherwise rank it WORST.
+  ##   3. most KILLS — took the fight to somebody.
+  ##   4. most DAMAGE DEALT — was winning fights it did not finish.
+  ##   5. lowest SLOT INDEX — arbitrary, and deliberately so: it exists
+  ##      only to guarantee totality, so no timeout (or elimination-order
+  ##      tie) can leave two teams unranked against each other.
+  ##
+  ## Pure function of already-hashed per-tick state (alive, lastDeathTick,
+  ## kills, damageDealt) plus the static seat index — brTiebreakWinner's
+  ## winner pick and finishGame's BR placement reward both read this, and
+  ## neither adds anything to gameHash (rewardAccounts, and this ranking
+  ## with it, is deliberately excluded — see brPlacements).
+  ##
+  ## Generic over sim.teams(), so it is unchanged at 2, 4 or 16 teams.
+  var
+    living, kills, damage: array[Team, int]
+    lastDeath: array[Team, int]
+    deaths: array[Team, int]
+    seat: array[Team, int]
+  for team in Team:
+    lastDeath[team] = -1
+    seat[team] = int.high
+  for i, p in sim.players:
+    if p.alive:
+      inc living[p.team]
+    kills[p.team] += p.kills
+    damage[p.team] += p.damageDealt
+    if p.lastDeathTick >= 0:
+      inc deaths[p.team]
+      lastDeath[p.team] = max(lastDeath[p.team], p.lastDeathTick)
+    seat[p.team] = min(seat[p.team], i)
+  ## A team that never lost anybody outranks every team that did.
+  for team in sim.teams():
+    if deaths[team] == 0:
+      lastDeath[team] = int.high
+
+  result = @[]
+  for team in sim.teams():
+    result.add team
+  result.sort(proc(a, b: Team): int =
+    ## Lexicographic compare on the five ranks, in order; `a` before `b`
+    ## (negative) when `a` ranks BETTER.
+    if living[a] != living[b]: return cmp(living[b], living[a])
+    if lastDeath[a] != lastDeath[b]: return cmp(lastDeath[b], lastDeath[a])
+    if kills[a] != kills[b]: return cmp(kills[b], kills[a])
+    if damage[a] != damage[b]: return cmp(damage[b], damage[a])
+    cmp(seat[a], seat[b])
+  )
+  ## Never a tie: seat index is unique per team among seated teams, so the
+  ## comparison above is a strict total order and this sort is a strict
+  ## ranking with no ties left over.
+
+proc brTiebreakWinner(sim: SimServer): tuple[winner: Team, isDraw: bool] =
+  ## BR maxTicks tiebreak: the best-ranked team from brRankedTeams. A
+  ## STRICT TOTAL ORDER: a timeout can never be a draw.
+  ##
+  ## Draw-free is the point, not a detail. A draw at the clock breeds
+  ## PASSIVE DOUBLE-DEATH play: if both sides survive to the timeout and
+  ## split the result, the dominant strategy is to avoid the fight, and a
+  ## battle royale whose optimal line is "do not engage" has lost its
+  ## thesis. The failure is observable rather than theoretical — weakly
+  ## priced endgames let a share of episodes reach the clock and be won by
+  ## survival farming instead of by fighting.
+  (sim.brRankedTeams()[0], false)
+
+proc brPlacements*(sim: SimServer): array[Team, int] =
+  ## 1-based placement (1..16) for every seated team, from the exact same
+  ## total order brTiebreakWinner picks its winner from — rank 1 is the
+  ## team that IS (or would be) crowned, rank N the team ranked worst
+  ## (ordinarily the team eliminated first). Unseated teams (past
+  ## sim.teams()) are left at the array's zero-value default.
+  ##
+  ## Read by finishGame's BR placement reward (§7.3: any survival-derived
+  ## term must be a bounded, monotone function of already-hashed state,
+  ## never a fresh draw or raw ticks-alive). This is exactly that: a rank
+  ## in 1..16 BY CONSTRUCTION, derived from brRankedTeams above, which is
+  ## itself a pure function of already-hashed per-tick fields. Nothing
+  ## here enters gameHash — rewardAccounts (and the placements/rewards
+  ## derived from it) is deliberately excluded from it, same as every
+  ## other derived-bookkeeping field.
+  for idx, team in sim.brRankedTeams():
+    result[team] = idx + 1
+
 proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReached = false) =
   ## Moves to game over and awards all winning players.
   if sim.phase == GameOver:
@@ -2758,6 +2848,40 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       -(sim.gameMap.teamCount() div loserTeams)
     else:
       LossReward
+  # BR placement (§7.3): every losing team's reward is keyed on placement
+  # RANK instead of a flat lossReward, GATED on engagement evidence — a
+  # team earns placement credit only if it made an attack or dealt damage
+  # (attacksMade/damageDealt, summed over its cogs); with no engagement its
+  # reward collapses to the plain loss floor. teamReward[t] is exactly
+  # lossReward for every t != winner outside brMode (the loop below never
+  # runs), so this is a no-op — byte-identical to the pre-BR reward path —
+  # for every classic/non-BR game.
+  var teamReward: array[Team, int]
+  for t in Team:
+    teamReward[t] = lossReward
+  teamReward[winner] = winReward
+  if sim.config.brMode:
+    var teamAttacks, teamDealt: array[Team, int]
+    for p in sim.players:
+      teamAttacks[p.team] += p.attacksMade
+      teamDealt[p.team] += p.damageDealt
+    let placement = sim.brPlacements()
+    for t in sim.teams():
+      if t == winner:
+        continue
+      if teamAttacks[t] == 0 and teamDealt[t] == 0:
+        continue  # no engagement evidence: stays at the loss floor.
+      # placement[t] is 2..16 for every real call site: both BR endings
+      # (checkWinCondition's wipe, whose `winner` is the one team with
+      # living players, and checkMaxTicks's brTiebreakWinner, whose
+      # `winner` IS brPlacements()[0] by construction) always pass a
+      # `winner` that agrees with this same ranking's rank 1, and the
+      # ranking is a strict total order, so no OTHER team can also read
+      # rank 1 here. `max(2, ...)` is defense-in-depth only, for a
+      # hypothetical future caller that passes a `winner` disagreeing with
+      # this ranking — never crash on that, just floor its rank at 2nd.
+      let rank = max(2, placement[t])
+      teamReward[t] = min(lossReward + BrPlacementBonus[rank], winReward - 1)
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
     let accountIndex = sim.rewardAccountForPlayer(i)
@@ -2765,22 +2889,18 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       awardedAccounts.setLen(sim.rewardAccounts.len)
     if accountIndex >= 0 and accountIndex < awardedAccounts.len:
       awardedAccounts[accountIndex] = true
+    sim.addReward(i, teamReward[sim.players[i].team])
     if sim.players[i].team == winner:
-      sim.addReward(i, winReward)
       sim.recordGameWin(i)
-    else:
-      sim.addReward(i, lossReward)
   for i in 0 ..< sim.rewardAccounts.len:
     if i < awardedAccounts.len and awardedAccounts[i]:
       continue
     if not sim.rewardAccounts[i].hasTeam:
       continue
+    sim.rewardAccounts[i].reward += teamReward[sim.rewardAccounts[i].team]
     if sim.rewardAccounts[i].team == winner:
-      sim.rewardAccounts[i].reward += winReward
       sim.rewardAccounts[i].won = true
       inc sim.rewardAccounts[i].wins[sim.rewardAccounts[i].team]
-    else:
-      sim.rewardAccounts[i].reward += lossReward
   # Achievements: evaluated once per finished (non-draw) game, for the
   # winning team only, from the analysis counters this game reset at
   # startGame. Earned ids accumulate on the address accounts (deduplicated),
@@ -2841,10 +2961,28 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     # `pack` is an EVERY-cog condition: one straggler fails the team.
     if p.aliveTicks == 0 or p.packTicks * 100 < p.aliveTicks * PackPct:
       packOk = false
+  # BR (§7.3): Pacifist/Spotless must not pay ON TOP of a win earned WITHOUT
+  # engagement — a team that never fired a shot and was never fired upon
+  # either is exactly the "pure-hiding winner" the doctrine caps. brMode
+  # gates both on the SAME engagement evidence the placement reward above
+  # uses (attacks>0 or dealt>0, already summed team-wide just above).
+  # Pacifist's own definition (attacks == 0 for the whole team) means this
+  # gate is not a special case for it: every damage-dealing hit is
+  # attributed to an attacker who by construction already has
+  # attacksMade >= 1 (the fire site increments it before any hit can
+  # land), so dealt > 0 implies attacks > 0 — a Pacifist-eligible team
+  # (attacks == 0) always has dealt == 0 too, so the gate always fails and
+  # Pacifist is simply unearnable in brMode. Spotless keeps its own
+  # meaning (never touched) but now additionally requires the team to have
+  # actually fought — "we never got hit while dealing/attempting damage"
+  # instead of "we were never involved." Classic (non-BR) games are
+  # untouched: brEngaged is unconditionally true when brMode is off, so
+  # both badges stay byte-identical there.
+  let brEngaged = not sim.config.brMode or attacks > 0 or dealt > 0
   var earned: seq[string]
-  if attacks == 0:
+  if attacks == 0 and brEngaged:
     earned.add AchievementPacifist
-  if taken == 0:
+  if taken == 0 and brEngaged:
     earned.add AchievementSpotless
   if almost:
     earned.add AchievementAlmost
@@ -2980,72 +3118,6 @@ proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
     if p.team == team and (p.alive or p.lives > 0):
       return true
   false
-
-proc brTiebreakWinner(sim: SimServer): tuple[winner: Team, isDraw: bool] =
-  ## BR maxTicks tiebreak (docs/designs/BR_MAPGEN.md §1). A STRICT TOTAL
-  ## ORDER: a timeout can never be a draw.
-  ##
-  ## Draw-free is the point, not a detail. A draw at the clock breeds
-  ## PASSIVE DOUBLE-DEATH play: if both sides survive to the timeout and
-  ## split the result, the dominant strategy is to avoid the fight, and a
-  ## battle royale whose optimal line is "do not engage" has lost its
-  ## thesis. The failure is observable rather than theoretical — weakly
-  ## priced endgames let a share of episodes reach the clock and be won by
-  ## survival farming instead of by fighting.
-  ##
-  ## The order, each rank breaking the one above:
-  ##   1. most LIVING cogs — the mode's own currency.
-  ##   2. latest LAST DEATH — of two teams equally reduced, the one that
-  ##      held its cogs longer was winning for longer. A team that never
-  ##      died at all ranks best (sentinel below), which matters because
-  ##      -1 would otherwise rank it WORST.
-  ##   3. most KILLS — took the fight to somebody.
-  ##   4. most DAMAGE DEALT — was winning fights it did not finish.
-  ##   5. lowest SLOT INDEX — arbitrary, and deliberately so: it exists
-  ##      only to guarantee totality, so no timeout can return a draw.
-  ##
-  ## Generic over sim.teams(), so it is unchanged at 2, 4 or 16 teams.
-  var
-    living, kills, damage: array[Team, int]
-    lastDeath: array[Team, int]
-    deaths: array[Team, int]
-    seat: array[Team, int]
-  for team in Team:
-    lastDeath[team] = -1
-    seat[team] = int.high
-  for i, p in sim.players:
-    if p.alive:
-      inc living[p.team]
-    kills[p.team] += p.kills
-    damage[p.team] += p.damageDealt
-    if p.lastDeathTick >= 0:
-      inc deaths[p.team]
-      lastDeath[p.team] = max(lastDeath[p.team], p.lastDeathTick)
-    seat[p.team] = min(seat[p.team], i)
-  ## A team that never lost anybody outranks every team that did.
-  for team in sim.teams():
-    if deaths[team] == 0:
-      lastDeath[team] = int.high
-
-  var best = Red
-  var haveBest = false
-  for team in sim.teams():
-    if not haveBest:
-      best = team
-      haveBest = true
-      continue
-    ## Lexicographic compare on the five ranks, in order.
-    let better =
-      if living[team] != living[best]: living[team] > living[best]
-      elif lastDeath[team] != lastDeath[best]: lastDeath[team] > lastDeath[best]
-      elif kills[team] != kills[best]: kills[team] > kills[best]
-      elif damage[team] != damage[best]: damage[team] > damage[best]
-      else: seat[team] < seat[best]
-    if better:
-      best = team
-  ## Never a draw: seat index is unique per team among seated teams, so the
-  ## comparison above is a strict total order.
-  (best, false)
 
 proc shouldAbortFiniteMatch*(sim: SimServer): bool =
   ## Returns true when a finite match cannot continue after roster loss.

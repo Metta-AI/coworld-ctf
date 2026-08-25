@@ -191,6 +191,20 @@ the barrage configured ignores `maxTicks` entirely (it ends only on capture/wipe
 capturing a heart eliminates that team; last team standing wins; 2-team ends on
 first capture.
 
+`brMode` placement reward (`finishGame`, `BrPlacementBonus` array `2..16` in
+sim_types.nim): every losing team's reward is `lossReward + BrPlacementBonus[rank]`
+(clamped below the winner's own reward) instead of the flat `lossReward`, where
+`rank` is that team's 1..N finish (`brPlacements()`/`brRankedTeams()` — same
+living/last-death/kills/damage/seat order `brTiebreakWinner` uses). Gated on
+engagement evidence (`attacksMade>0 or damageDealt>0` somewhere on the team) —
+no evidence collapses the reward back to the plain `lossReward` floor, so a team
+that never fought never earns placement credit for merely outlasting others.
+`brMode:false` games never read this table (byte-identical to before). The
+table is an UNCALIBRATED placeholder pending the field-evidence phase. The same
+engagement gate also applies to `AchievementPacifist`/`AchievementSpotless` in
+`brMode`: neither can pay on top of a win with zero engagement (classic/non-BR
+games are unaffected).
+
 ---
 
 ## Battle-royale shrink zone (config-gated)

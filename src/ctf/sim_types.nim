@@ -527,6 +527,27 @@ const
                               ## (GameVersion 21): stalling out the clock is
                               ## never better than losing, for either side.
 
+  BrPlacementBonus*: array[2..16, int] = [
+    #  2   3   4   5   6   7   8   9  10  11  12  13  14  15  16
+      5,  4,  4,  3,  3,  2,  2,  2,  1,  1,  1,  0,  0,  0,  0
+  ]
+    ## BR (§7.3) placement reward table: an ENGAGED losing team's reward is
+    ## `lossReward + BrPlacementBonus[placementRank]`, clamped in finishGame
+    ## to strictly below the winner's own reward for that game (so a
+    ## non-winning placement can never out-earn winning outright, at any
+    ## team count — the clamp matters most at 2/4-team BR games, where
+    ## winReward is small). Monotonically non-increasing in rank BY
+    ## CONSTRUCTION: 16th place (the worst rank a 16-team BR game can
+    ## produce) adds nothing, i.e. an engaged last-place team scores
+    ## exactly the plain loss floor, same as it always has. A team with NO
+    ## engagement evidence (no attack made, no damage dealt) never reads
+    ## this table at all — see finishGame — so it always scores the flat
+    ## loss floor regardless of how long it survived.
+    ##
+    ## UNCALIBRATED: this is a conservative placeholder shape (small,
+    ## monotone, bounded well under a win), not a tuned one — the evidence
+    ## phase (real BR replays) picks the actual numbers.
+
   # Achievement ids exported per slot in results.json (the platform's
   # achievement catalog in the coworld manifest uses the same ids). All are
   # WIN-GATED: only slots on a game's winning team can earn them, so an idle
