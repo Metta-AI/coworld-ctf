@@ -31,25 +31,75 @@ reports, per system, the numbers the design carries as calibration targets:
                 does everyone get rich?)
 
 ⚠️ MEASUREMENT MIRROR, NOT SOURCE. `src/ctf/glory.nim` is the single source
-of truth for every number; the tables below are a hand-checked copy pinned to
-GLORY_VERSION. If glory.nim changes without this file, the version bump is
-the tripwire. This mirror prices deeds over the tier-2 event stream, so a few
-context bits the live sim knows first-hand are approximated or dropped —
-each is labelled at its site, and every one UNDER-counts:
+of truth for every number; the tables and `satisfied()` below are a
+hand-checked copy pinned to GLORY_VERSION, verified at startup by
+`check_glory_version()` — it parses `GloryVersion*= <n>` straight out of
+glory.nim and REFUSES TO RUN if the two have drifted. A silently-stale mirror
+(this file sat two curriculum rewrites behind glory.nim before this pass,
+still implementing deleted pickup rungs and a per-tick Clean Sheet poll) is
+the exact defect class that guard exists to end.
+
+⚡ EXTENSION 4 (this pass): the tier-2 stream now carries `Achievement`/
+`GloryDeed`/`LevelUp` rows (`extract_events.nim` commit c70907d) — glory.nim's
+OWN mints, verbatim, off the wire. Wherever an episode's event file has them,
+`score_episode()` reads glory/achievement claims/deeds STRAIGHT FROM THOSE
+ROWS instead of re-deriving them by walking damage/kill/pickup events through
+this file's hand-copied pricing tables (`score_episode_stream`, below) — this
+is what makes the achievement side of this mirror un-driftable going forward:
+a claim it reports is glory.nim's own claim, not a guess at one. Heat
+occupancy, xp peaks and the level ladder still come from the full per-tick
+walk (`score_episode_derived`) either way, because xp values and heat embers
+never ride the wire — only the CLAIMS/MINTS half of the report gets the
+direct read. Every printed number is silent about which path produced it
+UNLESS you read the MIRROR PATH section in the output; today's
+`~/.ctf/scout` cache predates c70907d entirely, so every episode currently
+scores via the derivation fallback — the direct-read path is live code
+waiting for the cache to catch up, not yet exercised in practice.
+
+This mirror prices deeds over the tier-2 event stream, so a few
+context bits the live sim knows first-hand are approximated or dropped in
+the RE-DERIVATION fallback (the STREAM path above needs none of these —
+it reads glory.nim's own resolved deed, not a reconstruction of one):
   - dRunDown / dRevengeKill: victim velocity and killer-of-killer windows are
-    not derivable offline -> those kills price as their weapon kill.
+    not derivable offline -> those kills price as whatever the rest of the
+    precedence chain finds (escort, weapon-class, or the honorable floor).
+  - dEscortKill (glory.nim v4): DERIVABLE, unlike the two above — a
+    teammate's live `carrying` flag is state this file already tracks, so a
+    kill landed while a teammate runs the enemy heart is priced as an escort
+    the same way the engine does.
   - range (point-blank / longshot): killer position is the LAST event that
     carried one (a shot, throw, or spray), not the true position at the kill
     tick.
+  - contested steals (`Hands On`, v3.1): "a live enemy stood within
+    ContestedStealPx of the steal" is approximated from the SAME
+    last-known-position tracking as the range checks above, so it can miss a
+    contest whose enemy hasn't logged a position-carrying event recently —
+    another documented UNDER-count, on top of `ContestedStealPx` itself
+    being UNCALIBRATED in glory.nim.
+  - per-activation multikills (`sprayMultiKills`/`grenadeMultiKills`): the
+    engine groups by ONE continuous cone/blast; this file groups by SAME
+    TICK, SAME SOURCE, SAME WEAPON instead, since "activation" boundaries
+    are not on the wire. Exact for grenades (one blast applies damage to
+    everyone in radius in a single step); an UNDER-count for a spray sweep
+    whose kills land on different ticks of the same continuous discharge.
+  - team alive-counts (`Uphill`) and peel→steal ordering (`Turnaround`):
+    reconstructed from `death`/`respawn`/`kill`/`flag_steal` rows, all of
+    which predate the c70907d stream additions and so are present in every
+    cached episode regardless of extractor vintage — these two ARE tracked
+    live now (the v2 mirror's own comments flagged both as gaps: "needs live
+    alive-counts: tracked by caller" and "needs peel->steal ordering: tracked
+    by caller" — this pass is that caller).
   - the site gradient: pedestals are recovered from flag_steal coordinates
     (a flag leaves its pedestal AT its pedestal); episodes where a flag was
     never stolen price everything neutral.
-  - dWipe: the tier-2 stream carries no "team eliminated" event, so this
-    deed was NEVER minted here (the pricing table had it, nothing fired it)
-    and every wipe-ended episode under-counted the winner's glory by 400.
-    It is now INFERRED from the death ledger — see the WIPE MINTING block in
-    main() — and labelled as an inference, not a first-hand read, because it
-    is one.
+  - dWipe: minted by the ENGINE since commit fd6b4ce (`awardWipe`, priced at
+    the deciding kill's site) and, wherever the stream carries it, read
+    DIRECTLY as a GloryDeed row (weapon="dWipe") by the STREAM path above —
+    no inference needed there. The RE-DERIVATION fallback still needs the
+    WIPE MINTING block in main(): there is no "team eliminated" tier-2 event
+    kind independent of GloryDeed, so a stream-less episode's re-derived
+    glory is under-counted by 400 on every wipe ending unless inferred from
+    the death ledger, as before.
 
 Usage:
   gloryscore.py [--episodes N] [--min-version 0.7.200]
@@ -60,31 +110,82 @@ import glob
 import json
 import math
 import os
+import re
 import statistics
 
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 2
+GLORY_VERSION = 4
+# Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
+# ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
+# run from the repo root and silently skip the guard from anywhere else.
+GLORY_NIM_PATH = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..",
+    "src", "ctf", "glory.nim"))
 
+
+def check_glory_version(path=GLORY_NIM_PATH, pinned=GLORY_VERSION):
+    """Abort loudly if `src/ctf/glory.nim`'s `GloryVersion` has moved past
+    what this mirror is hand-synced to. This is the tripwire the module
+    docstring promises: the ONLY thing standing between a real re-sync and a
+    comment nobody re-reads. It parses the live source rather than trusting
+    a copied number, so it cannot itself go stale the way the tables below
+    otherwise silently did (GLORY_VERSION sat at 2 through two curriculum
+    rewrites before this pass, its own guard nothing but a comment).
+    """
+    if not os.path.isfile(path):
+        raise SystemExit(
+            f"gloryscore: cannot find {path} to verify GLORY_VERSION -- "
+            f"this mirror refuses to score against an unverifiable source of "
+            f"truth. Run from a coworld-ctf checkout (or fix GLORY_NIM_PATH "
+            f"if the layout moved).")
+    text = open(path, encoding="utf-8").read()
+    m = re.search(r"GloryVersion\*\s*=\s*(\d+)", text)
+    if not m:
+        raise SystemExit(
+            f"gloryscore: could not find 'GloryVersion*= <n>' in {path} -- "
+            f"glory.nim's const declaration shape changed under this "
+            f"mirror. Fix the regex in check_glory_version() before "
+            f"trusting ANY number this file prints.")
+    live = int(m.group(1))
+    if live != pinned:
+        raise SystemExit(
+            f"🚨 STALE MIRROR: {path} is at GloryVersion={live}, but "
+            f"gloryscore.py is hand-pinned to GLORY_VERSION={pinned}. This "
+            f"is precisely the defect class this guard exists to catch -- a "
+            f"hand-maintained copy that drifted from its source silently. "
+            f"Re-read glory.nim's changelog at the GloryVersion const, "
+            f"re-sync DEED_GLORY / DEED_DRAMA / satisfied() / the tier "
+            f"tables below to match what shipped, THEN bump GLORY_VERSION "
+            f"here. Refusing to score against a table that may no longer "
+            f"describe the game.")
+
+
+# v4 DeedGloryTable / DeedDramaTable, verbatim from glory.nim. dFlagReturn is
+# GONE (retired in v4 -- zero mint sites, would double-pay the carrier's
+# death; see the tombstone on `Deed` in glory.nim). dRevengeKill/dRunDown/
+# dEscortKill are new since the v2 mirror; the first two are still undetected
+# offline in the RE-DERIVATION fallback (see the module docstring), but they
+# ARE priced here so the STREAM path (which reads them straight off the
+# wire) and the DEEDS report can show them.
 DEED_GLORY = {
     "first_blood": 12, "honorable_kill": 10, "spray_kill": 12,
     "grenade_kill": 12, "point_blank_kill": 12, "longshot_kill": 30,
-    "splash_multikill": 35, "starfall": 40, "team_kill": -60,
-    "flag_steal": 40, "flag_return": 35, "capture": 250,
-    "carrier_kill": 90, "denial": 120,
+    "splash_multikill": 35, "revenge_kill": 18, "run_down": 16,
+    "starfall": 40, "team_kill": -60,
+    "flag_steal": 40, "capture": 250,
+    "carrier_kill": 90, "denial": 120, "escort_kill": 14,
     "clutch_heal": 25, "shield_soak": 4, "wipe": 400, "level_up": 6,
 }
 DEED_DRAMA = {
     "first_blood": 20, "honorable_kill": 10, "spray_kill": 30,
     "grenade_kill": 30, "point_blank_kill": 35, "longshot_kill": 40,
-    "splash_multikill": 40, "starfall": 30, "team_kill": 0,
-    "flag_steal": 25, "flag_return": 15, "capture": 70,
-    "carrier_kill": 35, "denial": 45,
+    "splash_multikill": 40, "revenge_kill": 30, "run_down": 20,
+    "starfall": 30, "team_kill": 0,
+    "flag_steal": 25, "capture": 70,
+    "carrier_kill": 35, "denial": 45, "escort_kill": 15,
     "clutch_heal": 30, "shield_soak": 0, "wipe": 400, "level_up": 5,
-    # ^ was 80: a mirror drift from glory.nim's DeedDramaTable (400). Harmless
-    # until now because "wipe" was never minted by this file (see extension
-    # 3) -- caught while wiring the wipe mint up, corrected to match source.
 }
 HEAT_LADDER = [1, 2, 4, 8]
 HEAT_THRESHOLDS = [1, 4, 10]
@@ -95,6 +196,8 @@ HEAT_DECAY_TICKS = 45
 LEVEL_THRESHOLDS = [10, 18, 24, 36, 50]
 # Maxwell's ruling: WORK levels, kills do not. Damage / healing / tool
 # pickups / flag actions; the carrier kill prices as the RETURN it causes.
+# Unchanged since v2 -- the v3/v4 bumps re-cut the ACHIEVEMENT curriculum,
+# never this ladder.
 XP_KILL, XP_DAMAGE, XP_CARRIER_KILL = 0, 3, 12
 XP_STEAL, XP_CAPTURE, XP_RETURN = 12, 30, 12
 XP_SOAK, XP_CLUTCH, XP_TEAM_KILL = 2, 6, -20
@@ -105,8 +208,34 @@ TITHE_XP, TITHE_MAX, TITHE_COOLDOWN = 20, 4, 90
 TIER_GLORY = [2, 4, 8, 16, 32]
 FIRST_MULT = 3
 POINT_BLANK_PX, LONGSHOT_PX, DENIAL_PX = 110, 700, 220
+CONTESTED_STEAL_PX = 300   ## v3.1 `Hands On` gate (glory.nim: UNCALIBRATED).
+REVENGE_TICKS = 240        ## `Turnaround`'s peel->steal window.
 
 SITE_HOME, SITE_NEUTRAL, SITE_ENEMY = 100, 120, 150
+
+# Nim's `$deed` / `$tree` on these enums prints the bare identifier -- the
+# GloryDeed/Achievement rows on the wire carry EXACTLY these strings (see
+# `SimEventKind`'s doc comments in sim.nim). Map them to this file's own
+# snake_case keys so the STREAM path (score_episode_stream) and the
+# RE-DERIVATION path (score_episode_derived) report through one shared
+# vocabulary.
+DEED_ENUM_TO_KEY = {
+    "dFirstBlood": "first_blood", "dHonorableKill": "honorable_kill",
+    "dSprayKill": "spray_kill", "dGrenadeKill": "grenade_kill",
+    "dPointBlankKill": "point_blank_kill", "dLongshotKill": "longshot_kill",
+    "dSplashMultiKill": "splash_multikill", "dRevengeKill": "revenge_kill",
+    "dRunDown": "run_down", "dStarfall": "starfall", "dTeamKill": "team_kill",
+    "dFlagSteal": "flag_steal", "dCapture": "capture",
+    "dCarrierKill": "carrier_kill", "dDenial": "denial",
+    "dEscortKill": "escort_kill", "dClutchHeal": "clutch_heal",
+    "dShieldSoak": "shield_soak", "dWipe": "wipe", "dLevelUp": "level_up",
+}
+TREE_ENUM_TO_KEY = {
+    "treeGun": "gun", "treeSpray": "spray", "treeGrenade": "nade",
+    "treeShield": "shield", "treeMedKit": "med", "treeCarrier": "carrier",
+    "treeDefender": "defender", "treeSquad": "squad",
+}
+STREAM_KINDS = {"achievement", "glory_deed", "level_up"}
 
 
 def level_for(xp):
@@ -130,133 +259,158 @@ def heat_mult(embers):
 
 
 class Cog:
-    __slots__ = ("xp lvl hp gun spray nade long multi soak clutch clutch_t "
-                 "steals returns peels denials caps tk spray_pickup "
-                 "took_med took_nade took_spray took_shield carrying pos "
-                 "steal_t killed_or_stole lifemax tithes tithe_credit "
-                 "tithe_t peak").split()
+    __slots__ = ("xp lvl hp lifemax peak alive pos carrying "
+                 "gun_kills spray_kills grenade_kills longshot_kills "
+                 "starfall_kills spray_kills_pickup spray_multi grenade_multi "
+                 "soak clutch_heals clutch_heal_t clutch_carry_heals "
+                 "second_wind "
+                 "steals contested_steals carry_kills carrier_kills denials "
+                 "peel_t steal_tick_life caps team_kills "
+                 "tithes tithe_credit tithe_t").split()
 
     def __init__(self):
         for f in self.__slots__:
             setattr(self, f, 0)
         self.pos = None
         self.hp = 3
+        self.alive = True
         self.tithe_t = -10**9
-        self.clutch_t = -10**9
-        self.steal_t = -10**9
+        self.clutch_heal_t = -10**9
+        self.peel_t = -10**9
+        self.steal_tick_life = -1
 
     def reset_life(self):
-        # THE anti-snowball rule, mirrored: death forfeits xp, level, and the
-        # tithe allowance. Per-game counters (the achievement inputs) survive.
+        # THE anti-snowball rule, mirrored: death forfeits xp, level, the
+        # tithe allowance, and (v4) this life's steal marker -- resetLadder
+        # clears `stealTickThisLife` on every death, so `Full Run` (steal AND
+        # capture in the SAME life) needs the same reset here. Every other
+        # ACHIEVEMENT COUNTER is per-GAME and survives death untouched, both
+        # in sim.nim's `startGame` reset list and here.
         self.xp = 0
         self.peak = 0
         self.tithes = 0
         self.tithe_credit = 0
+        self.tithe_t = -10**9
         self.hp = 3
-
-
-# The kit-keyed curriculum, mirrored from glory.nim's satisfiedAchievements.
-# Team-level trees (squad) are evaluated on team aggregates.
-def satisfied(cog, team_caps, team_kits, tk_free, tick, start_tick):
-    s = set()
-    kills = cog.gun + cog.spray + cog.nade
-    if cog.gun or cog.spray or cog.nade or kills:
-        pass
-    # gun
-    if cog.gun >= 1 or cog.spray >= 1 or cog.nade >= 1:
-        s.add(("gun", 0))          # Trigger Discipline ~ landed a hit; a kill implies it
-    if cog.gun >= 1:
-        s.add(("gun", 1))
-    if cog.gun >= 3:
-        s.add(("gun", 2))
-    if cog.long >= 1:
-        s.add(("gun", 3))
-    if cog.lifemax >= 5:
-        s.add(("gun", 4))
-    # spray
-    if cog.took_spray:
-        s.add(("spray", 0))
-    if cog.spray >= 1:
-        s.add(("spray", 1))
-    if cog.multi >= 1 and cog.spray >= 2:
-        s.add(("spray", 2))
-    if cog.spray_pickup >= 2:
-        s.add(("spray", 3))
-    if cog.spray_pickup >= 3:
-        s.add(("spray", 4))
-    # grenade
-    if cog.took_nade:
-        s.add(("nade", 0))
-    if cog.nade >= 1:
-        s.add(("nade", 1))
-    if cog.nade >= 2:
-        s.add(("nade", 2))
-    if cog.nade >= 1 and cog.multi >= 1:
-        s.add(("nade", 3))
-    if cog.nade >= 3:
-        s.add(("nade", 4))
-    # shield
-    if cog.took_shield:
-        s.add(("shield", 0))
-    if cog.soak >= 3:
-        s.add(("shield", 1))
-    if cog.soak >= 6:
-        s.add(("shield", 2))
-    if cog.soak >= 6 and kills >= 1:
-        s.add(("shield", 3))
-    if cog.soak >= 12:
-        s.add(("shield", 4))
-    # med kit
-    if cog.took_med:
-        s.add(("med", 0))
-    if cog.clutch >= 1:
-        s.add(("med", 1))
-    if cog.clutch >= 2:
-        s.add(("med", 2))
-    if cog.clutch >= 1 and kills >= 1 and tick - cog.clutch_t <= 120:
-        s.add(("med", 3))
-    if cog.clutch >= 3:
-        s.add(("med", 4))
-    # carrier
-    if cog.steals >= 1:
-        s.add(("carrier", 0))
-    if cog.carrying and tick - cog.steal_t >= 120:
-        s.add(("carrier", 1))
-    if cog.caps >= 1:
-        s.add(("carrier", 2))
-    # ("carrier",3) Against the Odds needs live alive-counts: tracked by caller
-    if cog.caps >= 1 and cog.steal_t > -10**8:
-        s.add(("carrier", 4))
-    # defender
-    if cog.returns >= 1:
-        s.add(("defender", 0))
-    if cog.peels >= 1:
-        s.add(("defender", 1))
-    if cog.denials >= 1:
-        s.add(("defender", 2))
-    if cog.peels >= 1 and cog.steal_t > cog.clutch_t and False:
-        pass  # Turnaround needs peel->steal ordering; tracked by caller
-    if cog.denials >= 2:
-        s.add(("defender", 4))
-    # squad (team)
-    if team_kits >= 2:
-        s.add(("squad", 0))
-    if team_kits >= 3:
-        s.add(("squad", 1))
-    if team_kits >= 4:
-        s.add(("squad", 2))
-    if tk_free and tick - start_tick >= 600:
-        s.add(("squad", 3))
-    if team_kits >= 4 and team_caps >= 1:
-        s.add(("squad", 4))
-    return s
+        self.steal_tick_life = -1
 
 
 def dist(a, b):
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
 
 
-def score_episode(events, n_slots):
+# ───────────────────────────────────────────────────────────────────────────
+# THE v4 CURRICULUM, mirrored from glory.nim's `satisfiedAchievements`.
+# ───────────────────────────────────────────────────────────────────────────
+#
+# Law 2b's ruling (2026-08-24) bans every pickup/possession/arrival
+# requirement from the tree: an act that already pays for itself mechanically
+# (a pickup heals or arms you, arrival anywhere is free) is not an
+# achievement. v3 deleted "Shake It"/"Pull the Pin"/"Suit Up"/"Field
+# Dressing"/"Eyes Back" outright; v3.1 caught `treeCarrier` tier I/II
+# ("Hands On"/"Breakaway") missing the same rewrite and re-cut them to a
+# CONTESTED steal and a kill made WHILE CARRYING. Nothing below reads a
+# `took_X` flag, a live-possession timer, or the bystander-credited
+# `returns` counter -- see `resetFlag`'s comment in sim.nim for why
+# `returns` is banned as an achievement input for good.
+def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
+    s = set()
+    kills = cog.gun_kills + cog.spray_kills + cog.grenade_kills
+
+    # gun -- "Trigger Discipline" (any landed hit) is GONE; every tier below
+    # is a KILL or a rank.
+    if cog.gun_kills >= 1:            s.add(("gun", 0))   # First Tag
+    if cog.gun_kills >= 3:            s.add(("gun", 1))   # Marksman
+    if cog.starfall_kills >= 1:       s.add(("gun", 2))   # Bounty
+    if cog.longshot_kills >= 1:       s.add(("gun", 3))   # Longshot
+    if cog.lifemax >= 5:              s.add(("gun", 4))   # Sharpshooter (L5)
+
+    # spray -- "Shake It" (pick up a can) is GONE.
+    if cog.spray_kills >= 1:          s.add(("spray", 0))  # First Coat
+    if cog.spray_kills >= 2:          s.add(("spray", 1))  # Full Coverage
+    if cog.spray_kills_pickup >= 2:   s.add(("spray", 2))  # Repainted
+    if cog.spray_kills_pickup >= 3:   s.add(("spray", 3))  # The Muralist
+    if cog.spray_multi >= 1:          s.add(("spray", 4))  # Double Splash
+
+    # grenade -- "Pull the Pin" (pick up a nade) is GONE.
+    if cog.grenade_kills >= 1:        s.add(("nade", 0))   # Delivery
+    if cog.grenade_kills >= 2:        s.add(("nade", 1))   # Fireball
+    if cog.grenade_kills >= 3:        s.add(("nade", 2))   # The Bombardier
+    # "Blast Radius" moved OFF the friendly-fire-contaminated `multiKills`
+    # (deleted from sim.nim entirely) onto the same clean, per-activation,
+    # enemies-only counters "Double Splash"/"Double Blast" already use.
+    if cog.grenade_kills >= 1 and cog.spray_multi + cog.grenade_multi >= 1:
+        s.add(("nade", 3))                                 # Blast Radius
+    if cog.grenade_multi >= 1:        s.add(("nade", 4))   # Double Blast
+
+    # shield -- soak, not damage. "Suit Up" (pick up a shield) is GONE.
+    if cog.soak >= 3:                 s.add(("shield", 0))  # Aegis
+    if cog.soak >= 6:                 s.add(("shield", 1))  # Blockade
+    if cog.soak >= 6 and kills >= 1:  s.add(("shield", 2))  # Bulwark
+    if cog.soak >= 9:                 s.add(("shield", 3))  # Rampart
+    if cog.soak >= 12:                s.add(("shield", 4))  # Atlas
+
+    # med kit -- "Field Dressing" (take a med kit) is GONE; the take is
+    # normal play, the SAVE it buys is the achievement.
+    if cog.clutch_heals >= 1:         s.add(("med", 0))     # The Save
+    if cog.clutch_heals >= 2:         s.add(("med", 1))     # Triage
+    if cog.second_wind:               s.add(("med", 2))     # Second Wind
+    if cog.clutch_heals >= 3:         s.add(("med", 3))     # Miracle Worker
+    if cog.clutch_carry_heals >= 1:   s.add(("med", 4))     # Lifeline
+
+    # carrier -- v3.1 re-cut off possession the same way every other tree
+    # already was.
+    if cog.contested_steals >= 1:     s.add(("carrier", 0))  # Hands On
+    if cog.carry_kills >= 1:          s.add(("carrier", 1))  # Fighting Carry
+    if cog.caps >= 1:                 s.add(("carrier", 2))  # Delivered
+    if cog.caps >= 1 and team_alive < enemy_alive:
+        s.add(("carrier", 3))                                # Uphill
+    if cog.caps >= 1 and cog.steal_tick_life >= 0:
+        s.add(("carrier", 4))                                # Full Run
+
+    # defender -- "Eyes Back" (a heart return) is GONE: bystander credit,
+    # never an individual act.
+    if cog.carrier_kills >= 1:        s.add(("defender", 0))  # The Peel
+    if cog.denials >= 1:              s.add(("defender", 1))  # Doorstep
+    if cog.carrier_kills >= 2:        s.add(("defender", 2))  # Double Peel
+    if (cog.peel_t > -10**8 and cog.steal_tick_life > cog.peel_t and
+            cog.steal_tick_life - cog.peel_t <= REVENGE_TICKS):
+        s.add(("defender", 3))                                # Turnaround
+    if cog.denials >= 2:              s.add(("defender", 4))  # Lockdown
+
+    # squad (TEAM tree). Kit tiers read CONVERSION (`team_converted_kits`),
+    # never live possession. Tier III (Clean Sheet) is DELIBERATELY absent
+    # here -- it is FULL-GAME and conclusion-only; see `clean_sheet_claims`.
+    if kits >= 2:                     s.add(("squad", 0))     # Kitted
+    if kits >= 3:                     s.add(("squad", 1))     # Combined Arms
+    if kits >= 4:                     s.add(("squad", 2))     # Full Kit
+    if kits >= 4 and any_capture:     s.add(("squad", 4))     # The Parade
+    return s
+
+
+def team_converted_kits(cogs, team_of, t):
+    ## Mirrors `teamConvertedKits`: how many of the four kits this team has
+    ## CONVERTED -- at least one teammate landed the kit's signature act --
+    ## not how many are held right now.
+    med = nade = spray = shield = False
+    for i, c in enumerate(cogs):
+        if team_of(i) != t:
+            continue
+        if c.clutch_heals >= 1: med = True
+        if c.grenade_kills >= 1: nade = True
+        if c.spray_kills >= 1: spray = True
+        if c.soak >= 3: shield = True
+    return int(med) + int(nade) + int(spray) + int(shield)
+
+
+def score_episode_derived(events, n_slots):
+    """Re-derive glory/achievements/heat/levels by walking the full event log
+    through this file's own hand-copied pricing tables. The FALLBACK path --
+    `score_episode()` below prefers reading claims/mints straight off the
+    stream when the episode's extraction is new enough to carry them (see the
+    module docstring's EXTENSION 4). Always used for heat occupancy, xp peaks
+    and the level ladder, which the stream never carries either way.
+    """
     team = lambda slot: slot % 2  # scout's own convention on 2-team episodes
     cogs = [Cog() for _ in range(n_slots)]
     glory = [0, 0]
@@ -282,7 +436,10 @@ def score_episode(events, n_slots):
     reached_l1 = set()
     tithe_total = [0, 0]
     xp_peaks = []
-    deaths_by_slot = collections.Counter()  # extension 3: wipe inference input
+    deaths_by_slot = collections.Counter()  # wipe inference input
+    spray_streak = {}      # source -> enemy spray kills THIS TICK (activation approx)
+    grenade_streak = {}    # source -> enemy grenade kills THIS TICK
+    multi_streak_tick = None
 
     def heat_tick(tick):
         # decay + occupancy accounting between events. Deltas are clamped:
@@ -342,32 +499,18 @@ def score_episode(events, n_slots):
                 tithe_total[team(slot)] += 1
 
     def check_achievements(tick):
-        team_caps = [sum(c.caps for i, c in enumerate(cogs) if team(i) == t)
-                     for t in (0, 1)]
-        team_tk = [any(c.tk for i, c in enumerate(cogs) if team(i) == t)
-                   for t in (0, 1)]
-        kits = [0, 0]
-        for t in (0, 1):
-            k = set()
-            for i, c in enumerate(cogs):
-                if team(i) != t:
-                    continue
-                if c.took_med:
-                    k.add("m")
-                if c.took_nade:
-                    k.add("n")
-                if c.took_spray:
-                    k.add("s")
-                if c.took_shield:
-                    k.add("h")
-            kits[t] = len(k)
+        any_capture = [any(c.caps > 0 for i, c in enumerate(cogs)
+                            if team(i) == t) for t in (0, 1)]
+        alive_count = [sum(1 for i, c in enumerate(cogs)
+                            if team(i) == t and c.alive) for t in (0, 1)]
+        kits = [team_converted_kits(cogs, team, t) for t in (0, 1)]
         newly = [set(), set()]
         for t in (0, 1):
             for i, c in enumerate(cogs):
                 if team(i) != t:
                     continue
-                newly[t] |= satisfied(c, team_caps[t], kits[t],
-                                      not team_tk[t], tick, start_tick)
+                newly[t] |= satisfied(c, any_capture[t], kits[t],
+                                      alive_count[t], alive_count[1 - t])
             newly[t] -= claimed[t]
         # same-tick FIRST ties: judge both teams before any claim lands
         for t in (0, 1):
@@ -383,16 +526,16 @@ def score_episode(events, n_slots):
                 claimed_first.setdefault(key, t)
 
     # 🚨 kills sort BEFORE same-tick flag_return/capture. Found while building
-    # extension 1 below: carrier_kill/denial priced ZERO times across the
-    # whole 120-episode field despite 236 flag_steal events -- the sim logs a
+    # extension 1: carrier_kill/denial priced ZERO times across the whole
+    # 120-episode field despite 236 flag_steal events -- the sim logs a
     # carrier's death and the resulting flag_return at the IDENTICAL tick,
-    # flag_return first in the raw file (verified in the cache: tick 4961 has
-    # ...,"flag_return","source":9 ... "kill","source":6,"target":9 in that
-    # order), and a tick-only stable sort preserved it. So by the time the
-    # kill handler read `victim.carrying` below, flag_return had already
-    # cleared it, and EVERY carrier kill in the field mispriced as a plain
-    # honorable/point-blank kill. This is the one ordering fix that matters:
-    # nothing else here reads state a same-tick event could invalidate.
+    # flag_return first in the raw file, and a tick-only stable sort
+    # preserved it. So by the time the kill handler read `victim.carrying`
+    # below, flag_return had already cleared it, and EVERY carrier kill in
+    # the field mispriced as a plain honorable/point-blank kill. This is the
+    # one ordering fix that matters: nothing else here reads state a
+    # same-tick event could invalidate.
+    build_kill_index(events)
     for e in sorted(events, key=lambda e: (e.get("tick", 0),
                                             0 if e.get("kind") == "kill" else 1)):
         k = e.get("kind")
@@ -400,6 +543,10 @@ def score_episode(events, n_slots):
         end_tick = tick
         heat_tick(tick)
         prev_tick = tick
+        if tick != multi_streak_tick:
+            spray_streak.clear()
+            grenade_streak.clear()
+            multi_streak_tick = tick
         if k == "phase" and e.get("weapon") == "playing":
             start_tick = tick
         elif k == "item_pickup":
@@ -410,23 +557,21 @@ def score_episode(events, n_slots):
             item = e.get("item")
             c.pos = (e["x"], e["y"])
             if item == "med_kit":
-                c.took_med = 1
                 if c.hp <= 1:
-                    c.clutch += 1
-                    c.clutch_t = tick
+                    c.clutch_heals += 1
+                    c.clutch_heal_t = tick
+                    if c.carrying:
+                        c.clutch_carry_heals += 1
                     mint(team(s), "clutch_heal", e["x"], e["y"])
                     add_xp(s, XP_CLUTCH, tick)
                 add_xp(s, XP_PICKUP + XP_HEAL * max(0, 3 - c.hp), tick)
                 c.hp = 3
             elif item == "grenade":
-                c.took_nade = 1
                 add_xp(s, XP_PICKUP, tick)
             elif item == "spray_can":
-                c.took_spray = 1
-                c.spray_pickup = 0
+                c.spray_kills_pickup = 0
                 add_xp(s, XP_PICKUP, tick)
             elif item == "shield":
-                c.took_shield = 1
                 add_xp(s, XP_PICKUP, tick)
         elif k in ("shot", "spray_use", "grenade_throw", "gun_trigger"):
             s = e.get("source", -1)
@@ -454,23 +599,30 @@ def score_episode(events, n_slots):
                 c = cogs[s]
                 c.carrying = 1
                 c.steals += 1
-                c.steal_t = tick
+                c.steal_tick_life = tick
                 killed_or_stole.add(s)
                 # the flag leaves its pedestal AT its pedestal: the stolen
                 # flag belongs to the OTHER team
                 pedestal[1 - team(s)] = (e["x"], e["y"])
+                # v3.1 `Hands On`: contested iff a LIVE enemy's last-known
+                # position sat within CONTESTED_STEAL_PX of the steal site.
+                # Positions are LAST-EVENT approximations offline (see the
+                # range caveat in the module docstring) -- an UNDER-count.
+                if any(team(i) != team(s) and cc.alive and cc.pos is not None
+                       and dist(cc.pos, (e["x"], e["y"])) <= CONTESTED_STEAL_PX
+                       for i, cc in enumerate(cogs)):
+                    c.contested_steals += 1
                 mint(team(s), "flag_steal", e["x"], e["y"])
                 add_xp(s, XP_STEAL, tick)
         elif k == "flag_return":
             s = e.get("source", -1)
             if 0 <= s < n_slots:
                 cogs[s].carrying = 0
-            t = team(s) if 0 <= s < n_slots else 0
-            for i, c in enumerate(cogs):
-                if team(i) == t:
-                    c.returns += 1
-                    break
-            mint(t, "flag_return", e.get("x"), e.get("y"))
+            # dFlagReturn is RETIRED (glory.nim v4): the carrier's death
+            # already priced the peel as dCarrierKill/dDenial -- "the peel
+            # IS the return" -- so a second mint here would double-pay one
+            # act. No glory, and `returns` is gone too (bystander credit,
+            # banned as an achievement input; see `resetFlag`'s comment).
         elif k == "capture":
             s = e["source"]
             if 0 <= s < n_slots:
@@ -485,59 +637,97 @@ def score_episode(events, n_slots):
             weapon = e.get("weapon", "gun")
             vx, vy = e.get("x", 0), e.get("y", 0)
             friendly = team(s) == team(t)
-            victim = cogs[t]
+            killer, victim = cogs[s], cogs[t]
             if not first_blood and not friendly:
                 first_blood = True
                 mint(team(s), "first_blood", vx, vy)
-            # one kill, one deed — killDeed precedence mirrored
             if friendly:
-                cogs[s].tk += 1
+                killer.team_kills += 1
                 mint(team(s), "team_kill")
                 add_xp(s, XP_TEAM_KILL, tick)
             else:
                 killed_or_stole.add(s)
-                deed = None
+                # Read the whole kill CONTEXT before anything decides
+                # pricing -- mirrors killPlayer's own discipline.
+                r = dist(killer.pos, (vx, vy)) if killer.pos is not None \
+                    else None
+                own_ped = pedestal.get(team(t))
+                near_home = bool(victim.carrying and own_ped and
+                                  dist((vx, vy), own_ped) <= DENIAL_PX)
+                same_tick_multi = bool(
+                    [x for x in events_at.get((tick, s), []) if x != t])
+                # Escort = a TEAMMATE (not the killer) is currently running
+                # the enemy heart -- derivable from the `carrying` state this
+                # file already tracks, unlike revenge/rundown.
+                escorted = any(i != s and team(i) == team(s) and c.carrying
+                               for i, c in enumerate(cogs))
+                # Counters -- UNCONDITIONAL on weapon/range/level/carry/heal
+                # facts, exactly as killPlayer increments them, independent
+                # of which deed the kill ultimately prices as (a starfall
+                # kill made at longshot range still counts for BOTH gates;
+                # see sim.nim's comment on `starfallKills`). The old v2
+                # mirror only updated these INSIDE the winning deed branch,
+                # under-crediting every kill that priced as something else.
+                if weapon == "spray":
+                    killer.spray_kills += 1
+                    killer.spray_kills_pickup += 1
+                elif weapon == "grenade":
+                    killer.grenade_kills += 1
+                else:
+                    killer.gun_kills += 1
+                if r is not None and r >= LONGSHOT_PX:
+                    killer.longshot_kills += 1
+                if victim.lifemax >= STARFALL_LEVEL:
+                    killer.starfall_kills += 1
                 if victim.carrying:
-                    own_ped = pedestal.get(team(t))
-                    near_home = own_ped and dist((vx, vy), own_ped) <= DENIAL_PX
-                    deed = "denial" if near_home else "carrier_kill"
-                    cogs[s].peels += 1
-                    if deed == "denial":
-                        cogs[s].denials += 1
+                    killer.carrier_kills += 1
+                    killer.peel_t = tick
+                    if near_home:
+                        killer.denials += 1
                     add_xp(s, XP_CARRIER_KILL, tick)  # the RETURN it causes
-                # a plain kill levels nobody: the damage already did
-                if deed is None and victim.lvl >= STARFALL_LEVEL:
+                if killer.carrying:
+                    killer.carry_kills += 1
+                if (killer.clutch_heal_t > -10**8 and
+                        tick - killer.clutch_heal_t <= 120):
+                    killer.second_wind = True
+                # Per-activation, ENEMY-only multikill streak (tick-grouped
+                # approximation of an "activation" -- see the module
+                # docstring).
+                if weapon == "spray":
+                    spray_streak[s] = spray_streak.get(s, 0) + 1
+                    if spray_streak[s] == 2:
+                        killer.spray_multi += 1
+                elif weapon == "grenade":
+                    grenade_streak[s] = grenade_streak.get(s, 0) + 1
+                    if grenade_streak[s] == 2:
+                        killer.grenade_multi += 1
+                # PRICING -- killDeed's own precedence chain. dRevengeKill/
+                # dRunDown cannot be judged offline (victim velocity,
+                # killer-of-killer windows); a kill that would have been one
+                # falls through to whatever this chain finds next.
+                if victim.carrying:
+                    deed = "denial" if near_home else "carrier_kill"
+                elif victim.lifemax >= STARFALL_LEVEL:
                     deed = "starfall"
-                if deed is None:
-                    # multikill: another kill by the same source at this tick
-                    same = [x for x in events_at.get((tick, s), []) if x != t]
-                    if same:
-                        deed = "splash_multikill"
-                        cogs[s].multi = 1
-                if deed is None and cogs[s].pos is not None:
-                    r = dist(cogs[s].pos, (vx, vy))
-                    if r >= LONGSHOT_PX:
-                        deed = "longshot_kill"
-                        cogs[s].long += 1
-                    elif r <= POINT_BLANK_PX:
-                        deed = "point_blank_kill"
-                if deed is None:
+                elif same_tick_multi:
+                    deed = "splash_multikill"
+                elif r is not None and r >= LONGSHOT_PX:
+                    deed = "longshot_kill"
+                elif r is not None and r <= POINT_BLANK_PX:
+                    deed = "point_blank_kill"
+                elif escorted:
+                    deed = "escort_kill"
+                else:
                     deed = {"spray": "spray_kill",
                             "grenade": "grenade_kill"}.get(weapon,
                                                            "honorable_kill")
                 mint(team(s), deed, vx, vy)
-                if weapon == "spray":
-                    cogs[s].spray += 1
-                    cogs[s].spray_pickup += 1
-                elif weapon == "grenade":
-                    cogs[s].nade += 1
-                else:
-                    cogs[s].gun += 1
         elif k == "death":
             t = e.get("source", -1)
             if 0 <= t < n_slots:
                 deaths_by_slot[t] += 1  # a life spent; lives-per-cog reads this
                 c = cogs[t]
+                c.alive = False
                 xp_peaks.append(c.peak)
                 levels_seen.append(c.lifemax)
                 if c.lifemax >= 5:
@@ -547,7 +737,30 @@ def score_episode(events, n_slots):
                 c.carrying = 0
                 c.reset_life()
                 c.lifemax = 0
+        elif k == "respawn":
+            s = e.get("source", -1)
+            if 0 <= s < n_slots:
+                cogs[s].alive = True
         check_achievements(tick)
+
+    # Conclusion-only mint: Clean Sheet (`treeSquad` tier IV). `satisfied()`
+    # never reports ("squad", 3) -- see its comment -- so this is the ONLY
+    # site that can claim it, mirroring `evalCleanSheetAtConclusion`'s
+    # one-and-only mint site (called once from `finishGame`). Both teams
+    # finishing clean on the SAME tick both take the first-claim bonus:
+    # `was_untaken` is read for BOTH before either claims.
+    key = ("squad", 3)
+    was_untaken = key not in claimed_first
+    for t in (0, 1):
+        clean = all(c.team_kills == 0 for i, c in enumerate(cogs)
+                    if team(i) == t)
+        if clean and key not in claimed[t]:
+            claimed[t].add(key)
+            amount = TIER_GLORY[3] * (FIRST_MULT if was_untaken else 1)
+            ach_glory[t] += amount
+            glory[t] += amount
+            claims[t].append((end_tick, key, was_untaken))
+            claimed_first.setdefault(key, t)
 
     # end of episode: surviving cogs' lives count toward the ladder stats
     for i, c in enumerate(cogs):
@@ -569,6 +782,94 @@ def score_episode(events, n_slots):
     }
 
 
+def has_stream_claims(events):
+    ## Whether this episode's extraction is new enough to carry glory.nim's
+    ## own Achievement/GloryDeed/LevelUp mints directly (c70907d+).
+    return any(e.get("kind") in STREAM_KINDS for e in events)
+
+
+def score_episode_stream(events):
+    """Read glory/achievement claims DIRECTLY off the tier-2 event stream
+    instead of re-deriving them by walking damage/pickup/kill events through
+    this file's OWN hand-copied pricing tables. This is the fix for the
+    defect class the whole PERCEPTION audit exists for: a hand mirror can
+    drift from glory.nim silently, but an Achievement/GloryDeed row IS
+    glory.nim's own mint, verbatim, off the wire -- `killDeed`'s precedence,
+    `mintGlory`'s heat/site/carry math, `satisfiedAchievements`'s tier gates,
+    ALL already resolved upstream. Only glory/ach_glory/drama_glory/claims/
+    deeds come from here -- heat occupancy, xp peaks and the level ladder
+    still need the full per-tick walk (xp values and heat embers are never
+    on the wire), so `score_episode()` fills those from
+    `score_episode_derived()` regardless of which path wins for the rest.
+
+    ⚠️ `deeds` here counts GloryDeed ROWS, not `times` units -- a single
+    `dShieldSoak` mint can absorb several hit points in one awardDeed call
+    (`times=blocked`), but only one tier-2 row is emitted for it. The
+    RE-DERIVATION path counts hp-absorbed instances instead (mirroring
+    `deedCounts` exactly), so `shield_soak`'s frequency is not directly
+    comparable across the two paths -- everything else is.
+    """
+    glory = [0, 0]
+    ach_glory = [0, 0]
+    drama_glory = [0, 0]
+    claims = [[], []]
+    deeds = collections.Counter()
+    for e in events:
+        k = e.get("kind")
+        if k == "glory_deed":
+            t = e.get("target", -1)
+            if t not in (0, 1):
+                continue
+            amount = e.get("amount", 0)
+            glory[t] += amount
+            key = DEED_ENUM_TO_KEY.get(e.get("weapon", ""))
+            if key:
+                deeds[key] += 1
+                if DEED_DRAMA.get(key, 0) > 0:
+                    drama_glory[t] += amount
+        elif k == "achievement":
+            t = e.get("target", -1)
+            if t not in (0, 1):
+                continue
+            tree_key = TREE_ENUM_TO_KEY.get(e.get("weapon", ""))
+            tier = e.get("hp", -1)
+            if tree_key is None or tier < 0:
+                continue
+            amount = e.get("amount", 0)
+            first = bool(e.get("blocked", 0))
+            glory[t] += amount
+            ach_glory[t] += amount
+            claims[t].append((e.get("tick", 0), (tree_key, tier), first))
+    return {
+        "glory": glory, "ach_glory": ach_glory, "drama_glory": drama_glory,
+        "claims": claims, "deeds": deeds,
+    }
+
+
+def score_episode(events, n_slots):
+    """One episode's full report. Always runs the per-tick RE-DERIVATION
+    (`score_episode_derived`) for heat/xp/levels, which the stream never
+    carries -- then, wherever the event file has Achievement/GloryDeed/
+    LevelUp rows, OVERRIDES the glory/achievement/deed numbers with the
+    direct read (`score_episode_stream`), since those are glory.nim's own
+    mints and cannot drift the way a re-derivation can. `result["source"]`
+    records which path produced the claims/mints half of the report, so
+    `main()` can tell you which one actually ran.
+    """
+    result = score_episode_derived(events, n_slots)
+    if has_stream_claims(events):
+        stream = score_episode_stream(events)
+        result["glory"] = stream["glory"]
+        result["ach_glory"] = stream["ach_glory"]
+        result["drama_glory"] = stream["drama_glory"]
+        result["claims"] = stream["claims"]
+        result["deeds"] = stream["deeds"]
+        result["source"] = "stream"
+    else:
+        result["source"] = "derived"
+    return result
+
+
 # multikill same-tick index, built per episode before scoring
 events_at = {}
 
@@ -586,6 +887,10 @@ def main():
     ap.add_argument("--episodes", type=int, default=400)
     ap.add_argument("--min-version", default="0.7.200")
     args = ap.parse_args()
+
+    # THE STARTUP GUARD. Everything below is worthless if the tables above
+    # no longer describe glory.nim -- refuse before doing any work.
+    check_glory_version()
 
     # episode meta: id -> (winner positions, policy per position, version)
     meta = {}
@@ -669,11 +974,12 @@ def main():
     tithes_all = []
     xp_all = []
     by_policy = collections.defaultdict(lambda: collections.defaultdict(list))
-    tree_tier_claims = collections.Counter()   # extension 1: (tree, tier) -> claims
+    tree_tier_claims = collections.Counter()   # (tree, tier) -> claims
     n_team_eps = 0                             # denominator: one row per (episode, team)
-    winner_claims_lo, loser_claims_lo = [], []  # extension 2: T1-T2 claims/ep
-    winner_claims_hi, loser_claims_hi = [], []  # extension 2: T3-T5 claims/ep
-    episode_records = []                       # extension 3: wipe-inference input
+    winner_claims_lo, loser_claims_lo = [], []  # T1-T2 claims/ep
+    winner_claims_hi, loser_claims_hi = [], []  # T3-T5 claims/ep
+    episode_records = []                       # wipe-inference input
+    sources = collections.Counter()            # extension 4: stream vs derived
 
     for _, f, eid in files:
         win_team, slot_policy, ver = meta[eid]
@@ -689,8 +995,8 @@ def main():
                        for e in events), default=-1) + 1
         if n_slots < 2:
             continue
-        build_kill_index(events)
         r = score_episode(events, n_slots)
+        sources[r["source"]] += 1
 
         deeds_all.update(r["deeds"])
         for t in (0, 1):
@@ -698,7 +1004,7 @@ def main():
             claims_per_team.append(len(r["claims"][t]))
             for tick, key, first in r["claims"][t]:
                 tier_hist[key[1] + 1] += 1
-                tree_tier_claims[key] += 1  # extension 1: key is (tree, tier)
+                tree_tier_claims[key] += 1
             if r["claims"][t]:
                 first_claim_ticks.append(r["claims"][t][0][0])
             for mult, ticks in r["heat_ticks"][t].items():
@@ -712,10 +1018,9 @@ def main():
             if r["glory"][win_team] > 0:
                 winner_ach_share.append(
                     100 * r["ach_glory"][win_team] / r["glory"][win_team])
-            # extension 2: split the discrimination check by tier band. T1-T2
-            # (tier index 0-1) is a single-condition "touched the kit" claim;
-            # T3-T5 (index 2-4) needs a multi-event or cross-stat condition.
-            # If the pooled 8.6-vs-6.7 gap lives entirely in T1-T2, the
+            # T1-T2 (tier index 0-1) is a single-condition "touched the kit"
+            # claim; T3-T5 (index 2-4) needs a multi-event or cross-stat
+            # condition. If the pooled gap lives entirely in T1-T2, the
             # curriculum is measuring who plays MORE, not who plays BETTER.
             lo = lambda t: sum(1 for _, k, _ in r["claims"][t] if k[1] <= 1)
             hi = lambda t: sum(1 for _, k, _ in r["claims"][t] if k[1] >= 2)
@@ -723,10 +1028,11 @@ def main():
             loser_claims_lo.append(lo(1 - win_team))
             winner_claims_hi.append(hi(win_team))
             loser_claims_hi.append(hi(1 - win_team))
-            # extension 3: stash what the wipe inference needs. Deferred to a
-            # second pass because "lives-per-cog" is a SAMPLE-WIDE constant
-            # (the max deaths ever seen on one slot) -- it can't be known
-            # until every episode in the run has been read once.
+            # wipe-inference input: "lives-per-cog" is a SAMPLE-WIDE constant
+            # (the max deaths ever seen on one slot) -- can't be known until
+            # every episode in the run has been read once. Only needed for
+            # `source == "derived"` episodes; a "stream" episode's glory
+            # already carries any real dWipe mint verbatim.
             episode_records.append({
                 "win_team": win_team,
                 "glory": list(r["glory"]),
@@ -734,6 +1040,7 @@ def main():
                 "captures": r["deeds"].get("capture", 0),
                 "deaths_by_slot": r["deaths_by_slot"],
                 "n_slots": n_slots,
+                "source": r["source"],
             })
             # per-policy attribution (team-level: the policies seated on it)
             for t in (0, 1):
@@ -753,13 +1060,16 @@ def main():
         tithes_all.append(sum(r["tithes"]))
         xp_all.extend(r["xp_peaks"])
 
-    # ── extension 3: WIPE MINTING ────────────────────────────────────────
-    # glory.nim's dWipe (400 glory) fires when the sim eliminates a team; the
-    # tier-2 event stream this file reads has no such event, so every
-    # wipe-ended episode has under-counted the winner's glory by 400 in every
-    # number above. Captures run 0.38/ep (see DEEDS below) -- most winners
-    # never fire a single capture event, so they won by wipe or by clock, and
-    # only the death ledger tells the two apart.
+    # ── WIPE MINTING (re-derivation fallback only) ──────────────────────
+    # glory.nim's dWipe (400 glory) mints in-engine since fd6b4ce and is
+    # visible directly on the tier-2 stream (a GloryDeed row, weapon="dWipe")
+    # wherever that stream is present -- those episodes need no correction,
+    # `r["glory"]` already has it. The RE-DERIVATION path has no "team
+    # eliminated" tier-2 event kind to read, so it is under-counted by 400 on
+    # every wipe-ended, stream-less episode unless inferred from the death
+    # ledger. Captures run low (see DEEDS below) -- most winners never fire a
+    # single capture event, so they won by wipe or by clock, and only the
+    # death ledger tells the two apart.
     #
     # "lives-per-cog" is not in the event stream either, so it is INFERRED,
     # not read: this era runs multiple lives per cog and a slot stops
@@ -770,16 +1080,20 @@ def main():
     # -- labelled here, not asserted as a config read.
     lives_per_cog = 0
     for rec in episode_records:
-        if rec["deaths_by_slot"]:
+        if rec["source"] == "derived" and rec["deaths_by_slot"]:
             lives_per_cog = max(lives_per_cog,
                                  max(rec["deaths_by_slot"].values()))
 
-    wipe_eps = time_eps = 0
+    wipe_eps = time_eps = stream_eps = 0
     winner_glory_wc, winner_ach_share_wc = [], []
     for rec in episode_records:
         w = rec["win_team"]
         g = rec["glory"][w]
-        if rec["captures"] == 0 and lives_per_cog > 0:
+        if rec["source"] == "stream":
+            # Already causal and verbatim -- applying the inference below
+            # would DOUBLE-PAY any real dWipe mint this episode has.
+            stream_eps += 1
+        elif rec["captures"] == 0 and lives_per_cog > 0:
             team_size = rec["n_slots"] // 2
             losers = 1 - w
             losing_deaths = sum(v for slot, v in rec["deaths_by_slot"].items()
@@ -787,7 +1101,7 @@ def main():
             # every cog on the losing team spent every life it had -> wipe.
             # short of that with zero captures -> the clock ran out.
             if team_size > 0 and losing_deaths >= lives_per_cog * team_size:
-                g += DEED_GLORY["wipe"]  # the mint this file was missing
+                g += DEED_GLORY["wipe"]  # the mint the fallback was missing
                 deeds_all["wipe"] += 1
                 wipe_eps += 1
             else:
@@ -800,10 +1114,23 @@ def main():
         return statistics.median(xs) if xs else 0
 
     print("\n════════ THE CALIBRATION READ ════════\n")
+
+    print("MIRROR PATH  (per episode: read straight off Achievement/"
+          "GloryDeed/LevelUp rows when the extraction has them, else "
+          "re-derived by walking damage/kill/pickup events through this "
+          "file's own pricing copy -- see the module docstring)")
+    print(f"  stream (direct read):   {sources.get('stream', 0)}")
+    print(f"  derived (re-simulated): {sources.get('derived', 0)}")
+    if sources.get("stream", 0) == 0:
+        print(f"  -- 0 stream episodes: {CACHE} predates Achievement/"
+              f"GloryDeed/LevelUp (extract_events commit c70907d). Every "
+              f"number below is RE-DERIVED. Rebuild the scout extractor and "
+              f"re-run scout.py to bring the direct-read path online.")
+
     active = sorted(x for x in xp_all if x > 0)
     if active:
         pct = lambda q: active[min(len(active)-1, int(q*len(active)))]
-        print("XP PEAKS PER LIFE (active lives only, for threshold tuning)")
+        print("\nXP PEAKS PER LIFE (active lives only, for threshold tuning)")
         print("  " + "  ".join(f"p{int(q*100)}:{pct(q)}"
                                for q in (.25,.5,.75,.9,.95,.98,.99)))
         print(f"  active lives: {len(active)} of {len(xp_all)}\n")
@@ -859,13 +1186,14 @@ def main():
               + f"   {flag}")
     print(f"  {total_inversions} inverted tier-pair(s) across "
           f"{len(tree_order)} trees x 5 tiers")
-    print("  caveat: spray/nade/shield/med/squad all key off item_pickup"
-          " (took_X or team kit-count) and this field has ZERO pickups (see"
-          " --min-version comment in main()) -- their inversions are a"
-          " VERSION artifact, not a proven curriculum defect. gun's T4<T5 is"
-          " real (longshot kills ARE rarer than reaching L5 in this field);"
-          " carrier's T4 is a known mirror gap (\"Against the Odds\" needs"
-          " live alive-counts satisfied() never got -- see its comment).")
+    print("  caveat (v3+): no tier below reads a pickup/possession flag any"
+          " more (law 2b), so an inversion here is a real curriculum signal,"
+          " not the v2-era item_pickup version artifact this comment used to"
+          " warn about. `carrier`/`defender` T4 (Uphill/Turnaround) now read"
+          " LIVE alive-counts and peel->steal ordering reconstructed from"
+          " death/respawn/kill/flag_steal rows -- an approximation (see the"
+          " module docstring), no longer the unimplemented gap the v2 mirror"
+          " flagged with \"tracked by caller\".")
 
     print("\nSWEEP BUDGET  (calibrates AchievementSweepBudgetPct, shipped=15)")
     print(f"  median WINNER episode glory: {med(winner_glory):.0f}")
@@ -875,14 +1203,16 @@ def main():
     print(f"  full-sweep base ({full_sweep}) as % of median winner: "
           f"{100*full_sweep/max(1,med(winner_glory)):.1f}%")
 
-    print("\nSWEEP BUDGET, WIPE-CORRECTED  (extension 3: dWipe minted where "
-          "the death ledger says the loser burned every life it had)")
+    print("\nSWEEP BUDGET, WIPE-CORRECTED  (dWipe minted where the death "
+          "ledger says the loser burned every life it had -- derived-path "
+          "episodes only; stream-path episodes already carry it)")
     print(f"  inferred lives-per-cog (max deaths on any one slot, "
-          f"sample-wide): {lives_per_cog}")
+          f"derived-path sample): {lives_per_cog}")
     zero_cap_eps = wipe_eps + time_eps
     print(f"  zero-capture endings: {wipe_eps} classified WIPE, {time_eps} "
-          f"classified TIME (of {zero_cap_eps} zero-capture decided "
-          f"episodes, {len(episode_records)} decided episodes total)")
+          f"classified TIME, {stream_eps} read directly off the stream (of "
+          f"{zero_cap_eps + stream_eps} decided episodes, "
+          f"{len(episode_records)} decided episodes total)")
     print(f"  median WINNER episode glory: {med(winner_glory_wc):.0f} "
           f"(was {med(winner_glory):.0f} before the wipe mint)")
     print(f"  achievement share of winner glory: median "
