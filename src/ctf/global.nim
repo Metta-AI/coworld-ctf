@@ -1,5 +1,5 @@
 import
-  std/[algorithm, math, os, strutils, tables],
+  std/[algorithm, heapqueue, math, os, strutils, tables],
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
@@ -6466,7 +6466,7 @@ const
                             ## rim reads (see PuddleRimColor in map_art.nim)
                             ## — a darker, deeper tone of the zone's own
                             ## settled paint, not a borrowed palette.
-  ZoneGlossTint = rgba(238, 168, 232, 70)   ## soft streak highlight so the
+  ZoneGlossTint = rgba(238, 168, 232, 110)  ## sheen-pool highlight so the
                             ## deep body reads as liquid, not flat card.
   ZoneRimWidthPx = 3.0
   ## MENISCUS SHAPE — Maxwell's ruling (2026-08-24, screenshot review): "this
@@ -6516,6 +6516,73 @@ const
   ## zero-mean advance field, so this does not widen the bare region — it
   ## only stops the droplet CHECK from being skipped near the honest edge.
   ZoneDropletBandPx = 60
+  ## LIQUID FLOW — Maxwell's ruling (2026-08-25, screenshot review): "the
+  ## pink paint cant have a hard edge... the paint should spread like a
+  ## liquid, filling rooms kinda slower than the open area around it bc the
+  ## doorway is a bottleneck." The meniscus noise above only warps a
+  ## RECTANGULAR distance field — it has no notion of walls or doorways, so
+  ## a sealed room advances exactly as fast as open field at the same
+  ## straight-line depth. `ensureZoneFlowGrid`/`computeZoneFlowDist` below
+  ## compute a WALKABILITY-AWARE flood distance instead: a coarse grid over
+  ## sim.walkMask, Dijkstra'd from the current rect on every actual rect
+  ## change (the same cache-invalidation cadence ensureZoneTideCache
+  ## already pays the far more expensive per-pixel repaint for), with a
+  ## cost penalty on cells that have few walkable neighbours — a corridor
+  ## or a doorway, geometrically, since an open room cell has walkable
+  ## cells on all 8 sides and a doorway cell does not. Routing through one
+  ## of those cells costs several times a normal step, so everything
+  ## beyond the doorway inherits that one-time toll and lags the open
+  ## field around it — a real flux bottleneck, not a distance fudge. This
+  ## NEVER touches `d` (the honest, damage-keyed distanceOutsideRect) or
+  ## the hardSolid guarantee below, which both stay exactly as before:
+  ## render-only, same discipline as everything else in this file.
+  ZoneFlowCellPx = 14         ## coarse grid cell, px. MinCorridorWidth
+                              ## (arena.nim) is 26px, so the narrowest
+                              ## doorway is still ~2 cells wide — enough to
+                              ## read as distinctly narrower than an open
+                              ## room many cells across.
+  ZoneFlowOpenNeighbors = 7   ## a cell with this many (of 8) walkable
+                              ## neighbours counts as fully open: no toll.
+  ZoneFlowChokeNeighbors = 2  ## at or below this many walkable neighbours,
+                              ## the cell pays the FULL toll — a corridor or
+                              ## doorway width, not a room interior.
+  ZoneFlowChokeMult = 5.0     ## cost multiplier a fully-choked cell charges
+                              ## to enter, relative to one open step.
+  ZoneFlowNearTrustPx = 24.0  ## within this many honest px of the rect,
+                              ## the render trusts `d` alone (smooth,
+                              ## continuous, already the antialiased-edge
+                              ## input below) — the coarse grid's own
+                              ## quantization only ever matters further
+                              ## out, where a doorway toll has had room to
+                              ## accumulate.
+  ZoneFlowFarBlendPx = 90.0   ## honest px past ZoneFlowNearTrustPx at
+                              ## which the blend finishes handing off to
+                              ## the flow field entirely.
+  ## EDGE SOFTNESS + WET GLOSS — same 2026-08-25 ruling: "this looks like a
+  ## dark pink mess" traced to two literal discontinuities in the old
+  ## zoneDeadPixelColor: alpha jumped 0->255 the instant effDepth crossed
+  ## 0, and color jumped from the flat dark rim straight to fully-saturated
+  ## fresh pink the instant effDepth crossed ZoneRimWidthPx — both
+  ## one-pixel-wide seams, which is what "hard edge" and "mess" were
+  ## actually describing under the organic (but still hard-edged) meniscus
+  ## silhouette. Below, both become continuous ramps instead of branches.
+  ZoneFeatherPx = 3.0     ## antialiased leading edge, px of effDepth:
+                          ## alpha ramps 0 -> opaque across this band
+                          ## instead of snapping the instant effDepth
+                          ## crosses 0.
+  ZoneRimBlendPx = 7.0    ## how many effDepth px it takes the dark rim
+                          ## tone to hand off into the fresh-paint body
+                          ## tone, instead of jumping instantly.
+  ZoneGlossPoolCellPx = 170.0 ## wet sheen: rounded highlight pools
+                              ## scattered across the body — the same
+                              ## splotch shape advance droplets use (a
+                              ## jittered hashed disc per cell), just
+                              ## bigger/softer/sparser, off the meniscus
+                              ## lattice's own cell size so the two never
+                              ## visibly align into a grid.
+  ZoneGlossPoolMinRPx = 35.0
+  ZoneGlossPoolMaxRPx = 85.0
+  ZoneGlossPoolChancePct = 55
 
 proc zoneMeniscusHash(seed, kx, ky: int): float {.inline.} =
   ## Deterministic 2D lattice noise in [-1, 1] — a pure function of its
@@ -6580,84 +6647,326 @@ proc zoneDropletCellHash(seed, cx, cy: int): uint32 {.inline.} =
   h = (h xor (h shr 13)) * 1274126177'u32
   h xor (h shr 16)
 
-proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
-  ## Scans the 3x3 neighbourhood of ~200px droplet cells around (qx, qy) for
-  ## a small round drip covering this point. The caller only invokes this
-  ## where the query point itself is already outside the rect and ahead of
-  ## the meniscus, so a droplet can never render inside the safe area.
+proc zoneCellSplotchAt(
+  qx, qy: float, cellSeed: int, cellPx, minRPx, maxRPx: float, chancePct: int
+): tuple[hit: bool, a: float] =
+  ## Scans the 3x3 neighbourhood of `cellPx`-square cells around (qx, qy)
+  ## for a small round splotch covering this point — shared shape math for
+  ## both advance droplets (ahead of the meniscus, via zoneDropletAt below)
+  ## and the body's wet sheen pools (zoneDeadPixelColor): a jittered
+  ## center, a hashed radius in [minRPx, maxRPx], a per-cell hashed chance
+  ## of even existing, soft 1.5px antialiased edge so it reads round, not a
+  ## hard disc.
   result = (false, 0.0)
   let
-    cell = float(ZoneDropletCellPx)
-    baseCx = floor(qx / cell).int
-    baseCy = floor(qy / cell).int
+    baseCx = floor(qx / cellPx).int
+    baseCy = floor(qy / cellPx).int
   for oy in -1 .. 1:
     for ox in -1 .. 1:
       let
         cx = baseCx + ox
         cy = baseCy + oy
         h = zoneDropletCellHash(cellSeed, cx, cy)
-      if int(h mod 100'u32) >= ZoneDropletChancePct:
+      if int(h mod 100'u32) >= chancePct:
         continue
       let
-        cellCx = (float(cx) + 0.5) * cell
-        cellCy = (float(cy) + 0.5) * cell
-        jx = cellCx + (float(int((h shr 3) mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
-        jy = cellCy + (float(int((h shr 15) mod 997'u32)) / 997.0 - 0.5) * cell * 0.7
-        r = ZoneDropletMinRPx +
-          (float(int((h shr 24) mod 101'u32)) / 100.0) *
-            (ZoneDropletMaxRPx - ZoneDropletMinRPx)
+        cellCx = (float(cx) + 0.5) * cellPx
+        cellCy = (float(cy) + 0.5) * cellPx
+        jx = cellCx + (float(int((h shr 3) mod 997'u32)) / 997.0 - 0.5) * cellPx * 0.7
+        jy = cellCy + (float(int((h shr 15) mod 997'u32)) / 997.0 - 0.5) * cellPx * 0.7
+        r = minRPx +
+          (float(int((h shr 24) mod 101'u32)) / 100.0) * (maxRPx - minRPx)
         dx = qx - jx
         dy = qy - jy
         dist = sqrt(dx * dx + dy * dy)
       if dist >= r:
         continue
-      # Soft 1.5px anti-aliased edge so the drip is round, not a hard disc.
       let a = clamp((r - dist) / 1.5, 0.0, 1.0)
       if a > result.a:
         result = (true, a)
 
+proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
+  ## Advance spatter ahead of the meniscus. The caller only invokes this
+  ## where the query point itself is already outside the rect and ahead of
+  ## the meniscus, so a droplet can never render inside the safe area.
+  zoneCellSplotchAt(qx, qy, cellSeed, float(ZoneDropletCellPx),
+    ZoneDropletMinRPx, ZoneDropletMaxRPx, ZoneDropletChancePct)
+
+var
+  ZoneFlowGridKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
+  ZoneFlowGridW, ZoneFlowGridH: int
+  ZoneFlowWalkable: seq[bool]      ## per coarse cell, static per map.
+  ZoneFlowEnterCost: seq[float32]  ## per coarse cell, the px cost of one
+                                   ## orthogonal step INTO this cell —
+                                   ## ZoneFlowCellPx normally, several
+                                   ## times that at a choke. Static per map.
+  ZoneFlowDist: seq[float32]       ## per coarse cell, px-scale flood
+                                   ## distance from the CURRENT rect
+                                   ## through walkable space. Rebuilt
+                                   ## alongside the tide cache, same
+                                   ## (center, rect) cadence.
+
+proc ensureZoneFlowGrid(sim: SimServer) =
+  ## Static per-map coarse walkability + choke-cost grid (see the LIQUID
+  ## FLOW note above). Same cache idiom as ensureZoneWallArtMask: keyed on
+  ## (map dims, center), a no-op past the first call for a given map.
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy)
+    gw = (w + ZoneFlowCellPx - 1) div ZoneFlowCellPx
+    gh = (h + ZoneFlowCellPx - 1) div ZoneFlowCellPx
+  if key == ZoneFlowGridKey and ZoneFlowWalkable.len == gw * gh:
+    return
+  ZoneFlowGridKey = key
+  ZoneFlowGridW = gw
+  ZoneFlowGridH = gh
+  let
+    haveWalk = sim.walkMask.len == w * h
+    haveWall = sim.wallMask.len == w * h
+  proc walkableAtPx(px, py: int): bool =
+    if px < 0 or py < 0 or px >= w or py >= h:
+      return false
+    let i = py * w + px
+    if haveWalk: sim.walkMask[i]
+    elif haveWall: not sim.wallMask[i]
+    else: true
+  ZoneFlowWalkable = newSeq[bool](gw * gh)
+  for gy in 0 ..< gh:
+    let py = min(h - 1, gy * ZoneFlowCellPx + ZoneFlowCellPx div 2)
+    for gx in 0 ..< gw:
+      let px = min(w - 1, gx * ZoneFlowCellPx + ZoneFlowCellPx div 2)
+      ZoneFlowWalkable[gy * gw + gx] = walkableAtPx(px, py)
+  ZoneFlowEnterCost = newSeq[float32](gw * gh)
+  for gy in 0 ..< gh:
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFlowWalkable[idx]:
+        ZoneFlowEnterCost[idx] = float32(ZoneFlowCellPx) * float32(ZoneFlowChokeMult)
+        continue
+      var openN = 0
+      for oy in -1 .. 1:
+        for ox in -1 .. 1:
+          if ox == 0 and oy == 0:
+            continue
+          let
+            nx = gx + ox
+            ny = gy + oy
+          if nx >= 0 and ny >= 0 and nx < gw and ny < gh and
+              ZoneFlowWalkable[ny * gw + nx]:
+            inc openN
+      let t = clamp(
+        (float(ZoneFlowOpenNeighbors) - float(openN)) /
+          float(max(1, ZoneFlowOpenNeighbors - ZoneFlowChokeNeighbors)),
+        0.0, 1.0)
+        # 1.0 at/under ZoneFlowChokeNeighbors open, 0.0 at/over
+        # ZoneFlowOpenNeighbors open — a corridor/doorway cell has few
+        # walkable neighbours (walls hem it in on most sides), a room or
+        # open-field cell has almost all 8.
+      ZoneFlowEnterCost[idx] =
+        float32(ZoneFlowCellPx) * float32(1.0 + t * (ZoneFlowChokeMult - 1.0))
+
+type ZoneFlowQItem = tuple[dist: float32, idx: int]
+proc `<`(a, b: ZoneFlowQItem): bool {.inline.} = a.dist < b.dist
+
+proc computeZoneFlowDist(sim: SimServer, rect: MapRect) =
+  ## Multi-source Dijkstra from every coarse cell whose CENTER lies inside
+  ## the current rect (distance 0), through ZoneFlowWalkable using
+  ## ZoneFlowEnterCost edge weights — see the LIQUID FLOW note above.
+  ## Static grid, dynamic source: this is the part that actually depends
+  ## on the rect, so it only reruns when ensureZoneTideCache's own
+  ## (center, rect) key changes — the caller (ensureZoneTideCache) is the
+  ## one already gating that, this proc does not re-check it.
+  ensureZoneFlowGrid(sim)
+  let
+    gw = ZoneFlowGridW
+    gh = ZoneFlowGridH
+  if gw <= 0 or gh <= 0:
+    ZoneFlowDist = @[]
+    return
+  ZoneFlowDist = newSeq[float32](gw * gh)
+  for i in 0 ..< ZoneFlowDist.len:
+    ZoneFlowDist[i] = Inf.float32
+  var pq = initHeapQueue[ZoneFlowQItem]()
+  for gy in 0 ..< gh:
+    let py = min(sim.gameMap.height - 1,
+      gy * ZoneFlowCellPx + ZoneFlowCellPx div 2)
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFlowWalkable[idx]:
+        continue
+      let px = min(sim.gameMap.width - 1,
+        gx * ZoneFlowCellPx + ZoneFlowCellPx div 2)
+      if px >= rect.x and px <= rect.x + rect.w - 1 and
+          py >= rect.y and py <= rect.y + rect.h - 1:
+        ZoneFlowDist[idx] = 0.0'f32
+        pq.push((dist: 0.0'f32, idx: idx))
+  const StepDiag = 1.41421356'f32
+  while pq.len > 0:
+    let (d, idx) = pq.pop()
+    if d > ZoneFlowDist[idx]:
+      continue                          # stale heap entry, already beaten
+    let
+      gx = idx mod gw
+      gy = idx div gw
+    for oy in -1 .. 1:
+      for ox in -1 .. 1:
+        if ox == 0 and oy == 0:
+          continue
+        let
+          nx = gx + ox
+          ny = gy + oy
+        if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+          continue
+        let nidx = ny * gw + nx
+        if not ZoneFlowWalkable[nidx]:
+          continue
+        let
+          stepMult = (if ox != 0 and oy != 0: StepDiag else: 1.0'f32)
+          nd = d + stepMult * ZoneFlowEnterCost[nidx]
+        if nd < ZoneFlowDist[nidx]:
+          ZoneFlowDist[nidx] = nd
+          pq.push((dist: nd, idx: nidx))
+
+proc sampleZoneFlowDepth(px, py: int): tuple[has: bool, depth: float] {.inline.} =
+  ## Bilinear sample of ZoneFlowDist at map pixel (px, py) — smooths the
+  ## coarse grid's own quantization into a continuous field so it can
+  ## blend against the honest per-pixel `d` without banding. Returns
+  ## has=false wherever any of the 4 surrounding cells was never reached
+  ## (an isolated pocket, or simply off the grid) so the caller falls back
+  ## to the honest distance rather than inventing a number.
+  if ZoneFlowGridW <= 0 or ZoneFlowGridH <= 0 or ZoneFlowDist.len == 0:
+    return (false, 0.0)
+  let
+    fx = float(px) / float(ZoneFlowCellPx) - 0.5
+    fy = float(py) / float(ZoneFlowCellPx) - 0.5
+    gx0 = floor(fx).int
+    gy0 = floor(fy).int
+    tx = fx - float(gx0)
+    ty = fy - float(gy0)
+  var
+    acc = 0.0
+    wsum = 0.0
+  for oy in 0 .. 1:
+    for ox in 0 .. 1:
+      let
+        gx = clamp(gx0 + ox, 0, ZoneFlowGridW - 1)
+        gy = clamp(gy0 + oy, 0, ZoneFlowGridH - 1)
+        idx = gy * ZoneFlowGridW + gx
+      if idx < 0 or idx >= ZoneFlowDist.len:
+        return (false, 0.0)
+      let d = ZoneFlowDist[idx]
+      if d == Inf.float32:
+        return (false, 0.0)
+      let
+        wx = (if ox == 0: 1.0 - tx else: tx)
+        wy = (if oy == 0: 1.0 - ty else: ty)
+        wt = wx * wy
+      acc += float(d) * wt
+      wsum += wt
+  if wsum <= 0.0:
+    return (false, 0.0)
+  (true, acc / wsum)
+
+proc zoneFlowBlendedDepth(d: int, fx, fy: float): float {.inline.} =
+  ## Blends the honest distance `d` with the walkability-aware flow depth:
+  ## trusted alone within ZoneFlowNearTrustPx of the rect (smooth,
+  ## continuous, the antialiased-edge input downstream), handing off to
+  ## the flow field over the next ZoneFlowFarBlendPx so a room behind a
+  ## doorway can lag the open field around it. Falls back to `d` alone
+  ## wherever the flow grid never reached this pixel.
+  ##
+  ## Skips the bilinear sample entirely inside the near-trust band (a real
+  ## per-pixel cost over up to the whole board on a late shrink tick — see
+  ## BR_FINAL_MATCH_REPORT.md's perf section): the blend weight is exactly
+  ## 0 there regardless of what the sample would say, so there is nothing
+  ## for it to contribute yet.
+  if d <= int(ZoneFlowNearTrustPx):
+    return float(d)
+  let sample = sampleZoneFlowDepth(int(fx), int(fy))
+  if not sample.has:
+    return float(d)
+  let w = clamp(
+    (float(d) - ZoneFlowNearTrustPx) / ZoneFlowFarBlendPx, 0.0, 1.0)
+  float(d) * (1.0 - w) + sample.depth * w
+
 proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
   ## One pixel of the DEAD region: ONE liquid splat whose boundary is the
   ## art (a meniscus, a rim, a body — see the consts above), not stamped
-  ## sprites near an otherwise straight rectangular edge.
+  ## sprites near an otherwise straight rectangular edge. Two 2026-08-25
+  ## fixes on top of the meniscus (1942c17): the boundary's WALK-AWARE
+  ## depth (zoneFlowBlendedDepth — a room behind a doorway lags the open
+  ## field around it) and a continuous, antialiased gradient (feather ->
+  ## rim -> fresh -> drowned, one function of effDepth, no discrete-color
+  ## or discrete-alpha jump anywhere in it) in place of the old flat-color
+  ## rim with an instant alpha edge.
   ##
   ## `d` is the honest `distanceOutsideRect` (the caller already skips
   ## d <= 0, so this is always > 0 here) — the gameplay-relevant, damage-
-  ## keyed distance. Everything below either paints using it directly (the
-  ## hard-solid deep guarantee) or through `effDepth`, the same distance
-  ## warped by `zoneMeniscusAdvance` so the boundary reads as an organic
-  ## coastline. The warp only ever reshapes WHICH outside pixels look
-  ## further/less advanced; a pixel with d <= 0 is never reached at all, so
-  ## the safe rect's floor stays exactly as clean as before.
+  ## keyed distance. It alone still gates `hardSolid`: the "no pinholes the
+  ## damage boundary can walk into" guarantee must hold regardless of what
+  ## the flow field says about any one pocket, so it is never touched by
+  ## zoneFlowBlendedDepth or zoneMeniscusAdvance — both only ever reshape
+  ## WHICH outside pixels look further/less advanced; a pixel with d <= 0
+  ## is never reached at all, so the safe rect's floor stays exactly as
+  ## clean as before.
   let fx = float(px)
   let fy = float(py)
-  # Deep interior: always fully opaque, regardless of noise phase — the
-  # "no pinholes the damage boundary can walk into" guarantee, now a fixed
-  # bound (ZoneHardSolidDepthPx safely exceeds the noise's max amplitude)
-  # rather than something read off splat coverage. Tonal variation and
-  # gloss still apply so the deep body is not a flat card.
+  # Deep interior: always fully opaque, regardless of noise/flow phase —
+  # the "no pinholes" guarantee, a fixed bound (ZoneHardSolidDepthPx safely
+  # exceeds the noise's max amplitude) rather than something read off
+  # splat coverage. Tonal variation and gloss still apply so the deep body
+  # is not a flat card.
   let hardSolid = d >= ZoneHardSolidDepthPx
-  let effDepth = if hardSolid: float(ZoneDrownDepthPx) * 2.0
-                 else: float(d) + zoneMeniscusAdvance(fx, fy)
-  if not hardSolid and effDepth <= 0.0:
-    # Ahead of the meniscus: bare floor, except for sparse advance droplets.
+  let effDepth =
+    if hardSolid: float(ZoneDrownDepthPx) * 2.0
+    else: zoneFlowBlendedDepth(d, fx, fy) + zoneMeniscusAdvance(fx, fy)
+  if not hardSolid and effDepth <= -ZoneFeatherPx:
+    # Ahead of any wetness: bare floor, except for sparse advance droplets.
     let drop = zoneDropletAt(fx, fy, ZoneMeniscusSeed xor 0x77)
     if drop.hit:
       return rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b,
         uint8(drop.a * float(ZoneSplatPaint.a)))
     return rgba(0, 0, 0, 0)
   if not hardSolid and effDepth <= ZoneRimWidthPx:
-    return ZoneRimColor
-  # Body: fresh pink at the rim, settling to drowned purple by twice the
-  # drown depth — a RAMP, not a threshold, so there is no seam to find.
+    # Feather + rim, ONE continuous alpha ramp from fully transparent at
+    # -ZoneFeatherPx to fully opaque dark rim at ZoneRimWidthPx — no jump
+    # anywhere in this band, which is the "hard edge" fix. A droplet ahead
+    # of or inside the feather composites OVER the wash, never instead of
+    # it, so a drip is never erased by the wash arriving under it later.
+    let t = clamp((effDepth + ZoneFeatherPx) /
+      (ZoneFeatherPx + ZoneRimWidthPx), 0.0, 1.0)
+    var wash = rgba(ZoneRimColor.r, ZoneRimColor.g, ZoneRimColor.b,
+      uint8(float(ZoneRimColor.a) * t))
+    if effDepth < 0.0:
+      let drop = zoneDropletAt(fx, fy, ZoneMeniscusSeed xor 0x77)
+      if drop.hit:
+        let da = uint8(drop.a * float(ZoneSplatPaint.a))
+        if da > wash.a:
+          wash = rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b, da)
+    return wash
+  # Body (also reached for hardSolid, which skips both branches above):
+  # the rim tone hands off into fresh pink over ZoneRimBlendPx — was an
+  # instant color jump right behind the first hard edge — then ramps to
+  # drowned purple by twice the drown depth exactly as before. One
+  # continuous function of effDepth throughout, so there is no seam left
+  # in it anywhere.
   let
+    handoffT = clamp((effDepth - ZoneRimWidthPx) / ZoneRimBlendPx, 0.0, 1.0)
     rampT = clamp(
-      (effDepth - ZoneRimWidthPx) / (float(ZoneDrownDepthPx) * 2.0 - ZoneRimWidthPx),
+      (effDepth - ZoneRimWidthPx - ZoneRimBlendPx) /
+        (float(ZoneDrownDepthPx) * 2.0 - ZoneRimWidthPx - ZoneRimBlendPx),
       0.0, 1.0)
-    baseR = uint8(float(ZoneSplatPaint.r) * (1.0 - rampT) + float(ZoneDrownPaint.r) * rampT)
-    baseG = uint8(float(ZoneSplatPaint.g) * (1.0 - rampT) + float(ZoneDrownPaint.g) * rampT)
-    baseB = uint8(float(ZoneSplatPaint.b) * (1.0 - rampT) + float(ZoneDrownPaint.b) * rampT)
-    baseA = uint8(float(ZoneSplatPaint.a) * (1.0 - rampT) + float(ZoneDrownPaint.a) * rampT)
+    freshR = float(ZoneSplatPaint.r) * (1.0 - rampT) + float(ZoneDrownPaint.r) * rampT
+    freshG = float(ZoneSplatPaint.g) * (1.0 - rampT) + float(ZoneDrownPaint.g) * rampT
+    freshB = float(ZoneSplatPaint.b) * (1.0 - rampT) + float(ZoneDrownPaint.b) * rampT
+    freshA = float(ZoneSplatPaint.a) * (1.0 - rampT) + float(ZoneDrownPaint.a) * rampT
+    baseR = uint8(float(ZoneRimColor.r) * (1.0 - handoffT) + freshR * handoffT)
+    baseG = uint8(float(ZoneRimColor.g) * (1.0 - handoffT) + freshG * handoffT)
+    baseB = uint8(float(ZoneRimColor.b) * (1.0 - handoffT) + freshB * handoffT)
+    baseA = uint8(float(ZoneRimColor.a) * (1.0 - handoffT) + freshA * handoffT)
   var color = rgba(baseR, baseG, baseB, baseA)
   # Low-frequency tonal variation across the whole body (deep mass
   # included, via a THIRD, independently-seeded octave that never touches
@@ -6665,28 +6974,37 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
   let
     tone = zoneMeniscusOctave(fx, fy, ZoneMeniscusCellPx * 1.4,
       ZoneMeniscusSeed xor 0x9C)
-    toneGain = 1.0 + tone * 0.12
+    toneGain = 1.0 + tone * 0.16
   color = rgba(
     uint8(clamp(float(color.r) * toneGain, 0.0, 255.0)),
     uint8(clamp(float(color.g) * toneGain, 0.0, 255.0)),
     uint8(clamp(float(color.b) * toneGain, 0.0, 255.0)),
     color.a)
-  # Occasional gloss streaks: a coarse, elongated field (stretched sampling
-  # on one axis reads as a streak rather than a round sheen) blended in only
-  # where it crests high, so the highlight stays sparse.
-  let streak = zoneMeniscusOctave(fx * 0.35, fy * 1.6, ZoneMeniscusCellPx,
-    ZoneMeniscusSeed xor 0xC3)
-  if streak > 0.55:
-    # Alpha-composite the gloss tint over the body color directly (no
-    # shared blend helper is reachable from this module — map_art.nim's
-    # overTint is the same one-liner, kept local here to avoid a new
-    # cross-module export for four lines of math).
-    let g = clamp((streak - 0.55) / 0.45, 0.0, 1.0) * (float(ZoneGlossTint.a) / 255.0)
+  # Wet sheen: rounded highlight pools scattered across the body (the same
+  # splotch shape advance droplets use, just bigger/softer/sparser) rather
+  # than one elongated streak — Maxwell (2026-08-25): "the puddles look
+  # more wet than this" is the bar, and map_art.nim's own
+  # puddleArtColorAt earns its wet read from a rounded off-center
+  # highlight, not a smear.
+  let pool = zoneCellSplotchAt(fx, fy, ZoneMeniscusSeed xor 0xC3,
+    ZoneGlossPoolCellPx, ZoneGlossPoolMinRPx, ZoneGlossPoolMaxRPx,
+    ZoneGlossPoolChancePct)
+  if pool.hit:
+    let g = pool.a * (float(ZoneGlossTint.a) / 255.0)
     color = rgba(
       uint8(float(color.r) * (1.0 - g) + float(ZoneGlossTint.r) * g),
       uint8(float(color.g) * (1.0 - g) + float(ZoneGlossTint.g) * g),
       uint8(float(color.b) * (1.0 - g) + float(ZoneGlossTint.b) * g),
       color.a)
+    # A small brighter hot-spot right at a strong pool's own center — the
+    # specular catch-light that sells "wet" over "painted".
+    if pool.a > 0.7:
+      let hs = (pool.a - 0.7) / 0.3 * 0.5
+      color = rgba(
+        uint8(clamp(float(color.r) * (1.0 - hs) + 255.0 * hs, 0.0, 255.0)),
+        uint8(clamp(float(color.g) * (1.0 - hs) + 245.0 * hs, 0.0, 255.0)),
+        uint8(clamp(float(color.b) * (1.0 - hs) + 250.0 * hs, 0.0, 255.0)),
+        color.a)
   color
 
 proc ensureZoneWallArtMask(sim: SimServer) =
@@ -6857,6 +7175,9 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect): bool {.discardable.} =
     inc ZoneTideCacheMisses
   ZoneTideCacheKey = key
   ensureZoneWallArtMask(sim)  ## a no-op past the first call for this map.
+  computeZoneFlowDist(sim, rect)  ## the walk-aware flood — same (center,
+                                  ## rect) cadence as this whole rebuild;
+                                  ## see the LIQUID FLOW note above.
   ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
   ## is sized in real MAP pixels, so it reads the same lobe scale on any
   ## board without a proportionality fudge.
