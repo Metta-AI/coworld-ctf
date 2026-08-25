@@ -83,6 +83,9 @@ proc buildReplayViewerPacket*(
     return
 
   let
+    # Gates the lives-lead series, flag beats, lull spans, AND the glory
+    # series below: all four are full-match, precomputed-once payloads that
+    # ship on exactly the same first HUD frame per viewer.
     sendLead = not state.momentumSent
     sendFpMap = not state.fpMapSent
   # The inspector card, resolved by the board hit test inside
@@ -124,7 +127,8 @@ proc buildReplayViewerPacket*(
       if sendLead: replay.lullSpans else: @[],
       if sendLead: replay.beatEvents else: nil,
       inspectSlot,
-      inspectLines
+      inspectLines,
+      if sendLead: replay.gloryLine else: @[]
     )
   )
   if sendLead:

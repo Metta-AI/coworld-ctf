@@ -659,7 +659,8 @@ proc buildStateJson*(
   lullSpans: seq[array[2, int]] = @[],
   beatEvents: JsonNode = nil,
   inspectSlot: int = -1,
-  inspectLines: seq[string] = @[]
+  inspectLines: seq[string] = @[],
+  gloryLine: seq[array[5, int]] = @[]
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -712,6 +713,22 @@ proc buildStateJson*(
     for point in livesLeadSeries:
       series.add(%*[point[0], point[1]])
     state["lead"] = series
+
+  # Full-timeline glory series (sent ONCE per HUD viewer, same trigger and
+  # lifecycle as the lead series above -- both ship on the same
+  # `sendLead`-gated first frame): [[tick, redGlory, blueGlory, redHeat,
+  # blueHeat], …] change-points across the WHOLE match, so the gold-graph-
+  # style glory differential draws its full shape immediately instead of
+  # accumulating to the playhead. `redGlory`/`blueGlory` are `sim.teamGlory`
+  # -- the POST-multiplier ledger the scorebug shows -- and `redHeat`/
+  # `blueHeat` are the scorebug's own `heatMult`, both read off the replay's
+  # precomputed walk, never recomputed here. Absent on every later frame --
+  # the client caches it.
+  if gloryLine.len > 0:
+    var gseries = newJArray()
+    for point in gloryLine:
+      gseries.add(%*[point[0], point[1], point[2], point[3], point[4]])
+    state["gloryLine"] = gseries
 
   # Static minimap wall silhouette for the EYES tactical inset, sent ONCE per
   # viewer (like the lead series). Absent on every later frame — the client

@@ -406,3 +406,100 @@ suite "broadcast state channel: the glory ledger":
       check carded["insp"]["lines"][0].getStr == "ALPHA"
     finally:
       setCurrentDir(previousDir)
+
+  test "keyframe walk precomputes the glory-series change-points":
+    # Mirrors the lives-lead precedent exactly: same keyframe walk, same
+    # "only where something changes" compaction, same full-timeline-up-front
+    # lifecycle -- just for glory (+ heat) instead of lives.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var
+        sim = initFixtureSim(data)
+        replay = initReplayPlayer(data)
+      replay.mismatchQuit = true
+      replay.buildReplayKeyframes(sim)
+
+      check replay.gloryLine.len > 0
+      # A real episode must actually MINT something, or the checks below
+      # compare zero to zero and guard nothing.
+      check replay.gloryLine[^1][1] + replay.gloryLine[^1][2] > 0
+      # Strictly ascending tick order -- every change-point is a real step
+      # forward, never a duplicate or a rewind.
+      for i in 1 ..< replay.gloryLine.len:
+        check replay.gloryLine[i][0] > replay.gloryLine[i - 1][0]
+
+      # The last change-point holds the FINAL ledger. Verify it against this
+      # SAME replay's own live sim state at that exact tick (seeking off the
+      # keyframes this same call just built), rather than a second,
+      # independently-stepped playthrough -- glory pays penalties too (it is
+      # NOT monotonic in value, only the tick axis is), so the one invariant
+      # that actually matters is that the series never disagrees with the
+      # state the scorebug itself would show at that tick.
+      let last = replay.gloryLine[^1]
+      replay.seekReplay(sim, last[0])
+      check sim.tickCount == last[0]
+      check sim.teamGlory[Red] == last[1]
+      check sim.teamGlory[Blue] == last[2]
+      check heatMult(sim.heatEmbers[Red]) == last[3]
+      check heatMult(sim.heatEmbers[Blue]) == last[4]
+    finally:
+      setCurrentDir(previousDir)
+
+  test "chrome frame ships the glory series when asked, absent otherwise":
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var
+        sim = initFixtureSim(data)
+        replay = initReplayPlayer(data)
+      replay.mismatchQuit = true
+      replay.buildReplayKeyframes(sim)
+      check replay.gloryLine.len > 0
+
+      let withGlory = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
+        gloryLine = replay.gloryLine
+      ))
+      check withGlory["gloryLine"].len == replay.gloryLine.len
+      for i, point in replay.gloryLine:
+        let wire = withGlory["gloryLine"][i]
+        check wire[0].getInt == point[0]
+        check wire[1].getInt == point[1]
+        check wire[2].getInt == point[2]
+        check wire[3].getInt == point[3]
+        check wire[4].getInt == point[4]
+
+      let withoutGlory = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1
+      ))
+      check not withoutGlory.hasKey("gloryLine")
+    finally:
+      setCurrentDir(previousDir)
+
+  test "the glory series survives a seek (shipped once, never recomputed)":
+    # Mirrors the lead series' lifecycle: precomputed ONCE on the keyframe
+    # walk and never touched by seek/playback controls, so a scrub can never
+    # desync it from the shape the client already drew.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var
+        sim = initFixtureSim(data)
+        replay = initReplayPlayer(data)
+      replay.mismatchQuit = true
+      replay.buildReplayKeyframes(sim)
+      let before = replay.gloryLine
+      check before.len > 0
+
+      # Scrub around, exactly as a viewer's scrubber would.
+      replay.applyReplaySeek(sim, replay.replayStartTick())
+      replay.applyReplaySeek(sim, replay.replayMaxTick())
+      replay.applyReplaySeek(sim, replay.replayStartTick() + 20)
+
+      check replay.gloryLine == before
+    finally:
+      setCurrentDir(previousDir)

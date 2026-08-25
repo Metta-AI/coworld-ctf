@@ -3,7 +3,7 @@ import
   flatty,
   bitworld/spriteprotocol,
   bitworld/replays as replayCodec,
-  broadcast, sim
+  broadcast, glory, sim
 
 type
   ReplayKeyframe* = object
@@ -47,6 +47,17 @@ type
       ## can draw its full-timeline shape immediately (not accumulate as it
       ## plays). Only points where the lead CHANGES are stored (compact step
       ## series); the client holds each value to the next point and to maxTick.
+    gloryLine*: seq[array[5, int]]
+      ## [tick, redGlory, blueGlory, redHeat, blueHeat] change-points across
+      ## the WHOLE match, mirroring `livesLeadSeries` exactly: same keyframe
+      ## walk, same "only where something changes" compaction, same
+      ## full-timeline-up-front lifecycle. Glory mints in discrete amounts
+      ## (deed/achievement ticks), so this is naturally sparse. `redGlory`/
+      ## `blueGlory` are `sim.teamGlory` -- the POST-multiplier ledger the
+      ## scorebug shows, never recomputed. `redHeat`/`blueHeat` are
+      ## `heatMult(sim.heatEmbers[team])`, the same rampage multiplier the
+      ## scorebug ships, riding along for free since heat sits right next to
+      ## glory on `sim` at every tick this walk already visits.
     endHoldFrames*: int
       ## Real-time frames left to HOLD on the final game-over frame before a
       ## looping replay restarts, so the end segment (winner, win condition,
@@ -373,6 +384,16 @@ proc buildReplayKeyframes*(
     sim.teamLivesRemaining(Red) - sim.teamLivesRemaining(Blue)
   var lastLead = livesLead(sim)
   replay.livesLeadSeries.add([sim.tickCount, lastLead])
+  # Same walk, same compaction, for the glory graph: [redGlory, blueGlory,
+  # redHeat, blueHeat], stored only where any of the four values changes.
+  replay.gloryLine = @[]
+  proc gloryValues(sim: SimServer): array[4, int] =
+    [sim.teamGlory[Red], sim.teamGlory[Blue],
+     heatMult(sim.heatEmbers[Red]), heatMult(sim.heatEmbers[Blue])]
+  var lastGlory = gloryValues(sim)
+  replay.gloryLine.add(
+    [sim.tickCount, lastGlory[0], lastGlory[1], lastGlory[2], lastGlory[3]]
+  )
   # Beat ticks for the lull map, derived by the SAME tracker the broadcast
   # channel uses, so "nothing happens here" agrees with the story the kill
   # feed and banners tell. Respawns are excluded: they trail kills on a fixed
@@ -393,6 +414,12 @@ proc buildReplayKeyframes*(
     if lead != lastLead:
       replay.livesLeadSeries.add([sim.tickCount, lead])
       lastLead = lead
+    let glory = gloryValues(sim)
+    if glory != lastGlory:
+      replay.gloryLine.add(
+        [sim.tickCount, glory[0], glory[1], glory[2], glory[3]]
+      )
+      lastGlory = glory
     var stepBeats = newJArray()
     sim.stepEvents(beatTracker, stepBeats)
     for event in stepBeats:
@@ -410,6 +437,10 @@ proc buildReplayKeyframes*(
   if replay.livesLeadSeries.len == 0 or
       replay.livesLeadSeries[^1][0] != sim.tickCount:
     replay.livesLeadSeries.add([sim.tickCount, lastLead])
+  if replay.gloryLine.len == 0 or replay.gloryLine[^1][0] != sim.tickCount:
+    replay.gloryLine.add(
+      [sim.tickCount, lastGlory[0], lastGlory[1], lastGlory[2], lastGlory[3]]
+    )
   replay.lullSpans = buildLullSpans(
     beatTicks,
     replay.replayStartTick(),
