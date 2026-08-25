@@ -585,3 +585,10 @@ their 62-key wire vocabulary (podium/assist/passivity — glory-port material).
    final fight. The timeout tiebreak's alive-count key is acceptable only
    because lethal late phases make clock-outs rare; a glory-scored BR must
    not reintroduce the farming vector through survival deeds.**
+4. Item REFILL TIMING. Placement is settled (§4.9); the refill economy is
+   not. Because our sites refill rather than deplete, a hotspot draws
+   repeated contests all match — there is no one-shot "strip it and it goes
+   cold" cycle. Both research lineages independently flag per-class
+   cooldowns as the open lever: majors (shield, grenade) refilling slower —
+   rarer, more fought-over — than sustain (medkit, spray). Needs its own
+   pass; the §4.9 weights deliberately do not encode timing.
