@@ -316,6 +316,22 @@ hierarchy. Enforced, not aspired: a density-uniformity validator (structure+
 obstacle area per cell of a fine grid within a band of the field mean) is a
 hard gate, the same class as the distribution gate it supersedes.
 
+### 4.8 Knobs become SWITCHES; buildings CONJOIN (Maxwell's rulings, 2026-08-24)
+Two late rulings on the generator's shape:
+- **Conjoined complexes by deterministic accretion**: buildings grow by a
+  global process — each new unit hash-flips (hash(mapSeed, unitIndex), own
+  lane per decision) between ATTACHING to an existing complex (welded shared
+  walls, doors punched via the unit-adjacency spanning tree, grammars MIXED
+  within a complex) or FOUNDING a new site. Complex sizes emerge (singles up
+  to rare 12-16-unit fortresses); several complexes per map is the normal
+  case. minSep applies between complexes only — it was the rule that kept
+  every building solitary for ten rounds.
+- **Top-level THEME SWITCHES over the knobs**: TERRAIN (cave | building |
+  mixed) and THEME (interior | exterior) — named presets over existing
+  parameters, declared in the spec, and MEASURED like keystones (a declared
+  switch the detector cannot find fails the draw). Keystone families compose
+  with switches; incoherent combos are reported, not forced.
+
 ## 5. Draw and triage discipline — port the PROCESS, not just the rules
 
 The 2-team program's best asset is not any single gate, it is how it establishes
