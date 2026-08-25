@@ -2898,10 +2898,15 @@ proc addTeamScoreboard(
     # lit (x1 is the resting state and saying so is noise).
     redHeat = heatMult(sim.heatEmbers[Red])
     blueHeat = heatMult(sim.heatEmbers[Blue])
-    redText = "RED " & $sim.teamGlory[Red] & "g" &
+    # No trailing "g" unit on the number: "glory" is the whole scoreboard's
+    # subject (the row IS the glory ledger, headed by the team name), so
+    # spelling the unit on every tick read as noise -- an engine-native
+    # ticker states its quantity once, not per digit. Kills/deaths keep their
+    # bare "k/d" shape below for the same reason.
+    redText = "RED " & $sim.teamGlory[Red] &
       (if redHeat > 1: " x" & $redHeat else: "") &
       "  " & $kills[Red] & "/" & $deaths[Red]
-    blueText = "BLUE " & $sim.teamGlory[Blue] & "g" &
+    blueText = "BLUE " & $sim.teamGlory[Blue] &
       (if blueHeat > 1: " x" & $blueHeat else: "") &
       "  " & $kills[Blue] & "/" & $deaths[Blue]
     red = sim.buildSpriteProtocolTextSprite([redText], teamColor(Red))
@@ -4251,9 +4256,12 @@ proc inspectorLines*(sim: SimServer, playerIndex: int): seq[string] =
     result.add "  ... " & $startAt & " earlier"
   for i in startAt ..< claims.len:
     let claim = claims[i]
+    # No trailing "g" here either -- matches the scoreboard's own drop just
+    # above ("GLORY " & $sim.teamGlory[team], already bare) so the same
+    # ledger never spells its unit two different ways on one card.
     result.add "  " & achievementName(claim.tree, claim.tier) &
       " " & repeat("*", claim.tier + 1) &
-      (if claim.first: " FIRST" else: "") & " +" & $claim.glory & "g"
+      (if claim.first: " FIRST" else: "") & " +" & $claim.glory
 
 proc addInspector*(
   sim: SimServer,
