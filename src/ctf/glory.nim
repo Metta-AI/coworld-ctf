@@ -565,8 +565,52 @@ const
     ##      costs the ledger a rounding error instead of re-rating every kill.
     ##      A radius alone would have left ffa4 paying 16 on a third of kills.
   LongshotPx* = 700           ## no field shot has ever damaged past 832px.
-  DenialPx* = 220             ## a carrier killed this close to their own
+  DenialPx* = 600             ## a carrier killed this close to their own
                               ## pedestal died on the doorstep.
+                              ##
+                              ## v6 (GLORY C5): field-fit, replacing the
+                              ## uncalibrated 220. "Doorstep" (`treeDefender`
+                              ## II) claimed 0.0% in the field at 220 (n=240
+                              ## team-episodes) -- the value was reasoned
+                              ## from combat-band intuition ("close range"),
+                              ## never measured against where a carrier
+                              ## actually dies.
+                              ##
+                              ## OPERATIONALIZATION: this arena's two home
+                              ## pedestals are FIXED, not per-episode/seed
+                              ## (measured directly: (186,329) and
+                              ## (1049,329) across every recovered
+                              ## flag_steal in the cache, stdev 0.0 on both
+                              ## axes -- 863px apart). So every carrier kill
+                              ## in the 120-episode sample can be scored
+                              ## against its victim's OWN team's true
+                              ## pedestal directly (no per-episode recovery
+                              ## needed, unlike the site gradient's own
+                              ## flag_steal-coordinate approximation) --
+                              ## dist(kill site, victim's own pedestal),
+                              ## same event ordering fix the module
+                              ## docstring's own "kills sort BEFORE same-tick
+                              ## flag_return" note requires.
+                              ##
+                              ## MEASURED (157 carrier kills, matching the
+                              ## DEEDS report's 1.31/ep x 120 exactly):
+                              ## p5=343 p10=401 p15=436 p20=483 p25=536
+                              ## p30=561 p40=638 p50=776 p75=859 p90=867px.
+                              ## HALF of all carrier kills land PAST 776px --
+                              ## a carrier is caught mid-field or near the
+                              ## STEAL site far more often than near
+                              ## completing the run, which is why 220 (a
+                              ## PointBlankPx-scale number) could never fire.
+                              ## 100/240 team-episodes (41.7%, matching "The
+                              ## Peel"'s own T1 rate exactly) have ANY
+                              ## carrier kill at all -- the hard ceiling any
+                              ## DenialPx can reach.
+                              ##
+                              ## 600px lands Doorstep's team-episode claim
+                              ## rate at 17.5% (42/240) -- inside the 10-30%
+                              ## tier-II band, comfortably clear of both the
+                              ## 41.7% ceiling and zero. (For reference:
+                              ## 470-480px -> 10.0%, 700px -> 20.8%.)
   RevengeTicks* = 240         ## ~10s to answer your killer.
   ContestedStealPx* = 300     ## a live enemy within this radius at the
                               ## moment the heart leaves its pedestal makes
