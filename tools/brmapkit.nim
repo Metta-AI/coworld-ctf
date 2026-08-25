@@ -599,6 +599,42 @@ proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
     let dy = p.y - s.center.y
     if dx * dx + dy * dy < minDist * minDist:
       return true
+
+proc tooCloseToAnySized(
+  p: MapPoint, candArchetype: PoiArchetype, halfExtent: int,
+  sites: seq[PoiSite], minDist: int
+): bool =
+  ## ROUND 8 FIX: `minDist` alone is a flat distance between CENTERS —
+  ## fine when every archetype in a pool is roughly the same size, but
+  ## landing-selection/zone-edge-holding mix HUGE archetypes (compound/
+  ## anchor, half-extent 350-430px, footprint 700-860px wide) with tiny
+  ## ones (ruins, ~53px) under one shared minSepFrac. Two big archetypes
+  ## could legitimately land with centers only `minDist` apart (a value
+  ## sized for the pool's SMALL end) while their footprints overlapped by
+  ## a hundred-plus px — measured as the root cause of "cover too high,
+  ## mass count too low" (a few giant fused blobs instead of many
+  ## distinct ones). Requires BOTH the caller's flat minDist (the
+  ## "spacing IS a grammar knob" semantic other callers rely on) AND
+  ## enough room for both footprints plus a real gap to never touch.
+  ##
+  ## poiCauseway is EXCLUDED from the footprint term on whichever side it
+  ## appears: its halfExtent is a LENGTH along an arbitrary drawn axis,
+  ## not a radius (the same "square footprint" category error the
+  ## caves-clash filter had — see that fix's own comment). Treating it as
+  ## an isotropic radius here made the very first sweep after this fix
+  ## fail rotation-timing's OWN causeway placement almost every time
+  ## (caught immediately: 0/18 pass on the next sweep). Causeway-involved
+  ## pairs fall back to the flat minDist, same as before this fix.
+  const FootprintGapPx = 40
+  let candHalf = if candArchetype == poiCauseway: 0 else: halfExtent
+  for s in sites:
+    let dx = p.x - s.center.x
+    let dy = p.y - s.center.y
+    let d2 = dx * dx + dy * dy
+    let siteHalf = if s.archetype == poiCauseway: 0 else: s.halfExtent
+    let required = max(minDist, candHalf + siteHalf + FootprintGapPx)
+    if d2 < required * required:
+      return true
   false
 
 ## tooCloseToAnyPocket (spawn-keep-away for PLACEMENT) is GONE as of round 5
@@ -628,7 +664,7 @@ proc placeUniformPoi(
     let x = xLo + rng.rand(xHi - xLo)
     let y = yLo + rng.rand(yHi - yLo)
     let p = MapPoint(x: x, y: y)
-    if tooCloseToAny(p, sites, minSep): continue
+    if tooCloseToAnySized(p, archetype, halfExtent, sites, minSep): continue
     sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
     when defined(brDebugExit):
       stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
@@ -685,7 +721,7 @@ proc placeUniformPoiInRect(
     let x = xLo + rng.rand(xHi - xLo)
     let y = yLo + rng.rand(yHi - yLo)
     let p = MapPoint(x: x, y: y)
-    if tooCloseToAny(p, sites, minSep): continue
+    if tooCloseToAnySized(p, archetype, halfExtent, sites, minSep): continue
     sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
     return true
   false
@@ -855,6 +891,18 @@ proc placePois(
     for i in 0 ..< causewayCount:
       discard placeUniformPoi(rng, result, width, height, causewayMinSep,
         poiCauseway, causewayHalf, 1)
+    ## ROUND 8 recalibration #2: rotation-timing measured the WORST
+    ## combined pass rate of the three delivery families (mass/cover/
+    ## distToCover all lagging) — clusters+causeways alone leave real gaps
+    ## since the keystone's whole identity is "open seams between
+    ## clusters." A light general-purpose ruins filler patches the worst
+    ## gaps (small, cheap, doesn't compete with the causeway-count
+    ## detector since poiRuins never counts toward it) without fighting
+    ## the "open seams" grammar the way more/bigger clusters would.
+    let genFillerPool: seq[ArchSpec] = @[
+      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiYard, 0.30, 1),
+    ]
+    placeStratifiedPool(rng, result, width, height, gunRange, genFillerPool, 0.9, 5 + rng.rand(4))
   of ksZoneEdgeHolding:
     ## A handful of ANCHOR compounds, STRATIFIED across regions (so no two
     ## end up sharing a corner even before the mutual minSep is checked) —
