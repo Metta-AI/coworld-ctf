@@ -1057,13 +1057,15 @@ html, body {
   z-index: 3;
 }
 /* ---------- GLORY LINE: the scrub's ONE momentum lane ----------
-   The glory differential is the whole momentum read now — the lives-lead
-   graph that used to sit here (and the lane it shared with this one) is
-   gone; a resource isn't the show, the score is. Canvas-drawn, on the same
-   trimmed 0→maxTicks x-axis as the seek track, so the one amber playhead
-   crosses seek track AND glory 1:1, and click-to-seek covers the graph for
-   free. Hidden (and the band stays at its old base height) until the engine
-   ships s.gloryLine, so old bundles render exactly the chrome they had —
+   The glory race is the whole momentum read now — the lives-lead graph that
+   used to sit here (and the lane it shared with this one) is gone; a
+   resource isn't the show, the score is. Two independent cumulative curves,
+   zero pinned to the lane's bottom, so a trailing team's curve is just
+   SHORTER, never negative. Canvas-drawn, on the same trimmed 0→maxTicks
+   x-axis as the seek track, so the one amber playhead crosses seek track
+   AND glory 1:1, and click-to-seek covers the graph for free. Hidden (and
+   the band stays at its old base height) until the engine ships
+   s.gloryLine, so old bundles render exactly the chrome they had —
    seek-only, no graph. */
 .scrub.has-glory { height: calc(64 * var(--u)); }
 .scrub.has-glory .scrub-head { height: calc(60 * var(--u)); }
@@ -4018,12 +4020,20 @@ body[data-embed] #board { top: 0; height: 100%; }
   // lives-lead momentum graph (SVG, step line + midline shading) that lived
   // here; that graph and its accumulation state (recordMomentum/
   // ingestLeadSeries, samples keyed by tick) are gone — glory is the score,
-  // so glory is the one momentum read now. The lane draws red-minus-blue as
-  // a differential area in the scrub's track:
-  // the leading team's color owns the bulge, zero is a quiet hairline
-  // mid-band, and the shared amber playhead rides a curve that is fully drawn
-  // from frame one (seek-safe by construction — only the head moves). An
-  // absent series (old bundle) means the lane never mounts at all.
+  // so glory is the one momentum read now.
+  //
+  // A RISING RACE, not a differential (Maxwell + SHOWTIME C6): the old
+  // red-minus-blue plot around a midline made the trailing team read as
+  // NEGATIVE, which glory never is. Now each team draws its own independent
+  // cumulative curve off a shared y-axis with zero pinned to the LANE
+  // BOTTOM — two filled areas climbing from the same floor, team-colored,
+  // a leader is just the taller line. The ledger can dip from penalties;
+  // the scorebug numeral stays the one authoritative number and this chart
+  // simply never draws below its own axis (clamped >=0). Lead changes are
+  // marked where the two lines cross. The shared amber playhead rides both
+  // curves at once, fully drawn from frame one (seek-safe by construction —
+  // only the head moves). An absent series (old bundle) means the lane
+  // never mounts at all.
   var fullGlorySeries = null;
   var gloryDirty = false;
   var glorySeenHeat = false;
@@ -4069,64 +4079,81 @@ body[data-embed] #board { top: 0; height: 100%; }
     // same dark backing as the lives-lead lane: both tracks read on one ground
     ctx.fillStyle = 'rgba(11,7,4,0.55)';
     ctx.fillRect(0, 0, w, h);
-    var mid = h / 2;
+    // zero lives at the LANE BOTTOM now (a hair up off the true edge so the
+    // stroke never clips) — two rising climbs, not a differential bulge.
+    var base = h - 1.5;
     // the seek track's trimmed [startTick, maxTick] axis, 1:1 with the playhead
     var st = Math.max(0, lastState.st || 0);
     var mx = Math.max(st + 1, lastState.mx || 1);
     function xOf(t) { return Math.min(1, Math.max(0, (t - st) / (mx - st))) * w; }
-    // per-side autoscale with zero pinned mid — same policy as the lives lane:
-    // the biggest lead touches its edge while the red/blue split stays honest
     var pts = fullGlorySeries;
-    var maxPos = 1, maxNeg = 1, i, d;
-    for (i = 0; i < pts.length; i++) {
-      d = pts[i].r - pts[i].b;
-      if (d > maxPos) maxPos = d;
-      if (-d > maxNeg) maxNeg = -d;
-    }
-    function yOf(dd) {
-      return dd >= 0 ? mid - (dd / maxPos) * (mid - 1.5)
-                     : mid + (-dd / maxNeg) * (mid - 1.5);
+    var i;
+    // scale to the max of either series' FINAL value (Maxwell's ruling) —
+    // the full-match total, since the series ships complete from frame one.
+    // Display values clamp at >=0 in yOf: the ledger can dip from penalties,
+    // but this chart never draws below its own axis.
+    var lastPt = pts[pts.length - 1];
+    var scaleMax = Math.max(1, lastPt.r || 0, lastPt.b || 0);
+    function yOf(v) {
+      var vv = Math.max(0, v);
+      return base - (vv / scaleMax) * (base - 1.5);
     }
     // change-point semantics: hold each value, step at the next entry, and
     // hold the last value to the end of the axis
-    function traceStep() {
-      var py = yOf(pts[0].r - pts[0].b);
+    function traceStep(key) {
+      var py = yOf(pts[0][key]);
       ctx.moveTo(xOf(pts[0].t), py);
       for (var k = 1; k < pts.length; k++) {
         var xk = xOf(pts[k].t);
         ctx.lineTo(xk, py);
-        py = yOf(pts[k].r - pts[k].b);
+        py = yOf(pts[k][key]);
         ctx.lineTo(xk, py);
       }
       ctx.lineTo(w, py);
     }
-    // zero axis: the quiet hairline the bulge reads against
+    // zero axis: the quiet floor both climbs rise from
     ctx.strokeStyle = hexRgba(PAPER, 0.22);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, mid);
-    ctx.lineTo(w, mid);
+    ctx.moveTo(0, base);
+    ctx.lineTo(w, base);
     ctx.stroke();
-    // differential area: the leading team's color owns the bulge (hard
-    // gradient stop at the midline, exactly like the lives lane's momfill)
-    ctx.beginPath();
-    traceStep();
-    ctx.lineTo(w, mid);
-    ctx.lineTo(xOf(pts[0].t), mid);
-    ctx.closePath();
-    var grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, hexRgba(RED, 0.8));
-    grad.addColorStop(0.5, hexRgba(RED, 0.28));
-    grad.addColorStop(0.5, hexRgba(BLUE, 0.28));
-    grad.addColorStop(1, hexRgba(BLUE, 0.8));
-    ctx.fillStyle = grad;
-    ctx.fill();
-    // the step line itself, paper like the lives lane's stroke
-    ctx.beginPath();
-    traceStep();
-    ctx.strokeStyle = hexRgba(PAPER, 0.85);
-    ctx.lineWidth = 1.25;
-    ctx.stroke();
+    // each team's own climb: a filled area in team color, a solid 2px team
+    // line on top. Painted red-then-blue; mid alpha keeps whichever curve
+    // is currently behind legible even where the areas overlap.
+    function paintSeries(key, color) {
+      ctx.beginPath();
+      traceStep(key);
+      ctx.lineTo(w, base);
+      ctx.lineTo(xOf(pts[0].t), base);
+      ctx.closePath();
+      ctx.fillStyle = hexRgba(color, 0.5);
+      ctx.fill();
+      ctx.beginPath();
+      traceStep(key);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    paintSeries('r', RED);
+    paintSeries('b', BLUE);
+    // lead changes = crossings: a small brightened tick where the order
+    // flips, ringed in the NEW leader's color so a scan of the lane alone
+    // says how many times the match swung.
+    for (i = 1; i < pts.length; i++) {
+      var prevLead = pts[i - 1].r >= pts[i - 1].b ? 'r' : 'b';
+      var curLead = pts[i].r >= pts[i].b ? 'r' : 'b';
+      if (prevLead === curLead) continue;
+      var xk2 = xOf(pts[i].t);
+      var yk2 = yOf(Math.max(pts[i].r, pts[i].b));
+      ctx.beginPath();
+      ctx.arc(xk2, yk2, 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = hexRgba(PAPER, 0.95);
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = curLead === 'r' ? RED : BLUE;
+      ctx.stroke();
+    }
     // x4+ heat windows: subtle flame-amber ticks along the lane's top edge.
     // Skipped cleanly when the series ships without the heat columns.
     if (glorySeenHeat) {
