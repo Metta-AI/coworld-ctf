@@ -143,8 +143,15 @@ suite "BR elimination ruleset":
     # eliminated and the game is NOT over, unlike classic play (see
     # test_four_team.nim's "a capture eliminates the captured team").
     check sim.phase == Playing
+    ## Green holds exactly one seat here (brGame seats one per team), so its
+    ## aliveness IS "not eliminated" — the whole claim, in one check.
+    ##
+    ## A `lives > 0` check used to sit alongside this one. It is gone rather
+    ## than updated: in brMode a LIVING cog correctly holds zero spare lives
+    ## (seatLivesFor — there are no respawns to spend them on), so that line
+    ## was asserting an implementation detail the mode defines as 0, and it
+    ## would now fail for a team that is perfectly healthy.
     check sim.players[2].alive
-    check sim.players[2].lives > 0
     check not sim.flags[Green].captured
 
   test "maxTicks tiebreak: most living players wins":

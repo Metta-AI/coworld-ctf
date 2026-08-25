@@ -296,7 +296,10 @@ proc startGame*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
-    sim.players[i].lives = sim.config.livesFor(sim.players[i].team)
+    ## seatLivesFor, not livesFor: this reset runs at MATCH START and used
+    ## to overwrite the roster's seating, so a brMode cog got its spares
+    ## back here and the header went on lying.
+    sim.players[i].lives = sim.config.seatLivesFor(sim.players[i].team)
     sim.players[i].hp =
       sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
     sim.players[i].respawnTimer = 0
