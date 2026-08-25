@@ -4,6 +4,7 @@ import
 
 var
   runtimeLoaded = false
+  gloryObserver = false
   replay: ReplayPlayer
   game: SimServer
   viewer: GlobalViewerState
@@ -17,6 +18,14 @@ proc bytesFromPointer(data: ptr uint8, length: int): string =
     copyMem(result[0].addr, data, length)
 
 proc renderCurrent(events: JsonNode) =
+  if gloryObserver:
+    # A pre-glory recording's hashes lack the glory ledger fields entirely, so
+    # every checked tick mismatches BY CONSTRUCTION and the fidelity banner
+    # would be permanent noise. Clear the surfaced tick (the packet's "mm"
+    # field and ctf_mismatch_tick) each frame -- seeks restore it from
+    # keyframes -- while the detector itself stays untouched for normal
+    # replays.
+    replay.hashMismatchTick = -1
   var nextViewer: GlobalViewerState
   packet = game.buildReplayViewerPacket(replay, viewer, nextViewer, events)
   viewer = nextViewer
@@ -32,14 +41,34 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     # Match the native replay server default: keep a historical replay usable
     # after the first integrity mismatch and surface the warning in the shared
     # replay chrome. `--mismatch-quit` remains a native diagnostic mode.
-    var initialized = initReplayRuntime(
-      replayData,
-      mismatchQuit = false,
-      gameEventLoggingEnabled = false
-    )
-    game = move(initialized.sim)
-    replay = move(initialized.player)
-    tracker = move(initialized.tracker)
+    if gloryObserver:
+      # DEV RIG (deletable scaffolding, pairs with SimServer.gloryObserver).
+      # Mirrors initReplayRuntime's sequence with the lens armed FIRST:
+      # buildReplayKeyframes walks the whole match and serializes the entire
+      # SimServer into every keyframe, so a flag set after init would (a) let
+      # the walk run with buffs live -- baking diverged states into every
+      # keyframe -- and (b) be clobbered back to false by the very first seek
+      # restore.
+      var config = defaultGameConfig()
+      config.update(replayData.configJson)
+      game = initSimServer(config)
+      game.gameEventLoggingEnabled = false
+      game.gloryObserver = true
+      replay = initReplayPlayer(replayData)
+      replay.mismatchQuit = false
+      replay.buildReplayKeyframes(game)
+      replay.seekReplay(game, replay.replayStartTick())
+      replay.playing = true
+      tracker = initBroadcastTracker()
+    else:
+      var initialized = initReplayRuntime(
+        replayData,
+        mismatchQuit = false,
+        gameEventLoggingEnabled = false
+      )
+      game = move(initialized.sim)
+      replay = move(initialized.player)
+      tracker = move(initialized.tracker)
     viewer = initGlobalViewerState()
     runtimeLoaded = true
     stage = "render first frame"
@@ -85,6 +114,13 @@ proc ctfSetPointer(x, y: cint) {.exportc: "ctf_set_pointer", cdecl.} =
   viewer.mouseX = int(x)
   viewer.mouseY = int(y)
 
+proc ctfSetGloryObserver(enabled: cint)
+    {.exportc: "ctf_set_glory_observer", cdecl.} =
+  ## DEV RIG (deletable scaffolding): arm the glory-observer lens. Must be
+  ## called BEFORE ctf_load_replay (see the keyframe note in ctfLoadReplay);
+  ## also listed in config.nims EXPORTED_FUNCTIONS or emcc dead-strips it.
+  gloryObserver = enabled != 0
+
 proc ctfFrame(): cint {.exportc: "ctf_frame", cdecl.} =
   if not runtimeLoaded:
     return 0
@@ -115,7 +151,7 @@ proc ctfPacketLength(): cint {.exportc: "ctf_packet_len", cdecl.} =
   cint(packet.len)
 
 proc ctfMismatchTick(): cint {.exportc: "ctf_mismatch_tick", cdecl.} =
-  if runtimeLoaded:
+  if runtimeLoaded and not gloryObserver:
     cint(replay.hashMismatchTick)
   else:
     -1

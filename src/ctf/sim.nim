@@ -861,6 +861,21 @@ type
                                ## live servers pay nothing (see SimEvent).
     events*: seq[SimEvent]     ## collected tier-2 events; the extractor
                                ## drains this every tick. Never in gameHash.
+    gloryObserver*: bool       ## DEV RIG -- deletable scaffolding, not a
+                               ## product mode. Replays a PRE-GLORY recording
+                               ## with the glory ledger overlaid as pure
+                               ## accounting: when true every level-buff
+                               ## accessor returns its BASE value and the
+                               ## tithe spawns no physical kit, so physics
+                               ## match the recording tick-for-tick while
+                               ## xp/levels/mints/feed still run. Deliberately
+                               ## NOT in gameHash: it never varies within a
+                               ## live server (always false there); only a
+                               ## replay viewer arms it, before the first
+                               ## step, never mid-game. Known cosmetic
+                               ## looseness: the hover inspector's buff list
+                               ## (global.nim) still names the rank's buffs --
+                               ## display text only, no physics.
     teamGlory*: array[Team, int]      ## GLORY: the team ledger.
     heatEmbers*: array[Team, int]     ## rampage embers -> the heat multiplier.
     heatLastDeed*: array[Team, int]   ## tick of the team's latest drama deed.
@@ -3719,26 +3734,33 @@ func playerLevel*(sim: SimServer, playerIndex: int): int {.inline.} =
   if playerIndex < 0 or playerIndex >= sim.players.len: 0
   else: clampLevel(sim.players[playerIndex].level)
 
+func buffLevel(sim: SimServer, playerIndex: int): int {.inline.} =
+  ## The level the BUFF accessors read. Under the glory-observer dev rig this
+  ## is 0 -- the ladder still climbs (`playerLevel` is untouched, so display,
+  ## dStarfall and the tithe cadence all see the real rank) but no buff lands,
+  ## which is what lets a pre-glory recording replay tick-for-tick.
+  if sim.gloryObserver: 0 else: sim.playerLevel(playerIndex)
+
 func playerMaxHp*(sim: SimServer, playerIndex: int): int {.inline.} =
   ## The hit-point CEILING after the ladder. Levelling grants headroom, never
   ## a heal: the points still have to be earned back from a med kit, or a
   ## level-up would be a free full heal at the moment you are already winning.
-  levelMaxHp(sim.config.hitPoints, sim.playerLevel(playerIndex))
+  levelMaxHp(sim.config.hitPoints, sim.buffLevel(playerIndex))  # observer: base
 
 func playerWindupTicks*(sim: SimServer, playerIndex: int): int {.inline.} =
-  levelWindupTicks(sim.config.fireWindupTicks, sim.playerLevel(playerIndex))
+  levelWindupTicks(sim.config.fireWindupTicks, sim.buffLevel(playerIndex))  # observer: base
 
 func playerFireCooldown*(sim: SimServer, playerIndex: int): int {.inline.} =
-  levelFireCooldown(sim.config.fireCooldownTicks, sim.playerLevel(playerIndex))
+  levelFireCooldown(sim.config.fireCooldownTicks, sim.buffLevel(playerIndex))  # observer: base
 
 func playerGunRange*(sim: SimServer, playerIndex: int): int {.inline.} =
-  levelGunRange(sim.config.gunRange, sim.playerLevel(playerIndex))
+  levelGunRange(sim.config.gunRange, sim.buffLevel(playerIndex))  # observer: base
 
 func playerSprayReset*(sim: SimServer, playerIndex: int): int {.inline.} =
-  levelSprayReset(PlasmaArcResetTicks, sim.playerLevel(playerIndex))
+  levelSprayReset(PlasmaArcResetTicks, sim.buffLevel(playerIndex))  # observer: base
 
 func playerCarrierSpeedPct*(sim: SimServer, playerIndex: int): int {.inline.} =
-  levelCarrierSpeedPct(sim.config.carrierSpeedPct, sim.playerLevel(playerIndex))
+  levelCarrierSpeedPct(sim.config.carrierSpeedPct, sim.buffLevel(playerIndex))  # observer: base
 
 func groundOwner*(sim: SimServer, x, y: int): Team =
   ## Which team's ground a point sits on: the NEAREST HOME PEDESTAL wins.
@@ -4201,12 +4223,17 @@ proc dropTithe(sim: var SimServer, playerIndex: int) =
     # replay determinism and a rotation needs none.
     offsetX = (slot mod 2) * 48 - 24
     offsetY = (slot div 2) * 48 - 24
-  sim.tithePickups.add TithePickup(
-    x: home.x + offsetX,
-    y: home.y + offsetY,
-    kind: TitheCycle[slot mod TitheCycle.len],
-    expiresAt: sim.tickCount + MedKitRespawnTicks
-  )
+  # GLORY OBSERVER: the tithe's physical half is causal -- a recorded bot can
+  # walk over spawned kit by accident and gain hp/charges the recording never
+  # had. Credit, cadence and the herald below all still run; only the pickup
+  # itself stays out of the world.
+  if not sim.gloryObserver:
+    sim.tithePickups.add TithePickup(
+      x: home.x + offsetX,
+      y: home.y + offsetY,
+      kind: TitheCycle[slot mod TitheCycle.len],
+      expiresAt: sim.tickCount + MedKitRespawnTicks
+    )
   sim.players[playerIndex].titheCredit -= TitheXp
   inc sim.players[playerIndex].tithesThisLife
   sim.players[playerIndex].lastTitheTick = sim.tickCount
@@ -6136,7 +6163,7 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
       sim.players[playerIndex].tookGrenade = true
       sim.addXp(playerIndex, XpPerPickup)
       sim.players[playerIndex].grenadeCharges =
-        levelGrenadeCharges(sim.players[playerIndex].level)
+        levelGrenadeCharges(sim.buffLevel(playerIndex))  # observer: base charges
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a grenade"
@@ -6395,7 +6422,7 @@ proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
       sim.players[playerIndex].tookGrenade = true
       sim.addXp(playerIndex, XpPerPickup)
       sim.players[playerIndex].grenadeCharges =
-        levelGrenadeCharges(sim.players[playerIndex].level)
+        levelGrenadeCharges(sim.buffLevel(playerIndex))  # observer: base charges
     of "spray can":
       if sim.players[playerIndex].hasPlasmaArc: continue
       sim.players[playerIndex].hasPlasmaArc = true

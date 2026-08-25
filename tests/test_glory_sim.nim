@@ -1258,3 +1258,36 @@ suite "glory in the sim: the hover inspector":
     check next.povActive                 # the lens stays
     check next.inspectIndex == -1        # the card is gone
     check next.inspectPinned == -1
+
+suite "glory observer (dev rig, deletable scaffolding)":
+  test "observer neutralizes every buff and the tithe spawn; ledger still runs":
+    # The lens replays a PRE-GLORY recording with glory as pure accounting:
+    # physics must read BASE everywhere a level could bend them, while xp,
+    # levels and mints run untouched. Default mode is unchanged -- the "the
+    # ladder is causal" suite above IS the control (same xp, buffs land).
+    var sim = twoTeamGame()
+
+    # A spectator lens, not state: arming it must not move gameHash.
+    let hashBefore = sim.gameHash()
+    sim.gloryObserver = true
+    check sim.gameHash() == hashBefore
+
+    let gloryBefore = sim.teamGlory[Red]
+    sim.addXp(0, LevelThresholds[MaxLevel - 1])
+
+    # The ledger side is fully live: rank, mint, tithe cadence.
+    check sim.playerLevel(0) == MaxLevel
+    check sim.teamGlory[Red] > gloryBefore       # dLevelUp still minted
+    check sim.players[0].tithesThisLife == 1     # credit spent on schedule
+
+    # Every buff accessor reads BASE at max level.
+    check sim.playerMaxHp(0) == sim.config.hitPoints
+    check sim.playerWindupTicks(0) == sim.config.fireWindupTicks
+    check sim.playerFireCooldown(0) == sim.config.fireCooldownTicks
+    check sim.playerGunRange(0) == sim.config.gunRange
+    check sim.playerSprayReset(0) == PlasmaArcResetTicks
+    check sim.playerCarrierSpeedPct(0) == sim.config.carrierSpeedPct
+
+    # ...and the tithe's PHYSICAL half never entered the world: a recorded
+    # bot could walk over spawned kit by accident and diverge.
+    check sim.tithePickups.len == 0

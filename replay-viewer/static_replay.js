@@ -67,8 +67,17 @@ var Module = window.Module || {};
   async function start() {
     if (started || !runtimeReady || !core) return;
     started = true;
-    var replayUrl = new URLSearchParams(location.search).get('replay');
+    var params = new URLSearchParams(location.search);
+    var replayUrl = params.get('replay');
     if (!replayUrl) throw new Error('Missing required replay URL');
+    // DEV RIG (deletable scaffolding): ?observer=1 overlays the glory ledger
+    // on a pre-glory recording. Armed before ctf_load_replay -- the flag must
+    // be on the sim before its seek keyframes are built.
+    if (params.get('observer') === '1') {
+      Module._ctf_set_glory_observer(1);
+      console.info('glory observer: ledger overlaid on a pre-glory ' +
+        'recording; hash comparison not meaningful');
+    }
     var response = await fetch(replayUrl, { credentials: 'omit', mode: 'cors' });
     if (!response.ok) {
       throw new Error('Replay request returned HTTP ' + response.status);
