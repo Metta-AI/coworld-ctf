@@ -167,6 +167,10 @@
             : 0;
           advanceInFlight = false;
           if (typeof message.draws === 'number') workerDraws = message.draws;
+        } else if (message.type === 'inputApplied') {
+          // One frame the Worker ran on its own to apply a viewer input
+          // promptly. Nothing to reschedule — the rAF loop owns pacing.
+          setMismatchTick(message.mismatchTick);
         } else if (message.type === 'error') {
           showFailure(new Error(message.message || 'Replay Worker failed'));
           stop();

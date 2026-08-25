@@ -17,5 +17,8 @@ import
   test_replay,
   test_replay_scan,
   test_shot_exposure,
-  test_sprite_collisions
+  test_sprite_collisions,
+  test_pb_engine,
+  test_pb_replay,
+  test_pb_startup
 {.warning[UnusedImport]: on.}
