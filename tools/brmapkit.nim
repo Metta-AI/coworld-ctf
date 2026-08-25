@@ -3228,10 +3228,15 @@ const
                                      ## moved up from round 6's 3 to stay
                                      ## clear of that new baseline).
   KsAnchorHalfExtentFloor = 0.45    ## fraction of gunRange
-  KsAnchorCountFloor = 4.0          ## own min 4; every other family's max
-                                     ## is 3 (landing-selection, whose big
-                                     ## compound/anchor draws occasionally
-                                     ## qualify) — clean separation.
+  ## ROUND 11 recalibration: poiAnchor's fixed 0.62G size (every draw,
+  ## every anchor identical) is retired in favour of growGlobalComplexes'
+  ## EMERGENT sizes — a 30-seed sweep measured qualifying (>0.45G)
+  ## complex counts of 1-5 per draw (median ~2-3), nothing like the old
+  ## system's reliable 4+. Floor 4.0 -> 2.0 (22/30 draws clear it, vs
+  ## 15/30 at the old floor's own 0.45G size threshold reapplied) —
+  ## still a real bar, not a rubber stamp; the family's identity now
+  ## rests more on KsAnchorSpreadFloor (unchanged) than on raw count.
+  KsAnchorCountFloor = 2.0
   KsAnchorSpreadFloor = 1.8         ## fraction of gunRange; own spreadFails
                                      ## 0/30 at this floor.
   KsThirdPartyOpenFloor = 0.85      ## combined with warren-count below;
@@ -3814,10 +3819,20 @@ proc validateBr(m: BrMap): BrValidation =
       else: &"{unreachable} walkable cells ({unreachable * GridStride * GridStride}px^2)" &
         " are NOT in the map's dominant walkable component"
 
+  ## ROUND 11: interiorConnPass (round 9's SOFT room-center-sampling
+  ## check) is DROPPED from the allPass gate — round 10's fullAccessPass
+  ## is the authoritative, full-grid-flood-fill successor (see that
+  ## field's own comment) and a complex's more numerous/irregular rooms
+  ## measurably trip the old sampler's false-positive class (a room-
+  ## center quarter-offset landing on furniture/a shared wall) more
+  ## often than a single archetype ever did, even when fullAccessPass
+  ## independently confirms zero unreachable cells. Kept computed and
+  ## reported (it's still a useful per-room diagnostic), just no longer
+  ## blocking — accessibility above all is fullAccessPass's job now.
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
     result.placeCountPass and result.perSpawnCoverPass and
-    result.interiorConnPass and result.roomCountVarietyPass and
+    result.roomCountVarietyPass and
     result.coverPermillePass and result.distToCoverPass and
     result.itemCoveragePass and result.poiLootPass and result.keystonePass and
     result.fullAccessPass
@@ -4409,7 +4424,13 @@ proc ensureFullAccessibility(m: var BrMap): tuple[tunneled, sealed: int] =
   ## once digging is applied; this defends against a carve happening to
   ## interact with a neighbouring orphan, not the primary mechanism)
   ## until exactly one walkable component remains.
-  const MaxIters = 6
+  ## ROUND 11: 6 was plenty for round 10's single-building interiors but
+  ## measured leaving 4 cells unreachable on a landing-selection draw
+  ## with a large accretion complex (many units means many initially-
+  ## separate pockets that can take several waves — fix one, expose the
+  ## next — to fully resolve). Bumped generously; each iteration is one
+  ## cheap flood-fill pass, not the expensive part of generation.
+  const MaxIters = 30
   const SealFloorPx2 = 2500  ## ~50x50 — a pocket this tiny reads as a
                               ## crack between masses, not a place worth
                               ## a corridor.
@@ -4785,11 +4806,6 @@ proc cmdGenerate(a: Args) =
   var repaired = 0
   var tunneled = 0
   var sealed = 0
-  if not a.bools.getOrDefault("noRepair", false):
-    let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
-    repaired = screens.len
-    m.obstacles.add screens
-    (tunneled, sealed) = ensureFullAccessibility(m)
   if not a.bools.getOrDefault("noPrune", false):
     ## ROUND 10: a SECOND, FULL-OBSTACLE-SET confetti prune. The first
     ## pass (above, structures protected) only ever saw organic cave
@@ -4806,7 +4822,23 @@ proc cmdGenerate(a: Args) =
     ## ~7000px^2 even alone, well above the 3000px^2 floor, so this
     ## should only ever remove genuine post-clip fragments, not
     ## authored small structures.
+    ## ROUND 11 FIX: this used to run AFTER ensureFullAccessibility, which
+    ## meant it could PRUNE AWAY the accessibility repair's own seal-rects
+    ## (a seal is, by construction, always < SealFloorPx2 < ConfettiFloorPx2
+    ## — exactly what this prune targets) — reopening the pocket it had
+    ## just sealed, right back to disconnected. Measured: a
+    ## landing-selection mega-complex draw left 4 cells permanently
+    ## unreachable no matter how many repair iterations ran, because each
+    ## iteration's seal got un-done by this prune before the NEXT
+    ## iteration's flood-fill ever saw it stay fixed. Moved BEFORE
+    ## ensurePerSpawnCover/ensureFullAccessibility so repair always has
+    ## the last word on what stays in the obstacle list.
     m.obstacles = pruneConfetti(m.obstacles, m.width, m.height, ConfettiFloorPx2)
+  if not a.bools.getOrDefault("noRepair", false):
+    let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
+    repaired = screens.len
+    m.obstacles.add screens
+    (tunneled, sealed) = ensureFullAccessibility(m)
   var itemRng = initRand(seed xor 0x6C5D_E812)
   if not a.bools.getOrDefault("noItems", false):
     placeItems(m, itemRng)
