@@ -6412,13 +6412,26 @@ when defined(zoneTideCacheProbe):
   ## immune to fleet-load wall-clock noise, instead of trusting a wall-clock
   ## number alone (see BR_FINAL_MATCH_REPORT.md's perf section for why that
   ## matters on a machine running many concurrent agents).
+  ##
+  ## Round 2 adds two more counters, for the SAME reason: pixels each
+  ## rebuild actually runs the expensive live formula for (zoneDeadPixelColor
+  ## — flow sample, edge-gate noise, precomputed-field lookups) vs pixels it
+  ## resolves with a plain array read from ZoneDrownedRgba (sealed/hardSolid,
+  ## a pure function of position baked once by ensureZoneStaticFields). This
+  ## is the deterministic, load-independent stand-in for "how much of the
+  ## old full-board repaint got skipped" — the wall-clock ms this same probe
+  ## build also prints are noisy on a shared machine, this ratio is not.
   var
     ZoneTideCacheCalls*: int
     ZoneTideCacheHits*: int
     ZoneTideCacheMisses*: int
+    ZoneActivePixels*: int   ## ran the full live zoneDeadPixelColor formula.
+    ZoneSealedPixels*: int   ## resolved via the precomputed ZoneDrownedRgba
+                             ## lookup — zero live math.
   proc zoneTideCacheProbeReport*(): string =
     "ZTC calls=" & $ZoneTideCacheCalls & " hits=" & $ZoneTideCacheHits &
-      " misses=" & $ZoneTideCacheMisses
+      " misses=" & $ZoneTideCacheMisses &
+      " activePx=" & $ZoneActivePixels & " sealedPx=" & $ZoneSealedPixels
 
 const
   ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
@@ -6442,16 +6455,19 @@ proc zoneTideHash(a, b: int): int {.inline.} =
   ## no wraparound is a checked OverflowDefect on signed ints), and
   ## unsigned wraparound is exactly what a hash mix wants anyway. Result is
 
-proc distanceOutsideRect(rect: MapRect, px, py: int): int {.inline.} =
-  ## Rectangular (Chebyshev) distance of map point (px, py) outside `rect`:
-  ## 0 for any point on or inside the border, growing outward on whichever
-  ## axis (or both, in a corner) is furthest past it. One shared distance
-  ## function is what lets the dead region's depth — and therefore how
-  ## drowned its paint is — read consistently all the way around, corners
-  ## included.
+proc signedDistanceOutsideRect(rect: MapRect, px, py: int): int {.inline.} =
+  ## SIGNED rectangular (Chebyshev) distance of map point (px, py) from
+  ## `rect`'s border: positive outside, 0 on the border, NEGATIVE inside —
+  ## how far inside, on whichever axis is closest to leaving. `max(0, ...)`
+  ## of this is the plain (unsigned) Chebyshev distance every damage-keyed
+  ## consumer wants (zoneRectAndDps in sim.nim, untouched by anything in
+  ## this file); the render code below additionally wants the signed,
+  ## negative-inside form the unsigned version throws away — how far a
+  ## warped visual boundary may bulge INTO the rect before it has gone too
+  ## far (see ZoneEdgeBoundPx below).
   let
-    dx = max(0, max(rect.x - px, px - (rect.x + rect.w - 1)))
-    dy = max(0, max(rect.y - py, py - (rect.y + rect.h - 1)))
+    dx = max(rect.x - px, px - (rect.x + rect.w - 1))
+    dy = max(rect.y - py, py - (rect.y + rect.h - 1))
   max(dx, dy)
 
 const
@@ -6466,37 +6482,81 @@ const
                             ## rim reads (see PuddleRimColor in map_art.nim)
                             ## — a darker, deeper tone of the zone's own
                             ## settled paint, not a borrowed palette.
-  ZoneGlossTint = rgba(238, 168, 232, 110)  ## sheen-pool highlight so the
-                            ## deep body reads as liquid, not flat card.
   ZoneRimWidthPx = 3.0
-  ## MENISCUS SHAPE — Maxwell's ruling (2026-08-24, screenshot review): "this
-  ## does not look like solid paint seeping in from the screen edges. it
-  ## looks like a pink wall with pre-carved, normal-size paint splats at the
-  ## leading edge." Three separate elements (flat fill, stamped splat
-  ## silhouettes, a seam between them) pretending to be one substance. The
-  ## fix: the dead region is ONE LIQUID SPLAT and the boundary itself is the
-  ## art, not sprites stamped near it. `zoneMeniscusAdvance` is a smooth 2D
-  ## noise field, two octaves (a big rounded one for lobes/tongues, a small
-  ## one for texture), added to the honest rectangular distance so the
-  ## boundary bulges and tongues organically instead of tracing
-  ## `distanceOutsideRect`'s straight sides. Cosine interpolation between
-  ## lattice points is what gives the lobes their rounded (not jagged)
-  ## profile — the same idiom as map_art.nim's trenchEdgeWave, just 2D and
-  ## much lower frequency / higher amplitude, since this boundary is a
-  ## coastline, not a shovel-dug lip.
+  ## MENISCUS SHAPE, round 2 — Maxwell's ruling (2026-08-25, showmatch
+  ## viewer review): the round-1 meniscus (1942c17/08ac2b7) still read as
+  ## "cheese" (see WET BODY below) and, separately, "there is still are
+  ## hard rectangle edge marking the zone... the paint blob should have a
+  ## chance to round out naturally at the edges, not be cut abruptly."
+  ## That second complaint survived round 1's up-to-117px noise warp
+  ## because the warp only ever perturbed `distanceOutsideRect`'s value —
+  ## and Chebyshev isolines are literally squares; additive noise jitters a
+  ## square's edge, it does not round its CORNER, and the render region was
+  ## hard-clipped to `d <= 0` (strictly outside the rect), so paint could
+  ## never bulge in and round a corner out even where the noise wanted it
+  ## to. Two independent fixes, both bounded so the visual edge never lies
+  ## about safety by more than about one rig's own width:
+  ##
+  ## 1. `roundedRectSignedDist` replaces the Chebyshev corner with an
+  ##    actually-rounded one (a standard 2D rounded-box SDF), radius
+  ##    ZoneCornerRoundPx.
+  ## 2. A SMALL, bounded noise jitter (ZoneEdgeBoundPx either way, its own
+  ##    fine lattice ZoneEdgeWarpCellPx) is added on top, so the boundary
+  ##    can round out and wobble organically instead of tracing a perfect
+  ##    (even if corner-rounded) rectangle — but is never allowed to
+  ##    mislead: PlayerHalf (sim_types.nim) is 6px, i.e. a ~13px rig
+  ##    footprint (arena.nim's own MinCorridorWidth comment), and
+  ##    ZoneEdgeBoundPx = 16px keeps the visible boundary within about one
+  ##    rig-width of the true rect line, over or under, everywhere.
+  ##
+  ## This combined, BOUNDED value is `gate` in zoneDeadPixelColor — it, not
+  ## the honest `d`, decides where paint first appears at all. It renders
+  ## a strip up to ZoneEdgeBoundPx px INSIDE the true rect too (the render
+  ## region below is inset accordingly), which is what lets the blob round
+  ## out rather than being clipped exactly at the line. Everything deeper
+  ## (the rim/fresh/drowned ramp) still keys off `gate` but layers in a
+  ## much larger, intentionally dramatic splat-shaped push once past it —
+  ## see ZoneMeniscusAmpPx/ZoneBodyRampPx and zoneBodyLobeAdvanceAt below —
+  ## since by then a point is unambiguously already dead and a big lobe
+  ## there cannot mislead anyone about the boundary itself.
+  ZoneEdgeBoundPx = 16.0        ## max px the FIRST-PAINT edge may deviate
+                                ## from the true rect line, either way.
+  ZoneEdgeBoundPxInt = ZoneEdgeBoundPx.int  ## same bound, for the render
+                                ## region's inset geometry (whole px only).
+  ZoneCornerRoundPx = ZoneEdgeBoundPx  ## corner rounding radius — the SAME
+                                ## bound, so rounding a corner never buys
+                                ## extra deviation the straight edges don't
+                                ## also get.
+  ZoneEdgeWarpCellPx = 70.0    ## lattice for the small bounded edge jitter
+                                ## — finer than ZoneMeniscusCellPx so it
+                                ## reads as the edge of a lobe, not a
+                                ## second set of lobes.
+  ZoneBodyRampPx = 40.0        ## px of `gate` past 0 over which the big
+                                ## splat-lobe/flow-lag richness fades IN
+                                ## from zero — continuous with the bounded
+                                ## edge at the crossing, no seam, and keeps
+                                ## the tightly-bounded strip right at the
+                                ## true line free of the big lobe's own
+                                ## amplitude.
   ZoneMeniscusCellPx = 190.0     ## big-lobe lattice spacing (120-250px band).
-  ZoneMeniscusAmpPx = 95.0       ## big-lobe displacement, px.
-  ZoneMeniscusFineCellPx = 55.0  ## second octave: texture, not new lobes.
-  ZoneMeniscusFineAmpPx = 22.0
+  ZoneMeniscusAmpPx = 95.0       ## big-lobe displacement, px — DEEP BODY
+                                 ## only now (zoneBodyLobeAdvanceAt), never
+                                 ## the first-paint edge; see ZoneEdgeBoundPx.
   ZoneMeniscusSeed = 0x2E15
-  ## The meniscus noise can shift the apparent boundary by at most
-  ## ZoneMeniscusAmpPx + ZoneMeniscusFineAmpPx either way. Past that margin
-  ## beyond the drown depth, force solid coverage regardless of noise phase
-  ## — the "no pinholes in the deep mass" guarantee the damage boundary
-  ## relies on (a tile taking zone damage must never render as clean floor),
-  ## now proven by a fixed bound instead of read off the splat math.
+  ## `gate` can read up to ZoneCornerRoundPx + ZoneEdgeBoundPx BELOW the
+  ## honest `d`, and the body ramp on top of it can read up to
+  ## ZoneMeniscusAmpPx below that again (flow lag only ever ADDS, never
+  ## subtracts — see the `max(0.0, ...)` clamp in zoneDeadPixelColor).
+  ## Past that combined margin beyond the drown depth, force solid coverage
+  ## regardless of noise phase — the "no pinholes in the deep mass"
+  ## guarantee the damage boundary relies on (a tile taking zone damage
+  ## must never render as clean floor), proven by a fixed bound rather than
+  ## read off the splat math. (Once a pixel crosses this threshold its
+  ## color is a PURE function of its own position — see
+  ## ensureZoneStaticFields — so the bound is also what makes that
+  ## precomputation safe: nothing past it depends on the rect at all.)
   ZoneHardSolidDepthPx = ZoneDrownDepthPx * 2 +
-    ZoneMeniscusAmpPx.int + ZoneMeniscusFineAmpPx.int + 1
+    ZoneCornerRoundPx.int + ZoneEdgeBoundPx.int + ZoneMeniscusAmpPx.int + 1
   ## DROPLETS — small round advance spatter ahead of the meniscus, replacing
   ## the old splat-with-arms marks entirely (those are weapon-hit language,
   ## wrong scale for a flood). One per ~200px-square cell at most, radius
@@ -6558,14 +6618,13 @@ const
   ZoneFlowFarBlendPx = 90.0   ## honest px past ZoneFlowNearTrustPx at
                               ## which the blend finishes handing off to
                               ## the flow field entirely.
-  ## EDGE SOFTNESS + WET GLOSS — same 2026-08-25 ruling: "this looks like a
-  ## dark pink mess" traced to two literal discontinuities in the old
+  ## EDGE SOFTNESS — 2026-08-25 (round 1) ruling: "this looks like a dark
+  ## pink mess" traced to two literal discontinuities in the old
   ## zoneDeadPixelColor: alpha jumped 0->255 the instant effDepth crossed
   ## 0, and color jumped from the flat dark rim straight to fully-saturated
   ## fresh pink the instant effDepth crossed ZoneRimWidthPx — both
-  ## one-pixel-wide seams, which is what "hard edge" and "mess" were
-  ## actually describing under the organic (but still hard-edged) meniscus
-  ## silhouette. Below, both become continuous ramps instead of branches.
+  ## one-pixel-wide seams. Below, both are continuous ramps instead of
+  ## branches; unaffected by round 2.
   ZoneFeatherPx = 3.0     ## antialiased leading edge, px of effDepth:
                           ## alpha ramps 0 -> opaque across this band
                           ## instead of snapping the instant effDepth
@@ -6573,16 +6632,50 @@ const
   ZoneRimBlendPx = 7.0    ## how many effDepth px it takes the dark rim
                           ## tone to hand off into the fresh-paint body
                           ## tone, instead of jumping instantly.
-  ZoneGlossPoolCellPx = 170.0 ## wet sheen: rounded highlight pools
-                              ## scattered across the body — the same
-                              ## splotch shape advance droplets use (a
-                              ## jittered hashed disc per cell), just
-                              ## bigger/softer/sparser, off the meniscus
-                              ## lattice's own cell size so the two never
-                              ## visibly align into a grid.
-  ZoneGlossPoolMinRPx = 35.0
-  ZoneGlossPoolMaxRPx = 85.0
-  ZoneGlossPoolChancePct = 55
+  ## WET BODY, round 2 — Maxwell's showmatch-viewer ruling: the round-1
+  ## gloss pool ("rounded sheen pools scattered through the body") "read as
+  ## light circles and spots... doesn't make it look like the paint
+  ## splats. it makes it look like cheese." A scattered, evenly-hashed
+  ## highlight disc is exactly a cheese-hole read: same shape repeated at
+  ## the same cell cadence everywhere, brighter than its surroundings, so
+  ## it reads as a HOLE letting light through rather than a wet surface.
+  ## Removed outright (no replacement highlight of any kind, scattered or
+  ## otherwise — the ask was explicit: "no scattered light discs"). Wetness
+  ## instead comes from the SAME paint language the game's own splats
+  ## already speak (paintSplatDensity, shared with buildPaintStainSprite's
+  ## dried floor stains and the wet on-hit splat) at zone scale:
+  ##   - rim/meniscus DARKENING at the leading edge (ZoneRimColor, already
+  ##     present, unchanged) — a real puddle's edge is where the paint is
+  ##     thinnest and darkest against the floor, not lit.
+  ##   - tonal depth VARIATION across the body (zoneToneAdvanceAt, now
+  ##     precomputed — see ensureZoneStaticFields) reads as depth/thickness
+  ##     variation in the paint itself, brighter and darker patches with no
+  ##     hard edge between them, never a highlight.
+  ##   - irregular SPLAT-SHAPED frontier lobes (zoneBodyLobeAdvanceAt)
+  ##     in place of round-1's smooth 2-octave noise: the boundary now
+  ##     tongues and recedes in actual gob/finger/droplet shapes, the same
+  ##     silhouette language paintSplatDensity gives every other paint mark
+  ##     in this game, just tiled at a much bigger scale.
+  ##
+  ## WET BODY, round 2 follow-up (viewer-judge soft note): a first pass at
+  ## tonal variation sampled ONE plain value-noise octave straight — round,
+  ## evenly-spaced blobs off one regular lattice, just dark instead of
+  ## bright. Structurally the SAME shape complaint the gloss pool was
+  ## rejected for, only recolored. zoneToneAdvanceAt fixes this by giving
+  ## every point its own LOCAL streak angle (a second, coarser,
+  ## independently-seeded noise field — real paint currents don't all run
+  ## one way) and sampling the tone octave in a frame rotated into that
+  ## angle with the cross-axis compressed (ZoneToneStreakLenX), so the
+  ## normally-round iso-blobs stretch into elongated streaks whose
+  ## orientation itself wanders across the board — no fixed grid, no round
+  ## blobs, reads as flow/current texture instead of a blob lattice.
+  ZoneToneStreakAnglePx = 260.0  ## lattice for the LOCAL streak-angle
+                                 ## field — deliberately its own scale, off
+                                 ## every other lattice in this file, so it
+                                 ## can never visibly co-align with one.
+  ZoneToneStreakLenX = 2.6       ## cross-axis compression: how much more
+                                 ## elongated a streak reads than the plain
+                                 ## octave's own round blobs.
 
 proc zoneMeniscusHash(seed, kx, ky: int): float {.inline.} =
   ## Deterministic 2D lattice noise in [-1, 1] — a pure function of its
@@ -6622,15 +6715,28 @@ proc zoneMeniscusOctave(px, py, cellPx: float, seed: int): float =
     nx1 = n01 + (n11 - n01) * sx
   nx0 + (nx1 - nx0) * sy
 
-proc zoneMeniscusAdvance(px, py: float): float =
-  ## How far the meniscus has advanced past the honest rect distance at map
-  ## point (px, py), px, + = further advanced (drowned sooner). Two octaves
-  ## only, per Maxwell's ruling — a third would start reading as grain
-  ## rather than lobes.
-  zoneMeniscusOctave(px, py, ZoneMeniscusCellPx, ZoneMeniscusSeed) *
-    ZoneMeniscusAmpPx +
-  zoneMeniscusOctave(px, py, ZoneMeniscusFineCellPx,
-    ZoneMeniscusSeed xor 0x51) * ZoneMeniscusFineAmpPx
+proc roundedRectSignedDist(rect: MapRect, cornerR, px, py: float): float =
+  ## Signed distance (px) from map point (px, py) to `rect`'s boundary with
+  ## its corners rounded to radius `cornerR` — negative inside, 0 on the
+  ## boundary, positive outside. Standard 2D "rounded box" SDF. Plain
+  ## Chebyshev distance (distanceOutsideRect) has perfectly SQUARE
+  ## isolines even after round 1's meniscus noise perturbed them — additive
+  ## noise jitters a square's edge, it does not round its CORNER, which is
+  ## exactly why Maxwell's round-2 review still read "a hard rectangle
+  ## edge" despite an up-to-117px warp. This actually rounds it. Provably
+  ## within `cornerR` of the sharp-box distance everywhere (0 far from any
+  ## corner, at most `cornerR` right at one) — see ZoneHardSolidDepthPx's
+  ## derivation, which relies on that bound.
+  let
+    hw = float(rect.w) * 0.5
+    hh = float(rect.h) * 0.5
+    cx = float(rect.x) + hw
+    cy = float(rect.y) + hh
+    qx = abs(px - cx) - hw + cornerR
+    qy = abs(py - cy) - hh + cornerR
+    ax = max(qx, 0.0)
+    ay = max(qy, 0.0)
+  sqrt(ax * ax + ay * ay) + min(max(qx, qy), 0.0) - cornerR
 
 proc zoneDropletCellHash(seed, cx, cy: int): uint32 {.inline.} =
   ## Deterministic per-cell hash for droplet placement — the same unsigned
@@ -6691,6 +6797,114 @@ proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
   ## the meniscus, so a droplet can never render inside the safe area.
   zoneCellSplotchAt(qx, qy, cellSeed, float(ZoneDropletCellPx),
     ZoneDropletMinRPx, ZoneDropletMaxRPx, ZoneDropletChancePct)
+
+proc zoneBodyLobeAdvanceAt(px, py: float): float =
+  ## How far the DEEP body's rim/fresh/drowned ramp should push past the
+  ## bounded edge gate at this position, in [-ZoneMeniscusAmpPx,
+  ## +ZoneMeniscusAmpPx] — SPLAT-shaped rather than smooth-noise-shaped, so
+  ## the frontier reads as "irregular splat-like lobes" (Maxwell's round-2
+  ## ask), reusing `paintSplatDensity` — the exact gob/finger/droplet
+  ## silhouette language buildPaintStainSprite's own floor stains and the
+  ## wet on-hit splat already speak — at zone scale instead of a bespoke
+  ## noise field. A lattice of ZoneMeniscusCellPx-spaced stamps, each a
+  ## full splat gob sized to overlap its neighbours so they merge into a
+  ## coastline; this point's own advance is the STRONGEST stamp covering
+  ## it — deep inside overlapping gobs reads +amp (a tongue), a cove
+  ## between them reads -amp (the paint recedes there).
+  ##
+  ## PURE function of position only — paintSplatDensity has no rect/tick
+  ## dependence — so ensureZoneStaticFields computes this exactly ONCE per
+  ## map and caches it (ZoneBodyLobeField); it is never re-run per tick or
+  ## per pixel of a live frame. That is the fix for round 1's dominant
+  ## per-pixel cost: a 9-cell splat scan (each ~10 sqrt calls) is cheap
+  ## amortized once over a whole match, ruinous re-run on every shrink
+  ## tick across up to the whole board.
+  let
+    cellPx = ZoneMeniscusCellPx
+    baseCx = floor(px / cellPx).int
+    baseCy = floor(py / cellPx).int
+    fs = cellPx * 1.7   ## bigger than the cell so neighbouring stamps
+                        ## overlap and merge rather than reading as
+                        ## isolated dots.
+  var best = 0.0
+  for oy in -1 .. 1:
+    for ox in -1 .. 1:
+      let
+        cx = baseCx + ox
+        cy = baseCy + oy
+        h = zoneDropletCellHash(ZoneMeniscusSeed xor 0x37, cx, cy)
+        variant = int(h mod 8'u32)
+        jx = (float(cx) + 0.5) * cellPx +
+          (float(int((h shr 8) mod 1000'u32)) / 1000.0 - 0.5) * cellPx * 0.6
+        jy = (float(cy) + 0.5) * cellPx +
+          (float(int((h shr 20) mod 1000'u32)) / 1000.0 - 0.5) * cellPx * 0.6
+        density = paintSplatDensity(px, py, jx, jy, fs, variant)
+      best = max(best, density)
+  (best - 0.5) * 2.0 * ZoneMeniscusAmpPx
+
+proc zoneToneAdvanceAt(px, py: float): float =
+  ## De-gridded, STREAK-shaped tonal depth reading (see the WET BODY round-2
+  ## follow-up doc above): a coarse, independently-seeded field gives every
+  ## point its own local streak angle, then the base tone octave is sampled
+  ## in a frame rotated into that angle with the cross-axis compressed —
+  ## the plain octave's round, evenly-spaced blobs stretch into elongated
+  ## streaks whose orientation wanders smoothly across the board instead of
+  ## sitting on one fixed lattice. PURE function of position, precomputed
+  ## once per map (ensureZoneStaticFields) — the extra octave call here
+  ## costs nothing per tick, unlike everything round 1 paid for per pixel.
+  let
+    angle = zoneMeniscusOctave(px, py, ZoneToneStreakAnglePx,
+      ZoneMeniscusSeed xor 0x4D) * PI
+    ca = cos(angle)
+    sa = sin(angle)
+    along = px * ca + py * sa
+    across = (px * -sa + py * ca) * ZoneToneStreakLenX
+  zoneMeniscusOctave(along, across, ZoneMeniscusCellPx * 1.4,
+    ZoneMeniscusSeed xor 0x9C)
+
+proc zoneDrownedColorAt(tone: float32): ColorRGBA {.inline.} =
+  ## The fully-drowned (hardSolid) body color — DrownPaint tinted by a tone
+  ## sample — exactly what zoneDeadPixelColor's body ramp converges to once
+  ## fully saturated (handoffT = rampT = 1). A pure function of the tone
+  ## value alone, factored out so ensureZoneStaticFields can bake it once
+  ## per pixel instead of the body ramp re-deriving the same saturated
+  ## result on every tick.
+  let toneGain = 1.0 + float(tone) * 0.16
+  rgba(
+    uint8(clamp(float(ZoneDrownPaint.r) * toneGain, 0.0, 255.0)),
+    uint8(clamp(float(ZoneDrownPaint.g) * toneGain, 0.0, 255.0)),
+    uint8(clamp(float(ZoneDrownPaint.b) * toneGain, 0.0, 255.0)),
+    ZoneDrownPaint.a)
+
+var
+  ZoneStaticFieldsKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
+  ZoneToneField: seq[float32]      ## per pixel, the low-frequency tonal
+                                   ## variation octave (zoneDeadPixelColor's
+                                   ## body brightness gain) — PURE function
+                                   ## of position, so computed once per map.
+  ZoneBodyLobeField: seq[float32]  ## per pixel, zoneBodyLobeAdvanceAt —
+                                   ## same "pure function of position, once
+                                   ## per map" reasoning; this is the
+                                   ## expensive (9-cell splat scan) one.
+  ZoneDrownedRgba: seq[uint8]      ## per pixel RGBA, the fully-drowned
+                                   ## (hardSolid) appearance — see
+                                   ## zoneDrownedColorAt. buildTideBarPixels
+                                   ## blits straight from this for any pixel
+                                   ## at or past ZoneHardSolidDepthPx: ZERO
+                                   ## live math, the fix for round 1's
+                                   ## per-tick full-board repaint.
+
+proc zoneToneAt(px, py: int): float32 {.inline.} =
+  if px < 0 or py < 0 or px >= ZoneWallArtMaskW or py >= ZoneWallArtMaskH or
+      ZoneToneField.len != ZoneWallArtMaskW * ZoneWallArtMaskH:
+    return 0.0'f32
+  ZoneToneField[py * ZoneWallArtMaskW + px]
+
+proc zoneBodyLobeAt(px, py: int): float =
+  if px < 0 or py < 0 or px >= ZoneWallArtMaskW or py >= ZoneWallArtMaskH or
+      ZoneBodyLobeField.len != ZoneWallArtMaskW * ZoneWallArtMaskH:
+    return 0.0
+  float(ZoneBodyLobeField[py * ZoneWallArtMaskW + px])
 
 var
   ZoneFlowGridKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
@@ -6893,49 +7107,48 @@ proc zoneFlowBlendedDepth(d: int, fx, fy: float): float {.inline.} =
   float(d) * (1.0 - w) + sample.depth * w
 
 proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
-  ## One pixel of the DEAD region: ONE liquid splat whose boundary is the
-  ## art (a meniscus, a rim, a body — see the consts above), not stamped
-  ## sprites near an otherwise straight rectangular edge. Two 2026-08-25
-  ## fixes on top of the meniscus (1942c17): the boundary's WALK-AWARE
-  ## depth (zoneFlowBlendedDepth — a room behind a doorway lags the open
-  ## field around it) and a continuous, antialiased gradient (feather ->
-  ## rim -> fresh -> drowned, one function of effDepth, no discrete-color
-  ## or discrete-alpha jump anywhere in it) in place of the old flat-color
-  ## rim with an instant alpha edge.
+  ## One pixel of the ACTIVE band — see buildTideBarPixels, which never
+  ## calls this for a pixel at or past ZoneHardSolidDepthPx (that region is
+  ## a precomputed lookup, ensureZoneStaticFields/ZoneDrownedRgba). ONE
+  ## liquid splat whose boundary is the art (a rounded, bounded gate; a
+  ## rim; a body — see the round-2 consts above), not stamped sprites near
+  ## an otherwise straight rectangular edge.
   ##
-  ## `d` is the honest `distanceOutsideRect` (the caller already skips
-  ## d <= 0, so this is always > 0 here) — the gameplay-relevant, damage-
-  ## keyed distance. It alone still gates `hardSolid`: the "no pinholes the
-  ## damage boundary can walk into" guarantee must hold regardless of what
-  ## the flow field says about any one pocket, so it is never touched by
-  ## zoneFlowBlendedDepth or zoneMeniscusAdvance — both only ever reshape
-  ## WHICH outside pixels look further/less advanced; a pixel with d <= 0
-  ## is never reached at all, so the safe rect's floor stays exactly as
-  ## clean as before.
-  let fx = float(px)
-  let fy = float(py)
-  # Deep interior: always fully opaque, regardless of noise/flow phase —
-  # the "no pinholes" guarantee, a fixed bound (ZoneHardSolidDepthPx safely
-  # exceeds the noise's max amplitude) rather than something read off
-  # splat coverage. Tonal variation and gloss still apply so the deep body
-  # is not a flat card.
-  let hardSolid = d >= ZoneHardSolidDepthPx
-  let effDepth =
-    if hardSolid: float(ZoneDrownDepthPx) * 2.0
-    else: zoneFlowBlendedDepth(d, fx, fy) + zoneMeniscusAdvance(fx, fy)
-  if not hardSolid and effDepth <= -ZoneFeatherPx:
+  ## `d` is the honest `distanceOutsideRect` (damage-keyed, untouched) —
+  ## used only for the walk-aware flow sample below. It is NOT what decides
+  ## where paint first appears any more: that is `gate`, a bounded,
+  ## rounded-corner signed distance (see ZoneEdgeBoundPx/
+  ## roundedRectSignedDist) that can read up to ZoneEdgeBoundPx px either
+  ## side of the true rect line, including a few px INSIDE it — the "round
+  ## out naturally, don't cut abruptly" fix. Past the gate, flow-lag and
+  ## the big splat-shaped body lobe (zoneBodyLobeAt, precomputed) fade in
+  ## over ZoneBodyRampPx so there is no seam at the crossing, and only ADD
+  ## depth (flowExtra is clamped >= 0) — never pull a point back below the
+  ## bounded gate's own transparency decision.
+  let
+    fx = float(px)
+    fy = float(py)
+    edgeWarp = zoneMeniscusOctave(fx, fy, ZoneEdgeWarpCellPx,
+      ZoneMeniscusSeed xor 0x51) * ZoneEdgeBoundPx
+    gate = roundedRectSignedDist(rect, ZoneCornerRoundPx, fx, fy) + edgeWarp
+  if gate <= -ZoneFeatherPx:
     # Ahead of any wetness: bare floor, except for sparse advance droplets.
     let drop = zoneDropletAt(fx, fy, ZoneMeniscusSeed xor 0x77)
     if drop.hit:
       return rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b,
         uint8(drop.a * float(ZoneSplatPaint.a)))
     return rgba(0, 0, 0, 0)
-  if not hardSolid and effDepth <= ZoneRimWidthPx:
+  let
+    rampT = clamp(gate / ZoneBodyRampPx, 0.0, 1.0)
+    flowExtra = max(0.0, zoneFlowBlendedDepth(d, fx, fy) - float(d))
+    bodyLobe = zoneBodyLobeAt(px, py)
+    effDepth = gate + rampT * (flowExtra + bodyLobe)
+  if effDepth <= ZoneRimWidthPx:
     # Feather + rim, ONE continuous alpha ramp from fully transparent at
     # -ZoneFeatherPx to fully opaque dark rim at ZoneRimWidthPx — no jump
-    # anywhere in this band, which is the "hard edge" fix. A droplet ahead
-    # of or inside the feather composites OVER the wash, never instead of
-    # it, so a drip is never erased by the wash arriving under it later.
+    # anywhere in this band. A droplet ahead of or inside the feather
+    # composites OVER the wash, never instead of it, so a drip is never
+    # erased by the wash arriving under it later.
     let t = clamp((effDepth + ZoneFeatherPx) /
       (ZoneFeatherPx + ZoneRimWidthPx), 0.0, 1.0)
     var wash = rgba(ZoneRimColor.r, ZoneRimColor.g, ZoneRimColor.b,
@@ -6947,65 +7160,37 @@ proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
         if da > wash.a:
           wash = rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b, da)
     return wash
-  # Body (also reached for hardSolid, which skips both branches above):
-  # the rim tone hands off into fresh pink over ZoneRimBlendPx — was an
-  # instant color jump right behind the first hard edge — then ramps to
-  # drowned purple by twice the drown depth exactly as before. One
-  # continuous function of effDepth throughout, so there is no seam left
-  # in it anywhere.
+  # Body: the rim tone hands off into fresh pink over ZoneRimBlendPx, then
+  # ramps to drowned purple by twice the drown depth — one continuous
+  # function of effDepth throughout, no seam anywhere in it. (At
+  # saturation this is exactly zoneDrownedColorAt's own formula, which is
+  # what makes the hand-off to the precomputed hardSolid lookup seamless.)
   let
     handoffT = clamp((effDepth - ZoneRimWidthPx) / ZoneRimBlendPx, 0.0, 1.0)
-    rampT = clamp(
+    rampT2 = clamp(
       (effDepth - ZoneRimWidthPx - ZoneRimBlendPx) /
         (float(ZoneDrownDepthPx) * 2.0 - ZoneRimWidthPx - ZoneRimBlendPx),
       0.0, 1.0)
-    freshR = float(ZoneSplatPaint.r) * (1.0 - rampT) + float(ZoneDrownPaint.r) * rampT
-    freshG = float(ZoneSplatPaint.g) * (1.0 - rampT) + float(ZoneDrownPaint.g) * rampT
-    freshB = float(ZoneSplatPaint.b) * (1.0 - rampT) + float(ZoneDrownPaint.b) * rampT
-    freshA = float(ZoneSplatPaint.a) * (1.0 - rampT) + float(ZoneDrownPaint.a) * rampT
+    freshR = float(ZoneSplatPaint.r) * (1.0 - rampT2) + float(ZoneDrownPaint.r) * rampT2
+    freshG = float(ZoneSplatPaint.g) * (1.0 - rampT2) + float(ZoneDrownPaint.g) * rampT2
+    freshB = float(ZoneSplatPaint.b) * (1.0 - rampT2) + float(ZoneDrownPaint.b) * rampT2
+    freshA = float(ZoneSplatPaint.a) * (1.0 - rampT2) + float(ZoneDrownPaint.a) * rampT2
     baseR = uint8(float(ZoneRimColor.r) * (1.0 - handoffT) + freshR * handoffT)
     baseG = uint8(float(ZoneRimColor.g) * (1.0 - handoffT) + freshG * handoffT)
     baseB = uint8(float(ZoneRimColor.b) * (1.0 - handoffT) + freshB * handoffT)
     baseA = uint8(float(ZoneRimColor.a) * (1.0 - handoffT) + freshA * handoffT)
   var color = rgba(baseR, baseG, baseB, baseA)
-  # Low-frequency tonal variation across the whole body (deep mass
-  # included, via a THIRD, independently-seeded octave that never touches
-  # alpha/coverage — only how bright a given patch of liquid reads).
-  let
-    tone = zoneMeniscusOctave(fx, fy, ZoneMeniscusCellPx * 1.4,
-      ZoneMeniscusSeed xor 0x9C)
-    toneGain = 1.0 + tone * 0.16
-  color = rgba(
+  # Low-frequency tonal DEPTH variation across the body — never touches
+  # alpha/coverage, only how bright a patch of paint reads — one of the
+  # three wet cues that replace round 1's gloss-pool "cheese": see the WET
+  # BODY doc comment above. Precomputed (zoneToneAt), same field used to
+  # bake ZoneDrownedRgba, so the hand-off at ZoneHardSolidDepthPx is exact.
+  let toneGain = 1.0 + float(zoneToneAt(px, py)) * 0.16
+  rgba(
     uint8(clamp(float(color.r) * toneGain, 0.0, 255.0)),
     uint8(clamp(float(color.g) * toneGain, 0.0, 255.0)),
     uint8(clamp(float(color.b) * toneGain, 0.0, 255.0)),
     color.a)
-  # Wet sheen: rounded highlight pools scattered across the body (the same
-  # splotch shape advance droplets use, just bigger/softer/sparser) rather
-  # than one elongated streak — Maxwell (2026-08-25): "the puddles look
-  # more wet than this" is the bar, and map_art.nim's own
-  # puddleArtColorAt earns its wet read from a rounded off-center
-  # highlight, not a smear.
-  let pool = zoneCellSplotchAt(fx, fy, ZoneMeniscusSeed xor 0xC3,
-    ZoneGlossPoolCellPx, ZoneGlossPoolMinRPx, ZoneGlossPoolMaxRPx,
-    ZoneGlossPoolChancePct)
-  if pool.hit:
-    let g = pool.a * (float(ZoneGlossTint.a) / 255.0)
-    color = rgba(
-      uint8(float(color.r) * (1.0 - g) + float(ZoneGlossTint.r) * g),
-      uint8(float(color.g) * (1.0 - g) + float(ZoneGlossTint.g) * g),
-      uint8(float(color.b) * (1.0 - g) + float(ZoneGlossTint.b) * g),
-      color.a)
-    # A small brighter hot-spot right at a strong pool's own center — the
-    # specular catch-light that sells "wet" over "painted".
-    if pool.a > 0.7:
-      let hs = (pool.a - 0.7) / 0.3 * 0.5
-      color = rgba(
-        uint8(clamp(float(color.r) * (1.0 - hs) + 255.0 * hs, 0.0, 255.0)),
-        uint8(clamp(float(color.g) * (1.0 - hs) + 245.0 * hs, 0.0, 255.0)),
-        uint8(clamp(float(color.b) * (1.0 - hs) + 250.0 * hs, 0.0, 255.0)),
-        color.a)
-  color
 
 proc ensureZoneWallArtMask(sim: SimServer) =
   ## Precomputes, once per map, which pixels are covered by RENDERED wall
@@ -7060,17 +7245,74 @@ proc isZoneWallArt(x, y: int): bool {.inline.} =
     return true
   ZoneWallArtMask[y * ZoneWallArtMaskW + x]
 
+proc ensureZoneStaticFields(sim: SimServer) =
+  ## Precomputes, once per map, the THREE per-pixel quantities the round-2
+  ## perf fix depends on being PURE functions of position alone: the tonal
+  ## octave, the splat-shaped body lobe, and the fully-drowned (hardSolid)
+  ## color they combine into. Same cache idiom as ensureZoneWallArtMask
+  ## (keyed on map dims + center, a no-op past the first call for a given
+  ## map) — this is the SAME O(map area) work round 1 paid EVERY SHRINK
+  ## TICK inside buildTideBarPixels; here it runs once for the whole match.
+  ## buildTideBarPixels then blits straight from ZoneDrownedRgba for any
+  ## pixel at or past ZoneHardSolidDepthPx (round 1's dominant per-frame
+  ## cost, since that region can be up to the whole board late in a
+  ## shrink) — zero live math, not even a cheaper one.
+  ensureZoneWallArtMask(sim)
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy)
+  if key == ZoneStaticFieldsKey and ZoneToneField.len == w * h:
+    return
+  ZoneStaticFieldsKey = key
+  ZoneToneField = newSeq[float32](w * h)
+  ZoneBodyLobeField = newSeq[float32](w * h)
+  ZoneDrownedRgba = newSeq[uint8](w * h * 4)
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      if isZoneWallArt(x, y):
+        continue    # leaves tone/lobe at 0 and RGBA fully transparent —
+                     # buildTideBarPixels already skips wall-art pixels
+                     # before ever consulting this table, so these entries
+                     # are simply never read; zeroed for determinism only.
+      let
+        idx = y * w + x
+        fx = float(x)
+        fy = float(y)
+        tone = zoneToneAdvanceAt(fx, fy).float32
+      ZoneToneField[idx] = tone
+      ZoneBodyLobeField[idx] = zoneBodyLobeAdvanceAt(fx, fy).float32
+      let
+        c = zoneDrownedColorAt(tone)
+        o = idx * 4
+      ZoneDrownedRgba[o] = c.r
+      ZoneDrownedRgba[o + 1] = c.g
+      ZoneDrownedRgba[o + 2] = c.b
+      ZoneDrownedRgba[o + 3] = c.a
+
 proc buildTideBarPixels(
   sim: SimServer, rect: MapRect, barX, barY, width, height: int
 ): seq[uint8] =
   ## Builds one edge bar's RGBA buffer by painting every pixel strictly
-  ## outside `rect` with zoneDeadPixelColor. The four bars together tile the
-  ## rect's complement exactly, so "everything outside is painted" is a
-  ## property of the tiling, not of any per-pixel formula.
+  ## outside `rect` (plus a small ZoneEdgeBoundPx-deep ring just inside it —
+  ## see ensureZoneTideCache's inset geometry) with the zone paint. The
+  ## bars together tile that region exactly, so "everything outside is
+  ## painted" is a property of the tiling, not of any per-pixel formula.
   ##
   ## No tick and no side index any more: the paint is a function of MAP
   ## position and the rect alone, which is what makes a splat that has
   ## appeared stay exactly as it is.
+  ##
+  ## PERF (round 2): every pixel at or past ZoneHardSolidDepthPx is a
+  ## precomputed lookup (ZoneDrownedRgba, see ensureZoneStaticFields) — no
+  ## flow sample, no noise octave, no splat scan, just an array read. Only
+  ## the ACTIVE band close to the current boundary (bounded by
+  ## ZoneHardSolidDepthPx regardless of how large the rect's complement has
+  ## grown) still calls zoneDeadPixelColor. Round 1 ran the expensive path
+  ## for the ENTIRE bar every shrink tick — up to the whole board late in a
+  ## match — which is what "SUPER laggy... unwatchable" was measuring.
   ##
   ## Maxwell (2026-08-24, screenshot of the recorded match): "the terrain
   ## should be on top of the paint too just like with puddles. it covers the
@@ -7095,16 +7337,32 @@ proc buildTideBarPixels(
   ## past the collidable core, so most of a wall's visible footprint was
   ## still reading as painted magenta rather than its own brown.
   result = newRgbaPixels(width, height)
+  let mapW = ZoneWallArtMaskW
   for ly in 0 ..< height:
     let py = barY + ly
     for lx in 0 ..< width:
       let
         px = barX + lx
-        d = distanceOutsideRect(rect, px, py)
-      if d <= 0:
-        continue
+        sd = signedDistanceOutsideRect(rect, px, py)
+      if sd <= -ZoneEdgeBoundPxInt:
+        continue                # deep enough inside the true rect to never
+                                 # paint — the tiling already excludes this
+                                 # in practice; kept as a cheap guard.
       if isZoneWallArt(px, py):
         continue
+      let d = max(0, sd)
+      if d >= ZoneHardSolidDepthPx:
+        when defined(zoneTideCacheProbe):
+          inc ZoneSealedPixels
+        let o = (py * mapW + px) * 4
+        let a = ZoneDrownedRgba[o + 3]
+        if a == 0:
+          continue
+        result.putRawRgbaPixel(ly * width + lx,
+          ZoneDrownedRgba[o], ZoneDrownedRgba[o + 1], ZoneDrownedRgba[o + 2], a)
+        continue
+      when defined(zoneTideCacheProbe):
+        inc ZoneActivePixels
       let color = zoneDeadPixelColor(rect, px, py, d)
       if color.a == 0:
         continue
@@ -7174,23 +7432,43 @@ proc ensureZoneTideCache(sim: SimServer, rect: MapRect): bool {.discardable.} =
   when defined(zoneTideCacheProbe):
     inc ZoneTideCacheMisses
   ZoneTideCacheKey = key
-  ensureZoneWallArtMask(sim)  ## a no-op past the first call for this map.
+  ensureZoneStaticFields(sim)  ## a no-op past the first call for this map
+                               ## (also runs ensureZoneWallArtMask).
   computeZoneFlowDist(sim, rect)  ## the walk-aware flood — same (center,
                                   ## rect) cadence as this whole rebuild;
                                   ## see the LIQUID FLOW note above.
   ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
   ## is sized in real MAP pixels, so it reads the same lobe scale on any
   ## board without a proportionality fudge.
+  ##
+  ## The four bars tile everything outside `rin`, not `rect` — `rin` is
+  ## `rect` shrunk by ZoneEdgeBoundPx on every side, so the render region
+  ## includes a thin ring just INSIDE the true rect too. That is what lets
+  ## the bounded edge gate (roundedRectSignedDist + a small warp, both in
+  ## zoneDeadPixelColor) actually round a corner out or bulge a lobe in
+  ## instead of being clipped exactly at the line — see the round-2
+  ## MENISCUS SHAPE doc above. Still an exact, non-overlapping partition,
+  ## same tiling shape as before with `rin` in place of `rect`.
   let
     mapW = sim.gameMap.width
     mapH = sim.gameMap.height
+    # Clamped to half the rect's own size: a rect narrower/shorter than
+    # 2*ZoneEdgeBoundPx shrinks toward its own center instead of the inset
+    # overshooting past the OPPOSITE true edge (which would misroute pixels
+    # between bars — a final-phase rect on a small map is the realistic
+    # case this guards).
+    insetX = min(ZoneEdgeBoundPxInt, rect.w div 2)
+    insetY = min(ZoneEdgeBoundPxInt, rect.h div 2)
+    rin = MapRect(
+      x: rect.x + insetX, y: rect.y + insetY,
+      w: max(0, rect.w - 2 * insetX), h: max(0, rect.h - 2 * insetY))
     bars = [
-      (x: 0, y: 0, w: mapW, h: max(0, rect.y), alongIsX: true),        # top
-      (x: 0, y: rect.y + rect.h, w: mapW,
-        h: max(0, mapH - (rect.y + rect.h)), alongIsX: true),          # bottom
-      (x: 0, y: rect.y, w: max(0, rect.x), h: rect.h, alongIsX: false), # left
-      (x: rect.x + rect.w, y: rect.y, w: max(0, mapW - (rect.x + rect.w)),
-        h: rect.h, alongIsX: false),                                   # right
+      (x: 0, y: 0, w: mapW, h: max(0, rin.y), alongIsX: true),        # top
+      (x: 0, y: rin.y + rin.h, w: mapW,
+        h: max(0, mapH - (rin.y + rin.h)), alongIsX: true),          # bottom
+      (x: 0, y: rin.y, w: max(0, rin.x), h: rin.h, alongIsX: false), # left
+      (x: rin.x + rin.w, y: rin.y, w: max(0, mapW - (rin.x + rin.w)),
+        h: rin.h, alongIsX: false),                                   # right
     ]
   for i, bar in bars:
     ZoneTideCacheGeom[i] = (x: bar.x, y: bar.y, w: bar.w, h: bar.h)
