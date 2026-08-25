@@ -6668,20 +6668,40 @@ proc cmdGenerate(a: Args) =
       stderr.writeLine(&"TIMING items={(epochTime()-itemT0)*1000:.0f}ms")
   let spec = brMapSpecJson(m)
   let outPath = a.flag("out", "")
+  ## ROUND 14 FIX (launch-readiness item 3, confirmed): this used to write
+  ## the spec UNCONDITIONALLY and only run validateBr AFTERWARD, purely for
+  ## a stderr diagnostic — a map that fails a hard doctrine gate (or blows
+  ## the replay wire's 65535B string cap) shipped to the output path
+  ## exactly like a passing one, with allPass=false sitting right there in
+  ## the log nobody's required to read. Compute the verdict FIRST and make
+  ## it a REAL gate: by default, refuse to write (or echo) a failing map at
+  ## all and exit nonzero. --lenient restores the old unconditional-write
+  ## behavior for interactive iteration (eyeballing a rejected draw, tuning
+  ## params against a live failure, etc.) — it still computes and prints
+  ## the SAME verdict, it just doesn't act on it.
+  when defined(brDebugBurrow):
+    let valT0 = epochTime()
+  let v = validateBr(m)
+  when defined(brDebugBurrow):
+    stderr.writeLine(&"TIMING final validateBr={(epochTime()-valT0)*1000:.0f}ms")
+  let lenient = a.bools.getOrDefault("lenient", false)
+  let overCap = v.specSizeBytes > SpecSizeBudgetBytes
+  ## v.allPass already folds in specSizePass; overCap is checked again
+  ## explicitly (redundant with specSizePass by construction today) as a
+  ## defense-in-depth backstop specifically for the wire hard cap — the one
+  ## failure mode that corrupts a REPLAY, not just a doctrine metric.
+  let gatePass = v.allPass and not overCap
+  if not gatePass and not lenient:
+    stderr.writeLine(
+      &"REFUSED br {styleToStr(style)} seed={seed} — failing map NOT written" &
+      &"{(if outPath.len > 0: \" to \" & outPath else: \"\")} " &
+      &"(allPass={v.allPass}, specSizeBytes={v.specSizeBytes}/{SpecSizeBudgetBytes}" &
+      &"{(if overCap: \" OVER CAP\" else: \"\")}); pass --lenient to write anyway.")
   if outPath.len == 0:
-    echo spec
+    if gatePass or lenient: echo spec
   else:
-    writeFile(outPath, spec)
-    ## ROUND 8 (deliverable #1: "Print measured permille in every gen log +
-    ## metrics"): a full validateBr call here is the cheapest way to get
-    ## coverPermille/bigMassCount/specSizeBytes without duplicating the
-    ## measurement code — it's a single extra pass over one map at draw
-    ## time, not a hot loop.
-    when defined(brDebugBurrow):
-      let valT0 = epochTime()
-    let v = validateBr(m)
-    when defined(brDebugBurrow):
-      stderr.writeLine(&"TIMING final validateBr={(epochTime()-valT0)*1000:.0f}ms")
+    if gatePass or lenient: writeFile(outPath, spec)
+  block diagnostics:
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} keystone={keystoneToStr(m.keystone)} " &
       &"terrain={m.terrain} theme={m.theme} " &
@@ -6691,7 +6711,8 @@ proc cmdGenerate(a: Args) =
       &" (pruned {prunedCount} confetti of {rawCount}," &
       &" {repaired} spawn-cover repairs, medkits={m.medKitCandidates.len}" &
       &" grenades={m.grenadeSpawns.len} shields={m.shieldSpawns.len}" &
-      &" sprays={m.spraySpawns.len}) -> {outPath}")
+      &" sprays={m.spraySpawns.len})" &
+      &" -> {(if gatePass or lenient: outPath else: \"(refused)\")}")
     stderr.writeLine(
       &"  cover={v.coverPermille}‰ (band [{CoverPermilleMinBr},{CoverPermilleMaxBr}])" &
       &" masses={v.bigMassCount} (band [{PlaceCountFloor},{PlaceCountCeiling}], confetti={v.confettiCount}/{ConfettiCeiling})" &
@@ -6726,6 +6747,8 @@ proc cmdGenerate(a: Args) =
     stderr.writeLine(
       &"  switches: terrain={m.terrain} [{v.terrainLabel}={v.terrainValue:.2f}, floor={v.terrainFloor:.2f}, pass={v.terrainPass}]" &
       &" theme={m.theme} [{v.themeLabel}={v.themeValue:.2f}, floor={v.themeFloor:.2f}, pass={v.themePass}]")
+  if not gatePass and not lenient:
+    quit(1)
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
@@ -7082,6 +7105,11 @@ docs/designs/BR_MAPGEN.md)
                     (caves is the only doctrine-validated style; bsp/maze/
                     scatter are wired for experimentation but unproven at
                     giant scale)
+                    [--lenient] writes/echoes the spec even if it fails a
+                    doctrine gate or blows the spec-size wire cap (default:
+                    refuse + exit nonzero, print why); for interactive
+                    iteration only — never pass this in an automated draw
+                    loop.
   brmapkit render   spec.json [-o out.png] [--max N] [--heatmap]
                     (--heatmap also writes <out>.zoneheat.png, the §5.4
                     circle-center-coverage view)
