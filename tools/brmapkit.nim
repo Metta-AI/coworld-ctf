@@ -173,6 +173,16 @@ type
     halfExtent: int   ## rough footprint half-size, for spacing/labels
                        ## (poiCauseway: HALF-LENGTH along its own axis)
     lootTier: int      ## 0 = richest (major), 1 = mid, 2 = minor
+    ## ROUND 9 (Maxwell: "why are there no multi-room buildings... every
+    ## interior is one room with a doorway"): the floor plan carved into
+    ## this site's shell, in world coordinates. Populated by stampPoi via
+    ## generateBrMap's caller (stampPoi itself is pure/rng-only and
+    ## returns the rooms alongside its shapes; the site's own copy is
+    ## written back after stamping). Empty for archetypes with no interior
+    ## subdivision (poiRuins, poiCauseway) — poiYard gets exactly one
+    ## room (its open interior), so it still counts as a room-count data
+    ## point without being force-partitioned.
+    rooms: seq[MapRect]
 
   BrMap = object
     name: string
@@ -217,6 +227,14 @@ const
   SeatsPerGroup = 2
   ArenaBorderPx = 10   ## perimeter wall thickness, matches CTF's ArenaBorder
   styleSalt = 0x9E3779B1
+  ## ROUND 8: keep every Nth vertex of a genCaves blob polygon before it
+  ## enters the spec — see decimatePolygon's own comment for why.
+  CaveFillVertDecimate = 2
+  ## ROUND 8: caves fill runs as independent per-patch CA passes (see
+  ## caveFillPatches), not one field-wide pass — tiles the placement
+  ## region into a grid roughly matched to the field's own ~1.83 aspect.
+  CaveFillPatchCols = 5
+  CaveFillPatchRows = 3
 
 proc fieldSize(scale: float): tuple[w, h: int] =
   (int(round(float(StandardW) * scale)), int(round(float(StandardH) * scale)))
@@ -339,18 +357,67 @@ proc placementRegion(width, height: int): MapRect =
   MapRect(x: hMargin, y: vMargin,
     w: max(1, width - 2 * hMargin), h: max(1, height - 2 * vMargin))
 
+proc rectShapeBr(x, y, w, h: int): ArenaShape =
+  ArenaShape(kind: shapeRect, rect: MapRect(x: x, y: y, w: w, h: h))
+
+proc clipRectMinusPockets(r: MapRect, pockets: seq[MapRect], buffer: int): seq[MapRect] =
+  ## `r` minus the buffer-expanded footprint of every pocket it actually
+  ## overlaps, as axis-aligned sub-rects — the standard rect-minus-rect
+  ## decomposition (up to 4 remaining strips: above/below get the full
+  ## width, left/right get just the overlap's own band, so corners are
+  ## never double-counted). Iterates pockets one at a time; fine here
+  ## since a single wall run touching 2+ pockets at once is rare on a
+  ## 16-spawn jittered grid.
+  result = @[r]
+  for pocket in pockets:
+    let bx0 = pocket.x - buffer
+    let by0 = pocket.y - buffer
+    let bx1 = pocket.x + pocket.w + buffer
+    let by1 = pocket.y + pocket.h + buffer
+    var next: seq[MapRect]
+    for piece in result:
+      let px1 = piece.x + piece.w
+      let py1 = piece.y + piece.h
+      let ox0 = max(piece.x, bx0)
+      let oy0 = max(piece.y, by0)
+      let ox1 = min(px1, bx1)
+      let oy1 = min(py1, by1)
+      if ox0 >= ox1 or oy0 >= oy1:
+        next.add piece  ## no overlap with this pocket
+        continue
+      if oy0 > piece.y: next.add MapRect(x: piece.x, y: piece.y, w: piece.w, h: oy0 - piece.y)
+      if oy1 < py1: next.add MapRect(x: piece.x, y: oy1, w: piece.w, h: py1 - oy1)
+      if ox0 > piece.x: next.add MapRect(x: piece.x, y: oy0, w: ox0 - piece.x, h: oy1 - oy0)
+      if ox1 < px1: next.add MapRect(x: ox1, y: oy0, w: px1 - ox1, h: oy1 - oy0)
+    result = next
+
 proc dropShapesNearSpawns(
   obstacles: seq[ArenaShape], pockets: seq[MapRect]
 ): seq[ArenaShape] =
-  ## Drop (not clip) any generated shape whose bounding box crowds a spawn
-  ## pocket — same policy as mapkit.keepFeatureClearance: dropping the whole
-  ## seed shape keeps the terrain read as authored rock, never a shape with a
+  ## Drop (not clip) any NON-rect shape whose bounding box crowds a spawn
+  ## pocket — same policy as mapkit.keepFeatureClearance: dropping the
+  ## whole seed shape keeps ORGANIC terrain (cave-fill polygons, diagonal
+  ## causeway segments) reading as authored rock, never a shape with a
   ## bite taken out of it.
-  ## Wider than the mapkit precedent (8px): BR pockets sit exposed on an open
-  ## ring rather than tucked behind a protected home column, so a halo well
-  ## past the drawn clearance rect measurably cuts down genuine one-exit
-  ## chokepokes where organic terrain happens to crowd right up to the
-  ## pocket's edge (empirically tuned against the exit-rule pass rate below).
+  ## ROUND 9 FIX: rect shapes now CLIP instead of drop, regardless of
+  ## size. Found chasing landing-selection's confetti ceiling: a room's
+  ## small partition-door stub depends on the LARGE piece it's welded to
+  ## (a shell side, a bigger partition run) staying present — dropping
+  ## that big piece wholesale because it merely grazes a spawn's buffer
+  ## doesn't just lose its own area, it strands every small stub that was
+  ## welded to it, which is exactly what the confetti gate then catches.
+  ## (Tried gating this by the TOUCHED shape's own size first — clip only
+  ## small pieces, keep dropping large ones — reasoning that a big piece
+  ## was never at risk of BECOMING confetti itself. Backwards: confetti
+  ## count measures the FINAL obstacle set, and a piece that's fully
+  ## DROPPED can't be counted as its own small component at all — it's
+  ## gone. A piece that's CLIPPED down small NEVER increases confetti
+  ## versus dropping it outright. The size gate reintroduced the exact
+  ## orphaned-stub failure for every family with big shell sides —
+  ## measured confettiFail back up to 6-11/18 on a sweep that was 0/18
+  ## under unconditional clip — so it's gone; see the mass/cover
+  ## consequence handled separately via archetype-size recalibration,
+  ## the doctrinally sanctioned lever, not this policy.)
   const Buffer = 70
   for shape in obstacles:
     let b = shapeBounds(shape)
@@ -364,6 +431,11 @@ proc dropShapesNearSpawns(
         break
     if not collides:
       result.add shape
+    elif shape.kind == shapeRect:
+      const MinSliver = 6  ## drop remainder strips too thin to read as wall
+      for piece in clipRectMinusPockets(shape.rect, pockets, Buffer):
+        if piece.w >= MinSliver and piece.h >= MinSliver:
+          result.add rectShapeBr(piece.x, piece.y, piece.w, piece.h)
 
 # --- POI structures (round 3) -------------------------------------------------
 ## "bsp-lite applied as discrete local stamps" (coordinator, round 3): each
@@ -374,216 +446,541 @@ proc dropShapesNearSpawns(
 ## found gets eaten by the carve at giant scale; a local stamp has no carve
 ## to dodge in the first place.
 
-proc rectShapeBr(x, y, w, h: int): ArenaShape =
-  ArenaShape(kind: shapeRect, rect: MapRect(x: x, y: y, w: w, h: h))
 
 type RoomSide = enum rsTop, rsRight, rsBottom, rsLeft
 
-proc stampRoom(
-  rect: MapRect, openSides: set[RoomSide], wallThick, doorW: int
+## ROUND 7 (Maxwell's verdict, doctrine anti-confetti directive): stampRoom,
+## stampRuinRoom, and stampColonnade — round 3-6's THIN-WALLED, sometimes
+## fully-open-sided room stampers — are RETIRED, not orphaned-and-forgotten.
+## They are the diagnosed root cause of "still confetti maps... on a larger
+## scale": a fully open side leaves its remaining walls disconnected from
+## each other, so no arrangement of them ever welds into one mass. Replaced
+## by stampShellRing (below) — a closed ring, every side always present,
+## gated instead of open, thick by construction.
+
+proc chooseGatePos(loBound, hiBound, gateW: int, avoid: seq[(int, int)]): int =
+  ## ROUND 9: the gate's start position along a side, in ABSOLUTE
+  ## coordinates (same space as the side's own extent [loBound,hiBound)).
+  ## Centered by default (matches the pre-round-9 formula exactly when
+  ## `avoid` is empty — every existing stampShellRing call is unaffected).
+  ## `avoid` is a list of intervals the gate must not overlap: an interior
+  ## partition wall's own endpoint touching THIS side. Found via a
+  ## confetti-fragment chase (round 9): a BSP split line is chosen with no
+  ## knowledge of where that side's gate will land, so a partition's
+  ## endpoint can coincide with the gate's gap — the partition "touches
+  ## the shell" at a spot where the shell has no wall at all, leaving an
+  ## isolated stub with nothing to weld to. Walks outward from center in
+  ## gateW/2 steps looking for a clear spot; if the side is too crowded to
+  ## find one, falls back to centered (residual risk, better than a side
+  ## that never gates at all).
+  let centered = loBound + (hiBound - loBound - gateW) div 2
+  proc overlaps(pos: int): bool =
+    for (lo, hi) in avoid:
+      if pos < hi and pos + gateW > lo: return true
+    false
+  if not overlaps(centered): return centered
+  let maxPos = hiBound - gateW
+  let step = max(8, gateW div 2)
+  var offset = step
+  while offset <= (hiBound - loBound):
+    let right = centered + offset
+    let left = centered - offset
+    if right <= maxPos and not overlaps(right): return right
+    if left >= loBound and not overlaps(left): return left
+    offset += step
+  centered  ## give up; accept the residual coincidence risk
+
+proc stampShellRing(
+  rect: MapRect, shellThick: int, gateSides: set[RoomSide], gateW: int,
+  avoidTop, avoidBottom, avoidLeft, avoidRight: seq[(int, int)] = @[]
 ): seq[ArenaShape] =
-  ## One rectangular room: a wall on every side, OPEN sides split around a
-  ## centered door gap. `openSides` must have >= 2 members for the room to
-  ## satisfy the exit rule (doc §4.5, "leavable under fire") by construction
-  ## — every caller here picks 2 or more.
-  # top / bottom (horizontal walls, at y=rect.y and y=rect.y+rect.h-wallThick)
-  for (side, wy) in [(rsTop, rect.y), (rsBottom, rect.y + rect.h - wallThick)]:
-    if side in openSides:
-      let gapX = rect.x + (rect.w - doorW) div 2
+  ## ROUND 7 (Maxwell's verdict, doctrine anti-confetti directive): "these
+  ## are still confetti maps... on a larger scale with rooms and whatnot."
+  ## Root cause was architectural: stampRoom's walls were THIN (12-16px)
+  ## and archetypes routinely left 2 of 4 sides FULLY OPEN (no wall at
+  ## all) for exit-rule variety — opposite/non-adjacent sides then never
+  ## touch, so each surviving wall becomes its OWN small disconnected
+  ## mass, no matter how the rest of the map is arranged. This is the
+  ## SUBTRACTIVE fix: a closed rectangular ring where all FOUR sides are
+  ## ALWAYS present (never fully missing) at a THICK shell (24-48px,
+  ## caller's choice) — only a GATE GAP is ever cut into a side, and every
+  ## strip overlaps generously into its corners, so the ring stays ONE
+  ## topologically connected mass regardless of how many sides are gated.
+  ## The interior "void" (room/courtyard) is never drawn — it's just
+  ## whatever floor is left uncovered once the ring is stamped, which is
+  ## exactly subtraction without needing a subtraction primitive.
+  # top / bottom
+  for (side, wy, avoid) in [(rsTop, rect.y, avoidTop), (rsBottom, rect.y + rect.h - shellThick, avoidBottom)]:
+    if side in gateSides:
+      let gapX = chooseGatePos(rect.x, rect.x + rect.w, gateW, avoid)
       if gapX > rect.x:
-        result.add rectShapeBr(rect.x, wy, gapX - rect.x, wallThick)
-      if gapX + doorW < rect.x + rect.w:
-        result.add rectShapeBr(gapX + doorW, wy, rect.x + rect.w - (gapX + doorW), wallThick)
+        result.add rectShapeBr(rect.x, wy, gapX - rect.x, shellThick)
+      if gapX + gateW < rect.x + rect.w:
+        result.add rectShapeBr(gapX + gateW, wy, rect.x + rect.w - (gapX + gateW), shellThick)
     else:
-      result.add rectShapeBr(rect.x, wy, rect.w, wallThick)
-  # left / right (vertical walls)
-  for (side, wx) in [(rsLeft, rect.x), (rsRight, rect.x + rect.w - wallThick)]:
-    if side in openSides:
-      let gapY = rect.y + (rect.h - doorW) div 2
+      result.add rectShapeBr(rect.x, wy, rect.w, shellThick)
+  # left / right
+  for (side, wx, avoid) in [(rsLeft, rect.x, avoidLeft), (rsRight, rect.x + rect.w - shellThick, avoidRight)]:
+    if side in gateSides:
+      let gapY = chooseGatePos(rect.y, rect.y + rect.h, gateW, avoid)
       if gapY > rect.y:
-        result.add rectShapeBr(wx, rect.y, wallThick, gapY - rect.y)
-      if gapY + doorW < rect.y + rect.h:
-        result.add rectShapeBr(wx, gapY + doorW, wallThick, rect.y + rect.h - (gapY + doorW))
+        result.add rectShapeBr(wx, rect.y, shellThick, gapY - rect.y)
+      if gapY + gateW < rect.y + rect.h:
+        result.add rectShapeBr(wx, gapY + gateW, shellThick, rect.y + rect.h - (gapY + gateW))
     else:
-      result.add rectShapeBr(wx, rect.y, wallThick, rect.h)
+      result.add rectShapeBr(wx, rect.y, shellThick, rect.h)
 
-proc stampRuinRoom(
-  rng: var Rand, rect: MapRect, wallThick: int
+proc stampPartitionWall(
+  x0, y0, x1, y1, thick, gateW: int
 ): seq[ArenaShape] =
-  ## A "ruins" room: only 2 of 4 sides drawn (the other 2 are simply
-  ## missing, wide open — a collapsed structure, not a doored one), and
-  ## each drawn wall is broken into 2 segments with a gap, so even the
-  ## standing walls read as rubble. Trivially clears the exit rule: two
-  ## whole sides are open air.
-  let sides = [rsTop, rsRight, rsBottom, rsLeft]
-  var order = @sides
-  rng.shuffle(order)
-  let keep = order[0 .. 1]  ## keep exactly 2 of the 4 sides
-  for side in keep:
-    case side
-    of rsTop, rsBottom:
-      let wy = if side == rsTop: rect.y else: rect.y + rect.h - wallThick
-      let breakX = rect.x + rect.w div 3 + rng.rand(0 .. rect.w div 3)
-      let gap = 30 + rng.rand(0 .. 30)
-      result.add rectShapeBr(rect.x, wy, max(1, breakX - rect.x), wallThick)
-      if breakX + gap < rect.x + rect.w:
-        result.add rectShapeBr(breakX + gap, wy, rect.x + rect.w - (breakX + gap), wallThick)
-    of rsLeft, rsRight:
-      let wx = if side == rsLeft: rect.x else: rect.x + rect.w - wallThick
-      let breakY = rect.y + rect.h div 3 + rng.rand(0 .. rect.h div 3)
-      let gap = 30 + rng.rand(0 .. 30)
-      result.add rectShapeBr(wx, rect.y, wallThick, max(1, breakY - rect.y))
-      if breakY + gap < rect.y + rect.h:
-        result.add rectShapeBr(wx, breakY + gap, wallThick, rect.y + rect.h - (breakY + gap))
+  ## A single thick internal partition (axis-aligned, horizontal or
+  ## vertical) with ONE gate gap near its middle — used to carve a big
+  ## shell-ring mass into two or more interior cells (the warren grammar)
+  ## while the partition still physically touches (and so stays connected
+  ## to) the outer ring at both of its ends.
+  if abs(x1 - x0) >= abs(y1 - y0):
+    let y = y0
+    let gapX = x0 + (x1 - x0 - gateW) div 2
+    if gapX > x0: result.add rectShapeBr(x0, y, gapX - x0, thick)
+    if gapX + gateW < x1: result.add rectShapeBr(gapX + gateW, y, x1 - (gapX + gateW), thick)
+  else:
+    let x = x0
+    let gapY = y0 + (y1 - y0 - gateW) div 2
+    if gapY > y0: result.add rectShapeBr(x, y0, thick, gapY - y0)
+    if gapY + gateW < y1: result.add rectShapeBr(x, gapY + gateW, thick, y1 - (gapY + gateW))
 
-proc stampColonnade(
-  rng: var Rand, rect: MapRect
-): seq[ArenaShape] =
-  ## A grid of small pillars inside a yard — cover with sightlines, not a
-  ## sealed room. Spacing wide enough for a 13px footprint to weave through.
-  const
-    Pitch = 90
-    PillarR = 16
-  var gy = rect.y + Pitch div 2
-  while gy < rect.y + rect.h - Pitch div 2:
-    var gx = rect.x + Pitch div 2
-    while gx < rect.x + rect.w - Pitch div 2:
-      let jx = gx + rng.rand(-14 .. 14)
-      let jy = gy + rng.rand(-14 .. 14)
-      result.add ArenaShape(kind: shapeDisc, cx: jx, cy: jy, radius: PillarR)
-      gx += Pitch
-    gy += Pitch
+# Union-Find for connected-component labeling — moved above the round-9
+# floor-plan section (originally lived down with the other geometry/grid
+# validators) since buildDoorGraph's spanning tree needs it too.
+type DSU = object
+  parent: seq[int]
+  size: seq[int]
 
-proc stampPoi(rng: var Rand, site: PoiSite): seq[ArenaShape] =
-  ## Dispatch by archetype. Half-extent sets the footprint; each archetype
-  ## subdivides it differently so archetypes stay visually distinguishable
-  ## at thumbnail size (Maxwell's "could a caster name the places?" bar).
-  const WallThick = 16
-  const DoorW = 78
+proc initDSU(n: int): DSU =
+  result.parent = newSeq[int](n)
+  result.size = newSeq[int](n)
+  for i in 0 ..< n:
+    result.parent[i] = i
+    result.size[i] = 1
+
+proc find(d: var DSU, x: int): int =
+  var x = x
+  while d.parent[x] != x:
+    d.parent[x] = d.parent[d.parent[x]]
+    x = d.parent[x]
+  x
+
+proc union(d: var DSU, a, b: int) =
+  let ra = d.find(a)
+  let rb = d.find(b)
+  if ra == rb: return
+  if d.size[ra] < d.size[rb]:
+    d.parent[ra] = rb
+    d.size[rb] += d.size[ra]
+  else:
+    d.parent[rb] = ra
+    d.size[ra] += d.size[rb]
+
+# --- floor plans (round 9) -----------------------------------------------------
+## Maxwell, on round 8's density sheet: "why are there no multi-room
+## buildings?/interiors. every interior is one room with a doorway. can we
+## fix this generator to have a wide array of possible interiors and room
+## counts (connected in one structure)." Round 7-8's stampShellRing left the
+## carved interior as bare uncarved floor (correct for the ANTI-CONFETTI
+## mass, wrong for what's actually playable inside). This section subdivides
+## that same interior with a BSP-lite room split, wires the rooms into a
+## doorway graph (spanning tree + a couple of loop doors), and returns the
+## room list so callers can report room counts and place loot per room.
+
+type
+  RoomAdjacency = tuple[i, j, x0, y0, x1, y1: int]
+    ## Two room indices plus the shared boundary SEGMENT (a straight run,
+    ## either x0==x1 [vertical boundary] or y0==y1 [horizontal boundary])
+    ## — enough to draw the exact partition wall between them.
+
+proc bspRoomSplit(
+  rng: var Rand, rect: MapRect, minRoomSize, targetCount, maxDepth: int
+): seq[MapRect] =
+  ## Recursive random axis-aligned splits — the same technique
+  ## mapgen_styles.bspSplit uses for terrain, applied here to ROOM
+  ## interiors. Always splits the LONGER axis (keeps rooms from going
+  ## needle-thin). Stops — deliberately BEFORE `targetCount` is reached,
+  ## per doctrine item 1's "stop probabilistically so room counts VARY" —
+  ## on any of: target satisfied, depth exhausted, the rect too small for
+  ## another cut, or (only when the remaining target is already down to
+  ## "maybe 1 more room") a flat early-stop roll. This is what makes two
+  ## same-archetype buildings on the same map land on different room
+  ## counts instead of always maxing out.
+  const EarlyStopProb = 0.15
+  if targetCount <= 1: return @[rect]
+  if maxDepth <= 0 or rect.w < 2 * minRoomSize or rect.h < 2 * minRoomSize:
+    return @[rect]
+  if targetCount <= 2 and rng.rand(1.0) < EarlyStopProb:
+    return @[rect]
+  let splitVertical = rect.w >= rect.h
+  let leftCount = max(1, targetCount div 2)
+  let rightCount = max(1, targetCount - leftCount)
+  if splitVertical:
+    let minX = rect.x + minRoomSize
+    let maxX = rect.x + rect.w - minRoomSize
+    if maxX <= minX: return @[rect]
+    let splitX = minX + rng.rand(maxX - minX)
+    let a = MapRect(x: rect.x, y: rect.y, w: splitX - rect.x, h: rect.h)
+    let b = MapRect(x: splitX, y: rect.y, w: rect.x + rect.w - splitX, h: rect.h)
+    result = bspRoomSplit(rng, a, minRoomSize, leftCount, maxDepth - 1) &
+             bspRoomSplit(rng, b, minRoomSize, rightCount, maxDepth - 1)
+  else:
+    let minY = rect.y + minRoomSize
+    let maxY = rect.y + rect.h - minRoomSize
+    if maxY <= minY: return @[rect]
+    let splitY = minY + rng.rand(maxY - minY)
+    let a = MapRect(x: rect.x, y: rect.y, w: rect.w, h: splitY - rect.y)
+    let b = MapRect(x: rect.x, y: splitY, w: rect.w, h: rect.y + rect.h - splitY)
+    result = bspRoomSplit(rng, a, minRoomSize, leftCount, maxDepth - 1) &
+             bspRoomSplit(rng, b, minRoomSize, rightCount, maxDepth - 1)
+
+proc computeRoomAdjacency(rooms: seq[MapRect]): seq[RoomAdjacency] =
+  ## Two rooms are adjacent if they share a border run of at least
+  ## MinOverlap px. Every pair of SIBLING leaves from the same BSP split
+  ## always qualifies (they share the FULL split line by construction);
+  ## this also catches adjacency ACROSS different branches of the tree
+  ## (two leaves from different subtrees that happen to touch), which is
+  ## what turns a pure tree into a real graph with loop candidates.
+  const MinOverlap = 20
+  const Tol = 2 ## px slack for split-coordinate rounding
+  for i in 0 ..< rooms.len:
+    for j in (i + 1) ..< rooms.len:
+      let a = rooms[i]
+      let b = rooms[j]
+      if abs((a.x + a.w) - b.x) <= Tol or abs((b.x + b.w) - a.x) <= Tol:
+        let y0 = max(a.y, b.y)
+        let y1 = min(a.y + a.h, b.y + b.h)
+        if y1 - y0 >= MinOverlap:
+          let wallX = if abs((a.x + a.w) - b.x) <= Tol: a.x + a.w else: b.x + b.w
+          result.add (i, j, wallX, y0, wallX, y1)
+          continue
+      if abs((a.y + a.h) - b.y) <= Tol or abs((b.y + b.h) - a.y) <= Tol:
+        let x0 = max(a.x, b.x)
+        let x1 = min(a.x + a.w, b.x + b.w)
+        if x1 - x0 >= MinOverlap:
+          let wallY = if abs((a.y + a.h) - b.y) <= Tol: a.y + a.h else: b.y + b.h
+          result.add (i, j, x0, wallY, x1, wallY)
+
+proc buildDoorGraph(
+  rng: var Rand, n: int, adjacency: seq[RoomAdjacency], extraLoops: int
+): seq[(int, int)] =
+  ## Doctrine item 3: "build a spanning tree over the room adjacency
+  ## graph (every room reachable), then add 0-2 extra doors for loops."
+  ## Shuffled-Kruskal via the same DSU the mass validators already use —
+  ## every accepted edge connects two previously-separate components, so
+  ## the result is a genuine spanning tree (every room reachable from
+  ## every other) as long as the adjacency graph itself is connected,
+  ## which a BSP tiling always is by construction.
+  if n <= 1 or adjacency.len == 0: return
+  var edges = adjacency
+  rng.shuffle(edges)
+  var dsu = initDSU(n)
+  var remaining: seq[(int, int)]
+  for e in edges:
+    if dsu.find(e.i) != dsu.find(e.j):
+      dsu.union(e.i, e.j)
+      result.add (e.i, e.j)
+    else:
+      remaining.add (e.i, e.j)
+  rng.shuffle(remaining)
+  for k in 0 ..< min(extraLoops, remaining.len):
+    result.add remaining[k]
+
+proc stampFloorPlan(
+  rng: var Rand, footprint: MapRect, shellThick: int, gateSides: set[RoomSide],
+  gateW, targetRoomCount, minRoomSize, partitionThick, doorW: int
+): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect]] =
+  ## The round-9 floor-plan generator: shell (unchanged from round 7) +
+  ## a BSP-lite room split of the carved interior (item 1) + a doorway
+  ## graph over room adjacency (item 3). Every partition wall is drawn
+  ## EXACTLY on a BSP split line, so it always spans the full boundary
+  ## between two cells and therefore always touches two existing walls
+  ## (the shell or an earlier partition) at both ends *whenever that end
+  ## lands on a REAL wall* — which the shell alone doesn't guarantee: a
+  ## split line chosen with no knowledge of the shell's own gate can end
+  ## at a point the gate leaves open. Rooms/adjacency are computed BEFORE
+  ## the shell now (reordered from the original round-9 draft) so their
+  ## shell-touching endpoints can be fed to stampShellRing as gate
+  ## exclusion zones (chooseGatePos) — see that proc's comment for the
+  ## confetti fragment this fixes.
+  let interior = MapRect(
+    x: footprint.x + shellThick, y: footprint.y + shellThick,
+    w: footprint.w - 2 * shellThick, h: footprint.h - 2 * shellThick)
+  if interior.w < minRoomSize or interior.h < minRoomSize or targetRoomCount <= 1:
+    return (stampShellRing(footprint, shellThick, gateSides, gateW), @[interior])
+  let rooms = bspRoomSplit(rng, interior, minRoomSize, targetRoomCount, 4)
+  if rooms.len <= 1:
+    return (stampShellRing(footprint, shellThick, gateSides, gateW), rooms)
+  let adjacency = computeRoomAdjacency(rooms)
+  let extraLoops = rng.rand(2) ## 0-2, doctrine item 3
+  let doors = buildDoorGraph(rng, rooms.len, adjacency, extraLoops)
+  ## Margin past the partition's own thickness so the gate clears it with
+  ## room to spare, not just a bare non-overlap.
+  const TouchMargin = 8
+  var avoidTop, avoidBottom, avoidLeft, avoidRight: seq[(int, int)]
+  for adj in adjacency:
+    if adj.x0 == adj.x1:
+      let wx = adj.x0 - partitionThick div 2
+      let lo = wx - TouchMargin
+      let hi = wx + partitionThick + TouchMargin
+      if adj.y0 == interior.y: avoidTop.add (lo, hi)
+      if adj.y1 == interior.y + interior.h: avoidBottom.add (lo, hi)
+    else:
+      let wy = adj.y0 - partitionThick div 2
+      let lo = wy - TouchMargin
+      let hi = wy + partitionThick + TouchMargin
+      if adj.x0 == interior.x: avoidLeft.add (lo, hi)
+      if adj.x1 == interior.x + interior.w: avoidRight.add (lo, hi)
+  var shapes = stampShellRing(footprint, shellThick, gateSides, gateW,
+    avoidTop, avoidBottom, avoidLeft, avoidRight)
+  for adj in adjacency:
+    let hasDoor = (adj.i, adj.j) in doors
+    if adj.x0 == adj.x1:
+      ## Vertical shared boundary: centre a `partitionThick`-wide wall on
+      ## the split line (matches the existing warren partition's own
+      ## `midX = cx - partThick div 2` centring convention).
+      let wx = adj.x0 - partitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(wx, adj.y0, wx, adj.y1, partitionThick, doorW)
+      else:
+        shapes.add rectShapeBr(wx, adj.y0, partitionThick, adj.y1 - adj.y0)
+    else:
+      let wy = adj.y0 - partitionThick div 2
+      if hasDoor:
+        shapes.add stampPartitionWall(adj.x0, wy, adj.x1, wy, partitionThick, doorW)
+      else:
+        shapes.add rectShapeBr(adj.x0, wy, adj.x1 - adj.x0, partitionThick)
+  (shapes, rooms)
+
+proc stampPoi(
+  rng: var Rand, site: PoiSite, roomHint: int = 0
+): tuple[shapes: seq[ArenaShape], rooms: seq[MapRect]] =
+  ## `roomHint` (round 9, doctrine item 6's room-count-variety gate): 0
+  ## means "pick a target room count the old random way"; >0 means "use
+  ## exactly this many, clamped to this archetype's own valid range."
+  ## Measured that leaving every structure's target purely to chance
+  ## under-delivered: with only ~4-5 room-having structures per map and
+  ## each one independently rolling from a 2-4-value range, the odds that
+  ## >=3 DISTINCT values actually show up by luck alone were under 50%
+  ## (a small-sample coupon-collector problem, not a bug in any one
+  ## archetype's own spread). generateBrMap pre-assigns a shuffled,
+  ## ascending sequence of hints across every room-eligible POI so the
+  ## draw is diverse BY CONSTRUCTION, while bspRoomSplit's own probabilistic
+  ## early-stop/min-size logic still gets the final say on what actually
+  ## gets built — the hint raises the odds, it doesn't override the
+  ## "stop probabilistically" requirement.
+  ##
+  ## Dispatch by archetype. ROUND 7 (Maxwell's verdict, zoomed in on the
+  ## round-6 sheet): "these are still confetti maps. confetti on a larger
+  ## scale with rooms and whatnot." Root cause: additive thin-walled line
+  ## art can never weld the way a caves blob does, because open (missing)
+  ## sides leave disconnected wall fragments no matter the arrangement.
+  ## THE SUBTRACTIVE REFRAME: every archetype below is now ONE solid shell
+  ## RING (stampShellRing — all 4 sides always present, gated not open,
+  ## 28-44px thick) with interior floor left as uncarved negative space —
+  ## the same visual species as a caves blob (chunky, welded, real area),
+  ## never thin line art. A compound is now structurally ONE connected
+  ## mass regardless of gate count.
   let cx = site.center.x
   let cy = site.center.y
   let he = site.halfExtent
+  var shapes: seq[ArenaShape]
+  var rooms: seq[MapRect]
   case site.archetype
   of poiCompound:
-    ## Two buildings (2 rooms each), split by a real gap — the alley.
-    let alley = 70
-    let bw = (2 * he - alley) div 2
-    let bh = (he * 3) div 2
-    let leftX = cx - he
-    let rightX = cx + alley div 2
-    for (bx, mirrored) in [(leftX, false), (rightX, true)]:
-      ## Each building splits into an upper/lower room (the shared seam sits
-      ## at the building's own vertical midline).
-      let r1 = MapRect(x: bx, y: cy - bh div 2, w: bw, h: bh div 2 - 10)
-      let r2 = MapRect(x: bx, y: cy - 10, w: bw, h: bh div 2 - 10)
-      ## Each room: exterior side open (alley/outside), plus one more —
-      ## never both doors on the SAME pair of rooms' facing walls, so the
-      ## alley reads like a real seam rather than one continuous corridor.
-      let outward = if mirrored: rsRight else: rsLeft
-      result.add stampRoom(r1, {outward, rsTop}, WallThick, DoorW)
-      result.add stampRoom(r2, {outward, rsBottom}, WallThick, DoorW)
+    ## ROUND 9 (doctrine item 1/2): the shell is unchanged (still ONE
+    ## mass, still 2 gates), but the interior is now a real floor plan —
+    ## 2-4 rooms via BSP-lite split, doorway graph, doors gated per the
+    ## spanning tree. Compound's own "one interior cover slab" is DROPPED
+    ## (a BSP room already reads as a place; a bare cover slab inside a
+    ## carved room would look like clutter, not a courtyard feature).
+    let shellThick = max(40, he * 2 div 5)
+    const GateW = 56
+    let footprint = MapRect(x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
+    var sides = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sides)
+    let targetRooms = if roomHint > 0: clamp(roomHint, 2, 4) else: 2 + rng.rand(2) ## 2-4, doctrine item 2
+    let plan = stampFloorPlan(rng, footprint, shellThick, {sides[0], sides[1]}, GateW,
+      targetRooms, 70, 26, 50)
+    shapes.add plan.shapes
+    rooms = plan.rooms
   of poiOutpost:
-    ## One building, 2 rooms side by side with independent exterior doors.
-    let bw = he
-    let bh = (he * 3) div 2
-    let r1 = MapRect(x: cx - bw, y: cy - bh div 2, w: bw - 8, h: bh)
-    let r2 = MapRect(x: cx + 8, y: cy - bh div 2, w: bw - 8, h: bh)
-    result.add stampRoom(r1, {rsLeft, rsTop}, WallThick, DoorW)
-    result.add stampRoom(r2, {rsRight, rsBottom}, WallThick, DoorW)
+    ## ROUND 9: 1-3 rooms (doctrine calls for "1-2"; widened to 1-3 —
+    ## outpost is the ONE archetype every keystone family places multiple
+    ## of, including families with no compound/anchor/warren at all like
+    ## rotation-timing/open-steppe, so its OWN room-count spread is what
+    ## keeps room-count-variety [item 6] achievable for those families).
+    let shellThick = max(34, he * 2 div 5)
+    const GateW = 50
+    let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    var sides = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sides)
+    let targetRooms = if roomHint > 0: clamp(roomHint, 1, 3) else: 1 + rng.rand(2) ## 1-3
+    ## minRoomSize=38 (not the compound/anchor/warren-scale 48-100): an
+    ## outpost's own interior can be as small as ~80x136px at the smallest
+    ## halfExtent any pool uses (0.34G) — measured that minRoomSize=60
+    ## made almost every outpost fail the "2x minRoomSize" split-eligible
+    ## check and land on 1 room regardless of targetRooms, which is what
+    ## was capping room-count-variety for keystones with no compound/
+    ## anchor/warren at all.
+    let plan = stampFloorPlan(rng, footprint, shellThick, {sides[0], sides[1]}, GateW,
+      targetRooms, 38, 20, 42)
+    shapes.add plan.shapes
+    rooms = plan.rooms
   of poiYard:
-    ## A walled yard (2 doors) with a colonnade inside — open-air cover.
-    let yardRect = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
-    result.add stampRoom(yardRect, {rsTop, rsBottom}, WallThick, DoorW + 20)
-    let innerRect = MapRect(
-      x: yardRect.x + WallThick + 20, y: yardRect.y + WallThick + 20,
-      w: yardRect.w - 2 * (WallThick + 20), h: yardRect.h - 2 * (WallThick + 20))
-    result.add stampColonnade(rng, innerRect)
+    ## Left as an open-air courtyard (doctrine's own framing: "walled
+    ## yard... open-air", not a building) — no BSP interior. Recorded as
+    ## exactly ONE room (its own interior) so it still contributes a data
+    ## point to room-count reporting/variety without being force-carved.
+    let shellThick = max(34, he * 2 div 5)
+    const GateW = 60
+    let footprint = MapRect(x: cx - he, y: cy - he * 3 div 4, w: 2 * he, h: he * 3 div 2)
+    shapes.add stampShellRing(footprint, shellThick, {rsTop, rsBottom}, GateW)
+    ## Cover blocks must each individually clear the confetti floor
+    ## (3000px^2, i.e. >=55x55) since they don't touch the ring — a smaller
+    ## block reads fine at thumbnail scale but registers as its own tiny
+    ## isolated mass.
+    let blockW = max(60, he div 3)
+    shapes.add rectShapeBr(cx - he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
+    shapes.add rectShapeBr(cx + he div 2 - blockW div 2, cy - blockW div 2, blockW, blockW)
+    rooms = @[MapRect(x: footprint.x + shellThick, y: footprint.y + shellThick,
+      w: footprint.w - 2 * shellThick, h: footprint.h - 2 * shellThick)]
   of poiRuins:
-    let r = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
-    result.add stampRuinRoom(rng, r, WallThick)
-    ## A second, smaller broken cluster nearby reads as a debris field
-    ## rather than one lonely wall stub.
-    let r2 = MapRect(
-      x: cx - he + he, y: cy - he div 2 + he, w: he, h: he)
-    result.add stampRuinRoom(rng, r2, WallThick - 4)
+    ## A SMALL solid shell ring, not a scatter of disconnected L-brackets
+    ## (the old design — exactly the "isolated small mass" doctrine now
+    ## bans). Still the cheapest, smallest archetype, no interior plan
+    ## (thematically "broken/partial walls, no full enclosure" — a real
+    ## floor plan would contradict its own archetype description).
+    let shellThick = max(28, he * 2 div 5)
+    const GateW = 46
+    let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    let side = [rsTop, rsRight, rsBottom, rsLeft][rng.rand(3)]
+    shapes.add stampShellRing(footprint, shellThick, {side}, GateW)
   of poiAnchor:
-    ## ROUND 6, zone-edge-holding: a BIGGER walled courtyard than poiYard,
-    ## deliberately not fully open — exactly 2 or 3 exits (never 4, never
-    ## 1), so holding it against a closing circle is a real decision
-    ## rather than a free walk-through. Two offset interior cover blocks
-    ## (not a full colonnade) keep it defensible without being a maze.
-    let courtyard = MapRect(
+    ## ROUND 9: 3-5 rooms + courtyard (doctrine item 2). "Courtyard" is
+    ## approximated rather than ring-modelled (a true perimeter-rooms-
+    ## around-a-void ring split was scoped out for time — see the round-9
+    ## report): a LARGER minRoomSize than the other archetypes biases the
+    ## BSP split toward fewer, BIGGER cells, so at least one leaf usually
+    ## reads as a big open hall; the two existing interior cover slabs are
+    ## kept (now landing inside whichever room they fall in) as the
+    ## courtyard's own furniture rather than being replaced.
+    let shellThick = max(48, he * 2 div 5)
+    const GateW = 50
+    let footprint = MapRect(
       x: cx - he, y: cy - he * 4 div 5, w: 2 * he, h: he * 8 div 5)
     var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
     rng.shuffle(sideOrder)
-    let exitCount = if rng.rand(3) == 0: 2 else: 3
-    var openSet: set[RoomSide] = {}
-    for i in 0 ..< exitCount: openSet.incl sideOrder[i]
-    result.add stampRoom(courtyard, openSet, WallThick, DoorW)
-    let coverW = max(24, he div 3)
-    result.add rectShapeBr(cx - he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
-    result.add rectShapeBr(cx + he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
+    let gateSet: set[RoomSide] = {sideOrder[0], sideOrder[1]}
+    let targetRooms = if roomHint > 0: clamp(roomHint, 3, 5) else: 3 + rng.rand(2) ## 3-5
+    ## ROUND 9 FIX: minRoomSize was 100, tuned against the ORIGINAL
+    ## anchorHalf=1.05G (interior height ~279px, 2x100 fits easily). The
+    ## zone-edge-holding cover-permille recalibration (see git log) cut
+    ## anchorHalf to 0.70G, shrinking interior height to ~185px —
+    ## bspRoomSplit's own "won't split an axis under 2x minRoomSize"
+    ## guard then refused EVERY anchor split (measured: 159/159 anchors
+    ## across a 30-seed sweep landed on exactly 1 room, a silent
+    ## room-count-variety regression). 75 clears 2x75=150 <= 185 with
+    ## margin and still stays the largest minRoomSize of any archetype.
+    let plan = stampFloorPlan(rng, footprint, shellThick, gateSet, GateW,
+      targetRooms, 62, 26, 48)
+    shapes.add plan.shapes
+    rooms = plan.rooms
+    let coverW = max(32, he * 2 div 5)
+    shapes.add rectShapeBr(cx - he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
+    shapes.add rectShapeBr(cx + he div 2 - coverW div 2, cy - coverW div 2, coverW, coverW)
   of poiCauseway:
-    ## ROUND 6, rotation-timing: a LONG broken-wall causeway — `he` is
-    ## HALF-LENGTH along a drawn axis (0/45/90/135deg), not a square
-    ## footprint. Segments run PERPENDICULAR to the travel direction with
-    ## real gaps (partial cover, never a solid barrier), so crossing it is
-    ## a timing decision, the same "fence/ridge run" grammar linearConnectors
-    ## uses between POIs, but first-class and much longer.
-    const SegLen = 50
-    const SegThick = 14
-    const Step = 95
-    const KeepChance = 0.68
+    ## Rotation-timing: ONE LONG mass with 1-2 GATE gaps — not a dash
+    ## train. `he` is HALF-LENGTH along a drawn axis (0/45/90/135deg).
+    ## Built as 2-3 long shapeDiagonal segments (thick, 30px) separated by
+    ## 1-2 real gaps, each segment individually well above the confetti
+    ## floor, so the whole causeway still reads (and validates) as one
+    ## deliberate barrier with a couple of crossing points, never scatter.
+    ## No interior — a linear barrier, not a building.
+    const Thick = 30
     let angles = [0.0, PI / 4.0, PI / 2.0, 3.0 * PI / 4.0]
     let theta = angles[rng.rand(angles.len - 1)]
     let ux = cos(theta)
     let uy = sin(theta)
-    let px = -uy
-    let py = ux
+    let totalLen = 2.0 * float(he)
+    let gateCount = 1 + rng.rand(1)  ## 1 or 2 gates
+    let gateW = 70.0 + float(rng.rand(30))
+    let pieceLen = (totalLen - float(gateCount) * gateW) / float(gateCount + 1)
     var t = -float(he)
-    while t < float(he):
-      if rng.rand(1.0) < KeepChance:
-        let jitter = float(rng.rand(-10 .. 10))
-        let midx = float(cx) + ux * t + px * jitter
-        let midy = float(cy) + uy * t + py * jitter
-        let p0 = MapPoint(
-          x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
-        let p1 = MapPoint(
-          x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
-        result.add ArenaShape(
-          kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y, thickness: SegThick)
-      t += float(Step)
+    for i in 0 ..< gateCount + 1:
+      let segStart = t
+      let segEnd = t + pieceLen
+      let p0x = float(cx) + ux * segStart
+      let p0y = float(cy) + uy * segStart
+      let p1x = float(cx) + ux * segEnd
+      let p1y = float(cy) + uy * segEnd
+      shapes.add ArenaShape(
+        kind: shapeDiagonal, x0: int(p0x), y0: int(p0y), x1: int(p1x), y1: int(p1y),
+        thickness: Thick)
+      t = segEnd + gateW
   of poiWarren:
-    ## ROUND 6, cqc-warren / third-party: a tight cluster of 2 small rooms,
-    ## NO sealed perimeter, many approaches. Each room opens on 2-3 random
-    ## sides independently — deliberately not door-to-door aligned, so it
-    ## reads as a warren of alleys rather than one corridor. Fixed at 2
-    ## rooms (was 2-4): measured that warren-heavy families were drowning
-    ## in confetti-sized fragments (each disconnected small room wall
-    ## segment counts as its own mass) — halving the room count roughly
-    ## halved the fragment contribution while the "small interconnected
-    ## rooms" read survives fine at 2.
-    let cellW = he
-    let cellH = he
-    let cols = 2
-    let rows = 1
-    for ry in 0 ..< max(1, rows):
-      for rx in 0 ..< cols:
-        let rectX = cx - he + rx * cellW
-        let rectY = cy - (rows * cellH) div 2 + ry * cellH
-        let r = MapRect(x: rectX, y: rectY, w: cellW - 14, h: cellH - 14)
-        var order = @[rsTop, rsRight, rsBottom, rsLeft]
-        rng.shuffle(order)
-        let openCount = 2 + rng.rand(1)
-        var openSet: set[RoomSide] = {}
-        for i in 0 ..< openCount: openSet.incl order[i]
-        result.add stampRoom(r, openSet, WallThick - 4, DoorW - 20)
+    ## ROUND 9: "many small rooms" (doctrine item 2: "5-8 small rooms")
+    ## replaces round 7's flat 2-cell split — the SAME shell/gate setup,
+    ## but a real BSP floor plan with a small minRoomSize so it actually
+    ## carves into several small cells instead of one central divider.
+    let shellThick = max(32, he * 2 div 5)
+    const GateW = 56
+    let footprint = MapRect(x: cx - he, y: cy - he, w: 2 * he, h: 2 * he)
+    var sideOrder = @[rsTop, rsRight, rsBottom, rsLeft]
+    rng.shuffle(sideOrder)
+    let targetRooms = if roomHint > 0: clamp(roomHint, 5, 8) else: 5 + rng.rand(4) ## 5-8
+    let plan = stampFloorPlan(rng, footprint, shellThick, {sideOrder[0], sideOrder[1]}, GateW,
+      targetRooms, 48, 24, 42)
+    shapes.add plan.shapes
+    rooms = plan.rooms
+  (shapes, rooms)
 
 proc tooCloseToAny(p: MapPoint, sites: seq[PoiSite], minDist: int): bool =
   for s in sites:
     let dx = p.x - s.center.x
     let dy = p.y - s.center.y
     if dx * dx + dy * dy < minDist * minDist:
+      return true
+
+proc tooCloseToAnySized(
+  p: MapPoint, candArchetype: PoiArchetype, halfExtent: int,
+  sites: seq[PoiSite], minDist: int
+): bool =
+  ## ROUND 8 FIX: `minDist` alone is a flat distance between CENTERS —
+  ## fine when every archetype in a pool is roughly the same size, but
+  ## landing-selection/zone-edge-holding mix HUGE archetypes (compound/
+  ## anchor, half-extent 350-430px, footprint 700-860px wide) with tiny
+  ## ones (ruins, ~53px) under one shared minSepFrac. Two big archetypes
+  ## could legitimately land with centers only `minDist` apart (a value
+  ## sized for the pool's SMALL end) while their footprints overlapped by
+  ## a hundred-plus px — measured as the root cause of "cover too high,
+  ## mass count too low" (a few giant fused blobs instead of many
+  ## distinct ones). Requires BOTH the caller's flat minDist (the
+  ## "spacing IS a grammar knob" semantic other callers rely on) AND
+  ## enough room for both footprints plus a real gap to never touch.
+  ##
+  ## poiCauseway is EXCLUDED from the footprint term on whichever side it
+  ## appears: its halfExtent is a LENGTH along an arbitrary drawn axis,
+  ## not a radius (the same "square footprint" category error the
+  ## caves-clash filter had — see that fix's own comment). Treating it as
+  ## an isotropic radius here made the very first sweep after this fix
+  ## fail rotation-timing's OWN causeway placement almost every time
+  ## (caught immediately: 0/18 pass on the next sweep). Causeway-involved
+  ## pairs fall back to the flat minDist, same as before this fix.
+  const FootprintGapPx = 40
+  let candHalf = if candArchetype == poiCauseway: 0 else: halfExtent
+  for s in sites:
+    let dx = p.x - s.center.x
+    let dy = p.y - s.center.y
+    let d2 = dx * dx + dy * dy
+    let siteHalf = if s.archetype == poiCauseway: 0 else: s.halfExtent
+    let required = max(minDist, candHalf + siteHalf + FootprintGapPx)
+    if d2 < required * required:
       return true
   false
 
@@ -614,7 +1011,7 @@ proc placeUniformPoi(
     let x = xLo + rng.rand(xHi - xLo)
     let y = yLo + rng.rand(yHi - yLo)
     let p = MapPoint(x: x, y: y)
-    if tooCloseToAny(p, sites, minSep): continue
+    if tooCloseToAnySized(p, archetype, halfExtent, sites, minSep): continue
     sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
     when defined(brDebugExit):
       stderr.writeLine(&"  POI placed {archetype} at ({p.x},{p.y}) halfExtent={halfExtent} attempt={attempt}")
@@ -636,6 +1033,100 @@ proc placeWeightedPool(
     discard placeUniformPoi(rng, sites, width, height, minSep,
       spec.arch, halfExtent, spec.lootTier)
 
+# --- stratified placement (round 8) -------------------------------------------
+## Doctrine round 8, item 4: "K regions, one POI per region first, extras
+## after — fixes round 7's left/top clustering simultaneously." Round 5's
+## `placeUniformPoi` is true rejection sampling over the WHOLE field, which
+## is unbiased in expectation but has no per-draw guarantee against
+## clustering — a run of unlucky rolls can (and, on the round-7 sheet, did)
+## land several sites in the same quadrant while another sits empty. This
+## doesn't replace uniform sampling's minSep discipline (every call below
+## still runs through placeUniformPoi's or its rect-scoped twin's own
+## rejection test against every already-placed site); it just seeds one
+## deliberate placement per region FIRST, so no region can come up empty
+## by chance the way round 7's could.
+
+proc placeUniformPoiInRect(
+  rng: var Rand, sites: var seq[PoiSite], rect: MapRect, fieldW, fieldH, minSep: int,
+  archetype: PoiArchetype, halfExtent, lootTier: int
+): bool =
+  ## Same rejection-sampling contract as placeUniformPoi, but the candidate
+  ## is drawn from ONE region's rect (still clamped to the field-margin
+  ## every POI already respects) instead of the whole field. minSep is
+  ## still checked against every OTHER already-placed site globally, so
+  ## two adjacent regions can never place sites closer than minSep to each
+  ## other just because they're in different rects.
+  const MaxAttempts = 200
+  let margin = halfExtent + 60
+  let xLo = max(margin, rect.x)
+  let xHi = min(fieldW - margin, rect.x + rect.w)
+  let yLo = max(margin, rect.y)
+  let yHi = min(fieldH - margin, rect.y + rect.h)
+  if xHi <= xLo or yHi <= yLo:
+    return false
+  for attempt in 0 ..< MaxAttempts:
+    let x = xLo + rng.rand(xHi - xLo)
+    let y = yLo + rng.rand(yHi - yLo)
+    let p = MapPoint(x: x, y: y)
+    if tooCloseToAnySized(p, archetype, halfExtent, sites, minSep): continue
+    sites.add PoiSite(center: p, archetype: archetype, halfExtent: halfExtent, lootTier: lootTier)
+    return true
+  false
+
+proc regionGrid(n, width, height: int): tuple[cols, rows: int] =
+  ## Smallest cols x rows grid (matched to the field's own aspect, so
+  ## regions read roughly square-ish rather than tall slivers) with
+  ## cols*rows >= n, so the first `n` POIs can each get their own region.
+  if n <= 1: return (1, 1)
+  let aspect = float(width) / float(height)
+  var rows = max(1, int(round(sqrt(float(n) / aspect))))
+  var cols = (n + rows - 1) div rows
+  while cols * rows < n:
+    inc rows
+    cols = (n + rows - 1) div rows
+  (cols, rows)
+
+proc regionRects(width, height, cols, rows: int): seq[MapRect] =
+  let cw = width div cols
+  let ch = height div rows
+  for r in 0 ..< rows:
+    for c in 0 ..< cols:
+      let x = c * cw
+      let y = r * ch
+      let w = if c == cols - 1: width - x else: cw
+      let h = if r == rows - 1: height - y else: ch
+      result.add MapRect(x: x, y: y, w: w, h: h)
+
+proc placeStratifiedPool(
+  rng: var Rand, sites: var seq[PoiSite], width, height, gunRange: int,
+  pool: seq[ArchSpec], minSepFrac: float, count: int
+) =
+  ## Phase 1: one placement attempt per region (shuffled order, so which
+  ## region gets skipped when its own attempt fails isn't corner-biased).
+  ## Phase 2: whatever's left of `count` falls back to whole-field uniform
+  ## sampling (round 7's method) — a region can legitimately fail (already
+  ## crowded by a neighbour's minSep), so the fallback is what makes
+  ## `count` a real target rather than an aspiration.
+  let minSep = int(minSepFrac * float(gunRange))
+  let (cols, rows) = regionGrid(count, width, height)
+  var regions = regionRects(width, height, cols, rows)
+  rng.shuffle(regions)
+  var placed = 0
+  for rect in regions:
+    if placed >= count: break
+    let spec = pool[rng.rand(pool.len - 1)]
+    let halfExtent = int(spec.halfFrac * float(gunRange))
+    if placeUniformPoiInRect(rng, sites, rect, width, height, minSep,
+        spec.arch, halfExtent, spec.lootTier):
+      inc placed
+  while placed < count:
+    let spec = pool[rng.rand(pool.len - 1)]
+    let halfExtent = int(spec.halfFrac * float(gunRange))
+    if placeUniformPoi(rng, sites, width, height, minSep, spec.arch, halfExtent, spec.lootTier):
+      inc placed
+    else:
+      break  ## field genuinely has no room left; stop rather than spin
+
 proc placePois(
   rng: var Rand, width, height, gunRange: int, keystone: KeystoneFamily
 ): seq[PoiSite] =
@@ -656,121 +1147,220 @@ proc placePois(
   ## what answers "a bunch of random rectangle rooms": a keystone map has
   ## a FEW LARGER organizing structures (anchors, causeways, clusters)
   ## rising out of the uniform field, not just more of the same four boxes.
+  ## ROUND 7 (Maxwell's verdict): "still confetti maps... on a larger
+  ## scale." A full-field side-by-side against Maxwell's reference
+  ## (/tmp/br-maps/caves_404_thick.png) showed the real problem AFTER the
+  ## subtractive rework — each mass reads solid now, but a giant 3211x1713
+  ## field with 10-22 of them still looks like scatter from an overview.
+  ## ROUND 8 (Maxwell's verdict on round 7's sheet: "THESE MAPS ARE STILL
+  ## farrrrrrrrr too barren" — bold masses, far too few). Round 7's own
+  ## <=12-18 target was undershot in practice (6-13 actually shipped) and,
+  ## worse, wasn't even the right ceiling — the CTF program's own reference
+  ## (caves_404, 150‰) runs at 3x round 7's measured cover. POI counts
+  ## below are bumped back to the 12-18 doctrine actually asked for, EVERY
+  ## family now places via `placeStratifiedPool`/rect-scoped placement
+  ## (round-8 item 4: "K regions, one POI per region first, extras after"),
+  ## and every non-rotation-timing family gets a small top-up of
+  ## connective causeways (below, after the case) — "more/longer thick
+  ## causeway runs" isn't scoped to one keystone. open-steppe is the
+  ## deliberate exception: its identity IS fewer structures, so its count
+  ## stays modest and it leans on the (also round-8-restored) heavy caves
+  ## fill to reach the same cover/mass bands as everyone else — organic
+  ## terrain standing in for authored structure is exactly what "open
+  ## steppe" should look like.
   case keystone
   of ksLandingSelection:
     ## Steep loot/size gradient BETWEEN sites: a few rich, LARGE anchors
     ## (tier 0) against many poor, SMALL ruins (tier 2), almost nothing in
-    ## between — the drop decision is choosing which end of the gradient
-    ## to land on, not picking among lookalikes. Widened further after the
-    ## visual check (Maxwell's bar: "can YOU tell which family a draw
-    ## belongs to from the render alone?") — at 0.65G/0.18G the size
-    ## contrast read too close to third-party's more uniform warren
-    ## clusters at thumbnail scale; 0.85G/0.14G makes the few rich sites
-    ## visibly the biggest things on the map.
+    ## between. ROUND 8 recalibration: measured mass count averaged 20.1
+    ## (need 25+) at the round-8-launch pool/count — the fix is MORE
+    ## ruins (cheap, small, doesn't dilute the size gradient the keystone
+    ## detector measures) plus a higher total count and a tighter minSep
+    ## (1.15G -> 1.0G, since 6 ruins packing at the old spacing was itself
+    ## limiting how many could land), not bigger anchors.
     let pool: seq[ArchSpec] = @[
-      (poiCompound, 0.85, 0),
-      (poiAnchor, 0.75, 0),
-      (poiOutpost, 0.35, 1),
-      (poiRuins, 0.14, 2),
-      (poiRuins, 0.14, 2),
-      (poiRuins, 0.14, 2),
-      (poiRuins, 0.14, 2),
+      (poiCompound, 1.30, 0),
+      (poiAnchor, 1.15, 0),
+      (poiOutpost, 0.50, 1),
+      (poiOutpost, 0.50, 1),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
+      (poiRuins, 0.16, 2),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.15, 10 + rng.rand(6))
+    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.0, 18 + rng.rand(5))
   of ksRotationTiming:
     ## Long causeways + clusters separated by open seams: crossing timing
-    ## is the skill. Clusters first (spread with a LARGE minSep so real
-    ## gaps survive between them), 1-2 small satellites per cluster, then
-    ## several long causeways (half-extent > gunRange, so length > 2G)
-    ## scattered with a looser minSep (they're long and thin — a full
-    ## engagement-scale minSep would refuse almost everywhere).
-    let clusterCount = 3 + rng.rand(2)
-    let clusterMinSep = int(1.8 * float(gunRange))
-    let clusterHalf = int(0.42 * float(gunRange))
+    ## is the skill. Clusters first (STRATIFIED across regions so they
+    ## can't all land in one corner — round 8 item 4), then TWO satellites
+    ## per cluster (round-8 recalibration: measured mass count averaged
+    ## 21.5 at one satellite; a keystone whose grammar IS "open seams
+    ## between clusters" can't just inflate cluster SIZE without fighting
+    ## its own identity, so the fix is more small satellites, not bigger
+    ## clusters), then a bigger handful of longer causeways (half-extent
+    ## > gunRange, so length > 2G) — round 8 item 3c's flagship family.
+    let clusterCount = 3 + rng.rand(3)
+    let clusterMinSep = int(1.6 * float(gunRange))
+    let clusterHalf = int(0.55 * float(gunRange))
+    let (ccols, crows) = regionGrid(clusterCount, width, height)
+    var clusterRegions = regionRects(width, height, ccols, crows)
+    rng.shuffle(clusterRegions)
     var clusterAnchors: seq[MapPoint]
     for i in 0 ..< clusterCount:
+      if i >= clusterRegions.len: break
       let before = result.len
-      discard placeUniformPoi(rng, result, width, height, clusterMinSep,
-        poiOutpost, clusterHalf, 1)
+      discard placeUniformPoiInRect(rng, result, clusterRegions[i], width, height,
+        clusterMinSep, poiOutpost, clusterHalf, 1)
       if result.len > before:
         clusterAnchors.add result[^1].center
     for anchor in clusterAnchors:
-      let satelliteCount = 1 + rng.rand(1)
-      for j in 0 ..< satelliteCount:
+      for satNum in 0 ..< 2:
         for attempt in 0 ..< 20:
           let ang = rng.rand(2.0 * PI)
-          let dist = float(clusterHalf) + 40.0 + float(rng.rand(80))
+          let dist = float(clusterHalf) + 50.0 + float(rng.rand(140))
           let px = clamp(anchor.x + int(cos(ang) * dist),
             clusterHalf + 60, width - clusterHalf - 60)
           let py = clamp(anchor.y + int(sin(ang) * dist),
             clusterHalf + 60, height - clusterHalf - 60)
           let p = MapPoint(x: px, y: py)
-          let localMinSep = int(0.35 * float(gunRange))
-          if tooCloseToAny(p, result, localMinSep): continue
+          let localMinSep = int(0.32 * float(gunRange))
+          ## ROUND 9 FIX (found chasing an interiorConn failure): this used
+          ## to call the SIZE-BLIND `tooCloseToAny` with a flat 106px
+          ## (0.32G) threshold — fine as a floor for the satellite's OWN
+          ## distance from its parent anchor (enforced separately by the
+          ## dist= formula above), but it's also the ONLY check against
+          ## every OTHER already-placed site (a different cluster's
+          ## anchor, an earlier satellite, a genFiller item), and 106px
+          ## is far smaller than two real footprints need — a poiOutpost
+          ## cluster anchor (he=182) and a poiYard satellite (he=132) can
+          ## legitimately need ~350px of separation, so a satellite could
+          ## land with its footprint fully INSIDE an unrelated anchor's
+          ## shell, sealing that anchor's gates from outside. Measured:
+          ## rotation-timing seed 103 had exactly this — a poiYard
+          ## satellite's footprint swallowed an unrelated outpost's gates,
+          ## stranding all 3 of that outpost's rooms (and the yard's own
+          ## room) from the map's dominant walkable component. Compute
+          ## arch/he FIRST and use `tooCloseToAnySized` — same fix as the
+          ## round-8 note on this exact function, just never applied here.
           let arch = if rng.rand(1) == 0: poiRuins else: poiYard
-          let he = int((if arch == poiRuins: 0.25 else: 0.32) * float(gunRange))
+          let he = int((if arch == poiRuins: 0.30 else: 0.40) * float(gunRange))
+          if tooCloseToAnySized(p, arch, he, result, localMinSep): continue
           result.add PoiSite(center: p, archetype: arch, halfExtent: he,
             lootTier: (if arch == poiRuins: 2 else: 1))
           break
-    let causewayCount = 4 + rng.rand(4)
-    let causewayHalf = int(1.15 * float(gunRange))  ## > G, so length > 2G
-    let causewayMinSep = int(0.75 * float(gunRange))
+    let causewayCount = 6 + rng.rand(4)  ## round 8: 3-6 -> 6-9, the keystone's own signature
+    let causewayHalf = int(1.5 * float(gunRange))  ## > G, so length > 3.0G
+    let causewayMinSep = int(0.7 * float(gunRange))
     for i in 0 ..< causewayCount:
       discard placeUniformPoi(rng, result, width, height, causewayMinSep,
         poiCauseway, causewayHalf, 1)
-  of ksZoneEdgeHolding:
-    ## A handful of ANCHOR compounds, spread with a LARGE mutual minSep so
-    ## no two are ever close enough to trade one holder for another —
-    ## holding the circle edge is the skill, so anchors need real distance
-    ## between them. Filler on top for density-uniformity. Anchors sized
-    ## to be the LARGEST footprint on the map (bigger than poiCompound's
-    ## 0.65G, the previous biggest archetype) — Maxwell's bar was "a
-    ## keystone map has a FEW LARGER organizing structures rising out of
-    ## the uniform field," and at 0.55G an anchor didn't visibly pop
-    ## against the filler at thumbnail scale.
-    let anchorHalf = int(0.9 * float(gunRange))
-    let anchorMinSep = int(2.0 * float(gunRange))
-    let anchorCount = 3 + rng.rand(3)
-    for i in 0 ..< anchorCount:
-      discard placeUniformPoi(rng, result, width, height, anchorMinSep,
-        poiAnchor, anchorHalf, 0)
-    let fillerPool: seq[ArchSpec] = @[
-      (poiOutpost, 0.35, 1), (poiYard, 0.35, 1), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+    ## ROUND 8 recalibration #2: rotation-timing measured the WORST
+    ## combined pass rate of the three delivery families (mass/cover/
+    ## distToCover all lagging) — clusters+causeways alone leave real gaps
+    ## since the keystone's whole identity is "open seams between
+    ## clusters." A light general-purpose ruins filler patches the worst
+    ## gaps (small, cheap, doesn't compete with the causeway-count
+    ## detector since poiRuins never counts toward it) without fighting
+    ## the "open seams" grammar the way more/bigger clusters would.
+    let genFillerPool: seq[ArchSpec] = @[
+      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiYard, 0.30, 1),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, fillerPool, 1.0, 8 + rng.rand(6))
+    placeStratifiedPool(rng, result, width, height, gunRange, genFillerPool, 0.9, 5 + rng.rand(4))
+  of ksZoneEdgeHolding:
+    ## A handful of ANCHOR compounds, STRATIFIED across regions (so no two
+    ## end up sharing a corner even before the mutual minSep is checked) —
+    ## still spread with a LARGE mutual minSep so no two are ever close
+    ## enough to trade one holder for another. Filler on top, bumped
+    ## substantially (round 8) so the map isn't just a few anchors on bare
+    ## ground between them.
+    ## ROUND 8 recalibration #2: anchorHalf trimmed 1.25G -> 1.05G — the
+    ## bigger anchors were routinely fusing with nearby filler/caves into
+    ## a few sprawling components (measured cover up to 185‰, MASS COUNT
+    ## as low as 17 on the same seed — cover and count moving opposite
+    ## directions is the "few giant blobs" failure mode, not "fat and
+    ## numerous"). Still the biggest single archetype on the map; still
+    ## comfortably above every other family's own anchor floor.
+    ## ROUND 9 note: dropShapesNearSpawns' clip-vs-drop change (see that
+    ## proc's comment) is now SIZE-GATED — only pieces under ~2x the
+    ## confetti floor clip; a full anchor shell side is well above that,
+    ## so it still drops exactly as round 8 calibrated. anchorHalf stays
+    ## at round 8's own 1.05G.
+    let anchorHalf = int(0.62 * float(gunRange))
+    let anchorMinSep = int(1.9 * float(gunRange))
+    let anchorCount = 4 + rng.rand(3)
+    let (acols, arows) = regionGrid(anchorCount, width, height)
+    var anchorRegions = regionRects(width, height, acols, arows)
+    rng.shuffle(anchorRegions)
+    for i in 0 ..< anchorCount:
+      if i >= anchorRegions.len: break
+      discard placeUniformPoiInRect(rng, result, anchorRegions[i], width, height,
+        anchorMinSep, poiAnchor, anchorHalf, 0)
+    ## ROUND 8 recalibration: measured mass count averaged 21.5, cover
+    ## often already 150-179 (near/over ceiling) — the anchors alone
+    ## already carry plenty of AREA; what's short is COUNT. More filler,
+    ## weighted smaller (more ruins) and tighter-packed (0.85G), adds mass
+    ## count without pushing cover further past the ceiling.
+    let fillerPool: seq[ArchSpec] = @[
+      (poiOutpost, 0.38, 1), (poiYard, 0.38, 1),
+      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+    ]
+    placeStratifiedPool(rng, result, width, height, gunRange, fillerPool, 0.85, 9 + rng.rand(4))
   of ksThirdParty:
     ## Open interiors only — NO sealed compounds (poiCompound/poiAnchor
     ## excluded from the pool entirely), warren-heavy so most sites have
-    ## 3+ approaches. Denser + tighter spacing than the baseline so fights
-    ## happen close enough together to interrupt each other.
+    ## 3+ approaches. Tighter spacing than the baseline so fights happen
+    ## close enough together to interrupt each other.
     let pool: seq[ArchSpec] = @[
-      (poiWarren, 0.45, 1), (poiWarren, 0.45, 1), (poiWarren, 0.45, 1),
-      (poiYard, 0.42, 1), (poiYard, 0.42, 1),
-      (poiOutpost, 0.38, 1),
+      (poiWarren, 0.60, 1), (poiWarren, 0.60, 1), (poiWarren, 0.60, 1),
+      (poiYard, 0.55, 1), (poiYard, 0.55, 1),
+      (poiOutpost, 0.48, 1),
+      (poiRuins, 0.28, 2), (poiRuins, 0.28, 2),
+    ]
+    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.0, 13 + rng.rand(5))
+  of ksCqcWarren:
+    ## Interior-share dial, HIGH pole: warren-heavy pool, TIGHT minimum
+    ## separation — packing is itself the grammar knob that reads as
+    ## close-quarters.
+    let pool: seq[ArchSpec] = @[
+      (poiWarren, 0.58, 1), (poiWarren, 0.58, 1), (poiWarren, 0.58, 1),
+      (poiWarren, 0.58, 1), (poiWarren, 0.58, 1),
+      (poiOutpost, 0.48, 1),
       (poiRuins, 0.26, 2), (poiRuins, 0.26, 2),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.0, 12 + rng.rand(6))
-  of ksCqcWarren:
-    ## Interior-share dial, HIGH pole: warren-heavy pool, dense K, TIGHT
-    ## minimum separation — packing is itself the grammar knob that reads
-    ## as close-quarters.
-    let pool: seq[ArchSpec] = @[
-      (poiWarren, 0.42, 1), (poiWarren, 0.42, 1), (poiWarren, 0.42, 1),
-      (poiWarren, 0.42, 1), (poiWarren, 0.42, 1),
-      (poiOutpost, 0.35, 1),
-      (poiRuins, 0.22, 2),
-    ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 0.85, 16 + rng.rand(6))
+    placeStratifiedPool(rng, result, width, height, gunRange, pool, 0.85, 15 + rng.rand(4))
   of ksOpenSteppe:
     ## Interior-share dial, LOW pole: sparse pool (mostly small ruins),
     ## few sites, WIDE minimum separation — open ground between cover is
-    ## the grammar knob that reads as steppe.
+    ## the grammar knob that reads as steppe. Deliberately NOT bumped as
+    ## hard as the other five families (round 8): more structures here
+    ## would fight the keystone's own low-footprint-share identity. The
+    ## restored heavy caves fill (generateBrMap) is what carries this
+    ## family into the cover-permille/total-mass bands instead — organic
+    ## terrain, not authored buildings, is the correct texture for
+    ## "steppe."
     let pool: seq[ArchSpec] = @[
-      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
-      (poiYard, 0.30, 1),
-      (poiOutpost, 0.30, 1),
+      (poiRuins, 0.22, 2), (poiRuins, 0.22, 2), (poiRuins, 0.22, 2),
+      (poiYard, 0.34, 1),
+      (poiOutpost, 0.34, 1),
     ]
-    placeWeightedPool(rng, result, width, height, gunRange, pool, 1.5, 6 + rng.rand(4))
+    placeStratifiedPool(rng, result, width, height, gunRange, pool, 1.5, 6 + rng.rand(3))
+
+  ## ROUND 8, item 3c: "more/longer thick causeway runs" — every family
+  ## except rotation-timing (which already places a bigger, keystone-
+  ## defining set above) gets a small top-up of connective causeways.
+  ## Long thick linear mass is cheap, welds naturally at both ends against
+  ## whatever it crosses near, and doctrine's causeway push isn't scoped
+  ## to one keystone — multi-scale mass (POI + causeway + caves) should be
+  ## present everywhere.
+  if keystone != ksRotationTiming:
+    let extraCausewayCount = 2 + rng.rand(2)  ## 2-3
+    let extraCausewayHalf = int(1.1 * float(gunRange))
+    let extraCausewayMinSep = int(0.7 * float(gunRange))
+    for i in 0 ..< extraCausewayCount:
+      discard placeUniformPoi(rng, result, width, height, extraCausewayMinSep,
+        poiCauseway, extraCausewayHalf, 1)
 
 proc poiFootprintRect(site: PoiSite): MapRect =
   MapRect(x: site.center.x - site.halfExtent, y: site.center.y - site.halfExtent,
@@ -788,21 +1378,40 @@ proc pointNearAnyPoi(p: MapPoint, pois: seq[PoiSite], pad: int): bool =
       return true
   false
 
+proc decimatePolygon(shape: ArenaShape, keepEvery: int): ArenaShape =
+  ## ROUND 8 (spec-byte budget): keep every `keepEvery`-th vertex of a
+  ## polygon shape. mapgen_styles.blobPolygon's wobble is two low-frequency
+  ## sinusoids, so uniform decimation still traces the same silhouette at
+  ## a coarser sample rate — at this tool's render scale (giant field
+  ## downscaled to a 1600px thumbnail) a 7-vertex blob and a 14-vertex one
+  ## are visually indistinguishable, but the spec-JSON cost is halved.
+  ## Never decimates below blobPolygon's own 6-vertex floor.
+  if shape.kind != shapePolygon or keepEvery <= 1 or shape.points.len <= 6:
+    return shape
+  var pts: seq[MapPoint]
+  var i = 0
+  while i < shape.points.len:
+    pts.add shape.points[i]
+    i += keepEvery
+  if pts.len < 6: return shape
+  ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
+
 proc linearConnectors(
   rng: var Rand, pois: seq[PoiSite]
 ): seq[ArenaShape] =
-  ## "Broken wall lines, fence/ridge runs with real mass" between POIs
-  ## (coordinator, round 3) — screens for the rotation AND grain for the
-  ## field, the anti-confetti directive's "continuous linear features".
+  ## "Continuous linear features" between POIs (coordinator, round 3) —
+  ## screens for the rotation AND grain for the field. ROUND 7 (Maxwell's
+  ## verdict): "continuous thick walls with 1-2 deliberate gate gaps —
+  ## never dash runs." The old design (46px segments, ~38% dropped every
+  ## 85px) was EXACTLY a dash run — a direct confetti source, each
+  ## surviving segment (598px^2) individually far under the 3000px^2
+  ## floor and disconnected from its neighbours by the deliberate gaps.
+  ## Rebuilt on the SAME construction as poiCauseway: one run split into
+  ## 1-2 pieces by 1-2 real gate gaps, each piece thick (26px) and long
+  ## enough to individually clear the confetti floor on its own.
   ## Connects each POI to its nearest neighbour (a cheap near-MST: not
-  ## every pair, so the field doesn't turn into a lattice) with a segmented
-  ## line, each segment perpendicular to the run and offset with jitter so
-  ## it reads as a fence/ridge, not a ruler.
-  const
-    SegLen = 46
-    SegThick = 13
-    Step = 85       ## distance between segment attempts along the run
-    KeepChance = 0.62 ## fraction of steps that actually place a segment (the BREAK)
+  ## every pair, so the field doesn't turn into a lattice).
+  const Thick = 26
   var connected: seq[(int, int)]
   for i in 0 ..< pois.len:
     var bestJ = -1
@@ -824,27 +1433,68 @@ proc linearConnectors(
     let b = pois[j].center
     let dx = float(b.x - a.x)
     let dy = float(b.y - a.y)
-    let length = sqrt(dx * dx + dy * dy)
-    if length < 1.0: continue
-    let ux = dx / length
-    let uy = dy / length
-    let px = -uy  ## perpendicular unit vector, for the segment's own orientation
-    let py = ux
-    var t = float(pois[i].halfExtent) + 40.0
-    while t < length - float(pois[j].halfExtent) - 40.0:
-      if rng.rand(1.0) < KeepChance:
-        let jitter = float(rng.rand(-18 .. 18))
-        let midx = a.x.float + ux * t + px * jitter
-        let midy = a.y.float + uy * t + py * jitter
-        let p0 = MapPoint(x: int(midx - px * float(SegLen) / 2.0), y: int(midy - py * float(SegLen) / 2.0))
-        let p1 = MapPoint(x: int(midx + px * float(SegLen) / 2.0), y: int(midy + py * float(SegLen) / 2.0))
-        ## ROUND 5: no pocket-avoidance at placement time (Maxwell's ruling
-        ## — "we banned that"). dropShapesNearSpawns still carves the tiny
-        ## duo pocket clear afterward, same as every other wall shape.
-        result.add ArenaShape(
-          kind: shapeDiagonal, x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y,
-          thickness: SegThick)
-      t += Step
+    let fullLength = sqrt(dx * dx + dy * dy)
+    if fullLength < 1.0: continue
+    let ux = dx / fullLength
+    let uy = dy / fullLength
+    ## Run only spans the gap BETWEEN the two POI footprints, not center
+    ## to center — same margin the old dash run used.
+    let runStart = float(pois[i].halfExtent) + 40.0
+    let runEnd = fullLength - float(pois[j].halfExtent) - 40.0
+    let runLen = runEnd - runStart
+    ## Each piece doesn't touch the POI shells (there's a deliberate 40px
+    ## gap so it never overlaps a POI's own footprint), so it must clear
+    ## the confetti floor ON ITS OWN: at Thick=26, that's >=116px long.
+    ## Skip the whole connector rather than emit a piece that can't.
+    const MinPieceLen = 120.0
+    if runLen < MinPieceLen: continue
+    let gateCount = if runLen > 2.0 * MinPieceLen + 150.0: 1 + rng.rand(1) else: 0
+    let gateW = if gateCount == 0: 0.0 else: 60.0 + float(rng.rand(30))
+    let pieceLen = (runLen - float(gateCount) * gateW) / float(gateCount + 1)
+    if pieceLen < MinPieceLen: continue
+    var t = runStart
+    for k in 0 ..< gateCount + 1:
+      let segStart = t
+      let segEnd = t + pieceLen
+      let p0x = a.x.float + ux * segStart
+      let p0y = a.y.float + uy * segStart
+      let p1x = a.x.float + ux * segEnd
+      let p1y = a.y.float + uy * segEnd
+      ## ROUND 5: no pocket-avoidance at placement time (Maxwell's ruling
+      ## — "we banned that"). dropShapesNearSpawns still carves the tiny
+      ## duo pocket clear afterward, same as every other wall shape.
+      result.add ArenaShape(
+        kind: shapeDiagonal, x0: int(p0x), y0: int(p0y), x1: int(p1x), y1: int(p1y),
+        thickness: Thick)
+      t = segEnd + gateW
+
+proc caveFillPatches(
+  style: MapStyle, styleSeed: int, region: MapRect, patchCols, patchRows: int,
+  baseParams: StyleParams
+): seq[ArenaShape] =
+  ## ROUND 8 (doctrine items 3b + 4): one independent CA pass PER REGION
+  ## instead of one pass over the whole field. Measured: a single field-
+  ## wide CA run near its own percolation threshold reliably fuses into
+  ## one or two GIANT sprawling components (a single ~180,000px^2 blob
+  ## eating most of the cover budget while every other mass stayed
+  ## POI-sized) — "fat and numerous" needs MANY separate fat masses, not
+  ## one huge one wearing a numerous shape-count. Patching the caves
+  ## generator the same way POI placement is stratified (item 4) buys
+  ## both properties at once: each patch's CA run is self-contained (so
+  ## it welds into its OWN blob, capped by its own patch size, never the
+  ## whole field's), and patches tile the field uniformly (so caves fill
+  ## inherits the same anti-clustering guarantee POIs get — no seed can
+  ## dump every cave into one corner).
+  let rawPatches = regionRects(region.w, region.h, patchCols, patchRows)
+  const Inset = 24  ## keeps adjacent patches' terrain from touching pixel-
+                     ## for-pixel and reading as a grid seam
+  for i, rp in rawPatches:
+    let patch = MapRect(x: region.x + rp.x, y: region.y + rp.y, w: rp.w, h: rp.h)
+    if patch.w <= 2 * Inset or patch.h <= 2 * Inset: continue
+    let sub = MapRect(x: patch.x + Inset, y: patch.y + Inset,
+      w: patch.w - 2 * Inset, h: patch.h - 2 * Inset)
+    let patchSeed = styleSeed xor (0x1000_0000 + i * 0x9E37_79B1)
+    result.add generateShapes(style, patchSeed, sub, baseParams)
 
 proc generateBrMap(
   seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily
@@ -877,34 +1527,96 @@ proc generateBrMap(
   ## fill) composes around them instead of the other way around.
   var poiRng = initRand(seed xor 0x7F4A_2C11)
   result.pois = placePois(poiRng, w, h, result.gunRange, keystone)
+
+  ## ROUND 9 (doctrine item 6's room-count-variety gate): pre-assign a
+  ## shuffled, ascending sequence of room-count HINTS across every
+  ## room-eligible POI before stamping any of them — see stampPoi's own
+  ## comment for why this replaced "let each structure roll its own
+  ## target independently."
+  var roomEligibleIdx: seq[int]
+  for i in 0 ..< result.pois.len:
+    if result.pois[i].archetype in {poiCompound, poiOutpost, poiAnchor, poiWarren}:
+      roomEligibleIdx.add i
+  var diversityRng = initRand(seed xor 0x5A11_9902)
+  diversityRng.shuffle(roomEligibleIdx)
+  var roomHints = newSeq[int](result.pois.len)
+  const DiversityTargets = [1, 2, 3, 4, 5, 6, 7, 8]
+  for k, idx in roomEligibleIdx:
+    if k < DiversityTargets.len:
+      roomHints[idx] = DiversityTargets[k]
+
   var structures: seq[ArenaShape]
-  for site in result.pois:
+  for i in 0 ..< result.pois.len:
+    let site = result.pois[i]
     var stampRng = initRand(seed xor 0x9B1E_44D7 xor (site.center.x * 131071 + site.center.y))
-    structures.add stampPoi(stampRng, site)
+    ## ROUND 9: stampPoi now also returns the site's floor plan (the room
+    ## list) — written back into result.pois[i] so item placement
+    ## (per-room, doctrine item 5) and metrics (per-structure room
+    ## counts, item 2) can read it later.
+    let plan = stampPoi(stampRng, site, roomHints[i])
+    structures.add plan.shapes
+    result.pois[i].rooms = plan.rooms
 
   var connectorRng = initRand(seed xor 0x2E9D_7731)
   let connectors = linearConnectors(connectorRng, result.pois)
 
-  ## Caves DEMOTES to organic fill between structures — one pass, low
-  ## density, dropped wherever it would overlap a POI footprint or a
-  ## connector run (a blob eating a doorway reads as a bug, not terrain).
+  ## ROUND 3: caves DEMOTED to organic fill between structures — kept, but
+  ## ROUND 8 (Maxwell's verdict on round 7's sheet: "THESE MAPS ARE STILL
+  ## farrrrrrrrr too barren"; doctrine item 3b: "RESTORE the organic caves
+  ## masses as heavy between-places fill — fat and numerous... they're the
+  ## cheapest legitimate mass") un-demotes it back toward a PRIMARY mass
+  ## contributor, not a light dusting. Round 3-7's clamps (fillProb<=0.16,
+  ## blobScale<=0.75) are what starved the field between POIs; both are
+  ## raised substantially below. Still dropped wherever it would overlap a
+  ## POI footprint or a connector run (a blob eating a doorway reads as a
+  ## bug, not terrain).
   let region = placementRegion(w, h)
   var params = paramsIn
   params.noAnchors = true
-  params.fillProb = min(params.fillProb, 0.16)
-  params.blobScale = min(params.blobScale, 0.75)
-  let caveRaw = generateShapes(style, seed xor styleSalt, region, params)
+  ## ROUND 8: measured 0.50 as the safe ceiling under the per-patch B4/D3
+  ## rule (0.55 already over-covers on several families — see the round-8
+  ## commit message's sweep). 1.0 blobScale keeps each cell's blob nearly
+  ## cell-sized (the "fat" half of "fat and numerous").
+  params.fillProb = min(params.fillProb, 0.50)
+  params.blobScale = min(params.blobScale, 1.0)
+  ## ROUND 8: PATCHED, not one field-wide CA pass — see caveFillPatches'
+  ## own comment. CaveFillPatchCols/Rows tile the placement region into
+  ## ~15 roughly-square cells matched to the field's own aspect.
+  let caveRaw = caveFillPatches(style, seed xor styleSalt, region,
+    CaveFillPatchCols, CaveFillPatchRows, params)
+  ## ROUND 8 FIX: the clash test used to check each cave shape against
+  ## `poiFootprintRect(site)` — a SQUARE of side 2*halfExtent. That's a
+  ## reasonable stand-in for a compound/anchor/outpost/yard/ruins/warren
+  ## (all roughly square), but poiCauseway's halfExtent is a HALF-LENGTH
+  ## along an arbitrary drawn axis, not a radius — the square estimate for
+  ## a causeway with halfExtent ~1.5G was a ~992x992px block (~984,000px^2)
+  ## standing in for a shape whose REAL footprint (a few 30px-thick
+  ## diagonal segments) is under 30,000px^2. With round 8's causeway count
+  ## bumped up across every family, that overestimate was excluding most
+  ## of the field from caves placement and silently zeroing out caveFill
+  ## entirely on several seeds. Fixed by testing against the ACTUAL
+  ## stamped shapes' own bounding boxes (structures + connectors, both
+  ## already built above) instead of a per-archetype guess.
+  let authoredSoFar = structures & connectors
+  when defined(brDebugCaves):
+    stderr.writeLine(&"DEBUG caveRaw={caveRaw.len} authoredSoFar={authoredSoFar.len} region=({region.x},{region.y},{region.w},{region.h}) fillProb={params.fillProb} blobScale={params.blobScale} cell={params.cell}")
   var caveFill: seq[ArenaShape]
   for shape in caveRaw:
     let b = shapeBounds(shape)
     var clash = false
-    for site in result.pois:
+    for astruct in authoredSoFar:
+      let ab = shapeBounds(astruct)
       if rectsOverlap(MapRect(x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0),
-          poiFootprintRect(site), 50):
+          MapRect(x: ab.x0, y: ab.y0, w: ab.x1 - ab.x0, h: ab.y1 - ab.y0), 24):
         clash = true
         break
     if not clash:
-      caveFill.add shape
+      ## ROUND 8 (spec-byte budget: "coarser perimeter polygons where
+      ## needed" — at 3x the mass, hundreds of genCaves' own fixed-14-vert
+      ## blobs would blow well past the 58KB spec budget on their own;
+      ## mapgen_styles.genCaves stays UNMODIFIED per this file's own reuse
+      ## contract, so the cut happens here instead).
+      caveFill.add decimatePolygon(shape, CaveFillVertDecimate)
 
   ## Kept as two separately-dropped groups (not one merged list) so the
   ## authored/fill split survives dropShapesNearSpawns' filtering intact —
@@ -912,6 +1624,8 @@ proc generateBrMap(
   ## have already removed whatever they're going to remove from each half.
   let structuresKept = dropShapesNearSpawns(structures & connectors, pockets)
   let caveFillKept = dropShapesNearSpawns(caveFill, pockets)
+  when defined(brDebugCaves):
+    stderr.writeLine(&"DEBUG2 caveRaw={caveRaw.len} caveFillPostClash={caveFill.len} caveFillKept={caveFillKept.len}")
   result.structureCount = structuresKept.len
   result.obstacles = structuresKept & caveFillKept
 
@@ -1023,10 +1737,13 @@ proc brMapSpecJson(m: BrMap): string =
   for s in m.spawns: spawnPts.add %*[s.p.x, s.p.y]
   var poiNodes = newJArray()
   for site in m.pois:
+    var roomNodes = newJArray()
+    for r in site.rooms: roomNodes.add %*[r.x, r.y, r.w, r.h]
     poiNodes.add %*{
       "x": site.center.x, "y": site.center.y,
       "archetype": $site.archetype, "halfExtent": site.halfExtent,
       "lootTier": site.lootTier,
+      "rooms": roomNodes,  ## round 9: the floor plan, [x,y,w,h] per room
     }
   let spec = %*{
     "name": m.name,
@@ -1102,11 +1819,18 @@ proc brMapFromSpecJson(text: string): BrMap =
         of "poiCauseway": poiCauseway
         of "poiWarren": poiWarren
         else: poiOutpost
+      var rooms: seq[MapRect]
+      let roomsNode = pn{"rooms"}
+      if not roomsNode.isNil and roomsNode.kind == JArray:
+        for rn in roomsNode:
+          rooms.add MapRect(x: rn[0].getInt(), y: rn[1].getInt(),
+            w: rn[2].getInt(), h: rn[3].getInt())
       result.pois.add PoiSite(
         center: MapPoint(x: pn["x"].getInt(), y: pn["y"].getInt()),
         archetype: archetype,
         halfExtent: pn{"halfExtent"}.getInt(150),
-        lootTier: pn{"lootTier"}.getInt(1))
+        lootTier: pn{"lootTier"}.getInt(1),
+        rooms: rooms)
   result.medKitSpawns = pointsFromNode(node{"medKitSpawns"})
   result.medKitCandidates = pointsFromNode(node{"medKitCandidates"})
   result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
@@ -1174,36 +1898,6 @@ proc buildWallGrid(m: BrMap): seq[bool] =
         if inShape(x, y, shape):
           result[gy * cols + gx] = true
 
-# Union-Find for connected-component labeling.
-type DSU = object
-  parent: seq[int]
-  size: seq[int]
-
-proc initDSU(n: int): DSU =
-  result.parent = newSeq[int](n)
-  result.size = newSeq[int](n)
-  for i in 0 ..< n:
-    result.parent[i] = i
-    result.size[i] = 1
-
-proc find(d: var DSU, x: int): int =
-  var x = x
-  while d.parent[x] != x:
-    d.parent[x] = d.parent[d.parent[x]]
-    x = d.parent[x]
-  x
-
-proc union(d: var DSU, a, b: int) =
-  let ra = d.find(a)
-  let rb = d.find(b)
-  if ra == rb: return
-  if d.size[ra] < d.size[rb]:
-    d.parent[ra] = rb
-    d.size[rb] += d.size[ra]
-  else:
-    d.parent[rb] = ra
-    d.size[ra] += d.size[rb]
-
 proc components(
   mask: seq[bool], cols, rows: int, want: bool, diag: bool
 ): tuple[labels: seq[int], sizes: Table[int, int]] =
@@ -1236,6 +1930,48 @@ proc components(
       result.sizes[r] = result.sizes.getOrDefault(r, 0) + 1
 
 proc toGrid(x, y: int): tuple[gx, gy: int] = (x div GridStride, y div GridStride)
+
+# --- distance-to-cover (round 8) ----------------------------------------------
+
+proc chamferDistancePx(wall: seq[bool], cols, rows: int): seq[float] =
+  ## Two-pass chamfer (3-4) distance transform: PX distance from every grid
+  ## cell to the nearest wall cell, approximating true Euclidean distance
+  ## to within a few percent (the standard 3-4 chamfer weights) at O(n) —
+  ## cheap enough to run on all ~344k giant-field grid cells per validate
+  ## call. Replaces round 5's fixed 8x4 empty-cell macro-grid (doctrine
+  ## §2.1's round-8 strengthening): this measures the thing that actually
+  ## matters at combat scale — how far a duo standing anywhere on walkable
+  ## ground has to run before it can reach cover — instead of a coarse
+  ## proxy grid that couldn't discriminate finer than one macro-cell.
+  const Ortho = 3
+  const Diag = 4
+  const Big = 1_000_000_000
+  var d = newSeq[int](cols * rows)
+  for i in 0 ..< wall.len:
+    d[i] = if wall[i]: 0 else: Big
+  for gy in 0 ..< rows:
+    for gx in 0 ..< cols:
+      let i = gy * cols + gx
+      if d[i] == 0: continue
+      var best = d[i]
+      if gx > 0: best = min(best, d[i - 1] + Ortho)
+      if gy > 0: best = min(best, d[i - cols] + Ortho)
+      if gx > 0 and gy > 0: best = min(best, d[i - cols - 1] + Diag)
+      if gx < cols - 1 and gy > 0: best = min(best, d[i - cols + 1] + Diag)
+      d[i] = best
+  for gy in countdown(rows - 1, 0):
+    for gx in countdown(cols - 1, 0):
+      let i = gy * cols + gx
+      if d[i] == 0: continue
+      var best = d[i]
+      if gx < cols - 1: best = min(best, d[i + 1] + Ortho)
+      if gy < rows - 1: best = min(best, d[i + cols] + Ortho)
+      if gx < cols - 1 and gy < rows - 1: best = min(best, d[i + cols + 1] + Diag)
+      if gx > 0 and gy < rows - 1: best = min(best, d[i + cols - 1] + Diag)
+      d[i] = best
+  result = newSeq[float](cols * rows)
+  for i in 0 ..< d.len:
+    result[i] = float(d[i]) / float(Ortho) * float(GridStride)
 
 # --- exit / choke counting ----------------------------------------------------
 
@@ -1407,18 +2143,23 @@ type
     perSpawnCoverReason: string
     uncoveredSpawns: int
 
-    ## ROUND 5 (Maxwell's ruling, doctrine §4.7): "the room and obstacle
-    ## density needs to be roughly uniform across the entire map, not
-    ## focused in the center." Supersedes round 2's boolean 4x2 distribution
-    ## gate (any-mass-present per cell) with a finer 8x4 grid measuring
-    ## actual wall AREA per cell against a band of the field mean.
-    densityUniformityPass: bool
-    densityUniformityReason: string
-    densityCellArea: seq[int]    ## 8x4, row-major, grid-cell counts (for the metrics dump)
-    densityMeanArea: float
-    densityMinRatio: float       ## min(cellArea)/mean across all cells (diagnostic only)
-    densityMaxRatio: float       ## max(cellArea)/mean across all cells (diagnostic only)
-    densityEmptyCells: int       ## count of cells with ZERO wall area — the gated signal
+    ## ROUND 8 (Maxwell's verdict on round 7's sheet: "THESE MAPS ARE STILL
+    ## farrrrrrrrr too barren" — bold masses, far too few). Replaces round
+    ## 5's empty-cell density-uniformity gate outright (doctrine §2.1's
+    ## round-8 strengthening: "mass quality (subtractive, welded) and mass
+    ## quantity (the permille band) are separate gates"). The two gates
+    ## below subsume the old one at COMBAT SCALE: an empty 8x4 macro-cell
+    ## was only ever a proxy for "can a duo standing here reach cover
+    ## before getting shot," and distance-to-cover measures that directly
+    ## instead of guessing at it via a coarse fixed grid.
+    coverPermille: int            ## measured total obstacle coverage, permille
+    coverPermillePass: bool
+    coverPermilleReason: string
+
+    distToCoverP95Px: float       ## p95 walkable-cell distance to nearest cover
+    distToCoverMaxPx: float       ## max walkable-cell distance to nearest cover
+    distToCoverPass: bool
+    distToCoverReason: string
     # ROUND 3 (Maxwell's rejection, 2026-08-24): "items, intention" is the
     # doctrine's PRIMARY BR lever (doc 4.4), absent from rounds 1-2 entirely.
     itemCoveragePass: bool
@@ -1437,6 +2178,18 @@ type
     keystoneFloor: float       ## the calibrated pass threshold
     keystonePass: bool
     keystoneReason: string
+
+    ## ROUND 9 (doctrine item 6): "add interior-connectivity (flood fill
+    ## per structure) + room-count-variety."
+    interiorConnPass: bool
+    interiorConnReason: string
+    strandedRooms: int          ## rooms whose center isn't in the map's
+                                  ## dominant walkable component
+    roomCountVarietyPass: bool
+    roomCountVarietyReason: string
+    distinctRoomCounts: int      ## how many distinct room-count values
+                                  ## appear across the draw's structures
+    roomCountsByArchetype: seq[(string, int)]  ## per-structure, for the log
 
     allPass: bool
 
@@ -1467,7 +2220,21 @@ const
   ## tension with a global confetti ceiling built for the other five
   ## families. Flagged for round 7 (a family-aware ceiling, or welding
   ## adjacent warren-room walls into fewer, larger connected masses).
-  ConfettiCeiling = 60        ## max confetti masses tolerated on the whole board
+  ## ROUND 7 (Maxwell's verdict): "THE ANTI-CONFETTI GATE DRIFTED... the
+  ## gate was tuned to fit the generator instead of the standard... reset
+  ## it as a STANDARD." The round-5/6 ceiling (52, then 60) was raised to
+  ## accommodate whatever the thin-walled generator happened to produce —
+  ## the classic backwards ratchet. The round-7 subtractive rework (welded
+  ## shell-ring masses, thick gated connectors, no more dash runs) makes
+  ## near-zero confetti the STRUCTURAL default rather than something to
+  ## tolerate: measured on the 3 priority families post-rework (15 seeds
+  ## each, 40001-40015) — confetti count [0,5], mean 0.2-1.1, essentially
+  ## always 0-2. 8 is a principled standard (comfortable margin over the
+  ## worst observed case, not curve-fit to a loose distribution) — a
+  ## genuinely welded map should clear it almost every time; a map that
+  ## doesn't is telling you something broke, not that the standard is
+  ## wrong.
+  ConfettiCeiling = 8         ## max confetti masses tolerated on the whole board
   MinPocketExits = 2          ## doc §4.5: no single-exit pocket
   ZoneWalkableFloor = 0.55
   ZoneMinMasses = 2
@@ -1477,66 +2244,101 @@ const
   ## (bitworld/replays.nim:108-112, per the br-demo lane's 2026-08-24 giant
   ## symNone build, which hit this at 73KB). Budget well under the hard cap.
   SpecSizeBudgetBytes = 58000
-  PlaceCountFloor = 6         ## round-2: >= 6 welded (non-confetti) masses
+  ## ROUND 8 (Maxwell's verdict: "THESE MAPS ARE STILL farrrrrrrrr too
+  ## barren" — bold masses, far too few). round-7 draws ran 12-18 welded
+  ## masses (18-26 counting connectors as separate components) at ~40-60
+  ## permille cover; the CTF program's own validated band is [40,170] with
+  ## caves_404 (an accepted reference) at 150. §2.1's round-8 strengthening
+  ## targets the UPPER half of that band plus ~3x the mass count. PlaceCount
+  ## is now a BAND, not just a floor: >=25 welded (non-confetti) masses
+  ## (up from round-2's floor of 6, now clearly too low for the doctrine's
+  ## own reference density) and <=60 (a map that is ALL mass has no open
+  ## ground to fight across, and the confetti/spec-size gates would choke
+  ## first anyway — the ceiling exists so a bug that goes the other
+  ## direction, e.g. caves fill running away to near-solid, fails loudly
+  ## here instead of silently in the spec-size gate).
+  PlaceCountFloor = 25
+  PlaceCountCeiling = 60
   PerSpawnCoverGR = 1.5       ## round-2 §2.3: rotation cover within 1.5 G
   PocketExitMargin = 24       ## shared with ensurePerSpawnCover so a screen
                                ## blob can never be placed ON its own spawn's
                                ## exit-check ring (round-2 regression: it was
                                ## using the raw pocket's radius, not the
                                ## ring's, and choked 6 spawns down to 1 exit)
-  ## ROUND 5 (Maxwell's ruling, doctrine §4.7): density-uniformity supersedes
-  ## the old boolean 4x2 distribution gate. Finer 8x4 grid (32 cells).
-  ## MEASURED before picking the threshold (not guessed): a naive
-  ## ratio-to-mean band [0.35x, 3.0x] does NOT discriminate — BR content is
-  ## inherently clumpy (a single compound POI is already ~1 macro-cell wide),
-  ## so even genuinely uniform draws regularly clear 3x mean in their
-  ## richest cell (20 uniform-sampling seeds: out-of-band count 10-22 of 32,
-  ## mean 14.5) while a deliberately CENTER-CLUSTERED probe (POIs clamped to
-  ## the field's center quarter, standing in for the round-3/4 failure mode)
-  ## scored 19-24 of 32 — the ranges OVERLAP, so a ratio-band gate would be
-  ## unable to tell them apart. The EMPTY-cell count (cells with literally
-  ## ZERO wall area) does not have this problem: the same 20 uniform seeds
-  ## land at 4-14 empty cells (mean 8.5), the same 10 center-clustered
-  ## probes land at 15-20 (mean 17.8) — a clean gap, zero overlap. Gate on
-  ## empty-cell count; report the ratio range as a diagnostic only.
-  DensityGridCols = 8
-  DensityGridRows = 4
-  DensityMaxEmptyCells = 14   ## the uniform-sampling corpus's observed
-                               ## ceiling (max 14 of 32); the center-
-                               ## clustered probe's floor was 15 — this is
-                               ## the tightest honest threshold with a real
-                               ## margin from the failure mode it must catch.
+  ## ROUND 8: cover-permille and distance-to-cover REPLACE round 5's
+  ## empty-cell density-uniformity gate (doctrine §2.1's round-8
+  ## strengthening: "mass quality... and mass quantity... are separate
+  ## gates; three generator rounds conflated them"). coverPermille ports
+  ## the CTF program's own metric verbatim (arena.nim:2770 — wall pixels /
+  ## interior pixels * 1000, sampled here at grid resolution instead of
+  ## per-pixel), banked to the UPPER half of CTF's own validated
+  ## [40,170] band: caves_404, a reference Maxwell accepted, sits at 150.
+  CoverPermilleMinBr = 110
+  CoverPermilleMaxBr = 170
+  ## Distance-to-nearest-cover over walkable ground, at COMBAT scale
+  ## (fractions of gunRange, ~331px on giant): p95 must clear inside
+  ## 0.75G (~248px) — the typical duo should never be more than a
+  ## three-quarter-range dash from the nearest wall — and NO walkable cell
+  ## may sit past 1.25G (~414px), the hard "you are dead in the open"
+  ## ceiling. This is the principled replacement for the old empty-cell
+  ## grid: it measures the thing that actually matters (can you reach
+  ## cover before you take a bullet) instead of a fixed macro-cell proxy.
+  DistToCoverP95FracG = 0.75
+  DistToCoverMaxFracG = 1.25
 
-  ## ROUND 6 keystone detector floors — calibrated against a cross-family
-  ## corpus (15 seeds x 6 families; every OTHER family's draws scored
-  ## against each formula for comparison, same methodology as round 5's
-  ## density-uniformity gate). See the round-6 commit message for the full
-  ## sweep numbers and honestly-reported overlaps.
-  KsLandingVarianceFloor = 20000.0 ## own min 26779; excludes third-party
-                                     ## (max 9706), cqc-warren (max 7448),
-                                     ## open-steppe (max 3969), rotation-
-                                     ## timing (max 8342, post causeway-
-                                     ## exclusion) cleanly. Overlaps zone-
-                                     ## edge-holding (max 48818) — reported.
-  KsCausewayCountFloor = 3.0        ## own min 5; every other family = 0
-                                     ## always. Clean, no overlap measured.
+  ## ROUND 6 keystone detector floors, RECALIBRATED round 8 (doctrine:
+  ## "recalibrate on the denser corpus, same cross-family method" — the
+  ## POI counts/sizes changed enough across every family that the round-6
+  ## numbers needed re-measuring, not just porting). Same method as round
+  ## 6: 30 seeds x 6 families (sweeps at seeds 1001-1015 and 2001-2015,
+  ## post round-8's mass-quantity rework), every OTHER family's draws
+  ## scored against each formula for comparison.
+  KsLandingVarianceFloor = 22000.0 ## own [16363,303761], p20=68082; clears
+                                     ## cqc-warren (max 20897), rotation-
+                                     ## timing (max 15056), open-steppe
+                                     ## (max 5776), third-party (max 21047)
+                                     ## cleanly (29/30 own pass). Overlaps
+                                     ## zone-edge-holding (min 118268, own
+                                     ## range CONTAINED inside it) —
+                                     ## reported, same as round 6.
+  KsCausewayCountFloor = 5.0        ## own min 6; every other family's max
+                                     ## is 4 (round 8's universal causeway
+                                     ## top-up, item 3c, means every family
+                                     ## now places SOME causeways — floor
+                                     ## moved up from round 6's 3 to stay
+                                     ## clear of that new baseline).
   KsAnchorHalfExtentFloor = 0.45    ## fraction of gunRange
-  KsAnchorCountFloor = 3.0          ## own min 3; every other family = 0
-                                     ## except landing-selection (max 3,
-                                     ## boundary overlap — reported).
-  KsAnchorSpreadFloor = 1.8         ## fraction of gunRange; own min 2.01G
-  KsThirdPartyOpenFloor = 0.85      ## combined with warren-count below
-  KsThirdPartyMinWarrens = 1.0      ## own min 1; excludes rotation-timing
-                                     ## and open-steppe (both always 0).
-                                     ## cqc-warren overlaps (9-18, both
+  KsAnchorCountFloor = 4.0          ## own min 4; every other family's max
+                                     ## is 3 (landing-selection, whose big
+                                     ## compound/anchor draws occasionally
+                                     ## qualify) — clean separation.
+  KsAnchorSpreadFloor = 1.8         ## fraction of gunRange; own spreadFails
+                                     ## 0/30 at this floor.
+  KsThirdPartyOpenFloor = 0.85      ## combined with warren-count below;
+                                     ## unchanged — own openFrac stays 1.00.
+  KsThirdPartyMinWarrens = 1.0      ## own min 2; excludes rotation-timing,
+                                     ## open-steppe, landing-selection,
+                                     ## zone-edge-holding (all 0 always).
+                                     ## cqc-warren overlaps (min 5, both
                                      ## families favor warrens) — reported.
-  KsCqcWarrenShareFloor = 0.15      ## own min 0.170; excludes rotation-
-                                     ## timing (max 0.133), open-steppe
-                                     ## (max 0.051). Overlaps landing-
-                                     ## selection/zone-edge/third-party's
-                                     ## high end — reported.
-  KsOpenSteppeShareCeiling = 0.06   ## own max 0.051; every other family's
-                                     ## MINIMUM is 0.065+. Clean, no overlap.
+  KsCqcWarrenShareFloor = 0.15      ## own min 0.199; excludes rotation-
+                                     ## timing (max 0.280 — NOW OVERLAPS,
+                                     ## reported) and open-steppe (max
+                                     ## 0.066) cleanly. Overlaps landing-
+                                     ## selection (max 0.839) and zone-edge
+                                     ## (max 0.869)'s high end even harder
+                                     ## than round 6 — round 8's density
+                                     ## bump raised every family's ceiling,
+                                     ## this floor still separates on the
+                                     ## LOW end (own min comfortably clears
+                                     ## it) which is what the gate needs.
+  KsOpenSteppeShareCeiling = 0.09   ## own max 0.066 (round 8's caves-fill
+                                     ## bump raised this from round 6's
+                                     ## 0.051 and briefly broke the family's
+                                     ## OWN pass rate at the old 0.06
+                                     ## ceiling — this is the fix); every
+                                     ## other family's minimum is 0.121+
+                                     ## (rotation-timing). Clean, no overlap.
 
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
@@ -1546,6 +2348,16 @@ proc validateBr(m: BrMap): BrValidation =
   var walkable = newSeq[bool](wall.len)
   for i in 0 ..< wall.len: walkable[i] = not wall[i]
   let walkComp = components(walkable, cols, rows, true, false)
+  ## The single LARGEST walkable component — used by the round-9 interior-
+  ## connectivity check below regardless of whether spawns all share it
+  ## (that's connectivityPass's own job); this is just "the map's main
+  ## playable area."
+  var dominantWalkLabel = -1
+  var dominantWalkSize = -1
+  for lbl, sz in walkComp.sizes:
+    if sz > dominantWalkSize:
+      dominantWalkSize = sz
+      dominantWalkLabel = lbl
   var labelOf: seq[int]
   for s in m.spawns:
     let (gx, gy) = toGrid(clamp(s.p.x, 0, cols * GridStride - 1),
@@ -1604,10 +2416,26 @@ proc validateBr(m: BrMap): BrValidation =
   let borderLabel = wallComp.labels[0]
   var confetti = 0
   var largest = 0
+  when defined(brDebugConfetti):
+    var compBounds = initTable[int, tuple[x0,y0,x1,y1: int]]()
+    for gy in 0 ..< rows:
+      for gx in 0 ..< cols:
+        let lbl = wallComp.labels[gy * cols + gx]
+        if lbl == borderLabel: continue
+        if wall[gy * cols + gx]:
+          if lbl in compBounds:
+            let b = compBounds[lbl]
+            compBounds[lbl] = (min(b.x0, gx), min(b.y0, gy), max(b.x1, gx), max(b.y1, gy))
+          else:
+            compBounds[lbl] = (gx, gy, gx, gy)
   for lbl, sz in wallComp.sizes:
     if lbl == borderLabel: continue
     let px2 = sz * GridStride * GridStride
-    if px2 < ConfettiFloorPx2: inc confetti
+    if px2 < ConfettiFloorPx2:
+      inc confetti
+      when defined(brDebugConfetti):
+        let b = compBounds[lbl]
+        stderr.writeLine(&"CONFETTI lbl={lbl} px2={px2} bbox=({b.x0*GridStride},{b.y0*GridStride})-({b.x1*GridStride},{b.y1*GridStride})")
     largest = max(largest, px2)
   result.massCount = wallComp.sizes.len - 1  ## excludes the border component
   result.confettiCount = confetti
@@ -1618,12 +2446,17 @@ proc validateBr(m: BrMap): BrValidation =
     else: &"{confetti} confetti-sized masses (< {ConfettiFloorPx2}px^2), ceiling {ConfettiCeiling}"
   result.bigMassCount = result.massCount - confetti
 
-  # 3b. Place-count floor (round 2) --------------------------------------------
-  result.placeCountPass = result.bigMassCount >= PlaceCountFloor
+  # 3b. Place-count BAND (round 2 floor, round 8 adds a ceiling) ----------------
+  result.placeCountPass =
+    result.bigMassCount >= PlaceCountFloor and result.bigMassCount <= PlaceCountCeiling
   result.placeCountReason =
     if result.placeCountPass: ""
-    else: &"{result.bigMassCount} welded masses, need >= {PlaceCountFloor} " &
-      "(\"empty pan with islands\" if this stays low)"
+    elif result.bigMassCount < PlaceCountFloor:
+      &"{result.bigMassCount} welded masses, need >= {PlaceCountFloor} " &
+        "(\"empty pan with islands\" if this stays low)"
+    else:
+      &"{result.bigMassCount} welded masses, ceiling is {PlaceCountCeiling} " &
+        "(no open ground left to fight across)"
 
   # 3c. Per-spawn cover (round 2, doc §2.3 sharpened) ---------------------------
   block perSpawnCover:
@@ -1660,64 +2493,64 @@ proc validateBr(m: BrMap): BrValidation =
       else: &"{uncovered}/{m.spawns.len} spawns have no welded mass within " &
         &"{PerSpawnCoverGR}G ({radius}px) — unscreened rotation"
 
-  # 3d. Density uniformity (round 5, supersedes round 2's boolean 4x2
-  # distribution grid) ----------------------------------------------------------
-  block densityUniformity:
-    ## Structure+obstacle WALL AREA per cell of a finer 8x4 grid — "roughly
-    ## uniform... not focused in the center" (doctrine §4.7). Counts every
-    ## wall grid-cell EXCEPT the perimeter border wall (excluded the same
-    ## way confetti/per-spawn-cover already exclude it: by connected-
-    ## component label), so the outer ring of macro-cells isn't inflated
-    ## just by sitting next to the map edge. Unlike the old distribution
-    ## gate this is NOT confetti-filtered — small fragments are real
-    ## texture and should count toward "is this patch of field furnished",
-    ## while the anti-confetti gate separately governs whether there's too
-    ## much fragment clutter overall.
-    ##
-    ## Gates on EMPTY-cell count, not a ratio-to-mean band — measured (see
-    ## the DensityMaxEmptyCells comment) that a ratio band can't tell a
-    ## uniform draw from a center-clustered one at this resolution (BR
-    ## content is clumpy: one compound POI is already ~1 macro-cell wide,
-    ## so even good draws routinely have a cell well above the mean), while
-    ## the empty-cell count cleanly separates the two with zero overlap.
-    var cellArea = newSeq[int](DensityGridCols * DensityGridRows)
-    let cellW = (m.width + DensityGridCols - 1) div DensityGridCols
-    let cellH = (m.height + DensityGridRows - 1) div DensityGridRows
+  # 3d. Cover-permille + distance-to-cover (round 8, REPLACES round 5's
+  # density-uniformity empty-cell grid) ------------------------------------------
+  block coverPermille:
+    ## Ports the CTF program's own coverPermille metric verbatim (see
+    ## arena.nim:2770 — wall pixels / interior pixels * 1000), sampled here
+    ## at grid resolution rather than per-pixel (consistent with every
+    ## other BR gate). "Interior" excludes the perimeter border strip, same
+    ## as CTF's definition, so the gate measures drawn mass, not the
+    ## map-edge wall every draw carries for free.
+    var interiorCells = 0
+    var wallCells = 0
     for gy in 0 ..< rows:
       let y = gy * GridStride
       for gx in 0 ..< cols:
-        if not wall[gy * cols + gx]: continue
-        let lbl = wallComp.labels[gy * cols + gx]
-        if lbl >= 0 and lbl == borderLabel: continue
         let x = gx * GridStride
-        let cellX = min(DensityGridCols - 1, x div cellW)
-        let cellY = min(DensityGridRows - 1, y div cellH)
-        cellArea[cellY * DensityGridCols + cellX] += 1
-    let totalCells = DensityGridCols * DensityGridRows
-    let meanArea = float(cellArea.foldl(a + b, 0)) / float(totalCells)
-    var emptyCells = 0
-    var minRatio = 0.0
-    var maxRatio = 0.0
-    if meanArea > 0:
-      minRatio = Inf
-      for a in cellArea:
-        if a == 0: inc emptyCells
-        let ratio = float(a) / meanArea
-        minRatio = min(minRatio, ratio)
-        maxRatio = max(maxRatio, ratio)
-    else:
-      emptyCells = totalCells  ## no wall area anywhere is trivially non-uniform
-    result.densityCellArea = cellArea
-    result.densityMeanArea = meanArea
-    result.densityMinRatio = minRatio
-    result.densityMaxRatio = maxRatio
-    result.densityEmptyCells = emptyCells
-    result.densityUniformityPass = emptyCells <= DensityMaxEmptyCells
-    result.densityUniformityReason =
-      if result.densityUniformityPass: ""
-      else: &"{emptyCells} of {totalCells} field-grid cells have ZERO wall " &
-        &"area (max {DensityMaxEmptyCells} tolerated, mean {meanArea:.0f} " &
-        "grid cells/cell) — density is not uniform across the field"
+        if x < ArenaBorderPx or y < ArenaBorderPx or
+            x >= m.width - ArenaBorderPx or y >= m.height - ArenaBorderPx:
+          continue
+        inc interiorCells
+        if wall[gy * cols + gx]: inc wallCells
+    let permille = wallCells * 1000 div max(1, interiorCells)
+    result.coverPermille = permille
+    result.coverPermillePass =
+      permille >= CoverPermilleMinBr and permille <= CoverPermilleMaxBr
+    result.coverPermilleReason =
+      if result.coverPermillePass: ""
+      elif permille < CoverPermilleMinBr:
+        &"{permille}‰ cover, floor is {CoverPermilleMinBr}‰ — too barren"
+      else:
+        &"{permille}‰ cover, ceiling is {CoverPermilleMaxBr}‰ — too clogged"
+
+  block distanceToCover:
+    ## The principled barren detector (doctrine §2.1, round 8): how far
+    ## does a duo standing anywhere on walkable ground have to run before
+    ## it reaches cover, measured at COMBAT scale (fractions of gunRange)
+    ## instead of a fixed macro-cell. Subsumes round 5's empty-cell density
+    ## gate outright — an empty macro-cell was only ever a coarse proxy for
+    ## exactly this question.
+    let distPx = chamferDistancePx(wall, cols, rows)
+    var samples: seq[float]
+    for i in 0 ..< wall.len:
+      if not wall[i]: samples.add distPx[i]
+    samples.sort()
+    let p95 =
+      if samples.len > 0: samples[min(samples.len - 1, int(0.95 * float(samples.len)))]
+      else: 0.0
+    let maxD = if samples.len > 0: samples[^1] else: 0.0
+    result.distToCoverP95Px = p95
+    result.distToCoverMaxPx = maxD
+    let p95Floor = DistToCoverP95FracG * float(m.gunRange)
+    let maxFloor = DistToCoverMaxFracG * float(m.gunRange)
+    result.distToCoverPass = p95 <= p95Floor and maxD <= maxFloor
+    result.distToCoverReason =
+      if result.distToCoverPass: ""
+      elif p95 > p95Floor:
+        &"p95 distance-to-cover {p95:.0f}px > {p95Floor:.0f}px ({DistToCoverP95FracG}G) — too much open ground"
+      else:
+        &"max distance-to-cover {maxD:.0f}px > {maxFloor:.0f}px ({DistToCoverMaxFracG}G) — a walkable cell is stranded in the open"
 
   # 4. Zone-center viability sweep ----------------------------------------------
   let margin = max(zoneRect(m.width, m.height, m.zoneZ, 0, 0).w,
@@ -1959,9 +2792,76 @@ proc validateBr(m: BrMap): BrValidation =
           if result.keystonePass: ""
           else: &"footprint share {footprintShare*100:.1f}% > ceiling {KsOpenSteppeShareCeiling*100:.1f}%"
 
+  # 9. Interior connectivity (round 9, doctrine item 6) --------------------------
+  block interiorConnectivity:
+    ## Every ROOM (from every structure's floor plan) should sit in the
+    ## SAME dominant walkable component as the rest of the map — if NO
+    ## sample point inside a room reads as that component, its
+    ## structure's doorway graph didn't actually connect it to the
+    ## outside. Samples FIVE points per room (center + 4 quarter-offset
+    ## points), not just the exact centroid: measured that a room's own
+    ## geometric center can coincide with a decorative furniture block
+    ## (e.g. poiAnchor's courtyard cover slabs, placed at a fixed offset
+    ## from the SITE's center rather than the BSP room's own center) even
+    ## though the room is otherwise fully walkable and properly doored —
+    ## a probe-point false positive, not a real stranding. A room only
+    ## counts as stranded if ALL five samples miss the dominant component.
+    var stranded = 0
+    var totalRooms = 0
+    for site in m.pois:
+      for r in site.rooms:
+        inc totalRooms
+        var connected = false
+        let samples = [
+          (r.x + r.w div 2, r.y + r.h div 2),
+          (r.x + r.w div 4, r.y + r.h div 4),
+          (r.x + r.w * 3 div 4, r.y + r.h div 4),
+          (r.x + r.w div 4, r.y + r.h * 3 div 4),
+          (r.x + r.w * 3 div 4, r.y + r.h * 3 div 4),
+        ]
+        for (sx, sy) in samples:
+          let px = clamp(sx, 0, m.width - 1)
+          let py = clamp(sy, 0, m.height - 1)
+          let (gx, gy) = toGrid(px, py)
+          if gx >= 0 and gx < cols and gy >= 0 and gy < rows:
+            if walkComp.labels[gy * cols + gx] == dominantWalkLabel:
+              connected = true
+              break
+        if not connected:
+          inc stranded
+          when defined(brDebugRooms):
+            stderr.writeLine(&"STRANDED room archetype={site.archetype} center=({site.center.x},{site.center.y}) room=({r.x},{r.y},{r.w},{r.h})")
+    result.strandedRooms = stranded
+    result.interiorConnPass = stranded == 0
+    result.interiorConnReason =
+      if result.interiorConnPass: ""
+      else: &"{stranded}/{totalRooms} room centers are NOT in the map's dominant walkable component"
+
+  # 10. Room-count variety (round 9, doctrine item 6) -----------------------------
+  block roomCountVariety:
+    ## "A draw's structures must span >=3 distinct room counts" — the
+    ## measured proof that "wide array of possible interiors and room
+    ## counts" (Maxwell's ask) actually happened, not just that SOME
+    ## buildings got subdivided.
+    var counts: seq[int]
+    var byArch: seq[(string, int)]
+    for site in m.pois:
+      if site.rooms.len >= 1:
+        counts.add site.rooms.len
+        byArch.add ($site.archetype, site.rooms.len)
+    let distinctCounts = counts.deduplicate().len
+    result.distinctRoomCounts = distinctCounts
+    result.roomCountsByArchetype = byArch
+    result.roomCountVarietyPass = distinctCounts >= 3
+    result.roomCountVarietyReason =
+      if result.roomCountVarietyPass: ""
+      else: &"only {distinctCounts} distinct room count(s) across {counts.len} structures, need >= 3"
+
   result.allPass = result.connectivityPass and result.exitPass and
     result.antiConfettiPass and result.zonePass and result.specSizePass and
-    result.placeCountPass and result.perSpawnCoverPass and result.densityUniformityPass and
+    result.placeCountPass and result.perSpawnCoverPass and
+    result.interiorConnPass and result.roomCountVarietyPass and
+    result.coverPermillePass and result.distToCoverPass and
     result.itemCoveragePass and result.poiLootPass and result.keystonePass
 
 proc bestZoneCandidate(v: BrValidation, width, height: int): ZoneCandidate =
@@ -2075,19 +2975,54 @@ proc placeItems(m: var BrMap, rng: var Rand) =
   ## exposed/central POI (tier 0, the compound), less at mid POIs (tier 1),
   ## a minor find at outer ruins (tier 2) — "no POI without a reason to
   ## visit" is satisfied by construction: every site gets >= 1 item.
+  ## ROUND 9 (doctrine item 5): "loot uses the plan" — sites with a real
+  ## floor plan (>=2 rooms) place loot PER ROOM instead of near the site's
+  ## center, and the room closest to the site's own centroid (a cheap
+  ## proxy for "graph-deepest room" that doesn't need the door graph
+  ## re-threaded through to item placement) gets the extra item — inner
+  ## rooms richer, real risk/reward depth instead of one loot pile by the
+  ## front door.
   for site in m.pois:
-    let n = case site.lootTier
-      of 0: 3
-      of 1: 2
-      else: 1
-    for k in 0 ..< n:
-      let searchR = max(20, site.halfExtent - 30)
-      let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
-      m.medKitCandidates.add p
-    if site.lootTier <= 1:
-      let p = walkableNear(m.obstacles, site.center.x, site.center.y,
-        max(20, site.halfExtent - 40), rng)
-      m.grenadeSpawns.add p
+    if site.rooms.len >= 2:
+      var ranked: seq[tuple[idx: int, d: float]]
+      for i, r in site.rooms:
+        let rcx = r.x + r.w div 2
+        let rcy = r.y + r.h div 2
+        let dx = float(rcx - site.center.x)
+        let dy = float(rcy - site.center.y)
+        ranked.add (i, sqrt(dx * dx + dy * dy))
+      ranked.sort(proc(a, b: tuple[idx: int, d: float]): int = cmp(a.d, b.d))
+      let baseN = case site.lootTier
+        of 0: 2
+        of 1: 1
+        else: 1
+      for rank, entry in ranked:
+        let r = site.rooms[entry.idx]
+        let rcx = r.x + r.w div 2
+        let rcy = r.y + r.h div 2
+        let searchR = max(15, min(r.w, r.h) div 2 - 10)
+        let n = if rank == 0: baseN + 1 else: baseN ## innermost room richest
+        for k in 0 ..< n:
+          let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
+          m.medKitCandidates.add p
+        if rank == 0 and site.lootTier <= 1:
+          let p = walkableNear(m.obstacles, rcx, rcy, searchR, rng)
+          m.grenadeSpawns.add p
+    else:
+      ## No real floor plan (ruins, causeway, or a single-room roll) —
+      ## the original per-site placement, unchanged.
+      let n = case site.lootTier
+        of 0: 3
+        of 1: 2
+        else: 1
+      for k in 0 ..< n:
+        let searchR = max(20, site.halfExtent - 30)
+        let p = walkableNear(m.obstacles, site.center.x, site.center.y, searchR, rng)
+        m.medKitCandidates.add p
+      if site.lootTier <= 1:
+        let p = walkableNear(m.obstacles, site.center.x, site.center.y,
+          max(20, site.halfExtent - 40), rng)
+        m.grenadeSpawns.add p
   m.medKitSpawns = m.medKitCandidates  ## BR is flagless: no candidate-pool
     ## narrowing step exists (that's a CTF pre-game mechanic), so every
     ## drawn point is "active" — kept as a separate field only to mirror
@@ -2330,6 +3265,80 @@ proc ensurePerSpawnCover(m: BrMap, coverGR: float): seq[ArenaShape] =
               break sweep
   result = candidates
 
+proc ensureInteriorConnectivity(m: var BrMap): int =
+  ## Round 9 repair pass, same verify-then-repair shape as
+  ## ensurePerSpawnCover/ensureItemCoverage above. A room can end up
+  ## stranded from the map's dominant walkable component by an unlucky
+  ## coincidence between an independently-randomized exterior gate or a
+  ## spawn's no-keep-away clearance buffer and a BSP partition's own
+  ## touch point (two concrete instances chased and fixed at the source
+  ## in this same round — see chooseGatePos and dropShapesNearSpawns'
+  ## clip-not-drop fix). Both were real, fixable geometry bugs, and both
+  ## are now less frequent, but a third-order coincidence between the two
+  ## (or a family/geometry combination not covered by the fixed sweep)
+  ## can still slip through. Rather than chase every possible
+  ## coincidence individually, this guarantees the OUTCOME: flood-fill
+  ## the exact grid the interiorConn validator uses, and for any room
+  ## whose samples all miss the dominant component, carve a thin
+  ## corridor to the nearest cell that's in it. Returns the number of
+  ## rooms repaired, for the gen-log line.
+  let (cols, rows) = gridDims(m.width, m.height)
+  let wall = buildWallGrid(m)
+  var walkable = newSeq[bool](wall.len)
+  for i in 0 ..< wall.len: walkable[i] = not wall[i]
+  let walkComp = components(walkable, cols, rows, true, false)
+  var dominantLabel = -1
+  var dominantSize = -1
+  for lbl, sz in walkComp.sizes:
+    if sz > dominantSize:
+      dominantSize = sz
+      dominantLabel = lbl
+  if dominantLabel < 0: return 0
+  var corridors: seq[MapRect]
+  for site in m.pois:
+    for r in site.rooms:
+      let cx = clamp(r.x + r.w div 2, 0, m.width - 1)
+      let cy = clamp(r.y + r.h div 2, 0, m.height - 1)
+      let (gx0, gy0) = toGrid(cx, cy)
+      if gx0 < 0 or gx0 >= cols or gy0 < 0 or gy0 >= rows: continue
+      if walkComp.labels[gy0 * cols + gx0] == dominantLabel: continue
+      var foundX = -1
+      var foundY = -1
+      block search:
+        for radius in 1 .. max(cols, rows):
+          let tx0 = max(0, gx0 - radius); let tx1 = min(cols - 1, gx0 + radius)
+          let ty0 = max(0, gy0 - radius); let ty1 = min(rows - 1, gy0 + radius)
+          for ty in ty0 .. ty1:
+            for tx in tx0 .. tx1:
+              if walkComp.labels[ty * cols + tx] == dominantLabel:
+                foundX = tx * GridStride
+                foundY = ty * GridStride
+                break search
+      if foundX < 0: continue
+      const Strip = 24  ## half-width of the carved corridor, px
+      corridors.add MapRect(x: min(cx, foundX) - Strip, y: cy - Strip,
+        w: abs(foundX - cx) + 2 * Strip, h: 2 * Strip)
+      corridors.add MapRect(x: foundX - Strip, y: min(cy, foundY) - Strip,
+        w: 2 * Strip, h: abs(foundY - cy) + 2 * Strip)
+      when defined(brDebugRooms):
+        stderr.writeLine(&"REPAIR stranded room archetype={site.archetype} " &
+          &"center=({r.x + r.w div 2},{r.y + r.h div 2}) -> nearest dominant cell ({foundX},{foundY})")
+  if corridors.len == 0: return 0
+  var kept: seq[ArenaShape]
+  for shape in m.obstacles:
+    if shape.kind == shapeRect:
+      for piece in clipRectMinusPockets(shape.rect, corridors, 0):
+        if piece.w >= 6 and piece.h >= 6:
+          kept.add rectShapeBr(piece.x, piece.y, piece.w, piece.h)
+    else:
+      ## Non-rect (diagonal causeway segments, cave-fill polygons): left
+      ## untouched — corridors are thin and rare enough that an organic
+      ## shape merely brushing one is an acceptable round-9 approximation
+      ## (matches dropShapesNearSpawns' own scope: only rects clip).
+      kept.add shape
+  m.obstacles = kept
+  result = corridors.len div 2  ## 2 corridor segments per repaired room
+
 # --- metrics -------------------------------------------------------------------
 
 proc printMetrics(m: BrMap) =
@@ -2372,6 +3381,8 @@ proc printMetrics(m: BrMap) =
   echo &"  nearest-neighbour spacing: mean={meanD:.1f}px ({meanD/float(m.gunRange):.2f}G)  min={nearestDists.min():.1f}px  max={nearestDists.max():.1f}px"
 
   let v = validateBr(m)
+  echo &"cover permille:  {v.coverPermille}‰  (band=[{CoverPermilleMinBr},{CoverPermilleMaxBr}]‰)"
+  echo &"dist-to-cover:   p95={v.distToCoverP95Px:.0f}px  max={v.distToCoverMaxPx:.0f}px  (floors=[{DistToCoverP95FracG}G,{DistToCoverMaxFracG}G])"
   echo "zone-center sweep (z=" & $m.zoneZ & "):"
   echo &"  candidates sampled: {v.zoneCandidates.len}  viable: {(v.zoneViableFrac*100):.1f}%"
 
@@ -2404,17 +3415,22 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
     "zoneViableFrac": v.zoneViableFrac,
     "bigMassCount": v.bigMassCount,
     "uncoveredSpawns": v.uncoveredSpawns,
-    "densityCellArea": v.densityCellArea,
-    "densityMeanArea": v.densityMeanArea,
-    "densityMinRatio": v.densityMinRatio,
-    "densityMaxRatio": v.densityMaxRatio,
-    "densityEmptyCells": v.densityEmptyCells,
+    "coverPermille": v.coverPermille,
+    "distToCoverP95Px": v.distToCoverP95Px,
+    "distToCoverMaxPx": v.distToCoverMaxPx,
     "specSizeBytes": v.specSizeBytes,
+    "specSizeHeadroomBytes": SpecSizeBudgetBytes - v.specSizeBytes,
     "poiCount": m.pois.len,
     "medKitCount": m.medKitCandidates.len,
     "grenadeCount": m.grenadeSpawns.len,
     "uncoveredSpawnsItems": v.uncoveredSpawnsItems,
     "poisWithoutLoot": v.poisWithoutLoot,
+    # ROUND 9: per-structure room counts (doctrine item 2: "print
+    # per-structure room counts in the gen log and metrics") + the two
+    # new floor-plan validators.
+    "roomCountsByArchetype": %*(v.roomCountsByArchetype.mapIt(%*[it[0], it[1]])),
+    "distinctRoomCounts": v.distinctRoomCounts,
+    "strandedRooms": v.strandedRooms,
     "pass": %*{
       "connectivity": v.connectivityPass,
       "exitRule": v.exitPass,
@@ -2423,10 +3439,13 @@ proc metricsJson(m: BrMap, v: BrValidation): JsonNode =
       "specSize": v.specSizePass,
       "placeCount": v.placeCountPass,
       "perSpawnCover": v.perSpawnCoverPass,
-      "densityUniformity": v.densityUniformityPass,
+      "coverPermille": v.coverPermillePass,
+      "distToCover": v.distToCoverPass,
       "itemCoverage": v.itemCoveragePass,
       "poiLoot": v.poiLootPass,
       "keystone": v.keystonePass,
+      "interiorConnectivity": v.interiorConnPass,
+      "roomCountVariety": v.roomCountVarietyPass,
       "all": v.allPass,
     },
   }
@@ -2583,17 +3602,36 @@ proc brDefaultParams(style: MapStyle): StyleParams =
   ## mirrored; fed BR's full 3211x1713 board directly it reads as thin
   ## scattered marks. Round-3 (Maxwell's "no rooms, no intention" rejection)
   ## demoted caves from BR's PRIMARY content to organic fill BETWEEN
-  ## authored POI structures (generateBrMap clamps fillProb/blobScale down
-  ## further still for that role) — these are now just a sane starting
-  ## point before that clamp, not the tuned round-1/2 primary-terrain values.
+  ## authored POI structures; ROUND 8 (doctrine item 3b: "RESTORE the
+  ## organic caves masses as heavy between-places fill — fat and numerous")
+  ## un-demotes it partway back. `cell` is bumped (55 -> 85): a BIGGER CA
+  ## cell means FEWER, LARGER blobs for the same field area — "fat", and
+  ## it caps the raw shape count genCaves emits (each on-cell is one
+  ## polygon in the spec), which is what keeps the 3x mass increase inside
+  ## the 58KB spec budget without decimating vertices harder than
+  ## CaveFillVertDecimate already does.
+  ##
+  ## birth/death changed 5/4 -> 4/3 and fillProb 0.34 -> 0.42 together,
+  ## MEASURED, not guessed: a field-wide B5/D4 CA sits on a knife-edge
+  ## percolation threshold (9 raw shapes at fillProb=0.34, 565 at 0.60 —
+  ## a 60x swing across 0.26 of fillProb) AND, once caves moved to
+  ## per-patch generation (caveFillPatches, below — see its own comment
+  ## for why patching replaced one field-wide pass), B5/D4's threshold
+  ## shifts even further under the smaller per-patch grid's stronger edge
+  ## effects (genCaves counts off-grid neighbours as open, so a small
+  ## patch dies out faster). B4/D3 is a gentler rule that scales smoothly
+  ## with fillProb instead of snapping between "empty" and "solid" — at
+  ## 0.42 it reliably produces several separate, individually fat,
+  ## well-welded clusters per patch (measured on the 6-family probe below)
+  ## instead of 0 or a field-eating monolith.
   result = defaultParams(style)
   if style == styleCaves:
-    result.cell = 55
-    result.fillProb = 0.16
+    result.cell = 85
+    result.fillProb = 0.42
     result.steps = 5
-    result.birth = 5
-    result.death = 4
-    result.blobScale = 0.7
+    result.birth = 4
+    result.death = 3
+    result.blobScale = 0.92
 
 proc cmdGenerate(a: Args) =
   let
@@ -2615,10 +3653,12 @@ proc cmdGenerate(a: Args) =
     let prunedFill = pruneConfetti(fillShapes, m.width, m.height, ConfettiFloorPx2)
     m.obstacles = protectedShapes & prunedFill
   var repaired = 0
+  var roomsRepaired = 0
   if not a.bools.getOrDefault("noRepair", false):
     let screens = ensurePerSpawnCover(m, PerSpawnCoverGR)
     repaired = screens.len
     m.obstacles.add screens
+    roomsRepaired = ensureInteriorConnectivity(m)
   var itemRng = initRand(seed xor 0x6C5D_E812)
   if not a.bools.getOrDefault("noItems", false):
     placeItems(m, itemRng)
@@ -2629,6 +3669,12 @@ proc cmdGenerate(a: Args) =
     echo spec
   else:
     writeFile(outPath, spec)
+    ## ROUND 8 (deliverable #1: "Print measured permille in every gen log +
+    ## metrics"): a full validateBr call here is the cheapest way to get
+    ## coverPermille/bigMassCount/specSizeBytes without duplicating the
+    ## measurement code — it's a single extra pass over one map at draw
+    ## time, not a hot loop.
+    let v = validateBr(m)
     stderr.writeLine(
       &"generated br {styleToStr(style)} seed={seed} keystone={keystoneToStr(m.keystone)} " &
       &"{m.width}x{m.height} " &
@@ -2637,6 +3683,18 @@ proc cmdGenerate(a: Args) =
       &" (pruned {rawCount - (m.obstacles.len - repaired)} confetti of {rawCount}," &
       &" {repaired} spawn-cover repairs, medkits={m.medKitCandidates.len}" &
       &" grenades={m.grenadeSpawns.len}) -> {outPath}")
+    stderr.writeLine(
+      &"  cover={v.coverPermille}‰ (band [{CoverPermilleMinBr},{CoverPermilleMaxBr}])" &
+      &" masses={v.bigMassCount} (band [{PlaceCountFloor},{PlaceCountCeiling}], confetti={v.confettiCount}/{ConfettiCeiling})" &
+      &" distToCover p95={v.distToCoverP95Px:.0f}px max={v.distToCoverMaxPx:.0f}px" &
+      &" specSize={v.specSizeBytes}B headroom={SpecSizeBudgetBytes - v.specSizeBytes}B" &
+      &" allPass={v.allPass}")
+    ## ROUND 9 (doctrine item 2: "print per-structure room counts in the
+    ## gen log and metrics").
+    stderr.writeLine(
+      &"  rooms: distinct-counts={v.distinctRoomCounts} (floor 3, variety={v.roomCountVarietyPass})" &
+      &" stranded={v.strandedRooms} (interiorConn={v.interiorConnPass}, repaired={roomsRepaired})" &
+      &" by-structure={v.roomCountsByArchetype}")
 
 proc cmdRender(a: Args) =
   if a.positionals.len == 0: fail("render needs a spec path")
@@ -2659,12 +3717,16 @@ proc printValidation(v: BrValidation) =
   echo &"anti-confetti: {(if v.antiConfettiPass: \"PASS\" else: \"FAIL: \" & v.antiConfettiReason)}  (masses={v.massCount}, confetti={v.confettiCount}, largest={v.largestMassPx2}px^2)"
   echo &"zone-viable:   {(if v.zonePass: \"PASS\" else: \"FAIL: \" & v.zoneReason)}  (viable={v.zoneViableFrac*100:.1f}% of {v.zoneCandidates.len} candidates)"
   echo &"spec size:     {(if v.specSizePass: \"PASS\" else: \"FAIL: \" & v.specSizeReason)}  ({v.specSizeBytes}B / {SpecSizeBudgetBytes}B budget)"
-  echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, floor={PlaceCountFloor})"
+  echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, band=[{PlaceCountFloor},{PlaceCountCeiling}])"
   echo &"per-spawn cvr: {(if v.perSpawnCoverPass: \"PASS\" else: \"FAIL: \" & v.perSpawnCoverReason)}  (uncovered={v.uncoveredSpawns}/16 within {PerSpawnCoverGR}G)"
-  echo &"density unif.: {(if v.densityUniformityPass: \"PASS\" else: \"FAIL: \" & v.densityUniformityReason)}  (empty={v.densityEmptyCells}/{DensityGridCols*DensityGridRows}, ratio range=[{v.densityMinRatio:.2f}x,{v.densityMaxRatio:.2f}x])"
+  echo &"cover permille:{(if v.coverPermillePass: \"PASS\" else: \"FAIL: \" & v.coverPermilleReason)}  ({v.coverPermille}‰, band=[{CoverPermilleMinBr},{CoverPermilleMaxBr}]‰)"
+  echo &"dist-to-cover: {(if v.distToCoverPass: \"PASS\" else: \"FAIL: \" & v.distToCoverReason)}  (p95={v.distToCoverP95Px:.0f}px, max={v.distToCoverMaxPx:.0f}px, floors=[{DistToCoverP95FracG}G,{DistToCoverMaxFracG}G])"
   echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/16 within {PerSpawnCoverGR}G)"
   echo &"POI has loot:  {(if v.poiLootPass: \"PASS\" else: \"FAIL: \" & v.poiLootReason)}  (missing={v.poisWithoutLoot} POIs)"
   echo &"keystone:      {(if v.keystonePass: \"PASS\" else: \"FAIL: \" & v.keystoneReason)}  ({v.keystoneLabel}={v.keystoneValue:.2f}, floor={v.keystoneFloor:.2f})"
+  echo &"interior conn: {(if v.interiorConnPass: \"PASS\" else: \"FAIL: \" & v.interiorConnReason)}  (stranded rooms={v.strandedRooms})"
+  echo &"room variety:  {(if v.roomCountVarietyPass: \"PASS\" else: \"FAIL: \" & v.roomCountVarietyReason)}  (distinct counts={v.distinctRoomCounts}, floor=3)"
+  echo &"  room counts by structure: {v.roomCountsByArchetype}"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
