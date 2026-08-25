@@ -4211,13 +4211,44 @@ proc alleyCandidatesFromDiagonals(m: BrMap): seq[ClassifiedSite] =
       result.add ClassifiedSite(p: p1, class: scAlley, isMouth: true)
 
 proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
-  ## Reuses THE BURROW REQUIREMENT's own technique (round 12,
-  ## computeBurrow/enclosureOpenFraction) verbatim: per connected wall
-  ## component of the authored structure set, flood-fill "outside" from
-  ## the crop border, then collect boundary cells that are OPEN (not
-  ## wall) — exactly the declared gate gaps the burrow gate already
-  ## measures as a FRACTION; this collects their actual world positions
-  ## instead, clustered into one point per contiguous open run.
+  ## ROUND 15 REBUILD (fix 1): the original version reused THE BURROW
+  ## REQUIREMENT's technique (round 12, computeBurrow/enclosureOpenFraction)
+  ## LITERALLY — same per-component flood-fill of "outside" from the crop
+  ## border, same boundary classification — and returned ZERO gates on
+  ## every real seed probed (see the retired note on goldenRichPoiHotspot
+  ## below, and confirmed again here by instrumenting enclosureOpenFraction
+  ## directly: openFrac == 0.000 on every structure across a dozen real
+  ## seeds, temporary diagnostic, not shipped). Root cause: that flood is
+  ## UNCAPPED — once it enters through any single opening it keeps
+  ## spreading through every interior room/corridor connected to it (the
+  ## exact behavior enclosureOpenFraction's own round-13 correction
+  ## documents: "the flood enters through every gate and then fills EVERY
+  ## carved room/corridor reachable from it"). That's fine for
+  ## enclosureOpenFraction's OWN job (a whole-component openness ratio,
+  ## deliberately calibrated on that blended reading — do not touch it,
+  ## its comment says so explicitly) but it means the door cells THEMSELVES
+  ## end up marked "outside" (reached) rather than enclosed, so they can
+  ## never satisfy "enclosed footprint cell touching a reached one" —
+  ## nothing at a real doorway could ever register as boundary-open, only
+  ## a fully-sealed mass with NO opening at all ever could (which never
+  ## occurs in a real draw).
+  ##
+  ## The fix keeps round 12's exact vocabulary (per component: flood
+  ## "outside" from the crop border; a GATE cell is a non-wall footprint
+  ## cell that's unreached but touches a reached one) but stops the flood
+  ## from ever crossing this component's OWN wall bbox at all — the crop
+  ## PADDING ring is unambiguously true exterior regardless of component
+  ## size/shape (a structure's own interior floor can never sit outside
+  ## its own wall bbox), so seeding and expanding "outside" over the
+  ## padding ring ONLY (never stepping into the bbox interior) can never
+  ## leak through a gate. A gate-mouth cell is then exactly: non-wall,
+  ## INSIDE the bbox, never reached by that padding-only flood, 4-adjacent
+  ## to a reached padding cell — precisely the doorway's own outer
+  ## threshold, one cell deep, never the room beyond it. Interior doorways
+  ## between rooms of the SAME structure are (correctly) never adjacent to
+  ## the padding ring, so they never qualify — "gate mouth" means the
+  ## structure's actual entrance from the true exterior, not any doorway
+  ## anywhere inside it.
   let (cols, rows) = gridDims(m.width, m.height)
   let sc = min(m.structureCount, m.obstacles.len)
   let wall = buildWallGridFor(m.obstacles[0 ..< sc], m.width, m.height)
@@ -4233,9 +4264,12 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
         bboxByLabel[lbl] = (min(b.x0, gx), min(b.y0, gy), max(b.x1, gx), max(b.y1, gy))
       else:
         bboxByLabel[lbl] = (gx, gy, gx, gy)
-  const ClusterCells = 10  ## ~40px buckets: a physical gate (60-90px per
-                             ## linearConnectors' own gateW) collapses to
-                             ## 1-2 points instead of one per open cell.
+  const GateMouthMinRunCells = 5  ## a real doorway floors at capGateW's own
+                                    ## 28px (7 cells at GridStride=4); this
+                                    ## sits below that with slack so it only
+                                    ## filters grid-quantization noise
+                                    ## (a 1-2 cell diagonal nick), never a
+                                    ## real doorway's own threshold run.
   for lbl, bbox in bboxByLabel:
     let sizePx2 = comp.sizes[lbl] * GridStride * GridStride
     if sizePx2 < ConfettiFloorPx2: continue
@@ -4254,17 +4288,27 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
         if wall[gi] and comp.labels[gi] == lbl:
           localWall[ly * lcols + lx] = true
     proc lidx(x, y: int): int = y * lcols + x
+    ## Local coords of this component's own wall bbox — the padding ring
+    ## is everything OUTSIDE this rect.
+    let ix0 = BurrowPadCells
+    let iy0 = BurrowPadCells
+    let ix1 = BurrowPadCells + (bbox.x1 - bbox.x0)
+    let iy1 = BurrowPadCells + (bbox.y1 - bbox.y0)
+    proc inInterior(x, y: int): bool =
+      x >= ix0 and x <= ix1 and y >= iy0 and y <= iy1
+    ## "outside": padding-margin flood ONLY — never steps into the bbox
+    ## interior, so it can never leak through a gate into the room beyond.
     var outside = newSeq[bool](lcols * lrows)
     var queue: seq[int]
     for x in 0 ..< lcols:
       for y in [0, lrows - 1]:
         let i = lidx(x, y)
-        if not localWall[i] and not outside[i]:
+        if not localWall[i] and not inInterior(x, y) and not outside[i]:
           outside[i] = true; queue.add i
     for y in 0 ..< lrows:
       for x in [0, lcols - 1]:
         let i = lidx(x, y)
-        if not localWall[i] and not outside[i]:
+        if not localWall[i] and not inInterior(x, y) and not outside[i]:
           outside[i] = true; queue.add i
     var qi = 0
     while qi < queue.len:
@@ -4275,28 +4319,67 @@ proc structureGateMouthPoints(m: BrMap): seq[MapPoint] =
       for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         let nx = x + ddx
         let ny = y + ddy
-        if nx >= 0 and nx < lcols and ny >= 0 and ny < lrows:
-          let ni = lidx(nx, ny)
-          if not localWall[ni] and not outside[ni]:
-            outside[ni] = true; queue.add ni
-    var clusterBucket = initTable[(int, int), bool]()
+        if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
+        if inInterior(nx, ny): continue  ## the fix: never cross the bbox
+        let ni = lidx(nx, ny)
+        if not localWall[ni] and not outside[ni]:
+          outside[ni] = true; queue.add ni
+    ## Gate-mouth cells: non-wall, inside the bbox, 4-adjacent to a reached
+    ## padding cell (never reached themselves — the flood above can't get
+    ## to them).
+    var openMask = newSeq[bool](lcols * lrows)
     for y in 0 ..< lrows:
       for x in 0 ..< lcols:
+        if not inInterior(x, y): continue
         let i = lidx(x, y)
         if localWall[i]: continue
-        let isFootprint = not outside[i]
-        if not isFootprint: continue  ## enclosed floor only (not true outside)
-        var isBoundary = false
         for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
           let nx = x + ddx
           let ny = y + ddy
           if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
-          if outside[lidx(nx, ny)]: isBoundary = true
-        if not isBoundary: continue
-        let key = ((ox + x) div ClusterCells, (oy + y) div ClusterCells)
-        if key notin clusterBucket:
-          clusterBucket[key] = true
-          result.add MapPoint(x: (ox + x) * GridStride, y: (oy + y) * GridStride)
+          if outside[lidx(nx, ny)]: openMask[i] = true
+    ## Contiguous runs of gate-mouth cells -> one point per run (a doorway,
+    ## however wide, is one gate; two runs separated by solid wall are two
+    ## gates).
+    let runs = components(openMask, lcols, lrows, true, false)
+    var cellsByRun = initTable[int, seq[int]]()
+    for i in 0 ..< openMask.len:
+      if not openMask[i]: continue
+      cellsByRun.mgetOrPut(runs.labels[i], @[]).add i
+    for _, cells in cellsByRun:
+      if cells.len < GateMouthMinRunCells: continue
+      var sx = 0
+      var sy = 0
+      for i in cells:
+        sx += i mod lcols
+        sy += i div lcols
+      let cxLocal = sx div cells.len
+      let cyLocal = sy div cells.len
+      ## Nearest actual run member to the centroid (the centroid cell
+      ## itself need not be IN the run for an L-shaped/corner opening).
+      var bestI = cells[0]
+      var bestD = high(int)
+      for i in cells:
+        let dx = (i mod lcols) - cxLocal
+        let dy = (i div lcols) - cyLocal
+        let d = dx * dx + dy * dy
+        if d < bestD: bestD = d; bestI = i
+      let mx = bestI mod lcols
+      let my = bestI div lcols
+      ## Push one cell OUTWARD: toward a reached (true-exterior) neighbor —
+      ## by construction every gate-mouth cell has at least one.
+      var px = mx
+      var py = my
+      for (ddx, ddy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        let nx = mx + ddx
+        let ny = my + ddy
+        if nx < 0 or nx >= lcols or ny < 0 or ny >= lrows: continue
+        if outside[lidx(nx, ny)]:
+          px = nx; py = ny
+          break
+      result.add MapPoint(x: (ox + px) * GridStride, y: (oy + py) * GridStride)
+  when defined(brDebugGateMouth):
+    stderr.writeLine(&"GATEMOUTH count={result.len} points={result}")
 
 proc hotspotCandidates(m: BrMap): seq[ClassifiedSite] =
   ## HOTSPOTS: "the exciting contested places" — keystones, causeway/gate
@@ -7064,24 +7147,29 @@ proc goldenRichPoiHotspot(): BrMap =
   ## doctrine's OWN 'richest kit at the most exposed place' signal (§4.4)."
   ##
   ## NOTE: the doc's other suggested example for this slot, a "gate-mouth
-  ## hotspot" via structureGateMouthPoints, was tried FIRST — a closed ring
-  ## with one doorway gap (the same shape as goldenRoomWithDoorway, marked
-  ## structureCount = obstacles.len). It found NOTHING, on that synthetic
-  ## ring AND on every one of 10 real generated seeds probed directly
-  ## (structureGateMouthPoints returned 0 gates on all 10, obstacles up to
-  ## 263). Traced to the algorithm itself: it flood-fills "outside" from
-  ## the crop border using ONLY that one wall component as an obstruction,
-  ## then reports enclosed (UNREACHED) floor touching that flood — but any
-  ## single opening lets the flood fill absorb the ENTIRE interior (the
-  ## same "outside enters through every gate" behavior enclosureOpenFraction's
-  ## own round-13 correction already documents), so only a fully SEALED,
-  ## zero-opening wall mass could ever register — which never occurs in a
-  ## real draw. This reads as a genuine dead/null hotspot source, OUT OF
-  ## SCOPE for this lane's four fixes — flagged, not touched here.
+  ## hotspot" via structureGateMouthPoints, was tried FIRST here — a closed
+  ## ring with one doorway gap (the same shape as goldenRoomWithDoorway,
+  ## marked structureCount = obstacles.len). It found NOTHING, on that
+  ## synthetic ring AND on every one of 10 real generated seeds probed
+  ## directly (structureGateMouthPoints returned 0 gates on all 10,
+  ## obstacles up to 263) — the dead-gate defect structureGateMouthPoints'
+  ## own comment now documents and fixes (round 15). See
+  ## goldenGatedStructure below for that fix's own golden.
   result = BrMap(width: 900, height: 900, gunRange: 300)
   result.pois.add PoiSite(
     center: MapPoint(x: 450, y: 450), archetype: poiCompound,
     halfExtent: 100, lootTier: 0)
+
+proc goldenGatedStructure(): BrMap =
+  ## ROUND 15 (fix 1): exactly goldenRoomWithDoorway's own geometry — a
+  ## closed ring, one doorway gap of 40px (x in [280,320]) in the south
+  ## wall (y in [450,470]) — but marked as an AUTHORED structure
+  ## (structureCount = obstacles.len) so structureGateMouthPoints treats
+  ## it as one connected wall component with a known-by-construction gate.
+  ## This is the exact synthetic case the pre-fix algorithm found NOTHING
+  ## on (see goldenRichPoiHotspot's retired note above).
+  result = goldenRoomWithDoorway()
+  result.structureCount = result.obstacles.len
 
 proc selftestClassifierGoldens(failCount: var int) =
   stderr.writeLine("-- fix 2: classifySites/classifyPoint golden geometry --")
@@ -7148,6 +7236,32 @@ proc selftestClassifierGoldens(failCount: var int) =
     let sites = classifySites(m)
     expectOk("rich-poi/center-classifies-scHotspot",
       classifyPoint(MapPoint(x: 450, y: 450), sites) == scHotspot, failCount)
+  block gatedStructure:
+    ## ROUND 15 (fix 1): the known-by-construction gate is the 40px south-
+    ## wall doorway centered at x=300, with the wall's own outer face at
+    ## y=470 — structureGateMouthPoints must return exactly one point,
+    ## within the doorway's own width of x=300 and just past y=470 (pushed
+    ## one cell OUTWARD into confirmed walkable space, never still inside
+    ## the wall band).
+    let m = goldenGatedStructure()
+    let gates = structureGateMouthPoints(m)
+    expectOk("gated-structure/gate-count", gates.len == 1, failCount,
+      &"got {gates.len}")
+    if gates.len == 1:
+      let g = gates[0]
+      expectOk("gated-structure/gate-near-door-x", abs(g.x - 300) <= 24,
+        failCount, &"got x={g.x}")
+      expectOk("gated-structure/gate-just-past-south-wall-y",
+        g.y > 470 and g.y <= 490, failCount, &"got y={g.y}")
+      var onWall = false
+      for ob in m.obstacles:
+        if inShape(g.x, g.y, ob): onWall = true
+      expectOk("gated-structure/gate-not-on-wall", not onWall, failCount,
+        &"({g.x},{g.y})")
+    let sites = classifySites(m)
+    if gates.len == 1:
+      expectOk("gated-structure/gate-classifies-scHotspot",
+        classifyPoint(gates[0], sites) == scHotspot, failCount)
 
 proc selftestAlleyFallbackDrops(failCount: var int) =
   ## ROUND 14 fix 4b: when BOTH perpendicular offsets are blocked,
