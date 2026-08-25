@@ -1109,9 +1109,27 @@ proc placePois(
             clusterHalf + 60, height - clusterHalf - 60)
           let p = MapPoint(x: px, y: py)
           let localMinSep = int(0.32 * float(gunRange))
-          if tooCloseToAny(p, result, localMinSep): continue
+          ## ROUND 9 FIX (found chasing an interiorConn failure): this used
+          ## to call the SIZE-BLIND `tooCloseToAny` with a flat 106px
+          ## (0.32G) threshold — fine as a floor for the satellite's OWN
+          ## distance from its parent anchor (enforced separately by the
+          ## dist= formula above), but it's also the ONLY check against
+          ## every OTHER already-placed site (a different cluster's
+          ## anchor, an earlier satellite, a genFiller item), and 106px
+          ## is far smaller than two real footprints need — a poiOutpost
+          ## cluster anchor (he=182) and a poiYard satellite (he=132) can
+          ## legitimately need ~350px of separation, so a satellite could
+          ## land with its footprint fully INSIDE an unrelated anchor's
+          ## shell, sealing that anchor's gates from outside. Measured:
+          ## rotation-timing seed 103 had exactly this — a poiYard
+          ## satellite's footprint swallowed an unrelated outpost's gates,
+          ## stranding all 3 of that outpost's rooms (and the yard's own
+          ## room) from the map's dominant walkable component. Compute
+          ## arch/he FIRST and use `tooCloseToAnySized` — same fix as the
+          ## round-8 note on this exact function, just never applied here.
           let arch = if rng.rand(1) == 0: poiRuins else: poiYard
           let he = int((if arch == poiRuins: 0.30 else: 0.40) * float(gunRange))
+          if tooCloseToAnySized(p, arch, he, result, localMinSep): continue
           result.add PoiSite(center: p, archetype: arch, halfExtent: he,
             lootTier: (if arch == poiRuins: 2 else: 1))
           break
