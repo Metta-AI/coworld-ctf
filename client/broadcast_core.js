@@ -97,8 +97,7 @@
         width: 1,
         height: 1,
         canvas,
-        ctx,
-        image: null
+        ctx
       });
     }
     return layers.get(id);
@@ -116,39 +115,27 @@
     layer.height = height;
     layer.canvas.width = width;
     layer.canvas.height = height;
-    layer.image = layer.ctx.createImageData(width, height);
     if (onResize) onResize();
   }
 
-  function putSpritePixel(layer, x, y, sprite, srcOffset) {
-    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) return;
-    const srcA = sprite.pixels[srcOffset + 3];
-    if (srcA === 0) return;
-    const offset = (y * layer.width + x) * 4;
-    if (srcA === 255 || layer.image.data[offset + 3] === 0) {
-      layer.image.data[offset] = sprite.pixels[srcOffset];
-      layer.image.data[offset + 1] = sprite.pixels[srcOffset + 1];
-      layer.image.data[offset + 2] = sprite.pixels[srcOffset + 2];
-      layer.image.data[offset + 3] = srcA;
-      return;
-    }
-    const dstA = layer.image.data[offset + 3];
-    const srcAlpha = srcA / 255, dstAlpha = dstA / 255;
-    const outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
-    const dstWeight = dstAlpha * (1 - srcAlpha);
-    layer.image.data[offset] = Math.round(
-      (sprite.pixels[srcOffset] * srcAlpha +
-        layer.image.data[offset] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 1] = Math.round(
-      (sprite.pixels[srcOffset + 1] * srcAlpha +
-        layer.image.data[offset + 1] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 2] = Math.round(
-      (sprite.pixels[srcOffset + 2] * srcAlpha +
-        layer.image.data[offset + 2] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 3] = Math.round(outAlpha * 255);
+  // Sprite pixels arrive as straight (non-premultiplied) RGBA. Bake them into
+  // a per-sprite canvas once, so composite() is a chain of GPU drawImage calls
+  // instead of a per-pixel JS alpha blender. The old putSpritePixel painter
+  // cost ~61ms/frame at 268 live objects (6.7M sprite-pixels) and capped the
+  // whole viewer at ~12fps; drawImage of a pre-baked canvas is the same
+  // src-over math done by the compositor.
+  function spriteCanvas(sprite) {
+    if (sprite.baked) return sprite.baked;
+    if (!sprite.width || !sprite.height || !sprite.pixels) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = sprite.width;
+    canvas.height = sprite.height;
+    const ctx = canvas.getContext('2d');
+    const image = ctx.createImageData(sprite.width, sprite.height);
+    image.data.set(sprite.pixels);
+    ctx.putImageData(image, 0, 0);
+    sprite.baked = canvas;
+    return canvas;
   }
 
   function websocketPathForClientPage(path) {
@@ -292,46 +279,41 @@
       offsetY = (cssH - drawH) / 2;
     }
 
-    // Static map-band cache. The full-board map bands (object ids 40..67 on
-    // layer 0, z pinned at -32768 so they underlie everything) are emitted
-    // once at init and never change, yet re-blitting them dominates composite
-    // cost at full board size. Bake them into a per-layer base buffer and
-    // start each composite from a copy of that base, re-blitting only the
-    // dynamic objects above them (the endzone fade overlay at z = -32767 DOES
-    // change every frame and must stay dynamic).
-    const STATIC_BAND_MIN_ID = 40;
-    const STATIC_BAND_MAX_ID = 67;
-    const STATIC_BAND_Z = -32768;
-    let staticBandsDirty = true;
+    // ---- Motion interpolation (rendering only) ----
+    // The sim ticks at ~24Hz while displays run 60-120Hz, so drawing objects
+    // only at their per-tick positions reads as 24fps-steppy motion. Between
+    // ticks, ease each object's TRANSLATE from where it was rendered when its
+    // latest move arrived toward its authoritative wire position. Sprite
+    // swaps and fog appear/disappear apply instantly (never blended), and any
+    // per-tick jump beyond LERP_SNAP_PX (seeks, loop restarts, respawns,
+    // teleports, fast movers at 8x/16x playback) snaps. Sim truth is never
+    // touched: obj.x/obj.y stay the exact wire values; only the blit offset
+    // eases toward them.
+    // Escape hatch: ?nolerp=1 in the page URL (or interpolate:false in the
+    // core config) restores draw-at-tick-positions exactly.
+    const interpolateEnabled = config.interpolate !== false && (() => {
+      try {
+        return new URLSearchParams(window.location.search).get('nolerp') !== '1';
+      } catch (e) { return true; }
+    })();
+    // Field-measured per-tick motion at 1x is p50 6px / max 10px, and the sim
+    // multiplies per-packet displacement (not packet rate) at 2x-16x speed, so
+    // 48px lerps genuine motion through ~4x and snaps discontinuities.
+    const LERP_SNAP_PX = 48;
+    const LERP_WINDOW_MIN = 16;
+    const LERP_WINDOW_MAX = 100;
+    let lerpWindow = 1000 / 24; // EMA of the real inter-tick present interval
+    let lerpLastMove = 0;       // parse timestamp of the last packet that moved anything
+    let lerpDeadline = 0;       // when every in-flight lerp has landed
 
-    function isStaticBand(obj) {
-      return obj.layer === 0 &&
-        obj.id >= STATIC_BAND_MIN_ID && obj.id <= STATIC_BAND_MAX_ID &&
-        obj.z === STATIC_BAND_Z;
-    }
-
-    function blitObject(layer, obj) {
-      const sprite = sprites.get(obj.spriteId);
-      if (!sprite) return;
-      const startX = Math.max(0, -obj.x);
-      const startY = Math.max(0, -obj.y);
-      const endX = Math.min(sprite.width, layer.width - obj.x);
-      const endY = Math.min(sprite.height, layer.height - obj.y);
-      if (startX >= endX || startY >= endY) return;
-      for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-          putSpritePixel(
-            layer,
-            obj.x + x,
-            obj.y + y,
-            sprite,
-            (y * sprite.width + x) * 4
-          );
-        }
-      }
+    function lerpAlpha(obj, now) {
+      if (!obj.lt) return 1;
+      const a = (now - obj.lt) / lerpWindow;
+      return a >= 1 ? 1 : (a < 0 ? 0 : a);
     }
 
     function composite() {
+      const now = interpolateEnabled ? performance.now() : 0;
       const orderedLayers = [...layers.values()]
         .filter(layer => (layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType)
         .sort((a, b) => a.id - b.id);
@@ -339,43 +321,28 @@
       offscreenCtx.clearRect(0, 0, nativeW, nativeH);
 
       for (const layer of orderedLayers) {
-        if (!layer.image) continue;
         const ordered = [...objects.values()]
           .filter(obj => obj.layer === layer.id)
           .sort((a, b) => a.z - b.z || a.y - b.y || a.id - b.id);
         if (ordered.length === 0) continue;
-        // The cache is only sound if the static bands form the sorted prefix
-        // and every dynamic object sorts strictly after them (i.e. nothing
-        // dynamic shares z = -32768). Otherwise fall back to a full re-blit.
-        let staticCount = 0;
-        while (staticCount < ordered.length && isStaticBand(ordered[staticCount])) {
-          staticCount++;
-        }
-        let cacheable = staticCount > 0;
-        for (let i = staticCount; cacheable && i < ordered.length; i++) {
-          if (ordered[i].z <= STATIC_BAND_Z) cacheable = false;
-        }
-        if (cacheable) {
-          if (staticBandsDirty || !layer.staticBase ||
-              layer.staticBase.length !== layer.image.data.length) {
-            layer.image.data.fill(0);
-            for (let i = 0; i < staticCount; i++) blitObject(layer, ordered[i]);
-            layer.staticBase = layer.image.data.slice();
-          } else {
-            layer.image.data.set(layer.staticBase);
+        layer.ctx.clearRect(0, 0, layer.width, layer.height);
+        for (const obj of ordered) {
+          const sprite = sprites.get(obj.spriteId);
+          if (!sprite) continue;
+          const baked = spriteCanvas(sprite);
+          if (!baked) continue;
+          let drawX = obj.x, drawY = obj.y;
+          if (interpolateEnabled && obj.lt) {
+            const a = lerpAlpha(obj, now);
+            if (a < 1) {
+              drawX = Math.round(obj.px + (obj.x - obj.px) * a);
+              drawY = Math.round(obj.py + (obj.y - obj.py) * a);
+            }
           }
-          for (let i = staticCount; i < ordered.length; i++) {
-            blitObject(layer, ordered[i]);
-          }
-        } else {
-          layer.staticBase = null;
-          layer.image.data.fill(0);
-          for (const obj of ordered) blitObject(layer, obj);
+          layer.ctx.drawImage(baked, drawX, drawY);
         }
-        layer.ctx.putImageData(layer.image, 0, 0);
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
-      staticBandsDirty = false;
       dirty = false;
     }
 
@@ -409,6 +376,14 @@
         ctx.drawImage(offscreenCanvas, 0, 0, nativeW * scale, nativeH * scale);
         ctx.restore();
       }
+
+      // Keep repainting at display rate while any lerp is in flight; once the
+      // deadline passes every object sits at its wire position and the redraw
+      // chain goes idle until the next packet dirties it.
+      if (interpolateEnabled && performance.now() < lerpDeadline) {
+        dirty = true;
+        scheduleDraw();
+      }
     }
 
     function scheduleDraw() {
@@ -422,6 +397,8 @@
     function parse(bytes) {
       let offset = 0;
       let changed = false;
+      let moved = false;
+      const parseNow = interpolateEnabled ? performance.now() : 0;
       while (offset < bytes.length) {
         const type = bytes[offset++];
         if (type === 0x01) {
@@ -454,16 +431,9 @@
           if (id === CHROME_SPRITE_ID) {
             if (label) onText(label);
           } else {
+            // A fresh entry drops any previously baked canvas; spriteCanvas()
+            // re-bakes lazily on the next blit that references it.
             sprites.set(id, { width, height, pixels, label });
-            // Only a redefinition of a sprite some static band currently
-            // references can change the baked base; other sprite traffic
-            // (agents, fade stages, decals) must not thrash the cache.
-            for (const obj of objects.values()) {
-              if (isStaticBand(obj) && obj.spriteId === id) {
-                staticBandsDirty = true;
-                break;
-              }
-            }
           }
           changed = true;
         } else if (type === 0x02) {
@@ -473,30 +443,49 @@
           const z = readI16(bytes, offset + 6);
           const layer = bytes[offset + 8];
           const spriteId = readU16(bytes, offset + 9);
-          objects.set(id, { id, x, y, z, layer, spriteId });
-          if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-            staticBandsDirty = true;
+          const prev = objects.get(id);
+          // px/py: where the blit renders FROM while easing toward x/y.
+          // Defaults snap (px = x): new objects, fog re-entries and cross-layer
+          // moves must appear at their true spot, never slide there.
+          const next = { id, x, y, z, layer, spriteId, px: x, py: y, lt: 0 };
+          if (interpolateEnabled && prev && prev.layer === layer) {
+            const dx = x - prev.x;
+            const dy = y - prev.y;
+            if (dx === 0 && dy === 0) {
+              // Identical re-send (~27% of wire traffic): keep the in-flight
+              // ease exactly as it was, or it would freeze mid-lerp.
+              next.px = prev.px;
+              next.py = prev.py;
+              next.lt = prev.lt;
+            } else if (Math.abs(dx) <= LERP_SNAP_PX && Math.abs(dy) <= LERP_SNAP_PX) {
+              // Genuine motion: ease from the currently RENDERED spot so a
+              // move landing mid-lerp (or a bunched catch-up step) never
+              // jumps backward.
+              const a = lerpAlpha(prev, parseNow);
+              next.px = prev.px + (prev.x - prev.px) * a;
+              next.py = prev.py + (prev.y - prev.py) * a;
+              next.lt = parseNow;
+              moved = true;
+            }
+            // else: beyond the snap threshold — seek, loop restart, respawn
+            // or 8x/16x fast mover; px/py already snap to x/y.
           }
+          objects.set(id, next);
           offset += 11;
           changed = true;
         } else if (type === 0x03) {
           const id = readU16(bytes, offset);
           objects.delete(id);
-          if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-            staticBandsDirty = true;
-          }
           offset += 2;
           changed = true;
         } else if (type === 0x04) {
           objects.clear();
-          staticBandsDirty = true;
           changed = true;
         } else if (type === 0x05) {
           setViewport(layers, bytes[offset], readU16(bytes, offset + 1), readU16(bytes, offset + 3), () => {
             updateNativeSize();
             computeFit();
           });
-          staticBandsDirty = true;
           offset += 5;
           changed = true;
         } else if (type === 0x06) {
@@ -509,6 +498,20 @@
           if (socket) socket.close();
           break;
         }
+      }
+      if (moved) {
+        // Track the true present cadence (rAF-aligned 24Hz here; live surfaces
+        // pace differently) so the ease window matches it. Gaps outside
+        // [4, 250]ms are bunched catch-up steps or stalls, not cadence.
+        if (lerpLastMove) {
+          const gap = parseNow - lerpLastMove;
+          if (gap >= 4 && gap <= 250) {
+            lerpWindow = Math.min(LERP_WINDOW_MAX,
+              Math.max(LERP_WINDOW_MIN, lerpWindow * 0.75 + gap * 0.25));
+          }
+        }
+        lerpLastMove = parseNow;
+        lerpDeadline = parseNow + lerpWindow;
       }
       if (changed) {
         dirty = true;
