@@ -748,7 +748,8 @@ proc rankTransform(values: seq[float]): seq[float] =
     i = j + 1
 
 proc frontierTipCoord(
-  fixedCoord, startCoord, stepSign, otherGridMaxPx: int, t: int, alongX: bool
+  sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
+  t: int, alongX: bool
 ): int =
   ## Walks OUTWARD from `startCoord` (assumed painted — just past the
   ## rect's own edge) in `stepSign` direction, returning the coordinate of
@@ -759,9 +760,14 @@ proc frontierTipCoord(
   ## painted yet (too early for this row to have a tip at all).
   proc paintedAt(v: int): bool =
     if v < 0 or v >= otherGridMaxPx: return false
-    let cell = if alongX: zoneArrivalFieldCellAt(v, fixedCoord)
-      else: zoneArrivalFieldCellAt(fixedCoord, v)
+    let cell = if alongX: zoneArrivalFieldCellAt(fixedCoord, v)
+      else: zoneArrivalFieldCellAt(v, fixedCoord)
     cell.has and cell.arrival <= t
+  proc walkableAt(v: int): bool =
+    if v < 0 or v >= otherGridMaxPx: return false
+    let mask = if alongX: zoneD4MaskAt(sim, fixedCoord, v)
+      else: zoneD4MaskAt(sim, v, fixedCoord)
+    mask.walkable
   if not paintedAt(startCoord):
     return -1
   const MaxWalkSteps = 300  ## * ZoneFieldCellPx ≈ 1200px, generous vs the
@@ -784,15 +790,26 @@ proc frontierTipCoord(
     inc steps
   if steps >= MaxWalkSteps:
     return -1
-  const MapEdgeExclusionPx = 40  ## paint physically cannot finger PAST the
-                                 ## map's own boundary — a frontier hugging
-                                 ## flat against x=0 (or any edge) late in
-                                 ## the schedule is correct clipping, not a
-                                 ## stiff-rectangle regression. Exclude tips
-                                 ## this close to the boundary from the
-                                 ## straight-run measurement the same way
-                                 ## the map-edge walk-off above is excluded.
+  # Fable's audit (2026-08-25): the ORIGINAL exclusion band here was a
+  # generous 40px, wide enough to swallow a genuinely straight run sitting
+  # near (but not AT) the map's own edge — exactly what let a real stiff-
+  # rectangle regression on one side of a near-edge zone read as "worst=68"
+  # instead of flagging it. Paint truly cannot finger PAST the map's own
+  # boundary, but that only requires excluding the LITERAL border cell (the
+  # walk-off case above already excludes anything that actually ran off the
+  # edge); one grid cell of margin is enough to never misread quantization
+  # at the exact edge as a straight run, without hiding anything real.
+  const MapEdgeExclusionPx = ZoneFieldCellPx
   if coord < MapEdgeExclusionPx or coord >= otherGridMaxPx - MapEdgeExclusionPx:
+    return -1
+  # A WALL is the other thing paint cannot finger past, same reasoning as
+  # the map's own canvas edge above — most real levels wrap their whole
+  # playable floor in a boundary wall (see ensureZoneFloorGrid's own
+  # border-flood note), so a frontier's tip sitting flat against the
+  # floor's OWN edge is the floor genuinely ending, not a stiff-rectangle
+  # regression. Only the first cell PAST the tip needs checking: if it is
+  # unwalkable, the tip is pinned by geometry, not a fingering failure.
+  if not walkableAt(coord + stepSign * ZoneFieldCellPx):
     return -1
   coord
 
@@ -812,13 +829,14 @@ proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int): i
     ghPx = gh * ZoneFieldCellPx
   var longest = 0
   # Left / right edges: trace the tip's X per row Y.
-  for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
+  for (label, edgeX, stepSign) in [("LEFT", rect.x, -1), ("RIGHT", rect.x + rect.w - 1, 1)]:
     var
       runLen = 0
       prevTip = -2
+      edgeWorst = 0
     for y in countup(max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10),
         ZoneFieldCellPx):
-      let tip = frontierTipCoord(y, edgeX, stepSign, gwPx, t, alongX = false)
+      let tip = frontierTipCoord(sim, y, edgeX, stepSign, gwPx, t, alongX = false)
       if tip == prevTip and tip != -1:
         runLen += ZoneFieldCellPx
       else:
@@ -826,14 +844,20 @@ proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int): i
       prevTip = tip
       if tip != -1:
         longest = max(longest, runLen)
+        edgeWorst = max(edgeWorst, runLen)
+    when defined(zoneStraightRunDebug):
+      stderr.writeLine("    t=" & $t & " " & label & " worst=" & $edgeWorst)
   # Top / bottom edges: trace the tip's Y per column X.
-  for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
+  for (label, edgeY, stepSign) in [("TOP", rect.y, -1), ("BOTTOM", rect.y + rect.h - 1, 1)]:
     var
       runLen = 0
       prevTip = -2
+      edgeWorst = 0
+      tipSeq: seq[int]
     for x in countup(max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10),
         ZoneFieldCellPx):
-      let tip = frontierTipCoord(x, edgeY, stepSign, ghPx, t, alongX = true)
+      let tip = frontierTipCoord(sim, x, edgeY, stepSign, ghPx, t, alongX = true)
+      tipSeq.add(tip)
       if tip == prevTip and tip != -1:
         runLen += ZoneFieldCellPx
       else:
@@ -841,7 +865,58 @@ proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int): i
       prevTip = tip
       if tip != -1:
         longest = max(longest, runLen)
+        edgeWorst = max(edgeWorst, runLen)
+    when defined(zoneStraightRunDebug):
+      stderr.writeLine("    t=" & $t & " " & label & " worst=" & $edgeWorst)
   longest
+
+proc frontierTipSeq(
+  sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
+  loStart, hiEnd: int, t: int, alongX: bool
+): seq[int] =
+  ## The per-sample tip sequence along one edge (LEFT/RIGHT walk rows, TOP/
+  ## BOTTOM walk columns) — the same construction longestStraightRunPx folds
+  ## into a running length, exposed here as the raw polyline (-1 for a gap)
+  ## so the curvature check below can measure turning angle between
+  ## consecutive real segments, not just repeated-value runs.
+  var v = loStart
+  while v <= hiEnd:
+    result.add frontierTipCoord(sim, v, startCoord, stepSign, otherGridMaxPx,
+      t, alongX)
+    v += ZoneFieldCellPx
+
+proc maxTurningAngleDeg(tipSeq: seq[int]): float =
+  ## Turning angle (degrees, unsigned) between every pair of CONSECUTIVE
+  ## segments of the polyline (alongEdge, tip) traced by tipSeq — each
+  ## sample is ZoneFieldCellPx apart along the edge; a -1 (gap: no tip this
+  ## sample, per frontierTipCoord's own degenerate cases) breaks the
+  ## polyline rather than being treated as a real vertex, the same
+  ## discipline longestStraightRunPx's run-tracking already uses. A real
+  ## viscous meniscus is curvature-limited (Maxwell's "no sharp points"
+  ## ruling, 2026-08-25) — every tongue and cove rounded, never a jagged
+  ## triangular spike — so the polyline's own turning angle between
+  ## adjacent 2-segment windows is the direct, measurable proxy: a smooth
+  ## arc turns a little every step; a spike turns a lot in one step.
+  result = 0.0
+  var prevDx, prevDy: float
+  var havePrev = false
+  for i in 1 ..< tipSeq.len:
+    if tipSeq[i - 1] == -1 or tipSeq[i] == -1:
+      havePrev = false
+      continue
+    let
+      dx = float(ZoneFieldCellPx)
+      dy = float(tipSeq[i] - tipSeq[i - 1])
+    if havePrev:
+      let
+        cross = prevDx * dy - prevDy * dx
+        dot = prevDx * dx + prevDy * dy
+        angleRad = arctan2(abs(cross), dot)
+        angleDeg = angleRad * 180.0 / PI
+      result = max(result, angleDeg)
+    prevDx = dx
+    prevDy = dy
+    havePrev = true
 
 suite "shrink zone paint arrival: fingering and front-propagation causality":
   ## The remaining four of Fable's six machine checks, all against the real
@@ -862,6 +937,128 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       worst = max(worst, longestStraightRunPx(sim, rect, t, gw, gh))
     echo "straight-run check: worst=", worst
     check worst <= 100
+
+  test "check #7: the frontier never kinks — turning angle stays curvature-limited":
+    ## Maxwell's ruling (2026-08-25, close-zoom screenshot review): "real
+    ## physics on the frontier of the paint spill... wavey edge... no sharp
+    ## points." A viscous meniscus is curvature-limited — every tongue and
+    ## cove rounded, never a jagged triangular spike. Machine check #7: walk
+    ## each of the rect's 4 sides the same way the straight-run check does,
+    ## and bound the turning angle between consecutive polyline segments —
+    ## a smooth arc turns a little every 4px step, a spike turns a lot in
+    ## one. ~35-40 degrees is generous slack above a circle of the doctrine's
+    ## own minimum curvature radius (~20-40px) sampled every ZoneFieldCellPx
+    ## (4px): arc_len/radius in degrees is ~5.7-11.5 deg/step for a genuinely
+    ## round curve at this radius band, so a real kink reads far above this
+    ## bound, not marginally.
+    const MaxTurningAngleDeg = 40.0
+    var sim = zoneGame(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    let
+      gwPx = gw * ZoneFieldCellPx
+      ghPx = gh * ZoneFieldCellPx
+    var worst = 0.0
+    for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
+      let t = int(float(BrShowmatchTotalTicks) * frac)
+      let rect = sim.zoneRectAndDps(t).cur
+      for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
+        let tipSeq = frontierTipSeq(sim, 0, edgeX, stepSign, gwPx,
+          max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
+          alongX = false)
+        worst = max(worst, maxTurningAngleDeg(tipSeq))
+      for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
+        let tipSeq = frontierTipSeq(sim, 0, edgeY, stepSign, ghPx,
+          max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
+          alongX = true)
+        worst = max(worst, maxTurningAngleDeg(tipSeq))
+    echo "turning-angle check (small map): worst=", worst, " deg"
+    check worst <= MaxTurningAngleDeg
+
+  test "check #7: the frontier never kinks — full-height right-edge sample on the real map":
+    ## The mandate's own specific regression target: a full-height sample
+    ## of the RIGHT edge on the real giant showmatch map, at multiple
+    ## ticks — the exact edge and map Maxwell's rejected screenshot showed
+    ## as a hard vertical line.
+    const MaxTurningAngleDeg = 40.0
+    var sim = zoneGameOnRealMap(BrShowmatchPhases)
+    discard ensureZoneArrivalField(sim)
+    let (gw, gh) = zoneArrivalFieldGridDims()
+    let
+      gwPx = gw * ZoneFieldCellPx
+      ghPx = gh * ZoneFieldCellPx
+    var worst = 0.0
+    var edgesSampled = 0
+    for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
+      let t = int(float(BrShowmatchTotalTicks) * frac)
+      let rect = sim.zoneRectAndDps(t).cur
+      let edgeX = rect.x + rect.w - 1
+      let tipSeq = frontierTipSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
+        alongX = false)
+      var validCount = 0
+      for v in tipSeq:
+        if v != -1: inc validCount
+      if validCount >= 3:
+        inc edgesSampled
+        let angle = maxTurningAngleDeg(tipSeq)
+        worst = max(worst, angle)
+        echo "  right-edge full-height t=", t, " validSamples=", validCount,
+          " maxTurningAngle=", angle
+        when defined(zoneRoomClassifyDebug):
+          if angle > MaxTurningAngleDeg:
+            stderr.writeLine("    RIGHT-EDGE tipSeq(t=" & $t & ")=" & $tipSeq)
+            # Find the worst single jump and dump the local D4 mask around
+            # both endpoints, to tell a real architectural corner (a wall
+            # genuinely bounds one or both tip positions) from an
+            # unexplained mid-air discontinuity.
+            var worstIdx = -1
+            var worstJump = 0
+            for i in 1 ..< tipSeq.len:
+              if tipSeq[i - 1] != -1 and tipSeq[i] != -1:
+                let j = abs(tipSeq[i] - tipSeq[i - 1])
+                if j > worstJump:
+                  worstJump = j
+                  worstIdx = i
+            if worstIdx >= 0:
+              let
+                yA = (worstIdx - 1) * ZoneFieldCellPx
+                yB = worstIdx * ZoneFieldCellPx
+                xA = tipSeq[worstIdx - 1]
+                xB = tipSeq[worstIdx]
+              stderr.writeLine("    worst jump: y=" & $yA & " x=" & $xA &
+                " -> y=" & $yB & " x=" & $xB & " (jump=" & $worstJump & ")")
+              let roomIdFull = zoneTestClassifyRooms(sim)
+              for (label, xx, yy) in [("A", xA, yA), ("B", xB, yB)]:
+                var row = ""
+                for dx in -3 .. 3:
+                  let m = zoneD4MaskAt(sim, xx + dx, yy)
+                  row.add(if m.walkable: "." else: "#")
+                stderr.writeLine("    " & label & " walk row (x-3..x+3) @ y=" &
+                  $yy & ": " & row)
+                # Wider scan straight out from the tip (past where the 1-cell
+                # exclusion checks) — is there a wall or a room-id change
+                # anywhere in the next 100px, or does painted floor simply
+                # stop cold in open field?
+                var wideRow = ""
+                var roomRow = ""
+                for step in 0 .. 25:
+                  let
+                    px = xx + step * ZoneFieldCellPx
+                    m = zoneD4MaskAt(sim, px, yy)
+                    a = zoneArrivalFieldCellAt(px, yy)
+                    gx = px div ZoneFieldCellPx
+                    gy = yy div ZoneFieldCellPx
+                    rid = if gx >= 0 and gy >= 0 and gx < gw and gy < gh:
+                      roomIdFull[gy * gw + gx] else: -9
+                  wideRow.add(if not m.walkable: "#"
+                    elif a.has and a.arrival != ZoneNeverArrives.int: "P" else: "_")
+                  roomRow.add(if rid == -1: "e" elif rid == -9: "?" else: "r")
+                stderr.writeLine("    " & label & " wide(100px out, P=painted _=not #=wall): " & wideRow)
+                stderr.writeLine("    " & label & " room(e=ext r=room ?=oob): " & roomRow)
+    echo "turning-angle check (real map, right edge, full height): edgesSampled=",
+      edgesSampled, " worst=", worst, " deg"
+    check edgesSampled > 0
+    check worst <= MaxTurningAngleDeg
 
   test "a room never fills faster than the open floor just outside its own doorway":
     var sim = zoneGameOnRealMap(BrShowmatchPhases)
@@ -929,6 +1126,22 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       # door band's average member), and produced sub-tick "violations"
       # that were exactly that noise, not a real fills-faster-than-its-
       # door regression.
+      when defined(zoneRoomClassifyDebug):
+        if roomMin < doorMin:
+          for idx in cells:
+            let
+              gx = idx mod gw
+              gy = idx div gw
+              a = arrivalOf(idx)
+            stderr.writeLine("    ROOM cell gx=" & $gx & " gy=" & $gy &
+              " arrival=" & $(if a.has: $a.v else: "none"))
+          for idx in doorSet:
+            let
+              gx = idx mod gw
+              gy = idx div gw
+              a = arrivalOf(idx)
+            stderr.writeLine("    DOOR cell gx=" & $gx & " gy=" & $gy &
+              " arrival=" & $(if a.has: $a.v else: "none"))
       if roomMin < doorMin:
         inc lagViolations
     echo "room-lag check: roomsChecked=", roomsChecked,
@@ -962,6 +1175,22 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         gx * ZoneFieldCellPx + ZoneFieldCellPx div 2,
         gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
       (c.has and c.arrival != ZoneNeverArrives.int, c.arrival)
+    # Same baseSpeed formula the solver's own solve uses
+    # (zoneBaseSpeedPxPerTick, global.nim — not exported, mirrored here):
+    # needed below to seed each door cell at its OWN real arrival tick
+    # rather than a flat 0, so a room with several separately-timed door
+    # clusters (a large room can open onto the exterior in more than one
+    # place, each crossing the shrinking rect boundary at a different
+    # tick) gets a fair "predicted arrival" proxy instead of one blind to
+    # WHICH door is actually earliest.
+    let baseSpeed = block:
+      let
+        fullW = sim.gameMap.width
+        fullH = sim.gameMap.height
+        final = sim.zoneRectAndDps(BrShowmatchTotalTicks).cur
+        closeX = float(max(0, fullW - final.w)) * 0.5
+        closeY = float(max(0, fullH - final.h)) * 0.5
+      max(0.05, (closeX + closeY) / 2.0 / float(BrShowmatchTotalTicks))
     var
       roomsChecked = 0
       corrViolations = 0
@@ -976,10 +1205,18 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       # whenever a room's own clearance varies internally (which it does,
       # by design: aperture/wallDrag are real physics, not noise), so this
       # is the fair "walk-distance" to test the construction against, not
-      # a cruder proxy. Simple bounded relaxation (no heap needed — a
-      # room's own cell count is small): repeat until stable.
-      var dist = newSeq[float](gw * gh)
-      for i in 0 ..< dist.len: dist[i] = Inf
+      # a cruder proxy. `hopDist` (0-seeded, unitless — depth bookkeeping
+      # only) and `predArrival` (seeded at each door's own real arrival
+      # tick, in the SAME tick units the solver's slowness=h/(baseSpeed*F)
+      # update rule produces — see baseSpeed above) are relaxed together;
+      # only `predArrival` feeds the correlation. Simple bounded relaxation
+      # (no heap needed — a room's own cell count is small): repeat until
+      # stable.
+      var hopDist = newSeq[float](gw * gh)
+      var predArrival = newSeq[float](gw * gh)
+      for i in 0 ..< hopDist.len:
+        hopDist[i] = Inf
+        predArrival[i] = Inf
       var doorSeedCount = 0
       for idx in cells:
         let gx = idx mod gw
@@ -993,21 +1230,33 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
           if roomId[ny * gw + nx] == -1:
             isDoor = true
         if isDoor:
-          dist[idx] = 0.0
-          inc doorSeedCount
-      proc edgeCost(nidx: int): float =
+          let a = arrivalOf(idx)
+          if a.has:
+            hopDist[idx] = 0.0
+            predArrival[idx] = a.v.float
+            inc doorSeedCount
+      proc edgeCostUnitless(nidx: int): float =
         let clearance = wallDist[nidx].float * 2.0
         let aperture = clamp(clearance / 26.0, 0.15, 1.0)
         let wallDrag = clamp(wallDist[nidx].float / 10.0, 0.0, 1.0)
         let wallMult = 0.5 + wallDrag * 0.5
         1.0 / max(0.05, aperture * wallMult)
+      proc edgeCostTicks(nidx: int): float =
+        # Same slowness=h/(baseSpeed*F) form the solver's own update rule
+        # uses (computeZoneFrontierField) — predArrival is seeded in real
+        # ticks, so each step must add a real tick cost too, not an
+        # abstract unit, or the two would no longer share a scale.
+        let clearance = wallDist[nidx].float * 2.0
+        let aperture = clamp(clearance / 26.0, 0.15, 1.0)
+        let wallDrag = clamp(wallDist[nidx].float / 10.0, 0.0, 1.0)
+        let wallMult = 0.5 + wallDrag * 0.5
+        float(ZoneFieldCellPx) / (baseSpeed * max(0.05, aperture * wallMult))
       var changed = true
       var iterGuard = 0
       while changed and iterGuard < cells.len + 5:
         changed = false
         inc iterGuard
         for idx in cells:
-          if dist[idx] >= Inf: continue
           let gx = idx mod gw
           let gy = idx div gw
           for off in ZoneFrontierOffsets:
@@ -1018,23 +1267,29 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
             let nidx = ny * gw + nx
             if roomId[nidx] != roomId[idx]: continue
             let step = (if off.dx != 0 and off.dy != 0: 1.41421356 else: 1.0)
-            let cand = dist[idx] + step * edgeCost(nidx)
-            if cand < dist[nidx]:
-              dist[nidx] = cand
-              changed = true
+            if hopDist[idx] < Inf:
+              let cand = hopDist[idx] + step * edgeCostUnitless(nidx)
+              if cand < hopDist[nidx]:
+                hopDist[nidx] = cand
+                changed = true
+            if predArrival[idx] < Inf:
+              let cand = predArrival[idx] + step * edgeCostTicks(nidx)
+              if cand < predArrival[nidx]:
+                predArrival[nidx] = cand
+                changed = true
       if doorSeedCount == 0:
         continue  # no doorway reached this room — skip (not a
                   # front-propagation failure, a classifier edge case).
-      # SPEARMAN rank correlation between arrival and the weighted walk-
-      # distance over the room's own cells.
+      # SPEARMAN rank correlation between actual arrival and the weighted,
+      # real-tick-seeded predicted arrival over the room's own cells.
       var xs, ys: seq[float]
       var maxHopSeen = 0
       for idx in cells:
-        if dist[idx] >= Inf: continue
-        maxHopSeen = max(maxHopSeen, (dist[idx] / 4.0).int)
+        if hopDist[idx] >= Inf or predArrival[idx] >= Inf: continue
+        maxHopSeen = max(maxHopSeen, (hopDist[idx] / 4.0).int)
         let a = arrivalOf(idx)
         if not a.has: continue
-        xs.add(dist[idx])
+        xs.add(predArrival[idx])
         ys.add(a.v.float)
       if xs.len < 8:
         continue
@@ -1067,6 +1322,24 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         if ys[i] > maxArr: maxArr = ys[i]
       echo "  room cells=", cells.len, " n=", xs.len, " corr=", corr,
         " maxHop=", maxHop, " arrRange=[", minArr, "..", maxArr, "]"
+      when defined(zoneRoomClassifyDebug):
+        if corr <= 0.8:
+          for idx in cells:
+            let
+              gx = idx mod gw
+              gy = idx div gw
+              a = arrivalOf(idx)
+            var neighborRooms: seq[int]
+            for off in ZoneFrontierOffsets:
+              let
+                nx = gx + off.dx
+                ny = gy + off.dy
+              if nx < 0 or ny < 0 or nx >= gw or ny >= gh: continue
+              neighborRooms.add(roomId[ny * gw + nx])
+            stderr.writeLine("    cell gx=" & $gx & " gy=" & $gy &
+              " predArrival=" & $predArrival[idx] &
+              " arrival=" & $(if a.has: $a.v else: "none") &
+              " neighborRooms=" & $neighborRooms)
       if corr <= 0.8:
         inc corrViolations
     echo "door-first check: roomsChecked=", roomsChecked,

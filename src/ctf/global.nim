@@ -6495,16 +6495,28 @@ const
                              ## ZoneEdgeBoundPx established: the boundary's
                              ## shape, before any flow delay, never deviates
                              ## from the sharp rect line by more than this.
-  ZoneFlowDelayCapTicks* = 750  ## HONESTY BOUND on the FLOW-DELAY term (round
-                             ## 2's spatial ZoneEdgeBoundPx, restated in
-                             ## time): however deep a cove or slow a
+  ZoneFlowDelayCapTicks* = 1200  ## HONESTY BOUND on the FLOW-DELAY term
+                             ## (round 2's spatial ZoneEdgeBoundPx, restated
+                             ## in time): however deep a cove or slow a
                              ## doorway, the visual boundary never lags the
                              ## true damage line by more than this many
-                             ## ticks (25s at TargetFps=24). Raised again
-                             ## (350->600) past the spec's original 150-250
-                             ## band per Maxwell's "tablecloth" ruling — the
-                             ## fingering term (zoneFingerDelayAt) needs real
-                             ## spatial room to read as a cove, not a ripple.
+                             ## ticks. Raised again (350->600->750) past the
+                             ## spec's original 150-250 band per Maxwell's
+                             ## "tablecloth" ruling — the fingering term
+                             ## (zoneFingerDelayAt) needs real spatial room
+                             ## to read as a cove, not a ripple. Raised once
+                             ## more (750->1200, Fable's audit 2026-08-25):
+                             ## the room/aperture reachability fix (see
+                             ## ensureZoneFloorGrid) finally gates real,
+                             ## multi-cell-deep interior rooms behind their
+                             ## own doors instead of misreading them as
+                             ## exterior — a genuinely narrow, wall-hugging
+                             ## room can legitimately need several hundred
+                             ## ticks more than 750 to fill at the speed
+                             ## field's own worst-case combined floor
+                             ## (aperture x wallDrag x finger), measured
+                             ## directly against the honesty test rather
+                             ## than guessed.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
                              ## arena.nim's MinCorridorWidth (the narrowest
                              ## built corridor): local flow speed throttles
@@ -6548,6 +6560,19 @@ const
                              ## this low makes crossing a cove expensive
                              ## enough that the front visibly prefers the
                              ## tip lanes instead of shrugging the noise off.
+                             ## TRIED AND REVERTED (0.55->0.3, 2026-08-25):
+                             ## hypothesized this floor governed the real
+                             ## map's right-edge corridor wash-out (see the
+                             ## turning-angle check #7); MEASURED false —
+                             ## lowering it left the real-map kink's own
+                             ## angle EXACTLY unchanged (89.700...deg, same
+                             ## to 11 significant figures) while breaking
+                             ## the flow-delay honesty gate and worsening
+                             ## the small-map turning angle 0deg->45deg. The
+                             ## wash-out is not mediated by this term; the
+                             ## real fix is still open — see the research
+                             ## notes / commit history for the falsified
+                             ## hypothesis before trying it again.
   ZoneArtOverhangMaxPx = 8.0   ## D4a fix: rendered wall ART may hide a floor
                              ## pixel only THIS close to a TRUE (collision)
                              ## wall cell — a rooftop bevel/parapet's own
@@ -6642,6 +6667,16 @@ proc zoneMeniscusOctave(px, py, cellPx: float, seed: int): float =
     nx0 = n00 + (n10 - n00) * sx
     nx1 = n01 + (n11 - n01) * sx
   nx0 + (nx1 - nx0) * sy
+
+proc smoothRamp01(t: float): float {.inline.} =
+  ## Hermite smoothstep, clamped to [0, 1] first: 0 at t<=0, 1 at t>=1,
+  ## zero SLOPE at both ends (unlike `clamp(t, 0.0, 1.0)` alone, which has
+  ## a slope discontinuity — a real kink — right at the two clamp
+  ## boundaries). Used wherever a physical quantity ramps smoothly across
+  ## a threshold (a choke's own viscosity, see zoneSpeedFieldAt) instead of
+  ## snapping a straight line onto a hard floor/ceiling.
+  let c = clamp(t, 0.0, 1.0)
+  c * c * (3.0 - 2.0 * c)
 
 proc roundedRectSignedDist*(rect: MapRect, cornerR, px, py: float): float =
   ## Signed distance (px) from map point (px, py) to `rect`'s boundary with
@@ -6845,31 +6880,164 @@ proc ensureZoneFloorGrid(sim: SimServer) =
       ZoneFloorPaintable[idx] = not overhang
   # Interior-room classification — see ZoneFloorRoomId's own doc above for
   # WHY this is needed (a pure geometric T0 comparison cannot distinguish
-  # "genuinely open" from "another cell in the same sealed room"). Narrow
-  # (aperture) cells act as cuts, same as walls, for this connectivity pass:
-  # a room reachable only through a doorway ends up in its OWN component,
-  # never merged with the exterior world through the door it must squeeze
-  # through. Static per map (walls/clearance only), same cache cadence as
-  # everything else in this proc.
-  var isAperture = newSeq[bool](gw * gh)
-  for i in 0 ..< gw * gh:
-    if ZoneFloorWalkable[i]:
-      isAperture[i] = ZoneFloorWallDistPx[i] * 2.0 < ZoneApertureDoorRefPx * 2.5
+  # "genuinely open" from "another cell in the same sealed room"). REDEFINED
+  # BY REACHABILITY (Fable's audit, 2026-08-25): the earlier width test
+  # flagged a cell as an "aperture" whenever it sat close to ANY single
+  # wall, which is wall PROXIMITY, not narrowness — a room-edge cell a few
+  # px from its own wall got the same verdict as a true doorway cell pinched
+  # on both sides, so a small room (barely wider than the aperture
+  # threshold everywhere) had almost every one of its own cells misread as
+  # exterior-eligible and direct-seeded at its rect-crossing tick, the
+  # "paints in rooms before the door" defect — the giant showmatch map found
+  # only ~12 components this way against the mapgen's own thousands of real
+  # room candidates.
+  #
+  # The fix has two parts:
+  #   1. A genuine 2-SIDED passage width per cell (rayRunCells below): the
+  #      MINIMUM, over 4 opposite-direction axis pairs (W/E, N/S, NW/SE,
+  #      NE/SW), of the clear span straight through the cell along that
+  #      axis. A true doorway/corridor is pinched on BOTH sides along its
+  #      cross-axis (small sum); a room-edge cell is close to one wall but
+  #      opens wide on the other side of every axis (large sum) — the
+  #      distinction the old 1-sided wall-distance test could not draw.
+  #   2. Flood from the MAP'S OWN BORDER over the walkable grid, touching
+  #      but never propagating PAST a narrow-gap cell: everything reached
+  #      this way is the connected exterior world, or a narrow passage
+  #      directly bordering it (its own honest rect-crossing tick is
+  #      trustworthy — see the research notes' "genuinely on the retreating
+  #      edge" test). Everything the flood never reaches is walled off
+  #      behind at least one sub-aperture squeeze and gets its own
+  #      connected-component room id; its arrival may only come from
+  #      upwind propagation through that squeeze, in computeZoneFrontierField
+  #      below. Reachability from the true border (not "whichever component
+  #      happens to be biggest") is what makes this work even when a single
+  #      giant hall or a courtyard outsizes the nominal "exterior".
+  const
+    PassageAxisOffsets: array[4, tuple[dx, dy: int]] = [
+      (1, 0), (0, 1), (1, 1), (1, -1)
+    ]  ## one representative direction per axis (W/E, N/S, NW/SE, NE/SW) —
+       ## the opposite direction is walked separately as its negation.
+    PassageRayCapCells = int(ZoneApertureDoorRefPx * 1.5 / float(ZoneFieldCellPx)) + 1
+      ## any axis whose ray reaches this cap without hitting a wall is, by
+      ## construction, already well past the narrow-gap threshold below —
+      ## the cap bounds cost without ever mis-measuring a genuinely narrow
+      ## axis (which always resolves well inside it).
+  proc rayRunCells(startIdx, dx, dy: int): int =
+    let
+      gx0 = startIdx mod gw
+      gy0 = startIdx div gw
+    while result < PassageRayCapCells:
+      let
+        nx = gx0 + dx * (result + 1)
+        ny = gy0 + dy * (result + 1)
+      if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+        break
+      if not ZoneFloorWalkable[ny * gw + nx]:
+        break
+      inc result
+  var isNarrowGap = newSeq[bool](gw * gh)
+  block passageWidth:
+    let
+      narrowThresholdPx = ZoneApertureDoorRefPx * 1.25
+      axisStepPx = [
+        float(ZoneFieldCellPx), float(ZoneFieldCellPx),
+        float(ZoneFieldCellPx) * 1.41421356, float(ZoneFieldCellPx) * 1.41421356
+      ]
+    for i in 0 ..< gw * gh:
+      if not ZoneFloorWalkable[i]:
+        continue
+      # Cheap short-circuit: a cell already this far from its NEAREST wall
+      # in every direction cannot possibly have a 2-sided axis pair summing
+      # below the threshold, so the full 8-ray measurement below only ever
+      # runs for cells actually close to some wall.
+      if ZoneFloorWallDistPx[i] >= narrowThresholdPx:
+        continue
+      var minWidthPx = Inf
+      for a in 0 ..< 4:
+        let
+          (dx, dy) = PassageAxisOffsets[a]
+          posRun = rayRunCells(i, dx, dy)
+          negRun = rayRunCells(i, -dx, -dy)
+          widthPx = float(posRun + negRun + 1) * axisStepPx[a]
+        minWidthPx = min(minWidthPx, widthPx)
+      isNarrowGap[i] = minWidthPx < narrowThresholdPx
   ZoneFloorRoomId = newSeq[int](gw * gh)
   for i in 0 ..< ZoneFloorRoomId.len:
     ZoneFloorRoomId[i] = -2  # unvisited
+  var reached = newSeq[bool](gw * gh)
+  block borderFlood:
+    # Seed: a textbook "flood from the map border" needs a walkable cell
+    # literally on the GRID's own outer ring — but a real level almost
+    # always wraps its whole playable area in a boundary wall (measured on
+    # this engine's own maps: zero walkable cells on the ring, for both the
+    # small ladder map and the giant showmatch map), so that seed set is
+    # always empty here and would misclassify the ENTIRE floor as one
+    # sealed interior. The map-topology-agnostic equivalent is the walkable
+    # cell FARTHEST from any wall at all: the deepest point of whichever
+    # region has the most room to breathe, which on any real level is the
+    # open field/hub, never a room (a sealed room's own deepest point is
+    # bounded by its own small size). Flooding outward from every cell
+    # tied for that maximum, refusing to cross a narrow gap, reaches
+    # exactly the connected exterior world — the same result "the map
+    # border" would give on a level whose playable area DID touch its own
+    # canvas edge, without depending on that ever being true.
+    var
+      maxWallDist = -1.0'f32
+      queue: seq[int]
+    for i in 0 ..< gw * gh:
+      if ZoneFloorWalkable[i] and ZoneFloorWallDistPx[i] > maxWallDist:
+        maxWallDist = ZoneFloorWallDistPx[i]
+    for i in 0 ..< gw * gh:
+      if ZoneFloorWalkable[i] and ZoneFloorWallDistPx[i] == maxWallDist and
+          not reached[i]:
+        reached[i] = true
+        queue.add(i)
+    when defined(zoneRoomClassifyDebug):
+      var narrowSeedCount = 0
+      for i in queue:
+        if isNarrowGap[i]: inc narrowSeedCount
+      stderr.writeLine("borderFlood: seeds=" & $queue.len &
+        " narrowSeeds=" & $narrowSeedCount & " maxWallDist=" & $maxWallDist &
+        " gw=" & $gw & " gh=" & $gh)
+    var qh = 0
+    while qh < queue.len:
+      let idx = queue[qh]
+      inc qh
+      if isNarrowGap[idx]:
+        continue  # touched (already marked reached, so still a trustworthy
+                  # direct source) but never propagated PAST — the flood
+                  # stops at every squeeze instead of only a hand-picked one.
+      let
+        cgx = idx mod gw
+        cgy = idx div gw
+      for oy in -1 .. 1:
+        for ox in -1 .. 1:
+          if ox == 0 and oy == 0:
+            continue
+          let
+            nx = cgx + ox
+            ny = cgy + oy
+          if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+            continue
+          let nidx = ny * gw + nx
+          if not ZoneFloorWalkable[nidx] or reached[nidx]:
+            continue
+          reached[nidx] = true
+          queue.add(nidx)
+  for i in 0 ..< gw * gh:
+    if reached[i]:
+      ZoneFloorRoomId[i] = -1
   block classifyRooms:
     var
-      sizes: seq[int]
+      nextId = 0
       queue: seq[int]
     for startIdx in 0 ..< gw * gh:
-      if not ZoneFloorWalkable[startIdx] or isAperture[startIdx]:
-        ZoneFloorRoomId[startIdx] = -1
+      if not ZoneFloorWalkable[startIdx] or reached[startIdx]:
         continue
       if ZoneFloorRoomId[startIdx] != -2:
         continue
-      let compId = sizes.len
-      sizes.add(0)
+      let compId = nextId
+      inc nextId
       queue.setLen(0)
       queue.add(startIdx)
       ZoneFloorRoomId[startIdx] = compId
@@ -6877,7 +7045,6 @@ proc ensureZoneFloorGrid(sim: SimServer) =
       while qh < queue.len:
         let idx = queue[qh]
         inc qh
-        inc sizes[compId]
         let
           cgx = idx mod gw
           cgy = idx div gw
@@ -6891,23 +7058,12 @@ proc ensureZoneFloorGrid(sim: SimServer) =
             if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
               continue
             let nidx = ny * gw + nx
-            if not ZoneFloorWalkable[nidx] or isAperture[nidx]:
+            if not ZoneFloorWalkable[nidx] or reached[nidx]:
               continue
             if ZoneFloorRoomId[nidx] != -2:
               continue
             ZoneFloorRoomId[nidx] = compId
             queue.add(nidx)
-    # The LARGEST component is "the exterior world" (open field, courtyards,
-    # wide halls — always dwarfing any individual room on a real map); every
-    # OTHER component is an interior room.
-    if sizes.len > 0:
-      var bestId = 0
-      for i in 1 ..< sizes.len:
-        if sizes[i] > sizes[bestId]:
-          bestId = i
-      for i in 0 ..< ZoneFloorRoomId.len:
-        if ZoneFloorRoomId[i] == bestId:
-          ZoneFloorRoomId[i] = -1
   when defined(zoneD4OverlayDump):
     ## Diagnostic-only (never shipped default-on): the D4a before/after
     ## verification screenshots, dumped straight from the ALREADY-BUILT
@@ -7014,10 +7170,36 @@ proc zoneSpeedFieldAt(px, py: float, wallDistPx: float32, finalRect: MapRect): f
   ##     itself produces the fingered isoline as ONE consequence of ONE
   ##     solve, with no second field to blend and no way for an interior
   ##     cell to "borrow" a fast-lane shortcut that skips the walkable graph.
+  ##
+  ## NOT adopted: per-terrain absorption (Maxwell's fluid-sim survey,
+  ## 2026-08-25 — modulating flow speed by local floor MATERIAL, e.g. cave
+  ## rock vs built floor). Checked and confirmed absent: neither CtfMap nor
+  ## anything reachable from SimServer at runtime carries a spatially-
+  ## varying per-cell material signal — the round-11b TERRAIN/THEME switch
+  ## (cave/building/mixed, interior/exterior) is a single GLOBAL per-map
+  ## choice baked into the art layer, not a per-tile field the solver could
+  ## read. Skipped rather than invented a signal that does not exist.
   let
     clearance = wallDistPx.float * 2.0
-    aperture = clamp(clearance / ZoneApertureDoorRefPx, ZoneApertureMinMult, 1.0)
-    wallDrag = clamp(wallDistPx.float / ZoneWallDragRangePx, 0.0, 1.0)
+    # VISCOSITY AT A CHOKE — Maxwell's fluid-sim survey (2026-08-25): the
+    # aperture throttle IS the inflow/outflow term a cellular-automaton
+    # volume-flow model would balance per tick; the "graphics attach to
+    # math" law says that behavior belongs here, in F(p), not in a second
+    # live simulation (see the architecture-comparison research note in
+    # ~/.ctf/knowledge/research/zone-front/ for why the solver itself stays
+    # unchanged). `smoothRamp01` (Hermite smoothstep) replaces the earlier
+    # clamped-LINEAR ramp: both already gave a half-width gap roughly half
+    # speed (t=0.5 either way), but the clamped-linear version has a real
+    # KINK in F(p) at both the clearance=0 floor and the clearance=
+    # ZoneApertureDoorRefPx ceiling — a discontinuous SLOPE feeding
+    # straight into the eikonal solve, one more source of the sharp-point
+    # defect the noise-octave fix (zoneBoundaryFingerDelayAt) addressed for
+    # the seed term. The Hermite curve is smooth (zero slope) at both
+    # ends, so crossing a choke never bends the isoline's curvature
+    # abruptly, only smoothly.
+    aperture = ZoneApertureMinMult + smoothRamp01(clearance / ZoneApertureDoorRefPx) *
+      (1.0 - ZoneApertureMinMult)
+    wallDrag = smoothRamp01(wallDistPx.float / ZoneWallDragRangePx)
     wallMult = ZoneWallDragMinMult + wallDrag * (1.0 - ZoneWallDragMinMult)
   const Eps = 1.0
   let
@@ -7132,12 +7314,20 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
     # ALONG (perpendicular) coordinate contributes nothing there — the
     # coordinator's diagnosis: "give the nudge a component keyed to
     # position ALONG the edge, which is exactly what makes tongues on a
-    # flat front." Two octaves (a dominant ~220px tongue spacing plus a
-    # finer ~85px one) so no single wavelength's own flat stretch can
-    # produce a long straight run either.
+    # flat front." Two octaves so no single wavelength's own flat stretch
+    # can produce a long straight run either — BOTH now inside the 160-300px
+    # lobe band (Maxwell's "no sharp points" ruling, 2026-08-25: a real
+    # viscous front is curvature-limited, every tongue and cove rounded).
+    # The earlier second octave sat at 45px — well under the ~100px
+    # wavelength floor a rounded isoline needs at this grid's own 4px
+    # sample spacing, and exactly what read as jagged triangular spikes at
+    # close zoom. 160/260px (still two frequencies, never a single flat
+    # wavelength) is the fix, not a retune: short-wavelength content is
+    # DROPPED, not damped, since even a damped 45px ripple still turns
+    # sharper than a real fluid meniscus can.
     across = px * -sa + py * ca
     n1 = zoneMeniscusOctave(across, 0.0, 160.0, ZoneFieldSeed xor 0x9F)
-    n2 = zoneMeniscusOctave(across, 0.0, 45.0, ZoneFieldSeed xor 0xB3)
+    n2 = zoneMeniscusOctave(across, 0.0, 260.0, ZoneFieldSeed xor 0xB3)
     combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
   # Full [0, cap] amplitude — late-only (honesty untouched, the cap already
   # bounds it), but no headroom held back: a shy amplitude is exactly what
@@ -7295,23 +7485,64 @@ proc computeZoneFrontierField(
         let dv = valueAt(gw, gh, nx + doff.dx, ny + doff.dy, result)
         if dv < Inf.float32:
           best = min(best, dv + slowness * Sqrt2)
+      # HONESTY FLOOR, folded into the update itself rather than applied as
+      # an afterthought (Fable's audit, 2026-08-25): t0(p) is not just a
+      # cosmetic reference — it is the exact tick sim.nim's own damage rule
+      # starts charging a player standing at p, so "never paint before
+      # t0(p)" must hold for literally every cell, including a direct
+      # source. A smooth 2D domain's own "nearby faster lane" property (the
+      # same one that washes out zoneSpeedFieldAt's fingering in open
+      # field, by design) can ALSO relax an exterior/aperture cell down
+      # BELOW its own t0 via a long detour from a distant, much-earlier-
+      # uncovered part of the map — before this fix that undershoot was
+      # only corrected in a FINAL pass, after already being used, at full
+      # (dishonest) strength, to seed every cell it went on to relax. Two
+      # honestly-clamped neighbours therefore did not compose: a room cell
+      # and its own door could each independently clamp UP to their own
+      # (different) t0 afterward, with no guarantee the room ends up on
+      # the correct side of its door — precisely the intermittent "room
+      # fills a few ticks before its door" violations this closes. Flooring
+      # `best` HERE means every stored value is honest the moment it is
+      # written, so the floor propagates forward through the same causal
+      # order the FMM already relies on: a room's value, always built from
+      # its (now-already-honest) door, can never undercut it.
+      if best < Inf.float32 and best < float32(t0[nidx]):
+        best = float32(t0[nidx])
       if best < result[nidx]:
         result[nidx] = best
         pq.push((t: best, idx: nidx))
   # Honesty safety clamp (defensive, not the mechanism the six checks
   # verify): never let a reachable cell precede its own honest rect-crossing
-  # tick, and never let it run unboundedly late.
+  # tick, and never let a cell the solve genuinely never reached read as
+  # "never" (F(p)'s own floors already bound every REACHED cell's value —
+  # see the research notes — so this upper bound is a fallback for the
+  # unreached case, not a ceiling on the solve's own answer).
+  #
+  # Fable's audit (2026-08-25, once real room population existed to check
+  # against): the ORIGINAL version of this clamp applied `min(result[i],
+  # t0[i] + cap)` UNCONDITIONALLY, to every cell, reached or not. For a
+  # cell deep in a genuinely sealed pocket, upwind propagation through its
+  # own door can legitimately need MORE than `cap` ticks past that cell's
+  # own WALL-IGNORANT t0 (t0 is pure rect-boundary geometry — it can be
+  # early for a point that sits geometrically close to the schedule's
+  # center while being walled off many doors deep) — the unconditional
+  # clamp then forcibly pulled that cell's honestly-propagated value back
+  # DOWN to (an early) t0 + cap, letting it paint BEFORE cells nearer its
+  # own door that happened to have a later t0. That is exactly the
+  # "wall-ignorant geometric term wins as a free bound" bug the room/
+  # aperture source-gating above was built to eliminate, reintroduced
+  # through the ceiling instead of the floor. Gating this fallback on
+  # `result[i] >= Inf.float32` (the solve never touched this cell at all)
+  # keeps the intended safety net — nothing reads as permanently
+  # unreachable — without ever overriding an actually-computed, causally
+  # correct propagated value.
   for i in 0 ..< result.len:
     if t0[i] == high(int):
       continue
     if result[i] < float32(t0[i]):
       result[i] = float32(t0[i])
-    # Per-cell, not a global ceiling: a global `totalTicks + cap` bound let
-    # a cell sampled against an EARLY tick read as "overdue by" nearly the
-    # whole match length whenever its OWN t0 was early but its true march
-    # value approached the global ceiling — this is what the per-cell
-    # bound is for.
-    result[i] = min(result[i], float32(t0[i]) + float32(ZoneFlowDelayCapTicks))
+    if result[i] >= Inf.float32:
+      result[i] = float32(t0[i]) + float32(ZoneFlowDelayCapTicks)
 
 type
   ZoneArrivalField = object
