@@ -229,6 +229,67 @@ const
                                  ## clear of the spray FX puffs (..2385) and
                                  ## the replay UI sprites (4002).
   VeteranMarkObjectBase = 19840  ## rank plumes: one per player.
+  ## --- DISPLAY CODA G1: ACE GLOW ---
+  ## L3+ (AceLevel+) units get a board-drawn, deterministically pulsing
+  ## team-paint radiance under the sprite -- Maxwell: "a glowing unit
+  ## signalling it is level 3, a rare occurrence." The small star row
+  ## `addVeteranMarks` already draws is legible up close but does not read as
+  ## an EVENT from across the board at 1280; this does. IDs sit at 58000+,
+  ## clear of every pool above -- the highest prior id is the spray-can rig
+  ## art at RigSpraySpriteBase (..57871).
+  AceGlowSpriteBase = 58000    ## team×pulse-stage: 58000..58023 (2 teams ×
+                               ## AceGlowStages=12).
+  AceGlowObjectBase = 58100    ## one glow per player: 58100..58115.
+  AceGlowSize = 92             ## logical px canvas (native = boardScale on
+                               ## the wire) -- big enough to read at a
+                               ## distance without climbing so high it
+                               ## competes with the name label/HP bar
+                               ## stacked above the head (AceGlowVerticalBiasPx
+                               ## also biases it down, away from that UI).
+  AceGlowBaseRadius = 26.0     ## px radius of the CONSTANT soft-radiance
+                               ## floor: an ace never goes fully dark between
+                               ## pulses, so the tell survives even a viewer
+                               ## who glances away mid-breath.
+  AceGlowRingMinRadius = 16.0  ## px radius the bright pulse ring starts at
+                               ## (tight, hugging the body).
+  AceGlowRingMaxRadius = 40.0  ## px radius the pulse ring expands to before
+                               ## the next breath starts over.
+  AceGlowRingBandPx = 5.0      ## px half-width of the bright ring band.
+  AceGlowStages = 12           ## discrete pulse frames baked per team.
+                               ## `aceGlowStageForTick` maps `sim.tickCount`
+                               ## onto one of these DETERMINISTICALLY -- no
+                               ## per-connection animation state, no
+                               ## randomness -- so two spectators watching the
+                               ## same tick, or the same tick reached by two
+                               ## different replay seeks, always bake the
+                               ## identical frame.
+  AceGlowPeriodTicks = 60      ## ~2.5s per breath: slow enough to read as a
+                               ## status light, not a warning strobe.
+  AceGlowVerticalBiasPx = 8    ## px the glow's center sits BELOW the body
+                               ## center, so it reads as ground radiance
+                               ## rather than climbing into the overhead
+                               ## name label / HP bar.
+  ## --- DISPLAY CODA G2: ACE DEATH LINGER ---
+  ## The measured problem: a median ace survives only 2.7-3.9s at L3+, and
+  ## both the star row and G1's glow above are gated on `player.alive` /
+  ## `player.level` -- both of which the death path (`killPlayer`,
+  ## `resetLadder`) flips in the SAME tick the cog dies. So the celebration
+  ## used to vanish before most viewers could even register what the bounty
+  ## was for. This holds a fading echo of the mark+glow at the FIXED death
+  ## site for AceDeathFxTicks (see sim.nim), the same fade-window idiom
+  ## `addDamagePops`/`addHitFlashes` already use.
+  AceDeathMarkSpriteBase = 58200  ## team×levelSlot×fadeStage: level runs
+                                  ## AceLevel..MaxLevel (3 slots) -> 2×3×4 =
+                                  ## 24 ids, 58200..58223.
+  AceDeathGlowSpriteBase = 58300  ## team×fadeStage: 58300..58307.
+  AceDeathMarkObjectBase = 58400  ## 58400..58407 (AceDeathFxMaxCount).
+  AceDeathGlowObjectBase = 58500  ## 58500..58507.
+  AceDeathFxMaxCount = 8       ## most lingering ace-death marks drawn at
+                               ## once -- concurrent ace deaths inside one
+                               ## fade window are rare, but bounded like every
+                               ## other FX pool in this file.
+  AceDeathFxStages = 4         ## fade stages across AceDeathFxTicks, matching
+                               ## SplatterStages' granularity.
   ShoutSpriteBase = 22000      ## speech-bubble sprites: one per live shout
                                ## (content-keyed, so unique per shout, clear
                                ## of the fog runs at 21000 and map markers at
@@ -317,6 +378,19 @@ const
   GloryPopObjectBase = 31400   ## one drawn glory pop per object: 31400..31415.
   GloryPopStages = 5           ## alpha fade stages across a pop's life.
   GloryPopMaxCount = 16        ## most score pops drawn at once.
+  GloryPopDoubleFlashWindowTicks = 1  ## DISPLAY CODA G3: a plain deed pop
+                               ## and a same-earner achievement CLAIM that
+                               ## land within this many ticks of each other
+                               ## are treated as the SAME moment (see
+                               ## `addGloryPops`' de-dup pass below). Not 0:
+                               ## `claimAchievement`'s own mint site
+                               ## (sim.nim's `evalAchievementsAllTeams`) runs
+                               ## at the TOP of the tick that follows the
+                               ## kill's combat resolution, so a kill's
+                               ## `awardDeed` pop and the achievement tier it
+                               ## just satisfied (e.g. dAceTag's "BOUNTY" and
+                               ## treeGun's own "Bounty" tier) land ONE tick
+                               ## apart, never literally the same tick.
   GloryPopSpawnScalePct = 115  ## VOCABULARY V5 (Maxwell: "tone down the size
                                ## of the numbers and the achievement pop
                                ## ups"): was 132 -- SPLAT C8's squash-pop
@@ -4627,6 +4701,232 @@ proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
       else:
         result.putRawRgbaPixel(y * size + x, base.r, base.g, base.b, 255)
 
+proc aceGlowStageForTick(tick: int): int =
+  ## DISPLAY CODA G1: maps the current tick onto one of AceGlowStages
+  ## discrete pulse frames. Purely a function of `tick` -- no per-connection
+  ## animation state, no randomness -- so every viewer watching the same
+  ## tick, and the same tick reached by two different replay seeks, always
+  ## land on the identical frame. `mod` twice guards a theoretical negative
+  ## tick (never happens in practice, but a raw `mod` on a negative Nim int
+  ## returns a negative result, which would index the stage array out of
+  ## range).
+  let phase = ((tick mod AceGlowPeriodTicks) + AceGlowPeriodTicks) mod
+    AceGlowPeriodTicks
+  phase * AceGlowStages div AceGlowPeriodTicks
+
+proc buildAceGlowSprite(team: Team, stage: int): seq[uint8] {.measure.} =
+  ## DISPLAY CODA G1 (Maxwell: "a glowing unit signalling it is level 3, a
+  ## rare occurrence"): the ace's readable-from-across-the-board tell. Two
+  ## layers in one raster:
+  ##   - a CONSTANT soft team-paint radiance (AceGlowBaseRadius) so an ace
+  ##     never goes fully dark between breaths;
+  ##   - a brighter ring that expands from AceGlowRingMinRadius to
+  ##     AceGlowRingMaxRadius and fades as it grows, looping every
+  ##     AceGlowPeriodTicks -- literally "a pulsing ring under/around the
+  ##     sprite."
+  ## Soft-edged like `buildFlagAuraSprite`, no hard outline: a glow is not a
+  ## solid object, and the style law's thick dark contour is for THINGS, not
+  ## light. `stage` comes from `aceGlowStageForTick` -- deterministic, so the
+  ## same (team, stage) always bakes the same pixels and can be cached like
+  ## every other lazily-defined board sprite.
+  let
+    outSize = AceGlowSize * boardScale
+    cx = float(outSize - boardScale) / 2
+    cy = cx
+    unit = clamp(stage.float / float(AceGlowStages), 0.0, 1.0)
+    ringRadius = (AceGlowRingMinRadius +
+      unit * (AceGlowRingMaxRadius - AceGlowRingMinRadius)) * float(boardScale)
+    ringEase = sin(unit * PI)  ## 0 at both ends of the breath, peak mid-expansion.
+    baseR = AceGlowBaseRadius * float(boardScale)
+    ringBand = AceGlowRingBandPx * float(boardScale)
+    base = Palette[teamColor(team) and 0x0f]
+    tr = uint8((base.r.int + 255) div 2)
+    tg = uint8((base.g.int + 255) div 2)
+    tb = uint8((base.b.int + 255) div 2)
+  result = newRgbaPixels(outSize, outSize)
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
+      let
+        dx = float(x) - cx
+        dy = float(y) - cy
+        d = sqrt(dx * dx + dy * dy)
+      var alpha = 0.0
+      if d <= baseR:
+        alpha = 60.0 * (1.0 - d / baseR)
+      let ringDist = abs(d - ringRadius)
+      if ringDist < ringBand:
+        alpha = max(alpha, ringEase * 165.0 * (1.0 - ringDist / ringBand))
+      if alpha <= 0.0:
+        continue
+      result.putRawRgbaPixel(y * outSize + x, tr, tg, tb, uint8(min(210.0, alpha)))
+
+proc addAceGlow(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## DISPLAY CODA G1: every L3+ (AceLevel+) unit gets a soft, deterministically
+  ## pulsing team-color radiance under the sprite -- see `buildAceGlowSprite`.
+  ## Drawn BEHIND the cog: z sits a few px UNDER the player's own y-sorted z
+  ## (the same convention `buildFlagAuraSprite`'s carrier halo uses, z =
+  ## flag.y - 1), so it can never obscure the unit, the carried heart (z =
+  ## carrier.y - 1), or the shield bubble (a fixed z of 30000, an order of
+  ## magnitude above anything in this y-sorted tier) -- it only glows through
+  ## around them. Same board-layer family, same fog/viewer gating, as
+  ## `addVeteranMarks`/`addShields` beside it.
+  if sim.phase != Playing:
+    return
+  let stage = aceGlowStageForTick(sim.tickCount)
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or player.level < AceLevel:
+      continue
+    if viewerIndex >= 0 and viewerIndex != i and
+        not sim.fovVisibleAt(viewerIndex, player.x + CollisionW div 2,
+                             player.y + CollisionH div 2):
+      continue
+    let spriteId = AceGlowSpriteBase + ord(player.team) * AceGlowStages + stage
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, spriteId, AceGlowSize, AceGlowSize,
+        buildAceGlowSprite(player.team, stage),
+        "ace glow " & teamText(player.team) & " " & $stage,
+        native = boardScale
+      )
+    let objectId = AceGlowObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      player.x + CollisionW div 2 - AceGlowSize div 2,
+      player.y + CollisionH div 2 + AceGlowVerticalBiasPx - AceGlowSize div 2,
+      player.y - 3,
+      MapLayerId,
+      spriteId
+    )
+
+proc fadedRgbaPixels(pixels: seq[uint8], factor: float): seq[uint8] =
+  ## DISPLAY CODA G2: scales every pixel's alpha by `factor` (0..1), RGB
+  ## untouched. The shared fade-out idiom for the death-linger sprites below,
+  ## which reuse a LIVE sprite's own raster (the star row's
+  ## `buildSpriteProtocolTextSprite` call) instead of re-deriving the shape,
+  ## so the linger is pixel-identical to what was on screen the instant
+  ## before death, just dimming out.
+  result = pixels
+  for i in 0 ..< (result.len div 4):
+    result[i * 4 + 3] = uint8(float(result[i * 4 + 3]) * factor)
+
+proc buildAceDeathGlowSprite(team: Team, stage: int): seq[uint8] {.measure.} =
+  ## DISPLAY CODA G2: the ace glow's fade-out echo at a death site -- the SAME
+  ## always-on base radiance `buildAceGlowSprite` keeps lit under a live ace
+  ## (no ring: nothing is pulsing once the unit is gone), easing to nothing
+  ## across AceDeathFxStages so the glow dissolves together with the star row
+  ## instead of both cutting out the instant `alive` flips false.
+  let
+    outSize = AceGlowSize * boardScale
+    cx = float(outSize - boardScale) / 2
+    cy = cx
+    baseR = AceGlowBaseRadius * float(boardScale)
+    fade = 1.0 - stage.float / float(AceDeathFxStages)
+    base = Palette[teamColor(team) and 0x0f]
+    tr = uint8((base.r.int + 255) div 2)
+    tg = uint8((base.g.int + 255) div 2)
+    tb = uint8((base.b.int + 255) div 2)
+  result = newRgbaPixels(outSize, outSize)
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
+      let
+        dx = float(x) - cx
+        dy = float(y) - cy
+        d = sqrt(dx * dx + dy * dy)
+      if d > baseR:
+        continue
+      let alpha = 60.0 * (1.0 - d / baseR) * fade
+      if alpha <= 0.0:
+        continue
+      result.putRawRgbaPixel(y * outSize + x, tr, tg, tb, uint8(alpha))
+
+proc buildAceDeathMarkSprite(
+  sim: SimServer, team: Team, level, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
+  ## DISPLAY CODA G2: the SAME star-row raster `addVeteranMarks` draws for a
+  ## live ace (identical call: same stars, same team color, same `smooth`
+  ## flag), fading its alpha across AceDeathFxStages instead of vanishing the
+  ## instant `alive` flips false.
+  let
+    stars = repeat("*", min(level, MaxLevel))
+    mark = sim.buildSpriteProtocolTextSprite(
+      [stars], teamColor(team), smooth = true)
+    fade = 1.0 - stage.float / float(AceDeathFxStages)
+  result.width = mark.width
+  result.height = mark.height
+  result.pixels = fadedRgbaPixels(mark.pixels, fade)
+
+proc addAceDeathFx(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## DISPLAY CODA G2: places the fading post-death echo of an ace's star row
+  ## + glow at its FIXED death site (there is no unit left to track, unlike
+  ## `addGloryPops`' earner-tracked pops) -- see `AceDeathFx`'s own doc
+  ## (sim.nim) for why this lives outside gameHash and how it gets cleared.
+  ## Same fixed-pool-with-age-fade idiom as `addSplatters` beside it: the map
+  ## view passes no viewer and shows every lingering mark; a player view
+  ## passes its viewer index and only receives the ones inside its vision.
+  var nextFx = 0
+  for fx in sim.aceDeathFx:
+    if nextFx >= AceDeathFxMaxCount:
+      break
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, fx.x, fx.y):
+      continue
+    let
+      age = sim.tickCount - fx.tick
+      stage = clamp(age * AceDeathFxStages div AceDeathFxTicks,
+        0, AceDeathFxStages - 1)
+      levelSlot = clamp(fx.level - AceLevel, 0, MaxLevel - AceLevel)
+      levelSlots = MaxLevel - AceLevel + 1
+      glowSpriteId = AceDeathGlowSpriteBase +
+        ord(fx.team) * AceDeathFxStages + stage
+    packet.addBoardSpriteChanged(
+      spriteDefs, glowSpriteId, AceGlowSize, AceGlowSize,
+      buildAceDeathGlowSprite(fx.team, stage),
+      "ace glow fade " & teamText(fx.team) & " " & $stage,
+      native = boardScale
+    )
+    let glowObjectId = AceDeathGlowObjectBase + nextFx
+    currentIds.add(glowObjectId)
+    packet.addBoardObject(
+      glowObjectId,
+      fx.x + CollisionW div 2 - AceGlowSize div 2,
+      fx.y + CollisionH div 2 + AceGlowVerticalBiasPx - AceGlowSize div 2,
+      fx.y - 3,
+      MapLayerId,
+      glowSpriteId
+    )
+    let
+      mark = sim.buildAceDeathMarkSprite(fx.team, fx.level, stage)
+      markSpriteId = AceDeathMarkSpriteBase +
+        (ord(fx.team) * levelSlots + levelSlot) * AceDeathFxStages + stage
+    packet.addBoardSpriteChanged(
+      spriteDefs, markSpriteId, mark.width, mark.height, mark.pixels,
+      "ace mark fade " & teamText(fx.team) & " " & $fx.level & " " & $stage,
+      native = boardScale
+    )
+    let markObjectId = AceDeathMarkObjectBase + nextFx
+    currentIds.add(markObjectId)
+    packet.addBoardObject(
+      markObjectId,
+      fx.x + CollisionW div 2 - mark.width div 2,
+      fx.y + CollisionH div 2 - SoldierBodyPx div 2 - OverheadYOffset -
+        mark.height - VeteranMarkClearancePx,
+      30007, MapLayerId, markSpriteId
+    )
+    inc nextFx
+
 proc addVeteranMarks(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -6120,12 +6420,36 @@ proc addGloryPops(
   ## makes a same-site burst read as a QUEUE: the front pop fades alone,
   ## then the next one visibly POPS IN a beat later (with its own fresh
   ## stage-0 spawn overshoot), instead of every row appearing at once.
+  ## DISPLAY CODA G3 BOUNTY DOUBLE-FLASH DE-DUP: one kill can mint BOTH a
+  ## plain deed pop (e.g. dAceTag's "BOUNTY +N" for downing a level>=AceLevel
+  ## enemy) AND, up to twice per match, the achievement claim that same kill
+  ## just satisfies (treeGun tier III is literally named "Bounty" -- killing
+  ## an ace IS the act). Both ride the SAME earner and land within
+  ## GloryPopDoubleFlashWindowTicks of each other, so two near-identical
+  ## texts used to hover over one cog for one moment. The claim is the
+  ## bigger, named moment (AchievementFxTicks life vs GloryFxTicks, and it
+  ## already carries its own amount), so a plain pop with a coincident claim
+  ## is folded into it here -- display only: the deed already minted into
+  ## `teamGlory` (sim.nim's `awardDeed`) and the mint-side queue/stagger
+  ## bookkeeping (sim.nim's `addGloryPop`) is untouched; this pop simply
+  ## never spends a draw slot.
+  proc hasCoincidentClaim(deed: GloryFx): bool =
+    if deed.earnerIndex < 0:
+      return false
+    for other in sim.gloryPops:
+      if other.label.len > 0 and other.earnerIndex == deed.earnerIndex and
+          other.team == deed.team and
+          abs(other.tick - deed.tick) <= GloryPopDoubleFlashWindowTicks:
+        return true
+    false
   var candidates: seq[int] = @[]
   for i, pop in sim.gloryPops:
     if sim.tickCount < pop.tick + pop.startDelay:
       continue     # still queued (P3 stagger) -- not landed yet
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, pop.x, pop.y):
       continue     # a fogged pop consumes NO pool slot (fog honesty)
+    if pop.label.len == 0 and hasCoincidentClaim(pop):
+      continue     # folded into the claim landing the same moment (G3)
     candidates.add i
   # Rank: labelled first, then by |amount| descending, then by index so ties are
   # stable across frames (a pop must not flicker in and out of the pool).
@@ -6401,6 +6725,10 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addSupplyDropPickups(
+      nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
+    sim.addAceGlow(
+      nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
+    sim.addAceDeathFx(
       nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
     sim.addVeteranMarks(
       nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
@@ -7165,6 +7493,8 @@ proc buildSpriteProtocolUpdates*(
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addSupplyDropPickups(nextState.spriteDefs, currentIds, result)
+  sim.addAceGlow(nextState.spriteDefs, currentIds, result)
+  sim.addAceDeathFx(nextState.spriteDefs, currentIds, result)
   sim.addVeteranMarks(nextState.spriteDefs, currentIds, result)
   # The pin was consumed and the subject resolved before the POV fork above;
   # the board branch only has to draw it. (Hover drove the card first and

@@ -11,6 +11,7 @@
 Room Blue Base
 Room Center
 Room Red Base
+ace glow <color> <n>
 blast stage <n>
 cog arm <color>
 cog gun <color>

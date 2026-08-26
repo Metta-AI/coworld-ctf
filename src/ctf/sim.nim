@@ -112,6 +112,16 @@ const
                               ## after a hit (cosmetic only, never in gameHash).
   KillFxTicks* = 44           ## ~1.8s a floating "KO" kill marker rises and fades
                               ## after a death (cosmetic only, never in gameHash).
+  AceDeathFxTicks* = 44       ## DISPLAY CODA G2: ~1.8s an ace's (AceLevel+)
+                              ## star row + glow linger and fade at the death
+                              ## site once the cog itself is gone -- same
+                              ## life as KillFxTicks' "KO" marker, so the two
+                              ## fade together instead of the mark cutting
+                              ## out first. The measured problem: a median
+                              ## ace survives only 2.7-3.9s at L3+, so without
+                              ## this the celebration (and the bounty it
+                              ## explains) vanishes the instant `alive` flips
+                              ## false, faster than a viewer can register it.
   GloryFxTicks* = 40          ## ~1.7s a floating "+Ng" score pop rises and fades
                               ## at the site of the deed that minted it. Longer
                               ## than the "-1" it stacks above, because it is the
@@ -687,6 +697,22 @@ type
     color*: uint8
     hit*: bool
 
+  AceDeathFx* = object
+    ## DISPLAY CODA G2: a cosmetic post-death linger for an ace's (AceLevel+)
+    ## star row + glow; never enters gameHash (replay-safe), exactly like
+    ## `SplatterFx` beside it. `killPlayer` captures the victim's level and
+    ## team HERE, at the death instant -- `resetLadder` zeroes `player.level`
+    ## moments later (the anti-snowball rule) and `player.alive` flips false,
+    ## which are the same two facts the LIVE mark (`addVeteranMarks`) and glow
+    ## (`addAceGlow`) gate on, so without this capture the mark and glow both
+    ## cut out mid-frame with nothing left to read them off. Anchored at the
+    ## FIXED death position -- there is no unit left to track, unlike a
+    ## GloryFx's earner-tracked pop.
+    x*, y*: int
+    tick*: int
+    team*: Team
+    level*: int                ## the star count at death (AceLevel..MaxLevel).
+
   BlastFx* = object
     ## A cosmetic grenade blast flash; never enters gameHash (replay-safe).
     ## Landing is audible: views also derive their landing sound rings here.
@@ -953,6 +979,8 @@ type
     hitFlashes*: seq[HitFlashFx]  ## cosmetic struck-target flashes; excluded from gameHash.
     bubbleImpacts*: seq[BubbleImpactFx]  ## cosmetic shield-bubble impact blinks; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
+    aceDeathFx*: seq[AceDeathFx]  ## DISPLAY CODA G2: cosmetic ace-death
+                                   ## mark+glow linger; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
     gloryPops*: seq[GloryFx]  ## cosmetic floating "+Ng" score pops and achievement
@@ -5358,6 +5386,7 @@ proc startGame*(sim: var SimServer) =
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
+  sim.aceDeathFx = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   # GLORY: every ledger, multiplier and one-shot resets at the game boundary.
@@ -5818,6 +5847,18 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
     color: sim.players[targetIndex].color,
     kill: true
   )
+  # DISPLAY CODA G2: if the victim was an ace (AceLevel+), leave its star
+  # row + glow lingering at the death spot too -- captured HERE, before
+  # `resetLadder` below zeroes `level` and before `alive` flips false a few
+  # lines down, the same two facts the LIVE mark/glow gate on.
+  if sim.players[targetIndex].level >= AceLevel:
+    sim.aceDeathFx.add AceDeathFx(
+      x: sim.players[targetIndex].x,
+      y: sim.players[targetIndex].y,
+      tick: sim.tickCount,
+      team: sim.players[targetIndex].team,
+      level: sim.players[targetIndex].level
+    )
   sim.players[targetIndex].alive = false
   # THE ANTI-SNOWBALL RULE: a cog's whole per-life ladder dies with it. This is
   # the price of granting real power at all, and it is what keeps a levelled
@@ -7444,6 +7485,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
+  sim.aceDeathFx = @[]
   # GLORY: the team/game-level ledger must not survive a lobby reset either --
   # see `resetGloryLedger`'s own comment for the bug this closes.
   sim.resetGloryLedger()
@@ -7640,6 +7682,17 @@ proc step*(
     if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops
+  # DISPLAY CODA G2: same fixed-life prune as the splatters/pops above --
+  # `aceDeathFx` is FX state, not something a keyframe restore or a replay
+  # re-simulation reconstructs any other way, so this pass is also what
+  # clears a stale entry on a seek/loop (see `startGame`/`resetToLobby`,
+  # which clear it outright at the game boundary; this clears it by AGE
+  # during normal play).
+  var keptAceDeathFx: seq[AceDeathFx] = @[]
+  for fx in sim.aceDeathFx:
+    if sim.tickCount - fx.tick < AceDeathFxTicks:
+      keptAceDeathFx.add fx
+  sim.aceDeathFx = keptAceDeathFx
   # POP MOTION WAVE: the same per-tick pass that already prunes expired glory
   # pops also does the P1 tracking and P3 stagger housekeeping neither the
   # mint site nor the draw side can do alone -- both need LIVE per-tick sim
