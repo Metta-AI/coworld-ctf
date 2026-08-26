@@ -102,6 +102,27 @@ it reads glory.nim's own resolved deed, not a reconstruction of one):
     live now (the v2 mirror's own comments flagged both as gaps: "needs live
     alive-counts: tracked by caller" and "needs peel->steal ordering: tracked
     by caller" — this pass is that caller).
+  - steal→capture delta (`Fast Break`, v8, replaces "Full Run"): the engine
+    PINS `capturedFastBreak` once, inside `recordCapture`, off
+    `sim.tickCount - stealTickThisLife` read from its own internal clock —
+    this mirror has no wire bit to read for that (no tier-2 kind carries it),
+    so it recomputes the IDENTICAL formula at the `capture` row itself, off
+    `cog.steal_tick_life` (already tracked here for the retired "Full Run"
+    check) and that row's own `tick`. Because `check_achievements` fires
+    immediately after every event including the capture's own, this lands on
+    the same tick pair the engine used — UNLIKE `Uphill`'s divergence (a true
+    poll-time re-derivation: `team_alive`/`enemy_alive` are recomputed FRESH
+    on every LATER poll too, which is what lets it backdate), this pin cannot
+    drift forward in time the same way, since both of its inputs are fixed
+    event-tick facts, not live-recomputed roster state. The residual risk is
+    generic, not specific to this gate: it trusts the wire `tick` field to
+    equal the engine's internal `sim.tickCount` at both the `flag_steal` and
+    `capture` instants — the same assumption the n=103 field-fit that
+    produced `FastBreakTicks` itself already leaned on. NOT cross-validated
+    against a live `capturedFastBreak` sample (the engine does not expose
+    that bit to this offline pipeline at all), so flagged honestly rather
+    than presumed exact, the same discipline `Uphill`'s own known-divergence
+    note holds itself to.
   - the site gradient: pedestals are the FIXED map constants `FIXED_PEDESTAL`
     (v7, GLORY /proof E1) -- known from tick 0 in every episode, not recovered
     per-episode from `flag_steal` coordinates any more (that recovery had a
@@ -136,7 +157,7 @@ import statistics
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 7
+GLORY_VERSION = 8
 # Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
 # ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
 # run from the repo root and silently skip the guard from anywhere else.
@@ -250,6 +271,10 @@ POINT_BLANK_PX, LONGSHOT_PX, DENIAL_PX = 110, 700, 600
 # 776px). 600px lands the claim rate at 17.5%.
 CONTESTED_STEAL_PX = 300   ## v3.1 `Hands On` gate (glory.nim: UNCALIBRATED).
 REVENGE_TICKS = 240        ## `Turnaround`'s peel->steal window.
+FAST_BREAK_TICKS = 240     ## `Fast Break` gate (v8): field-fit from 103 real
+                           ## steal->capture deltas (p10=210, p25=244,
+                           ## p50=358) -- see glory.nim's `FastBreakTicks`
+                           ## comment for the full percentile table.
 
 # FIXED_PEDESTAL (v7, GLORY /proof wave E1): the two home pedestals on this
 # arena, hardcoded rather than recovered per-episode from `flag_steal`
@@ -346,7 +371,7 @@ class Cog:
                  "soak clutch_heals clutch_heal_t clutch_carry_heals "
                  "second_wind "
                  "steals contested_steals carry_kills carrier_kills denials "
-                 "peel_t steal_tick_life caps team_kills "
+                 "peel_t steal_tick_life caps team_kills fast_break "
                  "supply_drops supply_credit supply_t").split()
 
     def __init__(self):
@@ -363,10 +388,11 @@ class Cog:
     def reset_life(self):
         # THE anti-snowball rule, mirrored: death forfeits xp, level, the
         # supply drop allowance, and (v4) this life's steal marker -- resetLadder
-        # clears `stealTickThisLife` on every death, so `Full Run` (steal AND
-        # capture in the SAME life) needs the same reset here. Every other
-        # ACHIEVEMENT COUNTER is per-GAME and survives death untouched, both
-        # in sim.nim's `startGame` reset list and here.
+        # clears `stealTickThisLife` on every death, so a capture needs the
+        # SAME life's steal to still be on record (v8: `Fast Break`'s delta
+        # depends on this the same way "Full Run" did before it). Every other
+        # ACHIEVEMENT COUNTER, `fast_break` included, is per-GAME and survives
+        # death untouched, both in sim.nim's `startGame` reset list and here.
         self.xp = 0
         self.peak = 0
         self.supply_drops = 0
@@ -480,8 +506,10 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     if cog.carry_kills >= 1:          s.add(("carrier", 2))  # Fighting Carry
     if cog.caps >= 1 and team_alive < enemy_alive:
         s.add(("carrier", 3))                                # Uphill
-    if cog.caps >= 1 and cog.steal_tick_life >= 0:
-        s.add(("carrier", 4))                                # Full Run
+    # "Fast Break" (v8, replaces "Full Run"): reads the fact pinned at the
+    # `capture` event handler above -- see the module docstring's
+    # "steal->capture delta" bullet for the known-divergence note.
+    if cog.fast_break:                s.add(("carrier", 4))  # Fast Break
 
     # defender -- "Eyes Back" (a heart return) is GONE: bystander credit,
     # never an individual act.
@@ -796,6 +824,13 @@ def score_episode_derived(events, n_slots):
             if 0 <= s < n_slots:
                 cogs[s].caps += 1
                 cogs[s].carrying = 0
+                # "Fast Break" (v8): pin the steal->capture delta AT THIS
+                # EVENT, mirroring `recordCapture`'s own pin -- see the
+                # module docstring's "steal->capture delta" bullet for why
+                # this is the identical formula, not a poll-time guess.
+                if (cogs[s].steal_tick_life >= 0 and
+                        tick - cogs[s].steal_tick_life <= FAST_BREAK_TICKS):
+                    cogs[s].fast_break = True
                 mint(team(s), "capture", e["x"], e["y"])
                 add_xp(s, XP_CAPTURE, tick)
         elif k == "kill":

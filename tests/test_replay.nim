@@ -13,6 +13,9 @@ const
   # recording), so no re-pin was needed here or in test_broadcast_state.nim.
   # Re-recorded AGAIN for GLORY v7 (2026-08-25, FIX WAVE E) -- 6,109 ticks,
   # still a RED capture, no re-pin needed.
+  # Re-recorded AGAIN for GLORY v8 (2026-08-25, FAST BREAK wave -- the
+  # hashed capturedFastBreak field moves gameHash) -- 1,534 ticks, still a
+  # RED capture, no re-pin needed.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture: GameVersion
   # 24, seed 600, lives 9, kills by all three weapons — see
   # test_extract_events.)

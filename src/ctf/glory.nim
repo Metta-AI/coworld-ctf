@@ -115,9 +115,30 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 7
+  GloryVersion* = 8
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v8 (2026-08-25, FAST BREAK wave): treeCarrier tier V "Full Run" retired
+    ## and replaced with "Fast Break" -- see GLORY C3c's own ⚠️⚠️ disclosure
+    ## (now deleted from the tree comment below, its job done) for the proof
+    ## that "Full Run" was REDUNDANT with "Delivered" (II) in this engine, not
+    ## merely correlated: every capture this engine can ever produce already
+    ## satisfies the old requirement, so the tier never tested anything
+    ## Delivered did not already cover (n=45 field claims, identical claim-tick
+    ## distributions). "Fast Break" tests a real, DIFFERENT act instead: steal
+    ## the heart and capture it within `FastBreakTicks` = 240 (10s) of the
+    ## steal, in the SAME life. Field-fit on 103 real steal->capture deltas
+    ## (2026-08-25): p10=210, p25=244, p50=358 -- 240t sits just inside the
+    ## first quartile, qualifying 22.3% of real captures, a genuine tier-V
+    ## speed-run band (rare enough to chase, not a floor every capture clears).
+    ## Engine side: `capturedFastBreak` is PINNED once in `recordCapture`, the
+    ## same event-pin pattern `capturedOutnumbered`/`secondWind` already use,
+    ## instead of re-deriving `captures >= 1 and stealTickThisLife >= 0` (the
+    ## old check, trivially true for EVERY capture and thus the actual source
+    ## of the redundancy) on every poll. Causal (gates a claim), so it rides
+    ## the hash. This changes WHICH acts can claim tier V, so a v7 ledger's
+    ## carrier-tree claims are not comparable to a v8 one.
     ##
     ## v7 (2026-08-25, /proof FIX WAVE E, measurement-first): E1/E2 were
     ## MEASUREMENT-ONLY (see their own comments on `DenialPx`/`SiteMultHomePct`)
@@ -884,6 +905,20 @@ const
                               ## measured contest rate. Re-derive once a
                               ## field query for "enemy proximity at steal
                               ## time" exists.
+  FastBreakTicks* = 240       ## the `Fast Break` gate (v8, GLORY C3c
+                              ## replacement): steal the heart and capture it
+                              ## within this many ticks of the steal, same
+                              ## life. FIELD-FIT (2026-08-25, n=103 real
+                              ## steal->capture deltas): p10=210, p25=244,
+                              ## p50=358 -- 240t sits just inside the first
+                              ## quartile and qualifies 22.3% of real
+                              ## captures, a genuine tier-V speed-run band
+                              ## (rare enough to chase, not a floor every
+                              ## capture already clears the way the old "Full
+                              ## Run" requirement did). Coincidentally the
+                              ## same magnitude as `RevengeTicks` (~10s), but
+                              ## fit independently off its own distribution,
+                              ## not copied from it.
 
   # ───────────────────────────────────────────────────────────────────────
   # §5  THE ACHIEVEMENT CURRICULUM
@@ -1179,37 +1214,25 @@ const
                             ##      (v6, GLORY C4: was II -- the rarer act,
                             ##      moved up; see "Delivered" above.)
      "Uphill",              ## IV   score while your team is outnumbered
-     "Full Run"],           ## V    steal and score on the same life
-                            ##
-                            ## ⚠️⚠️ GLORY C3c (2026-08-25): "Full Run" is
-                            ## PROVABLY redundant with "Delivered" (II) in
-                            ## THIS engine, not merely correlated with it.
-                            ## There is no flag hand-off mechanic -- a carry
-                            ## is set exactly once, at the steal
-                            ## (`tryPickupFlags`), and only ever cleared by
-                            ## that same carrier's death or their own
-                            ## capture (`resetFlag`/`recordCapture`); a
-                            ## carrier's death resets `stealTickThisLife` to
-                            ## -1 for the NEXT life along with everything
-                            ## else `resetLadder` clears. So any life that
-                            ## satisfies `captures >= 1` MUST have stolen the
-                            ## heart itself, in that SAME uninterrupted life
-                            ## -- `stealTickThisLife >= 0` is not an
-                            ## additional condition, it is an ALREADY-TRUE
-                            ## fact about every capture this engine can ever
-                            ## produce. Field-confirmed (pre-C4 tier
-                            ## positions, "Delivered" at III): identical
-                            ## claim-tick distributions for ("carrier", 2)
-                            ## and ("carrier", 4) across every sampled team-
-                            ## episode that claimed either (n=45,
-                            ## tools/ladder/gloryscore.py derivation) -- read
-                            ## as ("carrier", 1) and ("carrier", 4) post-C4.
-                            ## NOT fixed in this wave -- the check is left
-                            ## AS-IS per Maxwell's own instruction not to
-                            ## redesign it unreviewed; see the /proof report
-                            ## for 2-3 proposed replacement requirements that
-                            ## would make tier V test something Delivered
-                            ## does not already cover.
+     "Fast Break"],         ## V    steal the heart and slam it home within
+                            ##      `FastBreakTicks` (240t, ~10s) of the
+                            ##      steal -- a genuine speed-run act, not
+                            ##      possession-plus-duration. (v8, GLORY
+                            ##      FAST BREAK wave: replaces "Full Run",
+                            ##      which read `captures >= 1 and
+                            ##      stealTickThisLife >= 0` -- PROVEN
+                            ##      redundant with "Delivered" (II) in this
+                            ##      engine, not merely correlated: every
+                            ##      capture this engine can ever produce
+                            ##      already satisfies that old check, since
+                            ##      there is no flag hand-off mechanic (a
+                            ##      carry is set once, at the steal, cleared
+                            ##      only by that same carrier's death or
+                            ##      capture) -- n=45 field claims, identical
+                            ##      claim-tick distributions for ("carrier",
+                            ##      1) and ("carrier", 4). See `GloryVersion`'s
+                            ##      own v8 changelog entry for the full proof
+                            ##      this replaces.)
     # treeDefender — "The Peel". v3: "Eyes Back" (a heart return) is GONE --
     # `resetFlag` credits `returns` to every LIVING teammate when a heart
     # comes home, not to whoever caused it, so it was bystander credit, not

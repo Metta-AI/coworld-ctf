@@ -566,6 +566,19 @@ type
                                ## made EVEN could backdate into an "Uphill"
                                ## claim the instant a teammate died later --
                                ## a poll-time read standing in for an event.
+    capturedFastBreak*: bool   ## true once a capture has landed within
+                               ## `FastBreakTicks` of THIS life's own steal --
+                               ## the `Fast Break` gate (v8, GLORY FAST BREAK
+                               ## wave). Set ONCE, at `recordCapture`, the
+                               ## same pin-the-fact-at-the-event pattern
+                               ## `capturedOutnumbered`/`secondWind` already
+                               ## use. Replaces the old "Full Run" check
+                               ## (`captures >= 1 and stealTickThisLife >= 0`),
+                               ## which was an ALREADY-TRUE fact about every
+                               ## capture this engine can ever produce (see
+                               ## glory.nim's `GloryVersion` v8 changelog) --
+                               ## this field tests a real, DIFFERENT act: the
+                               ## capture must land FAST, not merely happen.
     tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool
     shotsFired*: int           ## shots this player released; analysis-only,
                                ## excluded from gameHash (see gameHash).
@@ -3577,6 +3590,9 @@ proc gameHash*(sim: SimServer): uint64 =
     # v6 (GLORY C3b): capturedOutnumbered gates the re-cut `Uphill` tier,
     # causal for the same reason every flag above it is.
     result.mixHashBool(player.capturedOutnumbered)
+    # v8 (GLORY FAST BREAK wave): capturedFastBreak gates the new `Fast
+    # Break` tier (replaces "Full Run"), causal for the same reason.
+    result.mixHashBool(player.capturedFastBreak)
   # GLORY: the ledger itself, its rampage state, and the one-shot claim gates
   # -- every one of these decides a FUTURE mint, so a hash match must mean
   # they match too.
@@ -4197,8 +4213,11 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # -- see `capturedOutnumbered`'s field comment for the backdating bug
     # this replaces.
     if player.capturedOutnumbered:    earn(treeCarrier, 3)
-    if player.captures >= 1 and player.stealTickThisLife >= 0:
-                                      earn(treeCarrier, 4)
+    # "Fast Break" (v8, GLORY FAST BREAK wave): reads the fact PINNED at the
+    # capture instant (`recordCapture`), replacing "Full Run"'s
+    # `captures >= 1 and stealTickThisLife >= 0` -- see `capturedFastBreak`'s
+    # field comment for why that old form was an already-true tautology.
+    if player.capturedFastBreak:      earn(treeCarrier, 4)
 
     # DEFENDER -- the peel, the doorstep, the counter. `returns` is EXCLUDED
     # on purpose: `resetFlag` credits it to every LIVING teammate the instant
@@ -4964,6 +4983,13 @@ proc recordCapture*(sim: var SimServer, playerIndex: int) =
   let enemyTeam = if team == Red: Blue else: Red
   if sim.teamAliveCount(team) < sim.teamAliveCount(enemyTeam):
     sim.players[playerIndex].capturedOutnumbered = true
+  # "Fast Break" (v8, GLORY FAST BREAK wave): pin the SAME instant, same
+  # pattern -- the steal->capture delta measured ONCE here, off this life's
+  # own `stealTickThisLife`, never re-derived by a later poll. See
+  # `capturedFastBreak`'s field comment for what this replaces.
+  if sim.players[playerIndex].stealTickThisLife >= 0 and
+     sim.tickCount - sim.players[playerIndex].stealTickThisLife <= FastBreakTicks:
+    sim.players[playerIndex].capturedFastBreak = true
   sim.awardDeed(sim.players[playerIndex].team, dCapture,
                 sim.players[playerIndex].x, sim.players[playerIndex].y)
   sim.addXp(playerIndex, XpPerCapture)
@@ -5203,6 +5229,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].peelTick = -1
     sim.players[i].secondWind = false
     sim.players[i].capturedOutnumbered = false
+    sim.players[i].capturedFastBreak = false
     sim.players[i].tookMedKit = false
     sim.players[i].tookGrenade = false
     sim.players[i].tookSpray = false

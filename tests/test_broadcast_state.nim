@@ -29,10 +29,16 @@ const
   # seed 12 itself now resolves as a mutual-wipe draw under v7's re-fit
   # LevelThresholds and reordered curricula (12, 13, 14, 16 all tried and
   # drew; 9 won by capture, not a wipe) -- seed 15 is the seed that resolved
-  # a clean one-sided RED wipe this time. Pick a seed by outcome, not by
-  # habit: try a few and read the herald log's last line before committing a
-  # recording. Then re-pin the capture winner asserted below to the new
-  # recording.
+  # a clean one-sided wipe THEN. Re-recorded again for GLORY v8 (2026-08-25,
+  # FAST BREAK wave -- the hashed capturedFastBreak field moves gameHash, so
+  # every fixture needs a fresh recording even though this fixture's own
+  # scenario (lives:1, no carrier) never touches the flag): seed 15 held,
+  # still a clean one-sided wipe, but BLUE this time, not RED -- no test
+  # below pins a specific winning team for this fixture, only that it is a
+  # clean (non-draw) wipe, so no assertion needed re-pinning. Pick a seed by
+  # outcome, not by habit: try a few and read the herald log's last line
+  # before committing a recording. Then re-pin the capture winner asserted
+  # below to the new recording.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
@@ -171,7 +177,8 @@ suite "broadcast state channel":
       # ordinary bot-connection-order variance across recordings, not a
       # gameplay regression. Re-pin on every re-record). Re-recorded again
       # for GLORY v7 (2026-08-25, FIX WAVE E) -- still a RED capture, no
-      # re-pin needed.
+      # re-pin needed. Re-recorded AGAIN for GLORY v8 (2026-08-25, FAST BREAK
+      # wave) -- still a RED capture, no re-pin needed.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
       check state["over"]["winner"].getStr == "red"

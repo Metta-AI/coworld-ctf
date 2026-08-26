@@ -23,6 +23,11 @@ const
   # same story -- 18 attempts before one landed the full mix (gun, spray,
   # AND grenade kills, a steal, a return, a heal, and a capture), verified
   # with a one-off checker script over `extractEvents` before committing.
+  # Re-recorded AGAIN for GLORY v8 (2026-08-25, FAST BREAK wave -- the hashed
+  # `capturedFastBreak` field moves gameHash, so every fixture needs a fresh
+  # recording): same seed 600, only 3 attempts this time -- 15 gun, 3 spray,
+  # 1 grenade kill, a steal, a return, a heal, and a capture (RED, by
+  # capture), verified the same way before committing.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":

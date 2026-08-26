@@ -799,8 +799,15 @@ suite "glory in the sim: the achievement curriculum FIRES":
                                                 # dedicated real-mechanic
                                                 # test below -- not re-read
                                                 # from live alive-counts here)
+    sim.players[0].capturedFastBreak = true    # Fast Break (v8, GLORY FAST
+                                                # BREAK wave: set ONCE at
+                                                # recordCapture in the real
+                                                # engine off this life's own
+                                                # stealTickThisLife delta --
+                                                # see the dedicated real-
+                                                # mechanic test below)
     sim.players[0].level = MaxLevel
-    sim.players[0].stealTickThisLife = sim.tickCount - 200
+    sim.players[0].stealTickThisLife = sim.tickCount - 200  # also drives Turnaround below
     sim.players[0].peelTick = sim.tickCount - 300
     sim.evalAchievements(Red)
 
@@ -1054,6 +1061,42 @@ suite "glory in the sim: the v3.1 counters fire off REAL engine mechanics":
     even.checkWinCondition()
     check even.players[0].captures == 1
     check not even.players[0].capturedOutnumbered
+
+  test "a capture within FastBreakTicks of the steal fires Fast Break; a slower one does not":
+    # v8 (GLORY FAST BREAK wave): capturedFastBreak is PINNED at
+    # recordCapture off THIS life's own stealTickThisLife, so this drives the
+    # real checkWinCondition path rather than setting the flag by hand, the
+    # same discipline the Uphill test above holds itself to. The steal itself
+    # is not what's under test here (Uphill's own test bypasses
+    # `tryPickupFlags` the same way) -- what's under test is the pin's delta
+    # arithmetic, so `stealTickThisLife` is set directly to a controlled
+    # tick, mirroring how Uphill controls `teamAliveCount` via roster shape
+    # rather than driving a real fight.
+    var fast = twoTeamGame()
+    fast.tickCount = 1000
+    fast.players[0].stealTickThisLife = fast.tickCount - 200  # delta 200 < FastBreakTicks (240)
+    let fastHome = fast.gameMap.flagHome(Red)
+    fast.flags[Blue].carrier = 0
+    fast.players[0].carryingFlag = true
+    fast.players[0].x = fastHome.x
+    fast.players[0].y = fastHome.y
+    fast.checkWinCondition()
+    check fast.players[0].captures == 1
+    check fast.players[0].capturedFastBreak
+
+    # The identical capture, but the steal happened 300 ticks ago -- past the
+    # window. Must NOT claim.
+    var slow = twoTeamGame()
+    slow.tickCount = 1000
+    slow.players[0].stealTickThisLife = slow.tickCount - 300  # delta 300 > FastBreakTicks (240)
+    let slowHome = slow.gameMap.flagHome(Red)
+    slow.flags[Blue].carrier = 0
+    slow.players[0].carryingFlag = true
+    slow.players[0].x = slowHome.x
+    slow.players[0].y = slowHome.y
+    slow.checkWinCondition()
+    check slow.players[0].captures == 1
+    check not slow.players[0].capturedFastBreak
 
 suite "glory in the sim: Clean Sheet is full-game, conclusion-only":
 
