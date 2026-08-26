@@ -2256,6 +2256,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     ingestFpMap(s);
     ingestLullSpans(s);
     ingestBeats(s);
+    ingestCurriculum(s);
 
     if (s.ph === 'gameover') {
       // Fresh entry only: a mid-dwell banner (a kill/steal callout that was
@@ -2416,6 +2417,17 @@ body[data-embed] #board { top: 0; height: 100%; }
     var chip = $('win-chip');
     chip.textContent = label;
     chip.className = 'win-chip show ' + cls;
+  }
+
+  // The achievement curriculum's tooltip text (v9, GLORY LAW E6) rides the
+  // same "sent once per viewer" first HUD frame as the lull spans/beats/
+  // fpmap above -- fully static (glory.nim's own table never varies per
+  // match), keyed by claim NAME so `renderAchievements` can look a
+  // description up directly off `s.teams.*.claims[].n`.
+  var achievementDescriptions = null;
+  function ingestCurriculum(s) {
+    if (!s.curriculum || achievementDescriptions) return;
+    achievementDescriptions = s.curriculum;
   }
 
   // The server ships the static minimap wall silhouette ONCE (RLE of a coarse
@@ -3944,6 +3956,10 @@ body[data-embed] #board { top: 0; height: 100%; }
     return null;
   }
   function esc(t) { return String(t).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+  // Attribute-safe escape (v9, GLORY LAW E6): `esc` alone leaves `"` bare,
+  // fine for text nodes but not for something dropped inside a double-quoted
+  // `title="…"` attribute -- used for the shipped achievement descriptions.
+  function escAttr(t) { return esc(t).replace(/"/g, '&quot;'); }
 
   // ---------- kill feed queue (fixed reserve, dwell floor) ----------
   var feedEl = $('killfeed');
@@ -4114,7 +4130,16 @@ body[data-embed] #board { top: 0; height: 100%; }
       var shown = Math.min(sorted.length, ACH_ROWS_MAX);
       for (var i = 0; i < shown; i++) {
         var c = sorted[i];
-        html += '<div class="ach-row"><span class="ach-stars">' +
+        // v9 (GLORY LAW E6): the shipped curriculum table (see
+        // ingestCurriculum), keyed by claim NAME -- unique across the whole
+        // 40-entry curriculum, so no tree/tier lookup is needed. Native
+        // `title=` tooltip; absent (no attribute at all) if the table
+        // hasn't arrived yet or the name is somehow unrecognized, rather
+        // than drawing an empty/undefined string.
+        var desc = achievementDescriptions && achievementDescriptions[c.n];
+        html += '<div class="ach-row"' +
+          (desc ? ' title="' + escAttr(desc) + '"' : '') +
+          '><span class="ach-stars">' +
           new Array((c.t || 1) + 1).join('*') + '</span>' +
           '<span class="ach-name">' + esc(c.n) +
           (c.f ? ' <span class="ach-first">FIRST</span>' : '') + '</span>' +

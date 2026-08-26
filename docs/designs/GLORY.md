@@ -102,28 +102,59 @@ effect.
 ## The curriculum
 
 Achievements are an eight-tree, five-tier curriculum — one tree per kit
-(gun, spray, grenade, shield, med kit, flag-carrying, defending) plus two
-team-wide trees (fielding the full kit, a clean sheet). Forty named tiers
-total, each claimable once per team per game, priced by tier rather than
-by deed.
+(gun, spray, grenade, teamwork, supply drop, flag-carrying, defending) plus
+two team-wide trees (fielding the full kit, a clean sheet). Forty named
+tiers total, each claimable once per team per game, priced by tier rather
+than by deed.
 
-Four laws hold the whole curriculum together:
+The laws that hold the whole curriculum together:
 
 1. **One-shot per team per game.** A per-tick reward gets farmed; a claim
    fires once and is done.
-2. **Every team can claim every tier**; the first team in the game to do
-   so claims at a bonus multiplier. A first-only reward would teach the
-   other teams nothing.
+2. **Every team can claim every tier**; the first team in the game to
+   claim TIER V of a tree claims at a bonus multiplier — no other tier
+   ever races, no matter who gets there first (no more than a quarter of
+   the 40 possible claims can ever be a "first"). A first-only reward
+   would teach the other teams nothing; a race on every tier would make
+   most claims feel like a coin flip instead of a real milestone.
 3. **Big enough to chase, too small to win on.** Sweeping the entire
    curriculum must be worth less than winning the game outright.
 4. **Achievements never light heat.** Heat is for the LIVE fight; a claim
    mints through the same ledger but never climbs the multiplier ladder.
+5. **Never a self-benefiting act.** Achievements and glory reward play
+   ABOVE AND BEYOND normal, never a cog benefiting only itself. This is
+   judged by MECHANICS, not by name: a shield protects only its own
+   wearer, so soaking hits is not a team act however "defensive" it
+   sounds; healing yourself is not a team act either. The one genuine
+   team-benefit loop in this game is the supply drop, because any
+   teammate — not just the veteran who earned it — may consume a drop.
 
 A tier never rewards mere possession, arrival, or a pickup by itself — an
 act that already pays for itself mechanically (a pickup heals or arms you)
 is not "above and beyond" normal play. Every tier reads the CONVERTED
 result the pickup was only ever a precondition for: not "you picked up a
 grenade" but "you killed someone with it."
+
+Two trees were caught violating law 5 and re-founded rather than patched:
+
+- **The shield tree** used to price absorbed hit points directly — soaking
+  protects only the wearer, so it was rewarding self-preservation, not
+  teamwork. It is now **the teamwork tree**: landing an assist (your damage
+  set up a teammate's kill), covering the flag carrier, rescuing a
+  teammate who was about to die, riding a rescue into a kill of your own,
+  and a genuine multi-teammate kill volley.
+- **The med kit tree** used to price healing yourself — the same
+  violation on the survival side. It is now **the supply drop tree**:
+  every tier reads whether a TEAMMATE consumed kit your own heart
+  produced, and whether that teammate was in real danger when they did.
+
+## Tooltips
+
+Every tier's requirement ships to the viewer as a plain, truthful sentence
+— no fiction, just the mechanic the gate actually checks — and shows as a
+native tooltip over the achievement panel. The text lives in exactly one
+place, the same "one accessor" rule every other glory number follows, so a
+tooltip can never promise something the gate does not check.
 
 ## Versioning
 

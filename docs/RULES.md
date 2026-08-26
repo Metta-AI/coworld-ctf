@@ -281,15 +281,13 @@ Every consequential act mints **glory** to the acting team, and each cog runs a
 garnish: rank changes what a cog can do.
 
 - **Ranks are per LIFE, and WORK levels a cog -- kills do not.** XP comes
-  from damage landed (any weapon), healing taken (per hit point restored,
-  plus the med-kit pickup itself -- the one kit pickup that still pays,
-  because the engine refuses it unless the cog is already hurt), shield
-  soak, and flag play (steal, capture, and the peel -- priced as the flag
-  RETURN it causes). Picking up a grenade, spray can or shield by BARE
-  TOUCH pays no xp -- taking a kit is normal play, not work, the same
-  ruling that already bans a bare pickup from the achievement curriculum.
-  A kill levels nobody: the damage that produced it already did, in
-  proportion to who dealt it. The ladder is
+  from damage landed (any weapon) and flag play (steal, capture, and the
+  peel -- priced as the flag RETURN it causes). Self-care pays no xp at
+  all: healing yourself, absorbing a hit on your own shield, and touching
+  any pickup by BARE TOUCH (a grenade, spray can, shield, or a med kit)
+  all pay zero, on the ruling that a cog benefiting only itself is not
+  work the ladder should reward. A kill levels nobody: the damage that
+  produced it already did, in proportion to who dealt it. The ladder is
   `recruit → tagger → marksman → ironhide → quickdraw → legend`. **Getting
   tagged out resets the ladder to zero** and the buffs go with it, so a
   dominant cog is bounded to one life. Killing a rank-3+ cog pays an
@@ -315,15 +313,23 @@ garnish: rank changes what a cog can do.
   kit evaporates. Supply-dropped kit carries each type's **normal** label, so
   it reads to a policy exactly like any other pickup.
 - **Achievements**: 8 kit-keyed trees x 5 tiers, one-shot per team per game.
-  Every team can earn every tier; the first team in the episode to complete one
-  claims at triple value. They never build the team's heat multiplier.
-  **No tier ever pays for a pickup, a possession, or an arrival** (Maxwell's
-  ruling: "these are things where the player goes above and beyond normal
-  gameplay, not rewarding them for just normal gameplay") -- every tier reads
-  the CONVERTED result a kit or an approach bought, never the act of reaching
-  it. The one full-game tier, `Clean Sheet` (zero team kills across the whole
-  roster), only ever scores at the game's conclusion, win, loss or draw --
-  never mid-game, and the losing side can bank it too.
+  Every team can earn every tier; only TIER V of a tree ever races -- the
+  first team in the episode to complete that top tier claims at triple
+  value, and tiers I-IV always pay the same base amount to every team that
+  earns them, no race, ever. Achievements never build the team's heat
+  multiplier. **No tier ever pays for a pickup, a possession, an arrival,
+  or a cog benefiting only itself** (Maxwell's ruling: "these are things
+  where the player goes above and beyond normal gameplay, not rewarding
+  them for just normal gameplay") -- every tier reads the CONVERTED result
+  a kit or an approach bought, never the act of reaching it, and never a
+  self-benefiting act like healing yourself or soaking a hit on your own
+  shield (a shield protects only its wearer). The supply drop tree and the
+  teamwork tree exist to reward the genuine team-facing version of those
+  two ideas instead: a teammate consuming kit YOUR heart produced, and
+  covering/rescuing/assisting a teammate in a real fight. The one full-game
+  tier, `Clean Sheet` (zero team kills across the whole roster), only ever
+  scores at the game's conclusion, win, loss or draw -- never mid-game,
+  never races either, and the losing side can bank it too.
 - The team scoreboard shows `<TEAM> <kills>/<deaths> <glory>g` plus the live
   heat multiplier (`x2`/`x4`/`x8`) while a team is on a streak.
 

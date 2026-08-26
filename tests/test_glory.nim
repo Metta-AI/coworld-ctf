@@ -18,9 +18,18 @@ suite "glory: deed pricing":
     # `.pos` for units that carry `.x`/`.y`). The banked rule is that a layer
     # must be PROVEN to carry a value, never assumed. A deed worth neither
     # glory nor drama cannot ever matter, so it must not be in the enum.
+    #
+    # `dClutchHeal` is exempted too, as of v9 (GLORY LAW E1): ZERO+
+    # TOMBSTONED on purpose (self-heal is never above-and-beyond), not an
+    # oversight -- see its own comment on `Deed`. Unlike `dFlagReturn`
+    # (fully deleted, the ORIGINAL member of this exemption class), this one
+    # stays in the enum and its mint site stays wired, deliberately worth
+    # nothing, so this is the one place that has to know it is exempt on
+    # purpose rather than reading as an accidental dead deed.
     for deed in Deed:
-      if deed in {dNone, dAchievement}:
-        continue  # dNone is the null; dAchievement is tier-priced.
+      if deed in {dNone, dAchievement, dClutchHeal}:
+        continue  # dNone is the null; dAchievement is tier-priced; dClutchHeal
+                  # is the intentional zero+tombstone above.
       check (deedGlory(deed) != 0 or deedDrama(deed) != 0)
 
   test "penalties are negative and stay negative":

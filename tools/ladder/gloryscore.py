@@ -157,7 +157,7 @@ import statistics
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 8
+GLORY_VERSION = 9
 # Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
 # ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
 # run from the repo root and silently skip the guard from anywhere else.
@@ -204,14 +204,14 @@ def check_glory_version(path=GLORY_NIM_PATH, pinned=GLORY_VERSION):
 
 
 # DeedGloryTable / DeedDramaTable, verbatim from glory.nim -- UNCHANGED since
-# v4 (the v6 /proof wave re-cut the curriculum, the xp ladder and several
-# constants' provenance, but never these two pricing tables). dFlagReturn is
-# GONE (retired in v4 -- zero mint sites, would double-pay the carrier's
-# death; see the tombstone on `Deed` in glory.nim). dRevengeKill/dRunDown/
-# dEscortKill are new since the v2 mirror; the first two are still undetected
-# offline in the RE-DERIVATION fallback (see the module docstring), but they
-# ARE priced here so the STREAM path (which reads them straight off the
-# wire) and the DEEDS report can show them.
+# v4 EXCEPT `clutch_heal` (v9, GLORY LAW E1: zero+tombstoned -- self-heal is
+# never above-and-beyond; see the tombstone on `Deed.dClutchHeal` in
+# glory.nim). dFlagReturn is GONE (retired in v4 -- zero mint sites, would
+# double-pay the carrier's death; see the tombstone on `Deed` in glory.nim).
+# dRevengeKill/dRunDown/dEscortKill are new since the v2 mirror; the first
+# two are still undetected offline in the RE-DERIVATION fallback (see the
+# module docstring), but they ARE priced here so the STREAM path (which
+# reads them straight off the wire) and the DEEDS report can show them.
 DEED_GLORY = {
     "first_blood": 12, "honorable_kill": 10, "spray_kill": 12,
     "grenade_kill": 12, "point_blank_kill": 12, "longshot_kill": 30,
@@ -219,7 +219,7 @@ DEED_GLORY = {
     "ace_tag": 40, "team_kill": -60,
     "flag_steal": 40, "capture": 250,
     "carrier_kill": 90, "denial": 120, "escort_kill": 14,
-    "clutch_heal": 25, "shield_soak": 4, "wipe": 400, "level_up": 6,
+    "clutch_heal": 0, "shield_soak": 4, "wipe": 400, "level_up": 6,
 }
 DEED_DRAMA = {
     "first_blood": 20, "honorable_kill": 10, "spray_kill": 30,
@@ -228,7 +228,7 @@ DEED_DRAMA = {
     "ace_tag": 30, "team_kill": 0,
     "flag_steal": 25, "capture": 70,
     "carrier_kill": 35, "denial": 45, "escort_kill": 15,
-    "clutch_heal": 30, "shield_soak": 0, "wipe": 400, "level_up": 5,
+    "clutch_heal": 0, "shield_soak": 0, "wipe": 400, "level_up": 5,
 }
 HEAT_LADDER = [1, 2, 4, 8]
 HEAT_THRESHOLDS = [2, 5, 10]
@@ -236,22 +236,24 @@ HEAT_EMBER_CAP = 11
 HEAT_EMBER_DECAY = 2
 HEAT_DECAY_TICKS = 45
 
-LEVEL_THRESHOLDS = [10, 19, 27, 40, 55]
+LEVEL_THRESHOLDS = [9, 15, 24, 33, 48]
 # Maxwell's ruling: WORK levels, kills do not. Damage / healing / tool
 # pickups / flag actions; the carrier kill prices as the RETURN it causes.
-# v7 (GLORY /proof E3): RE-FIT -- every threshold fit before this one
-# (v2 through the 2026-08-25 GLORY C1 "byte-identical" re-check) ran on a
-# mirror that scored ZERO heal xp without knowing it (med-kit detection
-# lived on the dead `item_pickup` branch until GLORY C10 repointed it at the
-# `heal` event sim.nim actually emits). This is the first fit against a
-# mirror that can see `XpPerHeal`/`XpPerClutchHeal`. See glory.nim's own
-# `LevelThresholds` comment for the full percentile table and cadence
-# verification (L3+ 2.01/team-ep, L5 0.33/ep against the ~2 / ~0.3 design
-# targets).
+# v9 (GLORY LAW E1): RE-FIT -- `XP_HEAL`/`XP_CLUTCH`/`XP_SOAK`/`XP_PICKUP`
+# all go to 0 below (self-care buys no levels), which for real shrinks the
+# xp pool this ladder is fit against (not a measurement-bug fix like v7's
+# was). See glory.nim's own `LevelThresholds` comment for the full
+# percentile table (p25:6 p50:9 p75:15 p90:21 p95:27 p98:39 p99:45,
+# n=4804/6870 active lives) and cadence verification.
 XP_KILL, XP_DAMAGE, XP_CARRIER_KILL = 0, 3, 12
 XP_STEAL, XP_CAPTURE, XP_RETURN = 12, 30, 12
-XP_SOAK, XP_CLUTCH, XP_TEAM_KILL = 2, 6, -20
-XP_HEAL, XP_PICKUP = 3, 4
+XP_TEAM_KILL = -20
+XP_SOAK, XP_CLUTCH, XP_HEAL, XP_PICKUP = 0, 0, 0, 0
+# v9 (GLORY LAW E1): all four zeroed -- self-care (a shield that protects
+# only its wearer; healing yourself) buys no levels. Mint sites in the real
+# engine stay wired at 0; this mirror's own `add_xp(t, XP_SOAK * blocked,
+# tick)` / heal-branch calls stay in place too, for the same "still fires,
+# now for nothing" honesty (see glory.nim's `dClutchHeal` comment).
 # XP_PICKUP (v6, GLORY C1): only still fires through the `heal` event path
 # below now -- a bare-touch grenade/spray_can/shield pickup pays zero xp in
 # the real engine (the `item_pickup` branch that used to price them is
@@ -261,8 +263,28 @@ XP_HEAL, XP_PICKUP = 3, 4
 ACE_LEVEL = 3
 SUPPLY_XP, SUPPLY_MAX, SUPPLY_COOLDOWN = 20, 4, 90
 
-TIER_GLORY = [2, 4, 8, 16, 32]
+TIER_GLORY = [9, 11, 14, 18, 23]
 FIRST_MULT = 3
+FIRST_TIER_ONLY = len(TIER_GLORY) - 1  # v9 (GLORY LAW E4): the race (marker
+    # + FIRST_MULT) reaches ONLY this tier index (4, "V") now -- see
+    # glory.nim's law 2 comment for the 25%-of-40 ceiling this is sized
+    # against. Tiers 0-3 always claim at base price, `first=False`, no
+    # exceptions -- enforced at BOTH claim sites below (the per-tick loop
+    # and the Clean-Sheet conclusion-only mint), mirroring sim.nim's
+    # `claimAchievement` enforcing it once, centrally.
+CLUTCH_HP_THRESHOLD = 1     # v9: "at/near clutch hp" -- glory.nim's
+    # `ClutchHpThreshold`, shared by the (mirror-undeliverable) supply-drop
+    # save gate and the (derivable) menacing/rescue gate below.
+ASSIST_WINDOW_TICKS = 120   # v9 (GLORY E3, new, UNCALIBRATED): glory.nim's
+    # `AssistWindowTicks`.
+RESCUE_WINDOW_TICKS = 120   # v9 (GLORY E3, new, UNCALIBRATED): glory.nim's
+    # `RescueWindowTicks`.
+SECOND_WIND_TICKS = 120     # v9 (GLORY E3): RE-GATED, not re-measured -- the
+    # exact magnitude the pre-v9 self-heal Second Wind used inline, now named
+    # (glory.nim's `SecondWindTicks`) and re-pointed at a rescue instead.
+SQUAD_VOLLEY_WINDOW_TICKS = 90   # v9 (GLORY E3, new, UNCALIBRATED): glory.
+    # nim's `SquadVolleyWindowTicks`.
+SQUAD_VOLLEY_MIN_DISTINCT = 3    # glory.nim's `SquadVolleyMinDistinct`.
 POINT_BLANK_PX, LONGSHOT_PX, DENIAL_PX = 110, 700, 600
 # DENIAL_PX (v6, GLORY C5): field-fit from 220 -- "Doorstep" claimed 0.0% of
 # 240 sampled team-episodes at the old value. See glory.nim's `DenialPx`
@@ -372,7 +394,17 @@ class Cog:
                  "second_wind "
                  "steals contested_steals carry_kills carrier_kills denials "
                  "peel_t steal_tick_life caps team_kills fast_break "
-                 "supply_drops supply_credit supply_t").split()
+                 "supply_drops supply_credit supply_t "
+                 # v9 (GLORY LAW E2/E3): THE PROVIDER + the teamwork tree.
+                 # `supply_shared`/`supply_saves` are declared but NEVER
+                 # incremented -- see the module docstring's own honest-
+                 # divergence note on why they cannot be derived offline
+                 # (the wire carries no drop-attribution). The rest ARE
+                 # derivable and are wired below.
+                 "supply_shared supply_saves "
+                 "last_damaged_by last_damaged_by_t "
+                 "menacing_t menacing_victim rescued_t "
+                 "assists rescues escort_kills").split()
 
     def __init__(self):
         for f in self.__slots__:
@@ -384,6 +416,11 @@ class Cog:
         self.clutch_heal_t = -10**9
         self.peel_t = -10**9
         self.steal_tick_life = -1
+        self.last_damaged_by = -1
+        self.last_damaged_by_t = -10**9
+        self.menacing_t = -10**9
+        self.menacing_victim = -1
+        self.rescued_t = -10**9
 
     def reset_life(self):
         # THE anti-snowball rule, mirrored: death forfeits xp, level, the
@@ -393,6 +430,12 @@ class Cog:
         # depends on this the same way "Full Run" did before it). Every other
         # ACHIEVEMENT COUNTER, `fast_break` included, is per-GAME and survives
         # death untouched, both in sim.nim's `startGame` reset list and here.
+        # v9: the E2/E3 counters (`supply_shared`/`assists`/`rescues`/
+        # `escort_kills`) are ALSO per-game, same shape -- not reset here,
+        # same as `fast_break`. The tick-state fields (`last_damaged_by_t`,
+        # `menacing_t`, `rescued_t`) are also left untouched, mirroring
+        # sim.nim's own choice not to reset `clutchHealTick`/`peelTick` on
+        # death (see those fields' own comments on `Player`).
         self.xp = 0
         self.peak = 0
         self.supply_drops = 0
@@ -467,24 +510,32 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     if cog.grenade_multi >= 2:        s.add(("nade", 3))   # Double Blast
     if cog.grenade_kills >= 3:        s.add(("nade", 4))   # The Bombardier
 
-    # shield -- soak, not damage. "Suit Up" (pick up a shield) is GONE.
-    if cog.soak >= 3:                 s.add(("shield", 0))  # Suit of Paint
-    if cog.soak >= 6:                 s.add(("shield", 1))  # Blockade
-    if cog.soak >= 6 and kills >= 1:  s.add(("shield", 2))  # Paint Wall
-    if cog.soak >= 9:                 s.add(("shield", 3))  # The Bunker
-    if cog.soak >= 12:                s.add(("shield", 4))  # The Backstop
+    # shield -- v9 (GLORY LAW E3): RE-FOUNDED as the teamwork tree. The old
+    # soak-threshold ladder is GONE (a shield protects only its wearer, so
+    # soaking was self-benefiting -- see glory.nim's `treeShield` comment).
+    # `assists`/`escort_kills`/`rescues` ARE derivable offline (the damage
+    # and kill events carry everything sim.nim's own gates need) and are
+    # wired at the `damage`/`kill` handlers below. "Squad Volley" (tier 4)
+    # is TEAM-WIDE, handled in `check_achievements`, not here.
+    if cog.assists >= 1:              s.add(("shield", 0))  # Cover Fire
+    if cog.escort_kills >= 1:         s.add(("shield", 1))  # Escort Duty
+    if cog.rescues >= 1:              s.add(("shield", 2))  # The Save
+    if cog.second_wind:               s.add(("shield", 3))  # Second Wind
+                                                              # (re-gated)
 
-    # med kit -- "Field Dressing" (take a med kit) is GONE; the take is
-    # normal play, the SAVE it buys is the achievement.
-    # v7 (GLORY /proof E5): reordered II/III and IV/V on first-ever field
-    # claim rates (n=240 team-eps) -- "Second Wind" 13.8% vs "Patch Job"
-    # 5.0%, "Lifeline" 0.4% vs "Miracle Worker" 0.0%. Same requirements,
-    # different tier slot; see glory.nim's `AchievementNames` comment.
-    if cog.clutch_heals >= 1:         s.add(("med", 0))     # The Catch
-    if cog.second_wind:               s.add(("med", 1))     # Second Wind
-    if cog.clutch_heals >= 2:         s.add(("med", 2))     # Patch Job
-    if cog.clutch_carry_heals >= 1:   s.add(("med", 3))     # Lifeline
-    if cog.clutch_heals >= 3:         s.add(("med", 4))     # Miracle Worker
+    # med kit -- v9 (GLORY LAW E2): RE-FOUNDED as The Provider, gated on
+    # `supply_shared`/`supply_saves`. 🚨 KNOWN DIVERGENCE, permanent for this
+    # offline mirror, not a bug: neither counter can be derived from the
+    # tier-2 event stream. A supply-dropped pickup's `droppedBy` (which
+    # veteran's heart produced it) is sim-internal state that never rides
+    # the wire -- the `heal`/pickup events this file reads carry only the
+    # CONSUMER's own slot, with no way to attribute the drop back to its
+    # producer. So every "med" tier below is intentionally NEVER added to
+    # `s` -- this tree always reads as 0% claimed in the offline mirror,
+    # which is a MIRROR GAP, not evidence the mechanic is unreachable in the
+    # real engine (`tests/test_glory_sim.nim` proves it fires end to end).
+    # Left as a visible, present-tense gap rather than silently dropping the
+    # tree from the curriculum entirely.
 
     # carrier -- v3.1 re-cut off possession the same way every other tree
     # already was. v6: II/III swapped -- a score claims 18.8% in the field
@@ -535,14 +586,27 @@ def team_converted_kits(cogs, team_of, t):
     ## Mirrors `teamConvertedKits`: how many of the four kits this team has
     ## CONVERTED -- at least one teammate landed the kit's signature act --
     ## not how many are held right now.
+    ## v9 (GLORY LAW E3): `med`/`shield` re-derived off `supply_shared`/
+    ## `assists`, same as sim.nim's own fix -- `med` is PERMANENTLY False in
+    ## this offline mirror (see `satisfied()`'s own comment: `supply_shared`
+    ## cannot be derived from the wire), a known, honest under-count.
+    ##
+    ## 🚨 CASCADE: since `med` can never be True here, this proc can never
+    ## return more than 3 -- `("squad", 2)` "Full Kit" (kits>=4) and
+    ## `("squad", 4)` "Victory Lap" (kits>=4 and a capture) are therefore
+    ## ALSO permanently unreachable in this offline mirror specifically
+    ## (confirmed: the field run this comment was written against reads
+    ## squad T3/T5 at 0.0% where the pre-v9 mirror read 4.2%/1.2%). Same
+    ## mirror-gap class as `med` itself, one level removed -- not a new,
+    ## separate bug.
     med = nade = spray = shield = False
     for i, c in enumerate(cogs):
         if team_of(i) != t:
             continue
-        if c.clutch_heals >= 1: med = True
+        if c.supply_shared >= 1: med = True
         if c.grenade_kills >= 1: nade = True
         if c.spray_kills >= 1: spray = True
-        if c.soak >= 3: shield = True
+        if c.assists >= 1: shield = True
     return int(med) + int(nade) + int(spray) + int(shield)
 
 
@@ -567,6 +631,12 @@ def score_episode_derived(events, n_slots):
     claimed_first = {}
     claims = [[], []]
     deeds = collections.Counter()
+    # v9 (GLORY LAW E3): "Squad Volley" -- a small per-team recent-kill ring
+    # (killerIndex, tick), mirroring sim.nim's `teamKillRing`/
+    # `recordTeamKillRing`. `squad_volley_done` is a one-way latch, same
+    # shape as `claimed_first`.
+    team_kill_ring = [[], []]
+    squad_volley_done = [False, False]
     # v7 (GLORY /proof E1): pre-seeded with the FIXED map constants, not
     # discovered per-episode -- see `FIXED_PEDESTAL`'s own comment for why
     # the old empty-dict-plus-flag_steal-recovery approach under-counted
@@ -667,11 +737,19 @@ def score_episode_derived(events, n_slots):
                     continue
                 newly[t] |= satisfied(c, any_capture[t], kits[t],
                                       alive_count[t], alive_count[1 - t])
+            # "Squad Volley" (v9, GLORY LAW E3) is TEAM-WIDE -- not any one
+            # cog's fact, so it is not inside `satisfied()` -- pinned once in
+            # `squad_volley_done[t]` at the kill handler below.
+            if squad_volley_done[t]:
+                newly[t].add(("shield", 4))
             newly[t] -= claimed[t]
         # same-tick FIRST ties: judge both teams before any claim lands
         for t in (0, 1):
             for key in newly[t]:
-                first = key not in claimed_first
+                # v9 (GLORY LAW E4): the race is restricted to tier V
+                # (FIRST_TIER_ONLY) -- a tier I-IV claim NEVER reads first
+                # and never takes FIRST_MULT, no matter who got there first.
+                first = key[1] == FIRST_TIER_ONLY and key not in claimed_first
                 claimed[t].add(key)
                 amount = TIER_GLORY[key[1]] * (FIRST_MULT if first else 1)
                 ach_glory[t] += amount
@@ -741,6 +819,18 @@ def score_episode_derived(events, n_slots):
             if 0 <= s < n_slots and 0 <= t < n_slots and \
                     team(s) != team(t):
                 add_xp(s, XP_DAMAGE * e.get("amount", 1), tick)
+                # v9 (GLORY LAW E3): ASSIST/RESCUE plumbing, mirroring
+                # sim.nim's own damage-site pin exactly -- gated on the
+                # victim SURVIVING this hit (hp > 0 after) so a finishing
+                # blow never overwrites `last_damaged_by` with the killer
+                # itself (see `Player.lastDamagedBy`'s own comment in
+                # sim.nim for why that gate is what makes ASSIST reachable).
+                if cogs[t].hp > 0:
+                    cogs[t].last_damaged_by = s
+                    cogs[t].last_damaged_by_t = tick
+                    if cogs[t].hp <= CLUTCH_HP_THRESHOLD:
+                        cogs[s].menacing_t = tick
+                        cogs[s].menacing_victim = t
         elif k == "heal":
             # v6 (GLORY C10): the clutch-heal/xp read moved here from the
             # dead `item_pickup` branch above -- this is the event
@@ -890,9 +980,56 @@ def score_episode_derived(events, n_slots):
                     add_xp(s, XP_CARRIER_KILL, tick)  # the RETURN it causes
                 if killer.carrying:
                     killer.carry_kills += 1
-                if (killer.clutch_heal_t > -10**8 and
-                        tick - killer.clutch_heal_t <= 120):
+                # v9 (GLORY LAW E3): ESCORT DUTY -- `escorted` is already
+                # computed above for `dEscortKill`'s own pricing; this is
+                # the first achievement reader of the same fact.
+                if escorted:
+                    killer.escort_kills += 1
+                # v9 (GLORY LAW E3): ASSIST -- the victim's last SURVIVED
+                # enemy hit (see the `damage` handler's own comment for why
+                # a finishing blow can never be the one recorded there), if
+                # it landed from a DIFFERENT teammate of the killer inside
+                # ASSIST_WINDOW_TICKS, credits THAT teammate.
+                vd = victim.last_damaged_by
+                if (0 <= vd < n_slots and vd != s and team(vd) == team(s) and
+                        victim.last_damaged_by_t > -10**8 and
+                        tick - victim.last_damaged_by_t <= ASSIST_WINDOW_TICKS):
+                    cogs[vd].assists += 1
+                # v9 (GLORY LAW E3): RESCUE -- the victim was RECENTLY
+                # menacing one of the killer's OWN TEAMMATES (never the
+                # killer's own prior attacker -- that is `dRevengeKill`'s
+                # job, a distinct mechanic already priced above). Credits
+                # the killer, and pins `rescued_t` on the teammate who was
+                # actually in danger.
+                if (victim.menacing_t > -10**8 and
+                        tick - victim.menacing_t <= RESCUE_WINDOW_TICKS):
+                    menaced = victim.menacing_victim
+                    if (0 <= menaced < n_slots and menaced != s and
+                            team(menaced) == team(s)):
+                        killer.rescues += 1
+                        cogs[menaced].rescued_t = tick
+                # v9 (GLORY LAW E3): SECOND WIND, RE-GATED -- was "heal
+                # yourself, then kill inside the window" (self-care); now
+                # "get RESCUED (see above), then land a kill of your own
+                # inside SECOND_WIND_TICKS." `killer.rescued_t` is read
+                # BEFORE this kill's own rescue (if any) could have set it,
+                # matching sim.nim's own pre-mutation-snapshot discipline.
+                if (killer.rescued_t > -10**8 and
+                        tick - killer.rescued_t <= SECOND_WIND_TICKS):
                     killer.second_wind = True
+                # v9 (GLORY LAW E3): SQUAD VOLLEY -- record this kill into
+                # the killer's team's small recent-kill ring; pins
+                # `squad_volley_done[team]` ONCE the ring shows
+                # SQUAD_VOLLEY_MIN_DISTINCT+ distinct killers inside
+                # SQUAD_VOLLEY_WINDOW_TICKS.
+                ring = [e for e in team_kill_ring[team(s)]
+                        if tick - e[1] <= SQUAD_VOLLEY_WINDOW_TICKS]
+                ring.append((s, tick))
+                team_kill_ring[team(s)] = ring
+                if not squad_volley_done[team(s)]:
+                    if len({killer_idx for killer_idx, _ in ring}) >= \
+                            SQUAD_VOLLEY_MIN_DISTINCT:
+                        squad_volley_done[team(s)] = True
                 # Per-activation, ENEMY-only multikill streak (windowed
                 # approximation of an "activation" -- see the module
                 # docstring).
@@ -950,23 +1087,27 @@ def score_episode_derived(events, n_slots):
                 cogs[s].alive = True
         check_achievements(tick)
 
-    # Conclusion-only mint: Clean Sheet (`treeSquad` tier IV). `satisfied()`
-    # never reports ("squad", 3) -- see its comment -- so this is the ONLY
-    # site that can claim it, mirroring `evalCleanSheetAtConclusion`'s
-    # one-and-only mint site (called once from `finishGame`). Both teams
-    # finishing clean on the SAME tick both take the first-claim bonus:
-    # `was_untaken` is read for BOTH before either claims.
+    # Conclusion-only mint: Clean Sheet (`treeSquad` tier IV, index 3).
+    # `satisfied()` never reports ("squad", 3) -- see its comment -- so this
+    # is the ONLY site that can claim it, mirroring
+    # `evalCleanSheetAtConclusion`'s one-and-only mint site (called once
+    # from `finishGame`).
+    #
+    # v9 (GLORY LAW E4): tier 3 is NOT the FIRST_TIER_ONLY tier (that's
+    # index 4, "V") -- Clean Sheet can NEVER race, so this always claims at
+    # base price with `first=False`, full stop. The old same-tick-tie
+    # `was_untaken` logic is retired with it (there is nothing left to tie
+    # for).
     key = ("squad", 3)
-    was_untaken = key not in claimed_first
     for t in (0, 1):
         clean = all(c.team_kills == 0 for i, c in enumerate(cogs)
                     if team(i) == t)
         if clean and key not in claimed[t]:
             claimed[t].add(key)
-            amount = TIER_GLORY[3] * (FIRST_MULT if was_untaken else 1)
+            amount = TIER_GLORY[3]
             ach_glory[t] += amount
             glory[t] += amount
-            claims[t].append((end_tick, key, was_untaken))
+            claims[t].append((end_tick, key, False))
             claimed_first.setdefault(key, t)
 
     # end of episode: surviving cogs' lives count toward the ladder stats

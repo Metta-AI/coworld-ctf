@@ -332,6 +332,25 @@ proc fpMapWallsJson*(sim: SimServer): JsonNode =
     rle.add(%runState); rle.add(%runLen)
   result = %*{"cell": FpMapCell, "gw": gw, "gh": gh, "w": MapWidth, "h": MapHeight, "rle": rle}
 
+proc curriculumJson*(): JsonNode =
+  ## v9 (GLORY LAW E6): the achievement curriculum's tooltip text, keyed by
+  ## NAME rather than (tree, tier) -- every one of the 40 `AchievementNames`
+  ## entries is unique across the whole curriculum, and the claim payload
+  ## `teamStateJson` already ships (`"n"`) carries only the name, never the
+  ## tree index, so a name-keyed map needs no second lookup key threaded
+  ## through the wire. Fully STATIC (glory.nim carries zero imports and
+  ## these tables never vary per sim/match), so unlike `fpMapWallsJson` this
+  ## needs no `SimServer` at all -- it takes no argument on purpose, so a
+  ## caller can never accidentally think this reads live match state.
+  ## Intended to ship ONCE per HUD viewer, the same "sent once, then absent"
+  ## lifecycle `fpMapWallsJson`/the lead series already use (see
+  ## `buildStateJson`'s own `includeCurriculum` parameter) -- the client
+  ## caches it and reuses it for the session.
+  result = newJObject()
+  for tree in Tree:
+    for tier in 0 ..< AchievementTiers:
+      result[achievementName(tree, tier)] = %achievementDescription(tree, tier)
+
 proc bradOffset(a, b: float): float =
   ## Signed smallest angular difference a-b, wrapped to [-128, 128) brads.
   result = a - b
@@ -660,7 +679,8 @@ proc buildStateJson*(
   beatEvents: JsonNode = nil,
   inspectSlot: int = -1,
   inspectLines: seq[string] = @[],
-  gloryLine: seq[array[5, int]] = @[]
+  gloryLine: seq[array[5, int]] = @[],
+  includeCurriculum: bool = false
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -735,6 +755,15 @@ proc buildStateJson*(
   # caches it and reuses it for the whole match.
   if includeFpMap:
     state["fpmap"] = sim.fpMapWallsJson()
+
+  # The achievement curriculum's tooltip text (v9, GLORY LAW E6), sent ONCE
+  # per viewer -- same lifecycle as `fpmap` above, just fully static (needs
+  # no `sim` at all; see `curriculumJson`'s own comment). Keyed by claim
+  # NAME so the client's existing `s.teams.*.claims[].n` can look a
+  # description up directly, with no second (tree, tier) key to thread
+  # through the wire.
+  if includeCurriculum:
+    state["curriculum"] = curriculumJson()
 
   # Full-timeline flag beats + verdict, shipped alongside the lead series on
   # the same first frame: the steal/return/capture/gameover events the whole

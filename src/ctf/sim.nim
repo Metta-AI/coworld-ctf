@@ -581,7 +581,13 @@ type
                                ## that ONE blast -- the `Double Blast` gate.
                                ## Per-BLAST, mirroring `sprayMultiKills`.
     clutchCarryHeals*: int     ## clutch heals (1 hp) taken while carrying
-                               ## the enemy heart -- the `Lifeline` gate.
+                               ## the enemy heart. v9 (GLORY LAW E1/E3):
+                               ## ANALYSIS-ONLY now -- `Lifeline`, the
+                               ## achievement this used to gate, retired with
+                               ## the rest of the self-heal `treeMedKit`
+                               ## (re-founded as The Provider). Kept purely as
+                               ## telemetry (still incremented at the real
+                               ## heal site); no gate reads it any more.
     stealTickThisLife*: int    ## tick this life stole a heart, -1 = never.
     clutchHealTick*: int       ## tick of the latest clutch heal, -1 = never.
     peelTick*: int             ## tick of the latest carrier kill, -1 = never.
@@ -596,13 +602,18 @@ type
                                ## which paid live possession-plus-duration,
                                ## a second law-2b violation).
     secondWind*: bool          ## true once a non-friendly kill has landed
-                               ## within 120 ticks of (and strictly after)
-                               ## this cog's latest clutch heal -- the
-                               ## `Second Wind` gate. Set ONCE, at the KILL
-                               ## site, never re-derived from two independent
-                               ## tick fields at poll time (that was the bug:
-                               ## comparing "now" to `clutchHealTick` on every
-                               ## poll needed no kill in the window at all).
+                               ## within `SecondWindTicks` of (and strictly
+                               ## after) this cog's latest RESCUE -- the
+                               ## `Second Wind` gate, now living on the
+                               ## re-founded teamwork tree (v9, GLORY LAW E3).
+                               ## Set ONCE, at the KILL site, off `rescuedTick`
+                               ## (never `clutchHealTick` any more -- the
+                               ## self-heal gate that used to arm this is
+                               ## gone). Still never re-derived from two
+                               ## independent tick fields at poll time (that
+                               ## was the original v3.1 bug: comparing "now"
+                               ## to a tick field on every poll needed no kill
+                               ## in the window at all).
     capturedOutnumbered*: bool ## true once a capture has landed while this
                                ## cog's team was strictly behind on live
                                ## bodies -- the `Uphill` gate. Set ONCE, at
@@ -628,6 +639,86 @@ type
                                ## glory.nim's `GloryVersion` v8 changelog) --
                                ## this field tests a real, DIFFERENT act: the
                                ## capture must land FAST, not merely happen.
+    # ── v9 (GLORYVERSION 9 WAVE, LAW AUDIT E2/E3) ────────────────────────
+    # E2 -- THE PROVIDER (re-founded treeMedKit): the supply drop is the ONE
+    # team-benefit loop this engine has (any teammate may consume a drop),
+    # so these read that instead of self-healing. Both are cumulative
+    # per-game counters, pinned at `tryPickupSupplyDrops`'s single consume
+    # site the instant a TEAMMATE (not the dropper) takes the kit.
+    supplyShared*: int         ## times a TEAMMATE consumed a supply drop
+                               ## THIS cog's own heart produced -- the
+                               ## `First Delivery`/`Regular Route`/
+                               ## `Supply Chain` gates.
+    supplySaves*: int          ## of those, how many the consumer was
+                               ## at/near clutch hp (`ClutchHpThreshold`) for
+                               ## AT THE PICKUP MOMENT -- the `Clutch
+                               ## Delivery`/`Emergency Route` gates.
+    #
+    # E3 -- THE TEAMWORK TREE (re-founded treeShield): plumbing pinned ONCE
+    # at the causal site, the same discipline `secondWind`/
+    # `capturedOutnumbered`/`capturedFastBreak` already hold themselves to --
+    # never re-derived by polling two independent facts against each other.
+    lastDamagedBy*: int        ## index of the last ENEMY whose hit left this
+                               ## cog ALIVE (hp > 0 after) -- set at every
+                               ## enemy-damage application in the three
+                               ## weapon damage sites (gun/spray/grenade),
+                               ## but deliberately NOT by a hit that finishes
+                               ## the cog off, so this always names the
+                               ## SET-UP, never the finisher -- exactly what
+                               ## `ASSIST` needs to credit someone other than
+                               ## the killer. -1 = never (or stale from a
+                               ## life that never took a survived hit; see
+                               ## `lastDamagedByTick`).
+    lastDamagedByTick*: int    ## tick of that hit, -1 = never. NOT reset on
+                               ## death/respawn (same precedent
+                               ## `clutchHealTick`/`peelTick` already set) --
+                               ## in practice this cannot leak a stale
+                               ## cross-life ASSIST credit, because the
+                               ## eventual kill's OWN fatal hit always
+                               ## updates `lastDamagedBy` to a fresh, correct
+                               ## value first (see the field's own comment);
+                               ## it can only ever be genuinely stale (and
+                               ## therefore ignored: `lastDamagedBy` stays
+                               ## -1 or points at a long-dead encounter) for a
+                               ## cog that has taken no survived hit at all
+                               ## since spawning.
+    menacingTick*: int         ## tick this cog LAST reduced an enemy to
+                               ## at/near clutch hp (`ClutchHpThreshold`) and
+                               ## LEFT THEM ALIVE -- pinned on the ATTACKER at
+                               ## the same three damage sites, gated the same
+                               ## "hit did not kill" way `lastDamagedBy` is.
+                               ## The `RESCUE` gate: killing a cog while its
+                               ## own `menacingTick` is recent (within
+                               ## `RescueWindowTicks`) answers the threat it
+                               ## was posing. -1 = never.
+    menacingVictim*: int       ## index of the cog THIS cog was menacing at
+                               ## `menacingTick` -- who the eventual rescue
+                               ## credits `rescuedTick` to (must be on the
+                               ## RESCUER's own team, checked at the kill
+                               ## site). -1 = none.
+    rescuedTick*: int          ## tick this cog was LAST rescued -- a
+                               ## teammate killed the cog that was menacing
+                               ## THIS one, while the menace was still
+                               ## recent. Feeds the re-gated `Second Wind`:
+                               ## land a kill within `SecondWindTicks` of
+                               ## being rescued. -1 = never. NOT reset on
+                               ## death, same precedent as
+                               ## `lastDamagedByTick` above.
+    assists*: int              ## non-friendly kills where THIS cog dealt the
+                               ## victim's `lastDamagedBy` hit (a DIFFERENT
+                               ## teammate of the eventual killer, inside
+                               ## `AssistWindowTicks`) -- the `Cover Fire`
+                               ## gate. Cumulative per-game, like the other
+                               ## kill-class counters above.
+    rescues*: int              ## RESCUE kills THIS cog has landed -- see
+                               ## `menacingTick`'s own comment. The `The
+                               ## Save` gate.
+    escortKills*: int          ## non-friendly kills landed while a TEAMMATE
+                               ## (not this cog) ran the enemy heart --
+                               ## `KillContext.escorted`'s own fact, now also
+                               ## counted per-player. The `Escort Duty` gate;
+                               ## `dEscortKill` already prices the deed, this
+                               ## is the first achievement reader of it.
     tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool
     shotsFired*: int           ## shots this player released; analysis-only,
                                ## excluded from gameHash (see gameHash).
@@ -940,6 +1031,11 @@ type
     x*, y*: int
     kind*: string              ## a SupplyDropCycle entry: which pickup this is.
     expiresAt*: int            ## tick it evaporates if nobody takes it.
+    droppedBy*: int            ## v9 (GLORY LAW E2): player index of the
+                               ## veteran whose heart produced this pickup --
+                               ## `tryPickupSupplyDrops` reads this to credit
+                               ## the DROPPER (`supplyShared`/`supplySaves`)
+                               ## whenever the CONSUMER is a different player.
 
   AirborneGrenade* = object
     ## One thrown grenade in flight: it flies OVER walls in a straight line
@@ -1034,6 +1130,29 @@ type
                                ## whether ANY team has taken this tier yet;
                                ## the first claimant gets the x3 (law 2).
     firstBloodDone*: bool      ## the episode's first kill has been minted.
+    squadVolleyDone*: array[Team, bool]  ## v9 (GLORY LAW E3): pinned ONCE
+                               ## when `teamKillRing` shows
+                               ## `SquadVolleyMinDistinct`+ distinct
+                               ## teammates each with a kill inside
+                               ## `SquadVolleyWindowTicks` -- the `Squad
+                               ## Volley` gate (team-wide, so unlike every
+                               ## other E3 counter this lives on `SimServer`,
+                               ## not `Player`). CAUSAL (gates a claim): in
+                               ## `gameHash`.
+    teamKillRing*: array[Team, seq[tuple[killerIndex: int, tick: int]]]
+                               ## v9 (GLORY LAW E3): a SMALL per-team recent-
+                               ## kill ring, appended to and pruned to the
+                               ## live `SquadVolleyWindowTicks` window (capped
+                               ## at `SquadVolleyRingCap`) at every non-
+                               ## friendly kill in `killPlayer`. Purely
+                               ## SCRATCH bookkeeping whose only causal effect
+                               ## is flipping `squadVolleyDone` from false to
+                               ## true -- once that happens the ring's exact
+                               ## contents stop mattering (idempotent), so
+                               ## this is excluded from `gameHash` the same
+                               ## way `arcKillsThisFire` (transient bookkeeping
+                               ## that resolves into the HASHED
+                               ## `sprayMultiKills`) already is.
     supplyDropPickups*: seq[SupplyDropPickup]   ## kit produced by 3-star veterans.
     achievementFeed*: seq[AchievementClaim]  ## claims in order, for the
                                ## viewer's toast and any downstream report.
@@ -3698,6 +3817,19 @@ proc gameHash*(sim: SimServer): uint64 =
     # v8 (GLORY FAST BREAK wave): capturedFastBreak gates the new `Fast
     # Break` tier (replaces "Full Run"), causal for the same reason.
     result.mixHashBool(player.capturedFastBreak)
+    # v9 (GLORYVERSION 9 WAVE, LAW AUDIT E2/E3): the re-founded Provider and
+    # teamwork trees' own counters and plumbing -- causal for the same
+    # reason every gate-input above it is: each decides a FUTURE mint.
+    result.mixHashInt(player.supplyShared)
+    result.mixHashInt(player.supplySaves)
+    result.mixHashInt(player.lastDamagedBy)
+    result.mixHashInt(player.lastDamagedByTick)
+    result.mixHashInt(player.menacingTick)
+    result.mixHashInt(player.menacingVictim)
+    result.mixHashInt(player.rescuedTick)
+    result.mixHashInt(player.assists)
+    result.mixHashInt(player.rescues)
+    result.mixHashInt(player.escortKills)
   # GLORY: the ledger itself, its rampage state, and the one-shot claim gates
   # -- every one of these decides a FUTURE mint, so a hash match must mean
   # they match too.
@@ -3714,6 +3846,14 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(sim.heatLastDecay[team])
     for key in 0 ..< sim.claimed[team].len:
       result.mixHashBool(sim.claimed[team][key])
+    # v9 (GLORY LAW E3): squadVolleyDone gates the team-wide "Squad Volley"
+    # tier, causal for the same reason the per-player claim gates are.
+    # `teamKillRing` itself is EXCLUDED, deliberately -- it is transient
+    # scratch bookkeeping whose only causal effect is flipping this bool from
+    # false to true, the same "resolves into a hashed derived fact" class
+    # `arcKillsThisFire` (also excluded, feeding the HASHED
+    # `sprayMultiKills`) already is.
+    result.mixHashBool(sim.squadVolleyDone[team])
   for key in 0 ..< sim.claimedFirst.len:
     result.mixHashBool(sim.claimedFirst[key])
   result.mixHashBool(sim.firstBloodDone)
@@ -3722,6 +3862,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(pickup.x)
     result.mixHashInt(pickup.y)
     result.mixHashInt(pickup.expiresAt)
+    result.mixHashInt(pickup.droppedBy)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -4154,8 +4295,17 @@ proc teamConvertedKits(sim: SimServer, team: Team): int =
   ## hand right now. Possession is arrival (law 2b's ruling, 2026-08-24: "an
   ## act that already carries its own benefit... is NOT an achievement"), so
   ## the squad tree reads the RESULT a kit bought, exactly like every
-  ## individual kit tree now does. `medkit` reads `clutchHeals`, never
-  ## `tookMedKit` -- the take is normal play, the save it buys is not.
+  ## individual kit tree now does.
+  ##
+  ## v9 (GLORY LAW E3): `med` and `shield` RE-DERIVED off `supplyShared`/
+  ## `assists` -- both used to read self-care counters (`clutchHeals`,
+  ## `soakedHp`), which laundered self-benefiting acts into a TEAM
+  ## achievement even after the individual `treeMedKit`/`treeShield` trees
+  ## themselves were re-founded off genuinely team-facing counters. `med`
+  ## now means "this team's kit converted a supply drop for a TEAMMATE"
+  ## (the Provider tree's own tier-I fact); `shield` now means "this team
+  ## landed an ASSIST" (the teamwork tree's own tier-I fact) -- both already
+  ## require a second player to be true.
   ##
   ## Cumulative per-game counters, so a teammate who converted a kit and then
   ## died still counts: the squad already earned the tier, and death cannot
@@ -4164,10 +4314,10 @@ proc teamConvertedKits(sim: SimServer, team: Team): int =
   for player in sim.players:
     if player.team != team:
       continue
-    if player.clutchHeals >= 1: med = true
+    if player.supplyShared >= 1: med = true
     if player.grenadeKills >= 1: nade = true
     if player.sprayKills >= 1: spray = true
-    if player.soakedHp >= 3: shield = true
+    if player.assists >= 1: shield = true
   ord(med) + ord(nade) + ord(spray) + ord(shield)
 
 proc teamAliveCount(sim: SimServer, team: Team): int =
@@ -4181,11 +4331,19 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   ## decided BY THE CALLER -- the tie logic lives in evalAchievementsAllTeams,
   ## which judges every team's tick before any claim lands.
   ##
-  ## The four laws are enforced HERE, and each is a scar:
+  ## The laws are enforced HERE, and each is a scar:
   ##   1. One-shot per team per game -- `claimed` is checked and set, and
   ##      nothing about this is per-tick income (Muster's `trophy_held`).
   ##   2. EVERY team can earn it; only the FIRST claimant in the episode gets
   ##      the x3. A first-only reward teaches the other teams nothing.
+  ##   2c. v9 (GLORY LAW E4): the race itself -- the marker AND the bonus --
+  ##      is restricted to TIER V. `isFirst` is downgraded to false for any
+  ##      other tier regardless of what the caller computed, so a tier I-IV
+  ##      claim can NEVER read as first, ever, no matter which team got
+  ##      there or when -- see glory.nim's law 2 comment for the 25%-of-40
+  ##      ceiling this is sized against. Enforced ONCE, here, so no caller
+  ##      (`evalAchievements`, `evalAchievementsAllTeams`,
+  ##      `evalCleanSheetAtConclusion`) can bypass it by construction.
   ##   2b. Nothing here pays for travel or arrival.
   ##   4. It NEVER climbs heat -- this mints directly rather than through
   ##      `awardDeed`, and `paysHeat(dAchievement)` is false besides.
@@ -4194,9 +4352,10 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
     return
   sim.claimed[team][key] = true
   let
+    effectiveFirst = isFirst and tier == AchievementTiers - 1
     home = sim.gameMap.flagHome(team)
     amount = mintAchievement(tier, sim.deedSitePct(team, home.x, home.y),
-                             isFirst)
+                             effectiveFirst)
   sim.claimedFirst[key] = true
   sim.teamGlory[team] += amount
   inc sim.deedCounts[dAchievement]
@@ -4205,7 +4364,7 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
               sim.players[byIndex].team == team
   sim.achievementFeed.add AchievementClaim(
     tick: sim.tickCount, team: team, tree: tree, tier: tier,
-    glory: amount, first: isFirst,
+    glory: amount, first: effectiveFirst,
     slot: (if byCog: sim.players[byIndex].joinOrder else: -1)
   )
   # Pop the claim OVER THE COG THAT EARNED IT rather than from the top of the
@@ -4215,18 +4374,18 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   if byCog and sim.players[byIndex].alive:
     sim.addGloryPop(team, sim.players[byIndex].x, sim.players[byIndex].y,
                     amount, label = achievementName(tree, tier),
-                    first = isFirst, earnerIndex = byIndex)
+                    first = effectiveFirst, earnerIndex = byIndex)
   if sim.gameEventLoggingEnabled:
     sim.logGameEvent(
       teamText(team) & " achievement: " & achievementName(tree, tier) &
-      (if isFirst: " (FIRST!)" else: "") & " +" & $amount
+      (if effectiveFirst: " (FIRST!)" else: "") & " +" & $amount
     )
   # Tier-2 mirror, gated on collectEvents like every other analysis event.
   # `source` mirrors the SAME byCog gate `AchievementClaim.slot` used, so the
   # two never disagree about who (if anyone) earned it.
   sim.emitEvent(
     Achievement, source = (if byCog: byIndex else: -1), target = ord(team),
-    weapon = $tree, amount = amount, hp = tier, blocked = ord(isFirst),
+    weapon = $tree, amount = amount, hp = tier, blocked = ord(effectiveFirst),
     x = float(home.x), y = float(home.y)
   )
 
@@ -4347,45 +4506,42 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.grenadeMultiKills >= 2: earn(treeGrenade, 3)
     if player.grenadeKills >= 3:      earn(treeGrenade, 4)
 
-    # SHIELD -- soak, not damage. `blocked` already exists on the wire.
-    if player.soakedHp >= 3:          earn(treeShield, 0)
-    if player.soakedHp >= 6:          earn(treeShield, 1)
-    # Enemy kills only: `player.kills` is the raw recordKill tally and it
-    # COUNTS TEAMMATES, so gating on it let a friendly-fire kill complete
-    # "Paint Wall" (né "Bulwark" -- renamed GLORY C6; proven in the field:
-    # the banner announced it while the same tick minted the -60 team-kill
-    # penalty). The per-weapon counters are incremented only on non-friendly
-    # kills, so their sum is the honest gate.
-    if player.soakedHp >= 6 and
-       player.gunKills + player.sprayKills + player.grenadeKills >= 1:
-                                      earn(treeShield, 2)
-    if player.soakedHp >= 9:          earn(treeShield, 3)
-    if player.soakedHp >= 12:         earn(treeShield, 4)
+    # SHIELD -- v9 (GLORY LAW E3): RE-FOUNDED as the teamwork tree. The old
+    # soak-threshold ladder (Suit of Paint/Blockade/Paint Wall/The Bunker/
+    # The Backstop) is GONE, not renamed -- see glory.nim's own comment on
+    # `treeShield` for why: a shield protects ONLY its wearer, so soaking
+    # was self-benefiting by mechanics, the exact violation this whole law
+    # audit exists to end. Every counter below names a TEAMMATE and is
+    # pinned ONCE at its causal site (`killPlayer`'s own counters block,
+    # above, or the three damage sites for the RESCUE plumbing) -- never
+    # re-derived here by re-checking two independent facts against each
+    # other, the discipline `capturedOutnumbered`/`capturedFastBreak`
+    # already hold themselves to.
+    if player.assists >= 1:           earn(treeShield, 0)  # Cover Fire
+    if player.escortKills >= 1:       earn(treeShield, 1)  # Escort Duty
+    if player.rescues >= 1:           earn(treeShield, 2)  # The Save
+    if player.secondWind:             earn(treeShield, 3)  # Second Wind
+                                       # (RE-GATED: `secondWind` is set at
+                                       # the kill site off `rescuedTick`
+                                       # now, never `clutchHealTick`.)
+    # "Squad Volley" is TEAM-WIDE (`squadVolleyDone`, pinned in
+    # `killPlayer`'s `recordTeamKillRing` call) -- handled with the other
+    # team-wide facts below, not per-cog here.
 
-    # MED KIT -- the heal line, where we run 5.9x worse than winners. No tier
-    # pays for TAKING a kit (2b): the take is normal play, the SAVE it buys
-    # is the achievement.
-    #
-    # v7 (GLORY /proof E5): reordered on first-ever field claim rates (n=240
-    # team-eps, the curriculum's first wave with real data since the mirror's
-    # heal-detection bug (GLORY C10) was fixed): T1 54.6%, "Patch Job" 5.0%,
-    # "Second Wind" 13.8%, "Miracle Worker" 0.0%, "Lifeline" 0.4% -- TWO
-    # inversions (a harder-measured act sitting BELOW an easier one). Swapped
-    # Patch Job<->Second Wind (II/III) and Miracle Worker<->Lifeline (IV/V) so
-    # each tier's claim rate now decreases monotonically, same requirements,
-    # just reslotted -- see `AchievementNames`' own comment for the full
-    # table.
-    if player.clutchHeals >= 1:       earn(treeMedKit, 0)  # The Catch
-    # "Second Wind" is detected ONCE, at the KILL site (`killPlayer`), never
-    # re-derived here from two independent tick fields -- the old form
-    # compared "now" to `clutchHealTick` on every poll, which needed no kill
-    # inside the window at all (a lifetime kill count >= 1 plus a recent heal
-    # satisfied it, order unchecked; CURRICULUM audit C6/C7). Mirrors
-    # `Turnaround` below, which already gets this right.
-    if player.secondWind:             earn(treeMedKit, 1)  # Second Wind
-    if player.clutchHeals >= 2:       earn(treeMedKit, 2)  # Patch Job
-    if player.clutchCarryHeals >= 1:  earn(treeMedKit, 3)  # Lifeline
-    if player.clutchHeals >= 3:       earn(treeMedKit, 4)  # Miracle Worker
+    # MED KIT -- v9 (GLORY LAW E2): RE-FOUNDED as The Provider. The old
+    # self-heal ladder (The Catch/Second Wind/Patch Job/Lifeline/Miracle
+    # Worker) is GONE -- see glory.nim's own comment on `treeMedKit`. The
+    # supply drop is the ONE team-benefit loop this engine has (any teammate
+    # may consume a drop), so this tree now reads THAT: `supplyShared`/
+    # `supplySaves`, both pinned once in `tryPickupSupplyDrops` the instant
+    # a TEAMMATE (not the dropper) consumes a drop this cog's own heart
+    # produced. "Second Wind" (the one name worth keeping) migrated to
+    # `treeShield` above, re-gated onto being rescued.
+    if player.supplyShared >= 1:      earn(treeMedKit, 0)  # First Delivery
+    if player.supplySaves >= 1:       earn(treeMedKit, 1)  # Clutch Delivery
+    if player.supplyShared >= 3:      earn(treeMedKit, 2)  # Regular Route
+    if player.supplySaves >= 2:       earn(treeMedKit, 3)  # Emergency Route
+    if player.supplyShared >= 6:      earn(treeMedKit, 4)  # Supply Chain
 
     # CARRIER -- steal, run, score. v3.1 (CURRICULUM audit C1/C8): tier I/II
     # re-cut off possession the same way every other tree already was --
@@ -4427,6 +4583,12 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
   # best[treeSquad][3] (Clean Sheet) stays Unsatisfied here BY DESIGN -- see
   # the proc comment and `evalCleanSheetAtConclusion`.
   if kits >= 4 and anyCapture:        best[treeSquad][4] = NoCog
+
+  # "Squad Volley" (v9, GLORY LAW E3) is ALSO team-wide, like the block
+  # above -- 3+ distinct teammates each landing a kill inside a tight window
+  # is not any one cog's achievement. `squadVolleyDone` is pinned ONCE in
+  # `killPlayer`'s `recordTeamKillRing` call, never re-derived here.
+  if sim.squadVolleyDone[team]:       best[treeShield][4] = NoCog
 
   result = best
 
@@ -4530,7 +4692,8 @@ proc dropSupply(sim: var SimServer, playerIndex: int) =
       x: home.x + offsetX,
       y: home.y + offsetY,
       kind: SupplyDropCycle[slot mod SupplyDropCycle.len],
-      expiresAt: sim.tickCount + MedKitRespawnTicks
+      expiresAt: sim.tickCount + MedKitRespawnTicks,
+      droppedBy: playerIndex
     )
   sim.players[playerIndex].supplyDropCredit -= SupplyDropXp
   inc sim.players[playerIndex].supplyDropsThisLife
@@ -5368,6 +5531,10 @@ proc resetGloryLedger*(sim: var SimServer) =
     sim.heatEmbers[team] = 0
     sim.heatLastDeed[team] = 0
     sim.heatLastDecay[team] = 0
+    # v9 (GLORY LAW E3): the team-wide "Squad Volley" pin and its scratch
+    # ring, same TEAM/GAME-level scope as everything else in this proc.
+    sim.squadVolleyDone[team] = false
+    sim.teamKillRing[team] = @[]
     for key in 0 ..< sim.claimed[team].len:
       sim.claimed[team][key] = false
   for key in 0 ..< sim.claimedFirst.len:
@@ -5415,10 +5582,22 @@ proc startGame*(sim: var SimServer) =
                   addr sim.players[i].grenadeMultiKills,
                   addr sim.players[i].clutchCarryHeals,
                   addr sim.players[i].contestedSteals,
-                  addr sim.players[i].carryKills]:
+                  addr sim.players[i].carryKills,
+                  addr sim.players[i].supplyShared,
+                  addr sim.players[i].supplySaves,
+                  addr sim.players[i].assists,
+                  addr sim.players[i].rescues,
+                  addr sim.players[i].escortKills]:
       reset[] = 0
     sim.players[i].clutchHealTick = -1
     sim.players[i].peelTick = -1
+    # v9 (GLORY LAW E3): fresh-game state for the teamwork-tree plumbing,
+    # same -1-is-never convention as `clutchHealTick`/`peelTick` above.
+    sim.players[i].lastDamagedBy = -1
+    sim.players[i].lastDamagedByTick = -1
+    sim.players[i].menacingTick = -1
+    sim.players[i].menacingVictim = -1
+    sim.players[i].rescuedTick = -1
     sim.players[i].secondWind = false
     sim.players[i].capturedOutnumbered = false
     sim.players[i].capturedFastBreak = false
@@ -5715,6 +5894,31 @@ proc floorGameClock(sim: var SimServer) =
   if remaining < ActionClockFloorTicks:
     sim.overtimeTicks += ActionClockFloorTicks - remaining
 
+proc recordTeamKillRing(sim: var SimServer, team: Team, killerIndex: int) =
+  ## v9 (GLORY LAW E3): appends one non-friendly kill to `team`'s small
+  ## recent-kill ring, prunes it to the live `SquadVolleyWindowTicks` window
+  ## (and a hard `SquadVolleyRingCap`), then pins `squadVolleyDone[team]`
+  ## ONCE the ring shows `SquadVolleyMinDistinct`+ DISTINCT killers inside
+  ## the window -- the `Squad Volley` gate. Idempotent past that point: once
+  ## pinned true, later calls keep pruning the (now causally inert) ring but
+  ## can never un-pin it -- the same one-way-latch shape `secondWind`/
+  ## `capturedOutnumbered`/`capturedFastBreak` already use.
+  var kept: seq[tuple[killerIndex: int, tick: int]] = @[]
+  for entry in sim.teamKillRing[team]:
+    if sim.tickCount - entry.tick <= SquadVolleyWindowTicks:
+      kept.add entry
+  kept.add (killerIndex: killerIndex, tick: sim.tickCount)
+  if kept.len > SquadVolleyRingCap:
+    kept = kept[kept.len - SquadVolleyRingCap ..< kept.len]
+  sim.teamKillRing[team] = kept
+  if not sim.squadVolleyDone[team]:
+    var distinctKillers: seq[int] = @[]
+    for entry in kept:
+      if entry.killerIndex notin distinctKillers:
+        distinctKillers.add entry.killerIndex
+    if distinctKillers.len >= SquadVolleyMinDistinct:
+      sim.squadVolleyDone[team] = true
+
 proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
                  weapon = "", multi = false) =
   ## Applies a fatal hit: return any carried flag to its pedestal, decrement
@@ -5792,13 +5996,60 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
       # "Fighting Carry": a kill landed while THIS cog held the enemy heart --
       # live possession alone no longer counts (CURRICULUM audit C1/C8).
       if killer.carryingFlag: inc sim.players[killerIndex].carryKills
-      # "Second Wind": detected HERE, at the kill, so the heal is guaranteed
-      # to have happened first -- `clutchHealTick` can only be a tick at or
-      # before `sim.tickCount`, so this is genuinely an ordered window, not
-      # two independent facts compared at poll time.
-      if killer.clutchHealTick >= 0 and
-         sim.tickCount - killer.clutchHealTick <= 120:
+      # v9 (GLORY LAW E3): ESCORT DUTY -- `ctx.escorted` already prices
+      # `dEscortKill`; this is the first achievement reader of that exact
+      # fact, counted per-player instead of re-derived from the deed stream.
+      if ctx.escorted:
+        inc sim.players[killerIndex].escortKills
+      # v9 (GLORY LAW E3): ASSIST -- the victim's last SURVIVED enemy hit
+      # (see `lastDamagedBy`'s own comment on `Player` for why a finishing
+      # blow can never be the one recorded there), if it landed from a
+      # DIFFERENT teammate of the killer inside `AssistWindowTicks`, credits
+      # THAT teammate -- not the killer, who already banked the kill deed.
+      let victimDamager = victim.lastDamagedBy
+      if victimDamager >= 0 and victimDamager < sim.players.len and
+         victimDamager != killerIndex and
+         sim.players[victimDamager].team == killer.team and
+         victim.lastDamagedByTick >= 0 and
+         sim.tickCount - victim.lastDamagedByTick <= AssistWindowTicks:
+        inc sim.players[victimDamager].assists
+      # v9 (GLORY LAW E3): RESCUE -- the victim was RECENTLY menacing one of
+      # the killer's OWN TEAMMATES (pinned at the damage site: `menacingTick`
+      # /`menacingVictim` on the ATTACKER of that earlier hit, which is this
+      # kill's VICTIM). Killing them answers the threat: credits the killer
+      # with a rescue, and pins `rescuedTick` on the ACTUAL teammate who was
+      # in danger -- never the rescuer, and never the killer answering their
+      # OWN attacker (that is `dRevengeKill`'s job, a distinct, self-oriented
+      # mechanic already priced) -- so it is THEIR next kill, not the
+      # rescuer's, that can go on to claim the re-gated Second Wind below.
+      if victim.menacingTick >= 0 and
+         sim.tickCount - victim.menacingTick <= RescueWindowTicks:
+        let menaced = victim.menacingVictim
+        if menaced >= 0 and menaced < sim.players.len and
+           menaced != killerIndex and
+           sim.players[menaced].team == killer.team:
+          inc sim.players[killerIndex].rescues
+          sim.players[menaced].rescuedTick = sim.tickCount
+      # v9 (GLORY LAW E3): SECOND WIND, RE-GATED -- was "heal yourself, then
+      # land a kill inside the window" (self-care, treeMedKit); now "get
+      # RESCUED (see above), then land a kill of your own inside
+      # `SecondWindTicks`" -- the comeback beat survives, the self-heal gate
+      # that used to arm it does not. `killer.rescuedTick` is THIS call's own
+      # pre-mutation snapshot (captured with the rest of `killer`, above), so
+      # a rescue this SAME kill just triggered (self-rescue is excluded
+      # above, but even a teammate's simultaneous rescue elsewhere this tick
+      # would not retroactively arm it) cannot backdate into an instant
+      # Second Wind -- the rescue and the answering kill must be genuinely
+      # two separate events, ordered, exactly like the original self-heal
+      # gate this replaces already required.
+      if killer.rescuedTick >= 0 and
+         sim.tickCount - killer.rescuedTick <= SecondWindTicks:
         sim.players[killerIndex].secondWind = true
+      # v9 (GLORY LAW E3): SQUAD VOLLEY -- record this kill into the killer's
+      # team's small recent-kill ring; pins `squadVolleyDone[team]` ONCE the
+      # ring shows `SquadVolleyMinDistinct`+ distinct teammates each with a
+      # kill inside `SquadVolleyWindowTicks`.
+      sim.recordTeamKillRing(killer.team, killerIndex)
     # First blood stacks, alone among the kill deeds: it is one-shot per
     # episode so it cannot be farmed by construction.
     if not sim.firstBloodDone and not ctx.friendly:
@@ -6042,6 +6293,17 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       if arcFire.attacker >= 0 and arcFire.attacker < sim.players.len and
           sim.players[arcFire.attacker].team != sim.players[victimIndex].team:
         sim.addXp(arcFire.attacker, XpPerDamage * PlasmaArcDamage)
+        # v9 (GLORY LAW E3): ASSIST/RESCUE plumbing, pinned at the damage
+        # site -- gated on the victim SURVIVING this hit (hp > 0 after) so a
+        # finishing blow never overwrites `lastDamagedBy` with the killer
+        # itself; see the field's own comment on `Player` for why that
+        # exact gate is what makes ASSIST reachable at all.
+        if sim.players[victimIndex].hp > 0:
+          sim.players[victimIndex].lastDamagedBy = arcFire.attacker
+          sim.players[victimIndex].lastDamagedByTick = sim.tickCount
+          if sim.players[victimIndex].hp <= ClutchHpThreshold:
+            sim.players[arcFire.attacker].menacingTick = sim.tickCount
+            sim.players[arcFire.attacker].menacingVictim = victimIndex
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
         weapon = "spray", amount = PlasmaArcDamage,
@@ -6227,6 +6489,14 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     if shooterIndex >= 0 and shooterIndex < sim.players.len and
         sim.players[shooterIndex].team != sim.players[targetIndex].team:
       sim.addXp(shooterIndex, XpPerDamage * 1)
+      # v9 (GLORY LAW E3): ASSIST/RESCUE plumbing -- see the identical block
+      # in `resolveActiveArcCones` (the spray site) for the full comment.
+      if sim.players[targetIndex].hp > 0:
+        sim.players[targetIndex].lastDamagedBy = shooterIndex
+        sim.players[targetIndex].lastDamagedByTick = sim.tickCount
+        if sim.players[targetIndex].hp <= ClutchHpThreshold:
+          sim.players[shooterIndex].menacingTick = sim.tickCount
+          sim.players[shooterIndex].menacingVictim = targetIndex
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
       amount = 1, hp = max(0, sim.players[targetIndex].hp),
@@ -6419,6 +6689,14 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     if grenade.thrower >= 0 and grenade.thrower < sim.players.len and
         sim.players[grenade.thrower].team != sim.players[i].team:
       sim.addXp(grenade.thrower, XpPerDamage * GrenadeDamage)
+      # v9 (GLORY LAW E3): ASSIST/RESCUE plumbing -- see the identical block
+      # in `resolveActiveArcCones` (the spray site) for the full comment.
+      if sim.players[i].hp > 0:
+        sim.players[i].lastDamagedBy = grenade.thrower
+        sim.players[i].lastDamagedByTick = sim.tickCount
+        if sim.players[i].hp <= ClutchHpThreshold:
+          sim.players[grenade.thrower].menacingTick = sim.tickCount
+          sim.players[grenade.thrower].menacingVictim = i
     sim.emitEvent(
       Damage, source = grenade.thrower, target = i, weapon = "grenade",
       amount = GrenadeDamage, hp = max(0, sim.players[i].hp),
@@ -6730,6 +7008,12 @@ proc tryPickupSupplyDrops*(sim: var SimServer, playerIndex: int) =
       continue
     if distSq(px, py, pickup.x, pickup.y) > rangeSq:
       continue
+    # v9 (GLORY LAW E2): read the consumer's hp BEFORE any branch below can
+    # change it -- the `Clutch Delivery`/`Emergency Route` "at/near clutch
+    # hp AT THE PICKUP MOMENT" gate needs the PRE-heal reading, the same
+    # "read the fact before it mutates" discipline `killPlayer`'s own kill
+    # CONTEXT block already holds itself to.
+    let consumerHpBefore = sim.players[playerIndex].hp
     case pickup.kind
     of "med kit":
       if sim.players[playerIndex].hp >= sim.playerMaxHp(playerIndex): continue
@@ -6773,6 +7057,19 @@ proc tryPickupSupplyDrops*(sim: var SimServer, playerIndex: int) =
       sim.players[playerIndex].shieldHp = ShieldLayerHp
     else: continue
     taken = i
+    # v9 (GLORY LAW E2): THE PROVIDER. Credit the DROPPER, never the
+    # consumer, the instant a TEAMMATE other than the dropper themself takes
+    # the kit -- "any teammate may consume a drop" is the ONE team-benefit
+    # loop this engine has, so this is the one place that gets to pay for it.
+    # A veteran consuming their OWN drop (the common case: the drop spawns on
+    # their own team's ground and anyone on that team can walk over it,
+    # including the earner) credits nobody -- self-consumption is still
+    # self-care.
+    if pickup.droppedBy >= 0 and pickup.droppedBy < sim.players.len and
+       pickup.droppedBy != playerIndex:
+      inc sim.players[pickup.droppedBy].supplyShared
+      if consumerHpBefore <= ClutchHpThreshold:
+        inc sim.players[pickup.droppedBy].supplySaves
     break
   if taken >= 0:
     sim.supplyDropPickups.delete(taken)

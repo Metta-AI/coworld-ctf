@@ -57,6 +57,21 @@ proc twoRedOneBlue(): SimServer =
   result.players[1].team = Red
   result.players[2].team = Blue
 
+proc twoRedTwoBlue(): SimServer =
+  ## Red 0, Red 1 (teammates) vs Blue 2, Blue 3 -- for RESCUE/Second-Wind
+  ## scenarios that need a rescuer, a rescued cog with its OWN separate kill
+  ## to land, and a menacer distinct from both.
+  result = initCtfForTest(defaultGameConfig())
+  discard result.addPlayer("red0")
+  discard result.addPlayer("red1")
+  discard result.addPlayer("blue0")
+  discard result.addPlayer("blue1")
+  result.startGame()
+  result.players[0].team = Red
+  result.players[1].team = Red
+  result.players[2].team = Blue
+  result.players[3].team = Blue
+
 proc noInput(sim: SimServer): seq[InputState] =
   newSeq[InputState](sim.players.len)
 
@@ -686,21 +701,39 @@ suite "glory in the sim: the achievement curriculum FIRES":
       sim.evalAchievements(Red)
     check sim.deedCounts[dAchievement] == firstCount
 
-  test "every team can earn it; only the FIRST claimant takes the x3":
+  test "every team can earn it; only the FIRST claimant takes the x3 -- AND ONLY AT TIER V":
     # Law 2. A first-only reward teaches the other teams nothing, so the base
-    # must reach everyone.
+    # must reach everyone. v9 (GLORY LAW E4): the race itself is now
+    # restricted to the LAST tier of a tree -- driven here on `treeGun`'s
+    # tier V ("Longshot", `longshotKills >= 1`), not tier 0 any more, since
+    # tier 0-3 can never read as first at all (see the next test).
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.players[0].gunKills = 1
+    sim.players[0].longshotKills = 1
     sim.evalAchievements(Red)
     let redGlory = sim.teamGlory[Red]
-    sim.players[1].gunKills = 1
+    sim.players[1].longshotKills = 1
     sim.evalAchievements(Blue)
-    check sim.claimed[Blue][achievementKey(treeGun, 0)]
+    check sim.claimed[Blue][achievementKey(treeGun, 4)]
     check sim.teamGlory[Blue] > 0                 # Blue still earns
     check sim.teamGlory[Blue] < redGlory          # but Red took the x3
     check sim.achievementFeed[0].first
     check not sim.achievementFeed[1].first
+
+  test "GLORY LAW E4 -- tiers I-IV NEVER race, no matter who gets there first":
+    # The FIRST cap: only tier V (index AchievementTiers-1) of each tree can
+    # ever read `first: true` or take `AchievementFirstMultPct`. Driven here
+    # on `treeGun` tier 0 ("First Tag") -- Red claims it entirely ALONE
+    # (no Blue claim exists to "lose" a race to) and still must NOT read as
+    # first, because the race itself does not exist at this tier.
+    var sim = twoTeamGame()
+    sim.phase = Playing
+    sim.players[0].gunKills = 1
+    sim.evalAchievements(Red)
+    check sim.claimed[Red][achievementKey(treeGun, 0)]
+    check sim.achievementFeed.len == 1
+    check not sim.achievementFeed[0].first
+    check sim.achievementFeed[0].glory == tierGlory(0)   # base price, no x3
 
   test "a genuine SAME-TICK tie pays FIRST to both teams, not enum order":
     # C10's gap: the naive `for team in Team: evalAchievements(team)` marked
@@ -709,19 +742,20 @@ suite "glory in the sim: the achievement curriculum FIRES":
     # first -- a systematic bias, not a real "who got there first". The fix
     # is `evalAchievementsAllTeams`, which snapshots every team's satisfied
     # tiers BEFORE any team claims. This test drives that exact path: both
-    # teams satisfy First Tag on the identical tick via ONE
-    # evalAchievementsAllTeams() call, and both must read as first.
+    # teams satisfy Longshot (tree V -- the ONE tier that can ever race,
+    # GLORY LAW E4) on the identical tick via ONE evalAchievementsAllTeams()
+    # call, and both must read as first.
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.players[0].gunKills = 1        # Red satisfies First Tag...
-    sim.players[1].gunKills = 1        # ...and so does Blue, same tick.
+    sim.players[0].longshotKills = 1   # Red satisfies Longshot...
+    sim.players[1].longshotKills = 1   # ...and so does Blue, same tick.
     sim.evalAchievementsAllTeams()
-    check sim.claimed[Red][achievementKey(treeGun, 0)]
-    check sim.claimed[Blue][achievementKey(treeGun, 0)]
+    check sim.claimed[Red][achievementKey(treeGun, 4)]
+    check sim.claimed[Blue][achievementKey(treeGun, 4)]
     check sim.achievementFeed.len == 2
     var redFirst, blueFirst = false
     for claim in sim.achievementFeed:
-      if claim.tree == treeGun and claim.tier == 0:
+      if claim.tree == treeGun and claim.tier == 4:
         if claim.team == Red: redFirst = claim.first
         if claim.team == Blue: blueFirst = claim.first
     check redFirst
@@ -779,15 +813,29 @@ suite "glory in the sim: the achievement curriculum FIRES":
                                               # (reuses sprayMultiKills/
                                               # grenadeMultiKills -- see the
                                               # gate's comment)
-    sim.players[0].soakedHp = 12
     sim.players[0].kills = 1
-    sim.players[0].clutchHeals = 3
-    sim.players[0].clutchHealTick = sim.tickCount
-    sim.players[0].clutchCarryHeals = 1      # Lifeline
-    sim.players[0].secondWind = true         # Second Wind (set at the kill
-                                              # site in the real engine; see
-                                              # the dedicated real-mechanic
-                                              # test below)
+    # v9 (GLORY LAW E2/E3): The Provider (re-founded treeMedKit) and the
+    # teamwork tree (re-founded treeShield) counters. `clutchHeals`/
+    # `soakedHp` are DELIBERATELY left at their zero default here -- the
+    # golden-law test below asserts they gate NOTHING, and this AUDIT
+    # scenario is the natural place that would have caught it if they still
+    # did (the old soak-threshold `treeShield` would have failed to claim at
+    # all under this exact scenario).
+    sim.players[0].supplyShared = 6          # First Delivery, Regular Route,
+                                              # Supply Chain
+    sim.players[0].supplySaves = 2           # Clutch Delivery, Emergency
+                                              # Route
+    sim.players[0].assists = 1               # Cover Fire
+    sim.players[0].escortKills = 1           # Escort Duty
+    sim.players[0].rescues = 1               # The Save
+    sim.players[0].secondWind = true         # Second Wind, re-gated (set at
+                                              # the kill site off
+                                              # `rescuedTick` in the real
+                                              # engine; see the dedicated
+                                              # real-mechanic test below)
+    sim.squadVolleyDone[Red] = true          # Squad Volley (team-wide; set
+                                              # once by `recordTeamKillRing`
+                                              # in the real engine)
     sim.players[0].contestedSteals = 1       # Hands On
     sim.players[0].carryKills = 1            # Fighting Carry
     sim.players[0].carrierKills = 2          # The Peel + Double Peel
@@ -839,6 +887,45 @@ suite "glory in the sim: the achievement curriculum FIRES":
     if missing.len > 0:
       echo "  UNREACHABLE: ", missing.join(", ")
     check missing.len == 0
+
+suite "glory in the sim: THE GOLDEN LAW -- no gate reads a self-care counter":
+  # v9 (GLORYVERSION 9 WAVE, LAW AUDIT E7). Maxwell's re-affirmed law:
+  # achievements and glory reward play ABOVE AND BEYOND normal, never
+  # self-benefiting acts. A WHOLE TREE (the old `treeShield`, self-heal
+  # `treeMedKit`) was caught violating it this wave -- `clutchHeals`
+  # (healing YOURSELF) and `soakedHp` (a shield that protects ONLY its
+  # wearer, per this wave's own ground truth) are the two counters that
+  # class of violation reads. This test does not restate the achievement
+  # gates from the outside (a second copy that could drift the same way a
+  # stale comment already did) -- it DRIVES the real `evalAchievements` path
+  # and asserts these two counters, ALONE, satisfy NOTHING, so a future
+  # self-care gate fails HERE, loudly, forever, instead of waiting for
+  # another human audit.
+  test "clutchHeals and soakedHp, pumped to an absurd value, claim NOTHING":
+    var sim = twoTeamGame()
+    sim.phase = Playing
+    sim.players[0].clutchHeals = 999
+    sim.players[0].soakedHp = 999
+    sim.evalAchievements(Red)
+    check sim.achievementFeed.len == 0
+    for tree in Tree:
+      for tier in 0 ..< AchievementTiers:
+        check not sim.claimed[Red][achievementKey(tree, tier)]
+
+  test "the same is true team-wide: a squad soaked and self-healed to the sky converts NO kit":
+    # `teamConvertedKits` used to read `clutchHeals`/`soakedHp` directly for
+    # its "med"/"shield" booleans -- the team tree laundering the same
+    # self-care counters into a TEAM achievement even after the individual
+    # trees were fixed. Both booleans now require a genuinely OTHER-facing
+    # fact (`supplyShared`/`assists`), so this must stay at 0/4, not 2/4.
+    var sim = twoRedOneBlue()   # Red 0, Red 1 -- a genuine TEAM, not a lone cog.
+    sim.phase = Playing
+    sim.players[0].clutchHeals = 999
+    sim.players[0].soakedHp = 999
+    sim.players[1].clutchHeals = 999
+    sim.players[1].soakedHp = 999
+    sim.evalAchievements(Red)
+    check not sim.claimed[Red][achievementKey(treeSquad, 0)]  # Kitted (>=2/4)
 
 suite "glory in the sim: the v3 counters fire off REAL engine mechanics":
   # The AUDIT above proves the PREDICATES read the right counters; it sets
@@ -914,30 +1001,62 @@ suite "glory in the sim: the v3 counters fire off REAL engine mechanics":
     check sim.players[0].grenadeMultiKills == 1
     check sim.deedCounts[dSplashMultiKill] >= 1   # grenade multikills share the deed
 
-  test "a carrier's clutch heal at 1 hp fires Lifeline once":
-    # FIRST verifies the premise the reachability rule demands: nothing in
-    # `tryPickupMedKits` gates on `carryingFlag` (unlike `tryPickupFlags`,
-    # which guards against stealing a SECOND heart), so a carrier at 1 hp can
-    # reach a ground med kit exactly like anyone else.
-    var sim = twoTeamGame()
-    sim.flags[Blue].carrier = 0
-    sim.players[0].carryingFlag = true
-    sim.players[0].hp = 1
-    sim.players[0].x = sim.medKitSpawns[0].x
-    sim.players[0].y = sim.medKitSpawns[0].y
-    sim.tryPickupMedKits(0)
-    check sim.players[0].hp > 1
-    check sim.players[0].clutchHeals == 1
-    check sim.players[0].clutchCarryHeals == 1
+  test "GLORY LAW E2 -- a TEAMMATE consuming a supply drop fires supplyShared/supplySaves on the DROPPER":
+    # THE PROVIDER, driven end to end through the real veteran -> supply
+    # drop -> teammate pickup path, not a hand-set counter: a self-heal
+    # (`tryPickupMedKits`) no longer gates any achievement (`Lifeline` and
+    # the rest of the old self-heal `treeMedKit` are retired), so this is
+    # what replaces that test's job -- proving the ONE team-benefit loop
+    # this engine has actually credits the right cog.
+    proc dropperAndConsumer(): SimServer =
+      ## Red 0 (the dropper) reaches AceLevel and earns exactly one supply
+      ## drop; Red 1 is the teammate who will consume it.
+      result = twoRedOneBlue()
+      result.addXp(0, LevelThresholds[AceLevel - 1])
+      # Crossing AceLevel with a big enough jump can already spend
+      # SupplyDropXp worth of credit and drop kit as a side effect of the
+      # level-up itself -- clear the physical pickup list (not the player's
+      # own credit/cooldown accounting) so the deliberate top-up below
+      # produces exactly the ONE controlled drop this scenario needs.
+      result.supplyDropPickups = @[]
+      result.tickCount += SupplyDropCooldownTicks
+      result.addXp(0, SupplyDropXp)
+      doAssert result.supplyDropPickups.len == 1
 
-    # A clutch heal WITHOUT the heart must not credit Lifeline.
-    var grounded = twoTeamGame()
-    grounded.players[0].hp = 1
-    grounded.players[0].x = grounded.medKitSpawns[0].x
-    grounded.players[0].y = grounded.medKitSpawns[0].y
-    grounded.tryPickupMedKits(0)
-    check grounded.players[0].clutchHeals == 1
-    check grounded.players[0].clutchCarryHeals == 0
+    # A teammate consumes the drop while merely hurt (not clutch): credits
+    # supplyShared, NOT supplySaves.
+    var shared = dropperAndConsumer()
+    let pickup = shared.supplyDropPickups[0]
+    doAssert pickup.kind == "med kit"     # first drop in the fixed rotation
+    shared.players[1].hp = 2              # hurt, but above ClutchHpThreshold
+    shared.players[1].x = pickup.x
+    shared.players[1].y = pickup.y
+    shared.tryPickupSupplyDrops(1)
+    check shared.players[1].hp > 2                # the teammate WAS healed
+    check shared.players[0].supplyShared == 1      # ...and the DROPPER
+    check shared.players[0].supplySaves == 0       # ...is credited, not saved
+    check shared.players[1].supplyShared == 0      # never the consumer
+
+    # A teammate at/near clutch hp consuming the drop credits BOTH.
+    var saved = dropperAndConsumer()
+    let savePickup = saved.supplyDropPickups[0]
+    saved.players[1].hp = ClutchHpThreshold
+    saved.players[1].x = savePickup.x
+    saved.players[1].y = savePickup.y
+    saved.tryPickupSupplyDrops(1)
+    check saved.players[0].supplyShared == 1
+    check saved.players[0].supplySaves == 1
+
+    # The DROPPER consuming their OWN drop is still self-care: credits
+    # nobody.
+    var selfConsumed = dropperAndConsumer()
+    let ownPickup = selfConsumed.supplyDropPickups[0]
+    selfConsumed.players[0].hp = 2
+    selfConsumed.players[0].x = ownPickup.x
+    selfConsumed.players[0].y = ownPickup.y
+    selfConsumed.tryPickupSupplyDrops(0)
+    check selfConsumed.players[0].hp > 2           # still a real heal...
+    check selfConsumed.players[0].supplyShared == 0   # ...but shares nothing
 
 suite "glory in the sim: the v3.1 counters fire off REAL engine mechanics":
   # v3.1 re-cut treeCarrier tier I/II off possession (CURRICULUM audit
@@ -990,51 +1109,128 @@ suite "glory in the sim: the v3.1 counters fire off REAL engine mechanics":
     unarmed.killPlayer(1, 0, "gun")
     check unarmed.players[0].carryKills == 0
 
-  test "Second Wind requires the KILL after the heal, inside the window -- not just both having happened":
-    # The bug this replaces: the old gate compared "now" to `clutchHealTick`
-    # on every poll, so ANY lifetime kill plus a recent heal satisfied it,
-    # order unchecked. This proves the fix three ways: heal-then-kill inside
-    # the window sets it, a kill BEFORE the heal does not, and a kill outside
-    # the window does not either.
-    var healThenKill = twoTeamGame()
-    healThenKill.players[0].hp = 1
-    healThenKill.players[0].x = healThenKill.medKitSpawns[0].x
-    healThenKill.players[0].y = healThenKill.medKitSpawns[0].y
-    healThenKill.tryPickupMedKits(0)
-    check healThenKill.players[0].clutchHeals == 1
-    healThenKill.tickCount += 10
-    healThenKill.players[1].x = healThenKill.players[0].x + 300
-    healThenKill.players[1].y = healThenKill.players[0].y
-    healThenKill.killPlayer(1, 0, "gun")
-    check healThenKill.players[0].secondWind
+  test "GLORY LAW E3 -- ASSIST credits the SET-UP, never the finisher or a self-hit":
+    # A real gunfight: Blue 2 wounds Red 0's target first (a survived hit,
+    # non-lethal), then Red 1 lands the actual kill. `lastDamagedBy` on the
+    # victim must name Blue 2 -- wait, ASSIST is about CREDITING a teammate
+    # of the KILLER, so this drives it the other way: two REDS damage one
+    # BLUE, a different Red finishes it.
+    var sim = twoRedTwoBlue()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[2].x = cx        # Blue 2, the eventual victim
+    sim.players[2].y = cy
+    sim.players[2].hp = 2
+    sim.players[0].x = cx - 20   # Red 0: deals the SET-UP hit
+    sim.players[0].y = cy
+    sim.players[0].aimBrads = 0
+    sim.players[0].fireCooldown = 0
+    sim.resolveSimultaneousFire([0])
+    check sim.players[2].alive
+    check sim.players[2].hp == 1
+    check sim.players[2].lastDamagedBy == 0
 
-    # A kill BEFORE any heal: no clutch heal has landed yet, so this must not
-    # arm the flag even though a later heal will make `clutchHealTick` recent.
-    var killThenHeal = twoTeamGame()
-    killThenHeal.players[1].x = killThenHeal.players[0].x + 300
-    killThenHeal.players[1].y = killThenHeal.players[0].y
-    killThenHeal.killPlayer(1, 0, "gun")
-    check not killThenHeal.players[0].secondWind
-    killThenHeal.players[1].alive = true
-    killThenHeal.players[0].hp = 1
-    killThenHeal.players[0].x = killThenHeal.medKitSpawns[0].x
-    killThenHeal.players[0].y = killThenHeal.medKitSpawns[0].y
-    killThenHeal.tryPickupMedKits(0)
-    # The heal came AFTER the only kill this life has made -- nothing should
-    # retroactively arm the flag, and there is no second kill to arm it now.
-    check not killThenHeal.players[0].secondWind
+    # Red 1 lands the finishing blow -- a DIFFERENT teammate, inside the
+    # window: credits Red 0 with the assist, never Red 1 (who already banked
+    # the kill deed) and never Blue 2 itself.
+    sim.tickCount += 5
+    sim.killPlayer(2, 1, "gun")
+    check sim.players[0].assists == 1
+    check sim.players[1].assists == 0
 
-    # A kill outside the 120-tick window: too late to be "an answer".
-    var tooLate = twoTeamGame()
-    tooLate.players[0].hp = 1
-    tooLate.players[0].x = tooLate.medKitSpawns[0].x
-    tooLate.players[0].y = tooLate.medKitSpawns[0].y
-    tooLate.tryPickupMedKits(0)
-    tooLate.tickCount += 121
-    tooLate.players[1].x = tooLate.players[0].x + 300
-    tooLate.players[1].y = tooLate.players[0].y
-    tooLate.killPlayer(1, 0, "gun")
-    check not tooLate.players[0].secondWind
+    # A SOLO kill (the same cog dealt every hit) must not self-credit: the
+    # killer's own prior hit is exactly what `lastDamagedBy`'s "not the
+    # finisher" gate is for.
+    var solo = twoRedTwoBlue()
+    solo.players[3].x = cx
+    solo.players[3].y = cy
+    solo.players[3].hp = 2
+    solo.players[1].x = cx - 20
+    solo.players[1].y = cy
+    solo.players[1].aimBrads = 0
+    solo.players[1].fireCooldown = 0
+    solo.resolveSimultaneousFire([1])
+    check solo.players[3].alive
+    solo.killPlayer(3, 1, "gun")
+    check solo.players[1].assists == 0
+
+  test "GLORY LAW E3 -- RESCUE credits the killer, and re-gated Second Wind arms the RESCUED cog, not the rescuer":
+    # RE-GATED (was treeMedKit's self-heal Second Wind, retired with the rest
+    # of that tree): "get rescued, then land a kill of your own" now, driven
+    # end to end through the real damage-site `menacingTick` pin and the real
+    # `killPlayer` RESCUE/Second-Wind logic -- not hand-set counters.
+    var sim = twoRedTwoBlue()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    # Blue 2 menaces Red 0: one real gunshot that leaves Red 0 alive, at
+    # exactly ClutchHpThreshold.
+    sim.players[0].x = cx - 20        # Red 0 (about to be menaced)
+    sim.players[0].y = cy
+    sim.players[0].hp = ClutchHpThreshold + 1
+    sim.players[2].x = cx + 20        # Blue 2 (the menacer)
+    sim.players[2].y = cy
+    sim.players[2].aimBrads = 128     # west, toward Red 0
+    sim.players[2].fireCooldown = 0
+    sim.resolveSimultaneousFire([2])
+    check sim.players[0].alive
+    check sim.players[0].hp == ClutchHpThreshold
+    check sim.players[2].menacingTick == sim.tickCount
+    check sim.players[2].menacingVictim == 0
+
+    # Red 1 answers: kills Blue 2 inside RescueWindowTicks. Credits Red 1
+    # with a rescue, and pins `rescuedTick` on Red 0 -- the cog who was
+    # ACTUALLY in danger, never the rescuer.
+    sim.tickCount += 10
+    sim.killPlayer(2, 1, "gun")
+    check sim.players[1].rescues == 1
+    check sim.players[0].rescuedTick == sim.tickCount
+    check not sim.players[1].secondWind    # the RESCUER wasn't rescued
+
+    # Red 0, the RESCUED cog, lands its OWN kill inside SecondWindTicks --
+    # THIS arms Second Wind, and only for Red 0.
+    sim.tickCount += 5
+    sim.killPlayer(3, 0, "gun")
+    check sim.players[0].secondWind
+    check not sim.players[1].secondWind
+
+    # A rescue OUTSIDE RescueWindowTicks (the menace is stale) must not
+    # credit anything.
+    var stale = twoRedTwoBlue()
+    stale.players[0].x = cx - 20
+    stale.players[0].y = cy
+    stale.players[0].hp = ClutchHpThreshold + 1
+    stale.players[2].x = cx + 20
+    stale.players[2].y = cy
+    stale.players[2].aimBrads = 128
+    stale.players[2].fireCooldown = 0
+    stale.resolveSimultaneousFire([2])
+    check stale.players[2].menacingTick == stale.tickCount
+    stale.tickCount += RescueWindowTicks + 1
+    stale.killPlayer(2, 1, "gun")
+    check stale.players[1].rescues == 0
+    check stale.players[0].rescuedTick == -1
+
+  test "GLORY LAW E3 -- SQUAD VOLLEY needs 3+ DISTINCT teammates, not one cog farming kills":
+    # A team-wide fact: no single cog can trigger it alone, however many
+    # kills they personally land.
+    var solo = redVsTwoBlue()
+    solo.killPlayer(1, 0, "gun")
+    solo.players[1].alive = true
+    solo.killPlayer(1, 0, "gun")
+    solo.players[1].alive = true
+    solo.killPlayer(1, 0, "gun")
+    check not solo.squadVolleyDone[Red]     # three kills, ONE killer: no volley
+
+    # Three DIFFERENT teammates, each with a kill inside the window: fires.
+    var volley = twoRedTwoBlue()
+    discard volley.addPlayer("red2")
+    volley.players[4].team = Red
+    volley.killPlayer(2, 0, "gun")
+    volley.players[2].alive = true
+    volley.killPlayer(2, 1, "gun")
+    volley.players[2].alive = true
+    volley.killPlayer(2, 4, "gun")
+    check volley.squadVolleyDone[Red]
 
   test "a capture while outnumbered fires Uphill; an even capture does not":
     # v6 (GLORY C3b): capturedOutnumbered is PINNED at recordCapture, so this
@@ -1129,18 +1325,22 @@ suite "glory in the sim: Clean Sheet is full-game, conclusion-only":
     loser.finishGame(Blue)         # Red loses; Blue, the clean team, wins
     check not loser.claimed[Red][achievementKey(treeSquad, 3)]
 
-  test "both teams clean at the same conclusion both take FIRST":
+  test "both teams clean at the same conclusion both claim -- NEITHER reads first (GLORY LAW E4)":
+    # v9 (GLORY LAW E4): Clean Sheet is tier IV (index 3), not tier V -- the
+    # FIRST race no longer reaches it at all, so this same-tick tie now
+    # resolves as "both claim, both at base price," not "both take the x3."
     var sim = twoTeamGame()
     sim.finishGame(Red)
     check sim.claimed[Red][achievementKey(treeSquad, 3)]
     check sim.claimed[Blue][achievementKey(treeSquad, 3)]
-    var redFirst, blueFirst = false
+    var redFirst, blueFirst = true   # default true so a missing claim fails loud
     for claim in sim.achievementFeed:
       if claim.tree == treeSquad and claim.tier == 3:
         if claim.team == Red: redFirst = claim.first
         if claim.team == Blue: blueFirst = claim.first
-    check redFirst
-    check blueFirst
+    check not redFirst
+    check not blueFirst
+    check sim.teamGlory[Red] == sim.teamGlory[Blue]   # both paid base, equally
 
 suite "glory in the sim: the hover inspector":
 

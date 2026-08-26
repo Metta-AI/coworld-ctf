@@ -9,7 +9,7 @@ const
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
   #   capture-seed7:  record_fixture.sh <out> 7
-  #   wipe-lives1:    record_fixture.sh <out> 15 10000 \
+  #   wipe-lives1:    record_fixture.sh <out> 12 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
   #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
@@ -35,10 +35,14 @@ const
   # scenario (lives:1, no carrier) never touches the flag): seed 15 held,
   # still a clean one-sided wipe, but BLUE this time, not RED -- no test
   # below pins a specific winning team for this fixture, only that it is a
-  # clean (non-draw) wipe, so no assertion needed re-pinning. Pick a seed by
-  # outcome, not by habit: try a few and read the herald log's last line
-  # before committing a recording. Then re-pin the capture winner asserted
-  # below to the new recording.
+  # clean (non-draw) wipe, so no assertion needed re-pinning. Re-recorded
+  # AGAIN for GLORYVERSION 9 (2026-08-26, LAW AUDIT wave -- the new E2/E3
+  # counters and hashed plumbing move gameHash): seed 15 now resolves as a
+  # mutual-wipe draw again (9, 13, 16 also tried and drew) -- seed 12 (the
+  # v6-era seed) is the one that came back clean this time, RED by wipe. Pick
+  # a seed by outcome, not by habit: try a few and read the herald log's last
+  # line before committing a recording. Then re-pin the capture winner
+  # asserted below to the new recording.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
@@ -178,10 +182,14 @@ suite "broadcast state channel":
       # gameplay regression. Re-pin on every re-record). Re-recorded again
       # for GLORY v7 (2026-08-25, FIX WAVE E) -- still a RED capture, no
       # re-pin needed. Re-recorded AGAIN for GLORY v8 (2026-08-25, FAST BREAK
-      # wave) -- still a RED capture, no re-pin needed.
+      # wave) -- still a RED capture, no re-pin needed. Re-recorded AGAIN for
+      # GLORYVERSION 9 (2026-08-26, LAW AUDIT wave -- the new E2/E3 counters
+      # and hashed plumbing move gameHash) -- flipped to a BLUE capture this
+      # time, same bot-connection-order variance the 2026-08-24 note already
+      # explains, not a gameplay regression.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "red"
+      check state["over"]["winner"].getStr == "blue"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
@@ -213,7 +221,7 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "red"
+      check verdicts[0]["winner"].getStr == "blue"   # see the re-pin note above
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
