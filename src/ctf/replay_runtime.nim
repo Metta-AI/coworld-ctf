@@ -128,7 +128,11 @@ proc buildReplayViewerPacket*(
       if sendLead: replay.beatEvents else: nil,
       inspectSlot,
       inspectLines,
-      if sendLead: replay.gloryLine else: @[]
+      if sendLead: replay.gloryLine else: @[],
+      # The curriculum table (names + descriptions per tree/tier) rides the
+      # SAME send-once first HUD frame as the glory series -- the client
+      # caches it for the achievement-panel hover tooltips.
+      includeCurriculum = sendLead
     )
   )
   if sendLead:
