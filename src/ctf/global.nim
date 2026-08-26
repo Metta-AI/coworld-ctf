@@ -359,32 +359,41 @@ const
                                ## it rather than colliding with it.
   GloryPopZ = 30008            ## above the damage pops (30006) and everything
                                ## they already sit above.
-  ## Magnitude → type size, in logical px of line box. Our economy is one-shot
-  ## kills over few lives, so the KILL pop is the workhorse and it sets the
-  ## floor; the rare, expensive deeds (capture 250, wipe 400, denial 120) are
-  ## the ones that get to shout.
-  GloryPopMidGlory = 40        ## |glory| at or above this reads one step up.
-  GloryPopBigGlory = 150       ## |glory| at or above this reads two steps up.
-  GloryPopMidLiftPx = 0        ## extra line box for a mid-magnitude pop.
-                               ## VOCABULARY V5: was 3 -- toned to 0. Now that
-                               ## VOCABULARY V4 gives every combat deed its
-                               ## own WORD (buildGloryChipSprite's two-tone
-                               ## render), the word itself is what makes a
-                               ## mid-tier deed (ace tag, steal, the peel,
-                               ## doorstep) read as more than a bare number;
-                               ## it no longer also needs its OWN type-size
-                               ## step, which was the ceiling Maxwell flagged
-                               ## as too loud.
-  GloryPopBigLiftPx = 4        ## extra line box for a big-magnitude pop.
-                               ## VOCABULARY V5: was 8, halved -- still a real
-                               ## step up for capture/wipe (the two deeds this
-                               ## economy is actually about, per this block's
-                               ## own comment), just a smaller one. Mirrors
-                               ## the capped x2 integer bump
-                               ## gloryClaimTextExtraScale now gives the same
-                               ## two deeds on the boardScale>1 chip path, so
-                               ## the two render paths agree on "how much
-                               ## bigger is big."
+  ## POP MOTION WAVE fix (Maxwell, live review, screenshot showing a tiny
+  ## FIRST claim "THE PEEL +6" rendered bigger than "SAVE +100" sitting next
+  ## to it): "they should scale by the points." Size used to follow POP
+  ## KIND -- a claim scaled on whether it was the FIRST team to earn that
+  ## tier (gloryClaimTextExtraScale's old `pop.first` branch), a deed scaled
+  ## on its OWN separate big-glory check -- so the two kinds could (and did)
+  ## disagree about what "big" means for the same payout. ONE ladder now,
+  ## keyed purely on |amount|, shared by every floating pop: deed, claim,
+  ## rank-up, penalty alike (gloryPopExtraScale / gloryPopSizeLiftPx).
+  GloryPopSizeSmallGlory = 20   ## below this: the compact 1x floor (the
+                               ## 640-legibility bound -- nothing shrinks
+                               ## past today's baseline size).
+  GloryPopSizeLargeGlory = 100 ## at/above this: crosses into 2x RASTER
+                               ## scale -- the same ceiling the old FIRST-only
+                               ## bump already used. V5's tone-down bar still
+                               ## applies here: nothing scales past 2x, so
+                               ## the rare capture/wipe number still can't
+                               ## dominate the board.
+  GloryPopSizeHugeGlory = 300  ## at/above this: stays at the SAME 2x raster
+                               ## ceiling (never 3x+) but gets extra line-box
+                               ## air (GloryPopHugeLiftPx) so a genuinely
+                               ## huge number still reads as the biggest
+                               ## thing on screen without re-inflating the
+                               ## glyphs themselves.
+  GloryPopMidLiftPx = 2        ## extra line box for the 20-99 tier -- a
+                               ## bitmap font can only scale by clean
+                               ## integers (so 20-99 can't get its own
+                               ## fractional raster step), but it still needs
+                               ## to read as a HAIR bigger than the <20 floor
+                               ## for the ladder to feel continuous.
+  GloryPopBigLiftPx = 4        ## extra line box for the 100-299 tier, ON TOP
+                               ## of the 2x raster scale.
+  GloryPopHugeLiftPx = 8       ## extra line box for the 300+ tier -- roughly
+                               ## double GloryPopBigLiftPx's own step, the
+                               ## ladder's last rung.
   ## --- POP MOTION WAVE (P1 track / P2 scatter+angle / P3 stagger) ---
   GloryPopTrackedAirPx = 4     ## P1: a few px of clear air above the tallest
                                ## thing in a TRACKED pop's own overhead stack
@@ -507,12 +516,11 @@ const
                                ## flat brightness lift on top of the boost, so
                                ## the name ink reads as "wet paint," not a flat
                                ## team swatch.
-  GloryChipFirstTextExtraScale = 2  ## D1: a first claim's ONLY size lever --
-                               ## an integer multiple of buildChunkyBoardText's
-                               ## own natural size (a bitmap font can only
-                               ## scale cleanly by whole numbers, SPLAT C7).
-                               ## Applied to BOTH the name and payout runs so
-                               ## the whole line grows together.
+  ## GloryChipFirstTextExtraScale RETIRED (POP MOTION WAVE fix): a first
+  ## claim's scale bump double-counted against the new amount-driven ladder
+  ## (gloryPopExtraScale) -- a tiny FIRST claim no longer scales up just for
+  ## being first, only for what it actually paid. The one-shot corner burst
+  ## below stays as FIRST's own flavor.
   GloryChipFirstBurstMinPx = 4'f32  ## D1: radius floor of a first claim's
                                ## one-shot corner-burst specks, logical px.
   GloryChipFirstBurstMaxPx = 5'f32  ## D1: radius ceiling.
@@ -5318,42 +5326,50 @@ proc gloryPopLabelKey(pop: GloryFx, text: string, seed: uint32): uint32 =
   result = result xor seed
   result = result * 16777619'u32
 
-proc gloryClaimTextExtraScale(pop: GloryFx): int =
-  ## An integer multiple of buildChunkyBoardText's own natural size (a bitmap
-  ## font can only scale cleanly by whole numbers, SPLAT C7).
-  ##
-  ## An ACHIEVEMENT claim's ONLY lever is D1's FIRST bump (GloryChipFirstTextExtraScale)
-  ## -- unrelated to the tier's own payout, since law 3 already keeps every
-  ## tier's magnitude small and close together (TierGlory doubles 2..32; see
-  ## glory.nim). A plain DEED's word pop (VOCABULARY V4/V5) instead scales on
-  ## its own GLORY magnitude, same as the boardScale==1 path already did via
-  ## gloryPopLineBox's tiers -- but CAPPED at the identical x2 an achievement
-  ## FIRST claim uses, so the rare capture/wipe pop reads bigger without ever
-  ## outshouting a real achievement (Maxwell: "tone down the size of the
-  ## numbers and the achievement pop ups" -- the cap is what keeps a big
-  ## number from re-inflating past where V5 put the ceiling). Only the BIG
-  ## tier gets this bump now (GloryPopMidLiftPx's own comment explains why
-  ## the mid tier no longer needs one: the WORD itself already carries that
-  ## read).
-  if pop.first:
-    GloryChipFirstTextExtraScale
-  elif pop.label.len == 0 and abs(pop.amount) >= GloryPopBigGlory:
-    GloryChipFirstTextExtraScale
+proc gloryPopExtraScale(pop: GloryFx): int =
+  ## POP MOTION WAVE fix (Maxwell: "they should scale by the points"): ONE
+  ## amount-driven size ladder for EVERY floating pop -- deed, claim,
+  ## rank-up, penalty alike -- an integer multiple of buildChunkyBoardText's
+  ## own natural size (a bitmap font can only scale cleanly by whole
+  ## numbers, SPLAT C7). Replaces the old split logic where a claim scaled
+  ## on `pop.first` (an achievement-progression concept, unrelated to its
+  ## own payout) and a deed scaled on a SEPARATE big-glory check -- the two
+  ## kinds could disagree about what "big" means for the identical number.
+  ## Below GloryPopSizeLargeGlory: 1x (the 640-legibility floor). At/above
+  ## it: 2x, and NEVER higher -- V5's tone-down bar ("nothing dominates the
+  ## board") still applies, so GloryPopSizeHugeGlory gets more air
+  ## (gloryPopSizeLiftPx) instead of a 3rd raster step.
+  if abs(pop.amount) >= GloryPopSizeLargeGlory:
+    2
   else:
     1
 
+proc gloryPopSizeLiftPx(pop: GloryFx): int =
+  ## Extra line-box height layered UNDER gloryPopExtraScale's raster ladder,
+  ## so all FOUR size tiers read as distinct steps even though the raster
+  ## itself only has two clean-integer states. Shared by every pop kind
+  ## exactly like the scale ladder above -- amount alone decides, never
+  ## `label`/`word`/`first`.
+  if abs(pop.amount) >= GloryPopSizeHugeGlory:
+    GloryPopHugeLiftPx
+  elif abs(pop.amount) >= GloryPopSizeLargeGlory:
+    GloryPopBigLiftPx
+  elif abs(pop.amount) >= GloryPopSizeSmallGlory:
+    GloryPopMidLiftPx
+  else:
+    0
+
 proc gloryClaimTextLogicalHeight(sim: SimServer, pop: GloryFx): int =
-  ## The claim's own text-only footprint height, in LOGICAL (1x) px: exactly
-  ## what buildChunkyBoardText itself will report for one run at this pop's
-  ## own extraScale (glyphH + 2, its own baked-in contour margin, times the
-  ## scale) -- plus GloryChipBurstMarginPx on each side for a first claim's
-  ## one-shot corner burst, so the canvas the sprite builder actually
-  ## allocates and the floor the row-stacking math assumes (gloryPopLineBox /
-  ## gloryStackLift, below) can never drift apart. Zero extra margin for
-  ## every other claim: plain floating text needs no reservation beyond what
-  ## buildChunkyBoardText already bakes in.
-  let scale = gloryClaimTextExtraScale(pop)
-  (max(1, sim.shoutFont.height) + 2) * scale +
+  ## The claim/worded-pop's own text-only footprint height, in LOGICAL (1x)
+  ## px: exactly what buildChunkyBoardText itself will report for one run at
+  ## this pop's own extraScale (glyphH + 2, its own baked-in contour margin,
+  ## times the scale) -- plus gloryPopSizeLiftPx's own amount-driven step,
+  ## plus GloryChipBurstMarginPx on each side for a first claim's one-shot
+  ## corner burst, so the canvas the sprite builder actually allocates and
+  ## the floor the row-stacking math assumes (gloryPopLineBox / gloryStackLift,
+  ## below) can never drift apart.
+  let scale = gloryPopExtraScale(pop)
+  (max(1, sim.shoutFont.height) + 2) * scale + gloryPopSizeLiftPx(pop) * scale +
     (if pop.first: GloryChipBurstMarginPx * 2 else: 0)
 
 var gloryChipCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
@@ -5739,15 +5755,16 @@ proc buildGloryChipSprite(
   ## longer a backing to guarantee contrast against -- team color now carries
   ## the "whose paint is this" read the blob used to.
   ##
-  ## A first claim's WHOLE distinction is now bigger type
-  ## (GloryChipFirstTextExtraScale, an integer bump a bitmap font can scale
-  ## by cleanly) plus a one-shot burst of a few paint specks flung off one
-  ## corner AT SPAWN ONLY (stage == 0) -- seasoning the text, never building
-  ## a second structure around it. Never gold: the burst paints in the exact
-  ## same boosted team ink the name run uses. A big-magnitude DEED pop
-  ## (VOCABULARY V5) gets the identical `extraScale` bump on the SAME
-  ## GloryChipFirstTextExtraScale cap (gloryClaimTextExtraScale's own
-  ## comment), but never the burst -- the burst stays a claim-only flourish.
+  ## POP MOTION WAVE fix: type size is now driven PURELY by `gloryPopExtraScale`
+  ## (|amount|, shared by every pop kind) -- a first claim's own distinction
+  ## is JUST the one-shot burst of paint specks flung off one corner AT
+  ## SPAWN ONLY (stage == 0), no longer a scale bump of its own (that used
+  ## to double-count: a tiny FIRST claim rendered bigger than a genuinely
+  ## large deed sitting right next to it -- Maxwell: "they should scale by
+  ## the points"). Never gold: the burst paints in the exact same boosted
+  ## team ink the name run uses, and it stays a claim-only flourish -- a big
+  ## deed pop reaches the same 2x scale on its own payout, but never draws
+  ## the burst.
   ##
   ## boardScale > 1 only; the caller falls back to plain type at 1x, where
   ## there is no vector budget for a claim (gloryPopText is what's drawn
@@ -5755,7 +5772,7 @@ proc buildGloryChipSprite(
   let
     text = gloryPopText(pop)
     isFirst = pop.first
-    extraScale = gloryClaimTextExtraScale(pop)
+    extraScale = gloryPopExtraScale(pop)
     cacheKey = text & "\x1f" & $ord(isFirst) & "\x1f" & $stage & "\x1f" &
       $boardScale
   if gloryChipCache.hasKey(cacheKey):
@@ -5840,14 +5857,13 @@ proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
   ## Magnitude-scaled type size for a plain deed pop (kill vs capture vs
   ## wipe), OR a claim's own text-only logical footprint height
   ## (gloryClaimTextLogicalHeight, D1 REDIRECT -- no more backing to size
-  ## around, just the text plus a first claim's own burst margin).
+  ## around, just the text plus a first claim's own burst margin). Both
+  ## branches now read the SAME amount-driven ladder (gloryPopSizeLiftPx) --
+  ## POP MOTION WAVE fix: they used to disagree (a claim never took this
+  ## bare-number lift at all).
   if pop.label.len > 0:
     return sim.gloryClaimTextLogicalHeight(pop)
-  result = max(1, sim.asciiSprites.height) + 2
-  if abs(pop.amount) >= GloryPopBigGlory:
-    result += GloryPopBigLiftPx
-  elif abs(pop.amount) >= GloryPopMidGlory:
-    result += GloryPopMidLiftPx
+  result = max(1, sim.asciiSprites.height) + 2 + gloryPopSizeLiftPx(pop)
 
 proc gloryPopTrackedOverheadLiftPx(sim: SimServer, pop: GloryFx): int =
   ## POP MOTION WAVE P1: how far above a TRACKED pop's own anchor (`pop.y` --
@@ -5985,9 +6001,12 @@ proc buildGloryPopSpriteUnrotated(
     let
       fade = 1.0 - 0.85 * (stage.float / float(max(1, GloryPopStages - 1)))
       alphaByte = uint8(clamp(255.0 * fade, 0.0, 255.0))
-      lineBoxPx = sim.gloryPopLineBox(pop)
-      extraScale = max(1,
-        (lineBoxPx + sim.shoutFont.height - 1) div sim.shoutFont.height)
+      # POP MOTION WAVE fix: read the SAME shared amount-driven ladder every
+      # other pop kind uses (gloryPopExtraScale), rather than back-deriving
+      # a scale from gloryPopLineBox's height by a rounding ratio -- this
+      # bare/wordless path must land on the identical 1x/2x cut as the
+      # chip path for the same |amount|.
+      extraScale = gloryPopExtraScale(pop)
       textSpr = sim.buildChunkyBoardText(text, ink[0], ink[1], ink[2],
         extraScale)
     result.width = textSpr.width
