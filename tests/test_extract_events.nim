@@ -19,6 +19,10 @@ const
   # majority of same-seed attempts under v6 resolved to gun-only kills or a
   # capture-less game -- this is the recording (of ~16 tried) that hit all
   # three weapons, a steal, a return, a heal, AND a capture in one game.
+  # Re-recorded AGAIN for GLORY v7 (2026-08-25, FIX WAVE E): same seed 600,
+  # same story -- 18 attempts before one landed the full mix (gun, spray,
+  # AND grenade kills, a steal, a return, a heal, and a capture), verified
+  # with a one-off checker script over `extractEvents` before committing.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":

@@ -9,7 +9,7 @@ const
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
   #   capture-seed7:  record_fixture.sh <out> 7
-  #   wipe-lives1:    record_fixture.sh <out> 12 10000 \
+  #   wipe-lives1:    record_fixture.sh <out> 15 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
   #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
@@ -24,10 +24,15 @@ const
   # (2026-08-25): seed 9 itself now resolves as a mutual-wipe draw under the
   # v6 economy (bot connection order is not fully deterministic across
   # recordings even at a fixed seed, and the tuned buffs/xp this wave shipped
-  # can shift which team survives longer) -- seed 12 is the seed that
-  # resolved clean this time. Pick a seed by outcome, not by habit: try a
-  # few and read the herald log's last line before committing a recording.
-  # Then re-pin the capture winner asserted below to the new recording.
+  # can shift which team survives longer) -- seed 12 was the seed that
+  # resolved clean THEN. Moved AGAIN in GLORY v7 (2026-08-25, FIX WAVE E):
+  # seed 12 itself now resolves as a mutual-wipe draw under v7's re-fit
+  # LevelThresholds and reordered curricula (12, 13, 14, 16 all tried and
+  # drew; 9 won by capture, not a wipe) -- seed 15 is the seed that resolved
+  # a clean one-sided RED wipe this time. Pick a seed by outcome, not by
+  # habit: try a few and read the herald log's last line before committing a
+  # recording. Then re-pin the capture winner asserted below to the new
+  # recording.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
@@ -164,7 +169,9 @@ suite "broadcast state channel":
       # cycle, 2026-08-24: Red captures -- flipped from Blue on this
       # re-record; nothing in that cycle touched combat/movement, so this is
       # ordinary bot-connection-order variance across recordings, not a
-      # gameplay regression. Re-pin on every re-record).
+      # gameplay regression. Re-pin on every re-record). Re-recorded again
+      # for GLORY v7 (2026-08-25, FIX WAVE E) -- still a RED capture, no
+      # re-pin needed.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
       check state["over"]["winner"].getStr == "red"
