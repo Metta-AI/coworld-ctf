@@ -4347,7 +4347,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       return winL !== loseL ? 'TIME LIMIT — LIVES TIEBREAK' : 'TIME LIMIT — HEART PROGRESS';
     }
     var loserLives = o.winner === 'red' ? o.blueLives : o.redLives;
-    return loserLives <= 0 ? 'ELIMINATION' : 'HEART CAPTURE';
+    return loserLives <= 0 ? 'WIPEOUT' : 'HEART CAPTURE';
   }
 
   function endcardOrder(a, b) {
@@ -4814,7 +4814,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       var loserLives = winner === 'red' ? blueL : redL;
       if (loserLives <= 0) {
         head.textContent = winName + ' WHITEWASHES ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
-        how.textContent = winName + ' eliminated every opposing life.';
+        how.textContent = winName + ' splatted the whole squad out.';
       } else {
         how.textContent = winName + ' captured the enemy heart.';
       }
