@@ -28,6 +28,20 @@ const
   # recording): same seed 600, only 3 attempts this time -- 15 gun, 3 spray,
   # 1 grenade kill, a steal, a return, a heal, and a capture (RED, by
   # capture), verified the same way before committing.
+  # Re-recorded AGAIN for GLORYVERSION 9 (2026-08-26, LAW AUDIT wave -- the
+  # new E2/E3 counters and hashed plumbing move gameHash): seed 600 itself
+  # (7 attempts across seed 600 and 601-603) never landed a grenade kill this
+  # time -- ⚠️ HONEST GAP, not a silently-accepted shortcut: this test's own
+  # `check` statements (below) never actually required all three weapons or
+  # a capture to begin with (only `sawKill`/`sawAchievement`/`sawGloryDeed`/
+  # `sawLevelUp`/valid hp traces), so seed 603 -- the richest of the 7 tried
+  # (51 gun-family kills, 3 spray kills, 18 steals, 17 returns, 26 heals) --
+  # was kept over the historically-canonical seed 600, even though it ends
+  # in a time-limit draw rather than a capture. Verified with a one-off
+  # checker script over `extractEvents` before committing, same as every
+  # prior re-record. A future pass that specifically wants a grenade kill
+  # and/or a capture back in this fixture should keep trying seeds; this one
+  # did not chase that further given the actual assertions below do not need it.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":

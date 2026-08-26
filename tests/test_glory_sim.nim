@@ -1014,11 +1014,17 @@ suite "glory in the sim: the v3 counters fire off REAL engine mechanics":
       result = twoRedOneBlue()
       result.addXp(0, LevelThresholds[AceLevel - 1])
       # Crossing AceLevel with a big enough jump can already spend
-      # SupplyDropXp worth of credit and drop kit as a side effect of the
-      # level-up itself -- clear the physical pickup list (not the player's
-      # own credit/cooldown accounting) so the deliberate top-up below
-      # produces exactly the ONE controlled drop this scenario needs.
+      # SupplyDropXp worth of credit and drop kit (advancing
+      # `supplyDropsThisLife`, so the NEXT drop would cycle to the SECOND
+      # `SupplyDropCycle` slot, "grenade") as a side effect of the level-up
+      # itself -- reset the veteran's own drop bookkeeping back to a clean
+      # slate (not the achievement counters this scenario is actually
+      # testing) so the deliberate top-up below produces exactly ONE
+      # controlled "med kit" drop, the fixed rotation's own first slot.
       result.supplyDropPickups = @[]
+      result.players[0].supplyDropsThisLife = 0
+      result.players[0].supplyDropCredit = 0
+      result.players[0].lastSupplyDropTick = -1
       result.tickCount += SupplyDropCooldownTicks
       result.addXp(0, SupplyDropXp)
       doAssert result.supplyDropPickups.len == 1

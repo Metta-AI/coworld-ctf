@@ -1245,7 +1245,7 @@ const
     ## multiplier makes the other three teams' later claims feel more like
     ## consolation prizes) -- but not fit against a measured
     ## first-to-claim distribution.
-  AchievementSweepBudgetPct* = 31
+  AchievementSweepBudgetPct* = 27
     ## Law 3 as Muster states it: a full sweep must stay under this share of a
     ## MEDIAN WINNER's episode glory.
     ##
@@ -1253,15 +1253,20 @@ const
     ## a placeholder; the field-measured RECOMMENDED value under the v8
     ## curriculum was 28 -- see v8's own gloryscore.py sweep-budget dump).
     ## tools/ladder/gloryscore.py, same 120-episode `--min-version 0.7.200`
-    ## cache (2026-08-26): full-sweep base moved 496 -> 600 (the new
-    ## `TierGlory` sum), wipe-corrected median winner glory 1826 -> 1956 (the
-    ## richer achievement ledger itself lifts winner totals a little), giving
-    ## a RECOMMENDED value of 31 (was 28) -- the budget moved LESS than the
-    ## price table did (600/496 = +21% vs 31/28 = +11%) because winner glory
-    ## also grew, not just the sweep. Still the SOFT number: `tests/
-    ## test_glory.nim` continues to assert only the DERIVED, denominator-free
-    ## form (`sum(TierGlory) * AchievementTrees < dCapture + dWipe`), which
-    ## this constant does not gate -- see that test's own comment for why a
+    ## cache (2026-08-26, run against the FULLY v9-synced mirror -- new
+    ## TierGlory, the FIRST-tier-V-only cap, and the E2/E3 gate rewrites all
+    ## landed): full-sweep base moved 496 -> 600 (the new `TierGlory` sum),
+    ## wipe-corrected median winner glory 1826 -> 2287 (the richer
+    ## achievement ledger AND the new E2/E3 deed/xp mix both lift winner
+    ## totals), giving a RECOMMENDED value of 27 (was 28) -- essentially
+    ## unchanged despite the price table growing +21%, because winner glory
+    ## grew by a similar proportion. (An earlier mid-wave reading of 31 was
+    ## taken against a partially-synced mirror -- TierGlory only, before the
+    ## FIRST-cap and E2/E3 gate rewrites landed in gloryscore.py -- and is
+    ## superseded by this one.) Still the SOFT number: `tests/test_glory.nim`
+    ## continues to assert only the DERIVED, denominator-free form
+    ## (`sum(TierGlory) * AchievementTrees < dCapture + dWipe`), which this
+    ## constant does not gate -- see that test's own comment for why a
     ## guessed denominator is worse than none.
     ##
     ## ⚠️ Pre-v9 UNCALIBRATED note, retained for provenance. We have no measured median for paintbot yet, and a
@@ -1282,8 +1287,13 @@ type
     treeGun         ## the weapon every cog spawns with.
     treeSpray       ## the spray can: 28.5% of all kills in the field.
     treeGrenade     ## the corner paint-bomb.
-    treeShield      ## the endzone armor: soak, not damage.
-    treeMedKit      ## the heal line, where we run 5.9x worse than winners.
+    treeShield      ## v9: re-founded as the TEAMWORK tree (assists, escort
+                    ## duty, rescues, the re-gated Second Wind, squad
+                    ## volley) -- was the endzone armor's soak ladder, GONE
+                    ## (self-benefiting; see `AchievementNames`' own comment).
+    treeMedKit      ## v9: re-founded as THE PROVIDER (a teammate consuming
+                    ## kit your own supply drop produced) -- was the
+                    ## self-heal ladder, GONE (same reason).
     treeCarrier     ## steal, run, score.
     treeDefender    ## peel, deny, turn the tables.
     treeSquad       ## TEAM: the full kit fielded at once.
