@@ -6569,10 +6569,30 @@ const
                              ## to 11 significant figures) while breaking
                              ## the flow-delay honesty gate and worsening
                              ## the small-map turning angle 0deg->45deg. The
-                             ## wash-out is not mediated by this term; the
-                             ## real fix is still open — see the research
-                             ## notes / commit history for the falsified
-                             ## hypothesis before trying it again.
+                             ## wash-out is not mediated by this term.
+                             ## SECOND TRY, ALSO REVERTED (edge-parallel
+                             ## anisotropic drag — full F(p) speed along the
+                             ## local advance direction, throttled across
+                             ## it, so lateral corridor travel pays a real
+                             ## toll — see computeZoneFrontierField's git
+                             ## history): also measured ZERO effect on the
+                             ## real-map kink's own angle (89.700...deg,
+                             ## unchanged to 11 significant figures) while
+                             ## regressing door-first (0 -> 1 violation).
+                             ## That insensitivity is the actual diagnosis:
+                             ## neither point forming the kink is EVER
+                             ## improved by propagation at all (an isotropic
+                             ## vs anisotropic propagation change altering
+                             ## nothing means propagation never wins over
+                             ## the raw seed value there) — both are direct
+                             ## t0(p) + zoneBoundaryFingerDelayAt(p) seed
+                             ## reads, untouched by any F(p)/slowness term.
+                             ## The real bug is upstream of propagation
+                             ## speed entirely, most likely in how the
+                             ## finite-difference `angle` (zoneEdgeAngleAt)
+                             ## behaves for a point diagonally outside the
+                             ## rect (both edges' corner-influence region at
+                             ## once) — open for the next pass.
   ZoneArtOverhangMaxPx = 8.0   ## D4a fix: rendered wall ART may hide a floor
                              ## pixel only THIS close to a TRUE (collision)
                              ## wall cell — a rooftop bevel/parapet's own
@@ -7141,6 +7161,31 @@ proc zoneBaseSpeedPxPerTick(sim: SimServer, totalTicks: int): float =
     closeY = float(max(0, fullH - final.h)) * 0.5
   max(0.05, (closeX + closeY) / 2.0 / float(totalTicks))
 
+proc zoneEdgeAngleAt(px, py: float, finalRect: MapRect): tuple[ca, sa: float] =
+  ## The local rotated frame's basis (ca, sa) = (cos, sin) of the outward
+  ## advance direction at map point (px, py) — the finite-difference
+  ## gradient of roundedRectSignedDist against the FINAL rect, same
+  ## construction zoneSpeedFieldAt's fingering term and
+  ## zoneBoundaryFingerDelayAt's seed nudge each used to duplicate inline.
+  ## `along = (ca, sa)` points away from the rect (the advance direction);
+  ## `across = (-sa, ca)` is its perpendicular (tangential to the local
+  ## edge). Shared here so the edge-parallel drag term below (Maxwell's
+  ## fluid-sim survey, 2026-08-25 — anisotropic transport cost) uses the
+  ## EXACT SAME frame the noise sampling does, never a second, potentially
+  ## inconsistent angle.
+  const Eps = 1.0
+  let
+    sdx1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px + Eps, py)
+    sdx0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px - Eps, py)
+    sdy1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py + Eps)
+    sdy0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py - Eps)
+    gx = sdx1 - sdx0
+    gy = sdy1 - sdy0
+    angle =
+      if abs(gx) < 1e-6 and abs(gy) < 1e-6: 0.0
+      else: arctan2(gy, gx)
+  (cos(angle), sin(angle))
+
 proc zoneSpeedFieldAt(px, py: float, wallDistPx: float32, finalRect: MapRect): float =
   ## F(p) for the fast-marching solve below (computeZoneFrontierField) — see
   ## ~/.ctf/knowledge/research/zone-front/ for the eikonal-equation grounding
@@ -7201,19 +7246,8 @@ proc zoneSpeedFieldAt(px, py: float, wallDistPx: float32, finalRect: MapRect): f
       (1.0 - ZoneApertureMinMult)
     wallDrag = smoothRamp01(wallDistPx.float / ZoneWallDragRangePx)
     wallMult = ZoneWallDragMinMult + wallDrag * (1.0 - ZoneWallDragMinMult)
-  const Eps = 1.0
+    (ca, sa) = zoneEdgeAngleAt(px, py, finalRect)
   let
-    sdx1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px + Eps, py)
-    sdx0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px - Eps, py)
-    sdy1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py + Eps)
-    sdy0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py - Eps)
-    gx = sdx1 - sdx0
-    gy = sdy1 - sdy0
-    angle =
-      if abs(gx) < 1e-6 and abs(gy) < 1e-6: 0.0
-      else: arctan2(gy, gx)
-    ca = cos(angle)
-    sa = sin(angle)
     along = px * ca + py * sa
     across = (px * -sa + py * ca) * ZoneFingerAcrossCompress
     noise = zoneMeniscusOctave(along, across, ZoneFingerCellPx,
@@ -7294,19 +7328,8 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
   ## same underlying viscous texture. Bounded to [0, ZoneFlowDelayCapTicks],
   ## the same honesty cap the spec's flow-delay term always had: paint may
   ## be late here, by up to that much, never early.
-  const Eps = 1.0
   let
-    sdx1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px + Eps, py)
-    sdx0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px - Eps, py)
-    sdy1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py + Eps)
-    sdy0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py - Eps)
-    gx = sdx1 - sdx0
-    gy = sdy1 - sdy0
-    angle =
-      if abs(gx) < 1e-6 and abs(gy) < 1e-6: 0.0
-      else: arctan2(gy, gx)
-    ca = cos(angle)
-    sa = sin(angle)
+    (ca, sa) = zoneEdgeAngleAt(px, py, finalRect)
     # `across` — the coordinate TANGENTIAL to the local edge (perpendicular
     # to the advance direction) — is the ONLY spatial input the octaves
     # below read. A flat rect edge crosses its whole length at the SAME
@@ -7428,7 +7451,6 @@ proc computeZoneFrontierField(
         px = float(gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
         py = float(gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
       speedField[idx] = float32(zoneSpeedFieldAt(px, py, ZoneFloorWallDistPx[idx], finalRect))
-  const Sqrt2 = 1.41421356'f32
   let h = float32(ZoneFieldCellPx)
   while pq.len > 0:
     let (t, idx) = pq.pop()
@@ -7479,12 +7501,30 @@ proc computeZoneFrontierField(
       # orthogonal pairs; a diagonal neighbour contributes a 1D-style step
       # of length h*sqrt2, the same upwind idea, better isotropy than 4-
       # connectivity alone).
+      # TRIED AND REVERTED (edge-parallel anisotropic drag, 2026-08-25):
+      # slowed lateral (tangential) propagation relative to radial advance
+      # to price the transport a straight open corridor was suspected of
+      # letting through for free — MEASURED to have ZERO effect on the
+      # real-map right-edge kink's own angle (89.700...deg, unchanged to
+      # 11 significant figures across the change) while regressing
+      # door-first (0 -> 1 violation). The insensitivity is itself
+      # diagnostic: neither of the two points forming that kink is ever
+      # IMPROVED by relaxation at all (an isotropic-vs-anisotropic
+      # propagation change altering NOTHING means propagation never wins
+      # over their own direct seed value there) — both are reading their
+      # raw t0(p) + zoneBoundaryFingerDelayAt(p) seed values untouched.
+      # The real bug is upstream of propagation entirely: those two points
+      # sit diagonally OUTSIDE the current rect (above AND right of it, a
+      # corner-influenced region), where the finite-difference `angle`
+      # zoneEdgeAngleAt derives for the rotated across-coordinate likely
+      # swings sharply over a small move — an open item for the next pass,
+      # not a propagation-speed problem at all.
       for doff in ZoneFrontierOffsets:
         if doff.dx == 0 or doff.dy == 0:
           continue
         let dv = valueAt(gw, gh, nx + doff.dx, ny + doff.dy, result)
         if dv < Inf.float32:
-          best = min(best, dv + slowness * Sqrt2)
+          best = min(best, dv + slowness * 1.41421356'f32)
       # HONESTY FLOOR, folded into the update itself rather than applied as
       # an afterthought (Fable's audit, 2026-08-25): t0(p) is not just a
       # cosmetic reference — it is the exact tick sim.nim's own damage rule
