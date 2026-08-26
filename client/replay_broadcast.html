@@ -4813,7 +4813,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     } else {
       var loserLives = winner === 'red' ? blueL : redL;
       if (loserLives <= 0) {
-        head.textContent = winName + ' WHITEWASHES ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
+        head.textContent = winName + ' SWEEPS ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
         how.textContent = winName + ' splatted the whole squad out.';
       } else {
         how.textContent = winName + ' captured the enemy heart.';
