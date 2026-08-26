@@ -391,6 +391,20 @@ const
                                ## gloryPopTrackedOverheadLiftPx) -- so it
                                ## floats clear of the name band/veteran mark
                                ## rather than just touching it.
+  GloryPopScatterMinPx = 10    ## POP MOTION WAVE P2: least a pop's anchor
+  GloryPopScatterMaxPx = 16    ## scatters sideways off its site (Maxwell:
+                               ## "scatter a bit in a playful way") -- floored
+                               ## above 0 so a burst always visibly fans out,
+                               ## never rolls a near-zero offset that reads as
+                               ## a stack again.
+  GloryPopRotationMinDeg = 6.0'f32  ## P2: least/most a pop tilts off true
+  GloryPopRotationMaxDeg = 10.0'f32 ## vertical, baked into its own raster --
+                               ## enough to read as "flung," never so much the
+                               ## text stops reading as text.
+  GloryPopRiseVarianceMinPct = 85  ## P2: "slight" per-pop rise-speed jitter --
+  GloryPopRiseVarianceMaxPct = 115 ## +/-15% around 100%, so a burst's pops
+                               ## drift apart vertically too instead of rising
+                               ## in perfect lockstep.
   GloryPopInk = (255'u8, 163'u8, 0'u8)
                                ## SPLAT C9: used to be byte-copied from the
                                ## DOM broadcast chrome's --amber (#e8a33d,
@@ -5216,7 +5230,7 @@ proc gloryPopText(pop: GloryFx): string =
   # or two words and a number, full stop.
   result = nameHalf & " " & money
 
-proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
+proc gloryPopLabelKey(pop: GloryFx, text: string, seed: uint32): uint32 =
   ## FNV-1a digest of a pop's rendered TEXT, for use in the sprite LABEL only
   ## (never the pixels — gloryPopText above is still what the player reads).
   ## addBoardSpriteChanged dedupes a sprite by comparing its label, so the
@@ -5236,6 +5250,14 @@ proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
   ## tier no longer changes a single pixel here and folding it in would just
   ## be extra hash work over a value the draw never reads. Hash what you
   ## DRAW, then it cannot rot.
+  ##
+  ## POP MOTION WAVE P2: `seed` (gloryPopScatterSeed) is folded in too, now
+  ## that a pop's raster is no longer a pure function of (text, first) --
+  ## the same text at a different tick/row bakes in a DIFFERENT rotation
+  ## (buildGloryPopSprite), so two such pops must never share one label or
+  ## the wire dedupe would skip re-uploading the second one's actual pixels.
+  ## Still a bare `<n>` in the manifest pattern: `seed` only changes the
+  ## NUMBER, never the string shape.
   result = 2166136261'u32
   let b = uint32(ord(pop.first))
   result = result xor b
@@ -5243,6 +5265,8 @@ proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
   for ch in text:
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
+  result = result xor seed
+  result = result * 16777619'u32
 
 proc gloryClaimTextExtraScale(pop: GloryFx): int =
   ## An integer multiple of buildChunkyBoardText's own natural size (a bitmap
@@ -5316,6 +5340,65 @@ proc gloryChipTextHash(text: string): uint32 =
   for ch in text:
     result = result xor uint32(ord(ch))
     result = result * 16777619'u32
+
+proc gloryPopScatterSeed(pop: GloryFx, text: string): uint32 =
+  ## POP MOTION WAVE P2/P3: one deterministic identity per pop, shared by the
+  ## scatter offset, the raster tilt, the rise-speed jitter, AND (folded into
+  ## gloryPopLabelKey) the wire dedupe key -- text (what it reads), `tick`
+  ## (the pop's TRUE mint tick, never the staggered start), and `row` (this
+  ## pop's own stack slot, fixed once at mint). `row`, not the draw-time wire
+  ## pool `slot`: that slot is a transient per-FRAME rank that can change the
+  ## moment a sibling pop arrives or expires, and keying the scatter off it
+  ## would make a pop visibly jitter between frames. Same three inputs on
+  ## every replay run -> the identical seed every time (determinism law: no
+  ## per-frame randomness anywhere in this file).
+  result = gloryChipTextHash(text)
+  result = result xor (uint32(pop.tick) * 2654435761'u32)
+  result = (result xor (uint32(pop.row) * 40503'u32)) * 16777619'u32
+
+proc gloryPopScatterOffsetPx(seed: uint32): int =
+  ## P2 SCATTER: a small deterministic sideways fling off the pop's anchor --
+  ## between GloryPopScatterMinPx and GloryPopScatterMaxPx, signed, so a
+  ## same-tick burst fans out instead of overprinting straight down one
+  ## column (Maxwell: "scatter a bit in a playful way").
+  let
+    magN = gloryChipNoise(int(seed and 0xffff'u32),
+                          int((seed shr 16) and 0xffff'u32), 8101'u32)
+    mag = GloryPopScatterMinPx + int(magN mod
+      uint32(GloryPopScatterMaxPx - GloryPopScatterMinPx + 1))
+    signN = gloryChipNoise(int(seed and 0xffff'u32),
+                           int((seed shr 16) and 0xffff'u32), 8111'u32)
+  if (signN and 1'u32) == 0'u32: mag else: -mag
+
+proc gloryPopRotationDeg(seed: uint32): float32 =
+  ## P2 SCATTER: a small deterministic tilt, between GloryPopRotationMinDeg
+  ## and GloryPopRotationMaxDeg either way, baked into the pop's own RASTER
+  ## (see the rotation wrap in buildGloryPopSprite) so a boardScale==1 POV
+  ## stream and a hosted-replay embed agree pixel-for-pixel, same as every
+  ## other cosmetic here -- never a client-side CSS transform that could
+  ## drift from what the sim actually drew.
+  let
+    magN = gloryChipNoise(int(seed and 0xffff'u32),
+                          int((seed shr 16) and 0xffff'u32), 8123'u32)
+    mag = GloryPopRotationMinDeg +
+      float32(magN mod 1000'u32) / 999.0'f32 *
+      (GloryPopRotationMaxDeg - GloryPopRotationMinDeg)
+    signN = gloryChipNoise(int(seed and 0xffff'u32),
+                           int((seed shr 16) and 0xffff'u32), 8147'u32)
+  if (signN and 1'u32) == 0'u32: mag else: -mag
+
+proc gloryPopRiseVarianceUnit(seed: uint32): float32 =
+  ## P2 SCATTER: a "slight" per-pop multiplier on how fast THIS pop rises
+  ## (GloryPopRiseVarianceMinPct..MaxPct, centered on 100%), so a burst's
+  ## pops drift apart vertically over their life instead of climbing in
+  ## perfect lockstep. Draw-time only (never baked into the raster or the
+  ## fade `stage`), so the same cached bitmap still serves every pop sharing
+  ## a (text, stage, angle) triple -- only its Y placement varies per pop.
+  let n = gloryChipNoise(int(seed and 0xffff'u32),
+                        int((seed shr 16) and 0xffff'u32), 8161'u32)
+  let pct = GloryPopRiseVarianceMinPct + int(n mod
+    uint32(GloryPopRiseVarianceMaxPct - GloryPopRiseVarianceMinPct + 1))
+  pct.float32 / 100.0'f32
 
 proc gloryChipPaintCore(team: Team): tuple[r, g, b: uint8] =
   ## The achievement NAME's flat "wet paint" ink -- the claiming TEAM's own
@@ -5529,6 +5612,54 @@ proc applySpawnOvershoot(
     newH = max(1, round(logicalH.float32 * scale).int)
   (newW, newH,
     scaleSpritePixelsTo(pixels, logicalW * k, logicalH * k, newW * k, newH * k))
+
+proc rotateSpritePixels(
+  pixels: seq[uint8], logicalW, logicalH, k: int, degrees: float32
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## POP MOTION WAVE P2: rotates an already-composed LOGICAL-dims/NATIVE-
+  ## pixels sprite buffer (the same convention applySpawnOvershoot above
+  ## uses) by a small angle around its own center, padding the canvas so the
+  ## rotated corners never clip. The caller re-centers on
+  ## `sprite.width/height div 2` (addGloryPops) exactly like an overshot
+  ## sprite already does, so a bigger returned canvas needs no placement
+  ## change here either.
+  ##
+  ## Same rotate+translate matrix idiom buildCarryHeartSprite already uses
+  ## for the carried heart's aim-locked spin -- reused rather than invented
+  ## fresh, just against a padded (not same-size) destination canvas since a
+  ## text label's aspect ratio is far from square and a 6-10 degree tilt
+  ## genuinely grows its bounding box.
+  if degrees == 0.0'f32:
+    return (logicalW, logicalH, pixels)
+  let
+    nativeW = logicalW * k
+    nativeH = logicalH * k
+    rad = degrees * PI.float32 / 180.0'f32
+    c = abs(cos(rad))
+    s = abs(sin(rad))
+    # Round UP to the next multiple of `k`: addBoardSpriteChanged's
+    # `native = boardScale` contract assumes native px = logical px * k
+    # EXACTLY, and a canvas that isn't a clean multiple would silently
+    # misdraw (or under-report) its own logical dims.
+    paddedW = ((int(ceil(nativeW.float32 * c + nativeH.float32 * s)) +
+      k - 1) div k) * k
+    paddedH = ((int(ceil(nativeW.float32 * s + nativeH.float32 * c)) +
+      k - 1) div k) * k
+  var src = newImage(nativeW, nativeH)
+  for i in 0 ..< nativeW * nativeH:
+    src.data[i] = rgba(
+      pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2], pixels[i * 4 + 3]
+    ).rgbx()
+  var dst = newImage(paddedW, paddedH)
+  let m = translate(vec2(paddedW.float32 / 2, paddedH.float32 / 2)) *
+    rotate(rad) *
+    translate(vec2(-nativeW.float32 / 2, -nativeH.float32 / 2))
+  dst.draw(src, m)
+  var outPixels = newRgbaPixels(paddedW, paddedH)
+  for i in 0 ..< paddedW * paddedH:
+    let px = dst.data[i].rgba()
+    outPixels.putRawRgbaPixel(i, px.r, px.g, px.b, px.a)
+  (paddedW div k, paddedH div k, outPixels)
 
 proc buildGloryChipSprite(
   sim: SimServer, pop: GloryFx, stage: int
@@ -5760,7 +5891,7 @@ proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
     result = if i == 0: ownFloor else: max(result + belowHeight, ownFloor)
     belowHeight = sim.gloryPopLineBox(rowPop)
 
-proc buildGloryPopSprite(
+proc buildGloryPopSpriteUnrotated(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Dispatches a glory pop to its family's own renderer: anything with a
@@ -5818,6 +5949,41 @@ proc buildGloryPopSprite(
       text, stage, GloryPopStages,
       ink[0], ink[1], ink[2], heightPx = sim.gloryPopLineBox(pop))
 
+var gloryPopRotatedCache: Table[string, tuple[width, height: int, pixels: seq[uint8]]]
+  ## POP MOTION WAVE P2: the FINAL rotated bitmap, cached per (content,
+  ## stage, angle) triple -- rotation is baked into the raster once per
+  ## distinct pop "shape" and reused every remaining tick of its life,
+  ## matching the bound gloryChipCache already promises for the compose step
+  ## underneath it. Without this, EVERY visible tracked pop would pay
+  ## pixie's image-rotate cost on EVERY tick of EVERY connected view for its
+  ## ENTIRE life -- unlike gloryPopSpawnScale's overshoot, which only fires
+  ## at stage 0, a pop's tilt never turns off.
+
+proc buildGloryPopSprite(
+  sim: SimServer, pop: GloryFx, stage: int, seed: uint32
+): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
+  ## POP MOTION WAVE P2: wraps buildGloryPopSpriteUnrotated's dispatch with a
+  ## small deterministic tilt (gloryPopRotationDeg, seeded off `seed` --
+  ## gloryPopScatterSeed at the call site) baked straight into the raster, so
+  ## a same-tick burst of pops reads as flung stickers rather than a stack of
+  ## dead-straight text. `seed` folds in the pop's mint tick and stack row
+  ## (never the draw-time wire pool slot), so the SAME pop rotates by the
+  ## SAME angle every tick of its life and on every replay run of this exact
+  ## game (determinism law).
+  let
+    text = gloryPopText(pop)
+    degrees = gloryPopRotationDeg(seed)
+    cacheKey = text & "\x1f" & $ord(pop.first) & "\x1f" & $stage & "\x1f" &
+      $boardScale & "\x1f" & $seed
+  if gloryPopRotatedCache.hasKey(cacheKey):
+    return gloryPopRotatedCache[cacheKey]
+  let base = sim.buildGloryPopSpriteUnrotated(pop, stage)
+  result = rotateSpritePixels(base.pixels, base.width, base.height,
+    boardScale, degrees)
+  if gloryPopRotatedCache.len > 512:
+    gloryPopRotatedCache.clear()
+  gloryPopRotatedCache[cacheKey] = result
+
 proc addGloryPops(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -5874,9 +6040,18 @@ proc addGloryPops(
       stage = clamp(age * GloryPopStages div max(1, life), 0,
         GloryPopStages - 1)
       text = gloryPopText(pop)
-      sprite = sim.buildGloryPopSprite(pop, stage)
-      rise = GloryPopRisePx * age div max(1, life)
-      px = pop.x - sprite.width div 2
+      # POP MOTION WAVE P2: one deterministic identity drives the tilt
+      # (baked into the sprite raster), the sideways scatter, and the
+      # rise-speed jitter -- all three read off the SAME seed so they never
+      # need separate storage, and stay stable across every frame of this
+      # pop's life.
+      seed = gloryPopScatterSeed(pop, text)
+      sprite = sim.buildGloryPopSprite(pop, stage, seed)
+      riseUnit = gloryPopRiseVarianceUnit(seed)
+      rise = int(GloryPopRisePx.float32 * riseUnit * age.float32 /
+        float32(max(1, life)))
+      scatterX = gloryPopScatterOffsetPx(seed)
+      px = pop.x + scatterX - sprite.width div 2
       py = pop.y - sprite.height div 2 - sim.gloryStackLift(pop) - rise
       # Content-addressed, NOT rank-addressed. Keying the slot off `nextPop`
       # (this frame's sort position) meant a stable claim changed slots the
@@ -5885,7 +6060,11 @@ proc addGloryPops(
       # sprite whose pixels had not changed. addDamagePops derives its sprite
       # id from CONTENT for exactly this reason; match it. `nextPop` still
       # owns the object id, which is a per-frame draw slot and rightly is.
-      slot = int(gloryPopLabelKey(pop, text) mod uint32(GloryPopMaxCount))
+      # `seed` rides inside `gloryPopLabelKey` now (P2): two pops with the
+      # identical text but a different tilt are DIFFERENT pixels and must
+      # never share a cached slot.
+      dedupeKey = gloryPopLabelKey(pop, text, seed)
+      slot = int(dedupeKey mod uint32(GloryPopMaxCount))
       spriteId = GloryPopSpriteBase + slot * GloryPopStages + stage
     packet.addBoardSpriteChanged(
       spriteDefs,
@@ -5893,7 +6072,7 @@ proc addGloryPops(
       sprite.width,
       sprite.height,
       sprite.pixels,
-      "glory pop " & $gloryPopLabelKey(pop, text) & " stage " & $stage,
+      "glory pop " & $dedupeKey & " stage " & $stage,
       native = boardScale
     )
     let objectId = GloryPopObjectBase + nextPop
