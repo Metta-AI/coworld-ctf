@@ -627,7 +627,7 @@ const
                                      ## is stripped, so over open floor it lands
                                      ## exactly on the outline the self marker
                                      ## already draws and changes nothing.
-  SpritePlayerXrayObjectId = 19060   ## the single x-ray object (19060..19119 is
+  SpritePlayerXrayObjectId* = 19060   ## the single x-ray object (19060..19119 is
                                      ## free between the identity badges at
                                      ## 19040..19055 and the impact rings at
                                      ## 19120).
