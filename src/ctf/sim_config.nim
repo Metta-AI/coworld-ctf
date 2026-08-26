@@ -45,6 +45,7 @@ proc defaultGameConfig*(): GameConfig =
     mapGen: MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
     mapSpec: "",
     closedRoster: false,
+    allowSeatTakeover: false,
     slots: @[],
     perkMods: DefaultPerkMods,
     puddleDamagePct: DefaultPuddleDamagePct,
@@ -860,6 +861,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPerks(config)
   node.readConfigPerkMods(config)
   node.readConfigBool("closedRoster", config.closedRoster)
+  node.readConfigBool("allowSeatTakeover", config.allowSeatTakeover)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
   config.validate()
@@ -967,6 +969,10 @@ proc configJson*(config: GameConfig): string =
   # barrier-free game's replay config stays byte-identical to older builds.
   if config.barrierPickups > 0:
     node["barrierPickups"] = %config.barrierPickups
+  # Same rule for seat takeover: echoed only when the freeplay mode is on, so
+  # a league game's replay config stays byte-identical to pre-takeover builds.
+  if config.allowSeatTakeover:
+    node["allowSeatTakeover"] = %config.allowSeatTakeover
   # Echo the paintball keys only when the mode is engaged, so a classic
   # game's replay config stays byte-identical to pre-paintball builds. When
   # the mode IS on, echo every key: the wasm viewer re-derives the paint grid
