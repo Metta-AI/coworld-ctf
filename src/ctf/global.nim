@@ -7908,6 +7908,25 @@ proc zoneTestClassifyRooms*(sim: SimServer): seq[int] =
   ensureZoneFloorGrid(sim)
   ZoneFloorRoomId
 
+proc zoneTestRoomIdAt*(px, py: int): int =
+  ## TEST/DIAGNOSTIC accessor: ZoneFloorRoomId for the coarse cell covering
+  ## map pixel (px, py) — the per-pixel readout of zoneTestClassifyRooms,
+  ## so a per-sample instrument can ask "is this cell exterior/aperture
+  ## ground?" without copying the whole grid on every probe. Negative for
+  ## exterior/aperture (and for a wall / off-grid cell); >= 0 is a genuine
+  ## interior-room cell — EXACTLY the predicate computeZoneFrontierField's
+  ## own source-eligibility test uses (`if ZoneFloorRoomId[idx] < 0`), which
+  ## is why the meniscus instrument can share it rather than inventing a
+  ## second, driftable notion of "architecture". Callers must have already
+  ## run ensureZoneFloorGrid (ensureZoneArrivalField does).
+  let
+    gx = px div ZoneFieldCellPx
+    gy = py div ZoneFieldCellPx
+    gw = ZoneFloorGridW
+  if gw <= 0 or gx < 0 or gy < 0 or gx >= gw or gy >= ZoneFloorGridH:
+    return -1
+  ZoneFloorRoomId[gy * gw + gx]
+
 proc zoneD4MaskAt*(sim: SimServer, px, py: int): tuple[walkable, paintable, wallArt: bool] =
   ## D4a VERIFICATION accessor: at full map-pixel resolution (not the coarse
   ## solver grid), the TRUE walkability (sim.walkMask, what the arrival

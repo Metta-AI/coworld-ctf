@@ -822,7 +822,7 @@ proc frontierTipCoord(
 proc frontierIsolineCoord(
   sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
   t: int, alongX: bool
-): float =
+): tuple[pos: float, span: int] =
   ## The frontier's own position on one row/column, at tick t — the
   ## INNERMOST painted cell, found by walking OUTWARD from the rect's own
   ## edge and returning the FIRST painted cell, then INTERPOLATED to
@@ -871,6 +871,27 @@ proc frontierIsolineCoord(
   ##  * a wall / off-grid cell reached before any paint — the row is
   ##    occluded by architecture, and a room's fill is the room-lag and
   ##    door-first checks' business, not this one's;
+  ##  * an INTERIOR-ROOM cell (zoneTestRoomIdAt >= 0) reached before any
+  ##    paint — architecture just as much as a wall is, and the third
+  ##    instrument defect this walk has now had (Fable's audit, 2026-08-25;
+  ##    the 16x excess over check #7's analytic turning bound). A ray that
+  ##    grazes a building crosses its INTERIOR without ever touching a wall
+  ##    CELL, and that interior is unpainted long after the open floor
+  ##    around it is — door-first fill is the design, asserted by its own
+  ##    two checks. The walk then steps straight over the building and
+  ##    reports the first painted cell on its FAR side, so the number it
+  ##    returns is the building's own back wall, not the paint meniscus.
+  ##    Measured on the small map at t=2640, zesBottom: samples 45-48 all
+  ##    walk through ROOM 24's interior (arrivals 2791..2916 against
+  ##    t=2640), room 24 is one 4px cell deeper at sample 48 than at 47,
+  ##    and the isoline duly "steps" 4.15px in one 4px stride — a 41.01deg
+  ##    turn, the single worst in the whole check, produced entirely by
+  ##    architecture. Guarding it drops the small map's worst turning angle
+  ##    from 41.01deg to 3.37deg at a cost of 8 of 925 samples. The
+  ##    predicate is zoneTestRoomIdAt, i.e. LITERALLY the one
+  ##    computeZoneFrontierField's own source-eligibility test uses, so
+  ##    "what counts as architecture" cannot drift between the solver and
+  ##    the instrument that measures it;
   ##  * a never-arriving cell reached before any paint — a sealed pocket;
   ##  * no paint at all within the walk budget.
   proc probe(v: int): tuple[ok, occluded: bool, arrival: int] =
@@ -878,15 +899,21 @@ proc frontierIsolineCoord(
     let mask = if alongX: zoneD4MaskAt(sim, fixedCoord, v)
       else: zoneD4MaskAt(sim, v, fixedCoord)
     if not mask.walkable: return (false, true, 0)
+    # An interior-room cell is ARCHITECTURE, and gets a wall's treatment
+    # exactly — see the invalid-case list above for the measurement.
+    let roomId = if alongX: zoneTestRoomIdAt(fixedCoord, v)
+      else: zoneTestRoomIdAt(v, fixedCoord)
+    if roomId >= 0: return (false, true, 0)
     let cell = if alongX: zoneArrivalFieldCellAt(fixedCoord, v)
       else: zoneArrivalFieldCellAt(v, fixedCoord)
     if not cell.has or cell.arrival == ZoneNeverArrives.int:
       return (false, true, 0)
     (cell.arrival <= t, false, cell.arrival)
   const MaxWalkSteps = 300  ## * ZoneFieldCellPx = 1200px
+  const Invalid = (pos: -1.0, span: 0)
   var prev = probe(startCoord)
   if prev.occluded or prev.ok:
-    return -1.0
+    return Invalid
   var
     coord = startCoord
     steps = 0
@@ -895,7 +922,7 @@ proc frontierIsolineCoord(
     inc steps
     let cur = probe(nextCoord)
     if cur.occluded:
-      return -1.0
+      return Invalid
     if cur.ok:
       # Require the paint to CONTINUE outward, so one speckled cell is
       # never read as the front (the same discipline frontierTipCoord's
@@ -903,34 +930,50 @@ proc frontierIsolineCoord(
       for k in 1 .. 2:
         let n = probe(nextCoord + stepSign * k * ZoneFieldCellPx)
         if not n.ok:
-          return -1.0
+          return Invalid
       # Never let the literal map-border cell read as a front position.
       if nextCoord < ZoneFieldCellPx or
           nextCoord >= otherGridMaxPx - ZoneFieldCellPx:
-        return -1.0
+        return Invalid
       # Sub-cell crossing: arrival DECREASES walking outward, so the
       # isoline arrival == t sits between `coord` (arrival > t) and
       # `nextCoord` (arrival <= t).
-      let span = float(prev.arrival - cur.arrival)
+      #
+      # The SPAN — this bracket's own arrival difference, in whole ticks —
+      # is returned alongside the position because it IS this sample's
+      # measurement resolution. The shipped arrival field is uint16 WHOLE
+      # TICKS (ensureZoneArrivalField truncates the solver's float32), so
+      # `frac` is a ratio of integers and the finest position increment
+      # this walk can express is ZoneFieldCellPx/span px. Check #7 needs
+      # that number to tell a real kink from the instrument's own floor —
+      # see ZoneQuantTurnDeg.
+      let span = prev.arrival - cur.arrival
       var frac = 0.0
-      if span > 0.0:
-        frac = clamp(float(prev.arrival - t) / span, 0.0, 1.0)
-      return float(coord) + float(stepSign) * float(ZoneFieldCellPx) * frac
+      if span > 0:
+        frac = clamp(float(prev.arrival - t) / float(span), 0.0, 1.0)
+      return (pos: float(coord) +
+        float(stepSign) * float(ZoneFieldCellPx) * frac, span: span)
     coord = nextCoord
     prev = cur
-  -1.0
+  Invalid
 
 proc frontierIsolineSeq(
   sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
   loStart, hiEnd: int, t: int, alongX: bool
-): seq[float] =
+): tuple[pos: seq[float], span: seq[int]] =
   ## frontierIsolineCoord sampled every ZoneFieldCellPx along one edge —
   ## the raw isoline polyline (-1.0 for a gap), the input checks #7 and #8
-  ## measure.
+  ## measure, plus each sample's own interpolation SPAN in whole ticks (0
+  ## for a gap) so check #7 can price the instrument's own resolution.
+  ## ONE walk produces both: the real showmatch map is 3211x1713 and this
+  ## is the dominant cost in the paint suite, so a second pass just to
+  ## recover the spans is not free.
   var v = loStart
   while v <= hiEnd:
-    result.add frontierIsolineCoord(sim, v, startCoord, stepSign,
+    let s = frontierIsolineCoord(sim, v, startCoord, stepSign,
       otherGridMaxPx, t, alongX)
+    result.pos.add s.pos
+    result.span.add s.span
     v += ZoneFieldCellPx
 
 template isoValid(v: float): bool = v >= 0.0
@@ -1002,11 +1045,13 @@ proc isoRangePx(tipSeq: seq[float]): float =
 
 type ZoneEdgeSide = enum zesLeft, zesRight, zesTop, zesBottom
 
-proc edgeIsoline(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
-    side: ZoneEdgeSide): seq[float] =
+proc edgeIsolineFull(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
+    side: ZoneEdgeSide): tuple[pos: seq[float], span: seq[int]] =
   ## One edge's isoline over that edge's own STRAIGHT section — the single
   ## sampler every meniscus check shares, so the corner-inset and regime
-  ## rules cannot drift apart between checks.
+  ## rules cannot drift apart between checks. Returns the polyline AND each
+  ## sample's interpolation span (see frontierIsolineCoord); `edgeIsoline`
+  ## below is the position-only view every check except #7 wants.
   let
     gwPx = gw * ZoneFieldCellPx
     ghPx = gh * ZoneFieldCellPx
@@ -1014,21 +1059,26 @@ proc edgeIsoline(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
     yHi = min(ghPx - 1, rect.y + rect.h - 1 - EdgeCornerInsetPx)
     xLo = max(0, rect.x + EdgeCornerInsetPx)
     xHi = min(gwPx - 1, rect.x + rect.w - 1 - EdgeCornerInsetPx)
+  const Empty = (pos: newSeq[float](), span: newSeq[int]())
   case side
   of zesLeft:
-    if yHi <= yLo: return @[]
+    if yHi <= yLo: return Empty
     frontierIsolineSeq(sim, 0, rect.x, -1, gwPx, yLo, yHi, t, alongX = false)
   of zesRight:
-    if yHi <= yLo: return @[]
+    if yHi <= yLo: return Empty
     frontierIsolineSeq(sim, 0, rect.x + rect.w - 1, 1, gwPx, yLo, yHi, t,
       alongX = false)
   of zesTop:
-    if xHi <= xLo: return @[]
+    if xHi <= xLo: return Empty
     frontierIsolineSeq(sim, 0, rect.y, -1, ghPx, xLo, xHi, t, alongX = true)
   of zesBottom:
-    if xHi <= xLo: return @[]
+    if xHi <= xLo: return Empty
     frontierIsolineSeq(sim, 0, rect.y + rect.h - 1, 1, ghPx, xLo, xHi, t,
       alongX = true)
+
+proc edgeIsoline(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
+    side: ZoneEdgeSide): seq[float] =
+  edgeIsolineFull(sim, rect, t, gw, gh, side).pos
 
 proc inRegime(iso: seq[float]): bool =
   ## An edge measures a meniscus only if it has enough valid samples AND
@@ -1109,6 +1159,176 @@ proc maxTurningAngleDeg(tipSeq: seq[float]): float =
     prevDx = dx
     prevDy = dy
     havePrev = true
+
+const
+  ## CHECK #7's OWN RESOLUTION FLOOR, derived, never chosen. The shipped
+  ## arrival field is uint16 WHOLE TICKS (ensureZoneArrivalField truncates
+  ## the solver's float32), and frontierIsolineCoord recovers a sub-cell
+  ## position by interpolating between two of those integers — so the
+  ## finest position increment it can express is ZoneFieldCellPx/span px,
+  ## where `span` is that bracket's own arrival difference in ticks. A
+  ## SMALL span therefore means a COARSE isoline, and a coarse isoline
+  ## manufactures turning angle out of nothing.
+  ##
+  ## The span cannot go below this floor. F(p) = zoneSpeedFieldAt is a
+  ## product of three multipliers each bounded above by 1.0 (aperture,
+  ## wallDrag, fingering), so F <= 1.0 px/tick everywhere, so the arrival
+  ## field's own |grad T| = 1/F >= 1 tick/px — and the two non-propagation
+  ## terms that can override it (the t0 seed at 1/baseSpeed, and the
+  ## honesty clamp to t0) are both STEEPER than that on every real map, so
+  ## min/max against them cannot flatten it. Over one ZoneFieldCellPx (4px)
+  ## step the true arrival difference is therefore >= 4 ticks, and
+  ## truncating both ends to whole ticks costs at most 1 more.
+  ZoneArrivalSpanFloorTicks = ZoneFieldCellPx - 1  ## = 3
+  ## The px amplitude each of the two meniscus octaves carries, derived
+  ## from zoneBoundaryFingerDelayAt's own arithmetic: it combines the two
+  ## octaves as 0.5*n1 + 0.5*n2 (each n in [-1,1]), maps that to [0,1] and
+  ## scales by ampTicks, whose PIXEL value is ZoneFingerAmpPx by the
+  ## conversion the first test in this suite asserts. Displacement along
+  ## the front is therefore
+  ##   y(s) = ZoneFingerAmpPx * (0.5 + 0.25*n1(s) + 0.25*n2(s)),
+  ## i.e. ZoneFingerAmpPx/4 per octave.
+  ZoneFingerOctaveAmpPx = ZoneFingerAmpPx / 4.0
+
+proc octaveTurnDeg(ampPx, wavelenPx: float): float =
+  ## One octave's worst contribution to the turning angle of a polyline
+  ## sampled every ZoneFieldCellPx, in degrees.
+  ##
+  ## Modelled as the WORST curve of that wavelength — a pure sinusoid of
+  ## amplitude `ampPx`, peak curvature ampPx*(2*PI/wavelenPx)^2 — and a
+  ## polyline turns by curvature * arc length per step. DELIBERATELY
+  ## conservative: the real octave is cosine-eased value noise on a
+  ## lattice of that same spacing (zoneMeniscusOctave), whose peak
+  ## curvature is ampPx*PI^2/wavelenPx^2, a FOURTH of the sinusoid's. This
+  ## is an upper bound on the configured look, not a fit to it.
+  ampPx * pow(2.0 * PI / wavelenPx, 2.0) * float(ZoneFieldCellPx) *
+    180.0 / PI
+
+proc zoneFingerAmplitudeTurnDeg(): float =
+  ## TERM A of check #7's honest bound: the turning angle the CONFIGURED
+  ## look itself asks for, per ZoneFieldCellPx step. Board-independent by
+  ## construction — every input is a tuning constant, and the px
+  ## re-denomination is exactly what makes it so (the same 21px of visible
+  ## meniscus on every map, see ZoneFingerAmpPx). Currently 2.56 deg:
+  ## 1.86 from the 160px octave plus 0.70 from the 260px one.
+  octaveTurnDeg(ZoneFingerOctaveAmpPx, ZoneFingerOctaveFinePx) +
+    octaveTurnDeg(ZoneFingerOctaveAmpPx, ZoneFingerOctaveCoarsePx)
+
+proc zoneQuantTurnDeg(span: int): float =
+  ## TERM B of check #7's honest bound, and DISTINCT IN KIND from term A:
+  ## term A is a property of the PAINT, this is a property of the
+  ## INSTRUMENT — how much turning angle the arrival field's own whole-tick
+  ## quantization can fabricate at a sample whose bracket spans `span`
+  ## ticks (see ZoneArrivalSpanFloorTicks).
+  ##
+  ## One quantum of isoline position is q = ZoneFieldCellPx/span px. Two
+  ## consecutive segments of the polyline can each be displaced by up to
+  ## one quantum, in opposite directions, while the true front is dead
+  ## straight; the angle that fabricates is 2*atan(q/ZoneFieldCellPx),
+  ## i.e. 2*atan(1/span) — the cell size cancels, so this is a pure
+  ## function of the field's tick resolution.
+  ##
+  ## MEASURED, and it is the whole of the residual: with the room-interior
+  ## defect fixed, the worst turning angle on the small map is 3.366 deg
+  ## at span 17 (atan(1/17) = 3.3665) and on the real map's right edge
+  ## 11.310 deg at span 5 (atan(1/5) = 11.3099) — both EXACTLY one
+  ## quantum, to five significant figures, on two maps whose base speeds
+  ## differ 2.6x. The bound allows two (one per segment), so it carries
+  ## real slack over what the instrument actually does.
+  2.0 * arctan(1.0 / float(max(span, 1))) * 180.0 / PI
+
+const
+  ## EdgeRegimeMinRangePx's rule, applied LOCALLY. That constant already
+  ## states the principle — "a meniscus only exists on an ADVANCING front;
+  ## once the paint has caught up with the rect the isoline IS the rect's
+  ## own edge, straight by construction" — but it is tested once per EDGE,
+  ## against the whole edge's dynamic range, and the phenomenon is LOCAL:
+  ## an edge can be firmly in regime over most of its length while a short
+  ## stretch of it has already touched down on the rect line.
+  ##
+  ## At a touchdown the measured isoline is max(front, rectEdge) — the
+  ## honesty clamp (computeZoneFrontierField's closing pass raises every
+  ## cell to its own t0), which is an asserted invariant of the paint, not
+  ## a defect. A max() of a smooth curve against a straight line has a
+  ## genuine corner at every crossing, so a sample window spanning one
+  ## necessarily reads a large turning angle no matter how smooth the
+  ## paint is — EXACTLY the argument EdgeCornerInsetPx already makes for
+  ## the rect's own 90-degree corners, which are the clamp's other
+  ## corner-generator.
+  ##
+  ## A touchdown shows up as a SHORT run of valid samples: the rows to
+  ## either side report no meniscus at all (frontierIsolineCoord's
+  ## "startCoord already painted" case). So the rule is a run-length floor,
+  ## and the floor is the finest feature the tuning can actually put on the
+  ## front — half of ZoneFingerOctaveFinePx. A run shorter than that cannot
+  ## contain a meniscus feature; it can only contain a touchdown.
+  ##
+  ## MEASURED, real showmatch map, TOP edge at t=2160: a 5-sample run at
+  ## x=1209..1225 where the front lags the rect line by 0.31, 2.08, 4.31,
+  ## 2.46, 0.59px, with every row on both sides already caught up. Wall
+  ## distance is 24-64px across all of it, so this is open field, not
+  ## architecture. It reads 53.89 degrees — a 4.3px bump over 20px of a
+  ## 3211px map. (That edge is not one the real-map check below samples,
+  ## which is why the suite was green without this rule; it is in because a
+  ## bound that holds only by not looking is not justified.)
+  MinMeniscusRunSamples = int(ZoneFingerOctaveFinePx / 2.0) div ZoneFieldCellPx
+
+proc runLengths(pos: seq[float]): seq[int] =
+  ## For each sample, the length of the maximal run of consecutive VALID
+  ## samples containing it (0 if invalid).
+  result = newSeq[int](pos.len)
+  var i = 0
+  while i < pos.len:
+    if not isoValid(pos[i]):
+      inc i
+      continue
+    var j = i
+    while j < pos.len and isoValid(pos[j]): inc j
+    for k in i ..< j: result[k] = j - i
+    i = j
+
+proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
+    tuple[excessDeg, turnDeg, allowDeg: float,
+          idx, atSpan, minSpan, scored, offRegime: int] =
+  ## Check #7's assertion quantity: the worst amount by which the measured
+  ## turning angle EXCEEDS what term A plus that sample's OWN term B allow.
+  ##
+  ## Priced per sample rather than once per edge on purpose. A single
+  ## low-span sample would otherwise loosen the bound across the whole
+  ## edge, which is exactly how a derived bound quietly becomes a chosen
+  ## one. Gaps break the polyline, the same discipline every other measure
+  ## here uses, and a run too short to hold a meniscus feature at all is
+  ## reported as off-regime rather than scored (MinMeniscusRunSamples).
+  result = (-Inf, 0.0, 0.0, -1, 0, high(int), 0, 0)
+  let runs = runLengths(pos)
+  for i in 0 ..< pos.len:
+    if isoValid(pos[i]): result.minSpan = min(result.minSpan, span[i])
+  if result.minSpan == high(int): result.minSpan = 0
+  for i in 2 ..< pos.len:
+    if not isoValid(pos[i - 2]) or not isoValid(pos[i - 1]) or
+        not isoValid(pos[i]):
+      continue
+    if runs[i] < MinMeniscusRunSamples:
+      inc result.offRegime
+      continue
+    inc result.scored
+    let
+      h = float(ZoneFieldCellPx)
+      prevDy = pos[i - 1] - pos[i - 2]
+      dy = pos[i] - pos[i - 1]
+      cross = h * dy - prevDy * h
+      dot = h * h + prevDy * dy
+      turn = arctan2(abs(cross), dot) * 180.0 / PI
+      s = min(span[i - 2], min(span[i - 1], span[i]))
+      allow = ampDeg + zoneQuantTurnDeg(s)
+    if turn - allow > result.excessDeg:
+      result = (turn - allow, turn, allow, i, s, result.minSpan,
+        result.scored, result.offRegime)
+  ## An edge with NO scored vertex reports -Inf and `idx < 0`, never 0.0:
+  ## a zero would be indistinguishable from a perfectly-met bound, would
+  ## win the max() against every real (negative) excess on every other
+  ## edge, and would then PASS a `<= 0.0` assertion on no evidence at all.
+  ## Callers must gate on `idx >= 0`.
 
 proc worstStepOf(tipSeq: seq[float]): tuple[px: float, idx: int] =
   ## The single largest jump between CONSECUTIVE valid samples, and where.
@@ -1194,10 +1414,18 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     const
       Samples = 400          ## * ZoneFieldCellPx = 1600px of edge
       FlatTolPx = 1.0        ## longestStraightRunPx's own band
-      MaxTurningAngleDeg = 40.0   ## check #7's own bound
       MaxAmplitudePx = 6.0 * ZoneFingerAmpPx  ## check #8's own bound
       MaxFlatRunPx = ZoneFingerOctaveCoarsePx ## straight-run's own bound
       WindowSamples = 50          ## check #8's own window
+    let MaxTurningAngleDeg = zoneFingerAmplitudeTurnDeg() +
+      zoneQuantTurnDeg(ZoneArrivalSpanFloorTicks)
+      ## check #7's own bound at its LOOSEST — the amplitude term plus the
+      ## quantization term at the coarsest resolution the arrival field can
+      ## ever have (ZoneArrivalSpanFloorTicks). 39.4 deg, which is where
+      ## the hand-picked 40.0 this line replaces had landed by eye; the
+      ## point is that it is now DERIVED, so it moves when the tuning does.
+      ## The controls must separate at check #7's weakest, not just at its
+      ## typical.
     proc synth(amp, wavelenPx: float): seq[float] =
       for i in 0 ..< Samples:
         let x = float(i * ZoneFieldCellPx)
@@ -1316,20 +1544,49 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     ## each of the rect's 4 sides the same way the straight-run check does,
     ## and bound the turning angle between consecutive polyline segments —
     ## a smooth arc turns a little every 4px step, a spike turns a lot in
-    ## one. ~35-40 degrees is generous slack above a circle of the doctrine's
-    ## own minimum curvature radius (~20-40px) sampled every ZoneFieldCellPx
-    ## (4px): arc_len/radius in degrees is ~5.7-11.5 deg/step for a genuinely
-    ## round curve at this radius band, so a real kink reads far above this
-    ## bound, not marginally.
-    const MaxTurningAngleDeg = 40.0
+    ## one.
+    ##
+    ## THE BOUND IS DERIVED, in TWO TERMS OF DIFFERENT KINDS (Fable's
+    ## audit, 2026-08-25). The 40.0 deg this check used to carry was chosen
+    ## by eye against a curvature-radius band nothing in the code actually
+    ## sets, and it was 16x above what the CONFIGURED look analytically
+    ## implies — a gap that size in a bound means the check is policing
+    ## something other than the thing it names.
+    ##   TERM A, zoneFingerAmplitudeTurnDeg (2.56 deg) — a property of the
+    ##     PAINT: what 21px of meniscus across 160/260px octaves can bend
+    ##     per 4px step. Every input is a tuning constant, so it is
+    ##     board-independent and it moves when the tuning moves.
+    ##   TERM B, zoneQuantTurnDeg (per sample) — a property of the
+    ##     INSTRUMENT: the arrival field ships as uint16 WHOLE TICKS, so a
+    ##     sample whose bracket spans `span` ticks can only place the
+    ##     isoline to ZoneFieldCellPx/span px, and that alone fabricates
+    ##     2*atan(1/span) of turning on a dead-straight front.
+    ## Term B is priced PER SAMPLE, never once per edge, so one coarse
+    ## sample cannot loosen the bound everywhere.
+    ##
+    ## THE 16x WAS A DEFECT, NOT PHYSICS, and it is fixed rather than
+    ## budgeted for: the walk used to step straight through a BUILDING'S
+    ## INTERIOR and report its far wall as the paint front (see
+    ## frontierIsolineCoord's invalid-case list — 41.01 deg at t=2640
+    ## zesBottom, entirely room 24's back wall). With interior-room cells
+    ## treated as the architecture they are, the worst turning angle on
+    ## this map falls to 3.37 deg, which is EXACTLY one quantum of term B
+    ## at that sample's span of 17. There is no third term: no eikonal
+    ## shock, no wall-proximity allowance, nothing left unexplained.
     var sim = zoneGame(BrShowmatchPhases)
     discard ensureZoneArrivalField(sim)
     let (gw, gh) = zoneArrivalFieldGridDims()
-    let
-      gwPx = gw * ZoneFieldCellPx
-      ghPx = gh * ZoneFieldCellPx
+    let ampDeg = zoneFingerAmplitudeTurnDeg()
     var worst = 0.0
+    var worstAllow = 0.0
+    var worstExcess = -Inf
+    var worstExcessWhere = ""
+    var minSpan = high(int)
+    var scored = 0
+    var offRegime = 0
     var samples = 0
+    ## `minSpan` is reported as 0, not high(int), when nothing was sampled at
+    ## all — a 9223372036854775807 in a tick column reads as a real number.
     var edgesUsed = 0
     var edgesSkipped = 0
     var worstStepPx = 0.0
@@ -1338,68 +1595,121 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
       for side in ZoneEdgeSide:
-        let iso = edgeIsoline(sim, rect, t, gw, gh, side)
-        if not inRegime(iso):
+        let iso = edgeIsolineFull(sim, rect, t, gw, gh, side)
+        if not inRegime(iso.pos):
           inc edgesSkipped
           continue
         inc edgesUsed
-        samples += validCount(iso)
-        worst = max(worst, maxTurningAngleDeg(iso))
-        let ws = worstStepOf(iso)
+        samples += validCount(iso.pos)
+        worst = max(worst, maxTurningAngleDeg(iso.pos))
+        let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
+        if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
+        scored += ex.scored
+        offRegime += ex.offRegime
+        if ex.idx >= 0 and ex.excessDeg > worstExcess:
+          worstExcess = ex.excessDeg
+          worstAllow = ex.allowDeg
+          worstExcessWhere = "t=" & $t & " " & $side & " sampleIdx=" &
+            $ex.idx & " turn=" & $ex.turnDeg & "deg span=" & $ex.atSpan
+        let ws = worstStepOf(iso.pos)
         if ws.px > worstStepPx:
           worstStepPx = ws.px
           worstStepWhere = "t=" & $t & " " & $side & " sampleIdx=" & $ws.idx
     echo "turning-angle check (small map): edgesUsed=", edgesUsed,
       " edgesSkipped(below regime)=", edgesSkipped, " validSamples=", samples,
-      " worst=", worst, " deg worstStep=", worstStepPx, "px at ",
+      " worstTurn=", worst, " deg worstStep=", worstStepPx, "px at ",
       worstStepWhere
+    let reportSpan = if minSpan == high(int): 0 else: minSpan
+    echo "  bound: ampTerm=", ampDeg, "deg minSpan=", reportSpan,
+      " ticks -> quantTerm(minSpan)=", zoneQuantTurnDeg(reportSpan),
+      "deg; scoredVertices=", scored, " offRegime(run<",
+      MinMeniscusRunSamples, " samples)=", offRegime,
+      "; worstExcess=", worstExcess, "deg over allow=", worstAllow,
+      "deg at ", worstExcessWhere
     check edgesUsed >= 8   ## see the straight-run check: the regime skip
                            ## must never become a silent pass
     check samples >= 200
-    check worst <= MaxTurningAngleDeg
+    ## ...and neither must the LOCAL regime rule: the run-length floor is
+    ## reported and held to the same sample floor the edge-level one is.
+    check scored >= 200
+    ## The quantization term is only honest while the field's own tick
+    ## resolution is: a span below the derived floor would mean term B had
+    ## quietly grown into an escape hatch. Never silent.
+    check minSpan >= ZoneArrivalSpanFloorTicks
+    check worstExcess <= 0.0
 
   test "check #7: the frontier never kinks — full-height right-edge sample on the real map":
     ## The mandate's own specific regression target: a full-height sample
     ## of the RIGHT edge on the real giant showmatch map, at multiple
     ## ticks — the exact edge and map Maxwell's rejected screenshot showed
-    ## as a hard vertical line.
-    const MaxTurningAngleDeg = 40.0
+    ## as a hard vertical line. Same DERIVED two-term bound as the small-map
+    ## check above (see its own doc for the derivation and for why the 16x
+    ## excess over term A turned out to be an instrument defect rather than
+    ## physics). This map is the other half of that evidence: its base speed
+    ## is 2.6x the small map's, so its arrival field is 3x coarser in ticks
+    ## per cell, and its residual worst turning angle is correspondingly
+    ## larger — 11.31 deg, which is again EXACTLY one quantum of term B at
+    ## that sample's own span. Two maps, two very different residuals, one
+    ## term explaining both to five significant figures.
     var sim = zoneGameOnRealMap(BrShowmatchPhases)
     discard ensureZoneArrivalField(sim)
     let (gw, gh) = zoneArrivalFieldGridDims()
-    let
-      gwPx = gw * ZoneFieldCellPx
-      ghPx = gh * ZoneFieldCellPx
+    let ampDeg = zoneFingerAmplitudeTurnDeg()
     var worst = 0.0
+    var worstAllow = 0.0
+    var worstExcess = -Inf
+    var worstExcessWhere = ""
+    var minSpan = high(int)
+    var scored = 0
+    var offRegime = 0
     var edgesSampled = 0
     var realSamples = 0
     var edgesSkipped = 0
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
-      let iso = edgeIsoline(sim, rect, t, gw, gh, zesRight)
-      if not inRegime(iso):
+      let iso = edgeIsolineFull(sim, rect, t, gw, gh, zesRight)
+      if not inRegime(iso.pos):
         inc edgesSkipped
         echo "  right edge t=", t, " SKIPPED: below regime (validSamples=",
-          validCount(iso), " isoRange=", isoRangePx(iso), "px, needs >=",
+          validCount(iso.pos), " isoRange=", isoRangePx(iso.pos), "px, needs >=",
           EdgeRegimeMinRangePx, "px) — the front has caught up with the rect, ",
           "so the isoline IS the rect edge and no meniscus exists to measure"
         continue
       inc edgesSampled
-      realSamples += validCount(iso)
-      let angle = maxTurningAngleDeg(iso)
+      realSamples += validCount(iso.pos)
+      let angle = maxTurningAngleDeg(iso.pos)
       worst = max(worst, angle)
-      let ws = worstStepOf(iso)
-      echo "  right edge t=", t, " validSamples=", validCount(iso),
-        " isoRange=", isoRangePx(iso), "px maxTurningAngle=", angle,
-        " worstStep=", ws.px, "px rectYSpan=[", rect.y, ",",
+      let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
+      if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
+      scored += ex.scored
+      offRegime += ex.offRegime
+      if ex.idx >= 0 and ex.excessDeg > worstExcess:
+        worstExcess = ex.excessDeg
+        worstAllow = ex.allowDeg
+        worstExcessWhere = "t=" & $t & " sampleIdx=" & $ex.idx & " turn=" &
+          $ex.turnDeg & "deg span=" & $ex.atSpan
+      let ws = worstStepOf(iso.pos)
+      echo "  right edge t=", t, " validSamples=", validCount(iso.pos),
+        " isoRange=", isoRangePx(iso.pos), "px maxTurningAngle=", angle,
+        " worstStep=", ws.px, "px minSpan=", ex.minSpan,
+        " excess=", ex.excessDeg, "deg rectYSpan=[", rect.y, ",",
         rect.y + rect.h - 1, "]"
     echo "turning-angle check (real map, right edge): edgesSampled=",
       edgesSampled, " edgesSkipped(below regime)=", edgesSkipped,
-      " validSamples=", realSamples, " worst=", worst, " deg"
+      " validSamples=", realSamples, " worstTurn=", worst, " deg"
+    let reportSpan = if minSpan == high(int): 0 else: minSpan
+    echo "  bound: ampTerm=", ampDeg, "deg minSpan=", reportSpan,
+      " ticks -> quantTerm(minSpan)=", zoneQuantTurnDeg(reportSpan),
+      "deg; scoredVertices=", scored, " offRegime(run<",
+      MinMeniscusRunSamples, " samples)=", offRegime,
+      "; worstExcess=", worstExcess, "deg over allow=", worstAllow,
+      "deg at ", worstExcessWhere
     check edgesSampled >= 3   ## regime skip must not absolve a flat paint
     check realSamples >= 100
-    check worst <= MaxTurningAngleDeg
+    check scored >= 100
+    check minSpan >= ZoneArrivalSpanFloorTicks
+    check worstExcess <= 0.0
 
   test "check #8: the meniscus amplitude stays bounded — no streamers":
     ## Maxwell's ruling (2026-08-25, close-zoom review of the fresh
