@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>embed host probe</title>
+<style>
+  body { margin:0; background:#f2e8d8; color:#2a1f16; font:14px system-ui; }
+  header { padding:14px 18px; }
+  h1 { font-size:16px; margin:0 0 4px; }
+  p { margin:0; color:#6b6156; }
+  #wrap { position:relative; width:min(1100px,94vw); aspect-ratio:1235/659; margin:10px auto; background:#16110d; }
+  #wrap:fullscreen { width:100%; height:100%; aspect-ratio:auto; }
+  iframe { width:100%; height:100%; border:0; display:block; }
+  button { position:absolute; right:10px; top:10px; z-index:5; padding:6px 10px; }
+</style></head>
+<body>
+<header><h1>Season front — always-live freeplay tile (probe)</h1>
+<p>The live match, embedded in-page. This page owns the fullscreen toggle.</p></header>
+<div id="wrap">
+  <button id="fs">Fullscreen</button>
+  <iframe id="game" src="http://localhost:2137/client/play?slot=0&token=0xBADA55_0"></iframe>
+</div>
+<script>
+  // Forward keys down to the embedded match. A host that owns focus (which it
+  // does the moment its own fullscreen button is clicked) must keep the seat
+  // playable; this is the bridge the client accepts.
+  var game = document.getElementById('game');
+  function fwd(ev, down) {
+    game.contentWindow.postMessage({src:'ctf-shell', type:'key', down:down, key:ev.key}, '*');
+  }
+  window.addEventListener('keydown', function (e) { fwd(e, true); });
+  window.addEventListener('keyup', function (e) { fwd(e, false); });
+  document.getElementById('fs').addEventListener('click', function () {
+    var w = document.getElementById('wrap');
+    if (document.fullscreenElement) document.exitFullscreen();
+    else w.requestFullscreen();
+  });
+</script>
+</body></html>

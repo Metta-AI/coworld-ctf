@@ -1937,6 +1937,30 @@ body[data-live] #inspector { display: none !important; }
 }
 #respawn .rs-count { color: var(--amber); font-weight: 700; }
 
+/* --- "click to take the controls" -------------------------------------
+   The match ships EMBEDDED IN-PAGE (SEASON2.md), and an iframe does not have
+   the keyboard until it is clicked. Without this the failure mode is the worst
+   one available: you press W, nothing happens, and nothing tells you why. */
+#focusnag {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: calc(9 * var(--u)) calc(16 * var(--u));
+  font-family: var(--pixfont);
+  font-size: calc(12 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: rgba(var(--stage-lo-rgb), 0.88);
+  border: 1px solid rgba(var(--paper-rgb), 0.18);
+  border-radius: calc(3 * var(--u));
+  opacity: 0;
+  transition: opacity 160ms ease;
+  pointer-events: none;
+}
+#focusnag.on { opacity: 1; }
+
 /* --- view chip: which camera you are on -------------------------------- */
 #viewchip {
   position: absolute;
@@ -2110,6 +2134,7 @@ body[data-live] #inspector { display: none !important; }
       </div>
     </div>
     <div id="viewchip"><b>Follow</b> &middot; <span class="key">V</span> whole arena</div>
+    <div id="focusnag">Click to take the controls</div>
 
     <div id="bannerlane"></div>
     <div id="killfeed"></div>
@@ -5349,33 +5374,88 @@ body[data-live] #inspector { display: none !important; }
   }
   function pushMask() { core.sendInputMask(liveMask()); }
 
+  // ---- keyboard ownership when embedded ---------------------------------
+  // SEASON2.md ships the match embedded in-page with a fullscreen toggle, so
+  // the common case is an iframe that does NOT hold the keyboard: the host's
+  // body has focus, our window listeners never fire, and the player presses W
+  // to no effect with nothing on screen explaining it. Three answers, in the
+  // order they apply:
+  //   * take focus ourselves on load, so an embedded match is live on arrival;
+  //   * take it back on any pointer press on the board;
+  //   * accept keys FORWARDED by the host over the postMessage bridge that
+  //     already carries transport commands — the host needs that the moment it
+  //     owns focus itself, e.g. right after its own fullscreen button was
+  //     clicked, which is exactly when play must not stop.
+  // And when we still do not have it, say so rather than fail silently.
+  // Set by any key the host forwards over the bridge. A host that forwards is
+  // a host where the embed plays fine WITHOUT focus, so nagging it to be
+  // clicked is a false alarm -- and one the player cannot act on usefully.
+  var lastForwardedKeyAt = 0;
+  var FORWARD_GRACE_MS = 3000;
+
+  function liveFocusSync() {
+    if (!LIVE) return;
+    var has = document.hasFocus();
+    var forwarded = (Date.now() - lastForwardedKeyAt) < FORWARD_GRACE_MS;
+    var over = lastState && lastState.ph === 'gameover';
+    $('focusnag').classList.toggle('on', !has && !forwarded && !over);
+    // Release the mask whenever we lose the keyboard: our keyup fires at a
+    // window that is no longer listening, so a held key would otherwise walk
+    // the seat into a wall until it is pressed and released again.
+    if (!has && !forwarded) { heldKeys = Object.create(null); pushMask(); }
+  }
+
+  function liveKeyDown(key) {
+    var k = String(key).toLowerCase();
+    if (k === 'v') { toggleFollow(); return true; }
+    if (k === '-' || k === '_') { stepFollow(1); return true; }
+    if (k === '=' || k === '+') { stepFollow(-1); return true; }
+    if (!(k in LIVE_KEYS)) return false;
+    if (heldKeys[k]) return true;      // OS key-repeat is not a new press
+    heldKeys[k] = true;
+    pushMask();
+    return true;
+  }
+
+  function liveKeyUp(key) {
+    var k = String(key).toLowerCase();
+    if (!(k in LIVE_KEYS)) return false;
+    heldKeys[k] = false;
+    pushMask();
+    return true;
+  }
+
   if (LIVE) {
+    try { window.focus(); } catch (e) {}
+    window.addEventListener('focus', liveFocusSync);
+    window.addEventListener('blur', liveFocusSync);
+    // Any press on the board reclaims the keyboard. pointerdown, not click, so
+    // the seat is answering keys before the mouse button even comes back up.
+    window.addEventListener('pointerdown', function () {
+      try { window.focus(); } catch (e) {}
+      liveFocusSync();
+    });
+    // Host-forwarded keys: {src:'ctf-shell', type:'key', down:bool, key:'w'}.
+    window.addEventListener('message', function (ev) {
+      var m = ev.data;
+      if (!m || m.src !== 'ctf-shell' || m.type !== 'key') return;
+      lastForwardedKeyAt = Date.now();
+      $('focusnag').classList.remove('on');
+      if (m.down) liveKeyDown(m.key); else liveKeyUp(m.key);
+    });
+    setTimeout(liveFocusSync, 0);
     window.addEventListener('keydown', function (ev) {
       if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-      var k = String(ev.key).toLowerCase();
-      if (k === 'v') { ev.preventDefault(); toggleFollow(); return; }
-      if (k === '-' || k === '_') { ev.preventDefault(); stepFollow(1); return; }
-      if (k === '=' || k === '+') { ev.preventDefault(); stepFollow(-1); return; }
-      if (!(k in LIVE_KEYS)) return;
-      ev.preventDefault();          // arrows scroll the page, Space scrolls it further
-      if (heldKeys[k]) return;      // OS key-repeat is not a new press
-      heldKeys[k] = true;
-      pushMask();
+      // arrows scroll the page, Space scrolls it further
+      if (liveKeyDown(ev.key)) ev.preventDefault();
     });
     window.addEventListener('keyup', function (ev) {
-      var k = String(ev.key).toLowerCase();
-      if (!(k in LIVE_KEYS)) return;
-      ev.preventDefault();
-      heldKeys[k] = false;
-      pushMask();
+      if (liveKeyUp(ev.key)) ev.preventDefault();
     });
-    // Losing focus mid-sprint would otherwise leave the seat walking into a
+    // (Losing focus mid-sprint would otherwise leave the seat walking into a
     // wall until the window is clicked again and the key is pressed AND
     // released: the keyup fires at a window that is no longer listening.
-    window.addEventListener('blur', function () {
-      heldKeys = Object.create(null);
-      pushMask();
-    });
+    // `liveFocusSync`, wired to `blur` above, is what releases the mask.)
   }
 
   // ---- the seat card, respawn read, hurt wash, incoming arcs ---------------
@@ -5509,8 +5589,10 @@ body[data-live] #inspector { display: none !important; }
     if (over) {
       $('deadveil').classList.remove('on');
       $('respawn').classList.remove('on');
+      $('focusnag').classList.remove('on');
       return;
     }
+    liveFocusSync();
     applyLiveCamera(me);
     renderSeat(me);
     renderRespawn(me);

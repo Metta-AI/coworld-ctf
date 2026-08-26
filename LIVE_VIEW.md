@@ -54,6 +54,31 @@ ring the human can already see on the board, never a shot's true landing.
 - `client/broadcast_core.js` — follow camera, `sendInputMask`
 - `client/replay_broadcast.html` — `LIVE` mode: seat card, respawn, hurt, arcs
 
+## Embedding it (for the app lane)
+
+SEASON2.md ships the match "embedded in-page with a fullscreen toggle". Verified
+working in a real cross-origin iframe (`tools/embed_host_probe.html` is the probe; serve it with
+`python3 -m http.server 8899 -d tools` so it is genuinely cross-origin to the
+game server, the way the real site will be):
+
+- **Keyboard.** An iframe does not hold the keyboard until it is clicked, and
+  the failure is silent — you press W and nothing happens. The client now takes
+  focus on load, retakes it on any pointerdown on the board, and shows a quiet
+  `Click to take the controls` pill whenever it genuinely has neither focus nor
+  a forwarding host. The match keeps rendering behind that pill, so an
+  unfocused embed is still a valid always-live tile.
+- **Preferred: forward keys.** The host can post
+  `{src:'ctf-shell', type:'key', down:<bool>, key:'w'}` to the iframe — the same
+  bridge that already carries transport commands. A forwarding host is playable
+  with no focus at all and never sees the pill. **Your own fullscreen button
+  takes focus the moment it is clicked**, so a host with a fullscreen toggle
+  wants this.
+- **Fullscreen.** Toggle it on the *wrapper*, not the iframe; the client's
+  ResizeObserver recomputes the camera and chrome scale on its own.
+- **Do NOT pass `?embed=1` for live play.** That flag is for the League
+  Replayer shell, which redraws the scorebug itself; it hides `#scorebug`, and
+  the live view's glory/HEAT readout lives inside it.
+
 ## Practice config
 
 `practice.json` differs from `config.json` only to make an iteration cheap:
