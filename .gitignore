@@ -83,3 +83,4 @@ my-paint-verify.bitreplay
 # loader REFUSES to overwrite an entry that is already there.
 /caos-std/
 /static-replay-viewer/
+br-paint4-match.bitreplay
