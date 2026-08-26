@@ -125,6 +125,18 @@ const
   GloryPopMaxStack* = 3       ## deepest visible stack at one site. Past this the
                               ## pops share a row again: an unreadable overlap is
                               ## still better than a column climbing off-screen.
+  GloryPopStaggerTicks* = 10  ## POP MOTION WAVE P3: ticks a stacked pop's own
+                              ## START delays past the one below it (row *
+                              ## this), so a same-tick burst reads as a QUEUE --
+                              ## the front pop is already fading by the time the
+                              ## next one visibly lands, instead of every row
+                              ## popping in on the identical tick. Sim-side (not
+                              ## a draw-time trick) so it replays identically:
+                              ## `addGloryPop` bakes it into the mint as
+                              ## `startDelay`, and the per-tick housekeeping
+                              ## pass (see `step`'s glory-pop prune) is what
+                              ## keeps a delayed pop alive long enough to still
+                              ## get its full animated life once it starts.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -726,6 +738,9 @@ type
                                ## the same tick, or a claim on top of the kill
                                ## that earned it. Bounded by GloryPopMaxStack so
                                ## a pile-up cannot march off the top of the board.
+                               ## Also doubles as P3's queue depth: STAGGER
+                               ## (below) delays a later row's start by
+                               ## `row * GloryPopStaggerTicks`.
     earnerIndex*: int          ## POP MOTION WAVE P1 ("track the unit"): the
                                ## player who earned this pop, or -1 for a
                                ## site-anchored team pop with no single earner
@@ -751,6 +766,16 @@ type
                                ## AchievementFxTicks window would yank the pop
                                ## onto the fresh spawn tile instead of leaving
                                ## it at the death site.
+    startDelay*: int           ## P3 STAGGER: ticks past `tick` this pop waits
+                               ## before it starts animating (rise/fade). Set
+                               ## once at mint from `row * GloryPopStaggerTicks`
+                               ## and never touched again; the draw side
+                               ## (addGloryPops) hides a still-queued pop
+                               ## entirely (no pool slot spent) and the
+                               ## per-tick prune extends the pop's kept window
+                               ## by this same amount so a heavily-staggered
+                               ## pop still gets its FULL animated life once it
+                               ## finally lands, not a truncated one.
 
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
@@ -3882,15 +3907,6 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   ## replay — which is the whole reason the pop is minted here, next to the
   ## money, instead of being reconstructed from the event stream downstream.
   ##
-  ## POP MOTION WAVE: `earnerIndex`, when given, is who this pop rides with --
-  ## `x, y` here is still just its MINT position (the earner's spot the
-  ## instant it was minted), but the per-tick housekeeping pass (`step`) keeps
-  ## re-syncing it to that player's live position for as long as they're
-  ## alive, so it tracks the cog rather than the empty air the deed happened
-  ## over. -1 keeps the pop pinned to its mint site forever, exactly like
-  ## before this field existed -- the right behaviour for a team-wide deed no
-  ## single cog earned.
-  ##
   ## Coalescing is not tidiness, it is the read. One kill can resolve a kill
   ## deed AND first blood at the same pixel on the same tick, and a shield can
   ## soak twice in a burst; three stacked labels at one spot is noise, whereas
@@ -3901,6 +3917,15 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   ## tick/site must not merge either -- a merged "+24" under just one of the
   ## two words would misreport what happened -- so the word must match too
   ## (two of the SAME word, e.g. two "TAG"s, still merge exactly like before).
+  ##
+  ## POP MOTION WAVE: `earnerIndex`, when given, is who this pop rides with --
+  ## `x, y` here is still just its MINT position (the earner's spot the
+  ## instant it was minted), but the per-tick housekeeping pass (`step`) keeps
+  ## re-syncing it to that player's live position for as long as they're
+  ## alive, so it tracks the cog rather than the empty air the deed happened
+  ## over. -1 keeps the pop pinned to its mint site forever, exactly like
+  ## before this field existed -- the right behaviour for a team-wide deed no
+  ## single cog earned.
   if amount == 0:
     return
   if label.len == 0:
@@ -3922,10 +3947,13 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
     if abs(pop.x - x) <= GloryPopCoalescePx and
         abs(pop.y - y) <= GloryPopCoalescePx:
       row = max(row, pop.row + 1)
+  let boundedRow = min(row, GloryPopMaxStack)
   sim.gloryPops.add GloryFx(
     x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
-    word: word, first: first, row: min(row, GloryPopMaxStack),
-    earnerIndex: earnerIndex
+    word: word, first: first, row: boundedRow, earnerIndex: earnerIndex,
+    # P3 STAGGER: only a pop that had to STACK (couldn't coalesce) queues --
+    # the first pop at a fresh site (row 0) always starts immediately.
+    startDelay: boundedRow * GloryPopStaggerTicks
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
@@ -7516,20 +7544,24 @@ proc step*(
     if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops
-  # POP MOTION WAVE P1: the same per-tick pass that already prunes expired
-  # glory pops also does the tracking housekeeping neither the mint site nor
-  # the draw side can do alone -- both need LIVE per-tick sim state (the
-  # earner's CURRENT position), never something reconstructible from a
-  # single tick in isolation.
+  # POP MOTION WAVE: the same per-tick pass that already prunes expired glory
+  # pops also does the P1 tracking and P3 stagger housekeeping neither the
+  # mint site nor the draw side can do alone -- both need LIVE per-tick sim
+  # state (the earner's CURRENT position, `startDelay`'s extended window),
+  # never something reconstructible from a single tick in isolation.
   var keptGlory: seq[GloryFx] = @[]
   for original in sim.gloryPops:
     var pop = original
     let life = if pop.label.len > 0: AchievementFxTicks else: GloryFxTicks
-    if sim.tickCount - pop.tick >= life:
+    # P3 STAGGER: `startDelay` extends the KEPT window by exactly the ticks
+    # this pop spends queued before it starts animating, so a heavily
+    # staggered pop still gets its full `life` ticks of visible motion once
+    # it lands, rather than a truncated one measured from the mint tick.
+    if sim.tickCount - pop.tick >= life + pop.startDelay:
       continue
-    # TRACK THE UNIT: while the earner is alive, keep re-anchoring the pop to
-    # their CURRENT position every tick, so it glides with the cog instead of
-    # marking the empty air the deed happened over. The client's own
+    # P1 TRACK THE UNIT: while the earner is alive, keep re-anchoring the pop
+    # to their CURRENT position every tick, so it glides with the cog instead
+    # of marking the empty air the deed happened over. The client's own
     # inter-tick easing (broadcast_core.js) turns this per-tick teleport into
     # smooth motion for free -- nothing more is needed on the wire.
     # `frozen` latches the instant the earner is found not-alive so a LATER

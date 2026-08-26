@@ -385,18 +385,17 @@ const
                                ## two deeds on the boardScale>1 chip path, so
                                ## the two render paths agree on "how much
                                ## bigger is big."
-  GloryPopTrackedAirPx = 4     ## POP MOTION WAVE P1: a few px of clear air
-                               ## above the tallest thing in a TRACKED pop's
-                               ## own overhead stack (see
-                               ## gloryPopTrackedOverheadLiftPx) -- so it
+  ## --- POP MOTION WAVE (P1 track / P2 scatter+angle / P3 stagger) ---
+  GloryPopTrackedAirPx = 4     ## P1: a few px of clear air above the tallest
+                               ## thing in a TRACKED pop's own overhead stack
+                               ## (see gloryPopTrackedOverheadLiftPx) -- so it
                                ## floats clear of the name band/veteran mark
                                ## rather than just touching it.
-  GloryPopScatterMinPx = 10    ## POP MOTION WAVE P2: least a pop's anchor
-  GloryPopScatterMaxPx = 16    ## scatters sideways off its site (Maxwell:
-                               ## "scatter a bit in a playful way") -- floored
-                               ## above 0 so a burst always visibly fans out,
-                               ## never rolls a near-zero offset that reads as
-                               ## a stack again.
+  GloryPopScatterMinPx = 10    ## P2: least a pop's anchor scatters sideways
+  GloryPopScatterMaxPx = 16    ## off its site (Maxwell: "scatter a bit in a
+                               ## playful way") -- floored above 0 so a burst
+                               ## always visibly fans out, never rolls a
+                               ## near-zero offset that reads as a stack again.
   GloryPopRotationMinDeg = 6.0'f32  ## P2: least/most a pop tilts off true
   GloryPopRotationMaxDeg = 10.0'f32 ## vertical, baked into its own raster --
                                ## enough to read as "flung," never so much the
@@ -6010,8 +6009,18 @@ proc addGloryPops(
   ## payout wins, so the deeds this economy is actually about cannot be crowded
   ## out by small change. Selection is a deterministic partial sort over the few
   ## candidates that survive fog; nothing here may depend on iteration order.
+  ##
+  ## POP MOTION WAVE P3: a pop still in its `startDelay` window hasn't
+  ## STARTED yet -- it's excluded here exactly like a fogged pop, consuming
+  ## no pool slot -- so a queued pop is genuinely invisible until it lands,
+  ## rather than sitting frozen on screen for its whole wait. That's what
+  ## makes a same-site burst read as a QUEUE: the front pop fades alone,
+  ## then the next one visibly POPS IN a beat later (with its own fresh
+  ## stage-0 spawn overshoot), instead of every row appearing at once.
   var candidates: seq[int] = @[]
   for i, pop in sim.gloryPops:
+    if sim.tickCount < pop.tick + pop.startDelay:
+      continue     # still queued (P3 stagger) -- not landed yet
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, pop.x, pop.y):
       continue     # a fogged pop consumes NO pool slot (fog honesty)
     candidates.add i
@@ -6035,7 +6044,10 @@ proc addGloryPops(
       break
     let pop = sim.gloryPops[ci]
     let
-      age = sim.tickCount - pop.tick
+      # Ticks since this pop actually STARTED animating (P3) -- never
+      # negative here, the candidates loop above already excludes anything
+      # still queued.
+      age = sim.tickCount - pop.tick - pop.startDelay
       life = if pop.label.len > 0: AchievementFxTicks else: GloryFxTicks
       stage = clamp(age * GloryPopStages div max(1, life), 0,
         GloryPopStages - 1)
