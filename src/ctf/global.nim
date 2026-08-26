@@ -7980,6 +7980,25 @@ proc zoneTestFrontLoopCoordAt*(px, py: float, rect: MapRect): tuple[a, b: float]
   ## downstream shape.
   zoneFrontLoopCoordAt(px, py, rect)
 
+proc zoneTestPaintableAt*(px, py: int): bool =
+  ## TEST/DIAGNOSTIC accessor: ZoneFloorPaintable for the coarse cell
+  ## covering map pixel (px, py). Exists for the same reason
+  ## zoneTestRoomIdAt does — it takes NO SimServer.
+  ##
+  ## That matters more than it looks: SimServer is a value `object`, not a
+  ## ref, so a per-cell check written against zoneD4MaskAt pays for the sim
+  ## on every single call. A whole-board sweep of the real showmatch map is
+  ## 803x429 = 344,487 cells, and the ALL PINK check that does exactly that
+  ## sweep ran for over an hour before this existed. Callers must have
+  ## already run ensureZoneFloorGrid (ensureZoneArrivalField does).
+  let
+    gx = px div ZoneFieldCellPx
+    gy = py div ZoneFieldCellPx
+    gw = ZoneFloorGridW
+  if gw <= 0 or gx < 0 or gy < 0 or gx >= gw or gy >= ZoneFloorGridH:
+    return false
+  ZoneFloorPaintable[gy * gw + gx]
+
 proc zoneTestRoomIdAt*(px, py: int): int =
   ## TEST/DIAGNOSTIC accessor: ZoneFloorRoomId for the coarse cell covering
   ## map pixel (px, py) — the per-pixel readout of zoneTestClassifyRooms,
