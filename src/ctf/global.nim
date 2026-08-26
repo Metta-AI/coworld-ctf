@@ -1066,6 +1066,17 @@ type
     debugSpriteLimitWarned*: bool
     shoutSlots*: array[ShoutMaxCount, string]  ## slot → owning shouter address
                                  ## ("" = free); see GlobalViewerState.shoutSlots.
+    mouseX*, mouseY*: int        ## last cursor position this connection put on
+                                 ## the wire, in MAP PIXELS. The player POV
+                                 ## ships the map layer at scale 1 with origin
+                                 ## (0, 0), so the packet's x,y need no
+                                 ## transform (see buildSpritePlayerSnapshot).
+    hasMouse*: bool              ## true once a cursor position has arrived on
+                                 ## a board layer. Recorded for EVERY player
+                                 ## connection because it costs a field and no
+                                 ## behaviour: only a human-taken seat on an
+                                 ## allowDirectAim config ever reads it, so a
+                                 ## league game is untouched.
     spriteDefs: seq[SpriteDefinition]
 
   ProtocolTextItem = ref object
@@ -1882,8 +1893,21 @@ proc applyPlayerViewerMessage*(
       inputMask = item.mask
     of SpriteClientDebugSpriteMessage:
       state.pendingDebugSprites.add(item.debugSprites)
-    of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage,
-        SpriteClientReadyMessage:
+    of SpriteClientMouseMoveMessage:
+      # Was discarded outright; now KEPT, because this is the whole of the
+      # direct-aim channel. Board layers only — a cursor over a HUD layer is
+      # in that layer's own tiny coordinate space, not map pixels, and would
+      # otherwise swing the turret to the top-left corner of the arena.
+      let layer =
+        if item.hasLayer:
+          item.layer
+        else:
+          MapLayerId
+      if layer == MapLayerId or layer == FogLayerId:
+        state.mouseX = item.x
+        state.mouseY = item.y
+        state.hasMouse = true
+    of SpriteClientMouseButtonMessage, SpriteClientReadyMessage:
       discard
 
 proc buildSpriteProtocolRawSprite(sprite: Sprite): seq[uint8] {.measure.} =

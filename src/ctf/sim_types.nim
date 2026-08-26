@@ -1407,6 +1407,15 @@ type
                               ## takeover route answers 403 and no takeover
                               ## code path can run, so a league build is
                               ## byte-identical to a pre-takeover build.
+    allowDirectAim*: bool     ## freeplay only: a HUMAN-driven seat may aim by
+                              ## pointing — the turret takes the bearing of the
+                              ## cursor in one tick instead of swinging there at
+                              ## `aimTurnRate`. Applies ONLY to a seat a human
+                              ## has taken over; a policy can never reach this
+                              ## channel, so no policy's tuning moves. false =
+                              ## the channel does not exist: the server keeps
+                              ## discarding mouse packets exactly as before and
+                              ## refuses any client that asks for it.
     slots*: seq[PlayerSlotConfig]
     barrageMaxPerSec*: int    ## grenade-barrage endgame: the launch rate the
                               ## barrage ramps UP to, in grenades/second.

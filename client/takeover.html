@@ -78,7 +78,7 @@
   </div>
 </header>
 <iframe id="field" title="the field"></iframe>
-<footer><kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Z</kbd> fire · <kbd>X</kbd> / <kbd>Space</kbd> turn — the same eight buttons the policy was pressing. <span id="wasd">(WASD and mouse aim arrive with the Season&nbsp;2 client.)</span></footer>
+<footer id="controls"><kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Z</kbd> fire · <kbd>X</kbd> / <kbd>Space</kbd> turn — the same eight buttons the policy was pressing.</footer>
 <script>
 const q = new URLSearchParams(location.search);
 const seat = q.get("slot") || "0";
@@ -87,15 +87,39 @@ const name = q.get("name") || "Guest";
 document.getElementById("who").textContent = name;
 document.getElementById("seatno").textContent = seat;
 
-const ws = (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/takeover";
-// player=1 is not optional. The stock client infers "I am a player, capture
-// keys" from its socket path being /player; a takeover socket lands on
-// /takeover, so without this the field renders and the keyboard does nothing.
-document.getElementById("field").src =
-  "/client/player?player=1&address=" + encodeURIComponent(ws) +
-  "&slot=" + encodeURIComponent(seat) +
-  "&token=" + encodeURIComponent(token) +
-  "&name=" + encodeURIComponent(name);
+// Capability DETECTION, not a build flag: one bundle is served to a league
+// server and a play server, so what this connection may ask for is read off
+// the server rather than compiled in. Asking for something a league server
+// does not advertise is REFUSED at the upgrade, so we only ask when told.
+async function capabilities() {
+  try {
+    const r = await fetch("/capabilities", {cache: "no-store"});
+    return await r.json();
+  } catch (e) {
+    return {seatTakeover: false, directAim: false};
+  }
+}
+
+function connect(caps) {
+  let ws = (location.protocol === "https:" ? "wss:" : "ws:") +
+    "//" + location.host + "/takeover";
+  if (caps.directAim) {
+    ws += "?directAim=1";
+    document.getElementById("controls").innerHTML =
+      '<kbd>&larr; &uarr; &darr; &rarr;</kbd> move \u00b7 <kbd>Z</kbd> fire ' +
+      '\u00b7 <b>the turret points wherever your cursor is</b> \u2014 the same ' +
+      'eight buttons the policy was pressing, aimed by hand.';
+  }
+  // player=1 is not optional. The stock client infers "I am a player, capture
+  // keys" from its socket path being /player; a takeover socket lands on
+  // /takeover, so without this the field renders and the keyboard does nothing.
+  document.getElementById("field").src =
+    "/client/player?player=1&address=" + encodeURIComponent(ws) +
+    "&slot=" + encodeURIComponent(seat) +
+    "&token=" + encodeURIComponent(token) +
+    "&name=" + encodeURIComponent(name);
+}
+capabilities().then(connect);
 
 const stateEl = document.getElementById("state");
 const detailEl = document.getElementById("detail");
@@ -103,7 +127,12 @@ async function poll() {
   try {
     const r = await fetch("/takeover/status", {cache: "no-store"});
     const j = await r.json();
-    const mine = (j.seats || []).find(s => String(s.seat) === String(seat));
+    // Matched on the seat we ASKED for, not the one we hold: a pending
+    // takeover migrates to whichever cog stands up soonest, so the seat number
+    // under us can change before we ever drive it.
+    const mine = (j.seats || []).find(
+      s => String(s.requestedSeat) === String(seat));
+    if (mine) { document.getElementById("seatno").textContent = mine.seat; }
     if (!mine) {
       stateEl.className = "pending";
       stateEl.textContent = "Suiting up";
@@ -111,13 +140,21 @@ async function poll() {
     } else if (mine.state === "driving") {
       stateEl.className = "driving";
       stateEl.textContent = "You’re driving";
-      detailEl.textContent = "Seat " + seat + " is yours — cog " + mine.cog + " on the field.";
+      detailEl.textContent = "Seat " + mine.seat + " is yours — cog " +
+        mine.cog + " on the field." +
+        (mine.directAim
+          ? (mine.aimBrads >= 0
+              ? "  Aim: pointing (" + mine.aimBrads + " brad)."
+              : "  Aim: pointing — move your cursor.")
+          : "");
     } else {
       stateEl.className = "pending";
       stateEl.textContent = "Suiting up";
       detailEl.textContent = mine.cog < 0
         ? "Your cog is between matches — you take the field at its next spawn."
-        : "The policy is finishing this life. You take over at its next spawn.";
+        : (mine.cogAlive
+            ? "The policy is finishing this life. You take over at its next spawn."
+            : "Your cog is down — you take the field at its next spawn.");
     }
   } catch (e) {
     detailEl.textContent = "Lost the server.";

@@ -46,6 +46,7 @@ proc defaultGameConfig*(): GameConfig =
     mapSpec: "",
     closedRoster: false,
     allowSeatTakeover: false,
+    allowDirectAim: false,
     slots: @[],
     perkMods: DefaultPerkMods,
     puddleDamagePct: DefaultPuddleDamagePct,
@@ -862,6 +863,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPerkMods(config)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigBool("allowSeatTakeover", config.allowSeatTakeover)
+  node.readConfigBool("allowDirectAim", config.allowDirectAim)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
   config.validate()
@@ -973,6 +975,12 @@ proc configJson*(config: GameConfig): string =
   # a league game's replay config stays byte-identical to pre-takeover builds.
   if config.allowSeatTakeover:
     node["allowSeatTakeover"] = %config.allowSeatTakeover
+  # Direct aim moves what the ENGINE does with a human's packets, so a replay
+  # that contains it must say so in its own header: this key is how a PLAY
+  # replay self-identifies as one no policy could have produced. Off, the key
+  # is absent and a league replay's config stays byte-identical.
+  if config.allowDirectAim:
+    node["allowDirectAim"] = %config.allowDirectAim
   # Echo the paintball keys only when the mode is engaged, so a classic
   # game's replay config stays byte-identical to pre-paintball builds. When
   # the mode IS on, echo every key: the wasm viewer re-derives the paint grid
