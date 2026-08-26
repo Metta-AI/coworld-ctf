@@ -235,12 +235,15 @@ const
     ##     (`broadcast.nim`'s `curriculumJson`) and read as native `title=`
     ##     tooltips on the achievement panel and the two team dropdowns
     ##     (`client/replay_broadcast.html`).
-    ##   - E7: `tests/test_glory.nim` gained a GOLDEN LAW test that walks
-    ##     every achievement gate's declared input counters and asserts NONE
-    ##     of them is a self-care counter (`clutchHeals`, `soakedHp`, or any
-    ##     future successor) -- the violation class this whole wave exists to
-    ##     end now fails the suite loudly, forever, instead of waiting for a
-    ##     human audit to catch the next one.
+    ##   - E7: a GOLDEN LAW test drives the REAL `evalAchievements` path and
+    ##     asserts `clutchHeals`/`soakedHp` (self-care), pumped to an absurd
+    ##     value, satisfy NOTHING -- neither any individual tier nor the
+    ##     team-wide `teamConvertedKits` booleans -- the violation class this
+    ##     whole wave exists to end now fails the suite loudly, forever,
+    ##     instead of waiting for a human audit to catch the next one. Lives
+    ##     in `tests/test_glory_sim.nim` (not `test_glory.nim`) on purpose:
+    ##     verifying gates is a SIM-behavioral question, and that file
+    ##     already owns "glory wired into the sim."
     ## Every item above changes WHETHER, HOW MUCH, or WHO an achievement or
     ## deed pays, and the xp/threshold refit changes which level a cog's xp
     ## buys -- so a v8 ledger's achievement claims, glory totals and levels
