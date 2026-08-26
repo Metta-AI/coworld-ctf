@@ -170,7 +170,23 @@
         worker = new Worker(workerUrl, { name: 'ctf-static-replay' });
         worker.onmessage = onWorkerMessage;
         worker.onerror = function (event) {
-          showFailure(new Error(event.message || 'Replay Worker crashed'));
+          // A Worker that dies at MODULE LOAD — a temporal-dead-zone
+          // reference in broadcast_core.js, a 404 on an importScripts
+          // target — reports HERE and nowhere else. Reading only
+          // `event.message` throws away the only two fields that say
+          // where: filename and lineno. That is what made the 2026-08-25
+          // ZONE_BEAD_TICKS TDZ read as a fault in this file, ~80 lines
+          // from the real one, and it is why tools/qa_module_eval.cjs now
+          // evaluates the worker's whole importScripts chain. Keep them.
+          var where = event && event.filename
+            ? ' (' + event.filename +
+              (event.lineno ? ':' + event.lineno : '') + ')'
+            : '';
+          var detail = (event && event.message) ||
+            (event && event.error && event.error.message) || '';
+          showFailure(new Error(detail
+            ? detail + where
+            : 'Replay Worker crashed before it could report' + where));
           stop();
         };
         worker.onmessageerror = function () {

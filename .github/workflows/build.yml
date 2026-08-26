@@ -109,6 +109,12 @@ jobs:
       # failed band must self-heal from its retained compressed payload.
       - name: Client band decode-failure regression
         run: node tools/qa_band_desync.cjs
+      # Every hand-written viewer module must EVALUATE, not merely parse: a
+      # temporal-dead-zone reference is valid syntax and killed the served
+      # viewer outright on 2026-08-25. Also asserts the checked-in
+      # static-replay-viewer/ bundle is not stale against its sources.
+      - name: Viewer module-evaluation + bundle-staleness check
+        run: node tools/qa_module_eval.cjs
       - name: Smoke-run fixture replays in the wasm bundle
         # gen-colossal-4team is the address-space canary: a 4992x4992 board
         # only fits wasm32 because oversize boards emit at 1x (see
