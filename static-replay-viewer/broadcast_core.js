@@ -113,6 +113,24 @@
   // episode almost the entire board is dry. Each band therefore carries
   // its own gloss multiplier, so the sheen lives on the advancing edge
   // and fades out behind it.
+  // THE SPLAT (Maxwell's ruling, 2026-08-26): the close ends on a flourish
+  // rather than just running out of board. The zone now shrinks to nothing,
+  // so there is a real LAST MOMENT — the tick the final cell turns pink —
+  // and that moment deserves to read as an event.
+  //
+  // Deliberately a pure OVERLAY, drawn on the target after the paint blit
+  // and never into zoneImage. That is not a style choice: the paint layer
+  // is INCREMENTAL (renderZonePaint only touches newly-arrived cells and
+  // never clears), so anything written into it PERSISTS forever. An
+  // animated flourish written there would smear permanently across the
+  // board. Drawing to the target each frame costs one arc and leaves the
+  // incremental invariant untouched.
+  //
+  // Cosmetic-only and structurally incapable of touching gameHash: it is a
+  // readout of the arrival field's own maximum, and nothing here is ever
+  // sent back.
+  const ZONE_SPLAT_TICKS = 42;        // how long the flourish lives
+  const ZONE_SPLAT_RADIUS_CELLS = 26; // final ring radius, in FINE cells
   const ZONE_SHEEN_AMPLITUDE = 9;
   const ZONE_SHEEN_PERIOD_PX = 190;
 
@@ -986,10 +1004,25 @@
       const fineW = width * ZONE_RENDER_SUPERSAMPLE;
       const fineH = height * ZONE_RENDER_SUPERSAMPLE;
       const fine = buildFineField(coarse, width, height, fineW, fineH);
+      // Where and when the board FINISHES going pink — the splat's anchor.
+      // Taken from the field's own maximum real arrival rather than from
+      // the schedule, so it stays correct whatever the phase table says and
+      // whatever the flow delay adds on top. ZONE_NEVER cells (walls, and
+      // the corner-round core inside the final rect) are excluded, or the
+      // sentinel would win the max outright.
+      let finalTick = -1, finalIdx = -1;
+      for (let i = 0; i < fine.length; i++) {
+        const a = fine[i];
+        if (a >= ZONE_NEVER_ARRIVES) continue;
+        if (a > finalTick) { finalTick = a; finalIdx = i; }
+      }
       zoneField = {
         gridW: fineW, gridH: fineH,
         arrival: fine, buckets: buildZoneBuckets(fine),
-        trim: buildZoneTrim(fineW, fineH)
+        trim: buildZoneTrim(fineW, fineH),
+        finalTick: finalTick,
+        finalX: finalIdx >= 0 ? finalIdx % fineW : 0,
+        finalY: finalIdx >= 0 ? Math.floor(finalIdx / fineW) : 0
       };
       zoneCanvas = createCanvasSurface();
       zoneCanvas.width = fineW;
@@ -1093,6 +1126,33 @@
       zoneLastAppliedTick = nowInt;
       targetCtx.drawImage(zoneCanvas, 0, 0, zoneField.gridW, zoneField.gridH,
         0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
+      drawZoneSplat(targetCtx, nowInt);
+    }
+
+    function drawZoneSplat(ctx, nowInt) {
+      // One expanding, fading ring at the spot the board finished going
+      // pink. Eased out (cubic) so it leaves fast and settles, rather than
+      // crawling outward at a constant rate.
+      if (!zoneField || zoneField.finalTick < 0) return;
+      const age = nowInt - zoneField.finalTick;
+      if (age < 0 || age > ZONE_SPLAT_TICKS) return;
+      const p = age / ZONE_SPLAT_TICKS;
+      const sx = ctx.canvas.width / zoneField.gridW;
+      const sy = ctx.canvas.height / zoneField.gridH;
+      const grow = 1 - Math.pow(1 - p, 3);
+      const r = ZONE_SPLAT_RADIUS_CELLS * grow * Math.max(sx, sy);
+      if (!(r > 0)) return;
+      const fade = (1 - p) * (1 - p);
+      const c = ZONE_PAINT_BEAD;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.strokeStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+      ctx.lineWidth = Math.max(1, (1 - p) * 3 * Math.max(sx, sy));
+      ctx.beginPath();
+      ctx.arc((zoneField.finalX + 0.5) * sx, (zoneField.finalY + 0.5) * sy,
+        r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
     function composite() {

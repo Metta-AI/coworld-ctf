@@ -813,6 +813,55 @@ suite "shrink zone schedule shape: gear-up then a continuous close":
     check hi > 1.0
     check distinct8 >= 8
 
+  test "the reference speed is anchored to the rect's REAL motion":
+    ## The assertion zoneBaseSpeedPxPerTick's own doc had been making in
+    ## prose only — and prose is exactly what let it be wrong. That speed
+    ## converts ZoneFingerAmpPx into a tick budget, so if it disagrees with
+    ## how fast the rect ACTUALLY moves, the meniscus renders at the wrong
+    ## depth on every map.
+    ##
+    ## The existing px->tick conversion test cannot catch that, by
+    ## construction: it checks ampTicks * speed == ZoneFingerAmpPx, which is
+    ## true for ANY speed because ampTicks is DEFINED as ZoneFingerAmpPx /
+    ## speed. It is a tautology dressed as a measurement. This one instead
+    ## derives the moving window from the RECT'S OBSERVED MOTION — the first
+    ## tick its extents actually change — and never reads waitTicks from the
+    ## config, so a schedule whose declared waits and real motion disagree
+    ## fails here rather than silently retuning the paint.
+    for (label, sim) in [("small test map", zoneGame(BrShowmatchPhases)),
+                         ("real showmatch map",
+                          zoneGameOnRealMap(BrShowmatchPhases))]:
+      var g = sim
+      let total = BrShowmatchTotalTicks
+      var firstMove = -1
+      var prevW = -1
+      var prevH = -1
+      for t in 0 .. total:
+        let r = g.zoneRectAndDps(t).cur
+        if prevW >= 0 and (r.w != prevW or r.h != prevH) and firstMove < 0:
+          firstMove = t
+        prevW = r.w
+        prevH = r.h
+      let
+        final = g.zoneRectAndDps(total).cur
+        closure = (float(g.gameMap.width - final.w) * 0.5 +
+                   float(g.gameMap.height - final.h) * 0.5) / 2.0
+        movingTicks = float(total - (firstMove - 1))
+        fromMotion = closure / movingTicks
+        reported = g.zoneBaseSpeedPxPerTick(total)
+        fromWholeSchedule = closure / float(total)   ## the OLD, wrong form
+      echo "  ", label, ": firstMove=", firstMove, " movingTicks=",
+        movingTicks, " speedFromMotion=", fromMotion, " reported=", reported,
+        " (whole-schedule form would say ", fromWholeSchedule, ")"
+      ## ANCHORED: what the code reports IS the rect's own motion.
+      check abs(reported - fromMotion) < 0.005
+      ## AND THE TEST HAS TEETH ON THIS SCHEDULE: the discarded
+      ## whole-schedule form is materially different here, so a regression
+      ## back to it fails loudly instead of drifting. (On a schedule with no
+      ## wait the two coincide and this arm is vacuous — which is precisely
+      ## why the bug was invisible until the gear-up got long.)
+      check abs(fromWholeSchedule - fromMotion) > 0.02
+
   test "ALL PINK: the whole floor is painted by the time the episode ends":
     ## Maxwell's ruling (2026-08-26): "not stop until all is pink." The
     ## close-to-nothing schedule is only half of that promise — the other
