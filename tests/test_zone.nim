@@ -870,20 +870,97 @@ proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int): i
       stderr.writeLine("    t=" & $t & " " & label & " worst=" & $edgeWorst)
   longest
 
-proc frontierTipSeq(
+proc frontierIsolineCoord(
+  sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
+  t: int, alongX: bool
+): int =
+  ## The frontier's own position on one row/column, at tick t — the
+  ## INNERMOST painted cell, found by walking OUTWARD from the rect's own
+  ## edge and returning the FIRST painted cell.
+  ##
+  ## Fable's audit (2026-08-25): `frontierTipCoord` above walks the same
+  ## ray but returns the LAST painted cell before the first unpainted one,
+  ## and bails (-1) unless `startCoord` is ALREADY painted. That premise is
+  ## inverted for a SHRINKING zone. The rect contracts, so the exterior is
+  ## painted FIRST and the paint advances INWARD: at tick t there is an
+  ## unpainted band just outside the rect (every exterior cell owes its own
+  ## flow delay before it arrives), and the newest paint — the meniscus —
+  ## is the cell CLOSEST to the rect. Measured on the real showmatch map at
+  ## t=2520 (rect y-span [943,1627]), the profile walking out from the
+  ## rect's right edge reads `......PPPPPP...`: six unpainted cells, THEN
+  ## paint. frontierTipCoord returns -1 for every one of those rows, and
+  ## the only rows it does report are ones ~200px ABOVE the rect's y-span,
+  ## where the whole row is old exterior — there its "tip" lands either on
+  ## the 4px unpainted sliver against the map's own border wall (x=3196,
+  ## dump `P_########`) or on an unpainted ROOM interior mid-map (x=2720,
+  ## dump `P_____PPPP`, room row `eerrrreeee`). Those two artifacts, not
+  ## the paint, are what produced the 89.7deg turning angle and the 394.9px
+  ## amplitude the previous passes chased through the propagation term and
+  ## the corner frame.
+  ##
+  ## Invalid (-1), each case an honest "this row has no open-field
+  ## meniscus", never a silently-clamped number:
+  ##  * `startCoord` already painted — the front is not ahead of this edge
+  ##    on this row (a row wholly outside the rect's own span, or inside
+  ##    the corner-round tolerance), so this edge does not own it;
+  ##  * a wall / off-grid cell reached before any paint — the row is
+  ##    occluded by architecture, and a room's fill is the room-lag and
+  ##    door-first checks' business, not this one's;
+  ##  * a never-arriving cell reached before any paint — a sealed pocket;
+  ##  * no paint at all within the walk budget.
+  proc cellPainted(v: int): tuple[ok, occluded: bool] =
+    if v < 0 or v >= otherGridMaxPx: return (false, true)
+    let mask = if alongX: zoneD4MaskAt(sim, fixedCoord, v)
+      else: zoneD4MaskAt(sim, v, fixedCoord)
+    if not mask.walkable: return (false, true)
+    let cell = if alongX: zoneArrivalFieldCellAt(fixedCoord, v)
+      else: zoneArrivalFieldCellAt(v, fixedCoord)
+    if not cell.has or cell.arrival == ZoneNeverArrives.int:
+      return (false, true)
+    (cell.arrival <= t, false)
+  const MaxWalkSteps = 300  ## * ZoneFieldCellPx = 1200px
+  let first = cellPainted(startCoord)
+  if first.occluded or first.ok:
+    return -1
+  var
+    coord = startCoord
+    steps = 0
+  while steps < MaxWalkSteps:
+    coord += stepSign * ZoneFieldCellPx
+    inc steps
+    let c = cellPainted(coord)
+    if c.occluded:
+      return -1
+    if c.ok:
+      # Require the paint to CONTINUE outward, so one speckled cell is
+      # never read as the front (the same discipline frontierTipCoord's
+      # own map-edge/wall guards apply to its end of the ray).
+      for k in 1 .. 2:
+        let n = cellPainted(coord + stepSign * k * ZoneFieldCellPx)
+        if not n.ok:
+          return -1
+      # Never let the literal map-border cell read as a front position.
+      if coord < ZoneFieldCellPx or coord >= otherGridMaxPx - ZoneFieldCellPx:
+        return -1
+      return coord
+  -1
+
+proc frontierIsolineSeq(
   sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
   loStart, hiEnd: int, t: int, alongX: bool
 ): seq[int] =
-  ## The per-sample tip sequence along one edge (LEFT/RIGHT walk rows, TOP/
-  ## BOTTOM walk columns) — the same construction longestStraightRunPx folds
-  ## into a running length, exposed here as the raw polyline (-1 for a gap)
-  ## so the curvature check below can measure turning angle between
-  ## consecutive real segments, not just repeated-value runs.
+  ## frontierIsolineCoord sampled every ZoneFieldCellPx along one edge —
+  ## the raw isoline polyline (-1 for a gap), the input checks #7 and #8
+  ## measure.
   var v = loStart
   while v <= hiEnd:
-    result.add frontierTipCoord(sim, v, startCoord, stepSign, otherGridMaxPx,
-      t, alongX)
+    result.add frontierIsolineCoord(sim, v, startCoord, stepSign,
+      otherGridMaxPx, t, alongX)
     v += ZoneFieldCellPx
+
+proc validCount(seqv: seq[int]): int =
+  for v in seqv:
+    if v != -1: inc result
 
 proc maxTurningAngleDeg(tipSeq: seq[int]): float =
   ## Turning angle (degrees, unsigned) between every pair of CONSECUTIVE
@@ -984,20 +1061,25 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       gwPx = gw * ZoneFieldCellPx
       ghPx = gh * ZoneFieldCellPx
     var worst = 0.0
+    var samples = 0
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
       for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
-        let tipSeq = frontierTipSeq(sim, 0, edgeX, stepSign, gwPx,
+        let tipSeq = frontierIsolineSeq(sim, 0, edgeX, stepSign, gwPx,
           max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
           alongX = false)
+        samples += validCount(tipSeq)
         worst = max(worst, maxTurningAngleDeg(tipSeq))
       for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
-        let tipSeq = frontierTipSeq(sim, 0, edgeY, stepSign, ghPx,
+        let tipSeq = frontierIsolineSeq(sim, 0, edgeY, stepSign, ghPx,
           max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
           alongX = true)
+        samples += validCount(tipSeq)
         worst = max(worst, maxTurningAngleDeg(tipSeq))
-    echo "turning-angle check (small map): worst=", worst, " deg"
+    echo "turning-angle check (small map): validSamples=", samples,
+      " worst=", worst, " deg"
+    check samples >= 200
     check worst <= MaxTurningAngleDeg
 
   test "check #7: the frontier never kinks — full-height right-edge sample on the real map":
@@ -1014,21 +1096,22 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       ghPx = gh * ZoneFieldCellPx
     var worst = 0.0
     var edgesSampled = 0
+    var realSamples = 0
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
       let edgeX = rect.x + rect.w - 1
-      let tipSeq = frontierTipSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
+      let tipSeq = frontierIsolineSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
         alongX = false)
-      var validCount = 0
-      for v in tipSeq:
-        if v != -1: inc validCount
-      if validCount >= 3:
+      let nValid = validCount(tipSeq)
+      realSamples += nValid
+      if nValid >= 3:
         inc edgesSampled
         let angle = maxTurningAngleDeg(tipSeq)
         worst = max(worst, angle)
-        echo "  right-edge full-height t=", t, " validSamples=", validCount,
-          " maxTurningAngle=", angle
+        echo "  right-edge full-height t=", t, " validSamples=", nValid,
+          " maxTurningAngle=", angle,
+          " rect=(x:", rect.x, " y:", rect.y, " w:", rect.w, " h:", rect.h, ")"
         when defined(zoneRoomClassifyDebug):
           if angle > MaxTurningAngleDeg:
             stderr.writeLine("    RIGHT-EDGE tipSeq(t=" & $t & ")=" & $tipSeq)
@@ -1051,7 +1134,11 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
                 xA = tipSeq[worstIdx - 1]
                 xB = tipSeq[worstIdx]
               stderr.writeLine("    worst jump: y=" & $yA & " x=" & $xA &
-                " -> y=" & $yB & " x=" & $xB & " (jump=" & $worstJump & ")")
+                " -> y=" & $yB & " x=" & $xB & " (jump=" & $worstJump & ")" &
+                " rectYSpan=[" & $rect.y & "," & $(rect.y + rect.h - 1) &
+                "] rectXRight=" & $(rect.x + rect.w - 1) &
+                " insideA=" & $(yA >= rect.y and yA <= rect.y + rect.h - 1) &
+                " insideB=" & $(yB >= rect.y and yB <= rect.y + rect.h - 1))
               let roomIdFull = zoneTestClassifyRooms(sim)
               for (label, xx, yy) in [("A", xA, yA), ("B", xB, yB)]:
                 var row = ""
@@ -1081,8 +1168,9 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
                 stderr.writeLine("    " & label & " wide(100px out, P=painted _=not #=wall): " & wideRow)
                 stderr.writeLine("    " & label & " room(e=ext r=room ?=oob): " & roomRow)
     echo "turning-angle check (real map, right edge, full height): edgesSampled=",
-      edgesSampled, " worst=", worst, " deg"
+      edgesSampled, " validSamples=", realSamples, " worst=", worst, " deg"
     check edgesSampled > 0
+    check realSamples >= 100
     check worst <= MaxTurningAngleDeg
 
   test "check #8: the meniscus amplitude stays bounded — no streamers":
@@ -1110,6 +1198,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
                           ## (measured in the hundreds-to-thousands of px
                           ## before this fix).
     var worstSmall = 0.0
+    var smallSamples = 0
     block smallMap:
       var sim = zoneGame(BrShowmatchPhases)
       discard ensureZoneArrivalField(sim)
@@ -1121,18 +1210,22 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         let t = int(float(BrShowmatchTotalTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
         for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
-          let tipSeq = frontierTipSeq(sim, 0, edgeX, stepSign, gwPx,
+          let tipSeq = frontierIsolineSeq(sim, 0, edgeX, stepSign, gwPx,
             max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
             alongX = false)
+          smallSamples += validCount(tipSeq)
           worstSmall = max(worstSmall, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
         for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
-          let tipSeq = frontierTipSeq(sim, 0, edgeY, stepSign, ghPx,
+          let tipSeq = frontierIsolineSeq(sim, 0, edgeY, stepSign, ghPx,
             max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
             alongX = true)
+          smallSamples += validCount(tipSeq)
           worstSmall = max(worstSmall, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
-    echo "amplitude check (small map): worst=", worstSmall, " px"
+    echo "amplitude check (small map): validSamples=", smallSamples,
+      " worst=", worstSmall, " px"
     var worstReal = 0.0
     var realEdgesSampled = 0
+    var realSamples = 0
     block realMapRightEdge:
       var sim = zoneGameOnRealMap(BrShowmatchPhases)
       discard ensureZoneArrivalField(sim)
@@ -1144,16 +1237,15 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         let t = int(float(BrShowmatchTotalTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
         let edgeX = rect.x + rect.w - 1
-        let tipSeq = frontierTipSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
+        let tipSeq = frontierIsolineSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
           alongX = false)
-        var validCount = 0
-        for v in tipSeq:
-          if v != -1: inc validCount
-        if validCount >= 3:
+        let nValid = validCount(tipSeq)
+        realSamples += nValid
+        if nValid >= 3:
           inc realEdgesSampled
           worstReal = max(worstReal, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
     echo "amplitude check (real map, right edge): edgesSampled=",
-      realEdgesSampled, " worst=", worstReal, " px"
+      realEdgesSampled, " validSamples=", realSamples, " worst=", worstReal, " px"
     check worstSmall <= MaxAmplitudePx
     check worstReal <= MaxAmplitudePx
 
