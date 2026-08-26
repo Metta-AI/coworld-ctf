@@ -61,5 +61,11 @@ ring the human can already see on the board, never a shot's true landing.
 `respawnTicks` 192 (the shipped 72 = 3s is shorter than a screenshot round trip;
 the overlay reads the config, so it shows whatever is set).
 
-Screenshots from the verified run are in `.harness/screenshots/`, including
-`sbs-before-after.png` and `sbs-replay-vs-live.png`.
+## Screenshots (all from live matches, `.harness/screenshots/`)
+
+- `sbs-before-after.png` — stock client vs `/client/play`, same rig
+- `sbs-replay-vs-live.png` — the replay viewer vs the live view, same chrome
+- `xray-through-banner-900w.png` — the spawn-banner occlusion case, at 900px
+- `after-live-05-taggedout.png` — the respawn read, board dimmed, ghost view
+- `after-live-08-endcard.png` — the broadcast end card off a live match
+- `after-live-06-wholearena.png` — the `V` fallback view, self still findable
