@@ -1504,6 +1504,13 @@ type
                               ## into replays, so playback reuses the EXACT
                               ## geometry and never re-runs the generator.
     closedRoster*: bool
+    allowSeatTakeover*: bool  ## freeplay only: a human websocket may TAKE OVER
+                              ## an occupied seat, driving that cog's 8-button
+                              ## InputState from its next respawn onward.
+                              ## false = the mode does not exist — every
+                              ## takeover route answers 403 and no takeover
+                              ## code path can run, so a league build is
+                              ## byte-identical to a pre-takeover build.
     slots*: seq[PlayerSlotConfig]
     barrageMaxPerSec*: int    ## grenade-barrage endgame: the launch rate the
                               ## barrage ramps UP to, in grenades/second.

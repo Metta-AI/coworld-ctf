@@ -1,0 +1,128 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Free Play — suiting up</title>
+<style>
+  :root {
+    --paper: #f7f4ef;
+    --ink: #211e1a;
+    --ink-soft: #6b645b;
+    --hairline: #ddd6ca;
+    --live: #2f6b46;
+    --pending: #9a5b1d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.45 ui-sans-serif, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  header { padding: 18px 24px 14px; }
+  .kicker {
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  h1 {
+    margin: 2px 0 0;
+    font-size: 27px;
+    font-weight: 620;
+    letter-spacing: -.012em;
+  }
+  h1 .seat { color: var(--ink-soft); font-weight: 400; }
+  #status {
+    margin-top: 7px;
+    font-size: 15px;
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+  }
+  #state {
+    font-weight: 640;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    font-size: 12px;
+  }
+  #state.pending { color: var(--pending); }
+  #state.driving { color: var(--live); }
+  #detail { color: var(--ink-soft); }
+  #field {
+    flex: 1;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+    width: 100%;
+    background: var(--paper);
+  }
+  footer {
+    padding: 9px 24px 13px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--hairline);
+  }
+  kbd {
+    font: inherit;
+    font-weight: 600;
+    color: var(--ink);
+  }
+</style>
+<header>
+  <div class="kicker">Free Play</div>
+  <h1><span id="who">Guest</span> <span class="seat">· seat <span id="seatno">–</span></span></h1>
+  <div id="status">
+    <span id="state" class="pending">Suiting up</span>
+    <span id="detail">Waiting for the server…</span>
+  </div>
+</header>
+<iframe id="field" title="the field"></iframe>
+<footer><kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Z</kbd> fire · <kbd>X</kbd> / <kbd>Space</kbd> turn — the same eight buttons the policy was pressing. <span id="wasd">(WASD and mouse aim arrive with the Season&nbsp;2 client.)</span></footer>
+<script>
+const q = new URLSearchParams(location.search);
+const seat = q.get("slot") || "0";
+const token = q.get("token") || "";
+const name = q.get("name") || "Guest";
+document.getElementById("who").textContent = name;
+document.getElementById("seatno").textContent = seat;
+
+const ws = (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/takeover";
+// player=1 is not optional. The stock client infers "I am a player, capture
+// keys" from its socket path being /player; a takeover socket lands on
+// /takeover, so without this the field renders and the keyboard does nothing.
+document.getElementById("field").src =
+  "/client/player?player=1&address=" + encodeURIComponent(ws) +
+  "&slot=" + encodeURIComponent(seat) +
+  "&token=" + encodeURIComponent(token) +
+  "&name=" + encodeURIComponent(name);
+
+const stateEl = document.getElementById("state");
+const detailEl = document.getElementById("detail");
+async function poll() {
+  try {
+    const r = await fetch("/takeover/status", {cache: "no-store"});
+    const j = await r.json();
+    const mine = (j.seats || []).find(s => String(s.seat) === String(seat));
+    if (!mine) {
+      stateEl.className = "pending";
+      stateEl.textContent = "Suiting up";
+      detailEl.textContent = "Connecting to seat " + seat + "…";
+    } else if (mine.state === "driving") {
+      stateEl.className = "driving";
+      stateEl.textContent = "You’re driving";
+      detailEl.textContent = "Seat " + seat + " is yours — cog " + mine.cog + " on the field.";
+    } else {
+      stateEl.className = "pending";
+      stateEl.textContent = "Suiting up";
+      detailEl.textContent = mine.cog < 0
+        ? "Your cog is between matches — you take the field at its next spawn."
+        : "The policy is finishing this life. You take over at its next spawn.";
+    }
+  } catch (e) {
+    detailEl.textContent = "Lost the server.";
+  }
+}
+poll();
+setInterval(poll, 500);
+</script>
