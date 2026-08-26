@@ -6828,12 +6828,20 @@ proc roundedRectSignedDist*(rect: MapRect, cornerR, px, py: float): float =
     ay = max(qy, 0.0)
   sqrt(ax * ax + ay * ay) + min(max(qx, qy), 0.0) - cornerR
 
-proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect): tuple[a, b: float] =
+proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect,
+    shapeW, shapeH: float): tuple[a, b: float] =
   ## Where (px, py) sits ALONG THE FRONT that will pass through it — as a
   ## point on a CLOSED LOOP in the noise's own 2D domain, whose
   ## circumference equals that front's own perimeter. This is the
   ## coordinate zoneBoundaryFingerDelayAt's octaves read, so a stated 160px
   ## finger wavelength means 160px measured along the front.
+  ##
+  ## `rect` supplies the CENTRE the family shrinks about; (shapeW, shapeH)
+  ## supply its SHAPE — the board's own width and height, the pair
+  ## zoneRectAtScale scales every rect in the family from. They are separate
+  ## parameters because at the schedule's terminal z the rect is a couple of
+  ## integer pixels and no longer carries its own aspect; see DEGENERATE
+  ## EXTENTS below, which is the whole reason this signature has them.
   ##
   ## THE FAMILY MATTERS (Fable's audit, 2026-08-25 — this is the second
   ## and load-bearing correction). The zone's rect shrinks by a HOMOTHETY:
@@ -6852,11 +6860,12 @@ proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect): tuple[a, b: float] =
   ## on one front reading the same noise, i.e. a manufactured kink.
   ##
   ## A homothetic family has no such degeneracy. Normalizing by the rect's
-  ## own half-extents, zp = max(|u|, |v|) IS the scale of the front through
-  ## p (exact for a sharp-cornered rect, and ZoneCornerRoundPx = 16 is
-  ## negligible against any real rect), and theta = atan2(v, u) is that
-  ## front's own angular parameter — continuous everywhere outside the
-  ## centre, monotone along every edge, no quadrant cases at all.
+  ## own half-extents (that is, by the SHAPE — see below), zp = max(|u|,
+  ## |v|) IS the scale of the front through p (exact for a sharp-cornered
+  ## rect, and ZoneCornerRoundPx = 16 is negligible against any real rect),
+  ## and theta = atan2(v, u) is that front's own angular parameter —
+  ## continuous everywhere outside the centre, monotone along every edge, no
+  ## quadrant cases at all.
   ##
   ## Sampling on a LOOP rather than by scalar arc length is what removes
   ## the last seam: any scalar "distance around the perimeter" has a branch
@@ -6873,29 +6882,50 @@ proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect): tuple[a, b: float] =
   ## right edge 84px longest flat run, top edge 124px, versus 408px and
   ## 160px for the offset curve.
   ##
-  ## DEGENERATE EXTENTS (2026-08-25, with the close-to-nothing schedule).
-  ## The schedule now runs the rect down to the smallest scale the config
-  ## allows instead of holding at a terminal room, so `rect` here can be a
-  ## few px on a side. Two things had to be made safe, and BOTH are floors
-  ## that are now explicit rather than incidental:
-  ##  * hw/hh are floored at 1.0 (they always were) so the normalization
-  ##    below never divides by zero;
-  ##  * the PERIMETER now derives from those SAME floored half-extents.
-  ##    It used to read the raw rect.w/rect.h while the normalization used
-  ##    the floored ones — an inconsistency with no effect at any normal
-  ##    rect but which, at a 1px rect, produced perim = 0, hence r = 0,
-  ##    hence the loop coordinate collapsing to the origin for EVERY point
-  ##    on the board. That is a silent, total loss of fingering (a flat
-  ##    front everywhere), not a crash, which is exactly the kind of
-  ##    failure that reads green.
-  ## 4*(hw+hh) IS 2*(w+h) wherever w and h are both >= 2, so this is
-  ## algebraically identical everywhere the old form was well-defined and
-  ## merely stays finite where it was not.
+  ## DEGENERATE EXTENTS, AND WHY THE SHAPE CANNOT COME FROM `rect`
+  ## (2026-08-26, with the close-to-nothing schedule). The schedule now runs
+  ## the rect down to the smallest scale the config allows instead of
+  ## holding at a terminal room, so the rect the CALLER has is a few px on a
+  ## side — 1x1 on the 1235x659 test board, 3x1 on the real 3211x1713
+  ## showmatch map. An earlier pass floored hw/hh at 1.0 each to keep the
+  ## normalization finite, which is safe but is NOT enough, because the
+  ## floor is applied to each axis INDEPENDENTLY and therefore destroys the
+  ## one thing this coordinate is built out of: the family's ASPECT.
+  ##
+  ## THE CONTRACT THAT BREAKS. This proc exists so that "a stated 160px
+  ## finger wavelength means 160px measured ALONG THE FRONT" — i.e. so that
+  ## |d(loop)/ds| == 1 for a 1px step along the front, everywhere on the
+  ## loop. That holds only when (hw, hh) is proportional to the family's
+  ## true (W, H). Floored to (1, 1) on a 1.874:1 board the assumed family
+  ## becomes SQUARES, and the metric stops being 1: MEASURED before this
+  ## fix, |d(loop)/ds| ranged 0.648..1.424 around a mid-schedule front on
+  ## the small map (a 2.20x spread) and 0.546..1.756 on the real showmatch
+  ## map (3.22x). The stated 160px octave was therefore landing anywhere
+  ## from 91px to 293px along the real front — and since a turning-angle
+  ## bound derived from that wavelength scales as its INVERSE SQUARE, the
+  ## paint could legitimately bend up to 3.1x harder than check #7's term A
+  ## priced, purely because of this. That is a self-inflicted regression of
+  ## the close-to-zero schedule itself: at the old terminal 385x205 rect the
+  ## floor never bound and the contract held.
+  ##
+  ## THE FIX IS EXACT, NOT A WIDER FLOOR. The loop coordinate is INVARIANT
+  ## to which member of the family supplies the normalization, for a fixed
+  ## centre: with (hw, hh) = k*(W/2, H/2) the scale reads zp = s/k, the
+  ## perimeter reads 4*(hw + hh)*zp = 2*(W + H)*s — k cancels — and theta is
+  ## k-free outright. So the shape can be taken from the family's FULL-SCALE
+  ## member (the board's own W and H, which is exactly what zoneRectAtScale
+  ## scales every rect from) while the CENTRE still comes from `rect`, and
+  ## the result is precisely what a non-degenerate `rect` would have given.
+  ## No floor can bind, at any z, because W and H are the board's.
+  ##
+  ## The centre is taken as the rect's own true centre in float. It is not
+  ## floored either: flooring it moved the whole loop origin by half a pixel
+  ## at a 1px rect for no reason.
   let
-    hw = max(1.0, float(rect.w) * 0.5)
-    hh = max(1.0, float(rect.h) * 0.5)
-    u = (px - (float(rect.x) + hw)) / hw
-    v = (py - (float(rect.y) + hh)) / hh
+    hw = max(1e-6, shapeW * 0.5)
+    hh = max(1e-6, shapeH * 0.5)
+    u = (px - (float(rect.x) + float(rect.w) * 0.5)) / hw
+    v = (py - (float(rect.y) + float(rect.h) * 0.5)) / hh
     zp = max(abs(u), abs(v))
   if zp < 1e-9:
     return (0.0, 0.0)
@@ -7523,7 +7553,7 @@ proc zoneFingerAmpClampBinds*(baseSpeed: float): bool =
   ZoneFingerAmpPx / max(baseSpeed, 1e-6) > ZoneFingerAmpMaxTicks
 
 proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect,
-    ampTicks: float): float =
+    shapeW, shapeH, ampTicks: float): float =
   ## Fingering at the SOURCE, not just downstream of it. A fast-marching
   ## solve is a MINIMUM-time solve: an exterior cell seeded at exactly its
   ## own honest T0 is already the theoretical fastest value, so no amount
@@ -7568,7 +7598,7 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect,
     # rotated-frame angle, then the offset-curve arc length) both failed:
     # they assumed the wrong family of fronts. The zone shrinks by a
     # HOMOTHETY, not an erosion.
-    loop = zoneFrontLoopCoordAt(px, py, finalRect)
+    loop = zoneFrontLoopCoordAt(px, py, finalRect, shapeW, shapeH)
     n1 = zoneMeniscusOctave(loop.a, loop.b, ZoneFingerOctaveFinePx,
       ZoneFieldSeed xor 0x9F)
     n2 = zoneMeniscusOctave(loop.a, loop.b, ZoneFingerOctaveCoarsePx,
@@ -7639,6 +7669,14 @@ proc computeZoneFrontierField(
   # own tick budget (see ZoneFingerAmpPx's doc for why the ruling is
   # denominated in pixels).
   let fingerAmpTicks = zoneFingerAmpTicksFor(baseSpeed)
+  # The fingering family's SHAPE. zoneRectAtScale builds every rect in the
+  # schedule by scaling these two numbers, so they — not the terminal rect's
+  # own couple of integer pixels — are what keeps the loop coordinate's
+  # "160px means 160px along the front" contract true at every z. See
+  # zoneFrontLoopCoordAt's DEGENERATE EXTENTS note.
+  let
+    shapeW = float(sim.gameMap.width)
+    shapeH = float(sim.gameMap.height)
   var pq = initHeapQueue[ZoneFieldQItem]()
   for gy in 0 ..< gh:
     for gx in 0 ..< gw:
@@ -7661,7 +7699,8 @@ proc computeZoneFrontierField(
           px = float(gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
           py = float(gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
         result[idx] = float32(t0[idx]) +
-          float32(zoneBoundaryFingerDelayAt(px, py, finalRect, fingerAmpTicks))
+          float32(zoneBoundaryFingerDelayAt(px, py, finalRect,
+            shapeW, shapeH, fingerAmpTicks))
         pq.push((t: result[idx], idx: idx))
   proc valueAt(gw, gh, nx, ny: int, field: seq[float32]): float32 {.inline.} =
     if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
@@ -7971,14 +8010,15 @@ proc zoneTestClassifyRooms*(sim: SimServer): seq[int] =
   ensureZoneFloorGrid(sim)
   ZoneFloorRoomId
 
-proc zoneTestFrontLoopCoordAt*(px, py: float, rect: MapRect): tuple[a, b: float] =
+proc zoneTestFrontLoopCoordAt*(px, py: float, rect: MapRect,
+    shapeW, shapeH: float): tuple[a, b: float] =
   ## TEST accessor for zoneFrontLoopCoordAt — the fingering family's own
   ## parameterization, exposed so a machine check can assert the family
   ## does not COLLAPSE at a degenerate terminal rect. A collapse is silent
   ## (one constant coordinate everywhere, hence a dead-flat front), so it
   ## needs a test that reads the mechanism directly rather than only its
   ## downstream shape.
-  zoneFrontLoopCoordAt(px, py, rect)
+  zoneFrontLoopCoordAt(px, py, rect, shapeW, shapeH)
 
 proc zoneTestPaintableAt*(px, py: int): bool =
   ## TEST/DIAGNOSTIC accessor: ZoneFloorPaintable for the coarse cell
@@ -7998,6 +8038,29 @@ proc zoneTestPaintableAt*(px, py: int): bool =
   if gw <= 0 or gx < 0 or gy < 0 or gx >= gw or gy >= ZoneFloorGridH:
     return false
   ZoneFloorPaintable[gy * gw + gx]
+
+proc zoneTestFingerDelayAt*(px, py: float, finalRect: MapRect,
+    shapeW, shapeH, ampTicks: float): float =
+  ## TEST/DIAGNOSTIC accessor: zoneBoundaryFingerDelayAt, the SEED nudge —
+  ## the additive tick delay the solver stamps on an exterior cell at the
+  ## moment it becomes a source. Exposed for the same reason
+  ## zoneTestRoomIdAt is: check #7's bound is DERIVED from what this
+  ## function can do, and a bound derived from a function the instrument
+  ## cannot evaluate is a bound nothing can falsify.
+  zoneBoundaryFingerDelayAt(px, py, finalRect, shapeW, shapeH, ampTicks)
+
+proc zoneTestBaseArrivalTickAt*(sim: SimServer, px, py: float,
+    totalTicks: int, finalRect: MapRect): int =
+  ## TEST/DIAGNOSTIC accessor: zoneBaseArrivalTickAt — the tick the TRUE
+  ## damage boundary passes this point, ignoring flow. `arrival - this` is
+  ## the flow's LAG behind the honest boundary, which is what separates a
+  ## meniscus from a touchdown.
+  zoneBaseArrivalTickAt(sim, px, py, totalTicks, finalRect)
+
+proc zoneTestScheduleTotalTicks*(sim: SimServer): int =
+  ## TEST/DIAGNOSTIC accessor: the schedule's own total tick count, the
+  ## same one ensureZoneArrivalField solves against.
+  zoneScheduleTotalTicks(sim)
 
 proc zoneTestRoomIdAt*(px, py: int): int =
   ## TEST/DIAGNOSTIC accessor: ZoneFloorRoomId for the coarse cell covering

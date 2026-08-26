@@ -797,7 +797,8 @@ suite "shrink zone schedule shape: gear-up then a continuous close":
         ang = 2.0 * PI * float(k) / 16.0
         px = float(term.x) + 700.0 * cos(ang)
         py = float(term.y) + 700.0 * sin(ang)
-        loop = zoneTestFrontLoopCoordAt(px, py, term)
+        loop = zoneTestFrontLoopCoordAt(px, py, term,
+          float(sim.gameMap.width), float(sim.gameMap.height))
         mag = sqrt(loop.a * loop.a + loop.b * loop.b)
       lo = min(lo, mag)
       hi = max(hi, mag)
