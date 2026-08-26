@@ -18,6 +18,8 @@ cd tools/ladder
 | `matched.py <aF> <aL> <bF> <bL> [min_n]` | ⭐ A/B two tenures, matched on opponents present in both. |
 | `heals.py <first> <last> <ver> [n] [--cw V]` | Mechanism metrics (heals, K/D, attrition window) by re-simulating real league replays. |
 | `encounters.py [--events GLOB] [--player P] [--vs OPP]` | Combat-encounter tempo (encounters/min, per-opponent split) straight from cached tier-2 event files — reads scout.py's `~/.ctf/scout/events/*.jsonl`, no fetch of its own. |
+| `br_reads.py {index,fetch,fairness,engagement,loot}` | BR launch day-one pre-registered reads: per-spawn fairness-floor bootstrap, per-policy engagement distributions, zone-vs-combat deaths + item-pickup rate per pool. Runs against ANY league/variant — smoke-test on Paintbot's live `4-team free-for-all` corpus today, re-point at the BR league once it exists. See below. |
+| `br_smoke.py {round,rollback}` | BR round-1 smoke checklist (seats/teams-fired/replay-reachable, exit 1 on failure) + a READ-ONLY rollback runbook (reads `rounds_paused_at`/`submissions_locked_at`, documents the exact escalation). See below. |
 
 ## Three traps this tooling exists to avoid
 
@@ -145,3 +147,116 @@ opponents only*, since a raw total is not comparable across a different mix.
 **Trust.** The re-simulated winner agreed with the league's own episode score on
 **88/88** episodes — the extraction faithfully mirrors the hosted result, so the
 richer attribution built on it can be trusted too.
+
+---
+
+# `br_reads.py` — BR launch day-one pre-registered reads
+
+**Why it exists.** `docs/designs/BR_MAPGEN.md` §7.1's bootstrap order is: draw
+a map family, run it **ungated**, derive the fairness floor from the resulting
+corpus, then gate retroactively. That derivation, plus the post-launch
+calibration feed (engagement distributions) and the mode-hardening watch
+(zone-vs-combat deaths, item-pickup-per-pool), all need an instrument *before*
+the BR league exists so day one is push-button, not a research project. Every
+command takes `--variant`/`--groups` rather than hard-coding BR's 16-duo
+shape, so it is exercisable **today** against Paintbot's live `4-team
+free-for-all` corpus (`--groups 4`) as a mechanism smoke test, and against the
+BR league (`--groups 16`, `--variant br16`) once it exists.
+
+⚠️ A 4-group smoke run is **not** a BR fairness measurement — it validates the
+*mechanism*, on a different game entirely. Every report prints its own thin/
+graded sample-size caveats regardless of which corpus it's pointed at.
+
+## The three reads (LAUNCH_PLAN.md §4, items 1/2/4 — item 3 needs a wire label
+that doesn't exist on this checkout yet; see `loot`'s BLOCKED note)
+
+```sh
+PY=~/projects/coworld-players/coworld-cogherence-player/.venv/bin/python
+cd tools/ladder
+$PY br_reads.py index  --rounds 40
+$PY br_reads.py fetch      --variant "4-team free-for-all" --groups 4 --rounds 40
+$PY br_reads.py fairness   --variant "4-team free-for-all" --groups 4 --rounds 40
+$PY br_reads.py engagement --variant "4-team free-for-all" --groups 4 --rounds 40
+$PY br_reads.py loot       --variant "4-team free-for-all" --groups 4 --rounds 40
+```
+
+1. **`fairness`** — per-spawn win-share -> the corpus floor (p2.5 of graded
+   spawns, graded meaning >=5 wins — BR_MAPGEN.md §3.1's house method).
+   Explicitly does **not** port CTF's 0.140 (it sits *above* a 16-group
+   uniform of 0.0625; porting it would fail every map ever drawn).
+2. **`engagement`** — per-policy attacks/damage/placement (win vs eliminated —
+   the API's own result carries no finer rank), clustered on the
+   TEAM-Episode, bootstrap CI. The post-launch calibration feed.
+3. **`loot`** — zone-vs-combat death ratio (reconstructed from the most
+   recent `damage` event preceding each `death`, since `death` rows never
+   carry a weapon) and item-pickup rate per pool (`med_kit`/`shield`/
+   `grenade`/`spray_can` — the four wire items, BR_MAPGEN.md §4.9).
+
+## Gotchas this encodes
+
+- **`death` events carry the VICTIM in `source` and the KILLER in `target`**
+  — the opposite convention from `kill` (source=killer/target=victim) — and
+  **never** carry a weapon (verified live: 820/820 death rows had
+  `weapon=""`). Cause is reconstructed from the most recent `damage` event on
+  that same victim slot; get the source/target swap wrong and every death
+  attributes to the wrong team.
+- **`puddle` is not the BR zone.** It's an existing CTF hazard (paint
+  puddles). The zone-damage label (`ring`/`zone`) is reserved but has never
+  been observed — BR_MAPGEN.md §3.3/§7.3: it lives on the unmerged
+  `maxwell/br-zone` branch. `loot` prints **BLOCKED**, not a false 0.0000,
+  when no zone-weapon event has ever been seen.
+- **`--groups` is a geometry assertion, not a filter** — an episode whose
+  distinct `slot_team` count doesn't match `--groups` is excluded and
+  counted, the same defense ffa4score.py uses to keep ffa8 out of ffa4.
+- **Builds are never pooled.** Every report breaks out by `coworld_version`
+  read from the episode API record — never from the summary row's
+  `gameVersion`, which is the *extractor's* own version and reads constant
+  for everything it could extract at all.
+- **`is_filler` marks a seat, not a policy.** The control is identified by
+  `slot_address == "Baseline"` on the replay's own roster, exactly like
+  `ffa4score.py`/`encounters.py`.
+
+**Trust.** `br_reads.py selfcheck` (offline, no network) and
+`test_br_reads.py` (a hand-built fixture with pre-computed expected numbers —
+same idiom as `test_encounters.py`) both pass. Smoke-tested live against 377
+`4-team free-for-all` episodes over 40 Paintbot rounds: `fairness`'s per-spawn
+win-share (red 9.0%, yellow 9.0%, green 14.1%, blue 67.9%) closely reproduces
+the independently-documented ffa4 positional-unfairness finding
+(8.9/8.9/23.2/58.9% by slot block) — external validation that the win-share/
+p2.5 mechanism surfaces a real, previously-known effect, not noise.
+
+---
+
+# `br_smoke.py` — round-1 smoke checklist + rollback runbook
+
+Two subcommands, both **read-only against the platform, always**:
+
+```sh
+$PY br_smoke.py round --league <id> --seats 32 --min-teams-fired 12 --variant br16 [--check-replays]
+$PY br_smoke.py rollback --league <id>
+```
+
+`round` is LAUNCH_PLAN.md §5 item 7 / §6's smoke-fail triggers as an
+executable, CI/cron-able check (exits 1 on any failure): round completed?
+seat count matches on every episode? do at least `--min-teams-fired` distinct
+teams show a recorded score (a "did the roster show up" floor)? is every
+`replay_url` reachable unauthenticated (`--check-replays`, opt-in since it
+makes one live HTTP request per episode)?
+
+`rollback` reads the two real, already-precedented pause levers
+(`rounds_paused_at`, `submissions_locked_at`) and prints the §6 escalation
+runbook (pause rounds -> lock submissions -> full disable is explicitly
+out of scope). It also fetches the platform's own `/openapi.json` **read-only**
+and confirms there is genuinely no write endpoint anywhere in the spec for
+pausing or locking a league — `/v2/leagues/{league_id}` exposes `GET` only,
+and the only write verbs under any `/v2/leagues/...` path are campaign/
+landscape board mechanics, membership actions, submissions, lobbies and
+tournaments. **Pausing a league is a confirmed out-of-band admin action**;
+this tool documents the exact minimal ask (`rounds_paused_at` = now, ISO
+8601) rather than pretending it can execute one.
+
+**Trust.** Smoke-tested live: `round` passes 8/8 on Paintbot's latest ffa4
+round and correctly fails (exit 1) under a deliberately wrong `--seats`;
+`rollback` reads `rounds_paused_at=null` on the live Paintbot league and the
+exact `2026-08-14T20:50:48Z` timestamp on the dead, paused `Ctf` league — the
+same value LAUNCH_PLAN.md §6 cites as the mechanism's production precedent.
