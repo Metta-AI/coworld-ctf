@@ -6559,6 +6559,20 @@ const
                              ## unchanged and every other map now gets
                              ## that same approved look instead of an
                              ## arbitrary fraction of it.
+  ZoneFingerOctaveFinePx* = 160.0   ## the meniscus's two noise octaves,
+  ZoneFingerOctaveCoarsePx* = 260.0  ## in px measured ALONG THE FRONT (see
+                             ## zoneFrontLoopCoordAt). Two, so no single
+                             ## wavelength's own flat stretch can produce a
+                             ## long straight run — both inside the
+                             ## 160-300px lobe band of Maxwell's "no sharp
+                             ## points" ruling. Exported because the paint
+                             ## checks DERIVE their straight-run bound from
+                             ## the coarse one rather than restating a
+                             ## number: a front cannot stay inside a 1px
+                             ## band for longer than its own coarsest
+                             ## feature without being a straight line, so
+                             ## that wavelength IS the bound, and it moves
+                             ## if the tuning does.
   ZoneFingerAmpMaxTicks* = 240  ## CEILING on the converted budget: a
                              ## pathologically slow schedule would turn
                              ## 21px into hundreds of ticks of lateness, so
@@ -7473,8 +7487,10 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect,
     # they assumed the wrong family of fronts. The zone shrinks by a
     # HOMOTHETY, not an erosion.
     loop = zoneFrontLoopCoordAt(px, py, finalRect)
-    n1 = zoneMeniscusOctave(loop.a, loop.b, 160.0, ZoneFieldSeed xor 0x9F)
-    n2 = zoneMeniscusOctave(loop.a, loop.b, 260.0, ZoneFieldSeed xor 0xB3)
+    n1 = zoneMeniscusOctave(loop.a, loop.b, ZoneFingerOctaveFinePx,
+      ZoneFieldSeed xor 0x9F)
+    n2 = zoneMeniscusOctave(loop.a, loop.b, ZoneFingerOctaveCoarsePx,
+      ZoneFieldSeed xor 0xB3)
     combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
   # Full [0, ampTicks] amplitude — late-only (honesty untouched,
   # ZoneFlowDelayCapTicks below still bounds the total), but no headroom

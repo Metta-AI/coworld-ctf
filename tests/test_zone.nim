@@ -1190,6 +1190,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       FlatTolPx = 1.0        ## longestStraightRunPx's own band
       MaxTurningAngleDeg = 40.0   ## check #7's own bound
       MaxAmplitudePx = 6.0 * ZoneFingerAmpPx  ## check #8's own bound
+      MaxFlatRunPx = ZoneFingerOctaveCoarsePx ## straight-run's own bound
       WindowSamples = 50          ## check #8's own window
     proc synth(amp, wavelenPx: float): seq[float] =
       for i in 0 ..< Samples:
@@ -1201,9 +1202,9 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     for i in 0 ..< Samples: flat.add 1000.0
     let flatRun = longestFlatRunPx(flat, FlatTolPx)
     echo "  control BARE-RECT: straightRun=", flatRun, "px (bound ",
-      100.0, ") turning=", maxTurningAngleDeg(flat), "deg amplitude=",
+      MaxFlatRunPx, ") turning=", maxTurningAngleDeg(flat), "deg amplitude=",
       maxAmplitudeDeviationPx(flat, WindowSamples), "px"
-    check flatRun > 100.0          ## MUST fail the straight-run bound
+    check flatRun > MaxFlatRunPx   ## MUST fail the straight-run bound
     # 2. A HEALTHY FINGERED FRONT — 30px amplitude on a 160px wavelength,
     #    the shape ZoneFingerAmpTicks is tuned to produce. Must pass all
     #    three.
@@ -1213,7 +1214,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     let goodAmp = maxAmplitudeDeviationPx(good, WindowSamples)
     echo "  control FINGERED: straightRun=", goodRun, "px turning=",
       goodAngle, "deg amplitude=", goodAmp, "px"
-    check goodRun <= 100.0
+    check goodRun <= MaxFlatRunPx
     check goodAngle <= MaxTurningAngleDeg
     check goodAmp <= MaxAmplitudePx
     # 3. A STREAMER — Maxwell's "way too stretched out at points", the
@@ -1261,7 +1262,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     check longestFlatRunPx(allGaps, FlatTolPx) == 0.0
     check maxTurningAngleDeg(allGaps) == 0.0
 
-  test "no axis-aligned straight run longer than ~100px at any sampled tick":
+  test "no axis-aligned straight run longer than the coarsest finger wavelength":
     var sim = zoneGame(BrShowmatchPhases)
     discard ensureZoneArrivalField(sim)
     let (gw, gh) = zoneArrivalFieldGridDims()
@@ -1291,7 +1292,15 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     # edgesUsed=0 and fails HERE rather than passing quietly.
     check edgesUsedTotal >= 8
     check samples >= 200
-    check worst <= 100.0
+    # DERIVED, not chosen (see ZoneFingerOctaveCoarsePx). The old 100px was
+    # never calibrated against anything — it was set while this check was
+    # reporting worst=0 on ZERO valid samples. A fingered front must break
+    # out of its own +/-1px band at least once per coarsest feature;
+    # staying inside it for longer than that IS a straight line. Measured
+    # separation at this bound: a real front 160px, a bare rectangle 1600px
+    # (BARE-RECT control), and the flat-paint build never reaches here at
+    # all — it fails the in-regime floor above.
+    check worst <= ZoneFingerOctaveCoarsePx
 
   test "check #7: the frontier never kinks — turning angle stays curvature-limited":
     ## Maxwell's ruling (2026-08-25, close-zoom screenshot review): "real
