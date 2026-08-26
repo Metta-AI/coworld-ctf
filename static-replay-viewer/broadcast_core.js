@@ -70,19 +70,6 @@
     parseInt(ZONE_PAINT_BODY_HEX.slice(3, 5), 16),
     parseInt(ZONE_PAINT_BODY_HEX.slice(5, 7), 16)
   ];
-  // The band palette is DERIVED from the body colour, so retuning
-  // zonePaintBody on the wire retunes the whole set coherently rather than
-  // leaving three hard-coded shades behind.
-  const ZONE_PAINT_BEAD = mixRgb(ZONE_PAINT_BODY, [255, 244, 252], 0.62);
-  const ZONE_PAINT_WET = mixRgb(ZONE_PAINT_BODY, [255, 236, 250], 0.24);
-  const ZONE_PAINT_AGED = mixRgb(ZONE_PAINT_BODY, [92, 34, 74], 0.34);
-  // Ordered oldest-first: the full-repaint path walks it and takes the
-  // first band whose threshold the cell's age has not yet passed.
-  const ZONE_BANDS = [
-    { age: ZONE_BEAD_TICKS, rgb: ZONE_PAINT_BEAD },
-    { age: ZONE_WET_TICKS, rgb: ZONE_PAINT_WET },
-    { age: ZONE_SET_TICKS, rgb: ZONE_PAINT_BODY }
-  ];
   // A backward or large forward jump in the clock's dispX (a real seek/
   // scrub, not a normal tick-to-tick glide) forces renderZonePaint to
   // re-threshold the WHOLE field instead of walking forward incrementally —
@@ -120,8 +107,13 @@
   // diagonal sheen), baked once at decode and applied to whichever band
   // colour the cell currently wears — so it costs nothing per frame and
   // stays put on the floor instead of swimming as the front passes.
-  const ZONE_GLOSS_AMPLITUDE = 26;
-  const ZONE_SHEEN_AMPLITUDE = 14;
+  // Gloss belongs to WET paint. Applied at full strength it tiled the
+  // whole flooded board with visible diagonal banding (first close-zoom
+  // check of the decorations) — dry paint is not glossy, and by late
+  // episode almost the entire board is dry. Each band therefore carries
+  // its own gloss multiplier, so the sheen lives on the advancing edge
+  // and fades out behind it.
+  const ZONE_SHEEN_AMPLITUDE = 9;
   const ZONE_SHEEN_PERIOD_PX = 190;
 
   function mixRgb(a, b, t) {
@@ -131,6 +123,22 @@
       Math.round(a[2] + (b[2] - a[2]) * t)
     ];
   }
+
+  // The band palette is DERIVED from the body colour, so retuning
+  // zonePaintBody on the wire retunes the whole set coherently rather than
+  // leaving three hard-coded shades behind.
+  const ZONE_PAINT_BEAD = mixRgb(ZONE_PAINT_BODY, [255, 244, 252], 0.62);
+  const ZONE_PAINT_WET = mixRgb(ZONE_PAINT_BODY, [255, 236, 250], 0.24);
+  const ZONE_PAINT_AGED = mixRgb(ZONE_PAINT_BODY, [92, 34, 74], 0.34);
+  // Ordered oldest-first: the full-repaint path walks it and takes the
+  // first band whose threshold the cell's age has not yet passed.
+  const ZONE_BANDS = [
+    { age: ZONE_BEAD_TICKS, rgb: ZONE_PAINT_BEAD, gloss: 1.0 },
+    { age: ZONE_WET_TICKS, rgb: ZONE_PAINT_WET, gloss: 0.55 },
+    { age: ZONE_SET_TICKS, rgb: ZONE_PAINT_BODY, gloss: 0.12 }
+  ];
+  const ZONE_AGED_GLOSS = 0.0;   // dry paint has no sheen at all
+
 
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
@@ -936,17 +944,24 @@
       for (let fy = 0; fy < fineH; fy++) {
         const rowBase = fy * fineW;
         for (let fx = 0; fx < fineW; fx++) {
-          // Cheap integer hash, blobby at 4px so a leash covers a patch.
-          let h = ((fx >> 2) * 73856093) ^ ((fy >> 2) * 19349663);
+          // Drip leash. Blobs are COARSE and ELONGATED (8px across, 32px
+          // along) rather than square and small: at 4px square the first
+          // close-zoom check read as salt-and-pepper confetti along the
+          // whole front instead of tendrils, because the blob was the
+          // same size as the render cell. Elongating them is what makes a
+          // held-back patch read as a streak hanging off the bead.
+          let h = ((fx >> 3) * 73856093) ^ ((fy >> 5) * 19349663);
           h = (h ^ (h >>> 13)) >>> 0;
           const r = h % 16;
-          const leash = r < 9 ? 0 : r < 12 ? 1 : r < 14 ? 2 : 3;
-          // Fine sparkle (per-pixel) + a broad diagonal sheen.
-          let g = ((fx * 2654435761) ^ (fy * 40503)) >>> 0;
-          const sparkle = ((g % 256) / 255 - 0.5) * 2 * ZONE_GLOSS_AMPLITUDE;
+          const leash = r < 10 ? 0 : r < 13 ? 1 : r < 15 ? 2 : 3;
+          // Gloss is the SMOOTH sheen only. The per-pixel sparkle that
+          // used to be added here was indistinguishable from dithering
+          // once zoomed in — it is noise at exactly the frequency the
+          // eye reads as compression artefact, so it is gone rather than
+          // turned down.
           const sheen = Math.sin((fx + fy) * (2 * Math.PI / ZONE_SHEEN_PERIOD_PX)) *
             ZONE_SHEEN_AMPLITUDE;
-          let d = Math.round(sparkle + sheen);
+          let d = Math.round(sheen);
           if (d > 127) d = 127;
           if (d < -128) d = -128;
           trim[rowBase + fx] = leash;
@@ -986,9 +1001,9 @@
 
     function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
-    function paintZoneCell(data, idx, rgb) {
+    function paintZoneCell(data, idx, rgb, glossMul) {
       const o = idx * 4;
-      const g = zoneField.trim.gloss[idx];
+      const g = zoneField.trim.gloss[idx] * glossMul;
       data[o] = clamp255(rgb[0] + g);
       data[o + 1] = clamp255(rgb[1] + g);
       data[o + 2] = clamp255(rgb[2] + g);
@@ -998,12 +1013,12 @@
     // The band a cell of this age and leash wears. Single source of truth
     // for BOTH the incremental path and the full-repaint path, so a seek
     // can never disagree with a glide about what the paint looks like.
-    function zoneBandRgb(age, leash) {
+    function zoneBandOf(age, leash) {
       const slack = leash * ZONE_DRIP_TICKS;
       for (const band of ZONE_BANDS) {
-        if (age < band.age + slack) return band.rgb;
+        if (age < band.age + slack) return band;
       }
-      return ZONE_PAINT_AGED;
+      return { rgb: ZONE_PAINT_AGED, gloss: ZONE_AGED_GLOSS };
     }
 
     // The ENTIRE per-frame paint render: touch only render cells whose
@@ -1030,7 +1045,8 @@
         for (let i = 0; i < n; i++) {
           const a = arrival[i];
           if (a <= nowInt) {
-            paintZoneCell(data, i, zoneBandRgb(nowInt - a, leashOf[i]));
+            const band = zoneBandOf(nowInt - a, leashOf[i]);
+            paintZoneCell(data, i, band.rgb, band.gloss);
             touched++;
           }
         }
@@ -1043,7 +1059,7 @@
           // definition (age 0 is inside the first band for every leash).
           const s0 = bucketStart[t], e0 = bucketStart[t + 1];
           for (let k = s0; k < e0; k++) {
-            paintZoneCell(data, bucketed[k], ZONE_PAINT_BEAD);
+            paintZoneCell(data, bucketed[k], ZONE_PAINT_BEAD, 1.0);
             touched++;
           }
           // Every cell whose age crosses a band threshold on THIS tick.
@@ -1054,8 +1070,8 @@
           // rescan. Filtering by leash inside the walk keeps one bucket
           // per (threshold, leash) pair rather than a second index.
           for (let b = 0; b < ZONE_BANDS.length; b++) {
-            const nextRgb = b + 1 < ZONE_BANDS.length ?
-              ZONE_BANDS[b + 1].rgb : ZONE_PAINT_AGED;
+            const nextBand = b + 1 < ZONE_BANDS.length ? ZONE_BANDS[b + 1] :
+              { rgb: ZONE_PAINT_AGED, gloss: ZONE_AGED_GLOSS };
             for (let l = 0; l <= 3; l++) {
               const src = t - (ZONE_BANDS[b].age + l * ZONE_DRIP_TICKS);
               if (src < 0 || src > ZONE_MAX_TICK_BUCKET) continue;
@@ -1063,7 +1079,7 @@
               for (let k = s1; k < e1; k++) {
                 const idx = bucketed[k];
                 if (leashOf[idx] !== l) continue;
-                paintZoneCell(data, idx, nextRgb);
+                paintZoneCell(data, idx, nextBand.rgb, nextBand.gloss);
                 touched++;
               }
             }
