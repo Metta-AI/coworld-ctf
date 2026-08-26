@@ -3,6 +3,7 @@
 import
   test_agent_skins,
   test_barrage,
+  test_br_golden_e2e,
   test_broadcast_state,
   test_corpse_label,
   test_extract_events,
