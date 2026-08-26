@@ -773,7 +773,9 @@ suite "glory in the sim: the achievement curriculum FIRES":
     sim.players[0].sprayKillsThisPickup = 3
     sim.players[0].sprayMultiKills = 1       # Double Splash
     sim.players[0].grenadeKills = 3
-    sim.players[0].grenadeMultiKills = 1     # Double Blast + Blast Radius
+    sim.players[0].grenadeMultiKills = 2     # Blast Radius (>=1) AND the
+                                             # v7 Double Blast (>=2: TWO
+                                             # multi-kill blasts, E4)
                                               # (reuses sprayMultiKills/
                                               # grenadeMultiKills -- see the
                                               # gate's comment)

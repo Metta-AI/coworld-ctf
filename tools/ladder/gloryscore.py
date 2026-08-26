@@ -78,10 +78,23 @@ it reads glory.nim's own resolved deed, not a reconstruction of one):
     being UNCALIBRATED in glory.nim.
   - per-activation multikills (`sprayMultiKills`/`grenadeMultiKills`): the
     engine groups by ONE continuous cone/blast; this file groups by SAME
-    TICK, SAME SOURCE, SAME WEAPON instead, since "activation" boundaries
-    are not on the wire. Exact for grenades (one blast applies damage to
-    everyone in radius in a single step); an UNDER-count for a spray sweep
-    whose kills land on different ticks of the same continuous discharge.
+    SOURCE, SAME WEAPON, and for grenades additionally SAME TICK (a blast
+    applies damage to everyone in radius in a single step, so same-tick is
+    exact). Spray is DIFFERENT: `PlasmaArcActiveTicks` = 5, so one
+    continuous cone can land kills up to 4 ticks apart -- a same-tick-only
+    proxy (the v6 and earlier approximation) UNDER-counted it, confirmed
+    directly chasing "Double Splash" reading 0.0% at n=240 (GLORY /proof
+    E6): of 32 same-cog spray-kill pairs closer than a full recharge cycle
+    apart, exactly one sat at a 2-tick gap (inside one activation) with
+    every other pair 29+ ticks apart (`PlasmaArcResetTicks`=20 recharge +
+    `PlasmaArcActiveTicks`=5 means nothing closer than ~25 ticks can be a
+    SEPARATE activation) -- a real signal a same-tick proxy structurally
+    cannot see. v7 (GLORY /proof E6) widens spray's grouping to a 4-tick
+    window per source (matching `PlasmaArcActiveTicks` - 1, the largest
+    possible in-activation gap) while leaving grenade's same-tick grouping
+    untouched. Still an UNDER-count in principle (two kills 5+ ticks apart
+    within a slow-moving cone sweep are not impossible), just a much
+    tighter one than same-tick.
   - team alive-counts (`Uphill`) and peel→steal ordering (`Turnaround`):
     reconstructed from `death`/`respawn`/`kill`/`flag_steal` rows, all of
     which predate the c70907d stream additions and so are present in every
@@ -89,9 +102,16 @@ it reads glory.nim's own resolved deed, not a reconstruction of one):
     live now (the v2 mirror's own comments flagged both as gaps: "needs live
     alive-counts: tracked by caller" and "needs peel->steal ordering: tracked
     by caller" — this pass is that caller).
-  - the site gradient: pedestals are recovered from flag_steal coordinates
-    (a flag leaves its pedestal AT its pedestal); episodes where a flag was
-    never stolen price everything neutral.
+  - the site gradient: pedestals are the FIXED map constants `FIXED_PEDESTAL`
+    (v7, GLORY /proof E1) -- known from tick 0 in every episode, not recovered
+    per-episode from `flag_steal` coordinates any more (that recovery had a
+    real bug: it needed an UNRELATED theft of the SAME team's own flag to
+    have already happened first, which under-counted both `dDenial` and the
+    home/enemy split for any deed minted before that; see `FIXED_PEDESTAL`'s
+    own comment for the traced numbers). `SiteMultNeutralPct` is dead code in
+    the real engine regardless (see glory.nim's own comment) -- this mirror
+    now reflects that: every positioned deed classifies HOME or ENEMY, never
+    NEUTRAL.
   - dWipe: minted by the ENGINE since commit fd6b4ce (`awardWipe`, priced at
     the deciding kill's site) and, wherever the stream carries it, read
     DIRECTLY as a GloryDeed row (weapon="dWipe") by the STREAM path above —
@@ -116,7 +136,7 @@ import statistics
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 6
+GLORY_VERSION = 7
 # Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
 # ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
 # run from the repo root and silently skip the guard from anywhere else.
@@ -195,16 +215,18 @@ HEAT_EMBER_CAP = 11
 HEAT_EMBER_DECAY = 2
 HEAT_DECAY_TICKS = 45
 
-LEVEL_THRESHOLDS = [10, 18, 24, 36, 50]
+LEVEL_THRESHOLDS = [10, 19, 27, 40, 55]
 # Maxwell's ruling: WORK levels, kills do not. Damage / healing / tool
 # pickups / flag actions; the carrier kill prices as the RETURN it causes.
-# Unchanged since v2 -- the v3/v4 bumps re-cut the ACHIEVEMENT curriculum,
-# never this ladder. v6 (GLORY C1) zeroed xp on every BARE-TOUCH pickup
-# (grenade/spray_can/shield) and re-measured against the field with it
-# zeroed: byte-identical percentiles, because the sample this ladder was
-# fit from (v0.7.95-98) never had `item_pickup` events to zero in the first
-# place -- see glory.nim's own `LevelThresholds` comment for the numbers.
-# These thresholds are UNCHANGED, not re-derived.
+# v7 (GLORY /proof E3): RE-FIT -- every threshold fit before this one
+# (v2 through the 2026-08-25 GLORY C1 "byte-identical" re-check) ran on a
+# mirror that scored ZERO heal xp without knowing it (med-kit detection
+# lived on the dead `item_pickup` branch until GLORY C10 repointed it at the
+# `heal` event sim.nim actually emits). This is the first fit against a
+# mirror that can see `XpPerHeal`/`XpPerClutchHeal`. See glory.nim's own
+# `LevelThresholds` comment for the full percentile table and cadence
+# verification (L3+ 2.01/team-ep, L5 0.33/ep against the ~2 / ~0.3 design
+# targets).
 XP_KILL, XP_DAMAGE, XP_CARRIER_KILL = 0, 3, 12
 XP_STEAL, XP_CAPTURE, XP_RETURN = 12, 30, 12
 XP_SOAK, XP_CLUTCH, XP_TEAM_KILL = 2, 6, -20
@@ -228,6 +250,47 @@ POINT_BLANK_PX, LONGSHOT_PX, DENIAL_PX = 110, 700, 600
 # 776px). 600px lands the claim rate at 17.5%.
 CONTESTED_STEAL_PX = 300   ## v3.1 `Hands On` gate (glory.nim: UNCALIBRATED).
 REVENGE_TICKS = 240        ## `Turnaround`'s peel->steal window.
+
+# FIXED_PEDESTAL (v7, GLORY /proof wave E1): the two home pedestals on this
+# arena, hardcoded rather than recovered per-episode from `flag_steal`
+# coordinates. Confirmed a MAP CONSTANT directly: 236 recovered flag_steal
+# (team, x, y) triples across the 120-episode sample give stdev 0.00 on both
+# axes for both teams -- (186,329) for team 0, (1049,329) for team 1.
+#
+# 🚨 THE BUG THIS REPLACES. The old `pedestal = {}` (populated only as
+# `flag_steal` events are walked) requires team(t)'s OWN flag to have been
+# independently stolen by the enemy SOMEWHERE EARLIER in that same episode
+# before `pedestal.get(team(t))` resolves to anything -- an accident of a
+# completely UNRELATED theft (a different flag, a different act), not a fact
+# about the map. Traced directly: of 56 kills that were true denials by the
+# fixed-coordinate standard (below), 44 (78.6%) had `pedestal.get(team(t))`
+# still unset at kill time, so `near_home` fell through to False and the kill
+# mispriced as a plain `carrier_kill`. This under-counted BOTH `dDenial`
+# ("Doorstep") and the site gradient's home/enemy split (`mint()`'s own
+# `pedestal.get(t)`/`pedestal.get(1 - t)` pair needs BOTH populated, so any
+# deed minted before EITHER team's flag has ever been stolen priced neutral
+# regardless of where it actually happened -- the module docstring's old
+# "episodes where a flag was never stolen price everything neutral" caveat
+# undersold it; it was "before *this* team pair's mutual first steal", a
+# stronger and earlier-biased condition). Since the coordinates are a MAP
+# CONSTANT, there is no need to wait for any event to learn them.
+#
+# RECONCILIATION (E1, 2026-08-25): this bug is the reason three Doorstep
+# measurements disagreed -- 4.6% (this mirror's `satisfied()`, recovered
+# pedestal, pre-fix), 17.5% (the C5 fixed-pedestal script that field-fit
+# `DenialPx`, glory.nim's own comment), 34% (a cruder check that, per the
+# numbers below, reads as `denials / carrier_kills` -- a PER-KILL rate, 56/157
+# = 35.7% -- mistaken for the achievement's own unit, a PER-TEAM-EPISODE
+# CLAIM rate; a team-episode only needs ONE denial to claim, so the two units
+# diverge sharply once a team banks more than one). Re-measured with this fix
+# (same 120-episode selection, same kill-before-same-tick-flag_return sort):
+# 42/240 team-episodes claim Doorstep = 17.5%, EXACTLY reproducing the C5
+# script's own number -- confirming both that this fix is the correct
+# operationalization (it matches sim.nim's `killPlayer`: fixed home pedestal,
+# gated on `victim.carryingFlag`) and that `DenialPx`=600 needs no further
+# move (17.5% sits comfortably inside the 10-30% tier-II band). See
+# glory.nim's `DenialPx` comment for the sim-side half of this reconciliation.
+FIXED_PEDESTAL = {0: (186, 329), 1: (1049, 329)}
 
 SITE_HOME, SITE_NEUTRAL, SITE_ENEMY = 100, 120, 150
 
@@ -368,11 +431,14 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     # a GRENADE tier, and the kills term was redundant -- every enemy a
     # multi-kill blast catches already counts toward `grenade_kills` on the
     # way to incrementing `grenade_multi`.
+    # v7 (GLORY /proof E4): "Double Blast" now needs `grenade_multi >= 2` --
+    # the C3a fix above left III and IV gating on the SAME `>= 1` condition,
+    # so the two claimed in lockstep (n=7 field, every claim same-tick as
+    # its pair). "Double" now means two multi-kill blasts in one game.
     if cog.grenade_kills >= 1:        s.add(("nade", 0))   # Delivery
     if cog.grenade_kills >= 2:        s.add(("nade", 1))   # Splatterbomb
-    if cog.grenade_multi >= 1:
-        s.add(("nade", 2))                                 # Blast Radius
-        s.add(("nade", 3))                                 # Double Blast
+    if cog.grenade_multi >= 1:        s.add(("nade", 2))   # Blast Radius
+    if cog.grenade_multi >= 2:        s.add(("nade", 3))   # Double Blast
     if cog.grenade_kills >= 3:        s.add(("nade", 4))   # The Bombardier
 
     # shield -- soak, not damage. "Suit Up" (pick up a shield) is GONE.
@@ -384,11 +450,15 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
 
     # med kit -- "Field Dressing" (take a med kit) is GONE; the take is
     # normal play, the SAVE it buys is the achievement.
+    # v7 (GLORY /proof E5): reordered II/III and IV/V on first-ever field
+    # claim rates (n=240 team-eps) -- "Second Wind" 13.8% vs "Patch Job"
+    # 5.0%, "Lifeline" 0.4% vs "Miracle Worker" 0.0%. Same requirements,
+    # different tier slot; see glory.nim's `AchievementNames` comment.
     if cog.clutch_heals >= 1:         s.add(("med", 0))     # The Catch
-    if cog.clutch_heals >= 2:         s.add(("med", 1))     # Patch Job
-    if cog.second_wind:               s.add(("med", 2))     # Second Wind
-    if cog.clutch_heals >= 3:         s.add(("med", 3))     # Miracle Worker
-    if cog.clutch_carry_heals >= 1:   s.add(("med", 4))     # Lifeline
+    if cog.second_wind:               s.add(("med", 1))     # Second Wind
+    if cog.clutch_heals >= 2:         s.add(("med", 2))     # Patch Job
+    if cog.clutch_carry_heals >= 1:   s.add(("med", 3))     # Lifeline
+    if cog.clutch_heals >= 3:         s.add(("med", 4))     # Miracle Worker
 
     # carrier -- v3.1 re-cut off possession the same way every other tree
     # already was. v6: II/III swapped -- a score claims 18.8% in the field
@@ -469,7 +539,14 @@ def score_episode_derived(events, n_slots):
     claimed_first = {}
     claims = [[], []]
     deeds = collections.Counter()
-    pedestal = {}          # team -> (x, y), recovered from flag_steal
+    # v7 (GLORY /proof E1): pre-seeded with the FIXED map constants, not
+    # discovered per-episode -- see `FIXED_PEDESTAL`'s own comment for why
+    # the old empty-dict-plus-flag_steal-recovery approach under-counted
+    # both denials and the site gradient. The flag_steal branch below still
+    # writes into this dict (now idempotently, same value) rather than being
+    # deleted outright, so a future re-arena'd cache self-corrects instead of
+    # silently scoring against a stale constant.
+    pedestal = dict(FIXED_PEDESTAL)
     first_blood = False
     start_tick = 0
     end_tick = 0
@@ -482,9 +559,15 @@ def score_episode_derived(events, n_slots):
     tithe_total = [0, 0]
     xp_peaks = []
     deaths_by_slot = collections.Counter()  # wipe inference input
-    spray_streak = {}      # source -> enemy spray kills THIS TICK (activation approx)
+    # v7 (GLORY /proof E6): spray_streak is now (count, last_tick) per source,
+    # windowed at SPRAY_ACTIVATION_WINDOW ticks -- NOT cleared just because
+    # the global tick advanced (see the module docstring's own multikill
+    # note for why same-tick under-counted spray). grenade_streak stays the
+    # same-tick-cleared dict it always was; a blast is exact at same-tick.
+    spray_streak = {}      # source -> (enemy spray kills this activation, last kill tick)
     grenade_streak = {}    # source -> enemy grenade kills THIS TICK
     multi_streak_tick = None
+    SPRAY_ACTIVATION_WINDOW = 4  # PlasmaArcActiveTicks(5) - 1: max in-activation gap
 
     def heat_tick(tick):
         # decay + occupancy accounting between events. Deltas are clamped:
@@ -589,7 +672,9 @@ def score_episode_derived(events, n_slots):
         heat_tick(tick)
         prev_tick = tick
         if tick != multi_streak_tick:
-            spray_streak.clear()
+            # spray is NOT cleared here any more (v7, GLORY /proof E6) -- it
+            # ages out per source at the kill site instead, on its own
+            # SPRAY_ACTIVATION_WINDOW. grenade stays same-tick-cleared.
             grenade_streak.clear()
             multi_streak_tick = tick
         if k == "phase" and e.get("weapon") == "playing":
@@ -773,12 +858,16 @@ def score_episode_derived(events, n_slots):
                 if (killer.clutch_heal_t > -10**8 and
                         tick - killer.clutch_heal_t <= 120):
                     killer.second_wind = True
-                # Per-activation, ENEMY-only multikill streak (tick-grouped
+                # Per-activation, ENEMY-only multikill streak (windowed
                 # approximation of an "activation" -- see the module
                 # docstring).
                 if weapon == "spray":
-                    spray_streak[s] = spray_streak.get(s, 0) + 1
-                    if spray_streak[s] == 2:
+                    prev_count, prev_tick_s = spray_streak.get(s, (0, -10**9))
+                    count = (prev_count + 1
+                             if tick - prev_tick_s <= SPRAY_ACTIVATION_WINDOW
+                             else 1)
+                    spray_streak[s] = (count, tick)
+                    if count == 2:
                         killer.spray_multi += 1
                 elif weapon == "grenade":
                     grenade_streak[s] = grenade_streak.get(s, 0) + 1

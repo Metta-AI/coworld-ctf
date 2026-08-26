@@ -115,9 +115,43 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 6
+  GloryVersion* = 7
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v7 (2026-08-25, /proof FIX WAVE E, measurement-first): E1/E2 were
+    ## MEASUREMENT-ONLY (see their own comments on `DenialPx`/`SiteMultHomePct`)
+    ## and moved no number a v6 ledger would price differently. Three items
+    ## did move pricing/claims, bundled into this one version so nothing
+    ## hash-moving ships piecemeal:
+    ##   - E3: `LevelThresholds` [10,18,24,36,50] -> [10,19,27,40,55],
+    ##     re-fit on the first mirror measurement that can actually see heal
+    ##     xp (GLORY C10 had fixed the mirror's dead `item_pickup` detection
+    ##     branch, but every threshold fit before this one -- including the
+    ##     2026-08-25 GLORY C1 "byte-identical" re-check -- ran BEFORE that
+    ##     fix landed, so all of them were blind to `XpPerHeal`/
+    ##     `XpPerClutchHeal` xp without knowing it). Changes which XP total
+    ##     buys which level, so it changes buffs. See its own comment for the
+    ##     full percentile/cadence fit.
+    ##   - E4: "Blast Radius" (treeGrenade III) and "Double Blast" (IV) used
+    ##     to gate on the SAME condition (`grenadeMultiKills >= 1`, a GLORY
+    ##     C3a side effect) and claimed in lockstep, n=7 field, every claim
+    ##     same-tick as its pair. IV now needs `grenadeMultiKills >= 2` --
+    ##     literally two multi-kill blasts. Changes WHETHER IV claims.
+    ##   - E5: treeMedKit reordered on its first-ever field claim rates (n=240
+    ##     team-eps, the first data point since GLORY C10 fixed heal
+    ##     detection): Patch Job<->Second Wind (II/III) and Miracle
+    ##     Worker<->Lifeline (IV/V) swap slots, same requirements. Changes
+    ##     HOW MUCH each act pays (`TierGlory` is tier-indexed), not whether
+    ##     it can claim.
+    ## Also landed this wave, NEITHER of which moves a v6 ledger: a real bug
+    ## fix in tools/ladder/gloryscore.py (the MEASUREMENT MIRROR, not the
+    ## source of truth) that hardcodes the two home pedestals as map
+    ## constants instead of recovering them per-episode -- see `DenialPx`'s
+    ## own v7 note; and a second mirror fix widening its spray multi-kill
+    ## grouping from same-tick-only to a 4-tick window -- see "Double
+    ## Splash"'s own comment. Both are measurement-instrument fixes with zero
+    ## sim.nim/glory.nim pricing changes attached.
     ##
     ## v6 (2026-08-25, /proof fix cycle C1-C6): six changes, each moving
     ## WHETHER or HOW MUCH something mints or levels, so a v5 ledger's xp,
@@ -380,8 +414,48 @@ const
                               ## into defended ground should never be cheaper
                               ## than sitting on your own pedestal) rather
                               ## than a measured one.
+                              ##
+                              ## MEASURED (GLORY /proof E2, 2026-08-25): the
+                              ## MAGNITUDE is still uncalibrated -- this
+                              ## measurement only answers whether the
+                              ## home/enemy split has enough spread in the
+                              ## field to be worth pricing at all, not what
+                              ## the right ratio is. tools/ladder/gloryscore.py
+                              ## (post the E1 `FIXED_PEDESTAL` fix, so every
+                              ## positioned deed classifies from tick 0, none
+                              ## defaulting neutral for lack of an early
+                              ## flag_steal) over the same 120-episode cache:
+                              ## 5,371 positioned, glory-bearing deed mints
+                              ## split 45.4% home (2,436) / 54.6% enemy
+                              ## (2,935) -- NOT inert, and not close to the
+                              ## >90%-in-one-zone bar that would call the
+                              ## gradient dead. Per-deed the split moves with
+                              ## the deed's own fiction (`flag_steal` 100%
+                              ## enemy -- the theft happens AT the enemy
+                              ## pedestal; `carrier_kill`/`capture` 100% home
+                              ## -- a non-denial peel lands on the killer's
+                              ## own side, a capture completes on the
+                              ## scorer's own pedestal; combat deeds split
+                              ## close to 40-60 either way). Two deed types,
+                              ## `dLevelUp` and `dShieldSoak`, are EXCLUDED
+                              ## from this measurement -- both mint with a
+                              ## real live x,y in sim.nim's own `awardDeed`
+                              ## calls, but gloryscore.py's offline
+                              ## re-derivation infers them off-tick (an XP
+                              ## threshold crossing, a `blocked` sub-field on
+                              ## a damage row) and never threads a position
+                              ## through, so they always price neutral
+                              ## OFFLINE -- a MIRROR gap, not evidence those
+                              ## two deeds are unsited in the real engine.
+                              ## Not retuned this wave (measurement only, per
+                              ## instruction) -- the 100/150 ratio itself
+                              ## remains a design choice.
   SiteMultEnemyPct* = 150     ## initiative into DEFENDED ground.
                               ## ⚠️ UNCALIBRATED, same as `SiteMultHomePct`.
+                              ## See its own comment for the E2 field
+                              ## measurement (54.6% of positioned deeds land
+                              ## here) -- the gradient discriminates, the
+                              ## ratio is still a guess.
   SiteMultNeutralPct* = 120   ## the open field.
                               ## 🚨 DEAD IN THIS ENGINE, not merely
                               ## uncalibrated (GLORY C7 audit finding).
@@ -419,41 +493,50 @@ const
 
   MaxLevel* = 5
 
-  LevelThresholds* = [10, 18, 24, 36, 50]
-    ## Cumulative XP for levels 1..5, within ONE life. FIT FROM THE REAL
-    ## FIELD (tools/ladder/gloryscore.py over 120 two-team league episodes,
-    ## 2026-08-21): under work-based xp an active life peaks at p50=9,
-    ## p90=24, p99=48 (post the mirror's peel-order fix; and note the scored
-    ## field is v0.7.9x, which emits no item_pickup events -- re-fit when
-    ## 0.7.2xx event files land in the cache, since pickup/heal xp will push
-    ## these peaks up) -- so L1 catches a decent life (~p55), L3 (the plume,
-    ## tithe and starfall threshold) lands at ~p92 = the 1-2 per team-episode
-    ## design target, and L5 sits at ~p99, the once-an-episode legend. The
-    ## earlier [12,30,60,100,160] was guessed against kill-based xp and made
-    ## L5 a never-an-episode legend (0 in 120 real episodes).
+  LevelThresholds* = [10, 19, 27, 40, 55]
+    ## Cumulative XP for levels 1..5, within ONE life.
+    ##
+    ## v7 (GLORY /proof E3, 2026-08-25): RE-FIT -- every earlier fit at this
+    ## constant (2026-08-21's original, and the "byte-identical" 2026-08-25
+    ## GLORY C1 re-check below) was measured on a mirror with a THEN-UNKNOWN
+    ## bug: gloryscore.py detected med-kit heals off the dead `item_pickup`
+    ## branch (0 rows on the wire, at any version -- see GLORY C10's own
+    ## commit), so it silently scored ZERO `XpPerHeal`/`XpPerClutchHeal` xp
+    ## on every one of the 4,820-4,831 active lives in every prior
+    ## measurement -- ALL heal xp was invisible, not merely the pickup xp C1
+    ## believed it was isolating. C10 repointed detection at the `heal`
+    ## event sim.nim actually emits; this is the first fit run against a
+    ## mirror that can see it.
+    ##
+    ## MEASURED (tools/ladder/gloryscore.py, same 120-episode
+    ## `--min-version 0.7.200` selection, post-C10, 2026-08-25): xp peaks
+    ## p25:6 p50:9 p75:15 p90:25 p95:34 p98:45 p99:52 (4831/6870 active
+    ## lives) -- close to the old blind-to-heal reading (p90 was 24-25
+    ## either way) because clutch heals are still rare relative to damage
+    ## xp in this field (0.62 kits/Ep vs winners' 1.84-2.60, the gap this
+    ## whole mechanic exists to close), not because the bug didn't matter.
+    ##
+    ## REFIT to the documented design anchors: L1 just above p50 (9) ->
+    ## unchanged at 10 (p56.4); L3 ≈ p90 (25) -> 27, which lands AT p90.0
+    ## exactly (10.00% of active lives clear it); L5 just past p99 (52) ->
+    ## 55 (p99.2). L2 (19, p81.8) and L4 (40, p96.7) interpolate between
+    ## their neighbors on the same curve, same as the original fit's shape.
+    ## VERIFIED cadence against the design targets: L3+ lives per
+    ## team-episode 2.01 mean (target ~2, was 2.62 under the shipped
+    ## [10,18,24,36,50] -- measurably too easy once heal xp actually counts),
+    ## L5 lives per episode 0.33 mean (target ~0.3, was 0.50). Sanity
+    ## (unchanged design facts): `levelForXp(XpPerSteal)` == 1,
+    ## `levelForXp(XpPerCapture)` == 3 -- both still hold at 12 and 30
+    ## against L1=10/L2=19 and L3=27/L4=40 respectively.
+    ##
     ## The shape is Muster's rolestreak ladder (per life, reset on death),
     ## NOT its veterancy ladder (career, never resets). Paintbot has no
     ## career, so we get to ship ONE ladder and skip the scar Muster carries:
     ## its two 5-star ladders sit ~4x apart, and any analysis joining them
-    ## joins on a false key.
-    ##
-    ## RE-MEASURED 2026-08-25 (GLORY C1, after zeroing the bare-touch pickup
-    ## xp below): monkeypatched a copy of `score_episode_derived` with the
-    ## grenade/spray_can/shield `item_pickup` branches paying 0 instead of
-    ## `XP_PICKUP` (the med_kit branch untouched, matching the sim-side cut),
-    ## re-ran over the SAME 120-episode selection gloryscore.py's own
-    ## `--min-version 0.7.200` default resolves today. Result: BYTE-IDENTICAL
-    ## percentiles (p25:6 p50:9 p75:15 p90:24 p95:30 p98:39 p99:48, 4820/6870
-    ## active lives) and cadence (L3+ mean 2.04/team-ep, L5 mean 0.32/ep) --
-    ## because that version filter is a STRING compare ("0.7.95" >= "0.7.200"
-    ## is true lexically), the selected sample is still entirely v0.7.95-98,
-    ## which emits ZERO `item_pickup` events (confirmed directly: 0 pickup
-    ## rows across all 120 selected files). So the bare-touch xp this wave
-    ## deletes was ALREADY contributing nothing to the distribution that fit
-    ## these thresholds -- they hold unchanged, not re-derived. The real test
-    ## (does the cut change anything once pickups are on the wire) still
-    ## needs the 0.7.2xx cache the original comment above was already
-    ## waiting on.
+    ## joins on a false key. The earlier [12,30,60,100,160] was guessed
+    ## against kill-based xp and made L5 a never-an-episode legend (0 in 120
+    ## real episodes) -- superseded by the 2026-08-21 work-based fit, itself
+    ## now superseded by this one.
 
   # ── What levels a cog: WORK, not kills (Maxwell's ruling, 2026-08-21) ──
   #
@@ -748,6 +831,34 @@ const
                               ## tier-II band, comfortably clear of both the
                               ## 41.7% ceiling and zero. (For reference:
                               ## 470-480px -> 10.0%, 700px -> 20.8%.)
+                              ##
+                              ## v7 (GLORY /proof E1, 2026-08-25):
+                              ## RECONCILED three disagreeing Doorstep reads
+                              ## -- 4.6%, 17.5% (this comment, above), 34%.
+                              ## Root cause traced to tools/ladder/gloryscore.py:
+                              ## its mirror used to RECOVER these same-fixed
+                              ## coordinates per episode from `flag_steal`
+                              ## events instead of hardcoding them, which
+                              ## needs team(t)'s OWN flag to have ALSO been
+                              ## independently stolen (by the enemy, an
+                              ## unrelated act) SOMEWHERE EARLIER in that
+                              ## same episode before it can resolve a denial
+                              ## at all. Traced directly: 44 of 56 true
+                              ## denials (78.6%) were invisible to that
+                              ## mirror for exactly this reason, landing it
+                              ## at 4.6% (11/240) instead of 17.5%. (The 34%
+                              ## read: `denials / carrier_kills` = 56/157 =
+                              ## 35.7%, a PER-KILL rate mistaken for the
+                              ## achievement's own PER-TEAM-EPISODE claim
+                              ## unit -- a team only needs ONE denial to
+                              ## claim, so the two units diverge once a team
+                              ## banks more than one.) Fixed in gloryscore.py
+                              ## (`FIXED_PEDESTAL`, seeded from tick 0 --
+                              ## these coordinates need no event to learn
+                              ## them, they are a map constant); re-run
+                              ## confirms 17.5% (42/240) EXACTLY, so this is
+                              ## the correct operationalization and `DenialPx`
+                              ## needs no further move.
   RevengeTicks* = 240         ## ~10s to answer your killer.
                               ## ⚠️ UNCALIBRATED (GLORY C7): a round
                               ## 10-second design choice (matching
@@ -904,20 +1015,62 @@ const
      "Repainted",           ## III  2 spray kills on one pickup
      "The Muralist",        ## IV   3 spray kills on a single pickup
      "Double Splash"],      ## V    one cone activation kills 2+ enemies
+                            ##
+                            ## ⚠️ ZERO-CLAIMS-AT-n=240 (GLORY /proof E6,
+                            ## 2026-08-25), and the near-miss chase found the
+                            ## culprit was the MEASUREMENT, not this
+                            ## requirement: `player.sprayMultiKills` in
+                            ## sim.nim already tracks the real per-activation
+                            ## window correctly (`arcKillsThisFire`, live
+                            ## across all `PlasmaArcActiveTicks`=5 ticks a
+                            ## cone stays lit) -- it was
+                            ## tools/ladder/gloryscore.py's OFFLINE
+                            ## reconstruction that grouped kills by exact
+                            ## SAME TICK only (the wire carries no
+                            ## "activation id"), an instrument too coarse to
+                            ## see a real multi-kill spread across ticks.
+                            ## Traced directly over the 120-episode cache: of
+                            ## 32 same-cog spray-kill pairs closer together
+                            ## than a full recharge cycle, ONE sat 2 ticks
+                            ## apart (inside one activation) with every other
+                            ## pair 29+ ticks apart (a fresh activation needs
+                            ## `PlasmaArcResetTicks`=20 recharge +
+                            ## `PlasmaArcActiveTicks`=5, so nothing under
+                            ## ~25 ticks can be a SEPARATE one) -- exactly the
+                            ## false-null-from-instrument-resolution pattern:
+                            ## a real claim was there, the ruler just
+                            ## couldn't read it. Widened the mirror's spray
+                            ## grouping to a 4-tick window (v7, GLORY /proof
+                            ## E6; grenade's own grouping stays same-tick,
+                            ## which IS exact -- one blast, one step); the
+                            ## true in-engine claim rate for this tier is
+                            ## still UNMEASURED beyond that single case (n=1
+                            ## is not a rate) -- this requirement is NOT
+                            ## retuned, only the mirror that was under-
+                            ## reading it.
     # treeGrenade — "The Bomb". v3: "Pull the Pin" (pick up a nade) is GONE.
     ["Delivery",            ## I    a grenade kill
      "Splatterbomb",        ## II   2 grenade kills in one game (v6, GLORY
                             ##      C6: was "Fireball" -- a nade throws
                             ##      PAINT, not fire; kept "Delivery" as-is,
                             ##      already paint-native register)
-     "Blast Radius",        ## III  a grenade blast that caught 2+ enemies
-                            ##      (v6, GLORY C3a: gates on
-                            ##      `grenadeMultiKills` alone now -- the old
-                            ##      form also accepted a SPRAY multi-kill.
-                            ##      GLORY C4: was IV -- see "The Bombardier"
-                            ##      below for why it shifted up.)
-     "Double Blast",        ## IV   one blast kills 2+ enemies (v6, GLORY
-                            ##      C4: was V, shifted up one)
+     "Blast Radius",        ## III  a grenade blast that caught 2+ enemies:
+                            ##      `grenadeMultiKills >= 1` (v6, GLORY C3a:
+                            ##      gates on `grenadeMultiKills` alone now --
+                            ##      the old form also accepted a SPRAY
+                            ##      multi-kill. GLORY C4: was IV -- see "The
+                            ##      Bombardier" below for why it shifted up.)
+     "Double Blast",        ## IV   TWO multi-kill blasts in one game:
+                            ##      `grenadeMultiKills >= 2` (v7, GLORY
+                            ##      /proof E4: III and IV both used to gate
+                            ##      on `>= 1` -- the C3a fix left them
+                            ##      identical, n=7 field claims and EVERY
+                            ##      ONE at the same tick as its pair, so IV
+                            ##      never tested anything III hadn't already.
+                            ##      "Double" now means what it says -- no new
+                            ##      counter, `grenadeMultiKills` already
+                            ##      accumulates across the whole episode.
+                            ##      v6, GLORY C4: was V, shifted up one)
      "The Bombardier"],     ## V    3 grenade kills in one game (v6, GLORY
                             ##      C4: was III -- field claim rate 2.1%,
                             ##      the LOWEST of the tree's five (n=240
@@ -939,25 +1092,47 @@ const
      "The Backstop"],       ## V    absorb 12 hp in one game (was "Atlas")
     # treeMedKit — "The Patch". v3: "Field Dressing" (take a med kit) is
     # GONE -- the take is normal play; the SAVE it buys is the achievement.
+    #
+    # v7 (GLORY /proof E5): first-ever field claim rates for this tree
+    # (n=240 team-eps, now that GLORY C10 has fixed the mirror's heal
+    # detection): T1 "The Catch" 54.6%, "Patch Job" 5.0%, "Second Wind"
+    # 13.8%, "Miracle Worker" 0.0%, "Lifeline" 0.4% -- TWO inversions
+    # (II<III and IV<V, a harder-measured act priced as the EASIER tier).
+    # Reordered on the measurement, same requirements: Patch Job<->Second
+    # Wind and Miracle Worker<->Lifeline swap slots so claim rate decreases
+    # tier over tier. See sim.nim's `satisfiedAchievements` for the earn()
+    # reslotting.
     ["The Catch",           ## I    heal at 1 hp (v6, GLORY C6: was
                             ##      "The Save" -- "catch" reads as the
                             ##      teammate's play, not a medical term)
-     "Patch Job",           ## II   2 clutch heals in one episode (v6,
-                            ##      GLORY C6: was "Triage", a real-medicine
-                            ##      term; "patch" already lives in this
-                            ##      tree's own subtitle)
-     "Second Wind",         ## III  a KILL landing within 120 ticks of your
+     "Second Wind",         ## II   a KILL landing within 120 ticks of your
                             ##      latest clutch heal -- detected at the
                             ##      kill site, so the heal must come FIRST
                             ##      (v3.1: the poll used to compare "now" to
                             ##      the heal tick and never checked order or
                             ##      that a kill fell inside the window at
-                            ##      all -- CURRICULUM audit C6/C7).
-     "Miracle Worker",      ## IV   3 clutch heals in one episode (v6, GLORY
+                            ##      all -- CURRICULUM audit C6/C7). (v7,
+                            ##      GLORY /proof E5: was III -- field claim
+                            ##      rate 13.8% vs "Patch Job"'s 5.0% means
+                            ##      THIS is the easier act; swapped.)
+     "Patch Job",           ## III  2 clutch heals in one episode (v6,
+                            ##      GLORY C6: was "Triage", a real-medicine
+                            ##      term; "patch" already lives in this
+                            ##      tree's own subtitle. v7, GLORY /proof E5:
+                            ##      was II -- the rarer act, moved down;
+                            ##      see "Second Wind" above.)
+     "Lifeline",            ## IV   a clutch heal taken WHILE CARRYING the
+                            ##      heart (v7, GLORY /proof E5: was V --
+                            ##      field claim rate 0.4% vs "Miracle
+                            ##      Worker"'s 0.0% means THIS is the easier
+                            ##      act; swapped.)
+     "Miracle Worker"],     ## V    3 clutch heals in one episode (v6, GLORY
                             ##      C6: EVALUATED, kept -- a common idiom,
                             ##      not a borrowed franchise/mythology name;
-                            ##      reads fine cold to a kid)
-     "Lifeline"],           ## V    a clutch heal taken WHILE CARRYING the heart
+                            ##      reads fine cold to a kid. v7, GLORY
+                            ##      /proof E5: was IV -- the tree's actual
+                            ##      hardest tier at n=240, ZERO claims;
+                            ##      moved to V, see "Lifeline" above.)
     # treeCarrier — "The Heart". v3.1 (CURRICULUM audit C1/C8): tier I/II used
     # to read `steals >= 1` (an uncontested pickup, satisfiable by walking
     # into an empty base) and live `carryingFlag` plus a hold timer (pure
@@ -1017,6 +1192,27 @@ const
      "Doorstep",            ## II   a denial inside DenialPx
      "Double Peel",         ## III  2 carrier kills in one game
      "Turnaround",          ## IV   peel then steal within RevengeTicks
+                            ##
+                            ## ⚠️ ZERO-CLAIMS-AT-n=240 (GLORY /proof E6,
+                            ## 2026-08-25) -- near-miss data does NOT clearly
+                            ## support a window retune, so `RevengeTicks`
+                            ## (240) is UNCHANGED. Traced over the 120-
+                            ## episode cache: 135 cogs land >=1 peel; only 12
+                            ## (8.9%) EVER chain a later steal in the same
+                            ## episode at all, at any gap -- the achievement
+                            ## is gated by a rare ROLE SWITCH (a defender who
+                            ## becomes an attacker), not narrowly by the
+                            ## window. Of those 12, the closest gap is 260
+                            ## ticks -- 20 ticks (0.83s) past the 240-tick
+                            ## window, genuinely close, but a single case:
+                            ## widening to 360 (+50%) only pulls in 3/12, 480
+                            ## only 4/12; most of the 12 sit 425-2062 ticks
+                            ## out, far beyond any defensible "immediate
+                            ## turnaround" window. One near-boundary miss is
+                            ## not a distribution -- see the "Double Splash"
+                            ## comment above for what a wave that WAS
+                            ## clearly supported by its near-miss data looks
+                            ## like.
      "Lockdown"],           ## V    2 denials in one episode
     # treeSquad — "The Squad" (TEAM tree). Kit tiers now read CONVERSION
     # (`teamConvertedKits`) -- a teammate landed the kit's signature act --

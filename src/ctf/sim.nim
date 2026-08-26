@@ -4103,9 +4103,17 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # incrementing this counter, so `grenadeMultiKills >= 1` already implies
     # it. The clean per-activation, enemies-only counter is a complete gate
     # by itself.
-    if player.grenadeMultiKills >= 1:
-      earn(treeGrenade, 2)
-      earn(treeGrenade, 3)
+    #
+    # v7 (GLORY /proof E4): that same C3a fix left III and IV gating on the
+    # IDENTICAL condition (`grenadeMultiKills >= 1` fired both `earn` calls
+    # together) -- the two tiers claimed in lockstep, n=7 field claims, EVERY
+    # ONE at the identical tick to its pair, so "Double Blast" never tested
+    # anything "Blast Radius" hadn't already. Differentiated on the counter's
+    # own name: "Blast Radius" (III) is A multi-kill blast, "Double Blast"
+    # (IV) is literally TWO of them in one game -- no new plumbing, the
+    # counter already accumulates across the whole episode.
+    if player.grenadeMultiKills >= 1: earn(treeGrenade, 2)
+    if player.grenadeMultiKills >= 2: earn(treeGrenade, 3)
     if player.grenadeKills >= 3:      earn(treeGrenade, 4)
 
     # SHIELD -- soak, not damage. `blocked` already exists on the wire.
@@ -4126,17 +4134,27 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # MED KIT -- the heal line, where we run 5.9x worse than winners. No tier
     # pays for TAKING a kit (2b): the take is normal play, the SAVE it buys
     # is the achievement.
-    if player.clutchHeals >= 1:       earn(treeMedKit, 0)
-    if player.clutchHeals >= 2:       earn(treeMedKit, 1)
+    #
+    # v7 (GLORY /proof E5): reordered on first-ever field claim rates (n=240
+    # team-eps, the curriculum's first wave with real data since the mirror's
+    # heal-detection bug (GLORY C10) was fixed): T1 54.6%, "Patch Job" 5.0%,
+    # "Second Wind" 13.8%, "Miracle Worker" 0.0%, "Lifeline" 0.4% -- TWO
+    # inversions (a harder-measured act sitting BELOW an easier one). Swapped
+    # Patch Job<->Second Wind (II/III) and Miracle Worker<->Lifeline (IV/V) so
+    # each tier's claim rate now decreases monotonically, same requirements,
+    # just reslotted -- see `AchievementNames`' own comment for the full
+    # table.
+    if player.clutchHeals >= 1:       earn(treeMedKit, 0)  # The Catch
     # "Second Wind" is detected ONCE, at the KILL site (`killPlayer`), never
     # re-derived here from two independent tick fields -- the old form
     # compared "now" to `clutchHealTick` on every poll, which needed no kill
     # inside the window at all (a lifetime kill count >= 1 plus a recent heal
     # satisfied it, order unchecked; CURRICULUM audit C6/C7). Mirrors
     # `Turnaround` below, which already gets this right.
-    if player.secondWind:              earn(treeMedKit, 2)
-    if player.clutchHeals >= 3:       earn(treeMedKit, 3)
-    if player.clutchCarryHeals >= 1:  earn(treeMedKit, 4)
+    if player.secondWind:             earn(treeMedKit, 1)  # Second Wind
+    if player.clutchHeals >= 2:       earn(treeMedKit, 2)  # Patch Job
+    if player.clutchCarryHeals >= 1:  earn(treeMedKit, 3)  # Lifeline
+    if player.clutchHeals >= 3:       earn(treeMedKit, 4)  # Miracle Worker
 
     # CARRIER -- steal, run, score. v3.1 (CURRICULUM audit C1/C8): tier I/II
     # re-cut off possession the same way every other tree already was --
