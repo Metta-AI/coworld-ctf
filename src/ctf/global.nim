@@ -212,17 +212,17 @@ const
   PaintBombCarryObjectBase = 19360   ## carried markers: one per player.
   ThrowTargetObjectBase = 19400      ## charge rings: one per player.
   BlastObjectBase = 19440            ## blast flashes: one per recent blast.
-  TitheObjectBase = 19800        ## veteran-tithed kit: 19800..19831, in the
-                                 ## gap between the spray cone FX (..19795)
+  SupplyDropObjectBase = 19800        ## veteran-supplied kit: 19800..19831, in
+                                 ## the gap between the spray cone FX (..19795)
                                  ## and the map markers (20000).
-  TitheHaloSpriteId = 2390       ## the one shared veteran halo under tithed
-                                 ## kit; 2390 sits in the gap between the
-                                 ## spray FX puffs (..2385) and the rank
+  SupplyHaloSpriteId = 2390       ## the one shared veteran halo under supply-
+                                 ## dropped kit; 2390 sits in the gap between
+                                 ## the spray FX puffs (..2385) and the rank
                                  ## plumes (2400..).
-  TitheHaloObjectBase = 19860    ## tithe halos: 19860..19891, after the rank
+  SupplyHaloObjectBase = 19860    ## supply halos: 19860..19891, after the rank
                                  ## plumes (19840..19855) and still clear of
                                  ## the map markers (20000).
-  TitheHaloSize = 28             ## px across; wider than the widest kit
+  SupplyHaloSize = 28             ## px across; wider than the widest kit
                                  ## sprite so the ring reads as a ring around
                                  ## the kit rather than a box behind it.
   VeteranMarkSpriteBase = 2400   ## per-player rank plume text: 2400..2415,
@@ -1597,21 +1597,21 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
 
-proc buildTitheHaloSprite(): seq[uint8] {.measure.} =
-  ## The veteran halo laid UNDER tithed kit: a soft amber ring with a faint
+proc buildSupplyHaloSprite(): seq[uint8] {.measure.} =
+  ## The veteran halo laid UNDER supply-dropped kit: a soft amber ring with a faint
   ## fill, in the same warm-amber the rest of the chrome uses for "earned".
   ## Hollow-ish on purpose -- it must say "a veteran's heart made this" without
   ## hiding which kind of kit is sitting on it.
-  result = newRgbaPixels(TitheHaloSize, TitheHaloSize)
-  let c = float(TitheHaloSize - 1) / 2
-  for y in 0 ..< TitheHaloSize:
-    for x in 0 ..< TitheHaloSize:
+  result = newRgbaPixels(SupplyHaloSize, SupplyHaloSize)
+  let c = float(SupplyHaloSize - 1) / 2
+  for y in 0 ..< SupplyHaloSize:
+    for x in 0 ..< SupplyHaloSize:
       let d = sqrt((float(x) - c) * (float(x) - c) +
         (float(y) - c) * (float(y) - c))
       if d > c:
         continue
       let alpha = if d >= c - 2.0: 190'u8 else: 40'u8
-      result.putRawRgbaPixel(y * TitheHaloSize + x, 232, 163, 61, alpha)
+      result.putRawRgbaPixel(y * SupplyHaloSize + x, 232, 163, 61, alpha)
 
 proc buildShieldBubblePixels(
   dentBucket, stage: int
@@ -4272,13 +4272,13 @@ proc inspectorLines*(sim: SimServer, playerIndex: int): seq[string] =
   result.add "soak " & $player.soakedHp & "hp  heals " & $player.clutchHeals
   result.add "steals " & $player.steals & " peels " & $player.carrierKills &
     " denials " & $player.denials
-  if player.level >= StarfallLevel:
+  if player.level >= AceLevel:
     # At the per-life cap the credit keeps accruing but can never convert, so
     # the un-clamped readout rendered "(440/20 to next)" -- a progress bar
     # pointing past its own end. Say "tap closed" instead of lying.
-    result.add "tithes " & $player.tithesThisLife & "/" & $TitheMaxPerLife &
-      (if player.tithesThisLife >= TitheMaxPerLife: "  (tap closed)"
-       else: "  (" & $min(player.titheCredit, TitheXp) & "/" & $TitheXp &
+    result.add "supply " & $player.supplyDropsThisLife & "/" & $SupplyDropMaxPerLife &
+      (if player.supplyDropsThisLife >= SupplyDropMaxPerLife: "  (tap closed)"
+       else: "  (" & $min(player.supplyDropCredit, SupplyDropXp) & "/" & $SupplyDropXp &
              " to next)")
   var claims: seq[AchievementClaim]
   for claim in sim.achievementFeed:
@@ -4333,7 +4333,7 @@ proc addInspector*(
   packet.addBoardObject(
     InspectorObjectId, 4, 4, 0, InspectorLayerId, InspectorSpriteId)
 
-proc addTithePickups(
+proc addSupplyDropPickups(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
@@ -4345,15 +4345,16 @@ proc addTithePickups(
   ## 🚨 This proc is not optional garnish. Muster shipped terrain that drove
   ## collision and sight while the floor baked flat grey -- twice in one
   ## branch -- and banked the rule: ANY rule the sim reads, the viewer must
-  ## draw. Tithed kit is real, collectable, gameplay-affecting state; undrawn
-  ## it is a cog picking up an invisible object.
+  ## draw. Supply-dropped kit is real, collectable, gameplay-affecting state;
+  ## undrawn it is a cog picking up an invisible object.
   ##
   ## It reuses each kind's EXISTING sprite and, more importantly, its existing
-  ## LABEL. Labels are the observation schema, so tithed kit reads to every
-  ## policy in the league as ordinary kit of that type -- no perception change,
-  ## no bot update, nothing to renegotiate. Only the object-id range differs.
-  for i in 0 ..< sim.tithePickups.len:
-    let pickup = sim.tithePickups[i]
+  ## LABEL. Labels are the observation schema, so supply-dropped kit reads to
+  ## every policy in the league as ordinary kit of that type -- no perception
+  ## change, no bot update, nothing to renegotiate. Only the object-id range
+  ## differs.
+  for i in 0 ..< sim.supplyDropPickups.len:
+    let pickup = sim.supplyDropPickups[i]
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, pickup.x, pickup.y):
       continue
     var spriteId, size: int
@@ -4393,23 +4394,23 @@ proc addTithePickups(
       continue
     # The veteran halo: a SEPARATE object underneath the kit, never a change to
     # the kit sprite or its label. Broadcast-only (`viewerIndex < 0`) -- a
-    # player view must keep reading tithed kit as ordinary kit of that type,
-    # which is the whole point of the label reuse above, so the halo is
+    # player view must keep reading supply-dropped kit as ordinary kit of
+    # that type, which is the whole point of the label reuse above, so the halo is
     # spectator garnish that no policy is ever shown. z one below the kit's own
     # y so it lays under it instead of over it.
     if viewerIndex < 0:
-      let haloId = TitheHaloObjectBase + i
-      if spriteDefs.spriteDefinitionIndex(TitheHaloSpriteId) < 0:
+      let haloId = SupplyHaloObjectBase + i
+      if spriteDefs.spriteDefinitionIndex(SupplyHaloSpriteId) < 0:
         packet.addBoardSpriteChanged(
-          spriteDefs, TitheHaloSpriteId, TitheHaloSize, TitheHaloSize,
-          buildTitheHaloSprite(), LabelTitheHalo)
+          spriteDefs, SupplyHaloSpriteId, SupplyHaloSize, SupplyHaloSize,
+          buildSupplyHaloSprite(), LabelSupplyHalo)
       currentIds.add(haloId)
       packet.addBoardObject(
-        haloId, pickup.x - TitheHaloSize div 2,
-        pickup.y - TitheHaloSize div 2,
-        pickup.y - 1, MapLayerId, TitheHaloSpriteId
+        haloId, pickup.x - SupplyHaloSize div 2,
+        pickup.y - SupplyHaloSize div 2,
+        pickup.y - 1, MapLayerId, SupplyHaloSpriteId
       )
-    let objectId = TitheObjectBase + i
+    let objectId = SupplyDropObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId, pickup.x - size div 2, pickup.y - size div 2,
@@ -4420,7 +4421,7 @@ const
   VeteranPipSize = 9           ## logical px: a small flat paint pip -- still
                                ## well under the footprint of a single L3
                                ## star glyph, so an L1/L2 mark reads as a
-                               ## quieter nudge and the StarfallLevel star row
+                               ## quieter nudge and the AceLevel star row
                                ## still wins the eye once a cog crosses it.
                                ## D2 (style-law audit ARC C4): was 5 -- at a 1
                                ## logical px outline that left a fill radius
@@ -4453,7 +4454,7 @@ proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
   ## rasterizing a coarse VeteranPipSize×VeteranPipSize mask at native=1 and
   ## letting addBoardSpriteChanged nearest-neighbor-blow it up -- the same
   ## "logical dims out, native pixels" contract every other hand-drawn blob
-  ## in this file already uses (buildGloryChipSprite, buildTitheHaloSprite),
+  ## in this file already uses (buildGloryChipSprite, buildSupplyHaloSprite),
   ## and the reason the L3+ star row (a true vector face at boardScale) reads
   ## cleanly where the old native=1 pip didn't: computing the circle's edge
   ## at k× the grid gives it k× the angular resolution to round off on,
@@ -4486,12 +4487,12 @@ proc addVeteranMarks(
   packet: var seq[uint8],
   viewerIndex = -1
 ) {.measure.} =
-  ## The rank mark over a levelled cog: from StarfallLevel up, one star per
+  ## The rank mark over a levelled cog: from AceLevel up, one star per
   ## level in team colour (the threshold that also makes the cog a bounty and
-  ## opens its heart's tithe); below that but above L0, a single flat paint
-  ## pip (buildVeteranPipSprite) so an L1/L2 buff -- real, per LevelWindupDelta
-  ## -- is not invisible just because it has not reached Starfall yet. A
-  ## fresh L0 recruit still draws nothing.
+  ## opens its heart's supply drop); below that but above L0, a single flat
+  ## paint pip (buildVeteranPipSprite) so an L1/L2 buff -- real, per
+  ## LevelWindupDelta -- is not invisible just because it has not reached
+  ## AceLevel yet. A fresh L0 recruit still draws nothing.
   ##
   ## The mark is the whole reason a levelled cog is READABLE. Without it a
   ## veteran with a shorter windup looks exactly like the recruit beside it,
@@ -4511,7 +4512,7 @@ proc addVeteranMarks(
       spriteId = VeteranMarkSpriteBase + i
       objectId = VeteranMarkObjectBase + i
     currentIds.add(objectId)
-    if player.level >= StarfallLevel:
+    if player.level >= AceLevel:
       let
         stars = repeat("*", min(player.level, MaxLevel))
         # Board sprite, so it must be built and emitted like one. This used to
@@ -5958,7 +5959,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    sim.addTithePickups(
+    sim.addSupplyDropPickups(
       nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
     sim.addVeteranMarks(
       nextState.spriteDefs, currentIds, result, viewerIndex = playerIndex)
@@ -6722,7 +6723,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addHitFlashes(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
-  sim.addTithePickups(nextState.spriteDefs, currentIds, result)
+  sim.addSupplyDropPickups(nextState.spriteDefs, currentIds, result)
   sim.addVeteranMarks(nextState.spriteDefs, currentIds, result)
   # The pin was consumed and the subject resolved before the POV fork above;
   # the board branch only has to draw it. (Hover drove the card first and

@@ -195,7 +195,7 @@ DEED_GLORY = {
     "first_blood": 12, "honorable_kill": 10, "spray_kill": 12,
     "grenade_kill": 12, "point_blank_kill": 12, "longshot_kill": 30,
     "splash_multikill": 35, "revenge_kill": 18, "run_down": 16,
-    "starfall": 40, "team_kill": -60,
+    "ace_tag": 40, "team_kill": -60,
     "flag_steal": 40, "capture": 250,
     "carrier_kill": 90, "denial": 120, "escort_kill": 14,
     "clutch_heal": 25, "shield_soak": 4, "wipe": 400, "level_up": 6,
@@ -204,7 +204,7 @@ DEED_DRAMA = {
     "first_blood": 20, "honorable_kill": 10, "spray_kill": 30,
     "grenade_kill": 30, "point_blank_kill": 35, "longshot_kill": 40,
     "splash_multikill": 40, "revenge_kill": 30, "run_down": 20,
-    "starfall": 30, "team_kill": 0,
+    "ace_tag": 30, "team_kill": 0,
     "flag_steal": 25, "capture": 70,
     "carrier_kill": 35, "denial": 45, "escort_kill": 15,
     "clutch_heal": 30, "shield_soak": 0, "wipe": 400, "level_up": 5,
@@ -237,8 +237,8 @@ XP_HEAL, XP_PICKUP = 3, 4
 # retired, C10). The med-kit heal's own XP_PICKUP term survives because the
 # real engine gates that pickup on already being hurt, so it is never
 # actually "bare."
-STARFALL_LEVEL = 3
-TITHE_XP, TITHE_MAX, TITHE_COOLDOWN = 20, 4, 90
+ACE_LEVEL = 3
+SUPPLY_XP, SUPPLY_MAX, SUPPLY_COOLDOWN = 20, 4, 90
 
 TIER_GLORY = [2, 4, 8, 16, 32]
 FIRST_MULT = 3
@@ -305,7 +305,7 @@ DEED_ENUM_TO_KEY = {
     "dSprayKill": "spray_kill", "dGrenadeKill": "grenade_kill",
     "dPointBlankKill": "point_blank_kill", "dLongshotKill": "longshot_kill",
     "dSplashMultiKill": "splash_multikill", "dRevengeKill": "revenge_kill",
-    "dRunDown": "run_down", "dStarfall": "starfall", "dTeamKill": "team_kill",
+    "dRunDown": "run_down", "dAceTag": "ace_tag", "dTeamKill": "team_kill",
     "dFlagSteal": "flag_steal", "dCapture": "capture",
     "dCarrierKill": "carrier_kill", "dDenial": "denial",
     "dEscortKill": "escort_kill", "dClutchHeal": "clutch_heal",
@@ -342,12 +342,12 @@ def heat_mult(embers):
 class Cog:
     __slots__ = ("xp lvl hp lifemax peak alive pos carrying "
                  "gun_kills spray_kills grenade_kills longshot_kills "
-                 "starfall_kills spray_kills_pickup spray_multi grenade_multi "
+                 "ace_kills spray_kills_pickup spray_multi grenade_multi "
                  "soak clutch_heals clutch_heal_t clutch_carry_heals "
                  "second_wind "
                  "steals contested_steals carry_kills carrier_kills denials "
                  "peel_t steal_tick_life caps team_kills "
-                 "tithes tithe_credit tithe_t").split()
+                 "supply_drops supply_credit supply_t").split()
 
     def __init__(self):
         for f in self.__slots__:
@@ -355,23 +355,23 @@ class Cog:
         self.pos = None
         self.hp = 3
         self.alive = True
-        self.tithe_t = -10**9
+        self.supply_t = -10**9
         self.clutch_heal_t = -10**9
         self.peel_t = -10**9
         self.steal_tick_life = -1
 
     def reset_life(self):
         # THE anti-snowball rule, mirrored: death forfeits xp, level, the
-        # tithe allowance, and (v4) this life's steal marker -- resetLadder
+        # supply drop allowance, and (v4) this life's steal marker -- resetLadder
         # clears `stealTickThisLife` on every death, so `Full Run` (steal AND
         # capture in the SAME life) needs the same reset here. Every other
         # ACHIEVEMENT COUNTER is per-GAME and survives death untouched, both
         # in sim.nim's `startGame` reset list and here.
         self.xp = 0
         self.peak = 0
-        self.tithes = 0
-        self.tithe_credit = 0
-        self.tithe_t = -10**9
+        self.supply_drops = 0
+        self.supply_credit = 0
+        self.supply_t = -10**9
         self.hp = 3
         self.steal_tick_life = -1
 
@@ -411,7 +411,7 @@ def satisfied(cog, any_capture, kits, team_alive, enemy_alive):
     # ceiling now.
     if cog.gun_kills >= 1:            s.add(("gun", 0))   # First Tag
     if cog.gun_kills >= 3:            s.add(("gun", 1))   # Marksman
-    if cog.starfall_kills >= 1:       s.add(("gun", 2))   # Bounty
+    if cog.ace_kills >= 1:             s.add(("gun", 2))   # Bounty
     if cog.lifemax >= 5:              s.add(("gun", 3))   # Sharpshooter (L5)
     if cog.longshot_kills >= 1:       s.add(("gun", 4))   # Longshot
 
@@ -556,7 +556,7 @@ def score_episode_derived(events, n_slots):
     l3_lives = [0, 0]
     killed_or_stole = set()
     reached_l1 = set()
-    tithe_total = [0, 0]
+    supply_total = [0, 0]
     xp_peaks = []
     deaths_by_slot = collections.Counter()  # wipe inference input
     # v7 (GLORY /proof E6): spray_streak is now (count, last_tick) per source,
@@ -617,14 +617,14 @@ def score_episode_derived(events, n_slots):
             mint(team(slot), "level_up", times=c.lvl - before)
             if c.lvl >= 1:
                 reached_l1.add(slot)
-        if amount > 0 and c.lvl >= STARFALL_LEVEL:
-            c.tithe_credit += amount
-            if (c.tithes < TITHE_MAX and c.tithe_credit >= TITHE_XP
-                    and tick - c.tithe_t >= TITHE_COOLDOWN):
-                c.tithe_credit -= TITHE_XP
-                c.tithes += 1
-                c.tithe_t = tick
-                tithe_total[team(slot)] += 1
+        if amount > 0 and c.lvl >= ACE_LEVEL:
+            c.supply_credit += amount
+            if (c.supply_drops < SUPPLY_MAX and c.supply_credit >= SUPPLY_XP
+                    and tick - c.supply_t >= SUPPLY_COOLDOWN):
+                c.supply_credit -= SUPPLY_XP
+                c.supply_drops += 1
+                c.supply_t = tick
+                supply_total[team(slot)] += 1
 
     def check_achievements(tick):
         any_capture = [any(c.caps > 0 for i, c in enumerate(cogs)
@@ -716,23 +716,23 @@ def score_episode_derived(events, n_slots):
         elif k == "heal":
             # v6 (GLORY C10): the clutch-heal/xp read moved here from the
             # dead `item_pickup` branch above -- this is the event
-            # sim.nim's `tryPickupMedKits`/`tryPickupTithes` actually emit
-            # (Heal, `amount` = hit points restored, `hp` = the cog's POST-
-            # heal hp), for EVERY medkit source, ground or tithed. Mirrors
-            # BOTH halves of `tryPickupMedKits`'s formula exactly:
-            # `XpPerClutchHeal` when the cog was at 1 hp or less BEFORE this
-            # heal (reconstructed as `hp - amount`, since the wire never
-            # carries pre-heal hp directly), and `XpPerPickup +
+            # sim.nim's `tryPickupMedKits`/`tryPickupSupplyDrops` actually
+            # emit (Heal, `amount` = hit points restored, `hp` = the cog's
+            # POST-heal hp), for EVERY medkit source, ground or supply-
+            # dropped. Mirrors BOTH halves of `tryPickupMedKits`'s formula
+            # exactly: `XpPerClutchHeal` when the cog was at 1 hp or less
+            # BEFORE this heal (reconstructed as `hp - amount`, since the
+            # wire never carries pre-heal hp directly), and `XpPerPickup +
             # XpPerHeal * healed` unconditionally.
             #
-            # ⚠️ KNOWN OVER-COUNT vs. the real engine: `tryPickupTithes`'s
+            # ⚠️ KNOWN OVER-COUNT vs. the real engine: `tryPickupSupplyDrops`'s
             # med-kit case emits an IDENTICAL Heal event but never awards
             # clutch credit in sim.nim (only the GROUND pickup does) --
             # the wire shape does not distinguish the two sources, so a
-            # tithed heal landing at 1 hp counts as clutch here when it
-            # would not in-engine. Bounded by how rare a tithe pickup is
-            # (Starfall-level only, `TitheCooldownTicks`=90,
-            # `TitheMaxPerLife`=4), not eliminated.
+            # supply-dropped heal landing at 1 hp counts as clutch here when
+            # it would not in-engine. Bounded by how rare a supply drop
+            # pickup is (AceLevel only, `SupplyDropCooldownTicks`=90,
+            # `SupplyDropMaxPerLife`=4), not eliminated.
             #
             # 🚨 Also fixed here (found chasing why this branch measured
             # ZERO clutch heals against a cache that has 433 real `heal`
@@ -831,9 +831,9 @@ def score_episode_derived(events, n_slots):
                                for i, c in enumerate(cogs))
                 # Counters -- UNCONDITIONAL on weapon/range/level/carry/heal
                 # facts, exactly as killPlayer increments them, independent
-                # of which deed the kill ultimately prices as (a starfall
+                # of which deed the kill ultimately prices as (an ace tag
                 # kill made at longshot range still counts for BOTH gates;
-                # see sim.nim's comment on `starfallKills`). The old v2
+                # see sim.nim's comment on `aceKills`). The old v2
                 # mirror only updated these INSIDE the winning deed branch,
                 # under-crediting every kill that priced as something else.
                 if weapon == "spray":
@@ -845,8 +845,8 @@ def score_episode_derived(events, n_slots):
                     killer.gun_kills += 1
                 if r is not None and r >= LONGSHOT_PX:
                     killer.longshot_kills += 1
-                if victim.lifemax >= STARFALL_LEVEL:
-                    killer.starfall_kills += 1
+                if victim.lifemax >= ACE_LEVEL:
+                    killer.ace_kills += 1
                 if victim.carrying:
                     killer.carrier_kills += 1
                     killer.peel_t = tick
@@ -879,8 +879,8 @@ def score_episode_derived(events, n_slots):
                 # falls through to whatever this chain finds next.
                 if victim.carrying:
                     deed = "denial" if near_home else "carrier_kill"
-                elif victim.lifemax >= STARFALL_LEVEL:
-                    deed = "starfall"
+                elif victim.lifemax >= ACE_LEVEL:
+                    deed = "ace_tag"
                 elif same_tick_multi:
                     deed = "splash_multikill"
                 elif r is not None and r >= LONGSHOT_PX:
@@ -904,7 +904,7 @@ def score_episode_derived(events, n_slots):
                 levels_seen.append(c.lifemax)
                 if c.lifemax >= 5:
                     l5_lives += 1
-                if c.lifemax >= STARFALL_LEVEL:
+                if c.lifemax >= ACE_LEVEL:
                     l3_lives[team(t)] += 1
                 c.carrying = 0
                 c.reset_life()
@@ -940,7 +940,7 @@ def score_episode_derived(events, n_slots):
         levels_seen.append(c.lifemax)
         if c.lifemax >= 5:
             l5_lives += 1
-        if c.lifemax >= STARFALL_LEVEL:
+        if c.lifemax >= ACE_LEVEL:
             l3_lives[team(i)] += 1
 
     return {
@@ -949,7 +949,7 @@ def score_episode_derived(events, n_slots):
         "levels": levels_seen, "l5": l5_lives, "l3": l3_lives,
         "p_l1": (len(reached_l1 & killed_or_stole),
                  len(killed_or_stole)),
-        "tithes": tithe_total, "end_tick": end_tick, "xp_peaks": xp_peaks,
+        "supply_drops": supply_total, "end_tick": end_tick, "xp_peaks": xp_peaks,
         "deaths_by_slot": deaths_by_slot,
     }
 
@@ -1146,7 +1146,7 @@ def main():
     l3_per_team, l5_per_ep = [], []
     levels_all = []
     p_l1_num = p_l1_den = 0
-    tithes_all = []
+    supply_drops_all = []
     xp_all = []
     by_policy = collections.defaultdict(lambda: collections.defaultdict(list))
     tree_tier_claims = collections.Counter()   # (tree, tier) -> claims
@@ -1232,7 +1232,7 @@ def main():
         n, d = r["p_l1"]
         p_l1_num += n
         p_l1_den += d
-        tithes_all.append(sum(r["tithes"]))
+        supply_drops_all.append(sum(r["supply_drops"]))
         xp_all.extend(r["xp_peaks"])
 
     # ── WIPE MINTING (re-derivation fallback only) ──────────────────────
@@ -1414,8 +1414,8 @@ def main():
     print(f"  loser out-glories winner in {100*inv//max(1,len(both))}% "
           f"of episodes")
 
-    print(f"\nTITHES per episode: median {med(tithes_all):.0f}, "
-          f"mean {statistics.mean(tithes_all):.2f} (cap {TITHE_MAX}/cog-life)")
+    print(f"\nSUPPLY DROPS per episode: median {med(supply_drops_all):.0f}, "
+          f"mean {statistics.mean(supply_drops_all):.2f} (cap {SUPPLY_MAX}/cog-life)")
 
     print("\nDEEDS (per episode averages)")
     n_eps = max(1, len(files))

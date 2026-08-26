@@ -164,16 +164,17 @@ proc fullFeatureGame(): SimServer =
   result.players[5].y = cy + 30
   result.killPlayer(5, 0)
   #   A LEVELLED cog, so the rank plume (`veteran mark <n>`) enters the sweep.
-  #   The plume only draws from StarfallLevel up, so an unposed frame never
+  #   The plume only draws from AceLevel up, so an unposed frame never
   #   emits it -- and a contract label no fixture produces is a label the
   #   guard silently stops guarding. Seat 0 is the viewer, already on-camera.
-  result.addXp(0, LevelThresholds[StarfallLevel - 1])
-  doAssert result.players[0].level >= StarfallLevel,
+  result.addXp(0, LevelThresholds[AceLevel - 1])
+  doAssert result.players[0].level >= AceLevel,
     "the plume fixture must actually reach the rank that draws it"
-  #   Its heart's tithe is on the board for the same reason: tithed kit is
-  #   real collectable state, and it reuses each kind's existing label, so
-  #   the sweep must see those labels coming from this path too.
-  result.tithePickups.add TithePickup(
+  #   Its heart's supply drop is on the board for the same reason:
+  #   supply-dropped kit is real collectable state, and it reuses each
+  #   kind's existing label, so the sweep must see those labels coming from
+  #   this path too.
+  result.supplyDropPickups.add SupplyDropPickup(
     x: cx - 120, y: cy - 60, kind: "med kit",
     expiresAt: result.tickCount + 1000)
   #   The NON-fatal halves of the same two pools: the short-lived `hit splat`

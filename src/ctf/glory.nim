@@ -6,10 +6,10 @@
 ## Achievements are the third leg: an eight-tree, five-tier curriculum of
 ## named feats a team can chase without needing to win outright. Read
 ## docs/designs/GLORY.md for the full, paintbot-native tour (score fiction,
-## deeds, heat, achievements, xp/stars, the tithe, versioning) -- nothing
+## deeds, heat, achievements, xp/stars, the supply drop, versioning) -- nothing
 ## here requires knowing any OTHER game to make sense. (Lineage note, a
-## secondary aside: the shape -- priced deeds, a heat ladder, a tithe that
-## can't be farmed -- began as a port from an internal research sim's own
+## secondary aside: the shape -- priced deeds, a heat ladder, a supply drop
+## that can't be farmed -- began as a port from an internal research sim's own
 ## reward economy, `glory_spec.py` + `patronage.py`; paintbot re-fit every
 ## number to its own field and inverted at least one of that source's core
 ## rulings on purpose, noted inline below where it matters.)
@@ -28,7 +28,7 @@
 ##
 ## **The anti-snowball rule is that levels are PER LIFE.** A cog's XP resets
 ## to zero on death and its buffs go with it. A runaway cog is therefore also
-## a fat bounty (`dStarfall`), and the counter-play to a snowball is the same
+## a fat bounty (`dAceTag`), and the counter-play to a snowball is the same
 ## as the counter-play to everything else: tag it out. This is a DELIBERATE
 ## inversion of Muster's ruling that stars must only ever REPORT strength
 ## (`soldier_roles.STAR_BUFFS` is 60 buffs with zero consumers, and Muster
@@ -62,7 +62,7 @@ type
     dRevengeKill       ## killing the cog that killed you, inside RevengeTicks.
     dRunDown           ## killing a target that is moving away from you: the
                        ## chase, on camera.
-    dStarfall          ## killing a StarfallLevel+ cog — a named character
+    dAceTag            ## killing an AceLevel+ cog — a named character
                        ## goes down. This is what makes a leveller a bounty.
     dTeamKill          ## NEGATIVE. Friendly fire cost us up to 63% of the
                        ## death gap before v59; pricing it keeps it closed.
@@ -270,7 +270,7 @@ const
     35,     # dSplashMultiKill
     18,     # dRevengeKill
     16,     # dRunDown
-    40,     # dStarfall
+    40,     # dAceTag
     -60,    # dTeamKill  (NEGATIVE: a teammate's life at full price)
     # objective
     40,     # dFlagSteal
@@ -299,7 +299,7 @@ const
     40,     # dSplashMultiKill
     30,     # dRevengeKill
     20,     # dRunDown
-    30,     # dStarfall — a named cog dies
+    30,     # dAceTag — a named cog dies
     0,      # dTeamKill — anti-drama; it costs glory but must never light heat
     # objective
     25,     # dFlagSteal
@@ -546,7 +546,7 @@ const
   #                        taken, tools picked up, flag play. Drives the
   #                        ladder and therefore the buffs. Kills pay ZERO.
   #   GLORY  (DeedGlory)   per-TEAM. Pays OUTCOMES and DRAMA: kills,
-  #                        multikills, starfall, the peel, first blood --
+  #                        multikills, ace tags, the peel, first blood --
   #                        all still priced in full, through heat and the
   #                        site gradient. Glory is the show; xp is the work.
   #
@@ -573,7 +573,7 @@ const
                               ## achievements to xp): a BARE touch is not
                               ## work, so this only still pays at the ONE
                               ## pickup site that is genuinely work-gated --
-                              ## `tryPickupMedKits`/the med-kit tithe, where
+                              ## `tryPickupMedKits`/the med-kit supply drop, where
                               ## the engine refuses the pickup entirely unless
                               ## the cog is already hurt (`hp < playerMaxHp`),
                               ## so every mint of this constant sits on top of
@@ -605,7 +605,7 @@ const
   XpPerCapture* = 30
     ## DESIGN-CONSISTENCY CHECK (GLORY C7, not a field-fit):
     ## `levelForXp(XpPerCapture) == 3` -- a single capture alone promotes a
-    ## fresh life straight to L3, the plume/tithe/starfall threshold.
+    ## fresh life straight to L3, the plume/supply-drop/ace threshold.
     ## Intentional: completing the objective should feel like an instant
     ## power spike, not a fractional xp tick. Still ⚠️ UNCALIBRATED against
     ## any real paintbot capture-value field measurement -- this only checks
@@ -624,15 +624,15 @@ const
     ## Friendly fire actively DE-LEVELS you. The one place the ladder bites
     ## back, and it is aimed at the loss that was once 0.81 lives/Ep.
 
-  StarfallLevel* = 3
-    ## Killing a cog at this level or above pays `dStarfall`. This is the
+  AceLevel* = 3
+    ## Killing a cog at this level or above pays `dAceTag`. This is the
     ## mechanic that makes a levelled enemy a walking bounty and your own
     ## veteran worth escorting — the reason the power fantasy does not run
     ## away with an episode. It is also the level the crowd can SEE: at
-    ## StarfallLevel a cog wears the ember plume (`LabelVeteranMark`) and its
-    ## team's heart starts producing kit (the tithe, below).
+    ## AceLevel a cog wears the ember plume (`LabelVeteranMark`) and its
+    ## team's heart starts producing kit (the supply drop, below).
 
-  # ── THE TITHE: a 3-star cog makes their own heart produce kit ───────────
+  # ── THE SUPPLY DROP: a 3-star cog makes their own heart produce kit ─────
   #
   # Maxwell's rule: at 3 stars a cog gets a particle effect and items start
   # spitting out of their team's heart. The fantasy is the point — a
@@ -649,8 +649,8 @@ const
   # ALIVE pays for being-in-a-state, and the optimal play becomes: hit 3
   # stars, then go hide behind a wall and collect.
   #
-  # So the tap is fed by EARNING, not by STANDING. Every TitheXp points of
-  # NEW xp scored at StarfallLevel or above drops one pickup at the team's
+  # So the tap is fed by EARNING, not by STANDING. Every SupplyDropXp points of
+  # NEW xp scored at AceLevel or above drops one pickup at the team's
   # own heart. A veteran that keeps fighting keeps the kit coming; a veteran
   # that hides produces exactly nothing, because xp only moves on landed
   # effect. This is Muster's own fix for the same bug — v12 made the combo
@@ -662,22 +662,22 @@ const
   # is that glory must be FINITE per game, and its ember cap exists so no
   # streak can hoard a multiplier it stopped earning.
 
-  TitheXp* = 20
+  SupplyDropXp* = 20
     ## New xp per pickup produced. At XpPerDamage 3 that is roughly a
     ## pickup every 7 hit points landed once the plume is lit.
-  TitheCooldownTicks* = 90
+  SupplyDropCooldownTicks* = 90
     ## Minimum ticks between two pickups from one heart, so a single
     ## multi-kill burst cannot dump the whole allowance at once.
-  TitheMaxPerLife* = 4
+  SupplyDropMaxPerLife* = 4
     ## Hard ceiling per cog per LIFE. With the per-life reset this bounds the
     ## whole mechanic: a team's kit income is capped by how many veterans it
-    ## can keep alive, and every one of them is a `dStarfall` bounty.
+    ## can keep alive, and every one of them is a `dAceTag` bounty.
 
-  # ── The kit cycle a tithed heart produces ───────────────────────────────
+  # ── The kit cycle a supply drop rotates through ─────────────────────────
   # Fixed rotation rather than a roll: the sim's RNG draws are load-bearing
   # for replay determinism, and a rotation needs none. Medkit leads because
   # our heal rate is the measured gap (0.62/Ep against winners' 1.84-2.60).
-  TitheCycle* = ["med kit", "grenade", "spray can", "shield"]
+  SupplyDropCycle* = ["med kit", "grenade", "spray can", "shield"]
 
   # ── What each level BUYS ────────────────────────────────────────────────
   #
@@ -999,7 +999,7 @@ const
     # ruling). Every tier below is a KILL or a rank now.
     ["First Tag",           ## I    a gun kill
      "Marksman",            ## II   3 gun kills in one game
-     "Bounty",              ## III  killed a level>=StarfallLevel enemy
+     "Bounty",              ## III  killed a level>=AceLevel enemy
      "Sharpshooter",        ## IV   a cog reaches max rank (L5) (v6, GLORY
                             ##      C4: was V -- field claim rate 15.4% vs
                             ##      "Longshot"'s 8.3% (n=240 team-eps) means
@@ -1436,7 +1436,7 @@ func killDeed*(ctx: KillContext): Deed =
   ## penalty first so a friendly kill can never be dressed up as a highlight,
   ## then the objective context (what the victim was DOING outranks how they
   ## were shot), then the shot itself. `escorted` sits below every marquee
-  ## kill descriptor (starfall, multi, longshot, point-blank, revenge,
+  ## kill descriptor (ace tag, multi, longshot, point-blank, revenge,
   ## rundown) -- it describes the surrounding TEAM context, not the kill
   ## itself, so a kill that is ALSO one of those stays classified as the more
   ## specific, rarer feat. It sits above the plain weapon/floor tiers so an
@@ -1445,7 +1445,7 @@ func killDeed*(ctx: KillContext): Deed =
   if ctx.friendly: return dTeamKill
   if ctx.victimCarrying and ctx.nearVictimHome: return dDenial
   if ctx.victimCarrying: return dCarrierKill
-  if ctx.victimLevel >= StarfallLevel: return dStarfall
+  if ctx.victimLevel >= AceLevel: return dAceTag
   if ctx.multi: return dSplashMultiKill
   if ctx.rangePx >= LongshotPx: return dLongshotKill
   if ctx.rangePx <= PointBlankPx: return dPointBlankKill
@@ -1505,7 +1505,7 @@ func deedName*(deed: Deed): string =
   of dSplashMultiKill: "double splash"
   of dRevengeKill: "payback"
   of dRunDown: "chase down"
-  of dStarfall: "starfall"
+  of dAceTag: "ace tag"
   of dTeamKill: "own paint"
   of dFlagSteal: "heart steal"
   of dCapture: "capture"
@@ -1514,6 +1514,6 @@ func deedName*(deed: Deed): string =
   of dEscortKill: "escort tag"
   of dClutchHeal: "clutch patch"
   of dShieldSoak: "shield soak"
-  of dWipe: "whitewash"
+  of dWipe: "wipeout"
   of dLevelUp: "rank up"
   of dAchievement: "achievement"

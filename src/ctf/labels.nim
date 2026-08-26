@@ -53,18 +53,18 @@ const
   LabelVeteranMark* = "veteran mark"
     ## Rank plume over a levelled cog, `veteran mark <level>`. Present only
     ## from the 3-star threshold up -- the same level that makes the cog a
-    ## `starfall` bounty and opens its heart's tithe. Fog-gated like any
+    ## `ace tag` bounty and opens its heart's supply drop. Fog-gated like any
     ## overhead marker, so it never leaks an unseen enemy's position.
     ##
     ## This is the perception half of the ladder. Without it a policy cannot
     ## tell a 4-hit-point veteran from a 3-hit-point recruit, and a game rule
     ## no policy can perceive is a rule that steers nothing.
-  LabelTitheHalo* = "tithe halo"
-    ## The amber ring laid under kit a 3-star veteran's heart tithed out.
-    ## BROADCAST-ONLY: emitted in the spectator stream and never in a player
-    ## view, so tithed kit still reads to every policy as ordinary kit of its
-    ## kind (see `addTithePickups`). Spectator garnish, not observation schema
-    ## -- nothing should ever scan for it.
+  LabelSupplyHalo* = "supply halo"
+    ## The amber ring laid under kit a 3-star veteran's heart dropped as
+    ## supply. BROADCAST-ONLY: emitted in the spectator stream and never in a
+    ## player view, so supply-dropped kit still reads to every policy as
+    ## ordinary kit of its kind (see `addSupplyDropPickups`). Spectator
+    ## garnish, not observation schema -- nothing should ever scan for it.
   LabelSprayCanCarried* = "spray can carried"
     ## Marker floating over a spray-can carrier you can see.
   LabelSprayPaintPuff* = "spray paint puff"

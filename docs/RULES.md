@@ -36,7 +36,7 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   bar — dead on the center row — is a **glass window**: the mid lane stays
   closed to movement and fire, but both teams can watch the center corridor
   through the glass.
-- A round ends when a team **captures the enemy heart** or is **whitewashed**.
+- A round ends when a team **captures the enemy heart** or is **wiped out**.
 
 ## Teams & spawns
 
@@ -274,7 +274,7 @@ What that means in practice:
   4-square shape from the first active tick, regardless of how far the
   animation has travelled.
 
-## Glory, ranks and the veteran's tithe
+## Glory, ranks and the veteran's supply drop
 
 Every consequential act mints **glory** to the acting team, and each cog runs a
 **per-life rank ladder** off the same acts. Both are gameplay, not scoring
@@ -292,8 +292,8 @@ garnish: rank changes what a cog can do.
   proportion to who dealt it. The ladder is
   `recruit → tagger → marksman → ironhide → quickdraw → legend`. **Getting
   tagged out resets the ladder to zero** and the buffs go with it, so a
-  dominant cog is bounded to one life. Killing a rank-3+ cog pays a
-  `starfall` bounty, and friendly fire subtracts xp.
+  dominant cog is bounded to one life. Killing a rank-3+ cog pays an
+  `ace tag` bounty, and friendly fire subtracts xp.
 - **What a rank buys** (cumulative): shorter trigger windup, then a faster
   spray recharge, then +1 hit point, then a faster fire cooldown and two
   throws per grenade pickup, then a shorter windup again and no heart-carry
@@ -308,12 +308,12 @@ garnish: rank changes what a cog can do.
   shows the same stars for any ranked cog, from rank 1 up -- not gated to the
   plume's rank-3 threshold. A row that loses its stars means that cog was
   just tagged out.
-- **The tithe.** From rank 3 up, a cog's own heart produces kit -- a med kit,
-  grenade, spray can and shield in rotation -- dropped on its team's pedestal.
-  The tap is fed by **newly earned xp**, not by standing at rank, so a veteran
-  that stops fighting stops producing. Capped per life, and untaken kit
-  evaporates. Tithed kit carries each type's **normal** label, so it reads to
-  a policy exactly like any other pickup.
+- **The supply drop.** From rank 3 up, a cog's own heart produces kit -- a med
+  kit, grenade, spray can and shield in rotation -- dropped on its team's
+  pedestal. The tap is fed by **newly earned xp**, not by standing at rank, so
+  a veteran that stops fighting stops producing. Capped per life, and untaken
+  kit evaporates. Supply-dropped kit carries each type's **normal** label, so
+  it reads to a policy exactly like any other pickup.
 - **Achievements**: 8 kit-keyed trees x 5 tiers, one-shot per team per game.
   Every team can earn every tier; the first team in the episode to complete one
   claims at triple value. They never build the team's heat multiplier.

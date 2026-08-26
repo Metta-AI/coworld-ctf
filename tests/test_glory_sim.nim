@@ -1,5 +1,5 @@
-## Glory wired into the sim: the ladder is causal, the buffs land, the tithe
-## cannot be farmed, and every deed can actually FIRE.
+## Glory wired into the sim: the ladder is causal, the buffs land, the supply
+## drop cannot be farmed, and every deed can actually FIRE.
 ##
 ## That last one is the whole reason this file exists. Muster shipped five
 ## reward layers that never fired -- each plausible in review, each silently
@@ -211,18 +211,18 @@ suite "glory in the sim: deeds are priced where they happen":
     var killClass = 0
     for deed in [dHonorableKill, dSprayKill, dGrenadeKill, dPointBlankKill,
                  dLongshotKill, dSplashMultiKill, dRevengeKill, dRunDown,
-                 dStarfall, dCarrierKill, dDenial, dTeamKill]:
+                 dAceTag, dCarrierKill, dDenial, dTeamKill]:
       killClass += sim.deedCounts[deed]
     check killClass == 1
 
-  test "killing a veteran pays the starfall bounty":
+  test "killing a veteran pays the ace tag bounty":
     # The counter-play to the power fantasy has to be worth doing.
     var sim = twoTeamGame()
-    sim.addXp(1, LevelThresholds[StarfallLevel - 1])
-    check sim.players[1].level >= StarfallLevel
+    sim.addXp(1, LevelThresholds[AceLevel - 1])
+    check sim.players[1].level >= AceLevel
     sim.killPlayer(1, 0, "gun")
-    check sim.deedCounts[dStarfall] == 1
-    check sim.players[0].starfallKills == 1   # the `Bounty` achievement gate
+    check sim.deedCounts[dAceTag] == 1
+    check sim.players[0].aceKills == 1   # the `Bounty` achievement gate
 
   test "the site gradient reads nearest pedestal, not an x-midline":
     # Every spawn address in this engine is a 2-team formula, so a home/away
@@ -274,95 +274,95 @@ suite "glory in the sim: the wipe deed":
     check sim.isDraw
     check sim.deedCounts[dWipe] == 0
 
-suite "glory in the sim: the tithe cannot be farmed":
+suite "glory in the sim: the supply drop cannot be farmed":
 
   test "a veteran that stops earning stops producing":
     # THE bomber-hover law: Muster's bomber potential paid every tick once
     # armed and in position, so the rational play was to hover. The tap here
     # is fed by NEW xp, so a 3-star that hides produces nothing.
     var sim = twoTeamGame()
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
-    let afterPlume = sim.tithePickups.len
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
+    let afterPlume = sim.supplyDropPickups.len
 
     # Idle for a long time: no xp, therefore no kit, however long it waits.
-    for _ in 1 .. TitheCooldownTicks * 4:
+    for _ in 1 .. SupplyDropCooldownTicks * 4:
       sim.tickCount += 1
       sim.heatCool()
-    check sim.tithePickups.len == afterPlume
+    check sim.supplyDropPickups.len == afterPlume
 
     # Earn, and the heart pays.
-    sim.tickCount += TitheCooldownTicks
-    sim.addXp(0, TitheXp)
-    check sim.tithePickups.len > afterPlume
+    sim.tickCount += SupplyDropCooldownTicks
+    sim.addXp(0, SupplyDropXp)
+    check sim.supplyDropPickups.len > afterPlume
 
-  test "a cog below the plume never tithes however hard it fights":
+  test "a cog below the plume never gets a supply drop however hard it fights":
     var sim = twoTeamGame()
     for i in 1 .. 5:
-      sim.tickCount += TitheCooldownTicks
-      sim.addXp(0, LevelThresholds[StarfallLevel - 1] div 4)
-      if sim.players[0].level >= StarfallLevel:
+      sim.tickCount += SupplyDropCooldownTicks
+      sim.addXp(0, LevelThresholds[AceLevel - 1] div 4)
+      if sim.players[0].level >= AceLevel:
         break
-    if sim.players[0].level < StarfallLevel:
-      check sim.tithePickups.len == 0
+    if sim.players[0].level < AceLevel:
+      check sim.supplyDropPickups.len == 0
 
   test "the tap is bounded per life":
     var sim = twoTeamGame()
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
-    for _ in 1 .. TitheMaxPerLife * 4:
-      sim.tickCount += TitheCooldownTicks
-      sim.addXp(0, TitheXp)
-    check sim.players[0].tithesThisLife <= TitheMaxPerLife
-    check sim.tithePickups.len <= TitheMaxPerLife
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
+    for _ in 1 .. SupplyDropMaxPerLife * 4:
+      sim.tickCount += SupplyDropCooldownTicks
+      sim.addXp(0, SupplyDropXp)
+    check sim.players[0].supplyDropsThisLife <= SupplyDropMaxPerLife
+    check sim.supplyDropPickups.len <= SupplyDropMaxPerLife
 
-  test "the tithe lands on the veteran's OWN ground":
+  test "the supply drop lands on the veteran's OWN ground":
     var sim = twoTeamGame()
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
-    sim.tickCount += TitheCooldownTicks
-    sim.addXp(0, TitheXp)
-    check sim.tithePickups.len > 0
-    for pickup in sim.tithePickups:
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
+    sim.tickCount += SupplyDropCooldownTicks
+    sim.addXp(0, SupplyDropXp)
+    check sim.supplyDropPickups.len > 0
+    for pickup in sim.supplyDropPickups:
       check sim.groundOwner(pickup.x, pickup.y) == Red
 
   test "untaken kit evaporates":
     # Otherwise a stalemate accumulates pickups forever, which is per-tick
     # income by another name.
     var sim = twoTeamGame()
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
-    sim.tickCount += TitheCooldownTicks
-    sim.addXp(0, TitheXp)
-    check sim.tithePickups.len > 0
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
+    sim.tickCount += SupplyDropCooldownTicks
+    sim.addXp(0, SupplyDropXp)
+    check sim.supplyDropPickups.len > 0
     sim.tickCount += MedKitRespawnTicks + 1
-    sim.expireTithes()
-    check sim.tithePickups.len == 0
+    sim.expireSupplyDrops()
+    check sim.supplyDropPickups.len == 0
 
   test "the veteran halo is SPECTATOR-ONLY, and never touches the kit label":
-    # The halo exists to make tithed kit readable to whoever is WATCHING. It is
-    # a separate board object precisely so the kit's own sprite and label stay
-    # bit-identical to ordinary kit: labels are the observation schema, so a
-    # halo that leaked into a player view -- or worse, renamed the kit -- would
-    # silently re-negotiate the perception API with every policy in the league
-    # to buy a decoration.
+    # The halo exists to make supply-dropped kit readable to whoever is
+    # WATCHING. It is a separate board object precisely so the kit's own
+    # sprite and label stay bit-identical to ordinary kit: labels are the
+    # observation schema, so a halo that leaked into a player view -- or
+    # worse, renamed the kit -- would silently re-negotiate the perception
+    # API with every policy in the league to buy a decoration.
     #
-    # Asserted on the WIRE, not on the proc. `addTithePickups` is private and
+    # Asserted on the WIRE, not on the proc. `addSupplyDropPickups` is private and
     # its viewerIndex gate is one `if`; the only thing that proves the gate
     # holds is the bytes each audience actually receives.
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
-    sim.tickCount += TitheCooldownTicks
-    sim.addXp(0, TitheXp)
-    check sim.tithePickups.len > 0
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
+    sim.tickCount += SupplyDropCooldownTicks
+    sim.addXp(0, SupplyDropXp)
+    check sim.supplyDropPickups.len > 0
 
     let spectator = spectatorFrameText(sim)
-    check LabelTitheHalo in spectator      # the halo shipped to the broadcast
+    check LabelSupplyHalo in spectator      # the halo shipped to the broadcast
 
     let seat = playerFrameText(sim, 1)
-    check LabelTitheHalo notin seat        # ...and to nobody who plays
+    check LabelSupplyHalo notin seat        # ...and to nobody who plays
 
     # The kit itself still reads as its own kind on BOTH wires -- the halo is
     # laid under an unchanged pickup, not a new kind of one.
     var kitLabel = ""
-    for pickup in sim.tithePickups:
+    for pickup in sim.supplyDropPickups:
       case pickup.kind
       of "med kit": kitLabel = LabelMedKit
       of "grenade": kitLabel = LabelGrenade
@@ -373,7 +373,7 @@ suite "glory in the sim: the tithe cannot be farmed":
         break
     check kitLabel.len > 0
     check kitLabel in spectator
-    check LabelTitheHalo != kitLabel
+    check LabelSupplyHalo != kitLabel
 
 suite "glory in the sim: determinism and the audit":
 
@@ -394,7 +394,7 @@ suite "glory in the sim: determinism and the audit":
     check sim.teamGlory[Red] == 0
     check sim.heatEmbers[Red] == 0
     check not sim.firstBloodDone
-    check sim.tithePickups.len == 0
+    check sim.supplyDropPickups.len == 0
 
   test "heat climbs on a streak and cools when it stops":
     var sim = twoTeamGame()
@@ -424,7 +424,7 @@ suite "glory in the sim: determinism and the audit":
     sim.flags[Red].carrier = -1
     sim.killPlayer(1, 0, "spray", multi = true) # a spray multikill
     sim.players[1].alive = true
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
     sim.players[0].hp = 1
     sim.tryPickupMedKits(0)
 
@@ -544,14 +544,14 @@ suite "glory in the sim: every priced deed mints somewhere (fire-counter audit)"
       sim.killPlayer(1, 0, "gun")
       mark(sim)
 
-    # dStarfall: a level>=StarfallLevel victim.
+    # dAceTag: a level>=AceLevel victim.
     block:
       var sim = twoTeamGame()
       sim.players[0].x = 300
       sim.players[0].y = 300
       sim.players[1].x = 600
       sim.players[1].y = 300
-      sim.addXp(1, LevelThresholds[StarfallLevel - 1])
+      sim.addXp(1, LevelThresholds[AceLevel - 1])
       sim.killPlayer(1, 0, "gun")
       mark(sim)
 
@@ -768,7 +768,7 @@ suite "glory in the sim: the achievement curriculum FIRES":
     sim.tickCount = 1200
     sim.players[0].gunKills = 6
     sim.players[0].longshotKills = 1
-    sim.players[0].starfallKills = 1         # Bounty
+    sim.players[0].aceKills = 1         # Bounty
     sim.players[0].sprayKills = 2
     sim.players[0].sprayKillsThisPickup = 3
     sim.players[0].sprayMultiKills = 1       # Double Splash
@@ -1112,7 +1112,7 @@ suite "glory in the sim: the hover inspector":
     sim.players[0].gunKills = 2
     sim.players[0].kills = 2
     sim.evalAchievements(Red)
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
 
     let text = sim.inspectorLines(0).join("\n")
     check "IRONHIDE" in text                      # the rank, by name
@@ -1123,8 +1123,8 @@ suite "glory in the sim: the hover inspector":
     check "GLORY" in text                         # the team ledger
     check "ACHIEVEMENTS" in text                  # ...and its curriculum
     check "First Tag" in text                     # a named claim, not a count
-    check ("tithes " & $sim.players[0].tithesThisLife & "/" &
-           $TitheMaxPerLife) in text                 # the veteran's tap
+    check ("supply " & $sim.players[0].supplyDropsThisLife & "/" &
+           $SupplyDropMaxPerLife) in text                 # the veteran's tap
 
   test "the card counts ALL claims even when it lists only the last few":
     # A truncated list that reads as complete is a silent lie about coverage.
@@ -1148,7 +1148,7 @@ suite "glory in the sim: the hover inspector":
     # unfired deed -- so assert the sprite label lands in the packet bytes.
     var sim = twoTeamGame()
     sim.phase = Playing
-    sim.addXp(0, LevelThresholds[StarfallLevel - 1])
+    sim.addXp(0, LevelThresholds[AceLevel - 1])
     var
       defs: seq[SpriteDefinition]
       ids: seq[int]
@@ -1287,7 +1287,7 @@ suite "glory in the sim: the hover inspector":
     check next.inspectPinned == -1
 
 suite "glory observer (dev rig, deletable scaffolding)":
-  test "observer neutralizes every buff and the tithe spawn; ledger still runs":
+  test "observer neutralizes every buff and the supply drop spawn; ledger still runs":
     # The lens replays a PRE-GLORY recording with glory as pure accounting:
     # physics must read BASE everywhere a level could bend them, while xp,
     # levels and mints run untouched. Default mode is unchanged -- the "the
@@ -1302,10 +1302,10 @@ suite "glory observer (dev rig, deletable scaffolding)":
     let gloryBefore = sim.teamGlory[Red]
     sim.addXp(0, LevelThresholds[MaxLevel - 1])
 
-    # The ledger side is fully live: rank, mint, tithe cadence.
+    # The ledger side is fully live: rank, mint, supply drop cadence.
     check sim.playerLevel(0) == MaxLevel
     check sim.teamGlory[Red] > gloryBefore       # dLevelUp still minted
-    check sim.players[0].tithesThisLife == 1     # credit spent on schedule
+    check sim.players[0].supplyDropsThisLife == 1     # credit spent on schedule
 
     # Every buff accessor reads BASE at max level.
     check sim.playerMaxHp(0) == sim.config.hitPoints
@@ -1315,6 +1315,6 @@ suite "glory observer (dev rig, deletable scaffolding)":
     check sim.playerSprayReset(0) == PlasmaArcResetTicks
     check sim.playerCarrierSpeedPct(0) == sim.config.carrierSpeedPct
 
-    # ...and the tithe's PHYSICAL half never entered the world: a recorded
+    # ...and the supply drop's PHYSICAL half never entered the world: a recorded
     # bot could walk over spawned kit by accident and diverge.
-    check sim.tithePickups.len == 0
+    check sim.supplyDropPickups.len == 0

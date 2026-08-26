@@ -85,16 +85,16 @@ bigger number:
 
 The anti-snowball rule: **levels are per life**. A cog's xp resets to zero
 on death and every buff goes with it. A cog that reaches level 3
-("Starfall") is a visible, named threat AND a fat bounty — killing one
+("Ace") is a visible, named threat AND a fat bounty — killing one
 prices as its own deed — so the counter-play to a runaway veteran is
 always the same: tag them out before they cash in further.
 
-### The tithe
+### The supply drop
 
-At Starfall level, a cog's team pedestal starts producing kit — a med
+At Ace level, a cog's team pedestal starts producing kit — a med
 kit, grenade, spray can or shield appears for the team to collect. It is
 fed by continued EARNING, not by standing still: every fixed amount of new
-xp a Starfall-level cog scores drops one pickup, on a cooldown, capped per
+xp an Ace-level cog scores drops one pickup, on a cooldown, capped per
 life. A veteran that keeps fighting keeps the kit coming; one that hides
 behind a wall produces nothing, because the tap only ever moves on landed
 effect.

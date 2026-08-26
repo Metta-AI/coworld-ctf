@@ -485,11 +485,12 @@ type
     level*: int                ## GLORY: 0..MaxLevel, cached from `xp` so the
                                ## wire, the hash and the buff sites can never
                                ## disagree about what a cog currently is.
-    titheCredit*: int          ## xp banked toward this cog's next heart
+    supplyDropCredit*: int     ## xp banked toward this cog's next heart
                                ## pickup; only NEW xp opens the tap.
-    tithesThisLife*: int       ## pickups produced this life (capped at
-                               ## TitheMaxPerLife).
-    lastTitheTick*: int        ## tick of this cog's latest tithe, -1 = never.
+    supplyDropsThisLife*: int  ## pickups produced this life (capped at
+                               ## SupplyDropMaxPerLife).
+    lastSupplyDropTick*: int   ## tick of this cog's latest supply drop, -1 =
+                               ## never.
     grenadeCharges*: int       ## throws left on the carried grenade; a L4+
                                ## pickup yields two.
     lastKilledBy*: int         ## player index of this cog's latest killer,
@@ -514,11 +515,11 @@ type
     clutchHeals*: int          ## heals taken at 1 hp.
     steals*, returns*, carrierKills*, denials*: int
     sprayKillsThisPickup*: int ## resets when the can is taken or lost.
-    starfallKills*: int        ## non-friendly kills on a level>=StarfallLevel
+    aceKills*: int             ## non-friendly kills on a level>=AceLevel
                                ## victim -- the `Bounty` gate. Keyed on the
                                ## victim's level directly (like
                                ## `longshotKills`), independent of which deed
-                               ## the kill actually resolved to: a starfall
+                               ## the kill actually resolved to: an ace tag
                                ## kill that was ALSO a carrier kill still
                                ## counts here.
     sprayMultiKills*: int      ## spray cone activations that killed 2+
@@ -798,13 +799,13 @@ type
                                ## over the earning cog's head instead of
                                ## shouting it from the top of the screen.
 
-  TithePickup* = object
+  SupplyDropPickup* = object
     ## One piece of kit spat out by a team's heart because one of its cogs
-    ## reached StarfallLevel and kept EARNING. Unlike the fixed PickupSpawn
+    ## reached AceLevel and kept EARNING. Unlike the fixed PickupSpawn
     ## points these are transient: taken or timed out, never respawned in
-    ## place. Bounded by TitheMaxPerLife per cog per life.
+    ## place. Bounded by SupplyDropMaxPerLife per cog per life.
     x*, y*: int
-    kind*: string              ## a TitheCycle entry: which pickup this is.
+    kind*: string              ## a SupplyDropCycle entry: which pickup this is.
     expiresAt*: int            ## tick it evaporates if nobody takes it.
 
   AirborneGrenade* = object
@@ -878,7 +879,7 @@ type
                                ## with the glory ledger overlaid as pure
                                ## accounting: when true every level-buff
                                ## accessor returns its BASE value and the
-                               ## tithe spawns no physical kit, so physics
+                               ## supply drop spawns no physical kit, so physics
                                ## match the recording tick-for-tick while
                                ## xp/levels/mints/feed still run. Deliberately
                                ## NOT in gameHash: it never varies within a
@@ -898,7 +899,7 @@ type
                                ## whether ANY team has taken this tier yet;
                                ## the first claimant gets the x3 (law 2).
     firstBloodDone*: bool      ## the episode's first kill has been minted.
-    tithePickups*: seq[TithePickup]   ## kit produced by 3-star veterans.
+    supplyDropPickups*: seq[SupplyDropPickup]   ## kit produced by 3-star veterans.
     achievementFeed*: seq[AchievementClaim]  ## claims in order, for the
                                ## viewer's toast and any downstream report.
     deedCounts*: array[Deed, int]     ## AUDIT: times each deed fired.
@@ -3515,8 +3516,8 @@ proc gameHash*(sim: SimServer): uint64 =
     # it belongs in the hash. A replay that diverged on xp would desync.
     result.mixHashInt(player.xp)
     result.mixHashInt(player.level)
-    result.mixHashInt(player.titheCredit)
-    result.mixHashInt(player.tithesThisLife)
+    result.mixHashInt(player.supplyDropCredit)
+    result.mixHashInt(player.supplyDropsThisLife)
     result.mixHashInt(player.grenadeCharges)
     # ACHIEVEMENT-ELIGIBILITY STATE is causal, not analysis: it gates
     # `claimAchievement`, which mints `teamGlory` (hashed above) -- so two
@@ -3537,7 +3538,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.carrierKills)
     result.mixHashInt(player.denials)
     result.mixHashInt(player.sprayKillsThisPickup)
-    result.mixHashInt(player.starfallKills)
+    result.mixHashInt(player.aceKills)
     result.mixHashInt(player.sprayMultiKills)
     result.mixHashInt(player.grenadeMultiKills)
     result.mixHashInt(player.clutchCarryHeals)
@@ -3578,8 +3579,8 @@ proc gameHash*(sim: SimServer): uint64 =
   for key in 0 ..< sim.claimedFirst.len:
     result.mixHashBool(sim.claimedFirst[key])
   result.mixHashBool(sim.firstBloodDone)
-  result.mixHashInt(sim.tithePickups.len)
-  for pickup in sim.tithePickups:
+  result.mixHashInt(sim.supplyDropPickups.len)
+  for pickup in sim.supplyDropPickups:
     result.mixHashInt(pickup.x)
     result.mixHashInt(pickup.y)
     result.mixHashInt(pickup.expiresAt)
@@ -3730,7 +3731,7 @@ proc emitEvent(
   )
 
 # ───────────────────────────────────────────────────────────────────────────
-# GLORY — the team ledger, the per-life ladder, and the veteran's tithe
+# GLORY — the team ledger, the per-life ladder, and the veteran's supply drop
 # ───────────────────────────────────────────────────────────────────────────
 #
 # Pricing lives in `ctf/glory`; this is the plumbing. Three rules govern every
@@ -3752,8 +3753,8 @@ func playerLevel*(sim: SimServer, playerIndex: int): int {.inline.} =
 func buffLevel(sim: SimServer, playerIndex: int): int {.inline.} =
   ## The level the BUFF accessors read. Under the glory-observer dev rig this
   ## is 0 -- the ladder still climbs (`playerLevel` is untouched, so display,
-  ## dStarfall and the tithe cadence all see the real rank) but no buff lands,
-  ## which is what lets a pre-glory recording replay tick-for-tick.
+  ## dAceTag and the supply drop cadence all see the real rank) but no buff
+  ## lands, which is what lets a pre-glory recording replay tick-for-tick.
   if sim.gloryObserver: 0 else: sim.playerLevel(playerIndex)
 
 func playerMaxHp*(sim: SimServer, playerIndex: int): int {.inline.} =
@@ -4064,7 +4065,7 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     # ceiling now. See AchievementNames' own comment on this tree.
     if player.gunKills >= 1:          earn(treeGun, 0)
     if player.gunKills >= 3:          earn(treeGun, 1)
-    if player.starfallKills >= 1:     earn(treeGun, 2)
+    if player.aceKills >= 1:     earn(treeGun, 2)
     if player.level >= MaxLevel:      earn(treeGun, 3)
     if player.longshotKills >= 1:     earn(treeGun, 4)
 
@@ -4262,7 +4263,7 @@ proc evalCleanSheetAtConclusion*(sim: var SimServer) =
     if clean:
       sim.claimAchievement(team, treeSquad, 3, isFirst = wasUntaken)
 
-proc dropTithe(sim: var SimServer, playerIndex: int) =
+proc dropSupply(sim: var SimServer, playerIndex: int) =
   ## A veteran's heart spits out kit.
   ##
   ## The tap is fed by NEW xp, never by standing around at rank. Muster's
@@ -4271,40 +4272,40 @@ proc dropTithe(sim: var SimServer, playerIndex: int) =
   ## potential must FLATLINE once the preconditions are met, with real reward
   ## coming only from the action. So a hiding 3-star produces exactly nothing.
   let player = sim.players[playerIndex]
-  if player.level < StarfallLevel:
+  if player.level < AceLevel:
     return
-  if player.tithesThisLife >= TitheMaxPerLife:
+  if player.supplyDropsThisLife >= SupplyDropMaxPerLife:
     return
-  if player.lastTitheTick >= 0 and
-      sim.tickCount - player.lastTitheTick < TitheCooldownTicks:
+  if player.lastSupplyDropTick >= 0 and
+      sim.tickCount - player.lastSupplyDropTick < SupplyDropCooldownTicks:
     return
-  if player.titheCredit < TitheXp:
+  if player.supplyDropCredit < SupplyDropXp:
     return
   let
     home = sim.gameMap.flagHome(player.team)
-    slot = player.tithesThisLife
+    slot = player.supplyDropsThisLife
     # A fixed scatter, not a roll: the sim's RNG draws are load-bearing for
     # replay determinism and a rotation needs none.
     offsetX = (slot mod 2) * 48 - 24
     offsetY = (slot div 2) * 48 - 24
-  # GLORY OBSERVER: the tithe's physical half is causal -- a recorded bot can
-  # walk over spawned kit by accident and gain hp/charges the recording never
-  # had. Credit, cadence and the herald below all still run; only the pickup
-  # itself stays out of the world.
+  # GLORY OBSERVER: the supply drop's physical half is causal -- a recorded
+  # bot can walk over spawned kit by accident and gain hp/charges the
+  # recording never had. Credit, cadence and the herald below all still run;
+  # only the pickup itself stays out of the world.
   if not sim.gloryObserver:
-    sim.tithePickups.add TithePickup(
+    sim.supplyDropPickups.add SupplyDropPickup(
       x: home.x + offsetX,
       y: home.y + offsetY,
-      kind: TitheCycle[slot mod TitheCycle.len],
+      kind: SupplyDropCycle[slot mod SupplyDropCycle.len],
       expiresAt: sim.tickCount + MedKitRespawnTicks
     )
-  sim.players[playerIndex].titheCredit -= TitheXp
-  inc sim.players[playerIndex].tithesThisLife
-  sim.players[playerIndex].lastTitheTick = sim.tickCount
+  sim.players[playerIndex].supplyDropCredit -= SupplyDropXp
+  inc sim.players[playerIndex].supplyDropsThisLife
+  sim.players[playerIndex].lastSupplyDropTick = sim.tickCount
   if sim.gameEventLoggingEnabled:
     sim.logGameEvent(
-      playerColorText(player.color) & " tithes a " &
-      TitheCycle[slot mod TitheCycle.len] & " to the heart"
+      playerColorText(player.color) & " calls in a " &
+      SupplyDropCycle[slot mod SupplyDropCycle.len] & " supply drop at the heart"
     )
 
 proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
@@ -4315,9 +4316,9 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
   let before = sim.players[playerIndex].level
   sim.players[playerIndex].xp = max(0, sim.players[playerIndex].xp + amount)
   sim.players[playerIndex].level = levelForXp(sim.players[playerIndex].xp)
-  if amount > 0 and sim.players[playerIndex].level >= StarfallLevel:
-    sim.players[playerIndex].titheCredit += amount
-    sim.dropTithe(playerIndex)
+  if amount > 0 and sim.players[playerIndex].level >= AceLevel:
+    sim.players[playerIndex].supplyDropCredit += amount
+    sim.dropSupply(playerIndex)
   let after = sim.players[playerIndex].level
   if after > before:
     sim.awardDeed(
@@ -4341,15 +4342,15 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
     )
 
 proc resetLadder*(sim: var SimServer, playerIndex: int) =
-  ## Death forfeits the whole per-life ladder: xp, level, buffs and the tithe
-  ## allowance. This IS the anti-snowball mechanism -- a runaway cog is a
-  ## `dStarfall` bounty and killing it puts it back to a recruit.
+  ## Death forfeits the whole per-life ladder: xp, level, buffs and the
+  ## supply drop allowance. This IS the anti-snowball mechanism -- a runaway
+  ## cog is a `dAceTag` bounty and killing it puts it back to a recruit.
   sim.players[playerIndex].xp = 0
   sim.players[playerIndex].level = 0
   sim.players[playerIndex].stealTickThisLife = -1
-  sim.players[playerIndex].titheCredit = 0
-  sim.players[playerIndex].tithesThisLife = 0
-  sim.players[playerIndex].lastTitheTick = -1
+  sim.players[playerIndex].supplyDropCredit = 0
+  sim.players[playerIndex].supplyDropsThisLife = 0
+  sim.players[playerIndex].lastSupplyDropTick = -1
 
 proc emitPhaseChange(sim: var SimServer, newPhase: GamePhase) {.inline.} =
   ## Appends one PhaseChange analysis event for a phase about to be entered
@@ -5148,7 +5149,7 @@ proc startGame*(sim: var SimServer) =
   # A per-episode economy that leaks across games would make the first game's
   # heat and achievement claims silently price the second one.
   sim.resetGloryLedger()
-  sim.tithePickups = @[]
+  sim.supplyDropPickups = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
@@ -5165,7 +5166,7 @@ proc startGame*(sim: var SimServer) =
                   addr sim.players[i].carrierKills,
                   addr sim.players[i].denials,
                   addr sim.players[i].sprayKillsThisPickup,
-                  addr sim.players[i].starfallKills,
+                  addr sim.players[i].aceKills,
                   addr sim.players[i].sprayMultiKills,
                   addr sim.players[i].grenadeMultiKills,
                   addr sim.players[i].clutchCarryHeals,
@@ -5537,8 +5538,8 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
       else:
         inc sim.players[killerIndex].gunKills
       if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
-      if ctx.victimLevel >= StarfallLevel:
-        inc sim.players[killerIndex].starfallKills
+      if ctx.victimLevel >= AceLevel:
+        inc sim.players[killerIndex].aceKills
       if ctx.victimCarrying:
         inc sim.players[killerIndex].carrierKills
         sim.players[killerIndex].peelTick = sim.tickCount
@@ -5564,7 +5565,7 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int,
   sim.players[targetIndex].lastKilledByTick = sim.tickCount
   sim.logGameEvent(
     playerColorText(sim.players[targetIndex].color) &
-      " killed by " & sim.playerText(killerIndex)
+      " splatted by " & sim.playerText(killerIndex)
   )
   # A kill is action: keep at least ActionClockFloorTicks on the clock.
   sim.floorGameClock()
@@ -6306,8 +6307,9 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
         if sim.players[playerIndex].carryingFlag:
           inc sim.players[playerIndex].clutchCarryHeals
       let healed = ceiling - sim.players[playerIndex].hp
-      # Bank the hit points FIRST, then pay the xp -- the same order the tithe
-      # path already uses, and the reason the ceiling cannot move under us.
+      # Bank the hit points FIRST, then pay the xp -- the same order the
+      # supply drop path already uses, and the reason the ceiling cannot move
+      # under us.
       sim.players[playerIndex].hp = ceiling
       # Healing is levelling WORK, per hit point restored -- plus the pickup
       # itself: both halves of Maxwell's kills-don't-level ruling.
@@ -6454,10 +6456,10 @@ proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   for shot in shots:
     sim.applyFire(shot.shooter, shot.target)
 
-proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
+proc tryPickupSupplyDrops*(sim: var SimServer, playerIndex: int) =
   ## Take a piece of kit a 3-star teammate's heart produced. Only the OWNING
-  ## team can collect: the tithe is a veteran paying their own squad, so an
-  ## enemy standing on your pedestal cannot farm your veteran's work.
+  ## team can collect: the supply drop is a veteran paying their own squad,
+  ## so an enemy standing on your pedestal cannot farm your veteran's work.
   if not sim.players[playerIndex].alive:
     return
   let
@@ -6466,7 +6468,7 @@ proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
     rangeSq = MedKitPickupRange * MedKitPickupRange
     team = sim.players[playerIndex].team
   var taken = -1
-  for i, pickup in sim.tithePickups:
+  for i, pickup in sim.supplyDropPickups:
     if sim.groundOwner(pickup.x, pickup.y) != team:
       continue
     if distSq(px, py, pickup.x, pickup.y) > rangeSq:
@@ -6478,7 +6480,7 @@ proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
       sim.players[playerIndex].hp = sim.playerMaxHp(playerIndex)
       sim.players[playerIndex].tookMedKit = true
       sim.addXp(playerIndex, XpPerPickup + XpPerHeal * restored)
-      # 🚨 A tithed heal MUST emit, exactly like the ground med kit does.
+      # 🚨 A supply-dropped heal MUST emit, exactly like the ground med kit does.
       # Without this the hp trace silently desynchronises: a cog restored by
       # its own heart gains hit points that no consumer of the tier-2 channel
       # can see, so the very next real Heal reports an `hp` that does not
@@ -6497,7 +6499,7 @@ proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
       sim.players[playerIndex].hasGrenade = true
       sim.players[playerIndex].tookGrenade = true
       # No xp here (GLORY C1): same bare-touch rule as the ground pickup --
-      # a tithed kit is still just a touch, not work.
+      # a supply-dropped kit is still just a touch, not work.
       sim.players[playerIndex].grenadeCharges =
         levelGrenadeCharges(sim.buffLevel(playerIndex))  # observer: base charges
     of "spray can":
@@ -6516,16 +6518,16 @@ proc tryPickupTithes*(sim: var SimServer, playerIndex: int) =
     taken = i
     break
   if taken >= 0:
-    sim.tithePickups.delete(taken)
+    sim.supplyDropPickups.delete(taken)
 
-proc expireTithes*(sim: var SimServer) =
+proc expireSupplyDrops*(sim: var SimServer) =
   ## Untaken kit evaporates. Without this a stalemate accumulates pickups at
   ## a pedestal forever, which is a per-tick income by another name.
-  var kept: seq[TithePickup]
-  for pickup in sim.tithePickups:
+  var kept: seq[SupplyDropPickup]
+  for pickup in sim.supplyDropPickups:
     if pickup.expiresAt > sim.tickCount:
       kept.add pickup
-  sim.tithePickups = kept
+  sim.supplyDropPickups = kept
 
 proc stealIsContested(sim: SimServer, playerIndex: int): bool =
   ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer at
@@ -7292,7 +7294,7 @@ proc step*(
   inc sim.tickCount
   # A stalled rampage bleeds back down the ladder (see heatCool).
   sim.heatCool()
-  sim.expireTithes()
+  sim.expireSupplyDrops()
   # Evaluate EVERY team's satisfied tiers before any claim is minted: the
   # naive per-team loop marked `claimedFirst` as it went, so when both teams
   # completed a tier on the same tick the x3 always went to Red purely by
@@ -7365,7 +7367,7 @@ proc step*(
     sim.tryPickupFlags(playerIndex)
     sim.tryPickupGrenades(playerIndex)
     sim.tryPickupMedKits(playerIndex)
-    sim.tryPickupTithes(playerIndex)
+    sim.tryPickupSupplyDrops(playerIndex)
     sim.tryPickupShields(playerIndex)
     sim.tryPickupPlasmaArcs(playerIndex)
   sim.updateFlags()

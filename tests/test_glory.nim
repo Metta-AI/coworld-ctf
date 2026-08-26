@@ -43,7 +43,7 @@ suite "glory: deed pricing":
 
   test "a plain kill is the floor of the kill class":
     for deed in [dSprayKill, dGrenadeKill, dPointBlankKill, dLongshotKill,
-                 dSplashMultiKill, dRevengeKill, dRunDown, dStarfall]:
+                 dSplashMultiKill, dRevengeKill, dRunDown, dAceTag]:
       check deedGlory(deed) >= deedGlory(dHonorableKill)
 
   test "passive deeds carry zero drama":
@@ -86,7 +86,7 @@ suite "glory: one kill, one deed":
     for friendly in [false, true]:
       for carrying in [false, true]:
         for home in [false, true]:
-          for lvl in [0, StarfallLevel]:
+          for lvl in [0, AceLevel]:
             for multi in [false, true]:
               for rng in [10, 400, LongshotPx + 10]:
                 for avenge in [false, true]:
@@ -100,7 +100,7 @@ suite "glory: one kill, one deed":
                     inc seen[deed]
     # And the precedence must be REACHABLE: a branch nobody can hit is the
     # same dead code as an unfired reward layer.
-    for deed in [dTeamKill, dDenial, dCarrierKill, dStarfall, dSplashMultiKill,
+    for deed in [dTeamKill, dDenial, dCarrierKill, dAceTag, dSplashMultiKill,
                  dLongshotKill, dPointBlankKill, dRevengeKill, dRunDown,
                  dHonorableKill]:
       check seen[deed] > 0
@@ -271,7 +271,7 @@ suite "glory: the per-life ladder":
     # shield. A levelled cog must not collide with that reading.
     check levelMaxHp(3, MaxLevel) < 6
 
-suite "glory: the tithe cannot be farmed":
+suite "glory: the supply drop cannot be farmed":
 
   test "a hiding veteran produces nothing":
     # THE bomber-hover law, applied. Muster's bomber potential paid 1-3 per
@@ -281,26 +281,26 @@ suite "glory: the tithe cannot be farmed":
     #
     # Our tap is fed by NEW XP, so simulate the exploit directly: a cog that
     # reaches the plume and then earns nothing for the rest of the episode.
-    proc tithesFor(xpEarnedAfterPlume: int): int =
-      ## Pickups produced by a cog at StarfallLevel that goes on to earn
+    proc supplyDropsFor(xpEarnedAfterPlume: int): int =
+      ## Pickups produced by a cog at AceLevel that goes on to earn
       ## `xpEarnedAfterPlume` more xp.
-      min(xpEarnedAfterPlume div TitheXp, TitheMaxPerLife)
+      min(xpEarnedAfterPlume div SupplyDropXp, SupplyDropMaxPerLife)
 
-    check tithesFor(0) == 0          # hides forever: earns nothing
-    check tithesFor(TitheXp - 1) == 0
-    check tithesFor(TitheXp) == 1    # only landed effect opens the tap
+    check supplyDropsFor(0) == 0          # hides forever: earns nothing
+    check supplyDropsFor(SupplyDropXp - 1) == 0
+    check supplyDropsFor(SupplyDropXp) == 1    # only landed effect opens the tap
 
   test "the tap is bounded per life however hard a cog fights":
-    check min(1_000_000 div TitheXp, TitheMaxPerLife) == TitheMaxPerLife
+    check min(1_000_000 div SupplyDropXp, SupplyDropMaxPerLife) == SupplyDropMaxPerLife
 
   test "the plume is lit at the level that also makes you a bounty":
     # The power fantasy and its counter-play must arm at the SAME threshold,
     # or a visible veteran is either un-huntable or unrewarding to hunt.
-    check StarfallLevel <= MaxLevel
-    check deedGlory(dStarfall) > deedGlory(dHonorableKill)
+    check AceLevel <= MaxLevel
+    check deedGlory(dAceTag) > deedGlory(dHonorableKill)
 
   test "the kit cycle is deterministic and covers every pickup":
     # A roll would consume RNG draws that replay determinism depends on.
-    check TitheCycle.len == 4
+    check SupplyDropCycle.len == 4
     for kit in ["med kit", "grenade", "spray can", "shield"]:
-      check kit in TitheCycle
+      check kit in SupplyDropCycle

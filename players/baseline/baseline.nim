@@ -1442,7 +1442,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # read. Consumed the same way a fresh kill opens killMoodUntil: a newly
     # sighted veteran (edge-triggered, rate-limited) opens its own taunt
     # window so the persona reacts to the ONE thing on the field a game rule
-    # (the starfall tithe/bounty) says should be scary.
+    # (the ace tag/supply drop bounty) says should be scary.
     var veteranNear = false
     for a in seenEnemies:
       if a.level > 0:
