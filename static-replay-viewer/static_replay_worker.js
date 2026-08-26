@@ -139,7 +139,18 @@ function advance(frames) {
   try {
     var count = Math.max(1, Math.min(6, Number(frames) || 1));
     for (var i = 0; i < count; i++) {
-      if (Module._ctf_frame() < 0) throw new Error(runtimeError());
+      var step = Module._ctf_frame();
+      if (step < 0) throw new Error(runtimeError());
+      if (step !== 1) {
+        // Playback has reached the end of the replay. A BR match ends on a
+        // WIPE, which normally fires before the zone has finished closing,
+        // so this is the moment the paint gets to finish itself and the
+        // terminal splat plays (see ZONE_ENDCARD_MS). Told EXPLICITLY
+        // rather than inferred from a stalled clock, because a pause stalls
+        // the clock too and must not trigger a completion.
+        if (core) core.beginZoneEndcard();
+        break;
+      }
       ingestPacket();
     }
     postMessage({

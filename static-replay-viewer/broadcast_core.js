@@ -129,6 +129,25 @@
   // Cosmetic-only and structurally incapable of touching gameHash: it is a
   // readout of the arrival field's own maximum, and nothing here is ever
   // sent back.
+  // ENDCARD COMPLETION (Maxwell's spec, relayed 2026-08-26): "if the wipe
+  // ends the match before the last sliver closes, the viewer plays the
+  // terminal splat over the remaining gap as the endcard flourish."
+  //
+  // A BR match ends on a WIPE, and the wipe usually fires before the zone
+  // has finished closing — measured on the two verification recordings, one
+  // ended with the board 81.5% pink and the other 100% but still 18 ticks
+  // short of the final cell. So without this, the thing the whole
+  // close-to-nothing schedule exists to show is the thing nobody ever sees.
+  // At match end the paint FINISHES ITSELF: the effective clock runs on
+  // past the final tick over a short beat, so the remaining area fills in
+  // along the arrival field's OWN gradient — the same order it would have
+  // filled in real time, just faster — and the splat lands on the last cell.
+  //
+  // Eased, not linear, and deliberately so: a linear sweep of a shrinking
+  // region reads as a progress bar. Cubic ease-in-out starts gently from
+  // the pace the eye was already tracking, carries through the bulk, and
+  // settles onto the final cell instead of stopping dead.
+  const ZONE_ENDCARD_MS = 2400;       // wall-clock beat for the completion
   const ZONE_SPLAT_TICKS = 42;        // how long the flourish lives
   const ZONE_SPLAT_RADIUS_CELLS = 26; // final ring radius, in FINE cells
   const ZONE_SHEEN_AMPLITUDE = 9;
@@ -1062,8 +1081,34 @@
     // `dispTick` is the zone clock object's already-interpolated dispX, so
     // this glides continuously at display cadence instead of stepping once
     // per sim tick (~24/s).
-    function renderZonePaint(targetCtx, dispTick) {
+    // Set once, by whoever knows playback has ended (the static viewer's
+    // worker does: ctf_frame stops returning frames). Left null in the live
+    // client, where the match is not over and the completion must not run.
+    // Deliberately an EXPLICIT signal rather than "the clock stopped
+    // advancing": a PAUSE also stops the clock, and completing the paint
+    // because someone paused would be both wrong and ugly.
+    let zoneEndcardAtMs = null;
+
+    function beginZoneEndcard() {
+      if (zoneEndcardAtMs === null) zoneEndcardAtMs = performance.now();
+    }
+
+    function zoneEffectiveTick(dispTick) {
+      // The clock the paint renders against. Normally the real one; during
+      // the endcard beat it runs on past it to the field's own maximum.
+      if (zoneEndcardAtMs === null || !zoneField) return dispTick;
+      const target = zoneField.finalTick + ZONE_SPLAT_TICKS;
+      if (!(target > dispTick)) return dispTick;
+      const p = Math.min(1, (performance.now() - zoneEndcardAtMs) / ZONE_ENDCARD_MS);
+      const eased = p < 0.5
+        ? 4 * p * p * p
+        : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      return dispTick + (target - dispTick) * eased;
+    }
+
+    function renderZonePaint(targetCtx, dispTick0) {
       if (!zoneField) return;
+      const dispTick = zoneEffectiveTick(dispTick0);
       const nowInt = Math.floor(dispTick);
       const needFull = zoneLastAppliedTick < 0 ||
         nowInt < zoneLastAppliedTick ||
@@ -1846,6 +1891,7 @@
       setViewportSize,
       getPaceStats,
       getZonePaintStats,
+      beginZoneEndcard,
       zoomAt,
       setZoom,
       panBy,
