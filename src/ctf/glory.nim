@@ -1543,3 +1543,53 @@ func deedName*(deed: Deed): string =
   of dWipe: "wipeout"
   of dLevelUp: "rank up"
   of dAchievement: "achievement"
+
+func deedPopWord*(deed: Deed): string =
+  ## 🎖 (VOCABULARY wave, V4, Maxwell's ruling: "instead of splat appearing on
+  ## the dead body... we should have a one word name for each thing that
+  ## causes glory") ONE word (or one punchy compound) that rides beside a
+  ## deed's floating "+Ng" score pop, in the crowd's own kids'-paintball
+  ## register. Deliberately its OWN table, not derived from `deedName`:
+  ## `deedName` is prose ("point blank tag") built for a log LINE, this is a
+  ## one-line HUD tag built to be read in a third of a second at speed --
+  ## different jobs, different lengths, so they diverge for `dPointBlankKill`,
+  ## `dDenial`, `dAceTag` and others below. NOT a stable wire contract, same
+  ## rule as `deedName`: free to reword.
+  ##
+  ## Empty string for anything that can't be honestly one-worded OR never
+  ## reaches the pop in the first place -- `dNone` (never minted),
+  ## `dShieldSoak` and `dAchievement` (both excluded by `popsScore`; a claim
+  ## pops through the LABELLED achievement path instead, carrying its own
+  ## name). The renderer falls back to a bare "+N" for an empty word, so a
+  ## future deed added here with no entry degrades safely instead of drawing
+  ## garbage.
+  case deed
+  of dNone: ""
+  of dFirstBlood: "FIRST!"
+  of dHonorableKill: "TAG"
+  of dSprayKill: "SPRAYED"
+  of dGrenadeKill: "BOMBED"
+  of dPointBlankKill: "POINT-BLANK"
+  of dLongshotKill: "LONGSHOT"
+  of dSplashMultiKill: "MULTI!"
+  of dRevengeKill: "PAYBACK"
+  of dRunDown: "CHASE"
+  of dAceTag: "BOUNTY"       ## not "ACE" -- `Bounty` is already this exact
+                             ## threshold's achievement name (gun tree, tier
+                             ## III), so the pop and the tier it feeds read
+                             ## as the same idea.
+  of dTeamKill: "OWN PAINT"  ## matches the herald, which already says this.
+  of dFlagSteal: "STEAL"
+  of dCapture: "CAPTURE"
+  of dCarrierKill: "PEEL"    ## `deedName`'s own "the peel" -- the deed's
+                             ## established nickname everywhere else in this
+                             ## codebase, so the pop and the doc comments
+                             ## agree.
+  of dDenial: "DENIED!"
+  of dEscortKill: "ESCORT"
+  of dClutchHeal: "SAVE"
+  of dShieldSoak: ""         ## excluded from `popsScore`; never drawn.
+  of dWipe: "WIPEOUT"
+  of dLevelUp: "RANK UP"
+  of dAchievement: ""        ## excluded from `popsScore`; claims carry their
+                             ## own name through the labelled pop path.
