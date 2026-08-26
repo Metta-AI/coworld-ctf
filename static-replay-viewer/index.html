@@ -2007,7 +2007,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var replayAdapter = window.CtfStaticReplay || null;
   var coreConfig = {
     canvas: canvas,
-    onText: function (txt) { onFrame(txt); },
+    onText: function (txt, hasZoneField) { onFrame(txt, hasZoneField); },
     onStatus: function (st) { onStatus(st); },
     onFirstFrame: function () { core.setViewportFit(); syncViewUi(); },
     // The core owns the view, so it tells the controls where it ended up —
@@ -2018,6 +2018,55 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var core = replayAdapter
     ? replayAdapter.createCore(coreConfig)
     : window.BroadcastCore.create(coreConfig);
+
+  // ---- endcard sequencing: the winning moment before the graphics --------
+  // RULED DESIGN: the scoreboard HOLDS for the zone paint-completion beat —
+  // board finishes turning pink, the terminal splat plays, THEN the
+  // scoreboard drops. Both are armed from the exact same moment (the first
+  // frame the phase goes 'gameover'), so this never depends on the sim's
+  // frame-exhaustion timing (which lands much later, after the whole
+  // replay-hold countdown — see beginZoneEndcard's callers).
+  var zoneEndcardArmed = false;
+  var zoneEndcardShown = false;
+  var zoneEndcardTimer = null;
+
+  function resetZoneEndcard() {
+    zoneEndcardArmed = false;
+    zoneEndcardShown = false;
+    if (zoneEndcardTimer) { clearTimeout(zoneEndcardTimer); zoneEndcardTimer = null; }
+  }
+
+  // The beat length lives in broadcast_core.js (ZONE_ENDCARD_MS) so this page
+  // never hardcodes a second copy of it. The live client loads that module
+  // directly (window.BroadcastCore); the static bundle only loads it inside
+  // its Worker, which hands the number over once via the core adapter.
+  function zoneEndcardBeatMs() {
+    if (core.getZoneEndcardMs) return core.getZoneEndcardMs() || 0;
+    return (window.BroadcastCore && window.BroadcastCore.ZONE_ENDCARD_MS) || 0;
+  }
+
+  // Called once per gameover (guarded by zoneEndcardArmed): starts the paint
+  // completion immediately, and — ONLY if there is actually a zone endcard to
+  // play — holds the scoreboard reveal for the beat. A plain (non-BR) match
+  // has no zone field at all, so it reveals on this very frame, same as
+  // before this feature existed.
+  function armZoneEndcard(hasZoneField) {
+    if (zoneEndcardArmed) return;
+    zoneEndcardArmed = true;
+    core.beginZoneEndcard();
+    var active = (typeof hasZoneField === 'boolean') ? hasZoneField :
+      (core.getZonePaintStats ? core.getZonePaintStats().hasField : false);
+    var beatMs = active ? zoneEndcardBeatMs() : 0;
+    if (beatMs > 0) {
+      zoneEndcardTimer = setTimeout(function () {
+        zoneEndcardTimer = null;
+        zoneEndcardShown = true;
+        if (lastState) renderEndcard(lastState);
+      }, beatMs);
+    } else {
+      zoneEndcardShown = true;
+    }
+  }
 
   // Tell the League Replayer shell the board is alive and showing its
   // locker-room curtain, so the shell can drop its own "loading replay…"
@@ -2054,7 +2103,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // (beat markers, lull spans, beats timeline and momentum state live in the
   // shared chrome closure — see chrome_common.js)
 
-  function onFrame(txt) {
+  function onFrame(txt, hasZoneField) {
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
@@ -2105,8 +2154,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ingestCapHearts(s);
     recordMomentum(s);
 
-    if (s.ph === 'gameover') { renderEndcard(s); if (s.over) setVerdict(s.over); }
-    else { $('endcard').classList.remove('on'); }
+    if (s.ph === 'gameover') {
+      armZoneEndcard(hasZoneField);
+      if (zoneEndcardShown) renderEndcard(s);
+      if (s.over) setVerdict(s.over);
+    } else {
+      $('endcard').classList.remove('on');
+      resetZoneEndcard();
+    }
 
     lastTick = s.t;
   }

@@ -36,6 +36,11 @@
     var accumulator = 0;
     var frameMs = 1000 / 24;
     var workerDraws = 0;
+    // Learned once from the Worker's 'loaded' message (see
+    // static_replay_worker.js) — the Worker is the one that actually loads
+    // broadcast_core.js, so it hands over the module's own beat-length
+    // constant instead of this file hardcoding a second copy of the number.
+    var zoneEndcardMs = 0;
     // Same shape the in-process core reports, so the page's view controls read
     // one object either way. These are the pre-stream values: fitted, whole
     // board, nothing to pan — which is exactly the state the board opens in.
@@ -127,7 +132,10 @@
       var message = event.data || {};
       try {
         if (message.type === 'text') {
-          if (config.onText) config.onText(message.text);
+          // hasZoneField rides along so the page can decide, synchronously
+          // inside its onText handler, whether the completion beat has
+          // anything to play — the SAME state frame ph:'gameover' arrives on.
+          if (config.onText) config.onText(message.text, message.hasZoneField);
         } else if (message.type === 'status') {
           if (config.onStatus) config.onStatus(message.status);
         } else if (message.type === 'firstFrame') {
@@ -140,6 +148,9 @@
           if (config.onTransform) config.onTransform(transform);
         } else if (message.type === 'loaded') {
           setMismatchTick(message.mismatchTick);
+          if (typeof message.zoneEndcardMs === 'number') {
+            zoneEndcardMs = message.zoneEndcardMs;
+          }
           loaded = true;
           document.documentElement.setAttribute('data-replay-loaded', 'true');
           requestAnimationFrame(animate);
@@ -247,6 +258,13 @@
       resetView: function () {
         if (worker) worker.postMessage({ type: 'view', action: 'reset' });
       },
+      // Mirrors the in-process core's beginZoneEndcard: the page calls this
+      // the instant it sees ph:'gameover', and the Worker (which owns the
+      // actual core) arms the paint-completion + terminal-splat beat.
+      beginZoneEndcard: function () {
+        if (worker) worker.postMessage({ type: 'endcard' });
+      },
+      getZoneEndcardMs: function () { return zoneEndcardMs; },
       // The board pixels the minimap shrinks live in the Worker, so the Worker
       // has to draw it: hand over control of the page's minimap canvas exactly
       // once and let the core keep it in sync from there.

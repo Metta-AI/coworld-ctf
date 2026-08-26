@@ -1903,5 +1903,11 @@
     };
   }
 
-  window.BroadcastCore = { create: BroadcastCore };
+  // ZONE_ENDCARD_MS is the beat length the endcard sequencing has to agree
+  // with (see client/replay_broadcast.html and replay-viewer/static_replay.js):
+  // the scoreboard reveal is delayed by exactly this much so the completion
+  // paint + terminal splat finish BEFORE the scoreboard drops, rather than
+  // duplicating the number on the page and drifting the day one of them
+  // changes.
+  window.BroadcastCore = { create: BroadcastCore, ZONE_ENDCARD_MS: ZONE_ENDCARD_MS };
 })();
