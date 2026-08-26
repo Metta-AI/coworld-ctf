@@ -79,6 +79,20 @@ game server, the way the real site will be):
   Replayer shell, which redraws the scorebug itself; it hides `#scorebug`, and
   the live view's glory/HEAT readout lives inside it.
 
+## Seeing a deed toast yourself
+
+`tools/glory_toast_probe.js` — paste into devtools on `/client/play` during a
+live round and `await probeGloryToast()`. It returns a PNG data URL of a real
+frame containing a deed toast, read straight off the `#board` canvas.
+
+It exists because a glory pop lives ~1.7s and is fov-gated, so it routinely
+expires inside a screenshot round trip — which is what made this the last thing
+in the lane to be *shown* rather than asserted. Needs the seat ALIVE (pops are
+gated on your own fov, so a run while dead or in the lobby finds nothing, and
+that is correct rather than a failure). `.harness/screenshots/live-deed-toast.png`
+is a captured example: "RANK UP +12" and "RANK UP +36" stacked over the SPLAT
+marker, on the live player view.
+
 ## Practice config
 
 `practice.json` differs from `config.json` only to make an iteration cheap:
