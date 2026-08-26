@@ -172,8 +172,39 @@
     b: !!(mask & BUTTON.b), c: !!(mask & BUTTON.c),
   });
 
+  // ---- KEYMAP: the single source of truth for any on-screen controls panel ----
+  // The app/product lane's re-vendor tripwire reads THIS, so a binding can
+  // never drift from what the panel advertises. `bits` names the engine
+  // buttons a binding can set; `wire` is "mask" (the per-tick button byte) or
+  // "chat" (the shout string). `status` marks anything not live yet.
+  const KEYMAP = [
+    { id: "move",   label: "Move",          keys: ["W", "A", "S", "D"], alt: ["Arrow keys"],
+      wire: "mask", bits: ["up", "left", "down", "right"], status: "live",
+      note: "accelerates; a one-tick tap is sub-pixel by design" },
+    { id: "aim",    label: "Aim",           keys: ["Mouse"], alt: [],
+      wire: "mask", bits: ["b", "select"], status: "live",
+      note: "cursor angle drives one rotate button per tick, shortest arc" },
+    { id: "fire",   label: "Fire",          keys: ["Left click"], alt: [],
+      wire: "mask", bits: ["attack"], status: "live",
+      note: "press fires; the shot leaves after a short windup, aim locked at the pull" },
+    { id: "item",   label: "Use item",      keys: ["Space"], alt: [],
+      wire: "mask", bits: ["c"], status: "live",
+      note: "hold to charge a grenade, release to throw" },
+    { id: "ping",   label: "Callout",       keys: ["1", "2", "3", "4", "5", "6"], alt: [],
+      wire: "chat", bits: [], status: "live",
+      note: "team callout at the cursor; one per second" },
+    { id: "chat",   label: "Chat",          keys: ["Enter"], alt: [],
+      wire: "chat", bits: [], status: "live", note: "" },
+    { id: "wheel",  label: "Ping wheel",    keys: ["Right click"], alt: [],
+      wire: "chat", bits: [], status: "reserved",
+      note: "hook is in place; the wheel UI ships separately" },
+    { id: "shift",  label: "(unbound)",     keys: ["Shift"], alt: [],
+      wire: null, bits: [], status: "unbound",
+      note: "no speed modifier exists in the engine, so Shift binds to nothing" },
+  ];
+
   return {
-    BUTTON, AIM_BRADS_TURN, AIM_TURN_RATE, TICK_HZ, AIM_DEADZONE,
+    BUTTON, KEYMAP, AIM_BRADS_TURN, AIM_TURN_RATE, TICK_HZ, AIM_DEADZONE,
     SHOUT_MAX_CHARS, SHOUT_COOLDOWN_TICKS,
     wrapBrads, shortestDelta, bradsOfVector, rotateButton, stepAim,
     spawnAimBrads, moveMask, fireBit, itemBit, pingText, chessCell,
