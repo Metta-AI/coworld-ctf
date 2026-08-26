@@ -395,11 +395,28 @@ const
                                ## double GloryPopBigLiftPx's own step, the
                                ## ladder's last rung.
   ## --- POP MOTION WAVE (P1 track / P2 scatter+angle / P3 stagger) ---
-  GloryPopTrackedAirPx = 4     ## P1: a few px of clear air above the tallest
+  GloryPopTrackedAirPx = 1     ## P1: a hair of clear air above the tallest
                                ## thing in a TRACKED pop's own overhead stack
-                               ## (see gloryPopTrackedOverheadLiftPx) -- so it
-                               ## floats clear of the name band/veteran mark
-                               ## rather than just touching it.
+                               ## (see gloryPopTrackedOverheadLiftPx) -- just
+                               ## enough that it doesn't touch the name
+                               ## band/veteran mark, not a floating gap.
+                               ## Maxwell (live review): was 4, and stacked
+                               ## on top of a full-stack clearance PLUS the
+                               ## full rise (GloryPopTrackedRisePx) it read as
+                               ## "orbiting" the unit instead of riding it --
+                               ## tightened here; the rise distance below is
+                               ## the other half of that fix.
+  GloryPopTrackedRisePx = 8    ## P1: how far a TRACKED pop drifts upward over
+                               ## its full life -- MUCH less than the untracked
+                               ## GloryPopRisePx (20). Maxwell: "a gentle
+                               ## drift, not a departure -- the pop should
+                               ## still be visually OWNED by the unit at 70%
+                               ## of its life." A tracked pop already starts
+                               ## right at the top of the earner's own
+                               ## overhead stack (gloryPopTrackedOverheadLiftPx);
+                               ## climbing another full 20px on top of that
+                               ## reads as leaving the unit behind, not
+                               ## floating just above it.
   GloryPopScatterMinPx = 10    ## P2: least a pop's anchor scatters sideways
   GloryPopScatterMaxPx = 16    ## off its site (Maxwell: "scatter a bit in a
                                ## playful way") -- floored above 0 so a burst
@@ -5947,8 +5964,17 @@ proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
   ## lands on, and anything stacked above it inherits ITS floor rather than
   ## the old flat one. Rows at one site are distinct by construction
   ## (addGloryPop assigns max+1 against the pops already in the seq).
+  ##
+  ## POP MOTION WAVE fix (Maxwell, live review): a pop still in its
+  ## `startDelay` window hasn't LANDED yet -- addGloryPops itself never
+  ## draws it (the P3 stagger gate) -- so it must not still push the
+  ## CURRENTLY VISIBLE pop's altitude up as if it were already stacked on
+  ## top of it. Skip anything not yet started, exactly like the draw-time
+  ## candidates gate does.
   var rowsAtSite: seq[GloryFx] = @[]
   for other in sim.gloryPops:
+    if sim.tickCount < other.tick + other.startDelay:
+      continue
     if other.row <= pop.row and
         abs(other.x - pop.x) <= GloryPopCoalescePx and
         abs(other.y - pop.y) <= GloryPopCoalescePx:
@@ -6137,7 +6163,13 @@ proc addGloryPops(
       seed = gloryPopScatterSeed(pop, text)
       sprite = sim.buildGloryPopSprite(pop, stage, seed)
       riseUnit = gloryPopRiseVarianceUnit(seed)
-      rise = int(GloryPopRisePx.float32 * riseUnit * age.float32 /
+      # POP MOTION WAVE fix (Maxwell, live review): a TRACKED pop already
+      # starts at the top of its earner's own overhead stack -- climbing the
+      # FULL untracked GloryPopRisePx on top of that read as departing the
+      # unit, not drifting above it. A site-anchored pop (no earner, no
+      # overhead stack to clear in the first place) keeps the taller rise.
+      riseSpan = if pop.earnerIndex >= 0: GloryPopTrackedRisePx else: GloryPopRisePx
+      rise = int(riseSpan.float32 * riseUnit * age.float32 /
         float32(max(1, life)))
       scatterX = gloryPopScatterOffsetPx(seed)
       px = pop.x + scatterX - sprite.width div 2
