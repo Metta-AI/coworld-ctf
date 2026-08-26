@@ -22,6 +22,39 @@ test("button bits match the engine's ButtonUp..ButtonC", () => {
   });
 });
 
+console.log("\nrespawn: the aim must re-seed on every fresh spawn");
+test("a first spawn seeds the aim to the team's spawn bearing", () => {
+  assert.strictEqual(C.reseedAim(200, true, false, "red"), 0);
+  assert.strictEqual(C.reseedAim(200, true, false, "blue"), 128);
+});
+test("staying seated does NOT re-seed (that would fight the chase every tick)", () => {
+  assert.strictEqual(C.reseedAim(200, true, true, "red"), 200);
+});
+test("going unseated leaves the estimate alone", () => {
+  assert.strictEqual(C.reseedAim(200, false, true, "red"), 200);
+  assert.strictEqual(C.reseedAim(200, false, false, "red"), 200);
+});
+test("REGRESSION: a death then respawn re-seeds, it does not carry the old aim", () => {
+  // The engine snaps aimBrads to spawnAimBrads on EVERY respawn. A client that
+  // seeded only once would keep 200 here and sit 200 brads off the cursor for
+  // the whole next life, while every packet it sent still looked perfect.
+  let aim = 200, wasSeated = true;                 // alive, turned well away from spawn
+  aim = C.reseedAim(aim, false, wasSeated, "red"); wasSeated = false;   // died
+  assert.strictEqual(aim, 200, "no re-seed while dead");
+  aim = C.reseedAim(aim, true, wasSeated, "red"); wasSeated = true;     // respawned
+  assert.strictEqual(aim, 0, "respawn must adopt the engine's spawn aim");
+});
+test("re-seeding is idempotent across many lives", () => {
+  let aim = 0, wasSeated = false;
+  for (let life = 0; life < 5; life++) {
+    aim = C.reseedAim(aim, true, wasSeated, "blue"); wasSeated = true;
+    assert.strictEqual(aim, 128);
+    aim = C.stepAim(aim, "b"); aim = C.stepAim(aim, "b");   // player turns away
+    assert.notStrictEqual(aim, 128);
+    aim = C.reseedAim(aim, false, wasSeated, "blue"); wasSeated = false;  // dies
+  }
+});
+
 console.log("\nmovement: WASD chords -> d-pad bits");
 test("single keys map to single bits", () => {
   assert.strictEqual(C.moveMask({ up: true }), 1);

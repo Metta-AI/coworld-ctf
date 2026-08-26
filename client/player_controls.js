@@ -92,6 +92,24 @@
   // Spawn/respawn aim faces the enemy side. sim.nim:3463-3469.
   const spawnAimBrads = (team) => (team === "blue" ? AIM_BRADS_TURN / 2 : 0);
 
+  // Re-seed the dead-reckoned aim on every FRESH SPAWN, not just the first.
+  //
+  // The engine resets aimBrads to spawnAimBrads(team) on EVERY respawn
+  // (sim.nim respawnPlayers, and again in resetPlayerToHome), so a client that
+  // seeded once and kept integrating would carry a silent offset equal to
+  // however far the player had turned before dying -- the gun would sit off
+  // the cursor by that much for the rest of the life. Nothing on the wire
+  // looks wrong when this happens, which is why it needs its own guard.
+  //
+  // `seated` means our own self marker is on the board. The engine draws it
+  // whenever we are alive and never when we are not (global.nim: "yourself is
+  // always visible"), so a false->true edge IS a spawn, and fog can never
+  // fake one.
+  function reseedAim(estAim, seatedNow, wasSeated, team) {
+    if (seatedNow && !wasSeated && team) return spawnAimBrads(team);
+    return estAim;
+  }
+
   // ---- movement ----
   // WASD chords -> d-pad bits. Opposing keys are BOTH sent: the engine sums
   // them to inputX/inputY = 0, which is a real (and different) state from
@@ -207,7 +225,7 @@
     BUTTON, KEYMAP, AIM_BRADS_TURN, AIM_TURN_RATE, TICK_HZ, AIM_DEADZONE,
     SHOUT_MAX_CHARS, SHOUT_COOLDOWN_TICKS,
     wrapBrads, shortestDelta, bradsOfVector, rotateButton, stepAim,
-    spawnAimBrads, moveMask, fireBit, itemBit, pingText, chessCell,
+    spawnAimBrads, reseedAim, moveMask, fireBit, itemBit, pingText, chessCell,
     buildMask, maskToButtons,
   };
 });

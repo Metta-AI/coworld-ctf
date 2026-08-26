@@ -241,6 +241,37 @@ suite "human-seat input -> engine action":
     sim.holdMask(MItem, GrenadeChargeTicks + 20)
     check sim.players[0].throwCharge == GrenadeChargeTicks
 
+  test "the engine RE-SEEDS the aim on every respawn, not just the first spawn":
+    # The client dead-reckons its aim, so it has to know when the engine yanks
+    # that value out from under it. If this ever stops being true, the client's
+    # reseed-on-spawn becomes wrong and every packet it sends will still look
+    # perfectly healthy while the gun sits off the cursor.
+    var sim = seatedGame()
+    sim.players[0].team = Red
+    sim.players[0].aimBrads = 200            # turned well away from spawn
+    check sim.players[0].aimBrads != spawnAimBrads(Red)
+
+    # Kill it and run out the respawn timer.
+    sim.players[0].alive = false
+    sim.players[0].hp = 0
+    sim.players[0].respawnTimer = 2
+    for _ in 0 .. 4:
+      sim.stepMask(0, 0)
+
+    check sim.players[0].alive
+    check sim.players[0].aimBrads == spawnAimBrads(Red)
+
+  test "a dead seat ignores input entirely, so suppressing it client-side is right":
+    # applyInput returns early when not alive. The client emits no rotate bits
+    # while unseated for exactly this reason -- they would be dropped anyway.
+    var sim = seatedGame()
+    sim.players[0].alive = false
+    sim.players[0].aimBrads = 100
+    sim.players[0].velX = 0
+    sim.holdMask(MB or MRight, 10)
+    check sim.players[0].aimBrads == 100     # no turn
+    check sim.players[0].velX == 0           # no movement
+
   test "NO SPRINT EXISTS: no mask can exceed maxSpeed on either axis":
     # The executable form of the ruling. All eight bits are spoken for and none
     # of them is a speed modifier, so Shift has nothing legitimate to bind to.

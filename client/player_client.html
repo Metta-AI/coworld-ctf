@@ -212,7 +212,7 @@ function drawPixels(bytes){
 const CC=CtfControls;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
-let committedRotate=null,emittedAttack=false,tickMask=0;
+let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false;
 let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
 
 /* The ping wheel is a SEPARATE lane. We own only the seam: swallow the
@@ -273,7 +273,12 @@ function controlsTick(){
   tickCount++;
   if(aimSeeded)estAim=CC.stepAim(estAim,committedRotate);
   selfPos=findSelf();
-  if(!aimSeeded&&selfTeam){estAim=CC.spawnAimBrads(selfTeam);aimSeeded=true}
+  /* Every fresh spawn re-seeds: the engine snaps aimBrads back to
+     spawnAimBrads on EVERY respawn, so carrying the old estimate across a
+     death would leave the gun permanently off the cursor. */
+  const seatedNow=!!selfPos;
+  if(seatedNow&&!wasSeated&&selfTeam){estAim=CC.reseedAim(estAim,true,false,selfTeam);aimSeeded=true}
+  wasSeated=seatedNow;
   let rot=null;
   if(aimSeeded&&selfPos&&haveMouse&&!z){
     rot=CC.rotateButton(estAim,
