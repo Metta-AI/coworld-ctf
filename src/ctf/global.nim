@@ -4445,6 +4445,15 @@ proc addSupplyDropPickups(
     )
 
 const
+  VeteranMarkClearancePx = 24  ## px the ace stars / L1-2 pip rise above the
+                               ## overhead anchor. Was a flat 10, which landed
+                               ## the mark INSIDE the name-label band (the
+                               ## label stacks anchor-4-HpBarH-labelH-1, so
+                               ## anything under ~20px of clearance is drawn
+                               ## into, and overdrawn by, the name/HP stack --
+                               ## the /proof closing look could not find a
+                               ## single mark on screen). 24 clears hp bar +
+                               ## a full-height name label + air.
   VeteranPipSize = 9           ## logical px: a small flat paint pip -- still
                                ## well under the footprint of a single L3
                                ## star glyph, so an L1/L2 mark reads as a
@@ -4577,7 +4586,8 @@ proc addVeteranMarks(
       packet.addBoardObject(
         objectId,
         player.x + CollisionW div 2 - mark.width div 2,
-        player.overheadAnchorY() - OverheadYOffset - mark.height - 10,
+        player.overheadAnchorY() - OverheadYOffset - mark.height -
+          VeteranMarkClearancePx,
         30007, MapLayerId, spriteId
       )
     else:
@@ -4590,7 +4600,8 @@ proc addVeteranMarks(
       packet.addBoardObject(
         objectId,
         player.x + CollisionW div 2 - VeteranPipSize div 2,
-        player.overheadAnchorY() - OverheadYOffset - VeteranPipSize - 10,
+        player.overheadAnchorY() - OverheadYOffset - VeteranPipSize -
+          VeteranMarkClearancePx,
         30007, MapLayerId, spriteId
       )
 
