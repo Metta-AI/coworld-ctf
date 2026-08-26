@@ -918,6 +918,31 @@ proc maxTurningAngleDeg(tipSeq: seq[int]): float =
     prevDy = dy
     havePrev = true
 
+proc maxAmplitudeDeviationPx(tipSeq: seq[int], windowSamples: int): float =
+  ## Check #8 (Maxwell's ruling, 2026-08-25, close-zoom review of the
+  ## fresh recording: "it gets way too stretched out at points, there
+  ## should be a limit to the amplitude at the meniscus"): for every VALID
+  ## sample in the tip polyline, compares it against the mean of a LOCAL
+  ## window (+/- windowSamples along the edge, gaps skipped) and returns
+  ## the worst |tip - localMean| seen — a smoothed local reference instead
+  ## of one global mean, so a genuine gentle drift over hundreds of px
+  ## (the front is not required to sit still) is never confused with a
+  ## sharp local stretch (a tongue racing far past its own neighbourhood).
+  result = 0.0
+  let n = tipSeq.len
+  for i in 0 ..< n:
+    if tipSeq[i] == -1: continue
+    var
+      sum = 0.0
+      count = 0
+    for j in max(0, i - windowSamples) .. min(n - 1, i + windowSamples):
+      if tipSeq[j] == -1: continue
+      sum += float(tipSeq[j])
+      inc count
+    if count < 3: continue  # not enough local context to mean anything
+    let localMean = sum / float(count)
+    result = max(result, abs(float(tipSeq[i]) - localMean))
+
 suite "shrink zone paint arrival: fingering and front-propagation causality":
   ## The remaining four of Fable's six machine checks, all against the real
   ## BrShowmatchPhases schedule: no straight runs (the frontier must read
@@ -1059,6 +1084,78 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       edgesSampled, " worst=", worst, " deg"
     check edgesSampled > 0
     check worst <= MaxTurningAngleDeg
+
+  test "check #8: the meniscus amplitude stays bounded — no streamers":
+    ## Maxwell's ruling (2026-08-25, close-zoom review of the fresh
+    ## recording): "it gets way too stretched out at points, there should
+    ## be a limit to the amplitude at the meniscus" — open-field tongues
+    ## were stretching into long pointed streamers because the seed-nudge
+    ## amplitude (zoneBoundaryFingerDelayAt) was riding the SAME large
+    ## budget raised for legitimately deep room/aperture lag. Split into
+    ## ZoneFingerAmpTicks (small, open-field only) vs ZoneFlowDelayCapTicks
+    ## (room/aperture lag, untouched) — this check is the machine-checkable
+    ## version of "bounded," using the SAME tip-walker as checks #7: each
+    ## sample's deviation from its own local-window mean must stay inside
+    ## a generous multiple of what ZoneFingerAmpTicks can move the front by
+    ## at the schedule's own base speed, with real slack for legitimate
+    ## corner/aperture variation this bound is not meant to police (checks
+    ## #7 and the room-lag/door-first suite already own those).
+    const
+      WindowSamples = 50  ## +/- 50 * ZoneFieldCellPx(4) = +/- 200px, per
+                          ## the coordinator's own window size.
+      MaxAmplitudePx = 260.0  ## generous slack above the ~60-150px a
+                          ## bounded meniscus should show at this
+                          ## schedule's base speed — still far below what
+                          ## an unbounded-amplitude streamer produces
+                          ## (measured in the hundreds-to-thousands of px
+                          ## before this fix).
+    var worstSmall = 0.0
+    block smallMap:
+      var sim = zoneGame(BrShowmatchPhases)
+      discard ensureZoneArrivalField(sim)
+      let (gw, gh) = zoneArrivalFieldGridDims()
+      let
+        gwPx = gw * ZoneFieldCellPx
+        ghPx = gh * ZoneFieldCellPx
+      for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
+        let t = int(float(BrShowmatchTotalTicks) * frac)
+        let rect = sim.zoneRectAndDps(t).cur
+        for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
+          let tipSeq = frontierTipSeq(sim, 0, edgeX, stepSign, gwPx,
+            max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
+            alongX = false)
+          worstSmall = max(worstSmall, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
+        for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
+          let tipSeq = frontierTipSeq(sim, 0, edgeY, stepSign, ghPx,
+            max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
+            alongX = true)
+          worstSmall = max(worstSmall, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
+    echo "amplitude check (small map): worst=", worstSmall, " px"
+    var worstReal = 0.0
+    var realEdgesSampled = 0
+    block realMapRightEdge:
+      var sim = zoneGameOnRealMap(BrShowmatchPhases)
+      discard ensureZoneArrivalField(sim)
+      let (gw, gh) = zoneArrivalFieldGridDims()
+      let
+        gwPx = gw * ZoneFieldCellPx
+        ghPx = gh * ZoneFieldCellPx
+      for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
+        let t = int(float(BrShowmatchTotalTicks) * frac)
+        let rect = sim.zoneRectAndDps(t).cur
+        let edgeX = rect.x + rect.w - 1
+        let tipSeq = frontierTipSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
+          alongX = false)
+        var validCount = 0
+        for v in tipSeq:
+          if v != -1: inc validCount
+        if validCount >= 3:
+          inc realEdgesSampled
+          worstReal = max(worstReal, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
+    echo "amplitude check (real map, right edge): edgesSampled=",
+      realEdgesSampled, " worst=", worstReal, " px"
+    check worstSmall <= MaxAmplitudePx
+    check worstReal <= MaxAmplitudePx
 
   test "a room never fills faster than the open floor just outside its own doorway":
     var sim = zoneGameOnRealMap(BrShowmatchPhases)

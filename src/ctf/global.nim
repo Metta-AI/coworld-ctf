@@ -6516,7 +6516,34 @@ const
                              ## field's own worst-case combined floor
                              ## (aperture x wallDrag x finger), measured
                              ## directly against the honesty test rather
-                             ## than guessed.
+                             ## than guessed. This bound is now for
+                             ## PROPAGATION-accumulated lag only (a genuine
+                             ## room/aperture chain — see ZoneFingerAmpTicks
+                             ## below for the split) and the unreached-cell
+                             ## fallback in computeZoneFrontierField.
+  ZoneFingerAmpTicks* = 70   ## Maxwell's ruling (2026-08-25, close-zoom
+                             ## review of the fresh recording): "it gets way
+                             ## too stretched out at points, there should be
+                             ## a limit to the amplitude at the meniscus" —
+                             ## open-field tongues were stretching into long
+                             ## pointed streamers because
+                             ## zoneBoundaryFingerDelayAt's seed-nudge
+                             ## amplitude was riding the SAME large
+                             ## ZoneFlowDelayCapTicks budget raised for
+                             ## legitimately deep room/aperture lag, which
+                             ## is a completely different physical
+                             ## quantity. Split: this small cap bounds ONLY
+                             ## the open-field meniscus ripple (a real
+                             ## front's own advance-rate variation along
+                             ## its length — see zoneBoundaryFingerDelayAt's
+                             ## own doc), so a tongue/cove reads as roughly
+                             ## 60-150px at typical shrink speed, a bounded
+                             ## undulation, never a streamer. Room/aperture
+                             ## lag (the OTHER, physically justified source
+                             ## of lateness — a real door genuinely takes
+                             ## hundreds of ticks to fill behind) keeps the
+                             ## full ZoneFlowDelayCapTicks headroom,
+                             ## untouched by this split.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
                              ## arena.nim's MinCorridorWidth (the narrowest
                              ## built corridor): local flow speed throttles
@@ -7410,9 +7437,12 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
   ## here instead of a speed multiplier there — same lattice, two readouts,
   ## because a source's OWN activation time and a traveller's speed through
   ## already-open ground are two different physical quantities even for the
-  ## same underlying viscous texture. Bounded to [0, ZoneFlowDelayCapTicks],
-  ## the same honesty cap the spec's flow-delay term always had: paint may
-  ## be late here, by up to that much, never early.
+  ## same underlying viscous texture. Bounded to [0, ZoneFingerAmpTicks] —
+  ## a SMALL cap, not the room/aperture ZoneFlowDelayCapTicks (Maxwell's
+  ## ruling, 2026-08-25: streamers, not a meniscus, is what an open-field
+  ## nudge riding the room-lag-sized budget looks like — see
+  ## ZoneFingerAmpTicks's own doc for the split). Late-only either way:
+  ## paint may be late here, by up to that much, never early.
   let
     # `across` — the coordinate TANGENTIAL to the local edge — is the ONLY
     # spatial input the octaves below read. A flat rect edge crosses its
@@ -7445,10 +7475,11 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
     n1 = zoneMeniscusOctave(across, 0.0, 160.0, ZoneFieldSeed xor 0x9F)
     n2 = zoneMeniscusOctave(across, 0.0, 260.0, ZoneFieldSeed xor 0xB3)
     combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
-  # Full [0, cap] amplitude — late-only (honesty untouched, the cap already
-  # bounds it), but no headroom held back: a shy amplitude is exactly what
+  # Full [0, ZoneFingerAmpTicks] amplitude — late-only (honesty untouched,
+  # ZoneFlowDelayCapTicks below still bounds the total), but no headroom
+  # held back within THIS smaller budget: a shy amplitude is exactly what
   # left runs long in the earlier passes.
-  clamp(combined * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFlowDelayCapTicks)
+  clamp(combined * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFingerAmpTicks)
 
 proc computeZoneFrontierField(
   sim: SimServer, totalTicks: int, finalRect: MapRect, baseSpeed: float
