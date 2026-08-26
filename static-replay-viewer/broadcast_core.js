@@ -48,6 +48,135 @@
   const CHROME_SPRITE_ID =
     (window.CTF_WIRE && window.CTF_WIRE.chromeSpriteId) || 4090;
 
+  // BR zone paint (round 3): the shrinking zone's cosmetic flood is a STATIC
+  // per-episode arrival-time field (src/ctf/global.nim's addZoneEdgeBand),
+  // shipped once as a data sprite — never drawn as an image, decoded into
+  // typed arrays below — plus a 1x1 "clock" object whose X position IS the
+  // elapsed tick, updated every tick. The clock rides the motion-glide
+  // system above (built for player movement) for true sub-tick
+  // interpolation with no new client-side timing code: renderZonePaint
+  // reads its already-interpolated dispX as a continuous "now" and paints a
+  // pure per-cell READOUT of the field against it. This is what fixes the
+  // old "SUPER laggy" defect: the field's bytes cross the wire exactly
+  // once, never per tick.
+  const ZONE_ARRIVAL_FIELD_SPRITE_ID =
+    (window.CTF_WIRE && window.CTF_WIRE.zoneArrivalFieldSpriteId) || 39962;
+  const ZONE_CLOCK_OBJECT_ID =
+    (window.CTF_WIRE && window.CTF_WIRE.zoneClockObjectId) || 39963;
+  const ZONE_PAINT_BODY_HEX =
+    (window.CTF_WIRE && window.CTF_WIRE.zonePaintBody) || '#d63eb2';
+  const ZONE_PAINT_BODY = [
+    parseInt(ZONE_PAINT_BODY_HEX.slice(1, 3), 16),
+    parseInt(ZONE_PAINT_BODY_HEX.slice(3, 5), 16),
+    parseInt(ZONE_PAINT_BODY_HEX.slice(5, 7), 16)
+  ];
+  // A backward or large forward jump in the clock's dispX (a real seek/
+  // scrub, not a normal tick-to-tick glide) forces renderZonePaint to
+  // re-threshold the WHOLE field instead of walking forward incrementally —
+  // "one full re-threshold pass" on seek. 48 mirrors the glide system's own
+  // SNAP_DISTANCE (a big forward jump already snaps dispX itself; this just
+  // makes the paint layer agree with that same snap).
+  const ZONE_SNAP_REBUILD_GAP_TICKS = 48;
+
+  // ---- Paint decorations (round 3) -------------------------------------
+  // Four cosmetics Maxwell asked for on the close-zoom review — a bead ON
+  // the isoline, gloss, leashed drips, and an age tint — all reduce to ONE
+  // mechanism: a cell's colour is a function of its own AGE (now - its
+  // arrival tick), and every cell crosses each age threshold exactly once.
+  // So the incremental bucket walk that already makes this renderer O(newly
+  // arrived) still works: to repaint every cell turning `age = A` this
+  // tick, walk bucket[now - A]. No per-frame rescan, no second field.
+  //
+  // Client-side only, and structurally incapable of touching gameHash: the
+  // arrival field it reads is the sim's, unmodified, and nothing here is
+  // ever sent back. It also cannot paint EARLY — a decoration only ever
+  // recolours a cell the field already painted, so the damage boundary the
+  // paint communicates stays exactly the sim's own.
+  const ZONE_BEAD_TICKS = 10;   // age 0..    — the wet bead ON the isoline
+  const ZONE_WET_TICKS = 34;    // age ..     — glossy, still running
+  const ZONE_SET_TICKS = 110;   // age ..     — body; past it, the age tint
+  // A drip is a cell that holds the bead/gloss colours LONGER than its
+  // neighbours, so as the front moves on it leaves a tendril trailing
+  // behind — "leashed" because it is anchored to the bead by construction
+  // and can never detach from it or run ahead of it. The leash is a static
+  // per-cell 0..3 (see buildZoneTrim), blobby rather than per-pixel, so
+  // tendrils read as streaks; their direction comes for free from the
+  // front's own motion, no direction term needed.
+  const ZONE_DRIP_TICKS = 14;   // extra life per leash step
+  // Gloss: a static per-cell brightness delta (a fine sparkle plus a broad
+  // diagonal sheen), baked once at decode and applied to whichever band
+  // colour the cell currently wears — so it costs nothing per frame and
+  // stays put on the floor instead of swimming as the front passes.
+  // Gloss belongs to WET paint. Applied at full strength it tiled the
+  // whole flooded board with visible diagonal banding (first close-zoom
+  // check of the decorations) — dry paint is not glossy, and by late
+  // episode almost the entire board is dry. Each band therefore carries
+  // its own gloss multiplier, so the sheen lives on the advancing edge
+  // and fades out behind it.
+  // THE SPLAT (Maxwell's ruling, 2026-08-26): the close ends on a flourish
+  // rather than just running out of board. The zone now shrinks to nothing,
+  // so there is a real LAST MOMENT — the tick the final cell turns pink —
+  // and that moment deserves to read as an event.
+  //
+  // Deliberately a pure OVERLAY, drawn on the target after the paint blit
+  // and never into zoneImage. That is not a style choice: the paint layer
+  // is INCREMENTAL (renderZonePaint only touches newly-arrived cells and
+  // never clears), so anything written into it PERSISTS forever. An
+  // animated flourish written there would smear permanently across the
+  // board. Drawing to the target each frame costs one arc and leaves the
+  // incremental invariant untouched.
+  //
+  // Cosmetic-only and structurally incapable of touching gameHash: it is a
+  // readout of the arrival field's own maximum, and nothing here is ever
+  // sent back.
+  // ENDCARD COMPLETION (Maxwell's spec, relayed 2026-08-26): "if the wipe
+  // ends the match before the last sliver closes, the viewer plays the
+  // terminal splat over the remaining gap as the endcard flourish."
+  //
+  // A BR match ends on a WIPE, and the wipe usually fires before the zone
+  // has finished closing — measured on the two verification recordings, one
+  // ended with the board 81.5% pink and the other 100% but still 18 ticks
+  // short of the final cell. So without this, the thing the whole
+  // close-to-nothing schedule exists to show is the thing nobody ever sees.
+  // At match end the paint FINISHES ITSELF: the effective clock runs on
+  // past the final tick over a short beat, so the remaining area fills in
+  // along the arrival field's OWN gradient — the same order it would have
+  // filled in real time, just faster — and the splat lands on the last cell.
+  //
+  // Eased, not linear, and deliberately so: a linear sweep of a shrinking
+  // region reads as a progress bar. Cubic ease-in-out starts gently from
+  // the pace the eye was already tracking, carries through the bulk, and
+  // settles onto the final cell instead of stopping dead.
+  const ZONE_ENDCARD_MS = 2400;       // wall-clock beat for the completion
+  const ZONE_SPLAT_TICKS = 42;        // how long the flourish lives
+  const ZONE_SPLAT_RADIUS_CELLS = 26; // final ring radius, in FINE cells
+  const ZONE_SHEEN_AMPLITUDE = 9;
+  const ZONE_SHEEN_PERIOD_PX = 190;
+
+  function mixRgb(a, b, t) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * t),
+      Math.round(a[1] + (b[1] - a[1]) * t),
+      Math.round(a[2] + (b[2] - a[2]) * t)
+    ];
+  }
+
+  // The band palette is DERIVED from the body colour, so retuning
+  // zonePaintBody on the wire retunes the whole set coherently rather than
+  // leaving three hard-coded shades behind.
+  const ZONE_PAINT_BEAD = mixRgb(ZONE_PAINT_BODY, [255, 244, 252], 0.62);
+  const ZONE_PAINT_WET = mixRgb(ZONE_PAINT_BODY, [255, 236, 250], 0.24);
+  const ZONE_PAINT_AGED = mixRgb(ZONE_PAINT_BODY, [92, 34, 74], 0.34);
+  // Ordered oldest-first: the full-repaint path walks it and takes the
+  // first band whose threshold the cell's age has not yet passed.
+  const ZONE_BANDS = [
+    { age: ZONE_BEAD_TICKS, rgb: ZONE_PAINT_BEAD, gloss: 1.0 },
+    { age: ZONE_WET_TICKS, rgb: ZONE_PAINT_WET, gloss: 0.55 },
+    { age: ZONE_SET_TICKS, rgb: ZONE_PAINT_BODY, gloss: 0.12 }
+  ];
+  const ZONE_AGED_GLOSS = 0.0;   // dry paint has no sheen at all
+
+
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
   }
@@ -236,6 +365,24 @@
     const layers = new Map();
     const sprites = new Map();
     const objects = new Map();
+
+    // BR zone paint (round 3) state — see ZONE_ARRIVAL_FIELD_SPRITE_ID
+    // above. `zoneField` stays null until the one data sprite for this
+    // episode arrives; everything else below is derived from it once
+    // (decodeZoneField) and then only ever touched incrementally per frame
+    // (renderZonePaint).
+    let zoneField = null;          // { gridW, gridH, arrival: Uint16Array
+                                    //   (RENDER resolution — bilinearly
+                                    //   upsampled from the solver's coarse
+                                    //   grid, see buildFineField), buckets:
+                                    //   {bucketStart, bucketed} — a counting
+                                    //   sort by tick, see buildZoneBuckets }
+    let zoneCanvas = null;         // offscreen canvas at render resolution —
+    let zoneCtx = null;            // ~1 native map px per cell, blitted
+    let zoneImage = null;          // into the board layer every draw.
+    let zoneLastAppliedTick = -1;  // last INTEGER tick fully applied.
+    let zoneLastTouchedCells = 0;  // last frame's touched-cell count, for
+                                    // the perf probe (getZonePaintStats).
 
     let socket = null;
     let rafHandle = null;
@@ -720,9 +867,337 @@
     }
 
     function drawObject(targetCtx, obj) {
+      if (obj.id === ZONE_CLOCK_OBJECT_ID) {
+        // Not a drawable sprite at all: this object's whole job is to carry
+        // a smoothly-interpolated tick in dispX (see the glide system
+        // above) — reaching this z-slot in the composite order is exactly
+        // when the paint layer belongs, so paint it here instead of a
+        // sprite image.
+        renderZonePaint(targetCtx, obj.dispX);
+        return;
+      }
       const sprite = sprites.get(obj.spriteId);
       if (!sprite || !sprite.pixels) return;
       targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
+    }
+
+    const ZONE_FIELD_CELL_PX =
+      (window.CTF_WIRE && window.CTF_WIRE.zoneFieldCellPx) || 4;
+    const ZONE_NEVER_ARRIVES = 0xFFFF;
+    // Supersample factor from the solver's coarse grid to the render grid:
+    // ZONE_FIELD_CELL_PX (4) × this = 1 native map px per render cell, i.e.
+    // the render resolution matches the map's own pixel resolution — "the
+    // solver resolution must be undetectable in the render" by construction,
+    // not by upscale blur. Each render cell's arrival tick is BILINEARLY
+    // interpolated from the 4 surrounding coarse cells once (buildFineField,
+    // below), so per-pixel thresholding against it traces a smooth isoline —
+    // equivalent to marching squares without ever extracting the polygon.
+    const ZONE_RENDER_SUPERSAMPLE = ZONE_FIELD_CELL_PX;
+    // Counting-sort bucket ceiling: real arrival ticks top out around a
+    // full schedule's length (a showmatch's is ~3360, +200 for the flow-
+    // delay cap) — 8192 is generous headroom. Anything above it (in
+    // practice only ZONE_NEVER_ARRIVES: a wall or a floor cell that never
+    // floods) lands in one overflow bucket that incremental advance never
+    // walks, only a full rebuild does.
+    const ZONE_MAX_TICK_BUCKET = 8192;
+
+    // Bilinear-upsamples the coarse solver grid to render resolution,
+    // renormalizing over only the NON-sentinel corners at each sample so a
+    // wall/never-floods neighbour (ZONE_NEVER_ARRIVES) never drags a real
+    // floor pixel's interpolated tick up toward a meaningless huge value —
+    // that would reopen a D4-shaped "dry pocket" hugging every wall. A fine
+    // pixel whose all 4 coarse corners are sentinel is unambiguously wall/
+    // never itself.
+    function buildFineField(coarse, gridW, gridH, fineW, fineH) {
+      const fine = new Uint16Array(fineW * fineH);
+      for (let fy = 0; fy < fineH; fy++) {
+        const cy = (fy - ZONE_FIELD_CELL_PX / 2) / ZONE_FIELD_CELL_PX;
+        const gy0 = Math.floor(cy);
+        const ty = cy - gy0;
+        const gy0c = Math.max(0, Math.min(gridH - 1, gy0));
+        const gy1c = Math.max(0, Math.min(gridH - 1, gy0 + 1));
+        const rowBase = fy * fineW;
+        for (let fx = 0; fx < fineW; fx++) {
+          const cx = (fx - ZONE_FIELD_CELL_PX / 2) / ZONE_FIELD_CELL_PX;
+          const gx0 = Math.floor(cx);
+          const tx = cx - gx0;
+          const gx0c = Math.max(0, Math.min(gridW - 1, gx0));
+          const gx1c = Math.max(0, Math.min(gridW - 1, gx0 + 1));
+          const v00 = coarse[gy0c * gridW + gx0c];
+          const v10 = coarse[gy0c * gridW + gx1c];
+          const v01 = coarse[gy1c * gridW + gx0c];
+          const v11 = coarse[gy1c * gridW + gx1c];
+          const w00 = (1 - tx) * (1 - ty);
+          const w10 = tx * (1 - ty);
+          const w01 = (1 - tx) * ty;
+          const w11 = tx * ty;
+          let acc = 0, wsum = 0;
+          if (v00 !== ZONE_NEVER_ARRIVES) { acc += v00 * w00; wsum += w00; }
+          if (v10 !== ZONE_NEVER_ARRIVES) { acc += v10 * w10; wsum += w10; }
+          if (v01 !== ZONE_NEVER_ARRIVES) { acc += v01 * w01; wsum += w01; }
+          if (v11 !== ZONE_NEVER_ARRIVES) { acc += v11 * w11; wsum += w11; }
+          fine[rowBase + fx] = wsum > 0 ? Math.round(acc / wsum) : ZONE_NEVER_ARRIVES;
+        }
+      }
+      return fine;
+    }
+
+    // Counting sort (O(n), no comparator sort of millions of elements): for
+    // every integer tick 0..ZONE_MAX_TICK_BUCKET, `bucketed.subarray(
+    // bucketStart[t], bucketStart[t+1])` is exactly the fine-cell indices
+    // that arrive at that tick — incremental advance from tick A to B is
+    // then a direct slice walk over (A, B], never a rescan or a sort.
+    function buildZoneBuckets(fine) {
+      const n = fine.length;
+      const bucketCount = ZONE_MAX_TICK_BUCKET + 2;  // + overflow bucket
+      const counts = new Uint32Array(bucketCount);
+      for (let i = 0; i < n; i++) {
+        const t = fine[i];
+        counts[t > ZONE_MAX_TICK_BUCKET ? bucketCount - 1 : t]++;
+      }
+      const bucketStart = new Uint32Array(bucketCount + 1);
+      for (let b = 0; b < bucketCount; b++) {
+        bucketStart[b + 1] = bucketStart[b] + counts[b];
+      }
+      const cursor = bucketStart.slice(0, bucketCount);
+      const bucketed = new Uint32Array(n);
+      for (let i = 0; i < n; i++) {
+        const t = fine[i];
+        const b = t > ZONE_MAX_TICK_BUCKET ? bucketCount - 1 : t;
+        bucketed[cursor[b]++] = i;
+      }
+      return { bucketStart, bucketed };
+    }
+
+    // The static per-cell trim, baked once with the field: the low 2 bits
+    // are the drip LEASH (0..3 extra ZONE_DRIP_TICKS of bead/gloss life,
+    // blobby so tendrils read as streaks — most cells 0, so drips are
+    // occasional rather than a texture), the rest is the GLOSS brightness
+    // delta stored biased by 128. Both are pure functions of the cell's
+    // position, so they never animate and cost nothing per frame.
+    function buildZoneTrim(fineW, fineH) {
+      const trim = new Uint8Array(fineW * fineH);
+      const gloss = new Int8Array(fineW * fineH);
+      for (let fy = 0; fy < fineH; fy++) {
+        const rowBase = fy * fineW;
+        for (let fx = 0; fx < fineW; fx++) {
+          // Drip leash. Blobs are COARSE and ELONGATED (8px across, 32px
+          // along) rather than square and small: at 4px square the first
+          // close-zoom check read as salt-and-pepper confetti along the
+          // whole front instead of tendrils, because the blob was the
+          // same size as the render cell. Elongating them is what makes a
+          // held-back patch read as a streak hanging off the bead.
+          let h = ((fx >> 3) * 73856093) ^ ((fy >> 5) * 19349663);
+          h = (h ^ (h >>> 13)) >>> 0;
+          const r = h % 16;
+          const leash = r < 10 ? 0 : r < 13 ? 1 : r < 15 ? 2 : 3;
+          // Gloss is the SMOOTH sheen only. The per-pixel sparkle that
+          // used to be added here was indistinguishable from dithering
+          // once zoomed in — it is noise at exactly the frequency the
+          // eye reads as compression artefact, so it is gone rather than
+          // turned down.
+          const sheen = Math.sin((fx + fy) * (2 * Math.PI / ZONE_SHEEN_PERIOD_PX)) *
+            ZONE_SHEEN_AMPLITUDE;
+          let d = Math.round(sheen);
+          if (d > 127) d = 127;
+          if (d < -128) d = -128;
+          trim[rowBase + fx] = leash;
+          gloss[rowBase + fx] = d;
+        }
+      }
+      return { leash: trim, gloss };
+    }
+
+    // Decodes the one-time arrival-field data sprite (see
+    // ZONE_ARRIVAL_FIELD_SPRITE_ID) — R|G<<8 per coarse cell is the solver's
+    // paint-arrival tick (zoneArrivalFieldBytes in global.nim) — then
+    // upsamples it to render resolution (buildFineField) and buckets the
+    // result by tick (buildZoneBuckets) so every later frame is O(newly-
+    // arrived render cells), never a rescan of the whole grid.
+    function decodeZoneField(width, height, pixels) {
+      const coarse = new Uint16Array(width * height);
+      for (let i = 0; i < coarse.length; i++) {
+        const o = i * 4;
+        coarse[i] = pixels[o] | (pixels[o + 1] << 8);
+      }
+      const fineW = width * ZONE_RENDER_SUPERSAMPLE;
+      const fineH = height * ZONE_RENDER_SUPERSAMPLE;
+      const fine = buildFineField(coarse, width, height, fineW, fineH);
+      // Where and when the board FINISHES going pink — the splat's anchor.
+      // Taken from the field's own maximum real arrival rather than from
+      // the schedule, so it stays correct whatever the phase table says and
+      // whatever the flow delay adds on top. ZONE_NEVER cells (walls, and
+      // the corner-round core inside the final rect) are excluded, or the
+      // sentinel would win the max outright.
+      let finalTick = -1, finalIdx = -1;
+      for (let i = 0; i < fine.length; i++) {
+        const a = fine[i];
+        if (a >= ZONE_NEVER_ARRIVES) continue;
+        if (a > finalTick) { finalTick = a; finalIdx = i; }
+      }
+      zoneField = {
+        gridW: fineW, gridH: fineH,
+        arrival: fine, buckets: buildZoneBuckets(fine),
+        trim: buildZoneTrim(fineW, fineH),
+        finalTick: finalTick,
+        finalX: finalIdx >= 0 ? finalIdx % fineW : 0,
+        finalY: finalIdx >= 0 ? Math.floor(finalIdx / fineW) : 0
+      };
+      zoneCanvas = createCanvasSurface();
+      zoneCanvas.width = fineW;
+      zoneCanvas.height = fineH;
+      zoneCtx = zoneCanvas.getContext('2d');
+      zoneImage = zoneCtx.createImageData(fineW, fineH);
+      zoneLastAppliedTick = -1;
+    }
+
+    function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+    function paintZoneCell(data, idx, rgb, glossMul) {
+      const o = idx * 4;
+      const g = zoneField.trim.gloss[idx] * glossMul;
+      data[o] = clamp255(rgb[0] + g);
+      data[o + 1] = clamp255(rgb[1] + g);
+      data[o + 2] = clamp255(rgb[2] + g);
+      data[o + 3] = 255;
+    }
+
+    // The band a cell of this age and leash wears. Single source of truth
+    // for BOTH the incremental path and the full-repaint path, so a seek
+    // can never disagree with a glide about what the paint looks like.
+    function zoneBandOf(age, leash) {
+      const slack = leash * ZONE_DRIP_TICKS;
+      for (const band of ZONE_BANDS) {
+        if (age < band.age + slack) return band;
+      }
+      return { rgb: ZONE_PAINT_AGED, gloss: ZONE_AGED_GLOSS };
+    }
+
+    // The ENTIRE per-frame paint render: touch only render cells whose
+    // arrival just crossed `dispTick` (a persistent accumulation buffer that
+    // only ever grows — see the field's own MONOTONE guarantee), blit the
+    // render-resolution result into the board layer (a ~1:1 blit, not an
+    // upscale — the smoothing already happened once, in buildFineField).
+    // `dispTick` is the zone clock object's already-interpolated dispX, so
+    // this glides continuously at display cadence instead of stepping once
+    // per sim tick (~24/s).
+    // Set once, by whoever knows playback has ended (the static viewer's
+    // worker does: ctf_frame stops returning frames). Left null in the live
+    // client, where the match is not over and the completion must not run.
+    // Deliberately an EXPLICIT signal rather than "the clock stopped
+    // advancing": a PAUSE also stops the clock, and completing the paint
+    // because someone paused would be both wrong and ugly.
+    let zoneEndcardAtMs = null;
+
+    function beginZoneEndcard() {
+      if (zoneEndcardAtMs === null) zoneEndcardAtMs = performance.now();
+    }
+
+    function zoneEffectiveTick(dispTick) {
+      // The clock the paint renders against. Normally the real one; during
+      // the endcard beat it runs on past it to the field's own maximum.
+      if (zoneEndcardAtMs === null || !zoneField) return dispTick;
+      const target = zoneField.finalTick + ZONE_SPLAT_TICKS;
+      if (!(target > dispTick)) return dispTick;
+      const p = Math.min(1, (performance.now() - zoneEndcardAtMs) / ZONE_ENDCARD_MS);
+      const eased = p < 0.5
+        ? 4 * p * p * p
+        : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      return dispTick + (target - dispTick) * eased;
+    }
+
+    function renderZonePaint(targetCtx, dispTick0) {
+      if (!zoneField) return;
+      const dispTick = zoneEffectiveTick(dispTick0);
+      const nowInt = Math.floor(dispTick);
+      const needFull = zoneLastAppliedTick < 0 ||
+        nowInt < zoneLastAppliedTick ||
+        (nowInt - zoneLastAppliedTick) > ZONE_SNAP_REBUILD_GAP_TICKS;
+      const data = zoneImage.data;
+      const leashOf = zoneField.trim.leash;
+      let touched = 0;
+      if (needFull) {
+        const arrival = zoneField.arrival;
+        const n = arrival.length;
+        data.fill(0);
+        for (let i = 0; i < n; i++) {
+          const a = arrival[i];
+          if (a <= nowInt) {
+            const band = zoneBandOf(nowInt - a, leashOf[i]);
+            paintZoneCell(data, i, band.rgb, band.gloss);
+            touched++;
+          }
+        }
+      } else if (nowInt > zoneLastAppliedTick) {
+        const { bucketStart, bucketed } = zoneField.buckets;
+        const lo = Math.max(0, zoneLastAppliedTick + 1);
+        const hi = Math.min(nowInt, ZONE_MAX_TICK_BUCKET);
+        for (let t = lo; t <= hi; t++) {
+          // Newly arrived this tick: the bead, ON the isoline by
+          // definition (age 0 is inside the first band for every leash).
+          const s0 = bucketStart[t], e0 = bucketStart[t + 1];
+          for (let k = s0; k < e0; k++) {
+            paintZoneCell(data, bucketed[k], ZONE_PAINT_BEAD, 1.0);
+            touched++;
+          }
+          // Every cell whose age crosses a band threshold on THIS tick.
+          // A cell arriving at tick `t - age` turns `age` now, so the
+          // cells leaving band b are exactly bucket[t - threshold], and
+          // the leash just shifts which bucket that is — which is why the
+          // decorations cost O(newly arrived) like the base paint, not a
+          // rescan. Filtering by leash inside the walk keeps one bucket
+          // per (threshold, leash) pair rather than a second index.
+          for (let b = 0; b < ZONE_BANDS.length; b++) {
+            const nextBand = b + 1 < ZONE_BANDS.length ? ZONE_BANDS[b + 1] :
+              { rgb: ZONE_PAINT_AGED, gloss: ZONE_AGED_GLOSS };
+            for (let l = 0; l <= 3; l++) {
+              const src = t - (ZONE_BANDS[b].age + l * ZONE_DRIP_TICKS);
+              if (src < 0 || src > ZONE_MAX_TICK_BUCKET) continue;
+              const s1 = bucketStart[src], e1 = bucketStart[src + 1];
+              for (let k = s1; k < e1; k++) {
+                const idx = bucketed[k];
+                if (leashOf[idx] !== l) continue;
+                paintZoneCell(data, idx, nextBand.rgb, nextBand.gloss);
+                touched++;
+              }
+            }
+          }
+        }
+      }
+      zoneLastTouchedCells = touched;
+      if (touched > 0 || needFull) {
+        zoneCtx.putImageData(zoneImage, 0, 0);
+      }
+      zoneLastAppliedTick = nowInt;
+      targetCtx.drawImage(zoneCanvas, 0, 0, zoneField.gridW, zoneField.gridH,
+        0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
+      drawZoneSplat(targetCtx, nowInt);
+    }
+
+    function drawZoneSplat(ctx, nowInt) {
+      // One expanding, fading ring at the spot the board finished going
+      // pink. Eased out (cubic) so it leaves fast and settles, rather than
+      // crawling outward at a constant rate.
+      if (!zoneField || zoneField.finalTick < 0) return;
+      const age = nowInt - zoneField.finalTick;
+      if (age < 0 || age > ZONE_SPLAT_TICKS) return;
+      const p = age / ZONE_SPLAT_TICKS;
+      const sx = ctx.canvas.width / zoneField.gridW;
+      const sy = ctx.canvas.height / zoneField.gridH;
+      const grow = 1 - Math.pow(1 - p, 3);
+      const r = ZONE_SPLAT_RADIUS_CELLS * grow * Math.max(sx, sy);
+      if (!(r > 0)) return;
+      const fade = (1 - p) * (1 - p);
+      const c = ZONE_PAINT_BEAD;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.strokeStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+      ctx.lineWidth = Math.max(1, (1 - p) * 3 * Math.max(sx, sy));
+      ctx.beginPath();
+      ctx.arc((zoneField.finalX + 0.5) * sx, (zoneField.finalY + 0.5) * sy,
+        r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
     function composite() {
@@ -927,6 +1402,15 @@
             // packet), and marking the board dirty for it would re-composite
             // an identical frame per packet forever.
             if (label) onText(label);
+          } else if (id === ZONE_ARRIVAL_FIELD_SPRITE_ID) {
+            // The static BR zone paint-arrival field (see
+            // ZONE_ARRIVAL_FIELD_SPRITE_ID above): raw per-cell DATA, never
+            // a drawable image. Decode into typed arrays once; every later
+            // frame is a pure readout of them (renderZonePaint), driven by
+            // the zone clock object's glide. Sent exactly once per episode
+            // and paints no board pixels itself, so — like chrome — not a
+            // `changed` event.
+            if (pixels) decodeZoneField(width, height, pixels);
           } else {
             if (spriteAwaitsRetry(sprites.get(id))) pendingDecodes--;
             sprites.set(id, {
@@ -1383,6 +1867,20 @@
       };
     }
 
+    function getZonePaintStats() {
+      // Perf probe for the arrival-field render (see renderZonePaint) — the
+      // per-frame touched-cell count is the D1 fix's own headline number:
+      // "a few thousand," never the whole grid.
+      return {
+        hasField: Boolean(zoneField),
+        gridW: zoneField ? zoneField.gridW : 0,
+        gridH: zoneField ? zoneField.gridH : 0,
+        totalCells: zoneField ? zoneField.arrival.length : 0,
+        lastTouchedCells: zoneLastTouchedCells,
+        lastAppliedTick: zoneLastAppliedTick
+      };
+    }
+
     return {
       start,
       ingest,
@@ -1392,6 +1890,8 @@
       setViewportFit,
       setViewportSize,
       getPaceStats,
+      getZonePaintStats,
+      beginZoneEndcard,
       zoomAt,
       setZoom,
       panBy,
@@ -1403,5 +1903,11 @@
     };
   }
 
-  window.BroadcastCore = { create: BroadcastCore };
+  // ZONE_ENDCARD_MS is the beat length the endcard sequencing has to agree
+  // with (see client/replay_broadcast.html and replay-viewer/static_replay.js):
+  // the scoreboard reveal is delayed by exactly this much so the completion
+  // paint + terminal splat finish BEFORE the scoreboard drops, rather than
+  // duplicating the number on the page and drifting the day one of them
+  // changes.
+  window.BroadcastCore = { create: BroadcastCore, ZONE_ENDCARD_MS: ZONE_ENDCARD_MS };
 })();

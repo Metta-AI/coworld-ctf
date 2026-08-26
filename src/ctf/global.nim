@@ -1,5 +1,5 @@
 import
-  std/[algorithm, heapqueue, math, os, strutils, tables],
+  std/[algorithm, heapqueue, math, os, strutils, tables, times],
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
@@ -572,19 +572,23 @@ const
   BarrageMarkerObjectId* = 36300 ## in the trench-marker/damage-pop gap.
   ## --- Battle-royale shrink-zone hazard (BOARD + POV, config-gated) ---
   ## Two invisible 1x1 stated markers per stream (the CURRENT rect and the
-  ## NEXT/target rect — see LabelPrefixZone / LabelPrefixZoneNext), plus a
-  ## minimal VISIBLE cosmetic band tracing the current rect's border (four
-  ## flat bars; the fancy paint-tide art is a later pass — see
-  ## docs/designs/BR_MAPGEN.md §4.3). Same numeric value on the object and
-  ## sprite side, like the puddle-marker pair above. The sprite-side
-  ## endzone-fade band pool (EndzoneFadeSpriteBase, 36600..38647) and the
-  ## object-side one (EndzoneFadeObjectBase, 39700..39955) leave no single
-  ## gap free on BOTH sides below them, so this sits just above the higher
-  ## of the two ceilings instead, with the u16/DynamicSpriteWireBase
-  ## ceiling (40000) proven by the static audit right below.
+  ## NEXT/target rect — see LabelPrefixZone / LabelPrefixZoneNext), plus
+  ## (round 3) the paint-tide art: ONE data sprite carrying the static
+  ## arrival-time field (shipped once per episode) and ONE "clock" object
+  ## whose position glides with elapsed ticks — see the ARRIVAL-TIME FIELD
+  ## doc above ensureZoneFloorGrid / addZoneEdgeBand. Same numeric value on
+  ## the object and sprite side, like the puddle-marker pair above. The
+  ## sprite-side endzone-fade band pool (EndzoneFadeSpriteBase,
+  ## 36600..38647) and the object-side one (EndzoneFadeObjectBase,
+  ## 39700..39955) leave no single gap free on BOTH sides below them, so
+  ## this sits just above the higher of the two ceilings instead, with the
+  ## u16/DynamicSpriteWireBase ceiling (40000) proven by the static audit
+  ## right below.
   ZoneMarkerBase* = 39960
-  ZoneMarkerCount* = 6         ## 0=zone label, 1=zonenext label,
-                               ## 2..5=edge bars (top, bottom, left, right).
+  ZoneMarkerCount* = 4         ## 0=zone label, 1=zonenext label,
+                               ## 2=arrival-field data sprite (never placed
+                               ## as an object — see ZoneArrivalFieldLabel),
+                               ## 3=clock object+sprite.
   DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
                                ## color×bucket×stage: 31000..31255 (above tracers).
                                ## The bucket is NOT amount-1: the amounts in
@@ -1145,18 +1149,40 @@ const RenderScale* {.intdefine.} = 2
   ## Board supersample factor for the spectator/replay renderer. Build with
   ## -d:RenderScale=1 to reproduce the legacy 1× wire exactly.
 
-const MaxSupersampledMapPixels* {.intdefine.} = 8_000_000
+const MaxSupersampledMapPixels* {.intdefine.} = 2_000_000
   ## Largest board (logical map pixels, width·height) that still renders the
   ## spectator stream at RenderScale×. Above it the board emits at 1×: the
   ## static wasm replay viewer runs in a 32-bit address space, and the
   ## RenderScale× hot+cold arena bakes alone cost mapPixels·RenderScale²·4
-  ## bytes EACH — on a colossal board (5.2×, ~22–25 M map px) that is
-  ## ~350 MB per bake and blows through wasm32's 2 GB ceiling before the
-  ## first frame. The bound sits between giant (4-team 2496², ~6.2 M px —
-  ## the largest class proven to play at 2× in the hosted viewer) and
-  ## colossal (~22 M px), whose 1× wire carries the same byte volume as the
-  ## proven giant 2× wire. Applies to the native server too, so a recorded
-  ## wire and any live spectator see the identical stream.
+  ## bytes EACH. Applies to the native server too, so a recorded wire and
+  ## any live spectator see the identical stream.
+  ##
+  ## LOWERED 8_000_000 -> 2_000_000 (2026-08-26), because the old bound's
+  ## own premise was FALSE. It claimed ~6.2 M px was "the largest class
+  ## proven to play at 2× in the hosted viewer". Measured: a 3211×1713 BR
+  ## board is 5.5 M px — INSIDE that supposedly-proven class — and at 2× it
+  ## aborts with ABORTING_MALLOC around frame 3000 of a 4593-tick episode,
+  ## i.e. the viewer cannot finish a match. The same replay in the same
+  ## commit at 1× completes all 4700 frames hash-exact and plateaus at
+  ## 763 MB, 37% of the address space.
+  ##
+  ## THE BOUND IS NOW DERIVED FROM MEASURED WORKING SET, not from a class
+  ## name. The steady-state footprint is proportional to BAKE resolution —
+  ## it is not a leak; the curve walks up to a plateau and stays there —
+  ## and a 2× bake costs 4× a 1× one. Two anchors:
+  ##     0.81 M px (standard 1235×659) at 2× -> plateaus 467 MB, measured
+  ##     5.50 M px (BR 3211×1713)     at 1× -> plateaus 763 MB, measured
+  ## Both give ~555 MB of steady state per megapixel at 2×, and the model
+  ## predicts the standard board's 467 MB to within 4%. Holding 2× to a
+  ## ~1.1 GB ceiling — half the address space, leaving room for the JS
+  ## heap, the .data preload and fragmentation — puts the bound at ~2 M px.
+  ##
+  ## SIDE EFFECT, stated rather than discovered later: boards between 2 M
+  ## and 6.2 M px (notably 4-team giant, 2496² ≈ 6.2 M) now emit at 1× where
+  ## they used to emit at 2×. Measured cost of that drop on the BR board at
+  ## match-watching zoom: mean |delta| 0.74/255 with 1.81% of board pixels
+  ## differing by more than 8/255. It is visible only when zoomed deep into
+  ## wall art.
 
 proc boardRenderScaleFor*(mapWidth, mapHeight: int): int =
   ## The spectator supersample factor for a board of the given logical size:
@@ -6445,34 +6471,266 @@ proc addZoneMarkers(
   )
   packet.addBoardObject(nextObjectId, 0, 0, 0, MapLayerId, nextSpriteId)
 
-## (The tide's constant block was deleted with its layers — see the note
-## above zoneDeadPixelColor. The dead region's two colours now live beside
-## that proc, which is the only thing that reads them.)
+## ============================================================================
+## BR ZONE PAINT — round 3: ARRIVAL-TIME FIELD + INCREMENTAL ACCUMULATION.
+##
+## Round 2 (a3cf203) fixed the "recolor every tick" cache defeat but kept the
+## fundamental shape: every tick a rect changes, rebuild + reship four
+## FULL-SIZE RGBA bars (up to ~4.5M px) over the wire. A Fable-level audit
+## (2026-08-25) named four confirmed defects and this rewrite is the fix for
+## all four, not another tuning pass:
+##   D1 LAG — bounded per-pixel MATH never bounded per-tick TRAFFIC: the
+##     viewer still re-decodes/re-uploads a megapixel sprite on every shrink
+##     tick regardless of how cheap the pixel formula got.
+##   D2 MARBLE — high-frequency rotated-noise brightness modulation read as
+##     psychedelic oil-slick swirl at map zoom. Deleted outright.
+##   D3 CONFETTI — a per-pixel threshold over stacked noise gave the frontier
+##     speckle and torn fragments, no surface tension.
+##   D4 DRY POCKETS + FLOATING BUILDINGS — (a) the render skip mask was built
+##     from rendered wall ART (rooftops/parapets), which can swallow whole
+##     walkable interiors; (b) the old flow term ADDED drown depth for
+##     hard-to-reach pixels — backwards, a room behind a door should flood
+##     LATER, not read as MORE drowned.
+##
+## The fix is architectural: compute one ARRIVAL-TIME FIELD per episode
+## (paintArrivalTick, on a coarse ZoneFieldCellPx grid over the true FLOOR
+## mask — sim.walkMask, never rendered art) at zone-config load, ship it to
+## the client ONCE as a tiny data sprite (a few hundred KB before snappy, not
+## megapixels, and never resent), and let every frame's paint be a pure
+## READOUT of that static field against a single scalar — "now" — instead of
+## a fresh per-tick repaint. See ensureZoneArrivalField for the construction
+## and addZoneEdgeBand for delivery; the frame-by-frame render (incremental
+## accumulation, the frontier band, the meniscus/gloss/droplet decoration)
+## lives client-side in broadcast_core.js, reading the SAME field — the
+## single source of truth both sides share, so nothing can drift between
+## "what the field says" and "what got drawn."
+## ============================================================================
+
+const
+  ZoneFieldCellPx* = 4       ## coarse grid stride, px — numerically the same
+                             ## as brmapkit.nim's own GridStride (an offline
+                             ## mapgen tool this runtime module does not
+                             ## import), kept identical by convention.
+  ZoneCornerRoundPx* = 16.0  ## rounded-corner SDF radius for the field's own
+                             ## GEOMETRIC baseline (see roundedRectSignedDist)
+                             ## — the same honesty bound round 2's
+                             ## ZoneEdgeBoundPx established: the boundary's
+                             ## shape, before any flow delay, never deviates
+                             ## from the sharp rect line by more than this.
+  ZoneFlowDelayCapTicks* = 1200  ## HONESTY BOUND on the FLOW-DELAY term
+                             ## (round 2's spatial ZoneEdgeBoundPx, restated
+                             ## in time): however deep a cove or slow a
+                             ## doorway, the visual boundary never lags the
+                             ## true damage line by more than this many
+                             ## ticks. Raised again (350->600->750) past the
+                             ## spec's original 150-250 band per Maxwell's
+                             ## "tablecloth" ruling — the fingering term
+                             ## (zoneFingerDelayAt) needs real spatial room
+                             ## to read as a cove, not a ripple. Raised once
+                             ## more (750->1200, Fable's audit 2026-08-25):
+                             ## the room/aperture reachability fix (see
+                             ## ensureZoneFloorGrid) finally gates real,
+                             ## multi-cell-deep interior rooms behind their
+                             ## own doors instead of misreading them as
+                             ## exterior — a genuinely narrow, wall-hugging
+                             ## room can legitimately need several hundred
+                             ## ticks more than 750 to fill at the speed
+                             ## field's own worst-case combined floor
+                             ## (aperture x wallDrag x finger), measured
+                             ## directly against the honesty test rather
+                             ## than guessed. This bound is now for
+                             ## PROPAGATION-accumulated lag only (a genuine
+                             ## room/aperture chain — see ZoneFingerAmpPx
+                             ## below for the split) and the unreached-cell
+                             ## fallback in computeZoneFrontierField.
+  ZoneFingerAmpPx* = 21.0    ## Maxwell's ruling (2026-08-25, close-zoom
+                             ## review of the fresh recording): "it gets way
+                             ## too stretched out at points, there should be
+                             ## a limit to the amplitude at the meniscus" —
+                             ## open-field tongues were stretching into long
+                             ## pointed streamers because
+                             ## zoneBoundaryFingerDelayAt's seed-nudge
+                             ## amplitude was riding the SAME large
+                             ## ZoneFlowDelayCapTicks budget raised for
+                             ## legitimately deep room/aperture lag, which
+                             ## is a completely different physical
+                             ## quantity. Split: this bounds ONLY the
+                             ## open-field meniscus ripple (a real front's
+                             ## own advance-rate variation along its
+                             ## length), never room/aperture lag, which
+                             ## keeps the full ZoneFlowDelayCapTicks
+                             ## headroom.
+                             ##
+                             ## DENOMINATED IN PIXELS, not ticks (Fable's
+                             ## audit, 2026-08-25; coordinator-approved
+                             ## re-denomination). Maxwell approved a LOOK,
+                             ## on one map — the ticks were only the
+                             ## vehicle. The visible amplitude is
+                             ## ampTicks * the front's own edge speed, and
+                             ## that speed is a property of the MAP and
+                             ## schedule: 0.304 px/tick on the showmatch
+                             ## map he judged, 0.117 on the small test map.
+                             ## Keeping the ruling in ticks therefore made
+                             ## his approved look silently vary per map —
+                             ## the same 70 ticks is ~21px of meniscus
+                             ## there and ~9px here, and a 9px ripple is
+                             ## indistinguishable from the hard line he
+                             ## rejected. 21.0px is the exact measured
+                             ## equivalent of the 70 ticks he approved
+                             ## (70 * 0.304), so the judged map is
+                             ## unchanged and every other map now gets
+                             ## that same approved look instead of an
+                             ## arbitrary fraction of it.
+  ZoneFingerOctaveFinePx* = 160.0   ## the meniscus's two noise octaves,
+  ZoneFingerOctaveCoarsePx* = 260.0  ## in px measured ALONG THE FRONT (see
+                             ## zoneFrontLoopCoordAt). Two, so no single
+                             ## wavelength's own flat stretch can produce a
+                             ## long straight run — both inside the
+                             ## 160-300px lobe band of Maxwell's "no sharp
+                             ## points" ruling. Exported because the paint
+                             ## checks DERIVE their straight-run bound from
+                             ## the coarse one rather than restating a
+                             ## number: a front cannot stay inside a 1px
+                             ## band for longer than its own coarsest
+                             ## feature without being a straight line, so
+                             ## that wavelength IS the bound, and it moves
+                             ## if the tuning does.
+  ZoneFingerAmpMaxTicks* = 400  ## CEILING on the converted budget: a
+                             ## pathologically slow schedule would turn
+                             ## 21px into hundreds of ticks of lateness, so
+                             ## the conversion is clamped — well clear of
+                             ## the ~180 ticks the slowest real map needs,
+                             ## and far below ZoneFlowDelayCapTicks so the
+                             ## meniscus/room-lag split Maxwell ruled on
+                             ## survives the change. Never silent: the
+                             ## clamp is asserted and printed by the paint
+                             ## checks when it binds.
+                             ##
+                             ## RAISED 240 -> 400 with the continuous-close
+                             ## schedule (2026-08-25). 240 was sized against
+                             ## the OLD staged schedule, whose slowest map
+                             ## needed 179 ticks. Deleting the holds and
+                             ## stretching the close to 4800 ticks LOWERS
+                             ## base speed (more ticks for the same closure,
+                             ## not fewer) — the small test map fell to
+                             ## 0.0868 px/tick and needed 242, so the clamp
+                             ## bound and silently delivered 20.84px instead
+                             ## of the approved 21.0. That is a 0.8% cosmetic
+                             ## shortfall and would have been invisible; the
+                             ## check caught it because a ceiling that can
+                             ## bind unnoticed is exactly what this
+                             ## assertion exists to prevent. 400 restores
+                             ## real headroom and stays far below
+                             ## ZoneFlowDelayCapTicks (1200), so the
+                             ## meniscus/room-lag split Maxwell ruled on is
+                             ## untouched.
+  ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
+                             ## arena.nim's MinCorridorWidth (the narrowest
+                             ## built corridor): local flow speed throttles
+                             ## toward its floor as clearance shrinks toward
+                             ## this, a genuine bottleneck at a real doorway.
+  ZoneApertureMinMult = 0.15   ## flow-speed floor at a fully-choked cell —
+                             ## never zero (an unreachable pocket would never
+                             ## resolve in the fast-march), but a real drag.
+  ZoneWallDragRangePx = 10.0   ## px of proximity to a TRUE wall over which
+                             ## flow speed ramps down — the front rounds
+                             ## corners and hugs obstacles instead of
+                             ## crossing them at open-field speed.
+  ZoneWallDragMinMult = 0.5    ## flow-speed multiplier AT the wall (0px).
+  ZoneFingerCellPx = 140.0     ## viscous-fingering lattice, px — F(p)'s own
+                             ## speed-multiplier lattice (zoneSpeedFieldAt),
+                             ## folded into the SAME fast-marching solve, not
+                             ## a separate additive field. Wavelength within
+                             ## the spec's 300-600px band, biased toward the
+                             ## low end so individual finger/cove runs stay
+                             ## well under the "no straight run longer than
+                             ## ~100px" acceptance bound.
+  ZoneFingerAcrossCompress = 4.5  ## cross-axis compression in
+                             ## zoneSpeedFieldAt's rotated frame: how much
+                             ## more elongated a tongue reads than the plain
+                             ## octave's own round blobs — same idiom as
+                             ## round 2's ZoneToneStreakLenX, now driven by a
+                             ## geometrically real advance direction instead
+                             ## of a decorative one. Narrow, elongated coves
+                             ## are harder for the solve's own minimum-time
+                             ## search to route laterally around than wide
+                             ## round ones — see ZoneFingerMinMult.
+  ZoneFingerMinMult = 0.55    ## speed floor AT a noise peak (a cove) —
+                             ## deliberately lower than the aperture/wall-
+                             ## drag floors: a fast-marching solve always
+                             ## has some nearby faster lane to detour
+                             ## through in open 2D space (that is what makes
+                             ## it a CORRECT minimum-time solve), so a mild
+                             ## speed dip reads as barely a ripple in the
+                             ## final arrival field even though the speed
+                             ## field itself visibly varies — only a floor
+                             ## this low makes crossing a cove expensive
+                             ## enough that the front visibly prefers the
+                             ## tip lanes instead of shrugging the noise off.
+                             ## TRIED AND REVERTED (0.55->0.3, 2026-08-25):
+                             ## hypothesized this floor governed the real
+                             ## map's right-edge corridor wash-out (see the
+                             ## turning-angle check #7); MEASURED false —
+                             ## lowering it left the real-map kink's own
+                             ## angle EXACTLY unchanged (89.700...deg, same
+                             ## to 11 significant figures) while breaking
+                             ## the flow-delay honesty gate and worsening
+                             ## the small-map turning angle 0deg->45deg. The
+                             ## wash-out is not mediated by this term.
+                             ## SECOND TRY, ALSO REVERTED (edge-parallel
+                             ## anisotropic drag — full F(p) speed along the
+                             ## local advance direction, throttled across
+                             ## it, so lateral corridor travel pays a real
+                             ## toll — see computeZoneFrontierField's git
+                             ## history): also measured ZERO effect on the
+                             ## real-map kink's own angle (89.700...deg,
+                             ## unchanged to 11 significant figures) while
+                             ## regressing door-first (0 -> 1 violation).
+                             ## That insensitivity is the actual diagnosis:
+                             ## neither point forming the kink is EVER
+                             ## improved by propagation at all (an isotropic
+                             ## vs anisotropic propagation change altering
+                             ## nothing means propagation never wins over
+                             ## the raw seed value there) — both are direct
+                             ## t0(p) + zoneBoundaryFingerDelayAt(p) seed
+                             ## reads, untouched by any F(p)/slowness term.
+                             ## The real bug is upstream of propagation
+                             ## speed entirely, most likely in how the
+                             ## finite-difference `angle` (zoneEdgeAngleAt)
+                             ## behaves for a point diagonally outside the
+                             ## rect (both edges' corner-influence region at
+                             ## once) — open for the next pass.
+  ZoneArtOverhangMaxPx = 8.0   ## D4a fix: rendered wall ART may hide a floor
+                             ## pixel only THIS close to a TRUE (collision)
+                             ## wall cell — a rooftop bevel/parapet's own
+                             ## overhang, never a whole walkable interior.
+  ZoneFieldSeed = 0x2E15
+  ZoneNeverArrives* = 0xFFFF'u16  ## sentinel: this floor cell sits inside the
+                             ## schedule's FINAL rect and never floods (real
+                             ## arrival ticks stay far below this — a full
+                             ## showmatch schedule sums to ~3360 ticks before
+                             ## even adding the flow-delay cap).
 
 var
-  ZoneTideCacheKey: tuple[cx, cy, x, y, w, h: int] = (
-    low(int), 0, 0, 0, 0, 0)
-  ZoneTideCachePixels: array[4, seq[uint8]]  ## top, bottom, left, right.
-  ZoneTideCacheGeom: array[4, tuple[x, y, w, h: int]]
   ZoneWallArtMaskKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
   ZoneWallArtMask: seq[bool]      ## true wherever RENDERED wall art owns
                                   ## the pixel — see ensureZoneWallArtMask.
   ZoneWallArtMaskW, ZoneWallArtMaskH: int
 
-when defined(zoneTideCacheProbe):
+when defined(zoneArrivalFieldProbe):
   ## Diagnostic-only build flag (never shipped default-on, same discipline
-  ## as -d:zonePaintOff above): counts ensureZoneTideCache calls/hits/misses
-  ## so a before/after A/B can report a deterministic rebuild rate that is
-  ## immune to fleet-load wall-clock noise, instead of trusting a wall-clock
-  ## number alone (see BR_FINAL_MATCH_REPORT.md's perf section for why that
-  ## matters on a machine running many concurrent agents).
+  ## as -d:zonePaintOff below): times and sizes the once-per-episode field
+  ## build so a real measurement (not a guess) backs the "well under a
+  ## second" perf claim, deterministic and immune to fleet-load wall-clock
+  ## noise the way round 2's zoneTideCacheProbe was for its own hot path.
   var
-    ZoneTideCacheCalls*: int
-    ZoneTideCacheHits*: int
-    ZoneTideCacheMisses*: int
-  proc zoneTideCacheProbeReport*(): string =
-    "ZTC calls=" & $ZoneTideCacheCalls & " hits=" & $ZoneTideCacheHits &
-      " misses=" & $ZoneTideCacheMisses
+    ZoneArrivalFieldBuildMs*: float
+    ZoneArrivalFieldCells*: int
+    ZoneArrivalFieldFloorCells*: int
+  proc zoneArrivalFieldProbeReport*(): string =
+    "ZAF buildMs=" & $ZoneArrivalFieldBuildMs &
+      " cells=" & $ZoneArrivalFieldCells &
+      " floorCells=" & $ZoneArrivalFieldFloorCells
 
 const
   ZoneEdgeBandZ = low(int16) + 3  ## just above floor paint stains (StainZ =
@@ -6486,157 +6744,18 @@ const
                                ## here. The real, stable, policy-facing
                                ## contract is labelZone/labelZoneNext, never
                                ## this art.
+  ZonePaintBody* = rgba(214, 62, 178, 255)  ## flat, saturated magenta — the
+                               ## ENTIRE visible paint body in this cut. No
+                               ## per-pixel noise, no marble (D2): any tonal
+                               ## depth/age variation is a later decoration
+                               ## pass layered on the SAME field, not a
+                               ## texture stamped over it.
 
-proc zoneTideHash(a, b: int): int {.inline.} =
-  ## A cheap deterministic scramble for COSMETIC jitter only (the churning
-  ## front's blob placement) — never used for gameplay, never mixed into
-  ## gameHash. FNV-1a mixing in UNSIGNED 64-bit space, same idiom as
-  ## sim_state.nim's mixHash: a signed-int version of this overflows
-  ## int64 on realistic map coordinates (a chained multiply-by-~1e9 with
-  ## no wraparound is a checked OverflowDefect on signed ints), and
-  ## unsigned wraparound is exactly what a hash mix wants anyway. Result is
-
-proc distanceOutsideRect(rect: MapRect, px, py: int): int {.inline.} =
-  ## Rectangular (Chebyshev) distance of map point (px, py) outside `rect`:
-  ## 0 for any point on or inside the border, growing outward on whichever
-  ## axis (or both, in a corner) is furthest past it. One shared distance
-  ## function is what lets the dead region's depth — and therefore how
-  ## drowned its paint is — read consistently all the way around, corners
-  ## included.
-  let
-    dx = max(0, max(rect.x - px, px - (rect.x + rect.w - 1)))
-    dy = max(0, max(rect.y - py, py - (rect.y + rect.h - 1)))
-  max(dx, dy)
-
-const
-  ZoneDrownDepthPx = 150    ## past this depth outside the rect the floor is
-                            ## fully drowned; inside it is the creeping
-                            ## meniscus where the boundary itself is the art.
-  ZoneSplatPaint = rgba(214, 62, 178, 255)  ## fresh pink, at the meniscus.
-  ZoneDrownPaint = rgba(96, 24, 92, 236)    ## many coats, settled and dark.
-  ZoneRimColor = rgba(58, 12, 56, 255)      ## dark meniscus rim: a few px
-                            ## trace along the lobed boundary, the visual
-                            ## cue "this edge is WET" the way a puddle's own
-                            ## rim reads (see PuddleRimColor in map_art.nim)
-                            ## — a darker, deeper tone of the zone's own
-                            ## settled paint, not a borrowed palette.
-  ZoneGlossTint = rgba(238, 168, 232, 110)  ## sheen-pool highlight so the
-                            ## deep body reads as liquid, not flat card.
-  ZoneRimWidthPx = 3.0
-  ## MENISCUS SHAPE — Maxwell's ruling (2026-08-24, screenshot review): "this
-  ## does not look like solid paint seeping in from the screen edges. it
-  ## looks like a pink wall with pre-carved, normal-size paint splats at the
-  ## leading edge." Three separate elements (flat fill, stamped splat
-  ## silhouettes, a seam between them) pretending to be one substance. The
-  ## fix: the dead region is ONE LIQUID SPLAT and the boundary itself is the
-  ## art, not sprites stamped near it. `zoneMeniscusAdvance` is a smooth 2D
-  ## noise field, two octaves (a big rounded one for lobes/tongues, a small
-  ## one for texture), added to the honest rectangular distance so the
-  ## boundary bulges and tongues organically instead of tracing
-  ## `distanceOutsideRect`'s straight sides. Cosine interpolation between
-  ## lattice points is what gives the lobes their rounded (not jagged)
-  ## profile — the same idiom as map_art.nim's trenchEdgeWave, just 2D and
-  ## much lower frequency / higher amplitude, since this boundary is a
-  ## coastline, not a shovel-dug lip.
-  ZoneMeniscusCellPx = 190.0     ## big-lobe lattice spacing (120-250px band).
-  ZoneMeniscusAmpPx = 95.0       ## big-lobe displacement, px.
-  ZoneMeniscusFineCellPx = 55.0  ## second octave: texture, not new lobes.
-  ZoneMeniscusFineAmpPx = 22.0
-  ZoneMeniscusSeed = 0x2E15
-  ## The meniscus noise can shift the apparent boundary by at most
-  ## ZoneMeniscusAmpPx + ZoneMeniscusFineAmpPx either way. Past that margin
-  ## beyond the drown depth, force solid coverage regardless of noise phase
-  ## — the "no pinholes in the deep mass" guarantee the damage boundary
-  ## relies on (a tile taking zone damage must never render as clean floor),
-  ## now proven by a fixed bound instead of read off the splat math.
-  ZoneHardSolidDepthPx = ZoneDrownDepthPx * 2 +
-    ZoneMeniscusAmpPx.int + ZoneMeniscusFineAmpPx.int + 1
-  ## DROPLETS — small round advance spatter ahead of the meniscus, replacing
-  ## the old splat-with-arms marks entirely (those are weapon-hit language,
-  ## wrong scale for a flood). One per ~200px-square cell at most, radius
-  ## 6-24px, plain filled circles (no arms), placed only where the cell's
-  ## own center is outside the rect and just ahead of where the main body
-  ## has advanced.
-  ZoneDropletCellPx = 200
-  ZoneDropletMinRPx = 6.0
-  ZoneDropletMaxRPx = 24.0
-  ZoneDropletChancePct = 42
-  ## The band ahead of the meniscus where a droplet may seed, measured in
-  ## the HONEST (unwarped) distance outside the rect — a fixed, sign-
-  ## independent width rather than one that rides the meniscus noise's own
-  ## phase, so droplets get a reliable chance along the whole boundary
-  ## rather than only where a bay happens to be wide. 60px sits comfortably
-  ## inside where `effDepth <= 0` (bare floor) already commonly falls for a
-  ## zero-mean advance field, so this does not widen the bare region — it
-  ## only stops the droplet CHECK from being skipped near the honest edge.
-  ZoneDropletBandPx = 60
-  ## LIQUID FLOW — Maxwell's ruling (2026-08-25, screenshot review): "the
-  ## pink paint cant have a hard edge... the paint should spread like a
-  ## liquid, filling rooms kinda slower than the open area around it bc the
-  ## doorway is a bottleneck." The meniscus noise above only warps a
-  ## RECTANGULAR distance field — it has no notion of walls or doorways, so
-  ## a sealed room advances exactly as fast as open field at the same
-  ## straight-line depth. `ensureZoneFlowGrid`/`computeZoneFlowDist` below
-  ## compute a WALKABILITY-AWARE flood distance instead: a coarse grid over
-  ## sim.walkMask, Dijkstra'd from the current rect on every actual rect
-  ## change (the same cache-invalidation cadence ensureZoneTideCache
-  ## already pays the far more expensive per-pixel repaint for), with a
-  ## cost penalty on cells that have few walkable neighbours — a corridor
-  ## or a doorway, geometrically, since an open room cell has walkable
-  ## cells on all 8 sides and a doorway cell does not. Routing through one
-  ## of those cells costs several times a normal step, so everything
-  ## beyond the doorway inherits that one-time toll and lags the open
-  ## field around it — a real flux bottleneck, not a distance fudge. This
-  ## NEVER touches `d` (the honest, damage-keyed distanceOutsideRect) or
-  ## the hardSolid guarantee below, which both stay exactly as before:
-  ## render-only, same discipline as everything else in this file.
-  ZoneFlowCellPx = 14         ## coarse grid cell, px. MinCorridorWidth
-                              ## (arena.nim) is 26px, so the narrowest
-                              ## doorway is still ~2 cells wide — enough to
-                              ## read as distinctly narrower than an open
-                              ## room many cells across.
-  ZoneFlowOpenNeighbors = 7   ## a cell with this many (of 8) walkable
-                              ## neighbours counts as fully open: no toll.
-  ZoneFlowChokeNeighbors = 2  ## at or below this many walkable neighbours,
-                              ## the cell pays the FULL toll — a corridor or
-                              ## doorway width, not a room interior.
-  ZoneFlowChokeMult = 5.0     ## cost multiplier a fully-choked cell charges
-                              ## to enter, relative to one open step.
-  ZoneFlowNearTrustPx = 24.0  ## within this many honest px of the rect,
-                              ## the render trusts `d` alone (smooth,
-                              ## continuous, already the antialiased-edge
-                              ## input below) — the coarse grid's own
-                              ## quantization only ever matters further
-                              ## out, where a doorway toll has had room to
-                              ## accumulate.
-  ZoneFlowFarBlendPx = 90.0   ## honest px past ZoneFlowNearTrustPx at
-                              ## which the blend finishes handing off to
-                              ## the flow field entirely.
-  ## EDGE SOFTNESS + WET GLOSS — same 2026-08-25 ruling: "this looks like a
-  ## dark pink mess" traced to two literal discontinuities in the old
-  ## zoneDeadPixelColor: alpha jumped 0->255 the instant effDepth crossed
-  ## 0, and color jumped from the flat dark rim straight to fully-saturated
-  ## fresh pink the instant effDepth crossed ZoneRimWidthPx — both
-  ## one-pixel-wide seams, which is what "hard edge" and "mess" were
-  ## actually describing under the organic (but still hard-edged) meniscus
-  ## silhouette. Below, both become continuous ramps instead of branches.
-  ZoneFeatherPx = 3.0     ## antialiased leading edge, px of effDepth:
-                          ## alpha ramps 0 -> opaque across this band
-                          ## instead of snapping the instant effDepth
-                          ## crosses 0.
-  ZoneRimBlendPx = 7.0    ## how many effDepth px it takes the dark rim
-                          ## tone to hand off into the fresh-paint body
-                          ## tone, instead of jumping instantly.
-  ZoneGlossPoolCellPx = 170.0 ## wet sheen: rounded highlight pools
-                              ## scattered across the body — the same
-                              ## splotch shape advance droplets use (a
-                              ## jittered hashed disc per cell), just
-                              ## bigger/softer/sparser, off the meniscus
-                              ## lattice's own cell size so the two never
-                              ## visibly align into a grid.
-  ZoneGlossPoolMinRPx = 35.0
-  ZoneGlossPoolMaxRPx = 85.0
-  ZoneGlossPoolChancePct = 55
+## (zoneTideHash/signedDistanceOutsideRect and round 2's meniscus/droplet/
+## flow-blend const block were deleted with the layers that read them — see
+## the architecture doc above. roundedRectSignedDist/zoneMeniscusHash/
+## zoneMeniscusOctave below survive: still the right primitives for the
+## field's geometric baseline and its lobe-noise/tone octaves.)
 
 proc zoneMeniscusHash(seed, kx, ky: int): float {.inline.} =
   ## Deterministic 2D lattice noise in [-1, 1] — a pure function of its
@@ -6676,390 +6795,154 @@ proc zoneMeniscusOctave(px, py, cellPx: float, seed: int): float =
     nx1 = n01 + (n11 - n01) * sx
   nx0 + (nx1 - nx0) * sy
 
-proc zoneMeniscusAdvance(px, py: float): float =
-  ## How far the meniscus has advanced past the honest rect distance at map
-  ## point (px, py), px, + = further advanced (drowned sooner). Two octaves
-  ## only, per Maxwell's ruling — a third would start reading as grain
-  ## rather than lobes.
-  zoneMeniscusOctave(px, py, ZoneMeniscusCellPx, ZoneMeniscusSeed) *
-    ZoneMeniscusAmpPx +
-  zoneMeniscusOctave(px, py, ZoneMeniscusFineCellPx,
-    ZoneMeniscusSeed xor 0x51) * ZoneMeniscusFineAmpPx
+proc smoothRamp01(t: float): float {.inline.} =
+  ## Hermite smoothstep, clamped to [0, 1] first: 0 at t<=0, 1 at t>=1,
+  ## zero SLOPE at both ends (unlike `clamp(t, 0.0, 1.0)` alone, which has
+  ## a slope discontinuity — a real kink — right at the two clamp
+  ## boundaries). Used wherever a physical quantity ramps smoothly across
+  ## a threshold (a choke's own viscosity, see zoneSpeedFieldAt) instead of
+  ## snapping a straight line onto a hard floor/ceiling.
+  let c = clamp(t, 0.0, 1.0)
+  c * c * (3.0 - 2.0 * c)
 
-proc zoneDropletCellHash(seed, cx, cy: int): uint32 {.inline.} =
-  ## Deterministic per-cell hash for droplet placement — the same unsigned
-  ## FNV-ish idiom every other cell-keyed feature in this file uses (this is
-  ## what zoneSplatHash used to be before the splat-frontier removal).
-  ## Deliberately NOT `zoneMeniscusHash`'s output rescaled into an int: that
-  ## proc already truncates its internal 32-bit mix down to 16 bits before
-  ## returning a float (it only needs to be a smooth noise VALUE), and
-  ## multiply-by-1e6-and-cast does not put fresh entropy back — four fields
-  ## (chance, jx, jy, r) derived from different bit ranges of THAT would be
-  ## correlated. This is a fresh 32-bit mix with entropy across every bit.
-  var h = uint32(seed) * 0x9E3779B1'u32 xor
-    uint32(cx) * 374761393'u32 xor uint32(cy) * 668265263'u32
-  h = (h xor (h shr 13)) * 1274126177'u32
-  h xor (h shr 16)
-
-proc zoneCellSplotchAt(
-  qx, qy: float, cellSeed: int, cellPx, minRPx, maxRPx: float, chancePct: int
-): tuple[hit: bool, a: float] =
-  ## Scans the 3x3 neighbourhood of `cellPx`-square cells around (qx, qy)
-  ## for a small round splotch covering this point — shared shape math for
-  ## both advance droplets (ahead of the meniscus, via zoneDropletAt below)
-  ## and the body's wet sheen pools (zoneDeadPixelColor): a jittered
-  ## center, a hashed radius in [minRPx, maxRPx], a per-cell hashed chance
-  ## of even existing, soft 1.5px antialiased edge so it reads round, not a
-  ## hard disc.
-  result = (false, 0.0)
+proc roundedRectSignedDist*(rect: MapRect, cornerR, px, py: float): float =
+  ## Signed distance (px) from map point (px, py) to `rect`'s boundary with
+  ## its corners rounded to radius `cornerR` — negative inside, 0 on the
+  ## boundary, positive outside. Standard 2D "rounded box" SDF. Plain
+  ## Chebyshev distance (distanceOutsideRect) has perfectly SQUARE
+  ## isolines even after round 1's meniscus noise perturbed them — additive
+  ## noise jitters a square's edge, it does not round its CORNER, which is
+  ## exactly why Maxwell's round-2 review still read "a hard rectangle
+  ## edge" despite an up-to-117px warp. This actually rounds it. Provably
+  ## within `cornerR` of the sharp-box distance everywhere (0 far from any
+  ## corner, at most `cornerR` right at one) — see ZoneHardSolidDepthPx's
+  ## derivation, which relies on that bound.
   let
-    baseCx = floor(qx / cellPx).int
-    baseCy = floor(qy / cellPx).int
-  for oy in -1 .. 1:
-    for ox in -1 .. 1:
-      let
-        cx = baseCx + ox
-        cy = baseCy + oy
-        h = zoneDropletCellHash(cellSeed, cx, cy)
-      if int(h mod 100'u32) >= chancePct:
-        continue
-      let
-        cellCx = (float(cx) + 0.5) * cellPx
-        cellCy = (float(cy) + 0.5) * cellPx
-        jx = cellCx + (float(int((h shr 3) mod 997'u32)) / 997.0 - 0.5) * cellPx * 0.7
-        jy = cellCy + (float(int((h shr 15) mod 997'u32)) / 997.0 - 0.5) * cellPx * 0.7
-        r = minRPx +
-          (float(int((h shr 24) mod 101'u32)) / 100.0) * (maxRPx - minRPx)
-        dx = qx - jx
-        dy = qy - jy
-        dist = sqrt(dx * dx + dy * dy)
-      if dist >= r:
-        continue
-      let a = clamp((r - dist) / 1.5, 0.0, 1.0)
-      if a > result.a:
-        result = (true, a)
+    hw = float(rect.w) * 0.5
+    hh = float(rect.h) * 0.5
+    cx = float(rect.x) + hw
+    cy = float(rect.y) + hh
+    qx = abs(px - cx) - hw + cornerR
+    qy = abs(py - cy) - hh + cornerR
+    ax = max(qx, 0.0)
+    ay = max(qy, 0.0)
+  sqrt(ax * ax + ay * ay) + min(max(qx, qy), 0.0) - cornerR
 
-proc zoneDropletAt(qx, qy: float, cellSeed: int): tuple[hit: bool, a: float] =
-  ## Advance spatter ahead of the meniscus. The caller only invokes this
-  ## where the query point itself is already outside the rect and ahead of
-  ## the meniscus, so a droplet can never render inside the safe area.
-  zoneCellSplotchAt(qx, qy, cellSeed, float(ZoneDropletCellPx),
-    ZoneDropletMinRPx, ZoneDropletMaxRPx, ZoneDropletChancePct)
-
-var
-  ZoneFlowGridKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
-  ZoneFlowGridW, ZoneFlowGridH: int
-  ZoneFlowWalkable: seq[bool]      ## per coarse cell, static per map.
-  ZoneFlowEnterCost: seq[float32]  ## per coarse cell, the px cost of one
-                                   ## orthogonal step INTO this cell —
-                                   ## ZoneFlowCellPx normally, several
-                                   ## times that at a choke. Static per map.
-  ZoneFlowDist: seq[float32]       ## per coarse cell, px-scale flood
-                                   ## distance from the CURRENT rect
-                                   ## through walkable space. Rebuilt
-                                   ## alongside the tide cache, same
-                                   ## (center, rect) cadence.
-
-proc ensureZoneFlowGrid(sim: SimServer) =
-  ## Static per-map coarse walkability + choke-cost grid (see the LIQUID
-  ## FLOW note above). Same cache idiom as ensureZoneWallArtMask: keyed on
-  ## (map dims, center), a no-op past the first call for a given map.
-  let
-    w = sim.gameMap.width
-    h = sim.gameMap.height
-    cx = sim.gameMap.center.x
-    cy = sim.gameMap.center.y
-    key = (w: w, h: h, cx: cx, cy: cy)
-    gw = (w + ZoneFlowCellPx - 1) div ZoneFlowCellPx
-    gh = (h + ZoneFlowCellPx - 1) div ZoneFlowCellPx
-  if key == ZoneFlowGridKey and ZoneFlowWalkable.len == gw * gh:
-    return
-  ZoneFlowGridKey = key
-  ZoneFlowGridW = gw
-  ZoneFlowGridH = gh
-  let
-    haveWalk = sim.walkMask.len == w * h
-    haveWall = sim.wallMask.len == w * h
-  proc walkableAtPx(px, py: int): bool =
-    if px < 0 or py < 0 or px >= w or py >= h:
-      return false
-    let i = py * w + px
-    if haveWalk: sim.walkMask[i]
-    elif haveWall: not sim.wallMask[i]
-    else: true
-  ZoneFlowWalkable = newSeq[bool](gw * gh)
-  for gy in 0 ..< gh:
-    let py = min(h - 1, gy * ZoneFlowCellPx + ZoneFlowCellPx div 2)
-    for gx in 0 ..< gw:
-      let px = min(w - 1, gx * ZoneFlowCellPx + ZoneFlowCellPx div 2)
-      ZoneFlowWalkable[gy * gw + gx] = walkableAtPx(px, py)
-  ZoneFlowEnterCost = newSeq[float32](gw * gh)
-  for gy in 0 ..< gh:
-    for gx in 0 ..< gw:
-      let idx = gy * gw + gx
-      if not ZoneFlowWalkable[idx]:
-        ZoneFlowEnterCost[idx] = float32(ZoneFlowCellPx) * float32(ZoneFlowChokeMult)
-        continue
-      var openN = 0
-      for oy in -1 .. 1:
-        for ox in -1 .. 1:
-          if ox == 0 and oy == 0:
-            continue
-          let
-            nx = gx + ox
-            ny = gy + oy
-          if nx >= 0 and ny >= 0 and nx < gw and ny < gh and
-              ZoneFlowWalkable[ny * gw + nx]:
-            inc openN
-      let t = clamp(
-        (float(ZoneFlowOpenNeighbors) - float(openN)) /
-          float(max(1, ZoneFlowOpenNeighbors - ZoneFlowChokeNeighbors)),
-        0.0, 1.0)
-        # 1.0 at/under ZoneFlowChokeNeighbors open, 0.0 at/over
-        # ZoneFlowOpenNeighbors open — a corridor/doorway cell has few
-        # walkable neighbours (walls hem it in on most sides), a room or
-        # open-field cell has almost all 8.
-      ZoneFlowEnterCost[idx] =
-        float32(ZoneFlowCellPx) * float32(1.0 + t * (ZoneFlowChokeMult - 1.0))
-
-type ZoneFlowQItem = tuple[dist: float32, idx: int]
-proc `<`(a, b: ZoneFlowQItem): bool {.inline.} = a.dist < b.dist
-
-proc computeZoneFlowDist(sim: SimServer, rect: MapRect) =
-  ## Multi-source Dijkstra from every coarse cell whose CENTER lies inside
-  ## the current rect (distance 0), through ZoneFlowWalkable using
-  ## ZoneFlowEnterCost edge weights — see the LIQUID FLOW note above.
-  ## Static grid, dynamic source: this is the part that actually depends
-  ## on the rect, so it only reruns when ensureZoneTideCache's own
-  ## (center, rect) key changes — the caller (ensureZoneTideCache) is the
-  ## one already gating that, this proc does not re-check it.
-  ensureZoneFlowGrid(sim)
-  let
-    gw = ZoneFlowGridW
-    gh = ZoneFlowGridH
-  if gw <= 0 or gh <= 0:
-    ZoneFlowDist = @[]
-    return
-  ZoneFlowDist = newSeq[float32](gw * gh)
-  for i in 0 ..< ZoneFlowDist.len:
-    ZoneFlowDist[i] = Inf.float32
-  var pq = initHeapQueue[ZoneFlowQItem]()
-  for gy in 0 ..< gh:
-    let py = min(sim.gameMap.height - 1,
-      gy * ZoneFlowCellPx + ZoneFlowCellPx div 2)
-    for gx in 0 ..< gw:
-      let idx = gy * gw + gx
-      if not ZoneFlowWalkable[idx]:
-        continue
-      let px = min(sim.gameMap.width - 1,
-        gx * ZoneFlowCellPx + ZoneFlowCellPx div 2)
-      if px >= rect.x and px <= rect.x + rect.w - 1 and
-          py >= rect.y and py <= rect.y + rect.h - 1:
-        ZoneFlowDist[idx] = 0.0'f32
-        pq.push((dist: 0.0'f32, idx: idx))
-  const StepDiag = 1.41421356'f32
-  while pq.len > 0:
-    let (d, idx) = pq.pop()
-    if d > ZoneFlowDist[idx]:
-      continue                          # stale heap entry, already beaten
-    let
-      gx = idx mod gw
-      gy = idx div gw
-    for oy in -1 .. 1:
-      for ox in -1 .. 1:
-        if ox == 0 and oy == 0:
-          continue
-        let
-          nx = gx + ox
-          ny = gy + oy
-        if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
-          continue
-        let nidx = ny * gw + nx
-        if not ZoneFlowWalkable[nidx]:
-          continue
-        let
-          stepMult = (if ox != 0 and oy != 0: StepDiag else: 1.0'f32)
-          nd = d + stepMult * ZoneFlowEnterCost[nidx]
-        if nd < ZoneFlowDist[nidx]:
-          ZoneFlowDist[nidx] = nd
-          pq.push((dist: nd, idx: nidx))
-
-proc sampleZoneFlowDepth(px, py: int): tuple[has: bool, depth: float] {.inline.} =
-  ## Bilinear sample of ZoneFlowDist at map pixel (px, py) — smooths the
-  ## coarse grid's own quantization into a continuous field so it can
-  ## blend against the honest per-pixel `d` without banding. Returns
-  ## has=false wherever any of the 4 surrounding cells was never reached
-  ## (an isolated pocket, or simply off the grid) so the caller falls back
-  ## to the honest distance rather than inventing a number.
-  if ZoneFlowGridW <= 0 or ZoneFlowGridH <= 0 or ZoneFlowDist.len == 0:
-    return (false, 0.0)
-  let
-    fx = float(px) / float(ZoneFlowCellPx) - 0.5
-    fy = float(py) / float(ZoneFlowCellPx) - 0.5
-    gx0 = floor(fx).int
-    gy0 = floor(fy).int
-    tx = fx - float(gx0)
-    ty = fy - float(gy0)
-  var
-    acc = 0.0
-    wsum = 0.0
-  for oy in 0 .. 1:
-    for ox in 0 .. 1:
-      let
-        gx = clamp(gx0 + ox, 0, ZoneFlowGridW - 1)
-        gy = clamp(gy0 + oy, 0, ZoneFlowGridH - 1)
-        idx = gy * ZoneFlowGridW + gx
-      if idx < 0 or idx >= ZoneFlowDist.len:
-        return (false, 0.0)
-      let d = ZoneFlowDist[idx]
-      if d == Inf.float32:
-        return (false, 0.0)
-      let
-        wx = (if ox == 0: 1.0 - tx else: tx)
-        wy = (if oy == 0: 1.0 - ty else: ty)
-        wt = wx * wy
-      acc += float(d) * wt
-      wsum += wt
-  if wsum <= 0.0:
-    return (false, 0.0)
-  (true, acc / wsum)
-
-proc zoneFlowBlendedDepth(d: int, fx, fy: float): float {.inline.} =
-  ## Blends the honest distance `d` with the walkability-aware flow depth:
-  ## trusted alone within ZoneFlowNearTrustPx of the rect (smooth,
-  ## continuous, the antialiased-edge input downstream), handing off to
-  ## the flow field over the next ZoneFlowFarBlendPx so a room behind a
-  ## doorway can lag the open field around it. Falls back to `d` alone
-  ## wherever the flow grid never reached this pixel.
+proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect,
+    shapeW, shapeH: float): tuple[a, b: float] =
+  ## Where (px, py) sits ALONG THE FRONT that will pass through it — as a
+  ## point on a CLOSED LOOP in the noise's own 2D domain, whose
+  ## circumference equals that front's own perimeter. This is the
+  ## coordinate zoneBoundaryFingerDelayAt's octaves read, so a stated 160px
+  ## finger wavelength means 160px measured along the front.
   ##
-  ## Skips the bilinear sample entirely inside the near-trust band (a real
-  ## per-pixel cost over up to the whole board on a late shrink tick — see
-  ## BR_FINAL_MATCH_REPORT.md's perf section): the blend weight is exactly
-  ## 0 there regardless of what the sample would say, so there is nothing
-  ## for it to contribute yet.
-  if d <= int(ZoneFlowNearTrustPx):
-    return float(d)
-  let sample = sampleZoneFlowDepth(int(fx), int(fy))
-  if not sample.has:
-    return float(d)
-  let w = clamp(
-    (float(d) - ZoneFlowNearTrustPx) / ZoneFlowFarBlendPx, 0.0, 1.0)
-  float(d) * (1.0 - w) + sample.depth * w
-
-proc zoneDeadPixelColor(rect: MapRect, px, py, d: int): ColorRGBA =
-  ## One pixel of the DEAD region: ONE liquid splat whose boundary is the
-  ## art (a meniscus, a rim, a body — see the consts above), not stamped
-  ## sprites near an otherwise straight rectangular edge. Two 2026-08-25
-  ## fixes on top of the meniscus (1942c17): the boundary's WALK-AWARE
-  ## depth (zoneFlowBlendedDepth — a room behind a doorway lags the open
-  ## field around it) and a continuous, antialiased gradient (feather ->
-  ## rim -> fresh -> drowned, one function of effDepth, no discrete-color
-  ## or discrete-alpha jump anywhere in it) in place of the old flat-color
-  ## rim with an instant alpha edge.
+  ## `rect` supplies the CENTRE the family shrinks about; (shapeW, shapeH)
+  ## supply its SHAPE — the board's own width and height, the pair
+  ## zoneRectAtScale scales every rect in the family from. They are separate
+  ## parameters because at the schedule's terminal z the rect is a couple of
+  ## integer pixels and no longer carries its own aspect; see DEGENERATE
+  ## EXTENTS below, which is the whole reason this signature has them.
   ##
-  ## `d` is the honest `distanceOutsideRect` (the caller already skips
-  ## d <= 0, so this is always > 0 here) — the gameplay-relevant, damage-
-  ## keyed distance. It alone still gates `hardSolid`: the "no pinholes the
-  ## damage boundary can walk into" guarantee must hold regardless of what
-  ## the flow field says about any one pocket, so it is never touched by
-  ## zoneFlowBlendedDepth or zoneMeniscusAdvance — both only ever reshape
-  ## WHICH outside pixels look further/less advanced; a pixel with d <= 0
-  ## is never reached at all, so the safe rect's floor stays exactly as
-  ## clean as before.
-  let fx = float(px)
-  let fy = float(py)
-  # Deep interior: always fully opaque, regardless of noise/flow phase —
-  # the "no pinholes" guarantee, a fixed bound (ZoneHardSolidDepthPx safely
-  # exceeds the noise's max amplitude) rather than something read off
-  # splat coverage. Tonal variation and gloss still apply so the deep body
-  # is not a flat card.
-  let hardSolid = d >= ZoneHardSolidDepthPx
-  let effDepth =
-    if hardSolid: float(ZoneDrownDepthPx) * 2.0
-    else: zoneFlowBlendedDepth(d, fx, fy) + zoneMeniscusAdvance(fx, fy)
-  if not hardSolid and effDepth <= -ZoneFeatherPx:
-    # Ahead of any wetness: bare floor, except for sparse advance droplets.
-    let drop = zoneDropletAt(fx, fy, ZoneMeniscusSeed xor 0x77)
-    if drop.hit:
-      return rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b,
-        uint8(drop.a * float(ZoneSplatPaint.a)))
-    return rgba(0, 0, 0, 0)
-  if not hardSolid and effDepth <= ZoneRimWidthPx:
-    # Feather + rim, ONE continuous alpha ramp from fully transparent at
-    # -ZoneFeatherPx to fully opaque dark rim at ZoneRimWidthPx — no jump
-    # anywhere in this band, which is the "hard edge" fix. A droplet ahead
-    # of or inside the feather composites OVER the wash, never instead of
-    # it, so a drip is never erased by the wash arriving under it later.
-    let t = clamp((effDepth + ZoneFeatherPx) /
-      (ZoneFeatherPx + ZoneRimWidthPx), 0.0, 1.0)
-    var wash = rgba(ZoneRimColor.r, ZoneRimColor.g, ZoneRimColor.b,
-      uint8(float(ZoneRimColor.a) * t))
-    if effDepth < 0.0:
-      let drop = zoneDropletAt(fx, fy, ZoneMeniscusSeed xor 0x77)
-      if drop.hit:
-        let da = uint8(drop.a * float(ZoneSplatPaint.a))
-        if da > wash.a:
-          wash = rgba(ZoneSplatPaint.r, ZoneSplatPaint.g, ZoneSplatPaint.b, da)
-    return wash
-  # Body (also reached for hardSolid, which skips both branches above):
-  # the rim tone hands off into fresh pink over ZoneRimBlendPx — was an
-  # instant color jump right behind the first hard edge — then ramps to
-  # drowned purple by twice the drown depth exactly as before. One
-  # continuous function of effDepth throughout, so there is no seam left
-  # in it anywhere.
+  ## THE FAMILY MATTERS (Fable's audit, 2026-08-25 — this is the second
+  ## and load-bearing correction). The zone's rect shrinks by a HOMOTHETY:
+  ## w = W*z and h = H*z about the drawn centre, so successive fronts are
+  ## SCALED copies of one another. They are NOT offset/eroded copies. Two
+  ## earlier parameterizations both assumed the offset family — the base
+  ## rect's own perimeter (12cbd6d) and then the level-set/offset curve
+  ## through the point — and both inherit that family's defect: the arc
+  ## position of a far exterior point is R*(theta + PI/2), and as the point
+  ## moves outward along a line, R grows while (theta + PI/2) shrinks, so
+  ## the two very nearly CANCEL. Measured offline against the real
+  ## showmatch geometry, the offset-curve coordinate leaves a 408px stretch
+  ## of the sampled right edge flat to within 1px (the harness measured
+  ## 468px on the real thing — the model agrees), and its derivative even
+  ## changes SIGN in the far field, which is a fold: two different places
+  ## on one front reading the same noise, i.e. a manufactured kink.
+  ##
+  ## A homothetic family has no such degeneracy. Normalizing by the rect's
+  ## own half-extents (that is, by the SHAPE — see below), zp = max(|u|,
+  ## |v|) IS the scale of the front through p (exact for a sharp-cornered
+  ## rect, and ZoneCornerRoundPx = 16 is negligible against any real rect),
+  ## and theta = atan2(v, u) is that front's own angular parameter —
+  ## continuous everywhere outside the centre, monotone along every edge, no
+  ## quadrant cases at all.
+  ##
+  ## Sampling on a LOOP rather than by scalar arc length is what removes
+  ## the last seam: any scalar "distance around the perimeter" has a branch
+  ## cut where it wraps, and a branch cut on a flat edge is exactly the
+  ## discontinuity this whole line of work has been chasing. Feeding the
+  ## octave a point on a circle of circumference = perimeter instead makes
+  ## the coordinate closed by construction — arc length along that circle
+  ## equals arc length along the front, and there is nowhere to wrap. It
+  ## also gives the fingers the right behaviour through a shrink: they stay
+  ## attached to their own theta, so a lobe persists as a material feature
+  ## of the front and contracts with it, instead of sliding along it.
+  ##
+  ## Measured offline (same model that reproduced the 468px defect):
+  ## right edge 84px longest flat run, top edge 124px, versus 408px and
+  ## 160px for the offset curve.
+  ##
+  ## DEGENERATE EXTENTS, AND WHY THE SHAPE CANNOT COME FROM `rect`
+  ## (2026-08-26, with the close-to-nothing schedule). The schedule now runs
+  ## the rect down to the smallest scale the config allows instead of
+  ## holding at a terminal room, so the rect the CALLER has is a few px on a
+  ## side — 1x1 on the 1235x659 test board, 3x1 on the real 3211x1713
+  ## showmatch map. An earlier pass floored hw/hh at 1.0 each to keep the
+  ## normalization finite, which is safe but is NOT enough, because the
+  ## floor is applied to each axis INDEPENDENTLY and therefore destroys the
+  ## one thing this coordinate is built out of: the family's ASPECT.
+  ##
+  ## THE CONTRACT THAT BREAKS. This proc exists so that "a stated 160px
+  ## finger wavelength means 160px measured ALONG THE FRONT" — i.e. so that
+  ## |d(loop)/ds| == 1 for a 1px step along the front, everywhere on the
+  ## loop. That holds only when (hw, hh) is proportional to the family's
+  ## true (W, H). Floored to (1, 1) on a 1.874:1 board the assumed family
+  ## becomes SQUARES, and the metric stops being 1: MEASURED before this
+  ## fix, |d(loop)/ds| ranged 0.648..1.424 around a mid-schedule front on
+  ## the small map (a 2.20x spread) and 0.546..1.756 on the real showmatch
+  ## map (3.22x). The stated 160px octave was therefore landing anywhere
+  ## from 91px to 293px along the real front — and since a turning-angle
+  ## bound derived from that wavelength scales as its INVERSE SQUARE, the
+  ## paint could legitimately bend up to 3.1x harder than check #7's term A
+  ## priced, purely because of this. That is a self-inflicted regression of
+  ## the close-to-zero schedule itself: at the old terminal 385x205 rect the
+  ## floor never bound and the contract held.
+  ##
+  ## THE FIX IS EXACT, NOT A WIDER FLOOR. The loop coordinate is INVARIANT
+  ## to which member of the family supplies the normalization, for a fixed
+  ## centre: with (hw, hh) = k*(W/2, H/2) the scale reads zp = s/k, the
+  ## perimeter reads 4*(hw + hh)*zp = 2*(W + H)*s — k cancels — and theta is
+  ## k-free outright. So the shape can be taken from the family's FULL-SCALE
+  ## member (the board's own W and H, which is exactly what zoneRectAtScale
+  ## scales every rect from) while the CENTRE still comes from `rect`, and
+  ## the result is precisely what a non-degenerate `rect` would have given.
+  ## No floor can bind, at any z, because W and H are the board's.
+  ##
+  ## The centre is taken as the rect's own true centre in float. It is not
+  ## floored either: flooring it moved the whole loop origin by half a pixel
+  ## at a 1px rect for no reason.
   let
-    handoffT = clamp((effDepth - ZoneRimWidthPx) / ZoneRimBlendPx, 0.0, 1.0)
-    rampT = clamp(
-      (effDepth - ZoneRimWidthPx - ZoneRimBlendPx) /
-        (float(ZoneDrownDepthPx) * 2.0 - ZoneRimWidthPx - ZoneRimBlendPx),
-      0.0, 1.0)
-    freshR = float(ZoneSplatPaint.r) * (1.0 - rampT) + float(ZoneDrownPaint.r) * rampT
-    freshG = float(ZoneSplatPaint.g) * (1.0 - rampT) + float(ZoneDrownPaint.g) * rampT
-    freshB = float(ZoneSplatPaint.b) * (1.0 - rampT) + float(ZoneDrownPaint.b) * rampT
-    freshA = float(ZoneSplatPaint.a) * (1.0 - rampT) + float(ZoneDrownPaint.a) * rampT
-    baseR = uint8(float(ZoneRimColor.r) * (1.0 - handoffT) + freshR * handoffT)
-    baseG = uint8(float(ZoneRimColor.g) * (1.0 - handoffT) + freshG * handoffT)
-    baseB = uint8(float(ZoneRimColor.b) * (1.0 - handoffT) + freshB * handoffT)
-    baseA = uint8(float(ZoneRimColor.a) * (1.0 - handoffT) + freshA * handoffT)
-  var color = rgba(baseR, baseG, baseB, baseA)
-  # Low-frequency tonal variation across the whole body (deep mass
-  # included, via a THIRD, independently-seeded octave that never touches
-  # alpha/coverage — only how bright a given patch of liquid reads).
+    hw = max(1e-6, shapeW * 0.5)
+    hh = max(1e-6, shapeH * 0.5)
+    u = (px - (float(rect.x) + float(rect.w) * 0.5)) / hw
+    v = (py - (float(rect.y) + float(rect.h) * 0.5)) / hh
+    zp = max(abs(u), abs(v))
+  if zp < 1e-9:
+    return (0.0, 0.0)
   let
-    tone = zoneMeniscusOctave(fx, fy, ZoneMeniscusCellPx * 1.4,
-      ZoneMeniscusSeed xor 0x9C)
-    toneGain = 1.0 + tone * 0.16
-  color = rgba(
-    uint8(clamp(float(color.r) * toneGain, 0.0, 255.0)),
-    uint8(clamp(float(color.g) * toneGain, 0.0, 255.0)),
-    uint8(clamp(float(color.b) * toneGain, 0.0, 255.0)),
-    color.a)
-  # Wet sheen: rounded highlight pools scattered across the body (the same
-  # splotch shape advance droplets use, just bigger/softer/sparser) rather
-  # than one elongated streak — Maxwell (2026-08-25): "the puddles look
-  # more wet than this" is the bar, and map_art.nim's own
-  # puddleArtColorAt earns its wet read from a rounded off-center
-  # highlight, not a smear.
-  let pool = zoneCellSplotchAt(fx, fy, ZoneMeniscusSeed xor 0xC3,
-    ZoneGlossPoolCellPx, ZoneGlossPoolMinRPx, ZoneGlossPoolMaxRPx,
-    ZoneGlossPoolChancePct)
-  if pool.hit:
-    let g = pool.a * (float(ZoneGlossTint.a) / 255.0)
-    color = rgba(
-      uint8(float(color.r) * (1.0 - g) + float(ZoneGlossTint.r) * g),
-      uint8(float(color.g) * (1.0 - g) + float(ZoneGlossTint.g) * g),
-      uint8(float(color.b) * (1.0 - g) + float(ZoneGlossTint.b) * g),
-      color.a)
-    # A small brighter hot-spot right at a strong pool's own center — the
-    # specular catch-light that sells "wet" over "painted".
-    if pool.a > 0.7:
-      let hs = (pool.a - 0.7) / 0.3 * 0.5
-      color = rgba(
-        uint8(clamp(float(color.r) * (1.0 - hs) + 255.0 * hs, 0.0, 255.0)),
-        uint8(clamp(float(color.g) * (1.0 - hs) + 245.0 * hs, 0.0, 255.0)),
-        uint8(clamp(float(color.b) * (1.0 - hs) + 250.0 * hs, 0.0, 255.0)),
-        color.a)
-  color
+    theta = arctan2(v, u)
+    perim = 4.0 * (hw + hh) * zp
+    r = perim / (2.0 * PI)
+  (r * cos(theta), r * sin(theta))
+
+## (zoneDropletCellHash/zoneCellSplotchAt/zoneDropletAt/zoneBodyLobeAdvanceAt/
+## zoneToneAdvanceAt/zoneDrownedColorAt, ensureZoneFlowGrid/computeZoneFlowDist/
+## sampleZoneFlowDepth/zoneFlowBlendedDepth, and zoneDeadPixelColor were all
+## deleted here — round 2's PER-RECT confetti frontier, marble tone and
+## per-tick Dijkstra. Their replacements (ensureZoneFloorGrid,
+## computeZoneFlowTimeToFinal, ensureZoneArrivalField) live below
+## isZoneWallArt, and compute a STATIC field once per episode instead of a
+## fresh flood/repaint on every rect change.
 
 proc ensureZoneWallArtMask(sim: SimServer) =
   ## Precomputes, once per map, which pixels are covered by RENDERED wall
@@ -7114,146 +6997,1141 @@ proc isZoneWallArt(x, y: int): bool {.inline.} =
     return true
   ZoneWallArtMask[y * ZoneWallArtMaskW + x]
 
-proc buildTideBarPixels(
-  sim: SimServer, rect: MapRect, barX, barY, width, height: int
-): seq[uint8] =
-  ## Builds one edge bar's RGBA buffer by painting every pixel strictly
-  ## outside `rect` with zoneDeadPixelColor. The four bars together tile the
-  ## rect's complement exactly, so "everything outside is painted" is a
-  ## property of the tiling, not of any per-pixel formula.
-  ##
-  ## No tick and no side index any more: the paint is a function of MAP
-  ## position and the rect alone, which is what makes a splat that has
-  ## appeared stay exactly as it is.
-  ##
-  ## Maxwell (2026-08-24, screenshot of the recorded match): "the terrain
-  ## should be on top of the paint too just like with puddles. it covers the
-  ## ground." Puddles get this for free — puddleArtColorAt only ever runs in
-  ## the FLOOR branch of the one-time static bake (renderArenaRgbaPair skips
-  ## it entirely wherever the wall art-mask is set), so a wall pixel is never
-  ## touched. The zone flood can't use that trick: it is a live sprite object
-  ## re-sent as the rect shrinks, necessarily composited AFTER (on top of)
-  ## that already-baked static texture, wall art included. The fix has the
-  ## same effect through the opposite mechanism: skip painting — leave the
-  ## pixel fully transparent — wherever `isZoneWallArt` says RENDERED wall
-  ## art already owns this tile, so the pre-baked wall art shows through
-  ## untouched. This is render-only: it changes what the sprite's own pixels
-  ## say, never the rect, the damage boundary, or anything that feeds
-  ## gameHash, so no re-record is needed for it.
-  ##
-  ## Deliberately `isZoneWallArt` (the cached ART mask, matching
-  ## renderArenaRgbaPair pixel-for-pixel), not `sim.isWall`/wallMask (the
-  ## PHYSICS collision mask, baked from a separately-rasterized image): a
-  ## first pass used the collision mask and a pixel-sampled screenshot
-  ## review caught it not lining up with a rooftop bevel or parapet drawn
-  ## past the collidable core, so most of a wall's visible footprint was
-  ## still reading as painted magenta rather than its own brown.
-  result = newRgbaPixels(width, height)
-  for ly in 0 ..< height:
-    let py = barY + ly
-    for lx in 0 ..< width:
-      let
-        px = barX + lx
-        d = distanceOutsideRect(rect, px, py)
-      if d <= 0:
-        continue
-      if isZoneWallArt(px, py):
-        continue
-      let color = zoneDeadPixelColor(rect, px, py, d)
-      if color.a == 0:
-        continue
-      result.putRawRgbaPixel(
-        ly * width + lx, color.r, color.g, color.b, color.a)
+var
+  ZoneFloorGridKey: tuple[w, h, cx, cy: int] = (-1, -1, -1, -1)
+  ZoneFloorGridW, ZoneFloorGridH: int
+  ZoneFloorWalkable: seq[bool]        ## per coarse cell: sim.walkMask at the
+                                      ## cell center — TRUE floor (D4a), never
+                                      ## rendered art.
+  ZoneFloorWallDistPx: seq[float32]   ## px from cell center to the nearest
+                                      ## TRUE (collision) wall cell, via an
+                                      ## unweighted BFS over this same grid —
+                                      ## feeds wallDrag and the art-overhang
+                                      ## dilation bound below.
+  ZoneFloorPaintable: seq[bool]       ## walkable AND not swallowed by a
+                                      ## nearby wall-ART overhang — see
+                                      ## ZoneArtOverhangMaxPx. This is the
+                                      ## D4a fix: round 2's isZoneWallArt
+                                      ## alone could hide a whole interior;
+                                      ## here it only dilates a few px past a
+                                      ## TRUE wall.
+  ZoneFloorRoomId: seq[int]          ## -1 = exterior world or a narrow
+                                      ## aperture (its own honest rect-
+                                      ## crossing tick is a trustworthy
+                                      ## direct fast-march source); >=0 = an
+                                      ## interior room's component id (its
+                                      ## arrival may ONLY come from marching
+                                      ## in through the room's own door —
+                                      ## see computeZoneFrontierField's
+                                      ## seeding rule and the research notes
+                                      ## on why a raw geometric distance
+                                      ## comparison can't tell "genuinely
+                                      ## open" from "another cell in the
+                                      ## same sealed room, marginally less
+                                      ## dead" apart).
 
-proc ensureZoneTideCache(sim: SimServer, rect: MapRect): bool {.discardable.} =
-  ## Rebuilds the four tide-bar pixel buffers when (center, rect) actually
-  ## CHANGES and caches them at module scope — addZoneEdgeBand runs once per
-  ## CONNECTED VIEWER per tick (board stream plus every player stream), and
-  ## without this cache each of those calls would redo the same flood-fill
-  ## computation. Same pattern as EndzoneStripCache/EndzoneColdRgba above:
-  ## process-local cosmetic cache, never gameHash, never SimServer state.
-  ## Returns true on an actual rebuild (a cache MISS), false on a hit, so
-  ## the caller can propagate an honest `changed` flag to the wire instead
-  ## of claiming "changed" on every call.
-  ##
-  ## Maxwell (2026-08-24): "the replay is way too laggy to watch." The key
-  ## used to include `sim.tickCount`, which is a DIFFERENT value on every
-  ## single tick by definition — so despite the doc claiming "once per
-  ## (tick, center, rect)", this was a cache that could only ever hit
-  ## WITHIN one tick (deduping multiple viewers), never ACROSS ticks, even
-  ## during a zonePhases "wait" window where the rect sits perfectly still
-  ## for hundreds of ticks (roughly half the match's duration, see
-  ## record_br_match.sh's waitTicks/shrinkTicks table). That meant the full
-  ## multi-octave meniscus repaint — up to the whole board's worth of
-  ## pixels — ran EVERY tick, for nothing: the design's own stated
-  ## invariant is that identical (center, rect) always produces identical
-  ## pixels ("a splat that has appeared stay exactly as it is"), which is
-  ## exactly what a (center, rect)-only key gives for free. Tick was never
-  ## load-bearing for correctness — the same-numbers-from-a-different-game
-  ## worry the old comment raised is already covered by (center, rect)
-  ## matching, and if it ever did coincide, the cached pixels would be
-  ## correct for that geometry by the same invariant, not stale.
-  ##
-  ## Each bar spans EXACTLY the strip strictly outside the current rect on
-  ## its side, all the way to the map's own edge — the top/bottom bars run
-  ## the map's full width (including the corners, like the v2 band did);
-  ## the left/right bars are sandwiched to the rect's own height so the
-  ## four strips exactly tile the rect's complement with no overlap and no
-  ## gap, however far the rect has shrunk. This — not any per-pixel
-  ## formula — is what makes the flood cover "at least everything outside
-  ## the rect": the bars ARE that region, unbounded. `max(0, ...)` clamps
-  ## any bar an off-center EARLY-phase rect would otherwise push off-board
-  ## (see resetZone's doc: only the FINAL phase's rect is guaranteed
-  ## on-board) down to an empty, harmless strip instead of a negative size.
-  ##
-  ## Despite covering up to the ENTIRE map (worst case: the final phase's
-  ## small rect leaves ~all of a 1235x659 board "outside"), this stays
-  ## cheap on the wire — the flood is almost all flat, identical-byte-run
-  ## dead paint, which the sprite channel's snappy compression crushes by
-  ## roughly 20x (measured: a 1235x600 worst-case bar's ~2.9 MB raw RGBA
-  ## compresses to ~136 KB), well inside the hosted replay's 1 MiB
-  ## WebSocket frame cap that forces the full map bake into bands (see
-  ## MapBandHeight above) — this cosmetic layer does not need that
-  ## treatment.
-  let key = (
-    sim.zoneCenter.x, sim.zoneCenter.y,
-    rect.x, rect.y, rect.w, rect.h
-  )
-  when defined(zoneTideCacheProbe):
-    inc ZoneTideCacheCalls
-  if key == ZoneTideCacheKey:
-    when defined(zoneTideCacheProbe):
-      inc ZoneTideCacheHits
-    return false
-  when defined(zoneTideCacheProbe):
-    inc ZoneTideCacheMisses
-  ZoneTideCacheKey = key
-  ensureZoneWallArtMask(sim)  ## a no-op past the first call for this map.
-  computeZoneFlowDist(sim, rect)  ## the walk-aware flood — same (center,
-                                  ## rect) cadence as this whole rebuild;
-                                  ## see the LIQUID FLOW note above.
-  ## No per-map grain scaler: the meniscus lattice (ZoneMeniscusCellPx et al)
-  ## is sized in real MAP pixels, so it reads the same lobe scale on any
-  ## board without a proportionality fudge.
+proc ensureZoneFloorGrid(sim: SimServer) =
+  ## Static per-map coarse floor grid, the D4a fix's foundation: walkability
+  ## comes from sim.walkMask (TRUE collision), never from rendered wall art.
+  ## Cached the same way ensureZoneWallArtMask is (keyed on map dims/center,
+  ## a no-op past the first call for a given map).
+  ensureZoneWallArtMask(sim)
   let
-    mapW = sim.gameMap.width
-    mapH = sim.gameMap.height
-    bars = [
-      (x: 0, y: 0, w: mapW, h: max(0, rect.y), alongIsX: true),        # top
-      (x: 0, y: rect.y + rect.h, w: mapW,
-        h: max(0, mapH - (rect.y + rect.h)), alongIsX: true),          # bottom
-      (x: 0, y: rect.y, w: max(0, rect.x), h: rect.h, alongIsX: false), # left
-      (x: rect.x + rect.w, y: rect.y, w: max(0, mapW - (rect.x + rect.w)),
-        h: rect.h, alongIsX: false),                                   # right
-    ]
-  for i, bar in bars:
-    ZoneTideCacheGeom[i] = (x: bar.x, y: bar.y, w: bar.w, h: bar.h)
-    ZoneTideCachePixels[i] =
-      if bar.w <= 0 or bar.h <= 0:
-        @[]
-      else:
-        buildTideBarPixels(sim, rect, bar.x, bar.y, bar.w, bar.h)
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy)
+    gw = (w + ZoneFieldCellPx - 1) div ZoneFieldCellPx
+    gh = (h + ZoneFieldCellPx - 1) div ZoneFieldCellPx
+  if key == ZoneFloorGridKey and ZoneFloorWalkable.len == gw * gh:
+    return
+  ZoneFloorGridKey = key
+  ZoneFloorGridW = gw
+  ZoneFloorGridH = gh
+  let
+    haveWalk = sim.walkMask.len == w * h
+    haveWall = sim.wallMask.len == w * h
+  proc walkableAtPx(px, py: int): bool =
+    if px < 0 or py < 0 or px >= w or py >= h:
+      return false
+    let i = py * w + px
+    if haveWalk: sim.walkMask[i]
+    elif haveWall: not sim.wallMask[i]
+    else: true
+  ZoneFloorWalkable = newSeq[bool](gw * gh)
+  for gy in 0 ..< gh:
+    let py = min(h - 1, gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+    for gx in 0 ..< gw:
+      let px = min(w - 1, gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+      ZoneFloorWalkable[gy * gw + gx] = walkableAtPx(px, py)
+  # Multi-source unweighted BFS from every non-walkable (wall) cell — a
+  # cheap, good-enough clearance estimate (px = BFS ring * cell stride) for
+  # wallDrag AND the D4a overhang bound. 8-connected, so a diagonal ring is
+  # slightly undercounted versus true Euclidean distance; fine for a
+  # cosmetic speed/skip signal, not a physics value.
+  ZoneFloorWallDistPx = newSeq[float32](gw * gh)
+  for i in 0 ..< ZoneFloorWallDistPx.len:
+    ZoneFloorWallDistPx[i] = -1.0'f32
+  var queue = newSeq[int]()
+  for i in 0 ..< gw * gh:
+    if not ZoneFloorWalkable[i]:
+      ZoneFloorWallDistPx[i] = 0.0'f32
+      queue.add(i)
+  var qh = 0
+  while qh < queue.len:
+    let idx = queue[qh]
+    inc qh
+    let
+      gx = idx mod gw
+      gy = idx div gw
+      d = ZoneFloorWallDistPx[idx]
+    for oy in -1 .. 1:
+      for ox in -1 .. 1:
+        if ox == 0 and oy == 0:
+          continue
+        let
+          nx = gx + ox
+          ny = gy + oy
+        if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+          continue
+        let nidx = ny * gw + nx
+        if ZoneFloorWallDistPx[nidx] >= 0.0'f32:
+          continue
+        ZoneFloorWallDistPx[nidx] = d + float32(ZoneFieldCellPx)
+        queue.add(nidx)
+  ZoneFloorPaintable = newSeq[bool](gw * gh)
+  for gy in 0 ..< gh:
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFloorWalkable[idx]:
+        continue
+      let
+        px = min(w - 1, gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+        py = min(h - 1, gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+        overhang = isZoneWallArt(px, py) and
+          ZoneFloorWallDistPx[idx] <= ZoneArtOverhangMaxPx
+      ZoneFloorPaintable[idx] = not overhang
+  # Interior-room classification — see ZoneFloorRoomId's own doc above for
+  # WHY this is needed (a pure geometric T0 comparison cannot distinguish
+  # "genuinely open" from "another cell in the same sealed room"). REDEFINED
+  # BY REACHABILITY (Fable's audit, 2026-08-25): the earlier width test
+  # flagged a cell as an "aperture" whenever it sat close to ANY single
+  # wall, which is wall PROXIMITY, not narrowness — a room-edge cell a few
+  # px from its own wall got the same verdict as a true doorway cell pinched
+  # on both sides, so a small room (barely wider than the aperture
+  # threshold everywhere) had almost every one of its own cells misread as
+  # exterior-eligible and direct-seeded at its rect-crossing tick, the
+  # "paints in rooms before the door" defect — the giant showmatch map found
+  # only ~12 components this way against the mapgen's own thousands of real
+  # room candidates.
+  #
+  # The fix has two parts:
+  #   1. A genuine 2-SIDED passage width per cell (rayRunCells below): the
+  #      MINIMUM, over 4 opposite-direction axis pairs (W/E, N/S, NW/SE,
+  #      NE/SW), of the clear span straight through the cell along that
+  #      axis. A true doorway/corridor is pinched on BOTH sides along its
+  #      cross-axis (small sum); a room-edge cell is close to one wall but
+  #      opens wide on the other side of every axis (large sum) — the
+  #      distinction the old 1-sided wall-distance test could not draw.
+  #   2. Flood from the MAP'S OWN BORDER over the walkable grid, touching
+  #      but never propagating PAST a narrow-gap cell: everything reached
+  #      this way is the connected exterior world, or a narrow passage
+  #      directly bordering it (its own honest rect-crossing tick is
+  #      trustworthy — see the research notes' "genuinely on the retreating
+  #      edge" test). Everything the flood never reaches is walled off
+  #      behind at least one sub-aperture squeeze and gets its own
+  #      connected-component room id; its arrival may only come from
+  #      upwind propagation through that squeeze, in computeZoneFrontierField
+  #      below. Reachability from the true border (not "whichever component
+  #      happens to be biggest") is what makes this work even when a single
+  #      giant hall or a courtyard outsizes the nominal "exterior".
+  const
+    PassageAxisOffsets: array[4, tuple[dx, dy: int]] = [
+      (1, 0), (0, 1), (1, 1), (1, -1)
+    ]  ## one representative direction per axis (W/E, N/S, NW/SE, NE/SW) —
+       ## the opposite direction is walked separately as its negation.
+    PassageRayCapCells = int(ZoneApertureDoorRefPx * 1.5 / float(ZoneFieldCellPx)) + 1
+      ## any axis whose ray reaches this cap without hitting a wall is, by
+      ## construction, already well past the narrow-gap threshold below —
+      ## the cap bounds cost without ever mis-measuring a genuinely narrow
+      ## axis (which always resolves well inside it).
+  proc rayRunCells(startIdx, dx, dy: int): int =
+    let
+      gx0 = startIdx mod gw
+      gy0 = startIdx div gw
+    while result < PassageRayCapCells:
+      let
+        nx = gx0 + dx * (result + 1)
+        ny = gy0 + dy * (result + 1)
+      if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+        break
+      if not ZoneFloorWalkable[ny * gw + nx]:
+        break
+      inc result
+  var isNarrowGap = newSeq[bool](gw * gh)
+  block passageWidth:
+    let
+      narrowThresholdPx = ZoneApertureDoorRefPx * 1.25
+      axisStepPx = [
+        float(ZoneFieldCellPx), float(ZoneFieldCellPx),
+        float(ZoneFieldCellPx) * 1.41421356, float(ZoneFieldCellPx) * 1.41421356
+      ]
+    for i in 0 ..< gw * gh:
+      if not ZoneFloorWalkable[i]:
+        continue
+      # Cheap short-circuit: a cell already this far from its NEAREST wall
+      # in every direction cannot possibly have a 2-sided axis pair summing
+      # below the threshold, so the full 8-ray measurement below only ever
+      # runs for cells actually close to some wall.
+      if ZoneFloorWallDistPx[i] >= narrowThresholdPx:
+        continue
+      var minWidthPx = Inf
+      for a in 0 ..< 4:
+        let
+          (dx, dy) = PassageAxisOffsets[a]
+          posRun = rayRunCells(i, dx, dy)
+          negRun = rayRunCells(i, -dx, -dy)
+          widthPx = float(posRun + negRun + 1) * axisStepPx[a]
+        minWidthPx = min(minWidthPx, widthPx)
+      isNarrowGap[i] = minWidthPx < narrowThresholdPx
+  ZoneFloorRoomId = newSeq[int](gw * gh)
+  for i in 0 ..< ZoneFloorRoomId.len:
+    ZoneFloorRoomId[i] = -2  # unvisited
+  var reached = newSeq[bool](gw * gh)
+  block borderFlood:
+    # Seed: a textbook "flood from the map border" needs a walkable cell
+    # literally on the GRID's own outer ring — but a real level almost
+    # always wraps its whole playable area in a boundary wall (measured on
+    # this engine's own maps: zero walkable cells on the ring, for both the
+    # small ladder map and the giant showmatch map), so that seed set is
+    # always empty here and would misclassify the ENTIRE floor as one
+    # sealed interior. The map-topology-agnostic equivalent is the walkable
+    # cell FARTHEST from any wall at all: the deepest point of whichever
+    # region has the most room to breathe, which on any real level is the
+    # open field/hub, never a room (a sealed room's own deepest point is
+    # bounded by its own small size). Flooding outward from every cell
+    # tied for that maximum, refusing to cross a narrow gap, reaches
+    # exactly the connected exterior world — the same result "the map
+    # border" would give on a level whose playable area DID touch its own
+    # canvas edge, without depending on that ever being true.
+    var
+      maxWallDist = -1.0'f32
+      queue: seq[int]
+    for i in 0 ..< gw * gh:
+      if ZoneFloorWalkable[i] and ZoneFloorWallDistPx[i] > maxWallDist:
+        maxWallDist = ZoneFloorWallDistPx[i]
+    for i in 0 ..< gw * gh:
+      if ZoneFloorWalkable[i] and ZoneFloorWallDistPx[i] == maxWallDist and
+          not reached[i]:
+        reached[i] = true
+        queue.add(i)
+    when defined(zoneRoomClassifyDebug):
+      var narrowSeedCount = 0
+      for i in queue:
+        if isNarrowGap[i]: inc narrowSeedCount
+      stderr.writeLine("borderFlood: seeds=" & $queue.len &
+        " narrowSeeds=" & $narrowSeedCount & " maxWallDist=" & $maxWallDist &
+        " gw=" & $gw & " gh=" & $gh)
+    var qh = 0
+    while qh < queue.len:
+      let idx = queue[qh]
+      inc qh
+      if isNarrowGap[idx]:
+        continue  # touched (already marked reached, so still a trustworthy
+                  # direct source) but never propagated PAST — the flood
+                  # stops at every squeeze instead of only a hand-picked one.
+      let
+        cgx = idx mod gw
+        cgy = idx div gw
+      for oy in -1 .. 1:
+        for ox in -1 .. 1:
+          if ox == 0 and oy == 0:
+            continue
+          let
+            nx = cgx + ox
+            ny = cgy + oy
+          if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+            continue
+          let nidx = ny * gw + nx
+          if not ZoneFloorWalkable[nidx] or reached[nidx]:
+            continue
+          reached[nidx] = true
+          queue.add(nidx)
+  for i in 0 ..< gw * gh:
+    if reached[i]:
+      ZoneFloorRoomId[i] = -1
+  block classifyRooms:
+    var
+      nextId = 0
+      queue: seq[int]
+    for startIdx in 0 ..< gw * gh:
+      if not ZoneFloorWalkable[startIdx] or reached[startIdx]:
+        continue
+      if ZoneFloorRoomId[startIdx] != -2:
+        continue
+      let compId = nextId
+      inc nextId
+      queue.setLen(0)
+      queue.add(startIdx)
+      ZoneFloorRoomId[startIdx] = compId
+      var qh = 0
+      while qh < queue.len:
+        let idx = queue[qh]
+        inc qh
+        let
+          cgx = idx mod gw
+          cgy = idx div gw
+        for oy in -1 .. 1:
+          for ox in -1 .. 1:
+            if ox == 0 and oy == 0:
+              continue
+            let
+              nx = cgx + ox
+              ny = cgy + oy
+            if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+              continue
+            let nidx = ny * gw + nx
+            if not ZoneFloorWalkable[nidx] or reached[nidx]:
+              continue
+            if ZoneFloorRoomId[nidx] != -2:
+              continue
+            ZoneFloorRoomId[nidx] = compId
+            queue.add(nidx)
+  when defined(zoneD4OverlayDump):
+    ## Diagnostic-only (never shipped default-on): the D4a before/after
+    ## verification screenshots, dumped straight from the ALREADY-BUILT
+    ## coarse arrays (no redundant per-pixel proc calls, no rebuilding
+    ## anything) so this stays proportional to the coarse grid's own size
+    ## (a few hundred KB of pixel writes), not the map's full native
+    ## resolution.
+    block d4Dump:
+      var before = newImage(gw, gh)
+      var after = newImage(gw, gh)
+      let
+        floorColor = rgba(150, 150, 150, 255)
+        wallColor = rgba(40, 32, 28, 255)
+        bugColor = rgba(230, 20, 20, 255)
+      var bugCells = 0
+      var totalWalkableCells = 0
+      for gy2 in 0 ..< gh:
+        for gx2 in 0 ..< gw:
+          let idx2 = gy2 * gw + gx2
+          let
+            px2 = min(w - 1, gx2 * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+            py2 = min(h - 1, gy2 * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+            walkable2 = ZoneFloorWalkable[idx2]
+            wallArt2 = isZoneWallArt(px2, py2)
+          if walkable2:
+            inc totalWalkableCells
+          if walkable2 and wallArt2:
+            before[gx2, gy2] = bugColor
+            inc bugCells
+          elif wallArt2:
+            before[gx2, gy2] = wallColor
+          else:
+            before[gx2, gy2] = floorColor
+          if ZoneFloorPaintable[idx2]:
+            after[gx2, gy2] = floorColor
+          else:
+            after[gx2, gy2] = wallColor
+      stderr.writeLine("D4 dump: grid " & $gw & "x" & $gh &
+        " walkableCells=" & $totalWalkableCells &
+        " bugCells(walkable-but-wallArt)=" & $bugCells)
+      before.writeFile("/tmp/d4-before.png")
+      after.writeFile("/tmp/d4-after.png")
+      stderr.writeLine("D4 dump: wrote /tmp/d4-before.png and /tmp/d4-after.png")
+
+proc zoneScheduleTotalTicks(sim: SimServer): int =
+  ## Sum of every configured phase's wait+shrink — the tick past which the
+  ## rect holds at the final phase's target forever (zoneRectAndDpsRaw).
+  for phase in sim.config.zonePhases:
+    result += phase.waitTicks + phase.shrinkTicks
+
+proc zoneScheduleFingerprint(sim: SimServer): int =
+  ## Folds the zonePhases schedule into one int for the arrival-field cache
+  ## key — RENDER-ONLY (never gameHash), same unsigned FNV-ish idiom as
+  ## zoneMeniscusHash/zoneDropletCellHash so the mix can't hit a checked
+  ## overflow. dps is left out on purpose: it affects damage, never geometry.
+  var hu = 0xCBF29CE484222325'u64
+  for phase in sim.config.zonePhases:
+    hu = (hu xor cast[uint64](phase.zPermille)) * 0x100000001B3'u64
+    hu = (hu xor cast[uint64](phase.waitTicks)) * 0x100000001B3'u64
+    hu = (hu xor cast[uint64](phase.shrinkTicks)) * 0x100000001B3'u64
+  int(hu and 0x7FFFFFFF'u64)
+
+proc zoneBaseSpeedPxPerTick*(sim: SimServer, totalTicks: int): float =
+  ## The single OPEN-FIELD reference speed every local flow multiplier below
+  ## scales (aperture/wallDrag/lobeNoise are all relative to this): the
+  ## average px/tick the rect's half-extent recedes WHILE IT IS MOVING.
+  ## Everything downstream of this is honest ticks, never a raw px count.
+  ##
+  ## MOVING TICKS, NOT TOTAL TICKS (2026-08-26). This used to divide by the
+  ## whole schedule, waits included, which silently made the reference speed
+  ## a fiction on any schedule with a long hold: the front does not creep
+  ## during a wait, it stands still and then moves at the full close rate.
+  ## ZoneFingerAmpPx is converted to a tick budget by DIVIDING by this
+  ## speed, so understating the speed OVERSTATES the budget, and the
+  ## meniscus renders proportionally deeper than the look Maxwell approved.
+  ## It bit the moment the gear-up became half the schedule (G=3000 of
+  ## 6000): the reference read half the true close rate, the amplitude came
+  ## out ~2x the approved 21px, and check #7 caught it as a 54.7deg kink at
+  ## span 50 — far too coarse a step to blame on quantization.
+  ##
+  ## Note the self-consistency test one suite over CANNOT catch this: it
+  ## asserts ampTicks * speed == ZoneFingerAmpPx, which holds for ANY speed
+  ## because ampTicks is defined as ZoneFingerAmpPx / speed. Only comparing
+  ## the speed against the rect's ACTUAL motion finds it, which is why the
+  ## shape checks are the ones that did.
+  if totalTicks <= 0:
+    return 1.0
+  var waitTicks = 0
+  for phase in sim.config.zonePhases:
+    waitTicks += phase.waitTicks
+  let
+    fullW = sim.gameMap.width
+    fullH = sim.gameMap.height
+    final = sim.zoneRectAndDps(totalTicks).cur
+    closeX = float(max(0, fullW - final.w)) * 0.5
+    closeY = float(max(0, fullH - final.h)) * 0.5
+    movingTicks = max(1, totalTicks - waitTicks)
+  max(0.05, (closeX + closeY) / 2.0 / float(movingTicks))
+
+proc zoneEdgeAngleAt(px, py: float, finalRect: MapRect): tuple[ca, sa: float] =
+  ## The local rotated frame's basis (ca, sa) = (cos, sin) of the outward
+  ## advance direction at map point (px, py) — the finite-difference
+  ## gradient of roundedRectSignedDist against the FINAL rect, same
+  ## construction zoneSpeedFieldAt's fingering term and
+  ## zoneBoundaryFingerDelayAt's seed nudge each used to duplicate inline.
+  ## `along = (ca, sa)` points away from the rect (the advance direction);
+  ## `across = (-sa, ca)` is its perpendicular (tangential to the local
+  ## edge). Shared here so the edge-parallel drag term below (Maxwell's
+  ## fluid-sim survey, 2026-08-25 — anisotropic transport cost) uses the
+  ## EXACT SAME frame the noise sampling does, never a second, potentially
+  ## inconsistent angle.
+  const Eps = 1.0
+  let
+    sdx1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px + Eps, py)
+    sdx0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px - Eps, py)
+    sdy1 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py + Eps)
+    sdy0 = roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py - Eps)
+    gx = sdx1 - sdx0
+    gy = sdy1 - sdy0
+    angle =
+      if abs(gx) < 1e-6 and abs(gy) < 1e-6: 0.0
+      else: arctan2(gy, gx)
+  (cos(angle), sin(angle))
+
+proc zoneSpeedFieldAt(px, py: float, wallDistPx: float32, finalRect: MapRect): float =
+  ## F(p) for the fast-marching solve below (computeZoneFrontierField) — see
+  ## ~/.ctf/knowledge/research/zone-front/ for the eikonal-equation grounding
+  ## (Maxwell's ruling, 2026-08-25: "calculate just the frontier meniscus
+  ## line, make that work mathematically correct... then fill in the paint
+  ## behind it" — front propagation, not an improvised additive delay). ONE
+  ## coherent speed field carries every physical effect the render wants,
+  ## all multiplicative, all in (0, 1]:
+  ##   - APERTURE: throttles through narrow clearances — a doorway's own
+  ##     width relative to ZoneApertureDoorRefPx. Clearance is approximated
+  ##     as 2x the distance to the nearest wall (a corridor's centerline
+  ##     sits half its own width from either wall).
+  ##   - WALL DRAG: slower within ZoneWallDragRangePx of a wall, so the
+  ##     front rounds corners and hugs obstacles instead of crossing them at
+  ##     open-field speed.
+  ##   - FINGERING: a smooth, LOW-frequency, ANISOTROPIC noise octave —
+  ##     "viscous fingering" — elongated along the local advance direction
+  ##     (the outward gradient of roundedRectSignedDist against the FINAL
+  ##     rect, via finite differences; nested/monotonic with every earlier
+  ##     phase's rect, so this direction is a stable stand-in for "which way
+  ##     the boundary recedes" regardless of which phase is actually live).
+  ##     Compressing the cross-axis in that rotated frame stretches the
+  ##     octave's normally-round blobs into TONGUES, the same streak trick
+  ##     round 2's zoneToneAdvanceAt used for tone — except this angle is
+  ##     geometrically real, not decorative. A speed multiplier (never a
+  ##     separate additive delay): folding it into F(p) means the FMM solve
+  ##     itself produces the fingered isoline as ONE consequence of ONE
+  ##     solve, with no second field to blend and no way for an interior
+  ##     cell to "borrow" a fast-lane shortcut that skips the walkable graph.
+  ##
+  ## NOT adopted: per-terrain absorption (Maxwell's fluid-sim survey,
+  ## 2026-08-25 — modulating flow speed by local floor MATERIAL, e.g. cave
+  ## rock vs built floor). Checked and confirmed absent: neither CtfMap nor
+  ## anything reachable from SimServer at runtime carries a spatially-
+  ## varying per-cell material signal — the round-11b TERRAIN/THEME switch
+  ## (cave/building/mixed, interior/exterior) is a single GLOBAL per-map
+  ## choice baked into the art layer, not a per-tile field the solver could
+  ## read. Skipped rather than invented a signal that does not exist.
+  let
+    clearance = wallDistPx.float * 2.0
+    # VISCOSITY AT A CHOKE — Maxwell's fluid-sim survey (2026-08-25): the
+    # aperture throttle IS the inflow/outflow term a cellular-automaton
+    # volume-flow model would balance per tick; the "graphics attach to
+    # math" law says that behavior belongs here, in F(p), not in a second
+    # live simulation (see the architecture-comparison research note in
+    # ~/.ctf/knowledge/research/zone-front/ for why the solver itself stays
+    # unchanged). `smoothRamp01` (Hermite smoothstep) replaces the earlier
+    # clamped-LINEAR ramp: both already gave a half-width gap roughly half
+    # speed (t=0.5 either way), but the clamped-linear version has a real
+    # KINK in F(p) at both the clearance=0 floor and the clearance=
+    # ZoneApertureDoorRefPx ceiling — a discontinuous SLOPE feeding
+    # straight into the eikonal solve, one more source of the sharp-point
+    # defect the noise-octave fix (zoneBoundaryFingerDelayAt) addressed for
+    # the seed term. The Hermite curve is smooth (zero slope) at both
+    # ends, so crossing a choke never bends the isoline's curvature
+    # abruptly, only smoothly.
+    aperture = ZoneApertureMinMult + smoothRamp01(clearance / ZoneApertureDoorRefPx) *
+      (1.0 - ZoneApertureMinMult)
+    wallDrag = smoothRamp01(wallDistPx.float / ZoneWallDragRangePx)
+    wallMult = ZoneWallDragMinMult + wallDrag * (1.0 - ZoneWallDragMinMult)
+    (ca, sa) = zoneEdgeAngleAt(px, py, finalRect)
+  let
+    along = px * ca + py * sa
+    across = (px * -sa + py * ca) * ZoneFingerAcrossCompress
+    noise = zoneMeniscusOctave(along, across, ZoneFingerCellPx,
+      ZoneFieldSeed xor 0x9F)
+    fingerMult = clamp(noise * 0.5 + 0.5, 0.0, 1.0) *
+      (1.0 - ZoneFingerMinMult) + ZoneFingerMinMult
+      ## in [ZoneFingerMinMult, 1.0] — a noise TROUGH runs at full speed (a
+      ## tip, kissing the true line), a PEAK throttles far harder than a
+      ## real chokepoint (a cove, lagging deeply). Deliberately a LOWER
+      ## floor than the aperture/wallDrag terms: a fast-marching solve
+      ## always has some nearby faster lane to detour through in open 2D
+      ## space (that's what makes it a CORRECT minimum-time solve), so a
+      ## mild speed dip reads as barely a ripple — only a floor this low
+      ## makes crossing a cove expensive enough that the front visibly
+      ## prefers the tip lanes instead of shrugging the noise off.
+  max(0.02, aperture * wallMult * fingerMult)
+
+type ZoneFieldQItem = tuple[t: float32, idx: int]
+proc `<`(a, b: ZoneFieldQItem): bool {.inline.} = a.t < b.t
+
+
+proc zoneBaseArrivalTickAt(
+  sim: SimServer, px, py: float, totalTicks: int, finalRect: MapRect
+): int =
+  ## The tick the TRUE (honest, rounded-corner) damage boundary passes this
+  ## point, ignoring flow — a bisection against roundedRectSignedDist over
+  ## zoneRectAndDps's own schedule (the SAME function damage reads, sim.nim,
+  ## untouched by this file). Rects shrink monotonically over the whole
+  ## schedule (every edge is a single affine function of z), so the signed
+  ## distance at a fixed point is monotonic non-decreasing in t and a plain
+  ## integer bisection finds the exact crossing tick.
+  ## Returns high(int) if the point sits inside the FINAL rect and never
+  ## floods — the schedule's own "stays safe forever" outcome.
+  if roundedRectSignedDist(finalRect, ZoneCornerRoundPx, px, py) <= 0.0:
+    return high(int)
+  let rect0 = sim.zoneRectAndDps(0).cur
+  if roundedRectSignedDist(rect0, ZoneCornerRoundPx, px, py) > 0.0:
+    return 0
+  var
+    lo = 0
+    hi = totalTicks
+  while hi - lo > 1:
+    let
+      mid = (lo + hi) div 2
+      rectMid = sim.zoneRectAndDps(mid).cur
+    if roundedRectSignedDist(rectMid, ZoneCornerRoundPx, px, py) > 0.0:
+      hi = mid
+    else:
+      lo = mid
+  hi
+
+const ZoneFrontierOffsets*: array[8, tuple[dx, dy: int]] = [
+  (-1, 0), (1, 0), (0, -1), (0, 1),
+  (-1, -1), (1, -1), (-1, 1), (1, 1)
+]
+
+proc zoneFingerAmpTicksFor*(baseSpeed: float): float =
+  ## ZoneFingerAmpPx converted into this map+schedule's own tick budget via
+  ## its front speed, clamped to ZoneFingerAmpMaxTicks. Exported so the
+  ## paint checks can assert the clamp and report when it binds.
+  clamp(ZoneFingerAmpPx / max(baseSpeed, 1e-6), 0.0, ZoneFingerAmpMaxTicks)
+
+proc zoneFingerAmpClampBinds*(baseSpeed: float): bool =
+  ## True when the conversion above is being CAPPED rather than honoured —
+  ## the map is slower than the ceiling was sized for, so its meniscus will
+  ## read smaller than ZoneFingerAmpPx. Reported, never silent.
+  ZoneFingerAmpPx / max(baseSpeed, 1e-6) > ZoneFingerAmpMaxTicks
+
+proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect,
+    shapeW, shapeH, ampTicks: float): float =
+  ## Fingering at the SOURCE, not just downstream of it. A fast-marching
+  ## solve is a MINIMUM-time solve: an exterior cell seeded at exactly its
+  ## own honest T0 is already the theoretical fastest value, so no amount
+  ## of speed variation elsewhere in F(p) can ever pull it earlier — and a
+  ## smooth, open 2D domain always has SOME nearby faster lane to route
+  ## around a slow patch, so F(p)'s own fingering (zoneSpeedFieldAt) reads
+  ## as almost nothing across the vast open exterior, only inside truly
+  ## sealed rooms where there is no alternate path at all. Real spilled
+  ## paint fingers in the OPEN field too — the front's own advance rate
+  ## varies smoothly along its length, not only where something blocks it.
+  ##
+  ## This is that variation, applied ONLY at the moment an exterior/
+  ## aperture cell becomes a source (see computeZoneFrontierField's seeding
+  ## loop) — never blended into an interior cell's own value (interiors
+  ## still come ONLY from propagation, unchanged). It reuses the exact same
+  ## rotated-frame, advance-direction-elongated octave zoneSpeedFieldAt's
+  ## own fingering term samples, just read as a bounded ADDITIVE tick delay
+  ## here instead of a speed multiplier there — same lattice, two readouts,
+  ## because a source's OWN activation time and a traveller's speed through
+  ## already-open ground are two different physical quantities even for the
+  ## same underlying viscous texture. Bounded to [0, ampTicks] —
+  ## a SMALL cap, not the room/aperture ZoneFlowDelayCapTicks (Maxwell's
+  ## ruling, 2026-08-25: streamers, not a meniscus, is what an open-field
+  ## nudge riding the room-lag-sized budget looks like — see
+  ## ZoneFingerAmpPx's own doc for the split). Late-only either way:
+  ## paint may be late here, by up to that much, never early.
+  let
+    # The ONLY spatial input the octaves below read is position ALONG THE
+    # FRONT. A flat rect edge crosses its whole length at the SAME tick
+    # (T0 is constant along it), so any variation keyed to the
+    # perpendicular coordinate contributes nothing there — the
+    # coordinator's original diagnosis: "give the nudge a component keyed
+    # to position ALONG the edge, which is exactly what makes tongues on a
+    # flat front." Two octaves so no single wavelength's own flat stretch
+    # can produce a long straight run either — BOTH inside the 160-300px
+    # lobe band (Maxwell's "no sharp points" ruling, 2026-08-25: a real
+    # viscous front is curvature-limited, every tongue and cove rounded).
+    #
+    # zoneFrontLoopCoordAt supplies that position as a point on a closed
+    # loop whose circumference is the front's own perimeter — see its doc
+    # for why the two earlier parameterizations (the finite-difference
+    # rotated-frame angle, then the offset-curve arc length) both failed:
+    # they assumed the wrong family of fronts. The zone shrinks by a
+    # HOMOTHETY, not an erosion.
+    loop = zoneFrontLoopCoordAt(px, py, finalRect, shapeW, shapeH)
+    n1 = zoneMeniscusOctave(loop.a, loop.b, ZoneFingerOctaveFinePx,
+      ZoneFieldSeed xor 0x9F)
+    n2 = zoneMeniscusOctave(loop.a, loop.b, ZoneFingerOctaveCoarsePx,
+      ZoneFieldSeed xor 0xB3)
+    combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
+  # Full [0, ampTicks] amplitude — late-only (honesty untouched,
+  # ZoneFlowDelayCapTicks below still bounds the total), but no headroom
+  # held back within THIS smaller budget: a shy amplitude is exactly what
+  # left runs long in the earlier passes.
+  when defined(zoneFlatPaintControl):
+    # NEGATIVE-CONTROL BUILD ONLY (never in a shipped binary; guarded by a
+    # define no build sets). Kills the seed nudge outright, so the front
+    # reduces to the bare rect edge — the deliberately broken paint the
+    # meniscus checks must MOVE on. A check that reads the same green with
+    # this define set is measuring nothing (house rule: a gate must
+    # DISCRIMINATE, not just hit). See tests/test_zone.nim's recorded
+    # control values.
+    discard combined
+    0.0
+  else:
+    clamp(combined * 0.5 + 0.5, 0.0, 1.0) * ampTicks
+
+proc computeZoneFrontierField(
+  sim: SimServer, totalTicks: int, finalRect: MapRect, baseSpeed: float
+): seq[float32] =
+  ## Textbook fast marching (Sethian's method — see
+  ## ~/.ctf/knowledge/research/zone-front/ for the eikonal-equation grounding
+  ## and the exact update formula this implements) solving |∇T|·F(p) = 1 over
+  ## the floor domain (ZoneFloorWalkable — true walls excluded from the
+  ## domain entirely, i.e. F=0 on them), F(p) = zoneSpeedFieldAt carrying
+  ## EVERY physical effect (aperture throttle, wall drag, anisotropic
+  ## fingering) as ONE coherent speed field. ONE solve, one clock — Maxwell's
+  ## ruling (2026-08-25): "calculate just the frontier meniscus line... then
+  ## fill in the paint behind it."
+  ##
+  ## The zone schedule is the TIME-DEPENDENT boundary condition: a cell
+  ## becomes a valid SOURCE (queue-seeded at its own honest rect-crossing
+  ## tick, zoneBaseArrivalTickAt) only if it is walkable-adjacent to a
+  ## neighbour still safe at that same moment — genuinely on the retreating
+  ## edge, not merely geometrically close to it while sealed behind a wall.
+  ## Every OTHER reachable cell's value comes ONLY from upwind propagation
+  ## through this ONE solve. That is what makes "a room fills door-first,
+  ## never before its own door, never faster than the exterior" fall out of
+  ## the algorithm's own causality (a Known node's value can only ever come
+  ## from an already-SMALLER neighbour — see the research notes) instead of
+  ## a hand-built room/aperture classifier: the earlier construction that
+  ## let every cell claim its own wall-ignorant geometric tick as a free
+  ## source was exactly the bug (rooms reading as reachable from their own
+  ## back wall, not their door).
+  let
+    gw = ZoneFloorGridW
+    gh = ZoneFloorGridH
+  var t0 = newSeq[int](gw * gh)
+  for gy in 0 ..< gh:
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFloorWalkable[idx]:
+        t0[idx] = high(int)
+        continue
+      let
+        px = float(gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+        py = float(gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+      t0[idx] = sim.zoneBaseArrivalTickAt(px, py, totalTicks, finalRect)
+  result = newSeq[float32](gw * gh)
+  for i in 0 ..< result.len:
+    result[i] = Inf.float32
+  # One conversion per episode: ZoneFingerAmpPx into THIS map+schedule's
+  # own tick budget (see ZoneFingerAmpPx's doc for why the ruling is
+  # denominated in pixels).
+  let fingerAmpTicks = zoneFingerAmpTicksFor(baseSpeed)
+  # The fingering family's SHAPE. zoneRectAtScale builds every rect in the
+  # schedule by scaling these two numbers, so they — not the terminal rect's
+  # own couple of integer pixels — are what keeps the loop coordinate's
+  # "160px means 160px along the front" contract true at every z. See
+  # zoneFrontLoopCoordAt's DEGENERATE EXTENTS note.
+  let
+    shapeW = float(sim.gameMap.width)
+    shapeH = float(sim.gameMap.height)
+  var pq = initHeapQueue[ZoneFieldQItem]()
+  for gy in 0 ..< gh:
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFloorWalkable[idx] or t0[idx] == high(int):
+        continue
+      # ELIGIBLE SOURCE = exterior world or a narrow aperture (ZoneFloorRoomId
+      # < 0, see ensureZoneFloorGrid): its own honest rect-crossing tick is a
+      # trustworthy direct value. An interior-room cell is NEVER a direct
+      # source, however early its own wall-ignorant geometric T0 reads — a
+      # raw "does some neighbour have a marginally larger T0" test cannot
+      # tell "genuinely adjacent to the safe exterior" from "another cell in
+      # the same already-dead sealed room, one grid step less dead" apart
+      # (both satisfy that comparison almost everywhere in a smoothly-
+      # varying T0 field); only the wall-aware room/aperture split can. A
+      # room's value therefore comes ONLY from upwind propagation through
+      # this same solve, seeded at its own door — see the research notes.
+      if ZoneFloorRoomId[idx] < 0:
+        let
+          px = float(gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+          py = float(gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+        result[idx] = float32(t0[idx]) +
+          float32(zoneBoundaryFingerDelayAt(px, py, finalRect,
+            shapeW, shapeH, fingerAmpTicks))
+        pq.push((t: result[idx], idx: idx))
+  proc valueAt(gw, gh, nx, ny: int, field: seq[float32]): float32 {.inline.} =
+    if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+      return Inf.float32
+    let nidx = ny * gw + nx
+    if not ZoneFloorWalkable[nidx]:
+      return Inf.float32
+    field[nidx]
+  # F(p) is a PURE function of position (never of the search itself), but a
+  # naive call inside the relaxation loop below re-evaluates it — trig,
+  # finite differences, a noise octave — every time ANY popped neighbour
+  # touches the same cell, often many times over the course of the march.
+  # Precomputing it once per walkable cell is the same "static field, baked
+  # once" discipline every other per-pixel cost in this file already uses
+  # (ensureZoneStaticFields's round-2 ancestor, ensureZoneFloorGrid's wall
+  # distance) — without it, the giant showmatch map's build time was
+  # dominated by redundant speed-field recomputation, not the march itself.
+  var speedField = newSeq[float32](gw * gh)
+  for gy in 0 ..< gh:
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFloorWalkable[idx] or t0[idx] == high(int):
+        continue
+      let
+        px = float(gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+        py = float(gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+      speedField[idx] = float32(zoneSpeedFieldAt(px, py, ZoneFloorWallDistPx[idx], finalRect))
+  let h = float32(ZoneFieldCellPx)
+  while pq.len > 0:
+    let (t, idx) = pq.pop()
+    if t > result[idx]:
+      continue                          # stale heap entry, already beaten
+    let
+      gx = idx mod gw
+      gy = idx div gw
+    for off in ZoneFrontierOffsets:
+      let
+        nx = gx + off.dx
+        ny = gy + off.dy
+      if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+        continue
+      let nidx = ny * gw + nx
+      if not ZoneFloorWalkable[nidx] or t0[nidx] == high(int):
+        continue           # a cell that never crosses (safe inside the
+                            # final rect forever) is not part of the dead
+                            # zone's domain at all — never a relaxation
+                            # target, regardless of march reachability.
+      let
+        f = speedField[nidx].float
+        slowness = h / float32(baseSpeed * f)
+        tx = min(valueAt(gw, gh, nx - 1, ny, result),
+          valueAt(gw, gh, nx + 1, ny, result))
+        ty = min(valueAt(gw, gh, nx, ny - 1, result),
+          valueAt(gw, gh, nx, ny + 1, result))
+      var best = Inf.float32
+      # The 2D quadratic upwind update (Sethian): (T-tx)^2 + (T-ty)^2 =
+      # slowness^2, larger (causal) root only, requiring T >= max(tx,ty).
+      if tx < Inf.float32 and ty < Inf.float32:
+        let
+          b = -2.0'f32 * (tx + ty)
+          c = tx * tx + ty * ty - slowness * slowness
+          disc = b * b - 4.0'f32 * 2.0'f32 * c
+        if disc >= 0.0'f32:
+          let cand = (-b + sqrt(disc)) / 4.0'f32
+          if cand >= max(tx, ty):
+            best = cand
+      # 1D fallback (only one axis usable, or the quadratic had no causal
+      # root) — still upwind, just lower-order at that node.
+      if tx < Inf.float32:
+        best = min(best, tx + slowness)
+      if ty < Inf.float32:
+        best = min(best, ty + slowness)
+      # Diagonal candidates: a practical octile extension for 8-connectivity
+      # (see the research notes — the strict Sethian quadratic is stated for
+      # orthogonal pairs; a diagonal neighbour contributes a 1D-style step
+      # of length h*sqrt2, the same upwind idea, better isotropy than 4-
+      # connectivity alone).
+      # TRIED AND REVERTED (edge-parallel anisotropic drag, 2026-08-25):
+      # slowed lateral (tangential) propagation relative to radial advance
+      # to price the transport a straight open corridor was suspected of
+      # letting through for free — MEASURED to have ZERO effect on the
+      # real-map right-edge kink's own angle (89.700...deg, unchanged to
+      # 11 significant figures across the change) while regressing
+      # door-first (0 -> 1 violation). The insensitivity is itself
+      # diagnostic: neither of the two points forming that kink is ever
+      # IMPROVED by relaxation at all (an isotropic-vs-anisotropic
+      # propagation change altering NOTHING means propagation never wins
+      # over their own direct seed value there) — both are reading their
+      # raw t0(p) + zoneBoundaryFingerDelayAt(p) seed values untouched.
+      # The real bug is upstream of propagation entirely: those two points
+      # sit diagonally OUTSIDE the current rect (above AND right of it, a
+      # corner-influenced region), where the finite-difference `angle`
+      # zoneEdgeAngleAt derives for the rotated across-coordinate likely
+      # swings sharply over a small move — an open item for the next pass,
+      # not a propagation-speed problem at all.
+      for doff in ZoneFrontierOffsets:
+        if doff.dx == 0 or doff.dy == 0:
+          continue
+        let dv = valueAt(gw, gh, nx + doff.dx, ny + doff.dy, result)
+        if dv < Inf.float32:
+          best = min(best, dv + slowness * 1.41421356'f32)
+      # HONESTY FLOOR, folded into the update itself rather than applied as
+      # an afterthought (Fable's audit, 2026-08-25): t0(p) is not just a
+      # cosmetic reference — it is the exact tick sim.nim's own damage rule
+      # starts charging a player standing at p, so "never paint before
+      # t0(p)" must hold for literally every cell, including a direct
+      # source. A smooth 2D domain's own "nearby faster lane" property (the
+      # same one that washes out zoneSpeedFieldAt's fingering in open
+      # field, by design) can ALSO relax an exterior/aperture cell down
+      # BELOW its own t0 via a long detour from a distant, much-earlier-
+      # uncovered part of the map — before this fix that undershoot was
+      # only corrected in a FINAL pass, after already being used, at full
+      # (dishonest) strength, to seed every cell it went on to relax. Two
+      # honestly-clamped neighbours therefore did not compose: a room cell
+      # and its own door could each independently clamp UP to their own
+      # (different) t0 afterward, with no guarantee the room ends up on
+      # the correct side of its door — precisely the intermittent "room
+      # fills a few ticks before its door" violations this closes. Flooring
+      # `best` HERE means every stored value is honest the moment it is
+      # written, so the floor propagates forward through the same causal
+      # order the FMM already relies on: a room's value, always built from
+      # its (now-already-honest) door, can never undercut it.
+      if best < Inf.float32 and best < float32(t0[nidx]):
+        best = float32(t0[nidx])
+      if best < result[nidx]:
+        result[nidx] = best
+        pq.push((t: best, idx: nidx))
+  # Honesty safety clamp (defensive, not the mechanism the six checks
+  # verify): never let a reachable cell precede its own honest rect-crossing
+  # tick, and never let a cell the solve genuinely never reached read as
+  # "never" (F(p)'s own floors already bound every REACHED cell's value —
+  # see the research notes — so this upper bound is a fallback for the
+  # unreached case, not a ceiling on the solve's own answer).
+  #
+  # Fable's audit (2026-08-25, once real room population existed to check
+  # against): the ORIGINAL version of this clamp applied `min(result[i],
+  # t0[i] + cap)` UNCONDITIONALLY, to every cell, reached or not. For a
+  # cell deep in a genuinely sealed pocket, upwind propagation through its
+  # own door can legitimately need MORE than `cap` ticks past that cell's
+  # own WALL-IGNORANT t0 (t0 is pure rect-boundary geometry — it can be
+  # early for a point that sits geometrically close to the schedule's
+  # center while being walled off many doors deep) — the unconditional
+  # clamp then forcibly pulled that cell's honestly-propagated value back
+  # DOWN to (an early) t0 + cap, letting it paint BEFORE cells nearer its
+  # own door that happened to have a later t0. That is exactly the
+  # "wall-ignorant geometric term wins as a free bound" bug the room/
+  # aperture source-gating above was built to eliminate, reintroduced
+  # through the ceiling instead of the floor. Gating this fallback on
+  # `result[i] >= Inf.float32` (the solve never touched this cell at all)
+  # keeps the intended safety net — nothing reads as permanently
+  # unreachable — without ever overriding an actually-computed, causally
+  # correct propagated value.
+  for i in 0 ..< result.len:
+    if t0[i] == high(int):
+      continue
+    if result[i] < float32(t0[i]):
+      result[i] = float32(t0[i])
+    if result[i] >= Inf.float32:
+      result[i] = float32(t0[i]) + float32(ZoneFlowDelayCapTicks)
+
+type
+  ZoneArrivalField = object
+    gridW*, gridH*: int
+    arrival*: seq[uint16]  ## per coarse cell, the paint-arrival tick,
+                           ## quantized — ZoneNeverArrives (0xFFFF) for a
+                           ## wall cell or a floor cell inside the schedule's
+                           ## final safe rect. MONOTONE by construction (both
+                           ## the geometric base term and the capped flow
+                           ## delay only ever add): arrival ticks never
+                           ## produce receding paint.
+
+var
+  ZoneArrivalFieldKey: tuple[w, h, cx, cy, zcx, zcy, scheduleFp: int] =
+    (-1, -1, -1, -1, -1, -1, -1)
+  ZoneArrivalFieldValue: ZoneArrivalField
+  ZoneArrivalFieldShipped: bool  ## whether the data sprite has gone out for
+                                 ## the CURRENT key — false again the instant
+                                 ## the key changes (a fresh episode/map),
+                                 ## which is the only time it gets resent.
+
+proc ensureZoneArrivalField*(sim: SimServer): bool {.discardable, measure.} =
+  ## Builds paintArrivalTick ONCE per episode (the key folds map dims/center,
+  ## the drawn zone center, and the zonePhases schedule — any of those
+  ## changing means a genuinely different field, which cannot happen
+  ## mid-episode but is guarded the same way every other ensure* cache here
+  ## guards it). This is the ENTIRE fix for D1: nothing downstream of this
+  ## proc runs per tick — the wire ships the field's bytes exactly once (see
+  ## addZoneEdgeBand) and every frame after that is a client-side READOUT of
+  ## a scalar threshold against this static array.
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy,
+      zcx: sim.zoneCenter.x, zcy: sim.zoneCenter.y,
+      scheduleFp: sim.zoneScheduleFingerprint())
+  if key == ZoneArrivalFieldKey and ZoneArrivalFieldValue.arrival.len > 0:
+    return false
+  ZoneArrivalFieldKey = key
+  ZoneArrivalFieldShipped = false
+  when defined(zoneArrivalFieldProbe):
+    let t0 = epochTime()
+  ensureZoneFloorGrid(sim)
+  let
+    gw = ZoneFloorGridW
+    gh = ZoneFloorGridH
+    totalTicks = sim.zoneScheduleTotalTicks()
+    finalRect = sim.zoneRectAndDps(totalTicks).cur
+    baseSpeed = sim.zoneBaseSpeedPxPerTick(totalTicks)
+    frontier = computeZoneFrontierField(sim, totalTicks, finalRect, baseSpeed)
+  var field = ZoneArrivalField(gridW: gw, gridH: gh)
+  field.arrival = newSeq[uint16](gw * gh)
+  when defined(zoneArrivalFieldProbe):
+    var floorCells = 0
+  for gy in 0 ..< gh:
+    for gx in 0 ..< gw:
+      let idx = gy * gw + gx
+      if not ZoneFloorPaintable[idx] or frontier[idx] >= Inf.float32:
+        field.arrival[idx] = ZoneNeverArrives
+        continue
+      when defined(zoneArrivalFieldProbe):
+        inc floorCells
+      field.arrival[idx] = uint16(clamp(frontier[idx].int, 0, 0xFFFE))
+  ZoneArrivalFieldValue = field
+  when defined(zoneArrivalFieldProbe):
+    ZoneArrivalFieldBuildMs = (epochTime() - t0) * 1000.0
+    ZoneArrivalFieldCells = gw * gh
+    ZoneArrivalFieldFloorCells = floorCells
+  when defined(zoneArrivalFieldContainmentCheck):
+    ## Diagnostic-only (never shipped default-on): asserts the field's own
+    ## honesty contract — painted(p) at tick T must imply p is outside
+    ## rect(T), within the ZoneCornerRoundPx bound; a dry, already-outside
+    ## cell's arrival must not exceed T by more than the flow-delay cap plus
+    ## slack for the base-tick's own coarse-cell/bisection rounding. Walks a
+    ## spread of sample ticks across the whole schedule against the REAL
+    ## running config, so this catches anything a synthetic unit test's
+    ## smaller map might not reproduce.
+    stderr.writeLine("ZAF containment check: grid " & $gw & "x" & $gh &
+      " totalTicks=" & $totalTicks)
+    for frac in [0.05, 0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 1.0]:
+      let t = int(float(totalTicks) * frac)
+      let rect = sim.zoneRectAndDps(t).cur
+      var violations = 0
+      var worstInsideSd = 0.0
+      var overdueViol = 0
+      var worstOverdue = 0
+      for gy2 in 0 ..< gh:
+        for gx2 in 0 ..< gw:
+          let idx2 = gy2 * gw + gx2
+          if not ZoneFloorPaintable[idx2]:
+            continue
+          let
+            px2 = float(gx2 * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+            py2 = float(gy2 * ZoneFieldCellPx + ZoneFieldCellPx div 2)
+            arrival2 = field.arrival[idx2].int
+            painted = arrival2 <= t
+            sd = roundedRectSignedDist(rect, ZoneCornerRoundPx, px2, py2)
+          if painted and sd < -ZoneCornerRoundPx - 1.0:
+            inc violations
+            worstInsideSd = max(worstInsideSd, -sd)
+          if sd > ZoneCornerRoundPx and arrival2 != ZoneNeverArrives.int and
+              arrival2 > t:
+            let overdue = arrival2 - t
+            if overdue > ZoneFlowDelayCapTicks + 60:
+              inc overdueViol
+              worstOverdue = max(worstOverdue, overdue)
+      stderr.writeLine("ZAF t=" & $t & " containmentViol=" & $violations &
+        " worstInsideSd=" & $worstInsideSd & " overdueViol=" & $overdueViol &
+        " worstOverdue=" & $worstOverdue)
   true
+
+proc zoneArrivalFieldCellAt*(px, py: int): tuple[has: bool, arrival: int] =
+  ## TEST/DIAGNOSTIC accessor: the arrival tick for the coarse cell covering
+  ## map pixel (px, py) — `has=false` off-grid or before any field is built;
+  ## `arrival` is 0xFFFF (ZoneNeverArrives) for a wall cell or a floor cell
+  ## that never floods. Callers must have already run ensureZoneArrivalField
+  ## for the sim in question this episode.
+  let
+    gx = px div ZoneFieldCellPx
+    gy = py div ZoneFieldCellPx
+  if ZoneArrivalFieldValue.gridW <= 0 or gx < 0 or gy < 0 or
+      gx >= ZoneArrivalFieldValue.gridW or gy >= ZoneArrivalFieldValue.gridH:
+    return (false, 0)
+  (true, ZoneArrivalFieldValue.arrival[gy * ZoneArrivalFieldValue.gridW + gx].int)
+
+proc zoneArrivalFieldGridDims*(): tuple[w, h: int] =
+  (ZoneArrivalFieldValue.gridW, ZoneArrivalFieldValue.gridH)
+
+proc zoneTestWallDistGrid*(sim: SimServer): seq[float32] =
+  ## TEST accessor for ZoneFloorWallDistPx — lets a machine check build its
+  ## own independent geodesic reference distance using the SAME clearance
+  ## data the solver's own F(p) reads, without duplicating the solver's
+  ## march itself.
+  ensureZoneFloorGrid(sim)
+  ZoneFloorWallDistPx
+
+proc zoneTestClassifyRooms*(sim: SimServer): seq[int] =
+  ## TEST accessor for ZoneFloorRoomId — the SAME classification
+  ## computeZoneFrontierField's own source-eligibility test reads (see
+  ## ensureZoneFloorGrid), exposed read-only so the machine checks can
+  ## verify the solver's OUTPUT against ground truth an independent
+  ## instrument would need anyway, without silently drifting from what the
+  ## solver actually used (a duplicated, separately-maintained copy of the
+  ## same classifier could rot out of sync and start validating against
+  ## itself instead of the solver).
+  ensureZoneFloorGrid(sim)
+  ZoneFloorRoomId
+
+proc zoneTestFrontLoopCoordAt*(px, py: float, rect: MapRect,
+    shapeW, shapeH: float): tuple[a, b: float] =
+  ## TEST accessor for zoneFrontLoopCoordAt — the fingering family's own
+  ## parameterization, exposed so a machine check can assert the family
+  ## does not COLLAPSE at a degenerate terminal rect. A collapse is silent
+  ## (one constant coordinate everywhere, hence a dead-flat front), so it
+  ## needs a test that reads the mechanism directly rather than only its
+  ## downstream shape.
+  zoneFrontLoopCoordAt(px, py, rect, shapeW, shapeH)
+
+proc zoneTestPaintableAt*(px, py: int): bool =
+  ## TEST/DIAGNOSTIC accessor: ZoneFloorPaintable for the coarse cell
+  ## covering map pixel (px, py). Exists for the same reason
+  ## zoneTestRoomIdAt does — it takes NO SimServer.
+  ##
+  ## That matters more than it looks: SimServer is a value `object`, not a
+  ## ref, so a per-cell check written against zoneD4MaskAt pays for the sim
+  ## on every single call. A whole-board sweep of the real showmatch map is
+  ## 803x429 = 344,487 cells, and the ALL PINK check that does exactly that
+  ## sweep ran for over an hour before this existed. Callers must have
+  ## already run ensureZoneFloorGrid (ensureZoneArrivalField does).
+  let
+    gx = px div ZoneFieldCellPx
+    gy = py div ZoneFieldCellPx
+    gw = ZoneFloorGridW
+  if gw <= 0 or gx < 0 or gy < 0 or gx >= gw or gy >= ZoneFloorGridH:
+    return false
+  ZoneFloorPaintable[gy * gw + gx]
+
+proc zoneTestFingerDelayAt*(px, py: float, finalRect: MapRect,
+    shapeW, shapeH, ampTicks: float): float =
+  ## TEST/DIAGNOSTIC accessor: zoneBoundaryFingerDelayAt, the SEED nudge —
+  ## the additive tick delay the solver stamps on an exterior cell at the
+  ## moment it becomes a source. Exposed for the same reason
+  ## zoneTestRoomIdAt is: check #7's bound is DERIVED from what this
+  ## function can do, and a bound derived from a function the instrument
+  ## cannot evaluate is a bound nothing can falsify.
+  zoneBoundaryFingerDelayAt(px, py, finalRect, shapeW, shapeH, ampTicks)
+
+proc zoneTestBaseArrivalTickAt*(sim: SimServer, px, py: float,
+    totalTicks: int, finalRect: MapRect): int =
+  ## TEST/DIAGNOSTIC accessor: zoneBaseArrivalTickAt — the tick the TRUE
+  ## damage boundary passes this point, ignoring flow. `arrival - this` is
+  ## the flow's LAG behind the honest boundary, which is what separates a
+  ## meniscus from a touchdown.
+  zoneBaseArrivalTickAt(sim, px, py, totalTicks, finalRect)
+
+proc zoneTestScheduleTotalTicks*(sim: SimServer): int =
+  ## TEST/DIAGNOSTIC accessor: the schedule's own total tick count, the
+  ## same one ensureZoneArrivalField solves against.
+  zoneScheduleTotalTicks(sim)
+
+proc zoneTestRoomIdAt*(px, py: int): int =
+  ## TEST/DIAGNOSTIC accessor: ZoneFloorRoomId for the coarse cell covering
+  ## map pixel (px, py) — the per-pixel readout of zoneTestClassifyRooms,
+  ## so a per-sample instrument can ask "is this cell exterior/aperture
+  ## ground?" without copying the whole grid on every probe. Negative for
+  ## exterior/aperture (and for a wall / off-grid cell); >= 0 is a genuine
+  ## interior-room cell — EXACTLY the predicate computeZoneFrontierField's
+  ## own source-eligibility test uses (`if ZoneFloorRoomId[idx] < 0`), which
+  ## is why the meniscus instrument can share it rather than inventing a
+  ## second, driftable notion of "architecture". Callers must have already
+  ## run ensureZoneFloorGrid (ensureZoneArrivalField does).
+  let
+    gx = px div ZoneFieldCellPx
+    gy = py div ZoneFieldCellPx
+    gw = ZoneFloorGridW
+  if gw <= 0 or gx < 0 or gy < 0 or gx >= gw or gy >= ZoneFloorGridH:
+    return -1
+  ZoneFloorRoomId[gy * gw + gx]
+
+proc zoneD4MaskAt*(sim: SimServer, px, py: int): tuple[walkable, paintable, wallArt: bool] =
+  ## D4a VERIFICATION accessor: at full map-pixel resolution (not the coarse
+  ## solver grid), the TRUE walkability (sim.walkMask, what the arrival
+  ## field's floor domain is actually built from), whether this pixel is
+  ## PAINTABLE per the fixed skip mask (walkable AND not swallowed by a
+  ## nearby wall-ART overhang — ZoneArtOverhangMaxPx), and the OLD/raw
+  ## wall-ART claim alone (isZoneWallArt) — the mask round 2 used
+  ## UNCONDITIONALLY as its skip mask, which is exactly the D4a defect: it
+  ## can swallow whole interiors, not just a wall's own rendered overhang.
+  ensureZoneFloorGrid(sim)
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+  if px < 0 or py < 0 or px >= w or py >= h:
+    return (false, false, true)
+  let
+    walkable = if sim.walkMask.len == w * h: sim.walkMask[py * w + px]
+      else: not sim.wallMask[py * w + px]
+    wallArt = isZoneWallArt(px, py)
+    gx = px div ZoneFieldCellPx
+    gy = py div ZoneFieldCellPx
+    gw = ZoneFloorGridW
+  var paintable = false
+  if gx >= 0 and gy >= 0 and gx < gw and gy < ZoneFloorGridH:
+    paintable = ZoneFloorPaintable[gy * gw + gx]
+  (walkable, paintable, wallArt)
+
+proc zoneArrivalFieldBytes(field: ZoneArrivalField): seq[uint8] =
+  ## Packs the field into an RGBA texture the existing sprite protocol can
+  ## carry unmodified: R/G = the 16-bit arrival tick (low/high byte), B/A
+  ## reserved (a later decoration pass uses them for tone/contact data).
+  ## gridW x gridH — a coarse grid, not the map's own resolution — so this
+  ## is a few hundred KB before snappy even on the largest boards, shipped
+  ## exactly ONCE per episode (see addZoneEdgeBand), never per tick.
+  result = newRgbaPixels(field.gridW, field.gridH)
+  for i in 0 ..< field.arrival.len:
+    let a = field.arrival[i]
+    result.putRawRgbaPixel(i, uint8(a and 0xFF), uint8((a shr 8) and 0xFF),
+      0'u8, 255'u8)
+
+const
+  ZoneArrivalFieldSpriteId* = ZoneMarkerBase + 2
+  ZoneClockObjectId* = ZoneMarkerBase + 3
+  ZoneClockSpriteId = ZoneMarkerBase + 3
+  ZoneArrivalFieldLabel = "fx 9c41 field"  ## same opaque-tag convention as
+                               ## ZoneEdgeFxLabelTag — the client intercepts
+                               ## this id BEFORE ever treating it as a
+                               ## drawable sprite (see broadcast_core.js),
+                               ## the same precedent CHROME_SPRITE_ID sets
+                               ## for smuggling non-pixel data over the
+                               ## sprite channel.
 
 proc addZoneEdgeBand(
   sim: SimServer,
@@ -7261,47 +8139,48 @@ proc addZoneEdgeBand(
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## The closing zone's cosmetic edge (docs/designs/BR_MAPGEN.md §4.3): a
-  ## seeping paint flood covering the map from its own edges in to the
-  ## CURRENT rect's border — see the const block above for the layer
-  ## design. Rendered on both streams so the boundary is visible without
-  ## parsing the label markers. A bar with zero extent (the rect currently
-  ## touches or exceeds that side of the map) is skipped rather than
-  ## emitted as a degenerate empty sprite.
+  ## Round 3: ships the static arrival-time field ONCE per episode (a tiny
+  ## coarse-grid texture, not a megapixel bar) plus a 1x1 "clock" object
+  ## whose X position IS the elapsed tick, every tick. The clock rides the
+  ## viewer's EXISTING motion-glide system (built for player movement, see
+  ## broadcast_core.js's "Motion interpolation" block) to get true sub-tick
+  ## interpolation for free: no new client-side timing code, and a real
+  ## seek/scrub (a jump bigger than the glide system's own SNAP_DISTANCE)
+  ## already snaps instantly instead of gliding — exactly "one full
+  ## re-threshold pass" on seek, for free. All the frame-by-frame paint
+  ## (incremental accumulation, frontier, decoration) is a client-side
+  ## READOUT of the field against that one continuous scalar; see
+  ## broadcast_core.js's renderZonePaint.
   when defined(zonePaintOff):
     ## Diagnostic-only build flag (never shipped default-on): emits none of
     ## the zone-paint sprites at all, for an apples-to-apples viewer
-    ## frame-time A/B against a normal build on the SAME replay/ticks —
-    ## Maxwell's "the replay is way too laggy" report needed attribution
-    ## before any optimization, per the fleet-load-corrupts-timings rule
-    ## (the dev machine runs many agents at once; an unattributed slowdown
-    ## could just as easily be load as this layer).
+    ## frame-time A/B against a normal build on the SAME replay/ticks.
     return
   if sim.config.zonePhases.len == 0:
     return
-  let (rect, _, _) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
-  # `rebuilt` is true only on a cache MISS (center/rect actually moved this
-  # tick). Passing that through as `changed` — rather than an unconditional
-  # `true` — lets addBoardSpriteChanged's own dedup check skip the upscale
-  # and wire re-encode on every tick a "wait" phase holds the rect still
-  # (roughly half the match by ticks): Maxwell's "the replay is way too
-  # laggy" report traced partly to this sprite being marked changed, and
-  # therefore re-uploaded, on EVERY tick regardless of whether its pixels
-  # had moved at all.
-  let rebuilt = ensureZoneTideCache(sim, rect)
-  for i in 0 ..< 4:
-    let (bx, by, w, h) = ZoneTideCacheGeom[i]
-    if w <= 0 or h <= 0:
-      continue
-    let
-      spriteId = ZoneMarkerBase + 2 + i
-      objectId = ZoneMarkerBase + 2 + i
-    currentIds.add(objectId)
-    packet.addBoardSpriteChanged(
-      spriteDefs, spriteId, w, h, ZoneTideCachePixels[i],
-      ZoneEdgeFxLabelTag & " " & $i, changed = rebuilt
-    )
-    packet.addBoardObject(objectId, bx, by, ZoneEdgeBandZ, MapLayerId, spriteId)
+  let rebuilt = ensureZoneArrivalField(sim)
+  when defined(zoneArrivalFieldProbe):
+    if rebuilt:
+      stderr.writeLine(zoneArrivalFieldProbeReport())
+  if ZoneArrivalFieldValue.gridW <= 0 or ZoneArrivalFieldValue.gridH <= 0:
+    return
+  if not ZoneArrivalFieldShipped:
+    packet.addSpriteChanged(
+      spriteDefs, ZoneArrivalFieldSpriteId,
+      ZoneArrivalFieldValue.gridW, ZoneArrivalFieldValue.gridH,
+      zoneArrivalFieldBytes(ZoneArrivalFieldValue),
+      ZoneArrivalFieldLabel, changed = true)
+    ZoneArrivalFieldShipped = true
+  packet.addSpriteChanged(
+    spriteDefs, ZoneClockSpriteId, 1, 1, newRgbaPixels(1, 1),
+    ZoneEdgeFxLabelTag & " clock")
+  let elapsed = clamp(max(0, sim.tickCount - sim.gameStartTick), 0, 32000)
+    ## Wire object positions are signed 16-bit (bitworld/spriteprotocol's
+    ## addI16) — 32000 is comfortably past any real match length (a full
+    ## showmatch schedule is ~3360 ticks) and comfortably under the 32767
+    ## ceiling, a defensive clamp rather than a expected code path.
+  packet.addObject(ZoneClockObjectId, elapsed, 0, ZoneEdgeBandZ, MapLayerId,
+    ZoneClockSpriteId)
 
 proc damagePopBucket(amount: int): int =
   ## Maps a "-N" pop's HP-loss amount to one of DamagePopBucketCount sprite

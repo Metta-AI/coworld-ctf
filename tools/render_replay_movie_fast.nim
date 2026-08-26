@@ -124,7 +124,7 @@ proc main() =
       echo "tick ", sim.tickCount, " -> ", frame, " frames"
   echo "wrote ", frame, " frames to ", outDir, " (last tick ",
     sim.tickCount, ")"
-  when defined(zoneTideCacheProbe):
-    echo zoneTideCacheProbeReport()
+  when defined(zoneArrivalFieldProbe):
+    echo zoneArrivalFieldProbeReport()
 
 main()

@@ -335,7 +335,6 @@ const BrRosterColorNames = [
   "red", "blue", "green", "yellow", "black", "silver", "ivory", "pink",
   "umber", "rust", "orange", "plum", "lime", "navy", "azure", "peach",
 ]
-  ## The full BR duo roster (tools/record_br_match.sh's own TEAM_NAMES,
   ## same order) — widens ANY "which colors are in play" enumeration when
   ## RealTeamCount says more than TeamColorNames.len teams are actually in
   ## play (see RealTeamCount above, and rosterColor/rosterColorCount below).

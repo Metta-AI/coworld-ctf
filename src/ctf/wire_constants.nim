@@ -57,6 +57,11 @@ const WireConstantsJs* =
   ",chromeSpriteId:" & $BroadcastChromeSpriteId &
   ",shotFxTicks:" & $ShotFxTicks &
   ",shotTrailFalloff:" & $TrailFalloff &
+  ",zoneArrivalFieldSpriteId:" & $ZoneArrivalFieldSpriteId &
+  ",zoneClockObjectId:" & $ZoneClockObjectId &
+  ",zoneFieldCellPx:" & $ZoneFieldCellPx &
+  ",zonePaintBody:\"#" & hex2(ZonePaintBody.r) & hex2(ZonePaintBody.g) &
+    hex2(ZonePaintBody.b) & "\"" &
   "};"
 
 const WireConstantsMarker* = "<!-- WIRE_CONSTANTS -->"

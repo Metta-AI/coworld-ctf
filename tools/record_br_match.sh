@@ -100,12 +100,26 @@ cfg["barrageMaxPerSec"] = 0
 # failure the draw-free tiebreak closes from the other end. A cog has 3 hp,
 # so the last two phases kill in roughly a second and a half outside — long
 # enough to run back in, far too short to camp.
+# TIMING (Maxwell's ruling, 2026-08-26, after watching the preview: "it
+# should wait a bit, THEN slowly encroach and not stop until all is pink").
+# The pink does not move until the SECOND HALF: the gear-up wait is 3000,
+# set as maxTicks/2 by his order (it is a plain table number precisely so he
+# can tune it again), and the close then spans 3000 -> 6000 and runs to the
+# smallest scale the config allows. Closing to zero AT the cap also makes a
+# maxTicks timeout structurally impossible: with no interior left at 6000,
+# zone attrition has resolved the match by then whatever the bots do — which
+# is what the earlier terminal-room table could not guarantee (seed 90210
+# froze three duos for 2205 ticks and timed out).
+# Shrink lengths are proportional to their z steps so the recession rate
+# never changes: 0.176/528 and 0.060/180 are the same rate.
 cfg["zonePhases"] = [
-    {"z": 0.75, "waitTicks": 600, "shrinkTicks": 420, "dps": 0},
-    {"z": 0.55, "waitTicks": 480, "shrinkTicks": 360, "dps": 2},
-    {"z": 0.40, "waitTicks": 360, "shrinkTicks": 300, "dps": 4},
-    {"z": 0.28, "waitTicks": 240, "shrinkTicks": 240, "dps": 8},
-    {"z": 0.17, "waitTicks": 180, "shrinkTicks": 180, "dps": 12},
+    {"z": 0.824, "waitTicks": 3000, "shrinkTicks": 528, "dps": 0},
+    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 528, "dps": 2},
+    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 528, "dps": 4},
+    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 528, "dps": 8},
+    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 528, "dps": 12},
+    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 180, "dps": 16},
+    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 180, "dps": 20},
 ]
 # zoneCenter is ABSENT ON PURPOSE. §4.3's central guarantee is that the
 # center is DRAWN, not fixed at map center: a fixed center makes a strong

@@ -1585,6 +1585,12 @@ type
                                   ## the mode is off — the default,
                                   ## byte-identical to a build with no BR
                                   ## code at all.
+    # GVNEXT(zone): appended fields, same append-safety reasoning as
+    # brMode above (a seq and scalars on GameConfig, not an array[Team, X]
+    # run). BR INTEGRATION: elim's brMode and zone's zone* fields both
+    # landed at the END of GameConfig on their own lanes; merged as one
+    # union in merge order (elim, then zone) so neither lane's field
+    # offsets shuffle relative to the other.
     zonePhases*: seq[ZonePhase]   ## the battle-royale shrink-zone schedule
                                   ## (docs/designs/BR_MAPGEN.md §4.3). Empty
                                   ## (the default) = the mode is off — no
