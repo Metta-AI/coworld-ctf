@@ -958,12 +958,22 @@ const
     ## jump at T5); it mirrors `TierGlory`'s doubling by eye.
   AchievementFirstMultPct* = 300
     ## The first team in the episode to complete a tier claims at x3.
-    ## ⚠️ UNCALIBRATED (GLORY C7): a round "triple" -- big enough to be
-    ## worth racing for, per law 2's own stated intent ("a first-only reward
-    ## teaches the other teams nothing" argues AGAINST going higher, since a
-    ## bigger multiplier makes the other three teams' later claims feel more
-    ## like consolation prizes) -- but not fit against a measured
-    ## race-to-first-claim distribution.
+    ## 🚨 REFRAMED (VOCABULARY wave): this is a PIONEER bonus, not a race
+    ## bonus. It pays for being first-on-the-board, full stop -- whether or
+    ## not the other team ever shows up to contest the tier at all. The
+    ## measured claim split makes the distinction concrete: common tiers
+    ## (the T1-T2 "touched the kit" ones) see first=0.50-0.86, real
+    ## competition where most claims are NOT the first (both teams typically
+    ## get there), while rare tiers see first=1.00 -- essentially every claim
+    ## IS the first claim, because usually only one team ever reaches them in
+    ## a given episode. At that end there is no "race" to win; the bonus
+    ## simply crowns whichever team pioneered the feat.
+    ## ⚠️ UNCALIBRATED (GLORY C7): a round "triple" -- big enough to be worth
+    ## chasing, per law 2's own stated intent ("a first-only reward teaches
+    ## the other teams nothing" argues AGAINST going higher, since a bigger
+    ## multiplier makes the other three teams' later claims feel more like
+    ## consolation prizes) -- but not fit against a measured
+    ## first-to-claim distribution.
   AchievementSweepBudgetPct* = 15
     ## Law 3 as Muster states it: a full sweep must stay under this share of a
     ## MEDIAN WINNER's episode glory.
@@ -1082,6 +1092,22 @@ const
     # vocabulary borrowed from elsewhere (Aegis, Bulwark, Rampart, Atlas) --
     # renamed to the paintball field's own language. "Blockade" is already
     # paint-native (a body blocking incoming fire) and untouched.
+    #
+    # 🚨 STANDING DECISION (Maxwell, VOCABULARY wave): these soak thresholds
+    # STAY, even though every tier here is gated on an absorbed-hit-point
+    # COUNT and law 2b bans achievements that pay for something the game
+    # already paid you for once. The two are not the same shape. A bare
+    # pickup/possession/arrival tier pays for FREE value -- walking onto a
+    # kit or a tile costs the enemy nothing. Soaking a hit REQUIRES the enemy
+    # to be shooting AT you: it is risk-bearing work done for the team (the
+    # shield-carrier's whole role is standing in the line of fire so a
+    # teammate doesn't have to), not a possession you can rack up passively.
+    # This also means `dShieldSoak`/`XpPerShieldSoak` already pay every one
+    # of these hit points once, so a tier claim here is a deliberate SECOND
+    # payment on the same act -- acknowledged, not an oversight, and accepted
+    # as role-pricing: soaking is a role a cog can choose to play, and this
+    # tree is what rewards choosing to play it well, on top of the ambient
+    # income the act already earns.
     ["Suit of Paint",       ## I    absorb 3 hp (was "Aegis")
      "Blockade",            ## II   absorb 6 hp in one game
      "Paint Wall",          ## III  absorb 6 hp AND land an enemy kill
