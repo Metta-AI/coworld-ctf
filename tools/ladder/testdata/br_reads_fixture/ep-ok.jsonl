@@ -1,0 +1,12 @@
+{"tick":0,"kind":"phase","source":-1,"target":-1,"weapon":"playing","amount":1,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":10,"kind":"damage","source":4,"target":0,"weapon":"gun","amount":1,"hp":2,"blocked":0,"x":1.0,"y":1.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":20,"kind":"damage","source":4,"target":0,"weapon":"gun","amount":1,"hp":1,"blocked":0,"x":1.0,"y":1.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":20,"kind":"kill","source":4,"target":0,"weapon":"gun","amount":2,"hp":-1,"blocked":0,"x":1.0,"y":1.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":20,"kind":"death","source":0,"target":4,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":1.0,"y":1.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":30,"kind":"damage","source":-1,"target":2,"weapon":"puddle","amount":1,"hp":1,"blocked":0,"x":2.0,"y":2.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":35,"kind":"death","source":2,"target":-1,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":2.0,"y":2.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"tick":40,"kind":"item_pickup","source":6,"target":-1,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":3.0,"y":3.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"shield","content":"","damages":[]}
+{"tick":41,"kind":"item_pickup","source":6,"target":-1,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":3.0,"y":3.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"shield","content":"","damages":[]}
+{"tick":42,"kind":"item_pickup","source":7,"target":-1,"weapon":"","amount":0,"hp":-1,"blocked":0,"x":3.0,"y":3.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"grenade","content":"","damages":[]}
+{"tick":50,"kind":"phase","source":-1,"target":-1,"weapon":"gameover","amount":2,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"type":"summary","ticks":900,"events":11,"gameVersion":"99","finished":true,"draw":false,"winner":"red","slot_address":["alice","alice (2)","bob","bob (2)","carl","carl (2)","Baseline","Baseline (2)"],"slot_team":["red","red","blue","blue","green","green","yellow","yellow"],"slot_shots_fired":[10,5,8,4,12,6,3,3],"slot_shots_hit":[5,2,3,1,6,2,1,1]}

@@ -1,0 +1,2 @@
+{"tick":0,"kind":"phase","source":-1,"target":-1,"weapon":"playing","amount":1,"hp":-1,"blocked":0,"x":0.0,"y":0.0,"action_id":0,"heading_brads":-1,"distance":0.0,"item":"","content":"","damages":[]}
+{"type":"summary","ticks":50,"events":1,"gameVersion":"99","finished":false,"draw":false,"winner":null,"slot_address":["alice","alice (2)","bob","bob (2)","carl","carl (2)","dave","dave (2)"],"slot_team":["red","red","blue","blue","green","green","yellow","yellow"],"slot_shots_fired":[0,0,0,0,0,0,0,0],"slot_shots_hit":[0,0,0,0,0,0,0,0]}
