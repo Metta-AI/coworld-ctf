@@ -4528,7 +4528,10 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
   if after > before:
     sim.awardDeed(
       sim.players[playerIndex].team, dLevelUp,
-      sim.players[playerIndex].x, sim.players[playerIndex].y, after - before
+      sim.players[playerIndex].x, sim.players[playerIndex].y, after - before,
+      byIndex = playerIndex  # RANK UP joins the unit's own pop queue: without
+                             # the earner, a level-up pop minted site-anchored
+                             # and skipped the per-unit stagger/priority cap
     )
     if sim.gameEventLoggingEnabled:
       sim.logGameEvent(
