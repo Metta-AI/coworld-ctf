@@ -101,11 +101,11 @@ cfg["barrageMaxPerSec"] = 0
 # so the last two phases kill in roughly a second and a half outside — long
 # enough to run back in, far too short to camp.
 cfg["zonePhases"] = [
-    {"z": 0.75, "waitTicks": 600, "shrinkTicks": 420, "dps": 0},
-    {"z": 0.55, "waitTicks": 480, "shrinkTicks": 360, "dps": 2},
-    {"z": 0.40, "waitTicks": 360, "shrinkTicks": 300, "dps": 4},
-    {"z": 0.28, "waitTicks": 240, "shrinkTicks": 240, "dps": 8},
-    {"z": 0.17, "waitTicks": 180, "shrinkTicks": 180, "dps": 12},
+    {"z": 0.824, "waitTicks": 1200, "shrinkTicks": 720, "dps": 0},
+    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 720, "dps": 2},
+    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 720, "dps": 4},
+    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
+    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12},
 ]
 # zoneCenter is ABSENT ON PURPOSE. §4.3's central guarantee is that the
 # center is DRAWN, not fixed at map center: a fixed center makes a strong

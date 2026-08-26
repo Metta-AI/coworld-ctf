@@ -6573,7 +6573,7 @@ const
                              ## feature without being a straight line, so
                              ## that wavelength IS the bound, and it moves
                              ## if the tuning does.
-  ZoneFingerAmpMaxTicks* = 240  ## CEILING on the converted budget: a
+  ZoneFingerAmpMaxTicks* = 400  ## CEILING on the converted budget: a
                              ## pathologically slow schedule would turn
                              ## 21px into hundreds of ticks of lateness, so
                              ## the conversion is clamped — well clear of
@@ -6583,6 +6583,25 @@ const
                              ## survives the change. Never silent: the
                              ## clamp is asserted and printed by the paint
                              ## checks when it binds.
+                             ##
+                             ## RAISED 240 -> 400 with the continuous-close
+                             ## schedule (2026-08-25). 240 was sized against
+                             ## the OLD staged schedule, whose slowest map
+                             ## needed 179 ticks. Deleting the holds and
+                             ## stretching the close to 4800 ticks LOWERS
+                             ## base speed (more ticks for the same closure,
+                             ## not fewer) — the small test map fell to
+                             ## 0.0868 px/tick and needed 242, so the clamp
+                             ## bound and silently delivered 20.84px instead
+                             ## of the approved 21.0. That is a 0.8% cosmetic
+                             ## shortfall and would have been invisible; the
+                             ## check caught it because a ceiling that can
+                             ## bind unnoticed is exactly what this
+                             ## assertion exists to prevent. 400 restores
+                             ## real headroom and stays far below
+                             ## ZoneFlowDelayCapTicks (1200), so the
+                             ## meniscus/room-lag split Maxwell ruled on is
+                             ## untouched.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
                              ## arena.nim's MinCorridorWidth (the narrowest
                              ## built corridor): local flow speed throttles

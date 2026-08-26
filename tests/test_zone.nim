@@ -69,14 +69,20 @@ const
   ## long-wait/short-shrink cadence a real match runs, not ToyPhases' much
   ## faster synthetic one.
   BrShowmatchPhases = """[
-    {"z": 0.75, "waitTicks": 600, "shrinkTicks": 420, "dps": 0},
-    {"z": 0.55, "waitTicks": 480, "shrinkTicks": 360, "dps": 2},
-    {"z": 0.40, "waitTicks": 360, "shrinkTicks": 300, "dps": 4},
-    {"z": 0.28, "waitTicks": 240, "shrinkTicks": 240, "dps": 8},
-    {"z": 0.17, "waitTicks": 180, "shrinkTicks": 180, "dps": 12}
+    {"z": 0.824, "waitTicks": 1200, "shrinkTicks": 720, "dps": 0},
+    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 720, "dps": 2},
+    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 720, "dps": 4},
+    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
+    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12}
   ]"""
-  BrShowmatchTotalTicks = 600 + 420 + 480 + 360 + 360 + 300 + 240 + 240 +
-    180 + 180  ## 3360 — sum of every phase's wait+shrink.
+  BrShowmatchTotalTicks = 1200 + 720 + 720 + 720 + 720 + 720
+    ## 4800 — the GEAR-UP wait plus five CONTIGUOUS shrink segments. There
+    ## are no intermediate holds by design (Maxwell's ruling, 2026-08-25):
+    ## every phase past the first carries waitTicks 0, so once the zone
+    ## starts closing it never stops until terminal size. z steps by a
+    ## constant 0.176 per equal-length segment, which makes the rect's own
+    ## half-extent recede at a CONSTANT px/tick for the whole close —
+    ## "slowly and continuously" stated as geometry rather than as prose.
 
 suite "shrink zone config":
   test "off by default, and the config echo carries no zonePhases key":
