@@ -120,13 +120,24 @@ jobs:
         # only fits wasm32 because oversize boards emit at 1x (see
         # MaxSupersampledMapPixels). Re-record on GameVersion bumps with:
         #   tools/record_colossal_demo.sh <out> 4242 1500 16
+        #
+        # FRAME BUDGET RAISED 300 -> 6000 (2026-08-26). The canary was
+        # calibrated to stop just SHORT of the failure it exists to catch:
+        # at frame 300 the colossal fixture sits at 1723.6 MB of wasm32's
+        # 2048 MB — 84% consumed — and reported "ok", while it aborts with
+        # ABORTING_MALLOC by frame ~375. A gate that green-lights at 84% of
+        # a hard ceiling is measuring the warm-up, not the cliff. The
+        # footprint is a steady state reached over THOUSANDS of frames (see
+        # MaxSupersampledMapPixels' own derivation), so only a full-episode
+        # run can see the plateau, and the plateau is the thing that either
+        # fits or does not.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
               tests/fixtures/gen-small-pits.bitreplay \
               tests/fixtures/gen-colossal-4team.bitreplay; do
             echo "::group::$replay"
-            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
+            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 6000 || fail=1
             echo "::endgroup::"
           done
           exit $fail

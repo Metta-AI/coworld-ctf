@@ -1149,18 +1149,40 @@ const RenderScale* {.intdefine.} = 2
   ## Board supersample factor for the spectator/replay renderer. Build with
   ## -d:RenderScale=1 to reproduce the legacy 1× wire exactly.
 
-const MaxSupersampledMapPixels* {.intdefine.} = 8_000_000
+const MaxSupersampledMapPixels* {.intdefine.} = 2_000_000
   ## Largest board (logical map pixels, width·height) that still renders the
   ## spectator stream at RenderScale×. Above it the board emits at 1×: the
   ## static wasm replay viewer runs in a 32-bit address space, and the
   ## RenderScale× hot+cold arena bakes alone cost mapPixels·RenderScale²·4
-  ## bytes EACH — on a colossal board (5.2×, ~22–25 M map px) that is
-  ## ~350 MB per bake and blows through wasm32's 2 GB ceiling before the
-  ## first frame. The bound sits between giant (4-team 2496², ~6.2 M px —
-  ## the largest class proven to play at 2× in the hosted viewer) and
-  ## colossal (~22 M px), whose 1× wire carries the same byte volume as the
-  ## proven giant 2× wire. Applies to the native server too, so a recorded
-  ## wire and any live spectator see the identical stream.
+  ## bytes EACH. Applies to the native server too, so a recorded wire and
+  ## any live spectator see the identical stream.
+  ##
+  ## LOWERED 8_000_000 -> 2_000_000 (2026-08-26), because the old bound's
+  ## own premise was FALSE. It claimed ~6.2 M px was "the largest class
+  ## proven to play at 2× in the hosted viewer". Measured: a 3211×1713 BR
+  ## board is 5.5 M px — INSIDE that supposedly-proven class — and at 2× it
+  ## aborts with ABORTING_MALLOC around frame 3000 of a 4593-tick episode,
+  ## i.e. the viewer cannot finish a match. The same replay in the same
+  ## commit at 1× completes all 4700 frames hash-exact and plateaus at
+  ## 763 MB, 37% of the address space.
+  ##
+  ## THE BOUND IS NOW DERIVED FROM MEASURED WORKING SET, not from a class
+  ## name. The steady-state footprint is proportional to BAKE resolution —
+  ## it is not a leak; the curve walks up to a plateau and stays there —
+  ## and a 2× bake costs 4× a 1× one. Two anchors:
+  ##     0.81 M px (standard 1235×659) at 2× -> plateaus 467 MB, measured
+  ##     5.50 M px (BR 3211×1713)     at 1× -> plateaus 763 MB, measured
+  ## Both give ~555 MB of steady state per megapixel at 2×, and the model
+  ## predicts the standard board's 467 MB to within 4%. Holding 2× to a
+  ## ~1.1 GB ceiling — half the address space, leaving room for the JS
+  ## heap, the .data preload and fragmentation — puts the bound at ~2 M px.
+  ##
+  ## SIDE EFFECT, stated rather than discovered later: boards between 2 M
+  ## and 6.2 M px (notably 4-team giant, 2496² ≈ 6.2 M) now emit at 1× where
+  ## they used to emit at 2×. Measured cost of that drop on the BR board at
+  ## match-watching zoom: mean |delta| 0.74/255 with 1.81% of board pixels
+  ## differing by more than 8/255. It is visible only when zoomed deep into
+  ## wall art.
 
 proc boardRenderScaleFor*(mapWidth, mapHeight: int): int =
   ## The spectator supersample factor for a board of the given logical size:
