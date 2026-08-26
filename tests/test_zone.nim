@@ -1507,16 +1507,44 @@ const
   ## SMALL span therefore means a COARSE isoline, and a coarse isoline
   ## manufactures turning angle out of nothing.
   ##
-  ## The span cannot go below this floor. F(p) = zoneSpeedFieldAt is a
-  ## product of three multipliers each bounded above by 1.0 (aperture,
-  ## wallDrag, fingering), so F <= 1.0 px/tick everywhere, so the arrival
-  ## field's own |grad T| = 1/F >= 1 tick/px — and the two non-propagation
-  ## terms that can override it (the t0 seed at 1/baseSpeed, and the
-  ## honesty clamp to t0) are both STEEPER than that on every real map, so
-  ## min/max against them cannot flatten it. Over one ZoneFieldCellPx (4px)
-  ## step the true arrival difference is therefore >= 4 ticks, and
-  ## truncating both ends to whole ticks costs at most 1 more.
-  ZoneArrivalSpanFloorTicks = ZoneFieldCellPx - 1  ## = 3
+  ## THE FLOOR IS A PERPENDICULAR-CROSSING FLOOR, AND ONLY THAT (corrected
+  ## 2026-08-26). It used to be asserted as a floor on EVERY sample, from
+  ## this argument: F = zoneSpeedFieldAt is a product of three multipliers
+  ## each <= 1.0, so the arrival field's |grad T| = 1/(baseSpeed*F) is at
+  ## least 1/baseSpeed, so one ZoneFieldCellPx step must differ by at least
+  ## ZoneFieldCellPx/baseSpeed ticks.
+  ##
+  ## That argument silently assumes the WALK RAY IS PARALLEL TO grad T. The
+  ## instrument does not measure |grad T|; it measures the arrival
+  ## difference along its own fixed walk axis, which is |grad T| * cos(theta)
+  ## for theta the angle between that axis and the gradient. An OBLIQUE
+  ## crossing therefore has a legitimately smaller span, and as the isoline
+  ## tilts toward the walk direction the span goes to ZERO — no positive
+  ## floor survives, and a single ray cannot separate theta from |grad T| to
+  ## recover one. MEASURED: 14.2% of the real map's scored vertices and
+  ## 22.7% of the small map's are tilted past the tuning's own slope, and
+  ## the real map duly reported minSpan 2 against this "floor" of 3. The
+  ## check was failing on a theorem that is not true.
+  ##
+  ## What IS true, and is what the two checks below now assert:
+  ##  * span >= 1 for any valid bracket, by the bracket's own definition
+  ##    (prev.arrival > t >= cur.arrival);
+  ##  * a PERPENDICULAR crossing still obeys the original derivation, so the
+  ##    steepest sample on an edge must reach it. Asserting the MAXIMUM span
+  ##    clears the perpendicular floor proves the field really is as steep
+  ##    as the schedule says AND that the instrument really does see
+  ##    square-on crossings — which is the thing the old floor was reaching
+  ##    for, stated about the sample it actually holds for.
+  ## Term B is priced PER SAMPLE anyway (see maxTurningExcessDeg), so one
+  ## coarse oblique sample can only loosen its own vertex, never the edge.
+  ZoneArrivalSpanFloorTicks = 1  ## a valid bracket's own definition
+proc zoneSpanPerpFloorTicks(baseSpeed: float): float =
+  ## The original derivation, kept and stated where it is TRUE: a crossing
+  ## square-on to the front differs by at least ZoneFieldCellPx/baseSpeed
+  ## ticks over one cell (F <= 1), less the 1 tick that truncating both ends
+  ## to whole ticks can cost.
+  float(ZoneFieldCellPx) / max(baseSpeed, 1e-9) - 1.0
+const
   ## The px amplitude each of the two meniscus octaves carries, derived
   ## from zoneBoundaryFingerDelayAt's own arithmetic: it combines the two
   ## octaves as 0.5*n1 + 0.5*n2 (each n in [-1,1]), maps that to [0,1] and
@@ -1626,7 +1654,7 @@ proc runLengths(pos: seq[float]): seq[int] =
 
 proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
     tuple[excessDeg, turnDeg, allowDeg: float,
-          idx, atSpan, minSpan, scored, offRegime: int] =
+          idx, atSpan, minSpan, maxSpan, scored, offRegime: int] =
   ## Check #7's assertion quantity: the worst amount by which the measured
   ## turning angle EXCEEDS what term A plus that sample's OWN term B allow.
   ##
@@ -1636,10 +1664,12 @@ proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
   ## one. Gaps break the polyline, the same discipline every other measure
   ## here uses, and a run too short to hold a meniscus feature at all is
   ## reported as off-regime rather than scored (MinMeniscusRunSamples).
-  result = (-Inf, 0.0, 0.0, -1, 0, high(int), 0, 0)
+  result = (-Inf, 0.0, 0.0, -1, 0, high(int), 0, 0, 0)
   let runs = runLengths(pos)
   for i in 0 ..< pos.len:
-    if isoValid(pos[i]): result.minSpan = min(result.minSpan, span[i])
+    if isoValid(pos[i]):
+      result.minSpan = min(result.minSpan, span[i])
+      result.maxSpan = max(result.maxSpan, span[i])
   if result.minSpan == high(int): result.minSpan = 0
   for i in 2 ..< pos.len:
     if not isoValid(pos[i - 2]) or not isoValid(pos[i - 1]) or
@@ -1660,7 +1690,7 @@ proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
       allow = ampDeg + zoneQuantTurnDeg(s)
     if turn - allow > result.excessDeg:
       result = (turn - allow, turn, allow, i, s, result.minSpan,
-        result.scored, result.offRegime)
+        result.maxSpan, result.scored, result.offRegime)
   ## An edge with NO scored vertex reports -Inf and `idx < 0`, never 0.0:
   ## a zero would be indistinguishable from a perfectly-met bound, would
   ## win the max() against every real (negative) excess on every other
@@ -1754,11 +1784,19 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       MaxAmplitudePx = 6.0 * ZoneFingerAmpPx  ## check #8's own bound
       MaxFlatRunPx = ZoneFingerOctaveCoarsePx ## straight-run's own bound
       WindowSamples = 50          ## check #8's own window
+    const ControlSpanTicks = ZoneFieldCellPx - 1  ## = 3
+      ## The coarsest instrument resolution the CONTROLS must still
+      ## separate at. Deliberately pessimistic, and deliberately its own
+      ## constant rather than ZoneArrivalSpanFloorTicks: that one is a
+      ## statement about the FIELD (and, corrected 2026-08-26, is now the
+      ## bracket's definitional 1), while this is a statement about how
+      ## hard this synthetic test makes itself work. Wiring the control
+      ## threshold to the field floor would have let a correction to the
+      ## field's own theory silently widen the controls to 92.6 deg.
     let MaxTurningAngleDeg = zoneFingerAmplitudeTurnDeg() +
-      zoneQuantTurnDeg(ZoneArrivalSpanFloorTicks)
+      zoneQuantTurnDeg(ControlSpanTicks)
       ## check #7's own bound at its LOOSEST — the amplitude term plus the
-      ## quantization term at the coarsest resolution the arrival field can
-      ## ever have (ZoneArrivalSpanFloorTicks). 39.4 deg, which is where
+      ## quantization term at ControlSpanTicks. 39.4 deg, which is where
       ## the hand-picked 40.0 this line replaces had landed by eye; the
       ## point is that it is now DERIVED, so it moves when the tuning does.
       ## The controls must separate at check #7's weakest, not just at its
@@ -1915,11 +1953,13 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     discard ensureZoneArrivalField(sim)
     let (gw, gh) = zoneArrivalFieldGridDims()
     let ampDeg = zoneFingerAmplitudeTurnDeg()
+    let baseSpeed = zoneBaseSpeedPxPerTick(sim, zoneTestScheduleTotalTicks(sim))
     var worst = 0.0
     var worstAllow = 0.0
     var worstExcess = -Inf
     var worstExcessWhere = ""
     var minSpan = high(int)
+    var maxSpan = 0
     var scored = 0
     var offRegime = 0
     var samples = 0
@@ -1943,6 +1983,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         worst = max(worst, maxTurningAngleDeg(iso.pos))
         let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
         if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
+        maxSpan = max(maxSpan, ex.maxSpan)
         scored += ex.scored
         offRegime += ex.offRegime
         if ex.idx >= 0 and ex.excessDeg > worstExcess:
@@ -1961,7 +2002,9 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     let reportSpan = if minSpan == high(int): 0 else: minSpan
     echo "  bound: ampTerm=", ampDeg, "deg minSpan=", reportSpan,
       " ticks -> quantTerm(minSpan)=", zoneQuantTurnDeg(reportSpan),
-      "deg; scoredVertices=", scored, " offRegime(run<",
+      "deg; maxSpan=", maxSpan, " vs perpFloor=",
+      zoneSpanPerpFloorTicks(baseSpeed),
+      "; scoredVertices=", scored, " offRegime(run<",
       MinMeniscusRunSamples, " samples)=", offRegime,
       "; worstExcess=", worstExcess, "deg over allow=", worstAllow,
       "deg at ", worstExcessWhere
@@ -1974,7 +2017,12 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     ## The quantization term is only honest while the field's own tick
     ## resolution is: a span below the derived floor would mean term B had
     ## quietly grown into an escape hatch. Never silent.
+    ## The bracket's own definition, and the PERPENDICULAR floor stated
+    ## where it is true — see ZoneArrivalSpanFloorTicks for why the old
+    ## every-sample floor was a theorem that is not true (an oblique
+    ## crossing legitimately reads a smaller span).
     check minSpan >= ZoneArrivalSpanFloorTicks
+    check float(maxSpan) >= zoneSpanPerpFloorTicks(baseSpeed)
     check worstExcess <= 0.0
 
   test "check #7: the frontier never kinks — ALL FOUR edges on the real map":
@@ -2014,11 +2062,13 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     discard ensureZoneArrivalField(sim)
     let (gw, gh) = zoneArrivalFieldGridDims()
     let ampDeg = zoneFingerAmplitudeTurnDeg()
+    let baseSpeed = zoneBaseSpeedPxPerTick(sim, zoneTestScheduleTotalTicks(sim))
     var worst = 0.0
     var worstAllow = 0.0
     var worstExcess = -Inf
     var worstExcessWhere = ""
     var minSpan = high(int)
+    var maxSpan = 0
     var scored = 0
     var offRegime = 0
     var edgesSampled = 0
@@ -2044,6 +2094,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         worst = max(worst, angle)
         let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
         if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
+        maxSpan = max(maxSpan, ex.maxSpan)
         scored += ex.scored
         offRegime += ex.offRegime
         if ex.idx >= 0 and ex.excessDeg > worstExcess:
@@ -2062,14 +2113,21 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     let reportSpan = if minSpan == high(int): 0 else: minSpan
     echo "  bound: ampTerm=", ampDeg, "deg minSpan=", reportSpan,
       " ticks -> quantTerm(minSpan)=", zoneQuantTurnDeg(reportSpan),
-      "deg; scoredVertices=", scored, " offRegime(run<",
+      "deg; maxSpan=", maxSpan, " vs perpFloor=",
+      zoneSpanPerpFloorTicks(baseSpeed),
+      "; scoredVertices=", scored, " offRegime(run<",
       MinMeniscusRunSamples, " samples)=", offRegime,
       "; worstExcess=", worstExcess, "deg over allow=", worstAllow,
       "deg at ", worstExcessWhere
     check edgesSampled >= 3   ## regime skip must not absolve a flat paint
     check realSamples >= 100
     check scored >= 100
+    ## The bracket's own definition, and the PERPENDICULAR floor stated
+    ## where it is true — see ZoneArrivalSpanFloorTicks for why the old
+    ## every-sample floor was a theorem that is not true (an oblique
+    ## crossing legitimately reads a smaller span).
     check minSpan >= ZoneArrivalSpanFloorTicks
+    check float(maxSpan) >= zoneSpanPerpFloorTicks(baseSpeed)
     check worstExcess <= 0.0
 
   test "check #8: the meniscus amplitude stays bounded — no streamers":
@@ -2128,7 +2186,19 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var realEdgesSampled = 0
     var realSamples = 0
     var realSkipped = 0
-    block realMapRightEdge:
+    ## ALL FOUR EDGES, for the reason check #7 above already had to sweep
+    ## all four (2026-08-26). This block used to sample zesRight ALONE, and
+    ## on this map+seed that is the one edge which no longer advances: the
+    ## zone centre is DRAWN far to the right, so during the close the right
+    ## edge creeps at 0.017 px/tick against the left edge's 0.767. A front
+    ## only lags an edge that MOVES, so zesRight is flat by construction
+    ## (isoRange 0.0-0.7px at every sampled tick) and the regime gate
+    ## correctly skipped it — all seven times, leaving realEdgesSampled at
+    ## ZERO and this check asserting >= 3 against an edge that cannot ever
+    ## supply one. That is a stale instrument, not a paint regression:
+    ## check #7 was swept to all four edges when the drawn centre was
+    ## diagnosed, and this one was left pinned to the same dead edge.
+    block realMapAllEdges:
       var sim = zoneGameOnRealMap(BrShowmatchPhases)
       discard ensureZoneArrivalField(sim)
       let (gw, gh) = zoneArrivalFieldGridDims()
@@ -2136,14 +2206,16 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         let t = BrShowmatchGearUpTicks +
         int(float(BrShowmatchTotalTicks - BrShowmatchGearUpTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
-        let iso = edgeIsoline(sim, rect, t, gw, gh, zesRight)
-        if not inRegime(iso):
-          inc realSkipped
-          continue
-        inc realEdgesSampled
-        realSamples += validCount(iso)
-        worstReal = max(worstReal, maxAmplitudeDeviationPx(iso, WindowSamples))
-    echo "amplitude check (real map, right edge): edgesSampled=",
+        for side in ZoneEdgeSide:
+          let iso = edgeIsoline(sim, rect, t, gw, gh, side)
+          if not inRegime(iso):
+            inc realSkipped
+            continue
+          inc realEdgesSampled
+          realSamples += validCount(iso)
+          worstReal = max(worstReal,
+            maxAmplitudeDeviationPx(iso, WindowSamples))
+    echo "amplitude check (real map, all four edges): edgesSampled=",
       realEdgesSampled, " edgesSkipped(below regime)=", realSkipped,
       " validSamples=", realSamples, " worst=", worstReal, " px"
     check smallUsed >= 8       ## regime skip must not absolve a flat paint
