@@ -726,6 +726,31 @@ type
                                ## the same tick, or a claim on top of the kill
                                ## that earned it. Bounded by GloryPopMaxStack so
                                ## a pile-up cannot march off the top of the board.
+    earnerIndex*: int          ## POP MOTION WAVE P1 ("track the unit"): the
+                               ## player who earned this pop, or -1 for a
+                               ## site-anchored team pop with no single earner
+                               ## (which keeps `x, y` as the static deed/
+                               ## pricing site forever, exactly like before
+                               ## this field existed). Cosmetic-only steer: it
+                               ## decides WHERE the pop is drawn, never the
+                               ## money `awardDeed` already banked. When set,
+                               ## the per-tick housekeeping pass (see `step`)
+                               ## re-syncs `x, y` to this player's LIVE
+                               ## position every tick the player is alive, so
+                               ## the pop glides with its cog instead of
+                               ## marking the empty air where the deed
+                               ## happened.
+    frozen*: bool              ## Latches true the first tick `earnerIndex`'s
+                               ## player is found not-alive. Once true, the
+                               ## housekeeping sync above stops touching
+                               ## `x, y` FOREVER (even across a later
+                               ## respawn) -- Maxwell: "if the earner dies...
+                               ## freeze at the last live position." Without
+                               ## the latch, a respawn landing inside a still-
+                               ## live achievement pop's longer
+                               ## AchievementFxTicks window would yank the pop
+                               ## onto the fresh spawn tile instead of leaving
+                               ## it at the death site.
 
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
@@ -3851,11 +3876,20 @@ proc heatCool*(sim: var SimServer) =
       sim.heatLastDecay[team] = sim.tickCount
 
 proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
-                 label = "", first = false, word = "") =
+                 label = "", first = false, word = "", earnerIndex = -1) =
   ## Push one floating score pop at a deed site. COSMETIC ONLY: `gloryPops` is
   ## excluded from gameHash exactly like `damagePops`, so this can never move a
   ## replay — which is the whole reason the pop is minted here, next to the
   ## money, instead of being reconstructed from the event stream downstream.
+  ##
+  ## POP MOTION WAVE: `earnerIndex`, when given, is who this pop rides with --
+  ## `x, y` here is still just its MINT position (the earner's spot the
+  ## instant it was minted), but the per-tick housekeeping pass (`step`) keeps
+  ## re-syncing it to that player's live position for as long as they're
+  ## alive, so it tracks the cog rather than the empty air the deed happened
+  ## over. -1 keeps the pop pinned to its mint site forever, exactly like
+  ## before this field existed -- the right behaviour for a team-wide deed no
+  ## single cog earned.
   ##
   ## Coalescing is not tidiness, it is the read. One kill can resolve a kill
   ## deed AND first blood at the same pixel on the same tick, and a shield can
@@ -3890,7 +3924,8 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
       row = max(row, pop.row + 1)
   sim.gloryPops.add GloryFx(
     x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
-    word: word, first: first, row: min(row, GloryPopMaxStack)
+    word: word, first: first, row: min(row, GloryPopMaxStack),
+    earnerIndex: earnerIndex
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
@@ -3937,12 +3972,16 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   # own doc comment for why this is its own field, never `label`.
   if popsScore(deed):
     # Pay out over the EARNER when we know who it is, falling back to the
-    # pricing site for a deed no single cog owns.
+    # pricing site for a deed no single cog owns. POP MOTION WAVE P1: also
+    # hand the earner's OWN index to the pop, so it can keep tracking them
+    # tick over tick instead of freezing at this mint-time coordinate --
+    # `earned` is the exact same gate `addGloryPop`'s `earnerIndex` needs.
     let
       earned = byIndex >= 0 and byIndex < sim.players.len
       popX = if earned: sim.players[byIndex].x else: x
       popY = if earned: sim.players[byIndex].y else: y
-    sim.addGloryPop(team, popX, popY, amount, word = deedPopWord(deed))
+    sim.addGloryPop(team, popX, popY, amount, word = deedPopWord(deed),
+                    earnerIndex = (if earned: byIndex else: -1))
   if paysHeat(deed):
     # One ember per deed; the RUNGS cost more each time, so x8 needs a real
     # streak rather than three kills.
@@ -4027,7 +4066,7 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   if byCog and sim.players[byIndex].alive:
     sim.addGloryPop(team, sim.players[byIndex].x, sim.players[byIndex].y,
                     amount, label = achievementName(tree, tier),
-                    first = isFirst)
+                    first = isFirst, earnerIndex = byIndex)
   if sim.gameEventLoggingEnabled:
     sim.logGameEvent(
       teamText(team) & " achievement: " & achievementName(tree, tier) &
@@ -7477,9 +7516,33 @@ proc step*(
     if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops
+  # POP MOTION WAVE P1: the same per-tick pass that already prunes expired
+  # glory pops also does the tracking housekeeping neither the mint site nor
+  # the draw side can do alone -- both need LIVE per-tick sim state (the
+  # earner's CURRENT position), never something reconstructible from a
+  # single tick in isolation.
   var keptGlory: seq[GloryFx] = @[]
-  for pop in sim.gloryPops:
+  for original in sim.gloryPops:
+    var pop = original
     let life = if pop.label.len > 0: AchievementFxTicks else: GloryFxTicks
-    if sim.tickCount - pop.tick < life:
-      keptGlory.add pop
+    if sim.tickCount - pop.tick >= life:
+      continue
+    # TRACK THE UNIT: while the earner is alive, keep re-anchoring the pop to
+    # their CURRENT position every tick, so it glides with the cog instead of
+    # marking the empty air the deed happened over. The client's own
+    # inter-tick easing (broadcast_core.js) turns this per-tick teleport into
+    # smooth motion for free -- nothing more is needed on the wire.
+    # `frozen` latches the instant the earner is found not-alive so a LATER
+    # respawn -- easily inside a still-live AchievementFxTicks pop's window
+    # -- can never re-attach the pop and yank it onto the fresh spawn tile;
+    # it stays put at the earner's last living position for the rest of its
+    # life, exactly Maxwell's ruling ("freeze at the last live position").
+    if pop.earnerIndex >= 0 and pop.earnerIndex < sim.players.len and
+        not pop.frozen:
+      if sim.players[pop.earnerIndex].alive:
+        pop.x = sim.players[pop.earnerIndex].x
+        pop.y = sim.players[pop.earnerIndex].y
+      else:
+        pop.frozen = true
+    keptGlory.add pop
   sim.gloryPops = keptGlory

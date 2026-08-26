@@ -385,6 +385,12 @@ const
                                ## two deeds on the boardScale>1 chip path, so
                                ## the two render paths agree on "how much
                                ## bigger is big."
+  GloryPopTrackedAirPx = 4     ## POP MOTION WAVE P1: a few px of clear air
+                               ## above the tallest thing in a TRACKED pop's
+                               ## own overhead stack (see
+                               ## gloryPopTrackedOverheadLiftPx) -- so it
+                               ## floats clear of the name band/veteran mark
+                               ## rather than just touching it.
   GloryPopInk = (255'u8, 163'u8, 0'u8)
                                ## SPLAT C9: used to be byte-copied from the
                                ## DOM broadcast chrome's --amber (#e8a33d,
@@ -5662,6 +5668,33 @@ proc gloryPopLineBox(sim: SimServer, pop: GloryFx): int =
   elif abs(pop.amount) >= GloryPopMidGlory:
     result += GloryPopMidLiftPx
 
+proc gloryPopTrackedOverheadLiftPx(sim: SimServer, pop: GloryFx): int =
+  ## POP MOTION WAVE P1: how far above a TRACKED pop's own anchor (`pop.y` --
+  ## the earner's live position while tracking, or their last-alive one once
+  ## frozen) this pop must start to clear THAT earner's own overhead UI: the
+  ## name label riding the HP bar, and, once the cog has levelled, the
+  ## veteran mark riding VeteranMarkClearancePx above that. Mirrors the exact
+  ## anchors addNameLabels'/addVeteranMarks' own placement math uses
+  ## (overheadAnchorY - OverheadYOffset - ...), so this can never drift out
+  ## of sync with where those actually draw. Maxwell: a pop must "track the
+  ## unit" and ride "above all of it" -- never buried under a name tag the
+  ## old flat GloryPopLiftPx let it overlap (that flat 13px assumed a plain
+  ## pop only ever had to clear the "-1" damage pop below it, never a whole
+  ## overhead stack it wasn't anchored to before this wave).
+  ##
+  ## 0 for a site-anchored pop with no earner (`earnerIndex < 0`) -- there is
+  ## no player-owned overhead stack sitting at a bare deed/pricing site for
+  ## it to clear, so this must never inflate that case's existing lift.
+  if pop.earnerIndex < 0 or pop.earnerIndex >= sim.players.len:
+    return 0
+  let level = sim.players[pop.earnerIndex].level
+  result = SoldierBodyPx div 2 + OverheadYOffset + HpBarH + TextLineHeight + 1
+  if level >= 1:
+    let markH = if level >= AceLevel: TextLineHeight else: VeteranPipSize
+    result = max(result,
+      SoldierBodyPx div 2 + OverheadYOffset + markH + VeteranMarkClearancePx)
+  result += GloryPopTrackedAirPx
+
 proc gloryPopBaseLiftPx(sim: SimServer, pop: GloryFx): int =
   ## The floor ONE row needs on its own account, before any stacking: for a
   ## plain deed pop this is just the flat GloryPopLiftPx (small, and the
@@ -5678,11 +5711,16 @@ proc gloryPopBaseLiftPx(sim: SimServer, pop: GloryFx): int =
   ## (gloryClaimTextLogicalHeight, the single source of truth for that
   ## number) plus the marker's full worst-case band plus a few px of air, so
   ## the claim's BOTTOM edge — not just its center — clears the marker.
-  if pop.label.len > 0:
-    sim.gloryClaimTextLogicalHeight(pop) div 2 + sim.asciiSprites.height + 2 +
-      KillPopRisePx + GloryChipKillAirPx
-  else:
-    GloryPopLiftPx
+  result =
+    if pop.label.len > 0:
+      sim.gloryClaimTextLogicalHeight(pop) div 2 + sim.asciiSprites.height + 2 +
+        KillPopRisePx + GloryChipKillAirPx
+    else:
+      GloryPopLiftPx
+  # POP MOTION WAVE P1: a TRACKED pop (plain or claim alike) additionally
+  # needs to clear its own earner's overhead stack, which the untracked
+  # floors above never accounted for.
+  result = max(result, sim.gloryPopTrackedOverheadLiftPx(pop))
 
 proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
   ## The FULL lift, in logical px above its own anchor, to the BOTTOM edge of
