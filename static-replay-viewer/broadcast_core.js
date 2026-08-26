@@ -1088,26 +1088,71 @@
     // advancing": a PAUSE also stops the clock, and completing the paint
     // because someone paused would be both wrong and ugly.
     let zoneEndcardAtMs = null;
+    // Latched the first time zoneEffectiveTick runs after arming: was the
+    // field ALREADY fully painted (real tick past finalTick) before this
+    // beat even started? Proven live: paint reached 100% at tick ~5913, the
+    // wipe landed at ~5949 — 36 ticks later, already 86% through the
+    // splat's own 42-tick life. Easing from "wherever the real tick already
+    // is" in that case only replays the ring's already-spent tail (often
+    // nearly invisible) — dead air where the flourish should be. Once we
+    // know the field finished early, the splat restarts fresh from
+    // finalTick instead of tracking the real tick's stale age.
+    let zoneEndcardStartTick = null;
 
     function beginZoneEndcard() {
       if (zoneEndcardAtMs === null) zoneEndcardAtMs = performance.now();
+    }
+
+    // Drops the endcard latch entirely. The latch above is write-once by
+    // design (beginZoneEndcard only ever sets it), so without an explicit
+    // reset it pins the effective tick to a long-past finalTick+
+    // ZONE_SPLAT_TICKS target forever — including after a Restart or a
+    // backward seek, which is exactly what re-painted a fully pink board at
+    // tick 0 before this existed (see the backward-jump guard in
+    // renderZonePaint, its only caller).
+    function resetZoneEndcard() {
+      zoneEndcardAtMs = null;
+      zoneEndcardStartTick = null;
     }
 
     function zoneEffectiveTick(dispTick) {
       // The clock the paint renders against. Normally the real one; during
       // the endcard beat it runs on past it to the field's own maximum.
       if (zoneEndcardAtMs === null || !zoneField) return dispTick;
+      if (zoneEndcardStartTick === null) zoneEndcardStartTick = dispTick;
       const target = zoneField.finalTick + ZONE_SPLAT_TICKS;
-      if (!(target > dispTick)) return dispTick;
+      // Field already complete when this beat armed: ignore the real tick's
+      // (stale) age entirely and replay the splat alone, from finalTick.
+      const complete = zoneEndcardStartTick >= zoneField.finalTick;
+      if (!complete && !(target > dispTick)) return dispTick;
+      const from = complete ? zoneField.finalTick : dispTick;
       const p = Math.min(1, (performance.now() - zoneEndcardAtMs) / ZONE_ENDCARD_MS);
       const eased = p < 0.5
         ? 4 * p * p * p
         : 1 - Math.pow(-2 * p + 2, 3) / 2;
-      return dispTick + (target - dispTick) * eased;
+      return from + (target - from) * eased;
     }
+
+    let zoneLastRawTick = -1;  // dispTick0 before zoneEffectiveTick's massaging
 
     function renderZonePaint(targetCtx, dispTick0) {
       if (!zoneField) return;
+      // A backward jump in the RAW clock — a Restart (which lands on tick 0)
+      // or any backward scrub, mid-match or mid-close — must invalidate both
+      // the endcard latch (write-once; see resetZoneEndcard) and the
+      // incremental paint buffer below (its buckets only ever walk
+      // forward). Proven live: Restart after a finished match re-rendered a
+      // FULLY PINK board at tick 0, because the stale latch kept
+      // zoneEffectiveTick(0) pinned to the previous playthrough's
+      // finalTick+ZONE_SPLAT_TICKS. Forcing zoneLastAppliedTick back to -1
+      // here (rather than relying on the needFull check further down to
+      // notice on its own) means the fix holds even if a future change
+      // reorders those reads.
+      if (zoneLastRawTick >= 0 && dispTick0 < zoneLastRawTick) {
+        resetZoneEndcard();
+        zoneLastAppliedTick = -1;
+      }
+      zoneLastRawTick = dispTick0;
       const dispTick = zoneEffectiveTick(dispTick0);
       const nowInt = Math.floor(dispTick);
       const needFull = zoneLastAppliedTick < 0 ||
@@ -1892,6 +1937,7 @@
       getPaceStats,
       getZonePaintStats,
       beginZoneEndcard,
+      resetZoneEndcard,
       zoomAt,
       setZoom,
       panBy,
