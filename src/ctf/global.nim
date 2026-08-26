@@ -317,10 +317,19 @@ const
   GloryPopObjectBase = 31400   ## one drawn glory pop per object: 31400..31415.
   GloryPopStages = 5           ## alpha fade stages across a pop's life.
   GloryPopMaxCount = 16        ## most score pops drawn at once.
-  GloryPopSpawnScalePct = 132  ## SPLAT C8: percent size a pop/chip renders
-                               ## at during its VERY FIRST alpha-fade stage
-                               ## (stage 0) -- a squash-pop overshoot that
-                               ## settles to 100% for every stage after.
+  GloryPopSpawnScalePct = 115  ## VOCABULARY V5 (Maxwell: "tone down the size
+                               ## of the numbers and the achievement pop
+                               ## ups"): was 132 -- SPLAT C8's squash-pop
+                               ## overshoot, at its ORIGINAL setting, is what
+                               ## made a fresh pop's first ~1/5th of its life
+                               ## the loudest thing on screen regardless of
+                               ## the deed's own size. Toned down; still a
+                               ## real, felt overshoot (not 100%, which would
+                               ## delete the "pop" the pop is named for), just
+                               ## a quieter one. percent size a pop/chip
+                               ## renders at during its VERY FIRST alpha-fade
+                               ## stage (stage 0) -- settles to 100% for every
+                               ## stage after.
                                ## Shared by buildGloryChipSprite and the
                                ## plain deed pop's daub (gloryPopSpawnScale /
                                ## applySpawnOvershoot) so both families
@@ -356,8 +365,26 @@ const
   ## the ones that get to shout.
   GloryPopMidGlory = 40        ## |glory| at or above this reads one step up.
   GloryPopBigGlory = 150       ## |glory| at or above this reads two steps up.
-  GloryPopMidLiftPx = 3        ## extra line box for a mid-magnitude pop.
-  GloryPopBigLiftPx = 8        ## extra line box for a big-magnitude pop.
+  GloryPopMidLiftPx = 0        ## extra line box for a mid-magnitude pop.
+                               ## VOCABULARY V5: was 3 -- toned to 0. Now that
+                               ## VOCABULARY V4 gives every combat deed its
+                               ## own WORD (buildGloryChipSprite's two-tone
+                               ## render), the word itself is what makes a
+                               ## mid-tier deed (ace tag, steal, the peel,
+                               ## doorstep) read as more than a bare number;
+                               ## it no longer also needs its OWN type-size
+                               ## step, which was the ceiling Maxwell flagged
+                               ## as too loud.
+  GloryPopBigLiftPx = 4        ## extra line box for a big-magnitude pop.
+                               ## VOCABULARY V5: was 8, halved -- still a real
+                               ## step up for capture/wipe (the two deeds this
+                               ## economy is actually about, per this block's
+                               ## own comment), just a smaller one. Mirrors
+                               ## the capped x2 integer bump
+                               ## gloryClaimTextExtraScale now gives the same
+                               ## two deeds on the boardScale>1 chip path, so
+                               ## the two render paths agree on "how much
+                               ## bigger is big."
   GloryPopInk = (255'u8, 163'u8, 0'u8)
                                ## SPLAT C9: used to be byte-copied from the
                                ## DOM broadcast chrome's --amber (#e8a33d,
@@ -5138,23 +5165,39 @@ proc gloryPopMoneyText(pop: GloryFx): string =
   # matches the scoreboard's and inspector's own unit drop.
   (if pop.amount < 0: "-" else: "+") & $abs(pop.amount)
 
+proc gloryPopNameHalf(pop: GloryFx): string =
+  ## VOCABULARY V4: the "name" run of a two-tone pop, uppercased. An
+  ## ACHIEVEMENT claim's `label` always wins if present; otherwise a plain
+  ## DEED's one-word `word` (glory.deedPopWord); otherwise "" for a bare
+  ## "+N" -- a deed with no honest one-word name (see deedPopWord's own
+  ## comment for which ones those are), or a pop that is neither. `label`
+  ## and `word` never both carry content on the same pop -- see GloryFx's
+  ## own doc comment for why they are kept as two separate fields instead of
+  ## one overloaded on emptiness.
+  if pop.label.len > 0: pop.label.toUpperAscii()
+  elif pop.word.len > 0: pop.word.toUpperAscii()
+  else: ""
+
 proc gloryPopText(pop: GloryFx): string =
   ## What one score pop reads, flattened to ONE line: used for the sprite
   ## dedupe hash (gloryPopLabelKey) AND, since the claim chip cut down to one
   ## line too, as the literal text buildGloryChipSprite rasterizes at
   ## boardScale > 1 as well as the boardScale == 1 fallback — one string, two
   ## draw paths, so they can never again say two different things. An
-  ## achievement leads with the name it just earned, so the moment is
-  ## legible without the ledger.
-  let money = gloryPopMoneyText(pop)
-  if pop.label.len == 0:
+  ## achievement leads with the name it just earned, and (VOCABULARY V4) a
+  ## plain deed now leads with its own one-word tag the same way, so the
+  ## moment is legible without the ledger either way.
+  let
+    money = gloryPopMoneyText(pop)
+    nameHalf = gloryPopNameHalf(pop)
+  if nameHalf.len == 0:
     return money
   # No "FIRST" wordmark here or on the chip: a first claim tells itself apart
   # on the CHIP's own backing (buildGloryChipSprite: bigger, hotter, a corner
   # burst -- D1) plus a whole-line GloryPopInk ink instead of the usual
   # name/payout split, never a separate word -- so this stays one line, one
   # or two words and a number, full stop.
-  result = pop.label.toUpperAscii() & " " & money
+  result = nameHalf & " " & money
 
 proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
   ## FNV-1a digest of a pop's rendered TEXT, for use in the sprite LABEL only
@@ -5185,10 +5228,28 @@ proc gloryPopLabelKey(pop: GloryFx, text: string): uint32 =
     result = result * 16777619'u32
 
 proc gloryClaimTextExtraScale(pop: GloryFx): int =
-  ## D1: a first claim's ONLY size lever now that the backing is gone --
-  ## an integer multiple of buildChunkyBoardText's own natural size (a
-  ## bitmap font can only scale cleanly by whole numbers, SPLAT C7).
-  if pop.first: GloryChipFirstTextExtraScale else: 1
+  ## An integer multiple of buildChunkyBoardText's own natural size (a bitmap
+  ## font can only scale cleanly by whole numbers, SPLAT C7).
+  ##
+  ## An ACHIEVEMENT claim's ONLY lever is D1's FIRST bump (GloryChipFirstTextExtraScale)
+  ## -- unrelated to the tier's own payout, since law 3 already keeps every
+  ## tier's magnitude small and close together (TierGlory doubles 2..32; see
+  ## glory.nim). A plain DEED's word pop (VOCABULARY V4/V5) instead scales on
+  ## its own GLORY magnitude, same as the boardScale==1 path already did via
+  ## gloryPopLineBox's tiers -- but CAPPED at the identical x2 an achievement
+  ## FIRST claim uses, so the rare capture/wipe pop reads bigger without ever
+  ## outshouting a real achievement (Maxwell: "tone down the size of the
+  ## numbers and the achievement pop ups" -- the cap is what keeps a big
+  ## number from re-inflating past where V5 put the ceiling). Only the BIG
+  ## tier gets this bump now (GloryPopMidLiftPx's own comment explains why
+  ## the mid tier no longer needs one: the WORD itself already carries that
+  ## read).
+  if pop.first:
+    GloryChipFirstTextExtraScale
+  elif pop.label.len == 0 and abs(pop.amount) >= GloryPopBigGlory:
+    GloryChipFirstTextExtraScale
+  else:
+    1
 
 proc gloryClaimTextLogicalHeight(sim: SimServer, pop: GloryFx): int =
   ## The claim's own text-only footprint height, in LOGICAL (1x) px: exactly
@@ -5455,7 +5516,7 @@ proc applySpawnOvershoot(
 proc buildGloryChipSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
-  ## The achievement CLAIM pop: ONE line -- "NAME +Ng" -- as pure FLOATING
+  ## The two-tone floating pop: ONE line -- "NAME +Ng" -- as pure FLOATING
   ## TEXT. D1 REDIRECT (Maxwell's live-board ruling): this used to sit on an
   ## irregular paint-splat BLOB (SPLAT C2-C10, then D1's own first pass at a
   ## gold ring). The blob was an opaque dark card occluding the action it was
@@ -5465,18 +5526,30 @@ proc buildGloryChipSprite(
   ## letters (buildChunkyBoardText, SPLAT C7) whose own baked-in dark contour
   ## does all the contrast work a backing used to. No card, no blob, no ring.
   ##
+  ## VOCABULARY V4: no longer achievement-only. `gloryPopNameHalf` supplies
+  ## the NAME run from either an achievement's `label` OR a plain deed's own
+  ## `word` (glory.deedPopWord) -- "instead of splat appearing on the dead
+  ## body... a one word name for each thing that causes glory... give that
+  ## with the number" (Maxwell). Both read through the identical two-tone
+  ## layout below; only an achievement can be `isFirst` (a deed pop's `first`
+  ## is always false), so the burst/bigger-type distinction stays
+  ## achievement-exclusive without any extra branching here.
+  ##
   ## "amber = earned" survives as "orange = earned" (GloryPopInk, SPLAT C9)
-  ## for the payout run; the achievement NAME inks in the claiming TEAM's own
-  ## paint (gloryChipPaintCore) instead of a fixed near-black, since there is
-  ## no longer a backing to guarantee contrast against -- team color now
-  ## carries the "whose paint is this" read the blob used to.
+  ## for the payout run; the NAME inks in the scoring TEAM's own paint
+  ## (gloryChipPaintCore) instead of a fixed near-black, since there is no
+  ## longer a backing to guarantee contrast against -- team color now carries
+  ## the "whose paint is this" read the blob used to.
   ##
   ## A first claim's WHOLE distinction is now bigger type
   ## (GloryChipFirstTextExtraScale, an integer bump a bitmap font can scale
   ## by cleanly) plus a one-shot burst of a few paint specks flung off one
   ## corner AT SPAWN ONLY (stage == 0) -- seasoning the text, never building
   ## a second structure around it. Never gold: the burst paints in the exact
-  ## same boosted team ink the name run uses.
+  ## same boosted team ink the name run uses. A big-magnitude DEED pop
+  ## (VOCABULARY V5) gets the identical `extraScale` bump on the SAME
+  ## GloryChipFirstTextExtraScale cap (gloryClaimTextExtraScale's own
+  ## comment), but never the burst -- the burst stays a claim-only flourish.
   ##
   ## boardScale > 1 only; the caller falls back to plain type at 1x, where
   ## there is no vector budget for a claim (gloryPopText is what's drawn
@@ -5506,7 +5579,7 @@ proc buildGloryChipSprite(
   # burst added below, never a fused single-color line.
   let
     nameSpr = sim.buildChunkyBoardText(
-      pop.label.toUpperAscii(), nameColor.r, nameColor.g, nameColor.b,
+      gloryPopNameHalf(pop), nameColor.r, nameColor.g, nameColor.b,
       extraScale)
     moneySpr = sim.buildChunkyBoardText(
       gloryPopMoneyText(pop), GloryPopInk[0], GloryPopInk[1], GloryPopInk[2],
@@ -5641,21 +5714,24 @@ proc gloryStackLift(sim: SimServer, pop: GloryFx): int =
 proc buildGloryPopSprite(
   sim: SimServer, pop: GloryFx, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Dispatches a glory pop to its family's own renderer: a claim earns
-  ## bigger, team-inked floating text (buildGloryChipSprite); a plain deed
-  ## gets the SAME chunky bitmap face (buildChunkyBoardText, SPLAT C7) with
-  ## no backing at all -- D1 REDIRECT deleted the small paint-daub backing
-  ## (SPLAT C5) alongside the claim's blob for the identical reason: it was
-  ## an opaque card occluding the action at smaller scale. Both families are
-  ## now pure floating text, the game's own damage-pop register
-  ## (buildPopLabelSprite), just paint-flavored by ink color. Below
-  ## boardScale > 1 (or for a plain deed at any scale) a claim still renders
-  ## through the plain pixel-font path with gloryPopText's identical
-  ## "NAME +Ng" string; that fallback has no vector budget to distinguish a
-  ## first claim (D1: there is no longer a separate "rare" ink anywhere in
-  ## this file for it to duplicate), so every claim there inks identically,
-  ## same as a plain deed's payout.
-  if pop.label.len > 0 and boardScale > 1:
+  ## Dispatches a glory pop to its family's own renderer: anything with a
+  ## NAME half (gloryPopNameHalf -- an achievement's `label` OR, VOCABULARY
+  ## V4, a plain deed's own `word`) earns the bigger, team-inked two-tone
+  ## floating text (buildGloryChipSprite); a bare deed pop with no honest
+  ## one-word name gets the SAME chunky bitmap face (buildChunkyBoardText,
+  ## SPLAT C7) with no backing at all -- D1 REDIRECT deleted the small
+  ## paint-daub backing (SPLAT C5) alongside the claim's blob for the
+  ## identical reason: it was an opaque card occluding the action at smaller
+  ## scale. Both families are now pure floating text, the game's own
+  ## damage-pop register (buildPopLabelSprite), just paint-flavored by ink
+  ## color. Below boardScale > 1 (or for any pop at boardScale == 1) a named
+  ## pop still renders through the plain pixel-font path with gloryPopText's
+  ## identical "NAME +Ng" string; that fallback has no vector budget to
+  ## distinguish a first claim or a big deed's own bump (D1: there is no
+  ## longer a separate "rare" ink anywhere in this file for it to
+  ## duplicate), so every named pop there inks identically, same as a bare
+  ## deed's payout.
+  if gloryPopNameHalf(pop).len > 0 and boardScale > 1:
     return sim.buildGloryChipSprite(pop, stage)
   let
     text = gloryPopText(pop)

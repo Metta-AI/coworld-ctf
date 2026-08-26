@@ -680,6 +680,23 @@ type
     label*: string             ## "" for a plain deed pop; the ACHIEVEMENT's name
                                ## for a claim, which rides the same seq so there
                                ## is one pop pool, one draw site, one fade curve.
+    word*: string               ## VOCABULARY V4: the plain DEED's one-word tag
+                               ## (glory.deedPopWord), e.g. "TAG"/"BOUNTY"/
+                               ## "PEEL". Deliberately its OWN field, never
+                               ## `label` -- `label`'s non-emptiness already
+                               ## means four different things elsewhere (the
+                               ## two-tone chip render, no-coalesce, the
+                               ## AchievementFxTicks life, and pool priority
+                               ## in addGloryPops' `outranks`), all of which
+                               ## must keep meaning "this is a real
+                               ## ACHIEVEMENT claim," not "this pop happens to
+                               ## have a word." So a real claim ALWAYS carries
+                               ## `word == ""` and uses `label`; a plain deed
+                               ## pop ALWAYS carries `label == ""` and uses
+                               ## `word` (which may itself be "" for a deed
+                               ## with no honest one-word name). The renderer
+                               ## reads `label` first, falls back to `word`,
+                               ## and the two can never collide.
     first*: bool               ## first team in the Episode to take this tier.
                                ## Pays x3 and is the rarest thing on the board;
                                ## the one-line chip says so with hotter ink and
@@ -3818,7 +3835,7 @@ proc heatCool*(sim: var SimServer) =
       sim.heatLastDecay[team] = sim.tickCount
 
 proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
-                 label = "", first = false) =
+                 label = "", first = false, word = "") =
   ## Push one floating score pop at a deed site. COSMETIC ONLY: `gloryPops` is
   ## excluded from gameHash exactly like `damagePops`, so this can never move a
   ## replay — which is the whole reason the pop is minted here, next to the
@@ -3828,13 +3845,18 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   ## deed AND first blood at the same pixel on the same tick, and a shield can
   ## soak twice in a burst; three stacked labels at one spot is noise, whereas
   ## a single "+22" is the number the viewer actually wants. Same tick, same
-  ## team, within GloryPopCoalescePx, both unlabelled -> add into the existing
-  ## pop. A named achievement never merges: its name is the payload.
+  ## team, within GloryPopCoalescePx, both unlabelled AND same `word` -> add
+  ## into the existing pop. A named achievement never merges: its name is the
+  ## payload. VOCABULARY V4: two DIFFERENT one-word deeds landing on the same
+  ## tick/site must not merge either -- a merged "+24" under just one of the
+  ## two words would misreport what happened -- so the word must match too
+  ## (two of the SAME word, e.g. two "TAG"s, still merge exactly like before).
   if amount == 0:
     return
   if label.len == 0:
     for pop in sim.gloryPops.mitems:
       if pop.tick == sim.tickCount and pop.team == team and pop.label.len == 0 and
+          pop.word == word and
           abs(pop.x - x) <= GloryPopCoalescePx and
           abs(pop.y - y) <= GloryPopCoalescePx:
         pop.amount += amount
@@ -3852,7 +3874,7 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
       row = max(row, pop.row + 1)
   sim.gloryPops.add GloryFx(
     x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
-    first: first, row: min(row, GloryPopMaxStack)
+    word: word, first: first, row: min(row, GloryPopMaxStack)
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
@@ -3893,6 +3915,10 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   # crowd reads is what the ledger actually took, never a base price.
   # `popsScore` (glory.nim, single source) decides WHICH deeds get a pop: the
   # ledger still banks ambient soak, the screen just doesn't shout about it.
+  # VOCABULARY V4: the pop now also carries `deedPopWord(deed)` -- "instead of
+  # splat appearing on the dead body... a one word name for each thing that
+  # causes glory... give that with the number" (Maxwell). Read `GloryFx.word`'s
+  # own doc comment for why this is its own field, never `label`.
   if popsScore(deed):
     # Pay out over the EARNER when we know who it is, falling back to the
     # pricing site for a deed no single cog owns.
@@ -3900,7 +3926,7 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
       earned = byIndex >= 0 and byIndex < sim.players.len
       popX = if earned: sim.players[byIndex].x else: x
       popY = if earned: sim.players[byIndex].y else: y
-    sim.addGloryPop(team, popX, popY, amount)
+    sim.addGloryPop(team, popX, popY, amount, word = deedPopWord(deed))
   if paysHeat(deed):
     # One ember per deed; the RUNGS cost more each time, so x8 needs a real
     # streak rather than three kills.
