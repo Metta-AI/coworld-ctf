@@ -6721,6 +6721,91 @@ proc roundedRectSignedDist*(rect: MapRect, cornerR, px, py: float): float =
     ay = max(qy, 0.0)
   sqrt(ax * ax + ay * ay) + min(max(qx, qy), 0.0) - cornerR
 
+proc zonePerimeterCoordAt(px, py: float, rect: MapRect, cornerR: float): float =
+  ## The arc-length position, walking CLOCKWISE around the rounded rect's
+  ## own perimeter starting at the top edge's left end, of the perimeter
+  ## point NEAREST to map point (px, py) — well-defined and CONTINUOUS for
+  ## every point outside the rect, unlike the finite-difference `angle`
+  ## zoneEdgeAngleAt derives (Fable's audit, 2026-08-25): a point sitting
+  ## diagonally outside two edges at once — a corner's zone of influence —
+  ## is exactly where that finite-difference gradient can swing sharply
+  ## for a small move, and that swing was feeding a wildly different noise
+  ## sample into zoneBoundaryFingerDelayAt for adjacent rows, a real
+  ## measured kink (89.7deg) with zero sensitivity to any propagation-
+  ## speed term ever tried — the bug was in the COORDINATE, not the
+  ## transport. A convex shape's nearest-boundary-point map is a
+  ## continuous, well-defined function of the exterior point (only
+  ## degenerate at the shape's own center, never reached out here), so
+  ## parameterizing by THIS instead removes the discontinuity by
+  ## construction, with the same octave and the same amplitude — nothing
+  ## about the fingering's own tuning changes, only what continuous
+  ## coordinate it reads.
+  let
+    hw = float(rect.w) * 0.5
+    hh = float(rect.h) * 0.5
+    cx = float(rect.x) + hw
+    cy = float(rect.y) + hh
+    cr = max(0.0, min(cornerR, min(hw, hh)))
+    straightW = max(0.0, hw - cr) * 2.0  # full top/bottom edge length
+    straightH = max(0.0, hh - cr) * 2.0  # full left/right edge length
+    arcLen = PI * 0.5 * cr
+    # Cumulative start offsets, walking clockwise: top edge (L->R), top-
+    # right corner, right edge (T->B), bottom-right corner, bottom edge
+    # (R->L), bottom-left corner, left edge (B->T), top-left corner.
+    offTop = 0.0
+    offTR = offTop + straightW
+    offRight = offTR + arcLen
+    offBR = offRight + straightH
+    offBottom = offBR + arcLen
+    offBL = offBottom + straightW
+    offLeft = offBL + arcLen
+    offTL = offLeft + straightH
+    total = offTL + arcLen
+  if total <= 1e-6:
+    return 0.0
+  let
+    dx = px - cx
+    dy = py - cy
+    qx = abs(dx) - hw + cr
+    qy = abs(dy) - hh + cr
+  if qx > 0.0 and qy > 0.0:
+    # Rounded-corner region: nearest point is on the quarter-circle
+    # centered at (cx +/- (hw-cr), cy +/- (hh-cr)), same quadrant as p —
+    # each quadrant's own local angle (relative to ITS circle's center)
+    # falls in a fixed, disjoint 90-degree slice by construction (proven
+    # by the qx/qy>0 case split above), so no clamping or wraparound
+    # guesswork is needed per quadrant, only TL's own atan2 branch cut.
+    let
+      ccx = (if dx >= 0.0: cx + hw - cr else: cx - hw + cr)
+      ccy = (if dy >= 0.0: cy + hh - cr else: cy - hh + cr)
+      ang = arctan2(py - ccy, px - ccx)
+    if dx >= 0.0 and dy < 0.0:
+      return offTR + clamp(ang + PI * 0.5, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
+    elif dx >= 0.0 and dy >= 0.0:
+      return offBR + clamp(ang, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
+    elif dx < 0.0 and dy >= 0.0:
+      return offBL + clamp(ang - PI * 0.5, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
+    else:
+      # Top-left: this arc's own angle range is (-PI, -PI/2], the branch
+      # atan2 itself represents as approaching +/-PI from the negative
+      # side — no wraparound correction needed, just measured from -PI.
+      return offTL + clamp(ang + PI, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
+  elif qx > 0.0:
+    # Vertical edge (left or right).
+    if dx >= 0.0:
+      return offRight + clamp(py - (cy - hh + cr), 0.0, straightH)
+    else:
+      return offLeft + clamp((cy + hh - cr) - py, 0.0, straightH)
+  elif qy > 0.0:
+    # Horizontal edge (top or bottom).
+    if dy < 0.0:
+      return offTop + clamp(px - (cx - hw + cr), 0.0, straightW)
+    else:
+      return offBottom + clamp((cx + hw - cr) - px, 0.0, straightW)
+  else:
+    0.0  # Inside the rect (never reached for a genuine exterior source
+         # cell) — arbitrary, not load-bearing.
+
 ## (zoneDropletCellHash/zoneCellSplotchAt/zoneDropletAt/zoneBodyLobeAdvanceAt/
 ## zoneToneAdvanceAt/zoneDrownedColorAt, ensureZoneFlowGrid/computeZoneFlowDist/
 ## sampleZoneFlowDepth/zoneFlowBlendedDepth, and zoneDeadPixelColor were all
@@ -7329,26 +7414,34 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
   ## the same honesty cap the spec's flow-delay term always had: paint may
   ## be late here, by up to that much, never early.
   let
-    (ca, sa) = zoneEdgeAngleAt(px, py, finalRect)
-    # `across` — the coordinate TANGENTIAL to the local edge (perpendicular
-    # to the advance direction) — is the ONLY spatial input the octaves
-    # below read. A flat rect edge crosses its whole length at the SAME
-    # tick (T0 is constant along it), so any variation driven by the
-    # ALONG (perpendicular) coordinate contributes nothing there — the
-    # coordinator's diagnosis: "give the nudge a component keyed to
-    # position ALONG the edge, which is exactly what makes tongues on a
-    # flat front." Two octaves so no single wavelength's own flat stretch
-    # can produce a long straight run either — BOTH now inside the 160-300px
-    # lobe band (Maxwell's "no sharp points" ruling, 2026-08-25: a real
-    # viscous front is curvature-limited, every tongue and cove rounded).
-    # The earlier second octave sat at 45px — well under the ~100px
-    # wavelength floor a rounded isoline needs at this grid's own 4px
-    # sample spacing, and exactly what read as jagged triangular spikes at
-    # close zoom. 160/260px (still two frequencies, never a single flat
-    # wavelength) is the fix, not a retune: short-wavelength content is
-    # DROPPED, not damped, since even a damped 45px ripple still turns
-    # sharper than a real fluid meniscus can.
-    across = px * -sa + py * ca
+    # `across` — the coordinate TANGENTIAL to the local edge — is the ONLY
+    # spatial input the octaves below read. A flat rect edge crosses its
+    # whole length at the SAME tick (T0 is constant along it), so any
+    # variation driven by the ALONG (perpendicular) coordinate contributes
+    # nothing there — the coordinator's original diagnosis: "give the
+    # nudge a component keyed to position ALONG the edge, which is exactly
+    # what makes tongues on a flat front." Two octaves so no single
+    # wavelength's own flat stretch can produce a long straight run either
+    # — BOTH inside the 160-300px lobe band (Maxwell's "no sharp points"
+    # ruling, 2026-08-25: a real viscous front is curvature-limited, every
+    # tongue and cove rounded).
+    #
+    # PARAMETERIZED BY PERIMETER ARC LENGTH, not the finite-difference
+    # rotated-frame angle (Fable's audit, 2026-08-25): `zoneEdgeAngleAt`'s
+    # gradient can swing sharply for a point sitting diagonally outside
+    # TWO edges at once — a corner's zone of influence — which fed a
+    # wildly different noise sample into adjacent rows there and produced
+    # a measured, real 89.7deg kink with ZERO sensitivity to any
+    # propagation-speed term (both ZoneFingerMinMult and a full
+    # edge-parallel anisotropic drag were tried and left that exact number
+    # unchanged to 11 significant figures — the bug was never in the
+    # transport). `zonePerimeterCoordAt` is the arc-length position of
+    # p's own nearest point on the rounded rect's perimeter: continuous
+    # and single-valued for every exterior point by construction (a
+    # convex shape's nearest-boundary map has no discontinuity outside
+    # its own center), so the SAME two octaves, at the SAME amplitude,
+    # now read a coordinate that cannot jump.
+    across = zonePerimeterCoordAt(px, py, finalRect, ZoneCornerRoundPx)
     n1 = zoneMeniscusOctave(across, 0.0, 160.0, ZoneFieldSeed xor 0x9F)
     n2 = zoneMeniscusOctave(across, 0.0, 260.0, ZoneFieldSeed xor 0xB3)
     combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
