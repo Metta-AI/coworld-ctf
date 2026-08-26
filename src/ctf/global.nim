@@ -4444,12 +4444,25 @@ const
                                ## by thinning the outline further.
 
 proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
-  ## The L1-L2 rank mark: one small flat team-paint dot with a thin dark
-  ## outline -- a lighter cousin of the L3+ star row for the SAME signal
-  ## (this cog is buffed), not a second vocabulary. A recruit's windup and hp
-  ## are already stock; L1 shaves the windup (LevelWindupDelta) and that is a
-  ## real, checkable combat edge a viewer has no other way to see land.
+  ## The L1-L2 rank mark: one small flat team-paint dot with a thin light
+  ## warm-paper ring -- a lighter cousin of the L3+ star row for the SAME
+  ## signal (this cog is buffed), not a second vocabulary. A recruit's windup
+  ## and hp are already stock; L1 shaves the windup (LevelWindupDelta) and
+  ## that is a real, checkable combat edge a viewer has no other way to see
+  ## land.
   ##
+  ## VOCABULARY wave, V2 (pip contrast pass): the ring was a near-black
+  ## outline (22, 17, 13) -- fine against most floor tiles, but marginal at
+  ## this size, and specifically weak for a RED fill (both are dark, low
+  ## enough contrast against a busy brown floor that an unprimed squint could
+  ## lose the pip entirely). Swapped for the same warm "paper" cream this
+  ## file already uses for exactly this "must read against a busy floor,
+  ## whatever the team color is" job (buildShoutBubble's paperColor / the
+  ## "palette paper" literal, (255, 241, 232)) -- a light ring pops against
+  ## the dark floor tiles for EVERY team fill, including red, the same way a
+  ## dark ring used to pop against a light fill. Still VeteranPipOutlineInPx
+  ## = 1 (unchanged): only the ring's COLOR moved, not its width or the
+  ## fill:outline ratio D2 already tuned.
   ## D2: renders directly at NATIVE resolution (`k` = boardScale) instead of
   ## rasterizing a coarse VeteranPipSize×VeteranPipSize mask at native=1 and
   ## letting addBoardSpriteChanged nearest-neighbor-blow it up -- the same
@@ -4476,7 +4489,10 @@ proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
       if d > radius:
         continue
       if d > radius - outlineIn:
-        result.putRawRgbaPixel(y * size + x, 22, 17, 13, 255)
+        # Warm-paper ring (VOCABULARY V2) -- same cream buildShoutBubble's
+        # paperColor uses, so both team fills pop against a busy brown floor
+        # instead of one team's fill fighting a near-black ring for contrast.
+        result.putRawRgbaPixel(y * size + x, 255, 241, 232, 255)
       else:
         result.putRawRgbaPixel(y * size + x, base.r, base.g, base.b, 255)
 
