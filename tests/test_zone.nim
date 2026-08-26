@@ -813,6 +813,72 @@ suite "shrink zone schedule shape: gear-up then a continuous close":
     check hi > 1.0
     check distinct8 >= 8
 
+  test "ALL PINK: the whole floor is painted by the time the episode ends":
+    ## Maxwell's ruling (2026-08-26): "not stop until all is pink." The
+    ## close-to-nothing schedule is only half of that promise — the other
+    ## half is that the paint actually ARRIVES everywhere before the episode
+    ## is over. Those are different claims: the rect reaching zero says the
+    ## damage boundary swept the board, while the paint is a FLOW and can
+    ## still owe a room its arrival for up to ZoneFlowDelayCapTicks after
+    ## the boundary passed. So coverage is measured at the END TICK the
+    ## viewer actually stops at, not at "eventually".
+    ##
+    ## Two residuals are legitimate and are counted separately rather than
+    ## waved at:
+    ##   * the FINAL CORE — zoneBaseArrivalTickAt reports "never" for points
+    ##     inside the final rect grown by ZoneCornerRoundPx, which at a 3x1
+    ##     terminal rect is a ~16px disc. It is excluded BY CONSTRUCTION and
+    ##     each such cell is checked to actually lie there;
+    ##   * SEALED POCKETS — floor with no walkable path from the exterior.
+    ##     The solve cannot reach them and neither can a player.
+    ## Anything else unpainted is a real hole in the promise.
+    for (label, sim) in [("small test map", zoneGame(BrShowmatchPhases)),
+                         ("real showmatch map",
+                          zoneGameOnRealMap(BrShowmatchPhases))]:
+      var g = sim
+      discard ensureZoneArrivalField(g)
+      let
+        (gw, gh) = zoneArrivalFieldGridDims()
+        endTick = BrShowmatchTotalTicks
+        finalRect = g.zoneRectAndDps(endTick).cur
+      var
+        paintable = 0
+        pinkByEnd = 0
+        lateAfterEnd = 0
+        neverInCore = 0
+        neverElsewhere = 0
+        worstArrival = 0
+      for gy in 0 ..< gh:
+        for gx in 0 ..< gw:
+          let
+            px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+            py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+          if not zoneD4MaskAt(g, px, py).paintable: continue
+          inc paintable
+          let cell = zoneArrivalFieldCellAt(px, py)
+          if not cell.has or cell.arrival == ZoneNeverArrives.int:
+            if roundedRectSignedDist(finalRect, ZoneCornerRoundPx,
+                float(px), float(py)) <= float(ZoneFieldCellPx):
+              inc neverInCore
+            else:
+              inc neverElsewhere
+          elif cell.arrival <= endTick:
+            inc pinkByEnd
+            worstArrival = max(worstArrival, cell.arrival)
+          else:
+            inc lateAfterEnd
+            worstArrival = max(worstArrival, cell.arrival)
+      let pct = 100.0 * float(pinkByEnd) / float(max(1, paintable))
+      echo "  ", label, ": paintable=", paintable, " PINK by tick ", endTick,
+        "=", pinkByEnd, " (", pct, "%)  stillDryAtEnd=", lateAfterEnd,
+        "  neverArrives inCore=", neverInCore, " elsewhere=", neverElsewhere,
+        "  worstArrival=", worstArrival
+      ## THE PROMISE: the board is pink when the episode ends. The only
+      ## cells allowed to be dry are the mathematically excluded core.
+      check lateAfterEnd == 0
+      check neverElsewhere == 0
+      check pct > 99.9
+
   test "the continuity measure DISCRIMINATES: a mid-close hold fails it":
     ## House rule — a gate must MOVE on the defect it names. The same walk
     ## over a schedule carrying a deliberate 300-tick wait in the middle of

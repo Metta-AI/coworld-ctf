@@ -7311,17 +7311,39 @@ proc zoneScheduleFingerprint(sim: SimServer): int =
 proc zoneBaseSpeedPxPerTick*(sim: SimServer, totalTicks: int): float =
   ## The single OPEN-FIELD reference speed every local flow multiplier below
   ## scales (aperture/wallDrag/lobeNoise are all relative to this): the
-  ## average px/tick the rect's half-extent recedes over the whole schedule.
+  ## average px/tick the rect's half-extent recedes WHILE IT IS MOVING.
   ## Everything downstream of this is honest ticks, never a raw px count.
+  ##
+  ## MOVING TICKS, NOT TOTAL TICKS (2026-08-26). This used to divide by the
+  ## whole schedule, waits included, which silently made the reference speed
+  ## a fiction on any schedule with a long hold: the front does not creep
+  ## during a wait, it stands still and then moves at the full close rate.
+  ## ZoneFingerAmpPx is converted to a tick budget by DIVIDING by this
+  ## speed, so understating the speed OVERSTATES the budget, and the
+  ## meniscus renders proportionally deeper than the look Maxwell approved.
+  ## It bit the moment the gear-up became half the schedule (G=3000 of
+  ## 6000): the reference read half the true close rate, the amplitude came
+  ## out ~2x the approved 21px, and check #7 caught it as a 54.7deg kink at
+  ## span 50 — far too coarse a step to blame on quantization.
+  ##
+  ## Note the self-consistency test one suite over CANNOT catch this: it
+  ## asserts ampTicks * speed == ZoneFingerAmpPx, which holds for ANY speed
+  ## because ampTicks is defined as ZoneFingerAmpPx / speed. Only comparing
+  ## the speed against the rect's ACTUAL motion finds it, which is why the
+  ## shape checks are the ones that did.
   if totalTicks <= 0:
     return 1.0
+  var waitTicks = 0
+  for phase in sim.config.zonePhases:
+    waitTicks += phase.waitTicks
   let
     fullW = sim.gameMap.width
     fullH = sim.gameMap.height
     final = sim.zoneRectAndDps(totalTicks).cur
     closeX = float(max(0, fullW - final.w)) * 0.5
     closeY = float(max(0, fullH - final.h)) * 0.5
-  max(0.05, (closeX + closeY) / 2.0 / float(totalTicks))
+    movingTicks = max(1, totalTicks - waitTicks)
+  max(0.05, (closeX + closeY) / 2.0 / float(movingTicks))
 
 proc zoneEdgeAngleAt(px, py: float, finalRect: MapRect): tuple[ca, sa: float] =
   ## The local rotated frame's basis (ca, sa) = (cos, sin) of the outward
