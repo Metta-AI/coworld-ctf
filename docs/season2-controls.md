@@ -242,3 +242,91 @@ Then open the printed URL. Tests:
 node client/player_controls.test.js                                   # translator
 nim c -d:release --path:src -o:/tmp/tpc tests/test_player_controls.nim && /tmp/tpc
 ```
+
+---
+
+## 10. Direct aim (planned) — the interim chase, and the contract to replace it
+
+**Design ruling (Maxwell, relayed 2026-08-26):** *"humans should be able to
+flick. their turret head points wherever the mouse is, period."* This is an
+explicit, blessed exception to the buttons-symmetry rule, **for aim only**.
+
+Everything in §6 ships as the **INTERIM**. It is the best thing that can exist
+without an engine change, and it is accurate (≤2 brads). What it cannot do is
+flick: §6's traverse budget of ~1.07s for 180° is a hard floor while aim is
+expressed as one rotate button per tick.
+
+The target state is a **direct-aim input channel**, engine-side and config-gated
+to PLAY servers (owned elsewhere; the seat-input plumbing is shared).
+
+### The cheap implementation path — no new opcode is needed
+
+`SpriteClientMouseMove = 0x82` **already exists, already crosses this wire, and
+the CTF server already decodes it and throws it away**:
+
+- decode: `spriteprotocol.nim` `parseSpriteClientMessages`, `SpriteClientMouseMove`
+  → `x`, `y` as signed 16-bit, plus an optional layer byte
+- discard: `global.nim:1339-1340`, `SpriteClientMouseMoveMessage` → `discard`
+
+So the server side is "stop discarding it, convert to a bearing, and gate it",
+not "design a protocol". The player POV renders the map layer at **scale 1 with
+its origin at (0,0)**, so the coordinates the client already sends ARE map
+coordinates — `bradsOfVector(mx - selfX, my - selfY)` is the whole conversion,
+and `bradsOfVector` already exists in `sim.nim`.
+
+### What the client will do when the channel exists
+
+1. **Capability detection, not a build flag.** The client must keep working
+   against a server without the channel, so the server has to *advertise* it —
+   the client feature-detects and falls back to the chase. Falling back must be
+   automatic, because the same bundle is served to both.
+2. Send the cursor's target bearing (on change, coalesced to at most one per
+   tick) when advertised; run §6's chase when not.
+3. Keep dead reckoning **only** on the chase path. On the direct path the
+   server owns the aim outright, so `estAim` becomes a display value read back
+   rather than integrated — and the respawn re-seed (§11) stops mattering on
+   that path.
+4. **`KEYMAP`'s aim entry changes from swing language to point language in the
+   SAME change**, never before it. The panel is generated from `KEYMAP`, so
+   flipping the wording early would have the UI advertise flick-aim on a build
+   that still swings. Today's entry reads *"cursor angle drives one rotate
+   button per tick, shortest arc"* and is correct for what ships today.
+
+### Consequence for league symmetry — state it, do not bury it
+
+A seat that can point instantly has a strictly larger action space than one
+that must traverse. That is precisely why the channel is **config-gated to PLAY
+servers** and must never be advertised on a league server. Two things follow
+and should be tested, not assumed:
+
+- a league-config server must not advertise the capability, and a client that
+  asks for it anyway must be refused rather than silently granted
+- replays of PLAY matches carry aim that no policy could have produced, so they
+  are not valid training or benchmarking data for league policies
+
+### The `aimTurnRate` question is now league-only
+
+The open balance task about the ~1.07s flick was raised as a *human* game-feel
+question. Direct aim answers that for humans, so what remains is a pure league
+question: whether the traverse rate is right for **policies**, which is an A/B
+against the field and has nothing to do with this lane.
+
+## 11. Respawn re-seed (fixed)
+
+The engine resets `aimBrads` to `spawnAimBrads(team)` on **every** respawn
+(`sim.nim` `respawnPlayers`, and again in `resetPlayerToHome`). A dead-reckoned
+client must therefore re-seed on every fresh spawn, not just the first.
+
+Seeding once was a real bug and it is fixed. Measured on a live 1hp server over
+four consecutive spawns, the old behaviour would have carried **25, 120, 120 and
+35 brads** of silent error into those lives — two of them ~169°, i.e. the gun
+pointing very nearly backwards while every packet on the wire looked perfect.
+
+The spawn edge is `false → true` on "our own self marker is on the board". The
+engine draws that marker whenever we are alive and never when we are not, so
+the edge is a true spawn and fog cannot fake one.
+
+This is also why the client emits **no rotate bits while unseated**: `applyInput`
+returns early when the player is not alive, so those bits would be dropped
+anyway. A mouse sweep in lobby/dead state producing zero rotate packets is
+correct behaviour, and there is a test for it on both sides.
