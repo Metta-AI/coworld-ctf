@@ -125,18 +125,45 @@ const
   GloryPopMaxStack* = 3       ## deepest visible stack at one site. Past this the
                               ## pops share a row again: an unreadable overlap is
                               ## still better than a column climbing off-screen.
-  GloryPopStaggerTicks* = 10  ## POP MOTION WAVE P3: ticks a stacked pop's own
-                              ## START delays past the one below it (row *
-                              ## this), so a same-tick burst reads as a QUEUE --
-                              ## the front pop is already fading by the time the
-                              ## next one visibly lands, instead of every row
-                              ## popping in on the identical tick. Sim-side (not
-                              ## a draw-time trick) so it replays identically:
-                              ## `addGloryPop` bakes it into the mint as
-                              ## `startDelay`, and the per-tick housekeeping
-                              ## pass (see `step`'s glory-pop prune) is what
-                              ## keeps a delayed pop alive long enough to still
-                              ## get its full animated life once it starts.
+  GloryPopStaggerTicks* = 10  ## POP MOTION WAVE P3: ticks a SITE-stacked pop's
+                              ## own START delays past the one below it (row *
+                              ## this). Only reached now for a pop with no
+                              ## single earner (`earnerIndex < 0`, e.g. a
+                              ## team-wide deed) -- an earner-tracked pop's
+                              ## stagger instead goes through the per-unit
+                              ## queue below (GloryPopUnitQueueCap /
+                              ## GloryPopUnitStaggerTicks), which is what
+                              ## actually needed fixing: a SITE match is
+                              ## computed from MINT-time coordinates, and once
+                              ## P1 tracks a pop to its earner, two pops
+                              ## minted minutes apart while that cog crossed
+                              ## the map both end up hovering at the SAME live
+                              ## position -- this row/site check can't see
+                              ## that coming.
+  GloryPopUnitQueueCap* = 4   ## POP MOTION WAVE fix: the most pops one
+                              ## EARNER may have queued (showing or waiting)
+                              ## at once, across EVERY kind that floats text
+                              ## over a unit -- a deed payout, an achievement
+                              ## claim, a rank-up, anything minted with this
+                              ## player as `earnerIndex`. A 5th arrival forces
+                              ## a priority decision in `addGloryPop`: claims
+                              ## outrank deeds, and within a kind the bigger
+                              ## payout wins (mirrors addGloryPops' own
+                              ## `outranks` in global.nim) -- the SMALLEST of
+                              ## the contenders loses its slot, never a silent
+                              ## "the biggest gets bumped."
+  GloryPopUnitStaggerTicks* = 36  ## POP MOTION WAVE fix: ticks between one
+                              ## queued pop's effective START and the next
+                              ## one FOR THE SAME EARNER, serialized front-to-
+                              ## back (each new arrival's start = its own
+                              ## mint tick, or the previous arrival's start +
+                              ## this, whichever is later). Maxwell (live
+                              ## review): the old GloryPopStaggerTicks=10 was
+                              ## "far too short to read as the front one
+                              ## fades as the next appears" against an
+                              ## 84-tick achievement life -- 36 is a third of
+                              ## that, comfortably into a visible fade before
+                              ## the next one lands.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -3900,6 +3927,20 @@ proc heatCool*(sim: var SimServer) =
       sim.heatEmbers[team] = max(0, sim.heatEmbers[team] - HeatEmberDecay)
       sim.heatLastDecay[team] = sim.tickCount
 
+proc gloryPopWeaker(aLabelLen, aAmount, bLabelLen, bAmount: int): bool =
+  ## True when a pop described by (aLabelLen, aAmount) should yield to one
+  ## described by (bLabelLen, bAmount) in a same-earner queue: a named claim
+  ## (label.len > 0) always outranks a bare deed/rank-up number, and within
+  ## the same kind the bigger |payout| wins. Mirrors addGloryPops' own
+  ## `outranks` (global.nim, the GLOBAL 16-slot pool's priority) so the same
+  ## pop that would win the whole-board pool also wins its own unit's
+  ## smaller queue -- one priority rule, not two that could disagree.
+  let aClaim = aLabelLen > 0
+  let bClaim = bLabelLen > 0
+  if aClaim != bClaim:
+    return bClaim
+  abs(aAmount) < abs(bAmount)
+
 proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
                  label = "", first = false, word = "", earnerIndex = -1) =
   ## Push one floating score pop at a deed site. COSMETIC ONLY: `gloryPops` is
@@ -3948,12 +3989,64 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
         abs(pop.y - y) <= GloryPopCoalescePx:
       row = max(row, pop.row + 1)
   let boundedRow = min(row, GloryPopMaxStack)
+  # P3 STAGGER, site path: only reached for a pop with no single earner
+  # (below); a fresh site (row 0) always starts immediately.
+  var startDelay = boundedRow * GloryPopStaggerTicks
+  if earnerIndex >= 0:
+    # POP MOTION WAVE fix: an earner-tracked pop's stagger is a PER-UNIT
+    # QUEUE across every pop kind riding that unit's head -- deed, claim,
+    # rank-up, anything minted with this same `earnerIndex` -- not the
+    # site/row math above, which only sees pops that are still spatially
+    # close to where THIS pop happened to mint. Once P1 tracks a pop to its
+    # earner, two pops minted minutes apart while that cog crossed the map
+    # both end up hovering at the SAME live position; the site check can't
+    # see that coming, so scan by IDENTITY instead.
+    var earnerIdxs: seq[int] = @[]
+    for i, pop in sim.gloryPops:
+      if pop.earnerIndex == earnerIndex:
+        earnerIdxs.add i
+    if earnerIdxs.len >= GloryPopUnitQueueCap:
+      # Full queue: find the WEAKEST pop currently holding one of this
+      # earner's slots (claims outrank deeds; within a kind, the bigger
+      # payout wins -- gloryPopWeaker). If the newcomer is weaker than even
+      # that, IT is the smallest of the contenders and is dropped outright
+      # (the queue is left unchanged). Otherwise the weakest existing pop
+      # is evicted to free a slot -- never a silent "the biggest gets
+      # bumped," the comparison runs both ways explicitly.
+      var weakestPos = 0
+      for p in 1 ..< earnerIdxs.len:
+        if gloryPopWeaker(
+            sim.gloryPops[earnerIdxs[p]].label.len, sim.gloryPops[earnerIdxs[p]].amount,
+            sim.gloryPops[earnerIdxs[weakestPos]].label.len, sim.gloryPops[earnerIdxs[weakestPos]].amount):
+          weakestPos = p
+      let weakestIdx = earnerIdxs[weakestPos]
+      if gloryPopWeaker(
+          label.len, amount,
+          sim.gloryPops[weakestIdx].label.len, sim.gloryPops[weakestIdx].amount):
+        return   # the newcomer itself is the smallest -- queue unchanged
+      sim.gloryPops.delete(weakestIdx)
+      earnerIdxs.delete(weakestPos)
+      # `delete` shifts every later element down by one; keep the remaining
+      # tracked indices in sync rather than re-scanning `sim.gloryPops`.
+      for p in 0 ..< earnerIdxs.len:
+        if earnerIdxs[p] > weakestIdx:
+          dec earnerIdxs[p]
+    # Serialize: this pop's effective start is its own mint tick, or the
+    # LATEST already-queued pop's effective start (tick + startDelay) plus
+    # the per-unit gap, whichever is later -- so at most one pop per earner
+    # is ever "fresh" at a time, and a later one can't start until the
+    # earlier one is well into its fade.
+    var lastQueuedStart = -1
+    for i in earnerIdxs:
+      let queued = sim.gloryPops[i]
+      lastQueuedStart = max(lastQueuedStart, queued.tick + queued.startDelay)
+    startDelay =
+      if lastQueuedStart < 0: 0
+      else: max(0, lastQueuedStart + GloryPopUnitStaggerTicks - sim.tickCount)
   sim.gloryPops.add GloryFx(
     x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
     word: word, first: first, row: boundedRow, earnerIndex: earnerIndex,
-    # P3 STAGGER: only a pop that had to STACK (couldn't coalesce) queues --
-    # the first pop at a fresh site (row 0) always starts immediately.
-    startDelay: boundedRow * GloryPopStaggerTicks
+    startDelay: startDelay
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,

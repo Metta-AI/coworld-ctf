@@ -4464,7 +4464,7 @@ proc addSupplyDropPickups(
     )
 
 const
-  VeteranMarkClearancePx = 24  ## px the ace stars / L1-2 pip rise above the
+  VeteranMarkClearancePx = 24  ## px the AceLevel+ star row rises above the
                                ## overhead anchor. Was a flat 10, which landed
                                ## the mark INSIDE the name-label band (the
                                ## label stacks anchor-4-HpBarH-labelH-1, so
@@ -4473,6 +4473,13 @@ const
                                ## the /proof closing look could not find a
                                ## single mark on screen). 24 clears hp bar +
                                ## a full-height name label + air.
+                               ## POP MOTION WAVE fix: the L1-2 pip no longer
+                               ## shares this constant -- see
+                               ## VeteranPipClearancePx, sized tight to the
+                               ## pip's OWN (much shorter) footprint instead
+                               ## of this worst-case star-row number, which
+                               ## left the pip floating detached from the
+                               ## unit (Maxwell: "what is this dot?").
   VeteranPipSize = 9           ## logical px: a small flat paint pip -- still
                                ## well under the footprint of a single L3
                                ## star glyph, so an L1/L2 mark reads as a
@@ -4488,48 +4495,90 @@ const
                                ## outline a fill radius of ~3px to sit inside
                                ## of, so paint dominates the shape the way the
                                ## star row's own thick vector glyphs do.
-  VeteranPipRadius = 4'f32     ## D2: was 2 (for the old size-5 pip; the same
-                               ## "touches the canvas edge" relationship,
-                               ## scaled up for size 9).
-  VeteranPipOutlineInPx = 1'f32  ## 1 logical px: still the style law's floor
-                               ## on a mark this size (a 2-4px outline at
-                               ## VeteranPipSize=9 would swallow the fill the
-                               ## same way it used to at 5) -- D2 fixes the
-                               ## fill:outline RATIO by growing the pip, not
-                               ## by thinning the outline further.
+  VeteranPipPoints = 5         ## POP MOTION WAVE fix (Maxwell, live review:
+                               ## "what is this dot?"): the L1-2 mark is now
+                               ## a small STAR, not a bare circle -- the same
+                               ## shape family the L3+ row's "*" glyphs
+                               ## complete, so an unprimed viewer can guess
+                               ## "rank thing" on sight. Five points, the
+                               ## same count one "*" glyph reads as.
+  VeteranPipOuterR = 4'f32     ## outer tip radius -- same "touches the
+                               ## canvas edge" budget the old circle used
+                               ## (VeteranPipSize=9, center at 4.0).
+  VeteranPipInnerR = 1.7'f32   ## inner valley radius between two tips --
+                               ## tuned for a visibly SPIKY (not blobby) star
+                               ## at this size; too close to VeteranPipOuterR
+                               ## and it reads as a circle again.
+  VeteranPipOutlineInPx = 2'f32  ## Maxwell's own spec for this mark: "chunky,
+                               ## 2px dark outline, style-law compliant" --
+                               ## was 1px + a light warm-paper ring (VOCABULARY
+                               ## V2), which existed only to fight a RED
+                               ## fill's low contrast against a busy floor. A
+                               ## dark ring does that job too -- it's what
+                               ## every OTHER hand-drawn mark in this file
+                               ## already relies on (paintSpeckDab,
+                               ## buildChunkyBoardText) -- while also reading
+                               ## as a STROKED icon instead of a soft blob.
+  VeteranPipClearancePx = HpBarH + TextLineHeight + 1 + 3
+                               ## px the L1-2 pip rises above the overhead
+                               ## anchor -- MUCH tighter than
+                               ## VeteranMarkClearancePx (24, sized for the
+                               ## taller L3+ star row): the pip's own bottom
+                               ## only needs to clear the name label's own
+                               ## placement math (overheadAnchorY -
+                               ## OverheadYOffset - HpBarH - TextLineHeight -
+                               ## 1, the EXACT expression the name label
+                               ## itself is placed with) plus a few px of
+                               ## air, not a worst-case multi-line label the
+                               ## flat 24 was guarding against. The flat 24
+                               ## left the pip floating ~11px of dead air
+                               ## above the name band with nothing visually
+                               ## tethering it to the unit -- half of "what
+                               ## is this dot?" (Maxwell) was exactly that
+                               ## detachment, independent of the shape fix.
+
+proc veteranStarBoundaryR(theta: float32): float32 =
+  ## Polar boundary radius of a VeteranPipPoints-pointed star at angle
+  ## `theta` (screen convention: atan2(dy, dx), so 0 = +x/east) -- a
+  ## closed-form triangle wave between VeteranPipInnerR (at each valley,
+  ## halfway between two tips) and VeteranPipOuterR (at each tip),
+  ## phase-shifted so one tip points straight UP. No polygon / point-in-
+  ## polygon math needed: a per-pixel `d <= boundaryR(angle(pixel))` test
+  ## draws the whole star directly, the same "distance from center" idiom
+  ## the old circle used, just with an angle-dependent radius instead of a
+  ## constant one.
+  let
+    seg = 2.0'f32 * PI.float32 / VeteranPipPoints.float32
+    adj = theta + PI.float32 / 2.0'f32   # 0 now means "straight up"
+    t = adj - seg * floor(adj / seg)     # wrapped into [0, seg)
+    triangle = abs(t - seg / 2.0'f32) / (seg / 2.0'f32)  # 0 valley, 1 tip
+  VeteranPipInnerR + (VeteranPipOuterR - VeteranPipInnerR) * triangle
 
 proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
-  ## The L1-L2 rank mark: one small flat team-paint dot with a thin light
-  ## warm-paper ring -- a lighter cousin of the L3+ star row for the SAME
-  ## signal (this cog is buffed), not a second vocabulary. A recruit's windup
-  ## and hp are already stock; L1 shaves the windup (LevelWindupDelta) and
-  ## that is a real, checkable combat edge a viewer has no other way to see
-  ## land.
+  ## The L1-L2 rank mark: a small team-paint STAR with a 2px dark outline --
+  ## a lighter cousin of the L3+ star row for the SAME signal (this cog is
+  ## buffed), not a second vocabulary. A recruit's windup and hp are already
+  ## stock; L1 shaves the windup (LevelWindupDelta) and that is a real,
+  ## checkable combat edge a viewer has no other way to see land.
   ##
-  ## VOCABULARY wave, V2 (pip contrast pass): the ring was a near-black
-  ## outline (22, 17, 13) -- fine against most floor tiles, but marginal at
-  ## this size, and specifically weak for a RED fill (both are dark, low
-  ## enough contrast against a busy brown floor that an unprimed squint could
-  ## lose the pip entirely). Swapped for the same warm "paper" cream this
-  ## file already uses for exactly this "must read against a busy floor,
-  ## whatever the team color is" job (buildShoutBubble's paperColor / the
-  ## "palette paper" literal, (255, 241, 232)) -- a light ring pops against
-  ## the dark floor tiles for EVERY team fill, including red, the same way a
-  ## dark ring used to pop against a light fill. Still VeteranPipOutlineInPx
-  ## = 1 (unchanged): only the ring's COLOR moved, not its width or the
-  ## fill:outline ratio D2 already tuned.
+  ## POP MOTION WAVE fix (Maxwell, live review): the old flat paint DOT was
+  ## the right COLOR but zero rank SEMANTICS -- nothing about a plain circle
+  ## says "this is a rank mark" to a viewer seeing it cold. Swapped for
+  ## veteranStarBoundaryR's closed-form star outline: a single small star
+  ## reads on sight as the START of the L3+ row's multi-star plume, the same
+  ## way one chevron reads as the junior sibling of three.
+  ##
   ## D2: renders directly at NATIVE resolution (`k` = boardScale) instead of
   ## rasterizing a coarse VeteranPipSize×VeteranPipSize mask at native=1 and
   ## letting addBoardSpriteChanged nearest-neighbor-blow it up -- the same
   ## "logical dims out, native pixels" contract every other hand-drawn blob
   ## in this file already uses (buildGloryChipSprite, buildSupplyHaloSprite),
   ## and the reason the L3+ star row (a true vector face at boardScale) reads
-  ## cleanly where the old native=1 pip didn't: computing the circle's edge
-  ## at k× the grid gives it k× the angular resolution to round off on,
-  ## instead of snapping to whichever of 5 raw pixels was closest.
+  ## cleanly where the old native=1 pip didn't: computing the star's edge at
+  ## k× the grid gives it k× the angular resolution to round off on, instead
+  ## of snapping to whichever of 5 raw pixels was closest.
   let
     size = VeteranPipSize * k
-    radius = VeteranPipRadius * k.float32
     outlineIn = VeteranPipOutlineInPx * k.float32
   result = newRgbaPixels(size, size)
   let
@@ -4541,13 +4590,15 @@ proc buildVeteranPipSprite(team: Team, k: int): seq[uint8] {.measure.} =
         dx = float32(x) - c
         dy = float32(y) - c
         d = sqrt(dx * dx + dy * dy)
-      if d > radius:
+        boundary = veteranStarBoundaryR(arctan2(dy, dx)) * k.float32
+      if d > boundary:
         continue
-      if d > radius - outlineIn:
-        # Warm-paper ring (VOCABULARY V2) -- same cream buildShoutBubble's
-        # paperColor uses, so both team fills pop against a busy brown floor
-        # instead of one team's fill fighting a near-black ring for contrast.
-        result.putRawRgbaPixel(y * size + x, 255, 241, 232, 255)
+      if d > boundary - outlineIn:
+        # 2px dark outline (Maxwell's spec) -- the same near-black contour
+        # every other hand-drawn dab in this file uses for contrast against
+        # a busy floor (paintSpeckDab: 22,17,13), rather than the old light
+        # warm-paper ring.
+        result.putRawRgbaPixel(y * size + x, 22, 17, 13, 255)
       else:
         result.putRawRgbaPixel(y * size + x, base.r, base.g, base.b, 255)
 
@@ -4620,7 +4671,7 @@ proc addVeteranMarks(
         objectId,
         player.x + CollisionW div 2 - VeteranPipSize div 2,
         player.overheadAnchorY() - OverheadYOffset - VeteranPipSize -
-          VeteranMarkClearancePx,
+          VeteranPipClearancePx,
         30007, MapLayerId, spriteId
       )
 
@@ -5819,10 +5870,17 @@ proc gloryPopTrackedOverheadLiftPx(sim: SimServer, pop: GloryFx): int =
     return 0
   let level = sim.players[pop.earnerIndex].level
   result = SoldierBodyPx div 2 + OverheadYOffset + HpBarH + TextLineHeight + 1
-  if level >= 1:
-    let markH = if level >= AceLevel: TextLineHeight else: VeteranPipSize
+  if level >= AceLevel:
     result = max(result,
-      SoldierBodyPx div 2 + OverheadYOffset + markH + VeteranMarkClearancePx)
+      SoldierBodyPx div 2 + OverheadYOffset + TextLineHeight +
+        VeteranMarkClearancePx)
+  elif level >= 1:
+    # Mirrors the pip's OWN tightened placement (addVeteranMarks), not the
+    # taller star row's -- the two marks no longer share one clearance
+    # constant now that the pip sits much closer to the unit.
+    result = max(result,
+      SoldierBodyPx div 2 + OverheadYOffset + VeteranPipSize +
+        VeteranPipClearancePx)
   result += GloryPopTrackedAirPx
 
 proc gloryPopBaseLiftPx(sim: SimServer, pop: GloryFx): int =
