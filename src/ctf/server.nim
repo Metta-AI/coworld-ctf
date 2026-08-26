@@ -3,7 +3,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime
+  sim, global, replays, broadcast, liveview, replay_runtime
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -97,6 +97,13 @@ const
   SoldierArtRedFrontGun = staticRead("../../data/soldier_red_front_gun.png")
   SoldierArtBlueFrontGun = staticRead("../../data/soldier_blue_front_gun.png")
   LeagueReplayerPath = "/client/league"
+  # The LIVE player view: the SAME designed broadcast client the replay routes
+  # serve, pointed at the `/player` websocket instead of `/replay`. One HTML,
+  # one visual language, one set of chrome code — the live view is the replay
+  # viewer with the transport swapped for a camera and a personal HUD. The
+  # stock bitworld client stays served at /client/player as the untouched
+  # fallback (and as the before-picture).
+  LivePlayerPath = "/client/play"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
   BroadcastFontPath = "/client/font.ttf"
@@ -673,6 +680,11 @@ proc httpHandler(request: Request) =
       request.respond(200, artHeaders, SoldierArtRedFrontGun)
     else:
       request.respond(200, artHeaders, SoldierArtBlueFrontGun)
+  elif request.path == LivePlayerPath and request.httpMethod == "GET":
+    var liveHeaders: HttpHeaders
+    liveHeaders["Content-Type"] = "text/html; charset=utf-8"
+    liveHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, liveHeaders, EmbeddedBroadcastReplayHtml)
   elif request.path == BroadcastFontPath and request.httpMethod == "GET":
     var fontHeaders: HttpHeaders
     fontHeaders["Content-Type"] = "font/ttf"
@@ -1348,10 +1360,12 @@ proc runServerLoop*(
       let rewardPacket = sim.buildRewardPacket()
       for i in 0 ..< sockets.len:
         var nextState: PlayerViewerState
-        let framePacket = sim.buildSpriteProtocolPlayerUpdates(
+        let framePacket = sim.buildLivePlayerPacket(
           playerIndices[i],
           playerViewerStates[i],
-          nextState
+          nextState,
+          # The lobby has no beats to report yet.
+          newJArray()
         )
         {.gcsafe.}:
           withLock appState.lock:
@@ -1388,6 +1402,14 @@ proc runServerLoop*(
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
         sim.step(stepInputs, stepPrevInputs)
+        # Beat events for the LIVE chrome, derived ONE STEP AT A TIME for the
+        # same reason the replay path does it: a kill is attributed by diffing
+        # a single tick, and collapsing a whole multi-step frame into one diff
+        # turns two clean kills into an "ambiguous" marker. Cheap (a per-player
+        # scalar diff) and only meaningful when a seat has the HUD on, but it
+        # must run unconditionally — the tracker is shared, and a tracker that
+        # skipped ticks would emit phantom beats the moment someone opts in.
+        sim.stepEvents(broadcastTracker, frameEvents)
         lastStepInputs = stepInputs
         stepPrevInputs = stepInputs
         stepPressedInputMasks.resetInputMasks()
@@ -1414,23 +1436,37 @@ proc runServerLoop*(
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
+      # The roster is about to be rebuilt, so every per-player counter the
+      # tracker diffs against is about to become meaningless. Snapshot without
+      # emitting, exactly like a replay seek does.
+      broadcastTracker.resync(sim)
       {.gcsafe.}:
         withLock appState.lock:
           for websocket in appState.playerIndices.keys:
             if websocket.isPlayerWebSocket():
               appState.playerIndices[websocket] = 0x7fffffff
           for websocket in appState.playerViewers.keys:
+            # The viewer is rebuilt (its sprite/object caches are stale after a
+            # restart) but the HUD OPT-IN survives: the client only sends
+            # `hud:on` when the socket opens, and this socket is not closing, so
+            # clearing it here would kill the live HUD for the rest of the
+            # session with no way to ask for it back.
+            let hudWasOn =
+              not appState.playerViewers[websocket].isNil and
+              appState.playerViewers[websocket].hudEnabled
             appState.playerViewers[websocket] = initPlayerViewerState()
+            appState.playerViewers[websocket].hudEnabled = hudWasOn
 
     if not replayLoaded and config.fastMode:
       sockets.resetPlayerReady(playerIndices, sim.players.len)
 
     for i in 0 ..< sockets.len:
       var nextState: PlayerViewerState
-      let framePacket = sim.buildSpriteProtocolPlayerUpdates(
+      let framePacket = sim.buildLivePlayerPacket(
         playerIndices[i],
         playerViewerStates[i],
-        nextState
+        nextState,
+        frameEvents
       )
       {.gcsafe.}:
         withLock appState.lock:

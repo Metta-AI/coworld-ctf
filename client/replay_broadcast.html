@@ -1748,6 +1748,219 @@ body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }
 body[data-embed] #board { top: 0; height: 100%; }
+
+/* ============================================================
+   LIVE MODE — the same client, driven by the stepping sim (/client/play)
+   A live match has no transport: there is nothing to scrub, no speed to pick
+   and no end to loop to. Everything else — scorebug, glory + HEAT, achievement
+   ledgers, the feed, the banner lane — is exactly the replay viewer's, because
+   the frame it renders from is exactly the replay viewer's frame. What LIVE
+   adds is the layer a recording never needed: your own seat.
+   ============================================================ */
+body[data-live] #transport,
+body[data-live] #inspector { display: none !important; }
+
+/* --- the seat card: your cog's state, bottom-left ---------------------- */
+#seat {
+  position: absolute;
+  left: calc(10 * var(--u));
+  bottom: calc(10 * var(--u));
+  min-width: calc(178 * var(--u));
+  padding: calc(8 * var(--u)) calc(11 * var(--u)) calc(9 * var(--u));
+  background: rgba(var(--stage-lo-rgb), 0.82);
+  border: 1px solid rgba(var(--paper-rgb), 0.11);
+  border-radius: calc(3 * var(--u));
+  font-family: var(--pixfont);
+  color: var(--paper);
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
+}
+#seat.on { opacity: 1; }
+#seat.down { border-color: rgba(224, 82, 58, 0.45); }
+.seat-head {
+  display: flex;
+  align-items: baseline;
+  gap: calc(6 * var(--u));
+  margin-bottom: calc(6 * var(--u));
+}
+.seat-name {
+  font-size: calc(13 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.seat-name.red { color: var(--red); }
+.seat-name.blue { color: var(--blue); }
+.seat-lv {
+  margin-left: auto;
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.13em;
+  color: var(--amber);
+  text-transform: uppercase;
+}
+.seat-lv .dim { color: var(--ghost); }
+/* health: the same three fixed thirds the board's own pip bar uses, so the
+   card and the sprite over your head can never disagree about your health. */
+.seat-hp { display: flex; gap: calc(3 * var(--u)); align-items: center; }
+.seat-seg {
+  width: calc(19 * var(--u));
+  height: calc(6 * var(--u));
+  background: rgba(var(--paper-rgb), 0.13);
+  border-radius: calc(1 * var(--u));
+}
+.seat-seg.lit { background: #6fbf68; }
+.seat-seg.shield { background: var(--blue); }
+.seat-lives {
+  margin-left: calc(7 * var(--u));
+  font-size: calc(10 * var(--u));
+  color: var(--paper-dim);
+  letter-spacing: 0.06em;
+}
+.seat-lives b { color: var(--paper); font-weight: 700; }
+/* readiness: the one thing the old HUD could not say. The board's fire icon is
+   two-state (ready / not); this says HOW LONG and WHICH WAY — a shot in flight
+   reads amber and fills, a gun you cannot fire reads grey and drains. */
+.seat-ready { margin-top: calc(7 * var(--u)); }
+.seat-meter {
+  position: relative;
+  height: calc(5 * var(--u));
+  background: rgba(var(--paper-rgb), 0.13);
+  border-radius: calc(1 * var(--u));
+  overflow: hidden;
+}
+.seat-meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: var(--paper-dim);
+  transition: width 70ms linear;
+}
+.seat-meter.ready i { width: 100% !important; background: #6fbf68; }
+.seat-meter.wind i { background: var(--amber); }
+.seat-lab {
+  display: flex;
+  justify-content: space-between;
+  margin-top: calc(4 * var(--u));
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ghost);
+}
+.seat-lab .state { color: var(--paper-dim); }
+.seat-lab .state.ready { color: #6fbf68; }
+.seat-lab .state.wind { color: var(--amber); }
+
+/* --- you took paint: a warm wash from the screen edge ------------------ */
+#hurt {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(120% 100% at 50% 50%,
+    rgba(224, 82, 58, 0) 46%, rgba(224, 82, 58, 0.5) 100%);
+}
+#hurt.hit { animation: hurt-flash 460ms ease-out 1; }
+@keyframes hurt-flash {
+  0% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
+/* --- incoming fire: arcs on the screen edge, pointing at rings you can
+       already see on the board (never at a shot's true landing) --------- */
+#incoming { position: absolute; inset: 0; pointer-events: none; }
+/* The wrapper carries the BEARING (a static rotate), the inner ring carries the
+   ping (an animated scale). One element cannot do both: a keyframe `transform`
+   replaces the static one outright and every arc would point north. */
+#incoming .arcw {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+}
+#incoming .arc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(76 * var(--u));
+  height: calc(76 * var(--u));
+  margin: calc(-38 * var(--u)) 0 0 calc(-38 * var(--u));
+  border-radius: 50%;
+  border: calc(3 * var(--u)) solid transparent;
+  border-top-color: rgba(224, 82, 58, 0.85);
+  opacity: 0;
+  animation: arc-ping 900ms ease-out 1;
+}
+@keyframes arc-ping {
+  0% { opacity: 0.9; transform: scale(0.72); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+
+/* --- tagged out: the respawn read ------------------------------------- */
+/* While you are out, the board dims. It is doing double duty: it is the state
+   ("you are not in this fight") and it is the only thing that makes a headline
+   legible over whatever patch of floor you happened to die on. A scrim, not a
+   decorative wash — it appears exactly and only while the seat is dead. */
+#deadveil {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--stage-lo-rgb), 0.52);
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+#deadveil.on { opacity: 1; }
+#respawn {
+  position: absolute;
+  left: 0; right: 0;
+  top: 38%;
+  text-align: center;
+  font-family: var(--pixfont);
+  color: var(--paper);
+  opacity: 0;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+#respawn.on { opacity: 1; }
+#respawn .rs-head {
+  font-size: calc(26 * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--red);
+  text-shadow: 0 calc(2 * var(--u)) 0 rgba(var(--stage-lo-rgb), 0.9);
+}
+#respawn .rs-sub {
+  margin-top: calc(6 * var(--u));
+  font-size: calc(12 * var(--u));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper);
+}
+#respawn .rs-count { color: var(--amber); font-weight: 700; }
+
+/* --- view chip: which camera you are on -------------------------------- */
+#viewchip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(10 * var(--u));
+  padding: calc(5 * var(--u)) calc(9 * var(--u));
+  font-family: var(--pixfont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  background: rgba(var(--stage-lo-rgb), 0.78);
+  border: 1px solid rgba(var(--paper-rgb), 0.11);
+  border-radius: calc(3 * var(--u));
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+#viewchip.on { opacity: 1; }
+#viewchip b { color: var(--paper); font-weight: 700; }
+#viewchip .key { color: var(--ghost); }
+/* Your own row in the shared feed, so a personal beat is findable in a feed
+   that is mostly other people's fights. */
+.feed-row.mine { box-shadow: inset calc(2 * var(--u)) 0 0 0 var(--amber); }
 </style>
 </head>
 <body>
@@ -1871,6 +2084,33 @@ body[data-embed] #board { top: 0; height: 100%; }
            when the PiP is pinned bottom-left) -->
       <div class="fpv-grip" id="fpv-grip" title="Drag to resize"></div>
     </div>
+    <!-- LIVE MODE ONLY (hidden until renderLive touches them): the human
+         seat's own layer. Everything above this line is the replay viewer's
+         chrome, rendering the same frame it always did. -->
+    <div id="hurt"></div>
+    <div id="incoming"></div>
+    <div id="deadveil"></div>
+    <div id="respawn">
+      <div class="rs-head">Tagged out</div>
+      <div class="rs-sub">Back in <span class="rs-count">0.0</span>s
+        &middot; <span class="rs-lives">0</span> lives left</div>
+    </div>
+    <div id="seat">
+      <div class="seat-head">
+        <span class="seat-name">&mdash;</span>
+        <span class="seat-lv"><span class="dim">Rank</span> <b>0</b></span>
+      </div>
+      <div class="seat-hp">
+        <span class="seat-seg"></span><span class="seat-seg"></span><span class="seat-seg"></span>
+        <span class="seat-lives">Lives <b>0</b></span>
+      </div>
+      <div class="seat-ready">
+        <div class="seat-meter"><i></i></div>
+        <div class="seat-lab"><span class="state">&mdash;</span><span class="wp">gun</span></div>
+      </div>
+    </div>
+    <div id="viewchip"><b>Follow</b> &middot; <span class="key">V</span> whole arena</div>
+
     <div id="bannerlane"></div>
     <div id="killfeed"></div>
 
@@ -2101,6 +2341,19 @@ body[data-embed] #board { top: 0; height: 100%; }
   try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
   if (EMBED) document.body.setAttribute('data-embed', '1');
 
+  // ---- live mode (/client/play) --------------------------------------------
+  // The same client, the same chrome, the same frame schema — but the socket is
+  // a per-seat `/player` stream off a stepping sim rather than a recording. The
+  // transport goes away (nothing to scrub), a follow camera and the seat layer
+  // come in. Detected from the ROUTE first so a plain link works, with ?live=1
+  // as the override for serving the page from anywhere else.
+  var LIVE = false;
+  try {
+    LIVE = location.pathname.indexOf('/client/play') >= 0 ||
+      new URLSearchParams(location.search).get('live') === '1';
+  } catch (e) {}
+  if (LIVE) document.body.setAttribute('data-live', '1');
+
   // Tick deep-link (?t=<tick>): seek there on load, paused, via the same s:
   // command the scrubber uses (the sim clamps out-of-range ticks). One-shot,
   // fired on the first ingested frame so the replay runtime is ready.
@@ -2236,6 +2489,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     renderScorebug(s);
     renderAchievements(s);
     renderClock(s);
+    renderLive(s);
     renderTransport(s);
     renderPov(s);
     renderMismatch(s);
@@ -3886,7 +4140,7 @@ body[data-embed] #board { top: 0; height: 100%; }
         '<span class="glyph">⇄</span>' +
         '<span class="who ' + (teamOf(s, e.trade) || '') + '">' + esc(shortName(rosterName(s, e.trade))) + '</span>' +
         '<span class="badge">traded</span>';
-      pushFeed(row);
+      pushFeed(liveMarkMine(row, e));
       return;
     }
     var row = document.createElement('div');
@@ -3904,7 +4158,7 @@ body[data-embed] #board { top: 0; height: 100%; }
         '<span class="glyph">' + glyph + '</span>' +
         '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
     }
-    pushFeed(row);
+    pushFeed(liveMarkMine(row, e));
   }
 
   // An achievement claim. The corner toast lane is gone (Maxwell's ruling,
@@ -4859,6 +5113,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   // keyboard shortcuts mirror the transport
   window.addEventListener('keydown', function (ev) {
+    if (LIVE) return;   // live: these same keys are the player's own controls
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     var k = ev.key;
     if (k === ' ') { ev.preventDefault(); togglePlay(); }
@@ -4999,6 +5254,269 @@ body[data-embed] #board { top: 0; height: 100%; }
   var ro = new ResizeObserver(relayout);
   ro.observe(viewport);
   window.addEventListener('resize', relayout);
+
+
+  // ============================================================
+  //  LIVE SEAT  (/client/play) — everything a recording never needed
+  // ============================================================
+  // Three failures the first human playtest found, in order of how badly they
+  // broke the game, and what answers each here:
+  //   1. a bird's-eye whole-arena view with no camera follow — you lose your
+  //      own 16px cog among fifteen bots. -> the follow camera below.
+  //   2. your own sprite fully occluded by the flag-pedestal banner at spawn.
+  //      -> answered SIM-side (global.soldierXray), not here: the board draws
+  //      your outline a second time above every prop.
+  //   3. the HUD was the text "3hp x2" — no readiness, no personal beat.
+  //      -> the seat card, the respawn read, the hurt wash and the feed mark.
+  var MY_SLOT = -1;
+
+  function liveMarkMine(row, e) {
+    // A shared feed is mostly other people's fights; this is how your own beat
+    // is findable in it without giving you a second, private feed to watch.
+    if (LIVE && MY_SLOT >= 0 && (e.killer === MY_SLOT || e.victim === MY_SLOT)) {
+      row.classList.add('mine');
+    }
+    return row;
+  }
+
+  // ---- follow camera -------------------------------------------------------
+  // Widths in BOARD pixels, not zoom factors, so the same step shows the same
+  // amount of arena on any window. 520 is a duel; 1040 is most of the map and
+  // is where the ladder stops being useful.
+  var FOLLOW_WIDTHS = [400, 520, 700, 1040];
+  var followStep = 1;
+  var followOn = true;
+  var lastCamKey = '';
+
+  function applyLiveCamera(me) {
+    if (!LIVE) return;
+    if (followOn && me && me.x != null) {
+      core.setCamera({ x: me.x, y: me.y, viewW: FOLLOW_WIDTHS[followStep] });
+    } else if (core.cameraActive()) {
+      core.setCamera(null);
+      core.setViewportFit();
+    }
+    var key = followOn ? 'f' + followStep : 'fit';
+    if (key !== lastCamKey) {
+      lastCamKey = key;
+      var chip = $('viewchip');
+      chip.innerHTML = followOn
+        ? '<b>Follow</b> &middot; ' + FOLLOW_WIDTHS[followStep] + 'px wide' +
+          ' &middot; <span class="key">V</span> whole arena' +
+          ' &middot; <span class="key">- / =</span> zoom'
+        : '<b>Whole arena</b> &middot; <span class="key">V</span> follow me';
+      chip.classList.add('on');
+    }
+  }
+
+  function toggleFollow() {
+    followOn = !followOn;
+    applyLiveCamera(lastState && lastState.me);
+  }
+  function stepFollow(delta) {
+    if (!followOn) return;
+    followStep = Math.max(0, Math.min(FOLLOW_WIDTHS.length - 1, followStep + delta));
+    lastCamKey = '';
+    applyLiveCamera(lastState && lastState.me);
+  }
+
+  // ---- input ---------------------------------------------------------------
+  // Sprite v1 held-button mask. Engine truth (sim.nim): select = aim clockwise,
+  // b = aim counter-clockwise, a = fire, c = grenade. SEAM FOR THE CONTROLS
+  // LANE: mouse aim is a client-side rotate-chase that would emit the same two
+  // rotate bits from a cursor bearing instead of from X/Space, and click-to-fire
+  // is the same `a` bit off a mousedown — both drop in here without the renderer
+  // changing. The key bindings below are the documented fallback, not a ruling
+  // on what the shipped control scheme is.
+  var BTN_UP = 0x01, BTN_DOWN = 0x02, BTN_LEFT = 0x04, BTN_RIGHT = 0x08;
+  var BTN_SELECT = 0x10, BTN_A = 0x20, BTN_B = 0x40, BTN_C = 0x80;
+  var LIVE_KEYS = {
+    'w': BTN_UP, 'arrowup': BTN_UP,
+    's': BTN_DOWN, 'arrowdown': BTN_DOWN,
+    'a': BTN_LEFT, 'arrowleft': BTN_LEFT,
+    'd': BTN_RIGHT, 'arrowright': BTN_RIGHT,
+    ' ': BTN_SELECT,          // aim clockwise
+    'x': BTN_B, 'k': BTN_B,   // aim counter-clockwise
+    'z': BTN_A, 'j': BTN_A,   // fire
+    'c': BTN_C                // grenade
+  };
+  var heldKeys = Object.create(null);
+
+  function liveMask() {
+    var mask = 0;
+    for (var k in heldKeys) if (heldKeys[k]) mask |= LIVE_KEYS[k] || 0;
+    return mask;
+  }
+  function pushMask() { core.sendInputMask(liveMask()); }
+
+  if (LIVE) {
+    window.addEventListener('keydown', function (ev) {
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      var k = String(ev.key).toLowerCase();
+      if (k === 'v') { ev.preventDefault(); toggleFollow(); return; }
+      if (k === '-' || k === '_') { ev.preventDefault(); stepFollow(1); return; }
+      if (k === '=' || k === '+') { ev.preventDefault(); stepFollow(-1); return; }
+      if (!(k in LIVE_KEYS)) return;
+      ev.preventDefault();          // arrows scroll the page, Space scrolls it further
+      if (heldKeys[k]) return;      // OS key-repeat is not a new press
+      heldKeys[k] = true;
+      pushMask();
+    });
+    window.addEventListener('keyup', function (ev) {
+      var k = String(ev.key).toLowerCase();
+      if (!(k in LIVE_KEYS)) return;
+      ev.preventDefault();
+      heldKeys[k] = false;
+      pushMask();
+    });
+    // Losing focus mid-sprint would otherwise leave the seat walking into a
+    // wall until the window is clicked again and the key is pressed AND
+    // released: the keyup fires at a window that is no longer listening.
+    window.addEventListener('blur', function () {
+      heldKeys = Object.create(null);
+      pushMask();
+    });
+  }
+
+  // ---- the seat card, respawn read, hurt wash, incoming arcs ---------------
+  var seatHpKey = '';
+  var lastHitTick = -1;
+  var seenIncoming = Object.create(null);
+
+  function tenths(ticks) { return (Math.max(0, ticks) / 24).toFixed(1); }
+
+  function renderSeat(me) {
+    var seat = $('seat');
+    seat.classList.add('on');
+    seat.classList.toggle('down', !me.alive);   // reached only while play is live
+
+    var nameEl = seat.querySelector('.seat-name');
+    nameEl.textContent = me.name || 'You';
+    nameEl.className = 'seat-name ' + (me.team || '');
+
+    // The ladder is PER LIFE (glory.nim's anti-snowball rule), so the rank is
+    // shown with the progress that will be lost on the next death, never as a
+    // bare number that reads like a permanent stat.
+    var rung = me.need > 0 ? (' ' + me.rung + '/' + me.need + ' xp') : ' maxed';
+    seat.querySelector('.seat-lv').innerHTML =
+      '<span class="dim">Rank</span> <b>' + me.lvl + '</b>' +
+      '<span class="dim">' + rung + '</span>';
+
+    // Health as the same three fixed thirds the board's own pip bar draws, with
+    // shield points appended as their own segments — a shield is extra paint to
+    // chew through, not extra health, and reading it as health gets you killed.
+    var lit = me.hp > 0 ? Math.max(1, Math.ceil(me.hp / Math.max(1, me.mhp) * 3)) : 0;
+    var shield = Math.max(0, Math.min(3, me.sh || 0));
+    var key = lit + ':' + shield + ':' + me.lives;
+    if (key !== seatHpKey) {
+      seatHpKey = key;
+      var html = '';
+      for (var i = 0; i < 3; i++) html += '<span class="seat-seg' + (i < lit ? ' lit' : '') + '"></span>';
+      for (var j = 0; j < shield; j++) html += '<span class="seat-seg shield"></span>';
+      html += '<span class="seat-lives">Lives <b>' + me.lives + '</b></span>';
+      seat.querySelector('.seat-hp').innerHTML = html;
+    }
+
+    // Readiness. The board has only ever shown this as a two-state icon; the
+    // meter says how long AND which of the two waits you are in, because they
+    // mean opposite things: a windup is your own shot in flight (hold your
+    // aim), a cooldown is a shot you cannot take (break contact).
+    var meter = seat.querySelector('.seat-meter');
+    var bar = meter.querySelector('i');
+    var state = seat.querySelector('.seat-lab .state');
+    meter.classList.remove('ready', 'wind');
+    state.classList.remove('ready', 'wind');
+    if (!me.alive) {
+      bar.style.width = '0%';
+      state.textContent = 'out';
+    } else if (me.wu > 0) {
+      meter.classList.add('wind'); state.classList.add('wind');
+      bar.style.width = ((1 - me.wu / Math.max(1, me.mwu)) * 100).toFixed(0) + '%';
+      state.textContent = 'firing ' + tenths(me.wu) + 's';
+    } else if (me.cd > 0) {
+      bar.style.width = ((1 - me.cd / Math.max(1, me.mcd)) * 100).toFixed(0) + '%';
+      state.textContent = 'reloading ' + tenths(me.cd) + 's';
+    } else {
+      meter.classList.add('ready'); state.classList.add('ready');
+      state.textContent = 'ready';
+    }
+    var wp = me.wp === 'spray' ? 'spray can' : 'paint gun';
+    if (me.nade > 0) wp += ' / ' + me.nade + ' bomb' + (me.nade > 1 ? 's' : '');
+    if (me.carry) wp += ' / carrying';
+    seat.querySelector('.seat-lab .wp').innerHTML = wp;
+  }
+
+  function renderRespawn(me) {
+    var el = $('respawn');
+    var down = !me.alive && me.lives > 0;
+    $('deadveil').classList.toggle('on', !me.alive);
+    el.classList.toggle('on', !me.alive);
+    el.querySelector('.rs-count').textContent = tenths(me.rs);
+    el.querySelector('.rs-lives').textContent = me.lives;
+    el.querySelector('.rs-sub').style.visibility = down ? 'visible' : 'hidden';
+  }
+
+  function renderHurt(s, me) {
+    // `hit` is TICKS AGO, so an absolute hit tick is a subtraction away and a
+    // restart cannot leave a stale timestamp pinning the wash on.
+    if (me.hit < 0) return;
+    var at = s.t - me.hit;
+    if (at === lastHitTick || me.hit > 3) return;
+    lastHitTick = at;
+    var el = $('hurt');
+    el.classList.remove('hit');
+    void el.offsetWidth;            // restart the animation, not just re-add it
+    el.classList.add('hit');
+  }
+
+  function renderIncoming(me) {
+    if (!me.inc || !me.inc.length) return;
+    var lane = $('incoming');
+    for (var i = 0; i < me.inc.length; i++) {
+      var arc = me.inc[i];
+      // Keyed on the IMPACT POINT, never the bearing: the sim keeps a shot in
+      // `recentShots` for ShotFxTicks, and a bearing measured from a moving
+      // player changes every one of those ticks -- keying on it fired a dozen
+      // arcs for a single incoming shot.
+      var key = arc.t + ':' + arc.ix + ':' + arc.iy;
+      if (seenIncoming[key]) continue;
+      seenIncoming[key] = true;
+      var wrap = document.createElement('div');
+      wrap.className = 'arcw';
+      // Board bearings are 0 = east, counter-clockwise. The ring's lit edge is
+      // its TOP, i.e. north, so the CSS rotation is (90 - bearing) clockwise.
+      wrap.style.transform = 'rotate(' + (90 - arc.a) + 'deg)';
+      wrap.innerHTML = '<div class="arc"></div>';
+      lane.appendChild(wrap);
+      setTimeout(function (node) { return function () { node.remove(); }; }(wrap), 950);
+    }
+    // The keys are tick-stamped and the sim only keeps a shot for ShotFxTicks,
+    // so the ring can be swept wholesale rather than aged entry by entry.
+    if (Object.keys(seenIncoming).length > 256) seenIncoming = Object.create(null);
+  }
+
+  function renderLive(s) {
+    if (!LIVE) return;
+    var me = s.me;
+    if (!me) return;              // lobby, or a spectator socket with no seat
+    MY_SLOT = me.slot;
+    // The end-card owns the screen. Your seat's readiness meter and a camera
+    // hint are answers to questions the match has stopped asking, and they
+    // read as leftovers poking out from under the card.
+    var over = s.ph === 'gameover';
+    $('seat').classList.toggle('on', !over);
+    $('viewchip').classList.toggle('on', !over && lastCamKey !== '');
+    if (over) {
+      $('deadveil').classList.remove('on');
+      $('respawn').classList.remove('on');
+      return;
+    }
+    applyLiveCamera(me);
+    renderSeat(me);
+    renderRespawn(me);
+    renderHurt(s, me);
+    renderIncoming(me);
+  }
 
   relayout();
   core.start();

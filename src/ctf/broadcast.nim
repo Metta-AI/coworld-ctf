@@ -660,7 +660,8 @@ proc buildStateJson*(
   beatEvents: JsonNode = nil,
   inspectSlot: int = -1,
   inspectLines: seq[string] = @[],
-  gloryLine: seq[array[5, int]] = @[]
+  gloryLine: seq[array[5, int]] = @[],
+  selfState: JsonNode = nil
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -785,5 +786,11 @@ proc buildStateJson*(
     # "replaying in N" line without ever inventing a countdown after a seek.
     if endHoldSeconds > 0:
       state["hold"] = %endHoldSeconds
+
+  # The LIVE human seat's own private block (`liveview.buildSelfJson`). Absent
+  # in every replay frame, so the chrome renders identically for a recording;
+  # present only on a player socket that asked for the HUD.
+  if not selfState.isNil:
+    state["me"] = selfState
 
   $state

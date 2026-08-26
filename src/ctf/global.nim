@@ -616,6 +616,27 @@ const
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
+  SpritePlayerXraySpriteBase = 5140  ## LIVE-HUD ONLY (hudEnabled seats): the
+                                     ## self soldier's OUTLINE ALONE, keyed by
+                                     ## skin×rotation exactly like the self
+                                     ## marker above: default 5140..5155, crown
+                                     ## 5156..5171. Drawn a second time, above
+                                     ## every prop, so a human can always see
+                                     ## their own cog through the flag-pedestal
+                                     ## banner (playtest failure #2). The FILL
+                                     ## is stripped, so over open floor it lands
+                                     ## exactly on the outline the self marker
+                                     ## already draws and changes nothing.
+  SpritePlayerXrayObjectId = 19060   ## the single x-ray object (19060..19119 is
+                                     ## free between the identity badges at
+                                     ## 19040..19055 and the impact rings at
+                                     ## 19120).
+  SpritePlayerXrayZ = 30500          ## above the impact rings (30000) and every
+                                     ## prop, below the damage/glory pops.
+  SelfXrayBodyAlpha = 90'u8          ## the x-ray body's opacity. High enough to
+                                     ## read as YOUR cog through a banner, low
+                                     ## enough that the honest sprite underneath
+                                     ## still owns the pixel over open floor.
   CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
                                ## per skin: default 1500..1531, crown 1532..1563.
                                ## A corpse must never read as a
@@ -758,6 +779,14 @@ type
   PlayerViewerState* = ref object
     initialized*: bool
     objectIds*: seq[int]
+    hudEnabled*: bool            ## this seat opted into the LIVE chrome channel
+                                 ## by sending `hud:on` (see
+                                 ## applyPlayerViewerMessage). THE OPT-IN IS THE
+                                 ## WHOLE SAFETY ARGUMENT: a policy never sends
+                                 ## it, so every byte a bot observes on this
+                                 ## stream is identical to before this feature
+                                 ## existed. Every live-only sprite and the
+                                 ## chrome JSON are gated on it.
     spriteDefs: seq[SpriteDefinition]
 
   ProtocolTextItem = ref object
@@ -1351,7 +1380,17 @@ proc applyPlayerViewerMessage*(
   for item in message.parseSpriteClientMessages():
     case item.kind
     of SpriteClientChatMessage:
-      chatText.add(item.text)
+      # `hud:on` / `hud:off` are intercepted here and NEVER reach `chatText`,
+      # mirroring the global viewer's identical opt-in. Two reasons it has to
+      # be swallowed rather than merely also handled: chat is an in-game SHOUT
+      # (every seat would read "hud:on" over the human's head), and a shout is
+      # sim state that enters the replay.
+      if item.text == "hud:on":
+        state.hudEnabled = true
+      elif item.text == "hud:off":
+        state.hudEnabled = false
+      else:
+        chatText.add(item.text)
     of SpriteClientInputMessage:
       pressedMask = pressedMask or (item.mask and not inputMask)
       inputMask = item.mask
@@ -1628,6 +1667,18 @@ proc shotImpactOffset(shot: ShotFx): (int, int) =
   let span = uint32(2 * SoundRingJitter + 1)
   (int(h mod span) - SoundRingJitter,
     int((h shr 16) mod span) - SoundRingJitter)
+
+proc shotImpactPoint*(shot: ShotFx): (int, int) =
+  ## The exact map point the impact ring is DRAWN at: the shot's landing plus
+  ## the same deterministic jitter `addShotImpactRings` applies.
+  ##
+  ## Public ON PURPOSE, and this is the whole anti-oracle argument for the live
+  ## HUD's "you are being shot at" arc: the arc points at a ring the human can
+  ## already SEE on the board, never at the shot's true landing. A HUD read that
+  ## is sharper than the pixels would be a new oracle; this one is a second
+  ## rendering of the same fuzzed fact.
+  let (ix, iy) = shotImpactOffset(shot)
+  (shot.x1 + ix, shot.y1 + iy)
 
 proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
   ## The charge-time landing marker: a thin warm-amber ring (a hollow reticle,
@@ -3419,6 +3470,25 @@ proc soldierCorpse(pixels: seq[uint8]): seq[uint8] =
     result[i * 4 + 1] = grey
     result[i * 4 + 2] = grey
     result[i * 4 + 3] = uint8(a.int * 140 div 255)
+
+proc soldierXray(pixels: seq[uint8], outline: uint8): seq[uint8] =
+  ## Returns the self soldier as an X-RAY plate: the SAME outline the self
+  ## marker already wears, at full opacity, over a translucent ghost of the
+  ## body. Emitted a second time above every prop for `hudEnabled` seats only.
+  ##
+  ## Why a second draw and not a z-order change: the board's z is the sim's own
+  ## depth sort (a cog behind the pedestal really is behind it), and lifting the
+  ## self marker out of it would make the human float over cover that everyone
+  ## else is honestly occluded by. The x-ray keeps the honest sprite exactly
+  ## where it is and adds a legibility plate on top -- and because the ring is
+  ## the identical colour and shape, over open floor it lands pixel-for-pixel on
+  ## the outline already there. The treatment only becomes VISIBLE where it is
+  ## needed: under the flag-pedestal banner at spawn (playtest failure #2).
+  result = soldierOutlined(pixels, outline)
+  let n = pixels.len div 4
+  for i in 0 ..< n:
+    if pixels[i * 4 + 3] >= 64'u8:
+      result[i * 4 + 3] = SelfXrayBodyAlpha
 
 proc addPlayerActorSprites(
   sim: SimServer,
@@ -6246,6 +6316,46 @@ proc buildSpriteProtocolPlayerUpdates*(
         other.y,
         MapLayerId,
         spriteId
+      )
+
+    # LIVE-HUD ONLY: the self x-ray plate. Gated on `hudEnabled`, so a policy's
+    # observation of this stream is byte-identical to a build without it.
+    if nextState.hudEnabled and not viewerIsGhost and player.alive:
+      let
+        xrayRot = soldierRotIndex(sim.fuzzedAimBrads(playerIndex))
+        xraySpriteId = SpritePlayerXraySpriteBase +
+          ord(player.skin) * SoldierRotations + xrayRot
+      # Build the plate ONLY on a cache miss. `addSpriteChanged` early-returns
+      # on a hit, but Nim has already evaluated the pixel argument by then, and
+      # `soldierXray` is a 72x72 dilation -- ~130k ops that would otherwise run
+      # every frame to be thrown away. The content is a pure function of
+      # (team, skin, rot): rot is in the sprite id, and team/skin can only
+      # change across a re-register, which rebuilds `spriteDefs` anyway.
+      if nextState.spriteDefs.spriteDefinitionIndex(xraySpriteId) < 0:
+        result.addSpriteChanged(
+          nextState.spriteDefs,
+          xraySpriteId,
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierXray(
+            soldierRotPixels(player.team, player.skin, xrayRot),
+            2'u8
+          ),
+          # Same documented `self <color> <side>` contract the marker
+          # underneath carries: this is the same cog at the same aim, so a
+          # label reader that somehow saw it would read the truth, not a
+          # second phantom soldier.
+          "self " & teamText(player.team) &
+            (if soldierFacingRight(xrayRot): " right" else: " left")
+        )
+      currentIds.add(SpritePlayerXrayObjectId)
+      result.addBoardObject(
+        SpritePlayerXrayObjectId,
+        player.spritePlayerX(),
+        player.spritePlayerY(),
+        SpritePlayerXrayZ,
+        MapLayerId,
+        xraySpriteId
       )
 
     sim.addAimIndicators(

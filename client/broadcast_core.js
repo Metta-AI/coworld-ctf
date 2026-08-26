@@ -143,6 +143,9 @@
       ['/client/global', '/global'],
       ['/client/replay', '/replay'],
       ['/client/player', '/player'],
+      // The live player view (our client, not bitworld's) rides the same
+      // per-seat `/player` socket the stock client does.
+      ['/client/play', '/player'],
       ['/client/rewards', '/reward'],
       ['/client/admin', '/admin'],
       ['/clients/replay', '/replay']
@@ -195,6 +198,23 @@
     let offscreenCtx = null;
     let nativeW = 1, nativeH = 1;
     let scale = 1, offsetX = 0, offsetY = 0;
+    // ---- follow camera (live player view) ----
+    // Null = the replay viewer's behaviour, unchanged: fit the whole arena into
+    // the canvas and letterbox the remainder. Set = follow a point in BOARD
+    // pixels at a fixed on-screen width, which is what lets a human find their
+    // own cog among fifteen bots instead of hunting a 16px sprite in a
+    // bird's-eye view of the whole map (playtest failure #1).
+    //
+    // The target moves at the sim's 24Hz while the display runs at 60-120Hz, so
+    // the camera EASES toward it in draw() rather than snapping per tick — a
+    // camera that steps at tick rate makes the whole world judder even though
+    // every sprite on it is already interpolated.
+    let camera = null;            // {x, y, viewW} in board px, or null for fit
+    let camX = 0, camY = 0;       // the eased position actually drawn
+    let camPrimed = false;        // first target snaps; later ones ease
+    let camLastDraw = 0;
+    const CAM_TAU_MS = 90;        // ease time constant
+    const CAM_SETTLE_PX = 0.25;   // below this the ease is done
     let reconnectDelay = 1000;
     const maxReconnectDelay = 8000;
     let reconnecting = false;
@@ -272,11 +292,80 @@
       const cssH = canvas.clientHeight || canvas.height / dpr;
       const scaleX = cssW / nativeW;
       const scaleY = cssH / nativeH;
-      scale = Math.min(scaleX, scaleY);
+      const fitScale = Math.min(scaleX, scaleY);
+      if (camera) {
+        // Never zoom OUT past the fit view: below it the follow camera would
+        // show less board than the fallback while still refusing to sit still.
+        scale = Math.max(fitScale, cssW / Math.max(1, camera.viewW));
+        const drawW = nativeW * scale;
+        const drawH = nativeH * scale;
+        // Clamp the pan to the board's own edges. Letting the camera run past
+        // them puts half a screen of dead stage next to the arena wall, which
+        // reads as a broken viewport rather than as "you are at the edge".
+        const wantX = cssW / 2 - camX * scale;
+        const wantY = cssH / 2 - camY * scale;
+        offsetX = drawW <= cssW
+          ? (cssW - drawW) / 2
+          : Math.min(0, Math.max(cssW - drawW, wantX));
+        offsetY = drawH <= cssH
+          ? (cssH - drawH) / 2
+          : Math.min(0, Math.max(cssH - drawH, wantY));
+        return;
+      }
+      scale = fitScale;
       const drawW = nativeW * scale;
       const drawH = nativeH * scale;
       offsetX = (cssW - drawW) / 2;
       offsetY = (cssH - drawH) / 2;
+    }
+
+    function stepCamera(now) {
+      // Returns true while the ease is still in flight, so draw() knows to keep
+      // repainting at display rate the same way an in-flight sprite lerp does.
+      if (!camera) return false;
+      if (!camPrimed) {
+        camX = camera.x; camY = camera.y; camPrimed = true; camLastDraw = now;
+        return false;
+      }
+      const dt = Math.max(0, Math.min(250, now - camLastDraw));
+      camLastDraw = now;
+      const a = 1 - Math.exp(-dt / CAM_TAU_MS);
+      camX += (camera.x - camX) * a;
+      camY += (camera.y - camY) * a;
+      return Math.abs(camera.x - camX) > CAM_SETTLE_PX ||
+        Math.abs(camera.y - camY) > CAM_SETTLE_PX;
+    }
+
+    function setCamera(next) {
+      // {x, y, viewW} in board pixels. Re-priming on a >1 screen jump keeps a
+      // respawn across the map from sliding the camera through every wall in
+      // between.
+      if (!next) { camera = null; camPrimed = false; scheduleDraw(); return; }
+      if (camera && camPrimed) {
+        const jump = Math.hypot(next.x - camX, next.y - camY);
+        if (jump > Math.max(1, next.viewW)) camPrimed = false;
+      }
+      camera = next;
+      scheduleDraw();
+    }
+
+    function cameraActive() { return camera !== null; }
+
+    // ---- player input (live seats) ----
+    // Sprite v1 input packet: [0x84][held-button mask]. Sent ON CHANGE ONLY,
+    // matching the native client — the server diffs each arriving mask against
+    // the one it stored to synthesise its own press edges, so a resent
+    // identical mask is pure noise. `lastSentMask` starts at a value no real
+    // mask can equal, so the first genuine mask always goes out even if it is 0.
+    let lastSentMask = -1;
+    function sendInputMask(mask) {
+      const m = mask & 0xff;
+      if (m === lastSentMask) return;
+      lastSentMask = m;
+      const packet = new Uint8Array(2);
+      packet[0] = 0x84;
+      packet[1] = m;
+      sendPacket(packet);
     }
 
     // ---- Motion interpolation (rendering only) ----
@@ -386,6 +475,8 @@
       if (canvas.width !== cssW * dpr) canvas.width = cssW * dpr;
       if (canvas.height !== cssH * dpr) canvas.height = cssH * dpr;
 
+      const camMoving = stepCamera(performance.now());
+
       computeFit();
 
       ctx.fillStyle = '#000';
@@ -415,6 +506,8 @@
       // chain goes idle until the next packet dirties it.
       if (interpolateEnabled && performance.now() < lerpDeadline) {
         dirty = true;
+        scheduleDraw();
+      } else if (camMoving) {
         scheduleDraw();
       }
     }
@@ -748,6 +841,10 @@
         if (socket !== ws) return;
         onStatus('open');
         reconnectDelay = 1000;
+        // A fresh socket is a fresh server-side mask (it is keyed per
+        // connection and starts at 0). Forget what we last sent, or a key held
+        // across the reconnect would be deduped into never being re-announced.
+        lastSentMask = -1;
         reconnecting = false;
       };
 
@@ -885,6 +982,9 @@
       start,
       ingest,
       sendCommand,
+      sendInputMask,
+      setCamera,
+      cameraActive,
       clickMap,
       getTransform,
       setViewportFit,
