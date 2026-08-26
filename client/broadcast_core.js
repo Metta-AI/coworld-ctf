@@ -70,6 +70,19 @@
     parseInt(ZONE_PAINT_BODY_HEX.slice(3, 5), 16),
     parseInt(ZONE_PAINT_BODY_HEX.slice(5, 7), 16)
   ];
+  // The band palette is DERIVED from the body colour, so retuning
+  // zonePaintBody on the wire retunes the whole set coherently rather than
+  // leaving three hard-coded shades behind.
+  const ZONE_PAINT_BEAD = mixRgb(ZONE_PAINT_BODY, [255, 244, 252], 0.62);
+  const ZONE_PAINT_WET = mixRgb(ZONE_PAINT_BODY, [255, 236, 250], 0.24);
+  const ZONE_PAINT_AGED = mixRgb(ZONE_PAINT_BODY, [92, 34, 74], 0.34);
+  // Ordered oldest-first: the full-repaint path walks it and takes the
+  // first band whose threshold the cell's age has not yet passed.
+  const ZONE_BANDS = [
+    { age: ZONE_BEAD_TICKS, rgb: ZONE_PAINT_BEAD },
+    { age: ZONE_WET_TICKS, rgb: ZONE_PAINT_WET },
+    { age: ZONE_SET_TICKS, rgb: ZONE_PAINT_BODY }
+  ];
   // A backward or large forward jump in the clock's dispX (a real seek/
   // scrub, not a normal tick-to-tick glide) forces renderZonePaint to
   // re-threshold the WHOLE field instead of walking forward incrementally —
@@ -77,6 +90,47 @@
   // SNAP_DISTANCE (a big forward jump already snaps dispX itself; this just
   // makes the paint layer agree with that same snap).
   const ZONE_SNAP_REBUILD_GAP_TICKS = 48;
+
+  // ---- Paint decorations (round 3) -------------------------------------
+  // Four cosmetics Maxwell asked for on the close-zoom review — a bead ON
+  // the isoline, gloss, leashed drips, and an age tint — all reduce to ONE
+  // mechanism: a cell's colour is a function of its own AGE (now - its
+  // arrival tick), and every cell crosses each age threshold exactly once.
+  // So the incremental bucket walk that already makes this renderer O(newly
+  // arrived) still works: to repaint every cell turning `age = A` this
+  // tick, walk bucket[now - A]. No per-frame rescan, no second field.
+  //
+  // Client-side only, and structurally incapable of touching gameHash: the
+  // arrival field it reads is the sim's, unmodified, and nothing here is
+  // ever sent back. It also cannot paint EARLY — a decoration only ever
+  // recolours a cell the field already painted, so the damage boundary the
+  // paint communicates stays exactly the sim's own.
+  const ZONE_BEAD_TICKS = 10;   // age 0..    — the wet bead ON the isoline
+  const ZONE_WET_TICKS = 34;    // age ..     — glossy, still running
+  const ZONE_SET_TICKS = 110;   // age ..     — body; past it, the age tint
+  // A drip is a cell that holds the bead/gloss colours LONGER than its
+  // neighbours, so as the front moves on it leaves a tendril trailing
+  // behind — "leashed" because it is anchored to the bead by construction
+  // and can never detach from it or run ahead of it. The leash is a static
+  // per-cell 0..3 (see buildZoneTrim), blobby rather than per-pixel, so
+  // tendrils read as streaks; their direction comes for free from the
+  // front's own motion, no direction term needed.
+  const ZONE_DRIP_TICKS = 14;   // extra life per leash step
+  // Gloss: a static per-cell brightness delta (a fine sparkle plus a broad
+  // diagonal sheen), baked once at decode and applied to whichever band
+  // colour the cell currently wears — so it costs nothing per frame and
+  // stays put on the floor instead of swimming as the front passes.
+  const ZONE_GLOSS_AMPLITUDE = 26;
+  const ZONE_SHEEN_AMPLITUDE = 14;
+  const ZONE_SHEEN_PERIOD_PX = 190;
+
+  function mixRgb(a, b, t) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * t),
+      Math.round(a[1] + (b[1] - a[1]) * t),
+      Math.round(a[2] + (b[2] - a[2]) * t)
+    ];
+  }
 
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
@@ -870,6 +924,38 @@
       return { bucketStart, bucketed };
     }
 
+    // The static per-cell trim, baked once with the field: the low 2 bits
+    // are the drip LEASH (0..3 extra ZONE_DRIP_TICKS of bead/gloss life,
+    // blobby so tendrils read as streaks — most cells 0, so drips are
+    // occasional rather than a texture), the rest is the GLOSS brightness
+    // delta stored biased by 128. Both are pure functions of the cell's
+    // position, so they never animate and cost nothing per frame.
+    function buildZoneTrim(fineW, fineH) {
+      const trim = new Uint8Array(fineW * fineH);
+      const gloss = new Int8Array(fineW * fineH);
+      for (let fy = 0; fy < fineH; fy++) {
+        const rowBase = fy * fineW;
+        for (let fx = 0; fx < fineW; fx++) {
+          // Cheap integer hash, blobby at 4px so a leash covers a patch.
+          let h = ((fx >> 2) * 73856093) ^ ((fy >> 2) * 19349663);
+          h = (h ^ (h >>> 13)) >>> 0;
+          const r = h % 16;
+          const leash = r < 9 ? 0 : r < 12 ? 1 : r < 14 ? 2 : 3;
+          // Fine sparkle (per-pixel) + a broad diagonal sheen.
+          let g = ((fx * 2654435761) ^ (fy * 40503)) >>> 0;
+          const sparkle = ((g % 256) / 255 - 0.5) * 2 * ZONE_GLOSS_AMPLITUDE;
+          const sheen = Math.sin((fx + fy) * (2 * Math.PI / ZONE_SHEEN_PERIOD_PX)) *
+            ZONE_SHEEN_AMPLITUDE;
+          let d = Math.round(sparkle + sheen);
+          if (d > 127) d = 127;
+          if (d < -128) d = -128;
+          trim[rowBase + fx] = leash;
+          gloss[rowBase + fx] = d;
+        }
+      }
+      return { leash: trim, gloss };
+    }
+
     // Decodes the one-time arrival-field data sprite (see
     // ZONE_ARRIVAL_FIELD_SPRITE_ID) — R|G<<8 per coarse cell is the solver's
     // paint-arrival tick (zoneArrivalFieldBytes in global.nim) — then
@@ -887,7 +973,8 @@
       const fine = buildFineField(coarse, width, height, fineW, fineH);
       zoneField = {
         gridW: fineW, gridH: fineH,
-        arrival: fine, buckets: buildZoneBuckets(fine)
+        arrival: fine, buckets: buildZoneBuckets(fine),
+        trim: buildZoneTrim(fineW, fineH)
       };
       zoneCanvas = createCanvasSurface();
       zoneCanvas.width = fineW;
@@ -897,12 +984,26 @@
       zoneLastAppliedTick = -1;
     }
 
-    function paintZoneCell(data, idx) {
+    function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+    function paintZoneCell(data, idx, rgb) {
       const o = idx * 4;
-      data[o] = ZONE_PAINT_BODY[0];
-      data[o + 1] = ZONE_PAINT_BODY[1];
-      data[o + 2] = ZONE_PAINT_BODY[2];
+      const g = zoneField.trim.gloss[idx];
+      data[o] = clamp255(rgb[0] + g);
+      data[o + 1] = clamp255(rgb[1] + g);
+      data[o + 2] = clamp255(rgb[2] + g);
       data[o + 3] = 255;
+    }
+
+    // The band a cell of this age and leash wears. Single source of truth
+    // for BOTH the incremental path and the full-repaint path, so a seek
+    // can never disagree with a glide about what the paint looks like.
+    function zoneBandRgb(age, leash) {
+      const slack = leash * ZONE_DRIP_TICKS;
+      for (const band of ZONE_BANDS) {
+        if (age < band.age + slack) return band.rgb;
+      }
+      return ZONE_PAINT_AGED;
     }
 
     // The ENTIRE per-frame paint render: touch only render cells whose
@@ -920,21 +1021,53 @@
         nowInt < zoneLastAppliedTick ||
         (nowInt - zoneLastAppliedTick) > ZONE_SNAP_REBUILD_GAP_TICKS;
       const data = zoneImage.data;
+      const leashOf = zoneField.trim.leash;
       let touched = 0;
       if (needFull) {
         const arrival = zoneField.arrival;
         const n = arrival.length;
         data.fill(0);
         for (let i = 0; i < n; i++) {
-          if (arrival[i] <= nowInt) { paintZoneCell(data, i); touched++; }
+          const a = arrival[i];
+          if (a <= nowInt) {
+            paintZoneCell(data, i, zoneBandRgb(nowInt - a, leashOf[i]));
+            touched++;
+          }
         }
       } else if (nowInt > zoneLastAppliedTick) {
         const { bucketStart, bucketed } = zoneField.buckets;
         const lo = Math.max(0, zoneLastAppliedTick + 1);
         const hi = Math.min(nowInt, ZONE_MAX_TICK_BUCKET);
         for (let t = lo; t <= hi; t++) {
-          const s = bucketStart[t], e = bucketStart[t + 1];
-          for (let k = s; k < e; k++) { paintZoneCell(data, bucketed[k]); touched++; }
+          // Newly arrived this tick: the bead, ON the isoline by
+          // definition (age 0 is inside the first band for every leash).
+          const s0 = bucketStart[t], e0 = bucketStart[t + 1];
+          for (let k = s0; k < e0; k++) {
+            paintZoneCell(data, bucketed[k], ZONE_PAINT_BEAD);
+            touched++;
+          }
+          // Every cell whose age crosses a band threshold on THIS tick.
+          // A cell arriving at tick `t - age` turns `age` now, so the
+          // cells leaving band b are exactly bucket[t - threshold], and
+          // the leash just shifts which bucket that is — which is why the
+          // decorations cost O(newly arrived) like the base paint, not a
+          // rescan. Filtering by leash inside the walk keeps one bucket
+          // per (threshold, leash) pair rather than a second index.
+          for (let b = 0; b < ZONE_BANDS.length; b++) {
+            const nextRgb = b + 1 < ZONE_BANDS.length ?
+              ZONE_BANDS[b + 1].rgb : ZONE_PAINT_AGED;
+            for (let l = 0; l <= 3; l++) {
+              const src = t - (ZONE_BANDS[b].age + l * ZONE_DRIP_TICKS);
+              if (src < 0 || src > ZONE_MAX_TICK_BUCKET) continue;
+              const s1 = bucketStart[src], e1 = bucketStart[src + 1];
+              for (let k = s1; k < e1; k++) {
+                const idx = bucketed[k];
+                if (leashOf[idx] !== l) continue;
+                paintZoneCell(data, idx, nextRgb);
+                touched++;
+              }
+            }
+          }
         }
       }
       zoneLastTouchedCells = touched;
