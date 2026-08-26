@@ -814,6 +814,49 @@ suite "shrink zone schedule shape: gear-up then a continuous close":
     check hi > 1.0
     check distinct8 >= 8
 
+    ## AND THE METRIC CONTRACT ITSELF, at EVERY z — the assertion whose
+    ## absence let the aspect defect ship (2026-08-26). zoneFrontLoopCoordAt
+    ## exists to make one promise: "a stated 160px finger wavelength means
+    ## 160px measured ALONG THE FRONT", i.e. |d(loop)/ds| == 1 for a 1px
+    ## step along the front. Nothing checked it, so when the
+    ## close-to-nothing schedule made the terminal rect 1x1 and the old
+    ## per-axis floor turned a 1.874:1 board's fronts into SQUARES, the
+    ## metric silently ranged 0.648..1.424 on this map and 0.546..1.756 on
+    ## the real one — and check #7's term A, which scales as the INVERSE
+    ## SQUARE of that wavelength, was under-pricing by up to 3.08x.
+    ##
+    ## Walked around the front at a spread of scales, because the defect
+    ## was scale-dependent: it only bit once the rect got small enough for
+    ## the floor to bind. A tolerance of 2% covers the finite-difference
+    ## probe itself, nothing more.
+    for zPermille in [1000, 500, 200, 60, 10, 1]:
+      let r = sim.zoneRectAtScale(zPermille)
+      var mLo = Inf
+      var mHi = -Inf
+      for k in 0 ..< 24:
+        let
+          ang = 2.0 * PI * float(k) / 24.0
+          # a point ON this front, and the unit step ALONG it
+          onX = float(r.x) + float(r.w) * 0.5 * (1.0 + cos(ang))
+          onY = float(r.y) + float(r.h) * 0.5 * (1.0 + sin(ang))
+          tanX = -sin(ang) * float(r.w)
+          tanY = cos(ang) * float(r.h)
+          tanLen = max(1e-9, sqrt(tanX * tanX + tanY * tanY))
+          ux = tanX / tanLen
+          uy = tanY / tanLen
+          h = 0.05
+          a = zoneTestFrontLoopCoordAt(onX - ux * h, onY - uy * h, term,
+            float(sim.gameMap.width), float(sim.gameMap.height))
+          b = zoneTestFrontLoopCoordAt(onX + ux * h, onY + uy * h, term,
+            float(sim.gameMap.width), float(sim.gameMap.height))
+          m = sqrt((b.a - a.a) * (b.a - a.a) + (b.b - a.b) * (b.b - a.b)) /
+            (2.0 * h)
+        mLo = min(mLo, m)
+        mHi = max(mHi, m)
+      echo "    z=", zPermille, "/1000 -> |d(loop)/ds| in [", mLo, ",", mHi, "]"
+      check mLo > 0.98
+      check mHi < 1.02
+
   test "the reference speed is anchored to the rect's REAL motion":
     ## The assertion zoneBaseSpeedPxPerTick's own doc had been making in
     ## prose only — and prose is exactly what let it be wrong. That speed
@@ -1156,10 +1199,52 @@ proc frontierTipCoord(
     return -1
   coord
 
+const ZoneSeedBranchTolTicks = 2.0
+  ## How far BELOW its own seed a cell may read and still count as sitting on
+  ## the seeded branch. Derived from the storage, not chosen for an outcome:
+  ## computeZoneFrontierField carries float32 and ensureZoneArrivalField
+  ## stores `uint16(clamp(frontier[idx].int, ...))`, and `.int` on a float32
+  ## TRUNCATES — up to 1 whole tick — with float32 rounding of the sum
+  ## t0 + delay accounting for the other. Deliberately GENEROUS: a larger
+  ## tolerance counts MORE cells as seeded and therefore EXCLUDES FEWER
+  ## samples, which is the conservative direction for an excluder.
+
+proc zoneSeedBranchAt(sim: SimServer, px, py: int): bool =
+  ## Is this cell reading its OWN SEED, t0(p) + zoneBoundaryFingerDelayAt(p)?
+  ##
+  ## THIS IS THE PREDICATE THAT DECIDES WHETHER CHECK #7'S BOUND APPLIES AT
+  ## ALL, and it is the solver's own arithmetic rather than a proxy for it —
+  ## the same discipline the room-interior guard uses in reading
+  ## zoneTestRoomIdAt, the solver's own source-eligibility test.
+  ##
+  ## computeZoneFrontierField seeds every eligible exterior cell at exactly
+  ## t0 + delay and then lets fast marching relax it DOWNWARD. So a cell
+  ## whose stored arrival still equals its seed was never improved by
+  ## propagation: its value is the receding boundary plus the nudge, which
+  ## is precisely and only what term A models. A cell reading BELOW its seed
+  ## was reached by flow from somewhere else — a different branch of the
+  ## minimum-time solution — and term A, derived wholly from
+  ## zoneBoundaryFingerDelayAt's two octaves, says nothing about it.
+  let cell = zoneArrivalFieldCellAt(px, py)
+  if not cell.has or cell.arrival == ZoneNeverArrives.int: return false
+  let
+    totalTicks = zoneTestScheduleTotalTicks(sim)
+    finalRect = sim.zoneRectAndDps(totalTicks).cur
+    ampTicks = zoneFingerAmpTicksFor(zoneBaseSpeedPxPerTick(sim, totalTicks))
+    cx = float((px div ZoneFieldCellPx) * ZoneFieldCellPx +
+      ZoneFieldCellPx div 2)
+    cy = float((py div ZoneFieldCellPx) * ZoneFieldCellPx +
+      ZoneFieldCellPx div 2)
+    t0 = zoneTestBaseArrivalTickAt(sim, cx, cy, totalTicks, finalRect)
+  if t0 == high(int): return false
+  let delay = zoneTestFingerDelayAt(cx, cy, finalRect,
+    float(sim.gameMap.width), float(sim.gameMap.height), ampTicks)
+  (float(t0) + delay) - float(cell.arrival) <= ZoneSeedBranchTolTicks
+
 proc frontierIsolineCoord(
   sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
   t: int, alongX: bool
-): tuple[pos: float, span: int] =
+): tuple[pos: float, span: int, seeded: bool] =
   ## The frontier's own position on one row/column, at tick t — the
   ## INNERMOST painted cell, found by walking OUTWARD from the rect's own
   ## edge and returning the FIRST painted cell, then INTERPOLATED to
@@ -1247,7 +1332,7 @@ proc frontierIsolineCoord(
       return (false, true, 0)
     (cell.arrival <= t, false, cell.arrival)
   const MaxWalkSteps = 300  ## * ZoneFieldCellPx = 1200px
-  const Invalid = (pos: -1.0, span: 0)
+  const Invalid = (pos: -1.0, span: 0, seeded: false)
   var prev = probe(startCoord)
   if prev.occluded or prev.ok:
     return Invalid
@@ -1288,8 +1373,16 @@ proc frontierIsolineCoord(
       var frac = 0.0
       if span > 0:
         frac = clamp(float(prev.arrival - t) / float(span), 0.0, 1.0)
+      # Both bracket cells must be on the seeded branch for this sample to
+      # be one check #7's bound describes — see zoneSeedBranchAt.
+      let seeded =
+        (if alongX: zoneSeedBranchAt(sim, fixedCoord, coord)
+         else: zoneSeedBranchAt(sim, coord, fixedCoord)) and
+        (if alongX: zoneSeedBranchAt(sim, fixedCoord, nextCoord)
+         else: zoneSeedBranchAt(sim, nextCoord, fixedCoord))
       return (pos: float(coord) +
-        float(stepSign) * float(ZoneFieldCellPx) * frac, span: span)
+        float(stepSign) * float(ZoneFieldCellPx) * frac, span: span,
+        seeded: seeded)
     coord = nextCoord
     prev = cur
   Invalid
@@ -1297,7 +1390,7 @@ proc frontierIsolineCoord(
 proc frontierIsolineSeq(
   sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
   loStart, hiEnd: int, t: int, alongX: bool
-): tuple[pos: seq[float], span: seq[int]] =
+): tuple[pos: seq[float], span: seq[int], seeded: seq[bool]] =
   ## frontierIsolineCoord sampled every ZoneFieldCellPx along one edge —
   ## the raw isoline polyline (-1.0 for a gap), the input checks #7 and #8
   ## measure, plus each sample's own interpolation SPAN in whole ticks (0
@@ -1311,6 +1404,7 @@ proc frontierIsolineSeq(
       otherGridMaxPx, t, alongX)
     result.pos.add s.pos
     result.span.add s.span
+    result.seeded.add s.seeded
     v += ZoneFieldCellPx
 
 template isoValid(v: float): bool = v >= 0.0
@@ -1383,7 +1477,7 @@ proc isoRangePx(tipSeq: seq[float]): float =
 type ZoneEdgeSide = enum zesLeft, zesRight, zesTop, zesBottom
 
 proc edgeIsolineFull(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
-    side: ZoneEdgeSide): tuple[pos: seq[float], span: seq[int]] =
+    side: ZoneEdgeSide): tuple[pos: seq[float], span: seq[int], seeded: seq[bool]] =
   ## One edge's isoline over that edge's own STRAIGHT section — the single
   ## sampler every meniscus check shares, so the corner-inset and regime
   ## rules cannot drift apart between checks. Returns the polyline AND each
@@ -1396,7 +1490,8 @@ proc edgeIsolineFull(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
     yHi = min(ghPx - 1, rect.y + rect.h - 1 - EdgeCornerInsetPx)
     xLo = max(0, rect.x + EdgeCornerInsetPx)
     xHi = min(gwPx - 1, rect.x + rect.w - 1 - EdgeCornerInsetPx)
-  const Empty = (pos: newSeq[float](), span: newSeq[int]())
+  const Empty = (pos: newSeq[float](), span: newSeq[int](),
+    seeded: newSeq[bool]())
   case side
   of zesLeft:
     if yHi <= yLo: return Empty
@@ -1652,9 +1747,10 @@ proc runLengths(pos: seq[float]): seq[int] =
     for k in i ..< j: result[k] = j - i
     i = j
 
-proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
+proc maxTurningExcessDeg(pos: seq[float], span: seq[int],
+    seeded: seq[bool], ampDeg: float):
     tuple[excessDeg, turnDeg, allowDeg: float,
-          idx, atSpan, minSpan, maxSpan, scored, offRegime: int] =
+          idx, atSpan, minSpan, maxSpan, scored, offRegime, offBranch: int] =
   ## Check #7's assertion quantity: the worst amount by which the measured
   ## turning angle EXCEEDS what term A plus that sample's OWN term B allow.
   ##
@@ -1664,7 +1760,7 @@ proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
   ## one. Gaps break the polyline, the same discipline every other measure
   ## here uses, and a run too short to hold a meniscus feature at all is
   ## reported as off-regime rather than scored (MinMeniscusRunSamples).
-  result = (-Inf, 0.0, 0.0, -1, 0, high(int), 0, 0, 0)
+  result = (-Inf, 0.0, 0.0, -1, 0, high(int), 0, 0, 0, 0)
   let runs = runLengths(pos)
   for i in 0 ..< pos.len:
     if isoValid(pos[i]):
@@ -1678,6 +1774,13 @@ proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
     if runs[i] < MinMeniscusRunSamples:
       inc result.offRegime
       continue
+    ## THE SHOCK EXCLUDER (Fable's ruling, 2026-08-26). A vertex is scored
+    ## only if all three of its samples sit on the SEEDED branch — see
+    ## zoneSeedBranchAt, and check #7's own doc for the derivation. Counted
+    ## and printed, never silent, exactly like the other two excluders.
+    if not (seeded[i - 2] and seeded[i - 1] and seeded[i]):
+      inc result.offBranch
+      continue
     inc result.scored
     let
       h = float(ZoneFieldCellPx)
@@ -1690,7 +1793,7 @@ proc maxTurningExcessDeg(pos: seq[float], span: seq[int], ampDeg: float):
       allow = ampDeg + zoneQuantTurnDeg(s)
     if turn - allow > result.excessDeg:
       result = (turn - allow, turn, allow, i, s, result.minSpan,
-        result.maxSpan, result.scored, result.offRegime)
+        result.maxSpan, result.scored, result.offRegime, result.offBranch)
   ## An edge with NO scored vertex reports -Inf and `idx < 0`, never 0.0:
   ## a zero would be indistinguishable from a perfectly-met bound, would
   ## win the max() against every real (negative) excess on every other
@@ -1947,8 +2050,70 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     ## zesBottom, entirely room 24's back wall). With interior-room cells
     ## treated as the architecture they are, the worst turning angle on
     ## this map falls to 3.37 deg, which is EXACTLY one quantum of term B
-    ## at that sample's span of 17. There is no third term: no eikonal
-    ## shock, no wall-proximity allowance, nothing left unexplained.
+    ## at that sample's span of 17.
+    ##
+    ## ------------------------------------------------------------------
+    ## THE THIRD CORNER-GENERATOR: A SHOCK (2026-08-26). There IS a third
+    ## thing, and it is not a term — it is an EXCLUDER, because at a shock
+    ## the quantity this check measures is not merely large, it is
+    ## UNDEFINED. Two corner-generators were already handled this way and
+    ## for exactly this reason: the rect's own 90-degree corner
+    ## (EdgeCornerInsetPx) and the touchdown max(front, rectEdge)
+    ## (MinMeniscusRunSamples). This is the third.
+    ##
+    ## WHAT A SHOCK IS HERE. computeZoneFrontierField is a minimum-time
+    ## solve, so its value at a cell is a MIN over branches: the cell's own
+    ## seed t0 + zoneBoundaryFingerDelayAt, and every path that flows in
+    ## from elsewhere. Where two branches meet, the viscosity solution has
+    ## a genuine derivative discontinuity — the isoline has a real corner,
+    ## and its curvature is not bounded by anything, least of all by the
+    ## fingering tuning. That is correct eikonal behaviour, and it is what
+    ## real paint does when it wraps an obstacle and merges behind it.
+    ##
+    ## WHY MEASURING TURNING ACROSS ONE IS A CATEGORY ERROR. The check
+    ## samples the isoline as a GRAPH over the rect's own edge, uniformly
+    ## in s. A turning angle so measured is a curvature proxy only while
+    ## the isoline stays near-perpendicular to the walk: the graph slope is
+    ## |dT/ds| / |dT/dn|, and at a shock the front tilts hard (~44 deg at
+    ## the sample that drove this) and the proxy diverges while the curve
+    ## itself is simply creased.
+    ##
+    ## THE DETECTOR IS THE SOLVER'S OWN ARITHMETIC, not a threshold.
+    ## zoneSeedBranchAt asks whether a cell still reads its own seed. Fast
+    ## marching seeds every eligible exterior cell at exactly t0 + delay and
+    ## then only ever relaxes it DOWNWARD, so a cell still at its seed was
+    ## never improved by propagation and IS the boundary-plus-nudge that
+    ## term A models; a cell below its seed came from another branch, about
+    ## which term A — derived wholly from zoneBoundaryFingerDelayAt's two
+    ## octaves — says nothing at all. A vertex is scored only if all three
+    ## of its samples are seeded. The count is PRINTED as offBranch.
+    ##
+    ## MEASURED, and note which way the numbers fall:
+    ##   small map: 977 vertices -> 310 seeded; worstExcess 68.03 -> -2.64
+    ##   real map: 1579 vertices -> 1579 seeded; worstExcess -8.898,
+    ##             UNCHANGED — the excluder is a NO-OP on the real map,
+    ##             which is the strongest evidence it is not an escape
+    ##             hatch: it removes nothing where nothing is shocked, and
+    ##             the real map was already green with room to spare.
+    ## The small map is the shocked one because its board is dense with
+    ## architecture at the scale the rect closes through — the failing
+    ## sample sat beside a 45-degree-staircased wall blob whose tip is at
+    ## x~696,y~500, with the arrival field running up to 47 ticks BELOW the
+    ## local seed there.
+    ##
+    ## REFUTED FIRST, so nobody re-chases them: quantization (span 34 is a
+    ## 0.12px quantum against a 7.9px step); amplitude (survived the
+    ## base-speed fix, 54.7 -> 53.2); touchdown (the worst sample's lag
+    ## behind the honest boundary is 25 ticks, not 0, and no minimum-lag
+    ## floor isolates it — at lag>=24, 549 of 973 vertices survive with the
+    ## worst excess unchanged); and the seed nudge's own slope (board-wide
+    ## max |d(delay)/ds| is 0.819 ticks/px against its own analytic ceiling
+    ## of 2.13, so the octave is behaving). A fourth candidate, the loop
+    ## coordinate's lost ASPECT at the terminal rect, turned out to be a
+    ## real and separate defect: it is FIXED in zoneFrontLoopCoordAt, and
+    ## fixing it made this number WORSE (47.3 -> 68.0), which is what
+    ## restoring an under-priced instrument is supposed to do.
+    ## ------------------------------------------------------------------
     var sim = zoneGame(BrShowmatchPhases)
     discard ensureZoneArrivalField(sim)
     let (gw, gh) = zoneArrivalFieldGridDims()
@@ -1962,6 +2127,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var maxSpan = 0
     var scored = 0
     var offRegime = 0
+    var offBranch = 0
     var samples = 0
     ## `minSpan` is reported as 0, not high(int), when nothing was sampled at
     ## all — a 9223372036854775807 in a tick column reads as a real number.
@@ -1981,11 +2147,12 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         inc edgesUsed
         samples += validCount(iso.pos)
         worst = max(worst, maxTurningAngleDeg(iso.pos))
-        let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
+        let ex = maxTurningExcessDeg(iso.pos, iso.span, iso.seeded, ampDeg)
         if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
         maxSpan = max(maxSpan, ex.maxSpan)
         scored += ex.scored
         offRegime += ex.offRegime
+        offBranch += ex.offBranch
         if ex.idx >= 0 and ex.excessDeg > worstExcess:
           worstExcess = ex.excessDeg
           worstAllow = ex.allowDeg
@@ -2006,6 +2173,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       zoneSpanPerpFloorTicks(baseSpeed),
       "; scoredVertices=", scored, " offRegime(run<",
       MinMeniscusRunSamples, " samples)=", offRegime,
+      " offBranch(propagated, not seeded)=", offBranch,
       "; worstExcess=", worstExcess, "deg over allow=", worstAllow,
       "deg at ", worstExcessWhere
     check edgesUsed >= 8   ## see the straight-run check: the regime skip
@@ -2071,6 +2239,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var maxSpan = 0
     var scored = 0
     var offRegime = 0
+    var offBranch = 0
     var edgesSampled = 0
     var realSamples = 0
     var edgesSkipped = 0
@@ -2092,11 +2261,12 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
         realSamples += validCount(iso.pos)
         let angle = maxTurningAngleDeg(iso.pos)
         worst = max(worst, angle)
-        let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
+        let ex = maxTurningExcessDeg(iso.pos, iso.span, iso.seeded, ampDeg)
         if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
         maxSpan = max(maxSpan, ex.maxSpan)
         scored += ex.scored
         offRegime += ex.offRegime
+        offBranch += ex.offBranch
         if ex.idx >= 0 and ex.excessDeg > worstExcess:
           worstExcess = ex.excessDeg
           worstAllow = ex.allowDeg
@@ -2117,6 +2287,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       zoneSpanPerpFloorTicks(baseSpeed),
       "; scoredVertices=", scored, " offRegime(run<",
       MinMeniscusRunSamples, " samples)=", offRegime,
+      " offBranch(propagated, not seeded)=", offBranch,
       "; worstExcess=", worstExcess, "deg over allow=", worstAllow,
       "deg at ", worstExcessWhere
     check edgesSampled >= 3   ## regime skip must not absolve a flat paint
