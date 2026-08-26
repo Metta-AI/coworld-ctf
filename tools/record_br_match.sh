@@ -106,6 +106,16 @@ cfg["zonePhases"] = [
     {"z": 0.472, "waitTicks": 0, "shrinkTicks": 720, "dps": 4},
     {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
     {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12},
+    # CLOSE TO NOTHING, not to a terminal room. Holding at z=0.120 left a
+    # 385x205 box three duos could sit in indefinitely — measured, seed
+    # 90210: three duos alive 13-70px apart for 2205 ticks, zero shots
+    # fired, game ended on maxTicks. These two rows continue the SAME
+    # constant recession to the smallest scale the config allows (z must be
+    # > 0), so the zone ends smaller than a cog's own 12x12 footprint and
+    # attrition resolves the match with no bot cooperation required. Tick
+    # counts are proportional to the z steps so the rate never changes.
+    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 245, "dps": 16},
+    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 241, "dps": 20},
 ]
 # zoneCenter is ABSENT ON PURPOSE. §4.3's central guarantee is that the
 # center is DRAWN, not fixed at map center: a fixed center makes a strong

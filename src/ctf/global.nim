@@ -6850,6 +6850,25 @@ proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect): tuple[a, b: float] =
   ## Measured offline (same model that reproduced the 468px defect):
   ## right edge 84px longest flat run, top edge 124px, versus 408px and
   ## 160px for the offset curve.
+  ##
+  ## DEGENERATE EXTENTS (2026-08-25, with the close-to-nothing schedule).
+  ## The schedule now runs the rect down to the smallest scale the config
+  ## allows instead of holding at a terminal room, so `rect` here can be a
+  ## few px on a side. Two things had to be made safe, and BOTH are floors
+  ## that are now explicit rather than incidental:
+  ##  * hw/hh are floored at 1.0 (they always were) so the normalization
+  ##    below never divides by zero;
+  ##  * the PERIMETER now derives from those SAME floored half-extents.
+  ##    It used to read the raw rect.w/rect.h while the normalization used
+  ##    the floored ones — an inconsistency with no effect at any normal
+  ##    rect but which, at a 1px rect, produced perim = 0, hence r = 0,
+  ##    hence the loop coordinate collapsing to the origin for EVERY point
+  ##    on the board. That is a silent, total loss of fingering (a flat
+  ##    front everywhere), not a crash, which is exactly the kind of
+  ##    failure that reads green.
+  ## 4*(hw+hh) IS 2*(w+h) wherever w and h are both >= 2, so this is
+  ## algebraically identical everywhere the old form was well-defined and
+  ## merely stays finite where it was not.
   let
     hw = max(1.0, float(rect.w) * 0.5)
     hh = max(1.0, float(rect.h) * 0.5)
@@ -6860,7 +6879,7 @@ proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect): tuple[a, b: float] =
     return (0.0, 0.0)
   let
     theta = arctan2(v, u)
-    perim = 2.0 * (float(rect.w) + float(rect.h)) * zp
+    perim = 4.0 * (hw + hh) * zp
     r = perim / (2.0 * PI)
   (r * cos(theta), r * sin(theta))
 
@@ -7907,6 +7926,15 @@ proc zoneTestClassifyRooms*(sim: SimServer): seq[int] =
   ## itself instead of the solver).
   ensureZoneFloorGrid(sim)
   ZoneFloorRoomId
+
+proc zoneTestFrontLoopCoordAt*(px, py: float, rect: MapRect): tuple[a, b: float] =
+  ## TEST accessor for zoneFrontLoopCoordAt — the fingering family's own
+  ## parameterization, exposed so a machine check can assert the family
+  ## does not COLLAPSE at a degenerate terminal rect. A collapse is silent
+  ## (one constant coordinate everywhere, hence a dead-flat front), so it
+  ## needs a test that reads the mechanism directly rather than only its
+  ## downstream shape.
+  zoneFrontLoopCoordAt(px, py, rect)
 
 proc zoneTestRoomIdAt*(px, py: int): int =
   ## TEST/DIAGNOSTIC accessor: ZoneFloorRoomId for the coarse cell covering

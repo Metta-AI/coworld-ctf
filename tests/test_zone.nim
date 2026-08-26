@@ -73,16 +73,37 @@ const
     {"z": 0.648, "waitTicks": 0, "shrinkTicks": 720, "dps": 2},
     {"z": 0.472, "waitTicks": 0, "shrinkTicks": 720, "dps": 4},
     {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
-    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12}
+    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12},
+    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 245, "dps": 16},
+    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 241, "dps": 20}
   ]"""
-  BrShowmatchTotalTicks = 1200 + 720 + 720 + 720 + 720 + 720
-    ## 4800 — the GEAR-UP wait plus five CONTIGUOUS shrink segments. There
+  BrShowmatchTotalTicks = 1200 + 720 + 720 + 720 + 720 + 720 + 245 + 241
+    ## 5286 — the GEAR-UP wait plus SEVEN contiguous shrink segments. There
     ## are no intermediate holds by design (Maxwell's ruling, 2026-08-25):
     ## every phase past the first carries waitTicks 0, so once the zone
-    ## starts closing it never stops until terminal size. z steps by a
-    ## constant 0.176 per equal-length segment, which makes the rect's own
-    ## half-extent recede at a CONSTANT px/tick for the whole close —
-    ## "slowly and continuously" stated as geometry rather than as prose.
+    ## starts closing it never stops. z steps by a constant 0.176 per
+    ## 720-tick segment, which makes the rect's own half-extent recede at a
+    ## CONSTANT px/tick — "slowly and continuously" stated as geometry
+    ## rather than as prose.
+    ##
+    ## AND IT CLOSES TO NOTHING (Maxwell's spec read faithfully, 2026-08-25:
+    ## "continuous to the end, until last man standing"). The earlier table
+    ## stopped at z=0.120 and HELD there, which left a 385x205 terminal
+    ## room — and a terminal room is a place three duos can sit in forever.
+    ## Measured: seed 90210 froze exactly that way, three duos alive and
+    ## 13-70px apart for 2205 ticks, not one shot fired, ending on maxTicks.
+    ## The last two rows continue the SAME constant recession down to the
+    ## smallest scale the config allows (z=0.001; readZonePhaseZ requires
+    ## z > 0, so this is the floor, not a rounded zero), with dps ramping
+    ## 12 -> 16 -> 20. Their tick counts are proportional to their z steps
+    ## precisely so the recession rate does not change: 0.060/245 and
+    ## 0.059/241 both equal 0.176/720 to three significant figures.
+    ##
+    ## With no interior left there is no place to sit, so the wipe rule
+    ## fires by ATTRITION rather than by anyone choosing to fight — which
+    ## is what makes the endgame independent of the policy stall this
+    ## schedule cannot fix (full-health cogs declining point-blank kills;
+    ## banked separately as a pre-existing policy defect).
 
 suite "shrink zone config":
   test "off by default, and the config echo carries no zonePhases key":
@@ -642,6 +663,170 @@ suite "shrink zone determinism":
     check restored.gameHash() == hash
     check restored.zoneCenter.x == sim.zoneCenter.x
     check restored.zoneCenter.y == sim.zoneCenter.y
+
+suite "shrink zone schedule shape: gear-up then a continuous close":
+  ## What 6c122c0 exists to deliver, asserted instead of asserted-in-prose.
+  ## The branch's claim is a GEAR-UP (a wait long enough that the natural
+  ## opening fight resolves before anything moves) followed by a close that
+  ## never stops until terminal size. Both halves were only ever stated in
+  ## the config and the commit message; nothing measured them. Measured here
+  ## against zoneRectAndDps — the SAME function the damage system reads.
+  test "no shrink before the gear-up ends, and the close never HOLDS":
+    ## A HOLD is a RUN of zero-recession ticks. Single zero ticks are not
+    ## holds: the rect's width is an integer and the schedule recedes it at a
+    ## constant SUB-PIXEL rate, so a constant close necessarily alternates
+    ## 1,0,1,0. The bound is therefore DERIVED from that rate — a constant
+    ## rate r px/tick cannot round to more than ceil(1/r) zeros in a row —
+    ## rather than picked, so it holds on any map without retuning.
+    var sim = zoneGame(BrShowmatchPhases)
+    let
+      gearUp = 1200
+      total = BrShowmatchTotalTicks
+      wStart = sim.zoneRectAndDps(gearUp).cur.w
+      wEnd = sim.zoneRectAndDps(total).cur.w
+      closeTicks = total - gearUp
+      ratePxPerTick = float(wStart - wEnd) / float(closeTicks)
+      maxRunFromRounding = int(ceil(1.0 / max(ratePxPerTick, 1e-9))) + 1
+    var
+      firstRecession = -1
+      longestZeroRun = 0
+      run = 0
+      prevW = -1
+    for t in 0 .. total:
+      let w = sim.zoneRectAndDps(t).cur.w
+      if prevW >= 0:
+        let d = prevW - w
+        if d > 0 and firstRecession < 0: firstRecession = t
+        if t > gearUp:
+          if d == 0:
+            inc run
+            longestZeroRun = max(longestZeroRun, run)
+          else:
+            run = 0
+      prevW = w
+    echo "schedule shape: firstRecession=", firstRecession, " (gearUp=", gearUp,
+      ") closeTicks=", closeTicks, " rate=", ratePxPerTick,
+      "px/tick longestZeroRun=", longestZeroRun,
+      " bound=", maxRunFromRounding, " terminal=",
+      sim.zoneRectAndDps(total).cur.w, "x", sim.zoneRectAndDps(total).cur.h
+    ## GEAR-UP: nothing moves until the wait is over.
+    check firstRecession > gearUp
+    ## CONTINUITY: no run of stillness longer than integer rounding explains.
+    check longestZeroRun <= maxRunFromRounding
+
+  test "the zone CLOSES TO NOTHING: no terminal room a duo can sit in":
+    ## The land-blocking half of the ruling. Holding at a terminal rect left
+    ## a room three duos occupied for 2205 ticks without firing (seed 90210,
+    ## which then ended on maxTicks with three duos alive). The fix is not a
+    ## bigger dps or a shorter clock — it is that there is NOWHERE LEFT.
+    ##
+    ## Asserted against the REAL predicate updateZone uses, which is a plain
+    ## axis-aligned rect test on the player's CENTRE (no corner rounding —
+    ## ZoneCornerRoundPx applies to the PAINT, not to damage), so this
+    ## measures the thing that actually kills rather than a lookalike.
+    for (label, sim) in [("small test map", zoneGame(BrShowmatchPhases)),
+                         ("real showmatch map",
+                          zoneGameOnRealMap(BrShowmatchPhases))]:
+      var g = sim
+      let
+        term = g.zoneRectAndDps(BrShowmatchTotalTicks).cur
+        footprint = 2 * PlayerHalf   ## a cog's own solid extent, 12px
+      echo "  ", label, ": terminal rect ", term.w, "x", term.h,
+        " at tick ", BrShowmatchTotalTicks, " (cog footprint ", footprint,
+        "px; dps ", g.zoneRectAndDps(BrShowmatchTotalTicks).dps, ")"
+      ## SMALLER THAN A COG. Not "small": a rect at least a footprint across
+      ## is a place two cogs can stand, which is all the stall needed.
+      check term.w < footprint
+      check term.h < footprint
+      ## ...and it STAYS gone. The schedule holds its last target forever,
+      ## so a late tick must not re-open an interior.
+      let late = g.zoneRectAndDps(BrShowmatchTotalTicks * 2).cur
+      check late.w < footprint
+      check late.h < footprint
+      ## THE FLOOR IS NOT SILENT. zoneRectAtScale clamps both extents at 1px,
+      ## which is what keeps every downstream divisor finite (see
+      ## zoneFrontLoopCoordAt's own note). Assert it holds rather than
+      ## trusting it: a zero extent would make the rect empty and the
+      ## perimeter degenerate.
+      check term.w >= 1
+      check term.h >= 1
+      ## The terminal phase must actually BITE, or "no interior" resolves
+      ## nothing.
+      check g.zoneRectAndDps(BrShowmatchTotalTicks).dps > 0
+
+  test "the finger family survives a degenerate terminal rect":
+    ## The numerics guard the close-to-nothing schedule needed. The paint's
+    ## whole fingering family is parameterized against the FINAL rect, and
+    ## that rect is now a few px on a side. The failure mode is silent: a
+    ## degenerate perimeter collapses the loop coordinate to the origin for
+    ## every point on the board, the noise reads one constant, and the front
+    ## goes dead flat everywhere — green everywhere except the eye.
+    ##
+    ## Directly measured: the loop coordinate must still SEPARATE points
+    ## that sit at different places along the front. (The straight-run and
+    ## turning-angle checks below would also catch a flat front, but they
+    ## run on one schedule; this pins the mechanism itself.)
+    var sim = zoneGameOnRealMap(BrShowmatchPhases)
+    let term = sim.zoneRectAndDps(BrShowmatchTotalTicks).cur
+    echo "  terminal rect ", term.w, "x", term.h,
+      " -> loop-coord spread over a ring of sample points:"
+    var
+      lo = Inf
+      hi = -Inf
+      distinct8 = 0
+    var seen: seq[float]
+    for k in 0 ..< 16:
+      let
+        ang = 2.0 * PI * float(k) / 16.0
+        px = float(term.x) + 700.0 * cos(ang)
+        py = float(term.y) + 700.0 * sin(ang)
+        loop = zoneTestFrontLoopCoordAt(px, py, term)
+        mag = sqrt(loop.a * loop.a + loop.b * loop.b)
+      lo = min(lo, mag)
+      hi = max(hi, mag)
+      var isNew = true
+      for v in seen:
+        if abs(v - loop.a) < 1e-6: isNew = false
+      if isNew:
+        seen.add loop.a
+        inc distinct8
+    echo "    |loop| range [", lo, ",", hi, "]  distinct a-coords=", distinct8
+    ## A collapsed family gives |loop| == 0 everywhere and ONE distinct
+    ## coordinate. A live one gives a real ring with distinct positions.
+    check hi > 1.0
+    check distinct8 >= 8
+
+  test "the continuity measure DISCRIMINATES: a mid-close hold fails it":
+    ## House rule — a gate must MOVE on the defect it names. The same walk
+    ## over a schedule carrying a deliberate 300-tick wait in the middle of
+    ## the close must read a zero-recession run far above the rounding bound,
+    ## or the check above is measuring nothing.
+    const HeldPhases = """[
+      {"z": 0.824, "waitTicks": 1200, "shrinkTicks": 720, "dps": 0},
+      {"z": 0.648, "waitTicks": 0, "shrinkTicks": 720, "dps": 2},
+      {"z": 0.472, "waitTicks": 300, "shrinkTicks": 720, "dps": 4},
+      {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
+      {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12}
+    ]"""
+    var sim = zoneGame(HeldPhases)
+    let total = BrShowmatchTotalTicks + 300
+    var
+      longestZeroRun = 0
+      run = 0
+      prevW = -1
+    for t in 0 .. total:
+      let w = sim.zoneRectAndDps(t).cur.w
+      if prevW >= 0 and t > 1200:
+        if prevW - w == 0:
+          inc run
+          longestZeroRun = max(longestZeroRun, run)
+        else:
+          run = 0
+      prevW = w
+    echo "held-schedule control: longestZeroRun=", longestZeroRun,
+      " ticks (the planted hold is 300)"
+    ## The planted hold must be visible as itself, not merely "large".
+    check longestZeroRun >= 300
 
 suite "shrink zone paint arrival honesty":
   ## The round-3 arrival-time field's HARD ACCEPTANCE GATE (Fable's audit,
