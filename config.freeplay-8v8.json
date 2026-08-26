@@ -1,6 +1,6 @@
 {
   "maxGames": 0,
-  "minPlayers": 8,
+  "minPlayers": 16,
   "lives": 30,
   "hitPoints": 1,
   "respawnTicks": 48,
@@ -25,7 +25,15 @@
     "0xBADA55_4",
     "0xBADA55_5",
     "0xBADA55_6",
-    "0xBADA55_7"
+    "0xBADA55_7",
+    "0xBADA55_8",
+    "0xBADA55_9",
+    "0xBADA55_10",
+    "0xBADA55_11",
+    "0xBADA55_12",
+    "0xBADA55_13",
+    "0xBADA55_14",
+    "0xBADA55_15"
   ],
   "players": [
     {

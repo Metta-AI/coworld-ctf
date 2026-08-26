@@ -2312,6 +2312,43 @@ proc updateFlags(sim: var SimServer) =
       sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
 
+proc applyDirectAim*(sim: var SimServer, playerIndex: int, brads: int) =
+  ## Points one cog's turret at an absolute bearing, this tick, with no
+  ## `aimTurnRate` traverse. This is the HUMAN aim channel and only ever runs
+  ## for a seat a human has taken over on a config that arms `allowDirectAim`;
+  ## a policy has no way to reach it, so no policy's turret tuning moves.
+  ##
+  ## Called immediately BEFORE `applyInput` for the same tick, by BOTH the live
+  ## server and replay playback, so the two orderings are the same ordering:
+  ## write the bearing, then run the tick that reads it (fire direction, FOV
+  ## cone, sprite flip). `applyInput`'s own B/Select traverse still runs after
+  ## this write, which is why the human client unbinds those while pointing.
+  ##
+  ## Dead cogs are skipped on purpose: aim resets to `spawnAimBrads` at every
+  ## respawn, and letting a cursor write aim through a death would desync the
+  ## client's re-seed on the self-marker edge.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return
+  if not sim.players[playerIndex].alive:
+    return
+  sim.players[playerIndex].aimBrads =
+    ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+
+proc directAimBrads*(player: Player, mapX, mapY: int): int =
+  ## Converts a cursor position in MAP PIXELS to the bearing that points the
+  ## turret at it. The player POV ships the map layer at scale 1 with origin
+  ## (0, 0) (buildSpritePlayerSnapshot's viewport is the map's own size), so
+  ## the x,y the client already puts on the wire ARE map pixels — no transform.
+  ##
+  ## The origin is the muzzle point every weapon fires from
+  ## (`x + CollisionW div 2`), written the same way throwTarget writes it, so
+  ## "the turret points at the cursor" and "the shot goes at the cursor" cannot
+  ## drift apart.
+  bradsOfVector(
+    mapX - (player.x + CollisionW div 2),
+    mapY - (player.y + CollisionH div 2)
+  )
+
 proc applyInput*(
   sim: var SimServer,
   playerIndex: int,

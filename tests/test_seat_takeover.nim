@@ -92,7 +92,7 @@ suite "freeplay seat takeover":
     # and never writes a join/leave record.
     initAppState()
     let human = cast[WebSocket](4)
-    human.registerTakeoverWebSocket(6, "Green Rookie")
+    human.registerTakeoverWebSocket(6, "Green Rookie", false)
     check human in appState.takeovers
     check human in appState.playerViewers
     check human notin appState.playerIndices
@@ -125,3 +125,114 @@ suite "freeplay seat takeover":
     var reread = defaultGameConfig()
     reread.update(config.configJson())
     check reread.allowSeatTakeover
+
+proc snap(seat, cog: int, alive: bool, timer = 0): SeatSnapshot =
+  SeatSnapshot(seat: seat, cog: cog, alive: alive, respawnTimer: timer)
+
+suite "freeplay seat picker: click play, then play":
+  test "a cog already DOWN is preferred over a healthy one":
+    # The whole speed rule. The swap lands at the next respawn, so a healthy
+    # cog costs the arrival a whole life for nothing.
+    let board = @[
+      snap(0, 0, true), snap(1, 1, false, 30), snap(2, 2, true)
+    ]
+    let pick = pickFreeplaySeat(board, @[], 3)
+    check pick.seat == 1
+    check pick.waitTicks == 30
+
+  test "the SOONEST respawn wins among the downed":
+    let board = @[
+      snap(0, 0, false, 44), snap(1, 1, false, 6), snap(2, 2, false, 21)
+    ]
+    check pickFreeplaySeat(board, @[], 3).seat == 1
+    check pickFreeplaySeat(board, @[], 3).waitTicks == 6
+
+  test "a seat someone already holds is never handed out twice":
+    let board = @[snap(0, 0, false, 5), snap(1, 1, false, 9)]
+    check pickFreeplaySeat(board, @[0], 2).seat == 1
+    check pickFreeplaySeat(board, @[0, 1], 2).seat == -1
+
+  test "an all-healthy field still seats you, and does not guess the wait":
+    let board = @[snap(0, 0, true), snap(1, 1, true)]
+    let pick = pickFreeplaySeat(board, @[0], 2)
+    check pick.seat == 1
+    check pick.waitTicks == -1
+
+  test "an empty roster seats the arrival for the opening whistle":
+    # Between matches every pending takeover lands at the opening spawn, so
+    # the honest wait is zero, not unknown.
+    let pick = pickFreeplaySeat(@[], @[], 8)
+    check pick.seat == 0
+    check pick.waitTicks == 0
+    check pickFreeplaySeat(@[], @[0, 1], 8).seat == 2
+
+  test "a seat outside the configured roster is never picked":
+    let board = @[snap(9, 0, false, 1), snap(1, 1, false, 40)]
+    check pickFreeplaySeat(board, @[], 4).seat == 1
+
+proc pendingOn(seat: int): SeatTakeover =
+  SeatTakeover(seat: seat, requestedSeat: seat, name: "Green Rookie",
+    active: false, cog: -1, observed: false, prevAlive: false)
+
+proc registerPending(ws: WebSocket, seat: int) =
+  appState.takeovers[ws] = pendingOn(seat)
+
+suite "freeplay: a pending takeover parks on a cog that is already down":
+  setup:
+    initAppState()
+
+  test "a human on a HEALTHY cog is moved to one that is down":
+    # The unbounded wait is the bug. Nobody arriving at Free Play asked for a
+    # particular policy seat -- they asked to play.
+    let human = cast[WebSocket](1)
+    human.registerPending(0)
+    migratePendingTakeovers(@[
+      snap(0, 0, true), snap(1, 1, false, 9), snap(2, 2, true)
+    ])
+    check appState.takeovers[human].seat == 1
+    check appState.takeovers[human].requestedSeat == 0
+    check not appState.takeovers[human].observed
+
+  test "already parked on a downed cog, it never hops again":
+    # That cog is about to stand up. Hopping off it would be pure thrash.
+    let human = cast[WebSocket](1)
+    human.registerPending(3)
+    migratePendingTakeovers(@[snap(3, 3, false, 40), snap(1, 1, false, 2)])
+    check appState.takeovers[human].seat == 3
+
+  test "a human who is already DRIVING is never moved":
+    let human = cast[WebSocket](1)
+    appState.takeovers[human] = SeatTakeover(
+      seat: 0, requestedSeat: 0, name: "Green Rookie", active: true, cog: 0)
+    migratePendingTakeovers(@[snap(0, 0, true), snap(1, 1, false, 1)])
+    check appState.takeovers[human].seat == 0
+
+  test "two arrivals never park on the same cog":
+    let
+      first = cast[WebSocket](1)
+      second = cast[WebSocket](2)
+    first.registerPending(0)
+    second.registerPending(4)
+    migratePendingTakeovers(@[
+      snap(0, 0, true), snap(4, 4, true), snap(1, 1, false, 5),
+      snap(2, 2, false, 11)
+    ])
+    check appState.takeovers[first].seat != appState.takeovers[second].seat
+    check appState.takeovers[first].seat in [1, 2]
+    check appState.takeovers[second].seat in [1, 2]
+
+  test "an all-healthy field leaves the seat exactly where it was":
+    let human = cast[WebSocket](1)
+    human.registerPending(6)
+    migratePendingTakeovers(@[snap(6, 6, true), snap(1, 1, true)])
+    check appState.takeovers[human].seat == 6
+
+  test "a seat another human holds is never taken from them":
+    let
+      driver = cast[WebSocket](1)
+      arrival = cast[WebSocket](2)
+    appState.takeovers[driver] = SeatTakeover(
+      seat: 1, requestedSeat: 1, name: "Driver", active: true, cog: 1)
+    arrival.registerPending(0)
+    migratePendingTakeovers(@[snap(0, 0, true), snap(1, 1, false, 3)])
+    check appState.takeovers[arrival].seat == 0

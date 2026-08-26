@@ -46,6 +46,7 @@ proc defaultGameConfig*(): GameConfig =
     mapSpec: "",
     closedRoster: false,
     allowSeatTakeover: false,
+    allowDirectAim: false,
     slots: @[],
     perkMods: DefaultPerkMods,
     puddleDamagePct: DefaultPuddleDamagePct,
@@ -848,6 +849,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigZoneCenter(config, mapMeta)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigBool("allowSeatTakeover", config.allowSeatTakeover)
+  node.readConfigBool("allowDirectAim", config.allowDirectAim)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).

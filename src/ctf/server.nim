@@ -19,12 +19,22 @@ type
     ## One human standing in for one policy seat. The human drives the seat's
     ## cog with the SAME eight-button InputState the policy was pressing —
     ## takeover changes WHO is read, nothing else about the sim.
-    seat: int        ## config slot index (matches Player.joinOrder).
+    seat: int        ## config slot index (matches Player.joinOrder). MOVES
+                     ## while the takeover is still pending — see
+                     ## migratePendingTakeovers.
+    requestedSeat: int ## the seat this human originally asked for. Never
+                     ## changes, so a surface can find its own row after a
+                     ## migration without guessing.
     name: string     ## guest display name, generated app-side.
     active: bool     ## false = "suiting up", pending the next respawn.
     cog: int         ## resolved sim player index, -1 while unresolved.
     observed: bool   ## true once a frame has sampled the cog's alive flag.
     prevAlive: bool  ## that flag on the previously sampled frame.
+    cogX, cogY: int  ## where that cog stood on the last sampled frame, in map
+                     ## pixels. It is the seat's OWN cog, which the human is
+                     ## already looking at, so it hides nothing the fog hides —
+                     ## and it is how "is the policy actually driving again?"
+                     ## gets a numeric answer instead of a vibe.
     cogAlive: bool   ## the cog's alive flag as of the last sampled frame —
                      ## reported so a surface can say "your cog is down, you
                      ## are in at the next spawn" rather than just "waiting".
@@ -34,11 +44,30 @@ type
                       ## visible: the policy never stopped playing, its input
                       ## is simply not what the seat applies while a human
                       ## drives — which is why the handback is seamless.
+    directAim: bool  ## true when this human's connection asked for, and was
+                     ## granted, the direct-aim channel: their turret takes the
+                     ## bearing of their cursor in one tick instead of swinging
+                     ## at `aimTurnRate`. Granted ONLY on a config that arms
+                     ## `allowDirectAim`; a request on a league config is
+                     ## refused at the upgrade rather than silently dropped.
+    aimBrads: int    ## the bearing this seat's turret was last pointed at
+                     ## through that channel, -1 when it is not driving one.
+                     ## Echoed on /takeover/status so "am I actually pointing
+                     ## where I am pointing?" has an honest answer.
     lastMask: uint8  ## the input mask this seat applied on the last frame,
                      ## echoed back on /takeover/status. It is the human's OWN
                      ## keypress coming back, so it leaks nothing the fog hides
                      ## — and it is the one honest answer to "are my keys
                      ## actually reaching the field?".
+
+  SeatSnapshot = object
+    ## One seat's liveness as of the last frame, published for the seat PICKER.
+    ## The picker runs on the HTTP thread and the roster lives on the game
+    ## thread, so the frame leaves this behind rather than reaching across.
+    seat: int          ## config slot index (Player.joinOrder).
+    cog: int           ## sim player index.
+    alive: bool
+    respawnTimer: int  ## ticks until this cog is back on its feet, 0 if up.
 
   WebSocketAppState = object
     lock: Lock
@@ -72,6 +101,9 @@ type
     ## record. Empty on every config that leaves allowSeatTakeover off, which
     ## is what makes a league build byte-identical to a pre-takeover build.
     takeovers: Table[WebSocket, SeatTakeover]
+    ## Per-seat liveness as of the last frame. Written only on a config that
+    ## arms takeover, so it stays an empty seq for a league build's whole run.
+    seatBoard: seq[SeatSnapshot]
     closedSockets: seq[WebSocket]
     nextAnonymousPlayer: int
     config: GameConfig
@@ -97,7 +129,13 @@ const
   # client change at all, and the roster's player path stays untouched.
   TakeoverWebSocketPath = "/takeover"
   TakeoverStatusPath = "/takeover/status"
+  # "Which seat should this arrival take?" -- answered by the server because
+  # only the server knows which cog is lying down right now.
+  TakeoverSeatPath = "/takeover/seat"
   TakeoverClientPath = "/client/takeover"
+  # What a human connection may be GRANTED here. Polled by the client before
+  # it connects, so one bundle serves both a league server and a play server.
+  CapabilitiesPath = "/capabilities"
   ControlRestartPath = "/control/restart"
   ControlKickPath = "/control/kick"
   ## Cap on player debug-sprite bytes accepted per player per tick.
@@ -330,6 +368,7 @@ proc initAppState() =
   appState.playerViewers = initTable[WebSocket, PlayerViewerState]()
   appState.rewardViewers = initTable[WebSocket, bool]()
   appState.takeovers = initTable[WebSocket, SeatTakeover]()
+  appState.seatBoard = @[]
   appState.closedSockets = @[]
   appState.nextAnonymousPlayer = 1
   appState.config = defaultGameConfig()
@@ -432,7 +471,8 @@ proc takeoverSeatTaken(seat: int): bool =
 proc registerTakeoverWebSocket(
   websocket: WebSocket,
   seat: int,
-  name: string
+  name: string,
+  directAim: bool
 ) =
   ## Registers one websocket as a human seat-takeover connection.
   ##
@@ -455,11 +495,14 @@ proc registerTakeoverWebSocket(
   appState.playerReady[websocket] = false
   appState.takeovers[websocket] = SeatTakeover(
     seat: seat,
+    requestedSeat: seat,
     name: name,
     active: false,
     cog: -1,
     observed: false,
-    prevAlive: false
+    prevAlive: false,
+    directAim: directAim,
+    aimBrads: -1
   )
 
 proc advanceSeatTakeover(
@@ -502,6 +545,63 @@ proc advanceSeatTakeover(
     result = true
   takeover.observed = true
   takeover.prevAlive = cogAlive
+
+proc seatWaitTicks(board: seq[SeatSnapshot], seat: int): int =
+  ## How long a seat's cog is from its next spawn, in ticks. A cog that is UP
+  ## is `int.high`: the swap lands at the next respawn, so a healthy cog is an
+  ## unbounded wait, and this refuses to pretend otherwise. A seat with no cog
+  ## at all is 0 — a new match lands every pending takeover at the whistle.
+  for entry in board:
+    if entry.seat == seat:
+      return if entry.alive: int.high else: max(entry.respawnTimer, 0)
+  0
+
+proc migratePendingTakeovers(board: seq[SeatSnapshot]) =
+  ## Re-points a still-PENDING takeover at whichever free seat gets it onto the
+  ## field soonest.
+  ##
+  ## This is what turns "click play" into "play". The swap lands at a cog's next
+  ## respawn, so a human handed a healthy cog waits out a whole life — an
+  ## unbounded, unexplainable stall while they watch a cog they do not drive.
+  ## Nobody arriving at Free Play asked for a PARTICULAR policy seat; they asked
+  ## to play. So a pending takeover parks on whichever cog is already down.
+  ##
+  ## Only pending takeovers move — once someone is driving, the seat is theirs
+  ## for good. And a takeover already parked on a DOWNED cog never moves again:
+  ## that cog is about to stand up, which is the best case there is, and hopping
+  ## off it for a marginally sooner one would be pure thrash.
+  if appState.takeovers.len == 0 or board.len == 0:
+    return
+  var held: seq[int] = @[]
+  for _, takeover in appState.takeovers.pairs:
+    held.add(takeover.seat)
+  for _, takeover in appState.takeovers.mpairs:
+    if takeover.active:
+      continue
+    if seatWaitTicks(board, takeover.seat) != int.high:
+      continue                      # already parked on a cog that is down
+    var
+      bestSeat = -1
+      bestWait = int.high
+    for entry in board:
+      if entry.alive or entry.seat in held:
+        continue
+      let wait = max(entry.respawnTimer, 0)
+      if wait < bestWait:
+        bestWait = wait
+        bestSeat = entry.seat
+    if bestSeat < 0:
+      continue
+    for i in 0 ..< held.len:
+      if held[i] == takeover.seat:
+        held[i] = bestSeat
+        break
+    takeover.seat = bestSeat
+    # Re-sampled from scratch on the new seat: the cog is down right now, so
+    # the first sample is not an edge and the swap lands on its next spawn.
+    takeover.cog = -1
+    takeover.observed = false
+    takeover.prevAlive = false
 
 proc landSeatTakeoversOnNewMatch() =
   ## Lands every pending takeover at a new match's opening spawn.
@@ -836,6 +936,122 @@ proc seatTakeoverEnabled(): bool =
     withLock appState.lock:
       result = appState.config.allowSeatTakeover
 
+proc takeoverRejection*(
+  config: GameConfig,
+  seat: int,
+  token: string,
+  wantsDirectAim: bool,
+  seatTaken: bool
+): string =
+  ## The whole admission gate for a human takeover connection: "" admits,
+  ## anything else is the 403 text.
+  ##
+  ## A proc rather than a chain inside the route because this gate is the only
+  ## thing standing between a league server and a client that asks it for play
+  ## capabilities, and a gate that is not tested for DISCRIMINATION — admitting
+  ## what it should and refusing what it should — is not a gate. Note the
+  ## direct-aim arm REFUSES rather than downgrading: a client silently granted
+  ## a lesser capability than it asked for would aim at one thing and shoot at
+  ## another.
+  if not config.allowSeatTakeover:
+    return "Seat takeover is not enabled on this server."
+  if wantsDirectAim and not config.allowDirectAim:
+    return "Direct aim is not enabled on this server."
+  if seat < 0 or seat >= MaxPlayers or seat >= config.slots.len:
+    return "Seat takeover requires a configured slot."
+  if config.slots[seat].token.len > 0 and token != config.slots[seat].token:
+    return "Takeover token does not match seat " & $seat & "."
+  if seatTaken:
+    return "Seat " & $seat & " is already being taken over."
+  ""
+
+proc directAimEnabled(): bool =
+  ## Returns true when this config arms the human direct-aim channel.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowDirectAim
+
+proc capabilitiesJson(): string =
+  ## What this server will GRANT a human connection. The same client bundle is
+  ## served to league and play servers, so the client feature-DETECTS here
+  ## rather than being built two ways. A league config advertises both as
+  ## false, and asking anyway is refused at the upgrade — advertising and
+  ## enforcement read the same config field, so they cannot drift.
+  $(%*{
+    "seatTakeover": seatTakeoverEnabled(),
+    "directAim": directAimEnabled()
+  })
+
+proc pickFreeplaySeat*(
+  board: seq[SeatSnapshot],
+  taken: seq[int],
+  seatCount: int
+): tuple[seat, waitTicks: int] =
+  ## Picks the seat a Free Play arrival should be handed, and says how long
+  ## that arrival will stand around before it drives.
+  ##
+  ## THE SPEED RULE: prefer a cog that is already DOWN, soonest respawn first.
+  ## The swap lands on the cog's next respawn, so handing someone a healthy cog
+  ## makes them wait out a whole life for no reason, while a cog with 9 ticks
+  ## left on its timer puts them on the field in under half a second. This is
+  ## the difference between "click play and play" and "click play and wonder".
+  ##
+  ## A seat with no cog yet (between matches) is next best: the opening spawn
+  ## lands every pending takeover at once. A healthy cog is the last resort,
+  ## and its wait is unknowable from here -- reported as -1, never as a guess.
+  result = (-1, -1)
+  var bestWait = int.high
+  for entry in board:
+    if entry.seat < 0 or entry.seat >= seatCount or entry.seat in taken:
+      continue
+    let wait =
+      if entry.alive:
+        int.high - 1        # ranked last, and its wait is not knowable here
+      else:
+        max(entry.respawnTimer, 0)
+    if wait < bestWait:
+      bestWait = wait
+      result = (entry.seat, (if entry.alive: -1 else: wait))
+  if result.seat >= 0:
+    return
+  # No roster yet (between matches, or before the policies have joined): any
+  # configured seat that nobody holds will land at the opening whistle.
+  for seat in 0 ..< seatCount:
+    if seat notin taken:
+      return (seat, 0)
+
+proc freeplaySeatJson(): string =
+  ## The one call an app makes to answer "which seat do I put this person in?".
+  ## Returns the seat and the wait in ticks and milliseconds, so a surface can
+  ## say "you are in in 0.4s" instead of an unbounded "suiting up...". A wait
+  ## of -1 means the cog is healthy and the wait is genuinely not knowable --
+  ## reported honestly rather than guessed.
+  var
+    board: seq[SeatSnapshot] = @[]
+    taken: seq[int] = @[]
+    seatCount = 0
+    enabled = false
+  {.gcsafe.}:
+    withLock appState.lock:
+      enabled = appState.config.allowSeatTakeover
+      if enabled:
+        board = appState.seatBoard
+        seatCount = appState.config.slots.len
+        for _, takeover in appState.takeovers.pairs:
+          taken.add(takeover.seat)
+  if not enabled:
+    return $(%*{"enabled": false, "seat": -1})
+  let pick = pickFreeplaySeat(board, taken, seatCount)
+  $(%*{
+    "enabled": true,
+    "directAim": directAimEnabled(),
+    "seat": pick.seat,
+    "waitTicks": pick.waitTicks,
+    "waitMs":
+      (if pick.waitTicks < 0: -1
+       else: pick.waitTicks * 1000 div ReplayFps)
+  })
+
 proc takeoverStatusJson(): string =
   ## Returns the seat-takeover state a surface renders: who is on which seat
   ## and whether they are still suiting up. Ordered by seat so the strip does
@@ -851,14 +1067,23 @@ proc takeoverStatusJson(): string =
   for takeover in rows:
     seats.add(%*{
       "seat": takeover.seat,
+      "requestedSeat": takeover.requestedSeat,
       "name": takeover.name,
       "state": (if takeover.active: "driving" else: "suiting-up"),
       "cog": takeover.cog,
       "cogAlive": takeover.cogAlive,
+      "cogX": takeover.cogX,
+      "cogY": takeover.cogY,
       "mask": int(takeover.lastMask),
-      "policyMask": int(takeover.policyMask)
+      "policyMask": int(takeover.policyMask),
+      "directAim": takeover.directAim,
+      "aimBrads": takeover.aimBrads
     })
-  $(%*{"enabled": enabled, "seats": seats})
+  $(%*{
+    "enabled": enabled,
+    "directAim": directAimEnabled(),
+    "seats": seats
+  })
 
 proc httpHandler(request: Request) =
   if request.path == HealthPath and request.httpMethod == "GET":
@@ -866,6 +1091,18 @@ proc httpHandler(request: Request) =
     headers["Content-Type"] = "text/plain; charset=utf-8"
     headers["Cache-Control"] = "no-cache"
     request.respond(200, headers, "healthy")
+  elif request.path == CapabilitiesPath and request.httpMethod == "GET":
+    var headers: HttpHeaders
+    headers["Content-Type"] = "application/json; charset=utf-8"
+    headers["Cache-Control"] = "no-cache"
+    headers["Access-Control-Allow-Origin"] = "*"
+    request.respond(200, headers, capabilitiesJson())
+  elif request.path == TakeoverSeatPath and request.httpMethod == "GET":
+    var headers: HttpHeaders
+    headers["Content-Type"] = "application/json; charset=utf-8"
+    headers["Cache-Control"] = "no-cache"
+    headers["Access-Control-Allow-Origin"] = "*"
+    request.respond(200, headers, freeplaySeatJson())
   elif request.path == TakeoverStatusPath and request.httpMethod == "GET":
     var headers: HttpHeaders
     headers["Content-Type"] = "application/json; charset=utf-8"
@@ -891,19 +1128,17 @@ proc httpHandler(request: Request) =
       token = request.playerToken()
       requestedName =
         request.queryParams.getOrDefault("name", "").cleanGuestName()
+      # Opt-in, and REFUSED rather than ignored when the config does not arm
+      # it. A silent downgrade would let a client believe it is pointing while
+      # the server is still swinging, and — worse — would let a league server
+      # answer a play client at all.
+      wantsDirectAim = request.queryParams.getOrDefault("directAim", "") in
+        ["1", "true", "yes"]
     var reject = ""
     {.gcsafe.}:
       withLock appState.lock:
-        if not appState.config.allowSeatTakeover:
-          reject = "Seat takeover is not enabled on this server."
-        elif seat < 0 or seat >= MaxPlayers or
-            seat >= appState.config.slots.len:
-          reject = "Seat takeover requires a configured slot."
-        elif appState.config.slots[seat].token.len > 0 and
-            token != appState.config.slots[seat].token:
-          reject = "Takeover token does not match seat " & $seat & "."
-        elif seat.takeoverSeatTaken():
-          reject = "Seat " & $seat & " is already being taken over."
+        reject = appState.config.takeoverRejection(
+          seat, token, wantsDirectAim, seat.takeoverSeatTaken())
     if reject.len > 0:
       request.respondForbiddenWebSocket(reject)
       return
@@ -920,7 +1155,11 @@ proc httpHandler(request: Request) =
         else:
           if guestName.len == 0:
             guestName = "Guest" & $(appState.takeovers.len + 1)
-          websocket.registerTakeoverWebSocket(seat, guestName)
+          websocket.registerTakeoverWebSocket(
+            seat,
+            guestName,
+            wantsDirectAim and appState.config.allowDirectAim
+          )
     if lost:
       websocket.disconnectWebSocket()
       return
@@ -1538,6 +1777,11 @@ proc runServerLoop*(
     else: initialConfig
   var
     replayWriter = openReplayWriter(saveReplayPath, config.configJson())
+    # Per-cog last RECORDED direct-aim bearing, -1 = channel off. Lives beside
+    # the writer it feeds, for the writer's whole life, because the aim stream
+    # is deduped exactly like the mask stream: a record is written only when
+    # the bearing changes and playback holds it in between.
+    lastDirectAim: seq[int] = @[]
     replayPlayer =
       if replayLoaded:
         move(initializedReplay.player)
@@ -1652,6 +1896,11 @@ proc runServerLoop*(
       takeoverSockets: seq[WebSocket] = @[]
       takeoverCogs: seq[int] = @[]
       takeoverStates: seq[PlayerViewerState] = @[]
+      # Where each human-driven cog's cursor is this frame, in map pixels.
+      # Indexed BY COG so the step loop can re-derive the bearing after every
+      # step — the cursor holds still, but the cog moves under it, and "points
+      # wherever the mouse is" has to stay true while you walk.
+      aimTargets: seq[tuple[valid: bool, x, y: int]] = @[]
       replayCommands: seq[char] = @[]
       replaySeekTicks: seq[int] = @[]
       shouldReset = false
@@ -1852,6 +2101,17 @@ proc runServerLoop*(
                 replayWriter.lastMasks.add(0)
               progressed = true
 
+        # NOTE: d5f8bb6 (s2-play-engine) also carried a "squad construction"
+        # block here (squadMode/numAgents/squadAlias/totalCogs/seatPolicyKind)
+        # from the unmerged Paintball KOTH lineage, and a seat-liveness-board
+        # populate call for the /takeover/seat PICKER route. Both hand-skipped
+        # as out of scope for this port (allowDirectAim/allowAimAssist only):
+        # squadMode has no definition anywhere on this branch, and the picker
+        # is a separate, unrequested feature. The SeatSnapshot type, seatBoard
+        # field, seatWaitTicks/migratePendingTakeovers procs and the
+        # /takeover/seat route auto-merged in and still compile — they are
+        # just never populated, so the route honestly answers "no candidate"
+        # (-1) rather than doing anything wrong.
         # ---- seat takeover: resolve each seat, land pending swaps --------
         # A pending takeover goes live on its cog's next false -> true `alive`
         # edge. That is the ONE clean moment: the human always starts a life
@@ -1873,6 +2133,9 @@ proc runServerLoop*(
                 cog = i
                 break
             let nowAlive = cog >= 0 and sim.players[cog].alive
+            if cog >= 0:
+              takeover.cogX = sim.players[cog].x
+              takeover.cogY = sim.players[cog].y
             if takeover.advanceSeatTakeover(cog, nowAlive, appState.config.brMode):
               echo "seat takeover live: ", takeover.name, " drives seat ",
                 takeover.seat, " (cog ", takeover.cog, ")"
@@ -1882,6 +2145,18 @@ proc runServerLoop*(
               takeoverSockets.add(websocket)
               takeoverCogs.add(takeover.cog)
               takeoverStates.add(appState.playerViewers[websocket])
+            takeover.aimBrads =
+              if takeover.cog >= 0 and takeover.cog < lastDirectAim.len:
+                lastDirectAim[takeover.cog]
+              else:
+                -1
+            if takeover.active and takeover.directAim and takeover.cog >= 0 and
+                appState.config.allowDirectAim:
+              let viewer = appState.playerViewers[websocket]
+              if viewer.hasMouse:
+                while aimTargets.len <= takeover.cog:
+                  aimTargets.add((false, 0, 0))
+                aimTargets[takeover.cog] = (true, viewer.mouseX, viewer.mouseY)
         if not replayLoaded:
           inputs = newSeq[InputState](sim.players.len)
           downInputs = newSeq[InputState](sim.players.len)
@@ -2101,6 +2376,36 @@ proc runServerLoop*(
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
+        # ---- direct aim: point the turret, THEN run the tick ------------
+        # The one write that makes a human's aim absolute instead of a
+        # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
+        # several ticks and the cog moves under a still cursor between them.
+        #
+        # Recorded to the replay in the same breath as it is applied, because
+        # this bearing is not a button any mask could carry — a PLAY replay
+        # that dropped it would re-simulate the human's match with the turret
+        # on its policy heading and every shot missing. Playback applies the
+        # held bearing at the matching point in stepReplay, so the two
+        # orderings are one ordering.
+        #
+        # NOTE: d5f8bb6 wrapped the following sim.step in a squadMode-gated
+        # try/except (SimGuardError/CatchableError -> a paintball "fault" end
+        # condition, EndRuleSimFault/EndRuleHostError). squadMode and those
+        # EndRule constants have no definition anywhere on this branch (the
+        # unmerged Paintball KOTH lineage) -- hand-skipped, same as the squad
+        # construction block above. A CLASSIC/BR game keeps its historical
+        # behavior: an exception out of step() propagates and the runner sees
+        # the crash, exactly as it did before this cherry-pick.
+        if not replayLoaded and appState.config.allowDirectAim:
+          for cog in 0 ..< sim.players.len:
+            var brads = -1
+            if cog < aimTargets.len and aimTargets[cog].valid and
+                sim.players[cog].alive:
+              brads = sim.players[cog].directAimBrads(
+                aimTargets[cog].x, aimTargets[cog].y)
+              sim.applyDirectAim(cog, brads)
+            replayWriter.writeDirectAimChange(
+              lastDirectAim, tickTime(sim.tickCount), cog, brads)
         sim.step(stepInputs, stepPrevInputs)
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain

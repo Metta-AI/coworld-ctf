@@ -19,6 +19,10 @@ type
     overlaysBytes*: string
     masks*: seq[uint8]
     lastAppliedMasks*: seq[uint8]
+    ## A seek restores the held direct-aim bearings too: they persist between
+    ## records, so a keyframe that dropped them would resume a human's match
+    ## with the turret back on its policy heading.
+    directAim*: seq[int]
     hashValidationFailed*: bool
     hashMismatchTick*: int
 
@@ -34,6 +38,11 @@ type
     masks*: seq[uint8]
     pressedMasks*: seq[uint8]
     lastAppliedMasks*: seq[uint8]
+    directAim*: seq[int]
+      ## Per-cog direct-aim bearing in brads, -1 when the channel is off for
+      ## that cog. Held between records: an aim record is written only when the
+      ## bearing CHANGES, so playback must keep applying the last one every
+      ## tick exactly as the live server does.
     playing*: bool
     looping*: bool
     speedIndex*: int
@@ -141,6 +150,71 @@ proc tickTime*(tick: int): uint32 =
   ## Converts a simulation tick to replay milliseconds.
   replayCodec.tickTime(tick, ReplayFps)
 
+const
+  ReplayAimRecordFlag* = 0x80'u8
+    ## Marks an input record as a DIRECT-AIM record rather than a button mask:
+    ## `player` is (flag or cogIndex) and `keys` carries the absolute bearing
+    ## in brads. The codec's record layout is untouched — only this one byte's
+    ## high bits, which a cog index can never use (MaxPlayers is 32).
+    ##
+    ## Direct aim is a bearing the ENGINE writes on the cog, not a button the
+    ## cog pressed, so it cannot ride the mask: a replay that dropped it would
+    ## re-simulate a human's whole match with the turret pointing elsewhere and
+    ## every shot missing. Only a config with `allowDirectAim` on ever writes
+    ## one, which is why a league replay's byte stream is unchanged.
+  ReplayAimClearFlag* = 0x40'u8
+    ## On an aim record, marks the moment the channel goes OFF for that cog —
+    ## the human left and the policy has the seat back. Without it, playback
+    ## would keep pinning the last human bearing onto a policy-driven cog.
+  ReplayAimPlayerMask* = 0x3f'u8
+
+proc isDirectAimRecord*(input: ReplayInput): bool =
+  ## True when an input record carries a bearing instead of a button mask.
+  (input.player and ReplayAimRecordFlag) != 0
+
+proc directAimRecordPlayer*(input: ReplayInput): int =
+  ## The cog index an aim record addresses.
+  int(input.player and ReplayAimPlayerMask)
+
+proc directAimRecordBrads*(input: ReplayInput): int =
+  ## The bearing an aim record carries; -1 when it turns the channel off.
+  if (input.player and ReplayAimClearFlag) != 0:
+    -1
+  else:
+    int(input.keys)
+
+proc writeDirectAimChange*(
+  replayWriter: var ReplayWriter,
+  lastAim: var seq[int],
+  time: uint32,
+  playerIndex: int,
+  brads: int
+) =
+  ## Writes one replay aim event when a COG's direct-aim bearing changes.
+  ## `brads` is -1 when the channel is off for that cog (no human driving).
+  ##
+  ## Lives beside writeInputMaskChange and for the same reason: this stream IS
+  ## the replay's action stream for a human seat, and the tests that prove a
+  ## PLAY replay re-simulates to the identical hash chain must write it exactly
+  ## the way the server does.
+  if playerIndex < 0 or playerIndex > int(ReplayAimPlayerMask):
+    return
+  while lastAim.len <= playerIndex:
+    lastAim.add(-1)
+  if lastAim[playerIndex] == brads:
+    return
+  let player =
+    if brads < 0:
+      uint8(playerIndex) or ReplayAimRecordFlag or ReplayAimClearFlag
+    else:
+      uint8(playerIndex) or ReplayAimRecordFlag
+  replayWriter.writeInput(ReplayInput(
+    time: time,
+    player: player,
+    keys: (if brads < 0: 0'u8 else: uint8(brads and 0xff))
+  ))
+  lastAim[playerIndex] = brads
+
 proc openReplayWriter*(path: string, configJson: string): ReplayWriter =
   ## Opens a replay file and writes the header.
   replayCodec.openReplayWriter(path, configJson, CtfReplaySpec)
@@ -206,6 +280,7 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.masks = @[]
   result.pressedMasks = @[]
   result.lastAppliedMasks = @[]
+  result.directAim = @[]
   result.overlays = @[]
   result.playing = true
   result.looping = true
@@ -241,6 +316,7 @@ proc resetReplay*(replay: var ReplayPlayer) =
   replay.masks = @[]
   replay.pressedMasks = @[]
   replay.lastAppliedMasks = @[]
+  replay.directAim = @[]
   replay.overlays = @[]
 
 proc saveReplayKeyframe(
@@ -260,6 +336,7 @@ proc saveReplayKeyframe(
     overlaysBytes: replay.overlays.toFlatty(),
     masks: replay.masks,
     lastAppliedMasks: replay.lastAppliedMasks,
+    directAim: replay.directAim,
     hashValidationFailed: replay.hashValidationFailed,
     hashMismatchTick: replay.hashMismatchTick
   )
@@ -286,6 +363,7 @@ proc restoreReplayKeyframe(
   replay.masks = keyframe.masks
   replay.pressedMasks = newSeq[uint8](replay.masks.len)
   replay.lastAppliedMasks = keyframe.lastAppliedMasks
+  replay.directAim = keyframe.directAim
   replay.hashValidationFailed = keyframe.hashValidationFailed
   replay.hashMismatchTick = keyframe.hashMismatchTick
 
@@ -340,6 +418,16 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
   while replay.inputIndex < replay.data.inputs.len and
       replay.data.inputs[replay.inputIndex].time <= time:
     let input = replay.data.inputs[replay.inputIndex]
+    if input.isDirectAimRecord():
+      # Intercepted BEFORE ensureReplayPlayer: the flagged byte is not a roster
+      # index, and growing the mask arrays to 128 rows on it would be silent
+      # corruption rather than a loud failure.
+      let aimPlayer = input.directAimRecordPlayer()
+      while replay.directAim.len <= aimPlayer:
+        replay.directAim.add(-1)
+      replay.directAim[aimPlayer] = input.directAimRecordBrads()
+      inc replay.inputIndex
+      continue
     replay.ensureReplayPlayer(int(input.player))
     replay.pressedMasks[int(input.player)] =
       replay.pressedMasks[int(input.player)] or
@@ -431,6 +519,12 @@ proc stepReplay*(replay: var ReplayPlayer, sim: var SimServer) =
   replay.applyReplayEvents(sim)
   let prevInputs = replay.replayPrevInputs(sim.players.len)
   let inputs = replay.replayInputs(sim.players.len)
+  # The playback mirror of the live server's pre-tick aim write: bearing first,
+  # then the tick that reads it. Same order on both sides, or a human's replay
+  # would fire one tick behind its own turret.
+  for cog in 0 ..< min(replay.directAim.len, sim.players.len):
+    if replay.directAim[cog] >= 0:
+      sim.applyDirectAim(cog, replay.directAim[cog])
   sim.step(inputs, prevInputs)
   replay.clearReplayPressedMasks()
   replay.checkReplayHash(sim)
