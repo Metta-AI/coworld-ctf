@@ -103,9 +103,48 @@ type
                        ## capture. Wired via `KillContext.escorted`.
 
     # ── Survival and support ─────────────────────────────────────────────
-    dClutchHeal        ## healing at 1 hp. Our medkit rate is 0.62/Ep against
-                       ## winners' 1.84-2.60; this prices the gap directly.
+    #
+    # 🚨 ZERO+TOMBSTONE (2026-08-26, GLORYVERSION 9, LAW AUDIT E1): `dClutchHeal`
+    # priced (25g/30 drama, popping "SAVE", climbing heat) the act of healing
+    # YOURSELF at 1 hp. Ground truth: no mechanic in this engine heals or arms
+    # another player, so a self-heal is never above-and-beyond -- it is the
+    # cog buying its own life back, the textbook self-benefiting act the law
+    # bans from anything CELEBRATED. Kept in the enum rather than deleted
+    # outright (unlike `dFlagReturn`'s full removal, above) because the mint
+    # SITE still fires structurally at the exact spot the save used to be
+    # priced -- `tryPickupMedKits` still calls `awardDeed(..., dClutchHeal,
+    # ...)` -- so the §8 audit's "every deed fires or it is dead code" rule
+    # stays honest about WHY this one fires for nothing: it is INTENTIONALLY
+    # inert, not silently unwired. `DeedGloryTable`/`DeedDramaTable` both go
+    # to 0 (see their own rows), and `popsScore` now excludes it explicitly
+    # (the "SAVE" pop dies with it, same as the law asks). The underlying
+    # `clutchHeals` counter on `Player` survives as ANALYSIS-ONLY telemetry
+    # (still incremented at the real heal site, still in `gameHash` for
+    # replay determinism) -- useful for measuring the heal-rate gap the old
+    # deed was aimed at, but it gates no achievement any more (`treeMedKit`
+    # is re-founded as The Provider, E2; `treeShield`'s re-gated Second Wind
+    # reads `rescuedTick`, never `clutchHealTick`, E3) -- see `tests/
+    # test_glory.nim`'s new golden-law test, which asserts exactly that.
+    dClutchHeal        ## RETIRED (self-heal, zero+tombstone): see the block
+                       ## comment above. Fires at the real heal site, prices
+                       ## at 0g/0 drama, never pops, gates nothing.
+    # `dShieldSoak` KEPT AS-IS (4g, 0 drama): the law-audit choice offered
+    # "keep as a 0-drama analysis counter or retire" -- kept, because unlike
+    # `dClutchHeal` it was NEVER celebrated in the first place (0 drama since
+    # v1, already excluded from `popsScore`, already excluded from
+    # `paysHeat`) -- unretired only in the sense that it still mints a small
+    # background glory trickle, same as `dLevelUp`. The LAW VIOLATION here was
+    # never the deed, it was the achievement layer built on top of it: the
+    # old `treeShield` tree gated five tiers on `soakedHp`, and its own
+    # "STANDING DECISION" comment argued soaking "funds the team" -- which the
+    # ground truth in this wave's brief refutes directly ("the shield
+    # protects ONLY its wearer"). That comment and the tree it defended are
+    # gone (E3, `treeShield` re-founded as the teamwork tree); `soakedHp`
+    # keeps existing purely as an analysis counter, read by no gate.
     dShieldSoak        ## per hit point your shield absorbed for the team.
+                       ## Self-benefiting by mechanics (the ground truth: a
+                       ## shield protects only its wearer) -- kept as a
+                       ## 0-drama background mint, gates no achievement.
     dWipe              ## the enemy team eliminated.
 
     # ── Progression ──────────────────────────────────────────────────────
@@ -115,9 +154,97 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 8
+  GloryVersion* = 9
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v9 (2026-08-26, GLORYVERSION 9 WAVE / LAW AUDIT, Maxwell's re-affirmed
+    ## law: "achievements and glory reward play ABOVE AND BEYOND normal --
+    ## never self-benefiting acts"). A whole violating tree was caught this
+    ## pass: ground truths already proven and cited rather than re-derived --
+    ## a shield protects ONLY its wearer (all three damage sites absorb on
+    ## the hit index), NO mechanic heals or arms another player, and the
+    ## supply drop is the ONE team-benefit loop this engine has (any
+    ## teammate may consume a drop). Every item below is classified by
+    ## MECHANICS, never by name.
+    ##   - E1: self-care stops paying anything CELEBRATED. `dClutchHeal`
+    ##     zero+tombstoned (see its own comment on `Deed`) -- the "SAVE" pop
+    ##     and its heat/drama are gone, the mint site stays wired at 0g/0
+    ##     drama so the §8 audit still sees it FIRE, just for nothing.
+    ##     `XpPerHeal`, `XpPerClutchHeal`, `XpPerShieldSoak` and the
+    ##     heal-gated `XpPerPickup` all go to 0 -- self-care buys no levels.
+    ##     `dShieldSoak` KEPT (never celebrated to begin with; see its own
+    ##     comment). `LevelThresholds` [9,19,27,40,55] -> [9,15,24,33,48],
+    ##     RE-FIT against the mirror re-measured with those four constants
+    ##     zeroed (tools/ladder/gloryscore.py, same 120-episode
+    ##     `--min-version 0.7.200` cache, 2026-08-26): xp peaks p25:6 p50:9
+    ##     p75:15 p90:21 p95:27 p98:39 p99:45 (4804/6870 active lives) --
+    ##     visibly compressed vs the v7 fit's p90:25/p99:52 (heal xp was a
+    ##     real chunk of the old pool; removing it shrinks the whole
+    ##     distribution, as it should once self-care no longer levels). Same
+    ##     design anchors as v7: L1 just above p50 (value 9, sits at the p50
+    ##     mark itself: 56.7% of active lives clear it), L3 ≈ p90 (24, lands
+    ##     at p93.1 -- 6.9% clear), L5 just past p99 (48, p99.3 -- 0.7%
+    ##     clear); L2 (15) and L4 (33) interpolate on the same curve.
+    ##     VERIFIED cadence: L3+ lives/team-ep mean 1.93 (target ~2), L5
+    ##     lives/ep mean 0.38 (target ~0.3), P(L1+ | killed or stole) 0.91
+    ##     (target ~0.9) -- all close to the design targets despite the
+    ##     shrunk pool, because damage xp (the workhorse, untouched) still
+    ##     dominates. Sanity (unchanged design facts):
+    ##     `levelForXp(XpPerSteal)` == 1 (12 sits in [9,15)),
+    ##     `levelForXp(XpPerCapture)` == 3 (30 sits in [24,33)).
+    ##   - E2: `treeMedKit` re-founded as THE PROVIDER (see `AchievementNames`'
+    ##     own comment) -- gated on `supplyShared`/`supplySaves`, new
+    ##     per-player counters pinned in `tryPickupSupplyDrops` (sim.nim) the
+    ##     instant a TEAMMATE (not the dropper) consumes a supply-dropped
+    ##     pickup, crediting the DROPPER. `SupplyDropPickup` gained
+    ##     `droppedBy`. `teamConvertedKits`'s "med" boolean now reads
+    ##     `supplyShared >= 1` instead of `clutchHeals >= 1`.
+    ##   - E3: `treeShield` re-founded as THE TEAMWORK tree -- gated on four
+    ##     new counters (`assists`, `escortKills`, `rescues`,
+    ##     re-gated `secondWind`) plus a team-wide `squadVolleyDone` pin, all
+    ##     set ONCE at their causal sites in `killPlayer`/the three damage
+    ##     sites, the same discipline `secondWind`/`capturedOutnumbered`/
+    ##     `capturedFastBreak` already hold themselves to -- see sim.nim's
+    ##     own comments at `lastDamagedBy`/`menacingTick`/`rescuedTick` for
+    ##     the plumbing. "Second Wind" keeps its name but is RE-GATED: the
+    ##     comeback beat is now "get rescued, then land a tag within
+    ##     `SecondWindTicks`" instead of "heal yourself, then land a tag" --
+    ##     the self-heal gate is gone, the comeback fiction survives.
+    ##     `teamConvertedKits`'s "shield" boolean now reads `assists >= 1`
+    ##     instead of `soakedHp >= 3`.
+    ##   - E4: the FIRST race (the marker AND the 300% pioneer bonus) is now
+    ##     restricted to TIER V of each tree -- 8 of 40 possible claims
+    ##     (20%), under Maxwell's "no more than a quarter of all possible
+    ##     achievements should be firsts" ceiling. Tiers I-IV claim for every
+    ##     team at the same base price, no race, ever; enforced once, inside
+    ##     `claimAchievement` itself (sim.nim), so no caller can bypass it.
+    ##   - E5: `TierGlory` [2,4,8,16,32] -> [9,11,14,18,23] -- the "+2
+    ##     problem": tier I used to pay 2g next to a 10g floor kill, an order
+    ##     of magnitude under "a solid deed." Re-anchored so tier I (9g) sits
+    ##     just under `dHonorableKill` (10g) and tier V (23g, 69g first-
+    ##     claimed) sits in the `dAceTag`(40)/`dCarrierKill`(90) neighborhood
+    ##     -- a real event, not a footnote. `tests/test_glory.nim`'s law-3
+    ##     sweep-budget test is the hard constraint this was solved against:
+    ##     `sum(TierGlory) * AchievementTrees < dCapture + dWipe` --
+    ##     75 * 8 = 600 < 650, unchanged `dCapture`/`dWipe`. See
+    ##     `AchievementSweepBudgetPct`'s own comment for the re-measured
+    ##     share of a median winner's episode glory this ladder now costs.
+    ##   - E6: `AchievementDescriptions` -- one truthful, kid-readable
+    ##     sentence per (tree, tier), shipped once per HUD viewer
+    ##     (`broadcast.nim`'s `curriculumJson`) and read as native `title=`
+    ##     tooltips on the achievement panel and the two team dropdowns
+    ##     (`client/replay_broadcast.html`).
+    ##   - E7: `tests/test_glory.nim` gained a GOLDEN LAW test that walks
+    ##     every achievement gate's declared input counters and asserts NONE
+    ##     of them is a self-care counter (`clutchHeals`, `soakedHp`, or any
+    ##     future successor) -- the violation class this whole wave exists to
+    ##     end now fails the suite loudly, forever, instead of waiting for a
+    ##     human audit to catch the next one.
+    ## Every item above changes WHETHER, HOW MUCH, or WHO an achievement or
+    ## deed pays, and the xp/threshold refit changes which level a cog's xp
+    ## buys -- so a v8 ledger's achievement claims, glory totals and levels
+    ## are NOT comparable to a v9 one.
     ##
     ## v8 (2026-08-25, FAST BREAK wave): treeCarrier tier V "Full Run" retired
     ## and replaced with "Fast Break" -- see GLORY C3c's own ⚠️⚠️ disclosure
@@ -300,8 +427,9 @@ const
     120,    # dDenial
     14,     # dEscortKill
     # survival and support
-    25,     # dClutchHeal
-    4,      # dShieldSoak (per hit point)
+    0,      # dClutchHeal (v9 GLORY LAW E1: zero+tombstoned -- self-heal is
+            #             never above-and-beyond; see the Deed enum comment)
+    4,      # dShieldSoak (per hit point; kept -- see the Deed enum comment)
     400,    # dWipe
     # progression
     6,      # dLevelUp
@@ -329,7 +457,8 @@ const
     45,     # dDenial
     15,     # dEscortKill
     # survival and support
-    30,     # dClutchHeal
+    0,      # dClutchHeal (v9 GLORY LAW E1: the "SAVE" pop and its heat dies
+            #             with it -- see the Deed enum comment)
     0,      # dShieldSoak — ambient soak, funds you, is not a moment
     400,    # dWipe
     # progression
@@ -514,8 +643,16 @@ const
 
   MaxLevel* = 5
 
-  LevelThresholds* = [10, 19, 27, 40, 55]
+  LevelThresholds* = [9, 15, 24, 33, 48]
     ## Cumulative XP for levels 1..5, within ONE life.
+    ##
+    ## v9 (GLORY LAW E1, 2026-08-26): RE-FIT -- `XpPerHeal`, `XpPerClutchHeal`,
+    ## `XpPerShieldSoak` and the heal-gated `XpPerPickup` all go to 0 this
+    ## version (self-care buys no levels), so the xp pool this ladder is fit
+    ## against SHRINKS for real, not from a measurement bug like v7's fix.
+    ## See `GloryVersion`'s own v9 changelog for the full percentile table,
+    ## cadence verification and design-consistency checks (levelForXp(
+    ## XpPerSteal)==1, levelForXp(XpPerCapture)==3) -- both still hold.
     ##
     ## v7 (GLORY /proof E3, 2026-08-25): RE-FIT -- every earlier fit at this
     ## constant (2026-08-21's original, and the "byte-identical" 2026-08-25
@@ -583,39 +720,47 @@ const
                               ## -- the workhorse, and the reason gun, spray
                               ## and grenade use all level a cog exactly in
                               ## proportion to what the tool actually did.
-  XpPerHeal* = 3              ## per hit point a med kit restores. Healing is
-                              ## levelling work in itself, not just the
-                              ## clutch save -- and it is aimed at our
-                              ## measured 0.62 kits/Ep vs winners' 1.84-2.60.
-  XpPerClutchHeal* = 6        ## ON TOP of the restore: the save at 1 hp.
-  XpPerPickup* = 4            ## ⚠️ v6 (GLORY C1, Maxwell's own law: "these
-                              ## are things where the player goes above and
-                              ## beyond normal gameplay" -- extended here from
-                              ## achievements to xp): a BARE touch is not
-                              ## work, so this only still pays at the ONE
-                              ## pickup site that is genuinely work-gated --
-                              ## `tryPickupMedKits`/the med-kit supply drop, where
-                              ## the engine refuses the pickup entirely unless
-                              ## the cog is already hurt (`hp < playerMaxHp`),
-                              ## so every mint of this constant sits on top of
-                              ## a real heal. Taking a grenade, spray can or
-                              ## shield mints ZERO xp now -- see the "no xp
-                              ## here" comments at their pickup sites in
-                              ## sim.nim. Re-measured against the real field
-                              ## post-cut: no change (see `LevelThresholds`'s
-                              ## own re-measurement note -- this era's cache
-                              ## never had pickup xp in it to begin with).
-  XpPerShieldSoak* = 2        ## per hit point absorbed for the team.
-                              ## ⚠️ UNCALIBRATED (GLORY C7): priced BELOW
-                              ## `XpPerDamage` (3) on the reasoning that
-                              ## absorbing a hit is passive income (the same
-                              ## law that prices `dShieldSoak` at zero drama)
-                              ## while landing one is active work -- a
-                              ## design ratio, not a field-fit one.
+  XpPerHeal* = 0              ## v9 (GLORY LAW E1): was 3/hit point restored.
+                              ## Self-care buys no levels -- healing YOURSELF
+                              ## is not above-and-beyond, it is the cog buying
+                              ## its own life back (ground truth: no mechanic
+                              ## heals another player, so every heal xp mint
+                              ## this constant ever fed was self-benefiting by
+                              ## construction). The mint sites
+                              ## (`tryPickupMedKits`/`tryPickupSupplyDrops`,
+                              ## sim.nim) stay wired -- `XpPerPickup +
+                              ## XpPerHeal * healed` now always contributes 0,
+                              ## structurally inert rather than deleted, the
+                              ## same "keep the fire counter honest" choice
+                              ## `dClutchHeal` makes.
+  XpPerClutchHeal* = 0        ## v9 (GLORY LAW E1): was 6, the save-at-1-hp
+                              ## bonus ON TOP of the restore -- same self-care
+                              ## reasoning as `XpPerHeal`, doubly so (this was
+                              ## the MORE celebrated half of a self-heal).
+  XpPerPickup* = 0            ## v9 (GLORY LAW E1): was 4. Its only remaining
+                              ## payer was the med-kit heal path (every other
+                              ## pickup site already zeroed this in v6, GLORY
+                              ## C1) -- a self-heal, so it goes to 0 with
+                              ## `XpPerHeal`/`XpPerClutchHeal` rather than
+                              ## surviving as an orphaned "just for touching a
+                              ## kit" xp source (which the v6 ruling had
+                              ## already banned everywhere else). The mint
+                              ## sites stay wired, same discipline as above.
+  XpPerShieldSoak* = 0        ## v9 (GLORY LAW E1): was 2/hit point absorbed.
+                              ## Ground truth: a shield protects ONLY its
+                              ## wearer, so soaking is self-preservation, not
+                              ## team funding -- the same self-care class as
+                              ## the heal constants above, just on the
+                              ## survival side of the ladder instead of the
+                              ## support side. `dShieldSoak` itself (the GLORY
+                              ## mint, distinct from this XP grant) is KEPT --
+                              ## see its own comment on `Deed` for why that is
+                              ## not a contradiction (it was never celebrated
+                              ## to begin with).
   XpPerSteal* = 12            ## flag actions are the objective spine.
                               ## DESIGN-CONSISTENCY CHECK (GLORY C7, not a
                               ## field-fit): with `LevelThresholds`
-                              ## [10,18,24,36,50], `levelForXp(XpPerSteal)`
+                              ## [9,15,24,33,48] (v9), `levelForXp(XpPerSteal)`
                               ## resolves to exactly L1 -- a steal alone
                               ## promotes a fresh life to L1 and no further.
                               ## `tests/test_glory.nim`'s "thresholds make
@@ -920,6 +1065,54 @@ const
                               ## fit independently off its own distribution,
                               ## not copied from it.
 
+  ClutchHpThreshold* = 1      ## v9 (GLORY LAW E1/E3): "at/near clutch hp" --
+                              ## the same "1 hp" line `tryPickupMedKits`'
+                              ## `onOneHp` already used inline, now named so
+                              ## E3's damage-site "menacing" pin (sim.nim: a
+                              ## hit that leaves an ENEMY at or below this
+                              ## reads as putting them in mortal danger) and
+                              ## E2's supply-drop "save" pin (a teammate
+                              ## consumed my drop while at or below this)
+                              ## share ONE definition of clutch instead of
+                              ## two independently-chosen numbers.
+  AssistWindowTicks* = 120    ## v9 (GLORY E3, new): the victim's last enemy-
+                              ## inflicted damage counts toward an ASSIST for
+                              ## its dealer only if the eventual kill lands
+                              ## within this many ticks. ⚠️ UNCALIBRATED (no
+                              ## field data exists for this counter yet) --
+                              ## reuses the pre-v9 Second Wind window's own
+                              ## magnitude (120t, ~5s) as the design register
+                              ## for "recently," not an independent fit.
+  RescueWindowTicks* = 120    ## v9 (GLORY E3, new): a RESCUE credits the
+                              ## killer only if the victim's own `menacingTick`
+                              ## (sim.nim: the last time THAT cog put one of
+                              ## the killer's teammates at/near clutch hp) sits
+                              ## inside this window. ⚠️ UNCALIBRATED, same
+                              ## honesty as `AssistWindowTicks`.
+  SecondWindTicks* = 120      ## v9 (GLORY E3): RE-GATED, not re-measured --
+                              ## this is the exact 120-tick magnitude the
+                              ## pre-v9 self-heal Second Wind used inline
+                              ## (`killPlayer`'s old `clutchHealTick` check),
+                              ## now named and re-pointed at `rescuedTick`
+                              ## instead. The comeback beat's TIMING is
+                              ## unchanged; only WHAT arms it moved (rescued,
+                              ## not self-healed).
+  SquadVolleyWindowTicks* = 90 ## v9 (GLORY E3, new): the team kill-ring
+                              ## window for `Squad Volley` -- 3+ DISTINCT
+                              ## teammates each landing a kill inside this
+                              ## span. ⚠️ UNCALIBRATED. Deliberately TIGHTER
+                              ## than the 120t windows above (~3.75s vs ~5s):
+                              ## a "volley" should read as one coordinated
+                              ## burst, not three separate fights strung
+                              ## together by a generous clock.
+  SquadVolleyMinDistinct* = 3 ## how many DIFFERENT teammates must each land
+                              ## a kill inside the window -- the whole point
+                              ## is that no single cog can trigger this alone.
+  SquadVolleyRingCap* = 8     ## hard cap on the per-team recent-kill ring
+                              ## (killerIndex, tick) sim.nim keeps -- "a
+                              ## small ring," bounded so a long quiet-then-
+                              ## bursty episode cannot grow it forever.
+
   # ───────────────────────────────────────────────────────────────────────
   # §5  THE ACHIEVEMENT CURRICULUM
   # ───────────────────────────────────────────────────────────────────────
@@ -937,6 +1130,17 @@ const
   #   2. Every team can earn every tier; the FIRST team in the episode to
   #      complete one claims at AchievementFirstMultPct. A first-only reward
   #      teaches the other three teams nothing.
+  #
+  #      🚨 v9 (GLORY LAW E4, Maxwell: "no more than a quarter of all
+  #      possible achievements should be firsts"): the race itself -- the
+  #      "FIRST!" marker AND the AchievementFirstMultPct bonus -- is now
+  #      restricted to TIER V of each tree. Tiers I-IV are NEVER first-
+  #      raced: every team that clears one banks the same base price,
+  #      always, whether it got there first or last. 8 of the 40 possible
+  #      claims (one tier V per tree, 8 trees) can ever be a FIRST -- 20%,
+  #      under the 25% ceiling. Enforced ONCE, inside `claimAchievement`
+  #      itself (sim.nim), so no caller can accidentally pass a tier-I claim
+  #      through as a race.
   #   2b. No achievement ever pays for travel, arrival or departure. Movement
   #      is how you reach plays; it is not a play.
   #
@@ -974,16 +1178,34 @@ const
   AchievementTrees* = 8
   AchievementTiers* = 5
 
-  TierGlory*: array[AchievementTiers, int] = [2, 4, 8, 16, 32]
-    ## ⚠️ UNCALIBRATED base magnitude (GLORY C7): a clean power-of-2 ladder
-    ## (each tier doubles the last), not fit against a measured "what should
-    ## a first tag be worth" number. The ONE bound this table is actually
-    ## HELD to is real and enforced: `tests/test_glory.nim`'s "law 3 -- big
-    ## enough to chase, too small to win on" asserts the full 40-claim sweep
-    ## (`sum(TierGlory) * AchievementTrees`) stays under `dCapture + dWipe`,
-    ## and that no single tier rivals the win condition it sits beside. The
-    ## doubling SHAPE, and law 3's ceiling on it, are load-bearing; the base
-    ## "2" is a guess.
+  TierGlory*: array[AchievementTiers, int] = [9, 11, 14, 18, 23]
+    ## v9 (GLORY LAW E5, "the +2 problem"): RE-ANCHORED off [2, 4, 8, 16, 32]
+    ## -- a clean power-of-2 ladder whose tier I paid 2g next to
+    ## `dHonorableKill`'s 10g floor, an order of magnitude under "a solid
+    ## deed," and whose tier V (32g) barely read as an event next to
+    ## `dAceTag` (40g). Re-anchored so tier I (9g) sits just under a plain
+    ## kill and tier V (23g, 69g first-claimed at tier V's own
+    ## `AchievementFirstMultPct`) sits in the `dAceTag`(40)/`dCarrierKill`(90)
+    ## neighborhood -- a real event, not a footnote. Escalation is now
+    ## +2/+3/+4/+5 rather than a flat doubling, a deliberately ACCELERATING
+    ## curve (the gap between neighbors grows, so the top of the ladder feels
+    ## like it is pulling away, not just repeating the same multiplier).
+    ##
+    ## Solved directly against the hard constraint: `tests/test_glory.nim`'s
+    ## "law 3 -- big enough to chase, too small to win on" asserts
+    ## `sum(TierGlory) * AchievementTrees < dCapture + dWipe` (unchanged this
+    ## wave: 250 + 400 = 650) -- 75 * 8 = 600, clearing it with room (50g,
+    ## ~8%) rather than shaving the ceiling to the last integer. `tierGlory(4)`
+    ## = 23 stays well under `dCapture` (250), so no single tier rivals the
+    ## win condition it sits beside, first-claimed or not.
+    ##
+    ## The BASE magnitude is still a design choice, not a field-fit (no
+    ## measured "what should a first tag be worth" number exists for
+    ## paintbot) -- what changed is the ANCHOR it is designed against (the
+    ## deed table's own floor and mid-tier, not an arbitrary "2"). See
+    ## `AchievementSweepBudgetPct`'s own comment for the re-measured share of
+    ## a median winner's episode glory this new ladder actually costs in the
+    ## field.
   TierDrama*: array[AchievementTiers, int] = [5, 5, 15, 15, 30]  ## tenths
     ## ⚠️ UNCALIBRATED (GLORY C7): law 4 (achievements never climb heat) is
     ## enforced regardless of this table's values -- `paysHeat` excludes
@@ -993,6 +1215,17 @@ const
     ## jump at T5); it mirrors `TierGlory`'s doubling by eye.
   AchievementFirstMultPct* = 300
     ## The first team in the episode to complete a tier claims at x3.
+    ##
+    ## 🚨 v9 (GLORY LAW E4): only reaches tier V now (`AchievementTiers - 1`)
+    ## -- see law 2's own comment above for the 25%-of-40 ceiling this
+    ## restriction is sized against. Tiers I-IV never read this constant at
+    ## all any more; every team that clears one banks flat `tierGlory(tier)`,
+    ## no race, no marker, regardless of who got there first. The pre-v9
+    ## claim-split reasoning below (first=0.50-0.86 on common tiers vs 1.00 on
+    ## rare ones) is what MOTIVATED narrowing the race to the rare end in the
+    ## first place -- a "first" on a tier 86% of claims already win is not a
+    ## pioneer bonus, it is a coin flip with a badge.
+    ##
     ## 🚨 REFRAMED (VOCABULARY wave): this is a PIONEER bonus, not a race
     ## bonus. It pays for being first-on-the-board, full stop -- whether or
     ## not the other team ever shows up to contest the tier at all. The
@@ -1002,18 +1235,36 @@ const
     ## get there), while rare tiers see first=1.00 -- essentially every claim
     ## IS the first claim, because usually only one team ever reaches them in
     ## a given episode. At that end there is no "race" to win; the bonus
-    ## simply crowns whichever team pioneered the feat.
+    ## simply crowns whichever team pioneered the feat. (Measured against the
+    ## pre-v9 curriculum, where every tier could race -- the SHAPE of the
+    ## claim split by tier difficulty is what v9's E4 acts on, even though the
+    ## specific tier indices it was measured at have since been repriced.)
     ## ⚠️ UNCALIBRATED (GLORY C7): a round "triple" -- big enough to be worth
     ## chasing, per law 2's own stated intent ("a first-only reward teaches
     ## the other teams nothing" argues AGAINST going higher, since a bigger
     ## multiplier makes the other three teams' later claims feel more like
     ## consolation prizes) -- but not fit against a measured
     ## first-to-claim distribution.
-  AchievementSweepBudgetPct* = 15
+  AchievementSweepBudgetPct* = 31
     ## Law 3 as Muster states it: a full sweep must stay under this share of a
     ## MEDIAN WINNER's episode glory.
     ##
-    ## ⚠️ UNCALIBRATED. We have no measured median for paintbot yet, and a
+    ## v9 (GLORY LAW E5): RE-MEASURED after the TierGlory re-anchor (was 15,
+    ## a placeholder; the field-measured RECOMMENDED value under the v8
+    ## curriculum was 28 -- see v8's own gloryscore.py sweep-budget dump).
+    ## tools/ladder/gloryscore.py, same 120-episode `--min-version 0.7.200`
+    ## cache (2026-08-26): full-sweep base moved 496 -> 600 (the new
+    ## `TierGlory` sum), wipe-corrected median winner glory 1826 -> 1956 (the
+    ## richer achievement ledger itself lifts winner totals a little), giving
+    ## a RECOMMENDED value of 31 (was 28) -- the budget moved LESS than the
+    ## price table did (600/496 = +21% vs 31/28 = +11%) because winner glory
+    ## also grew, not just the sweep. Still the SOFT number: `tests/
+    ## test_glory.nim` continues to assert only the DERIVED, denominator-free
+    ## form (`sum(TierGlory) * AchievementTrees < dCapture + dWipe`), which
+    ## this constant does not gate -- see that test's own comment for why a
+    ## guessed denominator is worse than none.
+    ##
+    ## ⚠️ Pre-v9 UNCALIBRATED note, retained for provenance. We have no measured median for paintbot yet, and a
     ## gate whose denominator is invented is the exact mistake Muster banked
     ## as "ship-gate thresholds asserted from guesses": a threshold pulled
     ## from intuition can be too easy (everything passes) or too hard
@@ -1122,78 +1373,78 @@ const
                             ##      team-eps), below even "Blast Radius"
                             ##      (2.9%) and "Double Blast" (2.9%) -- the
                             ##      tree's actual hardest tier, moved to V.
-    # treeShield — "The Wall". v3: "Suit Up" (pick up a shield) is GONE.
-    # v6 (GLORY C6): the whole tier set read as Greek-mythology/fortress
-    # vocabulary borrowed from elsewhere (Aegis, Bulwark, Rampart, Atlas) --
-    # renamed to the paintball field's own language. "Blockade" is already
-    # paint-native (a body blocking incoming fire) and untouched.
-    #
-    # 🚨 STANDING DECISION (Maxwell, VOCABULARY wave): these soak thresholds
-    # STAY, even though every tier here is gated on an absorbed-hit-point
-    # COUNT and law 2b bans achievements that pay for something the game
-    # already paid you for once. The two are not the same shape. A bare
-    # pickup/possession/arrival tier pays for FREE value -- walking onto a
-    # kit or a tile costs the enemy nothing. Soaking a hit REQUIRES the enemy
-    # to be shooting AT you: it is risk-bearing work done for the team (the
-    # shield-carrier's whole role is standing in the line of fire so a
-    # teammate doesn't have to), not a possession you can rack up passively.
-    # This also means `dShieldSoak`/`XpPerShieldSoak` already pay every one
-    # of these hit points once, so a tier claim here is a deliberate SECOND
-    # payment on the same act -- acknowledged, not an oversight, and accepted
-    # as role-pricing: soaking is a role a cog can choose to play, and this
-    # tree is what rewards choosing to play it well, on top of the ambient
-    # income the act already earns.
-    ["Suit of Paint",       ## I    absorb 3 hp (was "Aegis")
-     "Blockade",            ## II   absorb 6 hp in one game
-     "Paint Wall",          ## III  absorb 6 hp AND land an enemy kill
-                            ##      (was "Bulwark")
-     "The Bunker",          ## IV   absorb 9 hp in one game (was "Rampart" --
-                            ##      the bunker is THE iconic paintball-field
-                            ##      obstacle, not a borrowed fortress term)
-     "The Backstop"],       ## V    absorb 12 hp in one game (was "Atlas")
-    # treeMedKit — "The Patch". v3: "Field Dressing" (take a med kit) is
-    # GONE -- the take is normal play; the SAVE it buys is the achievement.
-    #
-    # v7 (GLORY /proof E5): first-ever field claim rates for this tree
-    # (n=240 team-eps, now that GLORY C10 has fixed the mirror's heal
-    # detection): T1 "The Catch" 54.6%, "Patch Job" 5.0%, "Second Wind"
-    # 13.8%, "Miracle Worker" 0.0%, "Lifeline" 0.4% -- TWO inversions
-    # (II<III and IV<V, a harder-measured act priced as the EASIER tier).
-    # Reordered on the measurement, same requirements: Patch Job<->Second
-    # Wind and Miracle Worker<->Lifeline swap slots so claim rate decreases
-    # tier over tier. See sim.nim's `satisfiedAchievements` for the earn()
-    # reslotting.
-    ["The Catch",           ## I    heal at 1 hp (v6, GLORY C6: was
-                            ##      "The Save" -- "catch" reads as the
-                            ##      teammate's play, not a medical term)
-     "Second Wind",         ## II   a KILL landing within 120 ticks of your
-                            ##      latest clutch heal -- detected at the
-                            ##      kill site, so the heal must come FIRST
-                            ##      (v3.1: the poll used to compare "now" to
-                            ##      the heal tick and never checked order or
-                            ##      that a kill fell inside the window at
-                            ##      all -- CURRICULUM audit C6/C7). (v7,
-                            ##      GLORY /proof E5: was III -- field claim
-                            ##      rate 13.8% vs "Patch Job"'s 5.0% means
-                            ##      THIS is the easier act; swapped.)
-     "Patch Job",           ## III  2 clutch heals in one episode (v6,
-                            ##      GLORY C6: was "Triage", a real-medicine
-                            ##      term; "patch" already lives in this
-                            ##      tree's own subtitle. v7, GLORY /proof E5:
-                            ##      was II -- the rarer act, moved down;
-                            ##      see "Second Wind" above.)
-     "Lifeline",            ## IV   a clutch heal taken WHILE CARRYING the
-                            ##      heart (v7, GLORY /proof E5: was V --
-                            ##      field claim rate 0.4% vs "Miracle
-                            ##      Worker"'s 0.0% means THIS is the easier
-                            ##      act; swapped.)
-     "Miracle Worker"],     ## V    3 clutch heals in one episode (v6, GLORY
-                            ##      C6: EVALUATED, kept -- a common idiom,
-                            ##      not a borrowed franchise/mythology name;
-                            ##      reads fine cold to a kid. v7, GLORY
-                            ##      /proof E5: was IV -- the tree's actual
-                            ##      hardest tier at n=240, ZERO claims;
-                            ##      moved to V, see "Lifeline" above.)
+    # treeShield — RE-FOUNDED v9 (GLORY LAW E3) as "The Backup": the teamwork
+    # tree. The old "The Wall" (soak thresholds: Suit of Paint/Blockade/Paint
+    # Wall/The Bunker/The Backstop) is GONE outright, not merely renamed --
+    # its own "STANDING DECISION" comment argued soaking "funds the team,"
+    # which this wave's ground truth refutes directly: a shield protects
+    # ONLY its wearer (all three damage sites absorb on the hit index), so
+    # every one of those five tiers was gating on a SELF-benefiting act, the
+    # exact violation class this whole law audit exists to end. Replaced
+    # with four counters that are genuinely about a TEAMMATE, pinned ONCE at
+    # their causal sites (sim.nim: three damage sites for
+    # `lastDamagedBy`/`menacingTick`, `killPlayer` for the rest) rather than
+    # re-derived at poll time -- the same discipline `secondWind`/
+    # `capturedOutnumbered`/`capturedFastBreak` already hold themselves to.
+    # ⚠️ UNCALIBRATED / no field data (GLORY LAW E3): every counter here is
+    # BRAND NEW this version, so both the requirements AND their tier order
+    # are a first-pass design guess, not a field-fit -- re-measure once a
+    # cache with v9 claims exists.
+    ["Cover Fire",          ## I    land an ASSIST: your damage put the
+                            ##      victim in the fight a teammate finished
+                            ##      within `AssistWindowTicks` (`assists >= 1`).
+     "Escort Duty",         ## II   land a kill while a TEAMMATE runs the
+                            ##      enemy heart (`escortKills >= 1` --
+                            ##      `KillContext.escorted`'s own counter,
+                            ##      which `dEscortKill` already prices but
+                            ##      never used to feed an achievement gate).
+     "The Save",            ## III  a RESCUE: kill a cog that recently put one
+                            ##      of your teammates at/near clutch hp
+                            ##      (`rescues >= 1`) -- the menace is pinned
+                            ##      at the DAMAGE site on the attacker, so
+                            ##      this reads as "you answered the threat,"
+                            ##      not "you happened to kill someone hurt."
+     "Second Wind",         ## IV   RE-GATED (was treeMedKit's self-heal
+                            ##      version): get rescued (see "The Save"),
+                            ##      THEN land a kill of your own within
+                            ##      `SecondWindTicks` -- the comeback beat
+                            ##      survives, the self-heal gate that used to
+                            ##      arm it does not. Detected at the kill
+                            ##      site off `rescuedTick`, never
+                            ##      `clutchHealTick`.
+     "Squad Volley"],       ## V    TEAM-WIDE: 3+ DISTINCT teammates each land
+                            ##      a kill inside `SquadVolleyWindowTicks` of
+                            ##      one another (`squadVolleyDone`, pinned
+                            ##      once off the team's own small recent-kill
+                            ##      ring) -- no single cog can trigger this
+                            ##      alone, by construction.
+    # treeMedKit — RE-FOUNDED v9 (GLORY LAW E2) as "The Provider": every tier
+    # of the old "The Patch" (The Catch/Second Wind/Patch Job/Lifeline/
+    # Miracle Worker) gated on HEALING YOURSELF -- self-care, banned. The
+    # supply drop is the ONE team-benefit loop this engine actually has (any
+    # teammate may consume a drop a 3-star cog's heart produced), so this
+    # tree now reads THAT: `SupplyDropPickup` gained `droppedBy`, and
+    # `tryPickupSupplyDrops` (sim.nim) credits the DROPPER, never the
+    # consumer, the instant a TEAMMATE (not the dropper themself) takes the
+    # kit. "Second Wind" (the one name worth keeping from the old tree)
+    # migrated to `treeShield`'s re-founded teamwork tree above, re-gated
+    # onto being rescued rather than self-healing.
+    # ⚠️ UNCALIBRATED / no field data (GLORY LAW E2), same honesty as
+    # `treeShield` above -- `supplyShared`/`supplySaves` are both new this
+    # version.
+    ["First Delivery",      ## I    a teammate consumes YOUR supply drop for
+                            ##      the first time (`supplyShared >= 1`).
+     "Clutch Delivery",     ## II   a teammate consumed your drop while
+                            ##      at/near clutch hp (`ClutchHpThreshold`) at
+                            ##      the pickup moment -- their hp is readable
+                            ##      right at the site (`supplySaves >= 1`).
+     "Regular Route",       ## III  3 shared drops in one episode
+                            ##      (`supplyShared >= 3`).
+     "Emergency Route",     ## IV   2 clutch saves in one episode
+                            ##      (`supplySaves >= 2`).
+     "Supply Chain"],       ## V    6 shared drops in one episode -- a
+                            ##      veteran that keeps the whole team fed
+                            ##      (`supplyShared >= 6`).
     # treeCarrier — "The Heart". v3.1 (CURRICULUM audit C1/C8): tier I/II used
     # to read `steals >= 1` (an uncontested pickup, satisfiable by walking
     # into an empty base) and live `carryingFlag` plus a hold timer (pure
@@ -1279,6 +1530,64 @@ const
                             ##      idiom for a dominant, capped-off win)
   ]
 
+  AchievementDescriptions*: array[Tree, array[AchievementTiers, string]] = [
+    ## v9 (GLORY LAW E6): one kid-readable sentence per (tree, tier), stating
+    ## the requirement TRUTHFULLY -- mechanics, not fiction, so a tooltip can
+    ## never promise something the gate does not actually check. Shipped once
+    ## per HUD viewer (`broadcast.nim`'s `curriculumJson`) and read by the
+    ## client as native `title=` tooltips on the achievement panel rows and
+    ## the two team dropdowns (`client/replay_broadcast.html`) -- never
+    ## re-typed client-side, the same "one accessor" rule every other number
+    ## in this module already holds itself to. Re-read every name against its
+    ## gate after E1-E3's renames before trusting an OLD description: two
+    ## whole trees (`treeShield`, `treeMedKit`) changed what they measure
+    ## this version even though `treeShield`'s tree-level identity endures.
+    ["Get a kill with your gun.",
+     "Get 3 gun kills in one game.",
+     "Take down an enemy who has leveled up to Ace rank or higher.",
+     "Reach max rank in one life.",
+     "Land a kill from way out past the longshot range."],
+    ["Get a kill with the spray can.",
+     "Get 2 spray kills in one game.",
+     "Get 2 spray kills with the same can.",
+     "Get 3 spray kills with the same can.",
+     "Hit 2 or more enemies with one spray blast."],
+    ["Get a kill with a grenade.",
+     "Get 2 grenade kills in one game.",
+     "Catch 2 or more enemies in one grenade blast.",
+     "Catch 2 or more enemies in a blast, twice in one game.",
+     "Get 3 grenade kills in one game."],
+    # treeShield -> the teamwork tree (E3). Every sentence names a TEAMMATE,
+    # truthfully -- none of these can be satisfied alone.
+    ["Damage an enemy that a teammate finishes off soon after.",
+     "Get a kill while a teammate is running the enemy's heart.",
+     "Take down an enemy who just hurt one of your teammates badly.",
+     "Get rescued by a teammate, then land a kill of your own soon after.",
+     "Have 3 or more different teammates each land a kill in one quick burst."],
+    # treeMedKit -> The Provider (E2). Every sentence names the CONSUMER as a
+    # teammate, never the earner -- the tree is about paying the squad.
+    ["Have a teammate pick up kit from your team's supply drop.",
+     "Have a teammate grab your supply drop while they're badly hurt.",
+     "Share 3 supply drops with your team in one game.",
+     "Save a badly hurt teammate with your supply drop, twice in one game.",
+     "Share 6 supply drops with your team in one game."],
+    ["Steal the enemy's heart while a live enemy is close enough to contest it.",
+     "Carry the enemy's heart all the way home for a capture.",
+     "Get a kill while you're carrying the enemy's heart.",
+     "Score a capture while your team has fewer players alive than the enemy.",
+     "Steal the heart and capture it again in one fast run."],
+    ["Kill the enemy who is carrying your team's heart.",
+     "Stop a carrier right at your own team's doorstep.",
+     "Kill an enemy carrier twice in one game.",
+     "Peel a carrier off your heart, then steal the enemy's yourself soon after.",
+     "Stop carriers at the doorstep twice in one game."],
+    ["Your team gets real use out of 2 of the 4 kits in one game.",
+     "Your team gets real use out of 3 of the 4 kits in one game.",
+     "Your team gets real use out of all 4 kits in one game.",
+     "Finish the whole game without a single teammate shooting a teammate.",
+     "Use every kit AND capture the enemy's heart in the same game."],
+  ]
+
 # ───────────────────────────────────────────────────────────────────────────
 # §6  ACCESSORS — the only way to read a price
 # ───────────────────────────────────────────────────────────────────────────
@@ -1315,6 +1624,11 @@ func popsScore*(deed: Deed): bool {.inline.} =
   ## the draw pool is a fixed 16: left in, ambient soak STARVES the rare deeds
   ## the pop exists to celebrate, so a capture could mint and never be drawn.
   ##
+  ## `dClutchHeal` is excluded as of v9 (GLORY LAW E1): zero+tombstoned, see
+  ## the Deed enum's own comment -- "the SAVE pop dies with it" is enforced
+  ## HERE, not by amount alone (a 0g mint would otherwise still draw an empty
+  ## "+0g SAVE" toast, since `awardDeed` has no amount>0 guard).
+  ##
   ## `dAchievement` is excluded because a claim pops through `claimAchievement`'s
   ## LABELLED path instead, carrying the name it just earned. Popping it here
   ## too would price one moment twice on screen.
@@ -1323,7 +1637,7 @@ func popsScore*(deed: Deed): bool {.inline.} =
   ## light heat) but friendly fire is the largest single loss we have measured,
   ## so "-60g" over the body is one of the most valuable things on this HUD.
   ## That is why this is NOT `isDrama`, which would silently swallow it.
-  deed != dShieldSoak and deed != dAchievement
+  deed != dShieldSoak and deed != dClutchHeal and deed != dAchievement
 
 func tierGlory*(tier: int): int {.inline.} =
   ## Base glory for an achievement tier index 0..4.
@@ -1340,6 +1654,12 @@ func achievementKey*(tree: Tree, tier: int): int {.inline.} =
 
 func achievementName*(tree: Tree, tier: int): string {.inline.} =
   if tier < 0 or tier >= AchievementTiers: "" else: AchievementNames[tree][tier]
+
+func achievementDescription*(tree: Tree, tier: int): string {.inline.} =
+  ## v9 (GLORY LAW E6): the tooltip text for a (tree, tier) -- see
+  ## `AchievementDescriptions`' own comment for the shipping path.
+  if tier < 0 or tier >= AchievementTiers: ""
+  else: AchievementDescriptions[tree][tier]
 
 func heatRung*(embers: int): int {.inline.} =
   ## Rung for an ember count. Each rung costs more than the last.
@@ -1610,7 +1930,10 @@ func deedPopWord*(deed: Deed): string =
                              ## agree.
   of dDenial: "DENIED!"
   of dEscortKill: "ESCORT"
-  of dClutchHeal: "SAVE"
+  of dClutchHeal: ""         ## v9: excluded from `popsScore` (zero+
+                             ## tombstoned, GLORY LAW E1); never drawn. The
+                             ## word stays on record ("SAVE") only in this
+                             ## comment, not in code that could draw it.
   of dShieldSoak: ""         ## excluded from `popsScore`; never drawn.
   of dWipe: "WIPEOUT"
   of dLevelUp: "RANK UP"
