@@ -6749,24 +6749,49 @@ proc roundedRectSignedDist*(rect: MapRect, cornerR, px, py: float): float =
   sqrt(ax * ax + ay * ay) + min(max(qx, qy), 0.0) - cornerR
 
 proc zonePerimeterCoordAt(px, py: float, rect: MapRect, cornerR: float): float =
-  ## The arc-length position, walking CLOCKWISE around the rounded rect's
-  ## own perimeter starting at the top edge's left end, of the perimeter
-  ## point NEAREST to map point (px, py) — well-defined and CONTINUOUS for
-  ## every point outside the rect, unlike the finite-difference `angle`
-  ## zoneEdgeAngleAt derives (Fable's audit, 2026-08-25): a point sitting
-  ## diagonally outside two edges at once — a corner's zone of influence —
-  ## is exactly where that finite-difference gradient can swing sharply
-  ## for a small move, and that swing was feeding a wildly different noise
-  ## sample into zoneBoundaryFingerDelayAt for adjacent rows, a real
-  ## measured kink (89.7deg) with zero sensitivity to any propagation-
-  ## speed term ever tried — the bug was in the COORDINATE, not the
-  ## transport. A convex shape's nearest-boundary-point map is a
-  ## continuous, well-defined function of the exterior point (only
-  ## degenerate at the shape's own center, never reached out here), so
-  ## parameterizing by THIS instead removes the discontinuity by
-  ## construction, with the same octave and the same amplitude — nothing
-  ## about the fingering's own tuning changes, only what continuous
-  ## coordinate it reads.
+  ## Arc length ALONG THE FRONT at (px, py): the position, walking
+  ## CLOCKWISE from the top edge's left end, of p's own nearest point on
+  ## the OFFSET CURVE through p — the level set of roundedRectSignedDist
+  ## at p's own distance, which for a rounded rect is another rounded rect
+  ## with the same straight sections and corner radius cornerR + d. This
+  ## is the coordinate zoneBoundaryFingerDelayAt's noise octaves read, so
+  ## a stated 160px finger wavelength means 160px MEASURED ALONG THE
+  ## FRONT, at every distance from the rect.
+  ##
+  ## RETRACTION (Fable's audit, 2026-08-25). This proc was introduced in
+  ## 12cbd6d to remove a discontinuity in the finite-difference angle
+  ## zoneEdgeAngleAt derives, on the theory that the angle's swing in a
+  ## corner's zone of influence was producing a measured 89.7deg kink.
+  ## That premise is WITHDRAWN: the 89.7deg never came from the paint at
+  ## all — the check harness's own frontier walker had an inverted premise
+  ## and was reporting a map-border sliver against an unpainted room
+  ## interior, 200px outside the edge it claimed to sample (see
+  ## tests/test_zone.nim's frontierIsolineCoord). The exactly-zero effect
+  ## two propagation-side hypotheses measured was the tell.
+  ##
+  ## The coordinate is KEPT, for a different and separately measured
+  ## reason. Parameterizing by the BASE rect's perimeter — what 12cbd6d
+  ## actually implemented — compresses the entire exterior diagonal
+  ## quadrant into one corner arc of length (PI/2) * cornerR, which at
+  ## ZoneCornerRoundPx = 16 is 25px total. Measured on the real showmatch
+  ## map: two points 120px apart in y, both outside the final rect's
+  ## top-right corner, differ by ~4px of arc coordinate against a 160px
+  ## noise wavelength. The finger delay is therefore all but CONSTANT over
+  ## huge exterior regions, which is precisely the flat, hard-edged front
+  ## Maxwell's close-zoom review rejected. Offsetting the curve fixes that
+  ## at its source: the same quadrant now spans (PI/2) * (cornerR + d),
+  ## growing with distance exactly as a real expanding front's own
+  ## perimeter does.
+  ##
+  ## Everything else is unchanged by construction, which is what makes
+  ## this safe: the offset rect's half-extents grow by d and its corner
+  ## radius grows by d, so the straight-section lengths ((hw - cornerR)*2
+  ## and (hh - cornerR)*2), the corner circles' own centers, and the
+  ## qx/qy>0 quadrant classification are all IDENTICAL to the base rect's.
+  ## Only the arc lengths — and hence the offsets past each corner — move.
+  ## Still continuous and single-valued for every exterior point (a convex
+  ## shape's nearest-boundary map has no discontinuity outside its own
+  ## center, and the offset family varies continuously in d).
   let
     hw = float(rect.w) * 0.5
     hh = float(rect.h) * 0.5
@@ -6775,7 +6800,11 @@ proc zonePerimeterCoordAt(px, py: float, rect: MapRect, cornerR: float): float =
     cr = max(0.0, min(cornerR, min(hw, hh)))
     straightW = max(0.0, hw - cr) * 2.0  # full top/bottom edge length
     straightH = max(0.0, hh - cr) * 2.0  # full left/right edge length
-    arcLen = PI * 0.5 * cr
+    # p's own distance outside the rect — the offset curve through p is
+    # the rounded rect with corner radius cr + dOut (same straights, same
+    # corner circle centers), so ONLY the corner arcs lengthen.
+    dOut = max(0.0, roundedRectSignedDist(rect, cr, px, py))
+    arcLen = PI * 0.5 * (cr + dOut)
     # Cumulative start offsets, walking clockwise: top edge (L->R), top-
     # right corner, right edge (T->B), bottom-right corner, bottom edge
     # (R->L), bottom-left corner, left edge (B->T), top-left corner.
@@ -7479,7 +7508,18 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
   # ZoneFlowDelayCapTicks below still bounds the total), but no headroom
   # held back within THIS smaller budget: a shy amplitude is exactly what
   # left runs long in the earlier passes.
-  clamp(combined * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFingerAmpTicks)
+  when defined(zoneFlatPaintControl):
+    # NEGATIVE-CONTROL BUILD ONLY (never in a shipped binary; guarded by a
+    # define no build sets). Kills the seed nudge outright, so the front
+    # reduces to the bare rect edge — the deliberately broken paint the
+    # meniscus checks must MOVE on. A check that reads the same green with
+    # this define set is measuring nothing (house rule: a gate must
+    # DISCRIMINATE, not just hit). See tests/test_zone.nim's recorded
+    # control values.
+    discard combined
+    0.0
+  else:
+    clamp(combined * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFingerAmpTicks)
 
 proc computeZoneFrontierField(
   sim: SimServer, totalTicks: int, finalRect: MapRect, baseSpeed: float
