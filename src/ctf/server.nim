@@ -70,6 +70,22 @@ const
   # division standings and transport as flat panels over the dungeon walls. Served
   # at the bare replay route; embed=1 falls through to the plain broadcast client.
   EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html")
+  # SEASON 2 HUMAN SEAT: our OWN player client, vendored into this repo rather
+  # than patched into the pinned ~/.nimby/pkgs/bitworld package. Same
+  # ELEVATE-BY-REBUILD move the replay routes above already make — we serve our
+  # HTML at bitworld's player route and the pinned package stays byte-identical,
+  # so league builds are zero-diff (a league seat is a bot process; it never
+  # fetches this page at all).
+  #
+  # It is the bitworld browser client with ONE subsystem replaced: the input
+  # layer. Everything below it — the sprite-protocol parse, the snappy decode,
+  # the layer compositor — is untouched, because that half is not ours to own.
+  # player_controls.js carries the keyboard/mouse -> action-space translation
+  # and is inlined here so the page stays a single self-contained file.
+  EmbeddedPlayerClientHtml = staticRead("../../client/player_client.html").replace(
+    "<script src=\"player_controls.js\"></script>",
+    "<script>" & staticRead("../../client/player_controls.js") & "</script>"
+  )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
@@ -720,6 +736,15 @@ proc httpHandler(request: Request) =
       request.respond(200, replayHeaders, EmbeddedLeagueReplayerHtml)
     else:
       request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
+  elif request.path in [
+      bitworldClient.PlayerClientRoute,
+      bitworldClient.PlayerClientHtmlRoute
+    ] and request.httpMethod == "GET":
+    # Ours wins because this branch sits AHEAD of the bitworld fallback below.
+    var playerHeaders: HttpHeaders
+    playerHeaders["Content-Type"] = "text/html; charset=utf-8"
+    playerHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, playerHeaders, EmbeddedPlayerClientHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute
