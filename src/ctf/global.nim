@@ -290,6 +290,21 @@ const
                                ## other FX pool in this file.
   AceDeathFxStages = 4         ## fade stages across AceDeathFxTicks, matching
                                ## SplatterStages' granularity.
+  AceGlowDeathPeakAlpha = 140.0  ## peak alpha (of 255) the death-echo glow
+                               ## opens at, well above the live glow's ~60
+                               ## base-radiance term -- measured (a synthetic
+                               ## same-frame client render + pixel probe at
+                               ## the death site) to be the floor for reading
+                               ## as a glow at all once the live glow's own
+                               ## pulsing ring is gone (nothing pulses over a
+                               ## corpse).
+  AceDeathMarkAlphaBoost = 2.2  ## `fadedRgbaPixels`'s `boost`: the live star
+                               ## row's own anti-aliased "*" glyphs measured
+                               ## at a peak native alpha of ~130/255 even
+                               ## live (small smooth-vector text), so fading
+                               ## THAT down further reads as nothing. This
+                               ## restores a solid mark before the per-stage
+                               ## fade takes back over.
   ShoutSpriteBase = 22000      ## speech-bubble sprites: one per live shout
                                ## (content-keyed, so unique per shout, clear
                                ## of the fog runs at 21000 and map markers at
@@ -4806,16 +4821,28 @@ proc addAceGlow(
       spriteId
     )
 
-proc fadedRgbaPixels(pixels: seq[uint8], factor: float): seq[uint8] =
+proc fadedRgbaPixels(pixels: seq[uint8], factor: float, boost = 1.0): seq[uint8] =
   ## DISPLAY CODA G2: scales every pixel's alpha by `factor` (0..1), RGB
-  ## untouched. The shared fade-out idiom for the death-linger sprites below,
-  ## which reuse a LIVE sprite's own raster (the star row's
+  ## untouched -- the shared fade-out idiom for the death-linger sprites
+  ## below, which reuse a LIVE sprite's own raster (the star row's
   ## `buildSpriteProtocolTextSprite` call) instead of re-deriving the shape,
-  ## so the linger is pixel-identical to what was on screen the instant
-  ## before death, just dimming out.
+  ## so the linger STARTS pixel-identical to what was on screen the instant
+  ## before death.
+  ##
+  ## `boost` (>=1, clamped at 255 before `factor` applies) restores
+  ## readability for a raster whose OWN native alpha is already faint even
+  ## live: a live-frame pixel probe of the "***" glyph this feeds found a
+  ## peak native alpha of ~130/255 (anti-aliased small text, most of the
+  ## glyph well under that) -- a straight fade-down from there compounds an
+  ## already-subtle base into something a synthetic same-frame render proved
+  ## unreadable (a targeted pixel scan around the death site found NO
+  ## meaningfully tinted pixels at any fade stage). Boosting first, then
+  ## fading, keeps the SAME shape but gives the mark a solid moment before it
+  ## dissolves -- the whole reason it exists.
   result = pixels
   for i in 0 ..< (result.len div 4):
-    result[i * 4 + 3] = uint8(float(result[i * 4 + 3]) * factor)
+    let boosted = min(255.0, float(result[i * 4 + 3]) * boost)
+    result[i * 4 + 3] = uint8(boosted * factor)
 
 proc buildAceDeathGlowSprite(team: Team, stage: int): seq[uint8] {.measure.} =
   ## DISPLAY CODA G2: the ace glow's fade-out echo at a death site -- the SAME
@@ -4823,6 +4850,15 @@ proc buildAceDeathGlowSprite(team: Team, stage: int): seq[uint8] {.measure.} =
   ## (no ring: nothing is pulsing once the unit is gone), easing to nothing
   ## across AceDeathFxStages so the glow dissolves together with the star row
   ## instead of both cutting out the instant `alive` flips false.
+  ##
+  ## Peak alpha is DELIBERATELY higher than the live glow's own base-radiance
+  ## term (AceGlowDeathPeakAlpha vs the ~60 the live glow blends at): the live
+  ## glow leans on its pulsing RING to read at a distance, and this echo has
+  ## no ring (nothing pulses once the unit is gone) -- a same-frame client
+  ## render + pixel probe of the ORIGINAL ~60-alpha version found it blended
+  ## into the floor texture below reliable-read thresholds. This is the one
+  ## moment a viewer needs to actually catch, so it starts bold and fades out
+  ## over its life, never staying at this peak.
   let
     outSize = AceGlowSize * boardScale
     cx = float(outSize - boardScale) / 2
@@ -4842,18 +4878,18 @@ proc buildAceDeathGlowSprite(team: Team, stage: int): seq[uint8] {.measure.} =
         d = sqrt(dx * dx + dy * dy)
       if d > baseR:
         continue
-      let alpha = 60.0 * (1.0 - d / baseR) * fade
+      let alpha = AceGlowDeathPeakAlpha * (1.0 - d / baseR) * fade
       if alpha <= 0.0:
         continue
-      result.putRawRgbaPixel(y * outSize + x, tr, tg, tb, uint8(alpha))
+      result.putRawRgbaPixel(y * outSize + x, tr, tg, tb, uint8(min(255.0, alpha)))
 
 proc buildAceDeathMarkSprite(
   sim: SimServer, team: Team, level, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## DISPLAY CODA G2: the SAME star-row raster `addVeteranMarks` draws for a
   ## live ace (identical call: same stars, same team color, same `smooth`
-  ## flag), fading its alpha across AceDeathFxStages instead of vanishing the
-  ## instant `alive` flips false.
+  ## flag), boosted (see `fadedRgbaPixels`) and fading its alpha across
+  ## AceDeathFxStages instead of vanishing the instant `alive` flips false.
   let
     stars = repeat("*", min(level, MaxLevel))
     mark = sim.buildSpriteProtocolTextSprite(
@@ -4861,7 +4897,7 @@ proc buildAceDeathMarkSprite(
     fade = 1.0 - stage.float / float(AceDeathFxStages)
   result.width = mark.width
   result.height = mark.height
-  result.pixels = fadedRgbaPixels(mark.pixels, fade)
+  result.pixels = fadedRgbaPixels(mark.pixels, fade, boost = AceDeathMarkAlphaBoost)
 
 proc addAceDeathFx(
   sim: SimServer,
