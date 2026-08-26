@@ -17,12 +17,35 @@ sys.path.insert(0, os.environ.get(
 from coworld.api_client import CoworldApiClient  # noqa: E402
 from coworld.config import DEFAULT_SUBMIT_SERVER  # noqa: E402
 
-LEAGUE = "league_3243d905-d32d-4ec6-978b-fa94751d4a37"
-COMPETITION_DIV = "div_37361341-2970-4dac-9528-55398bab0d1a"
+# ⚠️ These constants pointed at the DEAD `Ctf` league until 2026-08-12 (this
+# module's own prior default) — every helper built on them answered about a
+# league that stopped playing, and "0 episodes involve softmaxwell" read as
+# TRUE there and meaningless about ours. An empty result from the wrong
+# league is indistinguishable from a real outage; it once cost a full
+# session to a false "we are paused and disqualified" reading (see
+# ~/.claude memory: ctf-league-paused-and-dq.md). The live league is
+# Paintbot. Override with CTF_LEAGUE / CTF_DIV to inspect any other league —
+# every tool in this directory (including this file's own day-one BR reads)
+# must default here, never to the dead league.
+PAINTBOT_LEAGUE = "league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7"
+PAINTBOT_DIV = "div_aa7825db-262f-4a62-b01a-177c1b48f7ee"
+DEAD_CTF_LEAGUE = "league_3243d905-d32d-4ec6-978b-fa94751d4a37"  # kept: do not use as a default
+
+LEAGUE = os.environ.get("CTF_LEAGUE", PAINTBOT_LEAGUE)
+COMPETITION_DIV = os.environ.get("CTF_DIV", PAINTBOT_DIV)
 OUR_PLAYER = "softmaxwell"
 
 _client = None
 _headers = None
+
+
+def whoami():
+    """Print which league every helper here is about to query. Call this
+    before believing ANY empty result — see the module-level warning above."""
+    tag = "Paintbot (live)" if LEAGUE == PAINTBOT_LEAGUE else (
+        "DEAD Ctf league" if LEAGUE == DEAD_CTF_LEAGUE else "custom")
+    print(f"[ctfapi] league={LEAGUE} div={COMPETITION_DIV} -> {tag}",
+          file=sys.stderr)
 
 
 def gid(o):
@@ -55,8 +78,17 @@ def get(path, tries=5):
             time.sleep(2 * (i + 1))
 
 
-def leaderboard(include_recent_rounds=32, div=COMPETITION_DIV):
-    r = get(f"/v2/divisions/{div}/leaderboard?include_recent_rounds={include_recent_rounds}")
+MAX_RECENT_ROUNDS = 1  # see below
+
+
+def leaderboard(include_recent_rounds=MAX_RECENT_ROUNDS, div=COMPETITION_DIV):
+    """⚠️ As of 2026-08-18 the endpoint 422s on include_recent_rounds > 1.
+    Probed 0,1,4,8,16,20,24,32: only 0 and 1 are accepted. The old default of
+    32 meant EVERY caller crashed. Clamp rather than pass through, so a stale
+    caller degrades to a working leaderboard instead of a traceback.
+    """
+    n = min(include_recent_rounds, MAX_RECENT_ROUNDS)
+    r = get(f"/v2/divisions/{div}/leaderboard?include_recent_rounds={n}")
     return r if isinstance(r, list) else (r.get("entries") or r.get("rows") or [])
 
 
