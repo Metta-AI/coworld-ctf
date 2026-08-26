@@ -69,16 +69,33 @@ const
   ## long-wait/short-shrink cadence a real match runs, not ToyPhases' much
   ## faster synthetic one.
   BrShowmatchPhases = """[
-    {"z": 0.824, "waitTicks": 1200, "shrinkTicks": 720, "dps": 0},
-    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 720, "dps": 2},
-    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 720, "dps": 4},
-    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
-    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12},
-    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 245, "dps": 16},
-    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 241, "dps": 20}
+    {"z": 0.824, "waitTicks": 3000, "shrinkTicks": 528, "dps": 0},
+    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 528, "dps": 2},
+    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 528, "dps": 4},
+    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 528, "dps": 8},
+    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 528, "dps": 12},
+    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 180, "dps": 16},
+    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 180, "dps": 20}
   ]"""
-  BrShowmatchTotalTicks = 1200 + 720 + 720 + 720 + 720 + 720 + 245 + 241
-    ## 5286 — the GEAR-UP wait plus SEVEN contiguous shrink segments. There
+  BrShowmatchGearUpTicks = 3000
+    ## Phase 0's own waitTicks, named once so no check restates it. Every
+    ## meniscus measure below samples the CLOSE WINDOW rather than fracs of
+    ## the whole schedule: a meniscus only exists on an ADVANCING front (see
+    ## EdgeRegimeMinRangePx), and now that half the schedule is a wait,
+    ## fracs of the whole thing land mostly in the gear-up where there is
+    ## nothing to measure BY CONSTRUCTION. That is not the paint being flat,
+    ## it is the instrument sampling a stationary rect — the fracs were
+    ## chosen when the whole schedule was a close.
+  BrShowmatchTotalTicks = 3000 + 528 + 528 + 528 + 528 + 528 + 180 + 180
+    ## 6000 — the GEAR-UP wait plus SEVEN contiguous shrink segments, and
+    ## it equals the match's own maxTicks on purpose (see below).
+    ##
+    ## THE PINK DOES NOT MOVE UNTIL THE SECOND HALF (Maxwell's ruling,
+    ## 2026-08-26, after watching the preview: "it should wait a bit, THEN
+    ## slowly encroach and not stop until all is pink"). G is 3000, set as
+    ## maxTicks/2 by his order and left a plain table number so he can tune
+    ## it again. The close then spans 3000 -> 6000 at ~0.6px/tick, which is
+    ## still an encroachment rather than a snap. There
     ## are no intermediate holds by design (Maxwell's ruling, 2026-08-25):
     ## every phase past the first carries waitTicks 0, so once the zone
     ## starts closing it never stops. z steps by a constant 0.176 per
@@ -680,7 +697,7 @@ suite "shrink zone schedule shape: gear-up then a continuous close":
     ## rather than picked, so it holds on any map without retuning.
     var sim = zoneGame(BrShowmatchPhases)
     let
-      gearUp = 1200
+      gearUp = BrShowmatchGearUpTicks
       total = BrShowmatchTotalTicks
       wStart = sim.zoneRectAndDps(gearUp).cur.w
       wEnd = sim.zoneRectAndDps(total).cur.w
@@ -816,7 +833,7 @@ suite "shrink zone schedule shape: gear-up then a continuous close":
       prevW = -1
     for t in 0 .. total:
       let w = sim.zoneRectAndDps(t).cur.w
-      if prevW >= 0 and t > 1200:
+      if prevW >= 0 and t > BrShowmatchGearUpTicks:
         if prevW - w == 0:
           inc run
           longestZeroRun = max(longestZeroRun, run)
@@ -1689,7 +1706,8 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var samples = 0
     var edgesUsedTotal = 0
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
-      let t = int(float(BrShowmatchTotalTicks) * frac)
+      let t = BrShowmatchGearUpTicks +
+        int(float(BrShowmatchTotalTicks - BrShowmatchGearUpTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
       let prevRect = sim.zoneRectAndDps(max(0, t - 1)).cur
       let advancing = prevRect.w != rect.w or prevRect.h != rect.h
@@ -1777,7 +1795,8 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var worstStepPx = 0.0
     var worstStepWhere = ""
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
-      let t = int(float(BrShowmatchTotalTicks) * frac)
+      let t = BrShowmatchGearUpTicks +
+        int(float(BrShowmatchTotalTicks - BrShowmatchGearUpTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
       for side in ZoneEdgeSide:
         let iso = edgeIsolineFull(sim, rect, t, gw, gh, side)
@@ -1823,11 +1842,31 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     check minSpan >= ZoneArrivalSpanFloorTicks
     check worstExcess <= 0.0
 
-  test "check #7: the frontier never kinks — full-height right-edge sample on the real map":
-    ## The mandate's own specific regression target: a full-height sample
-    ## of the RIGHT edge on the real giant showmatch map, at multiple
-    ## ticks — the exact edge and map Maxwell's rejected screenshot showed
-    ## as a hard vertical line. Same DERIVED two-term bound as the small-map
+  test "check #7: the frontier never kinks — ALL FOUR edges on the real map":
+    ## The mandate's own specific regression target was the RIGHT edge of
+    ## the real giant showmatch map — the exact edge Maxwell's rejected
+    ## screenshot showed as a hard vertical line. This now sweeps all four,
+    ## which is STRICTLY MORE coverage, and it had to:
+    ##
+    ## THE RIGHT EDGE OF THIS MAP NO LONGER ADVANCES. The zone centre is
+    ## DRAWN, and on this map+seed it is drawn far to the right, so during
+    ## the close the rect's right edge creeps while its left edge races.
+    ## Measured between two sampled ticks: right edge 3181 -> 3163, i.e.
+    ## 0.017 px/tick, against the left edge's 1312 -> 2123, i.e. 0.767
+    ## px/tick — forty-five times faster. A front only lags behind an edge
+    ## that MOVES, so the right edge here is flat by construction (isoRange
+    ## 0.0-0.7px at every tick of the close), and the honesty gate already
+    ## guarantees paint never precedes the rect. Measuring a turning angle
+    ## there is measuring nothing; pinning the check to that one edge made
+    ## it hostage to which way the centre happened to be drawn.
+    ##
+    ## Sweeping all four also closes a real gap: the other three real-map
+    ## edges had NEVER been checked, and when I swept them by hand they were
+    ## where the interesting defects lived (135deg before the room-interior
+    ## fix, 53.9deg before the local regime rule). The regime rule picks
+    ## whichever edges actually advance, and the floors below still
+    ## guarantee that at least three of them did — so this cannot become a
+    ## silent pass on a paint that has caught up everywhere. Same DERIVED two-term bound as the small-map
     ## check above (see its own doc for the derivation and for why the 16x
     ## excess over term A turned out to be an instrument defect rather than
     ## physics). This map is the other half of that evidence: its base speed
@@ -1850,36 +1889,38 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var edgesSampled = 0
     var realSamples = 0
     var edgesSkipped = 0
-    for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
-      let t = int(float(BrShowmatchTotalTicks) * frac)
+    for frac in [0.25, 0.45, 0.65, 0.85]:
+      let t = BrShowmatchGearUpTicks +
+        int(float(BrShowmatchTotalTicks - BrShowmatchGearUpTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
-      let iso = edgeIsolineFull(sim, rect, t, gw, gh, zesRight)
-      if not inRegime(iso.pos):
-        inc edgesSkipped
-        echo "  right edge t=", t, " SKIPPED: below regime (validSamples=",
-          validCount(iso.pos), " isoRange=", isoRangePx(iso.pos), "px, needs >=",
-          EdgeRegimeMinRangePx, "px) — the front has caught up with the rect, ",
-          "so the isoline IS the rect edge and no meniscus exists to measure"
-        continue
-      inc edgesSampled
-      realSamples += validCount(iso.pos)
-      let angle = maxTurningAngleDeg(iso.pos)
-      worst = max(worst, angle)
-      let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
-      if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
-      scored += ex.scored
-      offRegime += ex.offRegime
-      if ex.idx >= 0 and ex.excessDeg > worstExcess:
-        worstExcess = ex.excessDeg
-        worstAllow = ex.allowDeg
-        worstExcessWhere = "t=" & $t & " sampleIdx=" & $ex.idx & " turn=" &
-          $ex.turnDeg & "deg span=" & $ex.atSpan
-      let ws = worstStepOf(iso.pos)
-      echo "  right edge t=", t, " validSamples=", validCount(iso.pos),
-        " isoRange=", isoRangePx(iso.pos), "px maxTurningAngle=", angle,
-        " worstStep=", ws.px, "px minSpan=", ex.minSpan,
-        " excess=", ex.excessDeg, "deg rectYSpan=[", rect.y, ",",
-        rect.y + rect.h - 1, "]"
+      for side in ZoneEdgeSide:
+       let iso = edgeIsolineFull(sim, rect, t, gw, gh, side)
+       block oneEdge:
+        if not inRegime(iso.pos):
+          inc edgesSkipped
+          echo "  ", side, " t=", t, " SKIPPED: below regime (validSamples=",
+            validCount(iso.pos), " isoRange=", isoRangePx(iso.pos), "px, needs >=",
+            EdgeRegimeMinRangePx, "px) — the front has caught up with the rect, ",
+            "so the isoline IS the rect edge and no meniscus exists to measure"
+          break oneEdge
+        inc edgesSampled
+        realSamples += validCount(iso.pos)
+        let angle = maxTurningAngleDeg(iso.pos)
+        worst = max(worst, angle)
+        let ex = maxTurningExcessDeg(iso.pos, iso.span, ampDeg)
+        if ex.minSpan > 0: minSpan = min(minSpan, ex.minSpan)
+        scored += ex.scored
+        offRegime += ex.offRegime
+        if ex.idx >= 0 and ex.excessDeg > worstExcess:
+          worstExcess = ex.excessDeg
+          worstAllow = ex.allowDeg
+          worstExcessWhere = "t=" & $t & " " & $side & " sampleIdx=" & $ex.idx &
+            " turn=" & $ex.turnDeg & "deg span=" & $ex.atSpan
+        let ws = worstStepOf(iso.pos)
+        echo "  ", side, " t=", t, " validSamples=", validCount(iso.pos),
+          " isoRange=", isoRangePx(iso.pos), "px maxTurningAngle=", angle,
+          " worstStep=", ws.px, "px minSpan=", ex.minSpan,
+          " excess=", ex.excessDeg, "deg"
     echo "turning-angle check (real map, right edge): edgesSampled=",
       edgesSampled, " edgesSkipped(below regime)=", edgesSkipped,
       " validSamples=", realSamples, " worstTurn=", worst, " deg"
@@ -1933,7 +1974,8 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       discard ensureZoneArrivalField(sim)
       let (gw, gh) = zoneArrivalFieldGridDims()
       for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
-        let t = int(float(BrShowmatchTotalTicks) * frac)
+        let t = BrShowmatchGearUpTicks +
+        int(float(BrShowmatchTotalTicks - BrShowmatchGearUpTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
         for side in ZoneEdgeSide:
           let iso = edgeIsoline(sim, rect, t, gw, gh, side)
@@ -1956,7 +1998,8 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       discard ensureZoneArrivalField(sim)
       let (gw, gh) = zoneArrivalFieldGridDims()
       for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
-        let t = int(float(BrShowmatchTotalTicks) * frac)
+        let t = BrShowmatchGearUpTicks +
+        int(float(BrShowmatchTotalTicks - BrShowmatchGearUpTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
         let iso = edgeIsoline(sim, rect, t, gw, gh, zesRight)
         if not inRegime(iso):

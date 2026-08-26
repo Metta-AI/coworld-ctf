@@ -100,22 +100,26 @@ cfg["barrageMaxPerSec"] = 0
 # failure the draw-free tiebreak closes from the other end. A cog has 3 hp,
 # so the last two phases kill in roughly a second and a half outside — long
 # enough to run back in, far too short to camp.
+# TIMING (Maxwell's ruling, 2026-08-26, after watching the preview: "it
+# should wait a bit, THEN slowly encroach and not stop until all is pink").
+# The pink does not move until the SECOND HALF: the gear-up wait is 3000,
+# set as maxTicks/2 by his order (it is a plain table number precisely so he
+# can tune it again), and the close then spans 3000 -> 6000 and runs to the
+# smallest scale the config allows. Closing to zero AT the cap also makes a
+# maxTicks timeout structurally impossible: with no interior left at 6000,
+# zone attrition has resolved the match by then whatever the bots do — which
+# is what the earlier terminal-room table could not guarantee (seed 90210
+# froze three duos for 2205 ticks and timed out).
+# Shrink lengths are proportional to their z steps so the recession rate
+# never changes: 0.176/528 and 0.060/180 are the same rate.
 cfg["zonePhases"] = [
-    {"z": 0.824, "waitTicks": 1200, "shrinkTicks": 720, "dps": 0},
-    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 720, "dps": 2},
-    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 720, "dps": 4},
-    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 720, "dps": 8},
-    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 720, "dps": 12},
-    # CLOSE TO NOTHING, not to a terminal room. Holding at z=0.120 left a
-    # 385x205 box three duos could sit in indefinitely — measured, seed
-    # 90210: three duos alive 13-70px apart for 2205 ticks, zero shots
-    # fired, game ended on maxTicks. These two rows continue the SAME
-    # constant recession to the smallest scale the config allows (z must be
-    # > 0), so the zone ends smaller than a cog's own 12x12 footprint and
-    # attrition resolves the match with no bot cooperation required. Tick
-    # counts are proportional to the z steps so the rate never changes.
-    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 245, "dps": 16},
-    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 241, "dps": 20},
+    {"z": 0.824, "waitTicks": 3000, "shrinkTicks": 528, "dps": 0},
+    {"z": 0.648, "waitTicks": 0, "shrinkTicks": 528, "dps": 2},
+    {"z": 0.472, "waitTicks": 0, "shrinkTicks": 528, "dps": 4},
+    {"z": 0.296, "waitTicks": 0, "shrinkTicks": 528, "dps": 8},
+    {"z": 0.120, "waitTicks": 0, "shrinkTicks": 528, "dps": 12},
+    {"z": 0.060, "waitTicks": 0, "shrinkTicks": 180, "dps": 16},
+    {"z": 0.001, "waitTicks": 0, "shrinkTicks": 180, "dps": 20},
 ]
 # zoneCenter is ABSENT ON PURPOSE. §4.3's central guarantee is that the
 # center is DRAWN, not fixed at map center: a fixed center makes a strong
