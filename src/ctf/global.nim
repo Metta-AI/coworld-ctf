@@ -6518,10 +6518,10 @@ const
                              ## directly against the honesty test rather
                              ## than guessed. This bound is now for
                              ## PROPAGATION-accumulated lag only (a genuine
-                             ## room/aperture chain — see ZoneFingerAmpTicks
+                             ## room/aperture chain — see ZoneFingerAmpPx
                              ## below for the split) and the unreached-cell
                              ## fallback in computeZoneFrontierField.
-  ZoneFingerAmpTicks* = 70   ## Maxwell's ruling (2026-08-25, close-zoom
+  ZoneFingerAmpPx* = 21.0    ## Maxwell's ruling (2026-08-25, close-zoom
                              ## review of the fresh recording): "it gets way
                              ## too stretched out at points, there should be
                              ## a limit to the amplitude at the meniscus" —
@@ -6532,18 +6532,43 @@ const
                              ## ZoneFlowDelayCapTicks budget raised for
                              ## legitimately deep room/aperture lag, which
                              ## is a completely different physical
-                             ## quantity. Split: this small cap bounds ONLY
-                             ## the open-field meniscus ripple (a real
-                             ## front's own advance-rate variation along
-                             ## its length — see zoneBoundaryFingerDelayAt's
-                             ## own doc), so a tongue/cove reads as roughly
-                             ## 60-150px at typical shrink speed, a bounded
-                             ## undulation, never a streamer. Room/aperture
-                             ## lag (the OTHER, physically justified source
-                             ## of lateness — a real door genuinely takes
-                             ## hundreds of ticks to fill behind) keeps the
-                             ## full ZoneFlowDelayCapTicks headroom,
-                             ## untouched by this split.
+                             ## quantity. Split: this bounds ONLY the
+                             ## open-field meniscus ripple (a real front's
+                             ## own advance-rate variation along its
+                             ## length), never room/aperture lag, which
+                             ## keeps the full ZoneFlowDelayCapTicks
+                             ## headroom.
+                             ##
+                             ## DENOMINATED IN PIXELS, not ticks (Fable's
+                             ## audit, 2026-08-25; coordinator-approved
+                             ## re-denomination). Maxwell approved a LOOK,
+                             ## on one map — the ticks were only the
+                             ## vehicle. The visible amplitude is
+                             ## ampTicks * the front's own edge speed, and
+                             ## that speed is a property of the MAP and
+                             ## schedule: 0.304 px/tick on the showmatch
+                             ## map he judged, 0.117 on the small test map.
+                             ## Keeping the ruling in ticks therefore made
+                             ## his approved look silently vary per map —
+                             ## the same 70 ticks is ~21px of meniscus
+                             ## there and ~9px here, and a 9px ripple is
+                             ## indistinguishable from the hard line he
+                             ## rejected. 21.0px is the exact measured
+                             ## equivalent of the 70 ticks he approved
+                             ## (70 * 0.304), so the judged map is
+                             ## unchanged and every other map now gets
+                             ## that same approved look instead of an
+                             ## arbitrary fraction of it.
+  ZoneFingerAmpMaxTicks* = 240  ## CEILING on the converted budget: a
+                             ## pathologically slow schedule would turn
+                             ## 21px into hundreds of ticks of lateness, so
+                             ## the conversion is clamped — well clear of
+                             ## the ~180 ticks the slowest real map needs,
+                             ## and far below ZoneFlowDelayCapTicks so the
+                             ## meniscus/room-lag split Maxwell ruled on
+                             ## survives the change. Never silent: the
+                             ## clamp is asserted and printed by the paint
+                             ## checks when it binds.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
                              ## arena.nim's MinCorridorWidth (the narrowest
                              ## built corridor): local flow speed throttles
@@ -6748,119 +6773,63 @@ proc roundedRectSignedDist*(rect: MapRect, cornerR, px, py: float): float =
     ay = max(qy, 0.0)
   sqrt(ax * ax + ay * ay) + min(max(qx, qy), 0.0) - cornerR
 
-proc zonePerimeterCoordAt(px, py: float, rect: MapRect, cornerR: float): float =
-  ## Arc length ALONG THE FRONT at (px, py): the position, walking
-  ## CLOCKWISE from the top edge's left end, of p's own nearest point on
-  ## the OFFSET CURVE through p — the level set of roundedRectSignedDist
-  ## at p's own distance, which for a rounded rect is another rounded rect
-  ## with the same straight sections and corner radius cornerR + d. This
-  ## is the coordinate zoneBoundaryFingerDelayAt's noise octaves read, so
-  ## a stated 160px finger wavelength means 160px MEASURED ALONG THE
-  ## FRONT, at every distance from the rect.
+proc zoneFrontLoopCoordAt(px, py: float, rect: MapRect): tuple[a, b: float] =
+  ## Where (px, py) sits ALONG THE FRONT that will pass through it — as a
+  ## point on a CLOSED LOOP in the noise's own 2D domain, whose
+  ## circumference equals that front's own perimeter. This is the
+  ## coordinate zoneBoundaryFingerDelayAt's octaves read, so a stated 160px
+  ## finger wavelength means 160px measured along the front.
   ##
-  ## RETRACTION (Fable's audit, 2026-08-25). This proc was introduced in
-  ## 12cbd6d to remove a discontinuity in the finite-difference angle
-  ## zoneEdgeAngleAt derives, on the theory that the angle's swing in a
-  ## corner's zone of influence was producing a measured 89.7deg kink.
-  ## That premise is WITHDRAWN: the 89.7deg never came from the paint at
-  ## all — the check harness's own frontier walker had an inverted premise
-  ## and was reporting a map-border sliver against an unpainted room
-  ## interior, 200px outside the edge it claimed to sample (see
-  ## tests/test_zone.nim's frontierIsolineCoord). The exactly-zero effect
-  ## two propagation-side hypotheses measured was the tell.
+  ## THE FAMILY MATTERS (Fable's audit, 2026-08-25 — this is the second
+  ## and load-bearing correction). The zone's rect shrinks by a HOMOTHETY:
+  ## w = W*z and h = H*z about the drawn centre, so successive fronts are
+  ## SCALED copies of one another. They are NOT offset/eroded copies. Two
+  ## earlier parameterizations both assumed the offset family — the base
+  ## rect's own perimeter (12cbd6d) and then the level-set/offset curve
+  ## through the point — and both inherit that family's defect: the arc
+  ## position of a far exterior point is R*(theta + PI/2), and as the point
+  ## moves outward along a line, R grows while (theta + PI/2) shrinks, so
+  ## the two very nearly CANCEL. Measured offline against the real
+  ## showmatch geometry, the offset-curve coordinate leaves a 408px stretch
+  ## of the sampled right edge flat to within 1px (the harness measured
+  ## 468px on the real thing — the model agrees), and its derivative even
+  ## changes SIGN in the far field, which is a fold: two different places
+  ## on one front reading the same noise, i.e. a manufactured kink.
   ##
-  ## The coordinate is KEPT, for a different and separately measured
-  ## reason. Parameterizing by the BASE rect's perimeter — what 12cbd6d
-  ## actually implemented — compresses the entire exterior diagonal
-  ## quadrant into one corner arc of length (PI/2) * cornerR, which at
-  ## ZoneCornerRoundPx = 16 is 25px total. Measured on the real showmatch
-  ## map: two points 120px apart in y, both outside the final rect's
-  ## top-right corner, differ by ~4px of arc coordinate against a 160px
-  ## noise wavelength. The finger delay is therefore all but CONSTANT over
-  ## huge exterior regions, which is precisely the flat, hard-edged front
-  ## Maxwell's close-zoom review rejected. Offsetting the curve fixes that
-  ## at its source: the same quadrant now spans (PI/2) * (cornerR + d),
-  ## growing with distance exactly as a real expanding front's own
-  ## perimeter does.
+  ## A homothetic family has no such degeneracy. Normalizing by the rect's
+  ## own half-extents, zp = max(|u|, |v|) IS the scale of the front through
+  ## p (exact for a sharp-cornered rect, and ZoneCornerRoundPx = 16 is
+  ## negligible against any real rect), and theta = atan2(v, u) is that
+  ## front's own angular parameter — continuous everywhere outside the
+  ## centre, monotone along every edge, no quadrant cases at all.
   ##
-  ## Everything else is unchanged by construction, which is what makes
-  ## this safe: the offset rect's half-extents grow by d and its corner
-  ## radius grows by d, so the straight-section lengths ((hw - cornerR)*2
-  ## and (hh - cornerR)*2), the corner circles' own centers, and the
-  ## qx/qy>0 quadrant classification are all IDENTICAL to the base rect's.
-  ## Only the arc lengths — and hence the offsets past each corner — move.
-  ## Still continuous and single-valued for every exterior point (a convex
-  ## shape's nearest-boundary map has no discontinuity outside its own
-  ## center, and the offset family varies continuously in d).
+  ## Sampling on a LOOP rather than by scalar arc length is what removes
+  ## the last seam: any scalar "distance around the perimeter" has a branch
+  ## cut where it wraps, and a branch cut on a flat edge is exactly the
+  ## discontinuity this whole line of work has been chasing. Feeding the
+  ## octave a point on a circle of circumference = perimeter instead makes
+  ## the coordinate closed by construction — arc length along that circle
+  ## equals arc length along the front, and there is nowhere to wrap. It
+  ## also gives the fingers the right behaviour through a shrink: they stay
+  ## attached to their own theta, so a lobe persists as a material feature
+  ## of the front and contracts with it, instead of sliding along it.
+  ##
+  ## Measured offline (same model that reproduced the 468px defect):
+  ## right edge 84px longest flat run, top edge 124px, versus 408px and
+  ## 160px for the offset curve.
   let
-    hw = float(rect.w) * 0.5
-    hh = float(rect.h) * 0.5
-    cx = float(rect.x) + hw
-    cy = float(rect.y) + hh
-    cr = max(0.0, min(cornerR, min(hw, hh)))
-    straightW = max(0.0, hw - cr) * 2.0  # full top/bottom edge length
-    straightH = max(0.0, hh - cr) * 2.0  # full left/right edge length
-    # p's own distance outside the rect — the offset curve through p is
-    # the rounded rect with corner radius cr + dOut (same straights, same
-    # corner circle centers), so ONLY the corner arcs lengthen.
-    dOut = max(0.0, roundedRectSignedDist(rect, cr, px, py))
-    arcLen = PI * 0.5 * (cr + dOut)
-    # Cumulative start offsets, walking clockwise: top edge (L->R), top-
-    # right corner, right edge (T->B), bottom-right corner, bottom edge
-    # (R->L), bottom-left corner, left edge (B->T), top-left corner.
-    offTop = 0.0
-    offTR = offTop + straightW
-    offRight = offTR + arcLen
-    offBR = offRight + straightH
-    offBottom = offBR + arcLen
-    offBL = offBottom + straightW
-    offLeft = offBL + arcLen
-    offTL = offLeft + straightH
-    total = offTL + arcLen
-  if total <= 1e-6:
-    return 0.0
+    hw = max(1.0, float(rect.w) * 0.5)
+    hh = max(1.0, float(rect.h) * 0.5)
+    u = (px - (float(rect.x) + hw)) / hw
+    v = (py - (float(rect.y) + hh)) / hh
+    zp = max(abs(u), abs(v))
+  if zp < 1e-9:
+    return (0.0, 0.0)
   let
-    dx = px - cx
-    dy = py - cy
-    qx = abs(dx) - hw + cr
-    qy = abs(dy) - hh + cr
-  if qx > 0.0 and qy > 0.0:
-    # Rounded-corner region: nearest point is on the quarter-circle
-    # centered at (cx +/- (hw-cr), cy +/- (hh-cr)), same quadrant as p —
-    # each quadrant's own local angle (relative to ITS circle's center)
-    # falls in a fixed, disjoint 90-degree slice by construction (proven
-    # by the qx/qy>0 case split above), so no clamping or wraparound
-    # guesswork is needed per quadrant, only TL's own atan2 branch cut.
-    let
-      ccx = (if dx >= 0.0: cx + hw - cr else: cx - hw + cr)
-      ccy = (if dy >= 0.0: cy + hh - cr else: cy - hh + cr)
-      ang = arctan2(py - ccy, px - ccx)
-    if dx >= 0.0 and dy < 0.0:
-      return offTR + clamp(ang + PI * 0.5, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
-    elif dx >= 0.0 and dy >= 0.0:
-      return offBR + clamp(ang, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
-    elif dx < 0.0 and dy >= 0.0:
-      return offBL + clamp(ang - PI * 0.5, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
-    else:
-      # Top-left: this arc's own angle range is (-PI, -PI/2], the branch
-      # atan2 itself represents as approaching +/-PI from the negative
-      # side — no wraparound correction needed, just measured from -PI.
-      return offTL + clamp(ang + PI, 0.0, PI * 0.5) / (PI * 0.5) * arcLen
-  elif qx > 0.0:
-    # Vertical edge (left or right).
-    if dx >= 0.0:
-      return offRight + clamp(py - (cy - hh + cr), 0.0, straightH)
-    else:
-      return offLeft + clamp((cy + hh - cr) - py, 0.0, straightH)
-  elif qy > 0.0:
-    # Horizontal edge (top or bottom).
-    if dy < 0.0:
-      return offTop + clamp(px - (cx - hw + cr), 0.0, straightW)
-    else:
-      return offBottom + clamp((cx + hw - cr) - px, 0.0, straightW)
-  else:
-    0.0  # Inside the rect (never reached for a genuine exterior source
-         # cell) — arbitrary, not load-bearing.
+    theta = arctan2(v, u)
+    perim = 2.0 * (float(rect.w) + float(rect.h)) * zp
+    r = perim / (2.0 * PI)
+  (r * cos(theta), r * sin(theta))
 
 ## (zoneDropletCellHash/zoneCellSplotchAt/zoneDropletAt/zoneBodyLobeAdvanceAt/
 ## zoneToneAdvanceAt/zoneDrownedColorAt, ensureZoneFlowGrid/computeZoneFlowDist/
@@ -7287,7 +7256,7 @@ proc zoneScheduleFingerprint(sim: SimServer): int =
     hu = (hu xor cast[uint64](phase.shrinkTicks)) * 0x100000001B3'u64
   int(hu and 0x7FFFFFFF'u64)
 
-proc zoneBaseSpeedPxPerTick(sim: SimServer, totalTicks: int): float =
+proc zoneBaseSpeedPxPerTick*(sim: SimServer, totalTicks: int): float =
   ## The single OPEN-FIELD reference speed every local flow multiplier below
   ## scales (aperture/wallDrag/lobeNoise are all relative to this): the
   ## average px/tick the rect's half-extent recedes over the whole schedule.
@@ -7445,7 +7414,20 @@ const ZoneFrontierOffsets*: array[8, tuple[dx, dy: int]] = [
   (-1, -1), (1, -1), (-1, 1), (1, 1)
 ]
 
-proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
+proc zoneFingerAmpTicksFor*(baseSpeed: float): float =
+  ## ZoneFingerAmpPx converted into this map+schedule's own tick budget via
+  ## its front speed, clamped to ZoneFingerAmpMaxTicks. Exported so the
+  ## paint checks can assert the clamp and report when it binds.
+  clamp(ZoneFingerAmpPx / max(baseSpeed, 1e-6), 0.0, ZoneFingerAmpMaxTicks)
+
+proc zoneFingerAmpClampBinds*(baseSpeed: float): bool =
+  ## True when the conversion above is being CAPPED rather than honoured —
+  ## the map is slower than the ceiling was sized for, so its meniscus will
+  ## read smaller than ZoneFingerAmpPx. Reported, never silent.
+  ZoneFingerAmpPx / max(baseSpeed, 1e-6) > ZoneFingerAmpMaxTicks
+
+proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect,
+    ampTicks: float): float =
   ## Fingering at the SOURCE, not just downstream of it. A fast-marching
   ## solve is a MINIMUM-time solve: an exterior cell seeded at exactly its
   ## own honest T0 is already the theoretical fastest value, so no amount
@@ -7466,45 +7448,35 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
   ## here instead of a speed multiplier there — same lattice, two readouts,
   ## because a source's OWN activation time and a traveller's speed through
   ## already-open ground are two different physical quantities even for the
-  ## same underlying viscous texture. Bounded to [0, ZoneFingerAmpTicks] —
+  ## same underlying viscous texture. Bounded to [0, ampTicks] —
   ## a SMALL cap, not the room/aperture ZoneFlowDelayCapTicks (Maxwell's
   ## ruling, 2026-08-25: streamers, not a meniscus, is what an open-field
   ## nudge riding the room-lag-sized budget looks like — see
-  ## ZoneFingerAmpTicks's own doc for the split). Late-only either way:
+  ## ZoneFingerAmpPx's own doc for the split). Late-only either way:
   ## paint may be late here, by up to that much, never early.
   let
-    # `across` — the coordinate TANGENTIAL to the local edge — is the ONLY
-    # spatial input the octaves below read. A flat rect edge crosses its
-    # whole length at the SAME tick (T0 is constant along it), so any
-    # variation driven by the ALONG (perpendicular) coordinate contributes
-    # nothing there — the coordinator's original diagnosis: "give the
-    # nudge a component keyed to position ALONG the edge, which is exactly
-    # what makes tongues on a flat front." Two octaves so no single
-    # wavelength's own flat stretch can produce a long straight run either
-    # — BOTH inside the 160-300px lobe band (Maxwell's "no sharp points"
-    # ruling, 2026-08-25: a real viscous front is curvature-limited, every
-    # tongue and cove rounded).
+    # The ONLY spatial input the octaves below read is position ALONG THE
+    # FRONT. A flat rect edge crosses its whole length at the SAME tick
+    # (T0 is constant along it), so any variation keyed to the
+    # perpendicular coordinate contributes nothing there — the
+    # coordinator's original diagnosis: "give the nudge a component keyed
+    # to position ALONG the edge, which is exactly what makes tongues on a
+    # flat front." Two octaves so no single wavelength's own flat stretch
+    # can produce a long straight run either — BOTH inside the 160-300px
+    # lobe band (Maxwell's "no sharp points" ruling, 2026-08-25: a real
+    # viscous front is curvature-limited, every tongue and cove rounded).
     #
-    # PARAMETERIZED BY PERIMETER ARC LENGTH, not the finite-difference
-    # rotated-frame angle (Fable's audit, 2026-08-25): `zoneEdgeAngleAt`'s
-    # gradient can swing sharply for a point sitting diagonally outside
-    # TWO edges at once — a corner's zone of influence — which fed a
-    # wildly different noise sample into adjacent rows there and produced
-    # a measured, real 89.7deg kink with ZERO sensitivity to any
-    # propagation-speed term (both ZoneFingerMinMult and a full
-    # edge-parallel anisotropic drag were tried and left that exact number
-    # unchanged to 11 significant figures — the bug was never in the
-    # transport). `zonePerimeterCoordAt` is the arc-length position of
-    # p's own nearest point on the rounded rect's perimeter: continuous
-    # and single-valued for every exterior point by construction (a
-    # convex shape's nearest-boundary map has no discontinuity outside
-    # its own center), so the SAME two octaves, at the SAME amplitude,
-    # now read a coordinate that cannot jump.
-    across = zonePerimeterCoordAt(px, py, finalRect, ZoneCornerRoundPx)
-    n1 = zoneMeniscusOctave(across, 0.0, 160.0, ZoneFieldSeed xor 0x9F)
-    n2 = zoneMeniscusOctave(across, 0.0, 260.0, ZoneFieldSeed xor 0xB3)
+    # zoneFrontLoopCoordAt supplies that position as a point on a closed
+    # loop whose circumference is the front's own perimeter — see its doc
+    # for why the two earlier parameterizations (the finite-difference
+    # rotated-frame angle, then the offset-curve arc length) both failed:
+    # they assumed the wrong family of fronts. The zone shrinks by a
+    # HOMOTHETY, not an erosion.
+    loop = zoneFrontLoopCoordAt(px, py, finalRect)
+    n1 = zoneMeniscusOctave(loop.a, loop.b, 160.0, ZoneFieldSeed xor 0x9F)
+    n2 = zoneMeniscusOctave(loop.a, loop.b, 260.0, ZoneFieldSeed xor 0xB3)
     combined = clamp(n1 * 0.5 + n2 * 0.5, -1.0, 1.0)
-  # Full [0, ZoneFingerAmpTicks] amplitude — late-only (honesty untouched,
+  # Full [0, ampTicks] amplitude — late-only (honesty untouched,
   # ZoneFlowDelayCapTicks below still bounds the total), but no headroom
   # held back within THIS smaller budget: a shy amplitude is exactly what
   # left runs long in the earlier passes.
@@ -7519,7 +7491,7 @@ proc zoneBoundaryFingerDelayAt(px, py: float, finalRect: MapRect): float =
     discard combined
     0.0
   else:
-    clamp(combined * 0.5 + 0.5, 0.0, 1.0) * float(ZoneFingerAmpTicks)
+    clamp(combined * 0.5 + 0.5, 0.0, 1.0) * ampTicks
 
 proc computeZoneFrontierField(
   sim: SimServer, totalTicks: int, finalRect: MapRect, baseSpeed: float
@@ -7565,6 +7537,10 @@ proc computeZoneFrontierField(
   result = newSeq[float32](gw * gh)
   for i in 0 ..< result.len:
     result[i] = Inf.float32
+  # One conversion per episode: ZoneFingerAmpPx into THIS map+schedule's
+  # own tick budget (see ZoneFingerAmpPx's doc for why the ruling is
+  # denominated in pixels).
+  let fingerAmpTicks = zoneFingerAmpTicksFor(baseSpeed)
   var pq = initHeapQueue[ZoneFieldQItem]()
   for gy in 0 ..< gh:
     for gx in 0 ..< gw:
@@ -7587,7 +7563,7 @@ proc computeZoneFrontierField(
           px = float(gx * ZoneFieldCellPx + ZoneFieldCellPx div 2)
           py = float(gy * ZoneFieldCellPx + ZoneFieldCellPx div 2)
         result[idx] = float32(t0[idx]) +
-          float32(zoneBoundaryFingerDelayAt(px, py, finalRect))
+          float32(zoneBoundaryFingerDelayAt(px, py, finalRect, fingerAmpTicks))
         pq.push((t: result[idx], idx: idx))
   proc valueAt(gw, gh, nx, ny: int, field: seq[float32]): float32 {.inline.} =
     if nx < 0 or ny < 0 or nx >= gw or ny >= gh:

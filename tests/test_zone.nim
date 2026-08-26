@@ -957,8 +957,81 @@ proc longestFlatRunPx(tipSeq: seq[float], tolPx: float): float =
       runLen += float(ZoneFieldCellPx)
     result = max(result, runLen)
 
+const
+  ## The rect's own CORNER is a designed 90-degree turn (rounded to
+  ## ZoneCornerRoundPx), so any sample window that crosses it necessarily
+  ## reads a near-90deg turning angle no matter how smooth the paint is.
+  ## Measured: with the isoline instrument correct, EVERY worst turning
+  ## step on the real map landed 5-8px from a rect y-extreme (t=1008 y=1672
+  ## of span [382,1677]; t=2520 y=1620 of [943,1627]; t=2856 y=1612 of
+  ## [1019,1620]) — the corner, every time. An edge is therefore sampled
+  ## only over its own STRAIGHT section, inset past the corner round plus
+  ## the furthest the front can lag behind the rect at this amplitude
+  ## (~21px), which is how far the corner's influence actually reaches.
+  EdgeCornerInsetPx = 40
+  ## A meniscus only exists on an ADVANCING front. During a wait phase —
+  ## and for the first ticks of a shrink that follows one — the paint has
+  ## caught up with the rect, every exterior cell has already arrived, and
+  ## the isoline IS the rect's own edge: straight by construction, and the
+  ## honesty check already guarantees it never precedes the rect. Measured
+  ## with fingering compiled OUT (-d:zoneFlatPaintControl) against
+  ## fingering ON, the longest flat run at those ticks is IDENTICAL
+  ## (t=2184: 344px both ways; t=1512: 468 vs 460), while at genuinely
+  ## advancing ticks it moves hard (t=1848: 108 vs 344; t=2520: 116 vs
+  ## 252). An edge whose isoline has less dynamic range than this is not
+  ## below tolerance, it is outside the regime the check measures, and it
+  ## SKIPS AND SAYS SO rather than passing silently or failing on physics
+  ## that cannot exist.
+  EdgeRegimeMinRangePx = 6.0
+
+proc isoRangePx(tipSeq: seq[float]): float =
+  ## Dynamic range of the valid samples — the regime measure above.
+  var lo = Inf
+  var hi = -Inf
+  for v in tipSeq:
+    if isoValid(v):
+      lo = min(lo, v)
+      hi = max(hi, v)
+  if lo > hi: 0.0 else: hi - lo
+
+type ZoneEdgeSide = enum zesLeft, zesRight, zesTop, zesBottom
+
+proc edgeIsoline(sim: SimServer, rect: MapRect, t: int, gw, gh: int,
+    side: ZoneEdgeSide): seq[float] =
+  ## One edge's isoline over that edge's own STRAIGHT section — the single
+  ## sampler every meniscus check shares, so the corner-inset and regime
+  ## rules cannot drift apart between checks.
+  let
+    gwPx = gw * ZoneFieldCellPx
+    ghPx = gh * ZoneFieldCellPx
+    yLo = max(0, rect.y + EdgeCornerInsetPx)
+    yHi = min(ghPx - 1, rect.y + rect.h - 1 - EdgeCornerInsetPx)
+    xLo = max(0, rect.x + EdgeCornerInsetPx)
+    xHi = min(gwPx - 1, rect.x + rect.w - 1 - EdgeCornerInsetPx)
+  case side
+  of zesLeft:
+    if yHi <= yLo: return @[]
+    frontierIsolineSeq(sim, 0, rect.x, -1, gwPx, yLo, yHi, t, alongX = false)
+  of zesRight:
+    if yHi <= yLo: return @[]
+    frontierIsolineSeq(sim, 0, rect.x + rect.w - 1, 1, gwPx, yLo, yHi, t,
+      alongX = false)
+  of zesTop:
+    if xHi <= xLo: return @[]
+    frontierIsolineSeq(sim, 0, rect.y, -1, ghPx, xLo, xHi, t, alongX = true)
+  of zesBottom:
+    if xHi <= xLo: return @[]
+    frontierIsolineSeq(sim, 0, rect.y + rect.h - 1, 1, ghPx, xLo, xHi, t,
+      alongX = true)
+
+proc inRegime(iso: seq[float]): bool =
+  ## An edge measures a meniscus only if it has enough valid samples AND
+  ## enough dynamic range to tell one from a straight line at all.
+  validCount(iso) >= 3 and isoRangePx(iso) >= EdgeRegimeMinRangePx
+
 proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int
-): tuple[longestPx: float, samples: int] =
+): tuple[longestPx: float, samples: int, edgesUsed, edgesSkipped: int,
+         minRange, maxRange: float] =
   ## For each of the rect's 4 sides, traces the frontier ISOLINE (see
   ## frontierIsolineCoord — this used to call frontierTipCoord, whose
   ## inverted premise returned -1 for every row that has a frontier at
@@ -967,25 +1040,36 @@ proc longestStraightRunPx(sim: SimServer, rect: MapRect, t: int, gw, gh: int
   ## consecutive samples whose position never leaves a +/-1px band: a
   ## fingered isoline leaves the band every finger wavelength, a bare
   ## rectangle edge never leaves it.
+  ##
+  ## Each edge is sampled over its own STRAIGHT section only
+  ## (EdgeCornerInsetPx), and an edge whose isoline dynamic range is below
+  ## EdgeRegimeMinRangePx is SKIPPED and reported, never folded into the
+  ## result — see those constants for the measurements behind both.
   const FlatTolPx = 1.0
-  let
-    gwPx = gw * ZoneFieldCellPx
-    ghPx = gh * ZoneFieldCellPx
-  var longest = 0.0
-  var samples = 0
-  for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
-    let iso = frontierIsolineSeq(sim, 0, edgeX, stepSign, gwPx,
-      max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
-      alongX = false)
-    samples += validCount(iso)
+  var
+    longest = 0.0
+    samples = 0
+    used = 0
+    skipped = 0
+    minRange = Inf
+    maxRange = 0.0
+  for side in ZoneEdgeSide:
+    let iso = edgeIsoline(sim, rect, t, gw, gh, side)
+    let n = validCount(iso)
+    if n < 3:
+      inc skipped
+      continue
+    let r = isoRangePx(iso)
+    minRange = min(minRange, r)
+    maxRange = max(maxRange, r)
+    if not inRegime(iso):
+      inc skipped
+      continue
+    inc used
+    samples += n
     longest = max(longest, longestFlatRunPx(iso, FlatTolPx))
-  for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
-    let iso = frontierIsolineSeq(sim, 0, edgeY, stepSign, ghPx,
-      max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
-      alongX = true)
-    samples += validCount(iso)
-    longest = max(longest, longestFlatRunPx(iso, FlatTolPx))
-  (longest, samples)
+  if minRange == Inf: minRange = 0.0
+  (longest, samples, used, skipped, minRange, maxRange)
 
 proc maxTurningAngleDeg(tipSeq: seq[float]): float =
   ## Turning angle (degrees, unsigned) between every pair of CONSECUTIVE
@@ -1020,6 +1104,19 @@ proc maxTurningAngleDeg(tipSeq: seq[float]): float =
     prevDy = dy
     havePrev = true
 
+proc worstStepOf(tipSeq: seq[float]): tuple[px: float, idx: int] =
+  ## The single largest jump between CONSECUTIVE valid samples, and where.
+  ## Reported unconditionally next to every turning-angle result: an angle
+  ## alone cannot tell a genuine curvature failure from the isoline
+  ## stepping around a piece of architecture, and locating the worst step
+  ## is what turned the original 89.7deg number from "a kink in the paint"
+  ## into "a map-border sliver 200px outside the sampled edge".
+  result = (0.0, -1)
+  for i in 1 ..< tipSeq.len:
+    if isoValid(tipSeq[i - 1]) and isoValid(tipSeq[i]):
+      let j = abs(tipSeq[i] - tipSeq[i - 1])
+      if j > result.px: result = (j, i)
+
 proc maxAmplitudeDeviationPx(tipSeq: seq[float], windowSamples: int): float =
   ## Check #8 (Maxwell's ruling, 2026-08-25, close-zoom review of the
   ## fresh recording: "it gets way too stretched out at points, there
@@ -1053,6 +1150,32 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
   ## arrival is monotone with walk-distance from the door — the emergent
   ## proof that computeZoneFrontierField's causality, not a hand-built
   ## room classifier, is what produces the shape).
+  test "the px->tick amplitude conversion is honoured, and its clamp is never silent":
+    ## Coordinator's condition on the px re-denomination (2026-08-25):
+    ## ZoneFingerAmpPx is converted per map via that map's own front speed,
+    ## and a pathologically slow schedule would balloon 21px into hundreds
+    ## of ticks — so the conversion is CLAMPED, and the clamp must never
+    ## bind quietly. This asserts the clamp is clear on both real maps and
+    ## prints the conversion either way, plus the fidelity condition: the
+    ## map Maxwell actually judged must still get the amplitude he
+    ## approved (70 ticks, i.e. ZoneFingerAmpPx / 0.304).
+    for (label, sim) in [("small test map", zoneGame(BrShowmatchPhases)),
+                         ("real showmatch map", zoneGameOnRealMap(BrShowmatchPhases))]:
+      var g = sim
+      let
+        speed = g.zoneBaseSpeedPxPerTick(BrShowmatchTotalTicks)
+        ticks = zoneFingerAmpTicksFor(speed)
+        binds = zoneFingerAmpClampBinds(speed)
+      echo "  ", label, ": baseSpeed=", speed, "px/tick -> ampTicks=", ticks,
+        " (ampPx=", ZoneFingerAmpPx, ", ceiling=", ZoneFingerAmpMaxTicks,
+        ", clampBinds=", binds, ") -> visible amplitude=",
+        ticks * speed, "px"
+      check not binds
+      # The whole point of the re-denomination: the visible amplitude is
+      # the SAME on every map, which is what "Maxwell approved a look"
+      # means once the ruling stops being denominated in ticks.
+      check abs(ticks * speed - ZoneFingerAmpPx) < 0.5
+
   test "the three meniscus measures DISCRIMINATE (synthetic controls)":
     ## House rule: a gate must DISCRIMINATE, not just hit. The isoline
     ## measures below are what checks #7, #8 and the straight-run check
@@ -1066,7 +1189,7 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       Samples = 400          ## * ZoneFieldCellPx = 1600px of edge
       FlatTolPx = 1.0        ## longestStraightRunPx's own band
       MaxTurningAngleDeg = 40.0   ## check #7's own bound
-      MaxAmplitudePx = 260.0      ## check #8's own bound
+      MaxAmplitudePx = 6.0 * ZoneFingerAmpPx  ## check #8's own bound
       WindowSamples = 50          ## check #8's own window
     proc synth(amp, wavelenPx: float): seq[float] =
       for i in 0 ..< Samples:
@@ -1144,13 +1267,29 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     let (gw, gh) = zoneArrivalFieldGridDims()
     var worst = 0.0
     var samples = 0
+    var edgesUsedTotal = 0
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
-      let (runPx, n) = longestStraightRunPx(sim, rect, t, gw, gh)
-      worst = max(worst, runPx)
-      samples += n
-    echo "straight-run check: validSamples=", samples, " worst=", worst, " px"
+      let prevRect = sim.zoneRectAndDps(max(0, t - 1)).cur
+      let advancing = prevRect.w != rect.w or prevRect.h != rect.h
+      let m = longestStraightRunPx(sim, rect, t, gw, gh)
+      echo "  t=", t, " advancing=", advancing, " edgesUsed=", m.edgesUsed,
+        " edgesSkipped(below regime)=", m.edgesSkipped,
+        " isoRange=[", m.minRange, ",", m.maxRange, "]px samples=", m.samples,
+        " longestFlatRun=", m.longestPx, "px"
+      worst = max(worst, m.longestPx)
+      samples += m.samples
+      edgesUsedTotal += m.edgesUsed
+    echo "straight-run check: edgesUsed=", edgesUsedTotal,
+      " validSamples=", samples, " worst=", worst, " px"
+    # THE REGIME SKIP MUST NOT BE AN ESCAPE HATCH. A paint with no
+    # fingering at all puts EVERY edge below regime, which would skip the
+    # whole check into a silent pass — the exact failure mode this lane
+    # already found once (a check reporting worst=0 on zero samples).
+    # Verified against the -d:zoneFlatPaintControl build, which drops to
+    # edgesUsed=0 and fails HERE rather than passing quietly.
+    check edgesUsedTotal >= 8
     check samples >= 200
     check worst <= 100.0
 
@@ -1176,23 +1315,31 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       ghPx = gh * ZoneFieldCellPx
     var worst = 0.0
     var samples = 0
+    var edgesUsed = 0
+    var edgesSkipped = 0
+    var worstStepPx = 0.0
+    var worstStepWhere = ""
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
-      for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
-        let tipSeq = frontierIsolineSeq(sim, 0, edgeX, stepSign, gwPx,
-          max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
-          alongX = false)
-        samples += validCount(tipSeq)
-        worst = max(worst, maxTurningAngleDeg(tipSeq))
-      for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
-        let tipSeq = frontierIsolineSeq(sim, 0, edgeY, stepSign, ghPx,
-          max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
-          alongX = true)
-        samples += validCount(tipSeq)
-        worst = max(worst, maxTurningAngleDeg(tipSeq))
-    echo "turning-angle check (small map): validSamples=", samples,
-      " worst=", worst, " deg"
+      for side in ZoneEdgeSide:
+        let iso = edgeIsoline(sim, rect, t, gw, gh, side)
+        if not inRegime(iso):
+          inc edgesSkipped
+          continue
+        inc edgesUsed
+        samples += validCount(iso)
+        worst = max(worst, maxTurningAngleDeg(iso))
+        let ws = worstStepOf(iso)
+        if ws.px > worstStepPx:
+          worstStepPx = ws.px
+          worstStepWhere = "t=" & $t & " " & $side & " sampleIdx=" & $ws.idx
+    echo "turning-angle check (small map): edgesUsed=", edgesUsed,
+      " edgesSkipped(below regime)=", edgesSkipped, " validSamples=", samples,
+      " worst=", worst, " deg worstStep=", worstStepPx, "px at ",
+      worstStepWhere
+    check edgesUsed >= 8   ## see the straight-run check: the regime skip
+                           ## must never become a silent pass
     check samples >= 200
     check worst <= MaxTurningAngleDeg
 
@@ -1211,50 +1358,31 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     var worst = 0.0
     var edgesSampled = 0
     var realSamples = 0
+    var edgesSkipped = 0
     for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
       let t = int(float(BrShowmatchTotalTicks) * frac)
       let rect = sim.zoneRectAndDps(t).cur
-      let edgeX = rect.x + rect.w - 1
-      let tipSeq = frontierIsolineSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
-        alongX = false)
-      let nValid = validCount(tipSeq)
-      realSamples += nValid
-      if nValid >= 3:
-        inc edgesSampled
-        let angle = maxTurningAngleDeg(tipSeq)
-        worst = max(worst, angle)
-        echo "  right-edge full-height t=", t, " validSamples=", nValid,
-          " maxTurningAngle=", angle,
-          " rect=(x:", rect.x, " y:", rect.y, " w:", rect.w, " h:", rect.h, ")"
-        when defined(zoneRoomClassifyDebug):
-          if angle > MaxTurningAngleDeg:
-            # The worst single step of the isoline polyline, with both
-            # endpoints located against the rect actually being sampled —
-            # the dump that showed the ORIGINAL 89.7deg pair sitting 200px
-            # outside the rect's own y-span, on a map-border sliver and an
-            # unpainted room interior (see frontierIsolineCoord).
-            var worstIdx = -1
-            var worstJump = 0.0
-            for i in 1 ..< tipSeq.len:
-              if isoValid(tipSeq[i - 1]) and isoValid(tipSeq[i]):
-                let j = abs(tipSeq[i] - tipSeq[i - 1])
-                if j > worstJump:
-                  worstJump = j
-                  worstIdx = i
-            if worstIdx >= 0:
-              let
-                yA = (worstIdx - 1) * ZoneFieldCellPx
-                yB = worstIdx * ZoneFieldCellPx
-              stderr.writeLine("    worst step: y=" & $yA & " x=" &
-                $tipSeq[worstIdx - 1] & " -> y=" & $yB & " x=" &
-                $tipSeq[worstIdx] & " (jump=" & $worstJump & "px)" &
-                " rectYSpan=[" & $rect.y & "," & $(rect.y + rect.h - 1) &
-                "] rectXRight=" & $(rect.x + rect.w - 1) &
-                " insideA=" & $(yA >= rect.y and yA <= rect.y + rect.h - 1) &
-                " insideB=" & $(yB >= rect.y and yB <= rect.y + rect.h - 1))
-    echo "turning-angle check (real map, right edge, full height): edgesSampled=",
-      edgesSampled, " validSamples=", realSamples, " worst=", worst, " deg"
-    check edgesSampled > 0
+      let iso = edgeIsoline(sim, rect, t, gw, gh, zesRight)
+      if not inRegime(iso):
+        inc edgesSkipped
+        echo "  right edge t=", t, " SKIPPED: below regime (validSamples=",
+          validCount(iso), " isoRange=", isoRangePx(iso), "px, needs >=",
+          EdgeRegimeMinRangePx, "px) — the front has caught up with the rect, ",
+          "so the isoline IS the rect edge and no meniscus exists to measure"
+        continue
+      inc edgesSampled
+      realSamples += validCount(iso)
+      let angle = maxTurningAngleDeg(iso)
+      worst = max(worst, angle)
+      let ws = worstStepOf(iso)
+      echo "  right edge t=", t, " validSamples=", validCount(iso),
+        " isoRange=", isoRangePx(iso), "px maxTurningAngle=", angle,
+        " worstStep=", ws.px, "px rectYSpan=[", rect.y, ",",
+        rect.y + rect.h - 1, "]"
+    echo "turning-angle check (real map, right edge): edgesSampled=",
+      edgesSampled, " edgesSkipped(below regime)=", edgesSkipped,
+      " validSamples=", realSamples, " worst=", worst, " deg"
+    check edgesSampled >= 3   ## regime skip must not absolve a flat paint
     check realSamples >= 100
     check worst <= MaxTurningAngleDeg
 
@@ -1276,61 +1404,62 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
     const
       WindowSamples = 50  ## +/- 50 * ZoneFieldCellPx(4) = +/- 200px, per
                           ## the coordinator's own window size.
-      MaxAmplitudePx = 260.0  ## generous slack above the ~60-150px a
-                          ## bounded meniscus should show at this
-                          ## schedule's base speed — still far below what
-                          ## an unbounded-amplitude streamer produces
-                          ## (measured in the hundreds-to-thousands of px
-                          ## before this fix).
+      MaxAmplitudePx = 6.0 * ZoneFingerAmpPx  ## 126px — SIX TIMES the
+                          ## meniscus's own approved amplitude, now that
+                          ## the amplitude is denominated in px and is the
+                          ## same on every map (ZoneFingerAmpPx). Derived
+                          ## rather than hard-coded, so retuning the look
+                          ## retunes the bound with it. Verified to still
+                          ## DISCRIMINATE at this tighter value: the
+                          ## synthetic streamer control measures 377.5px
+                          ## against it, a healthy front 30.0px and a
+                          ## legitimate gentle drift 37.5px.
     var worstSmall = 0.0
     var smallSamples = 0
+    var smallUsed = 0
+    var smallSkipped = 0
     block smallMap:
       var sim = zoneGame(BrShowmatchPhases)
       discard ensureZoneArrivalField(sim)
       let (gw, gh) = zoneArrivalFieldGridDims()
-      let
-        gwPx = gw * ZoneFieldCellPx
-        ghPx = gh * ZoneFieldCellPx
       for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
         let t = int(float(BrShowmatchTotalTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
-        for (edgeX, stepSign) in [(rect.x, -1), (rect.x + rect.w - 1, 1)]:
-          let tipSeq = frontierIsolineSeq(sim, 0, edgeX, stepSign, gwPx,
-            max(0, rect.y - 10), min(ghPx - 1, rect.y + rect.h - 1 + 10), t,
-            alongX = false)
-          smallSamples += validCount(tipSeq)
-          worstSmall = max(worstSmall, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
-        for (edgeY, stepSign) in [(rect.y, -1), (rect.y + rect.h - 1, 1)]:
-          let tipSeq = frontierIsolineSeq(sim, 0, edgeY, stepSign, ghPx,
-            max(0, rect.x - 10), min(gwPx - 1, rect.x + rect.w - 1 + 10), t,
-            alongX = true)
-          smallSamples += validCount(tipSeq)
-          worstSmall = max(worstSmall, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
-    echo "amplitude check (small map): validSamples=", smallSamples,
-      " worst=", worstSmall, " px"
+        for side in ZoneEdgeSide:
+          let iso = edgeIsoline(sim, rect, t, gw, gh, side)
+          if not inRegime(iso):
+            inc smallSkipped
+            continue
+          inc smallUsed
+          smallSamples += validCount(iso)
+          worstSmall = max(worstSmall,
+            maxAmplitudeDeviationPx(iso, WindowSamples))
+    echo "amplitude check (small map): edgesUsed=", smallUsed,
+      " edgesSkipped(below regime)=", smallSkipped, " validSamples=",
+      smallSamples, " worst=", worstSmall, " px"
     var worstReal = 0.0
     var realEdgesSampled = 0
     var realSamples = 0
+    var realSkipped = 0
     block realMapRightEdge:
       var sim = zoneGameOnRealMap(BrShowmatchPhases)
       discard ensureZoneArrivalField(sim)
       let (gw, gh) = zoneArrivalFieldGridDims()
-      let
-        gwPx = gw * ZoneFieldCellPx
-        ghPx = gh * ZoneFieldCellPx
       for frac in [0.15, 0.30, 0.45, 0.55, 0.65, 0.75, 0.85]:
         let t = int(float(BrShowmatchTotalTicks) * frac)
         let rect = sim.zoneRectAndDps(t).cur
-        let edgeX = rect.x + rect.w - 1
-        let tipSeq = frontierIsolineSeq(sim, 0, edgeX, 1, gwPx, 0, ghPx - 1, t,
-          alongX = false)
-        let nValid = validCount(tipSeq)
-        realSamples += nValid
-        if nValid >= 3:
-          inc realEdgesSampled
-          worstReal = max(worstReal, maxAmplitudeDeviationPx(tipSeq, WindowSamples))
+        let iso = edgeIsoline(sim, rect, t, gw, gh, zesRight)
+        if not inRegime(iso):
+          inc realSkipped
+          continue
+        inc realEdgesSampled
+        realSamples += validCount(iso)
+        worstReal = max(worstReal, maxAmplitudeDeviationPx(iso, WindowSamples))
     echo "amplitude check (real map, right edge): edgesSampled=",
-      realEdgesSampled, " validSamples=", realSamples, " worst=", worstReal, " px"
+      realEdgesSampled, " edgesSkipped(below regime)=", realSkipped,
+      " validSamples=", realSamples, " worst=", worstReal, " px"
+    check smallUsed >= 8       ## regime skip must not absolve a flat paint
+    check realEdgesSampled >= 3
     check worstSmall <= MaxAmplitudePx
     check worstReal <= MaxAmplitudePx
 
