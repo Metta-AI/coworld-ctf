@@ -473,7 +473,10 @@ html, body {
 
 /* leader pulse keys on GLORY lead (glory is the score) — >=130g, ~8% of a
    typical full-match team total (~1650g under glory v5, see GLORY_TIERS
-   provenance).
+   provenance). RE-CHECKED for GLORYVERSION 9 (2026-08-26): the field's
+   per-team typical total barely moved (v9 combined median 3246 / 2 = 1623;
+   8% = ~130) -- see GLORY_TIERS' own v9 re-fit note for why the show-total
+   distribution held steady. 130 stands unchanged.
    Lives lead >=3 is kept only as the JS fallback for pre-glory replays, so
    this always targets the GLORY numeral, never the demoted lives one. */
 .plate.leader .lives-num.glory { animation: leaderpulse 1.9s ease-in-out infinite; }
@@ -2608,7 +2611,9 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     // leader pulse keys on GLORY lead (glory is the score, not lives) — a
     // margin of 130g is ~8% of a typical full-match team total (~1650g under
-    // glory v5, field-calibrated in GLORY_TIERS provenance). Lives lead >=3 is kept
+    // glory v5, field-calibrated in GLORY_TIERS provenance; RE-CHECKED for
+    // GLORYVERSION 9, still ~130 -- see the CSS comment above `.plate.leader`
+    // for the re-measurement). Lives lead >=3 is kept
     // ONLY as the fallback for pre-glory replays that never shipped a glory
     // ledger, so the read stays honest on old bundles too.
     var rp = document.querySelector('.plate.red');
@@ -4436,15 +4441,29 @@ body[data-embed] #board { top: 0; height: 100%; }
   // within-sample because gentler decay keeps multipliers lit longer).
   // Combined per-episode glory under v5: p20=2485 p40=3022 p60=3576
   // p80=4426 (min 89, median 3316, max 12616). Cuts rounded to 2500 /
-  // 3000 / 3600 / 4400. Line pick is total % pool.length —
-  // deterministic, so a replay always reviews its own show the same way.
+  // 3000 / 3600 / 4400.
+  //
+  // RE-FIT for GLORYVERSION 9 (2026-08-26, LAW AUDIT wave -- E5 warned this
+  // move was coming: re-anchoring TierGlory "moves match totals materially").
+  // Same 120-episode cache, same methodology, run against the fully-synced
+  // v9 mirror (self-care XP zeroed, the re-founded trees, the new TierGlory
+  // ladder, the FIRST-tier-V-only cap): combined per-episode glory p20=2450
+  // p40=3058 p60=3724 p80=4387 (min 1399, median 3246, max 6220). Landed
+  // almost exactly where v5 did -- deed pricing (kills/captures/wipes,
+  // hundreds of glory each) dominates the combined total and none of that
+  // moved this wave; achievements are only ~7-9% of a winner's own glory
+  // (see `AchievementSweepBudgetPct`'s own measurement in glory.nim), so
+  // re-anchoring THEIR price barely nudges the show-total distribution. Only
+  // the "great" cut actually moved on rounding: 3600 -> 3700. Cuts now 2500 /
+  // 3000 / 3700 / 4400. Line pick is total % pool.length — deterministic, so
+  // a replay always reviews its own show the same way.
   var GLORY_TIERS = [
     { floor: 4400, lines: [ // legendary — top quintile
       'ONE FOR THE ARCHIVES',
       'AN ABSOLUTE CLASSIC',
       "THEY'LL TALK ABOUT THIS ONE",
       'FRAME IT AND HANG IT'] },
-    { floor: 3600, lines: [ // great
+    { floor: 3700, lines: [ // great
       'A BARNBURNER!',
       "THE CROWD GOT THEIR MONEY'S WORTH",
       'PAINT ON THE RAFTERS'] },
