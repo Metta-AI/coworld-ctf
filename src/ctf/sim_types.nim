@@ -448,6 +448,10 @@ const
                               ## (~7 deg/tick; a full turn takes ~2.1s).
   VisionConeDeg* = 60         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
+  AimAssistConeBrads* = 12    ## default aim-assist cone half-width (~17
+                              ## degrees): how close a human's current aim
+                              ## must already be to a live enemy's windup
+                              ## intercept before the assist snaps onto it.
 
   FovCellSize* = 8            ## fog-of-war visibility grid cell size in px.
 
@@ -1416,6 +1420,24 @@ type
                               ## the channel does not exist: the server keeps
                               ## discarding mouse packets exactly as before and
                               ## refuses any client that asks for it.
+    allowAimAssist*: bool     ## freeplay only: at the fire-press edge, a
+                              ## direct-aimed human seat's turret snaps onto
+                              ## the nearest live enemy's `fireWindupTicks`
+                              ## intercept bearing, PROVIDED that bearing is
+                              ## already within `aimAssistConeBrads` of the
+                              ## seat's own current aim. Bots already compute
+                              ## this lead themselves every shot; a human
+                              ## cannot, so without this a human's shot always
+                              ## goes stale by the windup delay. Never widens
+                              ## what a human was aiming near — it only
+                              ## resolves the lead once they are already close.
+                              ## false = the mode does not exist: aimBrads
+                              ## locks exactly where the cursor left it, same
+                              ## as a pre-assist build.
+    aimAssistConeBrads*: int  ## half-width, in brads, of the assist cone
+                              ## around the seat's current aim (default
+                              ## `AimAssistConeBrads`). Only read when
+                              ## `allowAimAssist` is on.
     slots*: seq[PlayerSlotConfig]
     barrageMaxPerSec*: int    ## grenade-barrage endgame: the launch rate the
                               ## barrage ramps UP to, in grenades/second.
@@ -1508,6 +1530,16 @@ type
     flipH*: bool
     aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
                                ## counter-clockwise on screen (64 = north).
+    directAimActive*: bool     ## true for exactly the tick `applyDirectAim`
+                               ## wrote this cog's aimBrads — the only
+                               ## already-recorded signal that distinguishes a
+                               ## human-pointed seat from a policy seat inside
+                               ## `step`. `step` reads and clears it every
+                               ## tick (the aim-assist gate), so it never
+                               ## survives past the tick that set it and is
+                               ## NOT in gameHash: by the time a hash is ever
+                               ## taken, it has already collapsed back to
+                               ## false, on both the live server and replay.
     team*: Team
     alive*: bool
     lives*: int
@@ -2076,6 +2108,19 @@ proc bradsOfVector*(dx, dy: int): int =
   let brads = int(round(
     arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
   ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+
+proc shortestAimBradsDelta*(fromBrads, toBrads: int): int =
+  ## Signed shortest angular distance from `fromBrads` to `toBrads`, wrapped
+  ## into `(-AimBradsTurn/2, AimBradsTurn/2]`. Integer-only (no trig, no
+  ## libm) — this is the aim-assist cone check, which only ever needs a
+  ## magnitude comparison, but the sign matches every other brads-delta in
+  ## this codebase (see `control.bradsErr`, which has the same formula but
+  ## lives outside the determinism boundary and so cannot be shared with sim
+  ## code).
+  var d = (toBrads - fromBrads) mod AimBradsTurn
+  if d < -(AimBradsTurn div 2): d += AimBradsTurn
+  if d > AimBradsTurn div 2: d -= AimBradsTurn
+  d
 
 
 # Team helpers (pure functions over the types/consts above).

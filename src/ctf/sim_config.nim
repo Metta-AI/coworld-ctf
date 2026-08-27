@@ -47,6 +47,8 @@ proc defaultGameConfig*(): GameConfig =
     closedRoster: false,
     allowSeatTakeover: false,
     allowDirectAim: false,
+    allowAimAssist: false,
+    aimAssistConeBrads: AimAssistConeBrads,
     slots: @[],
     perkMods: DefaultPerkMods,
     puddleDamagePct: DefaultPuddleDamagePct,
@@ -616,6 +618,21 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field aimTurnRate must be at least 1.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
     raise newException(CtfError, "Config field visionConeDeg must be between 0 and 180.")
+  if config.aimAssistConeBrads < 0 or
+      config.aimAssistConeBrads > AimBradsTurn div 2:
+    raise newException(
+      CtfError,
+      "Config field aimAssistConeBrads must be 0.." & $(AimBradsTurn div 2) & "."
+    )
+  if config.allowAimAssist and not config.allowDirectAim:
+    # The engine's only already-recorded, replay-safe signal for "a human,
+    # not a policy, is driving this seat" is a direct-aim write landing on
+    # the cog this tick (see Player.directAimActive) — without allowDirectAim
+    # that signal never fires, so the mode would silently do nothing. Refuse
+    # the config outright rather than ship a knob that looks armed and never
+    # fires a single assist.
+    raise newException(
+      CtfError, "Config field allowAimAssist requires allowDirectAim.")
   if config.puddleDamagePct < 0 or config.puddleDamagePct > 100:
     raise newException(CtfError, "Config field puddleDamagePct must be 0..100.")
   if config.barrierPickups < 0 or
@@ -873,6 +890,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigBool("allowSeatTakeover", config.allowSeatTakeover)
   node.readConfigBool("allowDirectAim", config.allowDirectAim)
+  node.readConfigBool("allowAimAssist", config.allowAimAssist)
+  node.readConfigInt("aimAssistConeBrads", config.aimAssistConeBrads)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
   config.validate()
@@ -990,6 +1009,13 @@ proc configJson*(config: GameConfig): string =
   # is absent and a league replay's config stays byte-identical.
   if config.allowDirectAim:
     node["allowDirectAim"] = %config.allowDirectAim
+  # Same rule for aim assist: echoed (both keys, so a replay never has to
+  # guess the cone width the mode ran with) only when the mode is on, so a
+  # league — or an assist-free freeplay — replay's config stays
+  # byte-identical to a pre-assist build.
+  if config.allowAimAssist:
+    node["allowAimAssist"] = %config.allowAimAssist
+    node["aimAssistConeBrads"] = %config.aimAssistConeBrads
   # Echo the paintball keys only when the mode is engaged, so a classic
   # game's replay config stays byte-identical to pre-paintball builds. When
   # the mode IS on, echo every key: the wasm viewer re-derives the paint grid
