@@ -262,12 +262,21 @@ proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
         "Config field players[" & $i & "].name must be a string."
       )
     let name = nameNode.getStr()
-    if name.len == 0:
-      raise newException(
-        CtfError,
-        "Config field players[" & $i & "].name must not be empty."
-      )
-    slots[i].name = name
+    # An EMPTY name means "this slot has no configured display name", and it
+    # has to be accepted because THIS SERIALIZER WRITES IT. configJson turns
+    # the players array on when ANY slot is named, then emits an entry for
+    # EVERY slot -- so one named slot beside one unnamed slot produces
+    # {"name":""}, which this reader used to refuse. A recorded config that
+    # its own reader rejects is not a round trip: replays from a partially
+    # named roster could not be loaded at all, they raised here.
+    #
+    # Relaxed on the READER rather than fixed on the writer on purpose. The
+    # writer's output is stamped into every replay header, and changing what
+    # it emits would change recorded bytes for existing configs -- the one
+    # thing that must not move. Accepting more is free; emitting differently
+    # is not.
+    if name.len > 0:
+      slots[i].name = name
 
 proc defaultSlotName(slotIndex: int): string =
   ## Returns the canonical name for one generated tournament slot.
