@@ -1636,6 +1636,61 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
     return
   sim.applyFire(sim.selectGunShot(shooterIndex))
 
+proc applyAimAssist*(sim: var SimServer, shooterIndex: int) =
+  ## Aim assist (`allowAimAssist`). Called at the fire-press edge, BEFORE
+  ## `startFireWindup` locks `windupBrads` off `aimBrads` — this is the one
+  ## chance to correct the bearing before it freezes for the shot.
+  ##
+  ## Scans every OTHER live, non-teammate cog, predicts each one
+  ## `fireWindupTicks` ticks ahead by simple linear integer extrapolation of
+  ## its CURRENT velocity, and turns that predicted position into a bearing
+  ## from the shooter's muzzle. Among all of those, the one nearest the
+  ## shooter's own current aim wins; if it is within `aimAssistConeBrads` of
+  ## that aim, `aimBrads` snaps to it. Otherwise nothing changes. A human
+  ## cannot compute the windup lead a bot's policy already does every shot —
+  ## this closes exactly that gap, and only for a target the cursor was
+  ## already close to; it never turns the turret onto a target the human
+  ## was not already tracking.
+  ##
+  ## Pure function of already-hashed sim state (every candidate's x, y,
+  ## velX, velY, team, alive) plus the shooter's own already-recorded aim:
+  ## nothing here reads a clock, a float RNG, or anything a replay cannot
+  ## re-derive from the recorded input/aim streams, so a replay reaches the
+  ## identical intercept and re-locks the identical `windupBrads` for free.
+  if shooterIndex < 0 or shooterIndex >= sim.players.len:
+    return
+  template shooter: untyped = sim.players[shooterIndex]
+  if not shooter.alive:
+    return
+  let
+    ticks = max(0, sim.config.fireWindupTicks)
+    mx = shooter.x + CollisionW div 2
+    my = shooter.y + CollisionH div 2
+  var
+    bestBrads = -1
+    bestDelta = high(int)
+  for i in 0 ..< sim.players.len:
+    if i == shooterIndex:
+      continue
+    let candidate = sim.players[i]
+    if not candidate.alive or candidate.team == shooter.team:
+      continue
+    let
+      # velX/velY are fixed-point (MotionScale units per tick — the same
+      # convention applyMomentumAxis's `carry` accumulates), not raw px/tick;
+      # dividing back out is what keeps this "simple" extrapolation in the
+      # right units. Ignores walls, collisions and the carry remainder on
+      # purpose — an approximate lead, not a re-derivation of movement.
+      px = candidate.x + (candidate.velX * ticks) div MotionScale
+      py = candidate.y + (candidate.velY * ticks) div MotionScale
+      brads = bradsOfVector(px - mx, py - my)
+      delta = abs(shortestAimBradsDelta(shooter.aimBrads, brads))
+    if delta < bestDelta:
+      bestDelta = delta
+      bestBrads = brads
+  if bestBrads >= 0 and bestDelta <= sim.config.aimAssistConeBrads:
+    shooter.aimBrads = bestBrads
+
 proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
   ## Starts a shot: locks the current aim angle and arms the windup.
   ## The shot itself releases fireWindupTicks later (see step).
@@ -2333,6 +2388,11 @@ proc applyDirectAim*(sim: var SimServer, playerIndex: int, brads: int) =
     return
   sim.players[playerIndex].aimBrads =
     ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+  # Marks this cog as human-pointed FOR THIS TICK ONLY: `step` reads and
+  # clears it (the aim-assist gate). Live and replay both call this proc at
+  # the same point, from the same recorded stream (see `stepReplay`), so the
+  # flag comes back identically either way — no new replay record needed.
+  sim.players[playerIndex].directAimActive = true
 
 proc directAimBrads*(player: Player, mapX, mapY: int): int =
   ## Converts a cursor position in MAP PIXELS to the bearing that points the
@@ -4262,11 +4322,18 @@ proc step*(
     sim.applyInput(playerIndex, input)
     sim.applyGrenadeInput(playerIndex, input, prev)
     sim.applyBarrierInput(playerIndex, input, prev)
+    # `directAimActive` is this tick's ONLY signal that a human, not a
+    # policy, is pointing this cog (see the field doc) — read it once, then
+    # clear it so it can never leak into next tick's decision.
+    let assistEligible = sim.players[playerIndex].directAimActive
+    sim.players[playerIndex].directAimActive = false
     if input.attack and not prev.attack:
       if sim.players[playerIndex].hasSprayPaint:
         if sim.canFireArc(playerIndex):
           arcFiring.add(playerIndex)
       else:
+        if sim.config.allowAimAssist and assistEligible:
+          sim.applyAimAssist(playerIndex)
         if sim.config.fireWindupTicks <= 0:
           if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
             sim.startFireWindup(playerIndex)

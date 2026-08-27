@@ -22,6 +22,7 @@ import
   test_replay_requests,
   test_seat_takeover,
   test_direct_aim,
+  test_aim_assist,
   # test_replay_switch_caches hot-switches the process-wide board render
   # caches onto other maps, but no longer has to run last: it restores the
   # default arena and invalidates the caches at module end, and the endzone
