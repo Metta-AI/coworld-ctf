@@ -1,6 +1,6 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, sequtils, strutils,
-    sysrand, tables, times],
+  std/[algorithm, atomics, json, locks, monotimes, nativesockets, os, sequtils,
+    strutils, sysrand, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
@@ -157,6 +157,8 @@ const
   # What a human connection may be GRANTED here. Polled by the client before
   # it connects, so one bundle serves both a league server and a play server.
   CapabilitiesPath = "/capabilities"
+  # Game-thread liveness. Answers without taking appState.lock, on purpose.
+  FrameHealthPath = "/health/frame"
   ControlRestartPath = "/control/restart"
   ControlKickPath = "/control/kick"
   ## Cap on player debug-sprite bytes accepted per player per tick.
@@ -712,6 +714,51 @@ proc anonymousPlayerIdentity*(
     if not taken:
       return
 
+# --- Frame watchdog ------------------------------------------------------
+# A LOCK-FREE liveness marker for the game thread, and the whole point is the
+# lock-free part: when this server wedges it wedges holding appState.lock, so
+# every status route that takes the lock blocks too and the server stops being
+# able to say what is wrong with it exactly when you need it to. These are
+# plain atomics touched by the frame loop and read by /health/frame, which
+# takes no lock at all.
+type FramePhase = enum
+  fpBoot = "boot"
+  fpFrameTop = "frame-top"
+  fpAwaitLock = "await-lock"
+  fpInLock = "in-lock"
+  fpSimStep = "sim-step"
+  fpPostStep = "post-step"
+  fpBroadcast = "broadcast"
+  fpFrameEnd = "frame-end"
+
+var
+  framePhase: Atomic[int]
+  framePhaseSinceMs: Atomic[int64]
+  frameTickSeen: Atomic[int]
+  frameCounter: Atomic[int64]
+
+proc nowMs(): int64 =
+  (getMonoTime().ticks div 1_000_000)
+
+proc markFrame(phase: FramePhase) {.inline.} =
+  framePhase.store(ord(phase))
+  framePhaseSinceMs.store(nowMs())
+
+proc frameHealthJson(): string =
+  ## What the game thread is doing right now, readable while it holds the lock.
+  let
+    phase = FramePhase(framePhase.load())
+    age = nowMs() - framePhaseSinceMs.load()
+  $(%*{
+    "phase": $phase,
+    "msInPhase": age,
+    "tick": frameTickSeen.load(),
+    "frames": frameCounter.load(),
+    # A frame is ~42ms at 24fps. Anything past a second in one phase is the
+    # server being stuck, not the server being busy.
+    "stalled": age > 1000
+  })
+
 proc nextAnonymousPlayerIdentity(): string =
   ## Returns a unique generated identity from current server state.
   {.gcsafe.}:
@@ -1117,6 +1164,14 @@ proc httpHandler(request: Request) =
     headers["Content-Type"] = "text/plain; charset=utf-8"
     headers["Cache-Control"] = "no-cache"
     request.respond(200, headers, "healthy")
+  elif request.path == FrameHealthPath and request.httpMethod == "GET":
+    # Deliberately BEFORE any route that takes appState.lock, and it takes no
+    # lock itself: this answer must survive the wedge it is there to diagnose.
+    var headers: HttpHeaders
+    headers["Content-Type"] = "application/json; charset=utf-8"
+    headers["Cache-Control"] = "no-cache"
+    headers["Access-Control-Allow-Origin"] = "*"
+    request.respond(200, headers, frameHealthJson())
   elif request.path == CapabilitiesPath and request.httpMethod == "GET":
     var headers: HttpHeaders
     headers["Content-Type"] = "application/json; charset=utf-8"
@@ -1923,6 +1978,8 @@ proc runServerLoop*(
       else: initBroadcastTracker()
 
   while true:
+    markFrame(fpFrameTop)
+    discard frameCounter.fetchAdd(1)
     var
       pendingReplayUri = ""
       sockets: seq[WebSocket] = @[]
@@ -2022,8 +2079,10 @@ proc runServerLoop*(
             if appState.loadingReplayUri == pendingReplayUri:
               appState.loadingReplayUri = ""
 
+    markFrame(fpAwaitLock)
     {.gcsafe.}:
       withLock appState.lock:
+        markFrame(fpInLock)
         if not replayLoaded and appState.resetRequested:
           shouldReset = true
           appState.resetRequested = false
@@ -2623,6 +2682,7 @@ proc runServerLoop*(
       for cogIndex in 0 ..< sim.players.len:
         replayWriter.writeInputMaskChange(tickTime(sim.tickCount), cogIndex, 0)
 
+    markFrame(fpPostStep)
     var frameEvents = newJArray()
     if replayLoaded:
       frameEvents = replayPlayer.advanceReplayFrame(
@@ -2639,6 +2699,8 @@ proc runServerLoop*(
         stepInputs = inputs
         stepPressedInputMasks = pressedInputMasks
         lastStepInputs = prevInputs
+      markFrame(fpSimStep)
+      frameTickSeen.store(sim.tickCount)
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
@@ -2755,6 +2817,7 @@ proc runServerLoop*(
         for i in 0 ..< sockets.len:
           spritesOffFlags[i] =
             appState.spritesOff.getOrDefault(sockets[i], false)
+    markFrame(fpBroadcast)
     for i in 0 ..< sockets.len:
       var nextState: PlayerViewerState
       let framePacket = sim.buildSpriteProtocolPlayerUpdates(
@@ -2983,6 +3046,7 @@ proc runServerLoop*(
       playerIndices,
       sim.players.len
     )
+    markFrame(fpFrameEnd)
     # Pacing is only meaningful while a game is actually running: the lobby
     # paces at wall clock by design, and end-card frames idle by design.
     if sim.phase == Playing:
