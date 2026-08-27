@@ -26,11 +26,31 @@ suite "glory: deed pricing":
     # stays in the enum and its mint site stays wired, deliberately worth
     # nothing, so this is the one place that has to know it is exempt on
     # purpose rather than reading as an accidental dead deed.
+    #
+    # `dLevelUp` joins the exemption as of v10 (GLORYVERSION 10 WAVE,
+    # Maxwell's ruling: leveling "shouldn't earn Glory for each action, they
+    # simply get stronger as a unit") -- same ZERO+TOMBSTONE shape: the mint
+    # site (`addXp`, sim.nim) stays wired and still fires on every level
+    # crossing, deliberately worth nothing, because leveling's reward is the
+    # POWER (the buff ladder, ace status, the supply drop), not the
+    # scoreboard. See the tombstone on `Deed.dLevelUp`.
     for deed in Deed:
-      if deed in {dNone, dAchievement, dClutchHeal}:
-        continue  # dNone is the null; dAchievement is tier-priced; dClutchHeal
-                  # is the intentional zero+tombstone above.
+      if deed in {dNone, dAchievement, dClutchHeal, dLevelUp}:
+        continue  # dNone is the null; dAchievement is tier-priced;
+                  # dClutchHeal/dLevelUp are the intentional zero+tombstones
+                  # above.
       check (deedGlory(deed) != 0 or deedDrama(deed) != 0)
+
+  test "dLevelUp pays no glory, no drama, no heat, no pop (v10 ruling)":
+    # The direct law assertion: leveling's reward is the POWER, never the
+    # scoreboard. `popsScore` still excludes it too -- the RANK UP moment
+    # survives as a direct star-count pop (`addXp`, sim.nim), just never
+    # through the generic priced-deed pop path this accessor gates.
+    check deedGlory(dLevelUp) == 0
+    check deedDrama(dLevelUp) == 0
+    check not isDrama(dLevelUp)
+    check not paysHeat(dLevelUp)
+    check not popsScore(dLevelUp)
 
   test "penalties are negative and stay negative":
     check deedGlory(dTeamKill) < 0

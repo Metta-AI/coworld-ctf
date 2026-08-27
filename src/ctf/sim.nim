@@ -4137,14 +4137,18 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   ## before this field existed -- the right behaviour for a team-wide deed no
   ## single cog earned.
   ##
-  ## GLORYVERSION 10: the zero-amount bail is now conditioned on `label` too.
-  ## A bare zero (`label == ""`) still bails -- nothing to draw, same as
-  ## always. But `addXp`'s own RANK UP pop mints with amount==0 (`dLevelUp`
-  ## is zero+tombstoned; there is no payout) AND a label carrying the star
-  ## count, so it must still draw. Achievement claims never trip this
-  ## either way (`mintAchievement` is always > 0 in practice), so this
-  ## widens the gate without changing their behaviour.
-  if amount == 0 and label.len == 0:
+  ## GLORYVERSION 10: the zero-amount bail is now conditioned on `label` OR
+  ## `word` too. A truly bare zero (`label == "" and word == ""`) still
+  ## bails -- nothing to draw, same as always. But `addXp`'s own RANK UP pop
+  ## mints with amount==0 (`dLevelUp` is zero+tombstoned; there is no
+  ## payout) AND a `word` carrying the star count, so it must still draw.
+  ## Achievement claims (`label`) never trip this either way (`mintAchievement`
+  ## is always > 0 in practice); every OTHER `word`-only caller (the generic
+  ## deed pop inside `awardDeed`) is gated by `popsScore`, which itself
+  ## already excludes every deed that can reach amount==0, `dLevelUp`
+  ## included -- so this widens the gate for exactly one caller (`addXp`'s
+  ## direct mint) without changing anything else's behaviour.
+  if amount == 0 and label.len == 0 and word.len == 0:
     return
   if label.len == 0:
     for pop in sim.gloryPops.mitems:
@@ -4741,17 +4745,28 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
     # scoreboard): `dLevelUp` mints 0g/0 drama now, so `popsScore` excludes
     # it and the generic pop call inside `awardDeed` above never fires for
     # this deed. The MOMENT still deserves a pop -- a rank climbed is real,
-    # it just isn't a payout -- so mint it directly here, the same
-    # direct-`addGloryPop`-with-a-`label` pattern `claimAchievement` already
-    # uses for its own named claims. `label` carries the star count (not a
-    # glory amount) so it survives `addGloryPop`'s zero-amount guard (which
-    # only bails when there is neither a payout NOR a label to show) and
-    # always reads as a named moment on screen, never a bare "+0".
+    # it just isn't a payout -- so mint it directly here.
+    #
+    # `word`, deliberately NOT `label`: a `label` reads as an ACHIEVEMENT
+    # CLAIM everywhere else in this file (`hasCoincidentClaim`, global.nim --
+    # a same-tick, same-earner plain pop FOLDS into a coincident labelled
+    # one, and a labelled pop always outranks a plain one in both the
+    # per-unit queue and the global 16-slot pool). A zero-payout rank-up
+    # earning that treatment would silently swallow a REAL kill/deed pop
+    # landing on the same cog in the same moment -- exactly the scenario
+    # `killPlayer` then `addXp` produces, and exactly what broke
+    # `tests/test_label_contract.nim`'s vocabulary sweep when this was first
+    # tried as a `label`. `word` gets the identical NAME-half rendering
+    # (`gloryPopNameHalf` reads `label` first, `word` second) and the
+    # identical zero-amount survival (the guard below checks both), but
+    # queues, coalesces, folds and expires (`GloryFxTicks`, not the longer
+    # `AchievementFxTicks`) exactly like any other bare deed pop -- which is
+    # the right weight for a moment that happens ~40 times an episode.
     if sim.players[playerIndex].alive:
       sim.addGloryPop(
         sim.players[playerIndex].team,
         sim.players[playerIndex].x, sim.players[playerIndex].y, 0,
-        label = deedPopWord(dLevelUp) & " " & repeat("*", clampLevel(after)),
+        word = deedPopWord(dLevelUp) & " " & repeat("*", clampLevel(after)),
         earnerIndex = playerIndex
       )
     if sim.gameEventLoggingEnabled:
