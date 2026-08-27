@@ -1548,12 +1548,21 @@ suite "glory observer (dev rig, deletable scaffolding)":
     sim.gloryObserver = true
     check sim.gameHash() == hashBefore
 
-    let gloryBefore = sim.teamGlory[Red]
+    let
+      gloryBefore = sim.teamGlory[Red]
+      levelUpsBefore = sim.deedCounts[dLevelUp]
     sim.addXp(0, LevelThresholds[MaxLevel - 1])
 
     # The ledger side is fully live: rank, mint, supply drop cadence.
     check sim.playerLevel(0) == MaxLevel
-    check sim.teamGlory[Red] > gloryBefore       # dLevelUp still minted
+    # GLORYVERSION 10: `dLevelUp` is zero+tombstoned (Maxwell's ruling:
+    # leveling pays POWER, not the scoreboard) -- "still minted" is now
+    # proven by the deed FIRING (deedCounts), not by glory moving, and
+    # teamGlory staying flat off a pure level-up IS the law working: see the
+    # tombstone on `Deed.dLevelUp` and `tests/test_glory.nim`'s own direct
+    # pricing assertion.
+    check sim.deedCounts[dLevelUp] > levelUpsBefore
+    check sim.teamGlory[Red] == gloryBefore
     check sim.players[0].supplyDropsThisLife == 1     # credit spent on schedule
 
     # Every buff accessor reads BASE at max level.

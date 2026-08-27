@@ -16,8 +16,17 @@ const
   # Re-recorded AGAIN for GLORY v8 (2026-08-25, FAST BREAK wave -- the
   # hashed capturedFastBreak field moves gameHash) -- 1,534 ticks, still a
   # RED capture, no re-pin needed.
+  # Re-recorded AGAIN for GLORYVERSION 9 (2026-08-26, LAW AUDIT wave -- the
+  # new E2/E3 counters and hashed plumbing move gameHash): flipped to a BLUE
+  # capture that pass (this comment block went stale and was not updated
+  # then -- see test_broadcast_state.nim, which pinned the flip correctly at
+  # the time; corrected here in the v10 pass below).
+  # Re-recorded AGAIN for GLORYVERSION 10 (2026-08-26, `dLevelUp`
+  # zero+tombstoned -- see glory.nim's own changelog): 8,547 ticks, STILL a
+  # BLUE capture, no re-pin needed either here (no winner assertion in this
+  # file) or in test_broadcast_state.nim.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture: GameVersion
-  # 24, seed 600, lives 9, kills by all three weapons — see
+  # 24, seed 603 as of the v10 re-record, kills by gun and grenade — see
   # test_extract_events.)
   CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
 
