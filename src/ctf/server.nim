@@ -64,6 +64,14 @@ const
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
     "<!-- BROADCAST_CORE -->",
     "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
+  ).replace(
+    # The controls lane's translator, inlined for the LIVE route. It is the
+    # single source of truth for the human action space (its KEYMAP is what the
+    # app's controls panel and re-vendor tripwire read), so the live view
+    # CONSUMES it rather than keeping a second set of bindings that could drift.
+    # Inert on the replay routes: nothing reads CtfControls unless LIVE is on.
+    "<!-- PLAYER_CONTROLS -->",
+    "<script>" & staticRead("../../client/player_controls.js") & "</script>"
   )
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
