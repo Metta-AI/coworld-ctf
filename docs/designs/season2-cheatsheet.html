@@ -3,504 +3,308 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Season 2 — The Cheat Sheet</title>
+<title>Season 2 — Cheat Sheet</title>
 <style>
-  :root {
-    --bg: #fffdf4;
-    --surface-alt: #f8f6ef;
-    --fg: #111827;
-    --fg-subtle: #555555;
-    --fg-muted: #999999;
-    --navy: #1a3875;
-    --sage: #6e8050;
-    --terracotta: #b36e4e;
-    --gold: #d4a853;
-    --gold-deep: #a4731d;
-    --border: #e4dac8;
-    --border-strong: #d4c9b5;
-    --border-subtle: #f0ebe1;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: "Merriweather Sans", "Segoe UI", -apple-system, sans-serif;
-    font-size: 14px;
-    line-height: 1.55;
-  }
-  .sheet { max-width: 1080px; margin: 0 auto; padding: 40px 28px 72px; }
+@font-face {
+  font-family: 'nes-pixel';
+  src: url(data:font/ttf;base64,AAEAAAALAIAAAwAwRFNJRwAAAAEAADroAAAACE9TLzJl9WflAAABOAAAAGBjbWFwQRVFIAAAAygAAAIEZ2x5ZuI2DFsAAAbAAAAqcGhlYWQrVWkOAAAAvAAAADZoaGVhB4EE5QAAAPQAAAAkaG10eI8xFoAAAAGYAAABkGxvY2EACJ6EAAAFLAAAAZRtYXhwAHAALgAAARgAAAAgbmFtZXv46UAAADEwAAAJmHBvc3QAaQAzAAA6yAAAACAAAQAAAAEAAND94iRfDzz1AAAEAAAAAADkYRIIAAAAAORhEggAAAAAA4AEAAAAAAgAAgABAAAAAAABAAAEAAAAAAAEAAAAAIADgAABAAAAAAAAAAAAAAAAAAAAZAABAAAAZAAsAAsAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAID/QGQAAUABAIAAgAAAAAAAgACAAAAAgAAMwDMAAAAAAQAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAEZTVFIAQAAgIB0DgAAAAAAEAAAAIAEB/83/AAADAAOAAAAAIAAAAzEAAAQAAAAEAACABAABAAQAAAAEAAAABAAAAAQAAAAEAAGABAABAAQAAQAEAAAABAAAgAQAAIAEAACABAABAAQAAAAEAAAABAAAgAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAABAAQAAQAEAAAABAAAAAQAAIAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAgAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAACABAAAAAQAAAAEAAAABAAAAAQAAIAEAAAABAABAAQAAAAEAAEABAAAAAQAAAAEAACABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAEABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAAAEAAAABAAAAAQAAIAEAAAABAAAAAQAAAAEAAAABAAAgAQAAAAEAACABAABAAQAAQAEAAAABAABAAQAAYAEAACABAAAgAAAAAIAAAADAAAAFAADAAEAAAEMAAQA+AAAAAgACAACAAAAfiAZIB3//wAAACAgGCAc////4eBI4EYAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAD4AAAACAAIAAIAAAB+IBkgHf//AAAAICAYIBz////h4EjgRgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoAAAAaAAAAMgAAAEAAAABsAAAAngAAAN4AAAELAAABFAAAAScAAAE6AAABdQAAAYgAAAGWAAABnwAAAagAAAHSAAAB+QAAAgwAAAIzAAACWgAAAnoAAAKXAAACuQAAAtYAAAL+AAADIAAAAy4AAANEAAADawAAA3kAAAOgAAADwgAAA+IAAAQEAAAEIgAABEkAAARmAAAEeQAABIkAAASrAAAEvgAABNEAAATmAAAFDwAABRoAAAU3AAAFVAAABWwAAAWCAAAFpwAABckAAAXwAAAF/gAABhEAAAYzAAAGUAAABoEAAAaZAAAGuwAABskAAAbzAAAHAQAAByMAAAcsAAAHPQAAB18AAAd9AAAHmgAAB60AAAfAAAAH0AAAB+gAAAf7AAAIDgAACCYAAAhIAAAIUwAACHAAAAiNAAAIpQAACLsAAAjeAAAI+wAACRgAAAkmAAAJOQAACVsAAAl4AAAJqQAACcEAAAneAAAJ+wAACgQAAAohAAAKPgAACk8AAApgAAAKfgAACpwAAUAAAAAArEDgAACAAUACAALAA8AAAEBAQEBAQEBAQEBAQEBAQECbP7s/u3/7QET/u0CTQAA/uz/7QEU/dn/uwAAArEAAAAyAXr+hgATAXsBev0LAvX+hgATAXsAAPyyA4AAAPyAAAAAAgCAAAACgAQAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQEAAAABAAAA/wAAAP+AAAAAgAAAAQAAAACAAAD/gAAAAAABAAAA/wABgACAAAABgAAAAIAAAP+AAAD+gAAA/4AAAgEAAoACgAQAAAMABwAAAQEBAQEBAQEBAAAAAIAAAACAAAAAgAAAAoABgAAA/oAAAAGAAAD+gAACAAAAgAOABAAAAwAfAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQIAAAD/gAAA/wAAAP+AAAAAgAAA/4AAAACAAAABAAAAAIAAAAEAAAAAgAAA/4AAAACAAAD/gAAA/wAAAP+AAAABgAGAAAD+gP8AAIAAAACAAAABgAAAAIAAAACAAAD/gAAAAIAAAP+AAAD/gAAA/oAAAP+AAAD/gAAAAIAAAP+AAAMAAAAAA4AEAAADAAcAIwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAoAAAP+AAAD+AAAAAIAAAACAAAD/AAAAAQAAAP+AAAAAgAAA/4AAAACAAAABAAAAAYAAAP6AAAABAAAAAIAAAP+AAAD/AAAAAQABAAAA/wABgACAAAD/gP2AAIAAAACAAAABAAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAD/AAAA/4AAAP+AAAAACwAAAIADgAQAAAMABwALAA8AEwAXABsAHwAjACcAKwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAAAAAAAAgAAAAgAAAP+AAAD+gAAAAIAAAACAAAABgAAA/gAAAACAAAAAAAAAAIAAAP6AAAD/gAAAAgAAAACAAAD9AAAAAYAAAAGAAAAAgAAAAIAAgAAA/4AAgACAAAD/gAAAAIAAAP+AAIAAgAAA/4D/AAGAAAD+gAGAAIAAAP+AAIAAgAAA/4AAgACAAAD/gAAAAIAAAP+A/4ABgAAA/oABAACAAAD/gAAAAAMAAACAA4AEAAADAAcAHwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDAAAAAIAAAP+AAAAAgAAA/QAAAP+AAAAAgAAAAIAAAACAAAABgAAA/wAAAP8AAAABAAAAAIAAAACAAAD/gAAAAIAAgAAA/4ABAAEAAAD/AP8AAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/oAAAP8AAAABAAAA/4AAAP+AAAD/gAAAAAEBgAKAAgAEAAADAAABAQEBAYAAAACAAAACgAGAAAD+gAAAAAEBAACAAoAEAAALAAABAQEBAQEBAQEBAQEBgAAA/4AAAACAAAABAAAA/4AAAACAAAAAgACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAAABAQAAgAKABAAACwAAAQEBAQEBAQEBAQEBAQAAAACAAAD/gAAAAQAAAACAAAD/gAAAAIAAgAAAAoAAAACAAAD/gAAA/YAAAP+AAAAAAQAAAIADgAQAACsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAACAAAAAgAAA/wAAAAEAAAD/gAAA/4AAAAEAAAAAgAAAAIAAAACAAAABAAAA/4AAAP+AAAABAAAA/wAAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAACAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAAABAIAAgAOABAAACwAAAQEBAQEBAQEBAQEBAYAAAP8AAAABAAAAAQAAAAEAAAD/AAAAAIABgAAAAIAAAAGAAAD+gAAA/4AAAP6AAAAAAQCAAAACAAGAAAcAAAEBAQEBAQEBAIAAAACAAAABAAAA/4AAAAAAAIAAAAEAAAD/AAAA/4AAAAABAIACAAOAAoAAAwAAAQEBAQCAAAADAAAAAgAAgAAA/4AAAAABAQAAgAIAAYAAAwAAAQEBAQEAAAABAAAAAIABAAAA/wAAAAAHAAAAgAOABAAAAwAHAAsADwATABcAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAAAACAAAAgAOABAAADQAbAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAP+AAAD/gAAAAIAAAACAAAAAgAAAAQAAAAAAAAD/gAAA/wAAAAGAAAAAgAAAAIAAAP+AAAAAgACAAAAAgAAAAYAAAACAAAD+AAAA/4AAAP+AAIACAAAAAIAAAACAAAD/gAAA/4AAAP6AAAD/gAABAIAAgAOABAAACwAAAQEBAQEBAQEBAQEBAIAAAAEAAAD/gAAAAIAAAAEAAAABAAAAAIAAgAAAAgAAAACAAAAAgAAA/QAAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAABAAAAAIAAAP6AAAD/AAAAAIAAAAKAAAAAgAAA/4AAAP+AAAD/AAAAAgAAAACAAQAAAACAAAAAgAAAAIAAAACAAAD/gAAAAIAAAACAAAD/gAAA/wAAAP+AAAD/gAAA/4AAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/oAAAACAAAAAgAAA/gAAAAOAAAD/gAAA/4AAAACAAAAAgAAA/4AAAACAAIAAAACAAAD/gAAAAQAAAACAAAAAgAAAAIAAAACAAAD/gAAA/4AAAP+AAAD/gAAA/wAAAP+AAAAAAgAAAIADgAQAAAUAFQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQIAAAD/gAAA/4AAAAEAAAD+AAAAAIAAAACAAAAAgAAAAYAAAACAAAD/gAAAAgABAAAA/4AAAP+A/oABAAAAAQAAAACAAAAAgAAAAIAAAP4AAAD/gAAA/wAAAAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/YAAAAMAAAD+AAAAAgAAAACAAAD/gAAAAIAAgAAAAIAAAP+AAAABgAAAAYAAAP+AAAD/gAAA/4AAAP6AAAD/gAAAAAIAAACAA4AEAAADABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAIAAAAIAAAD+gAAA/4AAAAIAAAAAgAAA/4AAAAEAAQAAAP8A/4AAgAAAAgAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP8AAAD/gAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAIAAAACAAAAAgAAA/oAAAP8AAAADgAAA/4AAAP+AAAD/gAAAAIABgAAAAIAAAACAAAAAgAAA/4AAAAEAAAD/AAAA/4AAAP+AAAD+gAAAAAMAAACAA4AEAAADAAcAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAAAYAAAP6AAAD/gAAA/4AAAACAAAD/gAAAAIAAAAKAAAAAgAAA/4AAAACAAAD/gAAAAQABAAAA/wABgAEAAAD/AP4AAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/wAAAP+AAAD/AAAA/4AAAAACAAAAgAOABAAAAwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAP+AAAABgAAAAIAAAP4AAAD/gAAAAIAAAAKAAAAAgAAA/4AAAP+AAAACgAEAAAD/AP4AAIAAAACAAAAAgAAAAIAAAAEAAAAAgAAA/4AAAP4AAAD/gAAA/4AAAgEAAIACAAOAAAMABwAAAQEBAQEBAQEBAAAAAQAAAP8AAAABAAAAAIABAAAA/wACAAEAAAD/AAADAQAAAAIAAwAAAwAJAA0AAAEBAQEBAQEBAQEBAQEBAQAAAACAAAAAAAAA/4AAAAEAAAD/AAAAAQAAAAAAAIAAAP+AAIAAgAAAAIAAAP8AAYABAAAA/wAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAA/4AAAP+AAAD/gAAAAIAAAACAAAAAgAAAAgAAAP8AAAD/gAAA/4AAAACAAAAAgAAAAQAAAACAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAP+AAAAAAgAAAQADAAOAAAMABwAAAQEBAQEBAQEAAAAAAwAAAP0AAAADAAAAAQAAgAAA/4ACAACAAAD/gAABAIAAgAOABAAAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQCAAAAAgAAAAIAAAACAAAD/gAAA/4AAAP+AAAABgAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAAAIAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAAACAAAAAAOABAAAAwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAAAQAAAP8AAAAAgAAAAIAAAP6AAAD/AAAAAIAAAAKAAAAAgAAA/4AAAP+AAAAAAAEAAAD/AAGAAQAAAACAAAAAgAAA/wAAAAEAAAAAgAAA/4AAAP8AAAD/gAAA/4AAAgAAAIADgAQAAAMAFQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD/gAAA/oAAAP+AAAAAgAAAAoAAAACAAAD/gAAA/oAAAAEAAAD+gAAAAQABgAAA/oD/gACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAAKAAAAAgAAA/QAAAAACAAAAgAOABAAABwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/4AAAP+AAAD/gAAA/wAAAACAAAAAgAAAAYAAAACAAAAAgAAA/wAAAP6AAAACAAEAAAAAgAAA/4AAAP8A/oACgAAAAIAAAACAAAD/gAAA/4AAAP2AAAABAAAA/wAAAwAAAIADgAQAAAMABwATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAAAYAAAP6AAAD/AAAAAwAAAACAAAD/gAAAAIAAAP+AAAABAAEAAAD/AAGAAQAAAP8A/gADgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAA/4AAAP+AAAAAgAAAAIAAAAIAAAAAgAAA/wAAAP8AAAD/gAAAAIAAAAEAAAABAAAA/4AAAACAAIAAAACAAAABgAAAAIAAAACAAAD/gAAA/4AAAACAAAD/gAAA/oAAAP+AAAAAgAAA/4AAAP+AAAAAAgAAAIADgAQAAAcAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAP+AAAD/AAAA/wAAAAKAAAAAgAAAAIAAAP+AAAD/gAAAAQAAgAAAAYAAAACAAAD9gP+AA4AAAP+AAAD/gAAA/oAAAP+AAAD/gAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAAAAAAOAAAD9gAAAAgAAAP4AAAACgAAAAIADgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQAAAIADgAQAAAkAAAEBAQEBAQEBAQEAAAAAA4AAAP2AAAACAAAA/gAAAACAA4AAAP+AAAD/AAAA/4AAAP6AAAEAAACAA4AEAAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAA/4AAAP+AAAAAgAAAAIAAAAKAAAD+AAAA/4AAAACAAAABAAAA/4AAAAGAAAAAgACAAAAAgAAAAYAAAACAAAAAgAAA/4AAAP+AAAD+gAAA/4AAAAEAAAAAgAAA/gAAAAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAAAAAAEAAAABgAAAAQAAAP8AAAD+gAAAAIADgAAA/oAAAAGAAAD8gAAAAYAAAP6AAAAAAQCAAIADgAQAAAsAAAEBAQEBAQEBAQEBAQCAAAABAAAA/wAAAAMAAAD/AAAAAQAAAACAAIAAAAKAAAAAgAAA/4AAAP2AAAD/gAAAAAEAAACAA4AEAAANAAABAQEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAGAAAD/AAAAAgAAAP+AAAAAgACAAAABAAAA/wAAAAKAAAAAgAAA/QAAAP+AAAEAAACAA4AEAAAdAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAP+AAAAAgAAAAIAAAACAAAD+gAAA/4AAAP+AAAAAgAOAAAD+gAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAACAAAAAgAAA/wAAAQAAAIADgAQAAAUAAAEBAQEBAQAAAAABAAAAAoAAAACAA4AAAP0AAAD/gAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADgAAA/4AAAP+AAAAAgAAAAIAAAPyAAAABgAAA/4AAAACAAAD+gAAAAAEAAACAA4AEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAOAAAD/gAAA/4AAAP+AAAABgAAA/IAAAACAAAAAgAAAAIAAAP6AAAAAAgAAAIADgAQAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAoAAAACAAAD/gAAAAQACgAAA/YD/gACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAgAAAIADgAQAAAMADQAAAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAD+AAAAAgABgAAA/oD+gAOAAAD/gAAA/oAAAP+AAAD/AAAAAAMAAACAA4AEAAADAAsAGQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDAAAAAIAAAP6AAAD/gAAAAQAAAP6AAAD/gAAA/4AAAACAAAACgAAAAIAAAP+AAAD/gAAAAIAAgAAA/4AAgACAAAAAgAAAAYAAAP2A/4AAgAAAAoAAAACAAAD/gAAA/gAAAP+AAAD/gAACAAAAgAOABAAABQAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAP6AAAD/AAAAAwAAAACAAAD/AAAAAIAAAACAAAD+gAAA/4AAAP+AAAACAACAAAABAAAA/oD+gAOAAAD/gAAA/oAAAP+AAAD/gAAA/4AAAACAAAAAgAAA/wAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/gAAAP+AAAAAgAAAAgAAAACAAAD/AAAA/wAAAAIAAAAAgAAA/4AAAACAAIAAAACAAAD/gAAAAQAAAACAAAABAAAAAIAAAP+AAAD/gAAAAIAAAP8AAAD/gAAA/wAAAP+AAAAAAQCAAIADgAQAAAcAAAEBAQEBAQEBAYAAAP8AAAADAAAA/wAAAACAAwAAAACAAAD/gAAA/QAAAAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAIAAAP+AAAABAAAAAYAAAAEAAAD/gAAAAIAAgAAAAwAAAP0AAAADAAAA/QAAAP+AAAAAAQAAAIADgAQAABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAP+AAAABAAAAAIAAAACAAAAAgAAAAQAAAP+AAAD/gAAA/4AAAACAAIAAAACAAAAAgAAAAgAAAP6AAAD/gAAAAIAAAAGAAAD+AAAA/4AAAP+AAAD/gAAAAAEAAACAA4AEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAOAAAD+gAAAAIAAAP+AAAABgAAA/IAAAACAAAAAgAAA/4AAAP+AAAAAAQAAAIADgAQAACMAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAIAAAP+AAAD/gAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAACAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAP8AAAAAgAAAAIAAAP+AAAD/gAAAAAEAgACAA4AEAAAPAAABAQEBAQEBAQEBAQEBAQEBAYAAAP+AAAD/gAAAAQAAAAEAAAABAAAA/4AAAP+AAAAAgAGAAAAAgAAAAYAAAP6AAAABgAAA/oAAAP+AAAD+gAAAAAEAAACAA4AEAAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAAAgAAAAIAAAP4AAAADgAAA/4AAAP+AAAD/gAAA/4AAAAIAAAAAgAEAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAAABAQAAgAKABAAABwAAAQEBAQEBAQEBAAAAAYAAAP+AAAAAgAAAAIADgAAA/4AAAP2AAAD/gAAAAAcAAACAA4AEAAADAAcACwAPABMAFwAbAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAwAAAACAAAD/AAAAAIAAAP8AAAAAgAAA/wAAAACAAAD/AAAAAIAAAP8AAAAAgAAA/wAAAACAAAAAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gAAAAAEBAACAAoAEAAAHAAABAQEBAQEBAQEAAAAAgAAA/4AAAAGAAAAAgACAAAACgAAAAIAAAPyAAAAAAQAAAgADgAQAABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAAIAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAAAgAAAAIAAAP+AAAD/gAAAAAEAAACAA4ABAAADAAABAQEBAAAAAAOAAAAAgACAAAD/gAAAAAIAgAKAAgAEAAADAAkAAAEBAQEBAQEBAQEBgAAAAIAAAP8AAAD/gAAAAQAAAAKAAIAAAP+AAIAAgAAAAIAAAP8AAAAAAgAAAIADgAOAAAcAFwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAoAAAP+AAAD/gAAA/4AAAP8AAAAAgAAAAIAAAAGAAAAAgAAAAIAAAP8AAAD+gAAAAYABAAAAAIAAAP+AAAD/AP8AAgAAAACAAAAAgAAA/4AAAP+AAAD+AAAAAIAAAP+AAAMAAACAA4ADgAADAAcAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAAGAAAD+gAAA/wAAAAMAAAAAgAAA/4AAAACAAAD/gAAAAQABAAAA/wABgACAAAD/gP4AAwAAAP+AAAD/gAAA/4AAAP8AAAD/gAAAAAEAAACAA4ADgAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQCAAAD/gAAAAIAAAAKAAAAAgAAA/wAAAP6AAAABgAAAAQAAAP+AAAAAgACAAAACAAAAAIAAAP+AAAD/gAAAAIAAAP4AAAAAgAAA/4AAAP+AAAAAAgAAAIADgAOAAAMACwAAAQEBAQEBAQEBAQEBAoAAAP6AAAD/AAAAAwAAAACAAAD/gAAAAQACAAAA/gD/gAMAAAD/gAAA/gAAAP+AAAEAAACAA4ADgAALAAABAQEBAQEBAQEBAQEAAAAAA4AAAP2AAAACAAAA/gAAAAKAAAAAgAMAAAD/gAAA/4AAAP+AAAD/AAAA/4AAAAABAAAAgAOAA4AACQAAAQEBAQEBAQEBAQAAAAADgAAA/YAAAAIAAAD+AAAAAIADAAAA/4AAAP8AAAD/gAAA/wAAAQAAAIADgAOAAA8AAAEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAACAAAACgAAA/gAAAAGAAAD/AAAAAgAAAACAAIAAAAIAAAAAgAAA/4AAAP4AAAAAgAAAAIAAAP6AAAAAAQAAAIADgAOAAAsAAAEBAQEBAQEBAQEBAQAAAAABAAAAAYAAAAEAAAD/AAAA/oAAAACAAwAAAP8AAAABAAAA/QAAAAGAAAD+gAAAAAEBAACAAwADgAALAAABAQEBAQEBAQEBAQEBAAAAAIAAAP+AAAACAAAA/4AAAACAAAAAgACAAAACAAAAAIAAAP+AAAD+AAAA/4AAAAABAAAAgAOAA4AADwAAAQEBAQEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAEAAAD/gAAAAgAAAP+AAAD/gAAAAIAAgAAAAIAAAP+AAAACAAAAAIAAAP+AAAD+AAAA/4AAAAACAAAAgAOAA4AABQAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAAEAAAD8gAAAAQAAAACAAAAAgAAAAYAAAP8AAAD/gAAA/4AAAP+AAAAAgAEAAAD/gAAA/4AAAAMAAAD/AAAAAIAAAACAAAD/gAAA/4AAAP8AAAAAgAAA/oAAAQAAAIADgAOAAAUAAAEBAQEBAQAAAAABAAAAAoAAAACAAwAAAP2AAAD/gAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADAAAA/4AAAP+AAAAAgAAAAIAAAP0AAAABgAAA/4AAAACAAAD+gAAAAAEAAACAA4ADgAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAMAAAD/gAAA/4AAAP+AAAABgAAA/QAAAACAAAAAgAAAAIAAAP6AAAAAAgAAAIADgAOAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAoAAAACAAAD/gAAAAQACAAAA/gD/gACAAAACAAAAAIAAAP+AAAD+AAAA/4AAAgAAAIADgAOAAAMADQAAAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAD+AAAAAYABgAAA/oD/AAMAAAD/gAAA/oAAAP+AAAD/gAAAAAMAAACAA4ADgAADAAkAFwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYAAAACAAAAAAAAAAIAAAP6AAAD/gAAA/4AAAACAAAACgAAAAIAAAP+AAAAAgAAAAYAAgAAA/4D/gACAAAABgAAA/gD/gACAAAACAAAAAIAAAP+AAAD+gAAA/4AAAP+AAAAAAgAAAIADgAOAAAMAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAAAgAAA/wAAAP+AAAD/AAAAAgABAAAA/wD+gAMAAAD/gAAA/wAAAP8AAAD/gAAAAIAAAACAAAD/AAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAoAAAP4AAAD/gAAAAIAAAAKAAAD+AAAAAgAAAACAAAD/gAAAAIAAgAAAAQAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP8AAAD/gAAAAAEAgACAA4ADgAAHAAABAQEBAQEBAQGAAAD/AAAAAwAAAP8AAAAAgAKAAAAAgAAA/4AAAP2AAAAAAQAAAIADgAOAAAsAAAEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAGAAAABAAAA/4AAAACAAIAAAAKAAAD9gAAAAoAAAP2AAAD/gAAAAAEAAACAA4ADgAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAA/4AAAP+AAAD/gAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAP+AAAAAgACAAAAAgAAAAIAAAAGAAAD+gAAA/4AAAACAAAABgAAA/oAAAP+AAAD/gAAA/4AAAAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADAAAA/oAAAACAAAD/gAAAAYAAAP0AAAAAgAAAAIAAAP+AAAD/gAAAAAEAAACAA4ADgAAjAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAD/gAAA/4AAAAEAAAAAgAAAAIAAAACAAAABAAAA/4AAAP+AAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAAAgACAAAAAgAAAAQAAAACAAAAAgAAA/4AAAP+AAAAAgAAAAIAAAP+AAAD/gAAA/wAAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAAABAIAAgAOAA4AADwAAAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAAEAAAABAAAAAQAAAP+AAAD/gAAAAIABAAAAAIAAAAGAAAD+gAAAAYAAAP6AAAD/gAAA/wAAAAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAAEAAAABAAAA/YAAAAOAAAD/gAAA/wAAAP8AAAACgAAAAIABAAAAAIAAAACAAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAD/gAAAAAEAgACAAoAEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAACAAAAAgAAAAQAAAP+AAAD/gAAAAIAAAACAAAAAgACAAAABAAAAAIAAAAEAAAAAgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQEAAIACAAQAAAMAAAEBAQEBAAAAAQAAAACAA4AAAPyAAAAAAQEAAIADAAQAABMAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAACAAAAAgAAA/4AAAP+AAAABAAAAAIAAAACAAAD/gAAA/4AAAACAAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/wAAAP+AAAD/AAAA/4AAAAABAAABAAOAAwAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAA/4AAAP8AAAD/gAAAAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAAAQAAgAAAAIAAAP+AAAABAAAAAIAAAP+AAAD/gAAAAIAAAP8AAAD/gAAAAAIBAAKAAgAEAAAFAAkAAAEBAQEBAQEBAQEBAAAAAIAAAACAAAD/gAAAAIAAAAKAAQAAAP+AAAD/gAEAAIAAAP+AAAAAAgGAAoACgAQAAAMACQAAAQEBAQEBAQEBAQGAAAAAgAAAAAAAAP+AAAABAAAAAoAAgAAA/4AAgACAAAAAgAAA/wAAAAAEAIACgAMABAAABQALAA8AEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAAAIAAAACAAAAAgAAAAIAAAACAAAD+AAAAAIAAAAEAAAAAgAAAAoABAAAA/4AAAP+AAAABAAAA/4AAAP+AAQAAgAAA/4AAAACAAAD/gAAEAIACgAMABAAAAwAHAA0AEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAAAIAAAAEAAAAAgAAA/oAAAP+AAAABAAAAAQAAAP+AAAABAAAAAoAAgAAA/4AAAACAAAD/gACAAIAAAACAAAD/AAAAAIAAAACAAAD/AAAAADACRgAAAAAAAAAAACgAAAAAAAAAAAABABIAKAAAAAAAAAACAA4AOgAAAAAAAAADABIASAAAAAAAAAAEACIAWgAAAAAAAAAFABYAfAAAAAAAAAAGABAAkgAAAAAAAAAHAFYAogAAAAAAAAAIACwA+AAAAAAAAAAJAAoBJAAAAAAAAAAKAEwBLgAAAAAAAAALAHgBegAAAAAAAAAMAG4B8gAAAAAAAAANACQCYAAAAAAAAAATAFIChAAAAAAAAAEAABgC1gABAAAAAAAAABQC7gABAAAAAAABAAkDAgABAAAAAAACAAcDCwABAAAAAAADAAkDEgABAAAAAAAEABEDGwABAAAAAAAFAAsDLAABAAAAAAAGAAgDNwABAAAAAAAHACsDPwABAAAAAAAIABYDagABAAAAAAAJAAUDgAABAAAAAAAKACUDhQABAAAAAAALADwDqgABAAAAAAAMADcD5gABAAAAAAANABIEHQABAAAAAAATACkELwABAAAAAAEAAAwEWAADAAEECQAAACgEZAADAAEECQABABIEjAADAAEECQACAA4EngADAAEECQADABIErAADAAEECQAEACIEvgADAAEECQAFABYE4AADAAEECQAGABAE9gADAAEECQAHAFYFBgADAAEECQAIACwFXAADAAEECQAJAAoFiAADAAEECQAKAEwFkgADAAEECQALAHgF3gADAAEECQAMAG4GVgADAAEECQANACQGxAADAAEECQATAFIG6AADAAEECQEAABgHOgBDAG8AcAB5AHIAaQBnAGgAdAAgAFIAdQBpAGwAeAAgADIAMAAxADUATgBFAFMAIABQAGkAeABlAGwAUgBlAGcAdQBsAGEAcgBOAEUAUwAgAFAAaQB4AGUAbABOAEUAUwAgAFAAaQB4AGUAbAAgAFIAZQBnAHUAbABhAHIAVgBlAHIAcwBpAG8AbgAgADEALgAwAE4ARQBTAFAAaQB4AGUAbABGAG8AbgB0AFMAdAByAHUAYwB0ACAAaQBzACAAYQAgAHQAcgBhAGQAZQBtAGEAcgBrACAAbwBmACAARgBvAG4AdABTAHQAcgB1AGMAdAAuAGMAbwBtAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0AUgB1AGkAbAB4IBwATgBFAFMAIABQAGkAeABlAGwgHQAgAHcAYQBzACAAYgB1AGkAbAB0ACAAdwBpAHQAaAAgAEYAbwBuAHQAUwB0AHIAdQBjAHQACgBoAHQAdABwAHMAOgAvAC8AZgBvAG4AdABzAHQAcgB1AGMAdAAuAGMAbwBtAC8AZgBvAG4AdABzAHQAcgB1AGMAdABpAG8AbgBzAC8AcwBoAG8AdwAvADEAMQA5ADgANAA0ADUALwBuAGUAcwBfAHAAaQB4AGUAbABoAHQAdABwAHMAOgAvAC8AZgBvAG4AdABzAHQAcgB1AGMAdAAuAGMAbwBtAC8AZgBvAG4AdABzAHQAcgB1AGMAdABvAHIAcwAvAHMAaABvAHcALwAxADEAOQA3ADcAMAA0AC8AcgB1AGkAbAB4AEYAbwBuAHQAUwB0AHIAdQBjAHQAIABMAGkAYwBlAG4AcwBlAEYAaQB2AGUAIABiAGkAZwAgAHEAdQBhAGMAawBpAG4AZwAgAHoAZQBwAGgAeQByAHMAIABqAG8AbAB0ACAAbQB5ACAAdwBhAHgAIABiAGUAZABBAHcAZwBCAGYAVgAxAGcAVwB3AD0APUNvcHlyaWdodCBSdWlseCAyMDE1TkVTIFBpeGVsUmVndWxhck5FUyBQaXhlbE5FUyBQaXhlbCBSZWd1bGFyVmVyc2lvbiAxLjBORVNQaXhlbEZvbnRTdHJ1Y3QgaXMgYSB0cmFkZW1hcmsgb2YgRm9udFN0cnVjdC5jb21odHRwczovL2ZvbnRzdHJ1Y3QuY29tUnVpbHjSTkVTIFBpeGVs0yB3YXMgYnVpbHQgd2l0aCBGb250U3RydWN0aHR0cHM6Ly9mb250c3RydWN0LmNvbS9mb250c3RydWN0aW9ucy9zaG93LzExOTg0NDUvbmVzX3BpeGVsaHR0cHM6Ly9mb250c3RydWN0LmNvbS9mb250c3RydWN0b3JzL3Nob3cvMTE5NzcwNC9ydWlseEZvbnRTdHJ1Y3QgTGljZW5zZUZpdmUgYmlnIHF1YWNraW5nIHplcGh5cnMgam9sdCBteSB3YXggYmVkQXdnQmZWMWdXdz09AEMAbwBwAHkAcgBpAGcAaAB0ACAAUgB1AGkAbAB4ACAAMgAwADEANQBOAEUAUwAgAFAAaQB4AGUAbABSAGUAZwB1AGwAYQByAE4ARQBTACAAUABpAHgAZQBsAE4ARQBTACAAUABpAHgAZQBsACAAUgBlAGcAdQBsAGEAcgBWAGUAcgBzAGkAbwBuACAAMQAuADAATgBFAFMAUABpAHgAZQBsAEYAbwBuAHQAUwB0AHIAdQBjAHQAIABpAHMAIABhACAAdAByAGEAZABlAG0AYQByAGsAIABvAGYAIABGAG8AbgB0AFMAdAByAHUAYwB0AC4AYwBvAG0AaAB0AHQAcABzADoALwAvAGYAbwBuAHQAcwB0AHIAdQBjAHQALgBjAG8AbQBSAHUAaQBsAHggHABOAEUAUwAgAFAAaQB4AGUAbCAdACAAdwBhAHMAIABiAHUAaQBsAHQAIAB3AGkAdABoACAARgBvAG4AdABTAHQAcgB1AGMAdAAKAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0ALwBmAG8AbgB0AHMAdAByAHUAYwB0AGkAbwBuAHMALwBzAGgAbwB3AC8AMQAxADkAOAA0ADQANQAvAG4AZQBzAF8AcABpAHgAZQBsAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0ALwBmAG8AbgB0AHMAdAByAHUAYwB0AG8AcgBzAC8AcwBoAG8AdwAvADEAMQA5ADcANwAwADQALwByAHUAaQBsAHgARgBvAG4AdABTAHQAcgB1AGMAdAAgAEwAaQBjAGUAbgBzAGUARgBpAHYAZQAgAGIAaQBnACAAcQB1AGEAYwBrAGkAbgBnACAAegBlAHAAaAB5AHIAcwAgAGoAbwBsAHQAIABtAHkAIAB3AGEAeAAgAGIAZQBkAEEAdwBnAEIAZgBWADEAZwBXAHcAPQA9AAMAAAAAAAAAZgAzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAA==) format('truetype');
+  font-display: block;
+}
 
-  /* ── Masthead ─────────────────────────────────────────────── */
-  .masthead { text-align: center; padding-bottom: 18px; border-bottom: 2px solid var(--border-strong); }
-  .masthead .eyebrow { margin-bottom: 10px; }
-  .masthead h1 {
-    font-family: Merriweather, Georgia, serif;
-    font-size: 40px; font-weight: 700; margin: 0 0 6px;
-    letter-spacing: 0.01em;
-  }
-  .masthead .standfirst {
-    font-family: Merriweather, Georgia, serif;
-    font-style: italic; font-size: 16px; color: var(--fg-subtle);
-    margin: 4px auto 0; max-width: 620px;
-  }
-  .eyebrow {
-    font-size: 11px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.12em; color: var(--fg-subtle);
-  }
+@font-face {
+  font-family: 'rajdhani';
+  src: url('./font.ttf') format('truetype');
+  font-display: swap;
+}
+:root {
+  --stage-lo: #16110d;
+  --stage-hi: #241a12;
+  --paper: #f2e8d8;
+  --paper-dim: #b8ac98;
+  --ghost: #8a7f72;
+  --red: #e0523a;
+  --blue: #3f7cc4;
+  --amber: #e8a33d;
+  --line: rgba(232, 163, 61, 0.28);
+  --panel: rgba(13, 10, 6, 0.55);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: radial-gradient(120% 90% at 50% 0%, var(--stage-hi), var(--stage-lo) 70%);
+  color: var(--paper);
+  font-family: 'rajdhani', 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
+  font-size: 16px;
+  line-height: 1.35;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  overflow-x: hidden;
+}
+.pix { font-family: 'nes-pixel', monospace; text-transform: none; }
 
-  /* ── The law ──────────────────────────────────────────────── */
-  .law {
-    display: flex; gap: 36px; justify-content: center; text-align: center;
-    padding: 22px 0 26px; border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
-  }
-  .law > div { max-width: 380px; }
-  .law .word {
-    font-family: Merriweather, Georgia, serif; font-weight: 700;
-    font-size: 21px; color: var(--navy); margin-bottom: 2px;
-  }
-  .law p { margin: 2px 0 0; color: var(--fg-subtle); font-size: 13px; }
+/* paint splats on the stage */
+.splat { position: fixed; z-index: 0; opacity: 0.5; filter: blur(1px); pointer-events: none; }
+.splat.red  { background: var(--red); }
+.splat.blue { background: var(--blue); }
+.s1 { top: -60px; left: -70px;  width: 240px; height: 200px; border-radius: 48% 62% 55% 45% / 55% 48% 60% 45%; }
+.s2 { top: 30px;  right: -90px; width: 260px; height: 210px; border-radius: 60% 45% 52% 58% / 45% 60% 42% 58%; }
+.s3 { bottom: -80px; left: 12%; width: 220px; height: 190px; border-radius: 55% 50% 62% 44% / 60% 44% 55% 50%; opacity: 0.35; }
+.s4 { bottom: 10%; right: -60px; width: 180px; height: 160px; border-radius: 46% 58% 48% 60% / 52% 46% 62% 48%; opacity: 0.35; }
+.drip { position: fixed; z-index: 0; width: 10px; border-radius: 0 0 6px 6px; pointer-events: none; }
+.d1 { top: 120px; left: 60px;  height: 90px; background: var(--red);  opacity: 0.45; }
+.d2 { top: 150px; right: 70px; height: 70px; background: var(--blue); opacity: 0.45; }
 
-  /* ── Sections ─────────────────────────────────────────────── */
-  section { padding-top: 34px; }
-  h2 {
-    font-family: Merriweather, Georgia, serif;
-    font-size: 15px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.12em; color: var(--navy);
-    margin: 0 0 4px; padding-bottom: 6px;
-    border-bottom: 2px solid var(--border-strong);
-  }
-  .kicker { color: var(--fg-subtle); font-size: 13px; margin: 8px 0 18px; max-width: 720px; }
-  h3 {
-    font-family: Merriweather, Georgia, serif;
-    font-size: 16px; font-weight: 700; margin: 26px 0 8px;
-  }
-  h3 .sub { font-weight: 400; font-style: italic; font-size: 13px; color: var(--fg-muted); }
+.wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 34px 22px 46px; }
 
-  /* ── Tables ───────────────────────────────────────────────── */
-  table { border-collapse: collapse; width: 100%; }
-  th {
-    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.1em; color: var(--fg-subtle); text-align: left;
-    padding: 6px 18px 6px 0; border-bottom: 1px solid var(--border-strong);
-    white-space: nowrap;
-  }
-  td { padding: 7px 18px 7px 0; border-bottom: 1px solid var(--border-subtle); vertical-align: baseline; }
-  tr:last-child td { border-bottom: none; }
-  td.num, th.num { text-align: right; white-space: nowrap; }
-  td.num:last-child, th.num:last-child { padding-right: 0; }
-  .mono {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 13px; font-feature-settings: "tnum" 1;
-  }
-  .big { font-size: 15px; font-weight: 700; }
-  .popword {
-    font-weight: 700; letter-spacing: 0.03em; white-space: nowrap;
-  }
-  .quiet { color: var(--fg-muted); }
-  .neg { color: var(--terracotta); }
-  .desc { color: var(--fg-subtle); }
-  .groupline td {
-    border-bottom: 1px solid var(--border-subtle);
-    padding-top: 16px; padding-bottom: 4px;
-  }
-  .groupline .eyebrow { font-size: 10px; color: var(--fg-muted); }
+/* ── title ── */
+.title { text-align: center; margin-bottom: 26px; }
+.title .season { font-size: 12px; color: var(--amber); letter-spacing: 0.2em; margin-bottom: 10px; }
+.title h1 {
+  font-size: 40px; margin: 0; line-height: 1;
+  color: var(--paper);
+  text-shadow: 3px 3px 0 rgba(0,0,0,0.55), -2px 2px 0 rgba(224,82,58,0.35), 2px -2px 0 rgba(63,124,196,0.35);
+}
+.title .tag { margin-top: 12px; font-size: 15px; font-weight: 600; color: var(--paper-dim); letter-spacing: 0.14em; }
+.title .tag b { color: var(--amber); font-weight: 600; }
 
-  /* ── Ranks ────────────────────────────────────────────────── */
-  .rankname { font-family: Merriweather, Georgia, serif; font-weight: 700; font-size: 15px; white-space: nowrap; }
-  .stars { color: var(--gold-deep); letter-spacing: 0.08em; white-space: nowrap; }
-  .note {
-    font-size: 12.5px; color: var(--fg-subtle);
-    border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px;
-    max-width: 720px;
-  }
-  .note strong { color: var(--fg); }
+/* ── panels ── */
+.grid { display: grid; grid-template-columns: 1.05fr 1.35fr 0.95fr; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); padding: 12px 14px 10px; }
+.panel h2 {
+  font-size: 12px; margin: 0 0 10px; color: var(--amber);
+  letter-spacing: 0.1em; border-bottom: 1px solid var(--line); padding-bottom: 7px;
+}
+.panel h2 small { color: var(--ghost); font-size: 9px; letter-spacing: 0.06em; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
 
-  /* ── Multiplier row ───────────────────────────────────────── */
-  .mults { display: flex; gap: 32px; flex-wrap: wrap; margin-top: 6px; }
-  .mults > div { flex: 1 1 260px; max-width: 340px; }
-  .mults .word {
-    font-family: Merriweather, Georgia, serif; font-weight: 700; font-size: 15px;
-    margin-bottom: 3px;
-  }
-  .mults .factor { color: var(--navy); }
-  .mults p { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-subtle); }
+/* rows: name left, amount right */
+.row { display: flex; align-items: baseline; gap: 8px; padding: 3.5px 0; }
+.row .name { white-space: nowrap; font-weight: 600; }
+.row .q { color: var(--ghost); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .fill { flex: 1; }
+.row .amt { font-size: 12px; color: var(--amber); white-space: nowrap; }
+.row .amt.neg { color: var(--red); }
+.row .amt.zero { color: var(--ghost); }
+.subhead { font-size: 10px; color: var(--ghost); letter-spacing: 0.16em; margin: 10px 0 3px; }
+.row:first-of-type + .subhead { margin-top: 0; }
 
-  /* ── Achievement trees ────────────────────────────────────── */
-  .trees { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 44px; margin-top: 10px; }
-  .tree { padding-top: 14px; }
-  .tree h3 { margin: 0 0 2px; }
-  .tree .treesub { font-size: 12px; color: var(--fg-muted); font-style: italic; margin-bottom: 6px; }
-  .tree td:first-child { width: 34px; color: var(--fg-muted); font-size: 11px; }
-  .tree td.tname { font-weight: 600; white-space: nowrap; padding-right: 14px; }
-  .tree td.num { width: 40px; }
-  .tree .req { color: var(--fg-subtle); font-size: 12.5px; }
-  /* a tier row and its requirement line are ONE unit: no hairline between them */
-  .tree tr:nth-child(odd) td { border-bottom: none; padding-bottom: 2px; }
-  .tree tr:nth-child(even) td { padding-top: 0; }
-  .firstchip {
-    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-    text-transform: uppercase; color: var(--gold-deep);
-    background: rgba(212,168,83,0.16); border-radius: 999px; padding: 1px 8px;
-    margin-left: 6px; vertical-align: 1px;
-  }
+/* ranks */
+.rank .name { color: var(--paper); font-size: 11px; }
+.rank .stars { color: var(--amber); font-size: 11px; letter-spacing: 2px; }
+.rank .amt { color: var(--paper-dim); }
+.rankbuff { margin: -2px 0 6px; font-size: 13px; color: var(--paper-dim); font-weight: 500; }
+.foot { margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ghost); letter-spacing: 0.1em; }
 
-  /* ── Footer ───────────────────────────────────────────────── */
-  footer {
-    margin-top: 46px; padding-top: 12px; border-top: 2px solid var(--border-strong);
-    font-size: 11.5px; color: var(--fg-muted); text-align: center;
-  }
+/* deeds: pop words */
+.pop { font-size: 11px; color: var(--paper); text-shadow: 2px 2px 0 rgba(0,0,0,0.7); }
+.pop.neg { color: var(--red); }
+.pop.quiet { color: var(--ghost); text-shadow: none; }
 
-  @media (max-width: 760px) {
-    .sheet { padding: 26px 16px 48px; }
-    .masthead h1 { font-size: 30px; }
-    .law { gap: 18px; }
-    .trees { grid-template-columns: 1fr; }
-    .tablewrap { overflow-x: auto; }
-    th, td { padding-right: 10px; }
-    th { white-space: normal; letter-spacing: 0.06em; }
-    .desc { font-size: 12.5px; }
-  }
+/* achievements */
+.achhead { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 22px 0 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; flex-wrap: wrap; }
+.achhead h2 { font-size: 13px; margin: 0; color: var(--amber); letter-spacing: 0.1em; }
+.achhead .prices { font-size: 11px; color: var(--paper-dim); }
+.achhead .prices b { color: var(--amber); font-weight: 600; }
+.trees { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tree { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; }
+.tree h3 { font-size: 10px; margin: 0 0 8px; color: var(--paper); letter-spacing: 0.08em; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.tree .row { padding: 2.5px 0; }
+.tree .tier { font-size: 9px; color: var(--amber); width: 30px; flex-shrink: 0; }
+.tree .name { font-size: 14px; }
+.tree .q { font-size: 12px; }
+
+.colo { margin-top: 18px; text-align: center; font-size: 9px; color: var(--ghost); }
+
+@media (max-width: 980px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  .grid .stack { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+  .grid .stack .panel { flex: 1 1 240px; }
+  .trees { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  .grid { grid-template-columns: 1fr; }
+  .grid .stack { flex-direction: column; }
+  .grid .stack .panel { flex: 0 0 auto; }
+  .trees { grid-template-columns: 1fr; }
+  .title h1 { font-size: 28px; }
+  .row .q { white-space: normal; }
+}
 </style>
 </head>
 <body>
-<div class="sheet">
 
-  <header class="masthead">
-    <div class="eyebrow">Paintbot League &middot; Season 2</div>
-    <h1>The Cheat Sheet</h1>
-    <p class="standfirst">Every rank, every deed, every achievement — and exactly what each one pays.</p>
-  </header>
+<div class="splat red s1"></div>
+<div class="splat blue s2"></div>
+<div class="splat blue s3"></div>
+<div class="splat red s4"></div>
+<div class="drip d1"></div>
+<div class="drip d2"></div>
 
-  <div class="law">
-    <div>
-      <div class="word">Ranking up pays power.</div>
-      <p>XP is yours alone, earned by work, and it makes your cog stronger.
-         A rank-up pays zero GLORY — the pop shows stars, because the power is the whole prize.</p>
+<div class="wrap">
+
+  <div class="title">
+    <div class="season pix">SEASON 2</div>
+    <h1 class="pix">CHEAT SHEET</h1>
+    <div class="tag">RANKS PAY <b>POWER</b> &nbsp;&middot;&nbsp; DEEDS PAY <b>GLORY</b></div>
+  </div>
+
+  <div class="grid">
+
+    <!-- ── RANK UP ── -->
+    <div class="panel">
+      <h2 class="pix">RANK UP <small>XP &middot; ONE LIFE</small></h2>
+      <div class="row rank"><span class="name pix">RECRUIT</span><span class="fill"></span><span class="amt pix">0</span></div>
+      <div class="rankbuff">base kit</div>
+      <div class="row rank"><span class="name pix">TAGGER</span><span class="stars">&#10033;</span><span class="fill"></span><span class="amt pix">9</span></div>
+      <div class="rankbuff">windup 5 &rarr; 4</div>
+      <div class="row rank"><span class="name pix">MARKSMAN</span><span class="stars">&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">15</span></div>
+      <div class="rankbuff">spray recharge 20 &rarr; 12</div>
+      <div class="row rank"><span class="name pix">IRONHIDE</span><span class="stars">&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">24</span></div>
+      <div class="rankbuff">+1 max hp &middot; supply drops on &middot; you = bounty</div>
+      <div class="row rank"><span class="name pix">QUICKDRAW</span><span class="stars">&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">33</span></div>
+      <div class="rankbuff">cooldown &minus;25% &middot; bombs hold 2</div>
+      <div class="row rank"><span class="name pix">LEGEND</span><span class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">48</span></div>
+      <div class="rankbuff">windup &rarr; 3 &middot; carry at full speed</div>
+      <div class="foot">RESET ON DEATH &middot; +HP IS HEADROOM, NOT A HEAL</div>
     </div>
-    <div>
-      <div class="word">Deeds pay GLORY.</div>
-      <p>GLORY is the team score the crowd watches. It comes from deeds and
-         achievements — outcomes, on camera — and only GLORY wins the broadcast.</p>
+
+    <!-- ── DEEDS ── -->
+    <div class="panel">
+      <h2 class="pix">DEEDS <small>TEAM GLORY</small></h2>
+      <div class="subhead">COMBAT</div>
+      <div class="row"><span class="pop pix">TAG</span><span class="fill"></span><span class="amt pix">+10</span></div>
+      <div class="row"><span class="pop pix">FIRST!</span><span class="q">first tag of the game</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">SPRAYED</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">BOMBED</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">POINT-BLANK</span><span class="q">inside 110 px</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">CHASE</span><span class="q">they were running</span><span class="fill"></span><span class="amt pix">+16</span></div>
+      <div class="row"><span class="pop pix">PAYBACK</span><span class="q">avenge yourself &le;10 s</span><span class="fill"></span><span class="amt pix">+18</span></div>
+      <div class="row"><span class="pop pix">LONGSHOT</span><span class="q">past 700 px</span><span class="fill"></span><span class="amt pix">+30</span></div>
+      <div class="row"><span class="pop pix">MULTI!</span><span class="q">2+ with one blast</span><span class="fill"></span><span class="amt pix">+35</span></div>
+      <div class="row"><span class="pop pix">BOUNTY</span><span class="q">down an ace &#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">+40</span></div>
+      <div class="subhead">THE HEART</div>
+      <div class="row"><span class="pop pix">ESCORT</span><span class="q">kill while ally carries</span><span class="fill"></span><span class="amt pix">+14</span></div>
+      <div class="row"><span class="pop pix">STEAL</span><span class="fill"></span><span class="amt pix">+40</span></div>
+      <div class="row"><span class="pop pix">PEEL</span><span class="q">kill their carrier</span><span class="fill"></span><span class="amt pix">+90</span></div>
+      <div class="row"><span class="pop pix">DENIED!</span><span class="q">peel at the doorstep</span><span class="fill"></span><span class="amt pix">+120</span></div>
+      <div class="row"><span class="pop pix">CAPTURE</span><span class="fill"></span><span class="amt pix">+250</span></div>
+      <div class="subhead">TEAM</div>
+      <div class="row"><span class="pop pix">WIPEOUT</span><span class="q">whole squad splatted</span><span class="fill"></span><span class="amt pix">+400</span></div>
+      <div class="row"><span class="pop quiet pix">SHIELD SOAK</span><span class="q">no pop, no heat</span><span class="fill"></span><span class="amt pix">+4<span class="q">/hp</span></span></div>
+      <div class="row"><span class="pop neg pix">OWN PAINT</span><span class="q">&minus;20 xp too</span><span class="fill"></span><span class="amt pix neg">&minus;60</span></div>
+      <div class="row"><span class="pop quiet pix">RANK UP &#10033;</span><span class="q">stars only</span><span class="fill"></span><span class="amt pix zero">+0</span></div>
+    </div>
+
+    <!-- ── side stack ── -->
+    <div class="stack">
+      <div class="panel">
+        <h2 class="pix">XP <small>YOURS &middot; KILLS PAY 0</small></h2>
+        <div class="row"><span class="name">DAMAGE</span><span class="fill"></span><span class="amt pix">+3<span class="q">/hp</span></span></div>
+        <div class="row"><span class="name">STEAL</span><span class="fill"></span><span class="amt pix">+12</span></div>
+        <div class="row"><span class="name">CAPTURE</span><span class="fill"></span><span class="amt pix">+30</span></div>
+        <div class="row"><span class="name">PEEL</span><span class="fill"></span><span class="amt pix">+12</span></div>
+        <div class="row"><span class="name">TEAM PAINT</span><span class="fill"></span><span class="amt pix neg">&minus;20</span></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="pix">MULTIPLIERS <small>IN ORDER</small></h2>
+        <div class="row"><span class="name">ENEMY GROUND</span><span class="fill"></span><span class="amt pix">&times;1.5</span></div>
+        <div class="row"><span class="name">HEAT</span><span class="q">2 / 5 / 10 embers</span><span class="fill"></span><span class="amt pix">&times;2 &times;4 &times;8</span></div>
+        <div class="row"><span class="name">CARRYING</span><span class="q">heat deeds only</span><span class="fill"></span><span class="amt pix">&times;2</span></div>
+        <div class="foot">QUIET ~2 S = &minus;2 EMBERS &middot; PENALTIES NEVER MULTIPLY</div>
+      </div>
+
+      <div class="panel">
+        <h2 class="pix">SUPPLY DROP <small>&#10033;&#10033;&#10033;+</small></h2>
+        <div class="row"><span class="name">EVERY 20 XP</span><span class="fill"></span><span class="amt pix">1 DROP</span></div>
+        <div class="row"><span class="q">med kit &rarr; bomb &rarr; spray &rarr; shield</span><span class="fill"></span></div>
+        <div class="foot">MAX 4 / LIFE &middot; EARNED, NEVER FARMED</div>
+      </div>
     </div>
   </div>
 
-  <!-- ══════════════════════ I. RANKING UP ══════════════════════ -->
-  <section>
-    <h2>I &middot; Ranking Up</h2>
-    <p class="kicker">Your rank lives and dies with your current life. Work fills the bar;
-       each rank buys a new capability, not just a bigger number.</p>
+  <!-- ── achievements ── -->
+  <div class="achhead">
+    <h2 class="pix">ACHIEVEMENTS <small style="color:var(--ghost); font-size:9px;">ONE CLAIM PER TEAM PER GAME</small></h2>
+    <div class="prices pix">I 9 &middot; II 11 &middot; III 14 &middot; IV 18 &middot; V 23 &nbsp;&mdash;&nbsp; <b>FIRST V &times;3 = 69</b></div>
+  </div>
+  <div class="trees">
 
-    <h3>What earns XP <span class="sub">— work levels you; kills don't</span></h3>
-    <div class="tablewrap">
-    <table>
-      <tr><th>You did</th><th class="num">XP</th><th>Why it counts</th></tr>
-      <tr>
-        <td>Landed damage</td>
-        <td class="num mono">3 <span class="quiet">/ hit point</span></td>
-        <td class="desc">Any weapon — gun, spray, or paint-bomb. The workhorse: the ladder pays exactly what the tool actually did.</td>
-      </tr>
-      <tr>
-        <td>Stole the enemy heart</td>
-        <td class="num mono">12</td>
-        <td class="desc">A steal alone takes a fresh life straight to Tagger.</td>
-      </tr>
-      <tr>
-        <td>Scored a capture</td>
-        <td class="num mono">30</td>
-        <td class="desc">A capture alone takes a fresh life straight to Ironhide.</td>
-      </tr>
-      <tr>
-        <td>Peeled the enemy carrier</td>
-        <td class="num mono">12</td>
-        <td class="desc">Priced as the flag rescue it causes — your heart comes home because the carrier went down.</td>
-      </tr>
-      <tr>
-        <td class="neg">Painted a teammate</td>
-        <td class="num mono neg">&minus;20</td>
-        <td class="desc">The one thing that can take a rank <em>away</em>.</td>
-      </tr>
-      <tr>
-        <td class="quiet">Tags themselves, self-heals, pickups, shield soak</td>
-        <td class="num mono quiet">0</td>
-        <td class="desc">The finishing tag pays nothing — the damage that set it up already did. Taking care of yourself buys no ranks.</td>
-      </tr>
-    </table>
+    <div class="tree">
+      <h3 class="pix">THE SIDEARM</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">First Tag</span><span class="fill"></span><span class="q">gun kill</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Marksman</span><span class="fill"></span><span class="q">3 gun kills</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Bounty</span><span class="fill"></span><span class="q">down an ace</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Sharpshooter</span><span class="fill"></span><span class="q">hit max rank</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Longshot</span><span class="fill"></span><span class="q">kill past 700 px</span></div>
     </div>
 
-    <h3>The six ranks <span class="sub">— XP is cumulative within one life; every buff stacks as you climb</span></h3>
-    <div class="tablewrap">
-    <table>
-      <tr><th>Rank</th><th></th><th class="num">XP to reach</th><th>What it buys</th></tr>
-      <tr>
-        <td class="rankname">Recruit</td><td class="stars"></td>
-        <td class="num mono">0</td>
-        <td class="desc">The base kit: 5-tick trigger windup, one throw per paint-bomb pickup.</td>
-      </tr>
-      <tr>
-        <td class="rankname">Tagger</td><td class="stars">&#10033;</td>
-        <td class="num mono">9</td>
-        <td class="desc">Trigger windup drops a tick (5 &rarr; 4) — your shot comes out sooner in every duel.</td>
-      </tr>
-      <tr>
-        <td class="rankname">Marksman</td><td class="stars">&#10033;&#10033;</td>
-        <td class="num mono">15</td>
-        <td class="desc">Spray can recharges 40% faster (20 &rarr; 12 ticks) — the cone finally recycles mid-fight.</td>
-      </tr>
-      <tr>
-        <td class="rankname">Ironhide</td><td class="stars">&#10033;&#10033;&#10033;</td>
-        <td class="num mono">24</td>
-        <td class="desc"><strong>The big one.</strong> +1 max HP &middot; you wear the ember plume everyone can see &middot;
-            your team's heart starts producing supply drops off your work &middot; and enemies now earn
-            BOUNTY (40 GLORY) for taking you down. You are a threat and a target.</td>
-      </tr>
-      <tr>
-        <td class="rankname">Quickdraw</td><td class="stars">&#10033;&#10033;&#10033;&#10033;</td>
-        <td class="num mono">33</td>
-        <td class="desc">Fire cooldown &minus;25% &middot; every paint-bomb pickup now holds two throws.</td>
-      </tr>
-      <tr>
-        <td class="rankname">Legend</td><td class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</td>
-        <td class="num mono">48</td>
-        <td class="desc">Windup drops one more tick (&rarr; 3) &middot; carrying the heart no longer slows you down.
-            Roughly one life per episode gets here.</td>
-      </tr>
-    </table>
-    </div>
-    <p class="note"><strong>The fine print.</strong> Ranks reset on death — the whole ladder, buffs and all,
-       and a fallen Ironhide-or-better also hands the enemy that 40-GLORY bounty. Your rank never drops
-       while you live, unless you paint a teammate. And the Ironhide HP is <em>headroom, not a heal</em>:
-       the extra hit point must still be earned back from a med kit.</p>
-
-    <h3>The supply drop <span class="sub">— rank 3+ turns your work into team kit</span></h3>
-    <p class="kicker" style="margin-bottom:10px">Once you hit Ironhide, every <span class="mono">20</span> fresh XP
-       you earn makes your team's heart spit out a pickup, cycling
-       <strong>med&nbsp;kit &rarr; paint-bomb &rarr; spray&nbsp;can &rarr; shield</strong>.
-       At most one drop per <span class="mono">90</span> ticks and <span class="mono">4</span> per life —
-       and it is fed by <em>earning</em>, never by standing around: a veteran who hides produces exactly nothing.</p>
-  </section>
-
-  <!-- ══════════════════════ II. EARNING GLORY ══════════════════════ -->
-  <section>
-    <h2>II &middot; Earning GLORY</h2>
-    <p class="kicker">Every deed pays the team score once, at the moment it lands, with its one-word pop
-       on the broadcast. Deeds marked <em>heat</em> also add an ember to your team's streak.</p>
-
-    <div class="tablewrap">
-    <table>
-      <tr><th>The pop</th><th>The deed</th><th class="num">GLORY</th><th>Heat</th></tr>
-
-      <tr class="groupline"><td colspan="4"><span class="eyebrow">Combat</span></td></tr>
-      <tr><td class="popword">FIRST!</td><td class="desc">The game's first tag.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">TAG</td><td class="desc">A clean tag — the floor every other deed is priced against.</td><td class="num mono">10</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">SPRAYED</td><td class="desc">A tag with the spray can.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">BOMBED</td><td class="desc">A tag with a paint-bomb blast.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">POINT-BLANK</td><td class="desc">A duel won at arm's length — inside 110 px.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">LONGSHOT</td><td class="desc">A tag from past 700 px — genuinely rare air.</td><td class="num mono">30</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">MULTI!</td><td class="desc">One blast or one spray cone tags two or more.</td><td class="num mono">35</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">PAYBACK</td><td class="desc">Tag the cog that tagged you, within ~10 seconds.</td><td class="num mono">18</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">CHASE</td><td class="desc">Tag a target running away — the chase, on camera.</td><td class="num mono">16</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">BOUNTY</td><td class="desc">Take down a rank-3+ veteran.</td><td class="num mono">40</td><td class="quiet">ember</td></tr>
-
-      <tr class="groupline"><td colspan="4"><span class="eyebrow">The Heart</span></td></tr>
-      <tr><td class="popword">STEAL</td><td class="desc">The enemy heart leaves its pedestal on your back.</td><td class="num mono">40</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">CAPTURE</td><td class="desc">Carry it all the way home.</td><td class="num mono big">250</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">PEEL</td><td class="desc">Take down the enemy carrying your team's heart.</td><td class="num mono">90</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">DENIED!</td><td class="desc">Stop a carrier one step from scoring — inside 600 px.</td><td class="num mono">120</td><td class="quiet">ember</td></tr>
-      <tr><td class="popword">ESCORT</td><td class="desc">A tag landed while your teammate runs the heart.</td><td class="num mono">14</td><td class="quiet">ember</td></tr>
-
-      <tr class="groupline"><td colspan="4"><span class="eyebrow">Team</span></td></tr>
-      <tr><td class="popword">WIPEOUT</td><td class="desc">Every enemy down at once.</td><td class="num mono big">400</td><td class="quiet">ember</td></tr>
-
-      <tr class="groupline"><td colspan="4"><span class="eyebrow">Quiet money — no pop, no heat</span></td></tr>
-      <tr><td class="quiet">shield soak</td><td class="desc">Your shield eats a hit. Funds the team; is not a show.</td><td class="num mono">4 <span class="quiet">/ hit point</span></td><td class="quiet">&mdash;</td></tr>
-
-      <tr class="groupline"><td colspan="4"><span class="eyebrow">The penalty</span></td></tr>
-      <tr><td class="popword neg">OWN PAINT</td><td class="desc">You painted your own teammate. No multiplier ever softens it — and it costs you 20 XP besides.</td><td class="num mono neg big">&minus;60</td><td class="quiet">never</td></tr>
-
-      <tr class="groupline"><td colspan="4"><span class="eyebrow">Pays nothing, on purpose</span></td></tr>
-      <tr><td class="popword quiet">RANK UP &#10033;</td><td class="desc">Leveling pays power, not GLORY. The pop is your new star count.</td><td class="num mono quiet">0</td><td class="quiet">&mdash;</td></tr>
-    </table>
+    <div class="tree">
+      <h3 class="pix">THE CAN</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">First Coat</span><span class="fill"></span><span class="q">spray kill</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Full Coverage</span><span class="fill"></span><span class="q">2 spray kills</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Repainted</span><span class="fill"></span><span class="q">2 kills, one can</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">The Muralist</span><span class="fill"></span><span class="q">3 kills, one can</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Double Splash</span><span class="fill"></span><span class="q">2+ with one cone</span></div>
     </div>
 
-    <h3>The three multipliers <span class="sub">— applied in this order; penalties skip all three</span></h3>
-    <div class="mults">
-      <div>
-        <div class="word">Where <span class="factor">&times;1.5</span></div>
-        <p>Ground ownership at the deed site. Your own ground pays face value —
-           defending your keep is table stakes. A deed landed on <em>enemy</em> ground pays &times;1.5:
-           initiative into defended territory.</p>
-      </div>
-      <div>
-        <div class="word">Heat <span class="factor">&times;2 / &times;4 / &times;8</span></div>
-        <p>Each heat deed adds an ember to your team's streak: 2 embers light &times;2,
-           5 light &times;4, 10 light &times;8. Go quiet for ~2 seconds and you shed 2 embers per window —
-           a maxed streak cools off in ~11 seconds. Achievements never climb heat.</p>
-      </div>
-      <div>
-        <div class="word">Carrying <span class="factor">&times;2</span></div>
-        <p>While your team holds the enemy heart, every heat deed pays double.
-           A passive carrier earns nothing; a carrying team that fights earns twice.</p>
-      </div>
+    <div class="tree">
+      <h3 class="pix">THE BOMB</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Delivery</span><span class="fill"></span><span class="q">bomb kill</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Splatterbomb</span><span class="fill"></span><span class="q">2 bomb kills</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Blast Radius</span><span class="fill"></span><span class="q">2+ in one blast</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Double Blast</span><span class="fill"></span><span class="q">two 2+ blasts</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">The Bombardier</span><span class="fill"></span><span class="q">3 bomb kills</span></div>
     </div>
-  </section>
 
-  <!-- ══════════════════════ III. THE ACHIEVEMENT BOOK ══════════════════════ -->
-  <section>
-    <h2>III &middot; The Achievement Book</h2>
-    <p class="kicker">Eight trees, five tiers each. Every tier is a one-time team claim per game —
-       tier I pays <span class="mono">9</span>, then <span class="mono">11</span>, <span class="mono">14</span>,
-       <span class="mono">18</span>, and <span class="mono">23</span> GLORY at tier V.
-       The <em>where</em> multiplier applies; heat never does. And tier V carries the pioneer bonus:
-       the first team in the game to claim it banks &times;3 — <span class="mono">69</span> GLORY.</p>
-
-    <div class="trees">
-
-      <div class="tree">
-        <h3>The Sidearm</h3>
-        <div class="treesub">the gun every cog spawns with</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">First Tag</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Get a kill with your gun.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Marksman</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Get 3 gun kills in one game.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Bounty</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Take down an enemy who has leveled up to Ace rank or higher.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Sharpshooter</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Reach max rank in one life.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Longshot<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Land a kill from way out past the longshot range.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Can</h3>
-        <div class="treesub">the spray can</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">First Coat</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Get a kill with the spray can.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Full Coverage</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Get 2 spray kills in one game.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Repainted</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Get 2 spray kills with the same can.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">The Muralist</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Get 3 spray kills with the same can.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Double Splash<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Hit 2 or more enemies with one spray blast.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Bomb</h3>
-        <div class="treesub">the corner paint-bomb</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">Delivery</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Get a kill with a grenade.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Splatterbomb</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Get 2 grenade kills in one game.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Blast Radius</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Catch 2 or more enemies in one grenade blast.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Double Blast</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Catch 2 or more enemies in a blast, twice in one game.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">The Bombardier<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Get 3 grenade kills in one game.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Backup</h3>
-        <div class="treesub">the teamwork tree — none of these can be done alone</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">Cover Fire</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Damage an enemy that a teammate finishes off soon after.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Escort Duty</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Get a kill while a teammate is running the enemy's heart.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">The Save</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Take down an enemy who just hurt one of your teammates badly.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Second Wind</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Get rescued by a teammate, then land a kill of your own soon after.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Squad Volley<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Have 3 or more different teammates each land a kill in one quick burst.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Provider</h3>
-        <div class="treesub">your supply drops, feeding the squad</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">First Delivery</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Have a teammate pick up kit from your team's supply drop.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Clutch Delivery</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Have a teammate grab your supply drop while they're badly hurt.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Regular Route</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Share 3 supply drops with your team in one game.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Emergency Route</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Save a badly hurt teammate with your supply drop, twice in one game.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Supply Chain<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Share 6 supply drops with your team in one game.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Heart</h3>
-        <div class="treesub">steal, run, score</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">Hands On</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Steal the enemy's heart while a live enemy is close enough to contest it.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Delivered</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Carry the enemy's heart all the way home for a capture.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Fighting Carry</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Get a kill while you're carrying the enemy's heart.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Uphill</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Score a capture while your team has fewer players alive than the enemy.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Fast Break<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Steal the heart and capture it again in one fast run.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Peel</h3>
-        <div class="treesub">the defender's tree</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">The Peel</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Kill the enemy who is carrying your team's heart.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Doorstep</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Stop a carrier right at your own team's doorstep.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Double Peel</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Kill an enemy carrier twice in one game.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Turnaround</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Peel a carrier off your heart, then steal the enemy's yourself soon after.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Lockdown<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Stop carriers at the doorstep twice in one game.</td></tr>
-        </table>
-      </div>
-
-      <div class="tree">
-        <h3>The Squad</h3>
-        <div class="treesub">the whole-team tree</div>
-        <table>
-          <tr><td class="mono">I</td><td class="tname">Kitted</td><td class="num mono">9</td></tr>
-          <tr><td colspan="3" class="req">Your team gets real use out of 2 of the 4 kits in one game.</td></tr>
-          <tr><td class="mono">II</td><td class="tname">Full Loadout</td><td class="num mono">11</td></tr>
-          <tr><td colspan="3" class="req">Your team gets real use out of 3 of the 4 kits in one game.</td></tr>
-          <tr><td class="mono">III</td><td class="tname">Full Kit</td><td class="num mono">14</td></tr>
-          <tr><td colspan="3" class="req">Your team gets real use out of all 4 kits in one game.</td></tr>
-          <tr><td class="mono">IV</td><td class="tname">Clean Sheet</td><td class="num mono">18</td></tr>
-          <tr><td colspan="3" class="req">Finish the whole game without a single teammate shooting a teammate.</td></tr>
-          <tr><td class="mono">V</td><td class="tname">Victory Lap<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
-          <tr><td colspan="3" class="req">Use every kit AND capture the enemy's heart in the same game.</td></tr>
-        </table>
-      </div>
-
+    <div class="tree">
+      <h3 class="pix">THE BACKUP</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Cover Fire</span><span class="fill"></span><span class="q">assist</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Escort Duty</span><span class="fill"></span><span class="q">kill while ally carries</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">The Save</span><span class="fill"></span><span class="q">kill ally's attacker</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Second Wind</span><span class="fill"></span><span class="q">get saved, then kill</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Squad Volley</span><span class="fill"></span><span class="q">3 allies kill fast</span></div>
     </div>
-  </section>
 
-  <footer>
-    Every number on this sheet reads from <span class="mono">src/ctf/glory.nim</span> &middot;
-    GloryVersion 10 &middot; the engine is the single source of truth — if this sheet and a replay
-    disagree, believe the replay.
-  </footer>
+    <div class="tree">
+      <h3 class="pix">THE PROVIDER</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">First Delivery</span><span class="fill"></span><span class="q">ally takes your drop</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Clutch Delivery</span><span class="fill"></span><span class="q">it saves a hurt ally</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Regular Route</span><span class="fill"></span><span class="q">3 drops shared</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Emergency Route</span><span class="fill"></span><span class="q">2 clutch saves</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Supply Chain</span><span class="fill"></span><span class="q">6 drops shared</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE HEART</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Hands On</span><span class="fill"></span><span class="q">contested steal</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Delivered</span><span class="fill"></span><span class="q">capture</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Fighting Carry</span><span class="fill"></span><span class="q">kill while carrying</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Uphill</span><span class="fill"></span><span class="q">capture outnumbered</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Fast Break</span><span class="fill"></span><span class="q">steal &rarr; score in 10 s</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE PEEL</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">The Peel</span><span class="fill"></span><span class="q">kill the carrier</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Doorstep</span><span class="fill"></span><span class="q">a denial</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Double Peel</span><span class="fill"></span><span class="q">2 carrier kills</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Turnaround</span><span class="fill"></span><span class="q">peel, then steal</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Lockdown</span><span class="fill"></span><span class="q">2 denials</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE SQUAD</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Kitted</span><span class="fill"></span><span class="q">2 of 4 kits convert</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Full Loadout</span><span class="fill"></span><span class="q">3 of 4</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Full Kit</span><span class="fill"></span><span class="q">all 4</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Clean Sheet</span><span class="fill"></span><span class="q">zero team paint</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Victory Lap</span><span class="fill"></span><span class="q">all 4 + a capture</span></div>
+    </div>
+
+  </div>
+
+  <div class="colo pix">glory.nim &middot; GLORYVERSION 10</div>
 
 </div>
 </body>
