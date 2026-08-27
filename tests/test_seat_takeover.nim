@@ -294,3 +294,45 @@ suite "freeplay tickets: a guest never holds the policy's credential":
     check appState.takeoverTickets.len == 0
     check defaultGameConfig().takeoverRejection(
       0, "", false, false, ticketAccepted = true).len > 0
+
+suite "config round trip: the serializer must not emit what its reader refuses":
+  test "a partially named roster survives its own configJson":
+    # configJson turns the players array on when ANY slot is named, then emits
+    # an entry for EVERY slot -- so one named slot beside an unnamed one wrote
+    # {"name":""}, which readConfigPlayers used to reject outright. A replay
+    # recorded from such a roster could not be loaded AT ALL.
+    var config = defaultGameConfig()
+    config.slots = @[
+      PlayerSlotConfig(name: "player1", token: "t0"),
+      PlayerSlotConfig(name: "", token: "t1")
+    ]
+    let recorded = config.configJson()
+    check "\"players\"" in recorded
+    var reread = defaultGameConfig()
+    reread.update(recorded)                 # used to raise
+    check reread.slots[0].name == "player1"
+    check reread.slots[1].name == ""
+
+  test "a fully named roster is unchanged":
+    var config = defaultGameConfig()
+    config.slots = @[
+      PlayerSlotConfig(name: "player1", token: "t0"),
+      PlayerSlotConfig(name: "player2", token: "t1")
+    ]
+    var reread = defaultGameConfig()
+    reread.update(config.configJson())
+    check reread.slots[0].name == "player1"
+    check reread.slots[1].name == "player2"
+
+  test "an unnamed roster still emits no players key at all":
+    # The zero-diff case: nothing named, nothing echoed.
+    var config = defaultGameConfig()
+    config.slots = @[PlayerSlotConfig(token: "t0"), PlayerSlotConfig(token: "t1")]
+    check "\"players\"" notin config.configJson()
+
+  test "a players entry with no name key is still an error":
+    # Relaxing EMPTY must not relax MISSING -- an authored config that forgot
+    # the key is still a typo, not a deliberate blank.
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{"players":[{"team":"red"}]}""")
