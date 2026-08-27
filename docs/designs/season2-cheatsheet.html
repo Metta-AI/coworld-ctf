@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Season 2 — The Cheat Sheet</title>
+<style>
+  :root {
+    --bg: #fffdf4;
+    --surface-alt: #f8f6ef;
+    --fg: #111827;
+    --fg-subtle: #555555;
+    --fg-muted: #999999;
+    --navy: #1a3875;
+    --sage: #6e8050;
+    --terracotta: #b36e4e;
+    --gold: #d4a853;
+    --gold-deep: #a4731d;
+    --border: #e4dac8;
+    --border-strong: #d4c9b5;
+    --border-subtle: #f0ebe1;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Merriweather Sans", "Segoe UI", -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .sheet { max-width: 1080px; margin: 0 auto; padding: 40px 28px 72px; }
+
+  /* ── Masthead ─────────────────────────────────────────────── */
+  .masthead { text-align: center; padding-bottom: 18px; border-bottom: 2px solid var(--border-strong); }
+  .masthead .eyebrow { margin-bottom: 10px; }
+  .masthead h1 {
+    font-family: Merriweather, Georgia, serif;
+    font-size: 40px; font-weight: 700; margin: 0 0 6px;
+    letter-spacing: 0.01em;
+  }
+  .masthead .standfirst {
+    font-family: Merriweather, Georgia, serif;
+    font-style: italic; font-size: 16px; color: var(--fg-subtle);
+    margin: 4px auto 0; max-width: 620px;
+  }
+  .eyebrow {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--fg-subtle);
+  }
+
+  /* ── The law ──────────────────────────────────────────────── */
+  .law {
+    display: flex; gap: 36px; justify-content: center; text-align: center;
+    padding: 22px 0 26px; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .law > div { max-width: 380px; }
+  .law .word {
+    font-family: Merriweather, Georgia, serif; font-weight: 700;
+    font-size: 21px; color: var(--navy); margin-bottom: 2px;
+  }
+  .law p { margin: 2px 0 0; color: var(--fg-subtle); font-size: 13px; }
+
+  /* ── Sections ─────────────────────────────────────────────── */
+  section { padding-top: 34px; }
+  h2 {
+    font-family: Merriweather, Georgia, serif;
+    font-size: 15px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--navy);
+    margin: 0 0 4px; padding-bottom: 6px;
+    border-bottom: 2px solid var(--border-strong);
+  }
+  .kicker { color: var(--fg-subtle); font-size: 13px; margin: 8px 0 18px; max-width: 720px; }
+  h3 {
+    font-family: Merriweather, Georgia, serif;
+    font-size: 16px; font-weight: 700; margin: 26px 0 8px;
+  }
+  h3 .sub { font-weight: 400; font-style: italic; font-size: 13px; color: var(--fg-muted); }
+
+  /* ── Tables ───────────────────────────────────────────────── */
+  table { border-collapse: collapse; width: 100%; }
+  th {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--fg-subtle); text-align: left;
+    padding: 6px 18px 6px 0; border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+  }
+  td { padding: 7px 18px 7px 0; border-bottom: 1px solid var(--border-subtle); vertical-align: baseline; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  td.num:last-child, th.num:last-child { padding-right: 0; }
+  .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13px; font-feature-settings: "tnum" 1;
+  }
+  .big { font-size: 15px; font-weight: 700; }
+  .popword {
+    font-weight: 700; letter-spacing: 0.03em; white-space: nowrap;
+  }
+  .quiet { color: var(--fg-muted); }
+  .neg { color: var(--terracotta); }
+  .desc { color: var(--fg-subtle); }
+  .groupline td {
+    border-bottom: 1px solid var(--border-subtle);
+    padding-top: 16px; padding-bottom: 4px;
+  }
+  .groupline .eyebrow { font-size: 10px; color: var(--fg-muted); }
+
+  /* ── Ranks ────────────────────────────────────────────────── */
+  .rankname { font-family: Merriweather, Georgia, serif; font-weight: 700; font-size: 15px; white-space: nowrap; }
+  .stars { color: var(--gold-deep); letter-spacing: 0.08em; white-space: nowrap; }
+  .note {
+    font-size: 12.5px; color: var(--fg-subtle);
+    border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px;
+    max-width: 720px;
+  }
+  .note strong { color: var(--fg); }
+
+  /* ── Multiplier row ───────────────────────────────────────── */
+  .mults { display: flex; gap: 32px; flex-wrap: wrap; margin-top: 6px; }
+  .mults > div { flex: 1 1 260px; max-width: 340px; }
+  .mults .word {
+    font-family: Merriweather, Georgia, serif; font-weight: 700; font-size: 15px;
+    margin-bottom: 3px;
+  }
+  .mults .factor { color: var(--navy); }
+  .mults p { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-subtle); }
+
+  /* ── Achievement trees ────────────────────────────────────── */
+  .trees { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 44px; margin-top: 10px; }
+  .tree { padding-top: 14px; }
+  .tree h3 { margin: 0 0 2px; }
+  .tree .treesub { font-size: 12px; color: var(--fg-muted); font-style: italic; margin-bottom: 6px; }
+  .tree td:first-child { width: 34px; color: var(--fg-muted); font-size: 11px; }
+  .tree td.tname { font-weight: 600; white-space: nowrap; padding-right: 14px; }
+  .tree td.num { width: 40px; }
+  .tree .req { color: var(--fg-subtle); font-size: 12.5px; }
+  /* a tier row and its requirement line are ONE unit: no hairline between them */
+  .tree tr:nth-child(odd) td { border-bottom: none; padding-bottom: 2px; }
+  .tree tr:nth-child(even) td { padding-top: 0; }
+  .firstchip {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--gold-deep);
+    background: rgba(212,168,83,0.16); border-radius: 999px; padding: 1px 8px;
+    margin-left: 6px; vertical-align: 1px;
+  }
+
+  /* ── Footer ───────────────────────────────────────────────── */
+  footer {
+    margin-top: 46px; padding-top: 12px; border-top: 2px solid var(--border-strong);
+    font-size: 11.5px; color: var(--fg-muted); text-align: center;
+  }
+
+  @media (max-width: 760px) {
+    .sheet { padding: 26px 16px 48px; }
+    .masthead h1 { font-size: 30px; }
+    .law { gap: 18px; }
+    .trees { grid-template-columns: 1fr; }
+    .tablewrap { overflow-x: auto; }
+    th, td { padding-right: 10px; }
+    th { white-space: normal; letter-spacing: 0.06em; }
+    .desc { font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header class="masthead">
+    <div class="eyebrow">Paintbot League &middot; Season 2</div>
+    <h1>The Cheat Sheet</h1>
+    <p class="standfirst">Every rank, every deed, every achievement — and exactly what each one pays.</p>
+  </header>
+
+  <div class="law">
+    <div>
+      <div class="word">Ranking up pays power.</div>
+      <p>XP is yours alone, earned by work, and it makes your cog stronger.
+         A rank-up pays zero GLORY — the pop shows stars, because the power is the whole prize.</p>
+    </div>
+    <div>
+      <div class="word">Deeds pay GLORY.</div>
+      <p>GLORY is the team score the crowd watches. It comes from deeds and
+         achievements — outcomes, on camera — and only GLORY wins the broadcast.</p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════ I. RANKING UP ══════════════════════ -->
+  <section>
+    <h2>I &middot; Ranking Up</h2>
+    <p class="kicker">Your rank lives and dies with your current life. Work fills the bar;
+       each rank buys a new capability, not just a bigger number.</p>
+
+    <h3>What earns XP <span class="sub">— work levels you; kills don't</span></h3>
+    <div class="tablewrap">
+    <table>
+      <tr><th>You did</th><th class="num">XP</th><th>Why it counts</th></tr>
+      <tr>
+        <td>Landed damage</td>
+        <td class="num mono">3 <span class="quiet">/ hit point</span></td>
+        <td class="desc">Any weapon — gun, spray, or paint-bomb. The workhorse: the ladder pays exactly what the tool actually did.</td>
+      </tr>
+      <tr>
+        <td>Stole the enemy heart</td>
+        <td class="num mono">12</td>
+        <td class="desc">A steal alone takes a fresh life straight to Tagger.</td>
+      </tr>
+      <tr>
+        <td>Scored a capture</td>
+        <td class="num mono">30</td>
+        <td class="desc">A capture alone takes a fresh life straight to Ironhide.</td>
+      </tr>
+      <tr>
+        <td>Peeled the enemy carrier</td>
+        <td class="num mono">12</td>
+        <td class="desc">Priced as the flag rescue it causes — your heart comes home because the carrier went down.</td>
+      </tr>
+      <tr>
+        <td class="neg">Painted a teammate</td>
+        <td class="num mono neg">&minus;20</td>
+        <td class="desc">The one thing that can take a rank <em>away</em>.</td>
+      </tr>
+      <tr>
+        <td class="quiet">Tags themselves, self-heals, pickups, shield soak</td>
+        <td class="num mono quiet">0</td>
+        <td class="desc">The finishing tag pays nothing — the damage that set it up already did. Taking care of yourself buys no ranks.</td>
+      </tr>
+    </table>
+    </div>
+
+    <h3>The six ranks <span class="sub">— XP is cumulative within one life; every buff stacks as you climb</span></h3>
+    <div class="tablewrap">
+    <table>
+      <tr><th>Rank</th><th></th><th class="num">XP to reach</th><th>What it buys</th></tr>
+      <tr>
+        <td class="rankname">Recruit</td><td class="stars"></td>
+        <td class="num mono">0</td>
+        <td class="desc">The base kit: 5-tick trigger windup, one throw per paint-bomb pickup.</td>
+      </tr>
+      <tr>
+        <td class="rankname">Tagger</td><td class="stars">&#10033;</td>
+        <td class="num mono">9</td>
+        <td class="desc">Trigger windup drops a tick (5 &rarr; 4) — your shot comes out sooner in every duel.</td>
+      </tr>
+      <tr>
+        <td class="rankname">Marksman</td><td class="stars">&#10033;&#10033;</td>
+        <td class="num mono">15</td>
+        <td class="desc">Spray can recharges 40% faster (20 &rarr; 12 ticks) — the cone finally recycles mid-fight.</td>
+      </tr>
+      <tr>
+        <td class="rankname">Ironhide</td><td class="stars">&#10033;&#10033;&#10033;</td>
+        <td class="num mono">24</td>
+        <td class="desc"><strong>The big one.</strong> +1 max HP &middot; you wear the ember plume everyone can see &middot;
+            your team's heart starts producing supply drops off your work &middot; and enemies now earn
+            BOUNTY (40 GLORY) for taking you down. You are a threat and a target.</td>
+      </tr>
+      <tr>
+        <td class="rankname">Quickdraw</td><td class="stars">&#10033;&#10033;&#10033;&#10033;</td>
+        <td class="num mono">33</td>
+        <td class="desc">Fire cooldown &minus;25% &middot; every paint-bomb pickup now holds two throws.</td>
+      </tr>
+      <tr>
+        <td class="rankname">Legend</td><td class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</td>
+        <td class="num mono">48</td>
+        <td class="desc">Windup drops one more tick (&rarr; 3) &middot; carrying the heart no longer slows you down.
+            Roughly one life per episode gets here.</td>
+      </tr>
+    </table>
+    </div>
+    <p class="note"><strong>The fine print.</strong> Ranks reset on death — the whole ladder, buffs and all,
+       and a fallen Ironhide-or-better also hands the enemy that 40-GLORY bounty. Your rank never drops
+       while you live, unless you paint a teammate. And the Ironhide HP is <em>headroom, not a heal</em>:
+       the extra hit point must still be earned back from a med kit.</p>
+
+    <h3>The supply drop <span class="sub">— rank 3+ turns your work into team kit</span></h3>
+    <p class="kicker" style="margin-bottom:10px">Once you hit Ironhide, every <span class="mono">20</span> fresh XP
+       you earn makes your team's heart spit out a pickup, cycling
+       <strong>med&nbsp;kit &rarr; paint-bomb &rarr; spray&nbsp;can &rarr; shield</strong>.
+       At most one drop per <span class="mono">90</span> ticks and <span class="mono">4</span> per life —
+       and it is fed by <em>earning</em>, never by standing around: a veteran who hides produces exactly nothing.</p>
+  </section>
+
+  <!-- ══════════════════════ II. EARNING GLORY ══════════════════════ -->
+  <section>
+    <h2>II &middot; Earning GLORY</h2>
+    <p class="kicker">Every deed pays the team score once, at the moment it lands, with its one-word pop
+       on the broadcast. Deeds marked <em>heat</em> also add an ember to your team's streak.</p>
+
+    <div class="tablewrap">
+    <table>
+      <tr><th>The pop</th><th>The deed</th><th class="num">GLORY</th><th>Heat</th></tr>
+
+      <tr class="groupline"><td colspan="4"><span class="eyebrow">Combat</span></td></tr>
+      <tr><td class="popword">FIRST!</td><td class="desc">The game's first tag.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">TAG</td><td class="desc">A clean tag — the floor every other deed is priced against.</td><td class="num mono">10</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">SPRAYED</td><td class="desc">A tag with the spray can.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">BOMBED</td><td class="desc">A tag with a paint-bomb blast.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">POINT-BLANK</td><td class="desc">A duel won at arm's length — inside 110 px.</td><td class="num mono">12</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">LONGSHOT</td><td class="desc">A tag from past 700 px — genuinely rare air.</td><td class="num mono">30</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">MULTI!</td><td class="desc">One blast or one spray cone tags two or more.</td><td class="num mono">35</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">PAYBACK</td><td class="desc">Tag the cog that tagged you, within ~10 seconds.</td><td class="num mono">18</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">CHASE</td><td class="desc">Tag a target running away — the chase, on camera.</td><td class="num mono">16</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">BOUNTY</td><td class="desc">Take down a rank-3+ veteran.</td><td class="num mono">40</td><td class="quiet">ember</td></tr>
+
+      <tr class="groupline"><td colspan="4"><span class="eyebrow">The Heart</span></td></tr>
+      <tr><td class="popword">STEAL</td><td class="desc">The enemy heart leaves its pedestal on your back.</td><td class="num mono">40</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">CAPTURE</td><td class="desc">Carry it all the way home.</td><td class="num mono big">250</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">PEEL</td><td class="desc">Take down the enemy carrying your team's heart.</td><td class="num mono">90</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">DENIED!</td><td class="desc">Stop a carrier one step from scoring — inside 600 px.</td><td class="num mono">120</td><td class="quiet">ember</td></tr>
+      <tr><td class="popword">ESCORT</td><td class="desc">A tag landed while your teammate runs the heart.</td><td class="num mono">14</td><td class="quiet">ember</td></tr>
+
+      <tr class="groupline"><td colspan="4"><span class="eyebrow">Team</span></td></tr>
+      <tr><td class="popword">WIPEOUT</td><td class="desc">Every enemy down at once.</td><td class="num mono big">400</td><td class="quiet">ember</td></tr>
+
+      <tr class="groupline"><td colspan="4"><span class="eyebrow">Quiet money — no pop, no heat</span></td></tr>
+      <tr><td class="quiet">shield soak</td><td class="desc">Your shield eats a hit. Funds the team; is not a show.</td><td class="num mono">4 <span class="quiet">/ hit point</span></td><td class="quiet">&mdash;</td></tr>
+
+      <tr class="groupline"><td colspan="4"><span class="eyebrow">The penalty</span></td></tr>
+      <tr><td class="popword neg">OWN PAINT</td><td class="desc">You painted your own teammate. No multiplier ever softens it — and it costs you 20 XP besides.</td><td class="num mono neg big">&minus;60</td><td class="quiet">never</td></tr>
+
+      <tr class="groupline"><td colspan="4"><span class="eyebrow">Pays nothing, on purpose</span></td></tr>
+      <tr><td class="popword quiet">RANK UP &#10033;</td><td class="desc">Leveling pays power, not GLORY. The pop is your new star count.</td><td class="num mono quiet">0</td><td class="quiet">&mdash;</td></tr>
+    </table>
+    </div>
+
+    <h3>The three multipliers <span class="sub">— applied in this order; penalties skip all three</span></h3>
+    <div class="mults">
+      <div>
+        <div class="word">Where <span class="factor">&times;1.5</span></div>
+        <p>Ground ownership at the deed site. Your own ground pays face value —
+           defending your keep is table stakes. A deed landed on <em>enemy</em> ground pays &times;1.5:
+           initiative into defended territory.</p>
+      </div>
+      <div>
+        <div class="word">Heat <span class="factor">&times;2 / &times;4 / &times;8</span></div>
+        <p>Each heat deed adds an ember to your team's streak: 2 embers light &times;2,
+           5 light &times;4, 10 light &times;8. Go quiet for ~2 seconds and you shed 2 embers per window —
+           a maxed streak cools off in ~11 seconds. Achievements never climb heat.</p>
+      </div>
+      <div>
+        <div class="word">Carrying <span class="factor">&times;2</span></div>
+        <p>While your team holds the enemy heart, every heat deed pays double.
+           A passive carrier earns nothing; a carrying team that fights earns twice.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ III. THE ACHIEVEMENT BOOK ══════════════════════ -->
+  <section>
+    <h2>III &middot; The Achievement Book</h2>
+    <p class="kicker">Eight trees, five tiers each. Every tier is a one-time team claim per game —
+       tier I pays <span class="mono">9</span>, then <span class="mono">11</span>, <span class="mono">14</span>,
+       <span class="mono">18</span>, and <span class="mono">23</span> GLORY at tier V.
+       The <em>where</em> multiplier applies; heat never does. And tier V carries the pioneer bonus:
+       the first team in the game to claim it banks &times;3 — <span class="mono">69</span> GLORY.</p>
+
+    <div class="trees">
+
+      <div class="tree">
+        <h3>The Sidearm</h3>
+        <div class="treesub">the gun every cog spawns with</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">First Tag</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Get a kill with your gun.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Marksman</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Get 3 gun kills in one game.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Bounty</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Take down an enemy who has leveled up to Ace rank or higher.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Sharpshooter</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Reach max rank in one life.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Longshot<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Land a kill from way out past the longshot range.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Can</h3>
+        <div class="treesub">the spray can</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">First Coat</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Get a kill with the spray can.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Full Coverage</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Get 2 spray kills in one game.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Repainted</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Get 2 spray kills with the same can.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">The Muralist</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Get 3 spray kills with the same can.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Double Splash<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Hit 2 or more enemies with one spray blast.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Bomb</h3>
+        <div class="treesub">the corner paint-bomb</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">Delivery</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Get a kill with a grenade.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Splatterbomb</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Get 2 grenade kills in one game.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Blast Radius</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Catch 2 or more enemies in one grenade blast.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Double Blast</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Catch 2 or more enemies in a blast, twice in one game.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">The Bombardier<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Get 3 grenade kills in one game.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Backup</h3>
+        <div class="treesub">the teamwork tree — none of these can be done alone</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">Cover Fire</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Damage an enemy that a teammate finishes off soon after.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Escort Duty</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Get a kill while a teammate is running the enemy's heart.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">The Save</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Take down an enemy who just hurt one of your teammates badly.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Second Wind</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Get rescued by a teammate, then land a kill of your own soon after.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Squad Volley<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Have 3 or more different teammates each land a kill in one quick burst.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Provider</h3>
+        <div class="treesub">your supply drops, feeding the squad</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">First Delivery</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Have a teammate pick up kit from your team's supply drop.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Clutch Delivery</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Have a teammate grab your supply drop while they're badly hurt.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Regular Route</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Share 3 supply drops with your team in one game.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Emergency Route</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Save a badly hurt teammate with your supply drop, twice in one game.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Supply Chain<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Share 6 supply drops with your team in one game.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Heart</h3>
+        <div class="treesub">steal, run, score</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">Hands On</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Steal the enemy's heart while a live enemy is close enough to contest it.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Delivered</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Carry the enemy's heart all the way home for a capture.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Fighting Carry</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Get a kill while you're carrying the enemy's heart.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Uphill</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Score a capture while your team has fewer players alive than the enemy.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Fast Break<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Steal the heart and capture it again in one fast run.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Peel</h3>
+        <div class="treesub">the defender's tree</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">The Peel</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Kill the enemy who is carrying your team's heart.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Doorstep</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Stop a carrier right at your own team's doorstep.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Double Peel</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Kill an enemy carrier twice in one game.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Turnaround</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Peel a carrier off your heart, then steal the enemy's yourself soon after.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Lockdown<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Stop carriers at the doorstep twice in one game.</td></tr>
+        </table>
+      </div>
+
+      <div class="tree">
+        <h3>The Squad</h3>
+        <div class="treesub">the whole-team tree</div>
+        <table>
+          <tr><td class="mono">I</td><td class="tname">Kitted</td><td class="num mono">9</td></tr>
+          <tr><td colspan="3" class="req">Your team gets real use out of 2 of the 4 kits in one game.</td></tr>
+          <tr><td class="mono">II</td><td class="tname">Full Loadout</td><td class="num mono">11</td></tr>
+          <tr><td colspan="3" class="req">Your team gets real use out of 3 of the 4 kits in one game.</td></tr>
+          <tr><td class="mono">III</td><td class="tname">Full Kit</td><td class="num mono">14</td></tr>
+          <tr><td colspan="3" class="req">Your team gets real use out of all 4 kits in one game.</td></tr>
+          <tr><td class="mono">IV</td><td class="tname">Clean Sheet</td><td class="num mono">18</td></tr>
+          <tr><td colspan="3" class="req">Finish the whole game without a single teammate shooting a teammate.</td></tr>
+          <tr><td class="mono">V</td><td class="tname">Victory Lap<span class="firstchip">first &times;3</span></td><td class="num mono">23</td></tr>
+          <tr><td colspan="3" class="req">Use every kit AND capture the enemy's heart in the same game.</td></tr>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    Every number on this sheet reads from <span class="mono">src/ctf/glory.nim</span> &middot;
+    GloryVersion 10 &middot; the engine is the single source of truth — if this sheet and a replay
+    disagree, believe the replay.
+  </footer>
+
+</div>
+</body>
+</html>
