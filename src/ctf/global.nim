@@ -6266,6 +6266,11 @@ proc buildSpriteProtocolPlayerUpdates*(
             PlantedFlagSpriteBase + ord(team)
           )
 
+    # Rotation the self marker actually rendered with, captured at its own
+    # decision site so the x-ray plate can never disagree with it. -1 = the
+    # self marker was not drawn this frame (ghost), so no plate either.
+    var selfMarkerRot = -1
+
     # Players: yourself (a distinct outlined self marker) is always visible;
     # everyone else — teammates included — only inside your vision; corpses
     # only for ghost viewers.
@@ -6295,6 +6300,13 @@ proc buildSpriteProtocolPlayerUpdates*(
         # FUZZED aim like everyone else: your true aim is knowable only from
         # the commands you issued, never from the pixels.
         let rot = fuzzedRot
+        # The x-ray plate below is a legibility copy of THIS sprite, so it must
+        # take THIS rotation rather than re-deriving one. Sibling lineages
+        # already disagree about what goes here -- some render the self marker
+        # at the FUZZED aim, others at the true aim -- and an x-ray that
+        # re-derives would point up to the fuzz width away from the cog it is
+        # supposed to be outlining, with the wrong one drawn on top.
+        selfMarkerRot = rot
         spriteId = selfSoldierSpriteId(other.skin, rot)
         result.addSpriteChanged(
           nextState.spriteDefs,
@@ -6320,9 +6332,10 @@ proc buildSpriteProtocolPlayerUpdates*(
 
     # LIVE-HUD ONLY: the self x-ray plate. Gated on `hudEnabled`, so a policy's
     # observation of this stream is byte-identical to a build without it.
-    if nextState.hudEnabled and not viewerIsGhost and player.alive:
+    if nextState.hudEnabled and not viewerIsGhost and player.alive and
+        selfMarkerRot >= 0:
       let
-        xrayRot = soldierRotIndex(sim.fuzzedAimBrads(playerIndex))
+        xrayRot = selfMarkerRot
         xraySpriteId = SpritePlayerXraySpriteBase +
           ord(player.skin) * SoldierRotations + xrayRot
       # Build the plate ONLY on a cache miss. `addSpriteChanged` early-returns

@@ -1,5 +1,5 @@
 import
-  std/[json, os, sequtils, strutils, unittest],
+  std/[algorithm, json, os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[glory, global, labels, liveview, sim]
 
@@ -164,3 +164,58 @@ suite "live player HUD":
     check botXray == 0
     check humanXray == 1
     check human.len > bot.len
+
+suite "bot observation: absolute label set":
+  # WHY THIS EXISTS, beyond the parity test above.
+  #
+  # `bot == baseline` compares hudEnabled ON against OFF *within one build*. It
+  # is a DELTA check, and it is blind to the base observation moving underneath
+  # both arms: an ungated engine-side label added for everyone passes it in
+  # silence, because both arms grow the label together. That is not a
+  # hypothetical -- an `own aim <brads>` readback carrying the seat's true
+  # aimBrads landed exactly that way on a sibling lineage, ungated, and this
+  # test is the shape that would have caught it.
+  #
+  # So this one pins the ABSOLUTE set of label KINDS a policy can see on a
+  # player stream. It fails on anything NEW, which is the point: a new kind is
+  # a change to the RL observation space and wants a human decision, not a
+  # silent pass. Widening the set is cheap and correct -- but it should be a
+  # deliberate edit with a reason, which is exactly what a failure here forces.
+  test "a policy sees only the pinned label kinds":
+    var game = initCtfForTest(defaultGameConfig())
+    let (red, _) = game.seatTwo()
+    # Exercise the fx channels a steady frame would not: a paid deed, a
+    # levelled cog, a shot in flight.
+    game.players[red].level = 2
+    game.awardDeed(
+      Red, dHonorableKill,
+      game.players[red].x, game.players[red].y, byIndex = red)
+    game.players[red].fireCooldown = 0
+    game.players[red].windupBrads = -1
+    game.tryFire(red)
+
+    var kinds: seq[string]
+    for label in game.livePacket(red, hud = false).labels:
+      # First token only: this is a check on the KIND of fact published, not on
+      # its payload, so "lives 3hp x3" and "lives 1hp x2" are the same fact.
+      let kind = label.split(' ')[0]
+      if kind.len > 0 and kind notin kinds:
+        kinds.add(kind)
+    kinds.sort()
+
+    # Pinned from the observed set on this lineage. WIDEN THIS DELIBERATELY:
+    # a failure here means the observation surface a policy can read has
+    # changed, which is a decision, not a detail.
+    const Pinned = [
+      "Room", "aim", "blue", "corpse", "damage", "diamond", "fire", "fog",
+      "glory", "hit", "hp", "identity", "interstitial", "lives", "map",
+      "player", "red", "self", "shot", "team", "veteran", "walkability",
+      "weapon"
+    ]
+    var unexpected: seq[string]
+    for kind in kinds:
+      if kind notin Pinned:
+        unexpected.add(kind)
+    # Named in the failure so the reviewer sees WHAT arrived, not just that
+    # something did.
+    check unexpected == newSeq[string]()
