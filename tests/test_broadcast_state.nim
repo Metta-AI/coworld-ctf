@@ -9,7 +9,7 @@ const
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
   #   capture-seed7:  record_fixture.sh <out> 7
-  #   wipe-lives1:    record_fixture.sh <out> 12 10000 \
+  #   wipe-lives1:    record_fixture.sh <out> 18 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
   #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
@@ -43,6 +43,17 @@ const
   # a seed by outcome, not by habit: try a few and read the herald log's last
   # line before committing a recording. Then re-pin the capture winner
   # asserted below to the new recording.
+  #
+  # Re-recorded AGAIN for GLORYVERSION 10 (2026-08-26, `dLevelUp`
+  # zero+tombstoned -- see glory.nim's own changelog, hashed dLevelUp mint
+  # amount moves gameHash from 6 to 0 on every level crossing): capture-seed7
+  # (seed 7) held, STILL a BLUE capture -- no re-pin needed for the winner
+  # asserted below. draw-nokill (seed 7, hitPoints:1000) held, still a clean
+  # time-limit draw. wipe-lives1's seed 12 now resolves as a mutual-wipe
+  # draw again (9, 13, 14, 15, 16, 17 also tried and drew) -- seed 18 is the
+  # one that came back clean this time, BLUE by wipe (again: no test below
+  # pins a specific winning team for this fixture, so no re-pin needed).
+  # Recipe's default seed above updated 12 -> 18 to match.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"

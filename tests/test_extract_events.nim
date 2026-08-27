@@ -42,6 +42,16 @@ const
   # prior re-record. A future pass that specifically wants a grenade kill
   # and/or a capture back in this fixture should keep trying seeds; this one
   # did not chase that further given the actual assertions below do not need it.
+  # Re-recorded AGAIN for GLORYVERSION 10 (2026-08-26, `dLevelUp`
+  # zero+tombstoned -- see glory.nim's own changelog: the hashed dLevelUp
+  # `GloryDeed` mint amount moves gameHash on every level crossing, and this
+  # fixture crosses 16 of them). Seed 603 (the seed already kept coming out
+  # of v9) was tried first this time and landed clean on the first attempt:
+  # 19 kills (18 gun, 1 grenade -- no spray this recording, same "not
+  # required" honest gap as v9), 2 steals, 1 return, 5 heals, 9 achievement
+  # claims, 16 level-ups, AND a capture (RED). Verified deterministic
+  # re-simulation with `nim r tools/extract_events.nim tests/replays/
+  # ctf.bitreplay` before committing, same as every prior re-record.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":
