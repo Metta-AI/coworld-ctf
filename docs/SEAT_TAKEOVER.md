@@ -111,10 +111,13 @@ Two things a human-playable field must get right, both learned the hard way:
   arrive with the Season 2 vendored client (controls lane). The shell page
   passes `player=1`, which the stock client needs to enable input at all when
   its socket path is not `/player`.
-- **A takeover seat cannot shout.** Chat is keyed by websocket through
-  `playerIndices`, which a takeover socket deliberately never enters, so its
-  chat resolves to player index -1 and is dropped. Season 2 pings ride the shout
-  channel, so this needs closing before pings ship.
+- ~~**A takeover seat cannot shout.**~~ Fixed: `takeoverShoutCog` in
+  `src/ctf/server.nim` resolves an ACTIVE takeover socket's chat to the DRIVEN
+  cog's player index (not the -1 `playerIndices` lookup, which a takeover
+  socket deliberately never enters) before it reaches `applyShout` /
+  `writeChat` — same cog index, same replay record, same hash chain a policy's
+  own shout would produce. A seat still "suiting up" (pending) keeps dropping
+  its chat; there is no cog yet to attribute it to.
 - **The wait can be long.** On a settled paintball field cogs die rarely, so
   "your cog's next respawn" can be minutes away. The match boundary is the other
   landing spot; a freeplay field wants a match length that bounds the wait.

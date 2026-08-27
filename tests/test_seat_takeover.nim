@@ -126,6 +126,30 @@ suite "freeplay seat takeover":
     reread.update(config.configJson())
     check reread.allowSeatTakeover
 
+suite "a takeover socket's chat resolves to the cog it drives, not -1":
+  # Board task 38dc16d7: a takeover socket never enters playerIndices, so its
+  # own chat always resolved to player index -1 and applyShout silently
+  # refused it (docs/SEAT_TAKEOVER.md "Known gaps": a takeover seat cannot
+  # shout). takeoverShoutCog is the fix's whole resolution rule — mirrors it
+  # to the DRIVEN cog while ACTIVE, keeps dropping otherwise.
+  test "an ACTIVE takeover resolves to the cog it drives":
+    let t = SeatTakeover(seat: 2, requestedSeat: 2, name: "Green Rookie",
+      active: true, cog: 5, observed: true, prevAlive: true)
+    check t.takeoverShoutCog() == 5
+
+  test "still suiting up (pending) drops, same as before the fix":
+    let t = SeatTakeover(seat: 2, requestedSeat: 2, name: "Green Rookie",
+      active: false, cog: 5, observed: true, prevAlive: true)
+    check t.takeoverShoutCog() == -1
+
+  test "active with no cog resolved yet still drops (defense in depth)":
+    # Should not arise in practice -- advanceSeatTakeover never sets active
+    # true without a valid cog -- but the resolver must not hand applyShout a
+    # negative-plus-garbage index if it ever does.
+    let t = SeatTakeover(seat: 2, requestedSeat: 2, name: "Green Rookie",
+      active: true, cog: -1, observed: true, prevAlive: true)
+    check t.takeoverShoutCog() == -1
+
 proc snap(seat, cog: int, alive: bool, timer = 0): SeatSnapshot =
   SeatSnapshot(seat: seat, cog: cog, alive: alive, respawnTimer: timer)
 
@@ -336,3 +360,91 @@ suite "config round trip: the serializer must not emit what its reader refuses":
     var config = defaultGameConfig()
     expect CtfError:
       config.update("""{"players":[{"team":"red"}]}""")
+
+proc recordTakeoverShoutReplay(path: string): tuple[shoutCog: int] =
+  ## Records a short, direct-player (non-squad, freeplay-shaped) episode and
+  ## writes ONE chat mid-match: a takeover's shout, resolved through
+  ## `takeoverShoutCog` exactly as the fixed frame-loop chat resolution does,
+  ## and applied/recorded under the DRIVEN COG's own player index -- the
+  ## same path a policy's own shout takes (sim.applyShout + writer.writeChat
+  ## by player index). Closes the writer (via defer) before returning, so the
+  ## caller can safely read the file back.
+  var config = defaultGameConfig()
+  config.minPlayers = 2
+  config.startWaitTicks = 0          # the whistle lands on the first step
+  config.maxGames = 1
+  config.maxTicks = 200
+  config.allowSeatTakeover = true    # the mode this fix exists for
+
+  var sim = initSimServer(config)
+  sim.gameEventLoggingEnabled = false
+  var writer = openReplayWriter(path, config.configJson())
+  defer: writer.closeReplayWriter()
+
+  discard sim.addPlayer("red-rookie", 0, "")
+  discard sim.addPlayer("blue-veteran", 1, "")
+  for order in 0 ..< sim.players.len:
+    writer.writeJoin(tickTime(sim.tickCount), order,
+      sim.players[order].address, order, "")
+    writer.lastMasks.add(0)
+
+  var prev = newSeq[InputState](sim.players.len)
+
+  proc tickOnce() =
+    var inputs = newSeq[InputState](sim.players.len)
+    for i in 0 ..< sim.players.len:
+      writer.writeInputMaskChange(tickTime(sim.tickCount), i, 0)
+    sim.step(inputs, prev)
+    prev = inputs
+    writer.writeHash(uint32(sim.tickCount), sim.gameHash())
+
+  tickOnce()                          # Lobby -> Playing (startWaitTicks=0)
+  doAssert sim.phase == Playing
+  doAssert sim.players[0].alive
+
+  # THE takeover: a human has already landed on seat 0's cog (the
+  # respawn-edge dance lives in advanceSeatTakeover and is covered above) and
+  # is now ACTIVE, driving cog 0.
+  let takeover = SeatTakeover(seat: 0, requestedSeat: 0, name: "Green Rookie",
+    active: true, cog: 0, observed: true, prevAlive: true)
+  result.shoutCog = takeover.takeoverShoutCog()
+  doAssert result.shoutCog == 0
+  doAssert sim.applyShout(result.shoutCog, "gg from the seat")
+  writer.writeChat(tickTime(sim.tickCount), result.shoutCog,
+    "gg from the seat")
+
+  for _ in 0 ..< 100:
+    tickOnce()
+
+suite "a takeover shout round-trips the replay hash chain":
+  let dir = getTempDir() / "paintball-test-takeover-shout"
+  createDir(dir)
+  let path = dir / "takeover-shout.bitreplay"
+  let written = recordTakeoverShoutReplay(path)
+
+  test "the recorded chat is attributed to the driven cog, not -1":
+    let data = parseReplayBytes(readFile(path))
+    check data.chats.len == 1
+    check int(data.chats[0].player) == written.shoutCog
+    check data.chats[0].message == "gg from the seat"
+
+  test "playback re-simulates the identical hash chain (the determinism gate)":
+    # mismatchQuit = true: a single divergent bit RAISES here rather than
+    # being tolerated -- the same gate test_pb_replay.nim uses for a policy's
+    # own shout. A takeover shout recorded under the wrong player index (the
+    # pre-fix -1, or any index but the driven cog's) either fails to apply on
+    # replay or applies to the wrong cog, and either way the hash chain
+    # diverges from the one this same episode produced live.
+    let data = parseReplayBytes(readFile(path))
+    check data.chats.len == 1
+    var runtime = initReplayRuntime(data, mismatchQuit = true,
+      gameEventLoggingEnabled = false)
+    var player = runtime.player
+    var sim = runtime.sim
+    var steps = 0
+    while player.playing and sim.tickCount < player.replayMaxTick():
+      player.stepReplay(sim)
+      inc steps
+    check steps > 50
+    check not player.hashValidationFailed
+    check player.hashMismatchTick == -1

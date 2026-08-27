@@ -534,6 +534,22 @@ proc advanceSeatTakeover(
   takeover.observed = true
   takeover.prevAlive = cogAlive
 
+proc takeoverShoutCog(takeover: SeatTakeover): int =
+  ## The player index a takeover socket's chat should be attributed to as a
+  ## shout: the DRIVEN cog, but only once the takeover is ACTIVE. A takeover
+  ## socket never enters `playerIndices` (see SeatTakeover), so without this
+  ## its chat always resolved to -1 and applyShout silently refused it — a
+  ## takeover seat could not shout at all.
+  ##
+  ## Still "suiting up" (pending, not yet landed on a respawn) resolves to -1
+  ## on purpose: there is no cog this human drives yet, so the pre-fix
+  ## behavior of dropping the message is kept. No new channel opens before
+  ## the seat itself does.
+  if takeover.active and takeover.cog >= 0:
+    takeover.cog
+  else:
+    -1
+
 proc seatWaitTicks(board: seq[SeatSnapshot], seat: int): int =
   ## How long a seat's cog is from its next spawn, in ticks. A cog that is UP
   ## is `int.high`: the swap lands at the next respawn, so a healthy cog is an
@@ -2460,10 +2476,24 @@ proc runServerLoop*(
                 echo "seat ", playerIndex, " registered: kind=",
                   engine.policyKind(playerIndex), " baseline=", $policy.baseline
               continue
-            if sim.applyShout(playerIndex, chatText):
+            # A takeover socket never enters playerIndices, so its own chat
+            # always resolves to -1 above. Resolve it here to the cog it
+            # DRIVES instead, so a human's chat enters applyShout/writeChat
+            # exactly the path the seat's policy shout would have taken —
+            # same cog index, same replay record, same hash chain. Only
+            # while the takeover is ACTIVE: a seat still "suiting up" has no
+            # cog to attribute it to, so it keeps dropping (no new channel).
+            let shoutPlayerIndex =
+              if playerIndex >= 0:
+                playerIndex
+              elif websocket in appState.takeovers:
+                appState.takeovers[websocket].takeoverShoutCog()
+              else:
+                playerIndex
+            if sim.applyShout(shoutPlayerIndex, chatText):
               replayWriter.writeChat(
                 tickTime(sim.tickCount),
-                playerIndex,
+                shoutPlayerIndex,
                 chatText
               )
           appState.chatMessages.clear()
