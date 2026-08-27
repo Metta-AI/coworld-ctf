@@ -4136,7 +4136,15 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   ## over. -1 keeps the pop pinned to its mint site forever, exactly like
   ## before this field existed -- the right behaviour for a team-wide deed no
   ## single cog earned.
-  if amount == 0:
+  ##
+  ## GLORYVERSION 10: the zero-amount bail is now conditioned on `label` too.
+  ## A bare zero (`label == ""`) still bails -- nothing to draw, same as
+  ## always. But `addXp`'s own RANK UP pop mints with amount==0 (`dLevelUp`
+  ## is zero+tombstoned; there is no payout) AND a label carrying the star
+  ## count, so it must still draw. Achievement claims never trip this
+  ## either way (`mintAchievement` is always > 0 in practice), so this
+  ## widens the gate without changing their behaviour.
+  if amount == 0 and label.len == 0:
     return
   if label.len == 0:
     for pop in sim.gloryPops.mitems:
@@ -4278,9 +4286,14 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     sim.heatEmbers[team] = min(HeatEmberCap, sim.heatEmbers[team] + times)
     sim.heatLastDeed[team] = sim.tickCount
   if sim.gameEventLoggingEnabled:
-    # A penalty is negative, so a hardcoded "+" prints "+-60".
+    # A penalty is negative, so a hardcoded "+" prints "+-60". GLORYVERSION
+    # 10: a zero-tombstoned deed (`dLevelUp`) still fires this log line on
+    # every crossing, so a bare amount==0 gets no suffix at all rather than
+    # a misleading "+0" -- the deed happened, it just paid nothing.
     sim.logGameEvent(teamText(team) & " " & deedName(deed) &
-                     (if amount < 0: " " else: " +") & $amount)
+                     (if amount == 0: ""
+                      elif amount < 0: " " & $amount
+                      else: " +" & $amount))
   # Tier-2 mirror of this mint: a no-op unless collectEvents is on, so this
   # never touches a live server's budget. GLORY ITSELF (teamGlory, above) is
   # already causal and always live; this is analysis only.
@@ -4724,6 +4737,23 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
                              # the earner, a level-up pop minted site-anchored
                              # and skipped the per-unit stagger/priority cap
     )
+    # GLORYVERSION 10 (Maxwell's ruling: leveling pays POWER, not the
+    # scoreboard): `dLevelUp` mints 0g/0 drama now, so `popsScore` excludes
+    # it and the generic pop call inside `awardDeed` above never fires for
+    # this deed. The MOMENT still deserves a pop -- a rank climbed is real,
+    # it just isn't a payout -- so mint it directly here, the same
+    # direct-`addGloryPop`-with-a-`label` pattern `claimAchievement` already
+    # uses for its own named claims. `label` carries the star count (not a
+    # glory amount) so it survives `addGloryPop`'s zero-amount guard (which
+    # only bails when there is neither a payout NOR a label to show) and
+    # always reads as a named moment on screen, never a bare "+0".
+    if sim.players[playerIndex].alive:
+      sim.addGloryPop(
+        sim.players[playerIndex].team,
+        sim.players[playerIndex].x, sim.players[playerIndex].y, 0,
+        label = deedPopWord(dLevelUp) & " " & repeat("*", clampLevel(after)),
+        earnerIndex = playerIndex
+      )
     if sim.gameEventLoggingEnabled:
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) & " is " &

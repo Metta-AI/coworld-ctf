@@ -471,12 +471,17 @@ html, body {
 .clock.amb { animation: clocktick 2s ease-in-out infinite; }
 @keyframes clocktick { 0%,100% { opacity: 0.94; } 50% { opacity: 1; } }
 
-/* leader pulse keys on GLORY lead (glory is the score) — >=130g, ~8% of a
-   typical full-match team total (~1650g under glory v5, see GLORY_TIERS
-   provenance). RE-CHECKED for GLORYVERSION 9 (2026-08-26): the field's
-   per-team typical total barely moved (v9 combined median 3246 / 2 = 1623;
-   8% = ~130) -- see GLORY_TIERS' own v9 re-fit note for why the show-total
-   distribution held steady. 130 stands unchanged.
+/* leader pulse keys on GLORY lead (glory is the score) — >=60G, ~8% of a
+   typical full-match team total (~1650G under glory v5, see GLORY_TIERS
+   provenance). RE-FIT for GLORYVERSION 10 (2026-08-26, `dLevelUp`
+   zero+tombstoned -- Maxwell's ruling: leveling pays POWER, not glory):
+   the field's per-team typical total COLLAPSED, not just from the direct
+   deed removal but because level-ups (39.4 fires/episode) were the
+   dominant heat-ember source, so every other drama deed's own heat
+   multiplier fell with it — v10 wipe-corrected combined median 1553 / 2 =
+   776; 8% = ~60. 130 -> 60 (tools/ladder/gloryscore.py, same 120-episode
+   `--min-version 0.7.200` cache; see GLORY_TIERS' own v10 re-fit note for
+   the full readout).
    Lives lead >=3 is kept only as the JS fallback for pre-glory replays, so
    this always targets the GLORY numeral, never the demoted lives one. */
 .plate.leader .lives-num.glory { animation: leaderpulse 1.9s ease-in-out infinite; }
@@ -2610,9 +2615,9 @@ body[data-embed] #board { top: 0; height: 100%; }
     updateFlag('flag-blue', 'blue', blue, s);
 
     // leader pulse keys on GLORY lead (glory is the score, not lives) — a
-    // margin of 130g is ~8% of a typical full-match team total (~1650g under
-    // glory v5, field-calibrated in GLORY_TIERS provenance; RE-CHECKED for
-    // GLORYVERSION 9, still ~130 -- see the CSS comment above `.plate.leader`
+    // margin of 60G is ~8% of a typical full-match team total (~1650G under
+    // glory v5, field-calibrated in GLORY_TIERS provenance; RE-FIT for
+    // GLORYVERSION 10, 130 -> 60 -- see the CSS comment above `.plate.leader`
     // for the re-measurement). Lives lead >=3 is kept
     // ONLY as the fallback for pre-glory replays that never shipped a glory
     // ledger, so the read stays honest on old bundles too.
@@ -2622,8 +2627,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     var gb = (typeof blue.glory === 'number') ? blue.glory : null;
     var leadRed, leadBlue;
     if (gr != null && gb != null) {
-      leadRed = gr - gb >= 130;
-      leadBlue = gb - gr >= 130;
+      leadRed = gr - gb >= 60;
+      leadBlue = gb - gr >= 60;
     } else {
       leadRed = rl - bl >= 3;
       leadBlue = bl - rl >= 3;
@@ -4455,23 +4460,41 @@ body[data-embed] #board { top: 0; height: 100%; }
   // (see `AchievementSweepBudgetPct`'s own measurement in glory.nim), so
   // re-anchoring THEIR price barely nudges the show-total distribution. Only
   // the "great" cut actually moved on rounding: 3600 -> 3700. Cuts now 2500 /
-  // 3000 / 3700 / 4400. Line pick is total % pool.length — deterministic, so
-  // a replay always reviews its own show the same way.
+  // 3000 / 3700 / 4400.
+  //
+  // RE-FIT for GLORYVERSION 10 (2026-08-26, `dLevelUp` zero+tombstoned --
+  // Maxwell's ruling verbatim: leveling "shouldn't earn Glory for each
+  // action, they simply get stronger as a unit"). Same 120-episode cache,
+  // same methodology, run against the fully v10-synced mirror (`level_up`
+  // 6G/5 drama -> 0G/0 drama): combined per-episode glory p20=1321 p40=1477
+  // p60=1635 p80=1873 (min 979, median 1553, max 2760, n=112 decided of 120
+  // scored) -- roughly HALVED from v9, and by more than dLevelUp's own
+  // ~30%-of-deed-mass direct share: zero drama also means level-ups (39.4
+  // fires/episode, the single most frequent drama deed in the game) stop
+  // feeding heat embers, so every OTHER drama deed's own heat multiplier
+  // collapsed with it (measured heat occupancy x1 72% -> 91%, x4 11% -> 0%,
+  // x8 3% -> 0% over the same sample -- see `AchievementSweepBudgetPct`'s
+  // own measurement in glory.nim for the full heat readout, and
+  // `GloryVersion`'s own v10 changelog for the mechanism). All four cuts
+  // move this wave, rounded to the nearest 100 same as always: 2500 -> 1300,
+  // 3000 -> 1500, 3700 -> 1600, 4400 -> 1900. Line pick is total %
+  // pool.length — deterministic, so a replay always reviews its own show
+  // the same way.
   var GLORY_TIERS = [
-    { floor: 4400, lines: [ // legendary — top quintile
+    { floor: 1900, lines: [ // legendary — top quintile
       'ONE FOR THE ARCHIVES',
       'AN ABSOLUTE CLASSIC',
       "THEY'LL TALK ABOUT THIS ONE",
       'FRAME IT AND HANG IT'] },
-    { floor: 3700, lines: [ // great
+    { floor: 1600, lines: [ // great
       'A BARNBURNER!',
       "THE CROWD GOT THEIR MONEY'S WORTH",
       'PAINT ON THE RAFTERS'] },
-    { floor: 3000, lines: [ // good
+    { floor: 1500, lines: [ // good
       "NOW THAT'S A PAINT FIGHT",
       'WORTH THE TICKET',
       'THE CANVAS EARNED ITS KEEP'] },
-    { floor: 2500, lines: [ // decent
+    { floor: 1300, lines: [ // decent
       "AN HONEST NIGHT'S PAINT",
       'SOLID CARD, NO CLASSIC',
       'A FAIR SCRAP, FAIRLY PAINTED'] },

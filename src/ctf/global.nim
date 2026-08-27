@@ -5605,7 +5605,16 @@ proc gloryPopMoneyText(pop: GloryFx): string =
   # No trailing "g" unit (Maxwell: lowercase g "reads like gold") -- the
   # paint-daub material and the amber ink already say "glory paid"; this
   # matches the scoreboard's and inspector's own unit drop.
-  (if pop.amount < 0: "-" else: "+") & $abs(pop.amount)
+  #
+  # GLORYVERSION 10: empty for a precise zero, rather than "+0" -- no
+  # legitimate deed ever mints exactly nothing (`mintGlory` only reaches 0
+  # when the BASE price already is, and every such deed is excluded from
+  # `popsScore`), except `dLevelUp`'s new direct-mint pop (`addXp`,
+  # sim.nim), which is zero+tombstoned ON PURPOSE: leveling pays POWER, not
+  # a payout. gloryPopText below reads this emptiness to drop the money half
+  # entirely rather than printing a bare "+0" next to the rank stars.
+  if pop.amount == 0: ""
+  else: (if pop.amount < 0: "-" else: "+") & $abs(pop.amount)
 
 proc gloryPopNameHalf(pop: GloryFx): string =
   ## VOCABULARY V4: the "name" run of a two-tone pop, uppercased. An
@@ -5634,6 +5643,13 @@ proc gloryPopText(pop: GloryFx): string =
     nameHalf = gloryPopNameHalf(pop)
   if nameHalf.len == 0:
     return money
+  # GLORYVERSION 10: a zero-payout named pop (`dLevelUp`'s RANK UP, the only
+  # deed that can reach here with an empty `money`) reads as its name alone
+  # -- "RANK UP **", never "RANK UP ** +0". Every other named pop still
+  # mints a real amount, so this only ever fires for the one deed it exists
+  # for.
+  if money.len == 0:
+    return nameHalf
   # No "FIRST" wordmark here or on the chip: a first claim tells itself apart
   # on the CHIP's own backing (buildGloryChipSprite: bigger, hotter, a corner
   # burst -- D1) plus a whole-line GloryPopInk ink instead of the usual
@@ -6145,21 +6161,34 @@ proc buildGloryChipSprite(
   # side by side, same layout every other claim always used; a first claim
   # now differs only by `extraScale` (both runs grow together) plus the
   # burst added below, never a fused single-color line.
+  #
+  # GLORYVERSION 10: `moneyText` is empty for `dLevelUp`'s zero-payout RANK
+  # UP pop (`gloryPopMoneyText` returns "" on a precise zero) -- the payout
+  # run is skipped ENTIRELY rather than compositing an empty sprite plus its
+  # gap, so the chip is exactly "RANK UP **", not "RANK UP **" trailed by
+  # dead canvas.
   let
+    moneyText = gloryPopMoneyText(pop)
+    hasMoney = moneyText.len > 0
     nameSpr = sim.buildChunkyBoardText(
       gloryPopNameHalf(pop), nameColor.r, nameColor.g, nameColor.b,
       extraScale)
-    moneySpr = sim.buildChunkyBoardText(
-      gloryPopMoneyText(pop), GloryPopInk[0], GloryPopInk[1], GloryPopInk[2],
-      extraScale)
-    gap = GloryChipTextGapPx * k * extraScale
+    moneySpr =
+      if hasMoney:
+        sim.buildChunkyBoardText(
+          moneyText, GloryPopInk[0], GloryPopInk[1], GloryPopInk[2],
+          extraScale)
+      else:
+        (width: 0, height: 0, pixels: newSeq[uint8](0))
+    gap = if hasMoney: GloryChipTextGapPx * k * extraScale else: 0
     textNativeW = nameSpr.width * k + gap + moneySpr.width * k
     textNativeH = max(nameSpr.height, moneySpr.height) * k
   var textPixels = newRgbaPixels(textNativeW, textNativeH)
   textPixels.blitRgbaBuffer(textNativeW, textNativeH, nameSpr.pixels,
     nameSpr.width * k, nameSpr.height * k, 0, 0)
-  textPixels.blitRgbaBuffer(textNativeW, textNativeH, moneySpr.pixels,
-    moneySpr.width * k, moneySpr.height * k, nameSpr.width * k + gap, 0)
+  if hasMoney:
+    textPixels.blitRgbaBuffer(textNativeW, textNativeH, moneySpr.pixels,
+      moneySpr.width * k, moneySpr.height * k, nameSpr.width * k + gap, 0)
   let
     # A first claim reserves canvas room beyond its own text bbox for the
     # corner burst; every other claim's canvas is exactly its text (D1: no
