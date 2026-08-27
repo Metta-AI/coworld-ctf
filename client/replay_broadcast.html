@@ -5384,6 +5384,17 @@ body[data-live] #inspector { display: none !important; }
   var committedRotate = null, emittedAttack = false, tickMask = 0, wasSeated = false;
   var heldCodes = Object.create(null);
   var liveTick = -1, lastPingTick = -999;
+  var lastCog = null, aimStaleEvents = 0;
+  // THE gate for every emission path. controlsTick owns it; emitNow obeys it.
+  // Two paths reach the wire -- the per-frame tick and the immediate key
+  // handler -- and gating only the first one leaks the second: movement and
+  // item bits escaped during the LOBBY, where the seat reports alive but has
+  // no board and no control. A guard that only covers the path you were
+  // thinking about is not a guard.
+  var inControl = false;
+  // Nonsense-delta bound. Anything past this is a phase change, a restart or a
+  // stall, never real elapsed play we can integrate through.
+  var TICK_DELTA_CAP = 8;
 
   // Engine bindings, keyed by ev.code (layout-independent, and what the packet
   // probe dispatches). Anything absent here MUST emit nothing -- Shift is the
@@ -5415,6 +5426,7 @@ body[data-live] #inspector { display: none !important; }
   // rotate tick the dead reckoning never counted, and would burn the fire pulse
   // early.
   function emitNow() {
+    if (!inControl) { tickMask = 0; sendMask(0); return; }
     var held = tickMask & (CC.BUTTON.b | CC.BUTTON.select | CC.BUTTON.attack);
     var keys = readKeys();
     tickMask = held | CC.moveMask(keys) | CC.itemBit(keys.item);
@@ -5442,6 +5454,13 @@ body[data-live] #inspector { display: none !important; }
   function publishProbeGlobals() {
     var t = core.getTransform();
     window.c = canvas;
+    // Diagnostic surface for the pre-flip guards. Read-only; nothing reads it
+    // back into behaviour, so it cannot become load-bearing by accident.
+    window.__liveDiag = {
+      inPlay: lastState ? lastState.ph === 'playing' : false,
+      seated: wasSeated, aimSeeded: aimSeeded, estAim: estAim,
+      aimStaleEvents: aimStaleEvents, cog: lastCog, tick: liveTick
+    };
     window.selfPos = (selfMap && t && t.scale)
       ? { x: selfMap.x * t.scale + t.offsetX, y: selfMap.y * t.scale + t.offsetY }
       : null;
@@ -5465,31 +5484,95 @@ body[data-live] #inspector { display: none !important; }
   // more than once, and a dead reckoning that counted 1 would drift exactly the
   // way carrying a stale estimate across a respawn does.
   function controlsTick(s, me) {
-    var dt = (liveTick >= 0 && s.t > liveTick) ? Math.min(s.t - liveTick, 8) : 1;
+    // ---- SEATED is not ALIVE ------------------------------------------------
+    // `addPlayer` builds a seat with alive:true, so a LOBBY frame reports alive
+    // while there is no board, no self marker and no control at all. The stock
+    // client's label sniffing failed safe here for free -- the interstitial
+    // branch simply draws no self marker -- but reading the sim directly is a
+    // SHARPER sensor, and a sharper sensor has to state the condition the
+    // blunter one got by construction. Same for a ghost: a dead cog does not
+    // move, so it emits nothing rather than "nothing that matters".
+    var inPlay = s.ph === 'playing';
+    var seatedNow = inPlay && !!me.alive;
+
+    // ---- the cap is a NONSENSE bound, not a throttle -------------------------
+    // A delta past the bound (lobby->play, restart, seek, a long stall) is not
+    // "behind", it is UNKNOWABLE. Clamping a real 40-tick deficit silently
+    // converts a transient into permanent error: the true aim settles at
+    // cursor-plus-error and nothing ever corrects it, which is the stale-
+    // estimate bug wearing its third costume. So drop the estimate and refuse
+    // to aim until a spawn re-seeds it -- no aim beats confidently wrong aim.
+    var raw = (liveTick >= 0 && s.t > liveTick) ? (s.t - liveTick) : 1;
+    var dt = raw;
+    if (raw > TICK_DELTA_CAP) { dt = 0; aimSeeded = false; aimStaleEvents++; }
     liveTick = s.t;
     if (aimSeeded) { for (var i = 0; i < dt; i++) estAim = CC.stepAim(estAim, committedRotate); }
 
-    // The engine snaps aimBrads back to spawnAimBrads on EVERY respawn, so the
-    // estimate has to be re-seeded on every seated edge -- not just the first.
-    // `me.alive` is that edge, straight from the sim.
-    var seatedNow = !!me.alive;
+    // ---- re-seed on a LIFE edge OR a SEAT change ----------------------------
+    // The engine snaps aimBrads to spawnAimBrads on every respawn. Today a
+    // takeover migration lands at respawn, so the alive edge covers it by
+    // coupling luck; the moment migration decouples (mid-life handoff, seat
+    // swap, reconnect) the discontinuity slips through with no edge to catch
+    // it. `me.slot` is this view's seat identity, so watch it directly rather
+    // than trusting two facts to stay married.
+    var cogNow = me.slot;
+    var seatChanged = (lastCog !== null && cogNow !== lastCog);
+    lastCog = cogNow;
     selfTeam = me.team || selfTeam;
-    if (seatedNow && !wasSeated && selfTeam) {
+    if (seatedNow && (!wasSeated || seatChanged) && selfTeam) {
       estAim = CC.reseedAim(estAim, true, false, selfTeam);
       aimSeeded = true;
     }
     wasSeated = seatedNow;
+    inControl = seatedNow;
     selfMap = seatedNow ? { x: me.x, y: me.y } : null;
     publishProbeGlobals();
 
+    // Not seated: emit a CLEARED mask and stop. sendMask dedupes, so this is
+    // one packet on the way out of play and silence thereafter -- the null-arm
+    // discipline applied to a whole game phase.
+    if (!seatedNow) {
+      committedRotate = null;
+      tickMask = 0;
+      emittedAttack = false;
+      sendMask(0);
+      drawReticle();
+      return;
+    }
+
     var rot = null;
-    if (aimSeeded && selfMap && haveMouse) {
+    if (aimSeeded && haveMouse) {
       rot = CC.rotateButton(
         estAim,
         CC.bradsOfVector(Math.round(mouseX - selfMap.x), Math.round(mouseY - selfMap.y))
       );
     }
     committedRotate = rot;
+
+    // ---- fire pulse: alternation is already the MAXIMUM rate ----------------
+    // The pre-flip note asked for the pulse cadence to be driven off the tick
+    // delta. I built that (readiness-driven: assert exactly when the gun is
+    // ready), MEASURED it, and it is worse -- so this stays as it was, with the
+    // reason recorded rather than the finding silently dropped.
+    //
+    // The physics: one mask per frame, and the engine samples the held mask per
+    // tick. A rising edge therefore needs a whole frame of 0 between frames of
+    // 1, so ONE EDGE PER TWO FRAMES is the ceiling no cadence scheme can beat.
+    // Alternation already sits on that ceiling. Edges that land during cooldown
+    // are free -- startFireWindup self-guards, so we never gain a shot a policy
+    // could not also take.
+    //
+    // Readiness-driven pulsing loses because `me` arrives through the playout
+    // buffer (PACE_TARGET_DEPTH 12 frames = ~0.5s at 24Hz): measured 1274ms
+    // between shots against the engine's own 17-tick / 708ms limit. It waits
+    // for stale news of a gun that was ready half a second ago.
+    //
+    // The stall case the note is right about is a PROTOCOL limit, not a cadence
+    // bug: when one frame spans N ticks the ceiling is one edge per 2N ticks,
+    // and no client-side scheme fixes that. It only bites once 2N exceeds the
+    // 17-tick shot interval, i.e. N > 8 -- which is exactly the nonsense-delta
+    // bound above, where the aim estimate is already being dropped as
+    // unknowable. A connection that far gone has worse problems than rate.
     tickMask = CC.buildMask(readKeys(), { attack: emittedAttack });
     emittedAttack = (tickMask & CC.BUTTON.attack) !== 0;
     sendMask(tickMask);

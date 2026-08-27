@@ -219,6 +219,9 @@
     { id: "shift",  label: "(unbound)",     keys: ["Shift"], alt: [],
       wire: null, bits: [], status: "unbound",
       note: "no speed modifier exists in the engine, so Shift binds to nothing" },
+    { id: "view",   label: "Camera",        keys: ["V", "-", "="], alt: [],
+      wire: null, bits: [], status: "view",
+      note: "changes your view only; sends nothing to the server" },
   ];
 
   return {
