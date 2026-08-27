@@ -42,17 +42,8 @@ body {
 }
 .pix { font-family: 'nes-pixel', monospace; text-transform: none; }
 
-/* paint splats on the stage */
-.splat { position: fixed; z-index: 0; opacity: 0.5; filter: blur(1px); pointer-events: none; }
-.splat.red  { background: var(--red); }
-.splat.blue { background: var(--blue); }
-.s1 { top: -60px; left: -70px;  width: 240px; height: 200px; border-radius: 48% 62% 55% 45% / 55% 48% 60% 45%; }
-.s2 { top: 30px;  right: -90px; width: 260px; height: 210px; border-radius: 60% 45% 52% 58% / 45% 60% 42% 58%; }
-.s3 { bottom: -80px; left: 12%; width: 220px; height: 190px; border-radius: 55% 50% 62% 44% / 60% 44% 55% 50%; opacity: 0.35; }
-.s4 { bottom: 10%; right: -60px; width: 180px; height: 160px; border-radius: 46% 58% 48% 60% / 52% 46% 62% 48%; opacity: 0.35; }
-.drip { position: fixed; z-index: 0; width: 10px; border-radius: 0 0 6px 6px; pointer-events: none; }
-.d1 { top: 120px; left: 60px;  height: 90px; background: var(--red);  opacity: 0.45; }
-.d2 { top: 150px; right: 70px; height: 70px; background: var(--blue); opacity: 0.45; }
+/* the real paint splats — drawn by the viewer's own makeSplat/drawSplat */
+#splats { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; }
 
 .wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 34px 22px 46px; }
 
@@ -133,12 +124,7 @@ body {
 </head>
 <body>
 
-<div class="splat red s1"></div>
-<div class="splat blue s2"></div>
-<div class="splat blue s3"></div>
-<div class="splat red s4"></div>
-<div class="drip d1"></div>
-<div class="drip d2"></div>
+<canvas id="splats" aria-hidden="true"></canvas>
 
 <div class="wrap">
 
@@ -307,5 +293,149 @@ body {
   <div class="colo pix">glory.nim &middot; GLORYVERSION 10</div>
 
 </div>
+
+<script>
+// The paint splats are the REAL ones: makeSplat/drawSplat/hexA lifted verbatim
+// out of client/replay_broadcast.html (the visor-hit + endcard splat machinery),
+// so a splat on this sheet is the same torn multi-lobe gob with the same
+// feathered edges and running drips the broadcast paints.
+var RED = '#e0523a', BLUE = '#3f7cc4';
+
+function makeSplat(tick, color) {
+  function rnd(i) { var x = Math.sin((tick * 13.13 + i * 7.77)) * 43758.5453; return x - Math.floor(x); }
+  var anchors = [
+    { x: 0.26, y: 0.30 }, { x: 0.74, y: 0.30 },
+    { x: 0.26, y: 0.70 }, { x: 0.74, y: 0.70 },
+    { x: 0.20, y: 0.50 }, { x: 0.80, y: 0.50 }
+  ];
+  var a = anchors[Math.floor(rnd(0) * anchors.length) % anchors.length];
+  var mainR = 0.15 + rnd(1) * 0.04;
+  var blobs = [{ x: a.x, y: a.y, r: mainR, drip: 0.8 + rnd(2) * 0.5 }];
+  var count = 3 + Math.floor(rnd(3) * 2);
+  for (var i = 0; i < count; i++) {
+    var ang = rnd(i * 3 + 4) * Math.PI * 2;
+    blobs.push({
+      x: a.x + Math.cos(ang) * mainR * (0.7 + rnd(i * 3 + 5) * 0.5),
+      y: a.y + Math.sin(ang) * mainR * (0.6 + rnd(i * 3 + 6) * 0.5),
+      r: mainR * (0.32 + rnd(i * 3 + 7) * 0.34),
+      drip: rnd(i * 5 + 8) * 0.7
+    });
+  }
+  return { tick: tick, color: color, blobs: blobs, cx: a.x, cy: a.y, mainR: mainR };
+}
+
+function hexA(hex, a) {
+  var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return hex;
+  return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
+}
+
+function drawSplat(ctx, W, H, splat, life) {
+  if (life <= 0) return;
+  ctx.save();
+  var a = Math.min(0.7, life * 1.05);
+  ctx.globalAlpha = a;
+  var col = splat.color;
+  for (var i = 0; i < splat.blobs.length; i++) {
+    var b = splat.blobs[i];
+    var bx = b.x * W, by = b.y * H, br = b.r * Math.min(W, H);
+    var g = ctx.createRadialGradient(bx, by, br * 0.15, bx, by, br);
+    g.addColorStop(0, col); g.addColorStop(0.7, col);
+    g.addColorStop(1, hexA(col, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+    if (b.drip > 0.35) {
+      // TWO DELIBERATE DEVIATIONS from the broadcast's drip, both because that
+      // one is ~10 px tall and gone in a third of a second while these are
+      // static and large:
+      //  1. The bead is a BUG there — the arc is filled with a gradient that
+      //     reaches ZERO alpha at exactly the bead's own y, so the drop the
+      //     code clearly intends never renders and the trail just tapers to a
+      //     point. The ramp now stays wet to the tip and the bead paints solid.
+      //  2. Straight quadratic sides read as a geometric caret at this scale,
+      //     so the trail leans and bulges on a per-blob deterministic wobble.
+      var dl = br * (0.8 + b.drip * 1.6);
+      var dw = br * 0.32;
+      var j = Math.sin(b.x * 91.7 + b.y * 47.3) * 43758.5453;
+      j = j - Math.floor(j);                       // stable 0..1 for this blob
+      var lean = (j - 0.5) * dw * 1.2;             // the run drifts off-axis
+      var beadR = dw * (0.44 + j * 0.26);
+      var beadY = by + dl;
+      var dg = ctx.createLinearGradient(bx, by, bx, beadY + beadR);
+      dg.addColorStop(0, col);
+      dg.addColorStop(0.8, col);
+      dg.addColorStop(1, hexA(col, 0.6));
+      ctx.fillStyle = dg;
+      ctx.beginPath();
+      ctx.moveTo(bx - dw, by);
+      ctx.bezierCurveTo(bx - dw * (0.92 + j * 0.34), by + dl * 0.34,
+                        bx + lean - beadR * 0.95,    by + dl * 0.74,
+                        bx + lean - beadR * 0.6,     beadY);
+      ctx.lineTo(bx + lean + beadR * 0.6, beadY);
+      ctx.bezierCurveTo(bx + lean + beadR * 0.95,    by + dl * 0.74,
+                        bx + dw * (0.66 + j * 0.4),  by + dl * 0.28,
+                        bx + dw, by);
+      ctx.closePath(); ctx.fill();
+      // the bead itself: the fattest, wettest part — a drop about to fall
+      ctx.fillStyle = hexA(col, 0.92);
+      ctx.beginPath(); ctx.arc(bx + lean, beadY, beadR, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// Where the paint landed. `life` doubles as the opacity dial (drawSplat caps at
+// 0.7); kept under 0.72 so no splat fires its wet-impact rim flash on a static
+// page. Ticks are fixed, so the sheet paints identically every load.
+// Every splat is DRAWN at full strength (life 0.7, drawSplat's own alpha cap)
+// so it keeps its solid core and reads as a torn gob; `a` then dials how
+// present it is on the page. Fading via `life` instead would erase the core
+// and leave only the feathered rim — colored fog, not paint.
+var SPOTS = [
+  { x: 0.055, y: 0.05, s: 0.54, c: RED,  tick: 3,   a: 0.85 },
+  { x: 0.945, y: 0.08, s: 0.56, c: BLUE, tick: 17,  a: 0.85 },
+  { x: 0.030, y: 0.40, s: 0.38, c: BLUE, tick: 42,  a: 0.55 },
+  { x: 0.965, y: 0.50, s: 0.40, c: RED,  tick: 66,  a: 0.55 },
+  { x: 0.070, y: 0.76, s: 0.42, c: RED,  tick: 91,  a: 0.60 },
+  { x: 0.930, y: 0.87, s: 0.40, c: BLUE, tick: 128, a: 0.55 },
+  { x: 0.480, y: 0.97, s: 0.30, c: RED,  tick: 155, a: 0.40 }
+];
+
+var splatCanvas = document.getElementById('splats');
+function paintSplats() {
+  var W = document.documentElement.clientWidth;
+  var H = Math.max(document.body.scrollHeight, document.documentElement.clientHeight);
+  var dpr = window.devicePixelRatio || 1;
+  splatCanvas.width = Math.round(W * dpr);
+  splatCanvas.height = Math.round(H * dpr);
+  splatCanvas.style.width = W + 'px';
+  splatCanvas.style.height = H + 'px';
+  var ctx = splatCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  for (var i = 0; i < SPOTS.length; i++) {
+    var sp = SPOTS[i];
+    var box = sp.s * Math.min(W, 1100);
+    var splat = makeSplat(sp.tick, sp.c);
+    // Render at full strength into an offscreen pad (drips run ~1.2 boxes past
+    // the blob, so the pad is taller than the box), then composite it at `a`.
+    var padW = Math.ceil(box * 1.35), padH = Math.ceil(box * 1.70);
+    var off = document.createElement('canvas');
+    off.width = Math.round(padW * dpr); off.height = Math.round(padH * dpr);
+    var octx = off.getContext('2d');
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawSplat(octx, box, box, splat, 0.7);
+    // Anchor by the gob's OWN center (makeSplat picks one of six off-center
+    // anchors), not the pad's, so x/y above is where the paint actually lands.
+    ctx.save();
+    ctx.globalAlpha = sp.a;
+    ctx.drawImage(off, sp.x * W - splat.cx * box, sp.y * H - splat.cy * box, padW, padH);
+    ctx.restore();
+  }
+}
+paintSplats();
+window.addEventListener('resize', paintSplats);
+document.fonts && document.fonts.ready && document.fonts.ready.then(paintSplats);
+</script>
 </body>
 </html>
