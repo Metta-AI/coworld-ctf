@@ -1,6 +1,9 @@
 // softmax:game — experimental Arena game contract (single-pod experiment).
 // Host-driven lifecycle: the host owns time, transport, and artifacts.
-package softmax:game@0.1.0;
+// 0.2.0: step output moved from one batched step-output.messages list to one
+// output.message(seat, payload) hostcall per seat — 0.1.0 batch components
+// are incompatible with this host and must move before running on it.
+package softmax:game@0.2.0;
 
 interface types {
   /// One seat's pending message, as the same frame that crossed the

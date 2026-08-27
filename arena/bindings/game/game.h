@@ -55,7 +55,7 @@ typedef struct {
   } val;
 } game_result_step_output_string_t;
 
-// Imported Functions from `softmax:game/output@0.1.0`
+// Imported Functions from `softmax:game/output@0.2.0`
 // Deliver one game frame. One callback per seat keeps large Sprite frames
 // inside Wasmtime's per-hostcall guest-to-host allocation budget.
 extern void softmax_game_output_message(uint32_t seat, game_list_u8_t *payload);
@@ -64,7 +64,7 @@ extern void softmax_game_output_results(game_list_u8_t *body);
 // Append replay bytes; the host streams them to S3.
 extern void softmax_game_output_replay_append(game_list_u8_t *chunk);
 
-// Imported Functions from `softmax:game/log@0.1.0`
+// Imported Functions from `softmax:game/log@0.2.0`
 extern void softmax_game_log_line(game_string_t *level, game_string_t *msg);
 
 // Exported Functions from `game`

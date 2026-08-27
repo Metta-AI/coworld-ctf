@@ -3,20 +3,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Imported Functions from `softmax:game/output@0.1.0`
+// Imported Functions from `softmax:game/output@0.2.0`
 
-__attribute__((__import_module__("softmax:game/output@0.1.0"), __import_name__("message")))
+__attribute__((__import_module__("softmax:game/output@0.2.0"), __import_name__("message")))
 extern void __wasm_import_softmax_game_output_message(int32_t, uint8_t *, size_t);
 
-__attribute__((__import_module__("softmax:game/output@0.1.0"), __import_name__("results")))
+__attribute__((__import_module__("softmax:game/output@0.2.0"), __import_name__("results")))
 extern void __wasm_import_softmax_game_output_results(uint8_t *, size_t);
 
-__attribute__((__import_module__("softmax:game/output@0.1.0"), __import_name__("replay-append")))
+__attribute__((__import_module__("softmax:game/output@0.2.0"), __import_name__("replay-append")))
 extern void __wasm_import_softmax_game_output_replay_append(uint8_t *, size_t);
 
-// Imported Functions from `softmax:game/log@0.1.0`
+// Imported Functions from `softmax:game/log@0.2.0`
 
-__attribute__((__import_module__("softmax:game/log@0.1.0"), __import_name__("line")))
+__attribute__((__import_module__("softmax:game/log@0.2.0"), __import_name__("line")))
 extern void __wasm_import_softmax_game_log_line(uint8_t *, size_t, uint8_t *, size_t);
 
 // Exported Functions from `game`

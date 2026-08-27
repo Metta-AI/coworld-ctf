@@ -1,7 +1,7 @@
 # Arena Wasm components
 
 This directory builds the CTF simulation and baseline player as the
-`softmax:game@0.1.0` and `softmax:player@0.1.0` WebAssembly components. The
+`softmax:game@0.2.0` and `softmax:player@0.1.0` WebAssembly components. The
 game component drives the deterministic simulation one tick per `step`, emits
 fog-limited Sprite v1 frames, and streams the existing CTF replay format. The
 game emits each seat's frame through a separate host callback. This is part of
