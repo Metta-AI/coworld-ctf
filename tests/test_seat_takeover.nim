@@ -236,3 +236,61 @@ suite "freeplay: a pending takeover parks on a cog that is already down":
     arrival.registerPending(0)
     migratePendingTakeovers(@[snap(0, 0, true), snap(1, 1, false, 3)])
     check appState.takeovers[arrival].seat == 0
+
+suite "freeplay tickets: a guest never holds the policy's credential":
+  setup:
+    initAppState()
+    appState.config = defaultGameConfig()
+    appState.config.allowSeatTakeover = true
+    appState.config.slots = @[
+      PlayerSlotConfig(token: "policy-secret-0"),
+      PlayerSlotConfig(token: "policy-secret-1")
+    ]
+
+  test "a minted ticket admits its seat without the seat's token":
+    let ticket = mintTakeoverTicket(1)
+    check ticket.len > 0
+    check ticket != "policy-secret-1"
+    check ticket.consumeTakeoverTicket(1)
+    check appState.config.takeoverRejection(
+      1, "", false, false, ticketAccepted = true) == ""
+
+  test "without a ticket, the seat's token is still required":
+    check appState.config.takeoverRejection(1, "", false, false).len > 0
+    check appState.config.takeoverRejection(
+      1, "policy-secret-1", false, false) == ""
+
+  test "a ticket is spent, so replaying a captured one buys nothing":
+    let ticket = mintTakeoverTicket(0)
+    check ticket.consumeTakeoverTicket(0)
+    check not ticket.consumeTakeoverTicket(0)
+
+  test "a ticket for one seat does not open another":
+    let ticket = mintTakeoverTicket(0)
+    check not ticket.consumeTakeoverTicket(1)
+    # ...and the failed attempt spent it too, so it cannot be retried.
+    check not ticket.consumeTakeoverTicket(0)
+
+  test "an unminted or empty ticket is refused":
+    check not "".consumeTakeoverTicket(0)
+    check not "deadbeef".consumeTakeoverTicket(0)
+
+  test "an expired ticket is refused":
+    let ticket = mintTakeoverTicket(0)
+    appState.takeoverTickets[ticket].expires =
+      getMonoTime() - initDuration(seconds = 1)
+    check not ticket.consumeTakeoverTicket(0)
+
+  test "two tickets are never the same string":
+    var seen: seq[string] = @[]
+    for _ in 0 ..< 64:
+      let t = mintTakeoverTicket(0)
+      check t notin seen
+      seen.add(t)
+
+  test "a league config mints nothing and admits nothing":
+    initAppState()
+    check not appState.config.allowSeatTakeover
+    check appState.takeoverTickets.len == 0
+    check defaultGameConfig().takeoverRejection(
+      0, "", false, false, ticketAccepted = true).len > 0

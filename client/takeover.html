@@ -81,11 +81,32 @@
 <footer id="controls"><kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Z</kbd> fire · <kbd>X</kbd> / <kbd>Space</kbd> turn — the same eight buttons the policy was pressing.</footer>
 <script>
 const q = new URLSearchParams(location.search);
-const seat = q.get("slot") || "0";
+let seat = q.get("slot");
 const token = q.get("token") || "";
+let ticket = q.get("ticket") || "";
 const name = q.get("name") || "Guest";
 document.getElementById("who").textContent = name;
-document.getElementById("seatno").textContent = seat;
+
+// No seat asked for? Then this IS the "click play" path: the server picks the
+// seat, because only the server knows which cog is lying down right now, and
+// hands back a single-use TICKET for it. The browser never sees, and never
+// needs, the policy's own token.
+async function claimSeat() {
+  if (seat !== null) return;
+  try {
+    const j = await (await fetch("/takeover/seat", {cache: "no-store"})).json();
+    if (j.enabled && j.seat >= 0) {
+      seat = String(j.seat);
+      ticket = j.ticket || "";
+      const detail = document.getElementById("detail");
+      detail.textContent = j.waitMs >= 0
+        ? "Seat " + j.seat + " — its cog is down, you are in in " +
+          (j.waitMs / 1000).toFixed(1) + "s."
+        : "Seat " + j.seat + " — you take the field at its next spawn.";
+    }
+  } catch (e) {}
+  if (seat === null) seat = "0";
+}
 
 // Capability DETECTION, not a build flag: one bundle is served to a league
 // server and a play server, so what this connection may ask for is read off
@@ -113,13 +134,18 @@ function connect(caps) {
   // player=1 is not optional. The stock client infers "I am a player, capture
   // keys" from its socket path being /player; a takeover socket lands on
   // /takeover, so without this the field renders and the keyboard does nothing.
+  // The display name rides the TAKEOVER address, never the player client's
+  // own `name` param: that param is read as a roster identity and a takeover
+  // socket is not a roster join.
+  ws += (ws.includes("?") ? "&" : "?") + "name=" + encodeURIComponent(name);
+  if (ticket) ws += "&ticket=" + encodeURIComponent(ticket);
+  document.getElementById("seatno").textContent = seat;
   document.getElementById("field").src =
     "/client/player?player=1&address=" + encodeURIComponent(ws) +
     "&slot=" + encodeURIComponent(seat) +
-    "&token=" + encodeURIComponent(token) +
-    "&name=" + encodeURIComponent(name);
+    "&token=" + encodeURIComponent(token);
 }
-capabilities().then(connect);
+claimSeat().then(capabilities).then(connect);
 
 const stateEl = document.getElementById("state");
 const detailEl = document.getElementById("detail");

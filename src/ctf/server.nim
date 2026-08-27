@@ -1,5 +1,6 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, json, locks, monotimes, nativesockets, os, sequtils, strutils,
+    sysrand, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
@@ -70,6 +71,18 @@ type
     alive: bool
     respawnTimer: int  ## ticks until this cog is back on its feet, 0 if up.
 
+  TakeoverTicket = object
+    ## A single-use, short-lived credential for ONE seat, minted by the seat
+    ## picker and spent at the takeover upgrade.
+    ##
+    ## It exists so an app never has to put a POLICY's token into a guest's
+    ## browser. The seat token authenticates the policy's own player socket;
+    ## anything that can read it out of a page can open a socket AS that
+    ## policy. A ticket authorises exactly one thing — drive this one seat,
+    ## once, soon — and authorises nothing at all if it leaks after use.
+    seat: int
+    expires: MonoTime
+
   WebSocketAppState = object
     lock: Lock
     replayServerMode: bool
@@ -105,6 +118,9 @@ type
     ## Per-seat liveness as of the last frame. Written only on a config that
     ## arms takeover, so it stays an empty seq for a league build's whole run.
     seatBoard: seq[SeatSnapshot]
+    ## Unspent takeover tickets, keyed by the ticket itself. Only ever written
+    ## on a config that arms takeover; empty forever on a league build.
+    takeoverTickets: Table[string, TakeoverTicket]
     closedSockets: seq[WebSocket]
     nextAnonymousPlayer: int
     config: GameConfig
@@ -133,6 +149,10 @@ const
   # "Which seat should this arrival take?" -- answered by the server because
   # only the server knows which cog is lying down right now.
   TakeoverSeatPath = "/takeover/seat"
+  TakeoverTicketTtl = initDuration(seconds = 60)
+    ## How long a minted seat ticket stays spendable. Long enough to cover a
+    ## page load and a wasm client booting on a cold cache, short enough that a
+    ## ticket found in a log or a shoulder-surfed URL is already dead.
   TakeoverClientPath = "/client/takeover"
   # What a human connection may be GRANTED here. Polled by the client before
   # it connects, so one bundle serves both a league server and a play server.
@@ -350,6 +370,7 @@ proc initAppState() =
   appState.rewardViewers = initTable[WebSocket, bool]()
   appState.takeovers = initTable[WebSocket, SeatTakeover]()
   appState.seatBoard = @[]
+  appState.takeoverTickets = initTable[string, TakeoverTicket]()
   appState.closedSockets = @[]
   appState.nextAnonymousPlayer = 1
   appState.config = defaultGameConfig()
@@ -906,7 +927,8 @@ proc takeoverRejection*(
   seat: int,
   token: string,
   wantsDirectAim: bool,
-  seatTaken: bool
+  seatTaken: bool,
+  ticketAccepted = false
 ): string =
   ## The whole admission gate for a human takeover connection: "" admits,
   ## anything else is the 403 text.
@@ -924,7 +946,8 @@ proc takeoverRejection*(
     return "Direct aim is not enabled on this server."
   if seat < 0 or seat >= MaxPlayers or seat >= config.slots.len:
     return "Seat takeover requires a configured slot."
-  if config.slots[seat].token.len > 0 and token != config.slots[seat].token:
+  if not ticketAccepted and config.slots[seat].token.len > 0 and
+      token != config.slots[seat].token:
     return "Takeover token does not match seat " & $seat & "."
   if seatTaken:
     return "Seat " & $seat & " is already being taken over."
@@ -985,6 +1008,37 @@ proc pickFreeplaySeat*(
     if seat notin taken:
       return (seat, 0)
 
+proc mintTakeoverTicket(seat: int): string =
+  ## Mints one single-use ticket for a seat. Caller holds the lock.
+  ##
+  ## From the OS entropy pool, not a seeded PRNG: this is a credential, and a
+  ## ticket an observer can predict is not one. Expired tickets are swept on
+  ## every mint, so the table cannot grow without bound on a standing field.
+  let now = getMonoTime()
+  var stale: seq[string] = @[]
+  for key, ticket in appState.takeoverTickets.pairs:
+    if ticket.expires <= now:
+      stale.add(key)
+  for key in stale:
+    appState.takeoverTickets.del(key)
+  result = urandom(18).mapIt(toHex(it, 2)).join("")
+  appState.takeoverTickets[result] = TakeoverTicket(
+    seat: seat,
+    expires: now + TakeoverTicketTtl
+  )
+
+proc consumeTakeoverTicket(ticket: string, seat: int): bool =
+  ## Spends a ticket for a seat. Caller holds the lock.
+  ##
+  ## SPENT, not merely checked: the entry is deleted whether or not it matched
+  ## the seat, so a ticket is worth exactly one attempt and replaying a
+  ## captured one buys nothing.
+  if ticket.len == 0 or ticket notin appState.takeoverTickets:
+    return false
+  let entry = appState.takeoverTickets[ticket]
+  appState.takeoverTickets.del(ticket)
+  entry.seat == seat and entry.expires > getMonoTime()
+
 proc freeplaySeatJson(): string =
   ## The one call an app makes to answer "which seat do I put this person in?".
   ## Returns the seat and the wait in ticks and milliseconds, so a surface can
@@ -1007,10 +1061,17 @@ proc freeplaySeatJson(): string =
   if not enabled:
     return $(%*{"enabled": false, "seat": -1})
   let pick = pickFreeplaySeat(board, taken, seatCount)
+  var ticket = ""
+  if pick.seat >= 0:
+    {.gcsafe.}:
+      withLock appState.lock:
+        ticket = mintTakeoverTicket(pick.seat)
   $(%*{
     "enabled": true,
     "directAim": directAimEnabled(),
     "seat": pick.seat,
+    # The app forwards this to the browser instead of the seat's policy token.
+    "ticket": ticket,
     "waitTicks": pick.waitTicks,
     "waitMs":
       (if pick.waitTicks < 0: -1
@@ -1099,11 +1160,18 @@ proc httpHandler(request: Request) =
       # answer a play client at all.
       wantsDirectAim = request.queryParams.getOrDefault("directAim", "") in
         ["1", "true", "yes"]
+      ticket = request.queryParams.getOrDefault("ticket", "").strip()
     var reject = ""
     {.gcsafe.}:
       withLock appState.lock:
+        # Spent under the same lock that reads it, so two upgrades racing on
+        # one ticket cannot both win it.
+        let ticketAccepted =
+          appState.config.allowSeatTakeover and
+            ticket.consumeTakeoverTicket(seat)
         reject = appState.config.takeoverRejection(
-          seat, token, wantsDirectAim, seat.takeoverSeatTaken())
+          seat, token, wantsDirectAim, seat.takeoverSeatTaken(),
+          ticketAccepted)
     if reject.len > 0:
       request.respondForbiddenWebSocket(reject)
       return
