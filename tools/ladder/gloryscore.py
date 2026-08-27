@@ -157,7 +157,7 @@ import statistics
 CACHE = os.path.expanduser("~/.ctf/scout")
 
 # ── glory.nim mirror (pinned) ────────────────────────────────────────────────
-GLORY_VERSION = 9
+GLORY_VERSION = 10
 # Path-relative to THIS file, not the cwd: tools/ladder/gloryscore.py ->
 # ../../src/ctf/glory.nim. A cwd-relative path would pass by accident when
 # run from the repo root and silently skip the guard from anywhere else.
@@ -206,12 +206,15 @@ def check_glory_version(path=GLORY_NIM_PATH, pinned=GLORY_VERSION):
 # DeedGloryTable / DeedDramaTable, verbatim from glory.nim -- UNCHANGED since
 # v4 EXCEPT `clutch_heal` (v9, GLORY LAW E1: zero+tombstoned -- self-heal is
 # never above-and-beyond; see the tombstone on `Deed.dClutchHeal` in
-# glory.nim). dFlagReturn is GONE (retired in v4 -- zero mint sites, would
-# double-pay the carrier's death; see the tombstone on `Deed` in glory.nim).
-# dRevengeKill/dRunDown/dEscortKill are new since the v2 mirror; the first
-# two are still undetected offline in the RE-DERIVATION fallback (see the
-# module docstring), but they ARE priced here so the STREAM path (which
-# reads them straight off the wire) and the DEEDS report can show them.
+# glory.nim) and `level_up` (v10, Maxwell's ruling: leveling pays POWER, not
+# the scoreboard -- zero+tombstoned the same way; see the tombstone on
+# `Deed.dLevelUp`). dFlagReturn is GONE (retired in v4 -- zero mint sites,
+# would double-pay the carrier's death; see the tombstone on `Deed` in
+# glory.nim). dRevengeKill/dRunDown/dEscortKill are new since the v2 mirror;
+# the first two are still undetected offline in the RE-DERIVATION fallback
+# (see the module docstring), but they ARE priced here so the STREAM path
+# (which reads them straight off the wire) and the DEEDS report can show
+# them.
 DEED_GLORY = {
     "first_blood": 12, "honorable_kill": 10, "spray_kill": 12,
     "grenade_kill": 12, "point_blank_kill": 12, "longshot_kill": 30,
@@ -219,7 +222,7 @@ DEED_GLORY = {
     "ace_tag": 40, "team_kill": -60,
     "flag_steal": 40, "capture": 250,
     "carrier_kill": 90, "denial": 120, "escort_kill": 14,
-    "clutch_heal": 0, "shield_soak": 4, "wipe": 400, "level_up": 6,
+    "clutch_heal": 0, "shield_soak": 4, "wipe": 400, "level_up": 0,
 }
 DEED_DRAMA = {
     "first_blood": 20, "honorable_kill": 10, "spray_kill": 30,
@@ -228,7 +231,7 @@ DEED_DRAMA = {
     "ace_tag": 30, "team_kill": 0,
     "flag_steal": 25, "capture": 70,
     "carrier_kill": 35, "denial": 45, "escort_kill": 15,
-    "clutch_heal": 0, "shield_soak": 0, "wipe": 400, "level_up": 5,
+    "clutch_heal": 0, "shield_soak": 0, "wipe": 400, "level_up": 0,
 }
 HEAT_LADDER = [1, 2, 4, 8]
 HEAT_THRESHOLDS = [2, 5, 10]

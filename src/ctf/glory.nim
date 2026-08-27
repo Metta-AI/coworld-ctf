@@ -148,15 +148,76 @@ type
     dWipe              ## the enemy team eliminated.
 
     # ── Progression ──────────────────────────────────────────────────────
-    dLevelUp           ## a cog gained a level: the feed notices, the ledger
-                       ## barely does (Muster's `star_up`).
+    #
+    # 🚨 ZERO+TOMBSTONE (2026-08-26, GLORYVERSION 10, Maxwell's ruling): the
+    # leveling tree "shouldn't earn Glory for each action, they simply get
+    # stronger as a unit." Leveling's reward IS the power -- the buff ladder
+    # (`levelWindupTicks`/`levelGunRange`/`levelMaxHp`/... below), ace status
+    # at `AceLevel`, and the supply drop it unlocks -- not the scoreboard.
+    # Field fact that forced the call: `dLevelUp` was ~30% of ALL deed glory
+    # mass, the single largest deed in the table, so a cog got paid twice for
+    # the same climb -- once in raw combat power, again in team glory for
+    # merely reaching a rung that nothing above-and-beyond required. Same
+    # pattern as `dClutchHeal`'s v9 tombstone, just above: `DeedGloryTable`/
+    # `DeedDramaTable` both go to 0 (see their own rows) rather than deleting
+    # the enum member -- `addXp` (sim.nim) still calls `awardDeed(...,
+    # dLevelUp, ...)` at the exact tick a cog crosses a threshold, so the §8
+    # audit still sees the deed FIRE, just for nothing, and `deedCounts`/
+    # `deedGloryMass` keep tracking the real cadence for analysis. Zero drama
+    # also means it never climbs heat any more (`paysHeat` reads `isDrama`,
+    # now false for this deed) -- the xp-earns-a-level -> heat-ember arrow
+    # closes. `popsScore` now excludes it too (see that accessor's own
+    # comment): the generic "+Ng" pop path stays silent for a deed with
+    # nothing to pay, but the RANK UP moment itself is not deleted -- `addXp`
+    # mints it directly, the same direct-`addGloryPop`-with-a-label pattern
+    # `claimAchievement` already uses for its own named claims, carrying the
+    # new star count instead of a payout.
+    dLevelUp           ## RETIRED AS GLORY (power stays, scoreboard doesn't):
+                       ## see the block comment above. Fires at the real
+                       ## level-crossing site, prices at 0g/0 drama, pops as
+                       ## a star-count moment with no payout, gates nothing,
+                       ## never climbs heat.
     dAchievement       ## an achievement tier claimed; priced by tier, not
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 9
+  GloryVersion* = 10
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v10 (2026-08-26, GLORYVERSION 10 WAVE, Maxwell's ruling verbatim: the
+    ## leveling tree "shouldn't earn Glory for each action, they simply get
+    ## stronger as a unit"). `dLevelUp` zero+tombstoned -- `DeedGloryTable`
+    ## 6->0, `DeedDramaTable` 5->0 -- so leveling's reward is the POWER (the
+    ## buff ladder, ace status, the supply drop) and nothing pays the
+    ## scoreboard for reaching a rung any more; see the tombstone on `Deed.
+    ## dLevelUp` for the full mechanics writeup. `popsScore` now excludes the
+    ## deed too (its generic "+NG" path would otherwise draw an empty "+0G"
+    ## toast); the RANK UP moment survives as a direct, star-count pop minted
+    ## by `addXp` itself (sim.nim), the same labelled `addGloryPop` path
+    ## `claimAchievement` already uses for its own named claims.
+    ##
+    ## Field fact that forced the call: `dLevelUp` was ~30% of ALL deed glory
+    ## mass, the single largest deed in the table. The downstream effect ran
+    ## well past that direct share, because zero drama also means level-ups
+    ## (39.4 fires/episode -- the single most frequent drama deed in the
+    ## game, more often than every combat deed combined) stop feeding heat
+    ## embers, so every OTHER drama deed's own heat multiplier collapsed
+    ## with it. RE-MEASURED, tools/ladder/gloryscore.py, same 120-episode
+    ## `--min-version 0.7.200` cache, run against the fully v10-synced
+    ## mirror (2026-08-26): heat occupancy x1 72%->91%, x2 12%->7%,
+    ## x4 11%->0%, x8 3%->0%; wipe-corrected median WINNER episode glory
+    ## 2287G->1038G; wipe-corrected combined (both teams) per-episode glory
+    ## p20 2450->1321, p40 3058->1477, p60 3724->1635, p80 4387->1873
+    ## (median 3246->1553, n=112 decided of 120 scored). Three constants
+    ## re-tuned off these numbers this wave: `AchievementSweepBudgetPct`
+    ## 27->58 (see its own comment -- the STRICT test constraint,
+    ## `sum(TierGlory) * AchievementTrees < dCapture + dWipe`, did NOT move,
+    ## since neither `dCapture` nor `dWipe` changed); and, in
+    ## `client/replay_broadcast.html`, `GLORY_TIERS`' four endcard cuts
+    ## (2500/3000/3700/4400 -> 1300/1500/1600/1900) and the leader-pulse
+    ## margin (130G -> 60G, still ~8% of a typical per-team total) -- see
+    ## each constant's own provenance comment for the full readout.
     ##
     ## v9 (2026-08-26, GLORYVERSION 9 WAVE / LAW AUDIT, Maxwell's re-affirmed
     ## law: "achievements and glory reward play ABOVE AND BEYOND normal --
@@ -435,7 +496,9 @@ const
     4,      # dShieldSoak (per hit point; kept -- see the Deed enum comment)
     400,    # dWipe
     # progression
-    6,      # dLevelUp
+    0,      # dLevelUp (v10 GLORY LAW, Maxwell's ruling: zero+tombstoned --
+            #          leveling pays POWER, not the scoreboard; see the
+            #          Deed enum comment. Was 6, ~30% of ALL deed glory mass.)
     0,      # dAchievement (priced by tier — see TierGlory)
   ]
 
@@ -465,7 +528,9 @@ const
     0,      # dShieldSoak — ambient soak, funds you, is not a moment
     400,    # dWipe
     # progression
-    5,      # dLevelUp — the feed notices, the ledger barely does
+    0,      # dLevelUp (v10: zero+tombstoned with its glory, above -- zero
+            #          drama also means it never climbs heat any more,
+            #          `paysHeat` reads `isDrama`. Was 5.)
     0,      # dAchievement — tier-priced (TierDrama)
   ]
 
@@ -1248,9 +1313,32 @@ const
     ## multiplier makes the other three teams' later claims feel more like
     ## consolation prizes) -- but not fit against a measured
     ## first-to-claim distribution.
-  AchievementSweepBudgetPct* = 27
+  AchievementSweepBudgetPct* = 58
     ## Law 3 as Muster states it: a full sweep must stay under this share of a
     ## MEDIAN WINNER's episode glory.
+    ##
+    ## v10 (GLORYVERSION 10 WAVE, 2026-08-26): RE-MEASURED after `dLevelUp`
+    ## zero+tombstoned (Maxwell's ruling: leveling pays POWER, not the
+    ## scoreboard -- see the tombstone on `Deed.dLevelUp`).
+    ## tools/ladder/gloryscore.py, same 120-episode `--min-version 0.7.200`
+    ## cache, run against the fully v10-synced mirror (`level_up` 6G/5 drama
+    ## -> 0G/0 drama in DEED_GLORY/DEED_DRAMA): full-sweep base UNCHANGED at
+    ## 600 (`TierGlory`/`AchievementTrees` neither moved this wave), but
+    ## wipe-corrected median winner glory collapsed 2287G -> 1038G -- NOT
+    ## merely `dLevelUp`'s own ~30%-of-deed-mass direct share. Zero drama
+    ## also means level-ups (39.4 fires/episode, the single most frequent
+    ## drama deed in the game, more often than every combat deed combined)
+    ## stop feeding heat embers, so every OTHER drama deed's OWN heat
+    ## multiplier collapses with it -- measured heat occupancy over the same
+    ## sample: x1 72% -> 91%, x2 12% -> 7%, x4 11% -> 0%, x8 3% -> 0% (the
+    ## xp-earns-a-level -> heat-ember arrow this wave closes, per Maxwell's
+    ## brief). Achievement share of winner glory (untouched by this wave)
+    ## rose 7.3% -> 15.5% of a now much smaller pie. Recommended value:
+    ## ceil(600 / 1038 * 100) = 58 (was 27). Still the SOFT number:
+    ## `tests/test_glory.nim` continues to assert only the DERIVED,
+    ## denominator-free form (`sum(TierGlory) * AchievementTrees <
+    ## dCapture + dWipe` = 600 < 650) -- neither `dCapture` nor `dWipe`
+    ## moved this wave, so that hard gate is unaffected and still passes.
     ##
     ## v9 (GLORY LAW E5): RE-MEASURED after the TierGlory re-anchor (was 15,
     ## a placeholder; the field-measured RECOMMENDED value under the v8
@@ -1646,11 +1734,22 @@ func popsScore*(deed: Deed): bool {.inline.} =
   ## LABELLED path instead, carrying the name it just earned. Popping it here
   ## too would price one moment twice on screen.
   ##
+  ## `dLevelUp` is excluded as of v10 (Maxwell's ruling: leveling pays POWER,
+  ## not the scoreboard -- see the Deed enum's own comment): zero+tombstoned
+  ## exactly like `dClutchHeal` above, same "not by amount alone" reasoning --
+  ## a 0g mint would otherwise still draw an empty "+0g RANK UP" toast, since
+  ## `awardDeed` has no amount>0 guard. The RANK UP moment is NOT deleted
+  ## though: `addXp` (sim.nim) mints it directly through `addGloryPop`'s own
+  ## LABELLED path, the same one `claimAchievement` uses, carrying the new
+  ## star count where a claim would carry its name -- so it survives the
+  ## zero-amount guard and reads as a named moment, never a bare payout.
+  ##
   ## A PENALTY still pops. `dTeamKill` is 0-drama (anti-drama: it must never
   ## light heat) but friendly fire is the largest single loss we have measured,
   ## so "-60g" over the body is one of the most valuable things on this HUD.
   ## That is why this is NOT `isDrama`, which would silently swallow it.
-  deed != dShieldSoak and deed != dClutchHeal and deed != dAchievement
+  deed != dShieldSoak and deed != dClutchHeal and deed != dAchievement and
+    deed != dLevelUp
 
 func tierGlory*(tier: int): int {.inline.} =
   ## Base glory for an achievement tier index 0..4.
@@ -1919,6 +2018,13 @@ func deedPopWord*(deed: Deed): string =
   ## name). The renderer falls back to a bare "+N" for an empty word, so a
   ## future deed added here with no entry degrades safely instead of drawing
   ## garbage.
+  ##
+  ## `dLevelUp` is ALSO excluded by `popsScore` (v10) but keeps a real word
+  ## here anyway -- `addXp` (sim.nim) reads `deedPopWord(dLevelUp)` directly
+  ## to build its own star-count label ("RANK UP **") rather than going
+  ## through the generic deed/word pop path this table otherwise feeds, so
+  ## the word stays live code, not just a comment (contrast `dClutchHeal`
+  ## below, whose retired word is memorial-only).
   case deed
   of dNone: ""
   of dFirstBlood: "FIRST!"
@@ -1949,6 +2055,9 @@ func deedPopWord*(deed: Deed): string =
                              ## comment, not in code that could draw it.
   of dShieldSoak: ""         ## excluded from `popsScore`; never drawn.
   of dWipe: "WIPEOUT"
-  of dLevelUp: "RANK UP"
+  of dLevelUp: "RANK UP"    ## v10: excluded from `popsScore`, but read
+                             ## directly by `addXp` (sim.nim) for its own
+                             ## star-count pop -- see this table's own
+                             ## header comment.
   of dAchievement: ""        ## excluded from `popsScore`; claims carry their
                              ## own name through the labelled pop path.
