@@ -1596,24 +1596,6 @@ proc rewardAccountFor(sim: SimServer, address: string): int =
       return i
   -1
 
-proc writeInputMaskChange(
-  replayWriter: var ReplayWriter,
-  time: uint32,
-  playerIndex: int,
-  mask: uint8
-) =
-  ## Writes one replay input event when a player's applied mask changes.
-  if playerIndex < 0 or playerIndex >= replayWriter.lastMasks.len:
-    return
-  if replayWriter.lastMasks[playerIndex] == mask:
-    return
-  replayWriter.writeInput(ReplayInput(
-    time: time,
-    player: uint8(playerIndex),
-    keys: mask
-  ))
-  replayWriter.lastMasks[playerIndex] = mask
-
 proc writeInputFrameMasks(
   replayWriter: var ReplayWriter,
   time: uint32,

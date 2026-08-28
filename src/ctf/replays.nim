@@ -150,6 +150,29 @@ proc tickTime*(tick: int): uint32 =
   ## Converts a simulation tick to replay milliseconds.
   replayCodec.tickTime(tick, ReplayFps)
 
+proc writeInputMaskChange*(
+  replayWriter: var ReplayWriter,
+  time: uint32,
+  playerIndex: int,
+  mask: uint8
+) =
+  ## Writes one replay input event when a COG's applied mask changes.
+  ##
+  ## Lives here rather than in server.nim because the mask log IS the replay's
+  ## action stream: the tests that prove the recorded masks re-simulate to the
+  ## identical hash chain have to write it exactly the way the server does, and
+  ## two copies of this would be two chances to drift.
+  if playerIndex < 0 or playerIndex >= replayWriter.lastMasks.len:
+    return
+  if replayWriter.lastMasks[playerIndex] == mask:
+    return
+  replayWriter.writeInput(ReplayInput(
+    time: time,
+    player: uint8(playerIndex),
+    keys: mask
+  ))
+  replayWriter.lastMasks[playerIndex] = mask
+
 const
   ReplayAimRecordFlag* = 0x80'u8
     ## Marks an input record as a DIRECT-AIM record rather than a button mask:
