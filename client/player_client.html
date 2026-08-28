@@ -12,6 +12,8 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 #hud{display:none;position:fixed;left:10px;top:9px;color:#e8e4dc;background:#1a1714cc;padding:5px 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;pointer-events:none;white-space:nowrap}
 #hud b{color:#9a9184;font-weight:600}
 #s{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e8e8e8;background:#000;font:14px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;pointer-events:none}
+#mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
+#mute:hover{background:#2a2620cc}
 </style>
 </head>
 <body>
@@ -19,10 +21,11 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <input id="i" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false">
 <div id="s">connecting...</div>
 <div id="hud"></div>
+<button id="mute" type="button">sound: on</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),x=c.getContext("2d");
 const p=[0,0,0,255,194,195,199,255,255,241,232,255,255,0,77,255,255,119,168,255,95,87,79,255,171,82,54,255,255,163,0,255,255,236,39,255,126,37,83,255,0,135,81,255,0,228,54,255,29,43,83,255,131,118,156,255,41,173,255,255,255,204,170,255];
 const PaletteRgb=[
   [0,0,0],[194,195,199],[255,241,232],[255,0,77],
@@ -33,7 +36,73 @@ const PaletteRgb=[
 const u=new URL(location.href),m=location.host?((location.protocol=="https:"?"wss:":"ws:")+"//"+location.host):"ws://localhost:8080";
 let a=u.searchParams.get("address")||m+"/player",g=(u.searchParams.get("joystick")|0)-1,r=Math.max(0,+u.searchParams.get("reconnect")||0);
 let k={},l=255,w,z=0,t=0,sawFrame=false,pixelImage=x.createImageData(128,128),spriteMode=false,layers=new Map(),sprites=new Map(),objects=new Map();
+/* Motion interpolation, ported from broadcast_core.js's updateInterpolation
+   (same SNAP_DISTANCE, same learned packetInterval, same glide/snap rule):
+   the sim advances ~24 discrete states/sec, so drawn as-is that is a 41ms
+   staircase on a 60/120Hz display. Every object's dispX/dispY glides from
+   wherever it was last drawn to the packet's x/y over one packet interval;
+   a layer change or a jump past SNAP_DISTANCE (respawn/teleport) snaps
+   instead of inventing motion the sim never had. This drives only the
+   PIXEL DRAW -- aim/control math below still reads raw object.x/y so the
+   glide can never perturb what gets sent to the server. */
+let movingObjects=new Set(),packetInterval=1000/24,lastMotionAt=0,rafHandle=0;
+const SNAP_DISTANCE=48;
+/* Object-pool id range for the floating "-N"/"KO" damage pops the server
+   already streams (src/ctf/global.nim: DamagePopObjectBase=38000, one slot
+   per concurrent pop, documented range 38000..38031). Hit feedback below
+   watches this range rather than adding any new wire signal. */
+const DAMAGE_POP_ID_MIN=38000, DAMAGE_POP_ID_MAX=38031;
 const textDecoder=new TextDecoder("utf-8");
+/* ---- Minimal WebAudio SFX: fire / hit-taken / hit-dealt / kill-confirm ----
+   No binary assets -- short oscillator/noise bursts a few frames long. The
+   AudioContext is created lazily on the first real user gesture (autoplay
+   policy); mute is one boolean gated through a single master gain node. */
+let audioCtx=null,masterGain=null,muted=false,noiseBuffer=null;
+function ensureAudio(){
+  if(audioCtx)return;
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
+  audioCtx=new AC();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=muted?0:0.35;
+  masterGain.connect(audioCtx.destination);
+  const len=Math.floor(audioCtx.sampleRate*0.3);
+  noiseBuffer=audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+  const d=noiseBuffer.getChannelData(0);
+  for(let j=0;j<len;j++)d[j]=Math.random()*2-1;
+}
+function setMuted(v){
+  muted=v;
+  if(masterGain)masterGain.gain.value=muted?0:0.35;
+  if(muteBtn)muteBtn.textContent=muted?"sound: off":"sound: on";
+}
+function playTone(freq,dur,type,gainPeak,glideTo){
+  if(!audioCtx)return;
+  const osc=audioCtx.createOscillator(),g=audioCtx.createGain(),t0=audioCtx.currentTime;
+  osc.type=type||"square";osc.frequency.setValueAtTime(freq,t0);
+  if(glideTo)osc.frequency.exponentialRampToValueAtTime(Math.max(1,glideTo),t0+dur);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.linearRampToValueAtTime(gainPeak,t0+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  osc.connect(g);g.connect(masterGain);
+  osc.start(t0);osc.stop(t0+dur+0.02);
+}
+function playNoise(dur,gainPeak,filterFreq){
+  if(!audioCtx||!noiseBuffer)return;
+  const src=audioCtx.createBufferSource();src.buffer=noiseBuffer;
+  const filt=audioCtx.createBiquadFilter();filt.type="bandpass";filt.frequency.value=filterFreq||1200;
+  const g=audioCtx.createGain(),t0=audioCtx.currentTime;
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.linearRampToValueAtTime(gainPeak,t0+0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  src.connect(filt);filt.connect(g);g.connect(masterGain);
+  src.start(t0);src.stop(t0+dur+0.02);
+}
+function playFire(){playNoise(.05,.5,2600);playTone(180,.045,"square",.18,90)}
+function playHitTaken(){playTone(160,.12,"sawtooth",.3,70);playNoise(.08,.25,500)}
+function playHitDealt(){playTone(920,.06,"square",.25,1400)}
+function playKillConfirm(){playTone(700,.05,"square",.28,1500);setTimeout(()=>playTone(1050,.09,"square",.24,1700),55)}
+muteBtn.onclick=e=>{e.preventDefault();e.stopPropagation();ensureAudio();setMuted(!muted);c.focus()};
 a=(a=>{try{let v=new URL(a,location.href);if(v.protocol=="http:")v.protocol="ws:";if(v.protocol=="https:")v.protocol="wss:";if(v.pathname=="/")v.pathname="/player";for(let q of["name","token","slot"]){let h=u.searchParams.get(q);if(h!==null)v.searchParams.set(q,h)}return v+""}catch(e){return a}})(a);
 function n(o){s.textContent=o;s.style.display=o?"flex":"none"}
 /* SCALE UP, never reveal more world: c.width/c.height are the pixel buffer
@@ -57,6 +126,7 @@ x.imageSmoothingEnabled=false;
 onresize=fit;
 fit();
 onkeydown=e=>{
+  ensureAudio();
   if(e.code==="Enter"){
     e.preventDefault();
     if(z){chat(i.value);i.value="";i.style.display="none";z=0;release();c.focus()}
@@ -138,28 +208,44 @@ function putPixel(layer,x0,y0,sprite,srcOffset){
   d[offset+3]=Math.round(oa*255)
 }
 function drawSprite(){
-  x.clearRect(0,0,c.width,c.height);
+  const nowT=performance.now();
+  /* Hitstop: freeze the last composed frame for a handful of ms on landing
+     a hit. Cosmetic-render-only -- parseSprite keeps consuming the wire and
+     the sim keeps ticking underneath; we simply stop repainting the canvas
+     for a beat, which is the whole "impact" of a hitstop. */
+  if(nowT<hitstopUntil)return;
+  x.save();
+  if(nowT<shakeEndAt){
+    const remain=(shakeEndAt-nowT)/SHAKE_MS,amt=shakeMag*remain;
+    x.translate((Math.random()*2-1)*amt,(Math.random()*2-1)*amt);
+  }
+  x.clearRect(-4,-4,c.width+8,c.height+8);
   x.fillStyle="#000";x.fillRect(0,0,c.width,c.height);
   const orderedLayers=[...layers.values()].sort((a,b)=>a.type-b.type||a.id-b.id);
   for(const layer of orderedLayers){
     if(!layer.image)continue;
     layer.image.data.fill(0);
-    const ordered=[...objects.values()].filter(o=>o.layer===layer.id).sort((a,b)=>a.z-b.z||a.y-b.y||a.id-b.id);
+    const ordered=[...objects.values()].filter(o=>o.layer===layer.id).sort((a,b)=>a.z-b.z||a.dispY-b.dispY||a.id-b.id);
     for(const object of ordered){
       const sprite=sprites.get(object.spriteId);
       if(!sprite)continue;
-      const sx0=Math.max(0,-object.x),sy0=Math.max(0,-object.y),sx1=Math.min(sprite.width,layer.width-object.x),sy1=Math.min(sprite.height,layer.height-object.y);
-      for(let sy=sy0;sy<sy1;sy++)for(let sx=sx0;sx<sx1;sx++)putPixel(layer,object.x+sx,object.y+sy,sprite,(sy*sprite.width+sx)*4)
+      const ox=object.dispX,oy=object.dispY;
+      const sx0=Math.max(0,-ox),sy0=Math.max(0,-oy),sx1=Math.min(sprite.width,layer.width-ox),sy1=Math.min(sprite.height,layer.height-oy);
+      for(let sy=sy0;sy<sy1;sy++)for(let sx=sx0;sx<sx1;sx++)putPixel(layer,ox+sx,oy+sy,sprite,(sy*sprite.width+sx)*4)
     }
     layer.ctx.putImageData(layer.image,0,0);
     x.drawImage(layer.canvas,0,0)
   }
   drawReticle();
+  drawHitmarker(nowT);
+  x.restore();
   n("")
 }
 function parseSprite(bytes){
   if(!spriteMode){spriteMode=true;l=255}
   sawFrame=true;
+  const packetTime=performance.now();
+  let motionSeen=false;
   let offset=0;
   while(offset<bytes.length){
     const type=bytes[offset++];
@@ -171,15 +257,84 @@ function parseSprite(bytes){
       else{sprites.set(id,{width,height,pixels:rawSprite(bytes,offset,width,height),label:""});offset+=width*height}
     }else if(type===0x02){
       const id=readU16(bytes,offset),ox=readI16(bytes,offset+2),oy=readI16(bytes,offset+4),z=readI16(bytes,offset+6),layer=bytes[offset+8],spriteId=readU16(bytes,offset+9);
-      objects.set(id,{id,x:ox,y:oy,z,layer,spriteId});offset+=11
-    }else if(type===0x03){objects.delete(readU16(bytes,offset));offset+=2}
-    else if(type===0x04){objects.clear()}
+      offset+=11;
+      const isDamagePop=id>=DAMAGE_POP_ID_MIN&&id<=DAMAGE_POP_ID_MAX;
+      const existing=objects.get(id);
+      if(!existing){
+        objects.set(id,{id,x:ox,y:oy,z,layer,spriteId,dispX:ox,dispY:oy,fromX:ox,fromY:oy,moveAt:0});
+        if(isDamagePop)handleDamagePopBirth(ox,oy,spriteId);
+      }else{
+        const spriteChanged=existing.spriteId!==spriteId;
+        if(existing.x!==ox||existing.y!==oy){
+          const glide=existing.layer===layer&&Math.abs(ox-existing.x)<=SNAP_DISTANCE&&Math.abs(oy-existing.y)<=SNAP_DISTANCE;
+          if(glide){
+            existing.fromX=existing.dispX;existing.fromY=existing.dispY;existing.moveAt=packetTime;
+            movingObjects.add(existing);motionSeen=true;
+          }else{
+            existing.dispX=ox;existing.dispY=oy;existing.fromX=ox;existing.fromY=oy;existing.moveAt=0;
+            movingObjects.delete(existing);
+          }
+        }
+        existing.x=ox;existing.y=oy;existing.z=z;existing.layer=layer;existing.spriteId=spriteId;
+        if(isDamagePop&&spriteChanged)handleDamagePopBirth(ox,oy,spriteId);
+      }
+    }else if(type===0x03){
+      const id=readU16(bytes,offset);offset+=2;
+      const gone=objects.get(id);
+      if(gone)movingObjects.delete(gone);
+      objects.delete(id)
+    }
+    else if(type===0x04){objects.clear();movingObjects.clear()}
     else if(type===0x05){viewport(bytes[offset],readU16(bytes,offset+1),readU16(bytes,offset+3));offset+=5}
     else if(type===0x06){const layer=ensureLayer(bytes[offset]);layer.type=bytes[offset+1];layer.flags=bytes[offset+2];offset+=3}
     else if(type===0x07){offset+=2}
     else{throw new Error("Unknown sprite packet type "+type)}
   }
-  drawSprite()
+  if(motionSeen){
+    if(lastMotionAt){
+      const gap=packetTime-lastMotionAt;
+      if(gap>=16&&gap<=250)packetInterval+=0.1*(gap-packetInterval);
+    }
+    lastMotionAt=packetTime;
+  }
+  drawSprite();
+  if(motionSeen)scheduleDraw();
+}
+/* Advance every in-flight glide to `now`; returns whether any glide is
+   still moving (frameTick keeps rAF-driving while true, and stops the
+   instant every glide lands, so a paused/idle field costs zero draws). */
+function updateInterpolation(now){
+  if(movingObjects.size===0)return false;
+  let animating=false;
+  for(const obj of movingObjects){
+    const t=Math.max(0,(now-obj.moveAt)/packetInterval);
+    if(t>=1){
+      obj.dispX=obj.x;obj.dispY=obj.y;obj.fromX=obj.x;obj.fromY=obj.y;obj.moveAt=0;
+      movingObjects.delete(obj);
+    }else{
+      obj.dispX=Math.round(obj.fromX+(obj.x-obj.fromX)*t);
+      obj.dispY=Math.round(obj.fromY+(obj.y-obj.fromY)*t);
+      animating=true;
+    }
+  }
+  return animating;
+}
+function frameTick(now){
+  rafHandle=0;
+  if(now<hitstopUntil){
+    /* Freeze the interpolation clock too, not just the paint -- a hitstop
+       that keeps gliding objects underneath would just be a skipped frame,
+       not a pause. */
+    rafHandle=requestAnimationFrame(frameTick);
+    return;
+  }
+  const animating=updateInterpolation(now);
+  drawSprite();
+  if(animating||now<shakeEndAt||now<hitmarkerUntil)rafHandle=requestAnimationFrame(frameTick);
+}
+function scheduleDraw(){
+  if(rafHandle)return;
+  rafHandle=requestAnimationFrame(frameTick);
 }
 function drawPixels(bytes){
   spriteMode=false;sizeCanvas(128,128);
@@ -336,17 +491,83 @@ function drawHud(){
     '  <b>item</b> '+on(keys.item)+
     (pingNote?'  <b>ping</b> '+pingNote:'');
 }
+/* ================= Hit feedback (client-side only) ===================
+   Detected from the "damage pop " sprite labels the server already streams
+   for the floating "-N"/"KO" numbers (src/ctf/global.nim addDamagePops):
+   a pop's FIRST frame (label ends " stage 0") is a one-shot "someone just
+   took damage" event, keyed to a fixed object-id pool (DAMAGE_POP_ID_MIN/
+   MAX above). Proximity to our own selfPos decides "I took it" (screenshake
+   + sound) vs "I probably landed it" (hitstop + hitmarker + sound, gated on
+   actively firing and a plausible engagement bubble) -- the same kind of
+   locally-known signal the reticle already uses, never an oracle, and
+   never anything that reaches gameHash: this only drives paint and audio.
+==================================================================== */
+const SELF_HIT_RADIUS=16, ENGAGE_RANGE=300;
+const HITSTOP_MS=55, SHAKE_MS=130, SHAKE_MAG=2.2, HITMARKER_MS=180;
+let hitstopUntil=0,shakeEndAt=0,shakeMag=0,hitmarkerUntil=0,hitmarkerIsKill=false;
+function triggerHitstop(){hitstopUntil=Math.max(hitstopUntil,performance.now()+HITSTOP_MS);scheduleDraw()}
+function triggerShake(){const nowT=performance.now();shakeEndAt=Math.max(shakeEndAt,nowT+SHAKE_MS);shakeMag=SHAKE_MAG;scheduleDraw()}
+function triggerHitmarker(isKill){hitmarkerUntil=performance.now()+HITMARKER_MS;hitmarkerIsKill=isKill;scheduleDraw()}
+function handleDamagePopBirth(px,py,spriteId){
+  const sp=sprites.get(spriteId);
+  if(!sp||!sp.label||!sp.label.endsWith(" stage 0"))return;
+  const isKill=sp.label.indexOf(" KO ")!==-1;
+  if(selfPos){
+    const sdx=px-selfPos.x,sdy=py-selfPos.y;
+    if(sdx*sdx+sdy*sdy<=SELF_HIT_RADIUS*SELF_HIT_RADIUS){
+      triggerShake();playHitTaken();return;
+    }
+  }
+  if(lmb&&selfPos){
+    const edx=px-selfPos.x,edy=py-selfPos.y;
+    if(edx*edx+edy*edy<=ENGAGE_RANGE*ENGAGE_RANGE){
+      triggerHitstop();triggerHitmarker(isKill);
+      if(isKill)playKillConfirm();else playHitDealt();
+    }
+  }
+}
+/* Drawn at the crosshair (where the player is already looking), not at the
+   hit's world position -- reads instantly without competing with the
+   reticle. Bigger + red for a kill, smaller + white for a plain hit. */
+function drawHitmarker(nowT){
+  if(nowT>=hitmarkerUntil)return;
+  const remain=(hitmarkerUntil-nowT)/HITMARKER_MS;
+  const mx=haveMouse?mouseX:c.width/2,my=haveMouse?mouseY:c.height/2;
+  x.save();
+  x.globalAlpha=Math.max(0,Math.min(1,remain));
+  x.strokeStyle=hitmarkerIsKill?"rgba(255,60,40,.95)":"rgba(255,255,255,.9)";
+  x.lineWidth=hitmarkerIsKill?1.6:1.1;
+  const sz=hitmarkerIsKill?7:5;
+  x.beginPath();
+  x.moveTo(mx-sz,my-sz);x.lineTo(mx+sz,my+sz);
+  x.moveTo(mx+sz,my-sz);x.lineTo(mx-sz,my+sz);
+  x.stroke();
+  x.restore();
+}
+/* Fire sound: once on the mousedown edge (a real user gesture, so it also
+   unlocks audio), then a lightweight repeat while held so a sustained trigger
+   pull still sounds like fire rather than one click -- cosmetic timing only,
+   the server alone decides whether a shot actually lands. */
+let fireLoopTimer=null;
+function startFireLoop(){
+  if(fireLoopTimer)return;
+  playFire();
+  fireLoopTimer=setInterval(()=>{if(lmb&&!z)playFire();else stopFireLoop()},160);
+}
+function stopFireLoop(){
+  if(fireLoopTimer){clearInterval(fireLoopTimer);fireLoopTimer=null}
+}
 addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true});
 c.addEventListener("mousedown",e=>{
-  if(e.button===0){lmb=true;e.preventDefault()}
+  if(e.button===0){ensureAudio();lmb=true;e.preventDefault();startFireLoop()}
   else if(e.button===2){e.preventDefault();window.onPingWheelOpen(cellUnderCursor(),toMap(e))}
 });
 addEventListener("mouseup",e=>{
-  if(e.button===0)lmb=false;
+  if(e.button===0){lmb=false;stopFireLoop()}
   else if(e.button===2)window.onPingWheelCommit(cellUnderCursor(),toMap(e));
 });
 c.addEventListener("contextmenu",e=>e.preventDefault());
-addEventListener("blur",()=>{lmb=false});
+addEventListener("blur",()=>{lmb=false;stopFireLoop()});
 requestAnimationFrame(function ui(){drawHud();requestAnimationFrame(ui)});
 </script>
 </body>
