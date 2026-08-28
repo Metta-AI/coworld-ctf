@@ -292,8 +292,8 @@ suite "glory: the per-life ladder":
         (rng * 100 div 1300) div 100
 
     let primer = power(0)
-    let legend = power(MaxLevel)  # top rank RENAME-PENDING; see glory.nim
-    check legend * 100 div primer <= 220
+    let maestro = power(MaxLevel)
+    check maestro * 100 div primer <= 220
 
   test "a L5 cog stays inside the hp band policies already read":
     # A shield carrier shows 6 hp and that is how a policy detects its own

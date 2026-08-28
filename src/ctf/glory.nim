@@ -700,19 +700,18 @@ const
   # RANK RENAME (Maxwell, 2026-08-28, vocabulary only -- mechanics/
   # thresholds/xp/star-counts below are UNTOUCHED): a rank names the PERSON,
   # not the piece -- "a masterpiece is the piece, not the artist making it."
-  # Recruit/Tagger/Marksman/Ironhide/Quickdraw -> Primer/Dabbler/Splatter/
-  # Drencher/Artist. L5 (Legend) is RENAME-PENDING: "Muralist" collides with
-  # THE CAN's own tier IV achievement name (`AchievementNames`, treeSpray,
-  # "The Muralist" -- see below), the exact vocabulary confusion this
-  # rename exists to remove. Left as "Legend" until Maxwell rules on the
-  # top rank; do not pick a replacement here.
+  # Recruit/Tagger/Marksman/Ironhide/Quickdraw/Legend -> Primer/Dabbler/
+  # Splatter/Drencher/Artist/Maestro. L5 was briefly considered as
+  # "Muralist," which collides with THE CAN's own tier IV achievement name
+  # ("The Muralist", `AchievementNames`, treeSpray) -- re-ruled to Maestro
+  # instead, and "The Muralist" achievement stays exactly as it is.
   #
   #   L1 Dabbler    windup -1 tick        the lead we measured at +70pp
   #   L2 Splatter   spray reset -40%     the spray finally recycles
   #   L3 Drencher   +1 max hp             now a real threat -- and a bounty
   #   L4 Artist     fire cooldown -25%,   rate of fire, and two nade charges
   #                 grenade holds 2
-  #   L5 Legend     windup -1, carry     the once-an-episode legend (hp
+  #   L5 Maestro    windup -1, carry     the once-an-episode legend (hp
   #                 penalty waived        ceiling stops climbing at L3 --
   #                                       capped by the ~2x power bound)
   #
@@ -754,13 +753,13 @@ const
     ## At L5 the heart no longer slows you.
 
   LevelNames*: array[0 .. MaxLevel, string] = [
-    "primer", "dabbler", "splatter", "drencher", "artist", "legend"
+    "primer", "dabbler", "splatter", "drencher", "artist", "maestro"
   ]
     ## What the feed and the replay pip call each rung. RANK RENAME
-    ## (Maxwell, 2026-08-28): 5 of 6 renamed, vocabulary only -- see the
-    ## "What each level BUYS" comment above. L5 ("legend") is
-    ## RENAME-PENDING: its replacement ("Muralist") collides with THE CAN's
-    ## own tier IV achievement name -- left as-is until Maxwell rules.
+    ## (Maxwell, 2026-08-28), vocabulary only -- see the "What each level
+    ## BUYS" comment above. L5 is "maestro", not "muralist": that name
+    ## collided with THE CAN's own tier IV achievement ("The Muralist"),
+    ## which stays exactly as it is.
 
   # ── Deed detection geometry ─────────────────────────────────────────────
   PointBlankPx* = 110
