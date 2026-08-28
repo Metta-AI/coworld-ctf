@@ -9,7 +9,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
 body{display:flex;align-items:center;justify-content:center}
 canvas{image-rendering:pixelated;image-rendering:crisp-edges}
 input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(80vw,520px);box-sizing:border-box;background:#0008;color:#fff;border:1px solid #fff8;padding:8px 10px;font:18px monospace;outline:0;display:none}
-#hud{position:fixed;left:10px;top:9px;color:#e8e4dc;background:#1a1714cc;padding:5px 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;pointer-events:none;white-space:nowrap}
+#hud{display:none;position:fixed;left:10px;top:9px;color:#e8e4dc;background:#1a1714cc;padding:5px 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;pointer-events:none;white-space:nowrap}
 #hud b{color:#9a9184;font-weight:600}
 #s{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e8e8e8;background:#000;font:14px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;pointer-events:none}
 </style>
@@ -36,7 +36,19 @@ let k={},l=255,w,z=0,t=0,sawFrame=false,pixelImage=x.createImageData(128,128),sp
 const textDecoder=new TextDecoder("utf-8");
 a=(a=>{try{let v=new URL(a,location.href);if(v.protocol=="http:")v.protocol="ws:";if(v.protocol=="https:")v.protocol="wss:";if(v.pathname=="/")v.pathname="/player";for(let q of["name","token","slot"]){let h=u.searchParams.get(q);if(h!==null)v.searchParams.set(q,h)}return v+""}catch(e){return a}})(a);
 function n(o){s.textContent=o;s.style.display=o?"flex":"none"}
-function fit(){const raw=Math.min(innerWidth/c.width,innerHeight/c.height),scale=raw>=1?Math.max(1,Math.floor(raw)):Math.max(.1,raw);c.style.width=(c.width*scale)+"px";c.style.height=(c.height*scale)+"px"}
+/* SCALE UP, never reveal more world: c.width/c.height are the pixel buffer
+   the SERVER decided to send (the map layer's native resolution) -- fit()
+   only ever changes the CSS size those same pixels are displayed at. Every
+   player sees the same board regardless of monitor; a bigger screen just
+   gets bigger pixels, never a wider camera.
+   This used to floor() the scale to an integer once raw>=1, which keeps
+   pixels perfectly square but wastes most of the screen on anything under
+   2x the native resolution -- a 1920x1080 laptop against a 1235x659 board
+   (raw=1.55) rendered at literal 1x, 64% width / 61% height, because 1.55
+   floors to 1. Canvas already carries image-rendering:pixelated, so a
+   fractional scale still reads as crisp blocky pixels (just not perfectly
+   uniform in size) -- a fair trade for filling the screen. */
+function fit(){const scale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));c.style.width=(c.width*scale)+"px";c.style.height=(c.height*scale)+"px"}
 function sizeCanvas(width,height){if(c.width!==width||c.height!==height){c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit()}}
 function sendMask(mask,force=false){if(!w||w.readyState!==1)return;if(!force&&mask===l)return;w.send(spriteMode?new Uint8Array([0x84,mask&255]):new Uint8Array([0,mask&255]));l=mask}
 function release(){k={};sendMask(0,true)}
@@ -203,12 +215,11 @@ function drawPixels(bytes){
    InputState) plus a shout string, and player_controls.js documents which
    bit each key owns. Nothing here can express an action a bot cannot.
 
-   The aim is DEAD-RECKONED because that is the most PRECISE channel this
-   client has. Whether the engine ALSO exposes it depends on your lineage --
-   self-aim rendering differs across branches in flight (TRUE on main and the
-   takeover base, fuzzed on 970e948), so verify rather than inherit this
-   sentence. Either way the sprite channel is quantized to +/-8 brads, past the
-   fire tolerance, while integrating our own commands measures <=2.
+   The aim is DEAD-RECKONED from the commands we issue, because the engine
+   fuzzes every rendered soldier including our own self marker
+   (global.nim:6211-6226): "your true aim is knowable only from the commands
+   you issued, never from the pixels." We therefore integrate our own rotate
+   commands on the tick clock -- one server frame is one sim tick.
 ==================================================================== */
 const CC=CtfControls;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
@@ -311,6 +322,12 @@ function drawReticle(){
   x.stroke();
 }
 function drawHud(){
+  /* Raw telemetry (move/aim/fire/item state), developer chrome that used to
+     render on every seat unconditionally. Off by default now -- a game, not
+     a debugger -- and revealed only by an explicit ?debug or ?probe param. */
+  const debugHud=u.searchParams.has("debug")||u.searchParams.has("probe");
+  hud.style.display=debugHud?"block":"none";
+  if(!debugHud)return;
   const keys=readKeys(),on=v=>v?"on":"..";
   hud.innerHTML=
     '<b>move</b> '+on(keys.up)+'/'+on(keys.left)+'/'+on(keys.down)+'/'+on(keys.right)+

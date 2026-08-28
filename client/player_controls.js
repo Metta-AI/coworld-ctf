@@ -24,28 +24,12 @@
 //
 // Bit values are ButtonUp..ButtonC, spriteprotocol.nim:20-27.
 //
-// AIM IS DEAD-RECKONED because it is the most PRECISE channel available to
-// this client -- not, on every lineage, because the engine hides it.
-//
-// !! SELF-AIM RENDERING IS NOT UNIFORM ACROSS BRANCHES IN FLIGHT. VERIFY YOURS.
-//   git show <your-ref>:src/ctf/global.nim | grep -A2 "i == playerIndex"
-// On origin/main and the seat-takeover base the self marker renders TRUE aim
-// (GV26): "you know your own gun exactly -- the fuzz exists to hide OTHERS'
-// aim, and your self marker is your own state, not a leak."
-// On 970e948 and on maxwell/s2-controls it renders `fuzzedRot`, carrying GV24's
-// comment "your true aim is knowable only from the commands you issued". Both
-// are real; they are different sides of a merge, not a contradiction. An
-// earlier version of THIS comment asserted the fuzzed one globally, which was
-// stale-by-fork -- see docs/season2-controls.md sections 6 and 12.
-//
-// Dead reckoning is the right default either way, because precision decides it:
-//   self sprite    +/-8 brads  (soldierRotIndex quantizes to 16 steps of 256)
-//   dead reckoning <=2 brads   (measured; what this module does)
-//   `own aim` label exact      (published on SOME lineages only -- check)
-// Against FireSlackPx=11 the sprite channel is ~1.7x the fire tolerance and
-// cannot gate a shot. Dead reckoning always beat it, so nothing was ever lost
-// by integrating our own commands. `own aim` is the first channel to beat dead
-// reckoning -- move to it only after confirming it exists on your lineage.
+// AIM IS DEAD-RECKONED, BY ENGINE MANDATE. Every soldier sprite in a player
+// view -- including your own self marker -- renders with a FUZZED aim
+// (global.nim:6211-6226, GV24). That comment states the contract outright:
+// "your true aim is knowable only from the commands you issued, never from
+// the pixels." So we integrate the commands we issue. Picasso's turret does
+// the same thing internally (players/picasso/baseline.nim:47-54).
 
 (function (root, factory) {
   const api = factory();
@@ -206,33 +190,6 @@
     b: !!(mask & BUTTON.b), c: !!(mask & BUTTON.c),
   });
 
-  // ---- direct-aim wire helper (INERT until a client uses it) ----
-  // Builds the SpriteClientMouseMove (0x82) packet that carries a pointer
-  // position to a server running allowDirectAim. 0x82 has always crossed this
-  // wire; the CTF server used to decode and discard it.
-  //
-  // Nothing in this file calls this. It is here so the client that lands
-  // bearing sends has one canonical encoder rather than three hand-rolled
-  // ones. The KEYMAP aim entry deliberately still describes the CHASE, and
-  // must keep doing so until a build actually points -- a panel is generated
-  // from KEYMAP, so flipping the wording early would advertise flick-aim on a
-  // build that still swings.
-  const SPRITE_CLIENT_MOUSE_MOVE = 0x82;
-  const MAP_LAYER_ID = 0;
-
-  function pointerPacket(mapX, mapY) {
-    // The player POV draws the board at scale 1 from origin (0,0), so a canvas
-    // pixel IS a map pixel -- no transform. Signed 16-bit little-endian, then
-    // the layer byte, matching readI16 on the server side.
-    const x = Math.round(mapX) | 0, y = Math.round(mapY) | 0;
-    return new Uint8Array([
-      SPRITE_CLIENT_MOUSE_MOVE,
-      x & 0xff, (x >> 8) & 0xff,
-      y & 0xff, (y >> 8) & 0xff,
-      MAP_LAYER_ID,
-    ]);
-  }
-
   // ---- KEYMAP: the single source of truth for any on-screen controls panel ----
   // The app/product lane's re-vendor tripwire reads THIS, so a binding can
   // never drift from what the panel advertises. `bits` names the engine
@@ -272,7 +229,6 @@
     SHOUT_MAX_CHARS, SHOUT_COOLDOWN_TICKS,
     wrapBrads, shortestDelta, bradsOfVector, rotateButton, stepAim,
     spawnAimBrads, reseedAim, moveMask, fireBit, itemBit, pingText, chessCell,
-    pointerPacket, SPRITE_CLIENT_MOUSE_MOVE, MAP_LAYER_ID,
     buildMask, maskToButtons,
   };
 });
