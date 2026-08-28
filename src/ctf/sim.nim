@@ -503,7 +503,7 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
 proc resetLadder*(sim: var SimServer, playerIndex: int) =
   ## Death forfeits the whole per-life ladder: xp, level, buffs. THE ANTI-
   ## SNOWBALL RULE -- a runaway cog is a `dAceTag` bounty and killing it
-  ## puts it back to a recruit.
+  ## puts it back to a primer.
   ##
   ## GLORY-PORT-TODO cut: main also zeroes `supplyDropCredit`/
   ## `supplyDropsThisLife`/`lastSupplyDropTick` here -- none exist on this

@@ -687,7 +687,7 @@ const
   # ── What each level BUYS ────────────────────────────────────────────────
   #
   # Muster grants no mechanical power at all: a 5-star champion has the same
-  # speed, damage, hp and vision as the recruit beside it, and the ruling in
+  # speed, damage, hp and vision as the primer beside it, and the ruling in
   # `unit_skill_trees.py` is explicit that this is deliberate — "a unit's
   # strength CAUSES its star count, not the reverse. This is pure
   # measurement." We are inverting that on purpose.
@@ -697,10 +697,20 @@ const
   # of just harder. Values are cumulative and applied at five integer sites
   # in `sim.nim`; all arithmetic stays integer.
   #
-  #   L1 Tagger     windup -1 tick        the lead we measured at +70pp
-  #   L2 Marksman   spray reset -40%     the spray finally recycles
-  #   L3 Ironhide   +1 max hp             now a real threat -- and a bounty
-  #   L4 Quickdraw  fire cooldown -25%,   rate of fire, and two nade charges
+  # RANK RENAME (Maxwell, 2026-08-28, vocabulary only -- mechanics/
+  # thresholds/xp/star-counts below are UNTOUCHED): a rank names the PERSON,
+  # not the piece -- "a masterpiece is the piece, not the artist making it."
+  # Recruit/Tagger/Marksman/Ironhide/Quickdraw -> Primer/Dabbler/Splatter/
+  # Drencher/Artist. L5 (Legend) is RENAME-PENDING: "Muralist" collides with
+  # THE CAN's own tier IV achievement name (`AchievementNames`, treeSpray,
+  # "The Muralist" -- see below), the exact vocabulary confusion this
+  # rename exists to remove. Left as "Legend" until Maxwell rules on the
+  # top rank; do not pick a replacement here.
+  #
+  #   L1 Dabbler    windup -1 tick        the lead we measured at +70pp
+  #   L2 Splatter   spray reset -40%     the spray finally recycles
+  #   L3 Drencher   +1 max hp             now a real threat -- and a bounty
+  #   L4 Artist     fire cooldown -25%,   rate of fire, and two nade charges
   #                 grenade holds 2
   #   L5 Legend     windup -1, carry     the once-an-episode legend (hp
   #                 penalty waived        ceiling stops climbing at L3 --
@@ -714,7 +724,7 @@ const
   LevelWindupDelta*: array[0 .. MaxLevel, int] = [0, -1, -1, -1, -1, -2]
     ## Ticks off the trigger windup (FireWindupTicks 5 -> 4 at L1, -> 3 at L5).
   LevelGunRangePct*: array[0 .. MaxLevel, int] = [100, 100, 100, 100, 100, 100]
-    ## v6 (GLORY C2): the +15% range rung ("Marksman", L2+) is RETIRED --
+    ## v6 (GLORY C2): the +15% range rung ("Splatter", L2+) is RETIRED --
     ## geometrically dead on arrival. The default arena is 1235x659px, a
     ## 1399.8px diagonal; `GunRange` (sim.nim) already ships at 1300, ~93% of
     ## that diagonal. +15% pushes the levelled range to 1495px, PAST the
@@ -744,9 +754,13 @@ const
     ## At L5 the heart no longer slows you.
 
   LevelNames*: array[0 .. MaxLevel, string] = [
-    "recruit", "tagger", "marksman", "ironhide", "quickdraw", "legend"
+    "primer", "dabbler", "splatter", "drencher", "artist", "legend"
   ]
-    ## What the feed and the replay pip call each rung.
+    ## What the feed and the replay pip call each rung. RANK RENAME
+    ## (Maxwell, 2026-08-28): 5 of 6 renamed, vocabulary only -- see the
+    ## "What each level BUYS" comment above. L5 ("legend") is
+    ## RENAME-PENDING: its replacement ("Muralist") collides with THE CAN's
+    ## own tier IV achievement name -- left as-is until Maxwell rules.
 
   # ── Deed detection geometry ─────────────────────────────────────────────
   PointBlankPx* = 110

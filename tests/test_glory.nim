@@ -287,13 +287,13 @@ suite "glory: the per-life ladder":
         shotTicks = levelFireCooldown(12, level) + levelWindupTicks(5, level)
         baseShot = 12 + 5
         rng = levelGunRange(1300, level)
-      # survivability x rate x reach, all relative to a recruit.
+      # survivability x rate x reach, all relative to a primer.
       (hp * 100 div 3) * (baseShot * 100 div shotTicks) div 100 *
         (rng * 100 div 1300) div 100
 
-    let recruit = power(0)
-    let legend = power(MaxLevel)
-    check legend * 100 div recruit <= 220
+    let primer = power(0)
+    let legend = power(MaxLevel)  # top rank RENAME-PENDING; see glory.nim
+    check legend * 100 div primer <= 220
 
   test "a L5 cog stays inside the hp band policies already read":
     # A shield carrier shows 6 hp and that is how a policy detects its own
