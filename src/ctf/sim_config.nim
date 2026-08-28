@@ -58,7 +58,8 @@ proc defaultGameConfig*(): GameConfig =
     barrageStartSec: BarrageStartSec,
     barrageSaturateSec: BarrageSaturateSec,
     brMode: false,
-    zonePhases: @[]
+    zonePhases: @[],
+    allowCallouts: false
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -869,6 +870,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("allowDirectAim", config.allowDirectAim)
   node.readConfigBool("allowAimAssist", config.allowAimAssist)
   node.readConfigInt("aimAssistConeBrads", config.aimAssistConeBrads)
+  node.readConfigBool("allowCallouts", config.allowCallouts)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
@@ -1029,6 +1031,24 @@ proc echoAimKeys(config: GameConfig, node: JsonNode) =
     node["allowAimAssist"] = %config.allowAimAssist
     node["aimAssistConeBrads"] = %config.aimAssistConeBrads
 
+# ---------------------------------------------------------------------------
+# echoCalloutKeys — deliberately its OWN named proc, not a tail-appended
+# `if` inline in configJson below. sim_config.nim's tail-append style has
+# silently lost adjacent lines in conflict resolutions before; a sibling
+# lane (maxwell/configjson-harden) is mid-refactor turning every optional
+# echo into exactly this named-proc shape (echoBarrageKeys, echoZonePhase-
+# Keys, echoSeatTakeoverKeys, ...) so a new feature's diff is "add a proc +
+# one call line", never an edit squeezed into another feature's tail. This
+# one is written in that target shape now so the eventual rebase onto
+# maxwell/br-demo-assembly is a pure move, not a rewrite.
+# ---------------------------------------------------------------------------
+proc echoCalloutKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the callout gate only when it is on, so an allowCallouts-off
+  ## game's replay config stays byte-identical to a build without the
+  ## field — same rule as echoSeatTakeoverKeys/echoBrModeKeys above.
+  if config.allowCallouts:
+    node["allowCallouts"] = %config.allowCallouts
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1119,5 +1139,6 @@ proc configJson*(config: GameConfig): string =
   echoBrModeKeys(config, node)
   echoSeatTakeoverKeys(config, node)
   echoAimKeys(config, node)
+  echoCalloutKeys(config, node)
   result = $node
 
