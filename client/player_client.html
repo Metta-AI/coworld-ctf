@@ -34,7 +34,19 @@ const PaletteRgb=[
   [29,43,83],[131,118,156],[41,173,255],[255,204,170]
 ];
 const u=new URL(location.href),m=location.host?((location.protocol=="https:"?"wss:":"ws:")+"//"+location.host):"ws://localhost:8080";
-let a=u.searchParams.get("address")||m+"/player",g=(u.searchParams.get("joystick")|0)-1,r=Math.max(0,+u.searchParams.get("reconnect")||0);
+/* Reconnect interval in seconds. Used to default to 0 (off) unless a
+   caller passed ?reconnect=N -- so any transient close (a server hiccup,
+   a reset-dance blip) that hit a live human seat stranded it on
+   "disconnected..." forever with no way back short of a manual page
+   reload, even though the SAME identity/slot/token would happily be
+   re-admitted a moment later. Defaults to 2s now; ?reconnect=0 still
+   disables it explicitly for callers that want the old strand-on-close
+   behavior. MaxReconnectAttempts bounds it -- a genuinely dead server
+   must still resolve to "disconnected...", not retry forever. */
+let a=u.searchParams.get("address")||m+"/player",g=(u.searchParams.get("joystick")|0)-1,
+  r=u.searchParams.has("reconnect")?Math.max(0,+u.searchParams.get("reconnect")||0):2,
+  reconnectAttempts=0;
+const MaxReconnectAttempts=10;
 let k={},l=255,w,z=0,t=0,sawFrame=false,pixelImage=x.createImageData(128,128),spriteMode=false,layers=new Map(),sprites=new Map(),objects=new Map();
 /* Motion interpolation, ported from broadcast_core.js's updateInterpolation
    (same SNAP_DISTANCE, same learned packetInterval, same glide/snap rule):
@@ -347,7 +359,7 @@ function drawPixels(bytes){
 }
 (function connect(){
   n("connecting...");w=new WebSocket(a);w.binaryType="arraybuffer";l=255;
-  w.onopen=()=>n("");
+  w.onopen=()=>{reconnectAttempts=0;n("")};
   w.onmessage=e=>{
     const bytes=new Uint8Array(e.data);
     sawFrame=false;
@@ -358,8 +370,10 @@ function drawPixels(bytes){
   const q=w;
   q.onclose=q.onerror=()=>{
     if(w!==q)return;
-    if(r){n("reconnecting...");if(!t)t=setTimeout(()=>{t=0;connect()},r*1000)}
-    else n("disconnected...")
+    if(r&&reconnectAttempts<MaxReconnectAttempts){
+      reconnectAttempts++;
+      n("reconnecting...");if(!t)t=setTimeout(()=>{t=0;connect()},r*1000)
+    }else n("disconnected...")
   }
 })();
 /* ================= Season 2 human-seat controls =====================
