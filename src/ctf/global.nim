@@ -4144,6 +4144,17 @@ proc addTeamScoreboard(
   ## Adds the team kills/deaths scoreboard above the field: red on the left,
   ## blue on the right, each in its team color. Playing only — interstitial
   ## screens put their own title in the same top-center spot.
+  ##
+  ## DO NOT gate this on team count here: players/baseline/baseline.nim's
+  ## huntEndgame block reads this EXACT wire vocabulary ("team score <NAME>
+  ## <kills>/<deaths>") to derive its own alive-team count for BR endgame
+  ## hunt behavior — a live policy dependency, not cosmetic (found the hard
+  ## way while wiring the >4-team suppression the caller wanted; confirmed
+  ## by grep, not guessed). The unreadable-at-16-chips complaint is about
+  ## the GLOBAL VIEWER surface only, so the >4-team suppression is applied
+  ## at THAT call site alone, in buildSpriteProtocolUpdates — a seated
+  ## player's own buildSpriteProtocolPlayerUpdates keeps calling this
+  ## unconditionally, exactly as before, so no bot ever loses the label.
   if sim.phase != Playing:
     return
   var kills, deaths: array[Team, int]
@@ -4808,6 +4819,11 @@ proc scoreboardJoinOrderAt(
   ## Returns the join order for a clicked scoreboard name.
   if layer != TopLeftLayerId:
     return -1
+  # addScoreboard emits nothing on a >4-team field (see its own guard below),
+  # so there is no row here to click — without this, a click over the empty
+  # top-left corner could still resolve to a phantom player selection.
+  if sim.teams().len > 4:
+    return -1
   let row = (mouseY - ScoreboardY) div ScoreboardRowHeight
   if row < 0 or row >= sim.players.len:
     return -1
@@ -4843,8 +4859,21 @@ proc addScoreboard(
   selectedJoinOrder: int
 ) {.measure.} =
   ## Adds the top-left player score picker (per-team lives).
+  ##
+  ## One row per PLAYER, stacked top to bottom — a legible pick-list at 2-4
+  ## teams (a handful of rows), but at BR's 16 teams / up to 32 seats this is
+  ## a wall of "name lives" pixel-font rows covering a third of the arena
+  ## (the exact defect Maxwell's screenshot showed on the live global
+  ## viewer). Suppressed entirely past 4 teams: the layer/viewport still
+  ## register every tick (unconditional below, matching
+  ## buildSpriteProtocolInit/buildSpriteProtocolPlayerInit's own init-time
+  ## registration) — only the per-player row loop is skipped, so nothing
+  ## ever draws into it. Cosmetic only: this is spectator-stream sprite
+  ## emission, never gameHash.
   packet.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
   packet.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
+  if sim.teams().len > 4:
+    return
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
@@ -9758,7 +9787,18 @@ proc buildSpriteProtocolUpdates*(
     result,
     replayMismatchTick
   )
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
+  # GLOBAL VIEWER only: the classic red-left/blue-right chip strip
+  # (TeamScoreWidth = 132px) is authored for 2-4 chips; 16 BR teams crammed
+  # into that width is illegible overlap, not a scoreboard — Maxwell's "old
+  # RED-v-BLU header on a 16-team field". Gated HERE, not inside
+  # addTeamScoreboard itself: a seated player's own
+  # buildSpriteProtocolPlayerUpdates calls the same proc unconditionally,
+  # because players/baseline/baseline.nim's huntEndgame block reads this
+  # exact "team score <NAME> <kills>/<deaths>" label to derive its own
+  # alive-team count — a live policy dependency this spectator-cosmetics
+  # fix must never touch.
+  if sim.teams().len <= 4:
+    sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   for objectId in state.objectIds:
     if objectId notin currentIds:
