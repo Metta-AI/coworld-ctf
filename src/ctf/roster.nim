@@ -631,6 +631,13 @@ proc recordDeath*(sim: var SimServer, playerIndex: int) =
 
 proc recordCapture*(sim: var SimServer, playerIndex: int) =
   ## Increments the capture counter for one player.
+  ##
+  ## GLORY PORT (GV46): the deed/xp mint and the "Uphill"/"Fast Break"
+  ## achievement pins live at the CALL SITE (`checkWinCondition`, sim.nim),
+  ## not here -- `roster.nim` only imports `sim_types`/`sim_state`, so it
+  ## cannot see `awardDeed`/`addXp`/`teamAliveCount` (all in sim.nim, which
+  ## imports `roster`, not the reverse). Splitting the mint out of this
+  ## proc rather than restructuring the import graph for one call site.
   let index = sim.rewardAccountForPlayer(playerIndex)
   if index >= 0:
     inc sim.rewardAccounts[index].captures
