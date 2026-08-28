@@ -834,6 +834,19 @@ proc buildStateJson*(
       # omit-when-absent idiom as teamStateJson.
       if not sim.gameMap.flagless:
         overTeams[teamText(team)]["prog"] = %sim.teamFlagProgress(team)
+    # BR placement (1-based, 1..16): the end-card's own request for "remaining
+    # teams in placement order" cannot be built client-side past final lives
+    # (every eliminated team ends at 0, an unbroken tie) — brPlacements()
+    # already computes the exact total order finishGame's own BR reward
+    # reads (sim.nim: latest last-death, then kills, then damage, then seat),
+    # is a pure function of already-hashed state, and is deliberately
+    # excluded from gameHash itself (see its own doc comment), so shipping it
+    # here changes nothing about determinism or replay hashing — purely
+    # additive, omit-when-absent like every other BR-only field on this frame.
+    if sim.config.brMode:
+      let placements = sim.brPlacements()
+      for team in sim.teams():
+        overTeams[teamText(team)]["place"] = %placements[team]
     state["over"] = %*{
       "winner": teamText(sim.winner),
       "draw": sim.isDraw,
