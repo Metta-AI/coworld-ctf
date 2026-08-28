@@ -1,5 +1,8 @@
 {
   "maxGames": 0,
+  "allowSeatTakeover": true,
+  "allowDirectAim": true,
+  "allowAimAssist": true,
   "lives": 1,
   "hitPoints": 3,
   "respawnTicks": 72,
