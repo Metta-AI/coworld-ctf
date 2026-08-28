@@ -2449,7 +2449,19 @@ proc runServerLoop*(
             if websocket.isPlayerWebSocket():
               appState.playerIndices[websocket] = UnresolvedPlayerIndex
           for websocket in appState.playerViewers.keys:
-            appState.playerViewers[websocket] = initPlayerViewerState()
+            # Bots/policies (spritesOff) keep the historical full wipe so
+            # their observation stream stays byte-identical to before this
+            # change. Human viewers get the soft reset: the map bands,
+            # walkability mask, and HUD layers this socket already holds
+            # survive the round transition (see
+            # resetPlayerViewerStateForRound) instead of being re-sent from
+            # scratch on every round — the cause of the multi-megabyte
+            # per-round resend (and the mid-transfer socket teardowns it
+            # produced) that this fix targets.
+            if appState.spritesOff.getOrDefault(websocket, false):
+              appState.playerViewers[websocket] = initPlayerViewerState()
+            else:
+              appState.playerViewers[websocket].resetPlayerViewerStateForRound()
           landSeatTakeoversOnNewMatch()
 
     if not replayLoaded and config.fastMode:
