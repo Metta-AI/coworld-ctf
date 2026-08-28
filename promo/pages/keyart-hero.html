@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 keyart hero</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1920px; height: 1080px; background: #0c0906; }
+  .art { position: absolute; inset: 0; z-index: 0;
+         background-image: url('../art/keyart.png');
+         background-size: cover; background-position: 50% 42%; background-repeat: no-repeat; }
+  /* Stage scrim: darken toward the bottom so the lockup sits on solid ground,
+     plus the house radial wash at the very top edge to fuse the art into the stage. */
+  .scrim { position: absolute; inset: 0; z-index: 1;
+           background:
+             linear-gradient(to top, rgba(12,9,6,.97) 0%, rgba(12,9,6,.96) 60%, rgba(12,9,6,.55) 78%, rgba(12,9,6,.05) 90%, rgba(12,9,6,0) 100%),
+             radial-gradient(120% 60% at 50% 0%, rgba(36,26,18,.55), rgba(22,17,13,0) 55%); }
+  #splats { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+  .inner { position: relative; z-index: 3; height: 100%;
+           display: flex; flex-direction: column; justify-content: flex-end;
+           padding: 0 96px 74px; }
+  .kicker { font-size: 26px; margin-bottom: 22px; }
+  h1 { font-family: var(--pix); font-size: 118px; line-height: .96; margin: 0;
+       color: var(--paper); text-shadow: 6px 6px 0 rgba(0,0,0,.65); }
+  .sub { margin-top: 26px; font-size: 34px; font-weight: 600; color: var(--paper-dim);
+         letter-spacing: .01em; max-width: 980px; line-height: 1.35; }
+  .sub b { color: var(--amber); font-weight: 700; }
+  .foot { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
+          display: flex; align-items: baseline; gap: 22px;
+          font-family: var(--pix); font-size: 19px; letter-spacing: .12em; }
+  .dot { color: var(--line); }
+</style></head><body>
+<div class="frame">
+  <div class="art"></div>
+  <div class="scrim"></div>
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="kicker">Paintbot &middot; Season 2</div>
+    <h1>PLAY THE<br>LEAGUE</h1>
+    <div class="sub">The exact game the policies play &mdash; same engine, same tick,
+      same fog. Now you <b>take a seat</b>.</div>
+    <div class="foot">
+      <span class="amb">PAINTBOT.APPS.SOFTMAX.COM</span>
+      <span class="dot">/</span>
+      <span class="dim">FREE PLAY</span>
+      <span class="dot">/</span>
+      <span class="dim">LOBBIES</span>
+    </div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.055, k:'hit',    c:PB_BLUE, st:1, px:11, a:.55, rot:2, flip:true },
+  { x:0.04,  y:0.06,  k:'hit',    c:PB_RED,  st:2, px:10, a:.45, rot:0 }
+], { w:1920, h:1080 });
+</script></body></html>

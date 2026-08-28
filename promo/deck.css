@@ -1,0 +1,59 @@
+/* Paintbot Season 2 — presentation deck shell.
+   One system across all ten slides: same margins, same kicker treatment,
+   same footer, same accent discipline. Each slide page links this AFTER
+   brand.css and adds only what's unique to it. */
+
+.frame {
+  width: 1920px;
+  height: 1080px;
+  padding: 140px 150px 118px;
+  display: flex;
+  flex-direction: column;
+}
+
+#splats {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.stage {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* top kicker — every interior slide carries one */
+.deck-kicker {
+  font-family: var(--pix);
+  font-size: 25px;
+  color: var(--amber);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  margin-bottom: 56px;
+}
+
+/* bottom rail — identical placement on every slide */
+.deck-foot {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--pix);
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  color: var(--ghost);
+  flex-shrink: 0;
+}
+.deck-foot .amb { color: var(--amber); }

@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 deck — 05 pillar 2</title>
+<link rel="stylesheet" href="../brand.css">
+<link rel="stylesheet" href="../deck.css">
+<style>
+  .stage { justify-content: center; }
+  .pillnum { font-family: var(--pix); font-size: 26px; color: var(--paper-dim);
+             letter-spacing: 0.2em; margin-bottom: 22px; }
+  .playword { font-family: var(--pix); font-size: 200px; color: var(--amber);
+              line-height: 0.9; text-shadow: 8px 8px 0 rgba(0,0,0,.6); margin-bottom: 30px; }
+  h1 { font-size: 74px; font-weight: 700; line-height: 1.14; margin: 0 0 40px;
+       max-width: 1300px; color: var(--paper); }
+  .sub { font-size: 32px; font-weight: 600; color: var(--paper-dim); max-width: 1160px;
+         line-height: 1.5; }
+  .sub b { color: var(--amber); font-weight: 700; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="deck-kicker">Pillar two</div>
+  <div class="stage">
+    <div class="pillnum">02</div>
+    <div class="playword">PLAY</div>
+    <h1>Learn your AI by playing with it.</h1>
+    <div class="sub">Spawn your own policy into a seat and play <b>alongside</b> it or <b>against</b> it &mdash; watch what it actually does, up close.</div>
+  </div>
+  <div class="deck-foot">
+    <span>PAINTBOT &middot; SEASON 2</span>
+    <span>05 / 10</span>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.075, k:'hit',    c:PB_BLUE, st:0, px:16, a:.78, rot:1 },
+  { x:0.03,  y:0.975, k:'hit',    c:PB_RED,  st:1, px:7,  a:.65, rot:3 },
+  { x:0.97,  y:0.975, k:'puddle', c:PB_RED,  st:2, px:9,  a:.28, rot:0 }
+], { w:1920, h:1080 });
+</script></body></html>

@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 deck — 06 two doors</title>
+<link rel="stylesheet" href="../brand.css">
+<link rel="stylesheet" href="../deck.css">
+<style>
+  .stage { justify-content: center; }
+  h1 { font-size: 74px; font-weight: 700; margin: 0 0 60px; color: var(--paper); }
+  .doors { display: flex; }
+  .door { flex: 1; padding: 0 60px; }
+  .door + .door { border-left: 1px solid var(--line); }
+  .door h2 { font-family: var(--pix); font-size: 44px; color: var(--amber); margin: 0 0 20px;
+             letter-spacing: 0.06em; border-bottom: 1px solid var(--line); padding-bottom: 22px; }
+  .door ul { list-style: none; margin: 0; padding: 0; }
+  .door li { font-size: 26px; font-weight: 600; color: var(--paper-dim); line-height: 1.5;
+             padding: 14px 0; }
+  .door li + li { border-top: 1px solid var(--line); }
+  .door li b { color: var(--paper); font-weight: 700; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="deck-kicker">The two doors</div>
+  <div class="stage">
+    <h1>Two ways in.</h1>
+    <div class="doors">
+      <div class="door">
+        <h2>FREE PLAY</h2>
+        <ul>
+          <li><b>No sign-in.</b> Guests get paintball-register names &mdash; "Green Rookie."</li>
+          <li>You're assigned a <b>policy seat</b> against the standing field of league policies.</li>
+          <li>You take it over at that cog's <b>next respawn.</b></li>
+          <li>Leave, and the <b>policy resumes.</b></li>
+        </ul>
+      </div>
+      <div class="door">
+        <h2>LOBBIES</h2>
+        <ul>
+          <li><b>Sign in</b> to create one, by name.</li>
+          <li>It appears on a <b>public list</b> &mdash; anyone can join a team.</li>
+          <li>Host seats non-human slots with <b>any policy they own.</b></li>
+          <li>Unclaimed seats auto-fill. Host presses <b>Start.</b></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="deck-foot">
+    <span>PAINTBOT &middot; SEASON 2</span>
+    <span>06 / 10</span>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.085, k:'hit',    c:PB_BLUE, st:0, px:15, a:.75, rot:2 },
+  { x:0.03,  y:0.975, k:'puddle', c:PB_BLUE, st:2, px:9,  a:.28, rot:1 },
+  { x:0.97,  y:0.975, k:'puddle', c:PB_RED,  st:2, px:9,  a:.28, rot:3 }
+], { w:1920, h:1080 });
+</script></body></html>

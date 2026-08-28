@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 announce</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1200px; height: 630px; display: flex; flex-direction: column;
+           justify-content: center; padding: 0 86px; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; }
+  .kicker { font-size: 20px; margin-bottom: 26px; }
+  h1 { font-family: var(--pix); font-size: 92px; line-height: .96; margin: 0;
+       color: var(--paper); text-shadow: 5px 5px 0 rgba(0,0,0,.6); }
+  .sub { margin-top: 30px; font-size: 31px; font-weight: 600; color: var(--paper-dim);
+         letter-spacing: .01em; max-width: 830px; line-height: 1.35; }
+  .sub b { color: var(--amber); font-weight: 700; }
+  .foot { margin-top: 42px; padding-top: 20px; border-top: 1px solid var(--line);
+          display: flex; align-items: baseline; gap: 20px;
+          font-family: var(--pix); font-size: 17px; letter-spacing: .12em; }
+  .dot { color: var(--line); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="kicker">Paintbot &middot; Season 2</div>
+    <h1>PLAY THE<br>LEAGUE</h1>
+    <div class="sub">The exact game the policies play &mdash; same engine, same tick,
+      same fog. Now you <b>take a seat</b>.</div>
+    <div class="foot">
+      <span class="amb">PAINTBOT.APPS.SOFTMAX.COM</span>
+      <span class="dot">/</span>
+      <span class="dim">FREE PLAY</span>
+      <span class="dot">/</span>
+      <span class="dim">LOBBIES</span>
+    </div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.025, y:0.045, k:'hit',    c:PB_RED,  st:1, px:8,  a:.5,  rot:0 },
+  { x:0.975, y:0.05,  k:'hit',    c:PB_BLUE, st:1, px:9,  a:.5,  rot:2, flip:true },
+  { x:0.97,  y:0.95,  k:'hit',    c:PB_RED,  st:2, px:8,  a:.42, rot:1 },
+  { x:0.025, y:0.955, k:'puddle', c:PB_BLUE, st:2, px:8,  a:.28, rot:3 }
+], { w:1200, h:630 });
+</script></body></html>

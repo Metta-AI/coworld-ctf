@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 deck — 09 what shipped</title>
+<link rel="stylesheet" href="../brand.css">
+<link rel="stylesheet" href="../deck.css">
+<style>
+  .stage { justify-content: center; }
+  h1 { font-size: 64px; font-weight: 700; margin: 0 0 40px; color: var(--paper); }
+  .cols { display: flex; }
+  .col { flex: 1; padding: 0 56px; }
+  .col:first-child { padding-left: 0; }
+  .col:last-child { padding-right: 0; }
+  .col + .col { border-left: 1px solid var(--line); }
+  .col h2 { font-family: var(--pix); font-size: 24px; letter-spacing: 0.08em; margin: 0 0 20px;
+            border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .col.done h2 { color: var(--amber); }
+  .col.review h2 { color: var(--paper-dim); }
+  .col.backlog h2 { color: var(--ghost); }
+  .col ul { list-style: none; margin: 0; padding: 0; }
+  .col li { font-size: 26px; font-weight: 600; padding: 8px 0; line-height: 1.35; }
+  .col.done li { color: var(--paper); }
+  .col.review li { color: var(--paper-dim); }
+  .col.backlog li { color: var(--ghost); }
+  .honest { margin-top: 40px; font-size: 25px; font-weight: 600; color: var(--ghost); }
+  .honest b { color: var(--amber); font-weight: 700; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="deck-kicker">What shipped</div>
+  <div class="stage">
+    <h1>An honest status check.</h1>
+    <div class="cols">
+      <div class="col done">
+        <h2>DONE</h2>
+        <ul>
+          <li>Human seat</li>
+          <li>Seat takeover</li>
+          <li>Direct aim</li>
+          <li>Aim assist</li>
+          <li>Controls</li>
+          <li>Glory HUD</li>
+          <li>BARRIER</li>
+        </ul>
+      </div>
+      <div class="col review">
+        <h2>IN REVIEW</h2>
+        <ul>
+          <li>Direct aim</li>
+        </ul>
+      </div>
+      <div class="col backlog">
+        <h2>BACKLOG / PARKED</h2>
+        <ul>
+          <li>Callout wheel</li>
+          <li>Smooth aim</li>
+        </ul>
+      </div>
+    </div>
+    <div class="honest">Being straight about the list is <b>the point of this slide.</b></div>
+  </div>
+  <div class="deck-foot">
+    <span>PAINTBOT &middot; SEASON 2</span>
+    <span>09 / 10</span>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.085, k:'hit',    c:PB_RED,  st:0, px:15, a:.75, rot:2 },
+  { x:0.03,  y:0.975, k:'hit',    c:PB_BLUE, st:1, px:7,  a:.65, rot:0 },
+  { x:0.97,  y:0.975, k:'puddle', c:PB_BLUE, st:2, px:9,  a:.28, rot:1 }
+], { w:1920, h:1080 });
+</script></body></html>

@@ -1,0 +1,64 @@
+/* Paintbot Season 2 — promo brand kit.
+   Tokens lifted verbatim from docs/designs/season2-cheatsheet.html (:root, lines 19-31)
+   so every promo asset is the same system as the shipped surfaces. */
+@import url('./fonts.css');
+
+:root {
+  --stage-lo: #16110d;
+  --stage-hi: #241a12;
+  --paper:    #f2e8d8;
+  --paper-dim:#b8ac98;
+  --ghost:    #8a7f72;
+  --ink:      #2a1f16;
+  --red:      #e0523a;
+  --blue:     #3f7cc4;
+  --amber:    #e8a33d;
+  --green:    #7fae55;
+  --line:  rgba(232, 163, 61, 0.28);
+  --panel: rgba(13, 10, 6, 0.55);
+
+  --pix:  'nes-pixel', 'rajdhani', monospace;
+  --disp: 'rajdhani', 'Segoe UI', system-ui, sans-serif;
+  --fine: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+/* The stage: warm CRT-phosphor near-black, never pure #000. */
+body {
+  background: radial-gradient(120% 90% at 50% 0%, var(--stage-hi), var(--stage-lo) 70%);
+  color: var(--paper);
+  font-family: var(--disp);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Frame = one promo asset at exact pixel size. Screenshot targets this. */
+.frame {
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, var(--stage-hi), var(--stage-lo) 70%);
+}
+
+/* Pixel display type — the Season 2 voice. Never anti-aliased soft. */
+.pix { font-family: var(--pix); letter-spacing: 0.02em; }
+.kicker {
+  font-family: var(--pix);
+  color: var(--amber);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.rule { border: 0; border-top: 1px solid var(--line); }
+
+/* Quiet hairline panel — the ONLY card treatment. One line, no shadow stack. */
+.panel { background: var(--panel); border: 1px solid var(--line); }
+
+.tred  { color: var(--red); }
+.tblue { color: var(--blue); }
+.amb   { color: var(--amber); }
+.dim   { color: var(--paper-dim); }
+.gho   { color: var(--ghost); }
+
+/* Hard pixel shadow, as used by the glory pops. */
+.pop-shadow { text-shadow: 3px 3px 0 rgba(0,0,0,0.75); }

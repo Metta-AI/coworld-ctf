@@ -1,0 +1,271 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 glory board</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1600px; height: 2200px; padding: 54px 66px 42px; display: flex; flex-direction: column; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; }
+
+  .header { text-align: center; }
+  .kicker { font-size: 19px; }
+  h1.title { font-family: var(--pix); font-size: 78px; line-height: 1; margin: 14px 0 0;
+       color: var(--paper); text-shadow: 5px 5px 0 rgba(0,0,0,.6); }
+  .sub { margin-top: 14px; font-size: 19px; font-weight: 600; color: var(--paper-dim); letter-spacing: .02em; }
+  .sub b { color: var(--amber); font-weight: 700; }
+
+  .section-head { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line);
+                  padding-bottom: 9px; margin-bottom: 18px; }
+  .section-head h2 { font-family: var(--pix); font-size: 20px; color: var(--amber); letter-spacing: .08em; margin: 0; }
+  .section-head small { font-family: var(--pix); font-size: 11px; color: var(--ghost); letter-spacing: .06em; }
+
+  /* ── ranks ── */
+  .ranks-section { margin-top: 34px; }
+  .ranks-row { display: flex; justify-content: space-between; gap: 14px; }
+  .rcard { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .rcard .badge-wrap { width: 140px; height: 140px; border-radius: 50%; overflow: hidden;
+                        border: 2px solid var(--line); }
+  .rcard .badge-wrap img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; display: block; }
+  .rcard .name { font-family: var(--pix); font-size: 17px; color: var(--paper); margin-top: 14px; }
+  .rcard .stars { color: var(--amber); font-size: 14px; letter-spacing: 3px; margin-top: 8px; height: 16px; }
+  .rcard .buff { margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--paper-dim);
+                 line-height: 1.4; max-width: 178px; min-height: 54px; }
+  .rcard .xp { margin-top: 6px; font-family: var(--pix); font-size: 12px; color: var(--ghost); }
+  .rcard .xp b { color: var(--paper-dim); }
+
+  /* ── deeds ── */
+  .deeds-section { margin-top: 38px; }
+  .deeds-cols { display: flex; gap: 46px; }
+  .dcol { flex: 1; }
+  .subhead { font-family: var(--pix); font-size: 13px; color: var(--ghost); letter-spacing: .14em; margin: 18px 0 6px; }
+  .subhead:first-child { margin-top: 0; }
+  .drow { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid rgba(232,163,61,0.12); }
+  .drow .n { font-family: var(--pix); font-size: 15px; color: var(--paper); white-space: nowrap; }
+  .drow .n.neg { color: var(--red); }
+  .drow .n.quiet { color: var(--ghost); }
+  .drow .q { font-size: 13px; color: var(--ghost); }
+  .drow .fill { flex: 1; }
+  .drow .amt { font-family: var(--pix); font-size: 15px; color: var(--amber); white-space: nowrap; }
+  .drow .amt.neg { color: var(--red); }
+  .drow .amt.zero { color: var(--ghost); }
+
+  /* ── achievements ── */
+  .ach-section { margin-top: 40px; }
+  .ach-prices { font-family: var(--pix); font-size: 13px; color: var(--paper-dim); text-align: right; margin: -8px 0 16px; }
+  .ach-prices b { color: var(--amber); }
+  .trees { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px 22px; }
+  .tree { background: var(--panel); border: 1px solid var(--line); padding: 18px 19px;
+          display: flex; gap: 16px; align-items: flex-start; }
+  .tree .badge-wrap { width: 100px; height: 100px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+                       border: 2px solid var(--line); }
+  .tree .badge-wrap img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; display: block; }
+  .tree-body { flex: 1; min-width: 0; }
+  .tree h3 { font-family: var(--pix); font-size: 15px; margin: 0 0 9px; color: var(--paper);
+             letter-spacing: .05em; border-bottom: 1px solid var(--line); padding-bottom: 7px; }
+  .tr { display: flex; align-items: baseline; gap: 9px; padding: 2.5px 0; }
+  .tr .t { font-family: var(--pix); font-size: 11px; color: var(--amber); width: 34px; flex-shrink: 0; }
+  .tr .n { font-size: 13.5px; font-weight: 600; color: var(--paper); white-space: nowrap; }
+  .tr .q { font-size: 11px; color: var(--ghost); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; }
+
+  .foot { margin-top: auto; padding-top: 20px; border-top: 1px solid var(--line);
+          text-align: center; font-family: var(--pix); font-size: 13px; letter-spacing: .1em; color: var(--ghost); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+
+    <div class="header">
+      <div class="kicker pix">SEASON 2</div>
+      <h1 class="title">GLORY</h1>
+      <div class="sub">RANKS PAY <b>POWER</b> &middot; DEEDS PAY <b>GLORY</b> &middot; ACHIEVEMENTS PAY MASTERY</div>
+    </div>
+
+    <!-- ── RANKS ── -->
+    <div class="ranks-section">
+      <div class="section-head"><h2>RANK UP</h2><small>XP &middot; ONE LIFE &middot; RESETS ON DEATH</small></div>
+      <div class="ranks-row">
+        <div class="rcard">
+          <div class="badge-wrap"><img src="../art/rank-recruit-sq.png" alt=""></div>
+          <div class="name">RECRUIT</div>
+          <div class="stars">&nbsp;</div>
+          <div class="buff">base kit</div>
+          <div class="xp"><b>0</b> XP</div>
+        </div>
+        <div class="rcard">
+          <div class="badge-wrap"><img src="../art/rank-tagger-sq.png" alt=""></div>
+          <div class="name">TAGGER</div>
+          <div class="stars">&#10033;</div>
+          <div class="buff">windup 5 &rarr; 4</div>
+          <div class="xp"><b>9</b> XP</div>
+        </div>
+        <div class="rcard">
+          <div class="badge-wrap"><img src="../art/rank-marksman-sq.png" alt=""></div>
+          <div class="name">MARKSMAN</div>
+          <div class="stars">&#10033;&#10033;</div>
+          <div class="buff">spray recharge 20 &rarr; 12</div>
+          <div class="xp"><b>15</b> XP</div>
+        </div>
+        <div class="rcard">
+          <div class="badge-wrap"><img src="../art/rank-ironhide-sq.png" alt=""></div>
+          <div class="name">IRONHIDE</div>
+          <div class="stars">&#10033;&#10033;&#10033;</div>
+          <div class="buff">+1 max hp &middot; drops on &middot; you = bounty</div>
+          <div class="xp"><b>24</b> XP</div>
+        </div>
+        <div class="rcard">
+          <div class="badge-wrap"><img src="../art/rank-quickdraw-sq.png" alt=""></div>
+          <div class="name">QUICKDRAW</div>
+          <div class="stars">&#10033;&#10033;&#10033;&#10033;</div>
+          <div class="buff">cooldown &minus;25% &middot; bombs hold 2</div>
+          <div class="xp"><b>33</b> XP</div>
+        </div>
+        <div class="rcard">
+          <div class="badge-wrap"><img src="../art/rank-legend-sq.png" alt=""></div>
+          <div class="name">LEGEND</div>
+          <div class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</div>
+          <div class="buff">windup &rarr; 3 &middot; carry at full speed</div>
+          <div class="xp"><b>48</b> XP</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DEEDS ── -->
+    <div class="deeds-section">
+      <div class="section-head"><h2>DEEDS</h2><small>TEAM GLORY &middot; ONE DEED PER KILL</small></div>
+      <div class="deeds-cols">
+        <div class="dcol">
+          <div class="subhead">COMBAT</div>
+          <div class="drow"><span class="n">TAG</span><span class="fill"></span><span class="amt">+10</span></div>
+          <div class="drow"><span class="n">FIRST!</span><span class="q">first tag of the game</span><span class="fill"></span><span class="amt">+12</span></div>
+          <div class="drow"><span class="n">SPRAYED</span><span class="fill"></span><span class="amt">+12</span></div>
+          <div class="drow"><span class="n">BOMBED</span><span class="fill"></span><span class="amt">+12</span></div>
+          <div class="drow"><span class="n">POINT-BLANK</span><span class="q">inside 110 px</span><span class="fill"></span><span class="amt">+12</span></div>
+          <div class="drow"><span class="n">CHASE</span><span class="q">they were running</span><span class="fill"></span><span class="amt">+16</span></div>
+          <div class="drow"><span class="n">PAYBACK</span><span class="q">avenge yourself &le;10s</span><span class="fill"></span><span class="amt">+18</span></div>
+          <div class="drow"><span class="n">LONGSHOT</span><span class="q">past 700 px</span><span class="fill"></span><span class="amt">+30</span></div>
+          <div class="drow"><span class="n">MULTI!</span><span class="q">2+ with one blast</span><span class="fill"></span><span class="amt">+35</span></div>
+          <div class="drow"><span class="n">BOUNTY</span><span class="q">down an ace &#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt">+40</span></div>
+        </div>
+        <div class="dcol">
+          <div class="subhead">THE HEART</div>
+          <div class="drow"><span class="n">ESCORT</span><span class="q">kill while ally carries</span><span class="fill"></span><span class="amt">+14</span></div>
+          <div class="drow"><span class="n">STEAL</span><span class="fill"></span><span class="amt">+40</span></div>
+          <div class="drow"><span class="n">PEEL</span><span class="q">kill their carrier</span><span class="fill"></span><span class="amt">+90</span></div>
+          <div class="drow"><span class="n">DENIED!</span><span class="q">peel at the doorstep</span><span class="fill"></span><span class="amt">+120</span></div>
+          <div class="drow"><span class="n">CAPTURE</span><span class="fill"></span><span class="amt">+250</span></div>
+          <div class="subhead">TEAM</div>
+          <div class="drow"><span class="n">WIPEOUT</span><span class="q">whole squad splatted</span><span class="fill"></span><span class="amt">+400</span></div>
+          <div class="drow"><span class="n quiet">SHIELD SOAK</span><span class="q">no pop, no heat</span><span class="fill"></span><span class="amt">+4<span class="q">/hp</span></span></div>
+          <div class="drow"><span class="n neg">OWN PAINT</span><span class="q">&minus;20 xp too</span><span class="fill"></span><span class="amt neg">&minus;60</span></div>
+          <div class="drow"><span class="n quiet">RANK UP &#10033;</span><span class="q">stars only</span><span class="fill"></span><span class="amt zero">+0</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ACHIEVEMENTS ── -->
+    <div class="ach-section">
+      <div class="section-head"><h2>THE CURRICULUM</h2><small>EIGHT TREES &middot; TIERS I&ndash;V &middot; ONE CLAIM PER TEAM PER GAME</small></div>
+      <div class="ach-prices">I <b>9</b> &middot; II <b>11</b> &middot; III <b>14</b> &middot; IV <b>18</b> &middot; V <b>23</b> &nbsp;&mdash;&nbsp; FIRST V <b>&times;3 = 69</b></div>
+      <div class="trees">
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-sidearm-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE SIDEARM</h3>
+            <div class="tr"><span class="t">I</span><span class="n">First Tag</span><span class="q">gun kill</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Marksman</span><span class="q">3 gun kills</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Bounty</span><span class="q">down an ace</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Sharpshooter</span><span class="q">hit max rank</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Longshot</span><span class="q">past 700 px</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-can-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE CAN</h3>
+            <div class="tr"><span class="t">I</span><span class="n">First Coat</span><span class="q">spray kill</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Full Coverage</span><span class="q">2 spray kills</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Repainted</span><span class="q">2 kills, one can</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">The Muralist</span><span class="q">3 kills, one can</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Double Splash</span><span class="q">2+ one cone</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-bomb-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE BOMB</h3>
+            <div class="tr"><span class="t">I</span><span class="n">Delivery</span><span class="q">bomb kill</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Splatterbomb</span><span class="q">2 bomb kills</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Blast Radius</span><span class="q">2+ in one blast</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Double Blast</span><span class="q">two 2+ blasts</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">The Bombardier</span><span class="q">3 bomb kills</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-backup-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE BACKUP</h3>
+            <div class="tr"><span class="t">I</span><span class="n">Cover Fire</span><span class="q">assist</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Escort Duty</span><span class="q">kill, ally carries</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">The Save</span><span class="q">kill ally's attacker</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Second Wind</span><span class="q">get saved, then kill</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Squad Volley</span><span class="q">3 allies kill fast</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-provider-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE PROVIDER</h3>
+            <div class="tr"><span class="t">I</span><span class="n">First Delivery</span><span class="q">ally takes drop</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Clutch Delivery</span><span class="q">saves hurt ally</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Regular Route</span><span class="q">3 drops shared</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Emergency Route</span><span class="q">2 clutch saves</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Supply Chain</span><span class="q">6 drops shared</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-heart-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE HEART</h3>
+            <div class="tr"><span class="t">I</span><span class="n">Hands On</span><span class="q">contested steal</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Delivered</span><span class="q">capture</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Fighting Carry</span><span class="q">kill while carrying</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Uphill</span><span class="q">capture outnumbered</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Fast Break</span><span class="q">steal &rarr; score &le;10s</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-peel-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE PEEL</h3>
+            <div class="tr"><span class="t">I</span><span class="n">The Peel</span><span class="q">kill the carrier</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Doorstep</span><span class="q">a denial</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Double Peel</span><span class="q">2 carrier kills</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Turnaround</span><span class="q">peel, then steal</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Lockdown</span><span class="q">2 denials</span></div>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="badge-wrap"><img src="../art/ach-squad-sq.png" alt=""></div>
+          <div class="tree-body">
+            <h3>THE SQUAD</h3>
+            <div class="tr"><span class="t">I</span><span class="n">Kitted</span><span class="q">2 of 4 kits convert</span></div>
+            <div class="tr"><span class="t">II</span><span class="n">Full Loadout</span><span class="q">3 of 4</span></div>
+            <div class="tr"><span class="t">III</span><span class="n">Full Kit</span><span class="q">all 4</span></div>
+            <div class="tr"><span class="t">IV</span><span class="n">Clean Sheet</span><span class="q">zero team paint</span></div>
+            <div class="tr"><span class="t">V</span><span class="n">Victory Lap</span><span class="q">all 4 + a capture</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">GLORY.NIM &middot; GLORYVERSION 10 &middot; PAINTBOT.APPS.SOFTMAX.COM</div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.01,  y:0.012, k:'hit',    c:PB_RED,  st:1, px:11, a:.55, rot:0 },
+  { x:0.99,  y:0.014, k:'hit',    c:PB_BLUE, st:1, px:10, a:.50, rot:2, flip:true },
+  { x:0.985, y:0.985, k:'hit',    c:PB_RED,  st:2, px:10, a:.45, rot:1 },
+  { x:0.012, y:0.988, k:'puddle', c:PB_BLUE, st:2, px:9,  a:.30, rot:3 }
+], { w:1600, h:2200 });
+</script></body></html>

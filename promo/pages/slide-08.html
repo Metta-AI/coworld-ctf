@@ -1,0 +1,74 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 deck — 08 glory live</title>
+<link rel="stylesheet" href="../brand.css">
+<link rel="stylesheet" href="../deck.css">
+<style>
+  .stage { justify-content: center; }
+  h1 { font-size: 68px; font-weight: 700; line-height: 1.14; margin: 0 0 12px;
+       max-width: 1400px; color: var(--paper); }
+  h1 b { color: var(--amber); font-weight: 700; }
+  .sub { font-size: 26px; font-weight: 600; color: var(--ghost); margin-bottom: 46px; }
+
+  .ranks { display: flex; align-items: baseline; flex-wrap: nowrap; border-top: 1px solid var(--line);
+           border-bottom: 1px solid var(--line); padding: 26px 0; margin-bottom: 44px; }
+  .rank { display: flex; align-items: baseline; gap: 8px; }
+  .rank .n { font-family: var(--pix); font-size: 27px; color: var(--paper); letter-spacing: 0.02em; }
+  .rank .s { color: var(--amber); font-size: 17px; letter-spacing: 1px; }
+  .arrow { color: var(--line); font-size: 26px; margin: 0 20px; }
+
+  .deedhead { font-family: var(--pix); font-size: 18px; color: var(--ghost);
+              letter-spacing: 0.18em; margin-bottom: 16px; }
+  .deeds { display: flex; gap: 90px; }
+  .col { flex: 1; }
+  .row { display: flex; align-items: baseline; gap: 16px; padding: 13px 0; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .name { font-family: var(--pix); font-size: 27px; color: var(--paper); }
+  .row .q { font-size: 18px; color: var(--ghost); font-weight: 600; }
+  .row .fill { flex: 1; }
+  .row .amt { font-family: var(--pix); font-size: 27px; color: var(--amber); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="deck-kicker">Glory, live</div>
+  <div class="stage">
+    <h1>Ranks and deeds, now on <b>your</b> screen.</h1>
+    <div class="sub">Not just replays &mdash; the same Glory HUD, live, while you play.</div>
+
+    <div class="ranks">
+      <div class="rank"><span class="n">RECRUIT</span></div><span class="arrow">&rsaquo;</span>
+      <div class="rank"><span class="n">TAGGER</span><span class="s">&#10033;</span></div><span class="arrow">&rsaquo;</span>
+      <div class="rank"><span class="n">MARKSMAN</span><span class="s">&#10033;&#10033;</span></div><span class="arrow">&rsaquo;</span>
+      <div class="rank"><span class="n">IRONHIDE</span><span class="s">&#10033;&#10033;&#10033;</span></div><span class="arrow">&rsaquo;</span>
+      <div class="rank"><span class="n">QUICKDRAW</span><span class="s">&#10033;&#10033;&#10033;&#10033;</span></div><span class="arrow">&rsaquo;</span>
+      <div class="rank"><span class="n">LEGEND</span><span class="s">&#10033;&#10033;&#10033;&#10033;&#10033;</span></div>
+    </div>
+
+    <div class="deedhead">DEEDS &middot; A SELECTION</div>
+    <div class="deeds">
+      <div class="col">
+        <div class="row"><span class="name">TAG</span><span class="fill"></span><span class="amt">+10</span></div>
+        <div class="row"><span class="name">LONGSHOT</span><span class="q">past 700 px</span><span class="fill"></span><span class="amt">+30</span></div>
+        <div class="row"><span class="name">MULTI!</span><span class="q">2+ with one blast</span><span class="fill"></span><span class="amt">+35</span></div>
+        <div class="row"><span class="name">BOUNTY</span><span class="q">down an ace</span><span class="fill"></span><span class="amt">+40</span></div>
+      </div>
+      <div class="col">
+        <div class="row"><span class="name">PEEL</span><span class="q">kill their carrier</span><span class="fill"></span><span class="amt">+90</span></div>
+        <div class="row"><span class="name">DENIED!</span><span class="q">peel at the doorstep</span><span class="fill"></span><span class="amt">+120</span></div>
+        <div class="row"><span class="name">CAPTURE</span><span class="fill"></span><span class="amt">+250</span></div>
+        <div class="row"><span class="name">WIPEOUT</span><span class="q">whole squad splatted</span><span class="fill"></span><span class="amt">+400</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="deck-foot">
+    <span>PAINTBOT &middot; SEASON 2</span>
+    <span>08 / 10</span>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.085, k:'hit',    c:PB_BLUE, st:0, px:15, a:.75, rot:1 },
+  { x:0.03,  y:0.975, k:'hit',    c:PB_RED,  st:1, px:7,  a:.65, rot:0 },
+  { x:0.97,  y:0.975, k:'puddle', c:PB_RED,  st:2, px:9,  a:.28, rot:2 }
+], { w:1920, h:1080 });
+</script></body></html>

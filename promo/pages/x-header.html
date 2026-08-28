@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 x header</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1500px; height: 500px; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column;
+           justify-content: center; align-items: flex-end; text-align: right;
+           padding: 0 60px 0 0; }
+  .safe { max-width: 960px; }
+  .kicker { font-size: 24px; margin-bottom: 24px; justify-content: flex-end; }
+  h1 { font-family: var(--pix); font-size: 106px; line-height: 1.0; margin: 0;
+       color: var(--paper); text-shadow: 6px 6px 0 rgba(0,0,0,.6); }
+  .sub { margin-top: 28px; font-size: 28px; font-weight: 600; color: var(--paper-dim);
+         letter-spacing: .01em; line-height: 1.4; }
+  .sub b { color: var(--amber); font-weight: 700; }
+  .foot { margin-top: 30px; font-family: var(--pix); font-size: 17px;
+          letter-spacing: .1em; color: var(--amber); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="safe">
+      <div class="kicker">Paintbot &middot; Season 2</div>
+      <h1>PLAY THE LEAGUE</h1>
+      <div class="sub">Same engine. Same tick. Same fog. <b>Now you take a seat.</b></div>
+      <div class="foot">PAINTBOT.APPS.SOFTMAX.COM</div>
+    </div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.985, y:0.06, k:'hit',    c:PB_BLUE, st:1, px:9,  a:.5,  rot:2, flip:true },
+  { x:0.985, y:0.94, k:'hit',    c:PB_RED,  st:2, px:8,  a:.42, rot:1 },
+  { x:0.03,  y:0.10, k:'puddle', c:PB_RED,  st:1, px:8,  a:.28, rot:0 },
+  { x:0.06,  y:0.62, k:'puddle', c:PB_BLUE, st:2, px:7,  a:.22, rot:3 }
+], { w:1500, h:500 });
+</script></body></html>

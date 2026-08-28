@@ -1,0 +1,97 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 rank up</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1920px; height: 1080px; padding: 64px 90px 54px; display: flex; flex-direction: column; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; }
+
+  .header { text-align: center; }
+  .kicker { font-size: 19px; margin-bottom: 16px; }
+  h1 { font-family: var(--pix); font-size: 58px; line-height: 1; margin: 0;
+       color: var(--paper); text-shadow: 4px 4px 0 rgba(0,0,0,.6); }
+  .sub { margin-top: 16px; font-size: 22px; font-weight: 600; color: var(--paper-dim); letter-spacing: .02em; }
+  .sub b { color: var(--amber); font-weight: 700; }
+
+  .row { display: flex; justify-content: space-between; gap: 22px; margin-top: 54px; flex: 1; }
+  .card { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .badge-wrap { width: 208px; height: 208px; border-radius: 50%; overflow: hidden;
+                border: 2px solid var(--line); box-shadow: 0 0 0 6px rgba(13,10,6,0.35); }
+  .badge-wrap img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; display: block; }
+  .name { font-family: var(--pix); font-size: 25px; color: var(--paper); margin-top: 22px;
+          text-shadow: 2px 2px 0 rgba(0,0,0,.6); }
+  .stars { color: var(--amber); font-size: 20px; letter-spacing: 4px; margin-top: 10px; height: 22px; }
+  .buff { margin-top: 14px; font-size: 16px; font-weight: 600; color: var(--paper-dim);
+          line-height: 1.4; max-width: 250px; min-height: 46px; }
+  .xp { margin-top: 10px; font-family: var(--pix); font-size: 13px; color: var(--ghost); letter-spacing: .08em; }
+  .xp b { color: var(--paper-dim); }
+
+  .foot { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line);
+          text-align: center; font-family: var(--pix); font-size: 15px; letter-spacing: .12em; color: var(--ghost); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="header">
+      <div class="kicker">SEASON 2 &middot; GLORY</div>
+      <h1>RANK UP</h1>
+      <div class="sub">XP &middot; ONE LIFE &middot; PAYS <b>POWER</b>, NOT GLORY</div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <div class="badge-wrap"><img src="../art/rank-recruit-sq.png" alt=""></div>
+        <div class="name">RECRUIT</div>
+        <div class="stars">&nbsp;</div>
+        <div class="buff">base kit</div>
+        <div class="xp"><b>0</b> XP</div>
+      </div>
+      <div class="card">
+        <div class="badge-wrap"><img src="../art/rank-tagger-sq.png" alt=""></div>
+        <div class="name">TAGGER</div>
+        <div class="stars">&#10033;</div>
+        <div class="buff">windup 5 &rarr; 4</div>
+        <div class="xp"><b>9</b> XP</div>
+      </div>
+      <div class="card">
+        <div class="badge-wrap"><img src="../art/rank-marksman-sq.png" alt=""></div>
+        <div class="name">MARKSMAN</div>
+        <div class="stars">&#10033;&#10033;</div>
+        <div class="buff">spray recharge 20 &rarr; 12</div>
+        <div class="xp"><b>15</b> XP</div>
+      </div>
+      <div class="card">
+        <div class="badge-wrap"><img src="../art/rank-ironhide-sq.png" alt=""></div>
+        <div class="name">IRONHIDE</div>
+        <div class="stars">&#10033;&#10033;&#10033;</div>
+        <div class="buff">+1 max hp &middot; supply drops on &middot; you = bounty</div>
+        <div class="xp"><b>24</b> XP</div>
+      </div>
+      <div class="card">
+        <div class="badge-wrap"><img src="../art/rank-quickdraw-sq.png" alt=""></div>
+        <div class="name">QUICKDRAW</div>
+        <div class="stars">&#10033;&#10033;&#10033;&#10033;</div>
+        <div class="buff">cooldown &minus;25% &middot; bombs hold 2</div>
+        <div class="xp"><b>33</b> XP</div>
+      </div>
+      <div class="card">
+        <div class="badge-wrap"><img src="../art/rank-legend-sq.png" alt=""></div>
+        <div class="name">LEGEND</div>
+        <div class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</div>
+        <div class="buff">windup &rarr; 3 &middot; carry at full speed</div>
+        <div class="xp"><b>48</b> XP</div>
+      </div>
+    </div>
+
+    <div class="foot">RESET ON DEATH &middot; +HP IS HEADROOM, NOT A HEAL</div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.012, y:0.02,  k:'hit',    c:PB_RED,  st:1, px:10, a:.55, rot:0 },
+  { x:0.988, y:0.025, k:'hit',    c:PB_BLUE, st:1, px:9,  a:.50, rot:2, flip:true },
+  { x:0.985, y:0.965, k:'hit',    c:PB_RED,  st:2, px:9,  a:.45, rot:1 },
+  { x:0.015, y:0.97,  k:'puddle', c:PB_BLUE, st:2, px:8,  a:.30, rot:3 }
+], { w:1920, h:1080 });
+</script></body></html>

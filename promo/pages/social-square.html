@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 social square</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1080px; height: 1080px; display: flex; flex-direction: column;
+           justify-content: center; padding: 0 96px; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; }
+  .kicker { font-size: 24px; margin-bottom: 34px; }
+  h1 { font-family: var(--pix); font-size: 96px; line-height: 1.0; margin: 0;
+       color: var(--paper); text-shadow: 6px 6px 0 rgba(0,0,0,.6); }
+  .sub { margin-top: 40px; font-size: 34px; font-weight: 600; color: var(--paper-dim);
+         letter-spacing: .01em; max-width: 780px; line-height: 1.45; }
+  .sub b { color: var(--amber); font-weight: 700; }
+  .rule { margin-top: 56px; }
+  .foot { margin-top: 28px; font-family: var(--pix); font-size: 20px; letter-spacing: .12em; }
+  .foot .doors { margin-top: 16px; display: flex; align-items: baseline; gap: 22px; }
+  .dot { color: var(--line); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="kicker">Paintbot &middot; Season 2</div>
+    <h1>PLAY THE<br>LEAGUE</h1>
+    <div class="sub">The exact game the policies play &mdash; same engine, same tick,
+      same fog. Now you <b>take a seat</b>.</div>
+    <hr class="rule">
+    <div class="foot">
+      <div class="amb">PAINTBOT.APPS.SOFTMAX.COM</div>
+      <div class="doors">
+        <span class="dim">FREE PLAY</span>
+        <span class="dot">/</span>
+        <span class="dim">LOBBIES</span>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.03,  y:0.03,  k:'hit',    c:PB_RED,  st:1, px:9,  a:.5,  rot:0 },
+  { x:0.97,  y:0.045, k:'hit',    c:PB_BLUE, st:1, px:10, a:.5,  rot:2, flip:true },
+  { x:0.965, y:0.965, k:'hit',    c:PB_RED,  st:2, px:9,  a:.42, rot:1 },
+  { x:0.03,  y:0.97,  k:'puddle', c:PB_BLUE, st:2, px:9,  a:.28, rot:3 }
+], { w:1080, h:1080 });
+</script></body></html>

@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 landing banner</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 2400px; height: 800px; background: #0c0906; }
+  .art { position: absolute; inset: 0; z-index: 0;
+         background-image: url('../art/banner.png');
+         background-size: cover; background-position: 50% 50%; background-repeat: no-repeat; }
+  /* The art already reserves its left third as empty stage; this scrim just
+     guarantees contrast for type without flattening the art on the right. */
+  .scrim { position: absolute; inset: 0; z-index: 1;
+           background: linear-gradient(to right, rgba(12,9,6,.85) 0%, rgba(12,9,6,.55) 30%, rgba(12,9,6,0) 52%); }
+  #splats { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+  .inner { position: relative; z-index: 3; height: 100%;
+           display: flex; flex-direction: column; justify-content: center;
+           padding: 0 0 0 84px; }
+  .safe { max-width: 900px; }
+  .kicker { font-size: 22px; margin-bottom: 24px; }
+  h1 { font-family: var(--pix); font-size: 84px; line-height: 1.0; margin: 0;
+       color: var(--paper); text-shadow: 5px 5px 0 rgba(0,0,0,.65); }
+  .sub { margin-top: 28px; font-size: 27px; font-weight: 600; color: var(--paper-dim);
+         letter-spacing: .01em; line-height: 1.4; }
+  .sub b { color: var(--amber); font-weight: 700; }
+  .foot { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--line);
+          display: flex; align-items: baseline; gap: 20px; flex-wrap: nowrap;
+          font-family: var(--pix); font-size: 17px; letter-spacing: .12em; white-space: nowrap; }
+  .dot { color: var(--line); }
+</style></head><body>
+<div class="frame">
+  <div class="art"></div>
+  <div class="scrim"></div>
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="safe">
+      <div class="kicker">Paintbot &middot; Season 2</div>
+      <h1>PLAY THE LEAGUE</h1>
+      <div class="sub">Same engine. Same tick. Same fog. <b>Now you take a seat.</b></div>
+      <div class="foot">
+        <span class="amb">PAINTBOT.APPS.SOFTMAX.COM</span>
+        <span class="dot">/</span>
+        <span class="dim">FREE PLAY</span>
+        <span class="dot">/</span>
+        <span class="dim">LOBBIES</span>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.02, y:0.08, k:'puddle', c:PB_RED,  st:1, px:8, a:.28, rot:0 },
+  { x:0.02, y:0.90, k:'puddle', c:PB_BLUE, st:2, px:8, a:.24, rot:3 }
+], { w:2400, h:800 });
+</script></body></html>

@@ -1,0 +1,71 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 two doors</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1200px; height: 630px; padding: 52px 64px 40px; display: flex;
+           flex-direction: column; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; }
+  .kicker { font-size: 17px; margin-bottom: 14px; }
+  h1 { font-family: var(--pix); font-size: 44px; line-height: 1.0; margin: 0 0 26px;
+       color: var(--paper); text-shadow: 3px 3px 0 rgba(0,0,0,.6); }
+  .doors { display: flex; gap: 22px; flex: 1; align-items: stretch; }
+
+  .door { border: 1px solid var(--line); background: var(--panel); padding: 26px 28px; }
+  .door .dk { font-family: var(--pix); font-size: 15px; letter-spacing: .18em; color: var(--amber); }
+  .door .dh { font-family: var(--disp); font-weight: 700; margin-top: 10px; color: var(--paper); }
+  .door ul { list-style: none; margin: 18px 0 0; padding: 0; }
+  .door li { position: relative; padding-left: 22px; color: var(--paper-dim); font-weight: 500; }
+  .door li::before { content: '\2013'; position: absolute; left: 0; color: var(--ghost); }
+  .door li + li { margin-top: 10px; }
+  .door li b { color: var(--paper); font-weight: 700; }
+
+  .door.free { flex: 0 0 60%; }
+  .door.free .dk { font-size: 17px; }
+  .door.free .dh { font-size: 30px; line-height: 1.2; }
+  .door.free ul { font-size: 19px; line-height: 1.4; }
+  .door.free li { padding-left: 26px; }
+
+  .door.lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .door.lobby .dh { font-size: 23px; line-height: 1.25; }
+  .door.lobby ul { font-size: 19px; line-height: 1.4; }
+  .door.lobby li { padding-left: 26px; }
+
+  .vs { align-self: center; font-family: var(--pix); font-size: 15px; color: var(--ghost);
+        letter-spacing: .1em; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="kicker">Paintbot &middot; Season 2</div>
+    <h1>TWO DOORS</h1>
+    <div class="doors">
+      <div class="door free">
+        <div class="dk">FREE PLAY</div>
+        <div class="dh">Walk up and play &mdash; no account.</div>
+        <ul>
+          <li>No sign-in. You're a guest with a paintball-register name, like <b>&ldquo;Green Rookie.&rdquo;</b></li>
+          <li>You're assigned a policy's seat and take it over at that cog's <b>next respawn</b> &mdash; never body-snatched mid-fight.</li>
+          <li>Leave, and the policy just <b>resumes</b>.</li>
+        </ul>
+      </div>
+      <div class="vs">OR</div>
+      <div class="door lobby">
+        <div class="dk">LOBBIES</div>
+        <div class="dh">Sign in to host one by name.</div>
+        <ul>
+          <li>It appears on a <b>public list</b>.</li>
+          <li>Anyone can join a team.</li>
+          <li>Host seats non-human slots with <b>any policy they own</b>.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.985, y:0.035, k:'hit',    c:PB_BLUE, st:1, px:8,  a:.45, rot:2, flip:true },
+  { x:0.015, y:0.975, k:'puddle', c:PB_RED,  st:2, px:7,  a:.24, rot:1 }
+], { w:1200, h:630 });
+</script></body></html>

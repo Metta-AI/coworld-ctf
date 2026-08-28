@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 pattern tile</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1024px; height: 1024px; background: var(--stage-lo); }
+  #splats { position: absolute; inset: 0; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+</div>
+<script src="../splats.js"></script>
+<script>
+// Hand-tuned irregular clusters (not a grid) — any splat whose sprite half-extent
+// crosses an edge is duplicated across that edge (x±1 / y±1) so the tile wraps
+// with no seam. Generated once by /tmp/gen_spots.mjs, pasted here as a literal.
+var spots = [{"x":0.143,"y":0.205,"k":"hit","c":PB_BLUE,"st":1,"px":14,"a":0.7,"rot":3},{"x":1.143,"y":0.205,"k":"hit","c":PB_BLUE,"st":1,"px":14,"a":0.7,"rot":3},{"x":0.215,"y":0.175,"k":"hit","c":PB_RED,"st":0,"px":11,"a":0.57,"rot":0},{"x":0.153,"y":0.164,"k":"hit","c":PB_RED,"st":2,"px":7,"a":0.47,"rot":1},{"x":0.617,"y":0.11,"k":"puddle","c":PB_BLUE,"st":0,"px":12,"a":0.36,"rot":3},{"x":0.582,"y":0.137,"k":"puddle","c":PB_BLUE,"st":0,"px":13,"a":0.8,"rot":1},{"x":0.967,"y":0.305,"k":"puddle","c":PB_BLUE,"st":1,"px":13,"a":0.59,"rot":1},{"x":-0.033,"y":0.305,"k":"puddle","c":PB_BLUE,"st":1,"px":13,"a":0.59,"rot":1},{"x":0.95,"y":0.276,"k":"puddle","c":PB_RED,"st":2,"px":11,"a":0.77,"rot":2},{"x":-0.05,"y":0.276,"k":"puddle","c":PB_RED,"st":2,"px":11,"a":0.77,"rot":2},{"x":0.92,"y":0.316,"k":"puddle","c":PB_BLUE,"st":1,"px":9,"a":0.62,"rot":3},{"x":0.327,"y":0.433,"k":"puddle","c":PB_RED,"st":0,"px":8,"a":0.72,"rot":1},{"x":0.335,"y":0.487,"k":"puddle","c":PB_BLUE,"st":1,"px":9,"a":0.55,"rot":2},{"x":0.384,"y":0.461,"k":"hit","c":PB_BLUE,"st":2,"px":10,"a":0.62,"rot":1},{"x":0.096,"y":0.544,"k":"hit","c":PB_BLUE,"st":1,"px":14,"a":0.73,"rot":1},{"x":1.096,"y":0.544,"k":"hit","c":PB_BLUE,"st":1,"px":14,"a":0.73,"rot":1},{"x":0.074,"y":0.539,"k":"hit","c":PB_BLUE,"st":0,"px":9,"a":0.65,"rot":2},{"x":1.074,"y":0.539,"k":"hit","c":PB_BLUE,"st":0,"px":9,"a":0.65,"rot":2},{"x":0.7,"y":0.64,"k":"puddle","c":PB_RED,"st":0,"px":11,"a":0.54,"rot":1},{"x":0.749,"y":0.618,"k":"hit","c":PB_RED,"st":1,"px":13,"a":0.77,"rot":0},{"x":0.701,"y":0.66,"k":"puddle","c":PB_BLUE,"st":1,"px":9,"a":0.36,"rot":3},{"x":0.558,"y":0.806,"k":"puddle","c":PB_BLUE,"st":1,"px":12,"a":0.45,"rot":0},{"x":0.447,"y":0.795,"k":"hit","c":PB_BLUE,"st":0,"px":13,"a":0.31,"rot":1},{"x":0.508,"y":0.72,"k":"hit","c":PB_RED,"st":0,"px":8,"a":0.69,"rot":1},{"x":0.258,"y":0.867,"k":"puddle","c":PB_RED,"st":2,"px":9,"a":0.56,"rot":2},{"x":0.202,"y":0.928,"k":"hit","c":PB_BLUE,"st":2,"px":11,"a":0.61,"rot":2},{"x":0.202,"y":-0.072,"k":"hit","c":PB_BLUE,"st":2,"px":11,"a":0.61,"rot":2},{"x":0.922,"y":0.884,"k":"puddle","c":PB_RED,"st":0,"px":11,"a":0.6,"rot":2},{"x":0.859,"y":0.847,"k":"puddle","c":PB_BLUE,"st":1,"px":9,"a":0.48,"rot":1}];
+paintSplats(document.getElementById('splats'), spots, { w:1024, h:1024 });
+</script></body></html>

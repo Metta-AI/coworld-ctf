@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 icon</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 1024px; height: 1024px; display: flex; align-items: center; justify-content: center; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .letter { position: relative; z-index: 1; font-family: var(--pix); font-size: 400px;
+            color: var(--stage-lo); line-height: 1; transform: translate(3px, 4px); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="letter">P</div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.5,  y:0.5,  k:'puddle', c:'#e8a33d', st:0, px:56, a:1,  rot:0 },
+  { x:0.82, y:0.78, k:'hit',    c:'#e0523a', st:1, px:9,  a:.9, rot:1, drops:2 }
+], { w:1024, h:1024 });
+</script></body></html>

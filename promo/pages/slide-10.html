@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 deck — 10 where it lives</title>
+<link rel="stylesheet" href="../brand.css">
+<link rel="stylesheet" href="../deck.css">
+<style>
+  .stage { justify-content: center; }
+  h1 { font-size: 44px; font-weight: 700; margin: 0 0 26px; color: var(--paper-dim);
+       letter-spacing: 0.01em; }
+  .url { font-family: var(--pix); font-size: 54px; color: var(--amber); line-height: 1.05;
+         text-shadow: 4px 4px 0 rgba(0,0,0,.6); margin-bottom: 56px; white-space: nowrap; }
+  .doors { display: flex; align-items: baseline; gap: 30px; font-family: var(--pix);
+           font-size: 40px; letter-spacing: 0.06em; }
+  .doors .d { color: var(--paper); }
+  .doors .sep { color: var(--line); }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="deck-kicker">Where it lives</div>
+  <div class="stage">
+    <h1>The League, playable, starting now.</h1>
+    <div class="url">PAINTBOT.APPS.SOFTMAX.COM</div>
+    <div class="doors">
+      <span class="d">FREE PLAY</span><span class="sep">/</span><span class="d">LOBBIES</span>
+    </div>
+  </div>
+  <div class="deck-foot">
+    <span>PAINTBOT &middot; SEASON 2</span>
+    <span>10 / 10</span>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.09,  k:'hit',    c:PB_RED,  st:0, px:16, a:.78, rot:2 },
+  { x:0.03,  y:0.975, k:'hit',    c:PB_BLUE, st:1, px:7,  a:.65, rot:1 },
+  { x:0.97,  y:0.975, k:'hit',    c:PB_RED,  st:1, px:7,  a:.65, rot:3 }
+], { w:1920, h:1080 });
+</script></body></html>

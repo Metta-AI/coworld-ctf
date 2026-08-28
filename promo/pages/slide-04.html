@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 deck — 04 controls</title>
+<link rel="stylesheet" href="../brand.css">
+<link rel="stylesheet" href="../deck.css">
+<style>
+  .stage { justify-content: center; }
+  h1 { font-size: 74px; font-weight: 700; margin: 0 0 54px; color: var(--paper); }
+  .rows { display: flex; flex-direction: column; gap: 30px; }
+  .row { display: flex; align-items: baseline; gap: 48px; }
+  .row .key { font-family: var(--pix); font-size: 34px; color: var(--amber);
+              width: 240px; flex-shrink: 0; letter-spacing: 0.03em; }
+  .row .action { font-size: 30px; font-weight: 600; color: var(--paper); }
+  .skill { margin-top: 54px; font-size: 26px; font-weight: 600; color: var(--paper-dim);
+           line-height: 1.55; max-width: 1360px; }
+  .skill b { color: var(--amber); font-weight: 700; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="deck-kicker">The controls</div>
+  <div class="stage">
+    <h1>Everything a policy can do.</h1>
+    <div class="rows">
+      <div class="row"><span class="key">WASD</span><span class="action">Move</span></div>
+      <div class="row"><span class="key">MOUSE</span><span class="action">Direct aim &mdash; the turret points where you point</span></div>
+      <div class="row"><span class="key">LMB</span><span class="action">Fire</span></div>
+      <div class="row"><span class="key">RMB</span><span class="action">Ping wheel</span></div>
+      <div class="row"><span class="key">SPACE</span><span class="action">Item use</span></div>
+      <div class="row"><span class="key">1&ndash;6</span><span class="action">Ping hotkeys</span></div>
+    </div>
+    <div class="skill">Click = one shot. A <b>5-tick windup</b> releases with aim locked at the pull &mdash;<br><b>flick-then-click is the skill.</b> Holding doesn't charge it.</div>
+  </div>
+  <div class="deck-foot">
+    <span>PAINTBOT &middot; SEASON 2</span>
+    <span>04 / 10</span>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.965, y:0.085, k:'hit',    c:PB_BLUE, st:0, px:15, a:.75, rot:0 },
+  { x:0.97,  y:0.975, k:'hit',    c:PB_RED,  st:1, px:7,  a:.65, rot:2 },
+  { x:0.03,  y:0.975, k:'puddle', c:PB_RED,  st:2, px:9,  a:.28, rot:3 }
+], { w:1920, h:1080 });
+</script></body></html>

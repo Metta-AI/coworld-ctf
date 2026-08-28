@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>S2 wordmark</title>
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .frame { width: 2400px; height: 800px; display: flex; flex-direction: column;
+           align-items: center; justify-content: center; }
+  #splats { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+  .word { font-family: var(--pix); font-size: 236px; line-height: .94; margin: 0;
+          color: var(--paper); letter-spacing: 0.01em;
+          text-shadow: 9px 9px 0 rgba(0,0,0,.6); white-space: nowrap; }
+  .rule2 { width: 300px; height: 1px; background: var(--line); margin: 40px 0 32px; }
+  .kicker2 { font-family: var(--pix); font-size: 44px; color: var(--amber);
+             letter-spacing: 0.42em; text-transform: uppercase; padding-left: 0.42em; }
+</style></head><body>
+<div class="frame">
+  <canvas id="splats"></canvas>
+  <div class="inner">
+    <div class="word">PAINTBOT</div>
+    <div class="rule2"></div>
+    <div class="kicker2">SEASON 2</div>
+  </div>
+</div>
+<script src="../splats.js"></script>
+<script>
+paintSplats(document.getElementById('splats'), [
+  { x:0.035, y:0.09,  k:'hit',    c:PB_RED,  st:1, px:9,  a:.5,  rot:0 },
+  { x:0.965, y:0.92,  k:'hit',    c:PB_BLUE, st:1, px:9,  a:.5,  rot:2, flip:true },
+  { x:0.03,  y:0.93,  k:'puddle', c:PB_BLUE, st:2, px:8,  a:.3,  rot:1 },
+  { x:0.97,  y:0.08,  k:'puddle', c:PB_RED,  st:2, px:8,  a:.3,  rot:3 }
+], { w:2400, h:800 });
+</script></body></html>
