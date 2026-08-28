@@ -1527,6 +1527,47 @@ proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
 
+proc resetPlayerViewerStateForRound*(state: PlayerViewerState) =
+  ## Round-transition reset for one PLAYER (human) viewer connection — see
+  ## `needsReregister` in server.nim. Clears exactly the DYNAMIC per-round
+  ## bookkeeping (outstanding object placements, the debug-sprite queue,
+  ## shout slot ownership, cursor state), matching what a fresh
+  ## `initPlayerViewerState()` would hold for those fields.
+  ##
+  ## Deliberately PRESERVES `initialized` and `spriteDefs`: those two are
+  ## what gate `buildSpriteProtocolPlayerInit`'s one-time send of the map
+  ## bands, the walkability mask, and the HUD/UI layer registrations (see
+  ## that proc's doc comment). The map does not change between rounds of
+  ## the same lobby, and `addSpriteChanged`'s dedup is keyed purely by
+  ## sprite id + width + height + label (see spriteDefinitionIndex) — never
+  ## by connection lifetime — so every one of those bytes is exactly as
+  ## valid on round 2 as it was on round 1. Wiping this state every round
+  ## forced a full multi-megabyte re-send of the arena, chunked over
+  ## several ~900 KB WS frames back-to-back, to every connected human on
+  ## every single round transition; a live capture of that resend getting
+  ## cut off partway through is what actually reproduces the mid-transfer
+  ## socket teardown this fix targets.
+  ##
+  ## A later `addSpriteChanged` call still re-sends any sprite whose
+  ## id/dims/label genuinely changed (e.g. a player's team-colored rig
+  ## sprite on a fresh team draw), so this changes ZERO observable content
+  ## — only whether already-known bytes are pointlessly retransmitted.
+  ##
+  ## Bot/policy (spritesOff) connections do NOT go through this path — see
+  ## the needsReregister call site, which keeps the historical full wipe
+  ## for them so the observation stream stays byte-identical.
+  if state.isNil:
+    return
+  state.objectIds = @[]
+  state.sentPlacements = @[]
+  state.pendingDebugSprites = @[]
+  state.debugSpriteLimitWarned = false
+  for i in 0 ..< state.shoutSlots.len:
+    state.shoutSlots[i] = ""
+  state.mouseX = 0
+  state.mouseY = 0
+  state.hasMouse = false
+
 proc debugSpritePixels(sprite: SpritePacketSpriteDef): seq[uint8] =
   ## Decodes one sprite and rejects pixel counts that do not match its shape.
   result = uncompress(sprite.compressedPixels)
