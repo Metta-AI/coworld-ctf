@@ -895,8 +895,164 @@ proc skinText(skin: Skin): string =
   of CrownSkin:
     "crown"
 
+proc echoPuddleKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the puddle keys only when the mode departs from the default, so a
+  ## puddle-free game's replay config stays byte-identical to pre-puddle
+  ## builds (same rule as echoHandicapKeys below).
+  if config.mapGen.puddles > 0:
+    node["mapPuddles"] = %config.mapGen.puddles
+  if config.mapGen.puddles > 0 or
+      config.puddleDamagePct != DefaultPuddleDamagePct:
+    node["puddleDamagePct"] = %config.puddleDamagePct
+
+proc echoBarrierKeys(config: GameConfig, node: JsonNode) =
+  ## Same rule for the barrier knob: echoed only when the mode is on, so a
+  ## barrier-free game's replay config stays byte-identical to older builds.
+  if config.barrierPickups > 0:
+    node["barrierPickups"] = %config.barrierPickups
+
+proc echoHandicapKeys(config: GameConfig, node: JsonNode) =
+  ## Echo only the handicapped teams, as their authored 0..1 floats, so a
+  ## default (unhandicapped) game's replay config carries no handicaps key.
+  var handicaps = newJObject()
+  for team in Red .. Yellow:
+    if config.handicaps[team] > 0:
+      handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
+  if handicaps.len > 0:
+    node["handicaps"] = handicaps
+
+proc echoPerkKeys(config: GameConfig, node: JsonNode) =
+  ## Echo only the perked teams, in their authored shape — a policy-name
+  ## object for named (pinned) groups, one flat name array for a single
+  ## unnamed group, nested arrays for several — so a default (perk-free)
+  ## game's replay config carries no perks key.
+  var perks = newJObject()
+  for team in Red .. Yellow:
+    if config.perks[team].len == 0:
+      continue
+    proc groupNames(group: PerkGroup): JsonNode =
+      result = newJArray()
+      for perk in Perk:
+        if perk in group.perks:
+          result.add(%perkText(perk))
+    if config.perks[team][0].pol.len > 0:
+      var named = newJObject()
+      for group in config.perks[team]:
+        named[group.pol] = groupNames(group)
+      perks[teamText(team)] = named
+    else:
+      var groups = newJArray()
+      for group in config.perks[team]:
+        groups.add(groupNames(group))
+      perks[teamText(team)] =
+        if config.perks[team].len == 1: groups[0] else: groups
+  if perks.len > 0:
+    node["perks"] = perks
+
+proc echoPerkModKeys(config: GameConfig, node: JsonNode) =
+  ## Echo perkMods only when some magnitude differs from its default, as the
+  ## authored shapes (fractions as 0..1 floats, counts as integers).
+  if config.perkMods != DefaultPerkMods:
+    node["perkMods"] = %*{
+      "armorHp": config.perkMods.armorHp,
+      "scopeAim": config.perkMods.scopeAim.float / 1000.0,
+      "grenadeRange": config.perkMods.grenadeRange.float / 1000.0,
+      "thrusterSpeed": config.perkMods.thrusterSpeed.float / 1000.0,
+      "luckChance": config.perkMods.luckChance.float / 1000.0,
+      "luckDamage": config.perkMods.luckDamage
+    }
+
+proc echoBarrageKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the barrage keys only when the mode is on, so a default game's
+  ## replay config stays byte-identical to the pre-barrage echo.
+  if config.barrageMaxPerSec > 0:
+    node["barrageMaxPerSec"] = %config.barrageMaxPerSec
+    node["barrageStartPerSec"] = %config.barrageStartPerSec
+    node["barrageStartSec"] = %config.barrageStartSec
+    node["barrageSaturateSec"] = %config.barrageSaturateSec
+
+proc echoZonePhaseKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the zone schedule only when configured, so a zone-free game's
+  ## replay config stays byte-identical to a build without the field — the
+  ## same rule as echoBarrageKeys above. z is echoed back in its authored
+  ## 0..1 float form (permille / 1000.0), not the internal permille.
+  if config.zonePhases.len > 0:
+    var zonePhases = newJArray()
+    for phase in config.zonePhases:
+      zonePhases.add(%*{
+        "z": phase.zPermille.float / 1000.0,
+        "waitTicks": phase.waitTicks,
+        "shrinkTicks": phase.shrinkTicks,
+        "dps": phase.dps
+      })
+    node["zonePhases"] = zonePhases
+
+proc echoZoneCenterKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the authored center only when configured, so a random-draw game's
+  ## replay config stays byte-identical to a build without the field — same
+  ## rule as echoZonePhaseKeys/echoBarrageKeys above.
+  if config.zoneCenterConfigured:
+    node["zoneCenter"] = %*[config.zoneCenterX, config.zoneCenterY]
+
+proc echoMapSpecKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the expanded map geometry only when one was pinned at config
+  ## parse (generated maps only — see `update`'s mapSpec resolution).
+  if config.mapSpec.len > 0:
+    node["mapSpec"] = fromJson(config.mapSpec)
+
+proc echoBrModeKeys(config: GameConfig, node: JsonNode) =
+  ## GVNEXT(elim): echo only when on, so an off (default) game's replay
+  ## config stays byte-identical to a pre-BR build's echo.
+  if config.brMode:
+    node["brMode"] = %config.brMode
+
+proc echoSeatTakeoverKeys(config: GameConfig, node: JsonNode) =
+  ## Same rule for seat takeover: echoed only when the freeplay mode is on,
+  ## so a league game's replay config stays byte-identical to pre-takeover
+  ## builds.
+  if config.allowSeatTakeover:
+    node["allowSeatTakeover"] = %config.allowSeatTakeover
+
+proc echoDirectAimKeys(config: GameConfig, node: JsonNode) =
+  ## Direct aim moves what the ENGINE does with a human's packets, so a
+  ## replay that contains it must say so in its own header: this key is how
+  ## a PLAY replay self-identifies as one no policy could have produced.
+  ## Off, the key is absent and a league replay's config stays
+  ## byte-identical.
+  if config.allowDirectAim:
+    node["allowDirectAim"] = %config.allowDirectAim
+
+proc echoAimAssistKeys(config: GameConfig, node: JsonNode) =
+  ## Same rule for aim assist: echoed (both keys, so a replay never has to
+  ## guess the cone width the mode ran with) only when the mode is on, so a
+  ## league -- or an assist-free freeplay -- replay's config stays
+  ## byte-identical to a pre-assist build.
+  if config.allowAimAssist:
+    node["allowAimAssist"] = %config.allowAimAssist
+    node["aimAssistConeBrads"] = %config.aimAssistConeBrads
+
+proc echoGloryKeys(config: GameConfig, node: JsonNode) =
+  ## GLORY PORT (GV46): deliberately empty today. Glory's pricing
+  ## (LevelThresholds, every deed price, achievement rules -- see
+  ## glory.nim) is UNCONDITIONAL game logic, not a `GameConfig` toggle --
+  ## it runs the same way on every mode, the same way `gameHash` going
+  ## mode-independent already assumes (see sim_types.nim's GV46 comment).
+  ## There is no glory-specific config key to echo yet. This proc exists
+  ## anyway, and is called below, so the day glory DOES grow a config knob
+  ## (a retune surface, a kill switch -- Maxwell's call, not this port's),
+  ## it has a named home instead of an edit squeezed into this shared tail.
+  discard config
+  discard node
+
 proc configJson*(config: GameConfig): string =
-  ## Returns the complete replay JSON for a gameplay config.
+  ## Returns the complete replay JSON for a gameplay config: the always-
+  ## present base keys, built as one object literal below, followed by one
+  ## call per OPTIONAL feature's echo (each a small named proc above, so a
+  ## new feature's diff is a new proc + one call line here, never an edit
+  ## squeezed into this shared tail alongside an unrelated feature's own
+  ## edit). `result = $node` is the very last line ON PURPOSE: an explicit,
+  ## marked assignment — not a bare trailing expression — so it reads as
+  ## this function's return in a diff/merge, not as one more tail line.
   var
     players = newJArray()
     slots = newJArray()
@@ -966,111 +1122,19 @@ proc configJson*(config: GameConfig): string =
   }
   if includePlayers:
     node["players"] = players
-  # Echo the puddle keys only when the mode departs from the default, so a
-  # puddle-free game's replay config stays byte-identical to pre-puddle
-  # builds (same rule as the handicaps echo below).
-  if config.mapGen.puddles > 0:
-    node["mapPuddles"] = %config.mapGen.puddles
-  if config.mapGen.puddles > 0 or
-      config.puddleDamagePct != DefaultPuddleDamagePct:
-    node["puddleDamagePct"] = %config.puddleDamagePct
-  # Same rule for the barrier knob: echoed only when the mode is on, so a
-  # barrier-free game's replay config stays byte-identical to older builds.
-  if config.barrierPickups > 0:
-    node["barrierPickups"] = %config.barrierPickups
-  # Echo only the handicapped teams, as their authored 0..1 floats, so a
-  # default (unhandicapped) game's replay config carries no handicaps key.
-  var handicaps = newJObject()
-  for team in Red .. Yellow:
-    if config.handicaps[team] > 0:
-      handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
-  if handicaps.len > 0:
-    node["handicaps"] = handicaps
-  # Echo only the perked teams, in their authored shape — a policy-name
-  # object for named (pinned) groups, one flat name array for a single
-  # unnamed group, nested arrays for several — so a default (perk-free)
-  # game's replay config carries no perks key.
-  var perks = newJObject()
-  for team in Red .. Yellow:
-    if config.perks[team].len == 0:
-      continue
-    proc groupNames(group: PerkGroup): JsonNode =
-      result = newJArray()
-      for perk in Perk:
-        if perk in group.perks:
-          result.add(%perkText(perk))
-    if config.perks[team][0].pol.len > 0:
-      var named = newJObject()
-      for group in config.perks[team]:
-        named[group.pol] = groupNames(group)
-      perks[teamText(team)] = named
-    else:
-      var groups = newJArray()
-      for group in config.perks[team]:
-        groups.add(groupNames(group))
-      perks[teamText(team)] =
-        if config.perks[team].len == 1: groups[0] else: groups
-  if perks.len > 0:
-    node["perks"] = perks
-  # Echo perkMods only when some magnitude differs from its default, as the
-  # authored shapes (fractions as 0..1 floats, counts as integers).
-  if config.perkMods != DefaultPerkMods:
-    node["perkMods"] = %*{
-      "armorHp": config.perkMods.armorHp,
-      "scopeAim": config.perkMods.scopeAim.float / 1000.0,
-      "grenadeRange": config.perkMods.grenadeRange.float / 1000.0,
-      "thrusterSpeed": config.perkMods.thrusterSpeed.float / 1000.0,
-      "luckChance": config.perkMods.luckChance.float / 1000.0,
-      "luckDamage": config.perkMods.luckDamage
-    }
-  # Echo the barrage keys only when the mode is on, so a default game's
-  # replay config stays byte-identical to the pre-barrage echo.
-  if config.barrageMaxPerSec > 0:
-    node["barrageMaxPerSec"] = %config.barrageMaxPerSec
-    node["barrageStartPerSec"] = %config.barrageStartPerSec
-    node["barrageStartSec"] = %config.barrageStartSec
-    node["barrageSaturateSec"] = %config.barrageSaturateSec
-  # Echo the zone schedule only when configured, so a zone-free game's
-  # replay config stays byte-identical to a build without the field — the
-  # same rule as the barrage echo above. z is echoed back in its authored
-  # 0..1 float form (permille / 1000.0), not the internal permille.
-  if config.zonePhases.len > 0:
-    var zonePhases = newJArray()
-    for phase in config.zonePhases:
-      zonePhases.add(%*{
-        "z": phase.zPermille.float / 1000.0,
-        "waitTicks": phase.waitTicks,
-        "shrinkTicks": phase.shrinkTicks,
-        "dps": phase.dps
-      })
-    node["zonePhases"] = zonePhases
-  # Echo the authored center only when configured, so a random-draw game's
-  # replay config stays byte-identical to a build without the field — same
-  # rule as the zonePhases/barrage echoes above.
-  if config.zoneCenterConfigured:
-    node["zoneCenter"] = %*[config.zoneCenterX, config.zoneCenterY]
-  if config.mapSpec.len > 0:
-    node["mapSpec"] = fromJson(config.mapSpec)
-  # GVNEXT(elim): echo only when on, so an off (default) game's replay
-  # config stays byte-identical to a pre-BR build's echo.
-  if config.brMode:
-    node["brMode"] = %config.brMode
-  # Same rule for seat takeover: echoed only when the freeplay mode is on, so
-  # a league game's replay config stays byte-identical to pre-takeover builds.
-  if config.allowSeatTakeover:
-    node["allowSeatTakeover"] = %config.allowSeatTakeover
-  # Direct aim moves what the ENGINE does with a human's packets, so a replay
-  # that contains it must say so in its own header: this key is how a PLAY
-  # replay self-identifies as one no policy could have produced. Off, the key
-  # is absent and a league replay's config stays byte-identical.
-  if config.allowDirectAim:
-    node["allowDirectAim"] = %config.allowDirectAim
-  # Same rule for aim assist: echoed (both keys, so a replay never has to
-  # guess the cone width the mode ran with) only when the mode is on, so a
-  # league — or an assist-free freeplay — replay's config stays
-  # byte-identical to a pre-assist build.
-  if config.allowAimAssist:
-    node["allowAimAssist"] = %config.allowAimAssist
-    node["aimAssistConeBrads"] = %config.aimAssistConeBrads
-  $node
+  echoPuddleKeys(config, node)
+  echoBarrierKeys(config, node)
+  echoHandicapKeys(config, node)
+  echoPerkKeys(config, node)
+  echoPerkModKeys(config, node)
+  echoBarrageKeys(config, node)
+  echoZonePhaseKeys(config, node)
+  echoZoneCenterKeys(config, node)
+  echoMapSpecKeys(config, node)
+  echoBrModeKeys(config, node)
+  echoSeatTakeoverKeys(config, node)
+  echoDirectAimKeys(config, node)
+  echoAimAssistKeys(config, node)
+  echoGloryKeys(config, node)
+  result = $node
 
