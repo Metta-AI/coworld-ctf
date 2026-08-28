@@ -15,6 +15,7 @@ import
   test_lobby_join_timeout,
   test_manifest_schema,
   test_map_editor,
+  test_sim_config,
   test_map_editor_core,
   test_sym_none,
   test_rasterizer_mirror,
