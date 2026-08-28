@@ -465,23 +465,39 @@ proc registerTakeoverWebSocket(
 proc advanceSeatTakeover(
   takeover: var SeatTakeover,
   cog: int,
-  cogAlive: bool
+  cogAlive: bool,
+  instant: bool = false
 ): bool =
   ## Advances one seat takeover by a frame; returns true on the frame the swap
   ## lands. `cog` is the seat's resolved player index (-1 when the seat has no
   ## cog right now — between matches, or before its policy has joined) and
   ## `cogAlive` is that cog's alive flag this frame.
   ##
-  ## The rule, and the whole of it: a pending takeover goes live on the cog's
-  ## next false -> true `alive` edge. That is the one clean moment — the human
-  ## always starts a life at spawn, and no cog is ever body-snatched mid-life.
-  ## A cog that has yet to be sampled is never an edge (`observed`), so a human
-  ## arriving mid-life waits out that life rather than taking the field at once.
+  ## The rule, in modes that respawn: a pending takeover goes live on the
+  ## cog's next false -> true `alive` edge. That is the one clean moment — the
+  ## human always starts a life at spawn, and no cog is ever body-snatched
+  ## mid-life. A cog that has yet to be sampled is never an edge (`observed`),
+  ## so a human arriving mid-life waits out that life rather than taking the
+  ## field at once.
+  ##
+  ## `instant` (brMode): a single-life elimination cog that is already alive
+  ## on the FIRST sampled frame will never produce a false -> true edge — it
+  ## only ever goes true -> false once, permanently, on elimination. Gating
+  ## on the respawn edge in that mode means the takeover can never land: the
+  ## human's socket is attached to the seat's view (so they see a vision
+  ## cone) while the seat's input keeps reading from the policy forever (so
+  ## an AI keeps driving). So in brMode, land on the very first sampled frame
+  ## if the cog is alive right then — still exactly one frame late enough to
+  ## avoid landing on a cog that is already dead when the human arrives (that
+  ## case falls through to the ordinary edge, same as before).
   takeover.cog = cog
   takeover.cogAlive = cogAlive
   if takeover.active:
     return false
   if takeover.observed and not takeover.prevAlive and cogAlive:
+    takeover.active = true
+    result = true
+  elif instant and not takeover.observed and cogAlive:
     takeover.active = true
     result = true
   takeover.observed = true
@@ -1843,6 +1859,12 @@ proc runServerLoop*(
         # covers a new match — resetToLobby empties the roster (cog -1, so
         # "not alive"), and the seat's first spawn of the next match is the
         # edge — so serve-forever needs no separate case.
+        #
+        # brMode is the one exception: a single-life elimination cog only
+        # ever goes true -> false, once, on elimination -- it never respawns,
+        # so the edge above can never fire for a seat that is already alive
+        # when the human arrives (the normal BR case). advanceSeatTakeover's
+        # `instant` flag lands those seats on the first sampled frame instead.
         if not replayLoaded and appState.takeovers.len > 0:
           for websocket, takeover in appState.takeovers.mpairs:
             var cog = -1
@@ -1851,7 +1873,7 @@ proc runServerLoop*(
                 cog = i
                 break
             let nowAlive = cog >= 0 and sim.players[cog].alive
-            if takeover.advanceSeatTakeover(cog, nowAlive):
+            if takeover.advanceSeatTakeover(cog, nowAlive, appState.config.brMode):
               echo "seat takeover live: ", takeover.name, " drives seat ",
                 takeover.seat, " (cog ", takeover.cog, ")"
             if takeover.active and takeover.cog >= 0:
