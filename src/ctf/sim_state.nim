@@ -304,6 +304,14 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(shout.tick)
     result.mixHashInt(shout.x)
     result.mixHashInt(shout.y)
+    # Mixed only when the mode is on, so an allowCallouts-off replay's hash
+    # trajectory is byte-identical to a build that never added these fields
+    # — the same rule as the zonePhases/barrageStartTick guards above.
+    if sim.config.allowCallouts:
+      result.mixHashBool(shout.isCallout)
+      result.mixHashInt(shout.calloutId)
+      for c in shout.calloutCell:
+        result.mixHashInt(ord(c))
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:

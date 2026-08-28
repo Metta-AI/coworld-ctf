@@ -504,6 +504,28 @@ proc labelShout*(color, name, text: string): string =
   ## that contains a `": "` of its own.
   labelShoutPrefix(color) & name & ": " & text
 
+proc labelCalloutPrefix*(color: string): string =
+  ## The prefix a listener matches to attribute a CALLOUT — the standard
+  ## ping vocabulary, callout-spec.md §5 — to a team: `<color> callout `.
+  ## Same shape as `labelShoutPrefix`, one word swapped, ONLY ever emitted
+  ## for a `Shout` with `isCallout` set (config-gated `allowCallouts`, see
+  ## `applyShout`/`parseCallout` in sim.nim) — so a policy that wants to
+  ## react to a ping can scan this prefix directly instead of re-parsing
+  ## ordinary shout text for a leading `!`.
+  color & " callout "
+
+proc labelCallout*(color, name: string; id: int; cell: string): string =
+  ## A callout speech bubble label: `<color> callout <name>: <id>` or
+  ## `<color> callout <name>: <id> <cell>` when the ping carried a grid
+  ## cell. Mirrors `labelShout`'s shape exactly (`name` is the same
+  ## anonymous Greek slot letter, never the connecting address) but the
+  ## payload is the STRUCTURED id/cell pair, not the raw `!`-prefixed shout
+  ## text — a consumer splits on `": "` then on the one interior space,
+  ## never string-matches the bang.
+  result = labelCalloutPrefix(color) & name & ": " & $id
+  if cell.len > 0:
+    result.add " " & cell
+
 proc labelIdentity*(
   color, name: string;
   shield, nade: bool;

@@ -2235,6 +2235,32 @@ proc sanitizeShout*(text: string): string =
       break
   result = result.strip()
 
+proc parseCallout*(
+  text: string
+): tuple[isCallout: bool, id: int, cell: string] =
+  ## Parses an already-sanitized shout as the standard ping vocabulary
+  ## (callout-spec.md §5): `!<id>[ <cell>]`, where `<id>` is a single digit
+  ## 1-6 and `<cell>` — when present — is one space-free token (the wheel's
+  ## chessCell grid string, e.g. "F9"). Anything else — a bare "!", a
+  ## multi-digit id, an out-of-range digit, or a second space — is NOT a
+  ## callout and returns `(false, 0, "")`, so the caller falls through and
+  ## treats the message as ordinary chat. Only ever consulted when
+  ## `config.allowCallouts` is on (see `applyShout`); this proc itself has
+  ## no config dependency, so it stays trivially unit-testable.
+  result = (false, 0, "")
+  if text.len < 2 or text[0] != '!':
+    return
+  if text[1] < '1' or text[1] > '6':
+    return
+  if text.len == 2:
+    return (true, ord(text[1]) - ord('0'), "")
+  if text[2] != ' ':
+    return                       # e.g. "!12" — id must be exactly one digit.
+  let cell = text[3 .. ^1]
+  if cell.len == 0 or ' ' in cell:
+    return
+  return (true, ord(text[1]) - ord('0'), cell)
+
 proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.discardable.} =
   ## Applies one player chat message as a shout: a short message audible to
   ## anyone within ShoutRange of the shouter. Living players only, at most
@@ -2258,7 +2284,7 @@ proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.dis
   for shout in sim.recentShouts:
     if shout.address != address:
       kept.add shout
-  let shout = Shout(
+  var shout = Shout(
     address: address,
     team: sim.players[playerIndex].team,
     text: shoutText,
@@ -2266,6 +2292,15 @@ proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.dis
     x: sim.players[playerIndex].x + CollisionW div 2,
     y: sim.players[playerIndex].y + CollisionH div 2
   )
+  # Config-gated: off, this block never runs, so isCallout/calloutId/
+  # calloutCell stay at their zero value on every shout — see gameHash
+  # (sim_state.nim) for why that is what keeps a gate-off replay
+  # byte-identical to a build that never added these fields.
+  if sim.config.allowCallouts:
+    let parsed = parseCallout(shoutText)
+    shout.isCallout = parsed.isCallout
+    shout.calloutId = parsed.id
+    shout.calloutCell = parsed.cell
   kept.add shout
   sim.recentShouts = kept
   sim.emitEvent(

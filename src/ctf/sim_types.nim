@@ -1657,6 +1657,27 @@ type
                                   ## with an ArenaBorder margin, the same
                                   ## rule resetZone applies to its own
                                   ## random draw.
+    # GVNEXT(callout): appended field, same append-safety reasoning as
+    # brMode/zonePhases above — a scalar bool on GameConfig, not an
+    # array[Team, X] run inside the flatty-serialized state.
+    allowCallouts*: bool           ## a chat message rides the SAME shout
+                                  ## wire (§1/§3 of callout-spec.md — no new
+                                  ## opcode, no new gameHash surface unless
+                                  ## this is on) but, when it parses as
+                                  ## `!<id>[ <cell>]`, is additionally
+                                  ## recognized as a structured CALLOUT: the
+                                  ## Shout's isCallout/calloutId/calloutCell
+                                  ## fields are populated (parseCallout,
+                                  ## sim.nim) and the player-stream label
+                                  ## switches from `<color> shout ` to
+                                  ## `<color> callout ` (labelCallout,
+                                  ## labels.nim) so a policy can perceive a
+                                  ## ping by PREFIX instead of re-parsing
+                                  ## raw chat text. false (the default) =
+                                  ## the parser never runs and every shout
+                                  ## behaves exactly as before — byte-
+                                  ## identical to a build without this
+                                  ## field.
 
   Player* = object
     x*, y*: int
@@ -2024,6 +2045,21 @@ type
     text*: string              ## sanitized, at most ShoutMaxChars.
     tick*: int                 ## when it was shouted.
     x*, y*: int                ## shouter center at shout time.
+    isCallout*: bool           ## true when `config.allowCallouts` is on AND
+                               ## `text` parsed as the standard `!<id>[
+                               ## <cell>]` ping vocabulary (callout-spec.md
+                               ## §5; see `parseCallout` in sim.nim). False
+                               ## on every shout when the gate is off — the
+                               ## field, and the two below, then never leave
+                               ## their zero value, which is what keeps an
+                               ## off-gate replay's gameHash and labels
+                               ## byte-identical to a build without this
+                               ## field (see gameHash in sim_state.nim).
+    calloutId*: int            ## the digit 1-6 from a valid `!<id>` prefix;
+                               ## 0 when this shout is not a callout.
+    calloutCell*: string       ## the optional trailing grid-cell token
+                               ## (e.g. "F9"), "" when absent or not a
+                               ## callout.
 
   PickupSpawn* = object
     ## One fixed pickup point: corner grenades and center med kits.

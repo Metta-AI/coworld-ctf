@@ -6106,14 +6106,27 @@ proc addShouts(
       bubble = sim.buildShoutBubble(shout.team, shout.text)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
+      # The bubble PIXELS above always draw shout.text verbatim, so a human
+      # sees the exact same bubble either way (callout-spec.md §4c). Only
+      # the wire LABEL — the machine-readable half policies read — switches
+      # to the callout family; isCallout is false on every shout when
+      # allowCallouts is off, so this branch is a no-op there and the label
+      # stays byte-identical to a pre-callout build.
+      shoutLabel =
+        if shout.isCallout:
+          labelCallout(
+            teamText(shout.team), sim.shoutIdentityName(shout),
+            shout.calloutId, shout.calloutCell)
+        else:
+          labelShout(
+            teamText(shout.team), sim.shoutIdentityName(shout), shout.text)
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       bubble.width,
       bubble.height,
       bubble.pixels,
-      labelShout(
-        teamText(shout.team), sim.shoutIdentityName(shout), shout.text),
+      shoutLabel,
       native = boardScale
     )
     currentIds.add(objectId)
