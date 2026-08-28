@@ -121,6 +121,17 @@ type
     slotIndex: int
 
 const
+  # Sentinel for `appState.playerIndices`: a player websocket that has
+  # registered but has not yet been resolved into a live `sim.players`
+  # slot (join admission is strictly slot-sequential and can take more
+  # than one tick). It is deliberately far outside any real array index so
+  # the "still pending" scan (`== UnresolvedPlayerIndex`) never collides
+  # with a resolved one. It must NEVER be treated as a real index by
+  # arithmetic that shifts indices after a removal (see `removePlayer`) --
+  # doing so corrupts it into a value that can never match the pending
+  # scan again, permanently orphaning that socket even though it is still
+  # connected.
+  UnresolvedPlayerIndex = 0x7fffffff
   HealthPath = "/healthz"
   AdminWebSocketPath = "/admin"
   # Freeplay seat takeover. A dedicated websocket route rather than a flag on
@@ -454,7 +465,7 @@ proc registerPlayerWebSocket(
     if appState.replayLoaded:
       -1
     else:
-      0x7fffffff
+      UnresolvedPlayerIndex
   appState.inputMasks[websocket] = 0
   appState.inputPressedMasks[websocket] = 0
   appState.lastAppliedMasks[websocket] = 0
@@ -649,8 +660,18 @@ proc removePlayer(sim: var SimServer, websocket: WebSocket) =
   let removedIndex = removeWebSocketState(websocket)
   if removedIndex >= 0 and removedIndex < sim.players.len:
     sim.removePlayerAt(removedIndex)
+    # Re-index every OTHER socket that already held a resolved array
+    # position -- but a socket still waiting on admission is tagged
+    # UnresolvedPlayerIndex, not a real position, and that sentinel is
+    # always > removedIndex. Decrementing it here (the bug: no exclusion)
+    # turns it into a value that is neither a valid index nor the pending
+    # sentinel, so the newSockets scan (`== UnresolvedPlayerIndex`) can
+    # never find it again -- the socket stays connected forever but is
+    # permanently invisible to admission. This is the lobby-fill wedge:
+    # any one disconnect mid-fill orphans every OTHER still-pending
+    # socket in the same pass, and nothing ever re-scans them.
     for ws, value in appState.playerIndices.mpairs:
-      if value > removedIndex:
+      if value > removedIndex and value != UnresolvedPlayerIndex:
         dec value
 
 proc admitPendingJoins(
@@ -1395,7 +1416,7 @@ proc websocketHandler(
               if appState.replayLoaded:
                 -1
               else:
-                0x7fffffff
+                UnresolvedPlayerIndex
             appState.inputMasks[websocket] = 0
             appState.inputPressedMasks[websocket] = 0
             appState.lastAppliedMasks[websocket] = 0
@@ -2038,7 +2059,7 @@ proc runServerLoop*(
           var newSockets: seq[WebSocket] = @[]
           for websocket in appState.playerIndices.keys:
             if websocket.isPlayerWebSocket() and
-                appState.playerIndices[websocket] == 0x7fffffff:
+                appState.playerIndices[websocket] == UnresolvedPlayerIndex:
               newSockets.add(websocket)
           var progressed = true
           while progressed:
@@ -2046,7 +2067,7 @@ proc runServerLoop*(
             var pendingPlayers: seq[PendingPlayerJoin] = @[]
             for websocket in newSockets:
               if websocket notin appState.playerIndices or
-                  appState.playerIndices[websocket] != 0x7fffffff:
+                  appState.playerIndices[websocket] != UnresolvedPlayerIndex:
                 continue
               let address = appState.playerAddresses.getOrDefault(
                 websocket,
@@ -2251,14 +2272,14 @@ proc runServerLoop*(
             if websocket.isPlayerWebSocket():
               reconnectSockets.add(websocket)
           for websocket in reconnectSockets:
-            appState.playerIndices[websocket] = 0x7fffffff
+            appState.playerIndices[websocket] = UnresolvedPlayerIndex
           var progressed = true
           while progressed:
             progressed = false
             var pendingPlayers: seq[PendingPlayerJoin] = @[]
             for websocket in reconnectSockets:
               if websocket notin appState.playerIndices or
-                  appState.playerIndices[websocket] != 0x7fffffff:
+                  appState.playerIndices[websocket] != UnresolvedPlayerIndex:
                 continue
               let
                 slot = appState.playerSlots.getOrDefault(websocket, -1)
@@ -2426,7 +2447,7 @@ proc runServerLoop*(
         withLock appState.lock:
           for websocket in appState.playerIndices.keys:
             if websocket.isPlayerWebSocket():
-              appState.playerIndices[websocket] = 0x7fffffff
+              appState.playerIndices[websocket] = UnresolvedPlayerIndex
           for websocket in appState.playerViewers.keys:
             appState.playerViewers[websocket] = initPlayerViewerState()
           landSeatTakeoversOnNewMatch()

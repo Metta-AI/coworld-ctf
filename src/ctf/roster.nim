@@ -339,8 +339,29 @@ proc resolvePlayerSlot*(
     raise newException(CtfError, "No available player slot.")
 
 proc nextPlayerSlot*(sim: SimServer): int =
-  ## Returns the slot required for the next live player index.
-  sim.players.len
+  ## Returns the LOWEST player slot not currently occupied. Admission is
+  ## strictly slot-sequential (admitPendingJoins requires
+  ## `join.slotIndex == sim.nextPlayerSlot()`), so this is the slot pending
+  ## joins must fill next.
+  ##
+  ## NOT simply `sim.players.len`: a raw player count only equals the
+  ## lowest open slot when disconnects always vacate the HIGHEST joinOrder.
+  ## removePlayerAt deletes the player array entry but never renumbers the
+  ## survivors' joinOrder, so when a LOW slot vacates while higher ones
+  ## stay seated, the count keeps pointing past the real gap -- admission
+  ## then demands a slot index nothing can ever supply, and every socket
+  ## behind the gap (reconnecting or newly joining) stalls forever. This is
+  ## the reset-dance / "8-of-16 stall": BR hard-stalls on it because BR's
+  ## minPlayers equals its seat count, so any mid-stack vacancy blocks the
+  ## whole field from ever starting.
+  ##
+  ## By pigeonhole, among slots 0..sim.players.len (inclusive) at least one
+  ## must be free -- there are players.len+1 candidates and only
+  ## players.len occupants -- so this loop always finds a slot without
+  ## needing an explicit fallback.
+  for i in 0 .. sim.players.len:
+    if not sim.slotOccupied(i):
+      return i
 
 proc resolveTrustedPlayerSlot(
   sim: SimServer,
