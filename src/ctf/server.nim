@@ -772,7 +772,12 @@ proc frameHealthJson(): string =
     "frames": frameCounter.load(),
     # A frame is ~42ms at 24fps. Anything past a second in one phase is the
     # server being stuck, not the server being busy.
-    "stalled": age > 1000
+    "stalled": age > 1000,
+    # DIAGNOSTIC ONLY, temporary (see global.nim playerInitCalls/Micros):
+    # cumulative since server start, not per-second -- the caller diffs two
+    # samples over a known wall-clock interval to get calls/sec and ms/sec.
+    "initCalls": global.playerInitCalls.load(),
+    "initMicros": global.playerInitMicros.load()
   })
 
 proc nextAnonymousPlayerIdentity(): string =

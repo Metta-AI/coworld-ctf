@@ -1,5 +1,5 @@
 import
-  std/[algorithm, math, os, strutils, tables],
+  std/[algorithm, atomics, math, monotimes, os, strutils, tables, times],
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
@@ -4620,6 +4620,18 @@ proc buildSpriteProtocolInit(
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = true)
 
+var
+  playerInitCalls*: Atomic[int]
+  playerInitMicros*: Atomic[int64]
+    ## DIAGNOSTIC ONLY, temporary: counts calls to buildSpriteProtocolPlayerInit
+    ## and the microseconds spent inside it, read lock-free by /health/frame
+    ## (server.nim frameHealthJson) to answer one question under guest churn --
+    ## is the full per-connection map-pixel render the broadcast-phase cost
+    ## centre? Touches no sim state and feeds nothing into gameHash or the
+    ## replay stream; safe to leave running, but remove once that question is
+    ## answered (2026-08-27 churn-stall investigation, see
+    ## ~/.ctf/handoff/2026-08-27-churn-stall.md).
+
 proc buildSpriteProtocolPlayerInit(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition]
@@ -4627,6 +4639,10 @@ proc buildSpriteProtocolPlayerInit(
   ## Builds the initial sprite player snapshot: the full-map view (the client
   ## scales the whole arena to the window), the fog overlay layer, and the
   ## screen-corner HUD layers.
+  let profileStart = getMonoTime()
+  defer:
+    discard playerInitCalls.fetchAdd(1)
+    discard playerInitMicros.fetchAdd((getMonoTime() - profileStart).inMicroseconds)
   result = @[]
   result.addU8(0x04)
   let mapPixels = sim.buildMapSpritePixels()
