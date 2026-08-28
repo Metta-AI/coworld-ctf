@@ -1040,5 +1040,11 @@ proc configJson*(config: GameConfig): string =
   # a league game's replay config stays byte-identical to pre-takeover builds.
   if config.allowSeatTakeover:
     node["allowSeatTakeover"] = %config.allowSeatTakeover
+  # Direct aim moves what the ENGINE does with a human's packets, so a replay
+  # that contains it must say so in its own header: this key is how a PLAY
+  # replay self-identifies as one no policy could have produced. Off, the key
+  # is absent and a league replay's config stays byte-identical.
+  if config.allowDirectAim:
+    node["allowDirectAim"] = %config.allowDirectAim
   $node
 
