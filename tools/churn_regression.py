@@ -217,6 +217,13 @@ def main() -> int:
         rounds_after = round_count(server_log_path)
         print(f"[churn-regression] rounds after churn: {rounds_after}")
 
+        # Raw samples for post-hoc diagnosis (which phase, how bad, over time)
+        # -- the summary below is derived from this same file, not restated.
+        samples_path = os.path.join(log_dir, "frame_samples.jsonl")
+        with open(samples_path, "w") as f:
+            for t, d in frame_samples:
+                f.write(json.dumps({"t": t, **(d if isinstance(d, dict) else {"raw": d})}) + "\n")
+
         stalled_readings = [
             (t, d) for (t, d) in frame_samples if isinstance(d, dict) and d.get("stalled")
         ]
@@ -224,9 +231,20 @@ def main() -> int:
             (d.get("msInPhase", 0) for (_, d) in frame_samples if isinstance(d, dict)),
             default=0,
         )
+        # Phase breakdown of every sample >=300ms in its phase, not just the
+        # ones over the 1000ms "stalled" line -- shows where time is going
+        # even when nothing crosses the binary threshold.
+        from collections import Counter
+        slow_phase_counts = Counter(
+            d.get("phase", "?")
+            for (_, d) in frame_samples
+            if isinstance(d, dict) and d.get("msInPhase", 0) >= 300
+        )
         print(
             f"[churn-regression] frame health samples={len(frame_samples)} "
-            f"stalled_readings={len(stalled_readings)} max_msInPhase={max_ms}"
+            f"stalled_readings={len(stalled_readings)} max_msInPhase={max_ms} "
+            f"slow(>=300ms)_by_phase={dict(slow_phase_counts)} "
+            f"raw_samples={samples_path}"
         )
 
         ok = True

@@ -2848,6 +2848,38 @@ proc runServerLoop*(
           spritesOffFlags[i] =
             appState.spritesOff.getOrDefault(sockets[i], false)
     markFrame(fpBroadcast)
+    # Two passes per socket group, not one interleaved pass: compute every
+    # socket's next viewer state and wire packet FIRST (pure sim work, no
+    # appState touched), take appState.lock exactly ONCE to write all of them
+    # back, then send every packet with NO lock held at all.
+    #
+    # The old shape re-acquired appState.lock once PER CONNECTED SOCKET right
+    # here (up to 16 times a tick between this loop and the takeover one
+    # below) AND held it across nothing more than a table write -- cheap, but
+    # frequent. Guest seat-takeover churn (mint ticket, WS upgrade, then
+    # Open/Message/Close events) drives its own frequent appState.lock
+    # acquisitions on the HTTP worker threads, so a churn burst got 16
+    # separate chances a tick to win the race against the main thread and
+    # starve it. Measured: the whole tick (not just broadcast bookkeeping)
+    # stalling 1-3s at a time under sustained concurrent churn, freezing
+    # round cycling for as long as the stall lasted (tools/churn_regression.py
+    # reproduces this against the unfixed server).
+    #
+    # Locking once instead of per-socket is not enough on its own: batching
+    # the WRITES under one lock but leaving the SENDS inside the same
+    # lock-held region would trade many short starvations for one long one --
+    # every worker thread blocks for the full duration of up to 16 socket
+    # writes, and one slow or backpressured client stalls the tick for as
+    # long as its write takes. So the lock covers ONLY the in-memory
+    # `appState.playerViewers` write-back; every `.send()` call below (and
+    # the loop that calls them) runs with no lock held at all, same as it
+    # always did. `WebSocket.send` (mummy) is `{.raises: [].}` -- it only
+    # enqueues onto an internal send queue and never blocks or throws for a
+    # live socket, so this is not deferring real I/O into the lock, just
+    # deferring nothing.
+    var
+      playerNextStates = newSeq[PlayerViewerState](sockets.len)
+      playerWirePackets = newSeq[seq[uint8]](sockets.len)
     for i in 0 ..< sockets.len:
       var nextState: PlayerViewerState
       let framePacket = sim.buildSpriteProtocolPlayerUpdates(
@@ -2856,33 +2888,46 @@ proc runServerLoop*(
         nextState,
         spritesOff = spritesOffFlags[i]
       )
-      {.gcsafe.}:
-        withLock appState.lock:
-          if sockets[i] in appState.playerViewers:
-            appState.playerViewers[sockets[i]] = nextState
-      let wirePacket = dedupObjectPlacements(
+      playerWirePackets[i] = dedupObjectPlacements(
         if spritesOffFlags[i]: framePacket.stripSpritePixels()
         else: framePacket,
         nextState.sentPlacements
       )
-      serverMetrics.recordTraffic(playerIndices[i], wirePacket)
+      playerNextStates[i] = nextState
+    {.gcsafe.}:
+      withLock appState.lock:
+        for i in 0 ..< sockets.len:
+          if sockets[i] in appState.playerViewers:
+            appState.playerViewers[sockets[i]] = playerNextStates[i]
+    var closedPlayerSockets: seq[WebSocket] = @[]
+    for i in 0 ..< sockets.len:
+      serverMetrics.recordTraffic(playerIndices[i], playerWirePackets[i])
       try:
-        if wirePacket.len == 0:
+        if playerWirePackets[i].len == 0:
           # One binary message per tick is the frame contract — clients
           # count messages to advance. An all-deduped frame still ships,
           # as an empty message.
           sockets[i].send("", BinaryMessage)
-        for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
+        for chunk in global.chunkSpritePacket(playerWirePackets[i], MaxWsFrameBytes):
           sockets[i].send(blobFromBytes(chunk), BinaryMessage)
       except:
-        {.gcsafe.}:
-          withLock appState.lock:
-            discard markSocketClosed(sockets[i])
+        closedPlayerSockets.add(sockets[i])
+    if closedPlayerSockets.len > 0:
+      {.gcsafe.}:
+        withLock appState.lock:
+          for websocket in closedPlayerSockets:
+            discard markSocketClosed(websocket)
 
     # Humans standing in for a seat see exactly what that seat sees — the same
     # fogged view, built from the cog's index. A separate pass, because a
     # takeover socket must never enter `sockets`: that array is the frame's
-    # readiness and traffic contract for roster players.
+    # readiness and traffic contract for roster players. Same compute-then-
+    # lock-once-then-send-unlocked shape as the player pass above, and for
+    # the same reason: this is the loop guest churn directly grows and
+    # shrinks every connect and disconnect.
+    var
+      takeoverNextStates = newSeq[PlayerViewerState](takeoverSockets.len)
+      takeoverWirePackets = newSeq[seq[uint8]](takeoverSockets.len)
     for i in 0 ..< takeoverSockets.len:
       var nextState: PlayerViewerState
       let framePacket = sim.buildSpriteProtocolPlayerUpdates(
@@ -2890,23 +2935,30 @@ proc runServerLoop*(
         takeoverStates[i],
         nextState
       )
-      {.gcsafe.}:
-        withLock appState.lock:
-          if takeoverSockets[i] in appState.playerViewers:
-            appState.playerViewers[takeoverSockets[i]] = nextState
-      let wirePacket = dedupObjectPlacements(
+      takeoverWirePackets[i] = dedupObjectPlacements(
         framePacket,
         nextState.sentPlacements
       )
+      takeoverNextStates[i] = nextState
+    {.gcsafe.}:
+      withLock appState.lock:
+        for i in 0 ..< takeoverSockets.len:
+          if takeoverSockets[i] in appState.playerViewers:
+            appState.playerViewers[takeoverSockets[i]] = takeoverNextStates[i]
+    var closedTakeoverSockets: seq[WebSocket] = @[]
+    for i in 0 ..< takeoverSockets.len:
       try:
-        if wirePacket.len == 0:
+        if takeoverWirePackets[i].len == 0:
           takeoverSockets[i].send("", BinaryMessage)
-        for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
+        for chunk in global.chunkSpritePacket(takeoverWirePackets[i], MaxWsFrameBytes):
           takeoverSockets[i].send(blobFromBytes(chunk), BinaryMessage)
       except:
-        {.gcsafe.}:
-          withLock appState.lock:
-            discard markSocketClosed(takeoverSockets[i])
+        closedTakeoverSockets.add(takeoverSockets[i])
+    if closedTakeoverSockets.len > 0:
+      {.gcsafe.}:
+        withLock appState.lock:
+          for websocket in closedTakeoverSockets:
+            discard markSocketClosed(websocket)
 
     for websocket in rewardViewers:
       try:
