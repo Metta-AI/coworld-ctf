@@ -85,6 +85,19 @@ const
     "<!-- CHROME_COMMON -->",
     "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
   ).spliceWireConstants()
+  # SEASON 2 HUMAN SEAT, ported from maxwell/s2-controls-on-seat (byte-matched
+  # source, GameVersion 44 -> this GV45 tree; the 8-bit InputState mask and
+  # the /player websocket handshake are untouched by the BR bump, per this
+  # file's own GameVersion changelog comment in sim_types.nim). Our OWN player
+  # client, vendored into this repo rather than patched into the pinned
+  # ~/.nimby/pkgs/bitworld package -- the same ELEVATE-BY-REBUILD move the
+  # replay routes above already make. player_controls.js carries the
+  # keyboard/mouse -> action-space translation and is inlined so the page
+  # stays a single self-contained file.
+  EmbeddedPlayerClientHtml = staticRead("../../client/player_client.html").replace(
+    "<script src=\"player_controls.js\"></script>",
+    "<script>" & staticRead("../../client/player_controls.js") & "</script>"
+  )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
@@ -857,6 +870,17 @@ proc httpHandler(request: Request) =
       request.respond(200, replayHeaders, EmbeddedLeagueReplayerHtml)
     else:
       request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
+  elif request.path in [
+      bitworldClient.PlayerClientRoute,
+      bitworldClient.PlayerClientHtmlRoute
+    ] and request.httpMethod == "GET":
+    # Season 2 human seat: ours wins because this branch sits AHEAD of the
+    # bitworld fallback below, which would otherwise serve the generic
+    # global/spectator client at this same path.
+    var playerHeaders: HttpHeaders
+    playerHeaders["Content-Type"] = "text/html; charset=utf-8"
+    playerHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, playerHeaders, EmbeddedPlayerClientHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute
