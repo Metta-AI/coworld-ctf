@@ -14,6 +14,35 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 #s{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e8e8e8;background:#000;font:14px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;pointer-events:none}
 #mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
 #mute:hover{background:#2a2620cc}
+/* Quick-callout radial wheel: RMB-hold overlay for the six standard team
+   pings (player_controls.js KEYMAP id "wheel", callout-spec.md sec.5). Sits
+   above the canvas but never intercepts pointer events (pointer-events:none
+   throughout) -- hit-testing is done in JS off tracked cursor coordinates,
+   so aiming (driven purely by continuous mouse position, no button state)
+   and the canvas's own mousedown/mouseup/contextmenu handling are both
+   untouched. Fades in/out in well under 100ms. */
+#wheel{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;
+  opacity:0;transition:opacity 60ms ease-out;z-index:40}
+#wheel.open{opacity:1}
+#wheelRing{position:absolute;left:50%;top:50%;width:200px;height:200px;
+  margin:-100px 0 0 -100px;border-radius:50%;
+  border:3px solid #e8a33d;box-shadow:0 0 0 1px #000a,0 6px 22px #000a;
+  background:radial-gradient(circle,#1a171466 0%,#1a171422 70%,transparent 72%)}
+#wheelHub{position:absolute;left:50%;top:50%;width:12px;height:12px;
+  margin:-6px 0 0 -6px;border-radius:50%;background:#e8a33d;
+  box-shadow:0 0 0 2px #000a}
+.wchip{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  min-width:92px;max-width:124px;padding:6px 9px;text-align:center;
+  background:#1a1714e6;border:2px solid #4a453c;border-left-width:5px;
+  border-radius:7px;box-shadow:0 3px 10px #0009;
+  font:800 13px/1.18 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.4px;text-transform:uppercase;color:#e8e4dc;
+  text-shadow:0 1px 2px #000c;transition:transform 60ms ease-out}
+.wchip .sub{display:block;font-size:10px;font-weight:700;opacity:.75;
+  letter-spacing:.3px;margin-top:1px}
+.wchip.dim{opacity:.64}
+.wchip.hover{transform:translate(-50%,-50%) scale(1.16);
+  border-color:#fff;color:#161310;text-shadow:none;opacity:1;z-index:2}
 </style>
 </head>
 <body>
@@ -21,6 +50,7 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <input id="i" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false">
 <div id="s">connecting...</div>
 <div id="hud"></div>
+<div id="wheel" aria-hidden="true"><div id="wheelRing"></div><div id="wheelHub"></div></div>
 <button id="mute" type="button">sound: on</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
@@ -403,6 +433,85 @@ let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
 window.onPingWheelOpen=window.onPingWheelOpen||function(cell,pos){};
 window.onPingWheelCommit=window.onPingWheelCommit||function(cell,pos){};
 
+/* ---- Quick-callout radial wheel (fills the seam above) --------------
+   Hold RMB: wheel opens at the cursor. Move while held: the wedge under
+   the angle from the wheel's center highlights (radial-menu convention --
+   selection is by ANGLE only past a small dead-zone, not by landing a
+   pixel-precise hover box, so a quick flick in the right direction is
+   enough). Release over a wedge: fires that wedge's callout through
+   sendPing() -- the SAME function 1-6 already call, so the wheel can never
+   diverge from the hotkey's wire format, cooldown, or HUD note. Release in
+   the dead-zone (or anywhere before a wedge is ever entered): wheelHover
+   stays -1 and nothing is sent, per spec.
+   Labels/order are callout-spec.md sec.5's wheel+hotkey vocabulary; slot 6
+   is left blank in that spec ("(reserved)") so its chip renders dim and
+   still fires "!6" for hotkey parity, honestly labeled as unassigned. */
+const CALLOUTS=[
+  {digit:1,label:"SPOTTED",sub:"HERE!",accent:"#ff004d"},
+  {digit:2,label:"PUSH",sub:"HERE!",accent:"#ffa300"},
+  {digit:3,label:"FALL BACK!",sub:"",accent:"#29adff"},
+  {digit:4,label:"ON ME!",sub:"NEED BACKUP",accent:"#ffec27"},
+  {digit:5,label:"NICE ONE!",sub:"",accent:"#00e436"},
+  {digit:6,label:"RESERVED",sub:"no vocab yet",accent:"#5f574f",dim:true},
+];
+const TEAM_TINT={red:"#e0523a",blue:"#3f7cc4",green:"#45a85e",yellow:"#ddc531"};
+const WHEEL_CHIP_R=92, WHEEL_DEADZONE=30;
+let wheelOpen=false,wheelHover=-1,wheelCX=0,wheelCY=0;
+const wheelEl=document.getElementById("wheel"),
+      wheelRingEl=document.getElementById("wheelRing"),
+      wheelHubEl=document.getElementById("wheelHub");
+const chipEls=CALLOUTS.map((co,i)=>{
+  const ang=i*Math.PI/3; // 60deg steps, 0=up, clockwise
+  const cx=Math.round(WHEEL_CHIP_R*Math.sin(ang)),
+        cy=Math.round(-WHEEL_CHIP_R*Math.cos(ang));
+  const el=document.createElement("div");
+  el.className="wchip"+(co.dim?" dim":"");
+  el.style.left="calc(50% + "+cx+"px)";
+  el.style.top="calc(50% + "+cy+"px)";
+  el.style.borderLeftColor=co.accent;
+  el.title=co.label+(co.sub?" "+co.sub:"");
+  el.innerHTML=co.label+(co.sub?'<span class="sub">'+co.sub+'</span>':'');
+  wheelEl.appendChild(el);
+  return el;
+});
+function wheelIndexAt(mx,my){
+  const dx=mx-wheelCX,dy=my-wheelCY;
+  if(Math.hypot(dx,dy)<WHEEL_DEADZONE)return -1;
+  let deg=Math.atan2(dx,-dy)*180/Math.PI; // 0=up, clockwise-positive
+  deg=(deg+360)%360;
+  return Math.floor(((deg+30)%360)/60);
+}
+function updateWheelHoverClasses(){
+  chipEls.forEach((el,i)=>{
+    if(i===wheelHover){el.classList.add("hover");el.style.background=CALLOUTS[i].accent+"e6"}
+    else{el.classList.remove("hover");el.style.background=""}
+  });
+}
+function closeWheel(){
+  if(!wheelOpen)return;
+  wheelOpen=false;wheelEl.classList.remove("open");
+  wheelHover=-1;updateWheelHoverClasses();
+}
+window.onPingWheelOpen=function(cell,pos,scr){
+  const col=(selfTeam&&TEAM_TINT[selfTeam])||"#e8a33d";
+  wheelRingEl.style.borderColor=col;wheelHubEl.style.background=col;
+  wheelCX=scr?scr.x:innerWidth/2;wheelCY=scr?scr.y:innerHeight/2;
+  wheelEl.style.left=wheelCX+"px";wheelEl.style.top=wheelCY+"px";
+  wheelHover=-1;updateWheelHoverClasses();
+  wheelOpen=true;wheelEl.classList.add("open");
+};
+window.onPingWheelCommit=function(cell,pos,scr){
+  if(!wheelOpen)return;
+  const hit=wheelHover;
+  closeWheel();
+  if(hit>=0)sendPing(CALLOUTS[hit].digit);
+};
+addEventListener("mousemove",e=>{
+  if(!wheelOpen)return;
+  const idx=wheelIndexAt(e.clientX,e.clientY);
+  if(idx!==wheelHover){wheelHover=idx;updateWheelHoverClasses()}
+});
+
 /* The self marker is a labelled sprite -- `self <color> <side>` (labels.nim
    LabelPrefixSelf). The map layer is served at scale 1 with its origin at
    (0,0), so object coordinates ARE map coordinates. */
@@ -574,14 +683,14 @@ function stopFireLoop(){
 addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true});
 c.addEventListener("mousedown",e=>{
   if(e.button===0){ensureAudio();lmb=true;e.preventDefault();startFireLoop()}
-  else if(e.button===2){e.preventDefault();window.onPingWheelOpen(cellUnderCursor(),toMap(e))}
+  else if(e.button===2){e.preventDefault();window.onPingWheelOpen(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY})}
 });
 addEventListener("mouseup",e=>{
   if(e.button===0){lmb=false;stopFireLoop()}
-  else if(e.button===2)window.onPingWheelCommit(cellUnderCursor(),toMap(e));
+  else if(e.button===2)window.onPingWheelCommit(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY});
 });
 c.addEventListener("contextmenu",e=>e.preventDefault());
-addEventListener("blur",()=>{lmb=false;stopFireLoop()});
+addEventListener("blur",()=>{lmb=false;stopFireLoop();closeWheel()});
 requestAnimationFrame(function ui(){drawHud();requestAnimationFrame(ui)});
 </script>
 </body>
