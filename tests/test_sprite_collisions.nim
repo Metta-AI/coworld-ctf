@@ -165,6 +165,13 @@ suite "sprite id collisions":
     # Every label the baseline bot exact-match scans for. A missing entry
     # means either a silent rename or a sprite-id clobber — both blind every
     # scripted bot in the league while nothing else fails.
+    #
+    # Sprites Off (spritesOff=true) is the real wire condition every scripted
+    # league bot connects under (server.nim sets it from the 0x87 opt-in) —
+    # it's what gates the walkability map (LabelWalkabilityMap): a human
+    # viewer never sets it and never receives that sprite (it's policy-only
+    # navigation data, never read by client JS), so this test must ask for
+    # the bot's actual view rather than the human default.
     var game = fullFeatureGame()
     var pstate: PlayerViewerState
     var defs: Table[int, string]
@@ -183,9 +190,9 @@ suite "sprite id collisions":
       game.players[0].x = stop[0] + 40
       game.players[0].y = stop[1]
       game.players[0].aimBrads = 128    # aim west, spawn in the cone
-      defs.applyDefs(game.buildPlayerMessages(0, pstate))
+      defs.applyDefs(game.buildPlayerMessages(0, pstate, spritesOff = true))
       game.step(none, none)
-      defs.applyDefs(game.buildPlayerMessages(0, pstate))
+      defs.applyDefs(game.buildPlayerMessages(0, pstate, spritesOff = true))
     var labels = initHashSet[string]()
     var prefixes = initHashSet[string]()
     for label in defs.values:

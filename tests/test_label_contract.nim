@@ -304,6 +304,7 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
     gstate = initGlobalViewerState()
     livingState: PlayerViewerState
     ghostState: PlayerViewerState
+    botState: PlayerViewerState
   let none = newSeq[InputState](sim.players.len)
 
   proc keepPlaying(sim: var SimServer) =
@@ -354,6 +355,17 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
   # Ghost view from the dead seat: corpses render for ghost viewers only.
   result.absorb(sim.buildPlayerMessages(3, ghostState))
   result.absorb(sim.buildGlobalMessages(gstate))
+
+  # Sprites Off (spritesOff=true) is the wire condition every scripted league
+  # bot actually connects under (server.nim sets it from the client's 0x87
+  # opt-in). LabelWalkabilityMap only ever rides in that mode now — a human
+  # viewer never receives it (see buildSpriteProtocolPlayerInit, which skips
+  # it entirely for spritesOff=false: no client JS reads it) — so a FRESH
+  # init sweep in bot mode is needed to keep that policy-only label covered
+  # by this vocabulary guard. A fresh PlayerViewerState is required: reusing
+  # an already-initialized state would skip buildSpriteProtocolPlayerInit
+  # entirely (init-only sprites, like this one, never re-emit per frame).
+  result.absorb(sim.buildPlayerMessages(0, botState, spritesOff = true))
 
   # Spray FX + the shooter's own weapon HUD: give seat 0 the can and fire it.
   # `weapon spray` is gated on the seat being alive in a Playing-phase frame, so

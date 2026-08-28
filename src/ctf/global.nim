@@ -3188,13 +3188,24 @@ proc boardMapPixels(sim: SimServer): seq[uint8] {.measure.} =
   sim.boardScaledMapPixels()
 
 var
-  boardMapBandsCache: seq[uint8]
-  boardMapBandsDefs: seq[SpriteDefinition]
-    ## Process-wide cache of the boardScale× map band sprite+object wire
-    ## messages and the sprite defs they imply. The bands are byte-identical
-    ## for every viewer, and re-encoding them per connection (13 MB of band
-    ## copies + snappy at RenderScale 2) cost ~1 s of the hosted certifier's
-    ## 10-second first-frame budget.
+  boardMapBandsCache: Table[int, seq[uint8]]
+  boardMapBandsDefs: Table[int, seq[SpriteDefinition]]
+    ## Process-wide cache of the map band sprite+object wire messages and the
+    ## sprite defs they imply, keyed by boardScale (a map only ever renders at
+    ## one or two distinct scales in a process's lifetime — the 1× player/POV
+    ## stream and, on maps small enough for MaxSupersampledMapPixels, the
+    ## supersampled spectator board). The bands are byte-identical for every
+    ## viewer AT A GIVEN SCALE, and re-encoding them per connection (13 MB of
+    ## band copies + snappy per connect) once cost ~1 s of the hosted
+    ## certifier's 10-second first-frame budget for the spectator board alone
+    ## — and, unkeyed by scale, this cache used to activate ONLY for
+    ## boardScale > 1, leaving every 1× consumer (every player socket, every
+    ## POV-follow, and the spectator board itself on any map over
+    ## MaxSupersampledMapPixels, which never leaves boardScale at 1) to redo
+    ## the full pixel-extract-and-snappy work from scratch on every single
+    ## connection. On a mass-reconnect (every socket rejoining after a field
+    ## restart) that serialized, uncached cost on the single-threaded tick
+    ## loop is exactly what stalls the game.
 
 proc addMapBands(
   sim: SimServer,
@@ -3222,15 +3233,17 @@ proc addMapBands(
     let sentinel = spriteDefs.spriteDefinitionIndex(MapBandSpriteBase)
     if sentinel >= 0 and spriteDefs[sentinel].width == outW:
       return
-  if boardScale > 1 and boardMapBandsCache.len > 0:
-    # Cached wire bytes: register the defs for this viewer, splice the bytes.
-    for def in boardMapBandsDefs:
+  if boardMapBandsCache.hasKey(boardScale):
+    # Cached wire bytes for THIS scale: register the defs for this viewer,
+    # splice the bytes. No pixel extraction, no snappy — this is the only
+    # per-connection cost once the first connection at this scale has paid it.
+    for def in boardMapBandsDefs[boardScale]:
       let index = spriteDefs.spriteDefinitionIndex(def.spriteId)
       if index >= 0:
         spriteDefs[index] = def
       else:
         spriteDefs.add def
-    packet.add boardMapBandsCache
+    packet.add boardMapBandsCache[boardScale]
     return
   let mapPixels = sim.boardMapPixels()
   var
@@ -3254,9 +3267,8 @@ proc addMapBands(
     encoded.addBoardObject(objectId, 0, y0, low(int16), MapLayerId, spriteId)
     inc band
     y0 += bandH
-  if boardScale > 1:
-    boardMapBandsCache = encoded
-    boardMapBandsDefs = encodedDefs
+  boardMapBandsCache[boardScale] = encoded
+  boardMapBandsDefs[boardScale] = encodedDefs
   for def in encodedDefs:
     let index = spriteDefs.spriteDefinitionIndex(def.spriteId)
     if index >= 0:
@@ -3264,6 +3276,17 @@ proc addMapBands(
     else:
       spriteDefs.add def
   packet.add encoded
+
+var
+  walkabilitySpriteCache: seq[uint8]
+  walkabilitySpriteDef: SpriteDefinition
+  walkabilitySpriteCached = false
+    ## Process-wide cache of the walkability mask's encoded wire message
+    ## (pixel extraction + snappy of a ~22 MB RGBA mask at BR scale). Mirrors
+    ## boardMapBandsCache's reasoning: the mask is byte-identical for every
+    ## spritesOff (bot) viewer on this map, so paying the extract+compress
+    ## cost once and splicing the cached bytes into each connection replaces
+    ## an O(sockets) rebuild with an O(1) rebuild + cheap O(sockets) copy.
 
 proc invalidateBoardMapCaches*() =
   ## Drops every process-wide cache derived from the current map's pixels.
@@ -3278,8 +3301,11 @@ proc invalidateBoardMapCaches*() =
   EndzoneStripCache = default(typeof(EndzoneStripCache))
   EndzoneDiffBox = default(typeof(EndzoneDiffBox))
   EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
-  boardMapBandsCache = @[]
-  boardMapBandsDefs = @[]
+  boardMapBandsCache.clear()
+  boardMapBandsDefs.clear()
+  walkabilitySpriteCache = @[]
+  walkabilitySpriteDef = default(SpriteDefinition)
+  walkabilitySpriteCached = false
 
 proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
   ## Splits one sprite-protocol packet into WS-frame-sized chunks at MESSAGE
@@ -3450,6 +3476,40 @@ proc buildWalkabilitySpritePixels(sim: SimServer): seq[uint8] {.measure.} =
       result[offset + 1] = 255
       result[offset + 2] = 255
       result[offset + 3] = 255
+
+proc addWalkabilitySprite(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the walkability mask sprite for a spritesOff (bot) viewer. Human
+  ## viewers never read this sprite (see LabelWalkabilityMap / the client
+  ## audit in buildSpriteProtocolPlayerInit) so callers must gate this to
+  ## spritesOff viewers only — sending it to a human is pure wasted bytes.
+  let sentinel = spriteDefs.spriteDefinitionIndex(SpritePlayerWalkabilitySpriteId)
+  if sentinel >= 0:
+    return
+  if not walkabilitySpriteCached:
+    var
+      encoded: seq[uint8]
+      encodedDefs: seq[SpriteDefinition]
+    encoded.addSpriteChanged(
+      encodedDefs,
+      SpritePlayerWalkabilitySpriteId,
+      sim.gameMap.width,
+      sim.gameMap.height,
+      sim.buildWalkabilitySpritePixels(),
+      LabelWalkabilityMap
+    )
+    walkabilitySpriteCache = encoded
+    walkabilitySpriteDef = encodedDefs[0]
+    walkabilitySpriteCached = true
+  let index = spriteDefs.spriteDefinitionIndex(walkabilitySpriteDef.spriteId)
+  if index >= 0:
+    spriteDefs[index] = walkabilitySpriteDef
+  else:
+    spriteDefs.add walkabilitySpriteDef
+  packet.add walkabilitySpriteCache
 
 proc mapMarkerSpriteId(index: int): int =
   ## Returns the stable sprite id for one static map marker.
@@ -4591,14 +4651,27 @@ proc buildSpriteProtocolInit(
 
 proc buildSpriteProtocolPlayerInit(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition]
+  spriteDefs: var seq[SpriteDefinition],
+  spritesOff = false
 ): seq[uint8] {.measure.} =
   ## Builds the initial sprite player snapshot: the full-map view (the client
   ## scales the whole arena to the window), the fog overlay layer, and the
   ## screen-corner HUD layers.
+  ##
+  ## The map used to ride as ONE raw-RGBA sprite (~22 MB uncompressed at BR
+  ## scale, 3211x1713) built fresh — full pixel extraction plus snappy
+  ## compression — on every single connecting socket, with no caching at
+  ## this 1x scale (see addMapBands / boardMapBandsCache). On a mass
+  ## reconnect (every socket rejoining after a field restart) that
+  ## synchronous, uncached rebuild times the number of sockets is exactly
+  ## what stalls the single-threaded tick loop. It now rides as bands, same
+  ## as the global viewer's board (addMapBands), which both keeps every
+  ## message under the hosted 1 MiB WS frame cap AND — via the scale-keyed
+  ## process-wide cache — means only the FIRST connection at this scale pays
+  ## the pixel-extract-and-snappy cost; every later connection splices the
+  ## already-encoded bytes.
   result = @[]
   result.addU8(0x04)
-  let mapPixels = sim.buildMapSpritePixels()
   result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
   result.addViewport(MapLayerId, sim.gameMap.width, sim.gameMap.height)
   result.addLayer(FogLayerId, MapLayerType, ZoomableLayerFlag)
@@ -4615,23 +4688,28 @@ proc buildSpriteProtocolPlayerInit(
   result.addViewport(PlayerInterstitialLayerId, ScreenWidth, ScreenHeight)
   result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
   result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
+  sim.addMapBands(spriteDefs, result)
+  # buildSpriteProtocolPlayerUpdates places an object EVERY frame on
+  # MapSpriteId (the "game is live" signal / camera anchor) — keep that id
+  # defined so the placement always resolves, but only as a trivial 1x1
+  # transparent stand-in: the real map pixels now ride the bands above.
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
-    sim.gameMap.width,
-    sim.gameMap.height,
-    mapPixels,
+    1,
+    1,
+    [0'u8, 0'u8, 0'u8, 0'u8],
     "map"
   )
   sim.addMapMarkers(spriteDefs, result)
-  result.addSpriteChanged(
-    spriteDefs,
-    SpritePlayerWalkabilitySpriteId,
-    sim.gameMap.width,
-    sim.gameMap.height,
-    sim.buildWalkabilitySpritePixels(),
-    LabelWalkabilityMap
-  )
+  # The walkability mask is policy/bot-only data (LabelWalkabilityMap: "a
+  # policy decodes its pixels, it never reads its position") — no client JS
+  # references its label or sprite id (see broadcast_core.js / player
+  # client). A human viewer paying ~22 MB to receive a sprite it never
+  # reads is pure waste, so it is skipped entirely for spritesOff = false.
+  # Sprites-off (bot) viewers still get it, from the process-wide cache.
+  if spritesOff:
+    sim.addWalkabilitySprite(spriteDefs, result)
   sim.addFlagSprites(spriteDefs, result)
   result.addSpriteChanged(
     spriteDefs,
@@ -8273,7 +8351,7 @@ proc buildSpriteProtocolPlayerUpdates*(
     else:
       state
   if not nextState.initialized:
-    result = sim.buildSpriteProtocolPlayerInit(nextState.spriteDefs)
+    result = sim.buildSpriteProtocolPlayerInit(nextState.spriteDefs, spritesOff)
     nextState.initialized = true
 
   var currentIds: seq[int] = @[]
