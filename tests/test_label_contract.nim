@@ -179,7 +179,7 @@ proc fullFeatureGame(teams4 = false): SimServer =
   # and a rename of any of them would have slipped through the guard.
   #   A REAL kill, so the death path itself feeds the sweep: seat 5 (Blue,
   #   otherwise unposed) dies next to the viewer, leaving the long-dwelling
-  #   death `splatter` and the floating `damage pop <color> KO` kill marker.
+  #   death `splatter` and the floating `damage pop <color> SPLAT` kill marker.
   #   Both outlive the sweep's few ticks by seconds of game time. keepPlaying()
   #   revives the seat; the FX persist independently of the victim.
   result.players[5].x = cx - 40

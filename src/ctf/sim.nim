@@ -946,7 +946,7 @@ proc killPlayer*(
   # No permanent stain at the death spot either: the paint that killed this cog
   # landed ON the cog, and the fading splatter above is the record of it. Only
   # paint that MISSED and reached terrain leaves a mark on terrain.
-  # A floating "KO" kill marker rises and fades from the death spot — the same
+  # A floating "SPLAT" kill marker rises and fades from the death spot — the same
   # mechanism as the "-1" damage pops, so a kill reads at a glance in the
   # spectator/replay view (cosmetic only, never in gameHash).
   sim.damagePops.add DamageFx(
