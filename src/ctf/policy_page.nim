@@ -195,6 +195,16 @@ const DefaultPaths* = [
   ("intent.is_item", pkBool),     # SeekItem
   ("intent.is_partner", pkBool),  # RegroupWithPartner / SupportPartner
   ("intent.is_zone", pkBool),     # RotateToZone / HoldCoverInPlace / AvoidContact
+
+  # Per-candidate target annotations, NOT match-wide: computed with the same
+  # targeting call the resolver will actually use for THIS intent this tick
+  # (ENGAGE/PEEL/HOLD_RING_SAFE -> nearest enemy, FINISH -> weakest, THIRD_
+  # PARTY -> fight-detection, SUPPORT_PARTNER -> nearest to partner,
+  # USE_GRENADE -> in-band grenade target) -- so it can never disagree with
+  # what the engine resolves the winning intent onto. -1 if the intent has
+  # no single target this tick [SENTINEL -- see the warning above].
+  ("intent.target_hp", pkNumber),   # landed after the first cut, real, resolver-backed; -1 if no target [SENTINEL]
+  ("intent.target_dist", pkNumber), # landed after the first cut, real, resolver-backed; -1 if no target [SENTINEL]
 ]
 
 let DefaultPathRegistry* = newPathRegistry(DefaultPaths)
