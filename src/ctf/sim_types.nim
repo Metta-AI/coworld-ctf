@@ -485,6 +485,22 @@ const
                               ## after a hit (cosmetic only, never in gameHash).
   KillFxTicks* = 44           ## ~1.8s a floating "SPLAT" kill marker rises and fades
                               ## after a death (cosmetic only, never in gameHash).
+  # ── GLORY PORT (increment 2/3) — cosmetic pop tuning, ported verbatim from main's
+  # sim.nim. Pricing itself lives in glory.nim; these are FX-channel-only
+  # (never gameHash) constants that govern how the "+Ng" pops stack/queue.
+  GloryFxTicks* = 40          ## ~1.7s a floating "+Ng" score pop rises and
+                              ## fades at the site of the deed that minted
+                              ## it -- longer than DamageFxTicks because it
+                              ## is the REWARD and should outlive the wound.
+  AchievementFxTicks* = 84    ## ~3.5s an achievement's NAME holds over the
+                              ## cog that earned it -- a named moment, not a
+                              ## tick of income.
+  GloryPopCoalescePx* = 10    ## one tick, one team, this close = ONE pop.
+  GloryPopMaxStack* = 3       ## deepest visible stack at one site.
+  GloryPopStaggerTicks* = 10  ## site-stacked (no single earner) pop stagger.
+  GloryPopUnitQueueCap* = 4   ## most pops one EARNER may have queued at once.
+  GloryPopUnitStaggerTicks* = 36  ## ticks between one queued pop's start and
+                              ## the next FOR THE SAME EARNER.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -2142,6 +2158,14 @@ type
                                ## single earner) -- lets the pop keep
                                ## tracking a living earner tick over tick
                                ## instead of freezing at mint-time coordinates.
+    row*: int                  ## site-stack depth (0-based, capped at
+                               ## `GloryPopMaxStack`) for a pop with no single
+                               ## earner -- ported alongside `addGloryPop`.
+    startDelay*: int           ## ticks after `tick` this pop's animation
+                               ## actually begins -- the per-unit/per-site
+                               ## stagger `addGloryPop` computes so several
+                               ## pops on one cog or one site queue instead
+                               ## of overlapping.
 
   AchievementClaim* = object
     ## GLORY PORT (increment 2/3). One claimed tier -- the schema half of a claim;
@@ -2182,6 +2206,12 @@ type
     SprayUse    ## one active spray-cone tick and the damage it dealt.
     Pickup      ## a player picked up an item; item names the pickup.
     ShoutEvent  ## a player shouted; content is the sanitized text.
+    # ── GLORY PORT (increment 2/3) ── appended, never inserted, per this enum's own
+    # positional discipline (matches the struct-field rule above).
+    GloryDeed   ## a deed minted through `awardDeed` (weapon = $deed).
+    Achievement ## an achievement tier claimed through `claimAchievement`.
+    LevelUp     ## a cog's per-life ladder rank climbed (source = cog,
+                ## amount = the rank now reached).
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.
