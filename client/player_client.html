@@ -479,11 +479,19 @@ let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
    InputState) plus a shout string, and player_controls.js documents which
    bit each key owns. Nothing here can express an action a bot cannot.
 
-   The aim is DEAD-RECKONED from the commands we issue, because the engine
-   fuzzes every rendered soldier including our own self marker
-   (global.nim:6211-6226): "your true aim is knowable only from the commands
-   you issued, never from the pixels." We therefore integrate our own rotate
-   commands on the tick clock -- one server frame is one sim tick.
+   STALE (pre-GV26) claim removed: this used to say aim is dead-reckoned
+   because the engine fuzzes even our own self marker. That stopped being
+   true at GV26 -- the self marker renders exact aim now (global.nim
+   fuzzedAimBrads: "SELF exempted since 26 ... your gun is your own state,
+   not a leak"; see findSelfAndAim below). Better still, the wire carries an
+   explicit exact readback every player-view frame regardless: an invisible
+   `own aim <brads>` HUD marker (global.nim SpritePlayerOwnAimSpriteId/
+   ObjectId; docs/PROTOCOL.md "Your own aim: read the `own aim` marker").
+   estAim now RESYNCS to that marker every tick it's present -- which is
+   every tick we have a seat, alive or dead -- and only free-integrates via
+   CC.stepAim on a tick the marker has not shown up yet (pre-seed only in
+   practice). That caps drift at one frame gap instead of accumulating it
+   open-loop for a whole session, exactly as PROTOCOL.md promises.
 ==================================================================== */
 const CC=CtfControls;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
@@ -579,16 +587,30 @@ addEventListener("mousemove",e=>{
 
 /* The self marker is a labelled sprite -- `self <color> <side>` (labels.nim
    LabelPrefixSelf). The map layer is served at scale 1 with its origin at
-   (0,0), so object coordinates ARE map coordinates. */
-function findSelf(){
+   (0,0), so object coordinates ARE map coordinates.
+
+   The same pass also looks for the own-aim HUD marker: an invisible 1x1
+   object whose sprite label is `own aim <brads>` (global.nim
+   SpritePlayerOwnAimSpriteId/ObjectId, docs/PROTOCOL.md "Your own aim") --
+   an EXACT readback of this seat's turret angle as of the rendered tick,
+   present on every player-view frame whether we are alive or dead. Like the
+   self label, the wire only re-sends the sprite definition on a tick the
+   value actually changed, but the cached `sprites` map always holds the
+   latest one, so reading it here is current even on an unchanged tick. */
+function findSelfAndAim(){
+  let pos=null,ownAim=null;
   for(const o of objects.values()){
     const sp=sprites.get(o.spriteId);
-    if(sp&&sp.label&&sp.label.startsWith("self ")){
+    if(!sp||!sp.label)continue;
+    if(sp.label.startsWith("self ")){
       selfTeam=sp.label.split(" ")[1]||null;
-      return {x:o.x+sp.width/2,y:o.y+sp.height/2};
+      pos={x:o.x+sp.width/2,y:o.y+sp.height/2};
+    }else if(sp.label.startsWith("own aim ")){
+      const v=parseInt(sp.label.slice(8),10);
+      if(!isNaN(v))ownAim=v;
     }
   }
-  return null;
+  return {pos,ownAim};
 }
 /* ---- Seated follow camera (legibility audit #1) ----------------------
    The pixel buffer stays the whole map at native scale -- that invariant
@@ -654,11 +676,22 @@ function emitNow(){
 /* One server frame == one applied sim tick. */
 function controlsTick(){
   tickCount++;
-  if(aimSeeded)estAim=CC.stepAim(estAim,committedRotate);
-  selfPos=findSelf();
+  const found=findSelfAndAim();
+  selfPos=found.pos;
+  /* Resync FIRST, before this tick's rotate decision reads estAim below:
+     found.ownAim is exact for this tick straight off the wire, so prefer it
+     outright over the integrated guess. CC.stepAim only fills a tick where
+     the marker genuinely has not shown up yet (pre-seed, in practice never
+     once we have ever had a frame) -- see the header comment above this
+     block for why this replaces the old pure dead-reckoning. */
+  if(found.ownAim!==null){estAim=found.ownAim;aimSeeded=true}
+  else if(aimSeeded){estAim=CC.stepAim(estAim,committedRotate)}
   /* Every fresh spawn re-seeds: the engine snaps aimBrads back to
      spawnAimBrads on EVERY respawn, so carrying the old estimate across a
-     death would leave the gun permanently off the cursor. */
+     death would leave the gun permanently off the cursor. Redundant with
+     the marker resync above on the common path (the marker already reports
+     the post-respawn angle the same tick), but kept as a same-tick fallback
+     for the one frame ordering where it hasn't yet. */
   const seatedNow=!!selfPos;
   if(seatedNow&&!wasSeated&&selfTeam){estAim=CC.reseedAim(estAim,true,false,selfTeam);aimSeeded=true}
   /* Death state (legibility audit #4/#10): the self marker disappearing

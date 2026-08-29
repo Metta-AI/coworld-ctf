@@ -24,12 +24,19 @@
 //
 // Bit values are ButtonUp..ButtonC, spriteprotocol.nim:20-27.
 //
-// AIM IS DEAD-RECKONED, BY ENGINE MANDATE. Every soldier sprite in a player
-// view -- including your own self marker -- renders with a FUZZED aim
-// (global.nim:6211-6226, GV24). That comment states the contract outright:
-// "your true aim is knowable only from the commands you issued, never from
-// the pixels." So we integrate the commands we issue. Picasso's turret does
-// the same thing internally (players/picasso/baseline.nim:47-54).
+// AIM TRACKING, updated for GV26+. Every OTHER soldier sprite in a player
+// view still renders a FUZZED aim (global.nim fuzzedAimBrads, GV24) -- watch
+// another bot and you cannot read its exact gun angle -- but the self marker
+// was EXEMPTED from that fuzz at GV26 ("your gun is your own state, not a
+// leak"), and the wire additionally carries an exact `own aim <brads>` HUD
+// readback every player-view frame (docs/PROTOCOL.md "Your own aim"). A
+// client should RESYNC its own aim estimate from that marker every tick
+// (player_client.html's controlsTick does), using the integrator below
+// (stepAim/rotateButton) only to fill the rare tick the marker has not
+// shown up yet -- never as the primary source, the way this file's aim
+// helpers were originally written to be used stand-alone (e.g. Picasso's
+// turret, players/picasso/baseline.nim:47-54, which has no such marker to
+// read and must dead-reckon for real).
 
 (function (root, factory) {
   const api = factory();
