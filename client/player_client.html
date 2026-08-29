@@ -696,7 +696,12 @@ function findSelfAndAim(){
    back to the exact old whole-map-fit framing the instant selfPos is null
    (unseated, or dead -- see the death-state block below), so a spectator
    or a not-yet-seated guest never loses the full-board context. */
-const CAMERA_ZOOM=3;    // whole-map-fit reads cogs at ~15-20px (legibility audit); x3 lands in the audit's ~40-60px "your cog pops" target.
+/* CAMERA_ZOOM is a Maxwell feel-knob, not a derived constant -- tune freely.
+   whole-map-fit reads cogs at ~15-20px (legibility audit); the audit's own
+   "your cog pops" target is ~40-60px, which is what x3 landed on, but that
+   read as too tight a crop in live play (field report 8/29) -- x2 keeps the
+   self cog clearly legible while leaving more board in frame. */
+const CAMERA_ZOOM=2.0;
 const CAMERA_EASE=0.12; // per-draw lerp toward the target -- settles in a few hundred ms, reads as a follow, not a cut.
 let camScale=1,camX=0,camY=0,camInited=false;
 function updateCamera(){
