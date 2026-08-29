@@ -692,7 +692,18 @@ function stopFireLoop(){
 }
 addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true});
 c.addEventListener("mousedown",e=>{
-  if(e.button===0){ensureAudio();lmb=true;e.preventDefault();startFireLoop()}
+  if(e.button===0){
+    lmb=true;e.preventDefault();
+    /* Fire SFX only when we actually have a seat that can fire -- the same
+       agency check handleDamagePopBirth already uses (selfPos truthy) below.
+       Before that (pre-takeover "suiting-up": the cog is still policy-driven,
+       but this same document and its listeners are already fully live),
+       selfPos is null and no gunfire audio should be audible for a click
+       that has zero effect on the game. lmb itself still tracks the real
+       held-button state unconditionally -- that's the actual fire INPUT bit,
+       untouched by this gate, only the SFX layer is gated. */
+    if(selfPos){ensureAudio();startFireLoop()}
+  }
   else if(e.button===2){e.preventDefault();window.onPingWheelOpen(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY})}
 });
 addEventListener("mouseup",e=>{
