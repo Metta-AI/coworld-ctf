@@ -23,7 +23,7 @@ CFG="$PWD/rt/live_cfg.json"
 
 cp rt/page_a.json "$PAGEFILE"
 
-python3 - "$CFG" "$SEED" "$MAXTICKS" "$MAPSPEC" "$SEATS" <<'PY'
+python3 - "$CFG" "$SEED" "$MAXTICKS" "$MAPSPEC" "$SEATS" "${GATE:-on}" <<'PY'
 import json, sys
 cfg = json.load(open("config.json"))
 cfg["seed"] = int(sys.argv[2]); cfg["maxTicks"] = int(sys.argv[3])
@@ -35,7 +35,7 @@ cfg["lives"] = 1
 cfg["barrageMaxPerSec"] = 0
 # THE GATE. Off by default everywhere else; this match is the one place it
 # is armed, and `applyPolicyPage` refuses every page without it.
-cfg["allowPolicyReflash"] = True
+cfg["allowPolicyReflash"] = (len(sys.argv) < 7 or sys.argv[6] != "off")
 TEAM_NAMES = ["red","blue","green","yellow","black","silver","ivory","pink",
               "umber","rust","orange","plum","lime","navy","azure","peach"]
 seats = int(sys.argv[5])
