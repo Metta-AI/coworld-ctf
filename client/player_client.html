@@ -271,11 +271,20 @@ function putPixel(layer,x0,y0,sprite,srcOffset){
    pixels in the browser. A policy's observation is byte-identical with this
    code present or deleted -- no new oracle, and the aim fuzz on every other
    soldier is untouched.  */
-const RING_PAD=5;                 /* px of headroom grown around the sprite */
-const RING_CORE=3, RING_EDGE=5;   /* Chebyshev bands: core 1..3, keyline 4..5 */
-const RING_MATE=[232,163,61];     /* the HUD's own amber (ping wheel, chrome) */
-const RING_SELF=[255,255,255];    /* the engine's own self-marker white */
+const RING_PAD=4;                 /* px of headroom grown around the sprite */
 const RING_KEY=[12,10,9];         /* near-black keyline, the anti-camouflage */
+/* Per-tone bands, in Chebyshev px out from the silhouette: `core` is the
+   coloured rim, and everything from core+1 to `edge` is the dark keyline.
+   YOUR OWN cog already arrives with the engine's 2px white rim baked into
+   its pixels (global.nim soldierOutlined on the self marker), so self adds
+   NO colour of its own -- only the keyline that lifts that existing white
+   off wet paint. The partner has no rim at all on the wire, so mate draws
+   its own 2px in the HUD's amber and then the same keyline. Equal weight,
+   two hues: white is you, amber is your partner. */
+const RING_TONES={
+  self:{core:0,edge:2,rgb:[255,255,255]},
+  mate:{core:2,edge:4,rgb:[232,163,61]}
+};
 const ringCache=new Map();        /* spriteId+tone -> padded rim sprite */
 /* Builds the rim ONCE per sprite id (16 aim steps x 2 tones is the whole
    working set) into a canvas grown by RING_PAD on every side, so a cog whose
@@ -290,12 +299,12 @@ function ringSprite(spriteId,sprite,tone){
   for(let y=0;y<sprite.height;y++)for(let sx=0;sx<sprite.width;sx++){
     if(sprite.pixels[(y*sprite.width+sx)*4+3]>=64)solid[(y+RING_PAD)*w+sx+RING_PAD]=1;
   }
-  const core=tone==="self"?RING_SELF:RING_MATE;
+  const band=RING_TONES[tone];
   for(let y=0;y<h;y++)for(let sx=0;sx<w;sx++){
     const i=y*w+sx;
     if(solid[i])continue;
     let d=0;
-    for(let r=1;r<=RING_EDGE&&!d;r++){
+    for(let r=1;r<=band.edge&&!d;r++){
       for(let dy=-r;dy<=r&&!d;dy++)for(let dx=-r;dx<=r;dx++){
         if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;
         const nx=sx+dx,ny=y+dy;
@@ -304,7 +313,7 @@ function ringSprite(spriteId,sprite,tone){
       }
     }
     if(!d)continue;
-    const c=d<=RING_CORE?core:RING_KEY,a=d<=RING_CORE?255:225,o=i*4;
+    const inCore=d<=band.core,c=inCore?band.rgb:RING_KEY,a=inCore?255:230,o=i*4;
     px[o]=c[0];px[o+1]=c[1];px[o+2]=c[2];px[o+3]=a;
   }
   const built={width:w,height:h,pixels:px};
