@@ -8,8 +8,10 @@
 # instead of baseline, and the page file rewritten mid-match so the runner's
 # own `pollForNewPage` fires a SECOND, mid-episode flash.
 #
-# PORT: 21471. NOT 7420 (Maxwell's live field), NOT 21400-21403 or 21454
-# (other agents in this fleet).
+# PORT: defaults to 21471 but MUST be free — the script now refuses a busy
+# one rather than letting `nc -z` succeed against somebody else's server and
+# silently recording nothing. NOT 7420 (Maxwell's live field), NOT
+# 21400-21403 or 21454 (other agents in this fleet).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-rt/roundtrip.bitreplay}"
@@ -22,6 +24,14 @@ PAGEFILE="$PWD/rt/live_page.json"
 CFG="$PWD/rt/live_cfg.json"
 
 cp rt/page_a.json "$PAGEFILE"
+
+# REFUSE a port somebody else already holds. Without this the startup probe
+# below (`nc -z`) succeeds against the FOREIGN server while ours dies on its
+# own config, and the run proceeds to record nothing while looking alive.
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "port $PORT is already in use — refusing to run. Set PORT=<free>." >&2
+  exit 1
+fi
 
 python3 - "$CFG" "$SEED" "$MAXTICKS" "$MAPSPEC" "$SEATS" "${GATE:-on}" <<'PY'
 import json, sys
@@ -56,9 +66,14 @@ cfg["zonePhases"] = [
 json.dump(cfg, open(sys.argv[1], "w"))
 PY
 
-LOG="${LOG:-/tmp/rfi-match-server.log}"
-BOTLOG="${BOTLOG:-/tmp/rfi-match-bots.log}"
-ONEPAGELOG="${ONEPAGELOG:-/tmp/rfi-match-onepage.log}"
+# Log paths and PORT are per-PID by default. A sibling agent running this
+# same script from its own worktree would otherwise write the SAME /tmp
+# files and bind the SAME port — which happened: a foreign server's startup
+# error turned up in this script's log tail and read as a failure of THIS
+# run. Anything shared between worktrees has to be unique per process.
+LOG="${LOG:-/tmp/rfi-match-server-$$.log}"
+BOTLOG="${BOTLOG:-/tmp/rfi-match-bots-$$.log}"
+ONEPAGELOG="${ONEPAGELOG:-/tmp/rfi-match-onepage-$$.log}"
 : > "$BOTLOG"; : > "$ONEPAGELOG"
 rm -f "$PWD/$OUT"
 

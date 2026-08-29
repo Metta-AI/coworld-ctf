@@ -625,5 +625,12 @@ const PolicyPageMagic* = "CTFPOLICYPAGE1\n"
   ## range would silently reopen the collision — it is the only way this
   ## guarantee can be lost, and nothing else in the code would notice.
   ##
-  ## Unlike the labels above this is not in `tests/label_manifest.txt`: the
-  ## renderer never emits it, so there is no golden vocabulary to agree with.
+  ## **It is not a label and must never be registered as one.** Unlike
+  ## everything above it, this string is never attached to a sprite object,
+  ## so it is invisible to the manifest sweep (which is built from a live
+  ## frame, not by scanning this file) and it does not belong in
+  ## `PolicyScannedLabels` or `tests/label_manifest.txt`. Adding it to
+  ## either would fail confusingly, describing a vocabulary the renderer
+  ## never emits. It lives here for the ZERO-IMPORTS property and the shared
+  ## producer/consumer reach, not because it is part of the observation
+  ## schema.
