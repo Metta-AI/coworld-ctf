@@ -10,33 +10,26 @@
 ## POSITIONALLY into replay keyframes, so declaration/field order here is
 ## wire format — reorder nothing without a GameVersion bump.
 
-# GLORY PORT (GV46): `glory` is a zero-import, pure module (same "players/
-# baseline compiles with no data/ dir" constraint sim_types itself is
-# written to respect), so importing it here carries no cycle and no asset-
-# cone risk. `Player`/`SimServer` need `Deed`/`Tree`/`AchievementTrees`/
-# `AchievementTiers` for their own new fields below.
+# GLORY PORT (increment 2/3): `glory` is a zero-import, pure module (same
+# "players/baseline compiles with no data/ dir" constraint sim_types itself
+# is written to respect), so importing it here carries no cycle and no
+# asset-cone risk. `Player`/`SimServer` need `Deed`/`Tree`/`AchievementTrees`/
+# `AchievementTiers` for their own new fields below. Exported (not just
+# imported) so every downstream module already getting sim_types
+# transitively (the "import sim_types, ...; export sim_types, ..." pattern
+# every split file uses) also gets glory's Deed/awardDeed-helper symbols,
+# without a re-import per consumer.
 import
   std/[math, random],
   bitworld/pixelfonts,
   bitworld/server,
   pixie,
   glory
+export glory
 
 const
   GameName* = "ctf"
-  GameVersion* = "46"  ## GV46 (GLORY PORT): Player/SimServer widened with
-    ## glory's causal state (xp, level, the deed/heat/achievement ledger --
-    ## see `src/ctf/glory.nim`'s own header). Unlike GV45's Team-widening,
-    ## this is NOT byte-identical for classic play: `gameHash` is
-    ## MODE-INDEPENDENT (`sim_state.gameHash` has zero brMode branches, both
-    ## call sites unconditional), and the new fields are genuinely CAUSAL
-    ## (xp/level drive buffs the moment glory mints anything) — so every
-    ## existing fixture's hash moves, brMode or not, and needs a real
-    ## re-record, not just a re-stamp. Bumped so a pre-glory replay fails
-    ## hash validation fast instead of silently mis-simulating under buffs
-    ## it was never recorded against.
-    ##
-    ## GV45 (BR integration): SIXTEEN TEAMS, ELIMINATION,
+  GameVersion* = "45"  ## GV45 (BR integration): SIXTEEN TEAMS, ELIMINATION,
     ## A CLOSING ZONE. A replay's version string is supposed to identify the
     ## rules that produced it, and this build can seat up to 16 teams (`Team`
     ## widened from 4, BR_MAPGEN.md §6.2), run the no-respawn `brMode`
@@ -1854,27 +1847,28 @@ type
                                ## it — see the SimServer.zoneCenter note for
                                ## why this needs no GameVersion bump.
 
-    # ── GLORY PORT (GV46) ──────────────────────────────────────────────
+    # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
     # Ported field-for-field from main's src/ctf/glory.nim-era Player
-    # (verified by diffing the two struct bodies, not eyeballed) at the
-    # SAME causal/analysis boundary main already drew: a field is causal
-    # (hashed) iff it gates a future `awardDeed`/`claimAchievement` mint or
-    # changes gameplay math (buffs); analysis-only otherwise. Appended at
-    # the END of the object per this file's own flatty-positional rule.
+    # (verified by diffing the two struct bodies, not eyeballed). Appended
+    # at the END of the object per this file's own flatty-positional rule.
+    #
+    # INCREMENT BOUNDARY: `sim_state.gameHash` is an explicit fixed field
+    # list, not reflective, so none of these fields are mixed into it here
+    # — they are read/written but provably inert to replay determinism.
+    # Every per-field "causal (hashed)"/"in gameHash" comment below
+    # describes this porch's EVENTUAL (increment 3) status, ported verbatim
+    # from main rather than rewritten field-by-field; until increment 3
+    # actually adds the causal subset to `gameHash` (and pays the one
+    # deliberate fixture re-record that move costs), read every such claim
+    # as "will be" rather than "is". `GameVersion` stays 45 for the same
+    # reason: nothing here is causal yet, so no replay's rules changed.
     #
     # Ten of these (steals/carrierKills/denials/stealTickThisLife/
     # contestedSteals/carryKills/capturedOutnumbered/capturedFastBreak/
     # peelTick/escortKills) are flag-keyed and therefore PERMANENTLY AT
     # THEIR DEFAULT on every real BR map (flagless is unconditional --
-    # `tryPickupFlags` refuses outright, sim.nim). Kept in the hash anyway,
-    # on purpose: `gameHash` is MODE-INDEPENDENT (`sim_state.gameHash` has
-    # zero brMode branches) and dropping them would make the hash
-    # mode-SPECIFIC instead — the exact property this engine deliberately
-    # does not have, and a real risk given a flagged BR config is a live,
-    # tested path (see `tests/test_br_placement.nim` and friends). A
-    # permanently-default field in a hash is cheap; a mode-conditional hash
-    # is a latent determinism bug. Cut instead (not merely inert): the four
-    # supply-drop-specific fields main also carries
+    # `tryPickupFlags` refuses outright, sim.nim). Cut instead (not merely
+    # inert): the four supply-drop-specific fields main also carries
     # (`supplyDropCredit`/`supplyDropsThisLife`/`supplyShared`/
     # `supplySaves`, plus analysis-only `lastSupplyDropTick`) — BR ships no
     # supply-drop mechanic in this pass (see `glory.nim`'s header), so
@@ -2126,7 +2120,7 @@ type
                                ## lives KillFxTicks instead of the "-N" number.
 
   GloryFx* = object
-    ## GLORY PORT (GV46), ported from main's SimServer type block. A
+    ## GLORY PORT (increment 2/3), ported from main's SimServer type block. A
     ## cosmetic floating GLORY score pop -- the FPS hitmarker: not a damage
     ## number but the "+100" that tells you the deed PAID, at the exact
     ## pixel it happened. Never enters gameHash (replay-safe); `awardDeed`
@@ -2150,7 +2144,7 @@ type
                                ## instead of freezing at mint-time coordinates.
 
   AchievementClaim* = object
-    ## GLORY PORT (GV46). One claimed tier -- the schema half of a claim;
+    ## GLORY PORT (increment 2/3). One claimed tier -- the schema half of a claim;
     ## `logGameEvent` is the herald half. The replay viewer reads this to
     ## draw the toast (Phase 3).
     tick*: int
@@ -2453,7 +2447,7 @@ type
                                ## byte-identical to a build without this
                                ## field at all.
 
-    # ── GLORY PORT (GV46) ──────────────────────────────────────────────
+    # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
     # The team ledger, its rampage state and its one-shot claim gates --
     # ported field-for-field from main's SimServer, appended at the END
     # per this file's own flatty-positional rule. `array[Team, ...]` sizes
@@ -2464,12 +2458,15 @@ type
     # one place main's own code got this wrong for a 2-team-only game and
     # the fix this port applies everywhere the equivalent loop appears.
     #
+    # Same increment boundary as the Player block above: none of this is in
+    # `gameHash` yet (increment 3's job), so `GameVersion` stays 45.
+    #
     # No supply-drop fields here (`supplyDropPickups` cut with the feature
     # -- see glory.nim's header); no `gloryObserver` (main's dev rig exists
     # to replay PRE-glory recordings with the ledger overlaid as pure
     # accounting -- there is no pre-glory BR recording to backfill, so the
-    # rig has no BR use case; the golden fixture is simply re-recorded
-    # fresh under GV46 instead).
+    # rig has no BR use case; the golden fixture will simply be re-recorded
+    # fresh whenever increment 3 lands).
     teamGlory*: array[Team, int]      ## GLORY: the team ledger.
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
