@@ -527,9 +527,35 @@ const directAimActive=(()=>{
     return !!flag&&["1","true","yes"].includes(flag);
   }catch(e){return false}
 })();
+/* Aim deadzone (jitter fix -- see the discrimination writeup in the fix commit):
+   the OLD rotate-button aim had two built-in dampers -- AIM_DEADZONE (3 brads,
+   player_controls.js) and a hard 5-brads/tick turn rate -- so mouse sensor
+   noise (trackpad/mouse-polling micro-jitter, a couple of SCREEN pixels, well
+   below anything a human notices) was invisible: it could never move the
+   turret faster than the chase allowed. Direct aim has NEITHER damper by
+   design (sim.applyDirectAim snaps the exact bearing every tick, no traverse)
+   -- fine when the cursor is far from the cog, but bearing = atan2(dy,dx) is
+   maximally sensitive to positional noise as the target point APPROACHES the
+   pivot (the muzzle). Measured with a scripted cursor and a fake server
+   mirroring sim.nim's directAimBrads exactly: a +-2 SCREEN-pixel dither ~2
+   map-px from the player (a resting cursor sitting near your own cog is a
+   completely ordinary position, not a corner case) produced a computed
+   bearing cycling 13/19/24/32/45 brads -- a 45 degree flicker -- every tick,
+   with the player not moving at all. The same dither 100+ px out barely
+   registers, because the angle a fixed offset subtends shrinks with distance.
+   Below DIRECT_AIM_DEADZONE_PX the target-relative vector is too short for
+   its angle to mean anything, so hold the last sent bearing instead of
+   resending -- exactly the "park, don't chase" idea AIM_DEADZONE already
+   uses on the rotate-button path, expressed in map pixels since direct aim
+   sends a point, not a relative step. */
+const DIRECT_AIM_DEADZONE_PX=24;
 let lastSentAimX=null,lastSentAimY=null;
 function sendDirectAim(px,py){
   if(!directAimActive||!spriteMode||!w||w.readyState!==1)return;
+  if(selfPos){
+    const ddx=px-selfPos.x,ddy=py-selfPos.y;
+    if(ddx*ddx+ddy*ddy<DIRECT_AIM_DEADZONE_PX*DIRECT_AIM_DEADZONE_PX)return;
+  }
   px=Math.max(-32768,Math.min(32767,Math.round(px)));
   py=Math.max(-32768,Math.min(32767,Math.round(py)));
   if(px===lastSentAimX&&py===lastSentAimY)return; // dedupe, same idea as sendMask's l===mask guard
