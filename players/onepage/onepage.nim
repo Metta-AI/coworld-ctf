@@ -1468,6 +1468,14 @@ proc runBot(url: string, startupPage: PolicyPage) =
   let
     slot = slotFromUrl(url)
     endpoint = ensureWsPath(url, WebSocketPath)
+    # Opt-in ONLY, mirrors baseline.nim's CTF_BOT_FAST_READY exactly
+    # (baseline.nim:3400-3406): the per-frame ready send measurably corrupts
+    # baseline's dead-reckoned-aim timing in competitive play, so league/
+    # xreq runners never set this. Recording harnesses DO want it — without
+    # it a fastMode server never skips frames while an onepage seat is in
+    # the match, so a recording session runs at wall-clock pace instead of
+    # as-fast-as-possible (a real harness measured this the hard way).
+    fastReadyEnabled = getEnv("CTF_BOT_FAST_READY").len > 0
   var component = initOnepageComponent(slot, startupPage)
   echo "onepage slot=", slot, " -> ", endpoint
   var everConnected = false
@@ -1507,6 +1515,8 @@ proc runBot(url: string, startupPage: PolicyPage) =
           component.bot.pendingProposal = ""
         for reply in component.policyReplies():
           ws.send(reply, BinaryMessage)
+        if fastReadyEnabled:
+          ws.send(readyBlob(), BinaryMessage)
     except Exception as e:
       if everConnected:
         echo "game over, exiting: ", e.msg
@@ -1515,6 +1525,13 @@ proc runBot(url: string, startupPage: PolicyPage) =
       sleep(250)
 
 when isMainModule:
+  # A harness that tails our stdout (e.g. keying a mid-episode reflash
+  # trigger off "proposed policy reflash") will otherwise see NOTHING until
+  # the process exits: stdout defaults to fully block-buffered whenever
+  # it's not a live tty, i.e. every time it's redirected to a file — the
+  # exact case a recording harness always is. A real harness run silently
+  # recorded only the opening flash before this fix. echo now lands live.
+  setStdIoUnbuffered()
   let url = getEnv("COWORLD_PLAYER_WS_URL", getEnv("COGAMES_ENGINE_WS_URL"))
   if url.len == 0:
     stderr.writeLine("FATAL: COWORLD_PLAYER_WS_URL is required.")
