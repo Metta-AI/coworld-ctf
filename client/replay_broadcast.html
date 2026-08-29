@@ -1147,9 +1147,16 @@ html, body {
 #endcard .ec-thead,
 #endcard .ec-row {
   display: grid;
-  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u)) calc(26 * var(--u));
+  /* CTF: Player K D TK Clstr Cap — six tracks, slimmed so the extra TK
+     column still leaves the name a readable share of the fixed panel */
+  grid-template-columns: 1fr calc(18 * var(--u)) calc(18 * var(--u)) calc(18 * var(--u)) calc(24 * var(--u)) calc(24 * var(--u));
   gap: calc(5 * var(--u));
   align-items: center;
+}
+/* paintball keeps its four-column layout (Cog Tags Out Paint) */
+#endcard.pb .ec-thead,
+#endcard.pb .ec-row {
+  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u));
 }
 #endcard .ec-thead {
   font-family: var(--finefont);
@@ -1168,6 +1175,9 @@ html, body {
   padding: calc(1.5 * var(--u)) 0;
 }
 #endcard .ec-row .n { text-align: center; font-variant-numeric: tabular-nums; }
+/* team kills are a shame stat: the count reads in the killfeed's team-kill
+   red, so a backstabber's line is spotted at a glance */
+#endcard .ec-row .n.tk { color: var(--red); }
 /* a 4-team match can retire several rival hearts (GV32: a capture eliminates
    its team and play continues), so the Cap cell lays its hearts in a row,
    later hearts shingling over earlier ones so three still fit the column */
@@ -3711,11 +3721,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function renderEndcardRows(s, team, el, mvpSlot) {
     // Final per-player stat lines, top killer first. The MVP (winning team's
     // best line) reads in amber — no star prefix, it would break the name
-    // column's alignment. Clstr counts grenade/spray multi-kill events; the
-    // Cap column renders each captured heart itself, one per capture, in the
-    // captured team's color; a dagger icon marks
-    // teammate kills. A mixed team (2+ policies) groups its rows under policy
-    // subheaders so each policy's contribution reads separately.
+    // column's alignment. K counts enemy kills only; TK counts teammate
+    // kills, its own column so the two stats never conflate. Clstr counts
+    // grenade/spray multi-kill events; the Cap column renders each captured
+    // heart itself, one per capture, in the captured team's color. A mixed
+    // team (2+ policies) groups its rows under policy subheaders so each
+    // policy's contribution reads separately.
     var rows = (s.roster || []).filter(function (p) { return p.team === team; })
       .slice().sort(endcardOrder);
     var pols = teamPolicies(s, team);
@@ -3739,15 +3750,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           '<span class="n clstr">' + (tr.paint || 0) + '</span>' +
           '</div>';
       }
-      var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
       var cluster = (p.mk2 || 0) + (p.mk3 || 0);
       return '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
         '<span class="pcell">' +
         '<span class="pname">' + esc(shortName(rosterName(s, p.s))) + '</span>' +
-        marks +
         '</span>' +
         '<span class="n">' + (p.k || 0) + '</span>' +
         '<span class="n">' + (p.d || 0) + '</span>' +
+        '<span class="n tk" title="Team kills — killed a teammate">' + (p.tk > 0 ? p.tk : '') + '</span>' +
         '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
         '<span class="n cap">' + capturedHeartsHtml(s, p) + '</span>' +
         '</div>';
@@ -3773,6 +3783,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var key = teams.join(',') + (PB_MODE ? '|pb' : '');
     if (ecTeams === key) return;
     ecTeams = key;
+    $('endcard').classList.toggle('pb', PB_MODE);
     var wrap = $('ec-teams');
     wrap.innerHTML = '';
     teams.forEach(function (team) {
@@ -3792,7 +3803,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           '<span class="fl-num ' + team + '" id="ec-' + team + '">0</span>' +
           '<span class="fl-cap">Lives left</span>' +
           '</div>' +
-          '<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>' +
+          '<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>TK</span><span>Clstr</span><span>Cap</span></div>' +
           '<div id="ec-rows-' + team + '"></div>';
       wrap.appendChild(el);
     });
