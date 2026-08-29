@@ -1016,15 +1016,34 @@ proc directAimEnabled(): bool =
     withLock appState.lock:
       result = appState.config.allowDirectAim
 
+proc aimAssistEnabled(): bool =
+  ## Returns true when this config arms freeplay aim assist.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowAimAssist
+
+proc calloutsEnabled(): bool =
+  ## Returns true when this config arms the callout channel.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowCallouts
+
 proc capabilitiesJson(): string =
   ## What this server will GRANT a human connection. The same client bundle is
   ## served to league and play servers, so the client feature-DETECTS here
-  ## rather than being built two ways. A league config advertises both as
-  ## false, and asking anyway is refused at the upgrade — advertising and
-  ## enforcement read the same config field, so they cannot drift.
+  ## rather than being built two ways. A league config advertises all four as
+  ## false, and asking anyway is refused at the upgrade (or, for aim
+  ## assist/callouts, simply never applied) — advertising and enforcement
+  ## read the same config fields, so they cannot drift. All four of this
+  ## config's armed gates are mirrored here, not just the two the shipped
+  ## takeover.html shell happens to read today — a future consumer asking
+  ## this endpoint about aim assist or callouts gets a real answer instead of
+  ## a silent `undefined`.
   $(%*{
     "seatTakeover": seatTakeoverEnabled(),
-    "directAim": directAimEnabled()
+    "directAim": directAimEnabled(),
+    "allowAimAssist": aimAssistEnabled(),
+    "allowCallouts": calloutsEnabled()
   })
 
 proc pickFreeplaySeat*(
@@ -1117,14 +1136,40 @@ proc freeplaySeatJson(): string =
        else: pick.waitTicks * 1000 div ReplayFps)
   })
 
+proc takeoverStateLabel(takeover: SeatTakeover, brMode: bool): string =
+  ## The status word a surface renders for one pending/driving takeover row.
+  ##
+  ## "driving": the swap has landed, this human is in the sim right now.
+  ##
+  ## "seated-awaiting-round" (brMode only): the request is bound to a seat
+  ## whose cog is down RIGHT NOW in a mode where a down cog never respawns
+  ## mid-round (sim.nim's killPlayer forces lives=0/respawnTimer=0 for the
+  ## rest of the round in brMode) — so nothing sub-second is coming for this
+  ## seat; the swap lands at the next spawn, which in brMode means the next
+  ## round (landSeatTakeoversOnNewMatch). Distinct from "suiting-up" so a
+  ## client can show honest "you're in next round" copy instead of implying
+  ## an imminent respawn that is not going to happen.
+  ##
+  ## "suiting-up": every other pending case — a CTF cog mid-respawn-timer, a
+  ## seat with no cog sampled yet, or a brMode cog that is ALIVE right now and
+  ## about to land on literally the next frame (the `instant` path).
+  if takeover.active:
+    "driving"
+  elif brMode and takeover.observed and not takeover.cogAlive:
+    "seated-awaiting-round"
+  else:
+    "suiting-up"
+
 proc takeoverStatusJson(): string =
   ## Returns the seat-takeover state a surface renders: who is on which seat
   ## and whether they are still suiting up. Ordered by seat so the strip does
   ## not reshuffle between polls.
   let enabled = seatTakeoverEnabled()
   var rows: seq[SeatTakeover] = @[]
+  var brMode = false
   {.gcsafe.}:
     withLock appState.lock:
+      brMode = appState.config.brMode
       for _, takeover in appState.takeovers.pairs:
         rows.add(takeover)
   rows.sort(proc (a, b: SeatTakeover): int = cmp(a.seat, b.seat))
@@ -1134,7 +1179,7 @@ proc takeoverStatusJson(): string =
       "seat": takeover.seat,
       "requestedSeat": takeover.requestedSeat,
       "name": takeover.name,
-      "state": (if takeover.active: "driving" else: "suiting-up"),
+      "state": takeover.takeoverStateLabel(brMode),
       "cog": takeover.cog,
       "cogAlive": takeover.cogAlive,
       "cogX": takeover.cogX,
