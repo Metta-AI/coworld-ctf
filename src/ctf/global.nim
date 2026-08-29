@@ -610,7 +610,7 @@ const
                                ## (see damagePopBucket()), not a display clamp.
   DamagePopRisePx = 11         ## px the number floats upward over its full life.
   DamagePopZ = 30006           ## drawn above players, HP bars and name tags.
-  KillPopSpriteBase = 31256    ## floating "KO" kill-marker sprites keyed
+  KillPopSpriteBase = 31256    ## floating "SPLAT" kill-marker sprites keyed
                                ## color×stage: 31256..31319 (above damage pops).
   KillPopRisePx = 16           ## px the kill marker floats upward over its life.
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
@@ -3172,7 +3172,7 @@ proc blitRgbaBuffer(
 proc buildFloatingPopSprite(
   game: SimServer, colorIndex: int, text: string, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds one floating pop label ("-N" damage number or "KO" kill marker):
+  ## Builds one floating pop label ("-N" damage number or "SPLAT" kill marker):
   ## bright team-tinted glyphs with a dark 1px contour so it pops off any
   ## floor, fading by ALPHA across the pop's short life (the protocol has no
   ## per-object alpha). Cosmetic only, never in gameHash. The tint uses the
@@ -8472,7 +8472,7 @@ proc addDamagePops(
       stage = clamp(age * DamagePopStages div life, 0,
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
-      text = if pop.kill: "KO" else: "-" & $pop.amount
+      text = if pop.kill: "SPLAT" else: "-" & $pop.amount
       sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
       # Rise a few pixels over the full life so the label lifts off the player.
       rise = risePer * age div max(1, life)

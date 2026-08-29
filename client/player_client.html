@@ -59,7 +59,7 @@ let k={},l=255,w,z=0,t=0,sawFrame=false,pixelImage=x.createImageData(128,128),sp
    glide can never perturb what gets sent to the server. */
 let movingObjects=new Set(),packetInterval=1000/24,lastMotionAt=0,rafHandle=0;
 const SNAP_DISTANCE=48;
-/* Object-pool id range for the floating "-N"/"KO" damage pops the server
+/* Object-pool id range for the floating "-N"/"SPLAT" damage pops the server
    already streams (src/ctf/global.nim: DamagePopObjectBase=38000, one slot
    per concurrent pop, documented range 38000..38031). Hit feedback below
    watches this range rather than adding any new wire signal. */
@@ -507,7 +507,7 @@ function drawHud(){
 }
 /* ================= Hit feedback (client-side only) ===================
    Detected from the "damage pop " sprite labels the server already streams
-   for the floating "-N"/"KO" numbers (src/ctf/global.nim addDamagePops):
+   for the floating "-N"/"SPLAT" numbers (src/ctf/global.nim addDamagePops):
    a pop's FIRST frame (label ends " stage 0") is a one-shot "someone just
    took damage" event, keyed to a fixed object-id pool (DAMAGE_POP_ID_MIN/
    MAX above). Proximity to our own selfPos decides "I took it" (screenshake
