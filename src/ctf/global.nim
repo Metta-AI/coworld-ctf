@@ -3272,6 +3272,58 @@ var
     ## restart) that serialized, uncached cost on the single-threaded tick
     ## loop is exactly what stalls the game.
 
+const WireMapBandBlockFactor* {.intdefine.} = 3
+  ## Block-flattening factor applied to the 1× map band bake on boards past
+  ## MaxSupersampledMapPixels (see blockAverageRgba) — BR-scale boards
+  ## specifically, the ones already too big for spectator supersampling.
+  ## Build with -d:WireMapBandBlockFactor=1 to reproduce the untouched bake.
+
+proc blockAverageRgba(
+  pixels: openArray[uint8], width, height, k: int
+): seq[uint8] =
+  ## Flattens an RGBA buffer into k×k blocks of one averaged color each.
+  ## Width and height are UNCHANGED — every downstream viewport, object
+  ## placement, and coordinate keeps the exact same math as before; only the
+  ## pixel CONTENT changes. A flat k×k block is far more compressible than
+  ## natural per-pixel detail (adjacent bytes repeat identically along a row
+  ## and down k rows — exactly the redundancy snappy's LZ77-style matcher
+  ## collapses), and at typical fullscreen zoom (the client always scales
+  ## the whole arena to fit the window) a k×k-flattened bake reads
+  ## indistinguishably from the full-detail original.
+  if k <= 1:
+    return @pixels
+  result = newSeq[uint8](width * height * 4)
+  var by = 0
+  while by < height:
+    let bh = min(k, height - by)
+    var bx = 0
+    while bx < width:
+      let bw = min(k, width - bx)
+      var sums: array[4, int]
+      for dy in 0 ..< bh:
+        let rowBase = (by + dy) * width
+        for dx in 0 ..< bw:
+          let src = (rowBase + bx + dx) * 4
+          sums[0] += pixels[src].int
+          sums[1] += pixels[src + 1].int
+          sums[2] += pixels[src + 2].int
+          sums[3] += pixels[src + 3].int
+      let n = bh * bw
+      let avg = [
+        uint8(sums[0] div n), uint8(sums[1] div n),
+        uint8(sums[2] div n), uint8(sums[3] div n)
+      ]
+      for dy in 0 ..< bh:
+        let rowBase = (by + dy) * width
+        for dx in 0 ..< bw:
+          let dst = (rowBase + bx + dx) * 4
+          result[dst] = avg[0]
+          result[dst + 1] = avg[1]
+          result[dst + 2] = avg[2]
+          result[dst + 3] = avg[3]
+      bx += k
+    by += k
+
 proc addMapBands(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -3324,6 +3376,17 @@ proc addMapBands(
     var bandPixels = newSeq[uint8](outW * outBandH * 4)
     copyMem(bandPixels[0].addr, mapPixels[outY0 * outW * 4].unsafeAddr,
       outW * outBandH * 4)
+    # Boards past MaxSupersampledMapPixels already gave up the 2× spectator
+    # supersample (boardScale forced to 1, see boardRenderScaleFor) because
+    # they are too expensive at full detail — the same boards are the ones
+    # whose native 1× bake is tens of megabytes of raw RGBA re-sent to every
+    # connecting socket (buildSpriteProtocolPlayerInit's doc comment). Ship
+    # those specifically at reduced pixel entropy; boards under the
+    # threshold (including every 2× supersampled spectator board) are left
+    # pixel-exact.
+    if boardScale <= 1 and h * sim.gameMap.width > MaxSupersampledMapPixels:
+      bandPixels = blockAverageRgba(
+        bandPixels, outW, outBandH, WireMapBandBlockFactor)
     let
       spriteId = MapBandSpriteBase + band
       objectId = MapBandObjectBase + band
