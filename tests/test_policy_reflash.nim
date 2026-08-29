@@ -62,6 +62,19 @@ proc twoCogReflashGame(armed: bool): SimServer =
   discard result.addPlayer("blue0")
   result.startGame()
 
+proc twoCogReflashGameBr(armed: bool): SimServer =
+  ## The same scripted scene as `twoCogReflashGame`, but in BR mode — so
+  ## `applyPolicyPage`'s BR-specific size ceiling (MaxBRPolicyPageBytes) is
+  ## live. A plain two-team, default-map BR game (test_br_elim.nim's
+  ## `brConfig(teams=2)` shape) needs none of the flagless/spawnGroups item-
+  ## pool machinery real 16-duo BR maps require.
+  var config = reflashConfig(armed)
+  config.brMode = true
+  result = initCtfForTest(config)
+  discard result.addPlayer("red0")
+  discard result.addPlayer("blue0")
+  result.startGame()
+
 # ---------------------------------------------------------------------------
 # The record shape
 # ---------------------------------------------------------------------------
@@ -191,6 +204,30 @@ suite "policy reflash: the config gate is real":
     check sim.players[0].policyPageEpoch == 0
     check sim.gameHash() == before
     check sim.applyPolicyPage(0, 'x'.repeat(MaxPolicyPageBytes))
+
+  test "BR refuses past MaxBRPolicyPageBytes, well under the wire ceiling":
+    # The keyframe-stream hazard (docs/designs live in sim_types.nim's
+    # MaxBRPolicyPageBytes comment): every player's policyPage rides in
+    # every replay keyframe, so BR keeps a MUCH lower authoring ceiling
+    # than the wire's own MaxPolicyPageBytes — and refuses outright rather
+    # than truncating (a truncated strategy is a corrupted one).
+    var sim = twoCogReflashGameBr(armed = true)
+    check sim.applyPolicyPage(0, 'x'.repeat(MaxBRPolicyPageBytes))
+    let before = sim.gameHash()
+    check not sim.applyPolicyPage(
+      1, 'x'.repeat(MaxBRPolicyPageBytes + 1)
+    )
+    check sim.players[1].policyPageEpoch == 0
+    check sim.gameHash() == before
+    # Still well under the WIRE ceiling — this is a BR-only cap, not a
+    # second copy of MaxPolicyPageBytes.
+    check MaxBRPolicyPageBytes < MaxPolicyPageBytes
+
+  test "the SAME oversize-for-BR page is accepted outside BR":
+    # Proves the cap is BR-specific (config.brMode-gated), not a silent
+    # global tightening of MaxPolicyPageBytes for every mode.
+    var sim = twoCogReflashGame(armed = true)
+    check sim.applyPolicyPage(0, 'x'.repeat(MaxBRPolicyPageBytes + 1))
 
   test "every archived replay still loads and still re-simulates clean":
     # The backward-compatibility half of "handle the version bump properly",

@@ -830,6 +830,40 @@ const
     ## flash never happened. The margin under 65535 covers the record's own
     ## hash prefix.
 
+  MaxBRPolicyPageBytes* = 16384
+    ## BR-specific authoring ceiling, well below MaxPolicyPageBytes — the
+    ## hazard this closes is NOT the wire (that is what MaxPolicyPageBytes
+    ## already guards): every player's `policyPage` string rides in every
+    ## replay KEYFRAME (serializeReplaySim flatty-serializes the whole
+    ## SimServer, policyPage included, once per ReplayKeyframeTicks), so a
+    ## 32-seat BR match near the wire's own 60000-byte ceiling costs roughly
+    ## 32 seats * 72 keyframes * 60000 bytes =~ 138 MB in keyframe stream
+    ## alone — a live-measured number (tools/measure_keyframe_bytes.nim: 8
+    ## seats at 59895 bytes each summed to exactly 479160 bytes in ONE
+    ## keyframe, i.e. 8 * 59895, extrapolating linearly since the field is
+    ## an exact per-seat string duplication), and the class of failure this
+    ## project has already been burned by once (a giant-map bake bug that
+    ## made hosted replays unusable the same way — see serializeReplaySim's
+    ## own history note).
+    ##
+    ## 16384 was chosen over the flatly-recommended 4096 because REAL
+    ## authored strategies (tools/flash/playbook/*.json on
+    ## maxwell/br-onepage-vm, the LLM-authoring loop's own seed set) run
+    ## 262-1517 bytes pretty-printed — comfortable under either number — but
+    ## `tools/flash/flash.nim` writes every page through Nim's `pretty()`,
+    ## and a single deliberately elaborate (not exotic — the schema puts no
+    ## ceiling on rule count) 10-rule strategy in that SAME pretty-printed
+    ## shape measures 13522 bytes: past 4096, comfortably under 16384. Live-
+    ## measured at 32 realistic seats (tools/measure_keyframe_bytes.nim
+    ## against a real 32-onepage-seat BR match), the actual policyPage
+    ## contribution was only 22509 bytes in one keyframe (avg ~700
+    ## bytes/seat) — nowhere near this ceiling; the ceiling exists for the
+    ## adversarial/corrupted case, not the normal one.
+    ##
+    ## Applied only when `sim.config.brMode` (see `applyPolicyPage`): CTF's
+    ## reflash path is unaffected and keeps the wire's own 60000-byte limit,
+    ## since CTF was not the mode this hazard was raised against.
+
   TextLineHeight* = 7
   MapSpriteId* = 1
   MapObjectId* = 1

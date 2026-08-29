@@ -368,11 +368,35 @@ proc applyPolicyPage*(
   ## replay — an applied-but-unrecorded input, the single outcome
   ## determinism cannot survive. Refusing it BEFORE any state moves keeps
   ## live and playback agreeing that the flash never happened.
+  ##
+  ## BR additionally refuses past MaxBRPolicyPageBytes (16384, well under
+  ## the wire's 60000) — the keyframe-stream hazard, not the wire one: every
+  ## player's policyPage rides in every replay keyframe (see
+  ## MaxBRPolicyPageBytes's doc comment for the measured cost). This is a
+  ## REFUSAL, never a truncation — a truncated strategy is a corrupted one,
+  ## and a corrupted page recorded faithfully would replay perfectly while
+  ## silently running the wrong strategy. Both refusals log loudly (below)
+  ## instead of failing silently, so an oversize page is visible at the
+  ## moment it is rejected, not discovered later from a missing effect.
   if not sim.config.allowPolicyReflash:
     return false
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return false
-  if page.len == 0 or page.len > MaxPolicyPageBytes:
+  if page.len == 0:
+    return false
+  if page.len > MaxPolicyPageBytes:
+    sim.logGameEvent(
+      "policy page flash REFUSED (player " & $playerIndex & "): " &
+      $page.len & " bytes exceeds the wire ceiling (" &
+      $MaxPolicyPageBytes & ")"
+    )
+    return false
+  if sim.config.brMode and page.len > MaxBRPolicyPageBytes:
+    sim.logGameEvent(
+      "policy page flash REFUSED (player " & $playerIndex & "): " &
+      $page.len & " bytes exceeds the BR authoring cap (" &
+      $MaxBRPolicyPageBytes & ") — not truncated, refused outright"
+    )
     return false
   sim.players[playerIndex].policyPage = page
   sim.players[playerIndex].policyPageHash = policyPageHash(page)
