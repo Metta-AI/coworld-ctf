@@ -61,6 +61,12 @@ proc slotOf(sim: SimServer, index: int): int =
     return sim.players[index].joinOrder
   -1
 
+proc creditedKills(p: Player): int {.inline.} =
+  ## Every kill credited to this player, backstabs included. GV45 split the
+  ## stats (kills = enemies only), but the killfeed diff must still see a
+  ## teammate kill as this player's kill or a backstab loses its attribution.
+  p.kills + p.teamKills
+
 proc snapshot(tracker: var BroadcastTracker, sim: SimServer) =
   ## Copies the current sim state into the tracker without emitting events.
   tracker.alive.setLen(sim.players.len)
@@ -71,7 +77,7 @@ proc snapshot(tracker: var BroadcastTracker, sim: SimServer) =
   tracker.arcTicks.setLen(sim.players.len)
   for i, p in sim.players:
     tracker.alive[i] = p.alive
-    tracker.kills[i] = p.kills
+    tracker.kills[i] = p.creditedKills
     tracker.deaths[i] = p.deaths
     tracker.captures[i] = p.captures
     tracker.hp[i] = p.hp
@@ -116,7 +122,7 @@ proc killerThisStep(
     killerIndex = -1
     killerCount = 0
   for i, p in sim.players:
-    if i < tracker.kills.len and p.kills > tracker.kills[i]:
+    if i < tracker.kills.len and p.creditedKills > tracker.kills[i]:
       inc killerCount
       killerIndex = i
   if killerCount == 1:
@@ -255,7 +261,7 @@ proc stepEvents*(
   # pileup (>2 kills, or killers != victims) stays honestly ambiguous.
   var killers, victims: seq[int]
   for i, p in sim.players:
-    if i < tracker.kills.len and p.kills > tracker.kills[i]:
+    if i < tracker.kills.len and p.creditedKills > tracker.kills[i]:
       killers.add i
     if i < tracker.deaths.len and p.deaths > tracker.deaths[i]:
       victims.add i

@@ -1268,10 +1268,11 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         amount: sprayDamage, color: sim.players[victimIndex].color
       )
       if sim.players[victimIndex].hp <= 0:
+        let teamKill =
+          sim.players[victimIndex].team == sim.players[arcFire.attacker].team
         sim.killPlayer(victimIndex, arcFire.attacker)
         if victimIndex != arcFire.attacker:
-          sim.recordKill(arcFire.attacker)
-          sim.recordTeamKill(arcFire.attacker, victimIndex)
+          sim.recordKillCredit(arcFire.attacker, victimIndex)
           sim.emitEvent(
             Kill, source = arcFire.attacker, target = victimIndex,
             weapon = "spray", amount = sprayDamage, x = vx, y = vy
@@ -1279,12 +1280,14 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
           # triple; a fourth+ stays inside the already-counted triple.
-          inc sim.players[arcFire.attacker].arcKillsThisFire
-          if sim.players[arcFire.attacker].arcKillsThisFire == 2:
-            inc sim.players[arcFire.attacker].multiKills2
-          elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
-            dec sim.players[arcFire.attacker].multiKills2
-            inc sim.players[arcFire.attacker].multiKills3
+          # Enemy kills only — a sprayed teammate is a backstab, not an honor.
+          if not teamKill:
+            inc sim.players[arcFire.attacker].arcKillsThisFire
+            if sim.players[arcFire.attacker].arcKillsThisFire == 2:
+              inc sim.players[arcFire.attacker].multiKills2
+            elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
+              dec sim.players[arcFire.attacker].multiKills2
+              inc sim.players[arcFire.attacker].multiKills3
     if sim.collectEvents:
       sim.emitEvent(
         SprayUse,
@@ -1622,8 +1625,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     )
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
-      sim.recordKill(shooterIndex)
-      sim.recordTeamKill(shooterIndex, targetIndex)
+      sim.recordKillCredit(shooterIndex, targetIndex)
       sim.emitEvent(
         Kill, source = shooterIndex, target = targetIndex, weapon = "gun",
         amount = damage,
@@ -1866,7 +1868,6 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   # a landing reads as that team's paint-bomb — and the sprite id stays within
   # the two team-color slots, never colliding with the tracer pool.
   let
-    legacyThrowerIndex = sim.legacyGrenadeThrowerIndex(grenade)
     throwerSlot = sim.grenadeThrowerSlot(grenade)
     throwerIndex = sim.playerIndexForSlot(throwerSlot)
     # An environment shell (grenade barrage, throwerSlot -1) has no owning
@@ -1976,23 +1977,36 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
         cause = (if throwerSlot < 0: "shelled by the grenade barrage" else: "")
       )
       if throwerSlot >= 0 and throwerSlot != sim.eventSlot(i):
+        # GV45: the credit routes by team — an enemy kill to `kills`, a
+        # blasted teammate to `teamKills`. The account is credited via the
+        # immutable thrower identity (the thrower may have left the game);
+        # the live counters ride the current index when the thrower is still
+        # seated, mirroring recordKillCredit without double-crediting the
+        # account. (The GV24 legacy-index hash quirk retires with the bump.)
+        let
+          throwerTeam =
+            if throwerIndex >= 0: sim.players[throwerIndex].team
+            else: sim.teamForSlot(throwerSlot)
+          teamKill = throwerTeam == sim.players[i].team
         if grenade.throwerAccount >= 0 and
             grenade.throwerAccount < sim.rewardAccounts.len:
-          inc sim.rewardAccounts[grenade.throwerAccount].kills
-        if legacyThrowerIndex >= 0 and legacyThrowerIndex != i:
-          # Preserve the exact GV24 hash even if compaction made this legacy
-          # live index point at a different player. Results and events above
-          # use the immutable thrower identity.
-          inc sim.players[legacyThrowerIndex].kills
-          sim.noteLifeKill(legacyThrowerIndex)
+          if teamKill:
+            inc sim.rewardAccounts[grenade.throwerAccount].teamKills
+          else:
+            inc sim.rewardAccounts[grenade.throwerAccount].kills
         if throwerIndex >= 0 and throwerIndex != i:
-          sim.recordTeamKill(throwerIndex, i)
+          if teamKill:
+            inc sim.players[throwerIndex].teamKills
+          else:
+            inc sim.players[throwerIndex].kills
+            sim.noteLifeKill(throwerIndex)
         sim.emitEvent(
           Kill, source = throwerIndex, target = i, weapon = "grenade",
           amount = dmg, x = float(px), y = float(py),
           sourceSlot = throwerSlot
         )
-        if throwerIndex >= 0 and throwerIndex != i:
+        # Cluster (multi-kill) honors count enemy kills only.
+        if throwerIndex >= 0 and throwerIndex != i and not teamKill:
           inc blastKills
   if sim.collectEvents:
     sim.emitEvent(

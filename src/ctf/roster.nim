@@ -416,17 +416,6 @@ proc playerIndexForSlot*(sim: SimServer, slotIndex: int): int =
       return i
   -1
 
-proc legacyGrenadeThrowerIndex*(
-  sim: SimServer,
-  grenade: AirborneGrenade
-): int {.inline.} =
-  ## Retains GV24's mutable-index kill counter solely because player.kills is
-  ## hashed. Attribution and results use throwerSlot/throwerAccount instead.
-  if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
-    grenade.thrower
-  else:
-    -1
-
 proc playerResultSlotCount(sim: SimServer): int =
   ## Returns the number of player slots represented in final results.
   result = sim.config.slots.len
@@ -603,25 +592,27 @@ proc noteLifeHeal*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].bestHealsInLife,
     sim.players[playerIndex].healsThisLife)
 
-proc recordKill*(sim: var SimServer, playerIndex: int) =
-  ## Increments the kill counter for one player.
-  let index = sim.rewardAccountForPlayer(playerIndex)
-  if index >= 0:
-    inc sim.rewardAccounts[index].kills
-  inc sim.players[playerIndex].kills
-  sim.noteLifeKill(playerIndex)
-
-proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
-  ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
-  ## bullets, grenade blasts, and spray cones all land here.
+proc recordKillCredit*(sim: var SimServer, killerIndex, victimIndex: int) =
+  ## Credits one kill to its killer. GV45: an ENEMY kill increments `kills`
+  ## (and feeds the kill-spree note); a TEAMMATE kill increments only
+  ## `teamKills` — the two stats never mix. Weapon-agnostic: bullets, grenade
+  ## blasts, and spray cones all land here.
   if killerIndex < 0 or killerIndex >= sim.players.len:
     return
   if victimIndex < 0 or victimIndex >= sim.players.len:
     return
   if killerIndex == victimIndex:
     return
+  let index = sim.rewardAccountForPlayer(killerIndex)
   if sim.players[killerIndex].team == sim.players[victimIndex].team:
+    if index >= 0:
+      inc sim.rewardAccounts[index].teamKills
     inc sim.players[killerIndex].teamKills
+  else:
+    if index >= 0:
+      inc sim.rewardAccounts[index].kills
+    inc sim.players[killerIndex].kills
+    sim.noteLifeKill(killerIndex)
 
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
@@ -653,7 +644,7 @@ proc squadResultsJson*(sim: SimServer): string =
   ## It must equal the manifest's `results_schema` key for key — that schema
   ## is `additionalProperties: false` and the certifier rejects any unknown
   ## field, so adding or removing a key here means editing
-  ## coworld_manifest_template.json in the same commit.
+  ## coworld_manifest_paintbot.json in the same commit.
   ##
   ## `names` are the REAL policy names (spectator side); `team` carries the
   ## in-game aliases. Scores are the mean of the two halves, so
@@ -671,6 +662,7 @@ proc squadResultsJson*(sim: SimServer): string =
     visitorHill = newJArray()
     paintTiles = newJArray()
     tagsDealt = newJArray()
+    teamTags = newJArray()
     tagsTaken = newJArray()
     llmTurns = newJArray()
     fallbackTurns = newJArray()
@@ -723,11 +715,13 @@ proc squadResultsJson*(sim: SimServer): string =
     var
       tiles = 0
       dealt = 0
+      friendly = 0
       taken = 0
     for i in 0 ..< sim.players.len:
       if sim.players[i].team != team:
         continue
       dealt += sim.players[i].kills
+      friendly += sim.players[i].teamKills
       taken += sim.players[i].deaths
     tiles = sim.paintCount[team]
     names.add(%(
@@ -745,6 +739,7 @@ proc squadResultsJson*(sim: SimServer): string =
     visitorHill.add(%visitorTicks)
     paintTiles.add(%tiles)
     tagsDealt.add(%dealt)
+    teamTags.add(%friendly)
     tagsTaken.add(%taken)
     llmTurns.add(%(if seat < sim.llmTurns.len: sim.llmTurns[seat] else: 0))
     fallbackTurns.add(
@@ -761,6 +756,7 @@ proc squadResultsJson*(sim: SimServer): string =
   results["visitorHillTicks"] = visitorHill
   results["paintTiles"] = paintTiles
   results["tagsDealt"] = tagsDealt
+  results["teamTags"] = teamTags
   results["tagsTaken"] = tagsTaken
   results["llmTurns"] = llmTurns
   results["fallbackTurns"] = fallbackTurns
@@ -782,6 +778,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     win = newJArray()
     teamList = newJArray()
     killsList = newJArray()
+    teamKillsList = newJArray()
     deathsList = newJArray()
     capturesList = newJArray()
     shotsFiredList = newJArray()
@@ -810,6 +807,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
       hasTeam = false
       playerWon = false
       kills = 0
+      teamKills = 0
       deaths = 0
       captures = 0
       shotsFired = 0
@@ -823,6 +821,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
       hasTeam = account.hasTeam
       playerWon = account.won
       kills = account.kills
+      teamKills = account.teamKills
       deaths = account.deaths
       captures = account.captures
       for id in account.earnedAchievements:
@@ -847,6 +846,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     win.add(%playerWon)
     teamList.add(%(if hasTeam: teamText(playerTeam) else: "unknown"))
     killsList.add(%kills)
+    teamKillsList.add(%teamKills)
     deathsList.add(%deaths)
     capturesList.add(%captures)
     shotsFiredList.add(%shotsFired)
@@ -857,6 +857,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   results["win"] = win
   results["team"] = teamList
   results["kills"] = killsList
+  results["teamKills"] = teamKillsList
   results["deaths"] = deathsList
   results["captures"] = capturesList
   results["achievements"] = achievementsList

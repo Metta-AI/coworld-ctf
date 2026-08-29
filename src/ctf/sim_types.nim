@@ -18,7 +18,19 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "44"  ## GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
+  GameVersion* = "45"  ## GV45 (stats rule): TEAM KILLS ARE NOT KILLS. The
+    ## hashed per-player `kills` counter now counts ENEMY kills only: killing
+    ## a teammate — gun, grenade blast, or spray cone alike — increments only
+    ## `teamKills`, which is newly mirrored onto the reward account and
+    ## exported as its own stat line (`team_kills`) and results field
+    ## (`teamKills` / squad `teamTags`). A backstab therefore no longer
+    ## inflates K, the kill metrics, cluster (multi-kill) honors, or
+    ## kill-spree achievements. The killfeed still attributes backstabs: the
+    ## broadcast tracker diffs TOTAL credited kills (kills + teamKills).
+    ## `kills` is hashed state, so a GV44 replay containing a team kill does
+    ## not re-simulate: fixtures re-recorded.
+    ##
+    ## Previously GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
     ## On every board with more than two teams, WHICH TEAM OWNS WHICH HOME is
     ## now drawn per episode from the game seed instead of being fixed for all
     ## time. The pads do not move: the same four congruent anchors, pedestals,
@@ -1291,7 +1303,11 @@ type
     reward*: int
     wins*: array[Team, int]    ## lifetime wins while seated on each team.
     games*: array[Team, int]   ## lifetime games seated on each team.
-    kills*: int
+    kills*: int                ## enemy kills only (GV45); backstabs land in
+                               ## teamKills.
+    teamKills*: int            ## teammates this address killed, kept apart
+                               ## from kills so the metrics and results
+                               ## never conflate the two.
     deaths*: int
     captures*: int
     earnedAchievements*: seq[string]
@@ -1537,7 +1553,8 @@ type
     color*: uint8
     skin*: Skin               ## cosmetic only; excluded from gameHash.
     reward*: int
-    kills*: int
+    kills*: int                ## enemy kills only (GV45, hashed); a teammate
+                               ## kill lands in teamKills instead.
     deaths*: int
     captures*: int
     shotsFired*: int           ## shots this player released; analysis-only,
@@ -1550,8 +1567,9 @@ type
     multiKills3*: int          ## grenade blasts / spray bursts that
                                ## killed 3 or more; analysis-only, excluded
                                ## from gameHash.
-    teamKills*: int            ## teammates this player killed (backstabs);
-                               ## analysis-only, excluded from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs),
+                               ## kept apart from kills (GV45); excluded
+                               ## from gameHash.
     arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
@@ -1763,8 +1781,9 @@ type
     Shot        ## a gun shot released (source = shooter).
     Hit         ## a released shot connected with an enemy on its ray.
     Damage      ## hit points removed (gun/spray/grenade), amount = hp lost.
-    Kill        ## a CREDITED kill (mirrors recordKill; self-kills by own
-                ## grenade are a Death without a Kill).
+    Kill        ## a CREDITED kill, enemy and teammate alike (mirrors
+                ## recordKillCredit; self-kills by own grenade are a Death
+                ## without a Kill).
     Death       ## a player died (source = victim, target = killer).
     FlagSteal   ## a flag left its pedestal on an enemy's back.
     FlagReturn  ## a flag went home for any reason other than capture.
