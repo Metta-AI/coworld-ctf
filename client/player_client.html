@@ -644,7 +644,13 @@ function triggerHitmarker(isKill){hitmarkerUntil=performance.now()+HITMARKER_MS;
 function handleDamagePopBirth(px,py,spriteId){
   const sp=sprites.get(spriteId);
   if(!sp||!sp.label||!sp.label.endsWith(" stage 0"))return;
-  const isKill=sp.label.indexOf(" KO ")!==-1;
+  /* Server label format: "damage pop <color> SPLAT stage <n>" for a kill,
+     "damage pop <color> -<amount> stage <n>" for a plain hit (global.nim
+     addDamagePops). This used to check " KO ", a substring the server has
+     never actually sent -- isKill could never be true client-side, so the
+     kill hitmarker and playKillConfirm() were dead code and every kill
+     misread as a plain hit (stakes audit cycle 1, criterion 8 bonus find). */
+  const isKill=sp.label.indexOf(" SPLAT ")!==-1;
   if(selfPos){
     const sdx=px-selfPos.x,sdy=py-selfPos.y;
     if(sdx*sdx+sdy*sdy<=SELF_HIT_RADIUS*SELF_HIT_RADIUS){
