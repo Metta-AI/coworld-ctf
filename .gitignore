@@ -84,3 +84,14 @@ my-paint-verify.bitreplay
 /caos-std/
 /static-replay-viewer/
 br-paint4-match.bitreplay
+
+# Scratch artifacts from the page-size-cap hazard measurement run (many-seat
+# and near-ceiling .bitreplay recordings, generated per-seat page files, and
+# the live match configs manyseat_reflash_match.sh writes) — real numbers
+# came from these, but the recordings themselves are reproducible and large.
+/rt/manyseat/
+rt/manyseat*.bitreplay
+rt/manyseat_cfg.json
+rt/live_cfg.json
+rt/live_page.json
+rt/page_a.json.bak
