@@ -472,7 +472,7 @@ const
                               ## evicting the history the viewer already saw.
   DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
                               ## after a hit (cosmetic only, never in gameHash).
-  KillFxTicks* = 44           ## ~1.8s a floating "KO" kill marker rises and fades
+  KillFxTicks* = 44           ## ~1.8s a floating "SPLAT" kill marker rises and fades
                               ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
@@ -1967,7 +1967,7 @@ type
     amount*: int               ## hit points lost (1 for a shot; a grenade
                                ## varies by trench, see explodeGrenade).
     color*: uint8              ## the victim's team color, so it reads as their loss.
-    kill*: bool                ## a fatal hit: drawn as a "KO" kill marker that
+    kill*: bool                ## a fatal hit: drawn as a "SPLAT" kill marker that
                                ## lives KillFxTicks instead of the "-N" number.
 
   SimEventKind* = enum
