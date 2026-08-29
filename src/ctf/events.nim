@@ -33,6 +33,9 @@ proc key*(kind: SimEventKind): string =
   of SprayUse: "spray_use"
   of Pickup: "item_pickup"
   of ShoutEvent: "shout"
+  of GloryDeed: "glory_deed"
+  of Achievement: "achievement"
+  of LevelUp: "level_up"
 
 proc jsonRow*(event: SimEvent): JsonNode =
   ## Returns one JSON-lines row for a tier-2 sim event.

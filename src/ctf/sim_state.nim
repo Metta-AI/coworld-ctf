@@ -273,6 +273,62 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+    # ── GLORY PORT (GV46) ── CAUSAL fields only: a field gates a future
+    # awardDeed/claimAchievement mint or changes gameplay math (buffs), per
+    # this port's own causal/analysis boundary (sim_types.nim's Player
+    # comment). The analysis-only counterparts (lastKilledBy/Tick,
+    # arcEnemyKillsThisFire, tookMedKit/Grenade/Spray/Shield) are excluded,
+    # same status main gives them.
+    result.mixHashInt(player.xp)
+    result.mixHashInt(player.level)
+    result.mixHashInt(player.grenadeCharges)
+    result.mixHashInt(player.gunKills)
+    result.mixHashInt(player.sprayKills)
+    result.mixHashInt(player.grenadeKills)
+    result.mixHashInt(player.longshotKills)
+    result.mixHashInt(player.soakedHp)
+    result.mixHashInt(player.clutchHeals)
+    result.mixHashInt(player.steals)
+    result.mixHashInt(player.carrierKills)
+    result.mixHashInt(player.denials)
+    result.mixHashInt(player.sprayKillsThisPickup)
+    result.mixHashInt(player.aceKills)
+    result.mixHashInt(player.sprayMultiKills)
+    result.mixHashInt(player.grenadeMultiKills)
+    result.mixHashInt(player.clutchCarryHeals)
+    result.mixHashInt(player.stealTickThisLife)
+    result.mixHashInt(player.clutchHealTick)
+    result.mixHashInt(player.peelTick)
+    result.mixHashInt(player.contestedSteals)
+    result.mixHashInt(player.carryKills)
+    result.mixHashBool(player.secondWind)
+    result.mixHashBool(player.capturedOutnumbered)
+    result.mixHashBool(player.capturedFastBreak)
+    result.mixHashInt(player.lastDamagedBy)
+    result.mixHashInt(player.lastDamagedByTick)
+    result.mixHashInt(player.menacingTick)
+    result.mixHashInt(player.menacingVictim)
+    result.mixHashInt(player.rescuedTick)
+    result.mixHashInt(player.assists)
+    result.mixHashInt(player.rescues)
+    result.mixHashInt(player.escortKills)
+  # GLORY PORT (GV46), team/game-level CAUSAL ledger. `claimed`/`claimedFirst`
+  # gate future mints (one-shot achievement claims), `firstBloodDone` gates
+  # dFirstBlood, `squadVolleyDone` gates the Squad Volley tier -- all
+  # causal. `deedCounts`/`deedGloryMass`/`gloryPops`/`achievementFeed`/
+  # `teamKillRing` are audit/cosmetic-only, excluded (never gameHash),
+  # same status main gives them.
+  for team in sim.teams():
+    result.mixHashInt(sim.teamGlory[team])
+    result.mixHashInt(sim.heatEmbers[team])
+    result.mixHashInt(sim.heatLastDeed[team])
+    result.mixHashInt(sim.heatLastDecay[team])
+    result.mixHashBool(sim.squadVolleyDone[team])
+    for key in 0 ..< sim.claimed[team].len:
+      result.mixHashBool(sim.claimed[team][key])
+  for key in 0 ..< sim.claimedFirst.len:
+    result.mixHashBool(sim.claimedFirst[key])
+  result.mixHashBool(sim.firstBloodDone)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)

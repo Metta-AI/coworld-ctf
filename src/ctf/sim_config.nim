@@ -1024,7 +1024,7 @@ proc echoSeatTakeoverKeys(config: GameConfig, node: JsonNode) =
   if config.allowSeatTakeover:
     node["allowSeatTakeover"] = %config.allowSeatTakeover
 
-proc echoAimKeys(config: GameConfig, node: JsonNode) =
+proc echoDirectAimKeys(config: GameConfig, node: JsonNode) =
   ## Direct aim moves what the ENGINE does with a human's packets, so a
   ## replay that contains it must say so in its own header: this key is how
   ## a PLAY replay self-identifies as one no policy could have produced.
@@ -1032,10 +1032,12 @@ proc echoAimKeys(config: GameConfig, node: JsonNode) =
   ## byte-identical.
   if config.allowDirectAim:
     node["allowDirectAim"] = %config.allowDirectAim
-  # Same rule for aim assist: echoed (both keys, so a replay never has to
-  # guess the cone width the mode ran with) only when the mode is on, so a
-  # league — or an assist-free freeplay — replay's config stays
-  # byte-identical to a pre-assist build.
+
+proc echoAimAssistKeys(config: GameConfig, node: JsonNode) =
+  ## Same rule for aim assist: echoed (both keys, so a replay never has to
+  ## guess the cone width the mode ran with) only when the mode is on, so a
+  ## league -- or an assist-free freeplay -- replay's config stays
+  ## byte-identical to a pre-assist build.
   if config.allowAimAssist:
     node["allowAimAssist"] = %config.allowAimAssist
     node["aimAssistConeBrads"] = %config.aimAssistConeBrads
@@ -1057,6 +1059,19 @@ proc echoCalloutKeys(config: GameConfig, node: JsonNode) =
   ## field — same rule as echoSeatTakeoverKeys/echoBrModeKeys above.
   if config.allowCallouts:
     node["allowCallouts"] = %config.allowCallouts
+
+proc echoGloryKeys(config: GameConfig, node: JsonNode) =
+  ## GLORY PORT (GV46): deliberately empty today. Glory's pricing
+  ## (LevelThresholds, every deed price, achievement rules -- see
+  ## glory.nim) is UNCONDITIONAL game logic, not a `GameConfig` toggle --
+  ## it runs the same way on every mode, the same way `gameHash` going
+  ## mode-independent already assumes (see sim_types.nim's GV46 comment).
+  ## There is no glory-specific config key to echo yet. This proc exists
+  ## anyway, and is called below, so the day glory DOES grow a config knob
+  ## (a retune surface, a kill switch -- Maxwell's call, not this port's),
+  ## it has a named home instead of an edit squeezed into this shared tail.
+  discard config
+  discard node
 
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
@@ -1147,7 +1162,9 @@ proc configJson*(config: GameConfig): string =
   echoMapSpecKeys(config, node)
   echoBrModeKeys(config, node)
   echoSeatTakeoverKeys(config, node)
-  echoAimKeys(config, node)
+  echoDirectAimKeys(config, node)
+  echoAimAssistKeys(config, node)
   echoCalloutKeys(config, node)
+  echoGloryKeys(config, node)
   result = $node
 
