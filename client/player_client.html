@@ -397,10 +397,32 @@ function drawPixels(bytes){
   }
   x.putImageData(pixelImage,0,0);n("")
 }
+/* Socket-liveness watchdog: onclose/onerror only fire on a real TCP-level
+   close, so a socket that goes silently dead (NAT/idle timeout, a half-open
+   TCP connection) with readyState stuck OPEN leaves the page frozen on its
+   last-rendered frame forever -- no reconnect, no truthful status text
+   (truth audit cycle 1, criterion 10: "the only 'disconnected' copy fires
+   exclusively on close/error... nothing tracks time since last frame").
+   everSawFrame gates this so the (potentially slow, under host load -- see
+   photon audit criterion 4) INITIAL join never false-triggers: we only
+   start timing out silence once we've actually been playing at least once
+   this page load, matching the criterion's own "while supposedly playing"
+   framing. lastFrameAt is stamped on every accepted message, close-or-open. */
+const SOCKET_STALE_MS=9000; // no frames for ~9s while a game was already live == treat the socket as dead, not just quiet (round-transition lulls per photon criterion 5 stay well under this).
+let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
 (function connect(){
   n("connecting...");w=new WebSocket(a);w.binaryType="arraybuffer";l=255;
-  w.onopen=()=>{reconnectAttempts=0;n("")};
+  lastFrameAt=performance.now();
+  clearInterval(staleWatchdog);
+  staleWatchdog=setInterval(()=>{
+    if(everSawFrame&&w&&w.readyState===1&&performance.now()-lastFrameAt>SOCKET_STALE_MS){
+      n("connection lost -- reconnecting...");
+      w.close(); // routes through the existing bounded onclose/reconnect path below.
+    }
+  },1000);
+  w.onopen=()=>{reconnectAttempts=0;n("");lastFrameAt=performance.now()};
   w.onmessage=e=>{
+    lastFrameAt=performance.now();everSawFrame=true;
     const bytes=new Uint8Array(e.data);
     sawFrame=false;
     try{if(bytes.length===8192&&!spriteMode)drawPixels(bytes);else parseSprite(bytes)}
@@ -410,6 +432,7 @@ function drawPixels(bytes){
   const q=w;
   q.onclose=q.onerror=()=>{
     if(w!==q)return;
+    clearInterval(staleWatchdog);
     if(r&&reconnectAttempts<MaxReconnectAttempts){
       reconnectAttempts++;
       n("reconnecting...");if(!t)t=setTimeout(()=>{t=0;connect()},r*1000)
