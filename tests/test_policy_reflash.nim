@@ -26,7 +26,7 @@ import
   helpers,
   std/[json, os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, replays, sim],
+  ctf/[global, labels, replays, sim],
   "../tools/expand_replay"
 
 const
@@ -525,6 +525,13 @@ suite "policy reflash wire discrimination":
     let (page, overlays) = feed(truncated)
     check page == ""
     check overlays == @[truncated]
+
+  test "the magic cannot collide with a real overlay opcode":
+    # The forward guarantee, asserted rather than left as prose: every valid
+    # debug-sprite payload begins with one of parseSpritePacket's six
+    # opcodes, and the magic does not. Change the prefix to something in
+    # that range and this goes red instead of silently eating overlays.
+    check uint8(PolicyPageMagic[0]) notin {0x01'u8 .. 0x06'u8}
 
   test "one byte off the magic falls through to the overlay path":
     var nearMiss = proposal(PageA)

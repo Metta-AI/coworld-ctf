@@ -1251,12 +1251,12 @@ proc selectIntentFor(bot: OnepageBot, me: Vec, page: PolicyPage, f: WorldFeature
 #   ever produce, followed by the raw page JSON bytes verbatim.
 # -----------------------------------------------------------------------------
 
-const PolicyPageMagic = "CTFPOLICYPAGE1\n"
-  ## Self-identifying prefix — see the WIRE CONTRACT note above. A false
-  ## positive on a real overlay packet would eat it silently; a false
-  ## negative on our own packet would drop a reflash into the overlay path
-  ## instead — this prefix is how the server-side receive arm tells the
-  ## two apart before doing anything else.
+# PolicyPageMagic is NOT declared here. It comes from `ctf/labels`, the
+# module this bot already imports for the shared observation vocabulary, so
+# the sender below and the server's receive arm read ONE definition. It used
+# to be typed out in both files, which nothing checked: editing either copy
+# would have failed no build and no test, and simply made every proposal
+# decode as a debug-overlay packet instead of a reflash.
 
 const FireWindupTicksLocal = 5
   ## Mirrors sim_types.FireWindupTicks (~0.2s from trigger pull to the shot;

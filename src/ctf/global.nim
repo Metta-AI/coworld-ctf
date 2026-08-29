@@ -1998,19 +1998,6 @@ proc applyGlobalViewerMessage*(
     of SpriteClientReadyMessage, SpriteClientDebugSpriteMessage:
       discard
 
-const PolicyPageMagic* = "CTFPOLICYPAGE1\n"
-  ## Self-identifying prefix on a one-page-policy REFLASH riding the 0x86
-  ## debug-sprite opcode. That opcode is a generic byte blob already parsed
-  ## server-side, so a reflash needs NO vendor or wire change to reach us —
-  ## but it also still carries real debug-overlay packets, and the two have
-  ## to be told apart before anything is done with either. A false positive
-  ## would eat somebody's overlay; a false negative would drop a reflash
-  ## into the overlay path, and a dropped reflash is an applied-but-
-  ## unrecorded input, the one thing determinism cannot survive. The prefix
-  ## is the whole discriminator, so it is deliberately something no overlay
-  ## packet can produce: an overlay packet's first byte is an opcode in a
-  ## small enumerated range, never ASCII 'C'.
-
 proc isPolicyPagePacket*(packet: openArray[uint8]): bool =
   ## True when a 0x86 payload is a reflash proposal, not an overlay packet.
   ##
