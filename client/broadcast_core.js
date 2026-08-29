@@ -235,7 +235,17 @@
     // deep cushion that rides out measured WAN delivery stalls (p99 ≈ 400-500ms
     // against production, July 2026) beats the responsiveness a live viewer
     // would want. Live surfaces pass their own paceTargetDepth.
-    const PACE_TARGET_DEPTH = config.paceTargetDepth || 12;
+    //
+    // `|| 12` was the bug: a SEATED player's `me` truth rode this exact 12-frame
+    // cushion with no override ever supplied (the LIVE call site in
+    // replay_broadcast.html built its config with no paceTargetDepth key at
+    // all), so input read back through ~0.5s of stale world state -- measured
+    // 1274ms between shots against the engine's own 708ms cooldown (see the
+    // fire-pulse note below). `|| 12` also can never accept 0: `0 || 12` is
+    // 12, so a caller asking for the minimum buffer would have silently gotten
+    // the deep one anyway. A live surface now passes 0 explicitly, so the
+    // fallback must distinguish "not provided" from "provided as zero".
+    const PACE_TARGET_DEPTH = (typeof config.paceTargetDepth === "number") ? config.paceTargetDepth : 12;
     const PACE_MAX_DEPTH = PACE_TARGET_DEPTH + 7;
     const PACE_HARD_QUEUE = 240;
     const PACE_MIN_INTERVAL = 1000 / 60;

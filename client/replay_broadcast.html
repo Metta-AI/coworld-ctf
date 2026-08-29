@@ -2449,7 +2449,14 @@ body[data-live] #inspector { display: none !important; }
     websocket: !replayAdapter,
     onSendPacket: replayAdapter ? function (bytes) {
       replayAdapter.sendPacket(bytes);
-    } : null
+    } : null,
+    // Spectating wants the deep cushion (see broadcast_core.js); a SEATED
+    // player cannot afford it -- every tick of playout depth is a tick of
+    // stale `me` truth the controls translator reacts to. LIVE is already
+    // known here (computed above from the route), so hand it straight to
+    // the core instead of leaving it on the replay default by omission,
+    // which is exactly how this went unset before.
+    paceTargetDepth: LIVE ? 0 : 12
   });
   if (replayAdapter) replayAdapter.attachCore(core);
 
@@ -5566,6 +5573,17 @@ body[data-live] #inspector { display: none !important; }
     // buffer (PACE_TARGET_DEPTH 12 frames = ~0.5s at 24Hz): measured 1274ms
     // between shots against the engine's own 17-tick / 708ms limit. It waits
     // for stale news of a gun that was ready half a second ago.
+    //
+    // NOTE, post pace-fix: that 12-frame figure was the bug fixed below the
+    // BroadcastCore.create call (paceTargetDepth: LIVE ? 0 : 12) -- a seated
+    // client no longer rides the replay cushion at all. This finding was
+    // measured UNDER the old buffered `me`, so "readiness-driven pulsing
+    // loses" is not re-validated against the fixed (near-zero-buffer) path.
+    // The ceiling argument two paragraphs down (one edge per two frames) does
+    // not depend on buffer depth and still holds either way, which is why
+    // alternation was left as-is rather than re-opened here -- but if someone
+    // revisits readiness-driven pulsing, remeasure first; do not cite 1274ms
+    // as current.
     //
     // The stall case the note is right about is a PROTOCOL limit, not a cadence
     // bug: when one frame spans N ticks the ceiling is one edge per 2N ticks,
