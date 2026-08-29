@@ -1998,14 +1998,58 @@ proc applyGlobalViewerMessage*(
     of SpriteClientReadyMessage, SpriteClientDebugSpriteMessage:
       discard
 
+const PolicyPageMagic* = "CTFPOLICYPAGE1\n"
+  ## Self-identifying prefix on a one-page-policy REFLASH riding the 0x86
+  ## debug-sprite opcode. That opcode is a generic byte blob already parsed
+  ## server-side, so a reflash needs NO vendor or wire change to reach us —
+  ## but it also still carries real debug-overlay packets, and the two have
+  ## to be told apart before anything is done with either. A false positive
+  ## would eat somebody's overlay; a false negative would drop a reflash
+  ## into the overlay path, and a dropped reflash is an applied-but-
+  ## unrecorded input, the one thing determinism cannot survive. The prefix
+  ## is the whole discriminator, so it is deliberately something no overlay
+  ## packet can produce: an overlay packet's first byte is an opcode in a
+  ## small enumerated range, never ASCII 'C'.
+
+proc isPolicyPagePacket*(packet: openArray[uint8]): bool =
+  ## True when a 0x86 payload is a reflash proposal, not an overlay packet.
+  ##
+  ## STRICTLY longer than the magic, not merely as long: a bare prefix with
+  ## no page after it would decode to the empty string, which
+  ## `sim.applyPolicyPage` refuses anyway — routing it here instead of to
+  ## the overlay path would silently eat a (malformed) overlay packet and
+  ## flash nothing, so the length check keeps the two channels disjoint.
+  if packet.len <= PolicyPageMagic.len:
+    return false
+  for i, c in PolicyPageMagic:
+    if packet[i] != uint8(c):
+      return false
+  true
+
+proc policyPageFromPacket*(packet: openArray[uint8]): string =
+  ## The raw page bytes a reflash packet carries, prefix stripped. The page
+  ## travels VERBATIM — the bytes the runner hashed are the bytes the sim
+  ## hashes and the bytes the replay records, so no re-encoding step can
+  ## make the three disagree.
+  result = newString(packet.len - PolicyPageMagic.len)
+  for i in 0 ..< result.len:
+    result[i] = char(packet[PolicyPageMagic.len + i])
+
 proc applyPlayerViewerMessage*(
   state: var PlayerViewerState,
   message: string,
   inputMask: var uint8,
   pressedMask: var uint8,
-  chatText: var string
+  chatText: var string,
+  policyPage: var string
 ) =
   ## Applies sprite player protocol input messages.
+  ##
+  ## `policyPage` is an OUT-param in the shape of `chatText` beside it, and
+  ## for the same reason: this proc runs on the websocket thread, nowhere
+  ## near a tick boundary, so it must not touch the sim. It only reports
+  ## what arrived; the caller parks it in the per-socket inbox that the tick
+  ## loop drains.
   for item in message.parseSpriteClientMessages():
     case item.kind
     of SpriteClientChatMessage:
@@ -2014,7 +2058,14 @@ proc applyPlayerViewerMessage*(
       pressedMask = pressedMask or (item.mask and not inputMask)
       inputMask = item.mask
     of SpriteClientDebugSpriteMessage:
-      state.pendingDebugSprites.add(item.debugSprites)
+      # The reflash channel and the overlay channel share this opcode; the
+      # magic prefix is the only thing separating them. LAST write wins
+      # within one websocket message, matching the inbox below, which holds
+      # one pending page per socket.
+      if item.debugSprites.isPolicyPagePacket():
+        policyPage = item.debugSprites.policyPageFromPacket()
+      else:
+        state.pendingDebugSprites.add(item.debugSprites)
     of SpriteClientMouseMoveMessage:
       # Was discarded outright; now KEPT, because this is the whole of the
       # direct-aim channel. Board layers only — a cursor over a HUD layer is

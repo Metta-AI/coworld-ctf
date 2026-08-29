@@ -1501,16 +1501,28 @@ proc websocketHandler(
                 0
               )
               chatText = ""
+              policyPage = ""
             appState.playerViewers[websocket].applyPlayerViewerMessage(
               message.data,
               mask,
               pressedMask,
-              chatText
+              chatText,
+              policyPage
             )
             appState.inputMasks[websocket] = mask
             appState.inputPressedMasks[websocket] = pressedMask
             if chatText.len > 0:
               appState.chatMessages[websocket] = chatText
+            # The one-page-policy REFLASH receive arm, parked in the inbox
+            # the tick loop drains — deliberately the SAME shape as the
+            # chat line above it. Nothing here consults the sim: this runs
+            # on the websocket thread, and a page handed to the sim between
+            # two ticks would land between two hashes and be unrecordable
+            # at any single tick. Whether the page is ACCEPTED is decided
+            # once, at the drain, by `sim.applyPolicyPage` — the single
+            # predicate playback consults too.
+            if policyPage.len > 0:
+              appState.policyPageFlashes[websocket] = policyPage
   of ErrorEvent, CloseEvent:
     var who = ""
     {.gcsafe.}:
