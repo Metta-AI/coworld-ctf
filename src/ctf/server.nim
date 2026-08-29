@@ -1,5 +1,5 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, atomics, json, locks, monotimes, nativesockets, os, strutils, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
@@ -133,6 +133,7 @@ const
   # connected.
   UnresolvedPlayerIndex = 0x7fffffff
   HealthPath = "/healthz"
+  VerifyFrameHealthPath = "/health/frame"  # diagnostic-only, see verifyFrameCounter
   AdminWebSocketPath = "/admin"
   # Freeplay seat takeover. A dedicated websocket route rather than a flag on
   # /player: the stock player client force-copies name/token/slot onto
@@ -349,6 +350,16 @@ proc rewardAddress(address: string): string =
   address
 
 var appState: WebSocketAppState
+
+# --- Verify-to-close instrumentation (01b2eead, 2026-08-28) --------------
+# DIAGNOSTIC ONLY, additive, no gameplay effect: a lock-free tick heartbeat
+# so a churn test can read the tick loop's real cadence without touching
+# appState.lock (the thing under test). This lineage (br-demo-assembly,
+# 7b0ab22) never received the /health/frame watchdog built on the churn-
+# stall investigation branch (maxwell/s2-takeover-shout) -- ported the
+# minimum slice needed to verify-to-close: a monotonically increasing
+# frame counter, read-only, no lock, served ahead of any locking route.
+var verifyFrameCounter: Atomic[int64]
 
 proc markSocketClosed(websocket: WebSocket): bool =
   ## Queues a websocket for closed-socket cleanup and returns true once.
@@ -1112,6 +1123,15 @@ proc httpHandler(request: Request) =
     headers["Content-Type"] = "text/plain; charset=utf-8"
     headers["Cache-Control"] = "no-cache"
     request.respond(200, headers, "healthy")
+  elif request.path == VerifyFrameHealthPath and request.httpMethod == "GET":
+    # Deliberately BEFORE any route that takes appState.lock, and takes no
+    # lock itself: a churn-verification tool reads the tick loop's real
+    # cadence without depending on the thing under test.
+    var headers: HttpHeaders
+    headers["Content-Type"] = "application/json; charset=utf-8"
+    headers["Cache-Control"] = "no-cache"
+    headers["Access-Control-Allow-Origin"] = "*"
+    request.respond(200, headers, $(%*{"tick": verifyFrameCounter.load()}))
   elif request.path == CapabilitiesPath and request.httpMethod == "GET":
     var headers: HttpHeaders
     headers["Content-Type"] = "application/json; charset=utf-8"
@@ -1879,6 +1899,7 @@ proc runServerLoop*(
       else: initBroadcastTracker()
 
   while true:
+    discard verifyFrameCounter.fetchAdd(1)
     var
       pendingReplayUri = ""
       sockets: seq[WebSocket] = @[]
