@@ -858,6 +858,14 @@ proc update*(config: var GameConfig, jsonText: string) =
     if node["mapSpec"].kind != JObject:
       raise newException(CtfError, "Config field mapSpec must be an object.")
     config.mapSpec = $node["mapSpec"]
+  # BR base ranges (Maxwell directive, 2026-08-29): brMode is read HERE now,
+  # ahead of the gunRange default resolution just below, instead of at its
+  # old appended-tail spot (see the GVNEXT(elim) comment this replaces,
+  # further down) -- the default needs to know brMode before it resolves.
+  # Idempotent either way (readConfigBool just copies the JSON key when
+  # present), so this is a pure reorder, not a behavior change for anyone
+  # who doesn't hit the new branch below.
+  node.readConfigBool("brMode", config.brMode)
   ## Resolve the effective map ONCE: a generated map is expanded and pinned
   ## as mapSpec here, so the replay carries the exact geometry and playback
   ## never re-runs the generator. The gun range follows the selected map
@@ -868,6 +876,27 @@ proc update*(config: var GameConfig, jsonText: string) =
     config.mapSpec = mapSpecJson(mapMeta)
   if not node.hasKey("gunRange"):
     config.gunRange = mapMeta.gunRange
+    ## BR base ranges (Maxwell directive, 2026-08-29): BR's DEFAULT gun
+    ## range ships 50% longer than classic's -- and with it, for free,
+    ## visionRange (sim.nim's `visionRange()`, always 1.5x the live
+    ## gunRange, GV34) and the first-person cone render that follows
+    ## visionRange too (sim_types.nim's GV33 note): one lever moves the
+    ## gun's hit-resolution range, the policy observation radius, and the
+    ## human POV cone together, exactly as they already move together for
+    ## classic. Every map bakes the SAME fixed gunRange regardless of size
+    ## (arena.nim: "fixed, never scaled with the field, GV34"), so this is
+    ## one clean 1050 -> 1575 bump for every BR map, not a per-map tune.
+    ## Gated on the DEFAULT only, same rule the map-derived default already
+    ## followed one line up: an explicit `gunRange` in the config (the
+    ## `not node.hasKey` guard above) always wins, unscaled -- a league
+    ## config that pins its own number keeps getting exactly that number.
+    ## This IS the "base" Maxwell's directive names: a config-resolved
+    ## value (not a hardcoded BR-only constant), so a future scope-item
+    ## perk multiplies the same field further instead of a second one.
+    ## Classic (brMode false, the default) never takes this branch --
+    ## byte-identical to every pre-existing build.
+    if config.brMode:
+      config.gunRange = config.gunRange * 3 div 2
   node.readConfigSlots(config.slots)
   node.readConfigHandicaps(config)
   node.readConfigPerks(config)
@@ -882,8 +911,9 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("allowCallouts", config.allowCallouts)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
-  # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
-  node.readConfigBool("brMode", config.brMode)
+  # brMode itself is read earlier now (see the BR base ranges comment above
+  # the gunRange default resolution) -- the appended GVNEXT(elim) read that
+  # used to live here was moved, not duplicated.
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
