@@ -642,7 +642,36 @@ Adding a name is one table row and one small proc. Adding a **rung** that
 composes existing names is zero engine code. That is the line this design is
 trying to hold.
 
-### 6.3 The test case: can the vocabulary express "fall back"?
+### 6.3 The whole BR ladder, audited against the vocabulary
+
+The claim "these six combinators cover BR" is only worth anything if it is
+checkable. Every rung from §3, with the combinator it uses and the names it
+draws on:
+
+| rung | combinator | named points it needs | new engine code? |
+| --- | --- | --- | --- |
+| `clear_grenade` | `Radial` | `grenadeWarning.pos` | none |
+| `clear_spray` | `ScoredLocal` | `threat.centroid`, `zone.center` | weight param + zone name |
+| `zone_escape` | `Fixed`-derived | `zone.nearestInside` | one name |
+| `fall_back` | `ScoredLocal` | `threat.centroid`, `zone.center`, `cover.nearest` | **weight param + track filter param** |
+| `fetch_medkit` | `Fixed` | `item.nearest(Medkit)` | none (re-pricing only) |
+| `partner_support` | `Track` | `partner.pos` | one name |
+| `partner_regroup` | `Track` | `partner.pos` | one name |
+| `third_party` | `ScoredRegion` | `threat.centroid`, atlas | **track filter param** |
+| `fetch_item` | `Fixed` | `item.nearest(kind)` | none (anchor passed in) |
+| `zone_rotate` | `ScoredRegion` | `zonenext.center`, room peaks | one name |
+| `hold_zone_ground` | `ScoredRegion` | `zone.center`, `zone.edgeToward`, atlas | two names |
+| `seek_survivors` | `Track` → `Fixed` | fresh enemy track, `zone.center` | none |
+
+Two readings of that table matter. First, **no rung in the proposed BR ladder
+needs a seventh combinator** — the vocabulary as enumerated covers the mode,
+which is the evidence that it is the right factoring rather than a convenient
+one. Second, the "new engine code" column collapses to exactly the two
+parameterisations named in §6.4 plus a handful of table rows. `Interp` goes
+unused in BR (it existed for the home→pedestal advance), which is fine — an
+unused combinator is not a cost.
+
+### 6.4 The test case: can the vocabulary express "fall back"?
 
 James's example, worked through honestly.
 
@@ -688,7 +717,7 @@ Two smaller notes in the same spirit:
   drifting into it. My suggestion: add an explicit `rungId` field and leave
   `reason` alone.
 
-### 6.4 What a playbook would price
+### 6.5 What a playbook would price
 
 Under the agreed reframe, a page **scores the validated rungs** rather than
 taking the first, and default weights reproduce the ladder order exactly.
@@ -750,7 +779,7 @@ Three things this example is meant to demonstrate:
 3. **An early-rotator page is the same file with two numbers swapped.** That is
    the test of whether the vocabulary is actually a vocabulary.
 
-### 6.5 Determinism and replay (our side of the split)
+### 6.6 Determinism and replay (our side of the split)
 
 Since this lane owns determinism/replay, the constraints the scored ladder must
 respect:
