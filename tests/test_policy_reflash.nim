@@ -26,7 +26,7 @@ import
   helpers,
   std/[json, os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[replays, sim],
+  ctf/[global, replays, sim],
   "../tools/expand_replay"
 
 const
@@ -465,3 +465,91 @@ suite "policy reflash: a flashed page survives a keyframe seek":
       check not player.hashValidationFailed
     finally:
       setCurrentDir(previousDir)
+
+
+suite "policy reflash wire discrimination":
+  ## The RECEIVE arm, which neither building lane could test: the runner's
+  ## proposal and a real debug overlay ride the SAME 0x86 opcode, and the
+  ## magic prefix is the only thing separating them. Both directions are
+  ## asserted, because a check that only proves the reflash path fires would
+  ## still pass if the arm swallowed every overlay packet in the game.
+
+  proc feed(packet: seq[uint8]): (string, seq[seq[uint8]]) =
+    ## Runs one 0x86 payload through the real server-side arm and reports
+    ## which of the two channels it came out on.
+    var
+      state = initPlayerViewerState()
+      inputMask = 0'u8
+      pressedMask = 0'u8
+      chatText = ""
+      policyPage = ""
+    state.applyPlayerViewerMessage(
+      blobFromSpriteDebugSprites(packet),
+      inputMask,
+      pressedMask,
+      chatText,
+      policyPage
+    )
+    (policyPage, state.pendingDebugSprites)
+
+  proc proposal(page: string): seq[uint8] =
+    ## Byte-for-byte what players/onepage/onepage.nim puts on the wire.
+    let raw = PolicyPageMagic & page
+    result = newSeq[uint8](raw.len)
+    for i, c in raw: result[i] = uint8(c)
+
+  test "a magic-prefixed proposal reaches the reflash channel, prefix stripped":
+    let (page, overlays) = feed(proposal(PageA))
+    check page == PageA
+    check overlays.len == 0
+
+  test "a real overlay packet is untouched by the reflash arm":
+    var packet: seq[uint8] = @[]
+    packet.addClearObjects()
+    packet.addObject(4, 5, 6, 7, 0, 8)
+    let (page, overlays) = feed(packet)
+    check page == ""
+    check overlays == @[packet]
+
+  test "a bare magic with no page stays on the overlay path":
+    # STRICTLY longer than the magic: a bare prefix decodes to the empty
+    # page `applyPolicyPage` refuses anyway, so routing it to the reflash
+    # channel would eat an overlay packet and flash nothing.
+    let bare = proposal("")
+    let (page, overlays) = feed(bare)
+    check page == ""
+    check overlays == @[bare]
+
+  test "a packet shorter than the magic cannot false-positive":
+    let truncated = proposal(PageA)[0 ..< PolicyPageMagic.len - 1]
+    let (page, overlays) = feed(truncated)
+    check page == ""
+    check overlays == @[truncated]
+
+  test "one byte off the magic falls through to the overlay path":
+    var nearMiss = proposal(PageA)
+    nearMiss[PolicyPageMagic.len - 1] = uint8(ord('X'))   # the trailing \n
+    let (page, overlays) = feed(nearMiss)
+    check page == ""
+    check overlays == @[nearMiss]
+
+  test "a page the sim will refuse still arrives verbatim; the DRAIN judges":
+    # The wire arm deliberately does not pre-screen: `applyPolicyPage` is the
+    # single acceptance predicate, and duplicating any part of it here is how
+    # live and playback come to disagree.
+    let huge = "x".repeat(MaxPolicyPageBytes + 1)
+    let (page, overlays) = feed(proposal(huge))
+    check page == huge
+    check overlays.len == 0
+
+    var sim = twoCogReflashGame(armed = true)
+    check not sim.applyPolicyPage(0, page)
+
+  test "a page carrying the sprite protocol\'s own framing bytes survives":
+    # The page is arbitrary JSON from an LLM. It must not be re-encoded or
+    # scanned for anything on the way through, or the bytes the runner
+    # hashed stop being the bytes the sim hashes.
+    let gnarly = "{\"note\":\"\\u0000\\u0086 \\n\\t magic=CTFPOLICYPAGE1 \"}"
+    let (page, overlays) = feed(proposal(gnarly))
+    check page == gnarly
+    check overlays.len == 0
