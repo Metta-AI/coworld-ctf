@@ -557,17 +557,34 @@ proc advanceSeatTakeover(
   takeover.observed = true
   takeover.prevAlive = cogAlive
 
-proc seatWaitTicks(board: seq[SeatSnapshot], seat: int): int =
+proc seatWaitTicks(
+  board: seq[SeatSnapshot],
+  seat: int,
+  preferAlive: bool = false
+): int =
   ## How long a seat's cog is from its next spawn, in ticks. A cog that is UP
   ## is `int.high`: the swap lands at the next respawn, so a healthy cog is an
   ## unbounded wait, and this refuses to pretend otherwise. A seat with no cog
   ## at all is 0 — a new match lands every pending takeover at the whistle.
+  ##
+  ## `preferAlive` (brMode) inverts which state is "unbounded": a brMode cog
+  ## that is DOWN is permanently eliminated (sim.nim's killPlayer forces
+  ## lives=0, respawnTimer=0 for the rest of the round in brMode) and will
+  ## never spawn again until the next full match reset, while a cog that is
+  ## UP lands the swap on literally the next sampled frame via
+  ## advanceSeatTakeover's `instant` branch. So in brMode, ALIVE is the
+  ## near-zero wait and DOWN is the unbounded one — the exact opposite of the
+  ## respawning-mode rule above.
   for entry in board:
     if entry.seat == seat:
-      return if entry.alive: int.high else: max(entry.respawnTimer, 0)
+      return
+        if preferAlive:
+          (if entry.alive: 0 else: int.high)
+        else:
+          (if entry.alive: int.high else: max(entry.respawnTimer, 0))
   0
 
-proc migratePendingTakeovers(board: seq[SeatSnapshot]) =
+proc migratePendingTakeovers(board: seq[SeatSnapshot], preferAlive: bool = false) =
   ## Re-points a still-PENDING takeover at whichever free seat gets it onto the
   ## field soonest.
   ##
@@ -581,6 +598,12 @@ proc migratePendingTakeovers(board: seq[SeatSnapshot]) =
   ## for good. And a takeover already parked on a DOWNED cog never moves again:
   ## that cog is about to stand up, which is the best case there is, and hopping
   ## off it for a marginally sooner one would be pure thrash.
+  ##
+  ## `preferAlive` (brMode): the "good landing spot" and the "keep searching"
+  ## target swap places, mirroring seatWaitTicks above -- a takeover already
+  ## parked on an ALIVE brMode cog is parked exactly right (the instant branch
+  ## lands it on the next sampled frame) and must never be moved off it onto a
+  ## cog that is down, which in brMode means permanently eliminated.
   if appState.takeovers.len == 0 or board.len == 0:
     return
   var held: seq[int] = @[]
@@ -589,15 +612,16 @@ proc migratePendingTakeovers(board: seq[SeatSnapshot]) =
   for _, takeover in appState.takeovers.mpairs:
     if takeover.active:
       continue
-    if seatWaitTicks(board, takeover.seat) != int.high:
-      continue                      # already parked on a cog that is down
+    if seatWaitTicks(board, takeover.seat, preferAlive) != int.high:
+      continue                      # already parked on a good landing spot
     var
       bestSeat = -1
       bestWait = int.high
     for entry in board:
-      if entry.alive or entry.seat in held:
+      let isCandidate = if preferAlive: entry.alive else: not entry.alive
+      if not isCandidate or entry.seat in held:
         continue
-      let wait = max(entry.respawnTimer, 0)
+      let wait = if preferAlive: 0 else: max(entry.respawnTimer, 0)
       if wait < bestWait:
         bestWait = wait
         bestSeat = entry.seat
@@ -1006,7 +1030,8 @@ proc capabilitiesJson(): string =
 proc pickFreeplaySeat*(
   board: seq[SeatSnapshot],
   taken: seq[int],
-  seatCount: int
+  seatCount: int,
+  preferAlive: bool = false
 ): tuple[seat, waitTicks: int] =
   ## Picks the seat a Free Play arrival should be handed, and says how long
   ## that arrival will stand around before it drives.
@@ -1020,19 +1045,36 @@ proc pickFreeplaySeat*(
   ## A seat with no cog yet (between matches) is next best: the opening spawn
   ## lands every pending takeover at once. A healthy cog is the last resort,
   ## and its wait is unknowable from here -- reported as -1, never as a guess.
+  ##
+  ## `preferAlive` (brMode) INVERTS the speed rule: sim.nim's killPlayer
+  ## forces lives=0/respawnTimer=0 on a brMode death, permanently -- a brMode
+  ## cog reported "down" in a lives:1 game means eliminated for the rest of
+  ## the round, not "back in a few ticks", and advanceSeatTakeover's `instant`
+  ## branch only ever lands on a cog that is ALIVE on its first sampled frame.
+  ## Applying the respawning-mode rule to brMode would confidently hand every
+  ## arrival the ONE cog guaranteed to never come back until the next full
+  ## reset -- measured before this fix as 7-15s+ mid-round joins climbing
+  ## with roster size. So in brMode: alive is the near-zero wait (the instant
+  ## branch fires next frame), down is the unknowable one.
   result = (-1, -1)
   var bestWait = int.high
   for entry in board:
     if entry.seat < 0 or entry.seat >= seatCount or entry.seat in taken:
       continue
     let wait =
-      if entry.alive:
+      if preferAlive:
+        (if entry.alive: 0 else: int.high - 1)
+      elif entry.alive:
         int.high - 1        # ranked last, and its wait is not knowable here
       else:
         max(entry.respawnTimer, 0)
     if wait < bestWait:
       bestWait = wait
-      result = (entry.seat, (if entry.alive: -1 else: wait))
+      result = (
+        entry.seat,
+        if preferAlive: (if entry.alive: 0 else: -1)
+        else: (if entry.alive: -1 else: wait)
+      )
   if result.seat >= 0:
     return
   # No roster yet (between matches, or before the policies have joined): any
@@ -1052,17 +1094,19 @@ proc freeplaySeatJson(): string =
     taken: seq[int] = @[]
     seatCount = 0
     enabled = false
+    brMode = false
   {.gcsafe.}:
     withLock appState.lock:
       enabled = appState.config.allowSeatTakeover
       if enabled:
         board = appState.seatBoard
         seatCount = appState.config.slots.len
+        brMode = appState.config.brMode
         for _, takeover in appState.takeovers.pairs:
           taken.add(takeover.seat)
   if not enabled:
     return $(%*{"enabled": false, "seat": -1})
-  let pick = pickFreeplaySeat(board, taken, seatCount)
+  let pick = pickFreeplaySeat(board, taken, seatCount, brMode)
   $(%*{
     "enabled": true,
     "directAim": directAimEnabled(),
@@ -2106,15 +2150,40 @@ proc runServerLoop*(
 
         # NOTE: d5f8bb6 (s2-play-engine) also carried a "squad construction"
         # block here (squadMode/numAgents/squadAlias/totalCogs/seatPolicyKind)
-        # from the unmerged Paintball KOTH lineage, and a seat-liveness-board
-        # populate call for the /takeover/seat PICKER route. Both hand-skipped
-        # as out of scope for this port (allowDirectAim/allowAimAssist only):
-        # squadMode has no definition anywhere on this branch, and the picker
-        # is a separate, unrequested feature. The SeatSnapshot type, seatBoard
-        # field, seatWaitTicks/migratePendingTakeovers procs and the
-        # /takeover/seat route auto-merged in and still compile — they are
-        # just never populated, so the route honestly answers "no candidate"
-        # (-1) rather than doing anything wrong.
+        # from the unmerged Paintball KOTH lineage. Still hand-skipped as out
+        # of scope for this port: squadMode has no definition anywhere on
+        # this branch.
+        #
+        # The seat-liveness-board populate call was ALSO hand-skipped on this
+        # port (see git blame on this comment) -- the SeatSnapshot type,
+        # seatBoard field, and seatWaitTicks/migratePendingTakeovers procs
+        # auto-merged in and still compiled, so nothing errored, but with the
+        # board never written the /takeover/seat PICKER route answered "no
+        # candidate" (-1) forever, on EVERY config, which pushed every Free
+        # Play arrival onto the app's own blind local fallback pick (no
+        # aliveness information at all) instead of this engine's live one.
+        # THIS is the seat-resolution delay family's root cause on the
+        # engine side: restored here, plus a brMode-aware ranking
+        # (pickFreeplaySeat/seatWaitTicks/migratePendingTakeovers all take a
+        # `preferAlive` param now) -- the un-inverted ranking would have
+        # confidently pointed every BR arrival at whichever cog is
+        # PERMANENTLY eliminated (brMode death forces respawnTimer=0
+        # forever, sim.nim's killPlayer), which is worse than the blind
+        # fallback it replaces, not better.
+        # Already inside this loop's own `withLock appState.lock:` (opened
+        # above this whole admission block) -- appState.seatBoard is written
+        # directly, never through a second acquire, which would deadlock on
+        # a non-recursive Lock.
+        if not replayLoaded and appState.config.allowSeatTakeover:
+          var board: seq[SeatSnapshot] = @[]
+          for i in 0 ..< sim.players.len:
+            board.add(SeatSnapshot(
+              seat: sim.players[i].joinOrder,
+              cog: i,
+              alive: sim.players[i].alive,
+              respawnTimer: sim.players[i].respawnTimer))
+          appState.seatBoard = board
+          migratePendingTakeovers(appState.seatBoard, appState.config.brMode)
         # ---- seat takeover: resolve each seat, land pending swaps --------
         # A pending takeover goes live on its cog's next false -> true `alive`
         # edge. That is the ONE clean moment: the human always starts a life
