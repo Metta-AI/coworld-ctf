@@ -82,14 +82,19 @@ const
   DuckSearchCells = 3           # duck-cell search radius in nav cells
   ThreatRange = 200.0           # "in combat" radius used for partner.in_combat
   ArriveRadius = 12.0           # close enough to a nav target to hold position
-  DisengageRange = 200.0        # how far a peel tries to put between us and
+  PeelRange = 200.0        # how far a peel tries to put between us and
                                  # the nearest threat
-  AvoidStepOut = 300.0          # how far AvoidContact steps away from the
+  AvoidStepOut = 300.0          # how far AvoidFight steps away from the
                                  # enemy centroid per tick, before zone-clamping
+  ThirdPartyFightRange = 180.0  # two ENEMY tracks of different colors this
+                                 # close together read as a fight already
+                                 # under way between two OTHER duos
 
-  ButtonC = 1'u8 shl 7          # unused today (no nade/barrier support here);
-                                 # kept only so a resolver could reach it later
-                                 # without a wire-constant hunt.
+  ButtonC = 1'u8 shl 7          # grenade charge/throw (baseline.nim:148)
+  NadeMaxRange = 240.0          # full-charge throw distance (baseline.nim:149)
+  NadeMinRange = 78.0           # never lob inside this (baseline.nim:150)
+  NadeFullChargeTicks = 24      # ~1s of holding C reaches max range
+                                 # (baseline.nim:157)
 
 var
   MapW = 1235                   # adopted from the walkability sprite's size
@@ -129,35 +134,41 @@ type
     pos: Vec
     facingRight: bool
     hp: int
+    color: string                 # wire color this Actor was scanned under
 
   Track = object                 # a remembered player
     pos, vel: Vec
     lastSeen: int
     facingRight: bool
     hp: int
+    color: string                 # carried over from the Actor that fed it
 
   Intent* = enum
     ## The fixed BR intent menu. Each has exactly one short resolver below
     ## (see "Resolvers"); if a resolver starts growing, the intent is too
     ## vague and should split instead.
-    RotateToZone
-    HoldCoverInPlace
-    EngageNearestEnemy
-    EngageWeakestEnemy
-    Disengage
-    SeekMedkit
-    SeekItem
-    RegroupWithPartner
+    RotateToRing
+    HoldRingSafe
+    Engage
+    Finish
+    Peel
+    Heal
+    Loot
+    RegroupPartner
     SupportPartner
-    AvoidContact
+    AvoidFight
+    ThirdParty
+    UseGrenade
 
   Act = object
     ## The exact three-value handoff baseline.nim's tactics tree produces
     ## (baseline.nim:3057-3061): moveMask (d-pad), desiredAim (-1 = hold the
-    ## current aim), wantFire.
+    ## current aim), wantFire. `holdC` is the one addition (UseGrenade's
+    ## charge-hold) — everything else still just sets the first three.
     moveMask: uint8
     desiredAim: int
     wantFire: bool
+    holdC: bool
 
   OnepageBot = ref object
     slot: int
@@ -195,6 +206,14 @@ type
     lastAppliedReflashHash: string
     pendingProposal: string         # a candidate raw page waiting to be sent
                                     # over the wire (see pollForNewPage)
+    carryingNade: bool              # our OWN grenade-carry marker, within
+                                    # 30px of us (baseline.nim:2769-2774)
+    nadeCharge: int                 # ticks ButtonC has been held; 0 = idle
+    nadeNeed: int                   # charge ticks the current lob needs
+    lastFireTick: int               # tick of our last FRESH ButtonA press —
+                                    # drives the local fire-windup estimate a
+                                    # reflash must not swap out from under
+                                    # (see maybeApplyReflash)
 
 # -----------------------------------------------------------------------------
 # Vector math (baseline.nim:541-563, verbatim)
@@ -288,7 +307,7 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
   for facingRight in [true, false]:
     let label = labelPlayer(color, if facingRight: LabelSideRight else: LabelSideLeft)
     for o in client.spriteObjectsWithLabel(label):
-      result.add(Actor(pos: client.mapPos(o), facingRight: facingRight))
+      result.add(Actor(pos: client.mapPos(o), facingRight: facingRight, color: color))
   for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixHp):
     let tail = label[LabelPrefixHp.len .. ^1]
     let slash = tail.find('/')
@@ -535,11 +554,13 @@ proc updateTracks(bot: OnepageBot, tracks: var seq[Track], seen: seq[Actor], cap
       tracks[best].pos = a.pos
       tracks[best].facingRight = a.facingRight
       tracks[best].lastSeen = bot.tick
+      tracks[best].color = a.color
       if a.hp > 0:
         tracks[best].hp = a.hp
       claimed[best] = true
     else:
-      tracks.add(Track(pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp))
+      tracks.add(Track(pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight,
+        hp: a.hp, color: a.color))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -677,6 +698,15 @@ proc updatePerception(bot: OnepageBot, client: ProtocolClient, me: Vec) =
   let statedAim = client.ownAimBrads()
   if statedAim >= 0:
     bot.estAim = statedAim
+  # Own grenade carry: the carried-marker is generic (any visible carrier),
+  # but it floats within 30px of its carrier, and nobody else stands that
+  # close to our own center on the frame we read it (baseline.nim:2769-2774,
+  # verbatim distance check).
+  bot.carryingNade = false
+  for o in client.spriteObjectsWithLabel(LabelGrenadeCarried):
+    if dist(client.mapPos(o), me) <= 30.0:
+      bot.carryingNade = true
+      break
   # Enemies: every OTHER color in the FULL BR roster (rosterColorCount(),
   # not a 4-color clamp) — the exact gap baseline.nim:301-312 documents on
   # the ladder's own bot, closed here from the start.
@@ -760,7 +790,7 @@ proc weakestEnemyIdx(bot: OnepageBot, me: Vec): int =
   if result < 0:
     result = nearestEnemyIdx(bot, me)
 
-proc resolveEngage(bot: OnepageBot, client: ProtocolClient, me: Vec, idx: int): Act =
+proc resolveEngageIdx(bot: OnepageBot, client: ProtocolClient, me: Vec, idx: int): Act =
   if idx < 0:
     return Act(moveMask: 0, desiredAim: -1, wantFire: false)
   let targetPos = bot.enemies[idx].pos
@@ -768,7 +798,7 @@ proc resolveEngage(bot: OnepageBot, client: ProtocolClient, me: Vec, idx: int): 
   let dir = navSteer(bot, client, me, targetPos)
   Act(moveMask: octantBits(dir), desiredAim: aim, wantFire: fire)
 
-proc resolveRotateToZone(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolveRotateToRing(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   ## Walk to the CURRENT zone's center; once inside, pre-rotate toward where
   ## the NEXT zone is heading so a late shrink never catches us mid-turn.
   if not bot.zoneKnown:
@@ -784,7 +814,7 @@ proc resolveRotateToZone(bot: OnepageBot, client: ProtocolClient, me: Vec): Act 
     return Act(moveMask: 0, desiredAim: bradsOf(nextCenter - me), wantFire: false)
   Act(moveMask: 0, desiredAim: -1, wantFire: false)
 
-proc resolveHoldCoverInPlace(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolveHoldRingSafe(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   ## Duck behind the nearest cover that breaks the closest threat's line and
   ## hold there — a defensive intent; it never fires (that is EngageX's job).
   let i = nearestEnemyIdx(bot, me)
@@ -796,36 +826,36 @@ proc resolveHoldCoverInPlace(bot: OnepageBot, client: ProtocolClient, me: Vec): 
     return actMove(bot, client, me, cellCenter(duck))
   Act(moveMask: 0, desiredAim: bradsOf(threat - me), wantFire: false)
 
-proc resolveEngageNearestEnemy(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
-  bot.resolveEngage(client, me, nearestEnemyIdx(bot, me))
+proc resolveEngage(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+  bot.resolveEngageIdx(client, me, nearestEnemyIdx(bot, me))
 
-proc resolveEngageWeakestEnemy(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
-  bot.resolveEngage(client, me, weakestEnemyIdx(bot, me))
+proc resolveFinish(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+  bot.resolveEngageIdx(client, me, weakestEnemyIdx(bot, me))
 
-proc resolveDisengage(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolvePeel(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   ## Peel off the nearest threat: back away while keeping the gun on it, but
   ## never pull the trigger — that is what distinguishes a peel from a trade.
   let i = nearestEnemyIdx(bot, me)
   if i < 0:
     return Act(moveMask: 0, desiredAim: -1, wantFire: false)
   let threat = bot.enemies[i].pos
-  let away = me + norm(me - threat) * DisengageRange
+  let away = me + norm(me - threat) * PeelRange
   let dir = navSteer(bot, client, me, away)
   Act(moveMask: octantBits(dir), desiredAim: bradsOf(threat - me), wantFire: false)
 
-proc resolveSeekMedkit(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolveHeal(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   let i = nearestAvailable(bot.medkitPos, bot.medkitAbsentAt, bot.tick, me)
   if i < 0:
     return Act(moveMask: 0, desiredAim: -1, wantFire: false)
   actMove(bot, client, me, bot.medkitPos[i])
 
-proc resolveSeekItem(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolveLoot(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   let i = nearestAvailable(bot.itemPos, bot.itemAbsentAt, bot.tick, me)
   if i < 0:
     return Act(moveMask: 0, desiredAim: -1, wantFire: false)
   actMove(bot, client, me, bot.itemPos[i])
 
-proc resolveRegroupWithPartner(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolveRegroupPartner(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   if bot.mates.len == 0:
     return Act(moveMask: 0, desiredAim: -1, wantFire: false)
   actMove(bot, client, me, bot.mates[0].pos)
@@ -846,9 +876,9 @@ proc resolveSupportPartner(bot: OnepageBot, client: ProtocolClient, me: Vec): Ac
       idx = i
   if idx < 0:
     return actMove(bot, client, me, partnerPos)
-  bot.resolveEngage(client, me, idx)
+  bot.resolveEngageIdx(client, me, idx)
 
-proc resolveAvoidContact(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+proc resolveAvoidFight(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
   ## Edge play: step away from the known-enemy centroid, clamped to stay
   ## inside the current zone (never OUT of it just to duck a fight).
   if not bot.zoneKnown:
@@ -865,30 +895,100 @@ proc resolveAvoidContact(bot: OnepageBot, client: ProtocolClient, me: Vec): Act 
     clamp(me.y + away.y * AvoidStepOut, bot.zoneY0 + 20.0, bot.zoneY1 - 20.0))
   actMove(bot, client, me, target)
 
+proc findThirdPartyTarget(bot: OnepageBot, me: Vec): int =
+  ## Two enemy tracks of DIFFERENT colors within ThirdPartyFightRange of
+  ## each other read as a fight already under way between two OTHER duos —
+  ## jump whichever of that pair sits closer to US. -1 when no such pair is
+  ## currently visible/remembered.
+  result = -1
+  var bestD = 1e18
+  for i in 0 ..< bot.enemies.len:
+    for j in 0 ..< bot.enemies.len:
+      if i == j or bot.enemies[i].color.len == 0 or
+          bot.enemies[i].color == bot.enemies[j].color:
+        continue
+      if dist(bot.enemies[i].pos, bot.enemies[j].pos) > ThirdPartyFightRange:
+        continue
+      let d = dist(bot.enemies[i].pos, me)
+      if d < bestD:
+        bestD = d
+        result = i
+
+proc resolveThirdParty(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+  ## Jump a fight already under way between two OTHER duos: same engage
+  ## mechanics as ENGAGE/FINISH, just a different target selection.
+  bot.resolveEngageIdx(client, me, findThirdPartyTarget(bot, me))
+
+proc bestGrenadeTargetIdx(bot: OnepageBot, me: Vec): tuple[idx: int, d: float] =
+  ## Nearest enemy inside the lob's [NadeMinRange, NadeMaxRange] band —
+  ## never lob inside NadeMinRange (baseline.nim:150: the blast would clip
+  ## us) or beyond a full-charge throw's reach.
+  result = (idx: -1, d: 0.0)
+  var bestD = 1e18
+  for i in 0 ..< bot.enemies.len:
+    let d = dist(bot.enemies[i].pos, me)
+    if d >= NadeMinRange and d <= NadeMaxRange and d < bestD:
+      bestD = d
+      result = (idx: i, d: d)
+
+proc resolveUseGrenade(bot: OnepageBot, client: ProtocolClient, me: Vec): Act =
+  ## Charge-and-release lob at the nearest in-band enemy — the same charge
+  ## state machine baseline.nim's nade branch runs (baseline.nim:3066-3082):
+  ## hold ButtonC for a distance-scaled tick count once the turret settles
+  ## on the target, release (stop holding C) the tick the charge completes,
+  ## and hold still throughout — a lob is not a moving action.
+  if not bot.carryingNade:
+    bot.nadeCharge = 0
+    return Act(moveMask: 0, desiredAim: -1, wantFire: false)
+  let (idx, throwD) = bestGrenadeTargetIdx(bot, me)
+  if idx < 0:
+    bot.nadeCharge = 0
+    return Act(moveMask: 0, desiredAim: -1, wantFire: false)
+  let aim = bradsOf(bot.enemies[idx].pos - me)
+  if bot.nadeCharge == 0:
+    bot.nadeNeed = max(3, int(float(NadeFullChargeTicks) *
+      (throwD - 30.0) / (NadeMaxRange - 30.0)))
+  var holdC = false
+  if abs(bradsErr(aim, bot.estAim)) <= CombatDeadband + 2:
+    if bot.nadeCharge < bot.nadeNeed:
+      inc bot.nadeCharge
+      holdC = true
+    else:
+      bot.nadeCharge = 0                # release this tick = the throw
+  Act(moveMask: 0, desiredAim: aim, wantFire: false, holdC: holdC)
+
 const Resolvers: array[Intent, proc(bot: OnepageBot, client: ProtocolClient, me: Vec): Act {.nimcall.}] = [
-  RotateToZone: resolveRotateToZone,
-  HoldCoverInPlace: resolveHoldCoverInPlace,
-  EngageNearestEnemy: resolveEngageNearestEnemy,
-  EngageWeakestEnemy: resolveEngageWeakestEnemy,
-  Disengage: resolveDisengage,
-  SeekMedkit: resolveSeekMedkit,
-  SeekItem: resolveSeekItem,
-  RegroupWithPartner: resolveRegroupWithPartner,
+  RotateToRing: resolveRotateToRing,
+  HoldRingSafe: resolveHoldRingSafe,
+  Engage: resolveEngage,
+  Finish: resolveFinish,
+  Peel: resolvePeel,
+  Heal: resolveHeal,
+  Loot: resolveLoot,
+  RegroupPartner: resolveRegroupPartner,
   SupportPartner: resolveSupportPartner,
-  AvoidContact: resolveAvoidContact,
+  AvoidFight: resolveAvoidFight,
+  ThirdParty: resolveThirdParty,
+  UseGrenade: resolveUseGrenade,
 ]
 
 const IntentNames: array[Intent, string] = [
-  RotateToZone: "RotateToZone",
-  HoldCoverInPlace: "HoldCoverInPlace",
-  EngageNearestEnemy: "EngageNearestEnemy",
-  EngageWeakestEnemy: "EngageWeakestEnemy",
-  Disengage: "Disengage",
-  SeekMedkit: "SeekMedkit",
-  SeekItem: "SeekItem",
-  RegroupWithPartner: "RegroupWithPartner",
-  SupportPartner: "SupportPartner",
-  AvoidContact: "AvoidContact",
+  ## The RATIFIED page-facing vocabulary (Maxwell's 12-intent menu). This
+  ## array is the ONLY place that vocabulary is written down — the Nim enum
+  ## above stays idiomatic PascalCase; a page's "rows" keys must be the
+  ## ALL_CAPS strings on the right, exactly.
+  RotateToRing: "ROTATE_TO_RING",
+  HoldRingSafe: "HOLD_RING_SAFE",
+  Engage: "ENGAGE",
+  Finish: "FINISH",
+  Peel: "PEEL",
+  Heal: "HEAL",
+  Loot: "LOOT",
+  RegroupPartner: "REGROUP_PARTNER",
+  SupportPartner: "SUPPORT_PARTNER",
+  AvoidFight: "AVOID_FIGHT",
+  ThirdParty: "THIRD_PARTY",
+  UseGrenade: "USE_GRENADE",
 ]
 
 proc intentByName(name: string): int =
@@ -914,6 +1014,8 @@ type WorldFeatures = object
   worldZoneDist: float
   worldMedkitDist: float          # -1 = none known
   worldItemDist: float            # -1 = none known
+  worldThirdPartyDist: float       # -1 = no fight-between-others visible
+  worldCarryingNade: bool
 
 proc buildFeatures(bot: OnepageBot, me: Vec): WorldFeatures =
   result.selfHpFrac = float(bot.hp) / float(MaxHp)
@@ -950,6 +1052,11 @@ proc buildFeatures(bot: OnepageBot, me: Vec): WorldFeatures =
   block:
     let i = nearestAvailable(bot.itemPos, bot.itemAbsentAt, bot.tick, me)
     if i >= 0: result.worldItemDist = dist(bot.itemPos[i], me)
+  result.worldThirdPartyDist = -1.0
+  block:
+    let i = findThirdPartyTarget(bot, me)
+    if i >= 0: result.worldThirdPartyDist = dist(bot.enemies[i].pos, me)
+  result.worldCarryingNade = bot.carryingNade
 
 proc intentTagBool(intent: Intent, path: string): bool =
   ## The `intent.*` path family: fixed tags describing what KIND of
@@ -957,12 +1064,13 @@ proc intentTagBool(intent: Intent, path: string): bool =
   ## intent.is_enemy rows while self.hp_frac is high". See onepage/
   ## policy_stub.nim's DefaultPaths for the full reported list.
   case path
-  of "intent.is_enemy": intent in {EngageNearestEnemy, EngageWeakestEnemy, SupportPartner}
-  of "intent.is_peel": intent in {Disengage, AvoidContact}
-  of "intent.is_recover": intent == SeekMedkit
-  of "intent.is_item": intent == SeekItem
-  of "intent.is_partner": intent in {RegroupWithPartner, SupportPartner}
-  of "intent.is_zone": intent in {RotateToZone, HoldCoverInPlace, AvoidContact}
+  of "intent.is_enemy": intent in {Engage, Finish, SupportPartner, ThirdParty}
+  of "intent.is_peel": intent in {Peel, AvoidFight}
+  of "intent.is_recover": intent == Heal
+  of "intent.is_item": intent == Loot
+  of "intent.is_partner": intent in {RegroupPartner, SupportPartner}
+  of "intent.is_zone": intent in {RotateToRing, HoldRingSafe, AvoidFight}
+  of "intent.is_grenade": intent == UseGrenade
   else: false
 
 proc numberPath(f: WorldFeatures, path: string): float =
@@ -975,6 +1083,7 @@ proc numberPath(f: WorldFeatures, path: string): float =
   of "world.zone_dist": f.worldZoneDist
   of "world.medkit_dist": f.worldMedkitDist
   of "world.item_dist": f.worldItemDist
+  of "world.third_party_dist": f.worldThirdPartyDist
   else: 0.0
 
 proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
@@ -982,6 +1091,7 @@ proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
   of "partner.alive": f.partnerAlive
   of "partner.in_combat": f.partnerInCombat
   of "world.in_zone": f.worldInZone
+  of "world.carrying_nade": f.worldCarryingNade
   else: intentTagBool(intent, path)
 
 proc selectIntentFor(page: PolicyPage, f: WorldFeatures): Intent =
@@ -1145,7 +1255,11 @@ proc actToMask(bot: OnepageBot, act: Act): uint8 =
       mask = mask or ButtonSelect
   if act.wantFire and not bot.firedLast:
     mask = act.moveMask or ButtonA
+  if (mask and ButtonA) != 0 and not bot.firedLast:
+    bot.lastFireTick = bot.tick           # fresh press: a windup just armed
   bot.firedLast = (mask and ButtonA) != 0
+  if act.holdC:
+    mask = mask or ButtonC
   bot.rotSign =
     if (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1

@@ -70,21 +70,29 @@ const DefaultPaths* = [
   (path: "world.item_dist", kind: pkNumber),
     # px to the nearest non-medkit pickup (shield/spray can/grenade/
     # barrier, one bucket) believed stocked right now; -1 if none known.
+  (path: "world.third_party_dist", kind: pkNumber),
+    # px to the nearest visible fight between two OTHER (non-us, non-
+    # partner) duos — two enemy tracks of different colors within
+    # ThirdPartyFightRange of each other; -1 if no such pair is visible.
+  (path: "world.carrying_nade", kind: pkBool),
+    # our own grenade-carry marker, read within 30px of ourself.
   (path: "intent.is_enemy", kind: pkBool),
-    # tag: true for EngageNearestEnemy / EngageWeakestEnemy / SupportPartner
-    # — rows that target an enemy directly.
+    # tag: true for ENGAGE / FINISH / SUPPORT_PARTNER / THIRD_PARTY — rows
+    # that target an enemy directly.
   (path: "intent.is_peel", kind: pkBool),
-    # tag: true for Disengage / AvoidContact — the "put distance between us
-    # and a threat" rows. NAMING COLLISION FLAGGED BY build-vm: this is BR
+    # tag: true for PEEL / AVOID_FIGHT — the "put distance between us and a
+    # threat" rows. NAMING COLLISION FLAGGED BY build-vm: this is BR
     # "isolate from partner/fight", unrelated to the Glory PEEL deed.
   (path: "intent.is_recover", kind: pkBool),
-    # tag: true only for SeekMedkit.
+    # tag: true only for HEAL.
   (path: "intent.is_item", kind: pkBool),
-    # tag: true only for SeekItem.
+    # tag: true only for LOOT.
   (path: "intent.is_partner", kind: pkBool),
-    # tag: true for RegroupWithPartner / SupportPartner.
+    # tag: true for REGROUP_PARTNER / SUPPORT_PARTNER.
   (path: "intent.is_zone", kind: pkBool),
-    # tag: true for RotateToZone / HoldCoverInPlace / AvoidContact.
+    # tag: true for ROTATE_TO_RING / HOLD_RING_SAFE / AVOID_FIGHT.
+  (path: "intent.is_grenade", kind: pkBool),
+    # tag: true only for USE_GRENADE.
 ]
 
 proc knownPathKind(path: string): int =
