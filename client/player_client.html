@@ -7,7 +7,12 @@
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
 body{display:flex;align-items:center;justify-content:center}
-canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+/* #viewport clips the world canvas to the screen; the canvas itself stays
+   the whole map at native resolution (see the "SCALE UP, never reveal more
+   world" note by fit()) and is panned/zoomed under it purely via CSS
+   transform -- the pixel buffer this camera crops is identical either way. */
+#viewport{position:fixed;inset:0;overflow:hidden}
+canvas{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated;image-rendering:crisp-edges}
 input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(80vw,520px);box-sizing:border-box;background:#0008;color:#fff;border:1px solid #fff8;padding:8px 10px;font:18px monospace;outline:0;display:none}
 #hud{display:none;position:fixed;left:10px;top:9px;color:#e8e4dc;background:#1a1714cc;padding:5px 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;pointer-events:none;white-space:nowrap}
 #hud b{color:#9a9184;font-weight:600}
@@ -46,7 +51,7 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 </style>
 </head>
 <body>
-<canvas id="c" width="128" height="128"></canvas>
+<div id="viewport"><canvas id="c" width="128" height="128"></canvas></div>
 <input id="i" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false">
 <div id="s">connecting...</div>
 <div id="hud"></div>
@@ -159,13 +164,19 @@ function n(o){s.textContent=o;s.style.display=o?"flex":"none"}
    floors to 1. Canvas already carries image-rendering:pixelated, so a
    fractional scale still reads as crisp blocky pixels (just not perfectly
    uniform in size) -- a fair trade for filling the screen. */
-function fit(){const scale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));c.style.width=(c.width*scale)+"px";c.style.height=(c.height*scale)+"px"}
-function sizeCanvas(width,height){if(c.width!==width||c.height!==height){c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit()}}
+/* fit() now only sets the canvas element's own intrinsic CSS box to match
+   its pixel buffer 1:1 -- the actual on-screen scale/pan is a separate CSS
+   transform applied by updateCamera() (controls section below), which zooms
+   to the seated player instead of always fitting the whole map. Kept as its
+   own function (rather than folded into updateCamera) because it also needs
+   to re-run whenever the canvas's pixel buffer itself is resized. */
+function fit(){c.style.width=c.width+"px";c.style.height=c.height+"px"}
+function sizeCanvas(width,height){if(c.width!==width||c.height!==height){c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit();camInited=false;updateCamera()}}
 function sendMask(mask,force=false){if(!w||w.readyState!==1)return;if(!force&&mask===l)return;w.send(spriteMode?new Uint8Array([0x84,mask&255]):new Uint8Array([0,mask&255]));l=mask}
 function release(){k={};sendMask(0,true)}
 function chat(text){const clean=text.replace(/[^\x20-\x7e]/g,"");if(!clean||!w||w.readyState!==1)return;if(spriteMode){const b=new Uint8Array(clean.length+3);b[0]=0x81;b[1]=clean.length&255;b[2]=clean.length>>8;for(let j=0;j<clean.length;j++)b[j+3]=clean.charCodeAt(j);w.send(b)}else{const b=new Uint8Array(clean.length+1);b[0]=1;for(let j=0;j<clean.length;j++)b[j+1]=clean.charCodeAt(j);w.send(b)}}
 x.imageSmoothingEnabled=false;
-onresize=fit;
+onresize=()=>{fit();updateCamera()};
 fit();
 onkeydown=e=>{
   ensureAudio();
@@ -280,7 +291,9 @@ function drawSprite(){
   }
   drawReticle();
   drawHitmarker(nowT);
+  drawSelfTag();
   x.restore();
+  updateCamera();
   n("")
 }
 function parseSprite(bytes){
@@ -558,6 +571,34 @@ function findSelf(){
   }
   return null;
 }
+/* ---- Seated follow camera (legibility audit #1) ----------------------
+   The pixel buffer stays the whole map at native scale -- that invariant
+   ("SCALE UP, never reveal more world") is untouched, this only changes
+   the CSS transform the canvas is DISPLAYED under. Whole-map fit (the old
+   behavior, and the only thing a spectator/pre-seat guest ever saw) reads
+   the self cog as a 15-20px blob; while we have a seat, zoom in and pan to
+   follow it instead, easing toward the target every draw instead of
+   snapping so movement/respawns don't jump-cut the view. Falls straight
+   back to the exact old whole-map-fit framing the instant selfPos is null
+   (unseated, or dead -- see the death-state block below), so a spectator
+   or a not-yet-seated guest never loses the full-board context. */
+const CAMERA_ZOOM=3;    // whole-map-fit reads cogs at ~15-20px (legibility audit); x3 lands in the audit's ~40-60px "your cog pops" target.
+const CAMERA_EASE=0.12; // per-draw lerp toward the target -- settles in a few hundred ms, reads as a follow, not a cut.
+let camScale=1,camX=0,camY=0,camInited=false;
+function updateCamera(){
+  const fitScale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));
+  const seated=!!selfPos;
+  const targetScale=seated?fitScale*CAMERA_ZOOM:fitScale;
+  const targetX=seated?selfPos.x:c.width/2;
+  const targetY=seated?selfPos.y:c.height/2;
+  if(!camInited){camScale=targetScale;camX=targetX;camY=targetY;camInited=true}
+  else{
+    camScale+=(targetScale-camScale)*CAMERA_EASE;
+    camX+=(targetX-camX)*CAMERA_EASE;
+    camY+=(targetY-camY)*CAMERA_EASE;
+  }
+  c.style.transform="translate("+(innerWidth/2-camX*camScale)+"px,"+(innerHeight/2-camY*camScale)+"px) scale("+camScale+")";
+}
 function toMap(ev){
   const r=c.getBoundingClientRect();
   return {x:(ev.clientX-r.left)*(c.width/Math.max(1,r.width)),
@@ -631,6 +672,26 @@ function drawReticle(){
   x.moveTo(mouseX+.5,mouseY-5);x.lineTo(mouseX+.5,mouseY-1);
   x.moveTo(mouseX+.5,mouseY+2);x.lineTo(mouseX+.5,mouseY+6);
   x.stroke();
+}
+/* Self tag: at whole-map-fit scale the self cog is visually near-identical
+   to any other cog of a similar hue (legibility audit #1 -- the spectator
+   route's own name tags were the cited reference pattern; this ports that
+   idea, drawn client-side only, never transmitted). A white ring survives
+   both zoom level and team-color palette collisions; "YOU" sits above it.
+   Drawn in native canvas/world pixels, same as everything else on this
+   context, so it reads at CAMERA_ZOOM's magnification once seated. */
+function drawSelfTag(){
+  if(!selfPos)return;
+  x.save();
+  x.beginPath();x.arc(selfPos.x,selfPos.y,13,0,Math.PI*2);
+  x.strokeStyle="rgba(255,255,255,.9)";x.lineWidth=1.5;x.stroke();
+  x.font="10px ui-monospace,SFMono-Regular,Menlo,monospace";
+  x.textAlign="center";x.lineWidth=2.5;
+  x.strokeStyle="rgba(0,0,0,.85)";x.fillStyle="#fff";
+  const ty=selfPos.y-22;
+  x.strokeText("YOU",selfPos.x,ty);
+  x.fillText("YOU",selfPos.x,ty);
+  x.restore();
 }
 function drawHud(){
   /* Raw telemetry (move/aim/fire/item state), developer chrome that used to
