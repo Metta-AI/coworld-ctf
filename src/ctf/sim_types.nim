@@ -18,7 +18,20 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "45"  ## GV45 (stats rule): TEAM KILLS ARE NOT KILLS. The
+  GameVersion* = "47"  ## GV47 (stats rule): DAMAGE IS CREDITED, AND SPLIT.
+    ## `absorbDamage` — the one subtraction point — now mirrors every hit onto
+    ## the attacker's reward account, split by team exactly the way GV45 split
+    ## kills: hp taken off an ENEMY accumulates in `hitDamage`, hp taken off a
+    ## TEAMMATE in `teamHitDamage`, and self-damage counts as neither. Both
+    ## are exported as their own stat lines (`hit_damage` / `team_hit_damage`)
+    ## and results fields (`hitDamage` / `teamHitDamage`). No gameplay rule
+    ## moves: the counters are off-hash bookkeeping for reward shaping (an RL
+    ## policy gets shot-level credit instead of waiting for a kill). The bump
+    ## is for the WIRE: RewardAccount is flatty-serialized into every replay
+    ## keyframe, so two new fields relayout it and a GV45 replay cannot be
+    ## read back. Fixtures re-recorded. (GV46 is claimed by the glory port.)
+    ##
+    ## Previously GV45 (stats rule): TEAM KILLS ARE NOT KILLS. The
     ## hashed per-player `kills` counter now counts ENEMY kills only: killing
     ## a teammate — gun, grenade blast, or spray cone alike — increments only
     ## `teamKills`, which is newly mirrored onto the reward account and
@@ -1308,6 +1321,12 @@ type
     teamKills*: int            ## teammates this address killed, kept apart
                                ## from kills so the metrics and results
                                ## never conflate the two.
+    hitDamage*: int            ## hp this address took off ENEMIES (GV47),
+                               ## summed over every gun/spray/grenade hit —
+                               ## the shot-level counterpart of `kills`.
+    teamHitDamage*: int        ## hp this address took off TEAMMATES, kept
+                               ## apart from hitDamage for the same reason
+                               ## teamKills is kept apart from kills.
     deaths*: int
     captures*: int
     earnedAchievements*: seq[string]

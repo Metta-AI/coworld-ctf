@@ -74,6 +74,16 @@ suite "kill badges":
     check game.players[0].multiKills3 == 0
     check game.players[0].multiKills2 == 1
     check game.players[0].teamKills == 1     # red1 was in the blast
+    # GV47: the same blast splits its DAMAGE the same way. All three victims
+    # stood in one blast, so each took the identical hp — two enemies' worth
+    # on hitDamage, one teammate's on teamHitDamage — and the thrower's own
+    # hp loss (it survived the tap) lands on neither.
+    let account = game.rewardAccountForPlayer(0)
+    check account >= 0
+    check game.rewardAccounts[account].teamHitDamage > 0
+    check game.rewardAccounts[account].hitDamage ==
+      2 * game.rewardAccounts[account].teamHitDamage
+    check game.players[0].hp < GrenadeDamage + 1   # self-damaged, uncredited
 
   test "one spray burst killing two enemies mints one double":
     var game = badgeGame(1, 2)

@@ -1194,6 +1194,8 @@ proc buildRewardPacket(sim: SimServer): string {.measure.} =
           account.games[team])
       result.addStatLine("kills", identity, account.kills)
       result.addStatLine("team_kills", identity, account.teamKills)
+      result.addStatLine("hit_damage", identity, account.hitDamage)
+      result.addStatLine("team_hit_damage", identity, account.teamHitDamage)
       result.addStatLine("deaths", identity, account.deaths)
       result.addStatLine("captures", identity, account.captures)
 

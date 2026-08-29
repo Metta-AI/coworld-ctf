@@ -614,6 +614,37 @@ proc recordKillCredit*(sim: var SimServer, killerIndex, victimIndex: int) =
     inc sim.players[killerIndex].kills
     sim.noteLifeKill(killerIndex)
 
+proc recordHitDamage*(
+  sim: var SimServer,
+  attackerIndex, victimIndex, amount: int
+) =
+  ## Credits hp removed to the attacker's reward account, split by team the
+  ## way recordKillCredit splits kills (GV47): damage to an ENEMY lands in
+  ## `hitDamage`, damage to a TEAMMATE in `teamHitDamage`. Self-damage
+  ## counts as neither, and environmental damage (puddles, barrage shells)
+  ## never reaches here because it names no attacker.
+  ##
+  ## `amount` is the hp the hit removed BEFORE the shield layer soaked its
+  ## share — the same figure the per-player `damageDealt` counters carry, so
+  ## the account and the endscreen never disagree about what a hit was worth.
+  ##
+  ## Account-only: unlike kills there is no hashed per-player mirror, so a
+  ## grenade thrown by a cog that has since left the game credits nobody
+  ## (its live index is -1 by then), exactly as `damageDealt` already does.
+  if attackerIndex < 0 or attackerIndex >= sim.players.len:
+    return
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  if attackerIndex == victimIndex or amount <= 0:
+    return
+  let index = sim.rewardAccountForPlayer(attackerIndex)
+  if index < 0:
+    return
+  if sim.players[attackerIndex].team == sim.players[victimIndex].team:
+    inc sim.rewardAccounts[index].teamHitDamage, amount
+  else:
+    inc sim.rewardAccounts[index].hitDamage, amount
+
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
   let index = sim.rewardAccountForPlayer(playerIndex)
@@ -779,6 +810,8 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     teamList = newJArray()
     killsList = newJArray()
     teamKillsList = newJArray()
+    hitDamageList = newJArray()
+    teamHitDamageList = newJArray()
     deathsList = newJArray()
     capturesList = newJArray()
     shotsFiredList = newJArray()
@@ -808,6 +841,8 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
       playerWon = false
       kills = 0
       teamKills = 0
+      hitDamage = 0
+      teamHitDamage = 0
       deaths = 0
       captures = 0
       shotsFired = 0
@@ -822,6 +857,8 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
       playerWon = account.won
       kills = account.kills
       teamKills = account.teamKills
+      hitDamage = account.hitDamage
+      teamHitDamage = account.teamHitDamage
       deaths = account.deaths
       captures = account.captures
       for id in account.earnedAchievements:
@@ -847,6 +884,8 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     teamList.add(%(if hasTeam: teamText(playerTeam) else: "unknown"))
     killsList.add(%kills)
     teamKillsList.add(%teamKills)
+    hitDamageList.add(%hitDamage)
+    teamHitDamageList.add(%teamHitDamage)
     deathsList.add(%deaths)
     capturesList.add(%captures)
     shotsFiredList.add(%shotsFired)
@@ -858,6 +897,8 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   results["team"] = teamList
   results["kills"] = killsList
   results["teamKills"] = teamKillsList
+  results["hitDamage"] = hitDamageList
+  results["teamHitDamage"] = teamHitDamageList
   results["deaths"] = deathsList
   results["captures"] = capturesList
   results["achievements"] = achievementsList

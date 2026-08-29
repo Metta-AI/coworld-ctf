@@ -1028,6 +1028,8 @@ proc absorbDamage*(
   ## hit at all breaks `spotless`), and, when the caller names an attacker,
   ## that attacker's damageDealt (self-damage excluded) with its grenade
   ## share. Environmental damage (puddles, barrage shells) passes no attacker.
+  ## GV47 credits the attacker's reward account from the same spot, split
+  ## enemy/teammate — see roster.recordHitDamage.
   ##
   ## `assassin` is judged here too: a gun or grenade hit that drops the
   ## victim from living hp to none, landed by an attacker that had not yet
@@ -1043,6 +1045,9 @@ proc absorbDamage*(
       sim.players[targetIndex].hurtByMask =
         sim.players[targetIndex].hurtByMask or bit
     inc sim.players[attackerIndex].damageDealt, amount
+    # GV47: the same hp, mirrored onto the reward account split by team, so
+    # shaping can pay for enemy chip damage and charge for friendly fire.
+    sim.recordHitDamage(attackerIndex, targetIndex, amount)
     case weapon
     of "grenade": inc sim.players[attackerIndex].grenadeDamageDealt, amount
     of "gun": inc sim.players[attackerIndex].gunDamageDealt, amount
