@@ -339,8 +339,18 @@ function parseSprite(bytes){
     }
     lastMotionAt=packetTime;
   }
-  drawSprite();
-  if(motionSeen)scheduleDraw();
+  /* Coalesce into the next animation frame instead of drawing synchronously
+     right here: a burst of several WS messages (join, or any multi-chunk
+     packet) each land in their own onmessage call, and drawSprite() walks
+     every layer x every object x every pixel -- doing that once PER MESSAGE
+     back-to-back is pure redundant work when only the state after the LAST
+     message in the burst is ever seen. scheduleDraw() no-ops once a frame is
+     already pending, so N messages in one frame window collapse to one
+     drawSprite() call on the next rAF (imperceptible, <16ms) instead of N
+     synchronous ones stacked on the main thread. frameTick's own tail keeps
+     the animation loop self-sustaining for glides/shake/hitmarker exactly as
+     before; this only changes the FIRST trigger per burst.  */
+  scheduleDraw();
 }
 /* Advance every in-flight glide to `now`; returns whether any glide is
    still moving (frameTick keeps rAF-driving while true, and stops the
