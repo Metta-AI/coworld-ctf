@@ -271,7 +271,7 @@ function putPixel(layer,x0,y0,sprite,srcOffset){
    pixels in the browser. A policy's observation is byte-identical with this
    code present or deleted -- no new oracle, and the aim fuzz on every other
    soldier is untouched.  */
-const RING_PAD=4;                 /* px of headroom grown around the sprite */
+const RING_PAD=7;                 /* px of headroom grown around the sprite */
 const RING_KEY=[12,10,9];         /* near-black keyline, the anti-camouflage */
 /* Per-tone bands, in Chebyshev px out from the silhouette: `core` is the
    coloured rim, and everything from core+1 to `edge` is the dark keyline.
@@ -282,9 +282,15 @@ const RING_KEY=[12,10,9];         /* near-black keyline, the anti-camouflage */
    its own 2px in the HUD's amber and then the same keyline. Equal weight,
    two hues: white is you, amber is your partner. */
 const RING_TONES={
-  self:{core:0,edge:2,rgb:[255,255,255]},
-  mate:{core:2,edge:4,rgb:[232,163,61]}
+  self:{core:2,edge:5,rgb:[255,255,255]},
+  mate:{core:4,edge:7,rgb:[232,163,61]}
 };
+/* Weight is set by the CAMERA, not by taste. The player view is the whole
+   3211x1713 arena scaled to fit the window -- 0.498 on a 1600px screen --
+   so a cog is about twenty screen pixels and one map pixel is HALF a screen
+   pixel. A 2px rim that looks emphatic in a zoomed crop is a hairline in
+   play. These bands land the ring at roughly 3-4 screen px, which is what
+   it takes to find a cog across the arena in a glance. */
 const ringCache=new Map();        /* spriteId+tone -> padded rim sprite */
 /* Builds the rim ONCE per sprite id (16 aim steps x 2 tones is the whole
    working set) into a canvas grown by RING_PAD on every side, so a cog whose
