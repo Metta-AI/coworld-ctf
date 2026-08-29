@@ -5,7 +5,7 @@ import
   bitworld/runtime,
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
-  control, directives, baselines, decide
+  control, directives, baselines, decide, mux
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -951,13 +951,20 @@ proc resetPlayerReady(
             playerIndices[i] < playerCount and
             websocket in appState.playerReady:
           appState.playerReady[websocket] = false
+    if muxState.enabled:
+      withLock muxState.lock:
+        for slot in 0 ..< MaxMuxSeats:
+          if muxState.seats[slot].joined and
+              muxState.seats[slot].playerIndex >= 0 and
+              muxState.seats[slot].playerIndex < playerCount:
+            muxState.seats[slot].ready = false
 
 proc allPlayersReady(
   sockets: openArray[WebSocket],
   playerIndices: openArray[int],
   playerCount: int
 ): bool =
-  ## Returns true when every active player socket sent ready.
+  ## Returns true when every active player (socket or mux seat) sent ready.
   var activePlayers = 0
   {.gcsafe.}:
     withLock appState.lock:
@@ -968,6 +975,15 @@ proc allPlayersReady(
         inc activePlayers
         if not appState.playerReady.getOrDefault(websocket, false):
           return false
+    if muxState.enabled:
+      withLock muxState.lock:
+        for slot in 0 ..< MaxMuxSeats:
+          if muxState.seats[slot].joined and
+              muxState.seats[slot].playerIndex >= 0 and
+              muxState.seats[slot].playerIndex < playerCount:
+            inc activePlayers
+            if not muxState.seats[slot].ready:
+              return false
   activePlayers > 0
 
 type
@@ -1358,6 +1374,18 @@ proc runServerLoop*(
   )
   httpServer.waitUntilReady()
 
+  # --- mux transport (RL training) -----------------------------------------
+  # COGAME_MUX_SOCKET multiplexes every policy seat of this env over ONE Unix
+  # domain socket (see ctf/mux.nim). Unset (prod, live play): no listener, no
+  # behavior change anywhere.
+  let muxSocketPath = getEnv("COGAME_MUX_SOCKET")
+  if muxSocketPath.len > 0:
+    if replayLoaded:
+      raise newException(CtfError, "COGAME_MUX_SOCKET is not a replay-mode transport")
+    startMux(muxSocketPath)
+  defer: closeMux()
+  var muxViewers: array[MaxMuxSeats, PlayerViewerState]
+
   # --- paintball squad mode -------------------------------------------------
   # `num_agents` seats drive `num_agents * cogsPerTeam` cogs. The seats join
   # exactly as the starter's players do (slots 0..num_agents-1, token-checked);
@@ -1635,6 +1663,47 @@ proc runServerLoop*(
               while replayWriter.lastMasks.len < sim.players.len:
                 replayWriter.lastMasks.add(0)
               progressed = true
+            # Mux seats join through the same strictly slot-sequential
+            # admission: a pending mux JOIN is seated exactly when its slot is
+            # the next open one, interleaving freely with websocket joins
+            # (external baseline bots keep using websockets).
+            if muxState.enabled and sim.phase == Lobby:
+              var muxJoins: seq[MuxJoinRequest] = @[]
+              withLock muxState.lock:
+                muxJoins = muxState.pendingJoins
+              for join in muxJoins:
+                if join.slot != sim.nextPlayerSlot():
+                  continue
+                # Same identity resolution as the websocket upgrade path: a
+                # token that names a configured slot plays under that slot's
+                # configured identity.
+                let configuredName =
+                  sim.config.configuredPlayerName(join.slot, join.token)
+                let address =
+                  if configuredName.len > 0: configuredName else: join.address
+                var admittedIndex = -1
+                try:
+                  admittedIndex = sim.addPlayer(address, join.slot, join.token)
+                except CtfError as error:
+                  echo "mux: join for slot ", join.slot, " refused: ", error.msg
+                withLock muxState.lock:
+                  for i in 0 ..< muxState.pendingJoins.len:
+                    if muxState.pendingJoins[i].slot == join.slot:
+                      muxState.pendingJoins.delete(i)
+                      break
+                  if admittedIndex >= 0:
+                    muxState.seats[join.slot].playerIndex = admittedIndex
+                    muxState.seats[join.slot].ready = false
+                if admittedIndex >= 0:
+                  muxViewers[join.slot] = initPlayerViewerState()
+                  replayWriter.writeJoin(
+                    tickTime(sim.tickCount), admittedIndex, address,
+                    join.slot, join.token)
+                  while replayWriter.lastMasks.len < sim.players.len:
+                    replayWriter.lastMasks.add(0)
+                  while liveOverlays.len < sim.players.len:
+                    liveOverlays.add(DebugOverlay())
+                  progressed = true
 
           # --- squad construction ------------------------------------------
           # Once every seat is seated (or the lobby budget expired and a
@@ -1716,6 +1785,30 @@ proc runServerLoop*(
             pressedMask
           )
           appState.lastAppliedMasks[websocket] = appliedMask
+        if muxState.enabled and not replayLoaded and not squadMode:
+          # Mux seat inputs, sampled with the same down/pressed edge
+          # semantics as the websocket loop above.
+          withLock muxState.lock:
+            for slot in 0 ..< MaxMuxSeats:
+              if not muxState.seats[slot].joined:
+                continue
+              let playerIndex = muxState.seats[slot].playerIndex
+              if playerIndex < 0 or playerIndex >= inputs.len:
+                continue
+              let pressedMask = muxState.seats[slot].pressedMask
+              muxState.seats[slot].pressedMask = 0
+              let currentMask = muxState.seats[slot].inputMask
+              let appliedMask = currentMask or pressedMask
+              inputs[playerIndex] = decodeInputMask(appliedMask)
+              downInputs[playerIndex] = decodeInputMask(currentMask)
+              downInputMasks[playerIndex] = currentMask
+              pressedInputMasks[playerIndex] = pressedMask
+              replayWriter.writeInputFrameMasks(
+                tickTime(sim.tickCount),
+                playerIndex,
+                appliedMask,
+                pressedMask
+              )
         if not replayLoaded:
           # Registrations that cannot be applied YET are HELD, not dropped.
           # Joins are strictly slot-sequential, so a seat whose slot is not the
@@ -2103,6 +2196,12 @@ proc runServerLoop*(
               appState.playerIndices[websocket] = 0x7fffffff
           for websocket in appState.playerViewers.keys:
             appState.playerViewers[websocket] = initPlayerViewerState()
+      if muxState.enabled:
+        # Between-games roster reset (multi-trial episodes): mux seats rejoin
+        # through the admission loop like websocket seats do.
+        muxRequeueJoins()
+        for slot in 0 ..< MaxMuxSeats:
+          muxViewers[slot] = initPlayerViewerState()
 
     if not replayLoaded and config.fastMode:
       sockets.resetPlayerReady(playerIndices, sim.players.len)
@@ -2143,6 +2242,39 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(sockets[i])
+
+    if muxConnected():
+      # Mux seat frames: the exact wire bytes the websocket path would send
+      # (same builder, dedup, and chunking; one record per would-be message,
+      # including the empty frame-count message), batched into one write.
+      var muxSeatRows: seq[(int, int)] = @[]
+      {.gcsafe.}:
+        withLock muxState.lock:
+          for slot in 0 ..< MaxMuxSeats:
+            if muxState.seats[slot].joined:
+              muxSeatRows.add((slot, muxState.seats[slot].playerIndex))
+      var muxBatch = ""
+      for (slot, muxPlayerIndex) in muxSeatRows:
+        var nextState: PlayerViewerState
+        let framePacket = sim.buildSpriteProtocolPlayerUpdates(
+          muxPlayerIndex,
+          muxViewers[slot],
+          nextState,
+          spritesOff = false
+        )
+        # Stored before dedup mutates nextState.sentPlacements — the same
+        # ordering as the websocket loop above, so frames stay byte-identical.
+        muxViewers[slot] = nextState
+        let wirePacket = dedupObjectPlacements(
+          framePacket,
+          nextState.sentPlacements
+        )
+        serverMetrics.recordTraffic(muxPlayerIndex, wirePacket)
+        if wirePacket.len == 0:
+          muxAppendFrame(muxBatch, slot, [])
+        for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
+          muxAppendFrame(muxBatch, slot, chunk)
+      muxSend(muxBatch)
 
     for websocket in rewardViewers:
       try:
