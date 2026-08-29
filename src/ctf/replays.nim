@@ -1,5 +1,5 @@
 import
-  std/[json, tables],
+  std/[json, strutils, tables],
   flatty,
   bitworld/spriteprotocol,
   bitworld/replays as replayCodec,
@@ -238,6 +238,124 @@ proc writeDirectAimChange*(
   ))
   lastAim[playerIndex] = brads
 
+# ---------------------------------------------------------------------------
+# The one-page-policy REFLASH record.
+#
+# Season 2 flashes a cog a JSON strategy page: once at episode start, and
+# again at an arbitrary tick (BR re-strategizes mid-episode; its cogs have
+# ONE life, so there is no spawn edge to hang it on) or on each respawn
+# (CTF). That page swap is an out-of-band INPUT to the episode. Nothing in
+# the recorded button masks witnesses it, so a replay that does not carry it
+# re-simulates a match under a strategy it never played — silently. This
+# record is what makes it carriable, and gameHash (sim_state.nim) is what
+# makes losing it LOUD.
+#
+# WHY IT RIDES THE CHAT RECORD, and why the format version does NOT move.
+# The codec's version check is strict equality (`bitworld/replays.nim`:
+# "Unsupported replay format version"), so bumping CtfReplayFormatVersion
+# would not "add a record type" — it would reject every replay ever
+# archived, on the spot. The codec also raises on any record type it does
+# not know, so a brand-new record byte is unreadable by anything not rebuilt
+# in lockstep. Both roads end at "old replays stop loading", which is the
+# one thing this change is not allowed to do.
+#
+# So the reflash rides an EXISTING record, exactly the way direct aim rides
+# the input record (ReplayAimRecordFlag above, and for the same reasons):
+# the chat record is already {time, player, string} — tick, seat, content —
+# already parsed by every existing reader, and already the stream whose
+# payload reaches the sim. Only the `player` byte's high bit is spent, which
+# a cog index can never set (MaxPlayers is 32). Old replays contain no such
+# record and load byte-for-byte as before; a new replay identifies itself
+# through its header config (`allowPolicyReflash`, sim_config.nim), not
+# through a version number.
+# ---------------------------------------------------------------------------
+const
+  ReplayReflashRecordFlag* = 0x80'u8
+    ## Marks a CHAT record as a policy-page FLASH rather than a shout:
+    ## `player` is (flag or cogIndex) and `message` carries the page. Same
+    ## bit, same argument, as ReplayAimRecordFlag on the input stream — and
+    ## a different stream, so the two never meet.
+  ReplayReflashPlayerMask* = 0x3f'u8
+  ReplayReflashHashChars* = 16
+    ## The page's content hash, zero-padded hex, at the head of the record.
+  ReplayReflashSeparator* = ' '
+    ## One byte between the hash and the page. A page is JSON, which cannot
+    ## begin with a space, so the split point is unambiguous.
+
+proc isPolicyPageRecord*(chat: ReplayChat): bool =
+  ## True when a chat record carries a flashed policy page, not a shout.
+  (chat.player and ReplayReflashRecordFlag) != 0
+
+proc policyPageRecordPlayer*(chat: ReplayChat): int =
+  ## The cog index a reflash record addresses.
+  int(chat.player and ReplayReflashPlayerMask)
+
+proc encodePolicyPageRecord*(page: string): string =
+  ## The record body: the page's content hash, then the page itself.
+  ##
+  ## The hash is recorded ALONGSIDE the content rather than instead of it.
+  ## Content-only would leave nothing to check the bytes against; hash-only
+  ## would give a replay that can prove what strategy ran but cannot SHOW it
+  ## — and showing it is most of why Season 2 wants the event at all (the
+  ## broadcast and forum surfaces read the page off the replay). Carrying
+  ## both costs one page per flash — kilobytes against a keyframe stream
+  ## already measured in megabytes — and buys an integrity check that is
+  ## independent of the transport.
+  toHex(policyPageHash(page), ReplayReflashHashChars) &
+    ReplayReflashSeparator & page
+
+proc decodePolicyPageRecord*(chat: ReplayChat): string =
+  ## The page a reflash record carries, verified against the content hash it
+  ## was recorded with. Raises ReplayError on a malformed or tampered
+  ## record: a page whose bytes no longer hash to what the recording claimed
+  ## would re-simulate to a different gameHash anyway, and failing HERE says
+  ## which record went bad instead of only which tick.
+  if chat.message.len < ReplayReflashHashChars + 1 or
+      chat.message[ReplayReflashHashChars] != ReplayReflashSeparator:
+    raise newException(ReplayError, "Replay reflash record is malformed")
+  var recorded: uint64
+  try:
+    recorded = fromHex[uint64](chat.message[0 ..< ReplayReflashHashChars])
+  except ValueError:
+    raise newException(ReplayError, "Replay reflash record hash is not hex")
+  result = chat.message[ReplayReflashHashChars + 1 .. ^1]
+  if policyPageHash(result) != recorded:
+    raise newException(
+      ReplayError,
+      "Replay reflash page does not match its recorded content hash"
+    )
+
+proc writePolicyPageFlash*(
+  replayWriter: var ReplayWriter,
+  time: uint32,
+  playerIndex: int,
+  page: string
+) =
+  ## Writes one replay event for a policy page that was JUST flashed onto a
+  ## cog.
+  ##
+  ## Lives here beside writeInputMaskChange/writeDirectAimChange and for the
+  ## identical reason: this stream IS part of the replay's input stream, and
+  ## the tests that prove a reflashed episode re-simulates to the same hash
+  ## chain have to write it exactly the way the server does. Callers write
+  ## only what `sim.applyPolicyPage` ACCEPTED, so the file never claims a
+  ## flash the sim refused.
+  ##
+  ## A cog the record cannot address is a doAssert, deliberately, and NOT a
+  ## silent return: the caller has already applied the page to the sim, so
+  ## returning quietly here would leave an applied-but-unrecorded input —
+  ## the exact failure this whole record exists to prevent, and one that
+  ## shows up only as an unexplained hash mismatch much later. The invariant
+  ## holds today by MaxPlayers (32) being well under the six-bit field; this
+  ## fires the moment a wider board breaks it.
+  doAssert playerIndex >= 0 and playerIndex <= int(ReplayReflashPlayerMask),
+    "Cog index " & $playerIndex & " cannot be addressed by a reflash record"
+  replayWriter.writeChat(
+    time,
+    int(uint8(playerIndex) or ReplayReflashRecordFlag),
+    encodePolicyPageRecord(page)
+  )
+
 proc openReplayWriter*(path: string, configJson: string): ReplayWriter =
   ## Opens a replay file and writes the header.
   replayCodec.openReplayWriter(path, configJson, CtfReplaySpec)
@@ -461,7 +579,29 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
   while replay.chatIndex < replay.data.chats.len and
       replay.data.chats[replay.chatIndex].time <= time:
     let chat = replay.data.chats[replay.chatIndex]
-    sim.applyShout(int(chat.player), chat.message)
+    if chat.isPolicyPageRecord():
+      # THE SWAP, on playback, at the identical tick boundary the live
+      # server made it: the server drains its pending pages inside the same
+      # pre-step block that drains chat (server.nim), stamping the record
+      # with this same `tickTime(sim.tickCount)`, so the page is live for
+      # exactly the same first tick on both sides.
+      #
+      # A refusal here is fatal on purpose. applyPolicyPage's acceptance
+      # rule reads only the armed gate, the roster size and the page length,
+      # all three of which the recording already satisfied — so a `false`
+      # means the replay and the build disagree about what the channel even
+      # is (a reflash record under a gate-off config, a seat that is not on
+      # the roster). Swallowing that would resume the match on the WRONG
+      # strategy and let the hash chain report the divergence a tick later,
+      # at a place that explains nothing.
+      let page = chat.decodePolicyPageRecord()
+      if not sim.applyPolicyPage(chat.policyPageRecordPlayer(), page):
+        raise newException(
+          ReplayError,
+          "Replay policy page flash was refused at tick " & $sim.tickCount
+        )
+    else:
+      sim.applyShout(int(chat.player), chat.message)
     inc replay.chatIndex
 
   # Leaves are consumed first, so equal-time debug records use shifted indices.

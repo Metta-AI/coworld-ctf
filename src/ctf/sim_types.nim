@@ -820,6 +820,16 @@ const
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
+  MaxPolicyPageBytes* = 60000
+    ## Hard ceiling on one flashed one-page policy, in bytes. The reflash
+    ## record rides the replay's existing string-carrying record, whose
+    ## length prefix is a uint16 (65535) — so a page any larger could be
+    ## APPLIED live and then be unwritable to the replay, which is the one
+    ## outcome determinism cannot survive. `applyPolicyPage` refuses past
+    ## this ceiling, before any state moves, so live and playback agree the
+    ## flash never happened. The margin under 65535 covers the record's own
+    ## hash prefix.
+
   TextLineHeight* = 7
   MapSpriteId* = 1
   MapObjectId* = 1
@@ -1678,6 +1688,26 @@ type
                                   ## behaves exactly as before — byte-
                                   ## identical to a build without this
                                   ## field.
+    # GVNEXT(reflash): appended field, same append-safety reasoning as
+    # allowCallouts/brMode above — a scalar bool on GameConfig.
+    allowPolicyReflash*: bool      ## Season 2 one-page policy: a seat may be
+                                  ## FLASHED a JSON strategy page at an
+                                  ## arbitrary tick (BR re-strategizes
+                                  ## mid-episode; CTF re-flashes per
+                                  ## respawn). Every accepted flash is
+                                  ## recorded as a replay event and applied
+                                  ## on playback at the identical tick, and
+                                  ## the active page's content hash + flash
+                                  ## count enter gameHash — so a replay that
+                                  ## LOST a reflash fails loudly at that tick
+                                  ## instead of silently re-simulating a
+                                  ## strategy the match never played. false
+                                  ## (the default) = the channel does not
+                                  ## exist: applyPolicyPage refuses every
+                                  ## page, nothing is ever recorded, and
+                                  ## gameHash mixes nothing new, so a league
+                                  ## replay is byte-identical to a build
+                                  ## without this field.
 
   Player* = object
     x*, y*: int
@@ -1835,6 +1865,47 @@ type
                                ## object like puddleTicks/hasBarrier before
                                ## it — see the SimServer.zoneCenter note for
                                ## why this needs no GameVersion bump.
+    # GVNEXT(reflash): three appended fields, same append-safety rule as
+    # zoneOutsideTicks above. UNLIKE zoneOutsideTicks these DO reach
+    # gameHash — but only through the `config.allowPolicyReflash` guard in
+    # gameHash (sim_state.nim), so a gate-off game's hash trajectory stays
+    # byte-identical to a build that never had them and no fixture needs
+    # re-recording.
+    policyPage*: string        ## the one-page policy JSON currently flashed
+                               ## to this seat, "" until the first flash.
+                               ## Carried IN sim state, not beside it, so a
+                               ## keyframe scrub restores the strategy that
+                               ## was live at that tick for free and the
+                               ## broadcast/forum surfaces can read "what was
+                               ## this cog playing at tick N" off the same
+                               ## sim every other reader already holds.
+    policyPageHash*: uint64    ## FNV-1a 64 of policyPage, 0 when none.
+                               ## Computed ONCE at flash time and mixed per
+                               ## tick, so a multi-KB page costs the hash
+                               ## loop one word rather than a rescan; it is
+                               ## also the content hash the replay record
+                               ## carries, which makes the recorded page
+                               ## self-verifying.
+    policyPageTick*: int       ## the tick the active page was flashed;
+                               ## meaningful only when policyPageEpoch > 0
+                               ## (zero-valued, like every other appended
+                               ## field, on a seat that was never flashed —
+                               ## no constructor has to learn a sentinel).
+                               ## Not hashed on its own: the epoch below
+                               ## already separates two flashes, and a tick
+                               ## that could only differ if the epoch did
+                               ## would add nothing. It is what a viewer
+                               ## reads to say "this strategy has been
+                               ## running for N seconds".
+    policyPageEpoch*: int      ## how many pages this seat has been flashed,
+                               ## 0 = none. Hashed alongside the content
+                               ## hash SPECIFICALLY so that re-flashing the
+                               ## SAME page is still a distinguishable event:
+                               ## with the content hash alone, a dropped
+                               ## repeat-flash record would replay clean and
+                               ## the determinism check would be blind to
+                               ## exactly the case an LLM produces most —
+                               ## reasserting the current plan.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH

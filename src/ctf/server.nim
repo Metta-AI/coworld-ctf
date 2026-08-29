@@ -83,6 +83,14 @@ type
     inputPressedMasks: Table[WebSocket, uint8]
     lastAppliedMasks: Table[WebSocket, uint8]
     chatMessages: Table[WebSocket, string]
+    policyPageFlashes: Table[WebSocket, string]
+      ## One-page-policy REFLASH inbox, one pending page per seat socket,
+      ## drained at the next tick boundary exactly like chatMessages beside
+      ## it. A page handed to the sim anywhere but a tick boundary would land
+      ## between two hashes and be unrecordable at any single tick, so the
+      ## receive side (the websocket handler, which is the policy runner's
+      ## half of this feature) never touches the sim — it only drops the page
+      ## here.
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -370,6 +378,7 @@ proc initAppState() =
   appState.inputPressedMasks = initTable[WebSocket, uint8]()
   appState.lastAppliedMasks = initTable[WebSocket, uint8]()
   appState.chatMessages = initTable[WebSocket, string]()
+  appState.policyPageFlashes = initTable[WebSocket, string]()
   appState.playerIndices = initTable[WebSocket, int]()
   appState.playerAddresses = initTable[WebSocket, string]()
   appState.playerSlots = initTable[WebSocket, int]()
@@ -421,6 +430,7 @@ proc removePlayerWebSocketState(websocket: WebSocket): int =
   appState.inputPressedMasks.del(websocket)
   appState.lastAppliedMasks.del(websocket)
   appState.chatMessages.del(websocket)
+  appState.policyPageFlashes.del(websocket)
   appState.playerAddresses.del(websocket)
   appState.playerSlots.del(websocket)
   appState.playerTokens.del(websocket)
@@ -2012,6 +2022,7 @@ proc runServerLoop*(
           shouldReset = true
           appState.resetRequested = false
           appState.chatMessages.clear()
+          appState.policyPageFlashes.clear()
         for websocket in appState.closedSockets:
           if not replayLoaded and sim.phase == Lobby and
               websocket in appState.playerIndices:
@@ -2301,6 +2312,24 @@ proc runServerLoop*(
                 chatText
               )
           appState.chatMessages.clear()
+          # The one-page-policy REFLASH drain, written in the shout drain's
+          # shape on purpose: apply at a tick boundary, and record EXACTLY
+          # what the sim accepted, stamped with the tick it was accepted on.
+          # `applyPolicyPage` is the single predicate both this path and
+          # playback consult, so the file can never claim a flash the sim
+          # refused, nor omit one it took.
+          for websocket, page in appState.policyPageFlashes.pairs:
+            let playerIndex = appState.playerIndices.getOrDefault(
+              websocket,
+              -1
+            )
+            if sim.applyPolicyPage(playerIndex, page):
+              replayWriter.writePolicyPageFlash(
+                tickTime(sim.tickCount),
+                playerIndex,
+                page
+              )
+          appState.policyPageFlashes.clear()
         for websocket, state in appState.globalViewers.pairs:
           globalViewers.add(websocket)
           globalStates.add(state)

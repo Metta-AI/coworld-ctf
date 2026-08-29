@@ -15,6 +15,7 @@ import
   test_map_export,
   test_movement_slide,
   test_perks,
+  test_policy_reflash,
   test_puddles,
   test_replay_controls,
   test_trenches,

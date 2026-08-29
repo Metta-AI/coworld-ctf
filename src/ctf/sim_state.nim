@@ -198,6 +198,19 @@ proc grenadeThrowerSlot*(
 ): int {.inline.} =
   grenade.throwerSlot
 
+proc policyPageHash*(page: string): uint64 =
+  ## The content hash of one flashed one-page policy: FNV-1a 64 over the raw
+  ## page bytes, the same mixer gameHash itself is built from.
+  ##
+  ## One function, three readers, on purpose: the sim stamps it at flash
+  ## time, the replay writer puts it in the record, and the replay reader
+  ## re-derives it from the recorded page and refuses a record whose two
+  ## disagree. A second implementation anywhere would be a second chance for
+  ## the live and playback sides to hash the same page differently.
+  result = 14695981039346656037'u64
+  for c in page:
+    result.mixHashInt(ord(c))
+
 proc gameHash*(sim: SimServer): uint64 =
   ## Returns a deterministic hash of gameplay state.
   result = 14695981039346656037'u64
@@ -273,6 +286,24 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+    # Mixed only when the one-page-policy channel is armed, so a
+    # reflash-off replay's hash trajectory is byte-identical to a build that
+    # never added these fields — the same rule as the
+    # allowCallouts/zonePhases/barrageStartTick guards.
+    #
+    # WHY a strategy page belongs in a GAMEPLAY hash at all: a reflash is a
+    # real, out-of-band input to the episode — the cog plays differently
+    # after it. The recorded button masks alone cannot witness it, so a
+    # replay that lost the reflash record would re-simulate SILENTLY and
+    # attribute the match to a strategy it never ran. Mixing the active
+    # page's content hash and flash count turns that silent lie into a hash
+    # mismatch at the exact tick the page went missing. The CONTENT itself
+    # is not mixed (it is already summarised by policyPageHash, computed
+    # once at flash time) — hashing a multi-KB page on every seat every tick
+    # would be real CPU for no extra discrimination.
+    if sim.config.allowPolicyReflash:
+      result.mixHash(player.policyPageHash)
+      result.mixHashInt(player.policyPageEpoch)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -312,6 +343,46 @@ proc gameHash*(sim: SimServer): uint64 =
       result.mixHashInt(shout.calloutId)
       for c in shout.calloutCell:
         result.mixHashInt(ord(c))
+
+proc applyPolicyPage*(
+  sim: var SimServer,
+  playerIndex: int,
+  page: string
+): bool {.discardable.} =
+  ## Flashes one one-page policy onto one seat, at THIS tick. Returns whether
+  ## the page was accepted; the caller records a replay event for exactly the
+  ## accepted ones (see server.nim, which mirrors the shout drain).
+  ##
+  ## The acceptance rule is deliberately as small as it can be — armed gate,
+  ## real seat, non-empty page under the record's size ceiling — and depends
+  ## on NOTHING that could be in flight: not the phase, not whether the cog
+  ## is alive, not a cooldown. Every extra clause here is another way for the
+  ## live server and playback to reach different verdicts on the same page
+  ## and diverge, and the two flash regimes both need the permissive rule
+  ## anyway: BR re-flashes at an ARBITRARY tick (its cogs have one life, so
+  ## there is no spawn edge to hang it on) and CTF flashes on a respawn edge,
+  ## when the cog is momentarily not alive.
+  ##
+  ## The size refusal is the load-bearing one. A page over the record's
+  ## uint16 length prefix would apply live and then be unwritable to the
+  ## replay — an applied-but-unrecorded input, the single outcome
+  ## determinism cannot survive. Refusing it BEFORE any state moves keeps
+  ## live and playback agreeing that the flash never happened.
+  if not sim.config.allowPolicyReflash:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if page.len == 0 or page.len > MaxPolicyPageBytes:
+    return false
+  sim.players[playerIndex].policyPage = page
+  sim.players[playerIndex].policyPageHash = policyPageHash(page)
+  sim.players[playerIndex].policyPageTick = sim.tickCount
+  # Every accepted flash bumps the epoch, INCLUDING a re-flash of the page
+  # already loaded: reasserting the current plan is the most common thing an
+  # LLM does, and without the bump that event would leave no trace in the
+  # hash and a lost record for it would replay clean.
+  inc sim.players[playerIndex].policyPageEpoch
+  true
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:

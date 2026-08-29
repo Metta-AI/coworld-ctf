@@ -59,7 +59,8 @@ proc defaultGameConfig*(): GameConfig =
     barrageSaturateSec: BarrageSaturateSec,
     brMode: false,
     zonePhases: @[],
-    allowCallouts: false
+    allowCallouts: false,
+    allowPolicyReflash: false
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -880,6 +881,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("allowAimAssist", config.allowAimAssist)
   node.readConfigInt("aimAssistConeBrads", config.aimAssistConeBrads)
   node.readConfigBool("allowCallouts", config.allowCallouts)
+  node.readConfigBool("allowPolicyReflash", config.allowPolicyReflash)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
@@ -1058,6 +1060,24 @@ proc echoCalloutKeys(config: GameConfig, node: JsonNode) =
   if config.allowCallouts:
     node["allowCallouts"] = %config.allowCallouts
 
+proc echoPolicyReflashKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the one-page-policy reflash gate only when it is on.
+  ##
+  ## The header config IS the provenance, exactly as it is for direct aim
+  ## (echoAimKeys): a replay whose cogs were re-strategized mid-episode has
+  ## to be readable as one without trusting the filename or the fleet that
+  ## made it — and, just as load-bearing, gate-OFF the key is absent, so a
+  ## league replay's config JSON stays byte-identical to a build that never
+  ## had the field.
+  ##
+  ## This is also the whole of the "version bump": the replay FORMAT version
+  ## is deliberately NOT bumped (see replays.nim's reflash-record block for
+  ## why a bump would destroy every archived replay), so a reader tells a
+  ## reflash-carrying replay from a plain one by this key, not by a number
+  ## in the header.
+  if config.allowPolicyReflash:
+    node["allowPolicyReflash"] = %config.allowPolicyReflash
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1149,5 +1169,6 @@ proc configJson*(config: GameConfig): string =
   echoSeatTakeoverKeys(config, node)
   echoAimKeys(config, node)
   echoCalloutKeys(config, node)
+  echoPolicyReflashKeys(config, node)
   result = $node
 
