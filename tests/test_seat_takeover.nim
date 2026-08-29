@@ -270,6 +270,68 @@ suite "freeplay seat picker in brMode: alive is the fast seat, not the slow one"
     check pickFreeplaySeat(board, @[0], 2, preferAlive = true).seat == 1
     check pickFreeplaySeat(board, @[0, 1], 2, preferAlive = true).seat == -1
 
+suite "brMode: a takeover on an already-dead cog binds immediately and lands at the next round":
+  # walkon audit #2 (dead-cog seat binding): a mid-round BR takeover whose
+  # target cog is already dead must never be silently stranded. The seat is
+  # bound the instant the request lands (registerTakeoverWebSocket, tested
+  # below) regardless of the cog's aliveness -- this suite proves the
+  # HANDOVER side: with no alive seat free to migrate onto, the bound human
+  # never goes live off the alive-edge (a permanently-eliminated brMode cog
+  # never produces one), but the very next round reset lands them anyway,
+  # exactly like every other pending takeover.
+  setup:
+    initAppState()
+
+  test "registering on a dead seat binds it immediately, not on a later condition":
+    let human = cast[WebSocket](9)
+    human.registerTakeoverWebSocket(2, "Green Rookie", false)
+    check human in appState.takeovers
+    check appState.takeovers[human].seat == 2
+    check appState.takeovers[human].requestedSeat == 2
+    check not appState.takeovers[human].active   # owns the seat; not driving yet
+
+  test "a dead cog with nowhere to migrate never fires the alive edge -- it waits":
+    var t = seat(2)
+    # brMode (instant=true): dead on the first sampled frame falls through to
+    # the ordinary edge, which a permanently-eliminated brMode cog can never
+    # produce (killPlayer forces alive=false for the rest of the round).
+    for _ in 0 ..< 500:
+      check not t.advanceSeatTakeover(2, false, instant = true)
+    check not t.active
+    check t.observed
+    check not t.cogAlive
+
+  test "...and the next round reset lands it anyway, same as every other pending seat":
+    let human = cast[WebSocket](9)
+    human.registerTakeoverWebSocket(2, "Green Rookie", false)
+    var t = appState.takeovers[human]
+    for _ in 0 ..< 500:
+      discard t.advanceSeatTakeover(2, false, instant = true)
+    appState.takeovers[human] = t
+    check not appState.takeovers[human].active
+    landSeatTakeoversOnNewMatch()
+    check appState.takeovers[human].active        # drives at the next round start
+    check not appState.takeovers[human].observed  # re-armed to sample the fresh cog
+
+  test "status label: a dead-cog brMode wait reads as seated-awaiting-round, not suiting-up":
+    var t = seat(2)
+    discard t.advanceSeatTakeover(2, false, instant = true)  # observed, still dead
+    check t.takeoverStateLabel(brMode = true) == "seated-awaiting-round"
+    # The identical seat state under a CTF (non-brMode) config keeps the old
+    # binary wording untouched -- CTF respawn-edge semantics are unaffected.
+    check t.takeoverStateLabel(brMode = false) == "suiting-up"
+
+  test "status label: an alive brMode cog that hasn't landed yet is still suiting-up":
+    var t = seat(2)
+    check t.takeoverStateLabel(brMode = true) == "suiting-up"  # not yet observed
+
+  test "status label: once active, the label is driving regardless of mode":
+    var t = seat(2)
+    discard t.advanceSeatTakeover(2, true, instant = true)
+    check t.active
+    check t.takeoverStateLabel(brMode = true) == "driving"
+    check t.takeoverStateLabel(brMode = false) == "driving"
+
 suite "freeplay: a pending brMode takeover parks on a cog that is ALIVE":
   setup:
     initAppState()
