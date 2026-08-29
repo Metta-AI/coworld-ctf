@@ -151,7 +151,9 @@ suite "tier-2 event extraction (tools/extract_events)":
     check sawGameOverPhase
 
     # The event stream is the counters, itemized: per-slot Kill events sum to
-    # the final results.json kills array. shotsFired/shotsHit stay OUT of
+    # the final results.json kills + teamKills arrays (a Kill event fires for
+    # enemy and teammate kills alike; GV45 splits the counters).
+    # shotsFired/shotsHit stay OUT of
     # results.json (the platform results schema is closed and the certifier
     # rejects unknown fields) — the accuracy counters are checked against the
     # extraction directly instead.
@@ -162,7 +164,8 @@ suite "tier-2 event extraction (tools/extract_events)":
     # results_schema declares the field): one id array per slot.
     check results["achievements"].len == slotCount
     for slot in 0 ..< slotCount:
-      check results["kills"][slot].getInt == killsBySlot[slot]
+      check results["kills"][slot].getInt +
+        results["teamKills"][slot].getInt == killsBySlot[slot]
 
     # The in-sim accuracy counters mirror the event stream exactly.
     for slot in 0 ..< slotCount:

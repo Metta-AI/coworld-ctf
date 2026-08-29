@@ -57,7 +57,9 @@ suite "kill badges":
     check game.players[0].multiKills3 == 0
     check game.players[0].teamKills == 0
 
-  test "a grenade blast killing three (one a teammate) mints a triple and a backstab":
+  test "a grenade blast killing three (one a teammate) mints a double and a backstab":
+    # GV45: the teammate lands in teamKills, not kills — so the cluster honor
+    # counts the two ENEMY kills (a double), never the backstab.
     var game = badgeGame(2, 2)
     game.players[0].aimBrads = 0
     game.players[0].hasGrenade = true
@@ -68,9 +70,9 @@ suite "kill badges":
       game.players[i].hp = GrenadeDamage
     game.chargeAndThrow(0, 1)
     game.landGrenade()
-    check game.players[0].kills == 3
-    check game.players[0].multiKills3 == 1
-    check game.players[0].multiKills2 == 0   # the triple is not also a double
+    check game.players[0].kills == 2
+    check game.players[0].multiKills3 == 0
+    check game.players[0].multiKills2 == 1
     check game.players[0].teamKills == 1     # red1 was in the blast
 
   test "one spray burst killing two enemies mints one double":
