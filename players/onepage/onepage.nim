@@ -997,6 +997,96 @@ proc intentByName(name: string): int =
       return ord(it)
   -1
 
+const IntentTagName: array[Intent, string] = [
+  ## snake_case tokens for the PER-INTENT `intent.is_<name>` path family
+  ## below — see `fullPathRegistry`. Ratified-vocabulary spelling (matches
+  ## IntentNames lowercased), so a page author reads "is_finish" and knows
+  ## exactly which row it means without cross-referencing the Nim enum.
+  RotateToRing: "rotate_to_ring",
+  HoldRingSafe: "hold_ring_safe",
+  Engage: "engage",
+  Finish: "finish",
+  Peel: "peel",
+  Heal: "heal",
+  Loot: "loot",
+  RegroupPartner: "regroup_partner",
+  SupportPartner: "support_partner",
+  AvoidFight: "avoid_fight",
+  ThirdParty: "third_party",
+  UseGrenade: "use_grenade",
+]
+
+proc targetNone(bot: OnepageBot, me: Vec): int = -1
+  ## No single enemy is "the target" of this intent (it's positional:
+  ## ROTATE_TO_RING, HOLD_RING_SAFE's cover cell, HEAL, LOOT,
+  ## REGROUP_PARTNER, AVOID_FIGHT's centroid-flee).
+
+proc targetThreat(bot: OnepageBot, me: Vec): int = nearestEnemyIdx(bot, me)
+  ## The nearest enemy — what ENGAGE fires at, what HOLD_RING_SAFE ducks
+  ## from, and what PEEL is fleeing; sharing one target keeps all three
+  ## consistent about "who is the threat" instead of drifting apart.
+
+proc targetWeakest(bot: OnepageBot, me: Vec): int = weakestEnemyIdx(bot, me)
+proc targetThirdPartyIdx(bot: OnepageBot, me: Vec): int = findThirdPartyTarget(bot, me)
+proc targetNearestToPartner(bot: OnepageBot, me: Vec): int =
+  if bot.mates.len == 0:
+    return -1
+  let partnerPos = bot.mates[0].pos
+  result = -1
+  var bestD = 1e18
+  for i in 0 ..< bot.enemies.len:
+    let d = dist(bot.enemies[i].pos, partnerPos)
+    if d < bestD:
+      bestD = d
+      result = i
+proc targetGrenade(bot: OnepageBot, me: Vec): int = bestGrenadeTargetIdx(bot, me).idx
+
+const TargetIdx: array[Intent, proc(bot: OnepageBot, me: Vec): int {.nimcall.}] = [
+  ## The SAME per-intent "who/what am I acting on" logic each resolver
+  ## above already runs, exposed once so `intent.target_hp`/
+  ## `intent.target_dist` (see `fullPathRegistry`) can never disagree with
+  ## what the resolver will actually do this tick.
+  RotateToRing: targetNone,
+  HoldRingSafe: targetThreat,
+  Engage: targetThreat,
+  Finish: targetWeakest,
+  Peel: targetThreat,
+  Heal: targetNone,
+  Loot: targetNone,
+  RegroupPartner: targetNone,
+  SupportPartner: targetNearestToPartner,
+  AvoidFight: targetNone,
+  ThirdParty: targetThirdPartyIdx,
+  UseGrenade: targetGrenade,
+]
+
+proc intentTargetHp(bot: OnepageBot, me: Vec, intent: Intent): float =
+  let idx = TargetIdx[intent](bot, me)
+  if idx < 0 or idx >= bot.enemies.len or bot.enemies[idx].hp <= 0: -1.0
+  else: float(bot.enemies[idx].hp)
+
+proc intentTargetDist(bot: OnepageBot, me: Vec, intent: Intent): float =
+  let idx = TargetIdx[intent](bot, me)
+  if idx < 0 or idx >= bot.enemies.len: -1.0
+  else: dist(bot.enemies[idx].pos, me)
+
+proc fullPathRegistry(): seq[tuple[path: string, kind: PathKind]] =
+  ## The registry `compilePage`/`selectIntent` validate and score against:
+  ## policy_stub's coarse/world/self/partner DefaultPaths (already reported
+  ## to build-vm), PLUS the fine per-intent family generated HERE from
+  ## IntentTagName/TargetIdx — the SAME tables Resolvers/IntentNames are
+  ## indexed by. "Declared but unresolvable" cannot happen structurally:
+  ## there is no second, hand-maintained path list to drift from this one.
+  ##
+  ## PENDING MAXWELL'S RULING on the fine `is_<intent>` family (the
+  ## coordinator's recommendation, not yet decided) — additive alongside
+  ## the coarse tags either way, never a replacement.
+  result = @DefaultPaths
+  for it in Intent:
+    result.add (path: "intent.is_" & IntentTagName[it], kind: pkBool)
+  result.add (path: "intent.target_hp", kind: pkNumber)
+  result.add (path: "intent.target_dist", kind: pkNumber)
+
 # -----------------------------------------------------------------------------
 # World -> path resolution: the concrete (perception-true) feature set this
 # bot can compute, wired into the VM-seam interface (onepage/policy_stub).
@@ -1059,10 +1149,11 @@ proc buildFeatures(bot: OnepageBot, me: Vec): WorldFeatures =
   result.worldCarryingNade = bot.carryingNade
 
 proc intentTagBool(intent: Intent, path: string): bool =
-  ## The `intent.*` path family: fixed tags describing what KIND of
-  ## candidate row this is, so a page can write rules like "boost
-  ## intent.is_enemy rows while self.hp_frac is high". See onepage/
-  ## policy_stub.nim's DefaultPaths for the full reported list.
+  ## The COARSE `intent.*` tags: what KIND of row this is, so a page can
+  ## write rules like "boost intent.is_enemy rows while self.hp_frac is
+  ## high". See onepage/policy_stub.nim's DefaultPaths for the full
+  ## reported list. Falls through to the FINE per-intent family below —
+  ## PENDING MAXWELL'S RULING, additive, never a replacement for these.
   case path
   of "intent.is_enemy": intent in {Engage, Finish, SupportPartner, ThirdParty}
   of "intent.is_peel": intent in {Peel, AvoidFight}
@@ -1071,9 +1162,9 @@ proc intentTagBool(intent: Intent, path: string): bool =
   of "intent.is_partner": intent in {RegroupPartner, SupportPartner}
   of "intent.is_zone": intent in {RotateToRing, HoldRingSafe, AvoidFight}
   of "intent.is_grenade": intent == UseGrenade
-  else: false
+  else: path == ("intent.is_" & IntentTagName[intent])
 
-proc numberPath(f: WorldFeatures, path: string): float =
+proc numberPath(bot: OnepageBot, me: Vec, f: WorldFeatures, intent: Intent, path: string): float =
   case path
   of "self.hp_frac": f.selfHpFrac
   of "partner.dist": f.partnerDist
@@ -1084,6 +1175,8 @@ proc numberPath(f: WorldFeatures, path: string): float =
   of "world.medkit_dist": f.worldMedkitDist
   of "world.item_dist": f.worldItemDist
   of "world.third_party_dist": f.worldThirdPartyDist
+  of "intent.target_hp": intentTargetHp(bot, me, intent)
+  of "intent.target_dist": intentTargetDist(bot, me, intent)
   else: 0.0
 
 proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
@@ -1094,13 +1187,13 @@ proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
   of "world.carrying_nade": f.worldCarryingNade
   else: intentTagBool(intent, path)
 
-proc selectIntentFor(page: PolicyPage, f: WorldFeatures): Intent =
+proc selectIntentFor(bot: OnepageBot, me: Vec, page: PolicyPage, f: WorldFeatures): Intent =
   proc ctxFor(name: string): IntentContext =
     var intent = Intent(0)
     let ord = intentByName(name)
     if ord >= 0: intent = Intent(ord)
     IntentContext(
-      resolveNumber: (proc(path: string): float = numberPath(f, path)),
+      resolveNumber: (proc(path: string): float = numberPath(bot, me, f, intent, path)),
       resolveBool: (proc(path: string): bool = boolPath(f, intent, path)),
     )
   var names: array[Intent, string]
@@ -1111,40 +1204,66 @@ proc selectIntentFor(page: PolicyPage, f: WorldFeatures): Intent =
   if ord >= 0: Intent(ord) else: Intent(0)
 
 # -----------------------------------------------------------------------------
-# Page loading (episode-start flash) + REFLASH (mid-episode swap).
+# Page loading (episode-start flash) + REFLASH (mid-episode swap), unified.
 #
-# SWAP-BOUNDARY RULE (published for build-replayflash to implement the sim
-# side against, bit-for-bit — see the handoff message):
-#   Let T_req = the tick the sim first validates a player's reflash
-#   proposal. Let T_effect = T_req + max(1, fireWindupRemaining_at_T_req)
-#   computed ONCE at T_req (never re-evaluated tick by tick, so it needs no
-#   forward-looking simulation). The sim stamps T_effect into the ratifying
-#   marker as soon as it validates the proposal, BEFORE T_effect arrives.
-#   Every consumer (live bot, spectator, replay resim) applies the swap by
-#   comparing its OWN current tick against the stated T_effect — never by
-#   "the tick I happened to first observe the marker" — so it is a pure
-#   function of T_effect and immune to frame coalescing, wall-clock, or
-#   arrival order. decide() calls for tick < T_effect run the OLD page;
-#   tick >= T_effect run the NEW page.
+# DETERMINISM (per the coordinator's ruling): the page an env var delivers
+# into THIS PROCESS never touches the wire on its own, so a replay re-
+# simulating the episode has no record of which strategy a cog actually
+# played — a hidden input outside the replay, worse than the same hole
+# mid-episode because the starting page governs most of the episode. Fix:
+# there is exactly ONE way `activePage` ever changes — `maybeApplyReflash`,
+# fed only by `proposeReflash` — and the episode-start flash goes through
+# that SAME call (see runBot's `playing` edge below) instead of setting
+# `activePage` directly. `flashPage` below only clears state; it never sets
+# `activePage` to anything but an empty (all-zero-score) page, so the
+# window between "a game started" and "our first proposeReflash lands" — a
+# few ticks at most, before any real target exists anyway — defaults
+# deterministically to Intent(0) (ROTATE_TO_RING), never to a page nobody
+# recorded.
 #
-# WIRE CONTRACT (PROPOSED, NOT YET IMPLEMENTED SERVER-SIDE — see the
-# handoff message for the full reasoning):
-#   Bot -> server: reuse the existing 0x86 "debug sprite" opcode (already a
-#   generic arbitrary-length byte blob, already parsed generically by the
-#   server; NO vendor/wire change) via `blobFromSpriteDebugSprites`, payload
-#   `{"kind":"policy_reflash_propose","hash":"<hash>"}` (full page bytes
-#   optional; we hold them locally, we only need the SIM to agree on a
-#   tick).
-#   Server -> bot: an assumed downlink label, ASSUMED_REFLASH_LABEL below —
-#   NOT in src/ctf/labels.nim yet (deliberately not added there: its
-#   producer does not exist, and labels.nim's own header calls an unproduced
-#   consumer-only label exactly the kind of drift it exists to prevent).
-#   Grammar: "policy reflash <color> <T_effect> <hash>", STICKY (re-emitted
-#   every frame from T_effect onward until superseded) so a bot that
-#   coalesces past several frames still recovers T_effect exactly.
+# SWAP-BOUNDARY RULE — confirmed against build-replayflash's actual
+# `applyPolicyPage`: it writes bookkeeping ONLY (policyPage/Hash/Tick/Epoch,
+# feeding gameHash and a future viewer) and drives ZERO sim decisions —
+# applied unconditionally at whatever tick it's drained, no windup check.
+# This process is the ONLY thing that ever turns "a new page" into a
+# different button press (this bot has no direct sim access — it only ever
+# emits masks), so the boundary is entirely LOCAL: hold masks computed off
+# the OLD page until OUR OWN view of the fire windup (a fresh ButtonA
+# press arms ~FireWindupTicksLocal ticks, mirroring sim_types.
+# FireWindupTicks — ours is an estimate, since we cannot read the sim's
+# real fireWindup countdown) says the shot has resolved, THEN start
+# computing off the NEW page. Whatever masks we send meanwhile get
+# recorded verbatim, exactly like a human's held key — no engine timing
+# change required. (Two other things build-replayflash's review settled:
+# no downlink marker is needed for OUR OWN swap timing — see above — and
+# the wire send below carries the RAW PAGE BYTES verbatim, magic-prefixed,
+# matching `appState.policyPageFlashes[websocket] = pageBytes` exactly.)
+#
+# WIRE CONTRACT (bot -> server; the server.nim/global.nim receive arm is a
+# separate, precisely-scoped change — see the handoff message for the exact
+# diff location, src/ctf/global.nim:2001's `applyPlayerViewerMessage`):
+#   Reuses the existing 0x86 "debug sprite" opcode (`blobFromSpriteDebugSprites`,
+#   already a generic byte blob, already parsed server-side — NO vendor/wire
+#   change) as the carrier. Since that opcode ALSO carries real debug-
+#   overlay packets (falling through to `pendingDebugSprites.add` otherwise
+#   — build-replayflash's review), our payload is self-identifying: a fixed
+#   magic prefix (`PolicyPageMagic` below) no real overlay packet could
+#   ever produce, followed by the raw page JSON bytes verbatim.
 # -----------------------------------------------------------------------------
 
-const AssumedReflashLabelPrefix = "policy reflash "
+const PolicyPageMagic = "CTFPOLICYPAGE1\n"
+  ## Self-identifying prefix — see the WIRE CONTRACT note above. A false
+  ## positive on a real overlay packet would eat it silently; a false
+  ## negative on our own packet would drop a reflash into the overlay path
+  ## instead — this prefix is how the server-side receive arm tells the
+  ## two apart before doing anything else.
+
+const FireWindupTicksLocal = 5
+  ## Mirrors sim_types.FireWindupTicks (~0.2s from trigger pull to the shot;
+  ## aim locks at the pull) — see the SWAP-BOUNDARY note above for why this
+  ## is a local ESTIMATE (we cannot read the sim's authoritative countdown),
+  ## not a value the engine needs to agree with us on: we only ever use it
+  ## to avoid swapping OUR OWN policy out from under OUR OWN pulled trigger.
 
 proc loadPageRaw(): string =
   let inline = getEnv("COWORLD_POLICY_PAGE")
@@ -1159,85 +1278,79 @@ proc loadPageRaw(): string =
     "no policy page: set COWORLD_POLICY_PAGE (raw JSON) or COWORLD_POLICY_PAGE_FILE (path)")
 
 proc flashPage(bot: OnepageBot) =
-  ## The episode-start flash: latch the loaded page as the one this life
-  ## plays under. Called exactly once per episode, at the mapCameraReady
-  ## false->true edge (see resetTransient below) — never mid-tick.
-  bot.activePage = bot.startupPage
+  ## Clears reflash bookkeeping at the episode-start edge. Deliberately
+  ## does NOT set `activePage` to `bot.startupPage` — see the DETERMINISM
+  ## note above; that only happens via `maybeApplyReflash`, once runBot's
+  ## `playing` edge below has actually sent it on the wire.
+  bot.activePage = PolicyPage()          # empty: every row scores 0
   bot.pageHasPending = false
   bot.pageSwapAtTick = -1
-  # No echo here on purpose: this runs every tick of the lobby wait (mirrors
-  # baseline.nim's own resetTransient, called the same way) — the edge
-  # worth logging is "a live game actually started", logged once in runBot
-  # where `playing` flips false->true.
+  bot.proposedPageRaw = ""               # forces the NEXT episode's first
+  bot.proposedPageHash = ""              # proposeReflash call to actually
+                                          # send, not no-op as "unchanged"
+
+proc windupTicksRemaining(bot: OnepageBot): int =
+  ## Ticks until our own last fire-press's shot has (probably) resolved,
+  ## estimated from `bot.lastFireTick` — see FireWindupTicksLocal above.
+  if not bot.firedLast:
+    return 0
+  max(0, FireWindupTicksLocal - (bot.tick - bot.lastFireTick))
+
+proc scheduleSwap(bot: OnepageBot, page: PolicyPage) =
+  ## Schedules `page` to become active at the swap-boundary rule: never
+  ## mid-windup on our own last shot.
+  bot.pendingPage = page
+  bot.pageSwapAtTick = bot.tick + max(1, bot.windupTicksRemaining())
+  bot.pageHasPending = true
 
 proc maybeApplyReflash(bot: OnepageBot) =
-  ## Applies a pending reflash at the swap boundary rule above. Pure
-  ## function of bot.tick vs the stated T_effect — never "did we just now
-  ## see the marker".
+  ## Applies a scheduled swap once its tick arrives. This is the ONLY
+  ## place `activePage` changes.
   if bot.pageHasPending and bot.tick >= bot.pageSwapAtTick:
     bot.activePage = bot.pendingPage
     bot.pageHasPending = false
     bot.pageSwapAtTick = -1
-    bot.lastAppliedReflashHash = bot.proposedPageHash
-    echo "policy reflash applied at tick=", bot.tick
-
-proc scanForReflashRatification(bot: OnepageBot, client: ProtocolClient) =
-  ## Watches for the ASSUMED downlink marker ratifying OUR OWN outstanding
-  ## proposal (color-filtered) and schedules the swap at its stated
-  ## T_effect. We only know how to apply a page whose bytes we hold
-  ## locally (the one we proposed) — a hash we do not recognize means the
-  ## round trip has not completed on our side, and is ignored rather than
-  ## guessed at.
-  if bot.proposedPageHash.len == 0 or bot.proposedPageHash == bot.lastAppliedReflashHash:
-    return
-  for (o, label) in client.spriteObjectsWithLabelPrefix(AssumedReflashLabelPrefix):
-    let parts = label[AssumedReflashLabelPrefix.len .. ^1].split(' ')
-    if parts.len != 3 or parts[0] != bot.myColor or parts[2] != bot.proposedPageHash:
-      continue
-    try:
-      bot.pendingPage = policy_stub.compilePage(bot.proposedPageRaw, IntentNames)
-      bot.pageSwapAtTick = parseInt(parts[1])
-      bot.pageHasPending = true
-    except ValueError:
-      discard
+    echo "policy reflash applied at tick=", bot.tick, " hash=", bot.proposedPageHash
 
 proc proposeReflash(ws: WebSocket, bot: OnepageBot, raw: string) =
-  ## The bot-side SEND half of the reflash channel: per build-replayflash's
-  ## published contract (`appState.policyPageFlashes[websocket] = pageJson`
-  ## in src/ctf/server.nim, drained into `sim.applyPolicyPage` at the tick
-  ## boundary), the server wants the RAW PAGE BYTES themselves, not a hash
-  ## or an envelope — so that is exactly what goes over the wire. Reuses
-  ## the existing 0x86 "debug sprite" opcode (already a generic arbitrary-
-  ## length byte blob, already parsed server-side; NO vendor/wire-format
-  ## change) as the carrier — PROPOSED, pending build-replayflash confirming
-  ## the matching server.nim receive arm (see the handoff message).
-  ##
-  ## The TRIGGER — how a page ready to propose actually reaches this
-  ## process mid-episode — is outside this file's scope (the field
-  ## service's delivery channel, per the brief); `pollForNewPage` below is a
-  ## documented stand-in so the full local state machine is exercisable.
+  ## SEND (for the replay's record) and locally SCHEDULE the swap, in the
+  ## same call — see the module header for why both halves belong here.
+  ## Used identically for the episode-start flash and a mid-episode
+  ## reflash (see runBot's `playing` edge and `pollForNewPage`).
   if raw == bot.proposedPageRaw:
     return                                  # already proposed; do not spam
+  var page: PolicyPage
+  try:
+    page = policy_stub.compilePage(raw, IntentNames, fullPathRegistry())
+  except ValueError as e:
+    echo "reflash rejected (not sent, not applied): ", e.msg
+    return
   bot.proposedPageRaw = raw
   var hash = 0'u64
   for c in raw:
     hash = hash * 31 + uint64(ord(c))
   bot.proposedPageHash = toHex(hash)
-  var bytes = newSeq[uint8](raw.len)
-  for i, c in raw: bytes[i] = uint8(c)
+  var bytes = newSeq[uint8](PolicyPageMagic.len + raw.len)
+  for i, c in PolicyPageMagic: bytes[i] = uint8(c)
+  for i, c in raw: bytes[PolicyPageMagic.len + i] = uint8(c)
   ws.send(blobFromSpriteDebugSprites(bytes), BinaryMessage)
-  echo "proposed policy reflash (", raw.len, " bytes, hash=", bot.proposedPageHash, ")"
+  bot.scheduleSwap(page)
+  echo "proposed policy reflash (", raw.len, " bytes, hash=", bot.proposedPageHash,
+    ", effective tick=", bot.pageSwapAtTick, ")"
 
 proc pollForNewPage(bot: OnepageBot): string =
-  ## STAND-IN trigger: re-reads COWORLD_POLICY_PAGE_FILE if its content
-  ## changed since the last flash/proposal. The REAL trigger (the field
-  ## service telling this process "a new page is ready") is a different
-  ## lane's delivery mechanism; this only exists so proposeReflash has
-  ## something to call locally.
+  ## STAND-IN trigger for a MID-EPISODE candidate: re-reads
+  ## COWORLD_POLICY_PAGE_FILE if its content differs from what we last
+  ## proposed. The REAL trigger (the field service telling this process
+  ## "a new page is ready") is a different lane's delivery mechanism; this
+  ## only exists so proposeReflash has something to call locally. The
+  ## episode-start flash does NOT go through this — see runBot.
   let path = getEnv("COWORLD_POLICY_PAGE_FILE")
   if path.len == 0 or not fileExists(path):
     return ""
-  readFile(path)
+  let raw = readFile(path)
+  if raw == bot.proposedPageRaw: "" else: raw
+
 
 # -----------------------------------------------------------------------------
 # Main decide loop
@@ -1299,10 +1412,9 @@ proc decide(bot: OnepageBot, client: ProtocolClient): uint8 =
     bot.rotSign = 0
     return 0
   bot.updatePerception(client, me)
-  bot.scanForReflashRatification(client)
   bot.maybeApplyReflash()
   let f = buildFeatures(bot, me)
-  let intent = selectIntentFor(bot.activePage, f)
+  let intent = selectIntentFor(bot, me, bot.activePage, f)
   bot.lastIntent = intent
   let act = Resolvers[intent](bot, client, me)
   actToMask(bot, act)
@@ -1337,7 +1449,7 @@ proc policyReplies(component: var OnepageComponent): seq[string] =
   let maybeNewRaw = pollForNewPage(component.bot)
   if maybeNewRaw.len > 0:
     try:
-      discard policy_stub.compilePage(maybeNewRaw, IntentNames)  # validate before proposing
+      discard policy_stub.compilePage(maybeNewRaw, IntentNames, fullPathRegistry())  # validate before proposing
       component.bot.pendingProposal = maybeNewRaw
     except ValueError as e:
       echo "reflash candidate rejected (not proposed): ", e.msg
@@ -1383,8 +1495,13 @@ proc runBot(url: string, startupPage: PolicyPage) =
           continue
         if not playing:
           playing = true
-          echo "policy flashed at tick=", component.bot.tick,
-            " rows=", component.bot.activePage.row.len
+          # DETERMINISM: the episode-start page is delivered by an env var
+          # (a hidden input outside the replay), so its very first use goes
+          # through the SAME propose/schedule path a mid-episode reflash
+          # uses (see the module header) — the replay's record of "which
+          # strategy this cog played" starts here, not from a silent local
+          # assignment.
+          proposeReflash(ws, component.bot, startupPage.raw)
         if component.bot.pendingProposal.len > 0:
           proposeReflash(ws, component.bot, component.bot.pendingProposal)
           component.bot.pendingProposal = ""
@@ -1404,7 +1521,7 @@ when isMainModule:
     quit(1)
   var startupPage: PolicyPage
   try:
-    startupPage = policy_stub.compilePage(loadPageRaw(), IntentNames)
+    startupPage = policy_stub.compilePage(loadPageRaw(), IntentNames, fullPathRegistry())
   except ValueError as e:
     stderr.writeLine("FATAL: invalid one-page policy: " & e.msg)
     quit(1)

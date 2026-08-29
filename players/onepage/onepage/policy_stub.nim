@@ -95,18 +95,26 @@ const DefaultPaths* = [
     # tag: true only for USE_GRENADE.
 ]
 
-proc knownPathKind(path: string): int =
-  ## Index into DefaultPaths, or -1. (`newPathRegistry`'s real job; this is
-  ## the whole registry a placeholder this small needs.)
-  for i in 0 ..< DefaultPaths.len:
-    if DefaultPaths[i].path == path:
+proc knownPathKind(registry: openArray[tuple[path: string, kind: PathKind]],
+    path: string): int =
+  ## Index into `registry`, or -1. Callers pass their OWN combined registry
+  ## (see onepage.nim's `fullPathRegistry`) rather than relying on
+  ## DefaultPaths alone, so "declared but unresolvable" is a property of
+  ## whatever table actually drives resolution — not a second list here
+  ## that could silently fall out of sync with it.
+  for i in 0 ..< registry.len:
+    if registry[i].path == path:
       return i
   -1
 
 type
   PageRow = object
     bias: float
-    weight: seq[tuple[path: string, w: float]]
+    weight: seq[tuple[path: string, kind: PathKind, w: float]]
+      ## `kind` is resolved and baked in at COMPILE time (against whatever
+      ## registry `compilePage` was given) so `selectIntent` never needs a
+      ## registry lookup of its own — one validation pass, not two that
+      ## could disagree.
 
   PolicyPage* = object
     row*: seq[tuple[name: string, r: PageRow]]
@@ -118,7 +126,8 @@ proc rowFor(page: PolicyPage, name: string): PageRow =
       return r
   PageRow(bias: 0.0, weight: @[])
 
-proc compilePage*(raw: string, candidates: openArray[string]): PolicyPage =
+proc compilePage*(raw: string, candidates: openArray[string],
+    registry: openArray[tuple[path: string, kind: PathKind]] = DefaultPaths): PolicyPage =
   ## PLACEHOLDER for the real VM's `compile`/`validate`. Schema:
   ##   {"rows": {"<candidate name>": {"bias": <n>, "weights": {"<path>": <n>}}}}
   ## Validates every row key against `candidates` and every weight key
@@ -146,10 +155,11 @@ proc compilePage*(raw: string, candidates: openArray[string]): PolicyPage =
       if rowJ["weights"].kind != JObject:
         raise newException(ValueError, "policy page rows[\"" & key & "\"].weights must be an object")
       for pname, wJ in rowJ["weights"].pairs:
-        if knownPathKind(pname) < 0:
+        let ki = knownPathKind(registry, pname)
+        if ki < 0:
           raise newException(ValueError,
             "policy page rows[\"" & key & "\"].weights: unknown path \"" & pname & "\"")
-        row.weight.add (pname, wJ.getFloat())
+        row.weight.add (pname, registry[ki].kind, wJ.getFloat())
     result.row.add (key, row)
 
 proc selectIntent*(page: PolicyPage, candidates: openArray[string],
@@ -164,13 +174,9 @@ proc selectIntent*(page: PolicyPage, candidates: openArray[string],
     let row = page.rowFor(name)
     let ctx = ctxFor(name)
     var score = row.bias
-    for (path, w) in row.weight:
+    for (path, kind, w) in row.weight:
       if w == 0.0:
         continue
-      let i = knownPathKind(path)
-      if i < 0:
-        continue                      # unreachable post-compilePage validation
-      let kind = DefaultPaths[i].kind
       score += w * (if kind == pkNumber: ctx.resolveNumber(path)
                     else: (if ctx.resolveBool(path): 1.0 else: 0.0))
     if score > best:
