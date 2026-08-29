@@ -17,6 +17,11 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 #hud{display:none;position:fixed;left:10px;top:9px;color:#e8e4dc;background:#1a1714cc;padding:5px 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;pointer-events:none;white-space:nowrap}
 #hud b{color:#9a9184;font-weight:600}
 #s{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e8e8e8;background:#000;font:14px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;pointer-events:none}
+/* Death state reuses #s/n()'s existing overlay plumbing, but unlike the
+   connecting/reconnecting/disconnected states (nothing meaningful behind
+   them -- opaque black is correct there), the match keeps visibly playing
+   out while we're dead, so this variant tints instead of hiding it. */
+#s.dead{background:#000a;align-items:flex-start;padding-top:20px;font-weight:600;text-shadow:0 1px 3px #000}
 #mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
 #mute:hover{background:#2a2620cc}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
@@ -294,7 +299,11 @@ function drawSprite(){
   drawSelfTag();
   x.restore();
   updateCamera();
-  n("")
+  /* Frames are flowing (we got here at all), so any connecting/reconnecting
+     text is stale -- but "flowing" no longer unconditionally means "clear
+     the overlay": a mid-life death now shows through the same plumbing. */
+  s.classList.toggle("dead",isDead);
+  n(isDead?"you're down -- waiting to respawn...":"")
 }
 function parseSprite(bytes){
   if(!spriteMode){spriteMode=true;l=255}
@@ -469,7 +478,7 @@ let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
 const CC=CtfControls;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
-let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false;
+let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=false;
 let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
 
 /* The ping wheel is a SEPARATE lane. We own only the seam: swallow the
@@ -642,6 +651,17 @@ function controlsTick(){
      death would leave the gun permanently off the cursor. */
   const seatedNow=!!selfPos;
   if(seatedNow&&!wasSeated&&selfTeam){estAim=CC.reseedAim(estAim,true,false,selfTeam);aimSeeded=true}
+  /* Death state (legibility audit #4/#10): the self marker disappearing
+     was the ONLY signal a mid-life death ever gave -- no banner, nothing
+     distinguishing "dead" from "broken" or "disconnected". isDead flips
+     true only on a truly-was-seated -> not-seated edge (never on first
+     join, before wasSeated has ever been true), and clears the instant a
+     fresh self marker appears -- a respawn or the next round's spawn,
+     whichever comes first. drawSprite()'s status line renders it through
+     the exact same #s overlay/n() plumbing already used for
+     connecting/reconnecting text. */
+  if(!seatedNow&&wasSeated)isDead=true;
+  else if(seatedNow)isDead=false;
   wasSeated=seatedNow;
   let rot=null;
   if(aimSeeded&&selfPos&&haveMouse&&!z){
