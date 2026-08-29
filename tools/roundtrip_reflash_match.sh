@@ -80,6 +80,7 @@ BOT_PIDS=()
 # Seat 0: the onepage runner. Its startup page is delivered by env FILE, and
 # its episode-start flash goes over the SAME propose path as a mid-episode
 # one — so the starting page is not a hidden input.
+CTF_BOT_FAST_READY=1 \
 COWORLD_POLICY_PAGE_FILE="$PAGEFILE" \
 COWORLD_PLAYER_WS_URL="ws://127.0.0.1:$PORT/player?slot=0&token=0xBADA55_0" \
   ./bin_onepage >> "$ONEPAGELOG" 2>&1 &
