@@ -1472,6 +1472,28 @@ proc httpHandler(request: Request) =
     playerHeaders["Content-Type"] = "text/html; charset=utf-8"
     playerHeaders["Cache-Control"] = "no-cache"
     request.respond(200, playerHeaders, EmbeddedPlayerClientHtml)
+  elif request.path in [
+      bitworldClient.GlobalClientRoute,
+      bitworldClient.CoworldGlobalClientRoute
+    ] and request.httpMethod == "GET":
+    # LIVE spectator chrome (proof stakes #7/#9): this used to fall straight
+    # through to bitworld's bare "Global Viewer" below — a canvas with no
+    # teams-alive strip, no endcard, no BR identity, while /client/replay's
+    # rich broadcast chrome sat unreachable until AFTER a match was recorded
+    # and reloaded as a file. That rich chrome is driven entirely by the
+    # global-viewer sprite-protocol stream (ensured by /replay ALSO calling
+    # registerGlobalWebSocket() when this process is not a dedicated replay
+    # server — see the ReplayWebSocketPath branch below), so a live match and
+    # a loaded replay already speak the identical wire protocol to this same
+    # HTML; the only thing missing was the route. broadcast_core.js's
+    # websocketPathForClientPage() points THIS path's socket at plain /global
+    # (GlobalWebSocketPath) rather than /replay, on purpose: the live route
+    # must never carry replay-server uri-load semantics, even if this process
+    # happens to be configured as one.
+    var globalHeaders: HttpHeaders
+    globalHeaders["Content-Type"] = "text/html; charset=utf-8"
+    globalHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, globalHeaders, EmbeddedBroadcastReplayHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute
@@ -2369,6 +2391,13 @@ proc runServerLoop*(
       # One file describes ONE match. A reset that kept the previous match's
       # events would concatenate two games under a single episode id.
       collectedEvents.setLen(0)
+      # The live chrome tracker (stakes #7/#9) is a brand-new-match object too:
+      # a fresh SimServer means a fresh roster (possibly a different player
+      # count), and the OLD tracker's per-index kills/deaths/alive arrays are
+      # sized for the match that just ended. The replay path never needs this
+      # reset -- one replay file is one match, so its tracker's lifetime never
+      # crosses a reset -- this is the live-only case that owns it.
+      broadcastTracker = initBroadcastTracker()
       liveOverlays = @[]
       sim.rewardAccounts = rewardAccounts
       prevInputs = @[]
@@ -2530,6 +2559,14 @@ proc runServerLoop*(
           for event in sim.events:
             collectedEvents.add(event)
           sim.events.setLen(0)
+        # Broadcast chrome's kill-feed/phase/gameover beats (stakes #7/#9):
+        # the SAME diff-the-tracker-against-this-tick call the replay path
+        # makes once per stepped tick via advanceReplayPlayback's callback,
+        # so a >1x live speed still attributes every kill in the frame
+        # instead of collapsing several ticks into one ambiguous marker.
+        # Read-only against sim (see stepEvents/killerThisStep signatures) --
+        # cannot touch gameHash, which is hashed just below on the same tick.
+        sim.stepEvents(broadcastTracker, frameEvents)
         lastStepInputs = stepInputs
         stepPrevInputs = stepInputs
         stepPressedInputMasks.resetInputMasks()
@@ -2557,6 +2594,12 @@ proc runServerLoop*(
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
       liveOverlays = @[]
+      # A round transition WITHIN the same match (roster/tick count both
+      # carry forward, unlike the full shouldReset above) -- resync rather
+      # than reinit, the same "state jumped, don't diff across the jump"
+      # move the replay path makes on its own seek/command jumps
+      # (advanceReplayFrame's `if didSeek: tracker.resync(sim)`).
+      broadcastTracker.resync(sim)
       {.gcsafe.}:
         withLock appState.lock:
           for websocket in appState.playerIndices.keys:
@@ -2666,30 +2709,36 @@ proc runServerLoop*(
             frameEvents
           )
         else:
-          sim.buildSpriteProtocolUpdates(
+          sim.buildLiveViewerPacket(
             globalStates[i],
             nextState,
             liveOverlays,
             sim.tickCount,
-            replayPlayer.playing,
-            playbackSpeed(liveSpeedIndex),
             liveProgressMaxTick(config),
+            playbackSpeed(liveSpeedIndex),
+            replayPlayer.playing,
             replayPlayer.looping,
-            false,
-            -1
+            frameEvents
           )
       if packet.len == 0:
         continue
       try:
-        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
-        # channel as the board — as the label of a reserved never-drawn 1×1
-        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
-        # that survives a hosted replay. The legacy opt-in `TextMessage` path
-        # never routes the client→server `hud:on` through the recorded stream,
-        # so hosted the HUD froze at its DOM defaults while the board played.
+        # The JSON chrome channel rides the SAME binary sprite channel as the
+        # board — as the label of a reserved never-drawn 1×1 sprite
+        # (BroadcastChromeSpriteId) — because that is the ONLY channel that
+        # survives a hosted replay. The legacy opt-in `TextMessage` path never
+        # routes the client→server `hud:on` through the recorded stream, so
+        # hosted the HUD froze at its DOM defaults while the board played.
         # Piggybacking on the binary channel makes the chrome survive every
         # playback path (live serve, generic client, hosted replay), with no
-        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
+        # opt-in. The generic bitworld client simply ignores an unknown sprite
+        # id. (stakes #7/#9: this channel used to be built ONLY on the
+        # `replayLoaded` branch above via buildReplayViewerPacket -- a live
+        # match's global viewers got the bare board with no chrome sprite at
+        # all, which is why /client/global rendering the rich broadcast HTML
+        # was not by itself enough to show the teams-alive bar/end-card;
+        # buildLiveViewerPacket now appends the same sprite from live sim
+        # state instead of a ReplayPlayer.)
         # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
         # viewer closes any frame over 1 MiB (1009 "message too big"). The client
         # accumulates sprite/object state across binary messages, so N chunks are
