@@ -265,7 +265,7 @@
         height: 1,
         canvas,
         ctx,
-        image: null
+        viewportSet: false
       });
     }
     return layers.get(id);
@@ -283,39 +283,8 @@
     layer.height = height;
     layer.canvas.width = width;
     layer.canvas.height = height;
-    layer.image = layer.ctx.createImageData(width, height);
+    layer.viewportSet = true;
     if (onResize) onResize();
-  }
-
-  function putSpritePixel(layer, x, y, sprite, srcOffset) {
-    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) return;
-    const srcA = sprite.pixels[srcOffset + 3];
-    if (srcA === 0) return;
-    const offset = (y * layer.width + x) * 4;
-    if (srcA === 255 || layer.image.data[offset + 3] === 0) {
-      layer.image.data[offset] = sprite.pixels[srcOffset];
-      layer.image.data[offset + 1] = sprite.pixels[srcOffset + 1];
-      layer.image.data[offset + 2] = sprite.pixels[srcOffset + 2];
-      layer.image.data[offset + 3] = srcA;
-      return;
-    }
-    const dstA = layer.image.data[offset + 3];
-    const srcAlpha = srcA / 255, dstAlpha = dstA / 255;
-    const outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
-    const dstWeight = dstAlpha * (1 - srcAlpha);
-    layer.image.data[offset] = Math.round(
-      (sprite.pixels[srcOffset] * srcAlpha +
-        layer.image.data[offset] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 1] = Math.round(
-      (sprite.pixels[srcOffset + 1] * srcAlpha +
-        layer.image.data[offset + 1] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 2] = Math.round(
-      (sprite.pixels[srcOffset + 2] * srcAlpha +
-        layer.image.data[offset + 2] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 3] = Math.round(outAlpha * 255);
   }
 
   function websocketPathForClientPage(path) {
@@ -758,39 +727,28 @@
       minimapCtx.strokeRect(bx + 1, by + 1, Math.max(2, bw - 2), Math.max(2, bh - 2));
     }
 
-    // Static map-band cache. The full-board map bands (object ids 40 up, on
+    // Map-band identity. The full-board map bands (object ids 40 up, on
     // layer 0, z pinned at -32768 so they underlie everything) are emitted
-    // once at init and never change, yet re-blitting them dominates composite
-    // cost at full board size. Bake them ONCE into a per-layer base canvas
-    // (per-pixel, via layer.image — bit-exact with the old software path) and
-    // start each composite by drawImage-ing that base, drawing only the
-    // dynamic objects above it (the endzone fade overlay at z = -32767 DOES
-    // change every frame and must stay dynamic).
-    //
-    // Dynamic objects composite via canvas drawImage of small per-sprite
-    // surfaces, NOT the per-pixel software blend the bake uses: a software
-    // composite costs tens of ms per frame at full board size, which capped
-    // presentation below the packet rate — the motion-interpolation draw
-    // loop needs composites at display cadence, and canvas source-over is
-    // the same blend putSpritePixel implements.
+    // once at init and never move again. STATIC_BAND_MIN_ID/MAX_ID/Z used to
+    // gate a hand-rolled per-layer bake cache (blitObject/putSpritePixel,
+    // ImageData-backed); that cache and its software painter are gone —
+    // GPU compositing (spriteSurface + drawImage, below) makes bands just
+    // another object in the ordered draw, at the same per-object cost as
+    // everything else, so there is nothing left to cache. See the port from
+    // origin/main 36470af: the old software blend (putSpritePixel) cost
+    // ~61ms/frame re-blitting 268 live objects and capped the whole viewer
+    // at ~12fps; a baked-canvas-per-sprite + drawImage chain is the same
+    // src-over math done by the compositor instead of by JS, and measured
+    // 12fps -> 98fps on the same scene. The constants below now serve only
+    // the glide-exclusion check in parse() (static bands must never ease —
+    // they don't move, so `id` in this window skips the glide branch).
     //
     // The window matches the server's MapBandObjectBase pool: 40..40+bands.
     // 99 covers 60 bands — enough for every generated size class (a 4-team
     // giant is 52 bands); the next server object pool starts well above.
-    // The old cap of 67 (28 bands) predated the oversize map classes: any
-    // band past it broke the sorted-prefix rule below and silently disabled
-    // the cache for the whole board, turning every frame into a ~100 MB
-    // full re-blit on exactly the maps that could least afford it.
     const STATIC_BAND_MIN_ID = 40;
     const STATIC_BAND_MAX_ID = 99;
     const STATIC_BAND_Z = -32768;
-    let staticBandsDirty = true;
-
-    function isStaticBand(obj) {
-      return obj.layer === 0 &&
-        obj.id >= STATIC_BAND_MIN_ID && obj.id <= STATIC_BAND_MAX_ID &&
-        obj.z === STATIC_BAND_Z;
-    }
 
     // A sprite whose snappy payload failed to decode on arrival (transient
     // allocation failure — see tryDecodeSpritePixelsSnappy) keeps its
@@ -815,8 +773,9 @@
           sprite.pendingCompressed, sprite.width, sprite.height);
         sprite.pendingCompressed = null;
         pendingDecodes--;
-        // The recovered sprite may be part of the baked static-band base.
-        staticBandsDirty = true;
+        // No bake to invalidate: spriteSurface() below builds this sprite's
+        // canvas lazily on the next draw that references it, now that
+        // sprite.pixels is finally populated.
       } catch (e) {
         // Still failing — try again on a later composite, unless this was
         // the budget's last attempt (then stop forcing composites for it).
@@ -824,34 +783,10 @@
       }
     }
 
-    function blitObject(layer, obj) {
-      const sprite = sprites.get(obj.spriteId);
-      if (!sprite || !sprite.pixels) return;
-      // Objects draw at their DISPLAY position: equal to x/y at rest, mid-
-      // glide between packets while interpolating (see updateInterpolation).
-      const objX = obj.dispX;
-      const objY = obj.dispY;
-      const startX = Math.max(0, -objX);
-      const startY = Math.max(0, -objY);
-      const endX = Math.min(sprite.width, layer.width - objX);
-      const endY = Math.min(sprite.height, layer.height - objY);
-      if (startX >= endX || startY >= endY) return;
-      for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-          putSpritePixel(
-            layer,
-            objX + x,
-            objY + y,
-            sprite,
-            (y * sprite.width + x) * 4
-          );
-        }
-      }
-    }
-
     // Small canvas per sprite, built lazily on first draw and dropped on
-    // redefinition (0x01 replaces the record). Map-band sprites never build
-    // one: the static prefix is baked through the per-pixel path instead.
+    // redefinition (0x01 replaces the record). Every object — map bands
+    // included — draws through this one GPU path now; see the port note
+    // above STATIC_BAND_MIN_ID for why the old per-layer bake is gone.
     function spriteSurface(sprite) {
       if (!sprite.surface) {
         const canvas = createCanvasSurface();
@@ -1246,10 +1181,10 @@
     }
 
     function composite() {
-      // Retry pending sprite decodes up front (not inside blitObject): a
-      // static band that recovers must dirty the baked base, and a band
-      // waiting on retry is exactly the one the clean-base path never
-      // re-blits, so it would otherwise never get another attempt.
+      // Retry pending sprite decodes up front, once per composite, however
+      // many objects reference the sprite: a self-healing map band that
+      // recovers mid-episode needs exactly one retry to unblock every
+      // object drawing it (spriteSurface bakes it fresh on this same pass).
       for (const sprite of sprites.values()) {
         if (spriteAwaitsRetry(sprite)) retrySpriteDecode(sprite);
       }
@@ -1260,52 +1195,25 @@
       offscreenCtx.clearRect(0, 0, nativeW, nativeH);
 
       for (const layer of orderedLayers) {
-        if (!layer.image) continue;
+        if (!layer.viewportSet) continue;
         const ordered = [...objects.values()]
           .filter(obj => obj.layer === layer.id)
           // Depth ties break on the DISPLAY y, so two agents crossing swap
           // paint order where they visibly cross, not a fraction of a tick
-          // early. Static bands glide never, so the cached prefix is stable.
+          // early. Static bands glide never, so their relative order among
+          // themselves is stable regardless.
           .sort((a, b) => a.z - b.z || a.dispY - b.dispY || a.id - b.id);
         if (ordered.length === 0) continue;
-        // The cache is only sound if the static bands form the sorted prefix
-        // and every dynamic object sorts strictly after them (i.e. nothing
-        // dynamic shares z = -32768). Otherwise fall back to a full re-blit.
-        let staticCount = 0;
-        while (staticCount < ordered.length && isStaticBand(ordered[staticCount])) {
-          staticCount++;
-        }
-        let cacheable = staticCount > 0;
-        for (let i = staticCount; cacheable && i < ordered.length; i++) {
-          if (ordered[i].z <= STATIC_BAND_Z) cacheable = false;
-        }
         layer.ctx.clearRect(0, 0, layer.width, layer.height);
-        if (cacheable) {
-          if (staticBandsDirty || !layer.baseCanvas ||
-              layer.baseCanvas.width !== layer.width ||
-              layer.baseCanvas.height !== layer.height) {
-            layer.image.data.fill(0);
-            for (let i = 0; i < staticCount; i++) blitObject(layer, ordered[i]);
-            if (!layer.baseCanvas) {
-              layer.baseCanvas = createCanvasSurface();
-              layer.baseCtx = layer.baseCanvas.getContext('2d');
-            }
-            layer.baseCanvas.width = layer.width;
-            layer.baseCanvas.height = layer.height;
-            layer.baseCtx.putImageData(layer.image, 0, 0);
-          }
-          layer.ctx.drawImage(layer.baseCanvas, 0, 0);
-          for (let i = staticCount; i < ordered.length; i++) {
-            drawObject(layer.ctx, ordered[i]);
-          }
-        } else {
-          layer.baseCanvas = null;
-          layer.baseCtx = null;
-          for (const obj of ordered) drawObject(layer.ctx, obj);
-        }
+        // GPU-composited: every object (map bands included) is a lazily
+        // baked per-sprite canvas blitted via drawImage — the same src-over
+        // math a per-layer software cache used to buy by re-using ONE
+        // pre-blended buffer, but here compositing itself is cheap enough
+        // (drawImage, not a JS pixel loop) that there is nothing left worth
+        // caching. See the port note above STATIC_BAND_MIN_ID.
+        for (const obj of ordered) drawObject(layer.ctx, obj);
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
-      staticBandsDirty = false;
       dirty = false;
     }
 
@@ -1463,20 +1371,18 @@
             });
             if (pendingCompressed) pendingDecodes++;
             // A sprite definition repaints the board only when a live object
-            // references it: a redefinition of a static-band sprite dirties
-            // the baked base, and one under any other visible object dirties
-            // the frame. Everything else — chiefly the rig-pose PREFETCH
-            // stream, which trickles future pose sprites a few per packet
-            // even while paused — defines pixels nothing displays yet, and
-            // must not force composites (the object add/retarget that later
-            // uses the sprite marks the change).
+            // references it. Everything else — chiefly the rig-pose
+            // PREFETCH stream, which trickles future pose sprites a few per
+            // packet even while paused — defines pixels nothing displays
+            // yet, and must not force composites (the object add/retarget
+            // that later uses the sprite marks the change). The redefined
+            // sprite already dropped its old .surface above (sprites.set
+            // wrote a fresh object), so spriteSurface() rebakes lazily on
+            // the next draw that touches it — no separate cache to dirty.
             for (const obj of objects.values()) {
               if (obj.spriteId !== id) continue;
               changed = true;
-              if (isStaticBand(obj)) {
-                staticBandsDirty = true;
-                break;
-              }
+              break;
             }
           }
         } else if (type === 0x02) {
@@ -1493,9 +1399,6 @@
               id, x, y, z, layer, spriteId,
               dispX: x, dispY: y, fromX: x, fromY: y, moveAt: 0
             });
-            if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-              staticBandsDirty = true;
-            }
             changed = true;
           } else if (obj.x !== x || obj.y !== y || obj.z !== z ||
               obj.layer !== layer || obj.spriteId !== spriteId) {
@@ -1532,9 +1435,6 @@
             obj.z = z;
             obj.layer = layer;
             obj.spriteId = spriteId;
-            if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-              staticBandsDirty = true;
-            }
             changed = true;
           }
         } else if (type === 0x03) {
@@ -1544,15 +1444,11 @@
           if (gone) {
             movingObjects.delete(gone);
             objects.delete(id);
-            if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
-              staticBandsDirty = true;
-            }
             changed = true;
           }
         } else if (type === 0x04) {
           objects.clear();
           movingObjects.clear();
-          staticBandsDirty = true;
           changed = true;
         } else if (type === 0x05) {
           const layerId = bytes[offset];
@@ -1561,18 +1457,15 @@
           offset += 5;
           // The server restates every layer's viewport on every packet. Only
           // an actual resize may take the full path: setViewport reallocates
-          // the layer's image and dirties the static-band bake, which would
-          // otherwise re-bake the full board once per packet — the exact
-          // per-frame cost the bake exists to avoid — and keep a paused
-          // board drawing forever.
+          // the layer's canvas, which would otherwise happen once per
+          // packet and keep a paused board drawing forever.
           const existing = layers.get(layerId);
-          if (!existing || !existing.image || existing.width !== width ||
+          if (!existing || !existing.viewportSet || existing.width !== width ||
               existing.height !== height) {
             setViewport(layers, layerId, width, height, () => {
               updateNativeSize();
               computeFit();
             });
-            staticBandsDirty = true;
             changed = true;
           }
         } else if (type === 0x06) {
