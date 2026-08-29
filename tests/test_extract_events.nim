@@ -139,9 +139,20 @@ suite "tier-2 event extraction (tools/extract_events)":
         # A phase boundary resets every hp (new game / lobby): restart traces.
         for slot in 0 ..< slotCount:
           lastHp[slot] = -1
+      of Achievement:
+        # GLORY PORT (GV46): the one other kind that repurposes hp/blocked --
+        # `claimAchievement` (sim.nim) emits `hp = tier`, `blocked =
+        # ord(effectiveFirst)` deliberately (see its own emitEvent call), so
+        # this fixture's own achievement claims (real GV46 combat now mints
+        # them) legitimately fail the blanket "every other kind is -1/0"
+        # assumption below -- carved out here instead of loosening that
+        # assumption for every kind.
+        check event.hp >= 0 and event.hp < AchievementTiers
+        check event.blocked in [0, 1]
       else:
         check event.hp == -1
-        # `blocked` is Damage-only; every other kind carries 0.
+        # `blocked` is Damage-only (and Achievement's own tier/first pair,
+        # carved out above); every other kind carries 0.
         check event.blocked == 0
     check sawGunKill
     check sawSprayKill

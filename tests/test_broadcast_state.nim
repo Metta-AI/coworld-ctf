@@ -35,7 +35,11 @@ const
   # ramp test (test_replay_scan) watches this fixture just past the last
   # steal and its per-frame band allowance assumes a single powered-down
   # endzone — a double-steal ending ships both teams' bands at once and
-  # busts the bound, so re-record until the last carry stands alone.
+  # busts the bound, so re-record until the last carry stands alone. STILL
+  # TRUE at GV46 (glory port re-record): the first take landed a double-
+  # steal ending (busted test_replay_scan) as well as a same-seed Red win
+  # (a seed does not pin the outcome — AGENTS.md); re-recorded to a clean
+  # single-carry Blue win on the second attempt.
   CaptureFixture = FixtureDir / "capture-seed1.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
@@ -158,8 +162,12 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 44,
-      # seed 1: Blue captures the red heart, eliminating Red).
+      # is pinned to the current recording of the fixture (GameVersion 46
+      # re-record, seed 1: Blue captures the red heart, eliminating Red --
+      # a single clean carry, per this file's own header note; the first
+      # GV46 take landed a double-steal ending [busts the endzone-fade
+      # ramp bound in test_replay_scan] and a Red win, re-recorded to this
+      # clean take instead of re-pinning a fixture the OTHER suite rejects).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
       check state["over"]["winner"].getStr == "blue"
@@ -304,3 +312,46 @@ suite "broadcast state channel":
       check state["over"]["draw"].getBool == true
     finally:
       setCurrentDir(previousDir)
+
+  test "GLORY VISIBLE: roster carries the earned rank word, deeds, and this-round achievements":
+    ## Asserted against the SOURCE (glory.nim's own `levelForXp`/`levelName`
+    ## and the exact per-player counters broadcast.nim's "deeds" comment
+    ## names), not restated prose -- a test that only echoes the claim can't
+    ## catch a regression in it.
+    var sim = twoTeamGame()
+    sim.players[0].xp = 15
+    sim.players[0].level = levelForXp(sim.players[0].xp)
+    # Deeds: kills/captures/steals -- the exact fields broadcast.nim sums,
+    # each incrementing 1:1 with its own award site (recordKill/
+    # recordCapture/the steal award in sim.nim), never double-counted by
+    # the per-weapon breakdown fields (gunKills/sprayKills/... ride
+    # alongside `.kills`, not on top of it).
+    sim.players[0].kills = 3
+    sim.players[0].captures = 1
+    sim.players[0].steals = 2
+    # Individually credited to player 0 (byIndex = 0) -- counts toward its
+    # "ach". A TEAM-tree claim (no byIndex) must NOT count toward anyone.
+    sim.claimAchievement(Red, treeGun, 0, isFirst = true, byIndex = 0)
+    sim.claimAchievement(Blue, treeSquad, 3, isFirst = true)
+
+    let state = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 100, false, true, -1, -1
+    ))
+    var seat0, seat1: JsonNode
+    for seat in state["roster"]:
+      if seat["s"].getInt == sim.players[0].joinOrder: seat0 = seat
+      if seat["s"].getInt == sim.players[1].joinOrder: seat1 = seat
+    check not seat0.isNil
+    check not seat1.isNil
+    check seat0["lvl"].getInt == levelForXp(15)
+    check seat0["rank"].getStr == levelName(levelForXp(15))
+    check seat0["xp"].getInt == 15
+    check seat0["deeds"].getInt == 3 + 1 + 2
+    check seat0["ach"].getInt == 1     # the treeGun claim, credited to it
+    check seat1["ach"].getInt == 0     # the treeSquad claim has no single owner
+    # A never-leveled, never-acted seat reports the base rank honestly —
+    # the reset-on-death identity trap this pass's own report documents
+    # (a cog that never left level 0 looks identical to one that died back
+    # down to it; the wire surfaces engine-truth either way).
+    check seat1["rank"].getStr == "primer"
+    check seat1["deeds"].getInt == 0
