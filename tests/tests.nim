@@ -38,5 +38,6 @@ import
   test_artlog,
   test_clock_floor,
   test_glory,
-  test_glory_sim
+  test_glory_sim,
+  test_policy_page
 {.warning[UnusedImport]: on.}
