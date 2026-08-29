@@ -1288,6 +1288,17 @@ html, body {
   font-style: italic;
 }
 #endcard .ec-frow.ec-fcompressed .ec-fname { color: var(--paper-dim); }
+/* GLORY VISIBLE: the earned rank word/star-count, wherever a name is shown —
+   the BR field row's representative cog (teamTopRank) and the classic
+   per-player table (ec-rank, below). Glyphs only (the star count already
+   IS the rank at a glance, per the cheat sheet's own convention); the full
+   word rides the title tooltip so it never fights the row for width. */
+#endcard .ec-frank-stars {
+  margin-left: calc(4 * var(--u));
+  color: var(--amber);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 1px;
+}
 #endcard .ec-team {
   width: calc(215 * var(--u));
   padding: calc(9 * var(--u)) calc(12 * var(--u));
@@ -1385,6 +1396,27 @@ html, body {
   overflow: hidden;
 }
 #endcard .ec-row .pcell .pname { flex: 0 1 auto; min-width: 7ch; }
+/* GLORY VISIBLE: rank stars + the round's most notable claimed achievement,
+   riding the same pcell honor-badge row the backstab mark already uses —
+   text only (no new icon art in this pass), so the vocabulary reads as
+   EARNED (rank names, stars) rather than invented decoration. */
+#endcard .ec-rank {
+  flex: none;
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 1px;
+  color: var(--amber);
+}
+#endcard .ec-ach {
+  flex: none;
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  font-style: italic;
+  color: var(--paper-dim);
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* honor badges: baked 2x pixel-art icons (nano-banana), luminance-keyed to
    transparency; a repeat count rides after the icon as fine print */
 #endcard .ec-badge {
@@ -3937,6 +3969,43 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return flags.map(capturedHeartHtml).join('');
   }
 
+  // ---- GLORY VISIBLE: rank + notable achievements, shared by the classic
+  // per-player table and the BR field rows -------------------------------
+  // Stars only, glyph-for-glyph with the Season 2 cheat sheet's own RANK UP
+  // rows (0 stars at Primer up to 5 at Maestro) — the ladder is `LevelNames`
+  // (glory.nim), 0..MaxLevel(5), already carried on the roster as `lvl`.
+  function rankStars(lvl) {
+    var n = Math.max(0, Math.min(5, lvl || 0));
+    return n > 0 ? new Array(n + 1).join('✳') : '';
+  }
+  // The round's achievement feed (`over.achievements`, GV46 port) is shipped
+  // ONLY on the game-over frame and carries the join `slot` of the cog whose
+  // counters satisfied the tier (-1 for a team tree like Squad Volley, which
+  // no single cog owns — excluded here, same rule `achievementsThisRound`
+  // uses server-side for the roster's own `ach` count). Sorted richest-first
+  // so "notable" means "biggest", not "first claimed".
+  function notableAchievements(s, slot) {
+    if (!s.over || !s.over.achievements) return [];
+    return s.over.achievements.filter(function (a) { return a.slot === slot; })
+      .slice().sort(function (a, b) { return (b.glory || 0) - (a.glory || 0); });
+  }
+  // This team's own top-ranked cog (ties broken by xp, then kills) — the BR
+  // field has no per-player rows of its own, so a team's rank badge and the
+  // winner hero's spoken rank both borrow this one cog as the team's rep.
+  function teamTopRank(s, team) {
+    var best = null;
+    (s.roster || []).forEach(function (p) {
+      if (p.team !== team) return;
+      if (!best || (p.lvl || 0) > (best.lvl || 0) ||
+          ((p.lvl || 0) === (best.lvl || 0) && (p.xp || 0) > (best.xp || 0)) ||
+          ((p.lvl || 0) === (best.lvl || 0) && (p.xp || 0) === (best.xp || 0) &&
+           (p.k || 0) > (best.k || 0))) {
+        best = p;
+      }
+    });
+    return best;
+  }
+
   function renderEndcardRows(s, team, el, mvpSlot) {
     // Final per-player stat lines, top killer first. The MVP (winning team's
     // best line) reads in amber — no star prefix, it would break the name
@@ -3944,7 +4013,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // Cap column renders each captured heart itself, one per capture, in the
     // captured team's color; a dagger icon marks
     // teammate kills. A mixed team (2+ policies) groups its rows under policy
-    // subheaders so each policy's contribution reads separately.
+    // subheaders so each policy's contribution reads separately. GLORY
+    // VISIBLE: a rank star-count and the round's single most notable claimed
+    // achievement ride the name cell too, same row the backstab mark uses —
+    // these are glory-PRICED numbers now, so the vocabulary (rank, stars) is
+    // earned, not decoration (see this pass's own report).
     var rows = (s.roster || []).filter(function (p) { return p.team === team; })
       .slice().sort(endcardOrder);
     var pols = teamPolicies(s, team);
@@ -3954,10 +4027,21 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var mvp = mvpSlot != null && p.s === mvpSlot;
       var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
       var cluster = (p.mk2 || 0) + (p.mk3 || 0);
+      var stars = rankStars(p.lvl);
+      var rankHtml = stars
+        ? '<span class="ec-rank" title="Rank: ' + esc((p.rank || '').toUpperCase()) + '">' + stars + '</span>'
+        : '';
+      var claims = notableAchievements(s, p.s);
+      var achHtml = '';
+      if (claims.length) {
+        var label = claims[0].name + (claims.length > 1 ? ' +' + (claims.length - 1) : '');
+        var titleAll = claims.map(function (c) { return c.name; }).join(', ');
+        achHtml = '<span class="ec-ach" title="' + esc(titleAll) + '">' + esc(label) + '</span>';
+      }
       return '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
         '<span class="pcell">' +
         '<span class="pname">' + esc(shortName(rosterName(s, p.s))) + '</span>' +
-        marks +
+        rankHtml + achHtml + marks +
         '</span>' +
         '<span class="n">' + (p.k || 0) + '</span>' +
         '<span class="n">' + (p.d || 0) + '</span>' +
@@ -4049,9 +4133,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // wire's over.teams[team].place when the server ships it (BR games only);
   // an older replay without that field falls back to final-lives ordering —
   // an honest approximation (ties at 0 lives keep their activeTeams order),
-  // never invented elimination time. No glory/XP/rank vocabulary anywhere
-  // here — kills/lives/placement are exactly what's computed, named for
-  // what they are.
+  // never invented elimination time. GLORY VISIBLE (this pass): the winner's
+  // hero line now speaks their rank ("MAESTRO — Outlasted N rival teams…"),
+  // borrowing that team's own top-ranked cog (`teamTopRank`) as its rep —
+  // BR's "team" is most often one seat, so this reads as the winning cog's
+  // own rank in the common case. Kills/lives/placement stay exactly what's
+  // computed, named for what they are; rank is the one number that can
+  // legitimately read 0/Primer for a team whose best cog never leveled.
   function renderEndcardBR(s, o, teams) {
     var winner = o.draw ? null : o.winner;
     var ranked = teams.slice().sort(function (a, b) {
@@ -4070,7 +4158,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
       var heroKills = teamKillTotal(s, winner);
-      heroLine.textContent = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
+      var heroTop = teamTopRank(s, winner);
+      var rankPrefix = heroTop ? esc((heroTop.rank || 'primer').toUpperCase()) + ' — ' : '';
+      heroLine.innerHTML = rankPrefix + 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
         ' — ' + heroAlive + ' of ' + heroSeats + (heroSeats === 1 ? ' cog' : ' cogs') +
         ' standing · ' + heroKills + (heroKills === 1 ? ' kill' : ' kills');
     } else {
@@ -4086,10 +4176,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     shown.forEach(function (team, i) {
       var place = (o.teams[team] && o.teams[team].place) || (i + (winner ? 2 : 1));
       var lv = overLives(o, team);
+      var top = teamTopRank(s, team);
+      var stars = top ? rankStars(top.lvl) : '';
+      var starsHtml = stars
+        ? '<span class="ec-frank-stars" title="' + esc((top.rank || '').toUpperCase()) + '">' + stars + '</span>'
+        : '';
       html += '<div class="ec-frow">' +
         '<span class="ec-frank">' + ordinal(place) + '</span>' +
         '<span class="ec-fname" style="--tc:' + (teamCol(team) || AMBER) + '">' +
-        esc(teamName(s, team, team.toUpperCase())) + '</span>' +
+        esc(teamName(s, team, team.toUpperCase())) + starsHtml + '</span>' +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
         '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
         '</div>';

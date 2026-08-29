@@ -260,6 +260,20 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
       "miss": sim.config.missPermilleFor(team) div 10
     }
 
+proc achievementsThisRound(sim: SimServer, slot: int): int =
+  ## Achievements this specific cog was individually credited for, this
+  ## round -- a count over `sim.achievementFeed` (reset once per game by
+  ## `resetGloryLedger`, called from `startGame`, so "this round" and "this
+  ## game" are the same window on BR's one-round-per-episode shape).
+  ## `AchievementClaim.slot` is the join slot of the cog whose counters
+  ## SATISFIED the tier, or -1 for a team tree (`treeSquad`) that no single
+  ## cog can own -- those are excluded here on purpose, same as the engine's
+  ## own attribution rule: a team's total already reads out of `teamGlory`,
+  ## this is the individually-EARNED count only.
+  for claim in sim.achievementFeed:
+    if claim.slot == slot:
+      inc result
+
 proc rosterJson(sim: SimServer): JsonNode =
   ## Returns the per-player roster array keyed by stable join slot.
   result = newJArray()
@@ -285,7 +299,36 @@ proc rosterJson(sim: SimServer): JsonNode =
       # only so a seated human's own rank is visible without decoding it
       # from the deed/level-up event stream.
       "xp": p.xp,
-      "lvl": p.level
+      "lvl": p.level,
+      # GLORY VISIBLE (this pass): the wire-named rank word (`LevelNames`,
+      # the Maxwell 2026-08-28 rename -- primer/dabbler/splatter/drencher/
+      # artist/maestro), so a client never has to hardcode the ladder just
+      # to print a rank a human can read. NOTE the reset: `resetLadder`
+      # zeros xp/level on EVERY death, including a BR elimination (see its
+      # own "ANTI-SNOWBALL" comment) -- a cog that died mid-match reports
+      # "primer" here even if it peaked at Maestro earlier in its one life.
+      # That is the engine's actual, intended state (the ladder really did
+      # reset), not a wire bug -- surfaced as-is, same rule as the seat-
+      # identity trap below.
+      "rank": levelName(p.level),
+      # Deeds this cog PERSONALLY earned this round: every non-friendly OR
+      # friendly kill mints exactly one classified deed via `killDeed`
+      # (dHonorableKill/dSprayKill/.../dTeamKill -- `.kills` already counts
+      # every one of them, mutually exclusively, so summing the per-weapon
+      # breakdown fields on top would double count), plus `.captures`
+      # (dCapture) and `.steals` (dFlagSteal, flag-keyed -- permanently 0 on
+      # a real flagless BR map). Excludes the zero-priced, never-celebrated
+      # tombstoned deeds (dClutchHeal/dShieldSoak/dLevelUp -- see glory.nim's
+      # own "ABOVE AND BEYOND" law) and the team-wide dWipe/dFirstBlood
+      # bonus, neither of which has a single-cog owner to attribute to.
+      # Unlike xp/level above, these counters are NOT touched by
+      # `resetLadder`, so a cog that died still shows its full lifetime
+      # tally here.
+      "deeds": p.kills + p.captures + p.steals,
+      # Achievement tiers this cog was individually the focus cog for, this
+      # round (see `achievementsThisRound`'s own doc comment). Also survives
+      # death -- `sim.achievementFeed` is never touched by `resetLadder`.
+      "ach": sim.achievementsThisRound(p.joinOrder)
     }
     # This seat's perks, wire-named (PerkNames), present only when it has any
     # — so a perk-free game's roster is byte-identical and the scorebug can
