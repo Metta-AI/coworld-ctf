@@ -79,9 +79,14 @@
   }
 
   // Which rotate button traverses shortest toward `desired`? null = park.
-  // This is the whole of "mouse aim": there is no analog aim field on the
-  // wire (the server decodes and DISCARDS mouse packets, global.nim:1339),
-  // so a human aims exactly the way a policy does -- one rotate button/tick.
+  // This is the whole of "mouse aim" on a plain /player connection: the
+  // server there decodes and DISCARDS mouse packets (global.nim
+  // applyPlayerViewerMessage used to discard SpriteClientMouseMoveMessage
+  // outright), so a human aims exactly the way a policy does -- one rotate
+  // button per tick. A /takeover connection with directAim granted is the
+  // exception: the server now KEEPS that same message kind there and drives
+  // the turret from it directly (see player_client.html's directAimActive),
+  // and that path calls this function only as the (now-inert) fallback.
   function rotateButton(estAim, desiredAim) {
     const d = shortestDelta(estAim, desiredAim);
     if (Math.abs(d) < AIM_DEADZONE) return null;

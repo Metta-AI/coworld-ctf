@@ -494,6 +494,53 @@ let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
    open-loop for a whole session, exactly as PROTOCOL.md promises.
 ==================================================================== */
 const CC=CtfControls;
+/* ---- Direct aim (docs/PROTOCOL.md "Your own aim" + the /takeover
+   direct-aim channel) ----------------------------------------------------
+   The takeover wrapper (client/takeover.html) is the only thing that ever
+   ASKS for this: it fetches /capabilities first, and only when the server
+   arms allowDirectAim does it append `directAim=1` to the /takeover socket
+   URL it hands us as our own `address` query param. The grant is
+   all-or-nothing at the socket upgrade -- a request for a capability the
+   config does not arm gets the WHOLE connection refused, never silently
+   downgraded (src/ctf/server.nim takeoverRejection: "the direct-aim arm
+   REFUSES rather than downgrading"). So if that flag survived onto the URL
+   we actually connected to, the grant already happened; there is no extra
+   round trip needed here to confirm it. A plain /player join (the
+   overwhelmingly common case -- no takeover in play) never carries the
+   param, directAimActive stays false, and every line below is inert: aim
+   falls back to the rotate-button chase exactly as before this fix.
+
+   Once active, applyPlayerViewerMessage (src/ctf/global.nim, `of
+   SpriteClientMouseMoveMessage:`) is the decode site: it KEEPS a board-layer
+   cursor position (comment there: "this is the whole of the direct-aim
+   channel"), server.nim's per-tick takeover loop turns it into
+   aimTargets[cog], and sim.applyDirectAim writes it onto aimBrads BEFORE
+   that tick's sim.step -- one write, not a traverse
+   (tests/test_direct_aim.nim: "a flick lands in ONE tick, where the
+   traverse needs twenty-six"). Sending on every mousemove is the same rate
+   client/broadcast_core.js's clickMap() already sends at for the global
+   viewer's own pointer, through the identical wire encoding (opcode 0x82,
+   below) and the SAME parseSpriteClientMessages parser on the other end. */
+const directAimActive=(()=>{
+  try{
+    const flag=new URL(a,location.href).searchParams.get("directAim");
+    return !!flag&&["1","true","yes"].includes(flag);
+  }catch(e){return false}
+})();
+let lastSentAimX=null,lastSentAimY=null;
+function sendDirectAim(px,py){
+  if(!directAimActive||!spriteMode||!w||w.readyState!==1)return;
+  px=Math.max(-32768,Math.min(32767,Math.round(px)));
+  py=Math.max(-32768,Math.min(32767,Math.round(py)));
+  if(px===lastSentAimX&&py===lastSentAimY)return; // dedupe, same idea as sendMask's l===mask guard
+  lastSentAimX=px;lastSentAimY=py;
+  const b=new Uint8Array(6);
+  b[0]=0x82; // SpriteClientMouseMove (bitworld spriteprotocol.nim)
+  b[1]=px&255;b[2]=(px>>8)&255;
+  b[3]=py&255;b[4]=(py>>8)&255;
+  b[5]=0; // MapLayerId (src/ctf/sim_types.nim) -- the only layer applyPlayerViewerMessage accepts besides FogLayerId
+  w.send(b);
+}
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
 let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=false;
@@ -707,7 +754,12 @@ function controlsTick(){
   else if(seatedNow)isDead=false;
   wasSeated=seatedNow;
   let rot=null;
-  if(aimSeeded&&selfPos&&haveMouse&&!z){
+  /* directAimActive: the cursor already drives the turret directly (see the
+     block above) -- ALSO chasing it with the rotate buttons would fight the
+     direct write: sim.step's own aimTurnRate rotation runs the same tick,
+     after applyDirectAim's, so a held b/select bit would walk the turret
+     back off the cursor by aimTurnRate every tick instead of holding it. */
+  if(!directAimActive&&aimSeeded&&selfPos&&haveMouse&&!z){
     rot=CC.rotateButton(estAim,
       CC.bradsOfVector(Math.round(mouseX-selfPos.x),Math.round(mouseY-selfPos.y)));
   }
@@ -867,7 +919,7 @@ function startFireLoop(){
 function stopFireLoop(){
   if(fireLoopTimer){clearInterval(fireLoopTimer);fireLoopTimer=null}
 }
-addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true});
+addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true;sendDirectAim(mouseX,mouseY)});
 c.addEventListener("mousedown",e=>{
   if(e.button===0){
     lmb=true;e.preventDefault();
