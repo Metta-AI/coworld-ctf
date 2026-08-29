@@ -236,3 +236,67 @@ suite "freeplay: a pending takeover parks on a cog that is already down":
     arrival.registerPending(0)
     migratePendingTakeovers(@[snap(0, 0, true), snap(1, 1, false, 3)])
     check appState.takeovers[arrival].seat == 0
+
+suite "freeplay seat picker in brMode: alive is the fast seat, not the slow one":
+  # sim.nim's killPlayer forces lives=0/respawnTimer=0 on a brMode death,
+  # permanently -- a "down" brMode cog never comes back this round. The
+  # classic-mode rule (prefer down, soonest respawn) would confidently hand
+  # every BR arrival the ONE cog guaranteed to never land. preferAlive=true
+  # is the whole fix: root-caused against the seat-resolution delay family.
+  test "an ALIVE cog is preferred over one that is permanently down":
+    let board = @[
+      snap(0, 0, false, 0), snap(1, 1, true), snap(2, 2, false, 0)
+    ]
+    let pick = pickFreeplaySeat(board, @[], 3, preferAlive = true)
+    check pick.seat == 1
+    check pick.waitTicks == 0
+
+  test "classic mode on the SAME board still prefers the down cog":
+    # Same board, opposite ranking -- proves the two modes are not
+    # accidentally sharing an answer.
+    let board = @[
+      snap(0, 0, false, 0), snap(1, 1, true), snap(2, 2, false, 0)
+    ]
+    check pickFreeplaySeat(board, @[], 3).seat in [0, 2]
+
+  test "an all-eliminated board still seats you, and does not guess the wait":
+    let board = @[snap(0, 0, false, 0), snap(1, 1, false, 0)]
+    let pick = pickFreeplaySeat(board, @[0], 2, preferAlive = true)
+    check pick.seat == 1
+    check pick.waitTicks == -1
+
+  test "a seat someone already holds is never handed out twice, brMode too":
+    let board = @[snap(0, 0, true), snap(1, 1, true)]
+    check pickFreeplaySeat(board, @[0], 2, preferAlive = true).seat == 1
+    check pickFreeplaySeat(board, @[0, 1], 2, preferAlive = true).seat == -1
+
+suite "freeplay: a pending brMode takeover parks on a cog that is ALIVE":
+  setup:
+    initAppState()
+
+  test "a human on a permanently-down cog is moved to one that is alive":
+    let human = cast[WebSocket](1)
+    human.registerPending(0)
+    migratePendingTakeovers(
+      @[snap(0, 0, false, 0), snap(1, 1, true), snap(2, 2, false, 0)],
+      preferAlive = true
+    )
+    check appState.takeovers[human].seat == 1
+    check appState.takeovers[human].requestedSeat == 0
+    check not appState.takeovers[human].observed
+
+  test "already parked on an alive cog, it never hops to an eliminated one":
+    let human = cast[WebSocket](1)
+    human.registerPending(3)
+    migratePendingTakeovers(
+      @[snap(3, 3, true), snap(1, 1, true)], preferAlive = true)
+    check appState.takeovers[human].seat == 3
+
+  test "an all-eliminated field leaves the seat exactly where it was":
+    # Nothing to migrate to -- every candidate is permanently down. Stay put
+    # rather than hop between two dead cogs.
+    let human = cast[WebSocket](1)
+    human.registerPending(6)
+    migratePendingTakeovers(
+      @[snap(6, 6, false, 0), snap(1, 1, false, 0)], preferAlive = true)
+    check appState.takeovers[human].seat == 6
