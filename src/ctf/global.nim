@@ -1,9 +1,18 @@
 import
-  std/[algorithm, heapqueue, math, os, strutils, tables, times],
+  std/[algorithm, atomics, heapqueue, math, os, strutils, tables, times],
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
   labels, sim
+
+# --- Verify-to-close instrumentation (01b2eead, 2026-08-28) --------------
+# DIAGNOSTIC ONLY: a `sample` profile of the churn repro showed ~83% of
+# tick-loop CPU inside dedupObjectPlacements + chunkSpritePacket, both
+# walking the FULL undeduped packet -- which only happens when a viewer's
+# sentPlacements table is empty (a brand-new /takeover connection, or one
+# just reset). This counter proves that code path fires at churn rate, not
+# steady-state rate: read via /health/frame, no lock, zero gameplay effect.
+var coldDedupCalls*: Atomic[int64]
 
 const
   BroadcastChromeSpriteId* = 4090
@@ -3441,6 +3450,7 @@ proc dedupObjectPlacements*(
   ## proc in the whole server.
   result = newSeqOfCap[uint8](packet.len)
   if sentPlacements.len == 0:
+    discard coldDedupCalls.fetchAdd(1)
     sentPlacements.setLen(65536)
   var
     offset = 0

@@ -1131,7 +1131,10 @@ proc httpHandler(request: Request) =
     headers["Content-Type"] = "application/json; charset=utf-8"
     headers["Cache-Control"] = "no-cache"
     headers["Access-Control-Allow-Origin"] = "*"
-    request.respond(200, headers, $(%*{"tick": verifyFrameCounter.load()}))
+    request.respond(200, headers, $(%*{
+      "tick": verifyFrameCounter.load(),
+      "coldDedup": global.coldDedupCalls.load()
+    }))
   elif request.path == CapabilitiesPath and request.httpMethod == "GET":
     var headers: HttpHeaders
     headers["Content-Type"] = "application/json; charset=utf-8"
