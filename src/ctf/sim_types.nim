@@ -10,11 +10,22 @@
 ## POSITIONALLY into replay keyframes, so declaration/field order here is
 ## wire format — reorder nothing without a GameVersion bump.
 
+# GLORY PORT (increment 2/3): `glory` is a zero-import, pure module (same
+# "players/baseline compiles with no data/ dir" constraint sim_types itself
+# is written to respect), so importing it here carries no cycle and no
+# asset-cone risk. `Player`/`SimServer` need `Deed`/`Tree`/`AchievementTrees`/
+# `AchievementTiers` for their own new fields below. Exported (not just
+# imported) so every downstream module already getting sim_types
+# transitively (the "import sim_types, ...; export sim_types, ..." pattern
+# every split file uses) also gets glory's Deed/awardDeed-helper symbols,
+# without a re-import per consumer.
 import
   std/[math, random],
   bitworld/pixelfonts,
   bitworld/server,
-  pixie
+  pixie,
+  glory
+export glory
 
 const
   GameName* = "ctf"
@@ -474,6 +485,22 @@ const
                               ## after a hit (cosmetic only, never in gameHash).
   KillFxTicks* = 44           ## ~1.8s a floating "SPLAT" kill marker rises and fades
                               ## after a death (cosmetic only, never in gameHash).
+  # ── GLORY PORT (increment 2/3) — cosmetic pop tuning, ported verbatim from main's
+  # sim.nim. Pricing itself lives in glory.nim; these are FX-channel-only
+  # (never gameHash) constants that govern how the "+Ng" pops stack/queue.
+  GloryFxTicks* = 40          ## ~1.7s a floating "+Ng" score pop rises and
+                              ## fades at the site of the deed that minted
+                              ## it -- longer than DamageFxTicks because it
+                              ## is the REWARD and should outlive the wound.
+  AchievementFxTicks* = 84    ## ~3.5s an achievement's NAME holds over the
+                              ## cog that earned it -- a named moment, not a
+                              ## tick of income.
+  GloryPopCoalescePx* = 10    ## one tick, one team, this close = ONE pop.
+  GloryPopMaxStack* = 3       ## deepest visible stack at one site.
+  GloryPopStaggerTicks* = 10  ## site-stacked (no single earner) pop stagger.
+  GloryPopUnitQueueCap* = 4   ## most pops one EARNER may have queued at once.
+  GloryPopUnitStaggerTicks* = 36  ## ticks between one queued pop's start and
+                              ## the next FOR THE SAME EARNER.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -1907,6 +1934,144 @@ type
                                ## exactly the case an LLM produces most —
                                ## reasserting the current plan.
 
+    # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
+    # Ported field-for-field from main's src/ctf/glory.nim-era Player
+    # (verified by diffing the two struct bodies, not eyeballed). Appended
+    # at the END of the object per this file's own flatty-positional rule.
+    #
+    # INCREMENT BOUNDARY: `sim_state.gameHash` is an explicit fixed field
+    # list, not reflective, so none of these fields are mixed into it here
+    # — they are read/written but provably inert to replay determinism.
+    # Every per-field "causal (hashed)"/"in gameHash" comment below
+    # describes this porch's EVENTUAL (increment 3) status, ported verbatim
+    # from main rather than rewritten field-by-field; until increment 3
+    # actually adds the causal subset to `gameHash` (and pays the one
+    # deliberate fixture re-record that move costs), read every such claim
+    # as "will be" rather than "is". `GameVersion` stays 45 for the same
+    # reason: nothing here is causal yet, so no replay's rules changed.
+    #
+    # Ten of these (steals/carrierKills/denials/stealTickThisLife/
+    # contestedSteals/carryKills/capturedOutnumbered/capturedFastBreak/
+    # peelTick/escortKills) are flag-keyed and therefore PERMANENTLY AT
+    # THEIR DEFAULT on every real BR map (flagless is unconditional --
+    # `tryPickupFlags` refuses outright, sim.nim). Cut instead (not merely
+    # inert): the four supply-drop-specific fields main also carries
+    # (`supplyDropCredit`/`supplyDropsThisLife`/`supplyShared`/
+    # `supplySaves`, plus analysis-only `lastSupplyDropTick`) — BR ships no
+    # supply-drop mechanic in this pass (see `glory.nim`'s header), so
+    # there is no feature for these fields to describe. Absent feature,
+    # absent fields, not stubbed-and-dead ones.
+    xp*: int                   ## GLORY: experience earned THIS LIFE. Causal
+                               ## (drives buffs via `levelForXp`), so it is
+                               ## in gameHash. On BR, "this life" IS the
+                               ## episode for that seat — `killPlayer` sets
+                               ## `lives = 0` on any brMode death, so the
+                               ## `resetLadder` call at that death is a
+                               ## no-op in every practical sense (see
+                               ## glory.nim's header for the full note).
+    level*: int                ## GLORY: 0..MaxLevel, cached from `xp` so
+                               ## the wire, the hash and the buff sites can
+                               ## never disagree about what a cog currently
+                               ## is.
+    grenadeCharges*: int       ## GLORY: throws left on the carried
+                               ## grenade; a L4+ pickup yields two.
+    gunKills*, sprayKills*, grenadeKills*: int  ## GLORY achievement
+                               ## counters, per game.
+    longshotKills*: int        ## GLORY: kills past `LongshotPx`.
+    soakedHp*: int             ## GLORY: hit points this cog's shield
+                               ## absorbed.
+    clutchHeals*: int          ## GLORY: heals taken at 1 hp. Gates no
+                               ## achievement any more (self-care law), kept
+                               ## as analysis-only telemetry that still
+                               ## rides the hash for replay determinism,
+                               ## same status main gave it.
+    steals*, carrierKills*, denials*: int  ## GLORY objective counters --
+                               ## flag-keyed, PERMANENTLY ZERO on every real
+                               ## (flagless) BR map. See this block's own
+                               ## header note.
+    sprayKillsThisPickup*: int ## GLORY: resets when the can is taken or
+                               ## lost.
+    aceKills*: int             ## GLORY: non-friendly kills on a
+                               ## level>=AceLevel victim (the `Bounty` gate).
+    sprayMultiKills*: int      ## GLORY: spray cone activations that killed
+                               ## 2+ ENEMIES in one activation.
+    grenadeMultiKills*: int    ## GLORY: grenade blasts that killed 2+
+                               ## ENEMIES in one blast.
+    clutchCarryHeals*: int     ## GLORY: analysis-only telemetry, no gate
+                               ## reads it (self-care law); rides the hash
+                               ## for replay determinism, same as main.
+    stealTickThisLife*: int    ## GLORY: tick this life stole a heart, -1 =
+                               ## never. Flag-keyed, permanently -1 on real
+                               ## BR maps.
+    clutchHealTick*: int       ## GLORY: tick of the latest clutch heal, -1
+                               ## = never.
+    peelTick*: int             ## GLORY: tick of the latest carrier kill,
+                               ## -1 = never. Flag-keyed, permanently -1 on
+                               ## real BR maps.
+    contestedSteals*: int      ## GLORY: steals landed while a live enemy
+                               ## stood within `ContestedStealPx` (the
+                               ## `Hands On` gate). Flag-keyed.
+    carryKills*: int           ## GLORY: non-friendly kills landed WHILE
+                               ## THIS COG carried the enemy heart (the
+                               ## `Fighting Carry` gate). Flag-keyed.
+    secondWind*: bool          ## GLORY: true once a non-friendly kill has
+                               ## landed within `SecondWindTicks` of this
+                               ## cog's latest RESCUE (the `Second Wind`
+                               ## gate, treeShield). NOT flag-keyed --
+                               ## reachable on real BR maps.
+    capturedOutnumbered*: bool ## GLORY: true once a capture has landed
+                               ## while this cog's team was strictly behind
+                               ## on live bodies (the `Uphill` gate).
+                               ## Flag-keyed (needs a capture).
+    capturedFastBreak*: bool   ## GLORY: true once a capture has landed
+                               ## within `FastBreakTicks` of this life's own
+                               ## steal (the `Fast Break` gate). Flag-keyed.
+    lastDamagedBy*: int        ## GLORY: index of the last ENEMY whose hit
+                               ## left this cog ALIVE -- set at every
+                               ## enemy-damage application, but never by a
+                               ## finishing hit, so this always names the
+                               ## SET-UP, never the finisher (the `ASSIST`
+                               ## gate's own input). -1 = never. NOT
+                               ## flag-keyed -- reachable on real BR maps,
+                               ## and BR's `absorbDamage` already receives
+                               ## `attackerIndex` at its one chokepoint, so
+                               ## this needs no new plumbing to set.
+    lastDamagedByTick*: int    ## GLORY: tick of that hit, -1 = never.
+    menacingTick*: int         ## GLORY: tick this cog LAST reduced an enemy
+                               ## to at/near clutch hp and left them alive --
+                               ## pinned on the ATTACKER (the RESCUE gate's
+                               ## own input). -1 = never. NOT flag-keyed.
+    menacingVictim*: int       ## GLORY: index of the cog THIS cog was
+                               ## menacing at `menacingTick`. -1 = none.
+    rescuedTick*: int          ## GLORY: tick this cog was LAST rescued --
+                               ## feeds the re-gated `Second Wind`. -1 =
+                               ## never. NOT flag-keyed.
+    assists*: int              ## GLORY: non-friendly kills where THIS cog
+                               ## dealt the victim's `lastDamagedBy` hit
+                               ## (the `Cover Fire` gate). NOT flag-keyed.
+    rescues*: int              ## GLORY: RESCUE kills this cog has landed
+                               ## (the `The Save` gate). NOT flag-keyed.
+    escortKills*: int          ## GLORY: non-friendly kills landed while a
+                               ## TEAMMATE (not this cog) ran the enemy
+                               ## heart (the `Escort Duty` gate). Flag-keyed.
+    # ── GLORY analysis-only (never in gameHash) ─────────────────────────
+    arcEnemyKillsThisFire*: int ## GLORY: non-friendly kills scored by the
+                               ## current spray activation; feeds
+                               ## `sprayMultiKills`. Transient, excluded.
+    lastKilledBy*: int         ## GLORY: player index of this cog's latest
+                               ## killer, -1 = none. Feeds the revenge deed.
+                               ## Excluded from gameHash: `killDeed`'s
+                               ## revenge check reads it, but the RESOLVED
+                               ## deed it feeds into is itself hashed via
+                               ## `teamGlory`/the deed-counting achievement
+                               ## trail, so this raw pointer need not ride
+                               ## along separately -- same status main gave
+                               ## it.
+    lastKilledByTick*: int     ## GLORY: tick of that death, -1 = never.
+    tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool  ## GLORY:
+                               ## analysis-only pickup-touched flags, same
+                               ## status main gave them.
+
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
     ## cells). The expensive shadowcast pass depends only on the viewer's
@@ -2041,6 +2206,52 @@ type
     kill*: bool                ## a fatal hit: drawn as a "SPLAT" kill marker that
                                ## lives KillFxTicks instead of the "-N" number.
 
+  GloryFx* = object
+    ## GLORY PORT (increment 2/3), ported from main's SimServer type block. A
+    ## cosmetic floating GLORY score pop -- the FPS hitmarker: not a damage
+    ## number but the "+100" that tells you the deed PAID, at the exact
+    ## pixel it happened. Never enters gameHash (replay-safe); `awardDeed`
+    ## is the single mint and this is its shadow.
+    x*, y*: int                ## the deed site (victim center, pedestal, cog).
+    tick*: int                 ## when it was minted.
+    amount*: int               ## POST-multiplier glory. Negative for a team kill.
+    team*: Team                ## who was paid.
+    label*: string             ## "" for a plain deed pop; the ACHIEVEMENT's
+                               ## name for a claim.
+    word*: string              ## the plain DEED's one-word tag
+                               ## (`glory.deedPopWord`), e.g. "TAG"/"BOUNTY".
+                               ## A real claim always carries `word == ""`
+                               ## and uses `label`; a plain deed pop always
+                               ## carries `label == ""` and uses `word`.
+    first*: bool               ## first team in the episode to take this tier.
+    earnerIndex*: int          ## the cog that earned it, -1 if none (a
+                               ## site-anchored mint, or a team tree with no
+                               ## single earner) -- lets the pop keep
+                               ## tracking a living earner tick over tick
+                               ## instead of freezing at mint-time coordinates.
+    row*: int                  ## site-stack depth (0-based, capped at
+                               ## `GloryPopMaxStack`) for a pop with no single
+                               ## earner -- ported alongside `addGloryPop`.
+    startDelay*: int           ## ticks after `tick` this pop's animation
+                               ## actually begins -- the per-unit/per-site
+                               ## stagger `addGloryPop` computes so several
+                               ## pops on one cog or one site queue instead
+                               ## of overlapping.
+
+  AchievementClaim* = object
+    ## GLORY PORT (increment 2/3). One claimed tier -- the schema half of a claim;
+    ## `logGameEvent` is the herald half. The replay viewer reads this to
+    ## draw the toast (Phase 3).
+    tick*: int
+    team*: Team
+    tree*: Tree
+    tier*: int
+    glory*: int
+    first*: bool               ## first team in the episode to complete it.
+    slot*: int                 ## the join slot of the cog whose counters
+                               ## SATISFIED the tier, or -1 for a team tree
+                               ## (`treeSquad`) which no single cog can own.
+
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
     ## emitted at the exact in-sim site where the fact is known first-hand
@@ -2066,6 +2277,12 @@ type
     SprayUse    ## one active spray-cone tick and the damage it dealt.
     Pickup      ## a player picked up an item; item names the pickup.
     ShoutEvent  ## a player shouted; content is the sanitized text.
+    # ── GLORY PORT (increment 2/3) ── appended, never inserted, per this enum's own
+    # positional discipline (matches the struct-field rule above).
+    GloryDeed   ## a deed minted through `awardDeed` (weapon = $deed).
+    Achievement ## an achievement tier claimed through `claimAchievement`.
+    LevelUp     ## a cog's per-life ladder rank climbed (source = cog,
+                ## amount = the rank now reached).
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.
@@ -2331,6 +2548,68 @@ type
                                ## byte-identical to a build without this
                                ## field at all.
 
+    # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
+    # The team ledger, its rampage state and its one-shot claim gates --
+    # ported field-for-field from main's SimServer, appended at the END
+    # per this file's own flatty-positional rule. `array[Team, ...]` sizes
+    # to BR's full 16-member `Team` enum automatically; loops over these
+    # must use `sim.teams()` (the active-team prefix), never a raw
+    # `for team in Team`, or they touch inactive teams' slots on any
+    # config seating fewer than 16 -- see `groundOwner` (sim.nim) for the
+    # one place main's own code got this wrong for a 2-team-only game and
+    # the fix this port applies everywhere the equivalent loop appears.
+    #
+    # Same increment boundary as the Player block above: none of this is in
+    # `gameHash` yet (increment 3's job), so `GameVersion` stays 45.
+    #
+    # No supply-drop fields here (`supplyDropPickups` cut with the feature
+    # -- see glory.nim's header); no `gloryObserver` (main's dev rig exists
+    # to replay PRE-glory recordings with the ledger overlaid as pure
+    # accounting -- there is no pre-glory BR recording to backfill, so the
+    # rig has no BR use case; the golden fixture will simply be re-recorded
+    # fresh whenever increment 3 lands).
+    teamGlory*: array[Team, int]      ## GLORY: the team ledger.
+    heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
+                                      ## multiplier.
+    heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest
+                                      ## drama deed.
+    heatLastDecay*: array[Team, int]  ## GLORY: tick embers last cooled.
+    claimed*: array[Team, array[AchievementTrees * AchievementTiers, bool]]
+                               ## GLORY: achievement one-shot set, per team
+                               ## per game.
+    claimedFirst*: array[AchievementTrees * AchievementTiers, bool]
+                               ## GLORY: whether ANY team has taken this
+                               ## tier yet; the first claimant gets the x3
+                               ## (law 2). NOT team-indexed -- global.
+    firstBloodDone*: bool      ## GLORY: the episode's first kill has been
+                               ## minted.
+    squadVolleyDone*: array[Team, bool]  ## GLORY: pinned ONCE the team's
+                               ## recent-kill ring shows
+                               ## `SquadVolleyMinDistinct`+ distinct
+                               ## teammates each with a kill inside
+                               ## `SquadVolleyWindowTicks` -- the `Squad
+                               ## Volley` gate. CAUSAL (gates a claim): in
+                               ## gameHash.
+    teamKillRing*: array[Team, seq[tuple[killerIndex: int, tick: int]]]
+                               ## GLORY: a SMALL per-team recent-kill ring,
+                               ## pruned to the live `SquadVolleyWindowTicks`
+                               ## window at every non-friendly kill. Purely
+                               ## SCRATCH bookkeeping whose only causal
+                               ## effect is flipping `squadVolleyDone` from
+                               ## false to true -- EXCLUDED from gameHash,
+                               ## same status main gave it.
+    deedCounts*: array[Deed, int]     ## GLORY AUDIT: times each deed fired.
+                               ## Not in gameHash -- audit telemetry only.
+    deedGloryMass*: array[Deed, int]  ## GLORY AUDIT: glory minted per deed.
+                               ## Not in gameHash -- audit telemetry only.
+    gloryPops*: seq[GloryFx]   ## GLORY: cosmetic floating "+Ng" score pops
+                               ## and achievement claim toasts. Never in
+                               ## gameHash. Feeds the HUD (Phase 3, deferred
+                               ## with broadcast.nim/global.nim); populated
+                               ## now so the engine-side mint sites match
+                               ## main's structure exactly.
+    achievementFeed*: seq[AchievementClaim]  ## GLORY: claims in order, for
+                               ## the replay feed / HUD. Never in gameHash.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

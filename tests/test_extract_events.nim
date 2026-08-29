@@ -139,6 +139,16 @@ suite "tier-2 event extraction (tools/extract_events)":
         # A phase boundary resets every hp (new game / lobby): restart traces.
         for slot in 0 ..< slotCount:
           lastHp[slot] = -1
+      of Achievement:
+        # GLORY PORT (increment 2/3): `claimAchievement` (sim.nim) repurposes
+        # the generic hp/blocked slots for this kind ONLY -- hp carries the
+        # claimed tier (0 ..< AchievementTiers), blocked carries the
+        # first-claim flag as 0/1 (ord(effectiveFirst)) -- ported byte-for-
+        # byte from main's own event wire. Every other kind (including the
+        # two other new ones, GloryDeed/LevelUp) leaves both at their
+        # emitEvent defaults and still falls into the catch-all below.
+        check event.hp >= 0 and event.hp < AchievementTiers
+        check event.blocked == 0 or event.blocked == 1
       else:
         check event.hp == -1
         # `blocked` is Damage-only; every other kind carries 0.

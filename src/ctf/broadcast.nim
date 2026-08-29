@@ -223,7 +223,13 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## not a fixed-arity field a client can depend on being present.
   result = %*{
     "lives": sim.teamLivesRemaining(team),
-    "policies": sim.teamPoliciesJson(team)
+    "policies": sim.teamPoliciesJson(team),
+    # GLORY PORT (increment 2/3): the team ledger, always present
+    # (unconditional game logic, not a mode-gated key). Minimal wire
+    # exposure for this pass: the raw ledger total. The full floating
+    # "+Ng"/RANK UP pop rendering (`gloryPops`/`achievementFeed`) is NOT
+    # wired to the client yet.
+    "glory": sim.teamGlory[team]
   }
   if not sim.gameMap.flagless:
     let
@@ -272,7 +278,14 @@ proc rosterJson(sim: SimServer): JsonNode =
       "cap": p.captures,
       "mk2": p.multiKills2,
       "mk3": p.multiKills3,
-      "tk": p.teamKills
+      "tk": p.teamKills,
+      # GLORY PORT (increment 2/3): this cog's own per-life ladder
+      # position -- NOT yet causal on this increment (no buff reads it,
+      # see sim.nim's own INCREMENT BOUNDARY note), exposed here only so a
+      # seated human's own rank is visible without decoding it from the
+      # deed/level-up event stream.
+      "xp": p.xp,
+      "lvl": p.level
     }
     # This seat's perks, wire-named (PerkNames), present only when it has any
     # — so a perk-free game's roster is byte-identical and the scorebug can
@@ -829,7 +842,14 @@ proc buildStateJson*(
     # anything external still reading them.
     var overTeams = newJObject()
     for team in sim.teams():
-      overTeams[teamText(team)] = %*{"lives": sim.teamLivesRemaining(team)}
+      overTeams[teamText(team)] = %*{
+        "lives": sim.teamLivesRemaining(team),
+        # GLORY PORT (increment 2/3): the round's final team ledger, same
+        # key ("glory") teamStateJson already carries live, so an endcard
+        # reader that already displays the live figure needs no new key to
+        # show its final value.
+        "glory": sim.teamGlory[team]
+      }
       # BR N-point spawn subsystem: no flag, so no progress to report. Same
       # omit-when-absent idiom as teamStateJson.
       if not sim.gameMap.flagless:
@@ -855,6 +875,24 @@ proc buildStateJson*(
       "redLives": sim.teamLivesRemaining(Red),
       "blueLives": sim.teamLivesRemaining(Blue)
     }
+    # GLORY PORT (increment 2/3): the round's achievement feed, in claim order --
+    # "deeds/achievements earned this round" for the endcard, per the
+    # endsplash lane's wire request. Per-player rank/xp already rides the
+    # roster unconditionally (see `rosterJson`'s own "xp"/"lvl" keys), so
+    # this is the one piece that wasn't reachable from an existing key.
+    if sim.achievementFeed.len > 0:
+      var feed = newJArray()
+      for claim in sim.achievementFeed:
+        feed.add(%*{
+          "team": teamText(claim.team),
+          "tree": $claim.tree,
+          "tier": claim.tier,
+          "name": achievementName(claim.tree, claim.tier),
+          "glory": claim.glory,
+          "first": claim.first,
+          "slot": claim.slot
+        })
+      state["over"]["achievements"] = feed
     if not sim.gameMap.flagless:
       state["over"]["redProg"] = %sim.teamFlagProgress(Red)
       state["over"]["blueProg"] = %sim.teamFlagProgress(Blue)
