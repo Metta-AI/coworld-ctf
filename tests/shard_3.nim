@@ -4,11 +4,13 @@ import
   test_artlog,
   test_barriers,
   test_blocked_damage,
+  test_br_spawn_points,
   test_hit_damage,
   test_debug_overlay,
   test_endzone_shapes,
   test_fast_mode,
   test_first_person_pip,
+  test_gv44_br_rotation,
   test_home_rotation,
   test_lull_spans,
   test_mapgen,
@@ -21,5 +23,6 @@ import
   test_sprite_collisions,
   test_pb_engine,
   test_pb_replay,
-  test_pb_startup
+  test_pb_startup,
+  test_zone
 {.warning[UnusedImport]: on.}

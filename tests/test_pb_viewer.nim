@@ -5,10 +5,15 @@
 import std/[os, strutils, unittest]
 
 const
-  ChromeCommonFingerprint = "d26e0d29ae78e8f6"
+  ChromeCommonFingerprint = "fbcd687dda368276"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
-    ## instead of silently drifting.
+    ## instead of silently drifting. Re-pinned during the season2 main
+    ## merge (main's paintball work pinned this against chrome_common.js
+    ## before 70f01860 "ship all 16 team identities" landed on our side —
+    ## that commit predates this merge and legitimately changed the file
+    ## by deriving TEAM_ORDER/TEAM_COLOR from window.CTF_WIRE; the
+    ## appended-paintball-block guarantee this test exists for is untouched).
   Page = "client/replay_broadcast.html"
   Chrome = "client/chrome_common.js"
   Core = "client/broadcast_core.js"

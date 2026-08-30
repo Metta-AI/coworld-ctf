@@ -293,6 +293,23 @@ var
     # below run untouched; a bigger count re-deals this bot's color (seats
     # go round the teams, slot mod GameTeams) and swaps the geometry procs
     # onto the endzone-anchored multi-team frame (see deriveMultiFrame).
+    # CLAMPED to 4 (see adoptGameParams) because every OTHER GameTeams
+    # consumer in this file — spawn/kit addressing, the multi-team frame —
+    # was built for a 2-4 team ladder board and was never re-derived for a
+    # 16-team BR free-for-all; RealTeamCount below is the un-clamped twin,
+    # read where that 2-4 assumption does not apply.
+  RealTeamCount = 2
+    # the SAME marker's count, un-clamped. A BR match's 16 duos still only
+    # ever populate a 4-color GameTeams slice of enemy perception
+    # (seenEnemies below) without this: every bot's threat scan looped
+    # `TeamColorNames[0 ..< GameTeams]`, so 12 of BR's 16 colors were never
+    # tracked as a possible enemy by ANYONE, regardless of range or time
+    # spent adjacent. The first recorded BR match's endgame is the tell:
+    # the last two survivors (ivory, pink — both outside the 4-color
+    # slice) sat 599px apart, motionless, for the final 363 ticks; the
+    # close-on-nearest hunt override (its own eligibility gate open the
+    # whole time) never fired because bot.enemies could not contain either
+    # of them for the other, no matter how long the window stayed open.
   EndzoneMarks: seq[tuple[color, shape: string, x0, y0, x1, y1: int]]
     # every team's stated home capture region, from the per-team
     # `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers: the shape
@@ -313,6 +330,31 @@ var
 const TeamColorNames = ["red", "blue", "green", "yellow"]
   ## Wire color tokens in engine seat-deal order: a game's active teams are
   ## always a prefix of this list, and seats go round them (slot mod teams).
+
+const BrRosterColorNames = [
+  "red", "blue", "green", "yellow", "black", "silver", "ivory", "pink",
+  "umber", "rust", "orange", "plum", "lime", "navy", "azure", "peach",
+]
+  ## same order) — widens ANY "which colors are in play" enumeration when
+  ## RealTeamCount says more than TeamColorNames.len teams are actually in
+  ## play (see RealTeamCount above, and rosterColor/rosterColorCount below).
+  ## GameTeams itself, and every OTHER consumer keyed on it, stays clamped
+  ## at 4: this list exists so a scan can reach a color GameTeams was never
+  ## meant to address, not to relitigate what GameTeams bounds.
+
+proc rosterColorCount(): int =
+  ## How many colors are actually in play, for whatever caller is about to
+  ## enumerate "every color this board seats". The BR roster's full width
+  ## on a wide (> 4 team) board, else exactly max(2, GameTeams) — so every
+  ## 2-4 team ladder game is byte-identical to before this proc existed.
+  if RealTeamCount > TeamColorNames.len: RealTeamCount else: max(2, GameTeams)
+
+proc rosterColor(i: int): string =
+  ## The i-th seat-deal color, from whichever roster `rosterColorCount`
+  ## picked. Two enumerations reading `rosterColorCount()`/`rosterColor(i)`
+  ## together always agree on which roster they are walking.
+  if RealTeamCount > TeamColorNames.len: BrRosterColorNames[i]
+  else: TeamColorNames[i]
 
 type
   Team = enum
@@ -904,7 +946,9 @@ proc adoptGameParams(client: ProtocolClient) =
       let parts = o.label[LabelPrefixGameParams.len .. ^1].split(' ')
       if parts.len == 3:
         try:
-          GameTeams = clamp(parseInt(parts[0]), 2, 4)
+          let n = parseInt(parts[0])
+          GameTeams = clamp(n, 2, 4)
+          RealTeamCount = clamp(n, 2, BrRosterColorNames.len)
         except ValueError:
           discard
       break
@@ -1018,12 +1062,15 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) {.measure.} =
   # Multi-team boards deal the seats round GameTeams colors (slot mod
   # teams) — the startup red/blue parity guess is wrong for half the seats
   # there, and a wrong color makes every label scan blind (the "statues on
-  # green and yellow" bug). Re-deal the color and the per-team seat role now
+  # green and yellow" bug, and its wide-roster twin: a slot mod GameTeams
+  # guess NEVER lands past yellow on a 16-duo BR board, so those seats never
+  # find their own self marker below and stand still all game — see
+  # rosterColor's doc). Re-deal the color and the per-team seat role now
   # that the team count is stated; the self marker confirms (or corrects)
   # the color on the first alive frame.
   if GameTeams > 2:
     if not bot.colorLocked:
-      bot.myColor = TeamColorNames[bot.slot mod GameTeams]
+      bot.myColor = rosterColor(bot.slot mod rosterColorCount())
     bot.role = roleForSeat(clamp(bot.slot div GameTeams, 0, 7), bot.team)
   bot.deriveMultiFrame()
   artEvent(bot.tick, "game_params",
@@ -1504,9 +1551,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # Our wire color: the slot-dealt guess until the self marker — the one
   # sprite only WE ever see — confirms it. Explicit slot configs can deal
   # colors in any order, and a wrong color makes every scan below blind.
+  # rosterColorCount/rosterColor widen this to the full BR roster on a wide
+  # (> 4 team) board — otherwise a seat past yellow could never confirm
+  # (or even guess) its own color, findSelf(myColor) would report "not
+  # alive" every tick regardless of the true wire state, and the seat would
+  # send zero input for the whole match: not a passive bot, an invisible
+  # one to itself.
   if not bot.colorLocked:
-    for i in 0 ..< max(2, GameTeams):
-      let c = TeamColorNames[i]
+    for i in 0 ..< rosterColorCount():
+      let c = rosterColor(i)
       if client.findSelf(c).alive:
         bot.colorLocked = true
         if c != bot.myColor:
@@ -1522,9 +1575,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   if GameTeams > 2 and bot.targetColor.len > 0:
     enemyColor = bot.targetColor
   else:
-    for i in 0 ..< max(2, GameTeams):
-      if TeamColorNames[i] != myColor:
-        enemyColor = TeamColorNames[i]
+    for i in 0 ..< rosterColorCount():
+      let c = rosterColor(i)
+      if c != myColor:
+        enemyColor = c
         break
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
@@ -1549,6 +1603,183 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   let statedAim = client.ownAimBrads()
   if statedAim >= 0:
     bot.estAim = statedAim
+
+  # ---- RING SAFETY OVERRIDE -------------------------------------------
+  # The shrink zone is the only hazard on the board that kills you for
+  # standing still, and it is the mode's clock. A policy that treats it as
+  # one more consideration alongside its objectives will die holding a
+  # perfectly good plan — so this is an OVERRIDE, expressed as an early
+  # return: it preempts every objective below rather than competing with
+  # them. A zone warning that defers to existing commitments is a dead
+  # lever.
+  #
+  # Reads the published `zone <x0>,<y0> <x1>,<y1>` marker (inclusive
+  # corners, map pixels) and nothing else — no new wire contract. The whole
+  # block is gated on that marker being present, so a game without a zone
+  # configured never enters it and is byte-identical to before.
+  block ringSafety:
+    var
+      haveZone = false
+      zx0, zy0, zx1, zy1: int
+    for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixZone):
+      let parts = label[LabelPrefixZone.len .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      let
+        lo = parts[0].split(',')
+        hi = parts[1].split(',')
+      if lo.len != 2 or hi.len != 2:
+        continue
+      try:
+        zx0 = parseInt(lo[0])
+        zy0 = parseInt(lo[1])
+        zx1 = parseInt(hi[0])
+        zy1 = parseInt(hi[1])
+        haveZone = true
+      except ValueError:
+        discard
+      break
+    if not haveZone:
+      break ringSafety
+    # Aim for a margin INSIDE the edge, not the edge itself: the rect is
+    # still shrinking while we walk to it, so arriving exactly on the
+    # boundary means arriving outside it.
+    const SafeMarginPx = 90
+    let
+      mx = int(me.x)
+      my = int(me.y)
+      outside = mx < zx0 or mx > zx1 or my < zy0 or my > zy1
+      nearEdge =
+        mx < zx0 + SafeMarginPx or mx > zx1 - SafeMarginPx or
+        my < zy0 + SafeMarginPx or my > zy1 - SafeMarginPx
+    if not (outside or nearEdge):
+      break ringSafety
+    # Head for the nearest point that is a full margin inside, clamped so a
+    # rect narrower than two margins still yields its own centre rather
+    # than an inverted target.
+    let
+      loX = min(zx0 + SafeMarginPx, (zx0 + zx1) div 2)
+      hiX = max(zx1 - SafeMarginPx, (zx0 + zx1) div 2)
+      loY = min(zy0 + SafeMarginPx, (zy0 + zy1) div 2)
+      hiY = max(zy1 - SafeMarginPx, (zy0 + zy1) div 2)
+      targetX = clamp(mx, loX, hiX)
+      targetY = clamp(my, loY, hiY)
+      toSafety = vec(float(targetX) - me.x, float(targetY) - me.y)
+    if toSafety.len() < 1.0:
+      break ringSafety
+    when defined(ringProbe):
+      stderr.writeLine("RINGFIRE tick=" & $bot.tick & " outside=" & $outside &
+        " me=" & $mx & "," & $my & " rect=" & $zx0 & "," & $zy0 & " " &
+        $zx1 & "," & $zy1)
+    artFrame(FrameSnap(tick: bot.tick, alive: true,
+      x: mx, y: my, hp: -1,
+      objective: "ring", action: "run", engageDist: -1))
+    return octantBits(toSafety)
+  # ---- end ring safety -------------------------------------------------
+
+  # ---- HUNT ENDGAME OVERRIDE -------------------------------------------
+  # Late in a BR match the paint has done its job (the field is small, or
+  # most duos are gone) and standing around waiting to be found is a worse
+  # bet than closing the distance ourselves. This is ONE PRIORITY BELOW ring
+  # safety: it sits after that block's early return, so any frame the ring
+  # claims never reaches here — safety preempts aggression, never the other
+  # way around. Same commitment-canceling shape as ring safety: an early
+  # return, gated on the zone marker's presence, so a game with no zone
+  # configured (every non-BR ladder match) never enters it and stays
+  # byte-identical to before.
+  block huntEndgame:
+    var
+      haveZone = false
+      zx0, zy0, zx1, zy1: int
+    for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixZone):
+      let parts = label[LabelPrefixZone.len .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      let
+        lo = parts[0].split(',')
+        hi = parts[1].split(',')
+      if lo.len != 2 or hi.len != 2:
+        continue
+      try:
+        zx0 = parseInt(lo[0])
+        zy0 = parseInt(lo[1])
+        zx1 = parseInt(hi[0])
+        zy1 = parseInt(hi[1])
+        haveZone = true
+      except ValueError:
+        discard
+      break
+    if not haveZone:
+      break huntEndgame
+    # Alive-team readback: no new wire vocabulary, just the scoreboard the
+    # engine already broadcasts every frame regardless of who reads it (see
+    # addTeamScoreboard, "team score <NAME> <kills>/<deaths>" — one chip per
+    # team, win or lose, for the life of the episode). BR duos play one life
+    # per seat (record_br_match.sh pins config lives=1, and brMode forces no
+    # respawns), so a team's own DEATHS field is the tell: two dead seats is
+    # the whole roster gone.
+    const
+      TeamScoreLabelPrefix = "team score "
+      BrTeamSize = 2
+    var aliveTeams = 0
+    when defined(huntProbe):
+      var chipsSeen: seq[string]
+    for (o, label) in client.spriteObjectsWithLabelPrefix(TeamScoreLabelPrefix):
+      when defined(huntProbe):
+        chipsSeen.add(label)
+      let tail = label[TeamScoreLabelPrefix.len .. ^1]
+      let parts = tail.split(' ')
+      if parts.len != 2:
+        continue
+      let kd = parts[1].split('/')
+      if kd.len != 2:
+        continue
+      try:
+        if parseInt(kd[1]) < BrTeamSize:
+          inc aliveTeams
+      except ValueError:
+        discard
+    const
+      EndgameZoneFrac = 0.18    # ~15-20% of board area: the shrunk-ring case
+      EndgameAliveTeams = 4     # few enough duos left to call it an endgame
+    let
+      zoneArea = float(max(0, zx1 - zx0)) * float(max(0, zy1 - zy0))
+      boardArea = float(MapW) * float(MapH)
+      zoneFrac = (if boardArea > 0.0: zoneArea / boardArea else: 1.0)
+    if zoneFrac > EndgameZoneFrac and aliveTeams > EndgameAliveTeams:
+      break huntEndgame
+    # Nearest known/visible enemy: reuse the existing track store (fed every
+    # frame by actorsFor sightings, the same perception the rest of the
+    # policy already trusts for aim and peel decisions) rather than growing
+    # a second perception path. A stale-but-recent track beats idling.
+    var
+      nearest = -1
+      nearestD = Inf
+    for i in 0 ..< bot.enemies.len:
+      let d = dist(bot.enemies[i].pos, me)
+      if d < nearestD:
+        nearestD = d
+        nearest = i
+    if nearest < 0:
+      break huntEndgame
+    let toEnemy = bot.enemies[nearest].pos - me
+    if toEnemy.len() < 1.0:
+      break huntEndgame
+    when defined(huntProbe):
+      stderr.writeLine("HUNTFIRE tick=" & $bot.tick &
+        " aliveTeams=" & $aliveTeams &
+        " zoneFrac=" & $zoneFrac &
+        " me=" & $int(me.x) & "," & $int(me.y) &
+        " target=" & $int(bot.enemies[nearest].pos.x) & "," &
+        $int(bot.enemies[nearest].pos.y) &
+        " d=" & $int(nearestD) &
+        " chips=" & $chipsSeen.len & " [" & chipsSeen.join("|") & "]")
+    artFrame(FrameSnap(tick: bot.tick, alive: true,
+      x: int(me.x), y: int(me.y), hp: -1,
+      objective: "hunt", action: "chase", engageDist: int(nearestD)))
+    return octantBits(toEnemy)
+  # ---- end hunt endgame --------------------------------------------------
+
   # Spray cans and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
@@ -1591,9 +1822,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     seenMates = client.actorsFor(myColor)
   var seenEnemies: seq[Actor]
   # EVERY other color is a combat threat on a free-for-all board, not just
-  # the flag-raid target — track them all.
-  for i in 0 ..< max(2, GameTeams):
-    let c = TeamColorNames[i]
+  # the flag-raid target — track them all. rosterColorCount/rosterColor
+  # pick the full BR roster when a match actually has more teams than
+  # GameTeams's own 2-4 clamp allows for — a BR duo board — so a color
+  # GameTeams was never meant to address (see its own comment above) still
+  # gets scanned. Any non-BR board keeps enumerating exactly
+  # TeamColorNames[0 ..< GameTeams] as before: RealTeamCount == GameTeams
+  # whenever GameTeams's own clamp never bound anything, i.e. every 2-4
+  # team ladder game, unchanged.
+  for i in 0 ..< rosterColorCount():
+    let c = rosterColor(i)
     if c != myColor:
       seenEnemies.add(client.actorsFor(c))
   bot.updateTracks(bot.enemies, seenEnemies)

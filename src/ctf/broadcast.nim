@@ -366,9 +366,10 @@ proc teamPoliciesJson(sim: SimServer, team: Team): JsonNode =
 
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## Returns one team's scorebug state: lives, flag state, carrier, progress.
-  let
-    flag = sim.flags[team]
-    taken = flag.carrier >= 0
+  ## BR N-point spawn subsystem: a flagless map arms no flag, so the
+  ## "flag"/"carrier"/"prog" keys are simply omitted — same schema-safe,
+  ## omit-when-absent idiom as the existing conditional "hcap" key below,
+  ## not a fixed-arity field a client can depend on being present.
   var
     tags = 0
     tagsTaken = 0
@@ -382,15 +383,25 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
       inc cogsUp
   result = %*{
     "lives": sim.teamLivesRemaining(team),
-    "flag": (
+    "policies": sim.teamPoliciesJson(team),
+    # GLORY PORT (increment 2/3): the team ledger, always present
+    # (unconditional game logic, not a mode-gated key). Minimal wire
+    # exposure for this pass: the raw ledger total. The full floating
+    # "+Ng"/RANK UP pop rendering (`gloryPops`/`achievementFeed`) is NOT
+    # wired to the client yet.
+    "glory": sim.teamGlory[team]
+  }
+  if not sim.gameMap.flagless:
+    let
+      flag = sim.flags[team]
+      taken = flag.carrier >= 0
+    result["flag"] = %(
       if flag.captured: "captured"
       elif taken: "taken"
       else: "home"
-    ),
-    "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
-    "prog": sim.flagCarryProgress(team),
-    "policies": sim.teamPoliciesJson(team)
-  }
+    )
+    result["carrier"] = %(if taken: sim.slotOf(flag.carrier) else: -1)
+    result["prog"] = %sim.flagCarryProgress(team)
   if sim.config.hill:
     # --- paintball scorebug fields (absent on classic wire frames) ---
     result["hill"] = %sim.hillTicks[team]                ## banked hill TICKS
@@ -443,7 +454,14 @@ proc rosterJson(sim: SimServer): JsonNode =
       "cap": p.captures,
       "mk2": p.multiKills2,
       "mk3": p.multiKills3,
-      "tk": p.teamKills
+      "tk": p.teamKills,
+      # GLORY PORT (increment 2/3): this cog's own per-life ladder
+      # position -- NOT yet causal on this increment (no buff reads it,
+      # see sim.nim's own INCREMENT BOUNDARY note), exposed here only so a
+      # seated human's own rank is visible without decoding it from the
+      # deed/level-up event stream.
+      "xp": p.xp,
+      "lvl": p.level
     }
     if sim.config.numAgents > 0:
       # Squad-game roster extras (absent on classic wire frames): the cog's
@@ -656,7 +674,14 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # carrier (already drawn as that player, tagged carry), so skip it here.
     # A retired heart (GV32 capture or GV33 dead team) is out of play and
     # never drawn.
+    #
+    # BR N-point spawn subsystem: a flagless map's flags are permanently
+    # `captured` (CtfMap.flagless / resetFlags), so the check below already
+    # self-gates this loop to zero ents — the explicit check here is
+    # defense-in-depth, not load-bearing on its own.
     for team in sim.teams():
+      if sim.gameMap.flagless:
+        break
       if sim.flags[team].carrier >= 0 or sim.flags[team].captured:
         continue
       if not sim.flagVisibleTo(playerIndex, team):
@@ -791,14 +816,18 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       "carry": p.carryingFlag
     })
   var mapHearts = newJArray()
-  for team in sim.teams():
-    mapHearts.add(%*{
-      "x": sim.flags[team].x,
-      "y": sim.flags[team].y,
-      "team": teamText(team),
-      "carried": sim.flags[team].carrier >= 0,
-      "captured": sim.flags[team].captured
-    })
+  # BR N-point spawn subsystem: a flagless map arms no flag — the omniscient
+  # map view carries zero heart entries (already a variable-length JSON
+  # array, so an empty list is schema-safe).
+  if not sim.gameMap.flagless:
+    for team in sim.teams():
+      mapHearts.add(%*{
+        "x": sim.flags[team].x,
+        "y": sim.flags[team].y,
+        "team": teamText(team),
+        "carried": sim.flags[team].carrier >= 0,
+        "captured": sim.flags[team].captured
+      })
   var mapItems = newJArray()
   proc addMapItem(kind: string, spawn: PickupSpawn) =
     if spawn.present:
@@ -891,6 +920,23 @@ proc buildStateJson*(
     "events": (if events.isNil: newJArray() else: events)
   }
 
+  # BR mode, for the CHROME. The header bakes CTF identity into itself — a
+  # flag glyph per team, a "Lives" label — and a battle royale has neither.
+  # The chrome cannot infer the mode from the absence of flag keys: absence
+  # is also what a pre-roster frame looks like, and inferring a whole
+  # presentation from a missing key is how a header ends up lying in one
+  # direction or the other. So state it.
+  #
+  # Pinned ONLY when a BR toggle is actually on, matching the omit-when-
+  # default idiom the rest of this frame uses (hcap, pmods, flag keys), so
+  # every classic frame stays byte-identical.
+  if sim.gameMap.flagless or sim.config.brMode:
+    # flagless: no flag/pedestal/heart anywhere on the board.
+    # elim: no respawns, so a lives count is absolute rather than a pool.
+    state["br"] = %*{
+      "flagless": sim.gameMap.flagless,
+      "elim": sim.config.brMode
+    }
   if sim.config.numAgents > 0:
     # Squad-game frame extras (absent on classic wire frames): which game of
     # the episode is playing, under which regime, and the hill headline.
@@ -1005,18 +1051,58 @@ proc buildStateJson*(
     for team in sim.teams():
       overTeams[teamText(team)] = %*{
         "lives": sim.teamLivesRemaining(team),
-        "prog": sim.teamFlagProgress(team)
+        # GLORY PORT (increment 2/3): the round's final team ledger, same
+        # key ("glory") teamStateJson already carries live, so an endcard
+        # reader that already displays the live figure needs no new key to
+        # show its final value.
+        "glory": sim.teamGlory[team]
       }
+      # BR N-point spawn subsystem: no flag, so no progress to report. Same
+      # omit-when-absent idiom as teamStateJson.
+      if not sim.gameMap.flagless:
+        overTeams[teamText(team)]["prog"] = %sim.teamFlagProgress(team)
+    # BR placement (1-based, 1..16): the end-card's own request for "remaining
+    # teams in placement order" cannot be built client-side past final lives
+    # (every eliminated team ends at 0, an unbroken tie) — brPlacements()
+    # already computes the exact total order finishGame's own BR reward
+    # reads (sim.nim: latest last-death, then kills, then damage, then seat),
+    # is a pure function of already-hashed state, and is deliberately
+    # excluded from gameHash itself (see its own doc comment), so shipping it
+    # here changes nothing about determinism or replay hashing — purely
+    # additive, omit-when-absent like every other BR-only field on this frame.
+    if sim.config.brMode:
+      let placements = sim.brPlacements()
+      for team in sim.teams():
+        overTeams[teamText(team)]["place"] = %placements[team]
     state["over"] = %*{
       "winner": teamText(sim.winner),
       "draw": sim.isDraw,
       "timeLimit": sim.timeLimitReached,
       "teams": overTeams,
       "redLives": sim.teamLivesRemaining(Red),
-      "blueLives": sim.teamLivesRemaining(Blue),
-      "redProg": sim.teamFlagProgress(Red),
-      "blueProg": sim.teamFlagProgress(Blue)
+      "blueLives": sim.teamLivesRemaining(Blue)
     }
+    # GLORY PORT (increment 2/3): the round's achievement feed, in claim order --
+    # "deeds/achievements earned this round" for the endcard, per the
+    # endsplash lane's wire request. Per-player rank/xp already rides the
+    # roster unconditionally (see `rosterJson`'s own "xp"/"lvl" keys), so
+    # this is the one piece that wasn't reachable from an existing key.
+    if sim.achievementFeed.len > 0:
+      var feed = newJArray()
+      for claim in sim.achievementFeed:
+        feed.add(%*{
+          "team": teamText(claim.team),
+          "tree": $claim.tree,
+          "tier": claim.tier,
+          "name": achievementName(claim.tree, claim.tier),
+          "glory": claim.glory,
+          "first": claim.first,
+          "slot": claim.slot
+        })
+      state["over"]["achievements"] = feed
+    if not sim.gameMap.flagless:
+      state["over"]["redProg"] = %sim.teamFlagProgress(Red)
+      state["over"]["blueProg"] = %sim.teamFlagProgress(Blue)
     if sim.config.numAgents > 0:
       # Squad-game endcard extras (absent on classic wire frames).
       state["over"]["endRule"] = %sim.endRule

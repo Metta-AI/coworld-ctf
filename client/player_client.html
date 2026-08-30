@@ -1,0 +1,808 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coworld — Paintbot</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{display:flex;align-items:center;justify-content:center}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(80vw,520px);box-sizing:border-box;background:#0008;color:#fff;border:1px solid #fff8;padding:8px 10px;font:18px monospace;outline:0;display:none}
+#hud{display:none;position:fixed;left:10px;top:9px;color:#e8e4dc;background:#1a1714cc;padding:5px 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;pointer-events:none;white-space:nowrap}
+#hud b{color:#9a9184;font-weight:600}
+#s{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e8e8e8;background:#000;font:14px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;pointer-events:none}
+#mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
+#mute:hover{background:#2a2620cc}
+/* Quick-callout radial wheel: RMB-hold overlay for the six standard team
+   pings (player_controls.js KEYMAP id "wheel", callout-spec.md sec.5). Sits
+   above the canvas but never intercepts pointer events (pointer-events:none
+   throughout) -- hit-testing is done in JS off tracked cursor coordinates,
+   so aiming (driven purely by continuous mouse position, no button state)
+   and the canvas's own mousedown/mouseup/contextmenu handling are both
+   untouched. Fades in/out in well under 100ms. */
+#wheel{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;
+  opacity:0;transition:opacity 60ms ease-out;z-index:40}
+#wheel.open{opacity:1}
+#wheelRing{position:absolute;left:50%;top:50%;width:200px;height:200px;
+  margin:-100px 0 0 -100px;border-radius:50%;
+  border:3px solid #e8a33d;box-shadow:0 0 0 1px #000a,0 6px 22px #000a;
+  background:radial-gradient(circle,#1a171466 0%,#1a171422 70%,transparent 72%)}
+#wheelHub{position:absolute;left:50%;top:50%;width:12px;height:12px;
+  margin:-6px 0 0 -6px;border-radius:50%;background:#e8a33d;
+  box-shadow:0 0 0 2px #000a}
+.wchip{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  min-width:92px;max-width:124px;padding:6px 9px;text-align:center;
+  background:#1a1714e6;border:2px solid #4a453c;border-left-width:5px;
+  border-radius:7px;box-shadow:0 3px 10px #0009;
+  font:800 13px/1.18 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.4px;text-transform:uppercase;color:#e8e4dc;
+  text-shadow:0 1px 2px #000c;transition:transform 60ms ease-out}
+.wchip .sub{display:block;font-size:10px;font-weight:700;opacity:.75;
+  letter-spacing:.3px;margin-top:1px}
+.wchip.dim{opacity:.64}
+.wchip.hover{transform:translate(-50%,-50%) scale(1.16);
+  border-color:#fff;color:#161310;text-shadow:none;opacity:1;z-index:2}
+</style>
+</head>
+<body>
+<canvas id="c" width="128" height="128"></canvas>
+<input id="i" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false">
+<div id="s">connecting...</div>
+<div id="hud"></div>
+<div id="wheel" aria-hidden="true"><div id="wheelRing"></div><div id="wheelHub"></div></div>
+<button id="mute" type="button">sound: on</button>
+<script src="snappyjs.min.js"></script>
+<script src="player_controls.js"></script>
+<script>
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),x=c.getContext("2d");
+const p=[0,0,0,255,194,195,199,255,255,241,232,255,255,0,77,255,255,119,168,255,95,87,79,255,171,82,54,255,255,163,0,255,255,236,39,255,126,37,83,255,0,135,81,255,0,228,54,255,29,43,83,255,131,118,156,255,41,173,255,255,255,204,170,255];
+const PaletteRgb=[
+  [0,0,0],[194,195,199],[255,241,232],[255,0,77],
+  [255,119,168],[95,87,79],[171,82,54],[255,163,0],
+  [255,236,39],[126,37,83],[0,135,81],[0,228,54],
+  [29,43,83],[131,118,156],[41,173,255],[255,204,170]
+];
+const u=new URL(location.href),m=location.host?((location.protocol=="https:"?"wss:":"ws:")+"//"+location.host):"ws://localhost:8080";
+/* Reconnect interval in seconds. Used to default to 0 (off) unless a
+   caller passed ?reconnect=N -- so any transient close (a server hiccup,
+   a reset-dance blip) that hit a live human seat stranded it on
+   "disconnected..." forever with no way back short of a manual page
+   reload, even though the SAME identity/slot/token would happily be
+   re-admitted a moment later. Defaults to 2s now; ?reconnect=0 still
+   disables it explicitly for callers that want the old strand-on-close
+   behavior. MaxReconnectAttempts bounds it -- a genuinely dead server
+   must still resolve to "disconnected...", not retry forever. */
+let a=u.searchParams.get("address")||m+"/player",g=(u.searchParams.get("joystick")|0)-1,
+  r=u.searchParams.has("reconnect")?Math.max(0,+u.searchParams.get("reconnect")||0):2,
+  reconnectAttempts=0;
+const MaxReconnectAttempts=10;
+let k={},l=255,w,z=0,t=0,sawFrame=false,pixelImage=x.createImageData(128,128),spriteMode=false,layers=new Map(),sprites=new Map(),objects=new Map();
+/* Motion interpolation, ported from broadcast_core.js's updateInterpolation
+   (same SNAP_DISTANCE, same learned packetInterval, same glide/snap rule):
+   the sim advances ~24 discrete states/sec, so drawn as-is that is a 41ms
+   staircase on a 60/120Hz display. Every object's dispX/dispY glides from
+   wherever it was last drawn to the packet's x/y over one packet interval;
+   a layer change or a jump past SNAP_DISTANCE (respawn/teleport) snaps
+   instead of inventing motion the sim never had. This drives only the
+   PIXEL DRAW -- aim/control math below still reads raw object.x/y so the
+   glide can never perturb what gets sent to the server. */
+let movingObjects=new Set(),packetInterval=1000/24,lastMotionAt=0,rafHandle=0;
+const SNAP_DISTANCE=48;
+/* Object-pool id range for the floating "-N"/"SPLAT" damage pops the server
+   already streams (src/ctf/global.nim: DamagePopObjectBase=38000, one slot
+   per concurrent pop, documented range 38000..38031). Hit feedback below
+   watches this range rather than adding any new wire signal. */
+const DAMAGE_POP_ID_MIN=38000, DAMAGE_POP_ID_MAX=38031;
+const textDecoder=new TextDecoder("utf-8");
+/* ---- Minimal WebAudio SFX: fire / hit-taken / hit-dealt / kill-confirm ----
+   No binary assets -- short oscillator/noise bursts a few frames long. The
+   AudioContext is created lazily on the first real user gesture (autoplay
+   policy); mute is one boolean gated through a single master gain node. */
+let audioCtx=null,masterGain=null,muted=false,noiseBuffer=null;
+function ensureAudio(){
+  if(audioCtx)return;
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
+  audioCtx=new AC();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=muted?0:0.35;
+  masterGain.connect(audioCtx.destination);
+  const len=Math.floor(audioCtx.sampleRate*0.3);
+  noiseBuffer=audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+  const d=noiseBuffer.getChannelData(0);
+  for(let j=0;j<len;j++)d[j]=Math.random()*2-1;
+}
+function setMuted(v){
+  muted=v;
+  if(masterGain)masterGain.gain.value=muted?0:0.35;
+  if(muteBtn)muteBtn.textContent=muted?"sound: off":"sound: on";
+}
+function playTone(freq,dur,type,gainPeak,glideTo){
+  if(!audioCtx)return;
+  const osc=audioCtx.createOscillator(),g=audioCtx.createGain(),t0=audioCtx.currentTime;
+  osc.type=type||"square";osc.frequency.setValueAtTime(freq,t0);
+  if(glideTo)osc.frequency.exponentialRampToValueAtTime(Math.max(1,glideTo),t0+dur);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.linearRampToValueAtTime(gainPeak,t0+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  osc.connect(g);g.connect(masterGain);
+  osc.start(t0);osc.stop(t0+dur+0.02);
+}
+function playNoise(dur,gainPeak,filterFreq){
+  if(!audioCtx||!noiseBuffer)return;
+  const src=audioCtx.createBufferSource();src.buffer=noiseBuffer;
+  const filt=audioCtx.createBiquadFilter();filt.type="bandpass";filt.frequency.value=filterFreq||1200;
+  const g=audioCtx.createGain(),t0=audioCtx.currentTime;
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.linearRampToValueAtTime(gainPeak,t0+0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  src.connect(filt);filt.connect(g);g.connect(masterGain);
+  src.start(t0);src.stop(t0+dur+0.02);
+}
+function playFire(){playNoise(.05,.5,2600);playTone(180,.045,"square",.18,90)}
+function playHitTaken(){playTone(160,.12,"sawtooth",.3,70);playNoise(.08,.25,500)}
+function playHitDealt(){playTone(920,.06,"square",.25,1400)}
+function playKillConfirm(){playTone(700,.05,"square",.28,1500);setTimeout(()=>playTone(1050,.09,"square",.24,1700),55)}
+muteBtn.onclick=e=>{e.preventDefault();e.stopPropagation();ensureAudio();setMuted(!muted);c.focus()};
+a=(a=>{try{let v=new URL(a,location.href);if(v.protocol=="http:")v.protocol="ws:";if(v.protocol=="https:")v.protocol="wss:";if(v.pathname=="/")v.pathname="/player";for(let q of["name","token","slot"]){let h=u.searchParams.get(q);if(h!==null)v.searchParams.set(q,h)}return v+""}catch(e){return a}})(a);
+function n(o){s.textContent=o;s.style.display=o?"flex":"none"}
+/* SCALE UP, never reveal more world: c.width/c.height are the pixel buffer
+   the SERVER decided to send (the map layer's native resolution) -- fit()
+   only ever changes the CSS size those same pixels are displayed at. Every
+   player sees the same board regardless of monitor; a bigger screen just
+   gets bigger pixels, never a wider camera.
+   This used to floor() the scale to an integer once raw>=1, which keeps
+   pixels perfectly square but wastes most of the screen on anything under
+   2x the native resolution -- a 1920x1080 laptop against a 1235x659 board
+   (raw=1.55) rendered at literal 1x, 64% width / 61% height, because 1.55
+   floors to 1. Canvas already carries image-rendering:pixelated, so a
+   fractional scale still reads as crisp blocky pixels (just not perfectly
+   uniform in size) -- a fair trade for filling the screen. */
+function fit(){const scale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));c.style.width=(c.width*scale)+"px";c.style.height=(c.height*scale)+"px"}
+function sizeCanvas(width,height){if(c.width!==width||c.height!==height){c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit()}}
+function sendMask(mask,force=false){if(!w||w.readyState!==1)return;if(!force&&mask===l)return;w.send(spriteMode?new Uint8Array([0x84,mask&255]):new Uint8Array([0,mask&255]));l=mask}
+function release(){k={};sendMask(0,true)}
+function chat(text){const clean=text.replace(/[^\x20-\x7e]/g,"");if(!clean||!w||w.readyState!==1)return;if(spriteMode){const b=new Uint8Array(clean.length+3);b[0]=0x81;b[1]=clean.length&255;b[2]=clean.length>>8;for(let j=0;j<clean.length;j++)b[j+3]=clean.charCodeAt(j);w.send(b)}else{const b=new Uint8Array(clean.length+1);b[0]=1;for(let j=0;j<clean.length;j++)b[j+1]=clean.charCodeAt(j);w.send(b)}}
+x.imageSmoothingEnabled=false;
+onresize=fit;
+fit();
+onkeydown=e=>{
+  ensureAudio();
+  if(e.code==="Enter"){
+    e.preventDefault();
+    if(z){chat(i.value);i.value="";i.style.display="none";z=0;release();c.focus()}
+    else{release();z=1;i.style.display="block";i.focus()}
+    return
+  }
+  if(z&&e.code==="Escape"){e.preventDefault();i.value="";i.style.display="none";z=0;release();c.focus();return}
+  if(z){if(e.code.startsWith("Arrow"))e.preventDefault();return}
+  /* Space is ITEM USE (engine ButtonC: hold charges, release throws), so it
+     must never scroll the page. Arrows likewise. */
+  if(e.code==="Space"||e.code.startsWith("Arrow"))e.preventDefault();
+  /* 1-6 fire standard pings on the shout wire. Glory is passive -- there is
+     nothing in it to "call" -- so the number keys carry callouts instead. */
+  const d=/^Digit([1-6])$/.exec(e.code);
+  if(d){e.preventDefault();if(!k[e.code])sendPing(+d[1]);k[e.code]=1;return}
+  if(k[e.code])return;
+  k[e.code]=1;emitNow()
+};
+onkeyup=e=>{if(!k[e.code])return;k[e.code]=0;emitNow()};
+i.oninput=()=>{i.value=i.value.replace(/[^\x20-\x7e]/g,"")};
+onblur=release;
+onpagehide=release;
+document.addEventListener("visibilitychange",()=>{if(document.hidden)release()});
+function readU16(bytes,offset){return bytes[offset]|(bytes[offset+1]<<8)}
+function readI16(bytes,offset){const value=readU16(bytes,offset);return value&0x8000?value-0x10000:value}
+function readU32(bytes,offset){return (bytes[offset]|(bytes[offset+1]<<8)|(bytes[offset+2]<<16)|(bytes[offset+3]<<24))>>>0}
+function decodeSnappy(compressed,width,height){
+  if(!window.SnappyJS)throw new Error("SnappyJS is not loaded");
+  const expected=width*height*4,raw=window.SnappyJS.uncompress(compressed,expected),rgba=raw instanceof Uint8Array?raw:new Uint8Array(raw);
+  if(rgba.length!==expected)throw new Error("Bad sprite pixel length");
+  return rgba
+}
+function trySnappySprite(bytes,offset,remaining,width,height){
+  if(remaining<6)return null;
+  const compressedLength=readU32(bytes,offset);
+  if(compressedLength>remaining-6)return null;
+  const labelOffset=offset+4+compressedLength,labelLength=readU16(bytes,labelOffset);
+  if(labelLength>remaining-4-compressedLength-2)return null;
+  let pixels;
+  try{pixels=decodeSnappy(bytes.slice(offset+4,labelOffset),width,height)}catch(e){return null}
+  const labelStart=labelOffset+2,labelEnd=labelStart+labelLength;
+  return {pixels,label:textDecoder.decode(bytes.slice(labelStart,labelEnd)),offset:labelEnd}
+}
+function rawSprite(bytes,offset,width,height){
+  const count=width*height,pixels=new Uint8Array(count*4);
+  for(let j=0;j<count;j++){
+    const idx=bytes[offset+j];
+    if(idx!==0){const rgb=PaletteRgb[(idx-1)&15],out=j*4;pixels[out]=rgb[0];pixels[out+1]=rgb[1];pixels[out+2]=rgb[2];pixels[out+3]=255}
+  }
+  return pixels
+}
+function ensureLayer(id){
+  if(!layers.has(id))layers.set(id,{id,type:0,flags:1,width:1,height:1,canvas:document.createElement("canvas"),ctx:null,image:null});
+  const layer=layers.get(id);
+  if(!layer.ctx){layer.ctx=layer.canvas.getContext("2d");layer.ctx.imageSmoothingEnabled=false}
+  return layer
+}
+function resizeMainCanvas(){
+  let width=1,height=1;
+  for(const layer of layers.values()){width=Math.max(width,layer.width);height=Math.max(height,layer.height)}
+  sizeCanvas(width,height)
+}
+function viewport(layerId,width,height){
+  if(layerId===0){mapW=width;mapH=height}
+  const layer=ensureLayer(layerId);
+  layer.width=width;layer.height=height;layer.canvas.width=width;layer.canvas.height=height;layer.image=layer.ctx.createImageData(width,height);
+  resizeMainCanvas()
+}
+function putPixel(layer,x0,y0,sprite,srcOffset){
+  if(x0<0||y0<0||x0>=layer.width||y0>=layer.height)return;
+  const a=sprite.pixels[srcOffset+3];
+  if(a===0)return;
+  const offset=(y0*layer.width+x0)*4,d=layer.image.data;
+  if(a===255||d[offset+3]===0){d[offset]=sprite.pixels[srcOffset];d[offset+1]=sprite.pixels[srcOffset+1];d[offset+2]=sprite.pixels[srcOffset+2];d[offset+3]=a;return}
+  const sa=a/255,da=d[offset+3]/255,oa=sa+da*(1-sa),dw=da*(1-sa);
+  d[offset]=Math.round((sprite.pixels[srcOffset]*sa+d[offset]*dw)/oa);
+  d[offset+1]=Math.round((sprite.pixels[srcOffset+1]*sa+d[offset+1]*dw)/oa);
+  d[offset+2]=Math.round((sprite.pixels[srcOffset+2]*sa+d[offset+2]*dw)/oa);
+  d[offset+3]=Math.round(oa*255)
+}
+/* ================= Squad ring: mark the cogs on MY side ==============
+   Battle royale seats SIXTEEN teams of two on one field, so "my team" is
+   me plus exactly one partner among thirty-two cogs, and colour alone
+   cannot find them: sixteen team tints are on screen at once and the floor
+   is already painted in those same sixteen colours.
+
+   The engine already owns the idiom for "this cog is special" -- it paints
+   a rim into the transparent pixels hugging a soldier's silhouette
+   (global.nim `soldierOutlined`): a 2px white rim for YOUR OWN marker on
+   the player view, a fat one for the spectator's selected crew. This
+   widens that same rim onto your PARTNER, and adds a dark keyline on its
+   outer edge so the ring separates from bright wet paint exactly as well
+   as it does from the dark floor. Self keeps a ring of the same family in
+   the engine's own white, thickened here so it survives the half-scale the
+   whole-arena camera actually renders at.
+
+   RENDER ONLY, and deliberately so. Nothing below touches the wire, the
+   sim, or labels.nim: it re-reads the `self <color> <side>` and
+   `player <color> <side>` labels this seat is ALREADY sent and recomposites
+   pixels in the browser. A policy's observation is byte-identical with this
+   code present or deleted -- no new oracle, and the aim fuzz on every other
+   soldier is untouched.  */
+const RING_PAD=7;                 /* px of headroom grown around the sprite */
+const RING_KEY=[12,10,9];         /* near-black keyline, the anti-camouflage */
+/* Per-tone bands, in Chebyshev px out from the silhouette: `core` is the
+   coloured rim, and everything from core+1 to `edge` is the dark keyline.
+   YOUR OWN cog already arrives with the engine's 2px white rim baked into
+   its pixels (global.nim soldierOutlined on the self marker), so self adds
+   NO colour of its own -- only the keyline that lifts that existing white
+   off wet paint. The partner has no rim at all on the wire, so mate draws
+   its own 2px in the HUD's amber and then the same keyline. Equal weight,
+   two hues: white is you, amber is your partner. */
+const RING_TONES={
+  self:{core:2,edge:5,rgb:[255,255,255]},
+  mate:{core:4,edge:7,rgb:[232,163,61]}
+};
+/* Weight is set by the CAMERA, not by taste. The player view is the whole
+   3211x1713 arena scaled to fit the window -- 0.498 on a 1600px screen --
+   so a cog is about twenty screen pixels and one map pixel is HALF a screen
+   pixel. A 2px rim that looks emphatic in a zoomed crop is a hairline in
+   play. These bands land the ring at roughly 3-4 screen px, which is what
+   it takes to find a cog across the arena in a glance. */
+const ringCache=new Map();        /* spriteId+tone -> padded rim sprite */
+/* Builds the rim ONCE per sprite id (16 aim steps x 2 tones is the whole
+   working set) into a canvas grown by RING_PAD on every side, so a cog whose
+   art touches its own sprite edge still gets a complete ring. */
+function ringSprite(spriteId,sprite,tone){
+  const key=spriteId+":"+tone;
+  const hit=ringCache.get(key);
+  if(hit)return hit;
+  const w=sprite.width+RING_PAD*2,h=sprite.height+RING_PAD*2;
+  const px=new Uint8Array(w*h*4);
+  const solid=new Uint8Array(w*h);
+  for(let y=0;y<sprite.height;y++)for(let sx=0;sx<sprite.width;sx++){
+    if(sprite.pixels[(y*sprite.width+sx)*4+3]>=64)solid[(y+RING_PAD)*w+sx+RING_PAD]=1;
+  }
+  const band=RING_TONES[tone];
+  for(let y=0;y<h;y++)for(let sx=0;sx<w;sx++){
+    const i=y*w+sx;
+    if(solid[i])continue;
+    let d=0;
+    for(let r=1;r<=band.edge&&!d;r++){
+      for(let dy=-r;dy<=r&&!d;dy++)for(let dx=-r;dx<=r;dx++){
+        if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;
+        const nx=sx+dx,ny=y+dy;
+        if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        if(solid[ny*w+nx]){d=r;break}
+      }
+    }
+    if(!d)continue;
+    const inCore=d<=band.core,c=inCore?band.rgb:RING_KEY,a=inCore?255:230,o=i*4;
+    px[o]=c[0];px[o+1]=c[1];px[o+2]=c[2];px[o+3]=a;
+  }
+  const built={width:w,height:h,pixels:px};
+  ringCache.set(key,built);
+  return built;
+}
+/* Which sprite label marks a cog on my side. `self ...` is my own body;
+   `player <my colour> ...` is my partner. Corpses carry `corpse ...` and so
+   are never ringed -- a ring means a LIVE teammate. */
+function ringToneFor(label){
+  if(!label)return null;
+  if(label.startsWith("self "))return "self";
+  if(selfTeam&&label.startsWith("player "+selfTeam+" "))return "mate";
+  return null;
+}
+function drawSprite(){
+  const nowT=performance.now();
+  /* Hitstop: freeze the last composed frame for a handful of ms on landing
+     a hit. Cosmetic-render-only -- parseSprite keeps consuming the wire and
+     the sim keeps ticking underneath; we simply stop repainting the canvas
+     for a beat, which is the whole "impact" of a hitstop. */
+  if(nowT<hitstopUntil)return;
+  x.save();
+  if(nowT<shakeEndAt){
+    const remain=(shakeEndAt-nowT)/SHAKE_MS,amt=shakeMag*remain;
+    x.translate((Math.random()*2-1)*amt,(Math.random()*2-1)*amt);
+  }
+  x.clearRect(-4,-4,c.width+8,c.height+8);
+  x.fillStyle="#000";x.fillRect(0,0,c.width,c.height);
+  const orderedLayers=[...layers.values()].sort((a,b)=>a.type-b.type||a.id-b.id);
+  for(const layer of orderedLayers){
+    if(!layer.image)continue;
+    layer.image.data.fill(0);
+    const ordered=[...objects.values()].filter(o=>o.layer===layer.id).sort((a,b)=>a.z-b.z||a.dispY-b.dispY||a.id-b.id);
+    for(const object of ordered){
+      const sprite=sprites.get(object.spriteId);
+      if(!sprite)continue;
+      const ox=object.dispX,oy=object.dispY;
+      /* The squad ring goes down IMMEDIATELY under its own cog: over the
+         floor paint and the splatters (which the sim draws beneath players),
+         under the soldier art, and inside the same depth sort -- so a cog
+         standing in front of a teammate still occludes the ring, exactly as
+         it occludes the body. */
+      const tone=ringToneFor(sprite.label);
+      if(tone){
+        const ring=ringSprite(object.spriteId,sprite,tone),rx=ox-RING_PAD,ry=oy-RING_PAD;
+        const rx0=Math.max(0,-rx),ry0=Math.max(0,-ry),rx1=Math.min(ring.width,layer.width-rx),ry1=Math.min(ring.height,layer.height-ry);
+        for(let sy=ry0;sy<ry1;sy++)for(let sx=rx0;sx<rx1;sx++)putPixel(layer,rx+sx,ry+sy,ring,(sy*ring.width+sx)*4)
+      }
+      const sx0=Math.max(0,-ox),sy0=Math.max(0,-oy),sx1=Math.min(sprite.width,layer.width-ox),sy1=Math.min(sprite.height,layer.height-oy);
+      for(let sy=sy0;sy<sy1;sy++)for(let sx=sx0;sx<sx1;sx++)putPixel(layer,ox+sx,oy+sy,sprite,(sy*sprite.width+sx)*4)
+    }
+    layer.ctx.putImageData(layer.image,0,0);
+    x.drawImage(layer.canvas,0,0)
+  }
+  drawReticle();
+  drawHitmarker(nowT);
+  x.restore();
+  n("")
+}
+function parseSprite(bytes){
+  if(!spriteMode){spriteMode=true;l=255}
+  sawFrame=true;
+  const packetTime=performance.now();
+  let motionSeen=false;
+  let offset=0;
+  while(offset<bytes.length){
+    const type=bytes[offset++];
+    if(type===0x01){
+      const id=readU16(bytes,offset),width=readU16(bytes,offset+2),height=readU16(bytes,offset+4);
+      offset+=6;
+      const snappy=trySnappySprite(bytes,offset,bytes.length-offset,width,height);
+      /* A redefined sprite id gets new pixels, so any ring cut from the old
+         silhouette is stale. Two ids are rewritten every tick by design (the
+         self marker and the loadout-tagged identity badge). */
+      ringCache.delete(id+":self");ringCache.delete(id+":mate");
+      if(snappy){sprites.set(id,{width,height,pixels:snappy.pixels,label:snappy.label});offset=snappy.offset}
+      else{sprites.set(id,{width,height,pixels:rawSprite(bytes,offset,width,height),label:""});offset+=width*height}
+    }else if(type===0x02){
+      const id=readU16(bytes,offset),ox=readI16(bytes,offset+2),oy=readI16(bytes,offset+4),z=readI16(bytes,offset+6),layer=bytes[offset+8],spriteId=readU16(bytes,offset+9);
+      offset+=11;
+      const isDamagePop=id>=DAMAGE_POP_ID_MIN&&id<=DAMAGE_POP_ID_MAX;
+      const existing=objects.get(id);
+      if(!existing){
+        objects.set(id,{id,x:ox,y:oy,z,layer,spriteId,dispX:ox,dispY:oy,fromX:ox,fromY:oy,moveAt:0});
+        if(isDamagePop)handleDamagePopBirth(ox,oy,spriteId);
+      }else{
+        const spriteChanged=existing.spriteId!==spriteId;
+        if(existing.x!==ox||existing.y!==oy){
+          const glide=existing.layer===layer&&Math.abs(ox-existing.x)<=SNAP_DISTANCE&&Math.abs(oy-existing.y)<=SNAP_DISTANCE;
+          if(glide){
+            existing.fromX=existing.dispX;existing.fromY=existing.dispY;existing.moveAt=packetTime;
+            movingObjects.add(existing);motionSeen=true;
+          }else{
+            existing.dispX=ox;existing.dispY=oy;existing.fromX=ox;existing.fromY=oy;existing.moveAt=0;
+            movingObjects.delete(existing);
+          }
+        }
+        existing.x=ox;existing.y=oy;existing.z=z;existing.layer=layer;existing.spriteId=spriteId;
+        if(isDamagePop&&spriteChanged)handleDamagePopBirth(ox,oy,spriteId);
+      }
+    }else if(type===0x03){
+      const id=readU16(bytes,offset);offset+=2;
+      const gone=objects.get(id);
+      if(gone)movingObjects.delete(gone);
+      objects.delete(id)
+    }
+    else if(type===0x04){objects.clear();movingObjects.clear()}
+    else if(type===0x05){viewport(bytes[offset],readU16(bytes,offset+1),readU16(bytes,offset+3));offset+=5}
+    else if(type===0x06){const layer=ensureLayer(bytes[offset]);layer.type=bytes[offset+1];layer.flags=bytes[offset+2];offset+=3}
+    else if(type===0x07){offset+=2}
+    else{throw new Error("Unknown sprite packet type "+type)}
+  }
+  if(motionSeen){
+    if(lastMotionAt){
+      const gap=packetTime-lastMotionAt;
+      if(gap>=16&&gap<=250)packetInterval+=0.1*(gap-packetInterval);
+    }
+    lastMotionAt=packetTime;
+  }
+  /* Coalesce into the next animation frame instead of drawing synchronously
+     right here: a burst of several WS messages (join, or any multi-chunk
+     packet) each land in their own onmessage call, and drawSprite() walks
+     every layer x every object x every pixel -- doing that once PER MESSAGE
+     back-to-back is pure redundant work when only the state after the LAST
+     message in the burst is ever seen. scheduleDraw() no-ops once a frame is
+     already pending, so N messages in one frame window collapse to one
+     drawSprite() call on the next rAF (imperceptible, <16ms) instead of N
+     synchronous ones stacked on the main thread. frameTick's own tail keeps
+     the animation loop self-sustaining for glides/shake/hitmarker exactly as
+     before; this only changes the FIRST trigger per burst.  */
+  scheduleDraw();
+}
+/* Advance every in-flight glide to `now`; returns whether any glide is
+   still moving (frameTick keeps rAF-driving while true, and stops the
+   instant every glide lands, so a paused/idle field costs zero draws). */
+function updateInterpolation(now){
+  if(movingObjects.size===0)return false;
+  let animating=false;
+  for(const obj of movingObjects){
+    const t=Math.max(0,(now-obj.moveAt)/packetInterval);
+    if(t>=1){
+      obj.dispX=obj.x;obj.dispY=obj.y;obj.fromX=obj.x;obj.fromY=obj.y;obj.moveAt=0;
+      movingObjects.delete(obj);
+    }else{
+      obj.dispX=Math.round(obj.fromX+(obj.x-obj.fromX)*t);
+      obj.dispY=Math.round(obj.fromY+(obj.y-obj.fromY)*t);
+      animating=true;
+    }
+  }
+  return animating;
+}
+function frameTick(now){
+  rafHandle=0;
+  if(now<hitstopUntil){
+    /* Freeze the interpolation clock too, not just the paint -- a hitstop
+       that keeps gliding objects underneath would just be a skipped frame,
+       not a pause. */
+    rafHandle=requestAnimationFrame(frameTick);
+    return;
+  }
+  const animating=updateInterpolation(now);
+  drawSprite();
+  if(animating||now<shakeEndAt||now<hitmarkerUntil)rafHandle=requestAnimationFrame(frameTick);
+}
+function scheduleDraw(){
+  if(rafHandle)return;
+  rafHandle=requestAnimationFrame(frameTick);
+}
+function drawPixels(bytes){
+  spriteMode=false;sizeCanvas(128,128);
+  const q=pixelImage.data;let j=0,o,value;
+  for(let idx=0;idx<8192;idx++){
+    value=bytes[idx];o=(value&15)*4;q[j++]=p[o++];q[j++]=p[o++];q[j++]=p[o++];q[j++]=255;
+    o=(value>>4)*4;q[j++]=p[o++];q[j++]=p[o++];q[j++]=p[o++];q[j++]=255
+  }
+  x.putImageData(pixelImage,0,0);n("")
+}
+(function connect(){
+  n("connecting...");w=new WebSocket(a);w.binaryType="arraybuffer";l=255;
+  w.onopen=()=>{reconnectAttempts=0;n("")};
+  w.onmessage=e=>{
+    const bytes=new Uint8Array(e.data);
+    sawFrame=false;
+    try{if(bytes.length===8192&&!spriteMode)drawPixels(bytes);else parseSprite(bytes)}
+    catch(err){console.error(err);n("bad packet");w.close()}
+    if(sawFrame)controlsTick();
+  };
+  const q=w;
+  q.onclose=q.onerror=()=>{
+    if(w!==q)return;
+    if(r&&reconnectAttempts<MaxReconnectAttempts){
+      reconnectAttempts++;
+      n("reconnecting...");if(!t)t=setTimeout(()=>{t=0;connect()},r*1000)
+    }else n("disconnected...")
+  }
+})();
+/* ================= Season 2 human-seat controls =====================
+   WASD move . mouse aim . LMB fire . Space item . 1-6 ping . RMB wheel hook
+
+   Every binding below resolves to a button a POLICY could also press. The
+   engine's whole per-tick action space is eight bits (spriteprotocol.nim
+   InputState) plus a shout string, and player_controls.js documents which
+   bit each key owns. Nothing here can express an action a bot cannot.
+
+   The aim is DEAD-RECKONED from the commands we issue, because the engine
+   fuzzes every rendered soldier including our own self marker
+   (global.nim:6211-6226): "your true aim is knowable only from the commands
+   you issued, never from the pixels." We therefore integrate our own rotate
+   commands on the tick clock -- one server frame is one sim tick.
+==================================================================== */
+const CC=CtfControls;
+let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
+let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
+let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false;
+let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
+
+/* The ping wheel is a SEPARATE lane. We own only the seam: swallow the
+   browser context menu, hand the wheel the map cell under the pointer, and
+   let it commit any standard ping through sendPing(). Replace these two
+   hooks; nothing else in this file needs to change. */
+window.onPingWheelOpen=window.onPingWheelOpen||function(cell,pos){};
+window.onPingWheelCommit=window.onPingWheelCommit||function(cell,pos){};
+
+/* ---- Quick-callout radial wheel (fills the seam above) --------------
+   Hold RMB: wheel opens at the cursor. Move while held: the wedge under
+   the angle from the wheel's center highlights (radial-menu convention --
+   selection is by ANGLE only past a small dead-zone, not by landing a
+   pixel-precise hover box, so a quick flick in the right direction is
+   enough). Release over a wedge: fires that wedge's callout through
+   sendPing() -- the SAME function 1-6 already call, so the wheel can never
+   diverge from the hotkey's wire format, cooldown, or HUD note. Release in
+   the dead-zone (or anywhere before a wedge is ever entered): wheelHover
+   stays -1 and nothing is sent, per spec.
+   Labels/order are callout-spec.md sec.5's wheel+hotkey vocabulary; slot 6
+   is left blank in that spec ("(reserved)") so its chip renders dim and
+   still fires "!6" for hotkey parity, honestly labeled as unassigned. */
+const CALLOUTS=[
+  {digit:1,label:"SPOTTED",sub:"HERE!",accent:"#ff004d"},
+  {digit:2,label:"PUSH",sub:"HERE!",accent:"#ffa300"},
+  {digit:3,label:"FALL BACK!",sub:"",accent:"#29adff"},
+  {digit:4,label:"ON ME!",sub:"NEED BACKUP",accent:"#ffec27"},
+  {digit:5,label:"NICE ONE!",sub:"",accent:"#00e436"},
+  {digit:6,label:"RESERVED",sub:"no vocab yet",accent:"#5f574f",dim:true},
+];
+const TEAM_TINT={red:"#e0523a",blue:"#3f7cc4",green:"#45a85e",yellow:"#ddc531"};
+const WHEEL_CHIP_R=92, WHEEL_DEADZONE=30;
+let wheelOpen=false,wheelHover=-1,wheelCX=0,wheelCY=0;
+const wheelEl=document.getElementById("wheel"),
+      wheelRingEl=document.getElementById("wheelRing"),
+      wheelHubEl=document.getElementById("wheelHub");
+const chipEls=CALLOUTS.map((co,i)=>{
+  const ang=i*Math.PI/3; // 60deg steps, 0=up, clockwise
+  const cx=Math.round(WHEEL_CHIP_R*Math.sin(ang)),
+        cy=Math.round(-WHEEL_CHIP_R*Math.cos(ang));
+  const el=document.createElement("div");
+  el.className="wchip"+(co.dim?" dim":"");
+  el.style.left="calc(50% + "+cx+"px)";
+  el.style.top="calc(50% + "+cy+"px)";
+  el.style.borderLeftColor=co.accent;
+  el.title=co.label+(co.sub?" "+co.sub:"");
+  el.innerHTML=co.label+(co.sub?'<span class="sub">'+co.sub+'</span>':'');
+  wheelEl.appendChild(el);
+  return el;
+});
+function wheelIndexAt(mx,my){
+  const dx=mx-wheelCX,dy=my-wheelCY;
+  if(Math.hypot(dx,dy)<WHEEL_DEADZONE)return -1;
+  let deg=Math.atan2(dx,-dy)*180/Math.PI; // 0=up, clockwise-positive
+  deg=(deg+360)%360;
+  return Math.floor(((deg+30)%360)/60);
+}
+function updateWheelHoverClasses(){
+  chipEls.forEach((el,i)=>{
+    if(i===wheelHover){el.classList.add("hover");el.style.background=CALLOUTS[i].accent+"e6"}
+    else{el.classList.remove("hover");el.style.background=""}
+  });
+}
+function closeWheel(){
+  if(!wheelOpen)return;
+  wheelOpen=false;wheelEl.classList.remove("open");
+  wheelHover=-1;updateWheelHoverClasses();
+}
+window.onPingWheelOpen=function(cell,pos,scr){
+  const col=(selfTeam&&TEAM_TINT[selfTeam])||"#e8a33d";
+  wheelRingEl.style.borderColor=col;wheelHubEl.style.background=col;
+  wheelCX=scr?scr.x:innerWidth/2;wheelCY=scr?scr.y:innerHeight/2;
+  wheelEl.style.left=wheelCX+"px";wheelEl.style.top=wheelCY+"px";
+  wheelHover=-1;updateWheelHoverClasses();
+  wheelOpen=true;wheelEl.classList.add("open");
+};
+window.onPingWheelCommit=function(cell,pos,scr){
+  if(!wheelOpen)return;
+  const hit=wheelHover;
+  closeWheel();
+  if(hit>=0)sendPing(CALLOUTS[hit].digit);
+};
+addEventListener("mousemove",e=>{
+  if(!wheelOpen)return;
+  const idx=wheelIndexAt(e.clientX,e.clientY);
+  if(idx!==wheelHover){wheelHover=idx;updateWheelHoverClasses()}
+});
+
+/* The self marker is a labelled sprite -- `self <color> <side>` (labels.nim
+   LabelPrefixSelf). The map layer is served at scale 1 with its origin at
+   (0,0), so object coordinates ARE map coordinates. */
+function findSelf(){
+  for(const o of objects.values()){
+    const sp=sprites.get(o.spriteId);
+    if(sp&&sp.label&&sp.label.startsWith("self ")){
+      selfTeam=sp.label.split(" ")[1]||null;
+      return {x:o.x+sp.width/2,y:o.y+sp.height/2};
+    }
+  }
+  return null;
+}
+function toMap(ev){
+  const r=c.getBoundingClientRect();
+  return {x:(ev.clientX-r.left)*(c.width/Math.max(1,r.width)),
+          y:(ev.clientY-r.top)*(c.height/Math.max(1,r.height))};
+}
+function cellUnderCursor(){
+  return (haveMouse&&mapW&&mapH)?CC.chessCell(mouseX,mouseY,mapW,mapH):null;
+}
+function sendPing(digit){
+  const text=CC.pingText(digit,cellUnderCursor());
+  if(!text)return;
+  /* applyShout rate-limits to one shout per second and drops the rest, so
+     we mirror that locally to keep the HUD honest rather than pretend. */
+  if(tickCount-lastPingTick<CC.SHOUT_COOLDOWN_TICKS){pingNote=text+" (held)";return}
+  lastPingTick=tickCount;pingNote=text;chat(text);
+}
+function readKeys(){
+  return {
+    up:!z&&!!(k.KeyW||k.ArrowUp), down:!z&&!!(k.KeyS||k.ArrowDown),
+    left:!z&&!!(k.KeyA||k.ArrowLeft), right:!z&&!!(k.KeyD||k.ArrowRight),
+    rotate:committedRotate, fire:!z&&lmb, item:!z&&!!k.Space,
+  };
+}
+/* Movement and item respond the instant a key moves, but the rotate and
+   attack bits change ONLY on the tick clock: re-deciding them mid-tick would
+   feed the server an extra rotate tick our dead reckoning never counted, and
+   would burn the fire pulse early. */
+function emitNow(){
+  const keys=readKeys();
+  const held=tickMask&(CC.BUTTON.b|CC.BUTTON.select|CC.BUTTON.attack);
+  tickMask=held|CC.moveMask(keys)|CC.itemBit(keys.item);
+  sendMask(tickMask);
+}
+/* One server frame == one applied sim tick. */
+function controlsTick(){
+  tickCount++;
+  if(aimSeeded)estAim=CC.stepAim(estAim,committedRotate);
+  selfPos=findSelf();
+  /* Every fresh spawn re-seeds: the engine snaps aimBrads back to
+     spawnAimBrads on EVERY respawn, so carrying the old estimate across a
+     death would leave the gun permanently off the cursor. */
+  const seatedNow=!!selfPos;
+  if(seatedNow&&!wasSeated&&selfTeam){estAim=CC.reseedAim(estAim,true,false,selfTeam);aimSeeded=true}
+  wasSeated=seatedNow;
+  let rot=null;
+  if(aimSeeded&&selfPos&&haveMouse&&!z){
+    rot=CC.rotateButton(estAim,
+      CC.bradsOfVector(Math.round(mouseX-selfPos.x),Math.round(mouseY-selfPos.y)));
+  }
+  committedRotate=rot;
+  tickMask=CC.buildMask(readKeys(),{attack:emittedAttack});
+  emittedAttack=(tickMask&CC.BUTTON.attack)!==0;
+  sendMask(tickMask);
+  drawHud();
+}
+/* Reticle: client-side only, never transmitted. It draws the aim we
+   COMMANDED, so it reveals nothing this seat did not already know -- it is
+   not an oracle and it does not unfuzz the render. */
+function drawReticle(){
+  if(selfPos&&aimSeeded){
+    const a=estAim*Math.PI/(CC.AIM_BRADS_TURN/2),ux=Math.cos(a),uy=-Math.sin(a);
+    x.strokeStyle="rgba(255,236,39,.5)";x.lineWidth=1;
+    x.beginPath();x.moveTo(selfPos.x+ux*9,selfPos.y+uy*9);
+    x.lineTo(selfPos.x+ux*88,selfPos.y+uy*88);x.stroke();
+  }
+  if(!haveMouse)return;
+  x.strokeStyle=lmb?"rgba(255,0,77,.95)":"rgba(232,228,220,.85)";x.lineWidth=1;
+  x.beginPath();
+  x.moveTo(mouseX-5,mouseY+.5);x.lineTo(mouseX-1,mouseY+.5);
+  x.moveTo(mouseX+2,mouseY+.5);x.lineTo(mouseX+6,mouseY+.5);
+  x.moveTo(mouseX+.5,mouseY-5);x.lineTo(mouseX+.5,mouseY-1);
+  x.moveTo(mouseX+.5,mouseY+2);x.lineTo(mouseX+.5,mouseY+6);
+  x.stroke();
+}
+function drawHud(){
+  /* Raw telemetry (move/aim/fire/item state), developer chrome that used to
+     render on every seat unconditionally. Off by default now -- a game, not
+     a debugger -- and revealed only by an explicit ?debug or ?probe param. */
+  const debugHud=u.searchParams.has("debug")||u.searchParams.has("probe");
+  hud.style.display=debugHud?"block":"none";
+  if(!debugHud)return;
+  const keys=readKeys(),on=v=>v?"on":"..";
+  hud.innerHTML=
+    '<b>move</b> '+on(keys.up)+'/'+on(keys.left)+'/'+on(keys.down)+'/'+on(keys.right)+
+    '  <b>aim</b> '+(aimSeeded?estAim+"b":"--")+' '+(committedRotate||"park")+
+    '  <b>fire</b> '+(lmb?"held":"..")+
+    '  <b>item</b> '+on(keys.item)+
+    (pingNote?'  <b>ping</b> '+pingNote:'');
+}
+/* ================= Hit feedback (client-side only) ===================
+   Detected from the "damage pop " sprite labels the server already streams
+   for the floating "-N"/"SPLAT" numbers (src/ctf/global.nim addDamagePops):
+   a pop's FIRST frame (label ends " stage 0") is a one-shot "someone just
+   took damage" event, keyed to a fixed object-id pool (DAMAGE_POP_ID_MIN/
+   MAX above). Proximity to our own selfPos decides "I took it" (screenshake
+   + sound) vs "I probably landed it" (hitstop + hitmarker + sound, gated on
+   actively firing and a plausible engagement bubble) -- the same kind of
+   locally-known signal the reticle already uses, never an oracle, and
+   never anything that reaches gameHash: this only drives paint and audio.
+==================================================================== */
+const SELF_HIT_RADIUS=16, ENGAGE_RANGE=300;
+const HITSTOP_MS=55, SHAKE_MS=130, SHAKE_MAG=2.2, HITMARKER_MS=180;
+let hitstopUntil=0,shakeEndAt=0,shakeMag=0,hitmarkerUntil=0,hitmarkerIsKill=false;
+function triggerHitstop(){hitstopUntil=Math.max(hitstopUntil,performance.now()+HITSTOP_MS);scheduleDraw()}
+function triggerShake(){const nowT=performance.now();shakeEndAt=Math.max(shakeEndAt,nowT+SHAKE_MS);shakeMag=SHAKE_MAG;scheduleDraw()}
+function triggerHitmarker(isKill){hitmarkerUntil=performance.now()+HITMARKER_MS;hitmarkerIsKill=isKill;scheduleDraw()}
+function handleDamagePopBirth(px,py,spriteId){
+  const sp=sprites.get(spriteId);
+  if(!sp||!sp.label||!sp.label.endsWith(" stage 0"))return;
+  const isKill=sp.label.indexOf(" KO ")!==-1;
+  if(selfPos){
+    const sdx=px-selfPos.x,sdy=py-selfPos.y;
+    if(sdx*sdx+sdy*sdy<=SELF_HIT_RADIUS*SELF_HIT_RADIUS){
+      triggerShake();playHitTaken();return;
+    }
+  }
+  if(lmb&&selfPos){
+    const edx=px-selfPos.x,edy=py-selfPos.y;
+    if(edx*edx+edy*edy<=ENGAGE_RANGE*ENGAGE_RANGE){
+      triggerHitstop();triggerHitmarker(isKill);
+      if(isKill)playKillConfirm();else playHitDealt();
+    }
+  }
+}
+/* Drawn at the crosshair (where the player is already looking), not at the
+   hit's world position -- reads instantly without competing with the
+   reticle. Bigger + red for a kill, smaller + white for a plain hit. */
+function drawHitmarker(nowT){
+  if(nowT>=hitmarkerUntil)return;
+  const remain=(hitmarkerUntil-nowT)/HITMARKER_MS;
+  const mx=haveMouse?mouseX:c.width/2,my=haveMouse?mouseY:c.height/2;
+  x.save();
+  x.globalAlpha=Math.max(0,Math.min(1,remain));
+  x.strokeStyle=hitmarkerIsKill?"rgba(255,60,40,.95)":"rgba(255,255,255,.9)";
+  x.lineWidth=hitmarkerIsKill?1.6:1.1;
+  const sz=hitmarkerIsKill?7:5;
+  x.beginPath();
+  x.moveTo(mx-sz,my-sz);x.lineTo(mx+sz,my+sz);
+  x.moveTo(mx+sz,my-sz);x.lineTo(mx-sz,my+sz);
+  x.stroke();
+  x.restore();
+}
+/* Fire sound: once on the mousedown edge (a real user gesture, so it also
+   unlocks audio), then a lightweight repeat while held so a sustained trigger
+   pull still sounds like fire rather than one click -- cosmetic timing only,
+   the server alone decides whether a shot actually lands. */
+let fireLoopTimer=null;
+function startFireLoop(){
+  if(fireLoopTimer)return;
+  playFire();
+  fireLoopTimer=setInterval(()=>{if(lmb&&!z)playFire();else stopFireLoop()},160);
+}
+function stopFireLoop(){
+  if(fireLoopTimer){clearInterval(fireLoopTimer);fireLoopTimer=null}
+}
+addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true});
+c.addEventListener("mousedown",e=>{
+  if(e.button===0){ensureAudio();lmb=true;e.preventDefault();startFireLoop()}
+  else if(e.button===2){e.preventDefault();window.onPingWheelOpen(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY})}
+});
+addEventListener("mouseup",e=>{
+  if(e.button===0){lmb=false;stopFireLoop()}
+  else if(e.button===2)window.onPingWheelCommit(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY});
+});
+c.addEventListener("contextmenu",e=>e.preventDefault());
+addEventListener("blur",()=>{lmb=false;stopFireLoop();closeWheel()});
+requestAnimationFrame(function ui(){drawHud();requestAnimationFrame(ui)});
+</script>
+</body>
+</html>

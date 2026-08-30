@@ -179,7 +179,7 @@ proc fullFeatureGame(teams4 = false): SimServer =
   # and a rename of any of them would have slipped through the guard.
   #   A REAL kill, so the death path itself feeds the sweep: seat 5 (Blue,
   #   otherwise unposed) dies next to the viewer, leaving the long-dwelling
-  #   death `splatter` and the floating `damage pop <color> KO` kill marker.
+  #   death `splatter` and the floating `damage pop <color> SPLAT` kill marker.
   #   Both outlive the sweep's few ticks by seconds of game time. keepPlaying()
   #   revives the seat; the FX persist independently of the victim.
   result.players[5].x = cx - 40
@@ -304,6 +304,7 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
     gstate = initGlobalViewerState()
     livingState: PlayerViewerState
     ghostState: PlayerViewerState
+    botState: PlayerViewerState
   let none = newSeq[InputState](sim.players.len)
 
   proc keepPlaying(sim: var SimServer) =
@@ -354,6 +355,17 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
   # Ghost view from the dead seat: corpses render for ghost viewers only.
   result.absorb(sim.buildPlayerMessages(3, ghostState))
   result.absorb(sim.buildGlobalMessages(gstate))
+
+  # Sprites Off (spritesOff=true) is the wire condition every scripted league
+  # bot actually connects under (server.nim sets it from the client's 0x87
+  # opt-in). LabelWalkabilityMap only ever rides in that mode now — a human
+  # viewer never receives it (see buildSpriteProtocolPlayerInit, which skips
+  # it entirely for spritesOff=false: no client JS reads it) — so a FRESH
+  # init sweep in bot mode is needed to keep that policy-only label covered
+  # by this vocabulary guard. A fresh PlayerViewerState is required: reusing
+  # an already-initialized state would skip buildSpriteProtocolPlayerInit
+  # entirely (init-only sprites, like this one, never re-emit per frame).
+  result.absorb(sim.buildPlayerMessages(0, botState, spritesOff = true))
 
   # Spray FX + the shooter's own weapon HUD: give seat 0 the can and fire it.
   # `weapon spray` is gated on the seat being alive in a Playing-phase frame, so
@@ -433,6 +445,26 @@ suite "sprite label contract":
       if message.kind == spkSprite:
         let normalized = message.sprite.label.normalizeLabel()
         if normalized.startsWith(LabelPrefixPuddle):
+          emitted.incl(normalized)
+    # The battle-royale shrink zone (§4.3) is config-gated exactly like
+    # trenches/puddles — no fixture above configures it — so the
+    # `zone `/`zonenext ` marker families get the same minimal treatment.
+    # Unlike a trench or puddle the rect is stated every frame (it moves as
+    # the zone shrinks), so any single posed tick emits both; only the
+    # `zone `/`zonenext ` families are merged in.
+    var zoneConfig = defaultGameConfig()
+    zoneConfig.update(
+      """{"zonePhases": [{"z": 0.5, "waitTicks": 10, "shrinkTicks": 10, "dps": 1}]}""")
+    var zoneGame = initCtfForTest(zoneConfig)
+    discard zoneGame.addPlayer("p0")
+    discard zoneGame.addPlayer("p1")
+    zoneGame.startGame()
+    var zoneViewer = initGlobalViewerState()
+    for message in zoneGame.buildGlobalMessages(zoneViewer):
+      if message.kind == spkSprite:
+        let normalized = message.sprite.label.normalizeLabel()
+        if normalized.startsWith(LabelPrefixZone) or
+            normalized.startsWith(LabelPrefixZoneNext):
           emitted.incl(normalized)
     # Regenerating: `nim r -d:writeLabelManifest tests/test_label_contract.nim`
     # rewrites the golden from what the engine emits NOW, and the resulting git

@@ -1,0 +1,91 @@
+{
+  "maxGames": 0,
+  "minPlayers": 8,
+  "lives": 30,
+  "hitPoints": 1,
+  "respawnTicks": 48,
+  "fireCooldownTicks": 12,
+  "carrierSpeedPct": 70,
+  "playerBouncePct": 40,
+  "aimTurnRate": 5,
+  "visionConeDeg": 60,
+  "visionBubble": 90,
+  "maxTicks": 28800,
+  "mapPath": "arena",
+  "fireWindupTicks": 5,
+  "allowSeatTakeover": true,
+  "allowDirectAim": true,
+  "loadout": "paintball",
+  "floorPaint": true,
+  "tokens": [
+    "0xBADA55_0",
+    "0xBADA55_1",
+    "0xBADA55_2",
+    "0xBADA55_3",
+    "0xBADA55_4",
+    "0xBADA55_5",
+    "0xBADA55_6",
+    "0xBADA55_7"
+  ],
+  "players": [
+    {
+      "name": "player1"
+    },
+    {
+      "name": "player2"
+    },
+    {
+      "name": "player3"
+    },
+    {
+      "name": "player4"
+    },
+    {
+      "name": "player5"
+    },
+    {
+      "name": "player6"
+    },
+    {
+      "name": "player7"
+    },
+    {
+      "name": "player8"
+    }
+  ],
+  "slots": [
+    {
+      "team": "red",
+      "color": "red"
+    },
+    {
+      "team": "blue",
+      "color": "blue"
+    },
+    {
+      "team": "red",
+      "color": "red"
+    },
+    {
+      "team": "blue",
+      "color": "blue"
+    },
+    {
+      "team": "red",
+      "color": "red"
+    },
+    {
+      "team": "blue",
+      "color": "blue"
+    },
+    {
+      "team": "red",
+      "color": "red"
+    },
+    {
+      "team": "blue",
+      "color": "blue"
+    }
+  ],
+  "fastMode": false
+}

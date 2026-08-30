@@ -24,7 +24,7 @@ cog spray can <color>
 cog wheel <color>
 corpse <color> <side>
 damage pop <color> -<n> stage <n>
-damage pop <color> KO stage <n>
+damage pop <color> SPLAT stage <n>
 diamond
 endzone <color> <shape> <n>,<n> <n>,<n>
 endzone <color> power <n> band <n>
@@ -83,3 +83,5 @@ trench <n>,<n> <n>,<n>
 walkability map
 weapon gun
 weapon spray
+zone <n>,<n> <n>,<n>
+zonenext <n>,<n> <n>,<n>

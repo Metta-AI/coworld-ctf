@@ -29,11 +29,48 @@ proc lobbyStartSecondsRemaining*(sim: SimServer): int =
     return 0
   max(1, (ticks + TargetFps - 1) div TargetFps)
 
-proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
+proc spawnAimBrads*(gameMap: CtfMap, team: Team, groupOffset = 0): int =
   ## Returns the spawn/respawn aim angle: toward the map center, so every
   ## team wakes facing the fight. Sides maps keep the classic east/west pair;
   ## corner teams face the diagonal, plus arms face along their arm.
   ##
+  ## BR N-point spawn subsystem: when the map carries authored spawnPoints
+  ## (the exact condition spawnPosition already gates its own N-point
+  ## placement on), the classic layout table below has nothing useful to say
+  ## — a BR board has no "sides" or "corners", just points scattered around
+  ## the field — so every team is aimed from the CENTROID of its OWN
+  ## assigned spawn-point group toward gameMap.center instead, via
+  ## bradsOfVector (the exact inverse of aimVector). Before this fix every
+  ## non-Red team fell through to the classic sides-map formula regardless
+  ## of layout: a Red-faces-east/everyone-else-faces-west binary, so all 15
+  ## non-Red BR duos woke facing due west no matter where on the ring they
+  ## actually spawned.
+  ##
+  ## `groupOffset` is spawnPosition's own per-episode spawnGroupOffset
+  ## (default 0, i.e. the raw/unrotated group): pass the SAME offset used to
+  ## place this team's players so the computed bearing matches the point
+  ## they actually stand on — spawnGroupOffset rotates WHICH physical group
+  ## each team lands in every episode (so no team owns a ring cell forever),
+  ## and a facing computed from the wrong (unrotated) group would point
+  ## toward center from a ring position this team never actually occupies.
+  ##
+  ## Classic (non-BR) maps never author spawnPoints, so this branch is never
+  ## reached for them and the table below stays byte-identical to the
+  ## pre-BR formula.
+  if gameMap.spawnPoints.len > 0:
+    let
+      teamCount = gameMap.teamCount()
+      perTeam = gameMap.spawnPoints.len div teamCount
+      group = (ord(team) + groupOffset) mod teamCount
+    var sx, sy = 0
+    for i in 0 ..< perTeam:
+      let p = gameMap.spawnPoints[group * perTeam + i]
+      sx += p.x
+      sy += p.y
+    let
+      cx = sx div perTeam
+      cy = sy div perTeam
+    return bradsOfVector(gameMap.center.x - cx, gameMap.center.y - cy)
   ## The table keys on layout + OCCUPIED SLOT, and that already serves BOTH
   ## 4-team symmetries: the corner aims are exactly the reflections of Red's
   ## south-east (Blue = its x-mirror SW, Green = its y-mirror NE, Yellow =
@@ -61,6 +98,9 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       AimBradsTurn div 8                     ## bottom-left faces north-east.
     of Yellow:
       AimBradsTurn div 2 - AimBradsTurn div 8  ## bottom-right faces north-west.
+    else: raiseAssert(
+      "spawnAimBrads: layoutCorners is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
   of layoutPlus:
     case slot
     of Red:
@@ -71,12 +111,17 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       3 * AimBradsTurn div 4   ## north arm faces south.
     of Yellow:
       AimBradsTurn div 4       ## south arm faces north.
+    else: raiseAssert(
+      "spawnAimBrads: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
-proc spawnFlipH*(gameMap: CtfMap, team: Team): bool =
+proc spawnFlipH*(gameMap: CtfMap, team: Team, groupOffset = 0): bool =
   ## Returns whether a team's sprite spawns horizontally flipped: any spawn
   ## aim with a westward component faces the body left. Exactly `team ==
-  ## Blue` on sides maps.
-  let brads = gameMap.spawnAimBrads(team)
+  ## Blue` on sides maps; on a BR (spawnPoints) map, any team whose own-point
+  ## bearing to center has a westward component. `groupOffset` forwards to
+  ## spawnAimBrads unchanged — see its doc comment.
+  let brads = gameMap.spawnAimBrads(team, groupOffset)
   brads > AimBradsTurn div 4 and brads < 3 * AimBradsTurn div 4
 
 proc teamPaintRgba*(color: uint8): ColorRGBA =
@@ -86,16 +131,14 @@ proc teamPaintRgba*(color: uint8): ColorRGBA =
   ## `Palette[BlueTeamColor]` is a muted lavender (131,118,156) that matches the
   ## blue a viewer sees nowhere else on the board. A non-team color (an
   ## individual player slot) falls back to its palette entry.
-  if color == RedTeamColor:
-    RedEndzoneColor
-  elif color == BlueTeamColor:
-    BlueEndzoneColor
-  elif color == GreenTeamColor:
-    GreenEndzoneColor
-  elif color == YellowTeamColor:
-    YellowEndzoneColor
-  else:
-    Palette[color and 0x0f]
+  ##
+  ## Loops `Team` (was a 4-way `elif` chain on the named *TeamColor consts,
+  ## collapsed per BR_MAPGEN.md §6.2) and reuses the shared
+  ## `teamEndzoneColor`, so this stays correct with no edit as `Team` widens.
+  for team in Team:
+    if color == teamColor(team):
+      return teamEndzoneColor(team)
+  Palette[color and 0x0f]
 
 
 proc playerText*(sim: SimServer, playerIndex: int): string =
@@ -155,6 +198,19 @@ proc grenadeThrowerSlot*(
 ): int {.inline.} =
   grenade.throwerSlot
 
+proc policyPageHash*(page: string): uint64 =
+  ## The content hash of one flashed one-page policy: FNV-1a 64 over the raw
+  ## page bytes, the same mixer gameHash itself is built from.
+  ##
+  ## One function, three readers, on purpose: the sim stamps it at flash
+  ## time, the replay writer puts it in the record, and the replay reader
+  ## re-derives it from the recorded page and refuses a record whose two
+  ## disagree. A second implementation anywhere would be a second chance for
+  ## the live and playback sides to hash the same page differently.
+  result = 14695981039346656037'u64
+  for c in page:
+    result.mixHashInt(ord(c))
+
 proc gameHash*(sim: SimServer): uint64 =
   ## Returns a deterministic hash of gameplay state.
   result = 14695981039346656037'u64
@@ -171,6 +227,15 @@ proc gameHash*(sim: SimServer): uint64 =
   if sim.barrageStartTick >= 0:
     result.mixHashInt(sim.barrageStartTick)
     result.mixHashInt(sim.barrageAccum)
+  # Mixed only when the shrink zone is configured: a zone-free game
+  # contributes nothing here (the barrageStartTick rule), while a configured
+  # one pins its once-drawn center into every replay hash — the rect
+  # trajectory and dps damage are themselves pure functions of this center
+  # plus already-hashed state (tickCount, gameStartTick, player hp/alive),
+  # so nothing else needs mixing in.
+  if sim.config.zonePhases.len > 0:
+    result.mixHashInt(sim.zoneCenter.x)
+    result.mixHashInt(sim.zoneCenter.y)
   result.mixHashBool(sim.isDraw)
   if sim.config.numAgents == 0:
     ## In a seat-commanded (paintball) episode `needsReregister` is live-server
@@ -230,6 +295,24 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+    # Mixed only when the one-page-policy channel is armed, so a
+    # reflash-off replay's hash trajectory is byte-identical to a build that
+    # never added these fields — the same rule as the
+    # allowCallouts/zonePhases/barrageStartTick guards.
+    #
+    # WHY a strategy page belongs in a GAMEPLAY hash at all: a reflash is a
+    # real, out-of-band input to the episode — the cog plays differently
+    # after it. The recorded button masks alone cannot witness it, so a
+    # replay that lost the reflash record would re-simulate SILENTLY and
+    # attribute the match to a strategy it never ran. Mixing the active
+    # page's content hash and flash count turns that silent lie into a hash
+    # mismatch at the exact tick the page went missing. The CONTENT itself
+    # is not mixed (it is already summarised by policyPageHash, computed
+    # once at flash time) — hashing a multi-KB page on every seat every tick
+    # would be real CPU for no extra discrimination.
+    if sim.config.allowPolicyReflash:
+      result.mixHash(player.policyPageHash)
+      result.mixHashInt(player.policyPageEpoch)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -287,6 +370,54 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(shout.tick)
     result.mixHashInt(shout.x)
     result.mixHashInt(shout.y)
+    # Mixed only when the mode is on, so an allowCallouts-off replay's hash
+    # trajectory is byte-identical to a build that never added these fields
+    # — the same rule as the zonePhases/barrageStartTick guards above.
+    if sim.config.allowCallouts:
+      result.mixHashBool(shout.isCallout)
+      result.mixHashInt(shout.calloutId)
+      for c in shout.calloutCell:
+        result.mixHashInt(ord(c))
+
+proc applyPolicyPage*(
+  sim: var SimServer,
+  playerIndex: int,
+  page: string
+): bool {.discardable.} =
+  ## Flashes one one-page policy onto one seat, at THIS tick. Returns whether
+  ## the page was accepted; the caller records a replay event for exactly the
+  ## accepted ones (see server.nim, which mirrors the shout drain).
+  ##
+  ## The acceptance rule is deliberately as small as it can be — armed gate,
+  ## real seat, non-empty page under the record's size ceiling — and depends
+  ## on NOTHING that could be in flight: not the phase, not whether the cog
+  ## is alive, not a cooldown. Every extra clause here is another way for the
+  ## live server and playback to reach different verdicts on the same page
+  ## and diverge, and the two flash regimes both need the permissive rule
+  ## anyway: BR re-flashes at an ARBITRARY tick (its cogs have one life, so
+  ## there is no spawn edge to hang it on) and CTF flashes on a respawn edge,
+  ## when the cog is momentarily not alive.
+  ##
+  ## The size refusal is the load-bearing one. A page over the record's
+  ## uint16 length prefix would apply live and then be unwritable to the
+  ## replay — an applied-but-unrecorded input, the single outcome
+  ## determinism cannot survive. Refusing it BEFORE any state moves keeps
+  ## live and playback agreeing that the flash never happened.
+  if not sim.config.allowPolicyReflash:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if page.len == 0 or page.len > MaxPolicyPageBytes:
+    return false
+  sim.players[playerIndex].policyPage = page
+  sim.players[playerIndex].policyPageHash = policyPageHash(page)
+  sim.players[playerIndex].policyPageTick = sim.tickCount
+  # Every accepted flash bumps the epoch, INCLUDING a re-flash of the page
+  # already loaded: reasserting the current plan is the most common thing an
+  # LLM does, and without the bump that event would leave no trace in the
+  # hash and a lost record for it would replay clean.
+  inc sim.players[playerIndex].policyPageEpoch
+  true
 
 const MaxFeedDirectives* = 8
   ## How many commander lines the match feed keeps. The feed shows four rows
@@ -340,11 +471,54 @@ proc nearestWalkable*(sim: SimServer, x, y: int): tuple[x, y: int] =
           return (nx, ny)
   (x, y)
 
+proc spawnGroupOffset*(sim: SimServer): int =
+  ## How far to rotate the team -> spawn-group assignment this episode.
+  ##
+  ## Derived from the config seed alone (hashed, so consecutive seeds do not
+  ## give consecutive offsets, which on a 4x4 grid would walk the assignment
+  ## one cell at a time and keep neighbours as neighbours). Pure function of
+  ## the seed: a replay of one seed seats exactly as the recording did.
+  let teamCount = sim.gameMap.teamCount()
+  if teamCount <= 1:
+    return 0
+  var h = uint32(sim.config.seed) * 2654435761'u32
+  h = (h xor (h shr 15)) * 2246822519'u32
+  h = h xor (h shr 13)
+  int(h mod uint32(teamCount))
+
 proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
   ## Returns a deterministic spawn position just inside a team's home edge:
   ## players stagger along the edge, perpendicular to their home axis (down
   ## the side for east/west teams, across for the plus layout's north/south
   ## arms).
+  ##
+  ## BR N-point spawn subsystem: when gameMap.spawnPoints is authored, it
+  ## OVERRIDES this staggered placement entirely — seat (team, order) spawns
+  ## at the team's order-th point, wrapping with `mod` if more seats join
+  ## than points were authored for that team (extra seats simply re-share
+  ## points, in order). teamAnchor/flagHome stay exactly as they are either
+  ## way — spawnPoints never moves the flag pedestal, only where players
+  ## stand.
+  if sim.gameMap.spawnPoints.len > 0:
+    let
+      teamCount = sim.gameMap.teamCount()
+      perTeam = sim.gameMap.spawnPoints.len div teamCount
+      ## Team k does NOT always get spawn group k. A fixed team->position
+      ## binding means one team owns a grid cell for every episode ever
+      ## played on the map, so any positional advantage that cell carries
+      ## (§3.4's ring-bias, or simply better cover) is handed to the same
+      ## team every time, and per-spawn fairness — the measured floor the
+      ## whole BR programme rests on (§2.5, §3.1) — can no longer be
+      ## separated from per-team skill.
+      ##
+      ## Rotating by an episode-derived offset breaks the binding without
+      ## touching determinism: the offset is a pure function of the seed,
+      ## so one seed always replays identically, while consecutive seeds
+      ## deal the groups differently.
+      offset = sim.spawnGroupOffset()
+      group = (ord(team) + offset) mod teamCount
+      p = sim.gameMap.spawnPoints[group * perTeam + (order mod perTeam)]
+    return sim.nearestWalkable(p.x, p.y)
   let
     anchor = sim.gameMap.teamAnchor(team)
     strip = order div 2          ## stagger players down the edge.
@@ -568,9 +742,27 @@ proc resetFlags*(sim: var SimServer) =
   ## Returns every active team's flag to its home pedestal. Inactive slots
   ## hold an explicit no-carrier state so nothing can misread the array's
   ## zero value (carrier 0 would mean "player 0 carries it").
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms NO flag at all, so an
+  ## active team gets the SAME explicit sentinel as an inactive one instead
+  ## of a real resetFlag — which would call flagHome/teamAnchor to compute a
+  ## pedestal position. Skipping that call is deliberate, not just "don't
+  ## bother": on a symNone map with layoutCorners/layoutPlus on a
+  ## non-square board, teamAnchor's rot90-orbit math for a non-Red team can
+  ## land far outside the board (the defaultCtfRooms crash this subsystem
+  ## already had to fix once), so never computing the position kills that
+  ## cosmetic hazard at the root instead of computing a garbage point
+  ## nothing then draws. carrier=-1 + captured=true is the same "no flag
+  ## active" sentinel every downstream reader (updateFlags,
+  ## checkWinCondition, flagVisibleTo, flagCarryProgress, killPlayer's
+  ## drop-on-death loop, roster's carrier-reindex) already treats as inert —
+  ## captured=true additionally short-circuits checkWinCondition's "heart
+  ## retired" bookkeeping loop before it would otherwise log a spurious
+  ## "heart retired" line for a game that never had one.
   for team in Team:
-    if team in sim.teams():
+    if team in sim.teams() and not sim.gameMap.flagless:
       sim.resetFlag(team)
     else:
-      sim.flags[team] = FlagState(x: 0, y: 0, carrier: -1)
+      sim.flags[team] =
+        FlagState(x: 0, y: 0, carrier: -1, captured: sim.gameMap.flagless)
 

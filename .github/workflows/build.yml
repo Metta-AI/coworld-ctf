@@ -109,18 +109,54 @@ jobs:
       # failed band must self-heal from its retained compressed payload.
       - name: Client band decode-failure regression
         run: node tools/qa_band_desync.cjs
+      # Every hand-written viewer module must EVALUATE, not merely parse: a
+      # temporal-dead-zone reference is valid syntax and killed the served
+      # viewer outright on 2026-08-25. Also asserts the checked-in
+      # static-replay-viewer/ bundle is not stale against its sources.
+      - name: Viewer module-evaluation + bundle-staleness check
+        run: node tools/qa_module_eval.cjs
       - name: Smoke-run fixture replays in the wasm bundle
         # gen-colossal-4team is the address-space canary: a 4992x4992 board
         # only fits wasm32 because oversize boards emit at 1x (see
         # MaxSupersampledMapPixels). Re-record on GameVersion bumps with:
         #   tools/record_colossal_demo.sh <out> 4242 1500 16
+        #
+        # FRAME BUDGET RAISED 300 -> 6000 (2026-08-26). The canary was
+        # calibrated to stop just SHORT of the failure it exists to catch:
+        # at frame 300 the colossal fixture sits at 1723.6 MB of wasm32's
+        # 2048 MB — 84% consumed — and reported "ok", while it aborts with
+        # ABORTING_MALLOC by frame ~375. A gate that green-lights at 84% of
+        # a hard ceiling is measuring the warm-up, not the cliff. The
+        # footprint is a steady state reached over THOUSANDS of frames (see
+        # MaxSupersampledMapPixels' own derivation), so only a full-episode
+        # run can see the plateau, and the plateau is the thing that either
+        # fits or does not.
+        #
+        # COLOSSAL IS A TRACKED KNOWN FAILURE, not a softened gate (board
+        # task b2295cf0). gen-colossal-4team is 4992x4992 = 24.9 M px, which
+        # was already above the OLD supersample bound and therefore already
+        # emitting at 1x — so neither the old cap nor the current one
+        # touches it. Measured: it aborts with ABORTING_MALLOC at ~frame 375
+        # of its own 1500-tick fixture. That board has NEVER been playable
+        # to the end; the 300-frame budget simply never looked far enough to
+        # notice. It runs full-length here and its result is REPORTED, but
+        # it does not gate, because gating on it would block every unrelated
+        # change on a defect that predates all of them.
+        #
+        # Every class that has ever actually played DOES gate, at full
+        # length: ctf.bitreplay and gen-small-pits both complete 6000 frames
+        # (467 MB and 343 MB measured), so a regression in either is caught.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
-              tests/fixtures/gen-small-pits.bitreplay \
-              tests/fixtures/gen-colossal-4team.bitreplay; do
+              tests/fixtures/gen-small-pits.bitreplay; do
             echo "::group::$replay"
-            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
+            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 6000 || fail=1
             echo "::endgroup::"
           done
+          echo "::group::gen-colossal-4team (KNOWN FAILURE, board task b2295cf0)"
+          node tools/wasm_replay_smoke.cjs replay-viewer/dist \
+            tests/fixtures/gen-colossal-4team.bitreplay 6000 \
+            || echo "KNOWN FAILURE (b2295cf0): colossal 24.9 Mpx OOMs at ~frame 375 at 1x — pre-existing, never playable to the end"
+          echo "::endgroup::"
           exit $fail

@@ -45,6 +45,10 @@ proc defaultGameConfig*(): GameConfig =
     mapGen: MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
     mapSpec: "",
     closedRoster: false,
+    allowSeatTakeover: false,
+    allowDirectAim: false,
+    allowAimAssist: false,
+    aimAssistConeBrads: AimAssistConeBrads,
     slots: @[],
     perkMods: DefaultPerkMods,
     puddleDamagePct: DefaultPuddleDamagePct,
@@ -53,6 +57,10 @@ proc defaultGameConfig*(): GameConfig =
     barrageStartPerSec: BarrageStartPerSec,
     barrageStartSec: BarrageStartSec,
     barrageSaturateSec: BarrageSaturateSec,
+    brMode: false,
+    zonePhases: @[],
+    allowCallouts: false,
+    allowPolicyReflash: false,
     numAgents: 0,
     cogsPerTeam: DefaultCogsPerTeam,
     loadout: LoadoutCtf,
@@ -105,23 +113,25 @@ proc readConfigString(node: JsonNode, name: string, value: var string) =
     raise newException(CtfError, "Config field " & name & " must be a string.")
   value = item.getStr()
 
+proc teamNameList(): string =
+  ## All valid team-name tokens (`teamText` order), comma-joined for error
+  ## messages. Looping the enum here (rather than a literal string) means
+  ## the message stays correct as `Team` widens — see BR_MAPGEN.md §6.2.
+  for team in Team:
+    if result.len > 0: result.add ", "
+    result.add teamText(team)
+
 proc readSlotTeam(text: string, slotIndex: int): Team =
   ## Reads one slot team string.
-  case text.strip().toLowerAscii()
-  of "red":
-    Red
-  of "blue":
-    Blue
-  of "green":
-    Green
-  of "yellow":
-    Yellow
-  else:
-    raise newException(
-      CtfError,
-      "Config field slots[" & $slotIndex &
-        "].team must be red, blue, green, or yellow."
-    )
+  let key = text.strip().toLowerAscii()
+  for team in Team:
+    if key == teamText(team):
+      return team
+  raise newException(
+    CtfError,
+    "Config field slots[" & $slotIndex & "].team must be one of: " &
+      teamNameList() & "."
+  )
 
 proc normalizedSlotColor(text: string): string =
   ## Returns a normalized slot color name.
@@ -276,12 +286,21 @@ proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
         "Config field players[" & $i & "].name must be a string."
       )
     let name = nameNode.getStr()
-    if name.len == 0:
-      raise newException(
-        CtfError,
-        "Config field players[" & $i & "].name must not be empty."
-      )
-    slots[i].name = name
+    # An EMPTY name means "this slot has no configured display name", and it
+    # has to be accepted because THIS SERIALIZER WRITES IT. configJson turns
+    # the players array on when ANY slot is named, then emits an entry for
+    # EVERY slot -- so one named slot beside one unnamed slot produces
+    # {"name":""}, which this reader used to refuse. A recorded config that
+    # its own reader rejects is not a round trip: replays from a partially
+    # named roster could not be loaded at all, they raised here.
+    #
+    # Relaxed on the READER rather than fixed on the writer on purpose. The
+    # writer's output is stamped into every replay header, and changing what
+    # it emits would change recorded bytes for existing configs -- the one
+    # thing that must not move. Accepting more is free; emitting differently
+    # is not.
+    if name.len > 0:
+      slots[i].name = name
 
 proc defaultSlotName(slotIndex: int): string =
   ## Returns the canonical name for one generated tournament slot.
@@ -324,21 +343,15 @@ proc readConfigTokens(
 
 proc readTeamKey(text, field: string): Team =
   ## Reads one team-keyed map key (handicaps, perks).
-  case text.strip().toLowerAscii()
-  of "red":
-    Red
-  of "blue":
-    Blue
-  of "green":
-    Green
-  of "yellow":
-    Yellow
-  else:
-    raise newException(
-      CtfError,
-      "Config field " & field & " has key " & text &
-        "; expected red, blue, green, or yellow."
-    )
+  let key = text.strip().toLowerAscii()
+  for team in Team:
+    if key == teamText(team):
+      return team
+  raise newException(
+    CtfError,
+    "Config field " & field & " has key " & text &
+      "; expected one of: " & teamNameList() & "."
+  )
 
 proc readHandicapPermille(value: JsonNode, teamName: string): int =
   ## Reads one 0.0..1.0 handicap and returns it as a permille (0..1000).
@@ -522,6 +535,117 @@ proc readConfigHandicaps(node: JsonNode, config: var GameConfig) =
     config.handicaps[readTeamKey(teamName, "handicaps")] =
       readHandicapPermille(value, teamName)
 
+proc readZonePhaseZ(item: JsonNode, index: int): int =
+  ## Reads one required zonePhases[index].z scale, authored 0.0..1.0 like a
+  ## handicap fraction, and returns it as a permille (1..1000) so every
+  ## in-sim derivation (zoneRectAtScale) stays integer-only.
+  if not item.hasKey("z"):
+    raise newException(
+      CtfError, "Config field zonePhases[" & $index & "].z is required.")
+  let value = item["z"]
+  var f: float
+  case value.kind
+  of JFloat:
+    f = value.getFloat()
+  of JInt:
+    f = float(value.getInt())
+  else:
+    raise newException(
+      CtfError, "Config field zonePhases[" & $index & "].z must be a number.")
+  if f <= 0.0 or f > 1.0:
+    raise newException(
+      CtfError,
+      "Config field zonePhases[" & $index &
+        "].z must be greater than 0 and at most 1."
+    )
+  int(f * 1000.0 + 0.5)
+
+proc readConfigZonePhases(node: JsonNode, config: var GameConfig) =
+  ## Reads the optional battle-royale shrink-zone schedule (§4.3), e.g.
+  ## {"zonePhases": [
+  ##   {"z": 0.75, "waitTicks": 240, "shrinkTicks": 120, "dps": 1}, ...
+  ## ]}. Omitted (the default, an empty seq) is the mode OFF — no center
+  ## draw, no rect, no damage, no label markers, byte-identical to an
+  ## engine without the field. `z` is required per entry; `waitTicks` /
+  ## `shrinkTicks` / `dps` default to 0 when omitted. Schedule sanity (z
+  ## strictly decreasing phase over phase, in range) is checked in
+  ## validate() below, once the whole seq is parsed.
+  if not node.hasKey("zonePhases"):
+    return
+  let items = node["zonePhases"]
+  if items.kind != JArray:
+    raise newException(CtfError, "Config field zonePhases must be an array.")
+  if items.len > MaxZonePhases:
+    raise newException(
+      CtfError,
+      "Config field zonePhases cannot have more than " & $MaxZonePhases &
+        " entries."
+    )
+  config.zonePhases.setLen(0)
+  for i, item in items.elems:
+    if item.kind != JObject:
+      raise newException(
+        CtfError, "Config field zonePhases[" & $i & "] must be an object.")
+    var phase = ZonePhase(zPermille: item.readZonePhaseZ(i))
+    item.readConfigInt("waitTicks", phase.waitTicks)
+    item.readConfigInt("shrinkTicks", phase.shrinkTicks)
+    item.readConfigInt("dps", phase.dps)
+    config.zonePhases.add(phase)
+
+proc readConfigZoneCenter(
+  node: JsonNode, config: var GameConfig, mapMeta: CtfMap
+) =
+  ## Reads the optional {"zoneCenter": [x, y]} config field (docs/designs/
+  ## BR_MAPGEN.md §4.3): when present, the battle-royale shrink zone closes
+  ## on this AUTHORED map-pixel point instead of the default random draw
+  ## (resetZone) — for ease of editing/authoring a specific match, e.g. a
+  ## league wanting the zone to always close on the map's own center.
+  ## Omitted (the default) leaves zoneCenterConfigured false, which keeps
+  ## the existing random draw untouched.
+  ##
+  ## Validates the FINAL configured zonePhases entry's rect fits fully
+  ## on-board around this point with an ArenaBorder margin — the exact rule
+  ## resetZone applies to its own random draw (see its doc), just checked
+  ## here instead of re-drawn. Uses `mapMeta` (the map already resolved
+  ## earlier in update(), same idiom as the gunRange default above) rather
+  ## than a stored width/height, since GameConfig itself never pins the
+  ## resolved map's dimensions. Skipped when zonePhases is empty: the point
+  ## is never read in that case (see SimServer.zoneCenter), so there is
+  ## nothing meaningful to validate yet — an author may set zoneCenter
+  ## before zonePhases in a config-building pipeline without an ordering
+  ## trap, since validation only bites once zonePhases actually lands.
+  if not node.hasKey("zoneCenter"):
+    return
+  let item = node["zoneCenter"]
+  if item.kind != JArray or item.len != 2 or
+      item[0].kind != JInt or item[1].kind != JInt:
+    raise newException(
+      CtfError,
+      "Config field zoneCenter must be a [x, y] array of two integers."
+    )
+  config.zoneCenterConfigured = true
+  config.zoneCenterX = item[0].getInt()
+  config.zoneCenterY = item[1].getInt()
+  if config.zonePhases.len == 0:
+    return
+  let
+    finalPermille = config.zonePhases[^1].zPermille
+    fw = max(1, mapMeta.width * finalPermille div 1000)
+    fh = max(1, mapMeta.height * finalPermille div 1000)
+    loX = ArenaBorder + fw div 2
+    hiX = mapMeta.width - 1 - ArenaBorder - (fw - 1 - fw div 2)
+    loY = ArenaBorder + fh div 2
+    hiY = mapMeta.height - 1 - ArenaBorder - (fh - 1 - fh div 2)
+  if config.zoneCenterX < loX or config.zoneCenterX > hiX or
+      config.zoneCenterY < loY or config.zoneCenterY > hiY:
+    raise newException(
+      CtfError,
+      "Config field zoneCenter (" & $config.zoneCenterX & ", " &
+        $config.zoneCenterY &
+        ") does not keep the final zonePhases rect fully on-board " &
+        "(needs x in " & $loX & ".." & $hiX & ", y in " & $loY & ".." &
+        $hiY & ")."
+    )
 proc parseRegime*(text: string): Regime =
   ## Parses one authored regime name; raises on anything else. The enum is
   ## closed on purpose — an unknown regime would silently change which cogs a
@@ -572,8 +696,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field frictionDen must be positive.")
   if config.minPlayers < 1:
     raise newException(CtfError, "Config field minPlayers must be at least 1.")
-  if config.teams notin [2, 4]:
-    raise newException(CtfError, "Config field teams must be 2 or 4.")
+  if config.teams notin [2, 4, 16]:
+    raise newException(CtfError, "Config field teams must be 2, 4, or 16.")
   if config.scoring notin [ClassicScoring, PotScoring]:
     raise newException(
       CtfError,
@@ -605,6 +729,21 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field aimTurnRate must be at least 1.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
     raise newException(CtfError, "Config field visionConeDeg must be between 0 and 180.")
+  if config.aimAssistConeBrads < 0 or
+      config.aimAssistConeBrads > AimBradsTurn div 2:
+    raise newException(
+      CtfError,
+      "Config field aimAssistConeBrads must be 0.." & $(AimBradsTurn div 2) & "."
+    )
+  if config.allowAimAssist and not config.allowDirectAim:
+    # The engine's only already-recorded, replay-safe signal for "a human,
+    # not a policy, is driving this seat" is a direct-aim write landing on
+    # the cog this tick (see Player.directAimActive) — without allowDirectAim
+    # that signal never fires, so the mode would silently do nothing. Refuse
+    # the config outright rather than ship a knob that looks armed and never
+    # fires a single assist.
+    raise newException(
+      CtfError, "Config field allowAimAssist requires allowDirectAim.")
   if config.puddleDamagePct < 0 or config.puddleDamagePct > 100:
     raise newException(CtfError, "Config field puddleDamagePct must be 0..100.")
   if config.barrierPickups < 0 or
@@ -649,6 +788,39 @@ proc validate(config: GameConfig) =
     if config.barrageSaturateSec < 1:
       raise newException(
         CtfError, "Config field barrageSaturateSec must be at least 1.")
+  # Shrink-zone schedule sanity (§4.3): z must fall STRICTLY across phases —
+  # including the implicit phase-0 scale of 1000 permille (full field) — so
+  # R/G (a group's territory radius in gun-ranges) never ticks back UP mid-
+  # match. zPermille's own (0, 1000] range is already enforced per entry by
+  # readZonePhaseZ; this is the CROSS-entry check that only makes sense once
+  # the whole seq is parsed.
+  var previousZPermille = 1000
+  for i, phase in config.zonePhases:
+    if phase.zPermille >= previousZPermille:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i & "].z (" &
+          $(phase.zPermille.float / 1000.0) &
+          ") must be strictly less than the previous phase's (" &
+          $(previousZPermille.float / 1000.0) & ")."
+      )
+    if phase.waitTicks < 0:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i & "].waitTicks must not be negative."
+      )
+    if phase.shrinkTicks < 0:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i &
+          "].shrinkTicks must not be negative."
+      )
+    if phase.dps < 0:
+      raise newException(
+        CtfError,
+        "Config field zonePhases[" & $i & "].dps must not be negative."
+      )
+    previousZPermille = phase.zPermille
   if config.loadout notin [LoadoutCtf, LoadoutPaintball]:
     raise newException(
       CtfError,
@@ -859,9 +1031,19 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigHandicaps(config)
   node.readConfigPerks(config)
   node.readConfigPerkMods(config)
+  node.readConfigZonePhases(config)
+  node.readConfigZoneCenter(config, mapMeta)
   node.readConfigBool("closedRoster", config.closedRoster)
+  node.readConfigBool("allowSeatTakeover", config.allowSeatTakeover)
+  node.readConfigBool("allowDirectAim", config.allowDirectAim)
+  node.readConfigBool("allowAimAssist", config.allowAimAssist)
+  node.readConfigInt("aimAssistConeBrads", config.aimAssistConeBrads)
+  node.readConfigBool("allowCallouts", config.allowCallouts)
+  node.readConfigBool("allowPolicyReflash", config.allowPolicyReflash)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
+  # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
+  node.readConfigBool("brMode", config.brMode)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -884,8 +1066,227 @@ proc skinText(skin: Skin): string =
   of CrownSkin:
     "crown"
 
+proc echoPuddleKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the puddle keys only when the mode departs from the default, so a
+  ## puddle-free game's replay config stays byte-identical to pre-puddle
+  ## builds (same rule as echoHandicapKeys below).
+  if config.mapGen.puddles > 0:
+    node["mapPuddles"] = %config.mapGen.puddles
+  if config.mapGen.puddles > 0 or
+      config.puddleDamagePct != DefaultPuddleDamagePct:
+    node["puddleDamagePct"] = %config.puddleDamagePct
+
+proc echoBarrierKeys(config: GameConfig, node: JsonNode) =
+  ## Same rule for the barrier knob: echoed only when the mode is on, so a
+  ## barrier-free game's replay config stays byte-identical to older builds.
+  if config.barrierPickups > 0:
+    node["barrierPickups"] = %config.barrierPickups
+
+proc echoHandicapKeys(config: GameConfig, node: JsonNode) =
+  ## Echo only the handicapped teams, as their authored 0..1 floats, so a
+  ## default (unhandicapped) game's replay config carries no handicaps key.
+  var handicaps = newJObject()
+  for team in Red .. Yellow:
+    if config.handicaps[team] > 0:
+      handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
+  if handicaps.len > 0:
+    node["handicaps"] = handicaps
+
+proc echoPerkKeys(config: GameConfig, node: JsonNode) =
+  ## Echo only the perked teams, in their authored shape — a policy-name
+  ## object for named (pinned) groups, one flat name array for a single
+  ## unnamed group, nested arrays for several — so a default (perk-free)
+  ## game's replay config carries no perks key.
+  var perks = newJObject()
+  for team in Red .. Yellow:
+    if config.perks[team].len == 0:
+      continue
+    proc groupNames(group: PerkGroup): JsonNode =
+      result = newJArray()
+      for perk in Perk:
+        if perk in group.perks:
+          result.add(%perkText(perk))
+    if config.perks[team][0].pol.len > 0:
+      var named = newJObject()
+      for group in config.perks[team]:
+        named[group.pol] = groupNames(group)
+      perks[teamText(team)] = named
+    else:
+      var groups = newJArray()
+      for group in config.perks[team]:
+        groups.add(groupNames(group))
+      perks[teamText(team)] =
+        if config.perks[team].len == 1: groups[0] else: groups
+  if perks.len > 0:
+    node["perks"] = perks
+
+proc echoPerkModKeys(config: GameConfig, node: JsonNode) =
+  ## Echo perkMods only when some magnitude differs from its default, as the
+  ## authored shapes (fractions as 0..1 floats, counts as integers).
+  if config.perkMods != DefaultPerkMods:
+    node["perkMods"] = %*{
+      "armorHp": config.perkMods.armorHp,
+      "scopeAim": config.perkMods.scopeAim.float / 1000.0,
+      "grenadeRange": config.perkMods.grenadeRange.float / 1000.0,
+      "thrusterSpeed": config.perkMods.thrusterSpeed.float / 1000.0,
+      "luckChance": config.perkMods.luckChance.float / 1000.0,
+      "luckDamage": config.perkMods.luckDamage
+    }
+
+proc echoBarrageKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the barrage keys only when the mode is on, so a default game's
+  ## replay config stays byte-identical to the pre-barrage echo.
+  if config.barrageMaxPerSec > 0:
+    node["barrageMaxPerSec"] = %config.barrageMaxPerSec
+    node["barrageStartPerSec"] = %config.barrageStartPerSec
+    node["barrageStartSec"] = %config.barrageStartSec
+    node["barrageSaturateSec"] = %config.barrageSaturateSec
+
+proc echoPaintballKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the paintball keys only when the mode is engaged, so a classic
+  ## game's replay config stays byte-identical to pre-paintball builds. When
+  ## the mode IS on, echo every key: the wasm viewer re-derives the paint grid
+  ## and the hill from this config, so a missing key would re-simulate a
+  ## different game.
+  let paintballOn = config.loadout != LoadoutCtf or config.floorPaint or
+    config.hill or config.numAgents > 0
+  if paintballOn:
+    node["num_agents"] = %config.numAgents
+    node["cogsPerTeam"] = %config.cogsPerTeam
+    node["loadout"] = %config.loadout
+    node["floorPaint"] = %config.floorPaint
+    node["paintBuff"] = %config.paintBuff
+    node["hill"] = %config.hill
+    node["paintTile"] = %config.paintTile
+    node["hillRadiusTiles"] = %config.hillRadiusTiles
+    node["hillOwnPermille"] = %config.hillOwnPermille
+    node["hillDecisiveTicks"] = %config.hillDecisiveTicks
+    node["paintSpeedOwnPct"] = %config.paintSpeedOwnPct
+    node["paintSpeedEnemyPct"] = %config.paintSpeedEnemyPct
+    node["paintHealTicks"] = %config.paintHealTicks
+    node["turnTicks"] = %config.turnTicks
+    node["turnBudgetMs"] = %config.turnBudgetMs
+    node["attempt1Ms"] = %config.attempt1Ms
+    node["retryMs"] = %config.retryMs
+    node["turnSpacingMs"] = %config.turnSpacingMs
+    node["wallClockBudgetSeconds"] = %config.wallClockBudgetSeconds
+    node["maxOutputTokens"] = %config.maxOutputTokens
+    node["regimes"] = (block:
+      var arr = newJArray()
+      for regime in config.regimes:
+        arr.add(%regimeText(regime))
+      arr)
+    if config.model.len > 0:
+      node["model"] = %config.model
+  # sprayDamage acts in every mode (the spray cone reads it wherever it
+  # fires), so like puddleDamagePct it is pinned whenever it departs from
+  # its default even with the paintball gates off.
+  if paintballOn or config.sprayDamage != SprayPaintDamage:
+    node["sprayDamage"] = %config.sprayDamage
+
+proc echoZonePhaseKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the zone schedule only when configured, so a zone-free game's
+  ## replay config stays byte-identical to a build without the field — the
+  ## same rule as echoBarrageKeys above. z is echoed back in its authored
+  ## 0..1 float form (permille / 1000.0), not the internal permille.
+  if config.zonePhases.len > 0:
+    var zonePhases = newJArray()
+    for phase in config.zonePhases:
+      zonePhases.add(%*{
+        "z": phase.zPermille.float / 1000.0,
+        "waitTicks": phase.waitTicks,
+        "shrinkTicks": phase.shrinkTicks,
+        "dps": phase.dps
+      })
+    node["zonePhases"] = zonePhases
+
+proc echoZoneCenterKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the authored center only when configured, so a random-draw game's
+  ## replay config stays byte-identical to a build without the field — same
+  ## rule as echoZonePhaseKeys/echoBarrageKeys above.
+  if config.zoneCenterConfigured:
+    node["zoneCenter"] = %*[config.zoneCenterX, config.zoneCenterY]
+
+proc echoMapSpecKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the expanded map geometry only when one was pinned at config
+  ## parse (generated maps only — see `update`'s mapSpec resolution).
+  if config.mapSpec.len > 0:
+    node["mapSpec"] = fromJson(config.mapSpec)
+
+proc echoBrModeKeys(config: GameConfig, node: JsonNode) =
+  ## GVNEXT(elim): echo only when on, so an off (default) game's replay
+  ## config stays byte-identical to a pre-BR build's echo.
+  if config.brMode:
+    node["brMode"] = %config.brMode
+
+proc echoSeatTakeoverKeys(config: GameConfig, node: JsonNode) =
+  ## Same rule for seat takeover: echoed only when the freeplay mode is on,
+  ## so a league game's replay config stays byte-identical to pre-takeover
+  ## builds.
+  if config.allowSeatTakeover:
+    node["allowSeatTakeover"] = %config.allowSeatTakeover
+
+proc echoAimKeys(config: GameConfig, node: JsonNode) =
+  ## Direct aim moves what the ENGINE does with a human's packets, so a
+  ## replay that contains it must say so in its own header: this key is how
+  ## a PLAY replay self-identifies as one no policy could have produced.
+  ## Off, the key is absent and a league replay's config stays
+  ## byte-identical.
+  if config.allowDirectAim:
+    node["allowDirectAim"] = %config.allowDirectAim
+  # Same rule for aim assist: echoed (both keys, so a replay never has to
+  # guess the cone width the mode ran with) only when the mode is on, so a
+  # league — or an assist-free freeplay — replay's config stays
+  # byte-identical to a pre-assist build.
+  if config.allowAimAssist:
+    node["allowAimAssist"] = %config.allowAimAssist
+    node["aimAssistConeBrads"] = %config.aimAssistConeBrads
+
+# ---------------------------------------------------------------------------
+# echoCalloutKeys — deliberately its OWN named proc, not a tail-appended
+# `if` inline in configJson below. sim_config.nim's tail-append style has
+# silently lost adjacent lines in conflict resolutions before; a sibling
+# lane (maxwell/configjson-harden) is mid-refactor turning every optional
+# echo into exactly this named-proc shape (echoBarrageKeys, echoZonePhase-
+# Keys, echoSeatTakeoverKeys, ...) so a new feature's diff is "add a proc +
+# one call line", never an edit squeezed into another feature's tail. This
+# one is written in that target shape now so the eventual rebase onto
+# maxwell/br-demo-assembly is a pure move, not a rewrite.
+# ---------------------------------------------------------------------------
+proc echoCalloutKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the callout gate only when it is on, so an allowCallouts-off
+  ## game's replay config stays byte-identical to a build without the
+  ## field — same rule as echoSeatTakeoverKeys/echoBrModeKeys above.
+  if config.allowCallouts:
+    node["allowCallouts"] = %config.allowCallouts
+
+proc echoPolicyReflashKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the one-page-policy reflash gate only when it is on.
+  ##
+  ## The header config IS the provenance, exactly as it is for direct aim
+  ## (echoAimKeys): a replay whose cogs were re-strategized mid-episode has
+  ## to be readable as one without trusting the filename or the fleet that
+  ## made it — and, just as load-bearing, gate-OFF the key is absent, so a
+  ## league replay's config JSON stays byte-identical to a build that never
+  ## had the field.
+  ##
+  ## This is also the whole of the "version bump": the replay FORMAT version
+  ## is deliberately NOT bumped (see replays.nim's reflash-record block for
+  ## why a bump would destroy every archived replay), so a reader tells a
+  ## reflash-carrying replay from a plain one by this key, not by a number
+  ## in the header.
+  if config.allowPolicyReflash:
+    node["allowPolicyReflash"] = %config.allowPolicyReflash
+
 proc configJson*(config: GameConfig): string =
-  ## Returns the complete replay JSON for a gameplay config.
+  ## Returns the complete replay JSON for a gameplay config: the always-
+  ## present base keys, built as one object literal below, followed by one
+  ## call per OPTIONAL feature's echo (each a small named proc above, so a
+  ## new feature's diff is a new proc + one call line here, never an edit
+  ## squeezed into this shared tail alongside an unrelated feature's own
+  ## edit). `result = $node` is the very last line ON PURPOSE: an explicit,
+  ## marked assignment — not a bare trailing expression — so it reads as
+  ## this function's return in a diff/merge, not as one more tail line.
   var
     players = newJArray()
     slots = newJArray()
@@ -955,111 +1356,20 @@ proc configJson*(config: GameConfig): string =
   }
   if includePlayers:
     node["players"] = players
-  # Echo the puddle keys only when the mode departs from the default, so a
-  # puddle-free game's replay config stays byte-identical to pre-puddle
-  # builds (same rule as the handicaps echo below).
-  if config.mapGen.puddles > 0:
-    node["mapPuddles"] = %config.mapGen.puddles
-  if config.mapGen.puddles > 0 or
-      config.puddleDamagePct != DefaultPuddleDamagePct:
-    node["puddleDamagePct"] = %config.puddleDamagePct
-  # Same rule for the barrier knob: echoed only when the mode is on, so a
-  # barrier-free game's replay config stays byte-identical to older builds.
-  if config.barrierPickups > 0:
-    node["barrierPickups"] = %config.barrierPickups
-  # Echo the paintball keys only when the mode is engaged, so a classic
-  # game's replay config stays byte-identical to pre-paintball builds. When
-  # the mode IS on, echo every key: the wasm viewer re-derives the paint grid
-  # and the hill from this config, so a missing key would re-simulate a
-  # different game.
-  let paintballOn = config.loadout != LoadoutCtf or config.floorPaint or
-    config.hill or config.numAgents > 0
-  if paintballOn:
-    node["num_agents"] = %config.numAgents
-    node["cogsPerTeam"] = %config.cogsPerTeam
-    node["loadout"] = %config.loadout
-    node["floorPaint"] = %config.floorPaint
-    node["paintBuff"] = %config.paintBuff
-    node["hill"] = %config.hill
-    node["paintTile"] = %config.paintTile
-    node["hillRadiusTiles"] = %config.hillRadiusTiles
-    node["hillOwnPermille"] = %config.hillOwnPermille
-    node["hillDecisiveTicks"] = %config.hillDecisiveTicks
-    node["paintSpeedOwnPct"] = %config.paintSpeedOwnPct
-    node["paintSpeedEnemyPct"] = %config.paintSpeedEnemyPct
-    node["paintHealTicks"] = %config.paintHealTicks
-    node["turnTicks"] = %config.turnTicks
-    node["turnBudgetMs"] = %config.turnBudgetMs
-    node["attempt1Ms"] = %config.attempt1Ms
-    node["retryMs"] = %config.retryMs
-    node["turnSpacingMs"] = %config.turnSpacingMs
-    node["wallClockBudgetSeconds"] = %config.wallClockBudgetSeconds
-    node["maxOutputTokens"] = %config.maxOutputTokens
-    node["regimes"] = (block:
-      var arr = newJArray()
-      for regime in config.regimes:
-        arr.add(%regimeText(regime))
-      arr)
-    if config.model.len > 0:
-      node["model"] = %config.model
-  # sprayDamage acts in every mode (the spray cone reads it wherever it
-  # fires), so like puddleDamagePct it is pinned whenever it departs from
-  # its default even with the paintball gates off.
-  if paintballOn or config.sprayDamage != SprayPaintDamage:
-    node["sprayDamage"] = %config.sprayDamage
-  # Echo only the handicapped teams, as their authored 0..1 floats, so a
-  # default (unhandicapped) game's replay config carries no handicaps key.
-  var handicaps = newJObject()
-  for team in Red .. Yellow:
-    if config.handicaps[team] > 0:
-      handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
-  if handicaps.len > 0:
-    node["handicaps"] = handicaps
-  # Echo only the perked teams, in their authored shape — a policy-name
-  # object for named (pinned) groups, one flat name array for a single
-  # unnamed group, nested arrays for several — so a default (perk-free)
-  # game's replay config carries no perks key.
-  var perks = newJObject()
-  for team in Red .. Yellow:
-    if config.perks[team].len == 0:
-      continue
-    proc groupNames(group: PerkGroup): JsonNode =
-      result = newJArray()
-      for perk in Perk:
-        if perk in group.perks:
-          result.add(%perkText(perk))
-    if config.perks[team][0].pol.len > 0:
-      var named = newJObject()
-      for group in config.perks[team]:
-        named[group.pol] = groupNames(group)
-      perks[teamText(team)] = named
-    else:
-      var groups = newJArray()
-      for group in config.perks[team]:
-        groups.add(groupNames(group))
-      perks[teamText(team)] =
-        if config.perks[team].len == 1: groups[0] else: groups
-  if perks.len > 0:
-    node["perks"] = perks
-  # Echo perkMods only when some magnitude differs from its default, as the
-  # authored shapes (fractions as 0..1 floats, counts as integers).
-  if config.perkMods != DefaultPerkMods:
-    node["perkMods"] = %*{
-      "armorHp": config.perkMods.armorHp,
-      "scopeAim": config.perkMods.scopeAim.float / 1000.0,
-      "grenadeRange": config.perkMods.grenadeRange.float / 1000.0,
-      "thrusterSpeed": config.perkMods.thrusterSpeed.float / 1000.0,
-      "luckChance": config.perkMods.luckChance.float / 1000.0,
-      "luckDamage": config.perkMods.luckDamage
-    }
-  # Echo the barrage keys only when the mode is on, so a default game's
-  # replay config stays byte-identical to the pre-barrage echo.
-  if config.barrageMaxPerSec > 0:
-    node["barrageMaxPerSec"] = %config.barrageMaxPerSec
-    node["barrageStartPerSec"] = %config.barrageStartPerSec
-    node["barrageStartSec"] = %config.barrageStartSec
-    node["barrageSaturateSec"] = %config.barrageSaturateSec
-  if config.mapSpec.len > 0:
-    node["mapSpec"] = fromJson(config.mapSpec)
-  $node
+  echoPuddleKeys(config, node)
+  echoBarrierKeys(config, node)
+  echoPaintballKeys(config, node)
+  echoHandicapKeys(config, node)
+  echoPerkKeys(config, node)
+  echoPerkModKeys(config, node)
+  echoBarrageKeys(config, node)
+  echoZonePhaseKeys(config, node)
+  echoZoneCenterKeys(config, node)
+  echoMapSpecKeys(config, node)
+  echoBrModeKeys(config, node)
+  echoSeatTakeoverKeys(config, node)
+  echoAimKeys(config, node)
+  echoCalloutKeys(config, node)
+  echoPolicyReflashKeys(config, node)
+  result = $node
 

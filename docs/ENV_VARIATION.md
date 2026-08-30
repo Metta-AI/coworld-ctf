@@ -91,7 +91,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `teams` | int / `2` | must be `2` or `4` | Active team count: 2 (classic sides) or 4 (corners/plus FFA). |
+| `teams` | int / `2` | must be `2`, `4`, or `16` | Active team count: 2 (classic sides), 4 (corners/plus FFA), or 16 (BR, [BR_MAPGEN.md §6.2](designs/BR_MAPGEN.md)). 16 passes config validation and `Team` dispatch today, but `generateMapAttempt`/`mapFromSpecJson` have no 16-team SHAPE yet — a 16-team config fails cleanly at map resolution ("map X seats N") until the map-generator/spawn lane lands. |
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
@@ -100,6 +100,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `perkMods` | `PerkMods` struct / `DefaultPerkMods` | `armorHp` `0..100`, `luckDamage` `1..100`, fractions authored `0.0..1.0` (permille-stored) | Perk magnitudes: `armorHp` (1) extra hp, `scopeAim` (0.5) aim-sigma cut, `grenadeRange` (0.25) extra throw range, `thrusterSpeed` (0.1) extra speed, `luckChance` (0.1) lucky-shot odds, `luckDamage` (2) lucky-shot hp. |
 | `puddleDamagePct` | int / `20` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
 | `barrierPickups` | int / `0` | `0..2` ([sim_config.nim](../src/ctf/sim_config.nim) validate, cap `MaxBarrierPickupsPerTeam`) | Cardboard-barrier pickups PER TEAM, staged between base anchor and map center ([sim.nim `barrierSpawnPoints`](../src/ctf/sim.nim)); 0 = none (the default — echo omitted, no GV bump). |
+| `brMode` | bool / `false` | none | Battle-royale elimination ruleset: `killPlayer` forces `lives` to 0 on first death (no respawns, regardless of `lives`/`respawnTicks`), `checkWinCondition`'s capture branch is skipped (flags/captures never eliminate a team or end the game), the existing wipe/last-team-standing branch is the sole win path, and a `maxTicks` timeout resolves by tiebreak (most living players, then total `damageDealt`) instead of an automatic draw. Generic over `sim.teams()`/team count. `false` = the default, byte-identical to a build with no BR code ([docs/designs/BR_MAPGEN.md](designs/BR_MAPGEN.md)). |
 
 **Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
 `hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
@@ -189,6 +190,62 @@ GV41 removed the action-floor overtime: the clock never extends, and a game with
 the barrage configured ignores `maxTicks` entirely (it ends only on capture/wipe). Win logic:
 capturing a heart eliminates that team; last team standing wins; 2-team ends on
 first capture.
+
+`brMode` placement reward (`finishGame`, `BrPlacementBonus` array `2..16` in
+sim_types.nim): every losing team's reward is `lossReward + BrPlacementBonus[rank]`
+(clamped below the winner's own reward) instead of the flat `lossReward`, where
+`rank` is that team's 1..N finish (`brPlacements()`/`brRankedTeams()` — same
+living/last-death/kills/damage/seat order `brTiebreakWinner` uses). Gated on
+engagement evidence (`attacksMade>0 or damageDealt>0` somewhere on the team) —
+no evidence collapses the reward back to the plain `lossReward` floor, so a team
+that never fought never earns placement credit for merely outlasting others.
+`brMode:false` games never read this table (byte-identical to before). The
+table is an UNCALIBRATED placeholder pending the field-evidence phase. The same
+engagement gate also applies to `AchievementPacifist`/`AchievementSpotless` in
+`brMode`: neither can pay on top of a win with zero engagement (classic/non-BR
+games are unaffected).
+
+---
+
+## Battle-royale shrink zone (config-gated)
+
+| Field | Type / default | JSON key | Bounds | Effect |
+|---|---|---|---|---|
+| `zonePhases` | `seq[ZonePhase]` / `@[]` (off) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for the battle-royale mode (docs/designs/BR_MAPGEN.md §4.3); empty = the mechanic never runs — no center draw, no rect, no damage, no markers, byte-identical to a build without the field. |
+| `zonePhases[].z` | float, required | `z` | `(0, 1]`, and STRICTLY less than the previous phase's (implicit `1.0` for phase 0) | Target scale of the aspect-matched rect for this phase; stored internally as a permille like the handicap/perk fractions. |
+| `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
+| `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
+| `zonePhases[].dps` | int / `0` | `dps` | `>=0` | Hit points/second dealt to a player outside the current rect while this phase is active — applied directly on the puddle-hazard per-second cadence (`ZoneDamageRollTicks`=24), no RNG roll. |
+
+The zone's CENTER is drawn once per game from the sim RNG (`resetZone`,
+[sim.nim](../src/ctf/sim.nim)) — uniform over positions where the FINAL
+phase's rect fits fully on-board with an `ArenaBorder` margin — never a
+fixed map-center circle. `zoneRectAtScale`/`zoneRectAndDps`
+([sim.nim](../src/ctf/sim.nim)) derive every phase's rect from
+`gameMap.width`/`gameMap.height` and that one center, integer math
+throughout. See RULES.md "Battle-royale shrink zone" for the full rule and
+the `zone`/`zonenext` stated-marker grammar.
+
+---
+
+## Battle-royale shrink zone (config-gated)
+
+| Field | Type / default | JSON key | Bounds | Effect |
+|---|---|---|---|---|
+| `zonePhases` | `seq[ZonePhase]` / `@[]` (off) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for the battle-royale mode (docs/designs/BR_MAPGEN.md §4.3); empty = the mechanic never runs — no center draw, no rect, no damage, no markers, byte-identical to a build without the field. |
+| `zonePhases[].z` | float, required | `z` | `(0, 1]`, and STRICTLY less than the previous phase's (implicit `1.0` for phase 0) | Target scale of the aspect-matched rect for this phase; stored internally as a permille like the handicap/perk fractions. |
+| `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
+| `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
+| `zonePhases[].dps` | int / `0` | `dps` | `>=0` | Hit points/second dealt to a player outside the current rect while this phase is active — applied directly on the puddle-hazard per-second cadence (`ZoneDamageRollTicks`=24), no RNG roll. |
+
+The zone's CENTER is drawn once per game from the sim RNG (`resetZone`,
+[sim.nim](../src/ctf/sim.nim)) — uniform over positions where the FINAL
+phase's rect fits fully on-board with an `ArenaBorder` margin — never a
+fixed map-center circle. `zoneRectAtScale`/`zoneRectAndDps`
+([sim.nim](../src/ctf/sim.nim)) derive every phase's rect from
+`gameMap.width`/`gameMap.height` and that one center, integer math
+throughout. See RULES.md "Battle-royale shrink zone" for the full rule and
+the `zone`/`zonenext` stated-marker grammar.
 
 ---
 
@@ -300,7 +357,7 @@ Non-config: `TrenchSpeedDivisor`=5 (climbing out of a trench caps that axis to 1
 1. **`mapPath="gen"` + `mapSeed` + `mapGen` locks** — by far the richest: field size
    (5 classes), symmetry, 2-vs-4 team layout, columns (3–24) & family, windows (0–6),
    center feature, endzone shape + radius + depth, trenches (0–64).
-2. **`teams`** (2/4) — changes layout, item counts, and win logic.
+2. **`teams`** (2/4/16) — changes layout, item counts, and win logic.
 3. **Combat/motion/vision fields** — same map, different game feel and skill ceiling.
 4. **`scoring`, `maxTicks`, `lives`, `hitPoints`** — match structure and stakes.
 

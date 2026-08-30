@@ -339,8 +339,29 @@ proc resolvePlayerSlot*(
     raise newException(CtfError, "No available player slot.")
 
 proc nextPlayerSlot*(sim: SimServer): int =
-  ## Returns the slot required for the next live player index.
-  sim.players.len
+  ## Returns the LOWEST player slot not currently occupied. Admission is
+  ## strictly slot-sequential (admitPendingJoins requires
+  ## `join.slotIndex == sim.nextPlayerSlot()`), so this is the slot pending
+  ## joins must fill next.
+  ##
+  ## NOT simply `sim.players.len`: a raw player count only equals the
+  ## lowest open slot when disconnects always vacate the HIGHEST joinOrder.
+  ## removePlayerAt deletes the player array entry but never renumbers the
+  ## survivors' joinOrder, so when a LOW slot vacates while higher ones
+  ## stay seated, the count keeps pointing past the real gap -- admission
+  ## then demands a slot index nothing can ever supply, and every socket
+  ## behind the gap (reconnecting or newly joining) stalls forever. This is
+  ## the reset-dance / "8-of-16 stall": BR hard-stalls on it because BR's
+  ## minPlayers equals its seat count, so any mid-stack vacancy blocks the
+  ## whole field from ever starting.
+  ##
+  ## By pigeonhole, among slots 0..sim.players.len (inclusive) at least one
+  ## must be free -- there are players.len+1 candidates and only
+  ## players.len occupants -- so this loop always finds a slot without
+  ## needing an explicit fallback.
+  for i in 0 .. sim.players.len:
+    if not sim.slotOccupied(i):
+      return i
 
 proc resolveTrustedPlayerSlot(
   sim: SimServer,
@@ -486,7 +507,9 @@ proc addPlayer*(
         teamColor(team)
     accountIndex = sim.ensureRewardAccount(address)
     perks = sim.perkSetForJoin(team, address)
-  let spawn = sim.spawnPosition(team, order div sim.gameMap.teamCount())
+  let
+    spawn = sim.spawnPosition(team, order div sim.gameMap.teamCount())
+    groupOffset = sim.spawnGroupOffset()
   sim.bindRewardAccountSlot(accountIndex, order)
   sim.rewardAccounts[accountIndex].hasTeam = false
   sim.rewardAccounts[accountIndex].won = false
@@ -496,13 +519,15 @@ proc addPlayer*(
     y: spawn.y,
     homeX: spawn.x,
     homeY: spawn.y,
-    aimBrads: sim.gameMap.spawnAimBrads(team),
-    flipH: sim.gameMap.spawnFlipH(team),
+    aimBrads: sim.gameMap.spawnAimBrads(team, groupOffset),
+    flipH: sim.gameMap.spawnFlipH(team, groupOffset),
     windupBrads: -1,
     arcAimBrads: -1,
     team: team,
     alive: true,
-    lives: sim.config.livesFor(team),
+    # brMode seats ZERO spare lives — see seatLivesFor.
+    lives: sim.config.seatLivesFor(team),
+    lastDeathTick: -1,
     hp: sim.config.maxHpFor(team, perks),
     perks: perks,
     joinOrder: order,
@@ -654,6 +679,13 @@ proc recordDeath*(sim: var SimServer, playerIndex: int) =
 
 proc recordCapture*(sim: var SimServer, playerIndex: int) =
   ## Increments the capture counter for one player.
+  ##
+  ## GLORY PORT (increment 2/3): the deed/xp mint and the "Uphill"/"Fast Break"
+  ## achievement pins live at the CALL SITE (`checkWinCondition`, sim.nim),
+  ## not here -- `roster.nim` only imports `sim_types`/`sim_state`, so it
+  ## cannot see `awardDeed`/`addXp`/`teamAliveCount` (all in sim.nim, which
+  ## imports `roster`, not the reverse). Splitting the mint out of this
+  ## proc rather than restructuring the import graph for one call site.
   let index = sim.rewardAccountForPlayer(playerIndex)
   if index >= 0:
     inc sim.rewardAccounts[index].captures

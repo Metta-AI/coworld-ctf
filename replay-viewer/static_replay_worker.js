@@ -87,7 +87,14 @@ function createBroadcastCore(message) {
     viewportHeight: message.height,
     devicePixelRatio: message.dpr,
     onText: function (text) {
-      postMessage({ type: 'text', text: text });
+      // hasZoneField rides along on every state frame so the page can decide,
+      // the instant it sees ph:'gameover', whether the completion beat has
+      // anything to play — the core object lives here, so the query is free.
+      postMessage({
+        type: 'text',
+        text: text,
+        hasZoneField: core ? core.getZonePaintStats().hasField : false
+      });
     },
     onStatus: function (status) {
       postMessage({ type: 'status', status: status });
@@ -127,7 +134,12 @@ async function start() {
     ingestPacket();
     postMessage({
       type: 'loaded',
-      mismatchTick: Module._ctf_mismatch_tick()
+      mismatchTick: Module._ctf_mismatch_tick(),
+      // The page needs this to schedule its own scoreboard-reveal delay, but
+      // it never loads broadcast_core.js (only this Worker does, via
+      // importScripts) — so hand over the module's own constant once, here,
+      // rather than the page hardcoding a second copy of the number.
+      zoneEndcardMs: self.BroadcastCore.ZONE_ENDCARD_MS
     });
   } catch (error) {
     reportFailure(error);
@@ -161,7 +173,18 @@ function advance(frames) {
   try {
     var count = Math.max(1, Math.min(6, Number(frames) || 1));
     for (var i = 0; i < count; i++) {
-      if (Module._ctf_frame() < 0) throw new Error(runtimeError());
+      var step = Module._ctf_frame();
+      if (step < 0) throw new Error(runtimeError());
+      if (step !== 1) {
+        // Playback has reached the end of the replay. The page normally
+        // already armed the completion beat (an 'endcard' message, sent the
+        // instant it saw ph:'gameover' — long before frames actually run out,
+        // over the whole replay-hold countdown). beginZoneEndcard is
+        // idempotent, so this is just the fallback for a page that somehow
+        // never observed that phase transition, not the primary trigger.
+        if (core) core.beginZoneEndcard();
+        break;
+      }
       ingestPacket();
     }
     postMessage({
@@ -210,6 +233,11 @@ self.onmessage = function (event) {
       applyInputNow();
     } else if (message.type === 'resize' && core) {
       core.setViewportSize(message.width, message.height, message.dpr);
+    } else if (message.type === 'endcard' && core) {
+      // Sent by the page the instant it sees ph:'gameover' — the same moment
+      // (not frame exhaustion) that drives the live client directly. Arms the
+      // paint-completion + terminal-splat beat; see ZONE_ENDCARD_MS.
+      core.beginZoneEndcard();
     } else if (message.type === 'view' && core) {
       // The canvas is an OffscreenCanvas here, so wheel/drag land on the main
       // thread's placeholder element and arrive as view commands. The core's

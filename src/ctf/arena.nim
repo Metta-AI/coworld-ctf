@@ -73,19 +73,91 @@ proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
   if gameMap.width <= 0 or gameMap.height <= 0:
     raise newException(CtfError, "Map dimensions must be positive.")
+  ## BR bridge: spawnGroups is what makes `teamCount()` say 16, so it is
+  ## checked FIRST and hard — everything downstream (activeTeams, the roster
+  ## round-robin, seat indexing, reward math) trusts it. Checked here rather
+  ## than only in the symNone block below because it is a well-formedness
+  ## property of the FIELD, not of a symmetry class, and because an
+  ## out-of-range value would otherwise reach `activeTeams`'s doAssert and
+  ## come out as a crash instead of a loadable-map error.
+  if gameMap.spawnGroups != 0:
+    if gameMap.spawnGroups notin [2, 4, 16]:
+      raise newException(CtfError,
+        "spawnGroups must be 2, 4 or 16 (got " & $gameMap.spawnGroups &
+        ") — it selects the active-team prefix of the Team enum, and no " &
+        "code path seats a count between 4 and 16 (BR_MAPGEN.md §6.2).")
+    if gameMap.spawnPoints.len == 0:
+      raise newException(CtfError,
+        "spawnGroups is " & $gameMap.spawnGroups & " but the map authors no " &
+        "spawnPoints — the group count only means anything as a division of " &
+        "the spawn points it groups.")
+    if gameMap.spawnPoints.len mod gameMap.spawnGroups != 0:
+      raise newException(CtfError,
+        "spawnPoints (" & $gameMap.spawnPoints.len & ") must divide evenly " &
+        "into spawnGroups (" & $gameMap.spawnGroups & ") — seats per group " &
+        "is implicit (spawnPoints.len div spawnGroups) and a remainder would " &
+        "seat some groups worse than others.")
+  ## BR item-pool defense: a real BR map (flagless AND spawnGroups>1 — both,
+  ## not either; a smaller symNone+flagless map that still authors real
+  ## per-team teamPickups, like the generic N-point spawn demo, is unaffected)
+  ## has no per-team endzone for the classic med kit/shield/spray/grenade
+  ## FORMULAS to anchor into — resetMedKits/resetShields/resetSprayPaints/
+  ## resetGrenades (sim.nim) all fall back to those formulas whenever the
+  ## map's own neutral pool is empty, and on a spawnGroups map the fallback
+  ## either returns nothing (shieldSpawnPoints/sprayPaintSpawnPoints go
+  ## through the symNone explicit-only branch, which is empty here) or seats
+  ## a fixed 4 un-nudged points regardless of how many seats the map has
+  ## (grenadeSpawnPoints — see resetGrenades). Silently shipping either is
+  ## the launch-blocking bug this closes: reject the map outright instead,
+  ## naming exactly which pool is missing.
+  if gameMap.flagless and gameMap.spawnGroups > 1:
+    for (name, count) in [
+        ("medKitSpawns", gameMap.medKitSpawns.len),
+        ("shieldSpawns", gameMap.shieldSpawns.len),
+        ("spraySpawns", gameMap.spraySpawns.len),
+        ("grenadeSpawns", gameMap.grenadeSpawns.len)]:
+      if count == 0:
+        raise newException(CtfError,
+          "a flagless, spawnGroups=" & $gameMap.spawnGroups & " (BR) map " &
+          "must author a non-empty " & name & " pool — the classic " &
+          "per-team formula it would otherwise fall back to has no " &
+          "per-team endzone to anchor into on a map this shape.")
   case gameMap.layout
   of layoutSides:
     if gameMap.symmetry in {symRot90, symQuadMirror}:
       raise newException(
         CtfError, "Sides maps cannot use a 4-team symmetry (rot90/quadmirror).")
   of layoutCorners, layoutPlus:
-    if gameMap.symmetry notin {symRot90, symQuadMirror}:
+    ## BR spawn subsystem: a symNone (full-board) corner/plus map has no
+    ## orbit to derive anything from, so it normally makes no sense here —
+    ## UNLESS spawnPoints is authored, in which case there is no anchor/orbit
+    ## dependency left at all (teamAnchor is only used for the flag, and a
+    ## spawnPoints map may be flagless). Absent spawnPoints this is BYTE-
+    ## IDENTICAL to the old check (same condition, same message).
+    if gameMap.symmetry notin {symRot90, symQuadMirror} and
+        not (gameMap.symmetry == symNone and gameMap.spawnPoints.len > 0):
       raise newException(
         CtfError, "Corner/plus maps need rot90 or quadmirror symmetry.")
   if gameMap.symmetry == symRot90 and gameMap.width != gameMap.height:
     ## rot90 rotates about the center of a SQUARE; a non-square board would
     ## silently produce team-unfair obstacle images.
     raise newException(CtfError, "rot90 symmetry needs a square map.")
+  if gameMap.symmetry == symNone and gameMap.layout in {layoutCorners, layoutPlus} and
+      not gameMap.flagless and gameMap.width != gameMap.height:
+    ## BR spawn subsystem: symNone corners/plus has no quadMirror image to
+    ## fall back on, so teamAnchor reaches its rot90-orbit path for every
+    ## team but Red — the SAME machinery the check above requires a square
+    ## board for, and for the same reason (a non-square rotation lands a
+    ## non-Red anchor far outside the board; addMapMarkers' corner-marker
+    ## contract doAssert is where that surfaces as a hard crash rather than
+    ## just bad geometry). flagless is the escape hatch: it never calls
+    ## teamAnchor for a real purpose (spawnPoints replaces every use; the
+    ## flag pedestal is parked at the inert (0,0) sentinel and never read),
+    ## so a flagless map is exempt regardless of aspect ratio.
+    raise newException(CtfError,
+      "symNone corner/plus maps need EITHER flagless=true (spawnPoints " &
+      "replaces every teamAnchor use) OR a square board (teamAnchor's " &
+      "rot90-orbit fallback needs one, same as rot90 symmetry itself).")
   if gameMap.homeDepth != 0 and
       (gameMap.homeDepth < HomeDepthMin or gameMap.homeDepth > HomeDepthMax):
     raise newException(
@@ -120,10 +192,16 @@ proc validateMap(gameMap: CtfMap) =
   ## here (it is a MEASURED property the caller gates on); we only enforce that
   ## the spec is well-formed so the sim has real per-team points to place.
   if gameMap.symmetry == symNone:
-    if gameMap.layout != layoutSides:
+    ## BR spawn subsystem: spawnPoints carries its OWN per-team pocket
+    ## geometry, so it needs neither a sides layout nor a fixed 2-team count —
+    ## it inherits whatever teamCount() the layout (and eventually a widened
+    ## Team enum) reports. Absent spawnPoints this block is BYTE-IDENTICAL to
+    ## the pre-BR check: same condition, same message, same teamCount = 2.
+    let usesSpawnPoints = gameMap.spawnPoints.len > 0
+    if not usesSpawnPoints and gameMap.layout != layoutSides:
       raise newException(CtfError,
         "symNone (full-board) maps are 2-team: they need a sides layout.")
-    let teamCount = 2
+    let teamCount = if usesSpawnPoints: gameMap.teamCount() else: 2
     ## Every explicit pickup set present must be point-per-team (barriers are
     ## config-gated, so an EMPTY barriers set is allowed — the config decides
     ## perTeam; a NON-empty set must be a whole multiple of teamCount).
@@ -132,7 +210,16 @@ proc validateMap(gameMap: CtfMap) =
         ("teamPickups.cans", gameMap.teamPickups.cans, true),
         ("teamPickups.barriers", gameMap.teamPickups.barriers, false)]:
       if perTeamOne:
-        if pts.len != teamCount:
+        ## BR bridge: on a FLAGLESS map an empty set means "the mode is off",
+        ## exactly as it already does for barriers below. Per-team shield/can
+        ## points are a home-base concept — one per team, staged relative to
+        ## that team's anchor — and a BR map has no homes to stage them from;
+        ## BR loot is a §4.4 gradient over the whole field, not a per-team
+        ## allotment. A NON-empty set still has to be one-per-team, and a
+        ## flag-armed symNone map still has to author them, so every map that
+        ## loaded before this exemption loads identically.
+        let optionalHere = gameMap.flagless and pts.len == 0
+        if not optionalHere and pts.len != teamCount:
           raise newException(CtfError,
             "symNone map must author " & $teamCount & " explicit points for " &
             name & " (one per team); got " & $pts.len &
@@ -143,6 +230,41 @@ proc validateMap(gameMap: CtfMap) =
           "(a multiple of " & $teamCount & "); got " & $pts.len & ".")
       for i, p in pts:
         validateMapPoint(name & "[" & $i & "]", p, gameMap.width, gameMap.height)
+    ## spawnPoints (BR N-point spawn subsystem): same "multiple of teamCount"
+    ## discipline as barriers (perTeam implicit, empty allowed — empty just
+    ## means "not authored, fall back to the legacy anchor pocket"). Each
+    ## point must be on-board AND its pocket (spawnClearW/H half-extents)
+    ## must fit fully on the board — mirrors coworld-ctf#285's teamAnchors
+    ## pocket-fit check. Pockets must also be pairwise non-overlapping: two
+    ## spawn pockets stamped on top of each other would silently halve one
+    ## of them the moment mapProtectedFloorAt's OR-of-boxes carve executes.
+    if usesSpawnPoints:
+      if gameMap.spawnPoints.len mod teamCount != 0:
+        raise newException(CtfError,
+          "spawnPoints on a symNone map must carry the same count per team " &
+          "(a multiple of " & $teamCount & "); got " &
+          $gameMap.spawnPoints.len & ".")
+      for i, p in gameMap.spawnPoints:
+        validateMapPoint(
+          "spawnPoints[" & $i & "]", p, gameMap.width, gameMap.height)
+        if p.x - gameMap.spawnClearW < 0 or
+            p.x + gameMap.spawnClearW > gameMap.width or
+            p.y - gameMap.spawnClearH < 0 or
+            p.y + gameMap.spawnClearH > gameMap.height:
+          raise newException(CtfError,
+            "spawnPoints[" & $i & "]'s spawn pocket (spawnClearW/H " &
+            $gameMap.spawnClearW & "/" & $gameMap.spawnClearH &
+            " around (" & $p.x & "," & $p.y & ")) does not fit on the board.")
+      for i in 0 ..< gameMap.spawnPoints.len:
+        for j in (i + 1) ..< gameMap.spawnPoints.len:
+          let
+            a = gameMap.spawnPoints[i]
+            b = gameMap.spawnPoints[j]
+          if abs(a.x - b.x) <= 2 * gameMap.spawnClearW and
+              abs(a.y - b.y) <= 2 * gameMap.spawnClearH:
+            raise newException(CtfError,
+              "spawnPoints[" & $i & "] and spawnPoints[" & $j &
+              "] pockets overlap.")
     ## The WALL-OVERLAP walkability check needs buildArenaObstacles/mapWallAt,
     ## which are defined later in this module — run it in validateMapWalkability
     ## (called from mapFromSpecJson right after this), not here.
@@ -354,6 +476,9 @@ proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
     of Blue: 1
     of Yellow: 2
     of Green: 3
+    else: raiseAssert(
+      "rot90Quarter: layoutCorners is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
   of layoutPlus:
     ## Orbit west -> north -> east -> south.
     case team
@@ -361,6 +486,9 @@ proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
     of Green: 1
     of Blue: 2
     of Yellow: 3
+    else: raiseAssert(
+      "rot90Quarter: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
 proc rot90TeamPoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
   ## RED's point walked round the orbit to `team`'s quadrant. Anything one
@@ -418,6 +546,9 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
       of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
       of Green: green
       of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
+      else: raiseAssert(
+        "teamImagePoint: quadmirror layoutPlus is 4-team only, got " &
+          $team & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
     else:
       case team
       of Red: red
@@ -425,6 +556,9 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
       of Green: MapPoint(x: red.x, y: gameMap.height - 1 - red.y)
       of Yellow: MapPoint(
         x: gameMap.width - 1 - red.x, y: gameMap.height - 1 - red.y)
+      else: raiseAssert(
+        "teamImagePoint: quadmirror layoutCorners is 4-team only, got " &
+          $team & " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
 
 proc homeRotationFor*(seed, teams: int): int =
   ## The per-episode rotation of TEAM -> HOME ownership, in quarter-turns
@@ -480,7 +614,28 @@ proc homeSlot*(gameMap: CtfMap, team: Team): Team =
   ## were a quarter turn apart stay a quarter turn apart, and the plus
   ## layout's opposite arms stay opposite — which an arbitrary permutation of
   ## the four teams would not.
-  if gameMap.homeRotation == 0 or gameMap.teamCount() <= 2:
+  ##
+  ## BR INTEGRATION: `rot90Quarter` only has a real orbit under layoutCorners
+  ## / layoutPlus — every team maps to quarter-turn 0 under layoutSides (see
+  ## its own `of layoutSides: 0` branch), by design, for the 2-team case this
+  ## proc already returns early on above. A 16-team BR board is symNone but
+  ## still reports `layoutSides` (BR_MAPGEN.md §6.1 authors no sides/corners
+  ## concept, so it takes the harmless default), and `homeRotationFor` does
+  ## not know that: it derives a nonzero rotation for ANY teamCount > 2,
+  ## BR included. Without this guard `target` collapses to `homeRotation mod
+  ## 4`, and since every team's own quarter-turn is 0 too, the search below
+  ## either matches EVERY team (target == 0, so it always returns Red — every
+  ## team's anchor collapses onto one point) or NO team (target != 0, falling
+  ## through to identity by accident rather than by contract). Both are only
+  ## harmless today because BR's authored `spawnPoints` bypasses `teamAnchor`
+  ## for every consumer that matters (spawnPosition, spawnAimBrads,
+  ## defaultCtfRooms all early-return before reaching it) — but `teamAnchor`
+  ## itself is still called unconditionally per team by `selectCtfMap`
+  ## (ArenaAnchors), so leaving the collapse live is one new caller away from
+  ## a real bug. Pin it to identity outright: a layout with no rot90 orbit
+  ## has nothing to rotate through, exactly like the teamCount <= 2 case.
+  if gameMap.homeRotation == 0 or gameMap.teamCount() <= 2 or
+      gameMap.layout == layoutSides:
     return team
   let target = (gameMap.rot90Quarter(team) + gameMap.homeRotation) mod 4
   for slot in gameMap.teams():
@@ -537,6 +692,9 @@ proc slotAnchor*(gameMap: CtfMap, slot: Team): MapPoint =
           of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
           of Green: green
           of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
+          else: raiseAssert(
+            "slotAnchor: quadmirror layoutPlus is 4-team only, got " &
+              $slot & " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
       return
     ## Red seeds the rot90 orbit: top-left on corner maps, west on plus maps.
     result =
@@ -632,6 +790,24 @@ proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
   ## full-clearance base columns; 4-team layouts box each pocket instead.
   result.add Room(name: "Center", x: gameMap.width div 2 - 80,
     y: gameMap.height div 2 - 80, w: 160, h: 160)
+  if gameMap.spawnPoints.len > 0:
+    ## BR N-point spawn subsystem: base rooms follow the AUTHORED spawn
+    ## points directly, one per point, never teamAnchor. teamAnchor's
+    ## corners/plus branch (below, and in the compact-endzone branch above
+    ## it) walks the rot90 orbit via rot90Point, which is only well-defined
+    ## on a SQUARE board (rot90 symmetry itself is validated square-only);
+    ## a symNone map carries no such constraint, so on a rectangular BR
+    ## field that walk lands anchors far outside the board — which is
+    ## exactly what spawnPoints exists to route around. Clamped to the
+    ## board like the corners/plus case below.
+    for i, p in gameMap.spawnPoints:
+      let
+        x0 = max(0, p.x - gameMap.spawnClearW)
+        y0 = max(0, p.y - gameMap.spawnClearH)
+        x1 = min(gameMap.width, p.x + gameMap.spawnClearW)
+        y1 = min(gameMap.height, p.y + gameMap.spawnClearH)
+      result.add Room(name: "Spawn " & $i, x: x0, y: y0, w: x1 - x0, h: y1 - y0)
+    return
   if gameMap.endzone != ezColumn:
     ## Compact endzones ARE the base: the room is the zone's bounding box.
     let r = gameMap.endzoneRadius
@@ -814,6 +990,9 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
       result.yLo = anchor.y - half
       result.xLo = bandX.lo
       result.xHi = bandX.hi
+    else: raiseAssert(
+      "captureZone: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
 proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
   ## Returns whether a map point sits inside one capture zone.
@@ -1580,42 +1759,65 @@ proc centerOffset2*(
 proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   ## isProtectedFloor for a map that is NOT installed as the process map:
   ## the generator and validators run on candidates before any selection.
-  if gameMap.endzone != ezColumn:
-    ## COMPACT endzones protect the shape around each base and NOTHING at
-    ## the border: the home strip is wilderness the terrain may build on.
-    for team in gameMap.teams():
-      let anchor = gameMap.teamAnchor(team)
-      if endzoneFloorAt(x, y, anchor.x, anchor.y, gameMap.endzoneRadius,
-          gameMap.endzone == ezDisc):
+  ##
+  ## Spawn pocket: spawnPoints (BR N-point spawn subsystem), when authored,
+  ## carve ONE POCKET PER POINT directly off the point list — iterated
+  ## directly (never gameMap.teams()), so this is correct at any team count.
+  ## Independent of `flagless` below: an ordinary map may set spawnPoints and
+  ## still keep its flag/endzone carve. See CtfMap.spawnPoints's doc comment
+  ## for the relationship to coworld-ctf#285's teamAnchors (moves the
+  ## PEDESTAL, not spawn).
+  if gameMap.spawnPoints.len > 0:
+    for p in gameMap.spawnPoints:
+      if abs(x - p.x) <= gameMap.spawnClearW and abs(y - p.y) <= gameMap.spawnClearH:
         return true
-    let
-      dcx = x - gameMap.center.x
-      dcy = y - gameMap.center.y
-    return dcx * dcx + dcy * dcy <= gameMap.flagRing * gameMap.flagRing
-  let
-    clear = gameMap.captureClear
-    nearX = x < clear or x >= gameMap.width - clear
-    nearY = y < clear or y >= gameMap.height - clear
-    (dx2, dy2) = gameMap.centerOffset2(x, y)
-    approach =
-      case gameMap.layout
-      of layoutSides:
-        nearX
-      of layoutCorners:
-        nearX and nearY
-      of layoutPlus:
-        (nearX and abs(dy2) <= 2 * gameMap.plusArmHalf()) or
-          (nearY and abs(dx2) <= 2 * gameMap.plusArmHalf())
-  if approach:
-    return true
-  if dx2 * dx2 + dy2 * dy2 <= 4 * gameMap.flagRing * gameMap.flagRing:
-    return true
-  for team in gameMap.teams():
-    let
-      anchor = gameMap.teamAnchor(team)
-      half = gameMap.spawnPocketHalf(team)
-    if abs(x - anchor.x) <= half.w and abs(y - anchor.y) <= half.h:
-      return true
+  ## Flag geometry (pedestal ring, capture approach, endzone shape): a
+  ## flagless map arms no flag and scores no endzone, so there is nothing
+  ## here to protect — skip straight to the legacy anchor-pocket fallback.
+  if not gameMap.flagless:
+    if gameMap.endzone != ezColumn:
+      ## COMPACT endzones protect the shape around each base and NOTHING at
+      ## the border: the home strip is wilderness the terrain may build on.
+      for team in gameMap.teams():
+        let anchor = gameMap.teamAnchor(team)
+        if endzoneFloorAt(x, y, anchor.x, anchor.y, gameMap.endzoneRadius,
+            gameMap.endzone == ezDisc):
+          return true
+      let
+        dcx = x - gameMap.center.x
+        dcy = y - gameMap.center.y
+      if dcx * dcx + dcy * dcy <= gameMap.flagRing * gameMap.flagRing:
+        return true
+    else:
+      let
+        clear = gameMap.captureClear
+        nearX = x < clear or x >= gameMap.width - clear
+        nearY = y < clear or y >= gameMap.height - clear
+        (dx2, dy2) = gameMap.centerOffset2(x, y)
+        approach =
+          case gameMap.layout
+          of layoutSides:
+            nearX
+          of layoutCorners:
+            nearX and nearY
+          of layoutPlus:
+            (nearX and abs(dy2) <= 2 * gameMap.plusArmHalf()) or
+              (nearY and abs(dx2) <= 2 * gameMap.plusArmHalf())
+      if approach:
+        return true
+      if dx2 * dx2 + dy2 * dy2 <= 4 * gameMap.flagRing * gameMap.flagRing:
+        return true
+  ## Legacy per-team anchor pocket: only when spawnPoints hasn't already
+  ## carved the spawn area. Byte-identical to the pre-BR behavior whenever
+  ## spawnPoints is empty (flagless or not — compact-endzone maps had no
+  ## separate anchor pocket before either, and still don't here).
+  if gameMap.spawnPoints.len == 0 and gameMap.endzone == ezColumn:
+    for team in gameMap.teams():
+      let
+        anchor = gameMap.teamAnchor(team)
+        half = gameMap.spawnPocketHalf(team)
+      if abs(x - anchor.x) <= half.w and abs(y - anchor.y) <= half.h:
+        return true
   false
 
 proc mapWallAt*(
@@ -1683,10 +1885,17 @@ proc validateMapWalkability*(gameMap: CtfMap) =
   if gameMap.symmetry != symNone:
     return
   let obstacles = buildArenaObstacles(gameMap)
+  ## BR spawn subsystem: the spawnPoints entry below is a MINIMUM (matches the
+  ## docstring above — wall-overlap, not full flood-connectivity), and it is
+  ## expected to be tautologically true once mapProtectedFloorAt's spawnPoints
+  ## carve is wired (a spawn point sits at the CENTER of its own carved
+  ## pocket, so it can never be a wall by construction). Kept as an explicit
+  ## canary against carve/validator drift, same as the pickups above it.
   for (name, pts) in [
       ("teamPickups.shields", gameMap.teamPickups.shields),
       ("teamPickups.cans", gameMap.teamPickups.cans),
-      ("teamPickups.barriers", gameMap.teamPickups.barriers)]:
+      ("teamPickups.barriers", gameMap.teamPickups.barriers),
+      ("spawnPoints", gameMap.spawnPoints)]:
     for i, p in pts:
       if mapWallAt(gameMap, obstacles, p.x, p.y, includeSpinning = false):
         raise newException(CtfError,
@@ -2042,7 +2251,13 @@ proc generateMapAttempt*(
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed. `teams` selects the family: 2 draws the
   ## classic left/right half-map, 4 draws a square rot90 corner/plus map.
-  doAssert teams in [2, 4], "team count must be 2 or 4"
+  ## 16 (BR, BR_MAPGEN.md §6.2) is accepted here so the type-level gate
+  ## matches sim_config/activeTeams, but this proc has NO 16-team SHAPE yet
+  ## (falls through to the 2-team shell below) — that generator is a
+  ## separate, not-yet-landed piece of work; a 16-team draw currently comes
+  ## out mismatched and is rejected downstream by
+  ## resolveCtfMapMetadata's teamCount() check.
+  doAssert teams in [2, 4, 16], "team count must be 2, 4, or 16"
   var rng = MapRng(state: uint64(seed))
 
   ## One draw over ALL size classes. Widening this bound (3 -> 5 when the
@@ -3266,6 +3481,37 @@ proc mapSpecJson*(gameMap: CtfMap): string =
       "cans": pointsNode(gameMap.teamPickups.cans),
       "barriers": pointsNode(gameMap.teamPickups.barriers),
     }
+  ## BR N-point spawn subsystem: spawnPoints pins only when authored, same
+  ## "unconditional key would move every existing pinned spec" reasoning as
+  ## teamPickups above. Round-trips with the parse in mapFromSpecJson.
+  if gameMap.spawnPoints.len > 0:
+    spec["spawnPoints"] = pointsNode(gameMap.spawnPoints)
+  ## spawnGroups pins only when authored, same idiom. It is NOT derivable
+  ## from spawnPoints (16 points is 16 groups of 1 or 8 groups of 2), so a
+  ## replay that did not pin it could not reproduce its own seating.
+  if gameMap.spawnGroups > 0:
+    spec["spawnGroups"] = %gameMap.spawnGroups
+  ## flagless pins only when true — matches the barrierPickups idiom (only
+  ## echo a feature toggle when it deviates from the default), so every
+  ## existing (flag-armed) pinned spec's echo is unchanged.
+  if gameMap.flagless:
+    spec["flagless"] = %true
+  ## shieldSpawns/spraySpawns (brmapkit round 13) pin only when present,
+  ## same "unconditional key would move every existing pinned spec" idiom
+  ## as puddles/teamPickups/spawnPoints above. Empty on any map that never
+  ## authored them, in which case resetShields/resetSprayPaints (sim.nim)
+  ## fall back to the classic per-team endzone formula unchanged.
+  if gameMap.shieldSpawns.len > 0:
+    spec["shieldSpawns"] = pointsNode(gameMap.shieldSpawns)
+  if gameMap.spraySpawns.len > 0:
+    spec["spraySpawns"] = pointsNode(gameMap.spraySpawns)
+  ## grenadeSpawns (round 13's per-item gradient) pins only when present,
+  ## same idiom as shieldSpawns/spraySpawns just above. Empty on any map
+  ## that never authored one (every pre-existing pinned spec, every classic
+  ## 2-4 team map), in which case resetGrenades (sim.nim) falls back to the
+  ## classic grenadeSpawnPoints() 4-corner/orbit formula unchanged.
+  if gameMap.grenadeSpawns.len > 0:
+    spec["grenadeSpawns"] = pointsNode(gameMap.grenadeSpawns)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3359,6 +3605,24 @@ proc mapFromSpecJson*(text: string): CtfMap =
     result.teamPickups.shields = pointsFromNode(tpNode{"shields"})
     result.teamPickups.cans = pointsFromNode(tpNode{"cans"})
     result.teamPickups.barriers = pointsFromNode(tpNode{"barriers"})
+  ## Optional: BR N-point spawn subsystem. Absent -> empty seq, the legacy
+  ## anchor-staggered spawn (byte-identical to every pre-BR pinned spec).
+  result.spawnPoints = pointsFromNode(node{"spawnPoints"})
+  result.flagless = node{"flagless"}.getBool(false)
+  ## Optional: absent -> 0, i.e. "seat whatever the layout seats" — the
+  ## pre-BR default, byte-identical for every pinned spec ever recorded.
+  result.spawnGroups = node{"spawnGroups"}.getInt(0)
+  ## Optional: brmapkit round 13's neutral shield/spray pools. Absent ->
+  ## empty, same "byte-identical for every pre-round-13 pinned spec" rule
+  ## as spawnPoints — resetShields/resetSprayPaints fall back to the
+  ## classic formula when empty.
+  result.shieldSpawns = pointsFromNode(node{"shieldSpawns"})
+  result.spraySpawns = pointsFromNode(node{"spraySpawns"})
+  ## Optional: round 13's neutral grenade pool. Absent -> empty, same
+  ## "byte-identical for every pre-round-13 pinned spec" rule as
+  ## shieldSpawns/spraySpawns — resetGrenades falls back to the classic
+  ## formula when empty.
+  result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)
@@ -3390,9 +3654,21 @@ proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
       else:
         raise newException(CtfError, "Unknown map: " & name)
   if result.teamCount() != config.teams:
+    ## BR bridge: the map is the authority on how many groups it seats, and
+    ## the config must agree. The one confusing way to land here is a map
+    ## that authored spawnPoints but never declared spawnGroups: its
+    ## teamCount falls through to the LAYOUT, so a 16-group BR draw reports
+    ## "seats 2" and the honest reason is invisible. Say it outright.
+    let hint =
+      if result.spawnGroups == 0 and result.spawnPoints.len > 0:
+        " — the map authors " & $result.spawnPoints.len & " spawnPoints but " &
+        "no spawnGroups, so its team count fell back to its layout. A BR " &
+        "map must pin \"spawnGroups\" in its spec (BR_MAPGEN.md §4.2)."
+      else:
+        "."
     raise newException(
       CtfError, "Config asks for " & $config.teams & " teams but map " &
-        result.name & " seats " & $result.teamCount() & ".")
+        result.name & " seats " & $result.teamCount() & hint)
   ## GV44: deal the homes. This is the ONLY place a rotation is ever applied,
   ## and it is applied to the FINISHED map — after generation, after spec
   ## parsing, after validation — because none of those care who owns a pad:
@@ -3428,6 +3704,14 @@ var
   ArenaPlusArmHalf = 0
   ArenaEndzoneRadius = 0     ## > 0 selects the COMPACT endzone floor rules.
   ArenaEndzoneDisc = false   ## compact endzone is a disc, not a square.
+  ArenaSpawnPoints: seq[MapPoint]
+    ## BR N-point spawn subsystem's installed twin of CtfMap.spawnPoints.
+  ArenaSpawnClearW = 0
+  ArenaSpawnClearH = 0
+    ## Cached spawnClearW/H for the ArenaSpawnPoints pocket carve, same
+    ## caching discipline as ArenaFlagRing/ArenaCaptureClear above.
+  ArenaFlagless = false
+    ## Installed twin of CtfMap.flagless.
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaSpinMirrored* = true
@@ -3464,6 +3748,10 @@ proc selectCtfMap(gameMap: CtfMap) =
   ArenaEndzoneRadius =
     if gameMap.endzone == ezColumn: 0 else: gameMap.endzoneRadius
   ArenaEndzoneDisc = gameMap.endzone == ezDisc
+  ArenaSpawnPoints = gameMap.spawnPoints
+  ArenaSpawnClearW = gameMap.spawnClearW
+  ArenaSpawnClearH = gameMap.spawnClearH
+  ArenaFlagless = gameMap.flagless
   ArenaObstacles = buildArenaObstacles(gameMap)
   AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
   ArenaSpinMirrored = gameMap.symmetry == symMirror
@@ -3631,42 +3919,52 @@ proc arenaCenterOffset2(x, y, cx, cy: int): tuple[dx, dy: int] {.inline.} =
 proc isProtectedFloor*(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, every spawn pocket,
   ## and each team's home capture approach. Walls are never carved here.
-  if ArenaEndzoneRadius > 0:
-    ## COMPACT endzones: the shape around each base plus the center ring.
-    ## The home border strips are ordinary field (see mapProtectedFloorAt).
-    for team in activeTeams(ArenaTeamCount):
-      if endzoneFloorAt(x, y, ArenaAnchors[team].x, ArenaAnchors[team].y,
-          ArenaEndzoneRadius, ArenaEndzoneDisc):
+  ## Installed twin of mapProtectedFloorAt — keep the two in lockstep; see
+  ## its comments for the spawnPoints/flagless rationale.
+  if ArenaSpawnPoints.len > 0:
+    for p in ArenaSpawnPoints:
+      if abs(x - p.x) <= ArenaSpawnClearW and abs(y - p.y) <= ArenaSpawnClearH:
         return true
-    let
-      rdx = x - cx
-      rdy = y - cy
-    return rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
-  ## The classic column path below must stay pixel-for-pixel identical to
-  ## mapProtectedFloorAt, which the generator and validators run on
-  ## uninstalled candidates. 4-team maps always draw ezColumn, so the
-  ## rot90/quad-mirror boards are carved here, never by the compact branch.
-  let
-    nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
-    nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
-    (dx2, dy2) = arenaCenterOffset2(x, y, cx, cy)
-    approach =
-      case ArenaLayoutG
-      of layoutSides:
-        nearX
-      of layoutCorners:
-        nearX and nearY
-      of layoutPlus:
-        (nearX and abs(dy2) <= 2 * ArenaPlusArmHalf) or
-          (nearY and abs(dx2) <= 2 * ArenaPlusArmHalf)
-  if approach:
-    return true
-  if dx2 * dx2 + dy2 * dy2 <= 4 * ArenaFlagRing * ArenaFlagRing:
-    return true
-  for team in activeTeams(ArenaTeamCount):
-    if abs(x - ArenaAnchors[team].x) <= ArenaPocketHalf[team].w and
-        abs(y - ArenaAnchors[team].y) <= ArenaPocketHalf[team].h:
-      return true
+  if not ArenaFlagless:
+    if ArenaEndzoneRadius > 0:
+      ## COMPACT endzones: the shape around each base plus the center ring.
+      ## The home border strips are ordinary field (see mapProtectedFloorAt).
+      for team in activeTeams(ArenaTeamCount):
+        if endzoneFloorAt(x, y, ArenaAnchors[team].x, ArenaAnchors[team].y,
+            ArenaEndzoneRadius, ArenaEndzoneDisc):
+          return true
+      let
+        rdx = x - cx
+        rdy = y - cy
+      if rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing:
+        return true
+    else:
+      ## The classic column path below must stay pixel-for-pixel identical to
+      ## mapProtectedFloorAt, which the generator and validators run on
+      ## uninstalled candidates. 4-team maps always draw ezColumn, so the
+      ## rot90/quad-mirror boards are carved here, never by the compact branch.
+      let
+        nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
+        nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
+        (dx2, dy2) = arenaCenterOffset2(x, y, cx, cy)
+        approach =
+          case ArenaLayoutG
+          of layoutSides:
+            nearX
+          of layoutCorners:
+            nearX and nearY
+          of layoutPlus:
+            (nearX and abs(dy2) <= 2 * ArenaPlusArmHalf) or
+              (nearY and abs(dx2) <= 2 * ArenaPlusArmHalf)
+      if approach:
+        return true
+      if dx2 * dx2 + dy2 * dy2 <= 4 * ArenaFlagRing * ArenaFlagRing:
+        return true
+  if ArenaSpawnPoints.len == 0 and ArenaEndzoneRadius == 0:
+    for team in activeTeams(ArenaTeamCount):
+      if abs(x - ArenaAnchors[team].x) <= ArenaPocketHalf[team].w and
+          abs(y - ArenaAnchors[team].y) <= ArenaPocketHalf[team].h:
+        return true
   false
 
 proc isArenaWall*(x, y, cx, cy: int): bool =
@@ -3697,59 +3995,69 @@ proc mapProtectedFloorAtF*(
 ): bool =
   ## Float-coordinate mapProtectedFloorAt for a map that is NOT installed as
   ## the process map. Render tools use this form so concurrent arbitrary-spec
-  ## renders never read or mutate the installed arena globals.
-  if gameMap.endzone != ezColumn:
-    let grown = float(gameMap.endzoneRadius + EndzoneWallMargin)
-    for team in gameMap.teams():
-      let anchor = gameMap.teamAnchor(team)
-      let
-        adx = abs(x - float(anchor.x))
-        ady = abs(y - float(anchor.y))
-      if adx > grown or ady > grown:
-        continue
-      if gameMap.endzone != ezDisc or
-          adx * adx + ady * ady <= grown * grown:
+  ## renders never read or mutate the installed arena globals. Keep in
+  ## lockstep with mapProtectedFloorAt (the int twin) — see its comments for
+  ## the spawnPoints/flagless rationale.
+  if gameMap.spawnPoints.len > 0:
+    for p in gameMap.spawnPoints:
+      if abs(x - float(p.x)) <= float(gameMap.spawnClearW) and
+          abs(y - float(p.y)) <= float(gameMap.spawnClearH):
         return true
-    let
-      rdx = x - float(cx)
-      rdy = y - float(cy)
-    return rdx * rdx + rdy * rdy <=
-      float(gameMap.flagRing * gameMap.flagRing)
-  ## Carries the same doubled-coordinate center as the integer test so the
-  ## painted art cannot drift off the collision mask on a 4-team board.
-  let
-    nearX = x < float(gameMap.captureClear) or
-      x >= float(gameMap.width - gameMap.captureClear)
-    nearY = y < float(gameMap.captureClear) or
-      y >= float(gameMap.height - gameMap.captureClear)
-    (dx2, dy2) =
-      if gameMap.symmetry in {symRot90, symQuadMirror}:
-        (2.0 * x - float(gameMap.width - 1),
-          2.0 * y - float(gameMap.height - 1))
-      else:
-        (2.0 * (x - float(cx)), 2.0 * (y - float(cy)))
-    approach =
-      case gameMap.layout
-      of layoutSides:
-        nearX
-      of layoutCorners:
-        nearX and nearY
-      of layoutPlus:
-        let arm = gameMap.plusArmHalf()
-        (nearX and abs(dy2) <= float(2 * arm)) or
-          (nearY and abs(dx2) <= float(2 * arm))
-  if approach:
-    return true
-  if dx2 * dx2 + dy2 * dy2 <=
-      float(4 * gameMap.flagRing * gameMap.flagRing):
-    return true
-  for team in gameMap.teams():
-    let
-      anchor = gameMap.teamAnchor(team)
-      half = gameMap.spawnPocketHalf(team)
-    if abs(x - float(anchor.x)) <= float(half.w) and
-        abs(y - float(anchor.y)) <= float(half.h):
-      return true
+  if not gameMap.flagless:
+    if gameMap.endzone != ezColumn:
+      let grown = float(gameMap.endzoneRadius + EndzoneWallMargin)
+      for team in gameMap.teams():
+        let anchor = gameMap.teamAnchor(team)
+        let
+          adx = abs(x - float(anchor.x))
+          ady = abs(y - float(anchor.y))
+        if adx > grown or ady > grown:
+          continue
+        if gameMap.endzone != ezDisc or
+            adx * adx + ady * ady <= grown * grown:
+          return true
+      let
+        rdx = x - float(cx)
+        rdy = y - float(cy)
+      if rdx * rdx + rdy * rdy <= float(gameMap.flagRing * gameMap.flagRing):
+        return true
+    else:
+      ## Carries the same doubled-coordinate center as the integer test so the
+      ## painted art cannot drift off the collision mask on a 4-team board.
+      let
+        nearX = x < float(gameMap.captureClear) or
+          x >= float(gameMap.width - gameMap.captureClear)
+        nearY = y < float(gameMap.captureClear) or
+          y >= float(gameMap.height - gameMap.captureClear)
+        (dx2, dy2) =
+          if gameMap.symmetry in {symRot90, symQuadMirror}:
+            (2.0 * x - float(gameMap.width - 1),
+              2.0 * y - float(gameMap.height - 1))
+          else:
+            (2.0 * (x - float(cx)), 2.0 * (y - float(cy)))
+        approach =
+          case gameMap.layout
+          of layoutSides:
+            nearX
+          of layoutCorners:
+            nearX and nearY
+          of layoutPlus:
+            let arm = gameMap.plusArmHalf()
+            (nearX and abs(dy2) <= float(2 * arm)) or
+              (nearY and abs(dx2) <= float(2 * arm))
+      if approach:
+        return true
+      if dx2 * dx2 + dy2 * dy2 <=
+          float(4 * gameMap.flagRing * gameMap.flagRing):
+        return true
+  if gameMap.spawnPoints.len == 0 and gameMap.endzone == ezColumn:
+    for team in gameMap.teams():
+      let
+        anchor = gameMap.teamAnchor(team)
+        half = gameMap.spawnPocketHalf(team)
+      if abs(x - float(anchor.x)) <= float(half.w) and
+          abs(y - float(anchor.y)) <= float(half.h):
+        return true
   false
 
 proc mapObstacleWallAtF*(
