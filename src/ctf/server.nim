@@ -1990,14 +1990,33 @@ proc buildShotFeedbackPacket(
     if fx.targetIndex == cog and fx.shooterIndex >= 0 and
         fx.shooterIndex < sim.players.len:
       let killer = sim.players[fx.shooterIndex]
-      hitsTaken.add(%*{
+      var taken = %*{
         "kill": fx.kill,
         "friendlyFire": fx.friendlyFire,
         "weapon": fx.weapon,
         "distance": fx.distance,
         "killerTeam": teamText(killer.team),
         "killerColor": playerColorText(killer.color)
-      })
+      }
+      if fx.kill:
+        # Killcam: the killer's position, on the FATAL record ONLY — so the
+        # victim's client can point a camera at who got them. A per-hit
+        # shooter position would be a live wallhack for a still-standing
+        # victim; a dead one cannot move or shoot, so revealing where their
+        # killer stood at the death moment is the same narrow, principled
+        # fog exception as the unfogged identity fields above and the
+        # own-death pop (ShotFeedbackFx's doc comment) — scoped to the one
+        # participant the round is already over for. shooterX/shooterY are
+        # the impact-moment center captured at the populate site
+        # (sim_types.nim); killerAlive is read HERE, at delivery on the
+        # death tick, so a mutual trade correctly points the camera at a
+        # corpse. Non-fatal entries are byte-identical to before this field
+        # existed (nothing is appended), and the gate-off wire is untouched
+        # (no record is ever populated).
+        taken["killerX"] = %fx.shooterX
+        taken["killerY"] = %fx.shooterY
+        taken["killerAlive"] = %killer.alive
+      hitsTaken.add(taken)
   if shotsLanded.len == 0 and hitsTaken.len == 0:
     return ""
   $(%*{"shotsLanded": shotsLanded, "hitsTaken": hitsTaken})

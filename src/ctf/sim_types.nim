@@ -1696,7 +1696,17 @@ type
                               ## [{"kill": bool, "friendlyFire": bool,
                               ## "weapon": string, "distance": int,
                               ## "killerTeam": string, "killerColor":
-                              ## string}, ...]}` — both arrays, since either
+                              ## string}, ...]}` — plus, on a hitsTaken entry
+                              ## ONLY where "kill" is true (killcam), three
+                              ## additional keys: "killerX"/"killerY" (the
+                              ## killer's center at the fatal impact) and
+                              ## "killerAlive" (the killer's alive state read
+                              ## at delivery). Never present on a non-fatal
+                              ## hitsTaken entry or on any shotsLanded entry
+                              ## — see ShotFeedbackFx.shooterX's doc comment
+                              ## for why the position is scoped to the one
+                              ## participant already dead when it is sent.
+                              ## Both arrays, since either
                               ## side can in principle have more than one
                               ## combat event resolve in the same tick, and
                               ## a socket that is BOTH a shooter and a victim
@@ -2104,6 +2114,23 @@ type
     distance*: int       ## rounded pixel distance from shooter to victim at
                         ## impact — already computed (or a one-line hypot of
                         ## already-bound points) at every populate site.
+    shooterX*: int       ## the shooter's CENTER x at the moment the damage
+                        ## resolved — the same instant `distance` above was
+                        ## measured (for a grenade: the thrower's position at
+                        ## BLAST resolution, where they stand now, not where
+                        ## they threw from — that is where a camera finds
+                        ## them). Captured on every record (the point is
+                        ## already bound at each populate site), but
+                        ## SERIALIZED only into a FATAL hitsTaken entry
+                        ## (killerX/killerY, the killcam contract): a per-hit
+                        ## shooter position delivered to a still-LIVING
+                        ## victim would be a wallhack, while a dead victim
+                        ## can no longer act on it — the same narrow fog
+                        ## exception as the own-death pop (BUG A in
+                        ## test_shot_feedback.nim). See
+                        ## buildShotFeedbackPacket (server.nim), the ONLY
+                        ## reader.
+    shooterY*: int       ## the shooter's CENTER y; see shooterX.
 
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is

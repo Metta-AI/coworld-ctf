@@ -6,6 +6,15 @@
 ##
 ## The sim-side population (ShotFeedbackFx fields, gameHash exclusion, BUG A)
 ## is asserted separately in test_shot_feedback.nim.
+##
+## Killcam contract (asserted below): a hitsTaken entry with "kill": true —
+## and ONLY such an entry — additionally carries "killerX"/"killerY" (the
+## killer's center at the fatal impact, from ShotFeedbackFx.shooterX/Y) and
+## "killerAlive" (the killer's alive state read at delivery, i.e. on the
+## victim's death tick). Non-fatal hitsTaken entries and ALL shotsLanded
+## entries never carry these keys: a shooter position delivered to a
+## still-living player would be a wallhack, while the dead victim of the
+## fatal hit cannot act on it (ShotFeedbackFx's fog-exception doc).
 
 import std/unittest
 
@@ -71,6 +80,54 @@ suite "buildShotFeedbackPacket: the private combat-outcome JSON":
     check taken["distance"].getInt == 12
     check taken["killerTeam"].getStr == teamText(Red)
     check taken.hasKey("killerColor")
+    # Killcam narrowing: a NON-fatal hitsTaken entry must NOT reveal the
+    # shooter's position — the victim is still alive and could act on it.
+    check not taken.hasKey("killerX")
+    check not taken.hasKey("killerY")
+    check not taken.hasKey("killerAlive")
+
+  test "a FATAL hitsTaken entry carries killerX/killerY/killerAlive (killcam)":
+    let sim = twoPlayerSim()
+    let fx = @[ShotFeedbackFx(shooterIndex: 0, targetIndex: 1, kill: true,
+      friendlyFire: false, weapon: "gun", distance: 40,
+      shooterX: 321, shooterY: 654)]
+    let packet = buildShotFeedbackPacket(sim, fx, 1)
+    let parsed = parseJson(packet)
+    check parsed["hitsTaken"].len == 1
+    let taken = parsed["hitsTaken"][0]
+    check taken["kill"].getBool == true
+    # The impact-moment capture from the populate site, verbatim.
+    check taken["killerX"].getInt == 321
+    check taken["killerY"].getInt == 654
+    # Alive state is read at DELIVERY (the victim's death tick): this killer
+    # still stands, so the camera has a live target to pan to.
+    check taken["killerAlive"].getBool == true
+
+  test "killerAlive reads false when the killer died by delivery (mutual trade)":
+    var sim = twoPlayerSim()
+    sim.players[0].alive = false
+    let fx = @[ShotFeedbackFx(shooterIndex: 0, targetIndex: 1, kill: true,
+      weapon: "gun", distance: 40, shooterX: 100, shooterY: 200)]
+    let parsed = parseJson(buildShotFeedbackPacket(sim, fx, 1))
+    let taken = parsed["hitsTaken"][0]
+    check taken["killerX"].getInt == 100
+    check taken["killerY"].getInt == 200
+    check taken["killerAlive"].getBool == false
+
+  test "shotsLanded entries NEVER carry killer position keys, fatal or not":
+    # The shooter needs no camera pointed at themselves; more importantly the
+    # killcam exception is scoped to the DEAD participant only.
+    let sim = twoPlayerSim()
+    let fx = @[ShotFeedbackFx(shooterIndex: 0, targetIndex: 1, kill: true,
+      weapon: "gun", distance: 40, shooterX: 321, shooterY: 654)]
+    let parsed = parseJson(buildShotFeedbackPacket(sim, fx, 0))
+    check parsed["shotsLanded"].len == 1
+    let landed = parsed["shotsLanded"][0]
+    check landed["kill"].getBool == true
+    check not landed.hasKey("killerX")
+    check not landed.hasKey("killerY")
+    check not landed.hasKey("killerAlive")
+    check not landed.hasKey("shooterX")
 
   test "delivered UNFOGGED: identity is present even if the participant never rendered the other side":
     # No fovVisibleAt call anywhere in this path -- confirmed by there being
