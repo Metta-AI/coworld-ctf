@@ -1341,11 +1341,23 @@
     post-respawn accepted change. No sort is imposed over the truth; a viewer's most-recent-record cursor
     therefore shows a cog that took an order and died on the same tick as cleared, which is what stood.
     Goldens pin exactly that pair and its respawn inverse. Seeking gets its own cursor, like the existing
-    cursors. The compatibility contract is stated plainly: new readers load every archived older version;
-    old viewers cannot load Season 2 replays, which is acceptable because a Season 2 replay is only
-    interesting in a viewer that can display strategies anyway. Playback skips the annotation arrays
-    entirely (no sim mutator in their path); a truncated or selectively dropped annotation stream fails
-    manifest verification loudly.</p>
+    cursors. The compatibility contract is stated plainly, and it names the code that stands in its way,
+    because today it is false at two levels: the codec's reader lives in the vendored <code>bitworld</code>
+    package and rejects any format version other than its own<sup class="ref"><a href="#src-55" title="bitworld/replays.nim:361-363">55</a></sup> and, eight lines later, any
+    <code>gameVersion</code> string other than its own<sup class="ref"><a href="#src-56" title="bitworld/replays.nim:370-371">56</a></sup>, so no archived replay from any earlier
+    GameVersion loads through it, which is why every GameVersion bump today re-records the fixtures. This
+    design does not change <code>bitworld</code>, which every other bitworld game shares; it adds a
+    <strong>coworld-ctf-side load override</strong> in P2 that owns the two checks for this game: it
+    accepts format versions 1 and 2 and writes only 2, and it accepts a <code>gameVersion</code> from a
+    <strong>maintained allowlist</strong> in <code>sim_types.nim</code> naming every version whose gate-off
+    rules are byte-identical to the current engine's (a new entry is added exactly when a change lands
+    dark; a gate-off rule change empties the list, since playback re-simulates and an older replay would
+    diverge silently). New readers therefore load every archived replay the allowlist covers, an explicit
+    contract rather than an accident; old viewers cannot load Season 2 replays, which is acceptable
+    because a Season 2 replay is only interesting in a viewer that can display strategies anyway. A test
+    loads one archived fixture per allowlisted version and one from outside the list (rejected by name).
+    Playback skips the annotation arrays entirely (no sim mutator in their path); a truncated or
+    selectively dropped annotation stream fails manifest verification loudly.</p>
     <p>What enters the annotation array is defined exactly by those variants: standing-order changes the
     engine accepted and the lifecycle records above, so the array alone tells the truth about what order
     stood at every tick. Rejected emissions, dropped messages, and duplicates never enter it; their story
@@ -1426,10 +1438,10 @@
     entries, keeping the freshest then the nearest; aggressor events against self, 16, most recent first;
     the public kill feed, 32, most recent first; heard shouts, at most one per live shouter and so at most
     the roster (32), which is the same bound the Sprite path has
-    (<code>ShoutMaxCount = MaxPlayers</code><sup class="ref"><a href="#src-55" title="src/ctf/global.nim:370-377">55</a></sup>); and hazard lists per <a href="#r-1">Appendix R.1</a>. The
+    (<code>ShoutMaxCount = MaxPlayers</code><sup class="ref"><a href="#src-57" title="src/ctf/global.nim:370-377">57</a></sup>); and hazard lists per <a href="#r-1">Appendix R.1</a>. The
     firing-position and cover atlas is deliberately <strong>not</strong> in the context: the source atlas
-    creates a post for every cover-bearing navigation cell<sup class="ref"><a href="#src-56" title="LAB:worldmap.nim:716-740">56</a></sup>, so its cardinality scales with map
-    area, and its ranking is query-dependent on anchor, threats, bearing, and radius<sup class="ref"><a href="#src-57" title="LAB:worldmap.nim:792-814">57</a></sup>, so no static
+    creates a post for every cover-bearing navigation cell<sup class="ref"><a href="#src-58" title="LAB:worldmap.nim:716-740">58</a></sup>, so its cardinality scales with map
+    area, and its ranking is query-dependent on anchor, threats, bearing, and radius<sup class="ref"><a href="#src-59" title="LAB:worldmap.nim:792-814">59</a></sup>, so no static
     truncation preserves what plays ask of it. The complete atlas stays engine-side and plays reach it
     through the bounded <code>nearest_cover</code> host query of <a href="#s6-1">section 6.1</a>, exactly as they reach the
     goal validator. With the atlas out, the context is small and its maximum is a constant of the roster
@@ -1448,7 +1460,9 @@
     is how the design is supposed to work.</p>
     <p>Serialization discipline: the view format is versioned with the game, and adding fields is
     backward-compatible for built plays (unknown fields ignored on decode). Removing or changing a field's
-    meaning is a GameVersion event and an ABI version event (<a href="#s6-1">section 6.1</a>).</p>
+    meaning is an ABI version event (<a href="#s6-1">section 6.1</a>) and, because the change is gated to
+    play seats, an entry in the replay allowlist of <a href="#s4-3">section 4.3</a> rather than a
+    GameVersion bump, unless it also changes gate-off behavior.</p>
 
     <h3 id="s5-1">5.1 Game mode, derived not declared</h3>
     <p><code>GameMode</code> is a three-value enum: <code>gmCtf</code>, <code>gmKoth</code>,
@@ -1457,15 +1471,15 @@
     <code>gmKoth</code>; otherwise <code>gmCtf</code>. Configuration validation rejects inconsistent gate
     combinations (for example <code>brMode</code> with <code>hill</code>) rather than letting a bare enum
     disagree with the mechanics enabled, a hazard the existing config comments already warn about in
-    other forms (team count is not a mode<sup class="ref"><a href="#src-58" title="src/ctf/sim_types.nim:1421-1425">58</a></sup>). Per mode, the schema tests pin which observations
+    other forms (team count is not a mode<sup class="ref"><a href="#src-60" title="src/ctf/sim_types.nim:1421-1425">60</a></sup>). Per mode, the schema tests pin which observations
     exist (zone facts only in <code>gmBr</code>, capture objectives only in <code>gmCtf</code>, hill facts
     only in <code>gmKoth</code>), which <code>Intent</code> fields are meaningful
     (<code>clampToEndzone</code> only in <code>gmCtf</code>), and that a configuration whose mode the
     shell does not support cannot mark seats as play seats. What makes a seat a play seat is one
     configured field, because the whole protocol boundary hangs on a trusted per-seat choice and nothing
     in the configuration model carries one today (<code>PlayerSlotConfig</code> has name, token, team,
-    color, and skin<sup class="ref"><a href="#src-59" title="src/ctf/sim_types.nim:1338-1345">59</a></sup>; <code>readConfigSlots</code> reads exactly those<sup class="ref"><a href="#src-60" title="src/ctf/sim_config.nim:197-239">60</a></sup>; the hosted manifest's
-    slot schema is closed, <code>additionalProperties: false</code><sup class="ref"><a href="#src-61" title="coworld_manifest_paintbot.json:66-79">61</a></sup>). The field is
+    color, and skin<sup class="ref"><a href="#src-61" title="src/ctf/sim_types.nim:1338-1345">61</a></sup>; <code>readConfigSlots</code> reads exactly those<sup class="ref"><a href="#src-62" title="src/ctf/sim_config.nim:197-239">62</a></sup>; the hosted manifest's
+    slot schema is closed, <code>additionalProperties: false</code><sup class="ref"><a href="#src-63" title="coworld_manifest_paintbot.json:66-79">63</a></sup>). The field is
     <code>slots[].control</code>, a closed enum: <code>"input"</code> (the default, the legacy mask
     protocol, byte-identical to today) or <code>"play"</code>. It is parsed by
     <code>readConfigSlots</code>, echoed by the config serializer, recorded in the replay header's
@@ -1482,10 +1496,10 @@
     <strong>every</strong> slot carries a <code>players[].name</code>, a token, and an explicit
     <code>slots[].team</code>. That is a new, stricter requirement than the engine imposes today:
     <code>PlayerSlotConfig</code> has name, token, team, color, and skin, with team
-    optional<sup class="ref"><a href="#src-59" title="src/ctf/sim_types.nim:1338-1345">59</a>,<a href="#src-62" title="src/ctf/sim_config.nim:197-260">62</a></sup>, the hosted manifest requires names and tokens but leaves <code>slots[]</code>
-    optional<sup class="ref"><a href="#src-63" title="coworld_manifest_paintbot.json:34-79,119-124">63</a></sup>, and the live server otherwise grows <code>sim.players</code> one admission at a
-    time<sup class="ref"><a href="#src-64" title="src/ctf/server.nim:395-426,1620-1667">64</a></sup>, open rosters can keep filling to <code>MaxPlayers</code><sup class="ref"><a href="#src-65" title="src/ctf/roster.nim:107-120">65</a></sup>, and the lobby starts at
-    <code>minPlayers</code> rather than at a full house<sup class="ref"><a href="#src-66" title="src/ctf/sim.nim:3903-3923">66</a></sup>. There is no per-slot duo field and this design
+    optional<sup class="ref"><a href="#src-61" title="src/ctf/sim_types.nim:1338-1345">61</a>,<a href="#src-64" title="src/ctf/sim_config.nim:197-260">64</a></sup>, the hosted manifest requires names and tokens but leaves <code>slots[]</code>
+    optional<sup class="ref"><a href="#src-65" title="coworld_manifest_paintbot.json:34-79,119-124">65</a></sup>, and the live server otherwise grows <code>sim.players</code> one admission at a
+    time<sup class="ref"><a href="#src-66" title="src/ctf/server.nim:395-426,1620-1667">66</a></sup>, open rosters can keep filling to <code>MaxPlayers</code><sup class="ref"><a href="#src-67" title="src/ctf/roster.nim:107-120">67</a></sup>, and the lobby starts at
+    <code>minPlayers</code> rather than at a full house<sup class="ref"><a href="#src-68" title="src/ctf/sim.nim:3903-3923">68</a></sup>. There is no per-slot duo field and this design
     adds none: a <strong>duo is defined</strong>, deterministically, as a Battle Royale team, whose
     sixteen teams of two seats are the duos (<code>duo:navy</code> means the two configured seats of team
     navy), so <code>duo:</code> references are valid only in <code>gmBr</code> and are rejected by name
@@ -1493,7 +1507,7 @@
     references remain available (this is why <code>target_law</code> and <code>supply_run</code> can
     declare CTF). That definition is only true under a roster-shape invariant the engine does not enforce
     today (the integration branch checks that <code>teams</code> is 2, 4, or 16 and that a slot's team
-    index is below it, nothing more<sup class="ref"><a href="#src-67" title="origin/maxwell/br-season2-complete:src/ctf/sim_config.nim:633-650">67</a></sup>), so play-seat validation in <code>gmBr</code>
+    index is below it, nothing more<sup class="ref"><a href="#src-69" title="origin/maxwell/br-season2-complete:src/ctf/sim_config.nim:633-650">69</a></sup>), so play-seat validation in <code>gmBr</code>
     <strong>requires the launch shape exactly</strong>: 32 configured slots, all 16 teams present, each
     with exactly two slots. Rejections are named for a missing team, a singleton team, a three-seat team,
     a 32-slot roster with a duplicated team, and a closed roster with fewer than 32 slots, and a golden
@@ -1516,9 +1530,9 @@
     <p>Each reference play's inputs map to a named context, view, or query fact, <strong>with its fog
     provenance stated</strong>, because every event fact here must be derivable from what the seat itself
     could observe. The engine's internal event stream (<code>SimEvent</code>) records exact shooters and
-    victims for analysis and is explicitly a global, omniscient channel<sup class="ref"><a href="#src-68" title="src/ctf/sim_types.nim:1795-1806">68</a></sup>; nothing in the view is
+    victims for analysis and is explicitly a global, omniscient channel<sup class="ref"><a href="#src-70" title="src/ctf/sim_types.nim:1795-1806">70</a></sup>; nothing in the view is
     ever sourced from it. The player-visible reality is the baseline: firing is silent, and a jittered
-    impact is the only trace a shot leaves for bystanders<sup class="ref"><a href="#src-69" title="src/ctf/labels.nim:78-80">69</a></sup>. Two visibility grants are made
+    impact is the only trace a shot leaves for bystanders<sup class="ref"><a href="#src-71" title="src/ctf/labels.nim:78-80">71</a></sup>. Two visibility grants are made
     deliberately and documented as such, rather than smuggled: a <strong>public kill feed</strong> (killer
     team and victim seat, tick-stamped; this is consistent with alive-team counts being public, which
     already reveals deaths), and <strong>victim-private hit feedback</strong> (a seat knows when it was
@@ -1541,17 +1555,17 @@
         <tr><td>both-weakened: min known hp of clustered fighters</td><td>query</td><td>fog-visible hp only (unknown hp excluded)</td><td><code>jackal</code></td></tr>
         <tr><td>contested item: enemy track within pickup radius of a known item</td><td>query</td><td>seat's own fog</td><td><code>supply_run</code> (<code>contested</code>)</td></tr>
         <tr><td>partner's live position and aim</td><td>view (duo telemetry)</td><td><strong>deliberate grant</strong>: a duo shares live position+aim telemetry, always fresh while both live, documented and tested as a grant rather than fog-derived; no access to the partner's orders or targeting</td><td><code>crossfire</code>, <code>bodyguard</code></td></tr>
-        <tr><td>bounty mark on a tracked enemy</td><td>view (track attribute)</td><td>fog-derived from the visible veteran marker (the ember plume<sup class="ref"><a href="#src-70" title="origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867">70</a></sup>), with track freshness; never the hidden level itself; an unseen or stale marker, or a mode without one, reads false</td><td><code>target_law</code> (<code>ptBounty</code>)</td></tr>
+        <tr><td>bounty mark on a tracked enemy</td><td>view (track attribute)</td><td>fog-derived from the visible veteran marker (the ember plume<sup class="ref"><a href="#src-72" title="origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867">72</a></sup>), with track freshness; never the hidden level itself; an unseen or stale marker, or a mode without one, reads false</td><td><code>target_law</code> (<code>ptBounty</code>)</td></tr>
         <tr><td>cover: best atlas post against given threat positions</td><td>host query <code>nearest_cover</code> over the engine-side atlas (<a href="#s6-1">section 6.1</a>); the play supplies threat positions from its own fog-visible tracks</td><td>map-static, public (the query reveals only map facts)</td><td><code>edge_ride</code>, <code>bodyguard</code>, default</td></tr>
         <tr><td>own standing <code>Intent</code>, call epoch</td><td>view</td><td>seat-private</td><td>all</td></tr>
-        <tr><td>heard shouts: team color, anonymous slot letter, text, jittered position, tick</td><td>view (event list)</td><td>the game's existing shout audibility, sampled by the same code path the Sprite frame uses: every live shout the seat can hear (<code>shoutAudibleTo</code>, within <code>ShoutRange</code>, a fifth of the map width, through walls and fog<sup class="ref"><a href="#src-71" title="src/ctf/sim.nim:2278">71</a>,<a href="#src-72" title="src/ctf/global.nim:6000-6022">72</a></sup>), one per shouter because a re-shout replaces the old one<sup class="ref"><a href="#src-73" title="src/ctf/sim.nim:2255-2268">73</a></sup>, the position jittered with the same helper as the bubble, the identity resolved at frame build with the same resolver so a departed shouter reads <code>?</code><sup class="ref"><a href="#src-74" title="src/ctf/roster.nim:82-105">74</a></sup>, expiring when the bubble does; a 32-audible-shout golden compares the field to the Sprite frame<sup class="ref"><a href="#src-25" title="docs/RULES.md:477-492">25</a></sup></td><td>the policy's LLM (in-match negotiation), any play</td></tr>
+        <tr><td>heard shouts: team color, anonymous slot letter, text, jittered position, tick</td><td>view (event list)</td><td>the game's existing shout audibility, sampled by the same code path the Sprite frame uses: every live shout the seat can hear (<code>shoutAudibleTo</code>, within <code>ShoutRange</code>, a fifth of the map width, through walls and fog<sup class="ref"><a href="#src-73" title="src/ctf/sim.nim:2278">73</a>,<a href="#src-74" title="src/ctf/global.nim:6000-6022">74</a></sup>), one per shouter because a re-shout replaces the old one<sup class="ref"><a href="#src-75" title="src/ctf/sim.nim:2255-2268">75</a></sup>, the position jittered with the same helper as the bubble, the identity resolved at frame build with the same resolver so a departed shouter reads <code>?</code><sup class="ref"><a href="#src-76" title="src/ctf/roster.nim:82-105">76</a></sup>, expiring when the bubble does; a 32-audible-shout golden compares the field to the Sprite frame<sup class="ref"><a href="#src-25" title="docs/RULES.md:477-492">25</a></sup></td><td>the policy's LLM (in-match negotiation), any play</td></tr>
       </tbody>
     </table>
     </div>
     <p>Hazards get their own rows, because the three reflexes cannot run on facts the matrix does not
     carry, and their provenance is the most delicate (the current player contract distinguishes a visible
     airborne grenade, an anonymous jittered landing sound, the thrower's own private target, and visible
-    blast stages<sup class="ref"><a href="#src-75" title="src/ctf/labels.nim:66-77">75</a></sup>). The reflexes are engine code and read the engine's own hazard bookkeeping
+    blast stages<sup class="ref"><a href="#src-77" title="src/ctf/labels.nim:66-77">77</a></sup>). The reflexes are engine code and read the engine's own hazard bookkeeping
     directly (<a href="#s7-3">section 7.3</a>); the rows below define what the <em>view</em> carries so that player plays
     see the same hazards the reflexes act on, under the same fog:</p>
     <div class="tbl">
@@ -1614,7 +1628,8 @@
     candidate runtime instantiates core modules through its C API without a canonical-ABI layer, and
     because the whole interface fits in five exports and four imports. The ABI version is <code>1</code>;
     a module declares it in its manifest, and the engine refuses any other value. Bumping the ABI version
-    is a GameVersion event.</p>
+    changes only play-seat behavior, so it is an allowlist entry under <a href="#s4-3">section 4.3</a>'s
+    rule, and a GameVersion bump only if gate-off behavior changes with it.</p>
     <p><strong>Exports the module must provide.</strong></p>
     <div class="tbl">
     <table>
@@ -1654,7 +1669,7 @@
         <tr><td><code>emit</code></td><td><code>(ptr: i32, len: i32) -&gt; i32</code></td><td>hands bytes to the engine. During <code>play_manifest</code>: the manifest. During <code>play_step</code>: an <code>Intent</code> (controller) or <code>CombatPolicy</code> (overlay) in canonical JSON. Validated synchronously; returns a fixed ABI code (table below): <code>0</code> accepted, <code>1</code> accepted with the goal normalized, or a negative rejection. Within one step the <strong>last accepted</strong> emission stands. Calls outside those two exports fault the instance.</td></tr>
         <tr><td><code>log</code></td><td><code>(level: i32, ptr: i32, len: i32) -&gt; ()</code></td><td>telemetry to the seat's play log, <code>MaxLogBytesPerCall</code> per call, <code>MaxLogCallsPerInvocation</code> per guest invocation, dropped silently past the caps</td></tr>
         <tr><td><code>nearest_reachable</code></td><td><code>(x: i32, y: i32) -&gt; i64</code></td><td>the engine's goal validator (<a href="#s3-3">section 3.3</a>), legal only during <code>play_step</code>: the packed <code>(x &lt;&lt; 32) | y</code> of the nearest reachable point for this seat (both coordinates are non-negative and below 2³¹, so the packed value is never negative), −1 if the validator's definition yields no point, −2 once the step has used its <code>MaxSpatialCallsPerStep</code>, or −3 for an invalid argument (below)</td></tr>
-        <tr><td><code>nearest_cover</code></td><td><code>(x: i32, y: i32, radius: i32, bearingBrads: i32, threatsPtr: i32, threatsLen: i32) -&gt; i64</code></td><td>the engine's cover query over the complete static atlas (<a href="#s5-2">section 5.2</a>): the packed point of the best cover post within <code>radius</code> pixels of <code>(x, y)</code>, ranked by the ported atlas scorer exactly as the lab defines it, with <code>bearingBrads</code> as its optional bearing (−1 means none, which selects each post's maximum-reach sector as the lab's <code>none</code> does; 0..255 selects the sector the lab's <code>some(bearing)</code> would) and the threat positions as its threat list for the facing term, then phase-one truncation, the duck-contrast phase, and the lab's tie order<sup class="ref"><a href="#src-76" title="LAB:worldmap.nim:766-839">76</a></sup>, so lab parity is testable in both bearing forms; −1 if none, −2 past the shared <code>MaxSpatialCallsPerStep</code>, −3 for an invalid argument; <code>radius</code> is clamped to <code>MaxCoverRadiusPx</code>, and every supported map is validated at load so that no disc of that radius contains more than <code>MaxCoverPostsExamined</code> posts (below), which is what makes "best over the complete atlas within the radius" and "bounded work per call" the same statement</td></tr>
+        <tr><td><code>nearest_cover</code></td><td><code>(x: i32, y: i32, radius: i32, bearingBrads: i32, threatsPtr: i32, threatsLen: i32) -&gt; i64</code></td><td>the engine's cover query over the complete static atlas (<a href="#s5-2">section 5.2</a>): the packed point of the best cover post within <code>radius</code> pixels of <code>(x, y)</code>, ranked by the ported atlas scorer exactly as the lab defines it, with <code>bearingBrads</code> as its optional bearing (−1 means none, which selects each post's maximum-reach sector as the lab's <code>none</code> does; 0..255 selects the sector the lab's <code>some(bearing)</code> would) and the threat positions as its threat list for the facing term, then phase-one truncation, the duck-contrast phase, and the lab's tie order<sup class="ref"><a href="#src-78" title="LAB:worldmap.nim:766-839">78</a></sup>, so lab parity is testable in both bearing forms; −1 if none, −2 past the shared <code>MaxSpatialCallsPerStep</code>, −3 for an invalid argument; <code>radius</code> is clamped to <code>MaxCoverRadiusPx</code>, and every supported map is validated at load so that no disc of that radius contains more than <code>MaxCoverPostsExamined</code> posts (below), which is what makes "best over the complete atlas within the radius" and "bounded work per call" the same statement</td></tr>
       </tbody>
     </table>
     </div>
@@ -1672,7 +1687,7 @@
     positive (then clamped), <code>bearingBrads</code> must be −1 or in 0..255, and every threat pair must
     lie inside the map; any violation returns −3 without touching the atlas, and all arithmetic on these
     values is performed in 64-bit after validation, never in native <code>int</code> before it (the lab's
-    own implementation forms <code>x ± radius</code> in native width first<sup class="ref"><a href="#src-77" title="LAB:worldmap.nim:742-760">77</a></sup>, which the port must not
+    own implementation forms <code>x ± radius</code> in native width first<sup class="ref"><a href="#src-79" title="LAB:worldmap.nim:742-760">79</a></sup>, which the port must not
     copy). Fixtures cover <code>INT32_MIN</code>, <code>INT32_MAX</code>, zero, negative and excessive
     radius, coordinates at the map edge and one past it, bearings at 255, 256, and −2, threat lists at and
     past the cap, and a threat buffer that fails the pointer range check (a fault, like any bad pointer),
@@ -1688,9 +1703,9 @@
     <p>The validator is <strong>stencil's test, unchanged</strong>, not a cell-lattice approximation of
     it: <code>nearestReachable(point, fromPoint)</code> searches every pixel within a Euclidean radius of
     <code>ValidatorRadiusPx</code> (256, which is stencil's <code>32 * NavCell</code> with an 8-pixel
-    cell<sup class="ref"><a href="#src-78" title="LAB:config.nim:66">78</a></sup>, an <em>engine</em> constant asserted equal), accepts only pixels that are standable at
-    pixel level<sup class="ref"><a href="#src-79" title="LAB:worldmap.nim:250-255">79</a></sup> and in the same 4-connected component as <code>fromPoint</code>, and returns the
-    minimum squared pixel distance with row-major pixel index as the tie-break<sup class="ref"><a href="#src-80" title="LAB:worldmap.nim:369-404">80</a></sup>;
+    cell<sup class="ref"><a href="#src-80" title="LAB:config.nim:66">80</a></sup>, an <em>engine</em> constant asserted equal), accepts only pixels that are standable at
+    pixel level<sup class="ref"><a href="#src-81" title="LAB:worldmap.nim:250-255">81</a></sup> and in the same 4-connected component as <code>fromPoint</code>, and returns the
+    minimum squared pixel distance with row-major pixel index as the tie-break<sup class="ref"><a href="#src-82" title="LAB:worldmap.nim:369-404">82</a></sup>;
     <code>fromPoint</code> is the seat's own cog position on this tick, and a cog that is not itself
     standable (component 0) gets −1 exactly as stencil returns <code>none</code>. That is what "−1"
     means: the same function answers a play's <code>nearest_reachable</code>, the engine's own
@@ -1971,9 +1986,9 @@
 
     <h3 id="s6-3">6.3 Building a play: the toolchain and the SDK</h3>
     <p>Nim is the blessed toolchain because the repository already pins a Nim-to-wasm32 path: the arena
-    build configuration<sup class="ref"><a href="#src-81" title="arena/config.nims">81</a></sup> builds the whole game with Nim 2.2.6, wasi-sdk 33's clang,
+    build configuration<sup class="ref"><a href="#src-83" title="arena/config.nims">83</a></sup> builds the whole game with Nim 2.2.6, wasi-sdk 33's clang,
     <code>--cpu:wasm32 --mm:arc --exceptions:goto -d:useMalloc --noMain</code> and the reactor execution
-    model (the arena README pins the versions<sup class="ref"><a href="#src-82" title="arena/README.md">82</a></sup>). A play build is that recipe minus WASI: the SDK's
+    model (the arena README pins the versions<sup class="ref"><a href="#src-84" title="arena/README.md">84</a></sup>). A play build is that recipe minus WASI: the SDK's
     <code>play.nims</code> produces a module whose imports are exactly the <code>play</code> namespace,
     which means the Nim runtime's own I/O and exit paths are replaced by SDK stubs that route panics to
     <code>log</code> and then trap. The acceptance for the SDK is a build test asserting that a hello-play
@@ -2004,7 +2019,7 @@
 
     <h3 id="s6-4">6.4 The reference playbook</h3>
     <p>The engine repository ships a public reference playbook implementing the seven plays of Maxwell's
-    <code>BR_PLAYS.md</code><sup class="ref"><a href="#src-83" title="origin/maxwell/br-season2-complete:docs/designs/BR_PLAYS.md">83</a></sup>, each evidence-backed by Season 1 measurement, each as an SDK-built module:</p>
+    <code>BR_PLAYS.md</code><sup class="ref"><a href="#src-85" title="origin/maxwell/br-season2-complete:docs/designs/BR_PLAYS.md">85</a></sup>, each evidence-backed by Season 1 measurement, each as an SDK-built module:</p>
     <div class="tbl">
     <table>
       <thead><tr><th>Play</th><th>Class</th><th>What it does</th><th>Key parameters (full schemas: <a href="#appendix-p">Appendix P</a>)</th></tr></thead>
@@ -2124,9 +2139,9 @@
     per seat per tick at five (every passing overlay plus one controller) and makes P0's worst tick a
     fixed number; overlays are never rationed across ticks, because a safety policy that arrives late is a
     stale safety policy. A four-overlay golden at every cap pins the fold.</p>
-    <p>Guards use the closed operator set of the engine's page-expression language<sup class="ref"><a href="#src-84" title="origin/maxwell/br-season2-complete:src/ctf/policy_page.nim">84</a></sup> in its native
+    <p>Guards use the closed operator set of the engine's page-expression language<sup class="ref"><a href="#src-86" title="origin/maxwell/br-season2-complete:src/ctf/policy_page.nim">86</a></sup> in its native
     JSON s-expression form, over the same view paths plays read. The module today parses only whole pages
-    and keeps its expression type private<sup class="ref"><a href="#src-85" title="origin/maxwell/br-season2-complete:src/ctf/policy_page.nim:73-94,260-308">85</a></sup>, so P3 includes the scoped work of exposing a standalone
+    and keeps its expression type private<sup class="ref"><a href="#src-87" title="origin/maxwell/br-season2-complete:src/ctf/policy_page.nim:73-94,260-308">87</a></sup>, so P3 includes the scoped work of exposing a standalone
     parse-validate-evaluate API for a single boolean expression, reusing its existing validator and its
     named-error and nearest-path suggestions. Grammar limits (expression depth, node count), rejection of
     non-finite numbers, and golden validation errors are part of that API's contract. Guards are engine
@@ -2276,7 +2291,7 @@
     socket from a process the server could not see into. None of that machinery has a job now. A play's
     emission is validated the instant it is made and the play sees the verdict as <code>emit</code>'s
     return value; the server holds the ladder, so a reconnect resumes nothing; and readiness is trivial,
-    because a play seat's tick-rate work completes inside the tick. In fast-mode recording<sup class="ref"><a href="#src-86" title="src/ctf/server.nim:1019">86</a></sup> a play
+    because a play seat's tick-rate work completes inside the tick. In fast-mode recording<sup class="ref"><a href="#src-88" title="src/ctf/server.nim:1019">88</a></sup> a play
     seat is always ready; its LLM sends calls at wall-clock pace and the sim does not wait for it, which
     is the correct meaning of a fixture run.</p>
     <p>What survives on the policy side is small: connect, send the playbook, wait for
@@ -2312,7 +2327,7 @@
       <li>Everything above the masks (the body, the play runtime, the plays, the LLM) sits outside the
       determinism boundary, exactly where paintball puts its control layer and its LLM.</li>
     </ul>
-    <p>The boundary follows the paintball precedent literally<sup class="ref"><a href="#src-87" title="src/ctf/server.nim:2015-2021">87</a>,<a href="#src-11" title="src/ctf/control.nim:1-13">11</a></sup>: the layer that may use
+    <p>The boundary follows the paintball precedent literally<sup class="ref"><a href="#src-89" title="src/ctf/server.nim:2015-2021">89</a>,<a href="#src-11" title="src/ctf/control.nim:1-13">11</a></sup>: the layer that may use
     floating point and hold state is never re-run; its per-tick output is recorded, and playback
     re-applies recorded masks into the deterministic sim. This design inherits that machinery unchanged,
     which is most of why its replay story is short.</p>
@@ -2347,7 +2362,7 @@
       negotiating in the engine's lobby chat phase, uploading the reference playbook and running its
       ladders, at least one mid-match re-call, one mid-match upload, and in-match shouts heard through the
       view, and the replay viewer displaying the lobby transcript and the executed plays: the shape of
-      Maxwell's verified 32-seat episodes<sup class="ref"><a href="#src-88" title="origin/maxwell/br-season2-complete:rt_episode/">88</a></sup>, upgraded to the play boundary.</li>
+      Maxwell's verified 32-seat episodes<sup class="ref"><a href="#src-90" title="origin/maxwell/br-season2-complete:rt_episode/">90</a></sup>, upgraded to the play boundary.</li>
       <li><strong>End to end, hosted.</strong> A skeleton-image policy on the platform's default resource
       envelope receives its context, talks in the lobby chat phase with the other seats, uploads a
       playbook, composes and sends an opening call that names a partner it negotiated with, plays a full
@@ -2373,15 +2388,15 @@
 
     <h3 id="s9-1">9.1 Why the engine, and not the platform or the app</h3>
     <p>Today the pre-round huddle exists only inside Maxwell's local match app: its match daemon runs a
-    bounded LLM chat before it spawns the game<sup class="ref"><a href="#src-89" title="PBP:origin/maxwell/lobby-chat">89</a></sup>, the engine refuses shouts before the Playing
+    bounded LLM chat before it spawns the game<sup class="ref"><a href="#src-91" title="PBP:origin/maxwell/lobby-chat">91</a></sup>, the engine refuses shouts before the Playing
     phase<sup class="ref"><a href="#src-26" title="src/ctf/sim.nim:2236-2253">26</a></sup>, and the hosted platform has no chat transport of any kind. The two ways to add one
     differ mostly in what they require of other people. A platform-orchestrated huddle needs a new
     transport between containers, a barrier that keeps containers alive and idle until every one has
     joined, a transcript store, and rules for how that transcript reaches the game; none of that exists
-    in the runner, whose contract with a container is one websocket to one game<sup class="ref"><a href="#src-90" title="personal_paintbot/player-build.md:10-22">90</a></sup>. An engine lobby
+    in the runner, whose contract with a container is one websocket to one game<sup class="ref"><a href="#src-92" title="personal_paintbot/player-build.md:10-22">92</a></sup>. An engine lobby
     phase needs nothing outside this repository. The runner's actual order is: start the game container,
-    wait for its health endpoint, then launch the player containers (local<sup class="ref"><a href="#src-91" title="coworld/runner/runner.py:397-447">91</a></sup>; hosted, in the
-    metta repository<sup class="ref"><a href="#src-92" title="coworld/runner/kubernetes_runner.py:559-587">92</a></sup>), which is exactly the order an engine-owned lobby wants, because the game
+    wait for its health endpoint, then launch the player containers (local<sup class="ref"><a href="#src-93" title="coworld/runner/runner.py:397-447">93</a></sup>; hosted, in the
+    metta repository<sup class="ref"><a href="#src-94" title="coworld/runner/kubernetes_runner.py:559-587">94</a></sup>), which is exactly the order an engine-owned lobby wants, because the game
     sits in <code>joining</code> (<a href="#s9-2">section 9.2</a>) until the required seats bind and the bind deadline bounds
     how long it will wait. Every play seat already has a socket and a pre-activation control channel
     (<a href="#s4-3">section 4.3</a>). So the engine owns it.</p>
@@ -2393,17 +2408,17 @@
     it.</p>
     <p>The lobby today is one state with one clock: <code>stepLobby</code> starts or decrements the
     <code>startWaitTicks</code> countdown as soon as <code>sim.players.len &gt;= minPlayers</code>, resets
-    it when the roster falls short, and starts at once when <code>startWaitTicks &lt;= 0</code><sup class="ref"><a href="#src-66" title="src/ctf/sim.nim:3903-3923">66</a></sup>;
+    it when the roster falls short, and starts at once when <code>startWaitTicks &lt;= 0</code><sup class="ref"><a href="#src-68" title="src/ctf/sim.nim:3903-3923">68</a></sup>;
     admission happens only during <code>Lobby</code><sup class="ref"><a href="#src-36" title="src/ctf/server.nim:1647-1655">36</a></sup>; and a finite match whose roster stays short
     for <code>lobbyJoinTimeoutTicks</code> (an existing field, default 0 meaning never, hosted variants
-    set 7200<sup class="ref"><a href="#src-93" title="src/ctf/sim_types.nim:1406-1413">93</a>,<a href="#src-94" title="src/ctf/sim_config.nim:32-35">94</a>,<a href="#src-95" title="coworld_manifest_paintbot.json:194-205">95</a></sup>) aborts with a no-show player failure<sup class="ref"><a href="#src-96" title="src/ctf/server.nim:1578-1596">96</a></sup>. With play seats the lobby becomes
+    set 7200<sup class="ref"><a href="#src-95" title="src/ctf/sim_types.nim:1406-1413">95</a>,<a href="#src-96" title="src/ctf/sim_config.nim:32-35">96</a>,<a href="#src-97" title="coworld_manifest_paintbot.json:194-205">97</a></sup>) aborts with a no-show player failure<sup class="ref"><a href="#src-98" title="src/ctf/server.nim:1578-1596">98</a></sup>. With play seats the lobby becomes
     three substates, each with one owner clock, in this order, and nothing below changes a configuration
     with no play seat:</p>
     <div class="tbl">
     <table>
       <thead><tr><th>Substate</th><th>Entry</th><th>While in it</th><th>Exit</th></tr></thead>
       <tbody>
-        <tr><td><code>joining</code></td><td>lobby begins</td><td>roster sufficiency now means the existing <code>minPlayers</code> rule <strong>and</strong> every configured play seat bound (<a href="#s4-3">section 4.3</a>'s socket lifecycle). Outside the shell gate the existing <code>lobbyJoinTimeoutTicks</code> abort is untouched (it advances only while <code>sim.players.len &lt; minPlayers</code><sup class="ref"><a href="#src-97" title="src/ctf/sim.nim:3903-3913,3065-3076">97</a></sup>, and its default 0 means never). Inside a <strong>play-seat episode</strong>, the term this document uses for <code>season2Shell</code> on <strong>and</strong> at least one <code>control: "play"</code> slot (a gate-on all-input roster is not one, and keeps today's lobby, clocks, and removal byte-for-byte, which is the house rule), it is <strong>suppressed</strong>, so exactly one clock owns lobby termination and a simultaneous expiry cannot produce two artifacts (the existing abort path would otherwise blame <code>nextPlayerSlot</code> on the same tick<sup class="ref"><a href="#src-96" title="src/ctf/server.nim:1578-1596">96</a></sup>): a new <strong>presence budget</strong>, <code>playSeatBindTicks</code>, which is a cumulative absence clock for the whole pre-activation period, not a first-bind timer: on every lobby tick from lobby start until Playing, in <code>joining</code>, <code>chatting</code>, and <code>countdown</code> alike, it advances on every tick in which the presence predicate is false, where presence is exactly <code>everyPlaySeatBound AND connectedSeatCount &gt;= minPlayers</code> (so an optional input slot above <code>minPlayers</code> never consumes budget, and a play seat <code>lost</code> counts as absent just like one never bound), regardless of <code>sim.players.len</code> (a closed roster may have more slots than <code>minPlayers</code><sup class="ref"><a href="#src-98" title="src/ctf/sim_config.nim:722-727">98</a></sup>, and a retained row keeps <code>sim.players.len</code> unchanged, so the existing clock alone could stop while a seat is still missing); a successful rebind pauses it without resetting it, and never replays the chat phase. Play-seat episodes must set it positive (validation rejects 0 there; without a play seat the field is inert and any value in range is accepted), and its default (7200, five minutes) is deliberately longer than the hosted runner's 180-second pod-startup allowance (in the metta repository<sup class="ref"><a href="#src-99" title="coworld/runner/kubernetes_runner.py:107,591-607">99</a></sup>), because the clock starts at lobby start, which is game health, <em>before</em> the runner launches player pods; a slower default would blame a healthy policy whose pod is still scheduling, and the deployed hosted lobby timeout is the same 7200. On expiry the episode fails through the existing player-failure path, which carries exactly one <code>failed_policy_index</code><sup class="ref"><a href="#src-100" title="src/ctf/server.nim:1218-1229">100</a></sup> (the runner contract requires one non-negative integer, per the metta game-role contract<sup class="ref"><a href="#src-101" title="packages/coworld/src/coworld/docs/roles/GAME.md:63-76">101</a></sup>): the <strong>lowest absent configured slot</strong> is the seat the platform attributes, and every other absent seat is listed diagnostically in the failure message. There is no cog for a default to drive, and the design does not pretend one into existence. Uploads and calls flow (<a href="#s4-3">section 4.3</a>). Goldens: <code>slots.len &gt; minPlayers</code> with the play seat missing after <code>minPlayers</code> has joined; a play-seat configuration with <code>lobbyJoinTimeoutTicks = 0</code>; two absent seats asserting the exact artifact and platform error; a hosted cold start where a play pod binds after 60 seconds and is not blamed; a lobby short of <code>minPlayers</code> with several absent seats running to the budget, asserting one artifact and no legacy-clock failure; <code>slots.len &gt; minPlayers</code> with only an optional input seat absent, asserting the budget never advances; a gate-on all-input roster with <code>playSeatBindTicks = 0</code> and a missing player, asserting the legacy clock fires and writes today's artifact; and, for both an input seat and a play seat lost during <code>chatting</code> and during <code>countdown</code>, a no-rebind case that fails at the budget and a transient-rebind case that pauses it, each with <code>minPlayers == slots.len</code> and with <code>slots.len &gt; minPlayers</code>.</td><td>roster sufficient: connected input seats and bound play seats reach <code>minPlayers</code>, and every play seat is bound</td></tr>
+        <tr><td><code>joining</code></td><td>lobby begins</td><td>roster sufficiency now means the existing <code>minPlayers</code> rule <strong>and</strong> every configured play seat bound (<a href="#s4-3">section 4.3</a>'s socket lifecycle). Outside the shell gate the existing <code>lobbyJoinTimeoutTicks</code> abort is untouched (it advances only while <code>sim.players.len &lt; minPlayers</code><sup class="ref"><a href="#src-99" title="src/ctf/sim.nim:3903-3913,3065-3076">99</a></sup>, and its default 0 means never). Inside a <strong>play-seat episode</strong>, the term this document uses for <code>season2Shell</code> on <strong>and</strong> at least one <code>control: "play"</code> slot (a gate-on all-input roster is not one, and keeps today's lobby, clocks, and removal byte-for-byte, which is the house rule), it is <strong>suppressed</strong>, so exactly one clock owns lobby termination and a simultaneous expiry cannot produce two artifacts (the existing abort path would otherwise blame <code>nextPlayerSlot</code> on the same tick<sup class="ref"><a href="#src-98" title="src/ctf/server.nim:1578-1596">98</a></sup>): a new <strong>presence budget</strong>, <code>playSeatBindTicks</code>, which is a cumulative absence clock for the whole pre-activation period, not a first-bind timer: on every lobby tick from lobby start until Playing, in <code>joining</code>, <code>chatting</code>, and <code>countdown</code> alike, it advances on every tick in which the presence predicate is false, where presence is exactly <code>everyPlaySeatBound AND connectedSeatCount &gt;= minPlayers</code> (so an optional input slot above <code>minPlayers</code> never consumes budget, and a play seat <code>lost</code> counts as absent just like one never bound), regardless of <code>sim.players.len</code> (a closed roster may have more slots than <code>minPlayers</code><sup class="ref"><a href="#src-100" title="src/ctf/sim_config.nim:722-727">100</a></sup>, and a retained row keeps <code>sim.players.len</code> unchanged, so the existing clock alone could stop while a seat is still missing); a successful rebind pauses it without resetting it, and never replays the chat phase. Play-seat episodes must set it positive (validation rejects 0 there; without a play seat the field is inert and any value in range is accepted), and its default (7200, five minutes) is deliberately longer than the hosted runner's 180-second pod-startup allowance (in the metta repository<sup class="ref"><a href="#src-101" title="coworld/runner/kubernetes_runner.py:107,591-607">101</a></sup>), because the clock starts at lobby start, which is game health, <em>before</em> the runner launches player pods; a slower default would blame a healthy policy whose pod is still scheduling, and the deployed hosted lobby timeout is the same 7200. On expiry the episode fails through the existing player-failure path, which carries exactly one <code>failed_policy_index</code><sup class="ref"><a href="#src-102" title="src/ctf/server.nim:1218-1229">102</a></sup> (the runner contract requires one non-negative integer, per the metta game-role contract<sup class="ref"><a href="#src-103" title="packages/coworld/src/coworld/docs/roles/GAME.md:63-76">103</a></sup>): the <strong>lowest absent configured slot</strong> is the seat the platform attributes, and every other absent seat is listed diagnostically in the failure message. There is no cog for a default to drive, and the design does not pretend one into existence. Uploads and calls flow (<a href="#s4-3">section 4.3</a>). Goldens: <code>slots.len &gt; minPlayers</code> with the play seat missing after <code>minPlayers</code> has joined; a play-seat configuration with <code>lobbyJoinTimeoutTicks = 0</code>; two absent seats asserting the exact artifact and platform error; a hosted cold start where a play pod binds after 60 seconds and is not blamed; a lobby short of <code>minPlayers</code> with several absent seats running to the budget, asserting one artifact and no legacy-clock failure; <code>slots.len &gt; minPlayers</code> with only an optional input seat absent, asserting the budget never advances; a gate-on all-input roster with <code>playSeatBindTicks = 0</code> and a missing player, asserting the legacy clock fires and writes today's artifact; and, for both an input seat and a play seat lost during <code>chatting</code> and during <code>countdown</code>, a no-rebind case that fails at the budget and a transient-rebind case that pauses it, each with <code>minPlayers == slots.len</code> and with <code>slots.len &gt; minPlayers</code>.</td><td>roster sufficient: connected input seats and bound play seats reach <code>minPlayers</code>, and every play seat is bound</td></tr>
         <tr><td><code>chatting</code></td><td>once per episode, when <code>joining</code> exits and <code>lobbyChatTicks &gt; 0</code></td><td>the chat step below. The <code>startWaitTicks</code> countdown is <strong>held</strong>, not running. A play seat losing and rebinding its socket does not restart or extend the phase (persistent seat). An input seat leaving does not end chat and does not compact anything (<a href="#s4-3">section 4.3</a>'s no-compaction rule for play-seat episodes); if the roster is short when <code>countdown</code> re-checks sufficiency, the existing reset rule applies.</td><td><code>lobbyChatTicks</code> elapsed, or skipped entirely when it is 0</td></tr>
         <tr><td><code>countdown</code></td><td><code>chatting</code> exits (or <code>joining</code> exits when chat is skipped)</td><td>the existing <code>startWaitTicks</code> logic, unchanged in shape: runs while sufficient, resets while short, immediate when 0, where "sufficient" is the connected-seat predicate of <code>joining</code> (an abandoned input row does not count)</td><td>countdown reaches 0 and the <a href="#s10">section 10</a> map barrier is satisfied (the map build starts when <code>joining</code> begins, so it normally finishes during chat)</td></tr>
       </tbody>
@@ -2412,7 +2427,7 @@
     <p><strong>The chat step.</strong> The phase lasts <code>lobbyChatTicks</code> (default 720, thirty
     seconds at the real tick rate; zero disables it, which is the byte-identical gate-off shape). It is
     paced by the wall clock even when <code>fastMode</code> is on: the server's early frame advance, which
-    fires whenever every current player is ready<sup class="ref"><a href="#src-102" title="src/ctf/server.nim:1005-1025">102</a></sup> and which play seats would trigger every tick
+    fires whenever every current player is ready<sup class="ref"><a href="#src-104" title="src/ctf/server.nim:1005-1025">104</a></sup> and which play seats would trigger every tick
     because they always count as ready (<a href="#s4-3">section 4.3</a>), is <strong>suspended during
     <code>chatting</code></strong>, so 720 ticks is thirty seconds for an all-play roster and for a mixed
     one alike, while the ticks and ordinals recorded stay deterministic. Fixtures that need a fast lobby
@@ -2459,9 +2474,9 @@
     <code>MaxOutboundEvents</code> (256) and <code>MaxOutboundBytes</code> (2 MiB), and the bound covers
     <strong>every unsent byte through the transport</strong>, not only the application's own deque. That
     needs a second transport patch beside the receive-side one of <a href="#s4-3">section 4.3</a>, because in the pinned
-    Mummy <code>WebSocket.send</code> only appends to a server-global send queue and returns<sup class="ref"><a href="#src-103" title="mummy.nim:262-291">103</a></sup>, the
-    selector thread moves buffers into an unbounded per-socket deque<sup class="ref"><a href="#src-104" title="mummy.nim:1232-1255">104</a></sup>, and buffers leave it only
-    when bytes are written<sup class="ref"><a href="#src-105" title="mummy.nim:1097-1108,1342-1364">105</a></sup>, so treating <code>send</code> as a dequeue would free the application's
+    Mummy <code>WebSocket.send</code> only appends to a server-global send queue and returns<sup class="ref"><a href="#src-105" title="mummy.nim:262-291">105</a></sup>, the
+    selector thread moves buffers into an unbounded per-socket deque<sup class="ref"><a href="#src-106" title="mummy.nim:1232-1255">106</a></sup>, and buffers leave it only
+    when bytes are written<sup class="ref"><a href="#src-107" title="mummy.nim:1097-1108,1342-1364">107</a></sup>, so treating <code>send</code> as a dequeue would free the application's
     cap while a non-reading client accumulated unbounded memory inside the transport. The patch adds
     per-socket outbound admission (a send that would exceed the socket's cap is refused to the caller)
     and a completion callback per buffer (sent, or dropped on close), cancels a disconnected socket's
@@ -2493,7 +2508,7 @@
 
     <h3 id="s9-3">9.3 Record, replay, and fast mode</h3>
     <p>Every accepted lobby message is a replay record in its own right, with a physical contract because
-    the codec rejects unknown record bytes and versions by design<sup class="ref"><a href="#src-106" title="bitworld/replays.nim:352-362,381-446">106</a></sup>. The bumped format of
+    the codec rejects unknown record bytes and versions by design<sup class="ref"><a href="#src-108" title="bitworld/replays.nim:352-362,381-446">108</a></sup>. The bumped format of
     <a href="#s4-3">section 4.3</a> gains a third array beside the call records and the per-seat annotations: the
     <strong>episode transcript</strong>, a global array of <code>lobbyChat</code> records
     (<code>0x13</code>) with the layout <code>u8 type, u32 replayTimeMs, u64 ordinal, u8 seat, u8 team,
@@ -2506,7 +2521,7 @@
     truncated, reordered, edited, or dropped transcript fails verification loudly; gate 2 carries those
     four negative controls. The viewers load the transcript eagerly at file open rather than through the
     tick cursor, because the viewer treats the lobby before <code>startTick</code> as dead air and
-    auto-starts playback at Playing<sup class="ref"><a href="#src-107" title="src/ctf/replays.nim:43-48">107</a></sup>: the transcript panel (native and WASM) shows the whole
+    auto-starts playback at Playing<sup class="ref"><a href="#src-109" title="src/ctf/replays.nim:43-48">109</a></sup>: the transcript panel (native and WASM) shows the whole
     huddle at any seek position, expanded before the first playing tick and collapsed after it. That
     panel is what lets a broadcast show the negotiation that produced the opening calls.</p>
 
@@ -2525,12 +2540,16 @@
   <!-- ============ 10. Work plan ============ -->
   <section id="s10">
     <h2>10 · Work plan</h2>
-    <p>Ordered by dependency; each phase names its acceptance.</p>
+    <p>Ordered by dependency; each phase names its acceptance. One rule applies to every acceptance
+    below: a golden or test this design names counts only once it is wired into the sharded suite that
+    CI runs, and each phase's acceptance includes that check, because a test file that sits beside the
+    suite without a shard entry runs never and proves nothing (Maxwell's integration base found a 31-test
+    file that had run dark since it landed).</p>
     <ul>
       <li><strong>P0: measure, spike, and map the prerequisites.</strong> Three jobs. First, measurement,
       in two classes because the map has two layers (<a href="#s3-1">section 3.1</a>): <strong>once per episode</strong>, the
       shared episode layer's build at Battle Royale scale (stencil builds all map knowledge in one tick on
-      a field 6.9 times the old area<sup class="ref"><a href="#src-108" title="LAB:policy.nim:39-50">108</a>,<a href="#src-3" title="LAB:worldmap.nim:173-209">3</a></sup>; the port builds it once, before the barrier, not per
+      a field 6.9 times the old area<sup class="ref"><a href="#src-110" title="LAB:policy.nim:39-50">110</a>,<a href="#src-3" title="LAB:worldmap.nim:173-209">3</a></sup>; the port builds it once, before the barrier, not per
       seat); and <strong>per seat, times 32</strong>, the body's per-tick cost, steady-state memory for 32
       bodies with their seat-layer caches at capacity, and the cold and warm cost of a route field and a
       duck entry; per-seat view build-and-encode cost times 32 at tick rate; and, new, <strong>play
@@ -2548,8 +2567,8 @@
       declared: compatibility, meaning P0 inventories the launch-supported map set (the default arena,
       every curated pool entry, the generator's envelopes, and any hosted authored-map path) and asserts
       the maximum 600-pixel-disc post count over all of it, since nothing in the atlas construction proves
-      512 (navigation cells are 8 pixels<sup class="ref"><a href="#src-78" title="LAB:config.nim:66">78</a></sup>, and every walkable cell with a wall ray within
-      <code>CoverRayPx</code> becomes a post<sup class="ref"><a href="#src-109" title="LAB:config.nim:272-280">109</a>,<a href="#src-110" title="LAB:worldmap.nim:604-635,716-740">110</a></sup>, so a long wall can exceed it); and the
+      512 (navigation cells are 8 pixels<sup class="ref"><a href="#src-80" title="LAB:config.nim:66">80</a></sup>, and every walkable cell with a wall ray within
+      <code>CoverRayPx</code> becomes a post<sup class="ref"><a href="#src-111" title="LAB:config.nim:272-280">111</a>,<a href="#src-112" title="LAB:worldmap.nim:604-635,716-740">112</a></sup>, so a long wall can exceed it); and the
       quarter-tick gate. P0 may raise or lower the value, or lower <code>MaxCoverRadiusPx</code>, until
       both hold; the load-time rejection is shell-gated (play-seat configurations only), so no map that
       plays today stops loading; and the acceptance includes the densest launch map as a fixture beside
@@ -2590,9 +2609,19 @@
       branch-only today (Battle Royale, the flash channel, the expression VM;
       <code>br-season2-complete</code> is the integration base and is roughly 300 commits ahead of main),
       so P0 produces the landing plan with Maxwell: which branches merge, in what order, and what
-      GameVersion numbers this work claims. Engine changes here are gameplay and wire changes, so the
-      repository's standing obligations apply and are named per phase: GameVersion bumps with fixture
-      re-records, replay format compatibility, and native and WASM viewer parity.</li>
+      GameVersion numbers this work claims. The rule for claiming one is the codec's: a GameVersion bump
+      orphans every archived replay (<a href="#s4-3">section 4.3</a>), so a number is claimed only by a
+      change to gate-off behavior, and <strong>this design claims none for P1 through P5</strong>,
+      because every engine change here is gated dark and byte-identical off; the later ABI-version and
+      view-meaning "GameVersion events" of <a href="#s5">sections 5</a> and <a href="#s6">6</a> are bumps
+      only when they change gate-off behavior, and otherwise are entries in the allowlist. Engine changes
+      here are gameplay and wire changes, so the repository's standing obligations apply and are named per
+      phase: replay format compatibility through the <a href="#s4-3">section 4.3</a> override, fixture
+      re-records only where a bump is claimed, and native and WASM viewer parity. One shared dependency
+      is on Maxwell's side of the landing plan: the engine wedges above sixteen viewers
+      (<code>dedupObjectPlacements</code>), which gates every 32-seat acceptance in this design (gates 3
+      through 5) and is scheduled on his pixel-pipe lane; it is not needed before P3, and P0 records its
+      expected date.</li>
       <li><strong>P1: port the body, complete with the combat-policy contract.</strong> Stencil's belief,
       world map, planner, follower, combat, and action resolution into <code>src/shell/</code>, behind the
       config gate, with the four rulings of <a href="#s3-3">section 3.3</a> applied during the port (including the bounded
@@ -2612,7 +2641,10 @@
       and pending-update cap, and the per-socket outbound admission and completion hooks of
       <a href="#s9-2">section 9.2</a>, together one named Mummy dependency patch or fork, re-sized for module uploads); the
       replay format bump with the <code>ReplayRebindRecord</code>, the call record, the annotation array,
-      the manifest, and the playbook archive (gate 2); the lobby chat phase of <a href="#s9">section 9</a> (the
+      the manifest, and the playbook archive (gate 2), together with the coworld-ctf-side load override
+      and its <code>gameVersion</code> allowlist of <a href="#s4-3">section 4.3</a> (P2 itself claims no
+      GameVersion number; the override is what keeps every allowlisted archived replay loading); the lobby
+      chat phase of <a href="#s9">section 9</a> (the
       <code>0xA3</code>/<code>0xB2</code> packets, the three lobby substates with tests for every crossing
       in the transition table, all-play and mixed rosters under both <code>fastMode</code> values, the
       suspended early advance, the <code>lobbyChat</code> record and its manifest arm, the bind-time
@@ -2625,7 +2657,7 @@
       <code>playSeatBindTicks</code> (default 7200, range [1, 14400]) of <a href="#s9">section 9</a> (the existing
       <code>lobbyJoinTimeoutTicks</code> keeps its deployed abort semantics everywhere except a play-seat
       episode, where the presence budget replaces it), none of which exist in <code>GameConfig</code>
-      today<sup class="ref"><a href="#src-111" title="src/ctf/sim_types.nim:1386-1465">111</a>,<a href="#src-112" title="src/ctf/sim_config.nim:10-79">112</a></sup>; the hosted schema admits all four root fields independently of the roster (so the
+      today<sup class="ref"><a href="#src-113" title="src/ctf/sim_types.nim:1386-1465">113</a>,<a href="#src-114" title="src/ctf/sim_config.nim:10-79">114</a></sup>; the hosted schema admits all four root fields independently of the roster (so the
       gate-on, all-input configuration <a href="#s5-1">section 5.1</a> calls legal is host-authorable, and
       <code>viewIntervalTicks</code> simply has no effect without a play seat), and goldens cover gate-off
       with both omitted, gate-on with an all-input roster through the hosted schema, the cadence at 1, 6,
@@ -2650,7 +2682,7 @@
       and <code>target_law</code> are sequenced first because they exercise those contracts hardest.</li>
       <li><strong>P5: end to end.</strong> The skeleton policy image (connect, upload, call, read frames,
       acknowledge, chat, with a trivial LLM loop), tested at the hosted platform's default resource
-      envelope (250m CPU, 256 MiB<sup class="ref"><a href="#src-113" title="personal_paintbot/player-build.md:39">113</a></sup>). In the local match app: lobby chat to opening call to
+      envelope (250m CPU, 256 MiB<sup class="ref"><a href="#src-115" title="personal_paintbot/player-build.md:39">115</a></sup>). In the local match app: lobby chat to opening call to
       mid-match re-call to replay display (gate 4), with Maxwell's front end reading the recorded calls
       and the lobby transcript. On the hosted platform: the full path including the lobby chat phase
       (gate 5).</li>
@@ -2690,6 +2722,11 @@
       with Maxwell's app-side huddle that has to be agreed rather than assumed. Its privacy model is
       deliberately the simplest one (every play seat hears everything); private side channels are a later
       feature if anyone wants them.</li>
+      <li><strong>Two dependencies sit on Maxwell's side of the landing plan.</strong> The engine's wedge
+      above sixteen viewers (<code>dedupObjectPlacements</code>) gates every 32-seat acceptance here and
+      is scheduled on his pixel-pipe lane, and the integration base's file:line citations in this
+      document move as his folds land; P0 re-verifies every <code>origin/</code> citation against the
+      landed base before P1 starts.</li>
       <li><strong>The LLM-bound view cadence</strong> is a per-episode configuration
       (<code>viewIntervalTicks</code>, default 6) rather than a measured choice; P5's hosted run should
       confirm that four frames a second plus status-triggered frames is neither starving the LLM nor
@@ -2821,9 +2858,9 @@
       <thead><tr><th>Field</th><th>Serialized as</th><th>Lifetime / freshness</th><th>Cap</th></tr></thead>
       <tbody>
         <tr><td>visible grenade</td><td><code>{pos: [x,y], predictedBlastPos: [x,y], ticksToBlast: int}</code>: the blast center is the engine's stored projectile target; <code>blastRadius</code> and the player body half-extent are versioned <em>engine</em> constants of the ABI contract, not per-record fields; <code>pos</code> is display metadata and never the safety input</td><td>present while the projectile is fog-visible</td><td>8 per frame</td></tr>
-        <tr><td>blast cue (anonymous, <strong>post-blast evidence</strong>)</td><td><code>{pos: [x,y] (jittered by the engine), tick: int}</code>: the audible ring of a blast that has already happened; throwing is silent<sup class="ref"><a href="#src-114" title="src/ctf/sim.nim:1727-1731">114</a></sup> and the sim creates the ring and applies the damage in the same <code>explodeGrenade</code> call<sup class="ref"><a href="#src-115" title="src/ctf/sim.nim:1865-1890,1910-1944,2048-2063">115</a></sup>, so this row carries no <code>ticksToBlast</code> and is history for plays (where grenades are being thrown), never an input to evasion</td><td>expires 24 ticks after receipt (<em>knob</em>, default 24)</td><td>4 retained</td></tr>
+        <tr><td>blast cue (anonymous, <strong>post-blast evidence</strong>)</td><td><code>{pos: [x,y] (jittered by the engine), tick: int}</code>: the audible ring of a blast that has already happened; throwing is silent<sup class="ref"><a href="#src-116" title="src/ctf/sim.nim:1727-1731">116</a></sup> and the sim creates the ring and applies the damage in the same <code>explodeGrenade</code> call<sup class="ref"><a href="#src-117" title="src/ctf/sim.nim:1865-1890,1910-1944,2048-2063">117</a></sup>, so this row carries no <code>ticksToBlast</code> and is history for plays (where grenades are being thrown), never an input to evasion</td><td>expires 24 ticks after receipt (<em>knob</em>, default 24)</td><td>4 retained</td></tr>
         <tr><td>own throw</td><td><code>{target: [x,y], releaseTick: int, blastRadius: int (*engine*)}</code></td><td>until blast resolves</td><td>1</td></tr>
-        <tr><td>spray attack</td><td>tagged union: <code>visibleCone{attacker: SeatRef, origin: [x,y], aimBrads: int, reachPx: int, maxWidthPx: int, coversSelf: bool, tick}</code> when the attacker is fog-visible; <code>coversSelf</code> is <strong>computed with the complete engine predicate</strong> (<code>selectArcVictims</code> including its <code>paintPathClear</code> obstruction term, walls and standing barriers included<sup class="ref"><a href="#src-116" title="src/ctf/sim.nim:1093-1137">116</a>,<a href="#src-117" title="src/ctf/sim.nim:777-794">117</a></sup>), because cone geometry reconstructed from the fields cannot see dynamic barriers; the geometry fields (<code>reachPx</code>/<code>maxWidthPx</code> linear pixels, victim <code>bodyRadiusPx</code> an <em>engine</em> constant) are for display and derived judgment, never the safety input; <code>anonymousImpact{impactPos: [x,y] (the victim-known jittered trace), incomingDir: brads, tick}</code> otherwise; the anonymous arm never carries identity or cone origin</td><td>cone while fog-visible; impacts retained 48 ticks (<em>knob</em>, default 48)</td><td>8 retained</td></tr>
+        <tr><td>spray attack</td><td>tagged union: <code>visibleCone{attacker: SeatRef, origin: [x,y], aimBrads: int, reachPx: int, maxWidthPx: int, coversSelf: bool, tick}</code> when the attacker is fog-visible; <code>coversSelf</code> is <strong>computed with the complete engine predicate</strong> (<code>selectArcVictims</code> including its <code>paintPathClear</code> obstruction term, walls and standing barriers included<sup class="ref"><a href="#src-118" title="src/ctf/sim.nim:1093-1137">118</a>,<a href="#src-119" title="src/ctf/sim.nim:777-794">119</a></sup>), because cone geometry reconstructed from the fields cannot see dynamic barriers; the geometry fields (<code>reachPx</code>/<code>maxWidthPx</code> linear pixels, victim <code>bodyRadiusPx</code> an <em>engine</em> constant) are for display and derived judgment, never the safety input; <code>anonymousImpact{impactPos: [x,y] (the victim-known jittered trace), incomingDir: brads, tick}</code> otherwise; the anonymous arm never carries identity or cone origin</td><td>cone while fog-visible; impacts retained 48 ticks (<em>knob</em>, default 48)</td><td>8 retained</td></tr>
         <tr><td>zone imminence</td><td>derived, not serialized: from the zone rectangles and phase timing already in the view</td><td>—</td><td>—</td></tr>
       </tbody>
     </table>
@@ -2849,14 +2886,14 @@
     <code>isqrt(dx² + dy²)</code>, the floor of the square root); the speed is the seat's <strong>live
     effective maximum velocity on this tick</strong> in the sim's own fixed-point units, <code>v</code>,
     read from the same derivation the sim applies (<code>config.maxSpeed</code> with the team handicap,
-    perks, flag-carrier scaling, and paint scaling<sup class="ref"><a href="#src-118" title="src/ctf/sim_types.nim:2175-2179,2223-2229">118</a>,<a href="#src-119" title="src/ctf/sim.nim:2390-2401">119</a></sup>) and deliberately <em>excluding</em> the
-    directional trench-exit reduction<sup class="ref"><a href="#src-120" title="src/ctf/sim.nim:2402-2419">120</a></sup>, which is transient and direction-dependent. Those units are
-    not pixels: the sim advances one pixel per <code>motionScale</code> velocity units<sup class="ref"><a href="#src-121" title="src/ctf/sim.nim:570-595">121</a></sup>, and
-    <code>motionScale</code> is configurable with only positivity required<sup class="ref"><a href="#src-122" title="src/ctf/sim_config.nim:567-570">122</a></sup> (the stock 256 and
-    <code>MaxSpeed</code> 704<sup class="ref"><a href="#src-123" title="src/ctf/sim_types.nim:389-393">123</a></sup> are defaults, not invariants), so the primitive converts in the sim's
+    perks, flag-carrier scaling, and paint scaling<sup class="ref"><a href="#src-120" title="src/ctf/sim_types.nim:2175-2179,2223-2229">120</a>,<a href="#src-121" title="src/ctf/sim.nim:2390-2401">121</a></sup>) and deliberately <em>excluding</em> the
+    directional trench-exit reduction<sup class="ref"><a href="#src-122" title="src/ctf/sim.nim:2402-2419">122</a></sup>, which is transient and direction-dependent. Those units are
+    not pixels: the sim advances one pixel per <code>motionScale</code> velocity units<sup class="ref"><a href="#src-123" title="src/ctf/sim.nim:570-595">123</a></sup>, and
+    <code>motionScale</code> is configurable with only positivity required<sup class="ref"><a href="#src-124" title="src/ctf/sim_config.nim:567-570">124</a></sup> (the stock 256 and
+    <code>MaxSpeed</code> 704<sup class="ref"><a href="#src-125" title="src/ctf/sim_types.nim:389-393">125</a></sup> are defaults, not invariants), so the primitive converts in the sim's
     terms rather than assuming a scale: <code>arrival = (d × motionScale + v − 1) div v</code>, every
     product in <code>int64</code>, and <code>v ≤ 0</code> (a zero configured speed, which validation does
-    not forbid<sup class="ref"><a href="#src-124" title="src/ctf/sim_config.nim:567-601">124</a></sup>, or a positive speed the integer modifiers floor to zero) is <strong>infinite
+    not forbid<sup class="ref"><a href="#src-126" title="src/ctf/sim_config.nim:567-601">126</a></sup>, or a positive speed the integer modifiers floor to zero) is <strong>infinite
     arrival</strong>: such a candidate fails any hard predicate and ranks after every finite arrival.
     Arrival is an <strong>estimate, not a proof</strong>: straight-line under-estimates the route and the
     trench exclusion over-estimates speed, so a hard predicate stated in terms of arrival screens
@@ -2882,7 +2919,7 @@
     disc: with <code>dx, dy</code> the offset from <code>predictedBlastPos</code> to the cog's center,
     <code>nearX = max(0, |dx| - bodyHalf)</code>, <code>nearY = max(0, |dy| - bodyHalf)</code>, and the
     blast covers the cog when <code>nearX² + nearY² &lt;= (blastRadius + margin)²</code>, the exact
-    circle-versus-body-box rule of the engine<sup class="ref"><a href="#src-125" title="src/ctf/sim.nim:1910-1929">125</a></sup>, with the 24-pixel margin (<em>knob</em>) added to
+    circle-versus-body-box rule of the engine<sup class="ref"><a href="#src-127" title="src/ctf/sim.nim:1910-1929">127</a></sup>, with the 24-pixel margin (<em>knob</em>) added to
     the radius term and nowhere else. Trigger: any <strong>visible airborne grenade</strong> whose
     coverage predicate is true at its predicted blast position; the anonymous blast cue of R.1 never
     triggers, because it is the sound of a blast that has already resolved, and an unseen grenade in
@@ -2910,7 +2947,7 @@
     wall or a standing barrier covered when the sim cannot hit it. The cap-ordering urgency predicate
     uses the same bit, so an obstructed cone never outranks a real threat. Parity goldens cover
     point-blank, max-reach, lateral-edge, body-radius-only overlap, a wall, a standing barrier, and an
-    unobstructed control against <code>selectArcVictims</code><sup class="ref"><a href="#src-116" title="src/ctf/sim.nim:1093-1137">116</a></sup>. Trigger: a
+    unobstructed control against <code>selectArcVictims</code><sup class="ref"><a href="#src-118" title="src/ctf/sim.nim:1093-1137">118</a></sup>. Trigger: a
     <code>visibleCone</code> record with <code>coversSelf</code>, or two or more retained
     <code>anonymousImpact</code> records within the impact window. Goal, as a <code>planEscape</code>
     specialization with no hard predicate. Tuple: <em>maximize</em> whether the resolved point is an atlas
@@ -2945,7 +2982,7 @@
   <section id="appendix-w">
     <h2>Appendix W · The runtime comparison</h2>
     <p>Checked against live sources on 2026-08-30; the full spike report with its sixty-odd citations is
-    the runtime-embedding report<sup class="ref"><a href="#src-126" title="docs/reports/wasm-runtime-embedding-2026-08-30.md">126</a></sup>. The requirement set is <a href="#s6-1">section 6.1</a>'s: per-instance memory caps, a
+    the runtime-embedding report<sup class="ref"><a href="#src-128" title="docs/reports/wasm-runtime-embedding-2026-08-30.md">128</a></sup>. The requirement set is <a href="#s6-1">section 6.1</a>'s: per-instance memory caps, a
     per-step budget that stops a call-free infinite loop, contained traps, validation on upload, fast
     instantiation, a C API callable from Nim, a permissive license, and a maintained sandbox.</p>
     <div class="tbl">
@@ -3192,78 +3229,80 @@
       <li id="src-52"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/replays.nim:579-605</span> — playback re-applies the flash-channel record deterministically.</li>
       <li id="src-53"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/sim_types.nim:851-858</span> — the 16-bit length prefix on string-carrying records, the reason <code>MaxPolicyPageBytes</code> is 60000.</li>
       <li id="src-54"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/replays.nim:253-270</span> — the reflash lane's player-byte flag inside the chat record, spent to avoid a replay version bump.</li>
-      <li id="src-55"><span class="cite">src/ctf/global.nim:370-377</span> — <code>ShoutMaxCount = MaxPlayers</code>, the Sprite path's bound on audible shouts.</li>
-      <li id="src-56"><span class="cite">LAB:worldmap.nim:716-740</span> — the source atlas creates a post for every cover-bearing navigation cell.</li>
-      <li id="src-57"><span class="cite">LAB:worldmap.nim:792-814</span> — atlas ranking is query-dependent on anchor, threats, bearing, and radius.</li>
-      <li id="src-58"><span class="cite">src/ctf/sim_types.nim:1421-1425</span> — existing config comment warning that team count is not a mode.</li>
-      <li id="src-59"><span class="cite">src/ctf/sim_types.nim:1338-1345</span> — <code>PlayerSlotConfig</code>: name, token, team, color, and skin, with team optional.</li>
-      <li id="src-60"><span class="cite">src/ctf/sim_config.nim:197-239</span> — <code>readConfigSlots</code> reads exactly the existing slot fields.</li>
-      <li id="src-61"><span class="cite">coworld_manifest_paintbot.json:66-79</span> — the hosted manifest's closed slot schema (<code>additionalProperties: false</code>).</li>
-      <li id="src-62"><span class="cite">src/ctf/sim_config.nim:197-260</span> — slot parsing, including the optional team field.</li>
-      <li id="src-63"><span class="cite">coworld_manifest_paintbot.json:34-79,119-124</span> — the hosted manifest requires names and tokens but leaves <code>slots[]</code> optional.</li>
-      <li id="src-64"><span class="cite">src/ctf/server.nim:395-426,1620-1667</span> — the live server grows <code>sim.players</code> one admission at a time.</li>
-      <li id="src-65"><span class="cite">src/ctf/roster.nim:107-120</span> — open rosters can keep filling to <code>MaxPlayers</code>.</li>
-      <li id="src-66"><span class="cite">src/ctf/sim.nim:3903-3923</span> — <code>stepLobby</code>: the countdown starts at <code>minPlayers</code> rather than at a full house, resets when the roster falls short, and starts at once when <code>startWaitTicks &lt;= 0</code>.</li>
-      <li id="src-67"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/sim_config.nim:633-650</span> — the integration branch's roster check: <code>teams</code> is 2, 4, or 16 and a slot's team index is below it, nothing more.</li>
-      <li id="src-68"><span class="cite">src/ctf/sim_types.nim:1795-1806</span> — <code>SimEvent</code>, the engine's global, omniscient analysis event stream; never a view source.</li>
-      <li id="src-69"><span class="cite">src/ctf/labels.nim:78-80</span> — firing is silent; a jittered impact is the only trace a shot leaves for bystanders.</li>
-      <li id="src-70"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867</span> — the visible veteran marker (the ember plume) that the bounty track attribute is derived from.</li>
-      <li id="src-71"><span class="cite">src/ctf/sim.nim:2278</span> — <code>shoutAudibleTo</code>, the shout audibility test the view samples.</li>
-      <li id="src-72"><span class="cite">src/ctf/global.nim:6000-6022</span> — <code>ShoutRange</code>: a fifth of the map width, through walls and fog.</li>
-      <li id="src-73"><span class="cite">src/ctf/sim.nim:2255-2268</span> — a re-shout replaces the shouter's old shout, so there is at most one per shouter.</li>
-      <li id="src-74"><span class="cite">src/ctf/roster.nim:82-105</span> — the identity resolver the frame build uses; a departed shouter reads <code>?</code>.</li>
-      <li id="src-75"><span class="cite">src/ctf/labels.nim:66-77</span> — the current player contract for grenades: visible airborne object, anonymous jittered landing sound, the thrower's own private target, visible blast stages.</li>
-      <li id="src-76"><span class="cite">LAB:worldmap.nim:766-839</span> — the atlas scorer: bearing sector selection, the facing term, phase-one truncation, the duck-contrast phase, and the tie order that <code>nearest_cover</code> reproduces.</li>
-      <li id="src-77"><span class="cite">LAB:worldmap.nim:742-760</span> — the lab's cover query forms <code>x ± radius</code> in native width before validation, which the port must not copy.</li>
-      <li id="src-78"><span class="cite">LAB:config.nim:66</span> — <code>NavCell</code> is 8 pixels; <code>ValidatorRadiusPx</code> is stencil's <code>32 * NavCell</code>.</li>
-      <li id="src-79"><span class="cite">LAB:worldmap.nim:250-255</span> — the pixel-level standability test the validator accepts.</li>
-      <li id="src-80"><span class="cite">LAB:worldmap.nim:369-404</span> — <code>nearestReachable</code>: the Euclidean ring scan, same-component rule, minimum squared distance, and row-major tie-break.</li>
-      <li id="src-81"><span class="cite">arena/config.nims</span> — the Nim-to-wasm32 build recipe: Nim 2.2.6, wasi-sdk 33's clang, <code>--cpu:wasm32 --mm:arc --exceptions:goto -d:useMalloc --noMain</code>, reactor execution model.</li>
-      <li id="src-82"><span class="cite">arena/README.md</span> — pins the arena toolchain versions.</li>
-      <li id="src-83"><span class="cite">origin/maxwell/br-season2-complete:docs/designs/BR_PLAYS.md</span> — Maxwell's seven evidence-backed reference plays, the adopted menu.</li>
-      <li id="src-84"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/policy_page.nim</span> — the engine's page-expression language whose closed operator set the guards reuse.</li>
-      <li id="src-85"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/policy_page.nim:73-94,260-308</span> — the module today parses only whole pages and keeps its expression type private; P3 carves out a standalone expression API.</li>
-      <li id="src-86"><span class="cite">src/ctf/server.nim:1019</span> — fast-mode recording: the server advances early only when every active seat has reported ready.</li>
-      <li id="src-87"><span class="cite">src/ctf/server.nim:2015-2021</span> — the paintball determinism precedent: record the layer's output, never re-run the layer.</li>
-      <li id="src-88"><span class="cite">origin/maxwell/br-season2-complete:rt_episode/</span> — Maxwell's verified 32-seat episode runs, the shape gate 4 upgrades.</li>
-      <li id="src-89"><span class="cite">PBP:origin/maxwell/lobby-chat</span> — the match app's pre-round chat phase: its match daemon runs a bounded LLM chat before it spawns the game.</li>
-      <li id="src-90"><span class="cite">personal_paintbot/player-build.md:10-22</span> — the runner's contract with a player container: one websocket to one game.</li>
-      <li id="src-91"><span class="cite">coworld/runner/runner.py:397-447</span> — the local runner's order: start the game container, wait for its health endpoint, then launch the player containers (metta repository).</li>
-      <li id="src-92"><span class="cite">coworld/runner/kubernetes_runner.py:559-587</span> — the hosted runner's order: game pod first, health check, then player pods (metta repository).</li>
-      <li id="src-93"><span class="cite">src/ctf/sim_types.nim:1406-1413</span> — <code>lobbyJoinTimeoutTicks</code>, an existing config field, default 0 meaning never.</li>
-      <li id="src-94"><span class="cite">src/ctf/sim_config.nim:32-35</span> — the config parser's <code>lobbyJoinTimeoutTicks</code> field.</li>
-      <li id="src-95"><span class="cite">coworld_manifest_paintbot.json:194-205</span> — the hosted variants set <code>lobbyJoinTimeoutTicks</code> to 7200.</li>
-      <li id="src-96"><span class="cite">src/ctf/server.nim:1578-1596</span> — the no-show player failure path: a finite match whose roster stays short for <code>lobbyJoinTimeoutTicks</code> aborts, blaming <code>nextPlayerSlot</code>.</li>
-      <li id="src-97"><span class="cite">src/ctf/sim.nim:3903-3913,3065-3076</span> — the legacy join-timeout clock advances only while <code>sim.players.len &lt; minPlayers</code>.</li>
-      <li id="src-98"><span class="cite">src/ctf/sim_config.nim:722-727</span> — a closed roster may have more slots than <code>minPlayers</code>.</li>
-      <li id="src-99"><span class="cite">coworld/runner/kubernetes_runner.py:107,591-607</span> — the hosted runner's 180-second pod-startup allowance (metta repository).</li>
-      <li id="src-100"><span class="cite">src/ctf/server.nim:1218-1229</span> — the player-failure artifact carries exactly one <code>failed_policy_index</code>.</li>
-      <li id="src-101"><span class="cite">packages/coworld/src/coworld/docs/roles/GAME.md:63-76</span> — the runner contract requires one non-negative integer <code>failed_policy_index</code> (metta repository).</li>
-      <li id="src-102"><span class="cite">src/ctf/server.nim:1005-1025</span> — the server's early frame advance in fast mode, which fires whenever every current player is ready.</li>
-      <li id="src-103"><span class="cite">mummy.nim:262-291</span> — <code>WebSocket.send</code> only appends to a server-global send queue and returns.</li>
-      <li id="src-104"><span class="cite">mummy.nim:1232-1255</span> — the selector thread moves buffers into an unbounded per-socket deque.</li>
-      <li id="src-105"><span class="cite">mummy.nim:1097-1108,1342-1364</span> — buffers leave the per-socket deque only when bytes are written.</li>
-      <li id="src-106"><span class="cite">bitworld/replays.nim:352-362,381-446</span> — the replay codec rejects unknown record bytes and versions by design.</li>
-      <li id="src-107"><span class="cite">src/ctf/replays.nim:43-48</span> — the viewer treats the lobby before <code>startTick</code> as dead air and auto-starts playback at Playing.</li>
-      <li id="src-108"><span class="cite">LAB:policy.nim:39-50</span> — stencil builds all map knowledge in one tick.</li>
-      <li id="src-109"><span class="cite">LAB:config.nim:272-280</span> — <code>CoverRayPx</code>, the wall-ray distance that makes a walkable cell a cover post.</li>
-      <li id="src-110"><span class="cite">LAB:worldmap.nim:604-635,716-740</span> — cover-post construction: every walkable cell with a wall ray within <code>CoverRayPx</code> becomes a post.</li>
-      <li id="src-111"><span class="cite">src/ctf/sim_types.nim:1386-1465</span> — <code>GameConfig</code> today: none of the five new fields exist.</li>
-      <li id="src-112"><span class="cite">src/ctf/sim_config.nim:10-79</span> — the config parser's root fields today.</li>
-      <li id="src-113"><span class="cite">personal_paintbot/player-build.md:39</span> — the hosted platform's default resource envelope: 250m CPU, 256 MiB.</li>
-      <li id="src-114"><span class="cite">src/ctf/sim.nim:1727-1731</span> — throwing a grenade is silent.</li>
-      <li id="src-115"><span class="cite">src/ctf/sim.nim:1865-1890,1910-1944,2048-2063</span> — <code>explodeGrenade</code> creates the audible ring and applies the damage in the same call.</li>
-      <li id="src-116"><span class="cite">src/ctf/sim.nim:1093-1137</span> — <code>selectArcVictims</code>, the complete spray-cone victim predicate.</li>
-      <li id="src-117"><span class="cite">src/ctf/sim.nim:777-794</span> — <code>paintPathClear</code>, the obstruction term (walls and standing barriers) inside <code>selectArcVictims</code>.</li>
-      <li id="src-118"><span class="cite">src/ctf/sim_types.nim:2175-2179,2223-2229</span> — the effective maximum velocity derivation: <code>config.maxSpeed</code> with team handicap, perks, flag-carrier scaling, and paint scaling.</li>
-      <li id="src-119"><span class="cite">src/ctf/sim.nim:2390-2401</span> — the sim applies the same velocity derivation per tick.</li>
-      <li id="src-120"><span class="cite">src/ctf/sim.nim:2402-2419</span> — the directional trench-exit speed reduction, excluded from the arrival estimate.</li>
-      <li id="src-121"><span class="cite">src/ctf/sim.nim:570-595</span> — the sim advances one pixel per <code>motionScale</code> velocity units.</li>
-      <li id="src-122"><span class="cite">src/ctf/sim_config.nim:567-570</span> — <code>motionScale</code> is configurable with only positivity required.</li>
-      <li id="src-123"><span class="cite">src/ctf/sim_types.nim:389-393</span> — the stock <code>motionScale</code> of 256 and <code>MaxSpeed</code> of 704 are defaults.</li>
-      <li id="src-124"><span class="cite">src/ctf/sim_config.nim:567-601</span> — speed validation does not forbid a zero configured speed.</li>
-      <li id="src-125"><span class="cite">src/ctf/sim.nim:1910-1929</span> — the engine's exact blast circle-versus-body-box coverage rule the grenade reflex mirrors.</li>
-      <li id="src-126"><span class="cite">docs/reports/wasm-runtime-embedding-2026-08-30.md</span> — the runtime-embedding spike report with its sixty-odd citations.</li>
+      <li id="src-55"><span class="cite">bitworld/replays.nim:361-363</span> — the vendored codec's reader rejects any replay format version other than its own.</li>
+      <li id="src-56"><span class="cite">bitworld/replays.nim:370-371</span> — eight lines later, the reader rejects any <code>gameVersion</code> string other than its own.</li>
+      <li id="src-57"><span class="cite">src/ctf/global.nim:370-377</span> — <code>ShoutMaxCount = MaxPlayers</code>, the Sprite path's bound on audible shouts.</li>
+      <li id="src-58"><span class="cite">LAB:worldmap.nim:716-740</span> — the source atlas creates a post for every cover-bearing navigation cell.</li>
+      <li id="src-59"><span class="cite">LAB:worldmap.nim:792-814</span> — atlas ranking is query-dependent on anchor, threats, bearing, and radius.</li>
+      <li id="src-60"><span class="cite">src/ctf/sim_types.nim:1421-1425</span> — existing config comment warning that team count is not a mode.</li>
+      <li id="src-61"><span class="cite">src/ctf/sim_types.nim:1338-1345</span> — <code>PlayerSlotConfig</code>: name, token, team, color, and skin, with team optional.</li>
+      <li id="src-62"><span class="cite">src/ctf/sim_config.nim:197-239</span> — <code>readConfigSlots</code> reads exactly the existing slot fields.</li>
+      <li id="src-63"><span class="cite">coworld_manifest_paintbot.json:66-79</span> — the hosted manifest's closed slot schema (<code>additionalProperties: false</code>).</li>
+      <li id="src-64"><span class="cite">src/ctf/sim_config.nim:197-260</span> — slot parsing, including the optional team field.</li>
+      <li id="src-65"><span class="cite">coworld_manifest_paintbot.json:34-79,119-124</span> — the hosted manifest requires names and tokens but leaves <code>slots[]</code> optional.</li>
+      <li id="src-66"><span class="cite">src/ctf/server.nim:395-426,1620-1667</span> — the live server grows <code>sim.players</code> one admission at a time.</li>
+      <li id="src-67"><span class="cite">src/ctf/roster.nim:107-120</span> — open rosters can keep filling to <code>MaxPlayers</code>.</li>
+      <li id="src-68"><span class="cite">src/ctf/sim.nim:3903-3923</span> — <code>stepLobby</code>: the countdown starts at <code>minPlayers</code> rather than at a full house, resets when the roster falls short, and starts at once when <code>startWaitTicks &lt;= 0</code>.</li>
+      <li id="src-69"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/sim_config.nim:633-650</span> — the integration branch's roster check: <code>teams</code> is 2, 4, or 16 and a slot's team index is below it, nothing more.</li>
+      <li id="src-70"><span class="cite">src/ctf/sim_types.nim:1795-1806</span> — <code>SimEvent</code>, the engine's global, omniscient analysis event stream; never a view source.</li>
+      <li id="src-71"><span class="cite">src/ctf/labels.nim:78-80</span> — firing is silent; a jittered impact is the only trace a shot leaves for bystanders.</li>
+      <li id="src-72"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867</span> — the visible veteran marker (the ember plume) that the bounty track attribute is derived from.</li>
+      <li id="src-73"><span class="cite">src/ctf/sim.nim:2278</span> — <code>shoutAudibleTo</code>, the shout audibility test the view samples.</li>
+      <li id="src-74"><span class="cite">src/ctf/global.nim:6000-6022</span> — <code>ShoutRange</code>: a fifth of the map width, through walls and fog.</li>
+      <li id="src-75"><span class="cite">src/ctf/sim.nim:2255-2268</span> — a re-shout replaces the shouter's old shout, so there is at most one per shouter.</li>
+      <li id="src-76"><span class="cite">src/ctf/roster.nim:82-105</span> — the identity resolver the frame build uses; a departed shouter reads <code>?</code>.</li>
+      <li id="src-77"><span class="cite">src/ctf/labels.nim:66-77</span> — the current player contract for grenades: visible airborne object, anonymous jittered landing sound, the thrower's own private target, visible blast stages.</li>
+      <li id="src-78"><span class="cite">LAB:worldmap.nim:766-839</span> — the atlas scorer: bearing sector selection, the facing term, phase-one truncation, the duck-contrast phase, and the tie order that <code>nearest_cover</code> reproduces.</li>
+      <li id="src-79"><span class="cite">LAB:worldmap.nim:742-760</span> — the lab's cover query forms <code>x ± radius</code> in native width before validation, which the port must not copy.</li>
+      <li id="src-80"><span class="cite">LAB:config.nim:66</span> — <code>NavCell</code> is 8 pixels; <code>ValidatorRadiusPx</code> is stencil's <code>32 * NavCell</code>.</li>
+      <li id="src-81"><span class="cite">LAB:worldmap.nim:250-255</span> — the pixel-level standability test the validator accepts.</li>
+      <li id="src-82"><span class="cite">LAB:worldmap.nim:369-404</span> — <code>nearestReachable</code>: the Euclidean ring scan, same-component rule, minimum squared distance, and row-major tie-break.</li>
+      <li id="src-83"><span class="cite">arena/config.nims</span> — the Nim-to-wasm32 build recipe: Nim 2.2.6, wasi-sdk 33's clang, <code>--cpu:wasm32 --mm:arc --exceptions:goto -d:useMalloc --noMain</code>, reactor execution model.</li>
+      <li id="src-84"><span class="cite">arena/README.md</span> — pins the arena toolchain versions.</li>
+      <li id="src-85"><span class="cite">origin/maxwell/br-season2-complete:docs/designs/BR_PLAYS.md</span> — Maxwell's seven evidence-backed reference plays, the adopted menu.</li>
+      <li id="src-86"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/policy_page.nim</span> — the engine's page-expression language whose closed operator set the guards reuse.</li>
+      <li id="src-87"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/policy_page.nim:73-94,260-308</span> — the module today parses only whole pages and keeps its expression type private; P3 carves out a standalone expression API.</li>
+      <li id="src-88"><span class="cite">src/ctf/server.nim:1019</span> — fast-mode recording: the server advances early only when every active seat has reported ready.</li>
+      <li id="src-89"><span class="cite">src/ctf/server.nim:2015-2021</span> — the paintball determinism precedent: record the layer's output, never re-run the layer.</li>
+      <li id="src-90"><span class="cite">origin/maxwell/br-season2-complete:rt_episode/</span> — Maxwell's verified 32-seat episode runs, the shape gate 4 upgrades.</li>
+      <li id="src-91"><span class="cite">PBP:origin/maxwell/lobby-chat</span> — the match app's pre-round chat phase: its match daemon runs a bounded LLM chat before it spawns the game.</li>
+      <li id="src-92"><span class="cite">personal_paintbot/player-build.md:10-22</span> — the runner's contract with a player container: one websocket to one game.</li>
+      <li id="src-93"><span class="cite">coworld/runner/runner.py:397-447</span> — the local runner's order: start the game container, wait for its health endpoint, then launch the player containers (metta repository).</li>
+      <li id="src-94"><span class="cite">coworld/runner/kubernetes_runner.py:559-587</span> — the hosted runner's order: game pod first, health check, then player pods (metta repository).</li>
+      <li id="src-95"><span class="cite">src/ctf/sim_types.nim:1406-1413</span> — <code>lobbyJoinTimeoutTicks</code>, an existing config field, default 0 meaning never.</li>
+      <li id="src-96"><span class="cite">src/ctf/sim_config.nim:32-35</span> — the config parser's <code>lobbyJoinTimeoutTicks</code> field.</li>
+      <li id="src-97"><span class="cite">coworld_manifest_paintbot.json:194-205</span> — the hosted variants set <code>lobbyJoinTimeoutTicks</code> to 7200.</li>
+      <li id="src-98"><span class="cite">src/ctf/server.nim:1578-1596</span> — the no-show player failure path: a finite match whose roster stays short for <code>lobbyJoinTimeoutTicks</code> aborts, blaming <code>nextPlayerSlot</code>.</li>
+      <li id="src-99"><span class="cite">src/ctf/sim.nim:3903-3913,3065-3076</span> — the legacy join-timeout clock advances only while <code>sim.players.len &lt; minPlayers</code>.</li>
+      <li id="src-100"><span class="cite">src/ctf/sim_config.nim:722-727</span> — a closed roster may have more slots than <code>minPlayers</code>.</li>
+      <li id="src-101"><span class="cite">coworld/runner/kubernetes_runner.py:107,591-607</span> — the hosted runner's 180-second pod-startup allowance (metta repository).</li>
+      <li id="src-102"><span class="cite">src/ctf/server.nim:1218-1229</span> — the player-failure artifact carries exactly one <code>failed_policy_index</code>.</li>
+      <li id="src-103"><span class="cite">packages/coworld/src/coworld/docs/roles/GAME.md:63-76</span> — the runner contract requires one non-negative integer <code>failed_policy_index</code> (metta repository).</li>
+      <li id="src-104"><span class="cite">src/ctf/server.nim:1005-1025</span> — the server's early frame advance in fast mode, which fires whenever every current player is ready.</li>
+      <li id="src-105"><span class="cite">mummy.nim:262-291</span> — <code>WebSocket.send</code> only appends to a server-global send queue and returns.</li>
+      <li id="src-106"><span class="cite">mummy.nim:1232-1255</span> — the selector thread moves buffers into an unbounded per-socket deque.</li>
+      <li id="src-107"><span class="cite">mummy.nim:1097-1108,1342-1364</span> — buffers leave the per-socket deque only when bytes are written.</li>
+      <li id="src-108"><span class="cite">bitworld/replays.nim:352-362,381-446</span> — the replay codec rejects unknown record bytes and versions by design.</li>
+      <li id="src-109"><span class="cite">src/ctf/replays.nim:43-48</span> — the viewer treats the lobby before <code>startTick</code> as dead air and auto-starts playback at Playing.</li>
+      <li id="src-110"><span class="cite">LAB:policy.nim:39-50</span> — stencil builds all map knowledge in one tick.</li>
+      <li id="src-111"><span class="cite">LAB:config.nim:272-280</span> — <code>CoverRayPx</code>, the wall-ray distance that makes a walkable cell a cover post.</li>
+      <li id="src-112"><span class="cite">LAB:worldmap.nim:604-635,716-740</span> — cover-post construction: every walkable cell with a wall ray within <code>CoverRayPx</code> becomes a post.</li>
+      <li id="src-113"><span class="cite">src/ctf/sim_types.nim:1386-1465</span> — <code>GameConfig</code> today: none of the five new fields exist.</li>
+      <li id="src-114"><span class="cite">src/ctf/sim_config.nim:10-79</span> — the config parser's root fields today.</li>
+      <li id="src-115"><span class="cite">personal_paintbot/player-build.md:39</span> — the hosted platform's default resource envelope: 250m CPU, 256 MiB.</li>
+      <li id="src-116"><span class="cite">src/ctf/sim.nim:1727-1731</span> — throwing a grenade is silent.</li>
+      <li id="src-117"><span class="cite">src/ctf/sim.nim:1865-1890,1910-1944,2048-2063</span> — <code>explodeGrenade</code> creates the audible ring and applies the damage in the same call.</li>
+      <li id="src-118"><span class="cite">src/ctf/sim.nim:1093-1137</span> — <code>selectArcVictims</code>, the complete spray-cone victim predicate.</li>
+      <li id="src-119"><span class="cite">src/ctf/sim.nim:777-794</span> — <code>paintPathClear</code>, the obstruction term (walls and standing barriers) inside <code>selectArcVictims</code>.</li>
+      <li id="src-120"><span class="cite">src/ctf/sim_types.nim:2175-2179,2223-2229</span> — the effective maximum velocity derivation: <code>config.maxSpeed</code> with team handicap, perks, flag-carrier scaling, and paint scaling.</li>
+      <li id="src-121"><span class="cite">src/ctf/sim.nim:2390-2401</span> — the sim applies the same velocity derivation per tick.</li>
+      <li id="src-122"><span class="cite">src/ctf/sim.nim:2402-2419</span> — the directional trench-exit speed reduction, excluded from the arrival estimate.</li>
+      <li id="src-123"><span class="cite">src/ctf/sim.nim:570-595</span> — the sim advances one pixel per <code>motionScale</code> velocity units.</li>
+      <li id="src-124"><span class="cite">src/ctf/sim_config.nim:567-570</span> — <code>motionScale</code> is configurable with only positivity required.</li>
+      <li id="src-125"><span class="cite">src/ctf/sim_types.nim:389-393</span> — the stock <code>motionScale</code> of 256 and <code>MaxSpeed</code> of 704 are defaults.</li>
+      <li id="src-126"><span class="cite">src/ctf/sim_config.nim:567-601</span> — speed validation does not forbid a zero configured speed.</li>
+      <li id="src-127"><span class="cite">src/ctf/sim.nim:1910-1929</span> — the engine's exact blast circle-versus-body-box coverage rule the grenade reflex mirrors.</li>
+      <li id="src-128"><span class="cite">docs/reports/wasm-runtime-embedding-2026-08-30.md</span> — the runtime-embedding spike report with its sixty-odd citations.</li>
     </ol>
   </section>
 
