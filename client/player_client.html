@@ -499,6 +499,7 @@ function drawSprite(){
   drawReticle();
   drawHitmarker(nowT);
   drawSelfTag();
+  drawKillcamMarker();
   x.restore();
   updateCamera();
   /* Frames are flowing (we got here at all), so any connecting/reconnecting
@@ -1163,7 +1164,15 @@ function updateCamera(){
   const fitScale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));
   const seated=!!selfPos;
   const mode=CAMERA_MODES[cameraModeIndex];
-  const follow=seated&&mode.follow;
+  /* Killcam (GVNEXT): a real fatal hitsTaken record with killer coords
+     turns the ordinary "dead -> whole-map" cut into a brief pan onto
+     wherever the shot came from instead -- checked first, before `seated`
+     even matters below, since killcamInfo() itself already requires
+     !selfPos. The moment selfPos comes back (a respawn), killcamInfo()
+     returns null unconditionally regardless of the hold timer, so a fast
+     respawn can never fight this camera for the self-follow target. */
+  const killcam=killcamInfo();
+  const follow=(seated&&mode.follow)||!!killcam;
   /* max(): never zoom OUT past whole-map-fit even if the vision circle is
      bigger than the map itself (true on classic -- 1575px vision radius vs
      an ~1235px-wide board). At that point the entire finite map is already
@@ -1171,10 +1180,13 @@ function updateCamera(){
      see is off screen" (there is nothing beyond the map's edge to hide a
      threat), so clamping to fitScale keeps that case from zooming out into
      empty void chasing an unreachable circle. On BR (496px vision radius on
-     a 3211x1713 board) fitVisionScale() is the larger, binding term. */
+     a 3211x1713 board) fitVisionScale() is the larger, binding term. Reused
+     unchanged for killcam -- it depends only on window/map size, never on
+     WHO is being followed, so the scale never has to jump between
+     following ourselves and following the killer. */
   const targetScale=follow?quantizeFollowScale(Math.max(fitScale,fitVisionScale())):fitScale;
-  const targetX=follow?selfPos.x:c.width/2;
-  const targetY=follow?selfPos.y:c.height/2;
+  const targetX=killcam?killcam.killerX:follow?selfPos.x:c.width/2;
+  const targetY=killcam?killcam.killerY:follow?selfPos.y:c.height/2;
   let easing=false;
   if(!follow){
     /* WHOLE-MAP is a STATIC frame: unlike follow modes it never chases a
@@ -1390,6 +1402,35 @@ function drawSelfTag(){
   const ty=selfPos.y-22;
   x.strokeText("YOU",selfPos.x,ty);
   x.fillText("YOU",selfPos.x,ty);
+  x.restore();
+}
+/* Killcam marker (GVNEXT): drawn at the killer's position AT THE MOMENT OF
+   THE KILL (a snapshot, like the camera pan above -- not a live tracking
+   reticle onto wherever they've since moved). Same world-space canvas draw
+   as drawSelfTag, so it reads correctly at whatever scale updateCamera has
+   the killcam pan sitting at.
+   The killerAlive===false branch is the one this exists for: a mutual
+   trade means the killer is ALSO dead, so the normal sprite pipeline draws
+   nothing at all at this spot (a dead cog has no sprite, same as our own
+   self marker disappearing) -- panning the camera here and rendering
+   NOTHING would read as a broken/empty killcam, not an intentional "you
+   traded" moment. The label (and the card's own "traded" chip above) are
+   what make that legible instead. */
+function drawKillcamMarker(){
+  const info=killcamInfo();
+  if(!info)return;
+  const traded=info.killerAlive===false;
+  x.save();
+  x.beginPath();x.arc(info.killerX,info.killerY,13,0,Math.PI*2);
+  x.strokeStyle=traded?"rgba(185,179,169,.85)":"rgba(255,60,40,.95)";
+  x.lineWidth=1.5;x.stroke();
+  x.font="10px ui-monospace,SFMono-Regular,Menlo,monospace";
+  x.textAlign="center";x.lineWidth=2.5;
+  x.strokeStyle="rgba(0,0,0,.85)";x.fillStyle=traded?"#b9b3a9":"#ff6a52";
+  const label=traded?"KILLER · TRADED":"KILLER";
+  const ty=info.killerY-22;
+  x.strokeText(label,info.killerX,ty);
+  x.fillText(label,info.killerX,ty);
   x.restore();
 }
 function drawHud(){
@@ -1612,8 +1653,31 @@ function publishShotFeedback(){
     dedupedConfirms:shotFeedbackCounts.dedupedConfirms,
     lastDeath:deathInfo?{team:deathInfo.team,color:deathInfo.color,
       weapon:deathInfo.weapon,distance:deathInfo.distance,
-      friendlyFire:deathInfo.friendlyFire}:null
+      friendlyFire:deathInfo.friendlyFire,killerX:deathInfo.killerX,
+      killerY:deathInfo.killerY,killerAlive:deathInfo.killerAlive}:null
   };
+}
+/* Shared attribution gate: a fatal record only belongs to THIS death while
+   it lands within DEATH_ATTRIB_MS of diedAt (see that const's own comment
+   for why the check is a window, not an ordering). renderDeathOverlay, the
+   killcam camera override, and the killcam marker all need the identical
+   answer to "is deathInfo trustworthy right now", so this is the one place
+   that decides it -- three separate re-derivations of the same window would
+   be three chances for them to disagree. */
+function attributedDeathInfo(){
+  return (deathInfo&&Math.abs(deathInfo.at-diedAt)<=DEATH_ATTRIB_MS)?deathInfo:null;
+}
+/* Killcam hold: how long after diedAt the camera stays panned on the
+   killer's last position (see updateCamera/drawKillcamMarker below).
+   Comfortably inside DEATH_ATTRIB_MS so the attribution gate never lapses
+   mid-pan -- the killcam window is always the tighter of the two. */
+const KILLCAM_HOLD_MS=2400;
+function killcamInfo(){
+  if(selfPos)return null; // only while actually dead -- see updateCamera's own seated-first check
+  const info=attributedDeathInfo();
+  if(!info||info.killerX===null||info.killerY===null)return null;
+  if(performance.now()-diedAt>=KILLCAM_HOLD_MS)return null;
+  return info;
 }
 /* PlayerColorNames -> retro palette index (sim_types.nim PlayerColors /
    PlayerColorNames, the same 16-entry palette as `p` at the top of this
@@ -1655,9 +1719,22 @@ function handleShotFeedback(landed,taken){
      shake/vignette path already covers it. */
   for(const h of taken){
     if(h&&h.kill===true){
+      /* killerX/killerY/killerAlive (killcam, GVNEXT): present ONLY on a
+         fatal hitsTaken entry -- never on a non-fatal one, never on any
+         shotsLanded entry -- that narrowing is the wallhack guard on the
+         engine side, so read them defensively (typeof, never assumed) and
+         let their absence (an older server, or simply "not this record
+         shape") fall through to exactly today's card/camera, no pan, no
+         marker. killerAlive is evaluated at DELIVERY time, so a mutual
+         trade (the killer also died before this packet arrived) reads as
+         false here -- see drawKillcamMarker/updateCamera below for why that
+         case gets its own label instead of silently panning at nothing. */
       deathInfo={team:String(h.killerTeam||""),color:String(h.killerColor||""),
         weapon:String(h.weapon||""),distance:Math.max(0,h.distance|0),
-        friendlyFire:h.friendlyFire===true,at:nowT};
+        friendlyFire:h.friendlyFire===true,at:nowT,
+        killerX:typeof h.killerX==="number"?h.killerX:null,
+        killerY:typeof h.killerY==="number"?h.killerY:null,
+        killerAlive:typeof h.killerAlive==="boolean"?h.killerAlive:null};
     }
   }
   /* Shooter half: feed the one feedback path that exists. One confirm per
@@ -1686,12 +1763,12 @@ function deathStatusLine(){
 function renderDeathOverlay(){
   if(!isDead){deathCardKey="";n("");return}
   const line=deathStatusLine();
-  const info=(deathInfo&&Math.abs(deathInfo.at-diedAt)<=DEATH_ATTRIB_MS)?deathInfo:null;
+  const info=attributedDeathInfo();
   if(!info){deathCardKey="";n(line);return}
   /* Rebuild only when the card's content actually changes; the DOM check
      covers any interleaved n() call (reconnect text etc.) having wiped the
      card while the key still claimed it was up. */
-  const key=line+"|"+info.at+"|"+info.team+"|"+info.color+"|"+info.weapon+"|"+info.distance+"|"+info.friendlyFire;
+  const key=line+"|"+info.at+"|"+info.team+"|"+info.color+"|"+info.weapon+"|"+info.distance+"|"+info.friendlyFire+"|"+info.killerAlive;
   if(key===deathCardKey&&s.firstElementChild&&s.firstElementChild.className==="dcard")return;
   deathCardKey=key;
   s.textContent="";
@@ -1714,6 +1791,19 @@ function renderDeathOverlay(){
     const ff=document.createElement("span");ff.className="dcardFf";
     ff.textContent="friendly fire";
     det.appendChild(document.createTextNode(" \u00b7 "));det.appendChild(ff);
+  }
+  /* Mutual trade (killcam, GVNEXT): killerAlive is only ever a real
+     true/false once the engine sends killer coords at all (see the
+     deathInfo capture above) -- strict `=== false`, never falsy, so an
+     older server (the field simply absent, killerAlive stays null) renders
+     the exact same card it always has, no new claim it can't back up. Said
+     here AND at the killer's own panned position (drawKillcamMarker) --
+     the card is the one place guaranteed to be seen even if a player never
+     looks toward the pan. */
+  if(info.killerAlive===false){
+    const tr=document.createElement("span");tr.className="dcardFf";
+    tr.textContent="traded -- they went down too";
+    det.appendChild(document.createTextNode(" \u00b7 "));det.appendChild(tr);
   }
   card.appendChild(det);
   const st=document.createElement("div");st.className="dcardState";st.textContent=line;
