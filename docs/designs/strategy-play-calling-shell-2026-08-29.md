@@ -1050,10 +1050,28 @@ imposed over the truth; a viewer's most-recent-record cursor therefore
 shows a cog that took an order and died on the same tick as cleared,
 which is what stood. Goldens pin exactly that pair and its
 respawn inverse. Seeking gets its own cursor, like the existing cursors.
-The compatibility contract is stated plainly: new readers load every
-archived older version; old viewers cannot load Season 2 replays, which is
-acceptable because a Season 2 replay is only interesting in a viewer that
-can display strategies anyway. Playback skips the annotation arrays
+The compatibility contract is stated plainly, and it names the code
+that stands in its way, because today it is false at two levels: the
+codec's reader lives in the vendored `bitworld` package and rejects any
+format version other than its own (`bitworld/replays.nim:361-363`) and,
+eight lines later, any `gameVersion` string other than its own
+(`bitworld/replays.nim:370-371`), so no archived replay from any earlier
+GameVersion loads through it, which is why every GameVersion bump today
+re-records the fixtures. This design does not change `bitworld`, which
+every other bitworld game shares; it adds a **coworld-ctf-side load
+override** in P2 that owns the two checks for this game: it accepts
+format versions 1 and 2 and writes only 2, and it accepts a
+`gameVersion` from a **maintained allowlist** in `sim_types.nim` naming
+every version whose gate-off rules are byte-identical to the current
+engine's (a new entry is added exactly when a change lands dark; a
+gate-off rule change empties the list, since playback re-simulates and
+an older replay would diverge silently). New readers therefore load
+every archived replay the allowlist covers, an explicit contract rather
+than an accident; old viewers cannot load Season 2 replays, which is
+acceptable because a Season 2 replay is only interesting in a viewer
+that can display strategies anyway. A test loads one archived fixture
+per allowlisted version and one from outside the list (rejected by
+name). Playback skips the annotation arrays
 entirely (no sim mutator in their path); a truncated or selectively
 dropped annotation stream fails manifest verification loudly.
 
@@ -1188,8 +1206,10 @@ how the design is supposed to work.
 
 Serialization discipline: the view format is versioned with the game, and
 adding fields is backward-compatible for built plays (unknown fields
-ignored on decode). Removing or changing a field's meaning is a
-GameVersion event and an ABI version event (section 6.1).
+ignored on decode). Removing or changing a field's meaning is an ABI
+version event (section 6.1) and, because the change is gated to play
+seats, an entry in the replay allowlist of section 4.3 rather than a
+GameVersion bump, unless it also changes gate-off behavior.
 
 ### 5.1 Game mode, derived not declared
 
@@ -1388,7 +1408,9 @@ every candidate runtime instantiates core modules through its C API
 without a canonical-ABI layer, and because the whole interface fits in
 five exports and four imports. The ABI version is `1`; a module declares
 it in its manifest, and the engine refuses any other value. Bumping the
-ABI version is a GameVersion event.
+ABI version changes only play-seat behavior, so it is an allowlist
+entry under section 4.3's rule, and a GameVersion bump only if gate-off
+behavior changes with it.
 
 **Exports the module must provide.**
 
@@ -2530,7 +2552,13 @@ calls.
 
 ## 10. Work plan
 
-Ordered by dependency; each phase names its acceptance.
+Ordered by dependency; each phase names its acceptance. One rule
+applies to every acceptance below: a golden or test this design names
+counts only once it is wired into the sharded suite that CI runs, and
+each phase's acceptance includes that check, because a test file that
+sits beside the suite without a shard entry runs never and proves
+nothing (Maxwell's integration base found a 31-test file that had run
+dark since it landed).
 
 - **P0: measure, spike, and map the prerequisites.** Three jobs. First,
   measurement, in two classes because the map has two layers (section
@@ -2620,11 +2648,22 @@ Ordered by dependency; each phase names its acceptance.
   channel, the expression VM; `br-season2-complete` is the integration
   base and is roughly 300 commits ahead of main), so P0 produces the
   landing plan with Maxwell: which branches merge, in what order, and
-  what GameVersion numbers this work claims. Engine changes here are
-  gameplay and wire changes, so the repository's standing obligations
-  apply and are named per phase: GameVersion bumps with fixture
-  re-records, replay format compatibility, and native and WASM viewer
-  parity.
+  what GameVersion numbers this work claims. The rule for claiming one
+  is the codec's: a GameVersion bump orphans every archived replay
+  (section 4.3), so a number is claimed only by a change to gate-off
+  behavior, and **this design claims none for P1 through P5**, because
+  every engine change here is gated dark and byte-identical off; the
+  later ABI-version and view-meaning "GameVersion events" of sections 5
+  and 6 are bumps only when they change gate-off behavior, and otherwise
+  are entries in the allowlist. Engine changes here are gameplay and
+  wire changes, so the repository's standing obligations apply and are
+  named per phase: replay format compatibility through the section 4.3
+  override, fixture re-records only where a bump is claimed, and native
+  and WASM viewer parity. One shared dependency is on Maxwell's side of
+  the landing plan: the engine wedges above sixteen viewers
+  (`dedupObjectPlacements`), which gates every 32-seat acceptance in this
+  design (gates 3 through 5) and is scheduled on his pixel-pipe lane; it
+  is not needed before P3, and P0 records its expected date.
 - **P1: port the body, complete with the combat-policy contract.**
   Stencil's belief, world map, planner, follower, combat, and action
   resolution into `src/shell/`, behind the config gate, with the four
@@ -2651,7 +2690,10 @@ Ordered by dependency; each phase names its acceptance.
   Mummy dependency patch or fork, re-sized for module uploads); the
   replay format bump with the `ReplayRebindRecord`, the
   call record, the annotation array, the manifest, and the playbook
-  archive (gate 2); the lobby chat phase of section 9 (the `0xA3`/`0xB2`
+  archive (gate 2), together with the coworld-ctf-side load override and
+  its `gameVersion` allowlist of section 4.3 (P2 itself claims no
+  GameVersion number; the override is what keeps every allowlisted
+  archived replay loading); the lobby chat phase of section 9 (the `0xA3`/`0xB2`
   packets, the three lobby substates with tests for every crossing in
   the transition table, all-play and mixed rosters under both `fastMode`
   values, the suspended early advance, the `lobbyChat` record and its
@@ -2748,7 +2790,13 @@ Ordered by dependency; each phase names its acceptance.
    than assumed. Its privacy model is deliberately the simplest one
    (every play seat hears everything); private side channels are a
    later feature if anyone wants them.
-8. **The LLM-bound view cadence** is a per-episode configuration
+8. **Two dependencies sit on Maxwell's side of the landing plan.** The
+   engine's wedge above sixteen viewers (`dedupObjectPlacements`) gates
+   every 32-seat acceptance here and is scheduled on his pixel-pipe
+   lane, and the integration base's file:line citations in this document
+   move as his folds land; P0 re-verifies every `origin/` citation
+   against the landed base before P1 starts.
+9. **The LLM-bound view cadence** is a per-episode configuration
    (`viewIntervalTicks`, default 6) rather than a measured choice; P5's
    hosted run should confirm that four frames a second plus
    status-triggered frames is neither starving the LLM nor drowning it.
