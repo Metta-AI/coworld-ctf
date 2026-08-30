@@ -130,6 +130,54 @@ const SNAP_DISTANCE=48;
    per concurrent pop, documented range 38000..38031). Hit feedback below
    watches this range rather than adding any new wire signal. */
 const DAMAGE_POP_ID_MIN=38000, DAMAGE_POP_ID_MAX=38031;
+/* Weapon state model. The server already tracks our REAL fireCooldown/
+   fireWindup and streams it every tick as a fixed HUD object: object id
+   5008 (global.nim SpritePlayerRemainingObjectId) on the bottom-left HUD
+   layer, referencing one of two static sprites --
+   5000 (SpritePlayerFireSpriteId, label "fire icon" = ready) or
+   5001 (SpritePlayerFireShadowSpriteId, label "fire icon cooldown" =
+   winding up or cooling down, global.nim:8787 `player.fireCooldown > 0 or
+   player.fireWindup > 0`). This is per-player (viewerIndex=playerIndex),
+   so unlike damage pops it is never fogged and never anyone else's state
+   -- it is ALWAYS our own gun. Tracking which sprite is currently placed
+   there gives a ground-truth "can I fire right now" signal, with zero new
+   wire surface: the same idiom as the damage-pop label watch above, just
+   a different fixed id.
+   The ready->not-ready EDGE is the moment a shot was just accepted (the
+   engine starts the windup on the same tick as the input rising edge,
+   sim.nim applyInput) -- long before the bullet travels and any resulting
+   damage pop could round-trip back to us. That edge is the honest "I just
+   fired" moment this client was missing everywhere: the fire SFX (used to
+   play on every mousedown/held-click regardless of cooldown -- "the
+   shooting sound needs to only happen when i actually fire off a shot")
+   and the "did I land that hit" gate below (used to check `lmb` -- whether
+   the mouse was STILL held the instant the hit-pop packet arrived -- but a
+   tap-click releases lmb long before windup + travel + round-trip
+   latency completes, so a normal tap-fire kill/hit almost never satisfied
+   it). Both now key off lastFireConfirmedAt instead. */
+const FIRE_ICON_OBJECT_ID=5008, FIRE_ICON_SPRITE_READY=5000, FIRE_ICON_SPRITE_COOLDOWN=5001;
+let fireReady=null,lastFireConfirmedAt=0;
+/* Published for the HUD lane (client/player_hud.js) to read a real
+   cooldown indicator from, rather than re-deriving this itself:
+   `ready` mirrors the server's own fire-icon sprite (true/false once
+   observed, null before the first HUD packet), `lastFireAt` is the
+   performance.now() timestamp of the last confirmed ready->cooldown
+   edge (0 = never fired this session). Exact cooldown/windup TICK
+   durations are not on the player wire (only the boolean state is), so
+   there is no duration/percentage field here -- a filling cooldown bar
+   would need either a wire addition or a config-based estimate, same
+   shape as fitVisionScale()'s assumedGunRangePx below. */
+function publishWeaponState(){window.weaponState={ready:fireReady,lastFireAt:lastFireConfirmedAt}}
+function noteFireIconObject(spriteId,nowT){
+  const ready=spriteId===FIRE_ICON_SPRITE_READY?true:spriteId===FIRE_ICON_SPRITE_COOLDOWN?false:null;
+  if(ready===null)return; // some other sprite momentarily at this id (shouldn't happen) -- ignore rather than guess
+  if(fireReady===true&&ready===false){
+    lastFireConfirmedAt=nowT;
+    playFire(); // the real "a shot just left the gun" edge -- see the fire-sound comment near mousedown below
+  }
+  fireReady=ready;
+  publishWeaponState();
+}
 const textDecoder=new TextDecoder("utf-8");
 /* ---- Minimal WebAudio SFX: fire / hit-taken / hit-dealt / kill-confirm ----
    No binary assets -- short oscillator/noise bursts a few frames long. The
@@ -366,6 +414,7 @@ function parseSprite(bytes){
       const id=readU16(bytes,offset),ox=readI16(bytes,offset+2),oy=readI16(bytes,offset+4),z=readI16(bytes,offset+6),layer=bytes[offset+8],spriteId=readU16(bytes,offset+9);
       offset+=11;
       const isDamagePop=id>=DAMAGE_POP_ID_MIN&&id<=DAMAGE_POP_ID_MAX;
+      if(id===FIRE_ICON_OBJECT_ID)noteFireIconObject(spriteId,packetTime);
       const existing=objects.get(id);
       if(!existing){
         objects.set(id,{id,x:ox,y:oy,z,layer,spriteId,dispX:ox,dispY:oy,fromX:ox,fromY:oy,moveAt:0});
@@ -995,7 +1044,7 @@ function drawHud(){
   hud.innerHTML=
     '<b>move</b> '+on(keys.up)+'/'+on(keys.left)+'/'+on(keys.down)+'/'+on(keys.right)+
     '  <b>aim</b> '+(aimSeeded?estAim+"b":"--")+' '+(committedRotate||"park")+
-    '  <b>fire</b> '+(lmb?"held":"..")+
+    '  <b>fire</b> '+(lmb?"held":"..")+'/'+(fireReady===null?"?":fireReady?"ready":"cool")+
     '  <b>item</b> '+on(keys.item)+
     (pingNote?'  <b>ping</b> '+pingNote:'');
 }
@@ -1006,11 +1055,34 @@ function drawHud(){
    took damage" event, keyed to a fixed object-id pool (DAMAGE_POP_ID_MIN/
    MAX above). Proximity to our own selfPos decides "I took it" (screenshake
    + sound) vs "I probably landed it" (hitstop + hitmarker + sound, gated on
-   actively firing and a plausible engagement bubble) -- the same kind of
-   locally-known signal the reticle already uses, never an oracle, and
-   never anything that reaches gameHash: this only drives paint and audio.
+   a recent CONFIRMED shot from us -- SELF_FIRE_CREDIT_MS below, off the
+   fire-icon HUD watch, not "is the mouse still held" -- and a plausible
+   engagement bubble) -- the same kind of locally-known signal the reticle
+   already uses, never an oracle, and never anything that reaches gameHash:
+   this only drives paint and audio.
 ==================================================================== */
-const SELF_HIT_RADIUS=16, ENGAGE_RANGE=300;
+const SELF_HIT_RADIUS=16;
+/* Was a flat 300px, well under the real gun range (assumedGunRangePx below:
+   1050 classic / 331 BR) -- a live-fire verify pass (2026-08-29) landed a
+   confirmed kill at ~355px and the flat 300 silently ate its hitmarker/kill
+   confirm, on top of the lmb-timing bug this same pass fixed below. Ties to
+   the same per-context gun-range estimate the fit-vision camera already
+   uses instead of carrying a second, inconsistent range guess. */
+function engageRangePx(){ensureCameraContext();return assumedGunRangePx(cameraContext||"classic")}
+/* How long after our OWN confirmed-fire edge (lastFireConfirmedAt, from the
+   fire-icon HUD watch above) a nearby hit still counts as "probably ours".
+   This used to be `lmb` -- is the mouse STILL held -- which only works if
+   the player happens to still be holding the button when the hit-pop
+   packet round-trips back, and a normal tap-click releases lmb long
+   before windup (fireWindupTicks, ~5 ticks/208ms @ TICK_HZ 24) plus
+   projectile travel plus network RTT can complete -- so a tap-fired kill
+   almost never lit the hitmarker/kill confirm. Sized generously to cover
+   that whole chain; still a local heuristic, never an oracle (same as
+   engageRangePx above) -- too short costs false negatives on lag, too long
+   risks crediting someone else's hit near us. No exact windup+travel+RTT
+   figure is on the wire, so this is a provisional constant like
+   assumedGunRangePx below, not a derived one. */
+const SELF_FIRE_CREDIT_MS=900;
 const HITSTOP_MS=55, SHAKE_MS=130, SHAKE_MAG=2.2, HITMARKER_MS=180;
 let hitstopUntil=0,shakeEndAt=0,shakeMag=0,hitmarkerUntil=0,hitmarkerIsKill=false;
 /* Minimal kill feed (legibility audit #8): "EVENTS ARE TRUE" wants a real,
@@ -1072,9 +1144,9 @@ function handleDamagePopBirth(px,py,spriteId){
       triggerShake();playHitTaken();return;
     }
   }
-  if(lmb&&selfPos){
-    const edx=px-selfPos.x,edy=py-selfPos.y;
-    if(edx*edx+edy*edy<=ENGAGE_RANGE*ENGAGE_RANGE){
+  if(selfPos&&lastFireConfirmedAt&&performance.now()-lastFireConfirmedAt<=SELF_FIRE_CREDIT_MS){
+    const edx=px-selfPos.x,edy=py-selfPos.y,engageRange=engageRangePx();
+    if(edx*edx+edy*edy<=engageRange*engageRange){
       triggerHitstop();triggerHitmarker(isKill);
       if(isKill)playKillConfirm();else playHitDealt();
     }
@@ -1098,41 +1170,30 @@ function drawHitmarker(nowT){
   x.stroke();
   x.restore();
 }
-/* Fire sound: once on the mousedown edge (a real user gesture, so it also
-   unlocks audio), then a lightweight repeat while held so a sustained trigger
-   pull still sounds like fire rather than one click -- cosmetic timing only,
-   the server alone decides whether a shot actually lands. */
-let fireLoopTimer=null;
-function startFireLoop(){
-  if(fireLoopTimer)return;
-  playFire();
-  fireLoopTimer=setInterval(()=>{if(lmb&&!z)playFire();else stopFireLoop()},160);
-}
-function stopFireLoop(){
-  if(fireLoopTimer){clearInterval(fireLoopTimer);fireLoopTimer=null}
-}
+/* Fire sound: used to play once on every mousedown edge PLUS a repeat every
+   160ms while held ("the shooting sound needs to only happen when i
+   actually fire off a shot. not everytime i click" -- a click landing
+   during our own cooldown played the exact same sound as one that actually
+   fired). Now driven entirely off the ready->cooldown edge on the real
+   fire-icon HUD watch (noteFireIconObject above): playFire() lives there,
+   fires exactly once per shot the engine actually accepted, and needs no
+   loop/timer here at all. A click that lands on cooldown is now silent
+   rather than lying about it (no distinct "denied" cue yet -- silence was
+   judged safer than inventing a new sound without direction). */
 addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true;sendDirectAim(mouseX,mouseY)});
 c.addEventListener("mousedown",e=>{
   if(e.button===0){
     lmb=true;e.preventDefault();
-    /* Fire SFX only when we actually have a seat that can fire -- the same
-       agency check handleDamagePopBirth already uses (selfPos truthy) below.
-       Before that (pre-takeover "suiting-up": the cog is still policy-driven,
-       but this same document and its listeners are already fully live),
-       selfPos is null and no gunfire audio should be audible for a click
-       that has zero effect on the game. lmb itself still tracks the real
-       held-button state unconditionally -- that's the actual fire INPUT bit,
-       untouched by this gate, only the SFX layer is gated. */
-    if(selfPos){ensureAudio();startFireLoop()}
+    if(selfPos)ensureAudio(); // first real user gesture unlocks WebAudio; playFire() itself fires off the HUD edge, not from here
   }
   else if(e.button===2){e.preventDefault();window.onPingWheelOpen(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY})}
 });
 addEventListener("mouseup",e=>{
-  if(e.button===0){lmb=false;stopFireLoop()}
+  if(e.button===0){lmb=false}
   else if(e.button===2)window.onPingWheelCommit(cellUnderCursor(),toMap(e),{x:e.clientX,y:e.clientY});
 });
 c.addEventListener("contextmenu",e=>e.preventDefault());
-addEventListener("blur",()=>{lmb=false;stopFireLoop();closeWheel()});
+addEventListener("blur",()=>{lmb=false;closeWheel()});
 /* ---- Seam probe (?seamprobe=1 only) -----------------------------------
    Maxwell sees flashing horizontal bars in LIVE play that his OWN
    screenshots never catch, and neither did two prior instrumented scans
