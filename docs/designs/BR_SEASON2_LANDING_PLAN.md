@@ -21,17 +21,33 @@ merge is a real conflict to resolve — never a re-record.
 Pre-landing folds INTO `br-season2-complete` (it already subsumes
 restack-assembly, glory-inc1+inc2, reflash-integration, onepage-runner):
 
-1. `maxwell/br-onepage-vm` — the VM's tracked home (tests live here; the
-   nil-page guard from 192b297b must port back before the fold so the
-   fold supersedes the WIP-banked copies cleanly)
-2. `maxwell/br-manifest` — the BR coworld manifest
-3. `maxwell/br-team-outline`, `maxwell/br-lives-hud` — viewer/HUD, no sim
-4. `maxwell/br-ladder-design` — docs only (BR_LADDER.md)
+1. ~~`maxwell/br-onepage-vm`~~ **ADOPTED, not merged** (done, wave-1):
+   the branch turned out to ride the unlanded **GloryVersion-10 broadcast
+   lineage** (123 commits since common ancestor). The VM-only delta (14
+   files: policy_page.nim, its tests, tools/flash/) was adopted from
+   `br-onepage-vm-guard` @ b6beacd8 with test_policy_page wired into
+   shard_2. See "The third lineage" below.
+2. `maxwell/br-manifest` — the BR coworld manifest ✅ folded
+3. `maxwell/br-team-outline`, `maxwell/br-lives-hud` — viewer/HUD ✅ folded
+4. `maxwell/br-ladder-design` — docs only (BR_LADDER.md) ✅ folded
 
 Then **one merge: season2-complete → main.** Claims **GV48** ("BR
 integration reaches main, gated dark") — no re-record, by the criterion
 above. Landing dark first is what makes every later phase reviewable
 against main instead of against a 313-commit stack.
+
+## The third lineage (discovered during wave-1 folds)
+
+**The GloryVersion-10 broadcast lineage is NOT on main and NOT in this
+base** — rank-up pops, the Season 2 cheat sheet, and the v10 fixture
+re-records (`237fdef8`, tip of what `br-onepage-vm` forked from). It
+carries **hashed glory** and its own re-recorded fixtures, while this
+lineage's glory-inc2 keeps the ledger OUT of gameHash. Reconciling the
+two glory semantics is real work of glory-increment-3 shape, not a fold.
+Plan: land it as **its own wave after GV49** (or merge INTO the inc3
+work if the semantics converge there), owner TBD with Maxwell. Until
+then the cheat sheet + broadcast HUD ship only from that lineage's
+branches.
 
 ## Wave 2 — the two changes that touch gameHash, in this order
 
