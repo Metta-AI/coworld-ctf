@@ -906,7 +906,7 @@ function cycleCameraMode(dir){
   try{localStorage.setItem(cameraStorageKey(cameraContext),String(cameraModeIndex))}catch(e){}
   scheduleDraw();
 }
-let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true;
+let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true,wasFollow=false;
 /* COMPOSITOR TEARING FIX (blackbars lane, live 8/29 -- root-caused via a
    discriminating experiment: at the same instant during held WASD + mouse
    sweep, the canvas backing store via toDataURL() was clean AND an
@@ -940,9 +940,73 @@ let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true;
    tick, so the eased FEEL is unchanged -- only how often the result lands
    on the element is throttled), cutting compositor churn during sustained
    motion instead of relying on quantization to coincidentally repeat a
-   value it structurally cannot repeat while genuinely moving. */
-const CAMERA_SCALE_QUANT=0.02; // round camScale to steps this coarse before writing -- coarse enough that near-converged lerp frames repeat the same step
+   value it structurally cannot repeat while genuinely moving.
+
+   SECOND PASS (this one) ALSO verified insufficient -- both levers above
+   still showed clear bands under real compositor capture during held
+   movement. The scale-probe lane isolated the actual mechanism with a
+   4-arm experiment (control repro + 3 mitigations, each judged by eye
+   against real --use-angle=metal compositor screenshots, never a
+   brightness heuristic): CONTROL (fractional camScale, ~1.27x,
+   image-rendering:pixelated) banded on 2/5 alive-and-moving frames, full
+   width, at several simultaneous heights. Forcing the CSS scale() term to
+   an exact 1.0 -- scale unchanged otherwise -- was clean in 16/16 frames.
+   Forcing it to an exact 2.0 was also clean 16/16. Separately, LEAVING the
+   scale fractional but switching image-rendering to auto (bilinear) was
+   ALSO clean 16/16.
+   That 3-for-3 pattern is exactly what nearest-neighbor resampling at a
+   non-integer device-pixel ratio predicts: at a fractional scale,
+   `image-rendering:pixelated` must pick, per source row, whether it
+   contributes 1 or 2 (or 0) device-pixel rows to the final composite --
+   and WHICH rows get doubled/dropped is a function of the transform's
+   current translate, so the pattern visibly shifts as translate changes
+   during movement (and sits still, unnoticed, at rest). An exact integer
+   ratio has no such ambiguity (every source row maps to exactly N device
+   rows, uniformly); bilinear sidesteps it by blending instead of picking.
+   Root cause: FRACTIONAL CSS scale + nearest-neighbor resampling, not the
+   write cadence or the compositor layer -- both of which this file's
+   first two passes (above) spent their effort on.
+
+   THE FIX: quantizeFollowScale() below snaps the follow camera's target
+   scale to the nearest EXACT integer (>=1x) or EXACT reciprocal-of-an-
+   integer (<=1x, i.e. 1, 1/2, 1/3, 1/4, ...) -- always rounding DOWN
+   (never past the un-quantized target), so the camera only ever shows
+   MORE of the map than the un-quantized follow camera would have, never
+   less. That "only ever zoom out, never in" direction is load-bearing:
+   this camera's job includes guaranteeing the vision-range circle never
+   extends past the visible screen (an off-screen shooter who can see you
+   is a fairness bug, not a cosmetic one -- see fitVisionScale() above),
+   and Math.floor()-with-a-floor-of-1 would have BROKEN that guarantee on
+   BR, where fitVisionScale() legitimately computes BELOW 1x at most
+   ordinary window sizes (a plain integer floor clamped up to a minimum of
+   1x would zoom IN from there, shrinking the visible vision-range circle
+   below its required radius). Reciprocal-of-integer steps below 1x avoid
+   that: they are exact clean-resample ratios exactly like integers are
+   above 1x, and Math.ceil(1/raw) always rounds the STEP toward more
+   zoom-out, never less, so quantizeFollowScale(raw) <= raw unconditionally
+   (verified computationally across both maps and 10 representative window
+   sizes, including several awkward ones (short-and-wide, tall-and-narrow,
+   phone-sized) -- see the commit message for the full table; on every
+   single row the quantized scale was <= the un-quantized target, and on
+   every BR row (where fitVisionScale is actually the binding term) the
+   resulting visible radius comfortably exceeded the required vision
+   radius, by margins from +3% to +85% depending on window size).
+   image-rendering stays "pixelated" -- bilinear (arm C) also fixed the
+   bands, but softens the whole game's pixel-art look, a visual-identity
+   call this bug fix is not in a position to make on its own. */
 const FOLLOW_WRITE_EVERY_N=2; // write the transform at most every Nth rAF tick while following; N=1 would be "every tick" (the old, unthrottled behavior)
+function quantizeFollowScale(raw){
+  // Never returns something LARGER than raw (never zooms in past what the
+  // un-quantized follow camera already guaranteed -- see the big comment
+  // above for why that direction is the one that must never flip). Always
+  // returns an exact integer (>=1) or an exact reciprocal of one (<=1),
+  // which is the actual fix: image-rendering:pixelated at either of those
+  // ratios has no fractional row to fudge, so there is nothing for the
+  // compositor to inconsistently double or drop as translate changes.
+  if(!(raw>0)||!isFinite(raw))return raw; // defensive only -- fitScale/fitVisionScale's own clamps mean this never actually happens
+  if(raw>=1)return Math.floor(raw);
+  return 1/Math.ceil(1/raw);
+}
 let followWriteCounter=0;
 let lastTransformX=null,lastTransformY=null,lastTransformScale=null;
 function updateCamera(){
@@ -966,7 +1030,7 @@ function updateCamera(){
      threat), so clamping to fitScale keeps that case from zooming out into
      empty void chasing an unreachable circle. On BR (496px vision radius on
      a 3211x1713 board) fitVisionScale() is the larger, binding term. */
-  const targetScale=follow?Math.max(fitScale,fitVisionScale()):fitScale;
+  const targetScale=follow?quantizeFollowScale(Math.max(fitScale,fitVisionScale())):fitScale;
   const targetX=follow?selfPos.x:c.width/2;
   const targetY=follow?selfPos.y:c.height/2;
   let easing=false;
@@ -981,16 +1045,36 @@ function updateCamera(){
        c.style.transform is never touched mid-scene here, so if the
        flashing bars Maxwell sees still show up in this mode, they cannot
        be this camera's own per-frame CSS churn. */
-    if(!cameraTransformDirty&&targetScale===camScale&&targetX===camX&&targetY===camY)return;
+    if(!cameraTransformDirty&&targetScale===camScale&&targetX===camX&&targetY===camY){wasFollow=follow;return}
     camScale=targetScale;camX=targetX;camY=targetY;camInited=true;
   }else if(!camInited){
     camScale=targetScale;camX=targetX;camY=targetY;camInited=true;
+  }else if(!wasFollow){
+    /* wasFollow catches a gap camInited alone doesn't: camInited is a
+       SHARED flag also set true, every tick, by the non-follow branch
+       above -- which is exactly what runs while this seat is dead/
+       spectating (seated=false forces follow=false regardless of
+       cameraModeIndex). Without this branch, the first follow tick after
+       a respawn would see camInited already true and fall into the EASE
+       branch below, easing camScale from the whole-map fitScale
+       (unquantized) toward quantizeFollowScale()'s target over ~10-15
+       frames -- passing right back through the fractional values this fix
+       exists to remove, on every single respawn. Only camScale needs to
+       snap here: it's the one value that must never be caught fractional
+       mid-transition; camX/camY keep easing in exactly as before so a
+       respawn still pans into view the same way it always did, not a hard
+       cut. */
+    camScale=targetScale;
+    camX+=(targetX-camX)*CAMERA_EASE;
+    camY+=(targetY-camY)*CAMERA_EASE;
+    easing=true;
   }else{
     camScale+=(targetScale-camScale)*CAMERA_EASE;
     camX+=(targetX-camX)*CAMERA_EASE;
     camY+=(targetY-camY)*CAMERA_EASE;
     easing=true;
   }
+  wasFollow=follow;
   cameraTransformDirty=false;
   /* Write-frequency throttle (see FOLLOW_WRITE_EVERY_N's own comment
      above): only while ONGOING-eased (not the initial snap, not
@@ -1002,13 +1086,18 @@ function updateCamera(){
     followWriteCounter=(followWriteCounter+1)%FOLLOW_WRITE_EVERY_N;
     if(followWriteCounter!==0)return;
   }
-  /* Quantize THEN dedupe: qScale/qX/qY are computed together (translate
-     off the SAME quantized scale, not the raw one) so the written string
-     is always internally consistent, and the write itself is skipped
-     outright when it would be byte-identical to what's already on the
-     element -- the actual mechanism that stops handing the compositor a
-     fresh resample every tick, not just coarser numbers. */
-  const qScale=Math.round(camScale/CAMERA_SCALE_QUANT)*CAMERA_SCALE_QUANT;
+  /* qScale is camScale itself now, UNROUNDED -- quantizeFollowScale()
+     already snapped the follow-mode target (and thus camScale, which only
+     ever SNAPS to it, never eases through it -- see the !camInited branch
+     above) to an exact integer-or-reciprocal, so rounding it again through
+     a non-exact step like the old CAMERA_SCALE_QUANT (0.02, itself not
+     exactly representable in binary float) could only ever reintroduce
+     the same kind of sub-integer fuzz this fix exists to remove. qX/qY
+     (translate) are still rounded to whole device pixels and deduped
+     against the last write -- that part was never the bug (see the big
+     comment above), just a harmless, still-worthwhile cut on redundant
+     writes. */
+  const qScale=camScale;
   const qX=Math.round(innerWidth/2-camX*qScale),qY=Math.round(innerHeight/2-camY*qScale);
   if(qX===lastTransformX&&qY===lastTransformY&&qScale===lastTransformScale)return;
   lastTransformX=qX;lastTransformY=qY;lastTransformScale=qScale;
