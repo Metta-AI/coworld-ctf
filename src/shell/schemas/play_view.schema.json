@@ -70,8 +70,9 @@
       }
     },
     "intent": {
-      "$ref": "intent.schema.json",
-      "$comment": "the seat's own STANDING order (the folded, finished Intent that the body executes); omit before the first standing order"
+      "type": "object",
+      "additionalProperties": true,
+      "$comment": "the seat's own STANDING order, in the canonical intent encoding \u2014 intent.schema.json defines the fields and remains the STRICT schema for a play's emissions; here (engine-outbound) the object is permissive per the direction rule, so a field the engine adds to the standing intent never breaks an older play's view decoding (\u00a75). Omit before the first standing order."
     },
     "world": {
       "type": "object",

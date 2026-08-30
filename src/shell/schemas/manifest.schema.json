@@ -428,6 +428,16 @@
                   "required": [
                     "arms"
                   ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
                 }
               ]
             }

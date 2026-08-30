@@ -296,6 +296,7 @@ suite "shell canonical encoding":
     check badSpec(%*{"kind": "union"})                     # union needs arms
     check badSpec(%*{"kind": "number", "required": true,
       "default": 3})                                       # required+default
+    check badSpec(%*{"kind": "team_list", "min_items": 1})  # list-only cap
     check not badSpec(%*{"kind": "bool", "default": false})
 
   test "seventeen parameters fail the manifest cap (negative control)":
