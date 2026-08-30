@@ -1,0 +1,20 @@
+{
+  "$comment": "§4.3 — one entry of the per-seat durable status list. The COMPLETE canonical serialized value (escaping included) is ≤ StatusEntryMaxBytes (256); reasons and parameter paths are truncated to fit. Every entry carries its server-assigned monotonic ordinal and its immutable origin generation. u64 fields are decimal strings (README).",
+  "title": "status_entry",
+  "type": "object",
+  "required": ["kind", "ordinal", "gen"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"enum": ["module_accepted", "module_ready", "module_rejected", "call_accepted", "call_rejected", "retune_refused", "play_faulted"]},
+    "ordinal": {"type": "string", "$comment": "u64"},
+    "gen": {"type": "string", "$comment": "u64 origin generation: the control generation at admission (for an upload's terminal entry, the ADMISSION generation even when compilation finishes after a bump), or the autonomous event's"},
+    "upload_id": {"type": "string", "$comment": "u64; module_accepted / module_ready / module_rejected"},
+    "proposal_id": {"type": "string", "$comment": "u64; call_accepted / call_rejected"},
+    "name": {"type": "string", "$comment": "module_ready: the manifest-declared bound name"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "$comment": "module_ready: the content hash the name bound to"},
+    "epoch": {"type": "string", "$comment": "u64; call_accepted / retune_refused / play_faulted"},
+    "tick": {"type": "integer", "$comment": "call_accepted: the tick the call became the current declaration"},
+    "entry_id": {"type": "string", "$comment": "retune_refused / play_faulted"},
+    "reason": {"type": "string", "$comment": "module_rejected / call_rejected (carries the offending parameter path) / retune_refused / play_faulted; truncated to fit the 256-byte entry cap"}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$comment": "§6.2 — the manifest a module's play_manifest export emits exactly once at the upload probe. Field names are the design's own. Names are scoped per seat; a reserved name (default, reflex_*) or a wrong abi rejects the module.",
+  "title": "play_manifest",
+  "type": "object",
+  "required": ["abi", "name", "class", "modes", "retune", "params"],
+  "additionalProperties": false,
+  "properties": {
+    "abi": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "$comment": "not default, not reflex_*"},
+    "class": {"enum": ["controller", "overlay"]},
+    "doc": {"type": "string", "maxLength": 256, "$comment": "bytes; omit when empty"},
+    "modes": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"enum": ["ctf", "koth", "br"]}, "$comment": "SET: sorted, deduplicated, nonempty"},
+    "retune": {"type": "boolean", "$comment": "must equal whether play_retune is exported (probe-verified)"},
+    "params": {"type": "object", "$comment": "a ParamSpec schema in the Appendix P.1 language, ≤ 16 parameters, validated against P.1's kinds and caps at upload; {} for a parameterless play"}
+  }
+}
