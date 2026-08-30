@@ -108,12 +108,6 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <script>
 const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),x=c.getContext("2d");
 const p=[0,0,0,255,194,195,199,255,255,241,232,255,255,0,77,255,255,119,168,255,95,87,79,255,171,82,54,255,255,163,0,255,255,236,39,255,126,37,83,255,0,135,81,255,0,228,54,255,29,43,83,255,131,118,156,255,41,173,255,255,255,204,170,255];
-const PaletteRgb=[
-  [0,0,0],[194,195,199],[255,241,232],[255,0,77],
-  [255,119,168],[95,87,79],[171,82,54],[255,163,0],
-  [255,236,39],[126,37,83],[0,135,81],[0,228,54],
-  [29,43,83],[131,118,156],[41,173,255],[255,204,170]
-];
 const u=new URL(location.href),m=location.host?((location.protocol=="https:"?"wss:":"ws:")+"//"+location.host):"ws://localhost:8080";
 /* Reconnect interval in seconds. Used to default to 0 (off) unless a
    caller passed ?reconnect=N -- so any transient close (a server hiccup,
@@ -323,24 +317,49 @@ function decodeSnappy(compressed,width,height){
   if(rgba.length!==expected)throw new Error("Bad sprite pixel length");
   return rgba
 }
+/* Two distinct failure shapes below, and the caller (parseSprite) must be
+   able to tell them apart -- this function used to collapse both into a
+   single `null`, which parseSprite always read as "this sprite was sent
+   raw, reinterpret these bytes as palette indices and skip width*height
+   of them". That reinterpretation was ALWAYS wrong: the server's own
+   wire-format comment (global.nim's packet chunker: "sprite: id,w,h (6)
+   + clen (4) + pixels + llen (2) + label") shows there is no genuine
+   uncompressed-sprite case on the wire -- every 0x01 sprite is this same
+   length-prefixed compressed envelope, always. So a `null` here and an
+   object with pixels:null mean two very different things to the caller:
+     - null: the envelope's OWN length fields don't fit in what's left of
+       this message (remaining<6, or compressedLength/labelLength would
+       overrun the buffer). The true consumed length genuinely can't be
+       known from a truncated/malformed header, so the caller must
+       abandon the rest of this message rather than guess an offset.
+     - {pixels:null,label,offset}: the envelope IS fully present and its
+       lengths are self-consistent (we know exactly where it ends), but
+       decodeSnappy() itself threw (a corrupt frame, a dimension
+       mismatch, SnappyJS unavailable, ...). `offset` is still
+       trustworthy here -- it's read straight off the header, never off
+       the decode result -- so the caller can skip just this one
+       sprite's pixels and keep parsing the rest of the message in sync,
+       instead of silently desyncing every packet type byte after it
+       (this file's own landmine: an unrecovered desync reliably lands
+       on an invalid type byte a few bytes later, throws "Unknown sprite
+       packet type", and that throw is caught by the WS onmessage
+       handler -- which calls w.close() and drops the connection with no
+       visible cause, indistinguishable from any other mystery
+       disconnect). */
 function trySnappySprite(bytes,offset,remaining,width,height){
   if(remaining<6)return null;
   const compressedLength=readU32(bytes,offset);
   if(compressedLength>remaining-6)return null;
   const labelOffset=offset+4+compressedLength,labelLength=readU16(bytes,labelOffset);
   if(labelLength>remaining-4-compressedLength-2)return null;
-  let pixels;
-  try{pixels=decodeSnappy(bytes.slice(offset+4,labelOffset),width,height)}catch(e){return null}
   const labelStart=labelOffset+2,labelEnd=labelStart+labelLength;
-  return {pixels,label:textDecoder.decode(bytes.slice(labelStart,labelEnd)),offset:labelEnd}
-}
-function rawSprite(bytes,offset,width,height){
-  const count=width*height,pixels=new Uint8Array(count*4);
-  for(let j=0;j<count;j++){
-    const idx=bytes[offset+j];
-    if(idx!==0){const rgb=PaletteRgb[(idx-1)&15],out=j*4;pixels[out]=rgb[0];pixels[out+1]=rgb[1];pixels[out+2]=rgb[2];pixels[out+3]=255}
+  try{
+    const pixels=decodeSnappy(bytes.slice(offset+4,labelOffset),width,height);
+    return {pixels,label:textDecoder.decode(bytes.slice(labelStart,labelEnd)),offset:labelEnd}
+  }catch(e){
+    console.error("sprite decode failed; skipping this sprite's pixels, offset stays in sync:",e);
+    return {pixels:null,label:"",offset:labelEnd}
   }
-  return pixels
 }
 function ensureLayer(id){
   if(!layers.has(id))layers.set(id,{id,type:0,flags:1,width:1,height:1,canvas:document.createElement("canvas"),ctx:null,image:null});
@@ -438,8 +457,22 @@ function parseSprite(bytes){
       const id=readU16(bytes,offset),width=readU16(bytes,offset+2),height=readU16(bytes,offset+4);
       offset+=6;
       const snappy=trySnappySprite(bytes,offset,bytes.length-offset,width,height);
-      if(snappy){sprites.set(id,{width,height,pixels:snappy.pixels,label:snappy.label});offset=snappy.offset}
-      else{sprites.set(id,{width,height,pixels:rawSprite(bytes,offset,width,height),label:""});offset+=width*height}
+      if(!snappy){
+        /* Envelope length itself is unrecoverable here (see
+           trySnappySprite's own comment) -- bail out of the WHOLE
+           message rather than guess an offset and desync every message
+           type byte after it. Logged so a real occurrence shows up as a
+           console message, not a silent, unexplained disconnect. */
+        console.error("sprite packet: unrecoverable envelope for sprite "+id+", abandoning this message ("+(bytes.length-offset)+" bytes unparsed)");
+        return;
+      }
+      if(snappy.pixels)sprites.set(id,{width,height,pixels:snappy.pixels,label:snappy.label});
+      // else: decode failed but the envelope was well-formed, so `offset`
+      // (below) is still correct -- just skip storing this one sprite and
+      // keep parsing the rest of the message in sync. A missing sprite id
+      // simply fails drawSprite()'s `if(!sprite)continue` lookup, so the
+      // object that referenced it draws nothing rather than something wrong.
+      offset=snappy.offset;
     }else if(type===0x02){
       const id=readU16(bytes,offset),ox=readI16(bytes,offset+2),oy=readI16(bytes,offset+4),z=readI16(bytes,offset+6),layer=bytes[offset+8],spriteId=readU16(bytes,offset+9);
       offset+=11;
