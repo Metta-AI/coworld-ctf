@@ -87,6 +87,27 @@ suite "freeplay seat takeover":
     check human notin appState.takeovers
     check human notin appState.playerViewers
 
+  test "evictSeatTakeover drops a stale holder's bookkeeping, and only that seat's":
+    # The RESUME half of a reload: a reconnect presenting the seat's own
+    # pinned token supersedes whatever socket still holds it (see
+    # takeoverRejection / httpHandler's TakeoverWebSocketPath) rather than
+    # being refused behind a cleanup pass that only runs once per tick.
+    initAppState()
+    let
+      staleHolder = cast[WebSocket](8)
+      otherSeatHolder = cast[WebSocket](9)
+    appState.takeovers[staleHolder] = seat(2)
+    appState.playerViewers[staleHolder] = initPlayerViewerState()
+    appState.takeovers[otherSeatHolder] = seat(3)
+    appState.playerViewers[otherSeatHolder] = initPlayerViewerState()
+    evictSeatTakeover(2)
+    check staleHolder notin appState.takeovers
+    check staleHolder notin appState.playerViewers
+    # A DIFFERENT seat's holder is untouched -- eviction is scoped to the
+    # one seat the reconnect proved it owns, never a blanket sweep.
+    check otherSeatHolder in appState.takeovers
+    check otherSeatHolder in appState.playerViewers
+
   test "a takeover socket is never a roster player":
     # It must not enter playerIndices: it never joins, never occupies a slot,
     # and never writes a join/leave record.
