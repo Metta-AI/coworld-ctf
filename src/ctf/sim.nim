@@ -439,7 +439,8 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
     return
   let before = sim.players[playerIndex].level
   sim.players[playerIndex].xp = max(0, sim.players[playerIndex].xp + amount)
-  sim.players[playerIndex].level = levelForXp(sim.players[playerIndex].xp)
+  sim.players[playerIndex].level =
+    levelForXp(sim.players[playerIndex].xp, sim.config.brMode)
   let after = sim.players[playerIndex].level
   if after > before:
     sim.awardDeed(
@@ -1655,14 +1656,23 @@ proc killPlayer*(
         if c >= 0 and sim.players[c].team == killer.team and c != killerIndex:
           escortCarrier = c
           break
+      # GLORY v11 (BR increment 3): the three distance gates below are
+      # priced as a FRACTION of THIS map's gunRange, not an absolute px
+      # figure -- see `CtfReferenceGunRange`'s own comment on `glory.nim`.
+      # `denialPxFor` resolves once here (rather than inline in the
+      # KillContext literal below) so the SAME number backs both
+      # `nearVictimHome` and any future caller; `pointBlankPxFor`/
+      # `longshotPxFor` resolve inside `killDeed` itself off `ctx.gunRange`.
+      let denialPxNow = denialPxFor(sim.config.gunRange)
       let ctx = KillContext(
         friendly: victim.team == killer.team,
         victimCarrying: victim.carryingFlag,
         nearVictimHome: dxHome * dxHome + dyHome * dyHome <=
-                        DenialPx * DenialPx,
+                        denialPxNow * denialPxNow,
         victimLevel: victim.level,
         multi: multi,
         rangePx: int(sqrt(float(dx * dx + dy * dy))),
+        gunRange: sim.config.gunRange,
         weaponSpray: weapon == "spray",
         weaponGrenade: weapon == "grenade",
         avengesKiller: killer.lastKilledBy == targetIndex and
@@ -1684,7 +1694,15 @@ proc killPlayer*(
           inc sim.players[killerIndex].grenadeKills
         else:
           inc sim.players[killerIndex].gunKills
-        if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
+        # `longshotKills` tracks the raw DISTANCE fact (same as before this
+        # version), independent of which deed precedence actually resolved
+        # to -- a long-range kill that ALSO satisfies a higher-priority
+        # deed (an ace tag, a denial, ...) still counts here, same as it
+        # did when this compared against the flat `LongshotPx` constant.
+        # Only the THRESHOLD moved (now a fraction of `ctx.gunRange`, see
+        # `CtfReferenceGunRange`), never this counter's own semantics.
+        if ctx.rangePx >= longshotPxFor(ctx.gunRange):
+          inc sim.players[killerIndex].longshotKills
         if ctx.victimLevel >= AceLevel:
           inc sim.players[killerIndex].aceKills
         if ctx.victimCarrying:
