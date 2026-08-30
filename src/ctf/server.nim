@@ -129,6 +129,30 @@ type
     requestedSlot: int
     slotIndex: int
 
+func defuseScriptClose(src: string): string =
+  ## Splicing a staticRead'd JS file inline as `<script>` + content +
+  ## `</script>` is only safe if the content never contains the literal
+  ## bytes "</script" -- HTML's script-raw-text-end scan matches that
+  ## sequence case-insensitively no matter where it sits (inside a JS
+  ## string, a `/* comment */`, anywhere), and ends the tag right there,
+  ## silently truncating the rest of the file and corrupting whatever
+  ## HTML gets parsed after it. player_hud.js's own header comment shows
+  ## its `<script src="player_hud.js"></script>` include line as example
+  ## text, which trips exactly this. Defuse every occurrence (case
+  ## insensitive) by splitting the sequence with a backslash -- inert
+  ## inside a JS comment or string, but no longer a tag-close to the
+  ## HTML parser -- before any inline splice.
+  result = newStringOfCap(src.len)
+  var i = 0
+  while i < src.len:
+    if i + 8 <= src.len and src[i] == '<' and src[i + 1] == '/' and
+        src[i + 2 ..< i + 8].toLowerAscii() == "script":
+      result.add("<\\/script")
+      i += 8
+    else:
+      result.add(src[i])
+      inc i
+
 const
   # Sentinel for `appState.playerIndices`: a player websocket that has
   # registered but has not yet been resolved into a live `sim.players`
@@ -190,10 +214,30 @@ const
   # ~/.nimby/pkgs/bitworld package -- the same ELEVATE-BY-REBUILD move the
   # replay routes above already make. player_controls.js carries the
   # keyboard/mouse -> action-space translation and is inlined so the page
-  # stays a single self-contained file.
+  # stays a single self-contained file. player_hud.js (maxwell/player-hud) gets
+  # the same treatment: the compiled server has no generic static-file route,
+  # so a bare <script src=...> tag resolves to nothing and silently never
+  # loads -- baking it inline at the same marker delivers it by the exact
+  # path the page already uses, with no new route and no new failure mode.
+  # DO NOT move this HTML to a different serving route or base path. Its
+  # OTHER bare <script src=...> tag (snappyjs.min.js) resolves relative to
+  # wherever this page is served from -- currently /client/player, which
+  # happens to line up with bitworld's OWN generic client router serving
+  # /client/snappyjs.min.js (a completely separate staticRead'd asset, from
+  # the vendored bitworld package, not this repo's client/ dir). That
+  # alignment is accidental, not designed, and there is no static route
+  # here to fall back on if it breaks: a human client would silently lose
+  # snappy sprite decode, desync mid-packet, and have its websocket closed
+  # -- bots keep playing, humans go dark. Changing this route is a decision
+  # for whoever owns that risk, not a drive-by tidy-up.
   EmbeddedPlayerClientHtml = staticRead("../../client/player_client.html").replace(
     "<script src=\"player_controls.js\"></script>",
-    "<script>" & staticRead("../../client/player_controls.js") & "</script>"
+    "<script>" & defuseScriptClose(staticRead("../../client/player_controls.js")) &
+      "</script>"
+  ).replace(
+    "<script src=\"player_hud.js\"></script>",
+    "<script>" & defuseScriptClose(staticRead("../../client/player_hud.js")) &
+      "</script>"
   )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
