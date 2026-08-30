@@ -133,15 +133,30 @@ publish_delta() {
 # first time upstream changed one. skopeo reads it from the pinned digest
 # instead, so there is one source for both.
 #
-# WHAT A WORKER IMAGE NEEDS BEYOND THE BASE, and why this reproduces it. caos
+# WHAT A WORKER IMAGE NEEDS BEYOND THE BASE, and why this adds so little. caos
 # does NOT install anything into an image at run time: an image is a worker
-# because it CARRIES the pieces. std/flake-builder's `stack` stage adds them to
-# every flake image, and this adds the same set to an upstream docker one —
-# setuid /usr/bin/caos with a /bin/caos link (runnerd forces that entrypoint),
-# /usr/bin/env for env-shebang scripts, a world-writable /tmp, and a user db so
-# the runner can drop to uid 1000. Plus /worker, the trampoline that makes the
-# image an interpreter for the `worker1` arg (see caos/nim/worker); caos never
-# installs one of those either.
+# because it CARRIES the pieces. std/flake-builder's `stack` stage adds a
+# larger set — /bin/caos, /usr/bin/env, a 1777 /tmp, an /etc/passwd with a uid
+# 1000 — but it stacks onto a SCRATCH nix image, which has none of them. A
+# distro base has all of them already, and adding them again is not harmless.
+#
+# DO NOT PUT ANYTHING UNDER /bin HERE. On a usrmerged base — Ubuntu, Debian,
+# anything modern — `/bin` is a SYMLINK to `usr/bin`, and a layer carrying a
+# `bin/` DIRECTORY replaces that symlink outright. Every one of /bin/bash,
+# /bin/env, /bin/sh then stops existing, and the failure is
+#
+#     worker failed: running /worker: No such file or directory
+#
+# which is exec's ENOENT for a missing INTERPRETER, not a missing /worker. It
+# reads like the trampoline was never installed. (This cost a CI run.) Placing
+# caos at usr/bin/caos gets the same /bin/caos runnerd's forced entrypoint
+# wants, through the base's own symlink, and touches nothing else.
+#
+# Same reasoning for the rest of that set, checked against caos/emsdk's base:
+# /usr/bin/env is a real binary there and must not be shadowed; /tmp is already
+# 1777; uid 1000 already exists (`emscripten`, and it owns the emcc cache the
+# build writes to), so overwriting /etc/passwd would delete the user the
+# toolchain expects.
 #
 # THE caos BINARY IS THIS WORKER'S OWN, which is what makes it the right
 # version by construction — and what makes this function refuse to run on a
@@ -164,18 +179,13 @@ assemble_worker_image() {
     "Run the caos stack on $(jq -r .architecture "$BASE_CONFIG") hardware. This base is pinned upstream and is not ours to rebuild for another architecture — see caos/emsdk/README.md."
 
   img=$(mktemp -d)/image; l=$img/layer00
-  mkdir -p "$l/usr/bin" "$l/bin" "$l/tmp" "$l/etc"
+  mkdir -p "$l/usr/bin"
   install -m 0755 "$src/worker" "$l/worker"
   printf '{"mode":"0755","uid":0,"gid":0}' > "$l/worker.caosmeta"
   # Git trees cannot encode setuid, so a sidecar carries mode/uid/gid and the
   # server applies it when it rebuilds the layer tar.
   cp /bin/caos "$l/usr/bin/caos"
   printf '{"mode":"4755","uid":0,"gid":0}' > "$l/usr/bin/caos.caosmeta"
-  ln -s /usr/bin/caos "$l/bin/caos"
-  ln -s /bin/env "$l/usr/bin/env"
-  printf '{"mode":"1777","uid":0,"gid":0}' > "$l/tmp.caosmeta"
-  printf 'root:x:0:0:root:/root:/sbin/nologin\nworker:x:1000:1000:caos worker:/tmp:/sbin/nologin\n' > "$l/etc/passwd"
-  printf 'root:x:0:\nworker:x:1000:\n' > "$l/etc/group"
 
   printf 'docker://%s' "$BASE_PIN" > "$img/base"
   # Upstream's config, untouched. Cmd and Entrypoint are irrelevant here —

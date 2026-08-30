@@ -22,6 +22,11 @@ the two into a git-docker delta at job time — reading the upstream config with
 skopeo rather than committing a copy of it that could drift from the digest
 above.
 
+It also has to stay a **usrmerged distro base** (`/bin` a symlink to `usr/bin`,
+a real `/usr/bin/env`, a 1777 `/tmp`, uid 1000 present). `assemble_worker_image`
+adds only `/worker` and a setuid `/usr/bin/caos` on that assumption, and the
+comment there says what happens when it does not hold.
+
 **This base is amd64-only.** Upstream publishes a single manifest, not a list,
 so an arm64 caos stack runs it under emulation (works, slowly) and an amd64
 stack runs it natively. The output does not vary with the host either way; wasm
