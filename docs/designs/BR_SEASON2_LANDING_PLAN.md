@@ -68,18 +68,22 @@ branches.
 ## Wave 2 — the two changes that touch gameHash, in this order
 
 1. **Glory increment 3** (level-scaling + ledger INTO gameHash): claims
-   **GV48** and the ONE planned 7-fixture re-record. Sequenced first and
+   **GV48** and the ONE planned 7-fixture re-record. (CONFIRMED by James
+   2026-08-30: "no bump for the dark landing (GV47), GV48 for glory
+   inc3. Our P2 claims no number.") Sequenced first and
    alone so the re-record happens exactly once, on the merged lineage.
    (Re-records are a dice roll — nothing else batches with this.)
-2. **Play-calling P2's Season 2 gate** (call-hash + epoch mixing into
-   gameHash under `season2Shell`): claims **GV49** — the shell's first
-   live version — ONLY if P2 changes gate-off behavior; otherwise no
-   bump, same rule as wave 1. Note for P2: the codec gates BOTH
-   `formatVersion` (:363) and `gameVersion` (:370) with strict equality
-   in the vendored bitworld package, so "old replays keep loading"
-   requires dual-read on both axes (or no bump), and the dual-read lands
-   either in the shared bitworld package or as a coworld-ctf load
-   override — an open design point for James.
+2. **Play-calling P2's Season 2 gate**: claims NO GameVersion number
+   (James's call, 2026-08-30). Compatibility mechanism SETTLED by James:
+   bitworld stays untouched ("we will not change bitworld"); P2 adds a
+   coworld-ctf-side load override plus a gameVersion allowlist in
+   `sim_types.nim`. We add no dual-read of our own.
+
+Huddle addendum (settled same day): the lobby chat phase is engine-native
+and in James's ownership — packets 0xA3/0xB2, join/chat/countdown
+substates, replay record 0x13; `applyShout` stays Playing-only because
+lobby chat is its own packet. Our match app keeps a local huddle for
+onepage bots only (his §9.4) and runs none for shell-built policies.
 
 ## The replay format bump (P2, coordinated)
 
