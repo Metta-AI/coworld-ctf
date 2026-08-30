@@ -122,11 +122,18 @@ const
     ## Own weapon readout, `weapon <token>`. Authoritative for your own hands;
     ## inferring your weapon from floating markers gets it wrong under fog.
   LabelPrefixKd* = "kd "
-    ## Own kill/death readout, `kd <kills>/<deaths>` — the seat's own
-    ## Player.kills/Player.deaths (sim_types.nim, real attribution at the
-    ## kill/death sites in roster.nim's recordKill/recordDeath; already mixed
-    ## into gameHash by sim_state.nim, so this label is pure emission of
-    ## state the sim already tracks, never a new source of truth).
+    ## Own kill/death readout, `kd <kills>/<deaths>` — a MATCH statistic, not
+    ## a per-round one: it reads roster.nim's `matchKillsDeaths` (the
+    ## address-keyed RewardAccount tally recordKill/recordDeath maintain),
+    ## NOT the per-round Player.kills/Player.deaths (sim_types.nim) that
+    ## reset every startGame. Real attribution either way — both counters are
+    ## driven from the same recordKill/recordDeath call sites — but the
+    ## Player fields are mixed into gameHash and zeroed at every round
+    ## boundary (right for replay determinism and per-round reward math),
+    ## while this label needs the number a human watches to survive that
+    ## boundary, so it reads the account-level total instead. This label is
+    ## pure emission of state the sim already tracks, never a new source of
+    ## truth.
     ##
     ## HUMAN-WIRE ONLY, deliberately: `buildSpriteProtocolPlayerUpdates` gates
     ## this marker on `not spritesOff`, the same flag that already splits the
@@ -141,14 +148,22 @@ const
     ## human-HUD request this label was added for.
   LabelPrefixRoster* = "roster "
     ## One roster row, restated on the PLAYER stream: `roster <team> <name>
-    ## <lives> <kills>/<deaths>`. This is the SAME underlying data
-    ## addScoreboard already draws as visible pixel rows on the separate
-    ## global/spectator stream (`/client/global`, "score "-prefixed — see
-    ## that label's own doc in global.nim) — restated here as a plain label,
-    ## no pixel text rendered, because a human `/client/player` connection
-    ## (the one a live gameplay client actually holds) never sees the global
-    ## stream at all, and a second socket just to read a scoreboard was
-    ## rejected as needlessly doubling the client's heaviest stream.
+    ## <lives> <kills>/<deaths>`. Same per-player roster addScoreboard also
+    ## draws as visible pixel rows on the separate global/spectator stream
+    ## (`/client/global`, "score "-prefixed — see that label's own doc in
+    ## global.nim) — restated here as a plain label, no pixel text rendered,
+    ## because a human `/client/player` connection (the one a live gameplay
+    ## client actually holds) never sees the global stream at all, and a
+    ## second socket just to read a scoreboard was rejected as needlessly
+    ## doubling the client's heaviest stream.
+    ##
+    ## `<kills>/<deaths>` here is MATCH-scoped (roster.nim
+    ## `matchKillsDeaths`), same source and same reasoning as
+    ## `LabelPrefixKd` below — NOT byte-identical to addScoreboard's own
+    ## "score" row, which still restates the per-round Player.kills/
+    ## Player.deaths (a spectator dashboard concern, out of scope for the
+    ## player-HUD fix this field exists for; worth revisiting if that
+    ## surface should match).
     ##
     ## `<name>` is DELIBERATELY the anonymous per-team slot identity
     ## (IdentityNames, via `sim.slotIdentityIndex` — the exact scheme

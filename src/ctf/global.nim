@@ -9000,17 +9000,28 @@ proc buildSpriteProtocolPlayerUpdates*(
       SpritePlayerWeaponSpriteId
     )
 
-    # Own kill/death readout, human viewers only: Player.kills/Player.deaths
-    # are real attribution (roster.nim recordKill/recordDeath) already mixed
-    # into gameHash, so this is pure emission of state the sim already
-    # tracks — the same class as the lives counter above. Gated on
+    # Own kill/death readout, human viewers only: MATCH-scoped attribution
+    # (roster.nim recordKill/recordDeath, read back through
+    # matchKillsDeaths), not the per-round Player.kills/Player.deaths — those
+    # reset every startGame (every round, including a BR match's
+    # resetToLobby-then-rejoin between rounds), which is correct for
+    # gameHash and per-round reward math but wrong for a HUD readout: a
+    # player's K/D is a MATCH statistic and must not visibly reset off a
+    # round boundary (or, a fortiori, off the player's own death — killPlayer
+    # never touches either counter). matchKillsDeaths is deliberately NOT
+    # itself mixed into gameHash (same as every other rewardAccounts field —
+    # see gameHash's own comments), but it IS a pure function of the
+    # already-hashed recordKill/recordDeath call sequence, so it replays
+    # identically without needing to be hashed itself. Gated on
     # `not spritesOff` (unlike lives/weapon/own-aim, which stay ungated) so a
     # scripted/policy viewer's byte stream is untouched by this addition; see
     # labels.nim LabelPrefixKd for why the bot side was left alone.
     if not spritesOff:
-      let kd = sim.buildSpriteProtocolTextSprite(
-        [labelKd(player.kills, player.deaths)], 2'u8
-      )
+      let
+        kdTally = sim.matchKillsDeaths(playerIndex)
+        kd = sim.buildSpriteProtocolTextSprite(
+          [labelKd(kdTally.kills, kdTally.deaths)], 2'u8
+        )
       currentIds.add(SpritePlayerKdObjectId)
       result.addSpriteChanged(
         nextState.spriteDefs,
@@ -9018,7 +9029,7 @@ proc buildSpriteProtocolPlayerUpdates*(
         kd.width,
         kd.height,
         kd.pixels,
-        labelKd(player.kills, player.deaths)
+        labelKd(kdTally.kills, kdTally.deaths)
       )
       result.addBoardObject(
         SpritePlayerKdObjectId,
@@ -9056,6 +9067,10 @@ proc buildSpriteProtocolPlayerUpdates*(
         let
           rowPlayer = sim.players[i]
           rowIdentity = IdentityNames[sim.slotIdentityIndex(rowPlayer.joinOrder)]
+          rowKd = sim.matchKillsDeaths(i)
+            ## Match-scoped, same as the own-kd label above — NOT
+            ## rowPlayer.kills/deaths, which reset every round. rowPlayer.lives
+            ## stays round-scoped on purpose: lives ARE a per-round resource.
         currentIds.add(rosterObjectId(i))
         result.addSpriteChanged(
           nextState.spriteDefs,
@@ -9065,7 +9080,7 @@ proc buildSpriteProtocolPlayerUpdates*(
           newRgbaPixels(1, 1),
           labelRoster(
             teamText(rowPlayer.team), rowIdentity,
-            rowPlayer.lives, rowPlayer.kills, rowPlayer.deaths
+            rowPlayer.lives, rowKd.kills, rowKd.deaths
           )
         )
         result.addBoardObject(
