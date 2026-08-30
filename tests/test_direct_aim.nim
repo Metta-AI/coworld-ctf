@@ -103,6 +103,30 @@ suite "direct aim: the gate discriminates":
     check capabilitiesJson().parseJson()["seatTakeover"].getBool()
     initAppState()
 
+  test "all four armed gates are mirrored on /capabilities, not just two":
+    # truth-lens audit #3: /capabilities used to report only seatTakeover and
+    # directAim, silently omitting allowAimAssist/allowCallouts even when the
+    # running config had them on. A league config (nothing armed) must still
+    # refuse on all four; a freeplay config with every gate on must advertise
+    # all four honestly, driven off the real config fields, not literals.
+    initAppState()
+    appState.config = leagueConfig()
+    let refused = capabilitiesJson().parseJson()
+    check refused["seatTakeover"].getBool() == false
+    check refused["directAim"].getBool() == false
+    check refused["allowAimAssist"].getBool() == false
+    check refused["allowCallouts"].getBool() == false
+    var armed = playConfig()
+    armed.allowAimAssist = true
+    armed.allowCallouts = true
+    appState.config = armed
+    let granted = capabilitiesJson().parseJson()
+    check granted["seatTakeover"].getBool()
+    check granted["directAim"].getBool()
+    check granted["allowAimAssist"].getBool()
+    check granted["allowCallouts"].getBool()
+    initAppState()
+
 suite "direct aim: a PLAY replay says so, and re-simulates":
   test "a league replay's config JSON does not gain a byte":
     var config = defaultGameConfig()
