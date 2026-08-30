@@ -105,6 +105,29 @@ suite "glory: one kill, one deed":
     ctx.nearVictimHome = true
     check killDeed(ctx) == dDenial
 
+  test "BR's partner-avenge gate mints the SAME payback as avenging your own killer":
+    # GLORY v11 (BR increment 3): `avengesKiller` is structurally dead in
+    # BR (a killer who had ever died is already permanently eliminated),
+    # so `avengesPartner` -- killing your DEAD DUO PARTNER's own killer --
+    # is BR's own route onto "PAYBACK". Same deed, same precedence slot.
+    # rangePx sits strictly between PointBlankPx and LongshotPx (both
+    # default-unresolved to their unscaled CTF reference here) so neither
+    # shot-distance branch preempts the precedence check below.
+    check killDeed(KillContext(avengesPartner: true, rangePx: 300)) == dRevengeKill
+    check killDeed(KillContext(avengesKiller: true, rangePx: 300)) ==
+      killDeed(KillContext(avengesPartner: true, rangePx: 300))
+
+  test "partner-avenge yields to every higher-precedence descriptor, same as avengesKiller":
+    # The precedence law must hold identically for both gates onto
+    # `dRevengeKill` -- an ace tag, a denial, a longshot, ... all still
+    # outrank "payback", whichever gate fired it.
+    check killDeed(KillContext(avengesPartner: true, victimLevel: AceLevel)) ==
+      dAceTag
+    check killDeed(
+      KillContext(avengesPartner: true, victimCarrying: true, nearVictimHome: true)
+    ) == dDenial
+    check killDeed(KillContext(avengesPartner: true, friendly: true)) == dTeamKill
+
   test "a kill resolves to exactly one deed for every context":
     # Exhaustive over the boolean context: the point is that `killDeed` is
     # total and single-valued, so no combination can ever mint twice. This is

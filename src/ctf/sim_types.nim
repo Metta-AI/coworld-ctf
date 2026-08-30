@@ -2259,6 +2259,19 @@ type
     escortKills*: int          ## GLORY: non-friendly kills landed while a
                                ## TEAMMATE (not this cog) ran the enemy
                                ## heart (the `Escort Duty` gate). Flag-keyed.
+    avengedPartner*: bool      ## GLORY v11 (BR increment 3): true once this
+                               ## cog has minted `dRevengeKill` ("PAYBACK")
+                               ## by killing its DEAD DUO PARTNER's own
+                               ## killer (`partner.lastKilledBy`) -- BR's
+                               ## own gate onto `dRevengeKill`, since
+                               ## `avengesKiller` (avenging YOUR OWN killer)
+                               ## is structurally unreachable in BR (a
+                               ## killer who had ever died is already
+                               ## permanently eliminated, never fires
+                               ## again). Tapers this BR gate to at most one
+                               ## mint per cog per episode -- see
+                               ## `killPlayer`'s own comment (sim.nim).
+                               ## CAUSAL (gates a deed): in gameHash.
     # ── GLORY analysis-only (never in gameHash) ─────────────────────────
     arcEnemyKillsThisFire*: int ## GLORY: non-friendly kills scored by the
                                ## current spray activation; feeds

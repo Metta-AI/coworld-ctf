@@ -2038,6 +2038,17 @@ type
     weaponSpray*: bool
     weaponGrenade*: bool
     avengesKiller*: bool   ## the victim had killed this cog inside RevengeTicks.
+    avengesPartner*: bool  ## GLORY v11 (BR increment 3): the victim is the
+                           ## same cog that killed THIS killer's DEAD DUO
+                           ## PARTNER (`partner.lastKilledBy`) -- BR's own
+                           ## gate onto "PAYBACK", since `avengesKiller`
+                           ## above is structurally unreachable there (a
+                           ## killer who had ever died is already
+                           ## permanently eliminated in a one-life episode,
+                           ## so it can never be the one pulling the
+                           ## trigger now). Filled at the kill site
+                           ## (sim.nim's `killPlayer`), same discipline as
+                           ## every other `KillContext` field.
     fleeing*: bool         ## the victim was moving away from the killer.
     escorted*: bool        ## a TEAMMATE of the killer -- not the killer --
                            ## currently carries the enemy heart. Distinct from
@@ -2083,7 +2094,7 @@ func killDeed*(ctx: KillContext): Deed =
   if ctx.multi: return dSplashMultiKill
   if ctx.rangePx >= longshotPxFor(ctx.gunRange): return dLongshotKill
   if ctx.rangePx <= pointBlankPxFor(ctx.gunRange): return dPointBlankKill
-  if ctx.avengesKiller: return dRevengeKill
+  if ctx.avengesKiller or ctx.avengesPartner: return dRevengeKill
   if ctx.fleeing: return dRunDown
   if ctx.escorted: return dEscortKill
   if ctx.weaponSpray: return dSprayKill
