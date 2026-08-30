@@ -3,7 +3,15 @@
 Watches `rt_episode/episode-s830.bitreplay`, the wave-1 launch candidate:
 seed 20260830, BR_FIRST_WAIT=1500, 16 duos, map
 `br-match-showmatch-4242.json`, roster `rt_episode/roster_v2.json`.
-Winner: YELLOW (TIGHT-TRADE play), 831 glory.
+Winner: PEACH (TIGHT-TRADE play), 626 glory, GameOver at tick 4433.
+
+Recorded fresh against GameVersion 47 (main @ 0cc60bf2) — the prior take
+of this same seed/roster/map, recorded on GV45, had YELLOW (also
+TIGHT-TRADE) win at 831 glory. Episode outcomes are GameVersion-sensitive:
+a re-record on a new GV may legitimately change the winner, since stats
+and combat-tuning changes between versions can shift who converts fights.
+Don't expect this file's specific winner to be stable across future GV
+bumps either.
 
 ## Recipe
 
@@ -19,8 +27,14 @@ Then open:
 
     http://127.0.0.1:8767/index.html?replay=episode-s830.bitreplay
 
-It autoplays. Deep-link to a paused tick with `&t=<tick>` (e.g. `&t=1800`
-for mid-episode, zone visibly closing; `&t=5000` clamps to the endcard).
+It autoplays. Deep-link to a paused tick with `&t=<tick>` (e.g. `&t=3200`
+for mid-episode, zone visibly closing — Playing starts at tick 1016, the
+zone holds until 2516, then shrinks in ~528-tick steps; GameOver lands at
+4433 — `&t=5000` clamps to the endcard). These tick numbers are specific
+to this recording; a future re-record can shift them (see the
+GameVersion-sensitivity note above) — re-derive with
+`tools/dump_glory_from_replay` (prints the final tick) if this file
+changes again.
 
 The build takes ~1 minute (pinned emscripten/Nim toolchain in
 `Dockerfile.replay-viewer`). `static-replay-viewer/` is gitignored — it's
@@ -50,7 +64,7 @@ compilation fails with `Error: cannot open file: bitworld/spriteprotocol`.
 
     nim c -d:release -o:/tmp/dump_glory tools/dump_glory_from_replay.nim
     /tmp/dump_glory rt_episode/episode-s830.bitreplay
-    # -> winner Yellow, 831 glory, 16 teams nonzero, zone center printed
+    # -> winner Peach, 626 glory, 16 teams nonzero, zone center printed
 
 `REQUIRE_MID_FLASH=0` because this recording only flashes each cog's
 starting page (episode-start window) — there's no live mid-match
