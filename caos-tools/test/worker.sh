@@ -81,10 +81,21 @@ narrow)
   # The two top-level JSON files are read at RUN time, not compile time:
   # tests/helpers.nim sets `GameDir = currentSourcePath.parentDir.parentDir`
   # and chdirs there, so the suite resolves them against the tree it was
-  # COMPILED in. Verified as the only top-level files any .nim actually reads
-  # (Dockerfile and AGENTS.md appear in comments only).
-  narrow_tree /cas/ws src tests tools players client data \
-    config.json coworld_manifest_paintbot.json
+  # COMPILED in. replay-viewer/ and caos-tools/ are read the same way and for
+  # the same reason: tests/test_pb_viewer.nim reads
+  # replay-viewer/static_replay{,_worker}.js, and tests/test_pb_startup.nim
+  # asserts both game entrypoints are declared in the tools that now build the
+  # image. Leaving one out does not skip those tests — it makes them die on
+  # `cannot open: <path>`, which reads like a broken test rather than a missing
+  # input.
+  #
+  # caos-tools/ IN THE COMPILE TREE IS A REAL COST, and it is the right one:
+  # editing a worker script re-keys this compile, so a tool change recompiles
+  # the suite (ccache-backed, so ~seconds) rather than silently testing against
+  # a tree that no longer contains what the test reads. Tool edits are rare
+  # next to source edits; a test that cannot see its own fixture is not.
+  narrow_tree /cas/ws src tests tools players client data replay-viewer \
+    caos-tools config.json coworld_manifest_paintbot.json
 
   deps=$(caos curry --base:@=/cas/args/base \
     "--worker1:@=/cas/args/in/caos-tools/lib/deps.sh") || fail "currying deps"
@@ -136,7 +147,11 @@ compile)
   # unchanged. Built here because this is where /cas/args/ws is already
   # materialized. `ws` still rides along — fanout greps the sources for test
   # names, and only the MAPPER gets the runtime tree.
-  runtime_tree /cas/rtws /cas/args/ws
+  # The .nim files the suite reads as DATA, named here beside the tests that
+  # read them (see runtime_tree): each is asserted on for what it declares, so
+  # the source IS the fixture and editing one must re-run the suite.
+  runtime_tree /cas/rtws /cas/args/ws \
+    src/ctf/server.nim src/ctf/decide.nim src/ctf/llm.nim src/paintball_player.nim
 
   fwd=("--worker1:@=/cas/args/worker1" --stage=fanout
        "--ws:@=/cas/args/ws" "--rtws:@=/cas/rtws" "--runner:@=/cas/args/runner")

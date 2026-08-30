@@ -9,7 +9,7 @@
     # from cache rather than rebuilding against ours.
     caos.url = "github:Metta-AI/caos";
 
-    # Nimby is the project's dependency manager (see README / Dockerfile). It is
+    # Nimby is the project's dependency manager (see README). It is
     # a single-file, stdlib-only Nim program, so we build it from source instead
     # of downloading the release binary (which does not run unpatched on Nix).
     nimby-src = {
@@ -168,6 +168,14 @@
             env = {
               # curly resolves libcurl.so.4 at runtime, not link time.
               LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
+
+              # Where `caosd up` publishes the stack, and the only way caos-cli
+              # finds it: the variable has NO default, and without it every
+              # tool call dies with "CAOS_SERVER_URL must be set to the caos
+              # server URL". Setting it here means entering this shell is the
+              # whole setup — which is what CI relies on, since every job there
+              # is `nix develop --command`.
+              CAOS_SERVER_URL = "http://localhost:9090";
             };
 
             # Quiet under direnv / `nix develop --command` — only greet a
@@ -182,6 +190,9 @@
                 fi
                 cat <<'EOF'
 
+  caos         caosd up            (once), then caos-cli run-tool build|test
+               needs a git remote named caos:
+               git remote add caos $CAOS_SERVER_URL
   run server   COGAME_HOST=0.0.0.0 COGAME_PORT=2000 \
                  COGAME_CONFIG_URI=file://$PWD/config.json nim r src/ctf.nim
   run tests    nim c -r tests/tests.nim            (from the repo root)
@@ -192,8 +203,9 @@
   gcc is ccache-wrapped: a forced rebuild (nim c -f) is ~4s instead of ~15s
   once warm. Hits need a STABLE --nimcache (paths are baked into the C).
 
-  The static replay viewer (wasm) builds through Docker —
-  Dockerfile.replay-viewer pins emsdk; use tools/build_replay_viewer.sh.
+  The static replay viewer (wasm) builds in caos on the pinned emsdk
+  image (caos/emsdk): caos-cli run-tool build-viewer, or test-viewer to
+  run it. tools/build_replay_viewer.sh is the same tool, for coworld build.
 
 EOF
               fi

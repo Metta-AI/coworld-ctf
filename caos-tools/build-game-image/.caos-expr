@@ -1,0 +1,21 @@
+# The `build-game-image` tool (caos SPEC, "Tools"): assemble the game image
+# around the two binaries `build` already compiled.
+#
+# The docs are a HERE-STRING, so editing them re-keys this tool's arg tree and
+# NOTHING it builds.
+HELP=<<END
+Assemble the game image — the one `coworld upload-coworld` publishes — from the
+binaries `build` produces, and return it as a git-docker delta. ONE image, TWO
+entry points: /bin/ctf (the server, which also serves the paintball KOTH mode
+when the config gates it on) and /bin/paintball-player (the thin paintball seat
+registrar), plus data/ and the top-level JSON at /workspace/ctf.
+
+This image sits on the SAME nix runtime base as a policy image, and that is
+what makes it assemblable rather than buildable: nim bakes absolute /nix/store
+paths into a binary, so a binary compiled on caos/nim runs only on a runtime
+built from the same nixpkgs pin. The 68 MB base is named, never copied — it
+does not pass through the CAS, and a game rebuild re-keys only its own layer.
+@param [runtime] Runtime base to layer onto. Default: the tag caos-tools/lib/image.sh names, which is the nixpkgs pin caos/nim shares.
+@param [build-salt] Force a rebuild — passed through to `build`.
+END
+curry --base:@=DEEP-DEPS/imgtools --worker1:@=worker.sh --nim:@=DEEP-DEPS/nim --help=$HELP

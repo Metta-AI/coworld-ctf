@@ -24,11 +24,6 @@ set -euo pipefail
 
 fail() { echo "BUILD-IMAGE FAIL: $*" >&2; exit 1; }
 
-# The runtime base the Dockerfile names. Kept in step with it BY HAND, which is
-# the coupling this repo chose to make visible rather than clever: the tag is
-# the nixpkgs pin, and a mismatch dies loudly at startup rather than silently.
-DEFAULT_RUNTIME=ghcr.io/metta-ai/coworld-ctf-runtime:b47ad65d
-
 stage=narrow
 if caos get /cas/args/stage 2>/dev/null; then stage=$(cat /cas/args/stage); fi
 
@@ -43,6 +38,9 @@ narrow)
   # not reach a sibling tool. (The existing tools reach caos-tools/lib the same
   # way.)
   caos get -r /cas/args/in/caos-tools/build-player
+  # -r for the same reason: lib/image.sh is CURRIED into the assemble job, so
+  # that job needs no opinion about where in the tree it came from.
+  caos get -r /cas/args/in/caos-tools/lib
 
   # Hand the whole tree to build-player and let ITS narrow stage decide what a
   # policy build reads. Duplicating that list here is how the two would drift.
@@ -53,7 +51,8 @@ narrow)
   player=$(caos curry --base:@=/cas/args/nim "${fwd[@]}") \
     || fail "currying build-player"
 
-  next=("--worker1:@=/cas/args/worker1" --stage=assemble)
+  next=("--worker1:@=/cas/args/worker1" --stage=assemble
+        "--lib:@=/cas/args/in/caos-tools/lib/image.sh")
   if [ -e /cas/args/player ]; then next+=("--player:@=/cas/args/player"); fi
   if [ -e /cas/args/runtime ]; then next+=("--runtime:@=/cas/args/runtime"); fi
   then_=$(caos curry --base:@=/cas/args/base "${next[@]}") \
@@ -65,6 +64,9 @@ narrow)
 assemble)
   # --result is build-player's tree: { bin, report, status }.
   caos get -r /cas/args/result
+  caos get -r /cas/args/lib
+  # shellcheck source=../lib/image.sh
+  source /cas/args/lib
 
   status=$(cat /cas/args/result/status 2>/dev/null || echo 1)
   R=/tmp/result; rm -rf "$R"; mkdir -p "$R"
@@ -87,31 +89,12 @@ assemble)
   # The base's CONFIG. It is not ours to invent: it carries SSL_CERT_FILE (a
   # store path unknowable without nix) and the rootfs diff_ids that every later
   # layer stacks onto, so the delta must inherit it rather than construct one.
-  #
-  # skopeo rather than curl: it already speaks the token dance, the auth file
-  # and both manifest media types, and it is in this image precisely so we do
-  # not reimplement a registry client badly.
-  #
-  # TLS is verified for a real registry and skipped for a bare host:port, which
-  # is docker's own rule for telling a registry name from a path segment: a
-  # host with no dot is local (the caos stack's own registry answers plain HTTP
-  # on caos-registry:5000). Nothing secret moves here — the base is public and
-  # this is a pull.
-  tlsflag=--tls-verify=true
-  case "${runtime%%/*}" in *.*) ;; *) tlsflag=--tls-verify=false ;; esac
-  skopeo inspect --config $tlsflag "docker://$runtime" > /tmp/base-config.json \
-    || fail "cannot read the config of $runtime (is the base published?)"
-
-  # PIN THE BASE BY DIGEST. caos refuses a mutable tag in a git-docker delta
-  # ("is mutable; use <name>@sha256:..."), and it is right to: the delta is
-  # content-addressed, so a base that could be re-tagged underneath it would
-  # make one hash mean two different images. Resolving here also means the
-  # recorded base is the exact bytes this build read the config from, not
-  # whatever the tag points at when someone later converts the tree.
-  basedig=$(skopeo inspect $tlsflag --format '{{.Digest}}' "docker://$runtime") \
-    || fail "cannot resolve $runtime to a digest"
-  basepin="${runtime%%:*}@$basedig"
-  case "$runtime" in *:*/*|*/*:*) basepin="${runtime%:*}@$basedig" ;; esac
+  resolve_base "$runtime"
+  # Inheriting that config means inheriting its `architecture` too, so the
+  # binary had better agree with it. See lib/image.sh — nothing downstream of
+  # here checks.
+  assert_image_arch "$BASE_CONFIG" /cas/args/result/bin "the $player policy binary" \
+    "Run the caos stack on matching hardware, or point --runtime at a base built for this one."
 
   img=$R/image; rm -rf "$img"; mkdir -p "$img/layer00/bin"
   cp /cas/args/result/bin "$img/layer00/bin/$player"
@@ -120,21 +103,24 @@ assemble)
   # setuid /bin/caos).
   printf '{"mode":"0755","uid":0,"gid":0}' > "$img/layer00/bin/$player.caosmeta"
 
-  printf 'docker://%s' "$basepin" > "$img/base"
+  printf 'docker://%s' "$BASE_PIN" > "$img/base"
   # Cmd names THIS policy. Everything else — Env, and SSL_CERT_FILE in
   # particular — is the base's and is carried through untouched.
-  jq --arg cmd "/bin/$player" '.config.Cmd = [$cmd]' /tmp/base-config.json \
+  jq --arg cmd "/bin/$player" '.config.Cmd = [$cmd]' "$BASE_CONFIG" \
     > "$img/config.json" || fail "rewriting the image config"
 
+  publish_delta "$img" "$R"
+
   { echo "policy:  players/$player/$player.nim"
-    echo "base:    $basepin"
+    echo "base:    $BASE_PIN"
     echo "         (referenced by digest, not copied — resolved from $runtime)"
     echo "layer:   /bin/$player  ($(stat -c %s /cas/args/result/bin) bytes)"
     echo "config:  the base's, with Cmd rewritten to /bin/$player"
+    echo "ref:     $IMAGE_REF"
     echo
-    echo "image/ is a git-docker delta the server converts to a digest. The"
-    echo "68 MB base never enters the CAS; a policy rebuild moves only the"
-    echo "layer above. Hand image/ to upload-image."
+    echo "image/ is the git-docker delta; ref/ is what the server converted it"
+    echo "to. The 68 MB base never enters the CAS; a policy rebuild moves only"
+    echo "the layer above. Hand image/ to upload-image, or the ref to a daemon."
     echo
     echo "BUILD-IMAGE OK"
   } > "$R/report"

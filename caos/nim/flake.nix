@@ -102,6 +102,11 @@
             # forced rebuild from ~15s to ~4s and is backed by redis, so a
             # fresh container starts warm without a volume.
             pkgs.ccache
+            # The suite shells out to `python3 tools/replay_summary.py` and
+            # asserts on its JSON, so the interpreter is a TEST INPUT, not a
+            # convenience: without it the job exits 127 and the failure reads
+            # like a broken script rather than a missing toolchain.
+            pkgs.python3
             # nimby clones the pinned deps; it shells out to git and curl.
             nimby
             pkgs.git

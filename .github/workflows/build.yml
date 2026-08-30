@@ -1,6 +1,25 @@
 # NOTE: the upload workflow (upload-coworld-paintbot.yml) triggers via workflow_run
 # on this workflow's NAME. Renaming "Github Actions" silently stops all
 # league uploads — update that file in the same commit if you rename it.
+#
+# EVERYTHING HERE RUNS INSIDE caos. The jobs below install nix, enter the repo's
+# dev shell (which pins caos through flake.lock), bring a stack up and call a
+# tool. What that buys over the previous nimby-plus-cache setup:
+#
+#   - one compile. `run-tool build` produces the SHIPPED binaries with the
+#     shipped flags, and build-game-image layers exactly those. CI used to
+#     compile the game to test it and the upload compiled it again to ship it.
+#   - caching that is content-addressed rather than key-guessed. The old
+#     actions/cache key was nimby.lock plus the commit sha, so every push saved
+#     a fresh copy and restored a near-miss; caos keys each job on its actual
+#     inputs, so an untouched module does not recompile and an untouched test
+#     does not re-run.
+#   - the same tools a person runs locally. A red CI job reproduces with the
+#     one command in its step.
+#
+# RUNNERS ARE amd64 ON PURPOSE. Both image tools assert that the binary they
+# layer matches the base's architecture (caos-tools/lib/image.sh), and the
+# pinned emsdk image is amd64-only, so the wasm job cannot run anywhere else.
 name: Github Actions
 on:
   push:
@@ -9,12 +28,15 @@ on:
     branches: [ main ]
   workflow_dispatch:
 jobs:
-  # Fast, isolated job: it doesn't touch the matrix build/test shards or the
-  # wasm replay-viewer build below, so a GameVersion collision fails CI in
-  # seconds without slowing either of them down. See
+  # Fast, isolated job: it doesn't touch the caos jobs below, so a GameVersion
+  # collision fails CI in seconds without slowing them down. See
   # tools/ci/check_gameversion.sh for what it actually compares — not the
   # number (a colliding branch and its base can both read e.g. "42") but the
   # rule headline the number is attached to.
+  #
+  # NOT a caos tool, and it should not become one: it compares this tree
+  # against the PR's BASE, and a caos job is handed a tree with no git history
+  # to compare against.
   gameversion-tripwire:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -24,103 +46,43 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin '${{ github.base_ref }}'
           tools/ci/check_gameversion.sh FETCH_HEAD
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev
-      - uses: treeform/setup-nim-action@v6
-      - name: Pin nimby 0.1.26
-        # The setup action's nim tarball bundles whatever nimby was current when
-        # the release asset was (re)built; it drifted 0.1.26 -> 0.2.1 under the
-        # same tag on 2026-08-23 and 0.2.1 refuses `sync -g` inside a git
-        # checkout, turning main red with zero repo changes. Pin the same
-        # version the Dockerfile already pins (Dockerfile:15) so CI and the
-        # image builds agree, on purpose, forever.
-        run: |
-          curl -sSL -o "$HOME/.nimby/nim/bin/nimby"             https://github.com/treeform/nimby/releases/download/0.1.26/nimby-Linux-X64
-          chmod +x "$HOME/.nimby/nim/bin/nimby"
-          nimby --version
-      - run: nimby sync nimby.lock -g
-      # Reuse compiled C objects across runs: the release build of the deps
-      # (pixie et al.) dominates the compile step and rarely changes. The key
-      # includes the commit so every run saves a fresh cache; restore falls
-      # back to the newest cache for the same dependency lock.
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/nim
-          key: nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-${{ github.sha }}
-          restore-keys: |
-            nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-
-      - run: nim check src/ctf.nim
-      - name: Compile test shards (release)
-        run: |
-          for i in 1 2 3 4; do
-            nim c -d:release --hints:off -o:shard_$i tests/shard_$i.nim &
-            eval "pid_$i=\$!"
-          done
-          fail=0
-          for i in 1 2 3 4; do
-            eval "wait \$pid_$i" || fail=1
-          done
-          exit $fail
-      - name: Run test shards in parallel
-        run: |
-          for i in 1 2 3 4; do
-            ./shard_$i > shard_$i.log 2>&1 &
-            eval "pid_$i=\$!"
-          done
-          fail=0
-          for i in 1 2 3 4; do
-            eval "wait \$pid_$i" || fail=1
-          done
-          for i in 1 2 3 4; do
-            echo "::group::shard $i"
-            cat shard_$i.log
-            echo "::endgroup::"
-          done
-          exit $fail
+      - uses: DeterminateSystems/nix-installer-action@v16
+      # caos moves objects over git, so the stack has to be a remote. The URL
+      # is the one caosd publishes; CAOS_SERVER_URL alone is not enough.
+      - name: Point this checkout at the stack
+        run: git remote add caos http://localhost:9090
+      - name: Bring the caos stack up
+        run: nix develop --command caosd up
+      # Two tools, one stack. `build` compiles what ships; `test` builds the
+      # suite from the same tree and fans it out one job per module.
+      - name: build
+        run: nix develop --command caos-cli run-tool build
+      - name: test
+        run: nix develop --command caos-cli run-tool test
+
   # The static replay viewer ships as wasm32: Nim `int` is 32 bits there
   # (overflow checks trap on math that is silently fine on 64-bit native)
-  # and the address space ends at 2 GB. The native shards above can never
+  # and the address space ends at 2 GB. The native suite above can never
   # catch that class of bug — twice it reached prod and every hosted replay
   # hung on "WARMING UP" (PR #189). This job builds the EXACT bundle the
-  # observatory serves (same pinned emsdk+nim via Dockerfile.replay-viewer)
-  # and loads + steps real fixture replays inside the wasm runtime.
+  # observatory serves — the same caos tool tools/build_replay_viewer.sh calls
+  # at upload time, so there is one bundle rather than two — and loads and
+  # steps real fixture replays inside the wasm runtime.
   wasm-replay-viewer:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - name: Build the static replay viewer bundle
-        run: |
-          docker build --file Dockerfile.replay-viewer \
-            --target replay-viewer-builder --tag ctf-replay-viewer-ci .
-          id=$(docker create ctf-replay-viewer-ci)
-          docker cp "$id":/workspace/ctf/replay-viewer/dist replay-viewer/dist
-          docker rm "$id"
-      # Pure-node client regression (no bundle needed): the sprite-protocol
-      # parser must survive a failed band decode without desyncing, and the
-      # failed band must self-heal from its retained compressed payload.
-      - name: Client band decode-failure regression
-        run: node tools/qa_band_desync.cjs
-      - name: Smoke-run fixture replays in the wasm bundle
-        # gen-colossal-4team is the address-space canary: a 4992x4992 board
-        # only fits wasm32 because oversize boards emit at 1x (see
-        # MaxSupersampledMapPixels). Re-record on GameVersion bumps with:
-        #   tools/record_colossal_demo.sh <out> 4242 1500 16
-        run: |
-          fail=0
-          for replay in tests/replays/ctf.bitreplay \
-              tests/fixtures/gen-small-pits.bitreplay \
-              tests/fixtures/gen-colossal-4team.bitreplay; do
-            echo "::group::$replay"
-            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
-            echo "::endgroup::"
-          done
-          exit $fail
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - name: Point this checkout at the stack
+        run: git remote add caos http://localhost:9090
+      - name: Bring the caos stack up
+        run: nix develop --command caosd up
+      - name: test-viewer
+        run: nix develop --command caos-cli run-tool test-viewer

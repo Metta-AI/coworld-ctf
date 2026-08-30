@@ -110,7 +110,7 @@ narrow)
   # carrying them is what makes a stage this tool.
   next=("--worker1:@=/cas/args/worker1" --stage=realize
         "--help:@=/cas/args/help" "--nim:@=/cas/args/nim")
-  for a in player name server upload-salt; do
+  for a in player name server league auto-champion upload-salt; do
     [ -e "/cas/args/$a" ] && next+=("--$a:@=/cas/args/$a")
   done
   then_=$(caos curry --base:@=/cas/args/base "${next[@]}") || fail "currying realize"
@@ -146,7 +146,7 @@ realize)
 
   fwd=("--worker1:@=/cas/args/worker1" --stage=push
        "--help:@=/cas/args/help" "--nim:@=/cas/args/nim")
-  for a in player name server upload-salt; do
+  for a in player name server league auto-champion upload-salt; do
     [ -e "/cas/args/$a" ] && fwd+=("--$a:@=/cas/args/$a")
   done
   then_=$(caos curry --base:@=/cas/args/base "${fwd[@]}") || fail "currying push"
@@ -229,6 +229,34 @@ push)
     "$(jq -nc --arg n "$name" --arg i "$imgid" '{name:$n, container_image_id:$i}')") \
     || fail "POST /stats/policies/docker-img/complete rejected"
 
+  # 3. Enter it in a league, if one was named. ONE more call, and it is the
+  #    call this tool was one short of being useful without: registering a
+  #    version puts a policy nowhere. `coworld submit` spends a request
+  #    resolving name:version back to the id — which is already in hand here.
+  #
+  #    THE HEADER'S "RECONSIDER IF" APPLIES, AND STOPS HERE. It names leagues
+  #    as a reason to hand the platform back to the CLI, and it is right about
+  #    the SURFACE: placement, championing modes, campaigns, experience
+  #    requests. This is the one edge of it that is a single POST with the ids
+  #    this job already holds. Anything past it — reading placement back,
+  #    waiting on it, campaign anything — is the CLI's, and
+  #    tools/ci/caos_images.sh is how the rest of that conversation is had.
+  sub=""
+  if [ -e /cas/args/league ]; then
+    caos get /cas/args/league
+    league=$(cat /cas/args/league)
+    champion=always
+    if [ -e /cas/args/auto-champion ]; then
+      caos get /cas/args/auto-champion; champion=$(cat /cas/args/auto-champion)
+    fi
+    pvid=$(jq -r '.id // empty' <<< "$pol")
+    [ -n "$pvid" ] || fail "no policy version id in the registration response"
+    sub=$(api /v2/league-submissions \
+      "$(jq -nc --arg l "$league" --arg p "$pvid" --arg c "$champion" \
+         '{league_id:$l, policy_version_id:$p, auto_champion:$c}')") \
+      || fail "POST /v2/league-submissions rejected (is $league a league id?)"
+  fi
+
   { echo "policy:      $name"
     echo "image:       $ref"
     echo "client_hash: $chash"
@@ -236,6 +264,11 @@ push)
     echo "image:       $pushed"
     echo
     echo "$pol" | jq . 2>/dev/null || echo "$pol"
+    if [ -n "$sub" ]; then
+      echo
+      echo "league submission:"
+      echo "$sub" | jq . 2>/dev/null || echo "$sub"
+    fi
     echo
     echo "UPLOAD OK"
   } > "$R/report"

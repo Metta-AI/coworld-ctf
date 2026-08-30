@@ -1,0 +1,23 @@
+# The `build-viewer` tool (caos SPEC, "Tools"): build the static replay-viewer
+# wasm bundle — the one the observatory serves — inside caos.
+#
+# The docs are a HERE-STRING, so editing them re-keys this tool's arg tree and
+# NOTHING it builds.
+HELP=<<END
+Build the static replay viewer: compile replay-viewer/ctf_replay.nim to wasm32
+with the pinned emsdk, generate wire_constants.js, and assemble the bundle the
+observatory serves (index.html, league.html, the worker, the sprite art). Then
+check it — every file the bundle must contain and every script tag it must
+carry — and return dist/ as the result.
+
+The toolchain is the upstream emsdk image pinned by digest (caos/emsdk), with
+Nim and the project's deps arriving as two cached jobs rather than image build
+steps, so an unchanged bundle is a cache hit. Nothing is handed in from the
+host.
+
+Wasm32 is not a smaller version of the native build: `int` is 32 bits and the
+address space ends at 2 GB, so this bundle can break in ways no native test can
+see. `test-viewer` is what actually runs it.
+@param [build-salt] Force a rebuild — any fresh value (e.g. $(date --iso=s)) re-keys the bundle build and nothing else.
+END
+curry --base:@=DEEP-DEPS/imgtools --worker1:@=worker.sh --nim:@=DEEP-DEPS/nim --help=$HELP

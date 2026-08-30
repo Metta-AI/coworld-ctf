@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# The replay-viewer build hook `coworld build` calls (its path is fixed:
+# coworld's bundle.py looks for tools/build_replay_viewer.sh and requires it to
+# be executable). It hands us an absolute output directory named
+# static-replay-viewer and expects a bundle with an index.html in it.
+#
+# WHAT CHANGED: this used to `docker build --platform linux/amd64 --file
+# Dockerfile.replay-viewer`, then `docker create` + `docker cp` the dist out of
+# the image. The build is a caos tool now (caos-tools/build-viewer), so the
+# bundle is content-addressed and cached — an unchanged tree is a lookup rather
+# than a fresh emsdk compile — and it is the SAME bundle `test-viewer` steps
+# through in the wasm runtime. Two producers of one artifact was the thing
+# worth removing: CI smoke-tested a bundle it built itself, and the upload
+# built a second one nobody ran.
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,34 +39,27 @@ if [[ "${output_dir}" != "${repo_dir}"/* || -L "${output_dir}" ]]; then
   exit 1
 fi
 
+CAOS=${CAOS_CLI:-caos-cli}
+command -v "${CAOS}" >/dev/null || {
+  echo "no ${CAOS} on PATH — enter the dev shell (nix develop) or set CAOS_CLI" >&2
+  exit 1
+}
+
+cd "${repo_dir}"
+# stdout is "<kind> <hash>"; the report goes to stderr, where a person and
+# `coworld build`'s own output can both see it.
+result="$("${CAOS}" run-tool build-viewer)"
+hash="${result##* }"
+
 rm -rf "${output_dir}"
 mkdir -p "${output_dir}"
-
-image_tag="coworld-ctf-replay-viewer-build:$$"
-container_id=""
-cleanup() {
-  if [[ -n "${container_id}" ]]; then
-    docker rm "${container_id}" >/dev/null 2>&1 || true
-  fi
-  docker image rm "${image_tag}" >/dev/null 2>&1 || true
+staged="$(mktemp -d)"
+"${CAOS}" get "${hash}" "${staged}/result" >/dev/null
+[[ -d "${staged}/result/dist" ]] || {
+  echo "build-viewer produced no bundle; its report is above" >&2
+  exit 1
 }
-trap cleanup EXIT
-
-build_args=(
-  --platform linux/amd64
-  --file "${repo_dir}/Dockerfile.replay-viewer"
-  --target replay-viewer-builder
-  --tag "${image_tag}"
-  "${repo_dir}"
-)
-if docker buildx version >/dev/null 2>&1; then
-  docker buildx build --load "${build_args[@]}"
-else
-  # Docker Desktop installations without the buildx plugin still honor the
-  # explicit amd64 platform through their Linux VM. CI installs Buildx above.
-  docker build "${build_args[@]}"
-fi
-container_id="$(docker create --platform linux/amd64 "${image_tag}")"
-docker cp "${container_id}:/workspace/ctf/replay-viewer/dist/." "${output_dir}"
+cp -R "${staged}/result/dist/." "${output_dir}/"
+rm -rf "${staged}"
 
 test -f "${output_dir}/index.html"

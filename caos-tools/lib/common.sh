@@ -39,16 +39,23 @@ narrow_tree() {
 # reads data/, client/, tests/fixtures/, tests/replays/, tools/map_editor/'s
 # assets and both top-level JSON files, plenty of it via paths built at run
 # time, so any hand-written include list would be wrong the first time someone
-# added a fixture. Nothing under tests/ or tools/ reads a .nim at run time
-# (checked): the one `"/static/../arena.nim"` is a traversal probe asserting a
-# 404, which it gets either way.
+# added a fixture.
+#
+# THE EXCLUSION HAS EXCEPTIONS, and they must be named. A handful of tests read
+# a .nim as DATA — asserting on what a module declares rather than on what it
+# does — and for those the source IS the fixture: dropping it makes the test
+# die on `cannot open: <path>`, which looks like a broken test rather than a
+# missing input. They ride in as extra arguments, so the caller names them
+# beside the tests that read them, and editing one correctly re-runs the suite.
 #
 # By reference, like narrow_tree: every entry is a symlink into /cas, so `caos
 # put` records the hash already known for it and no content is copied.
 #
-# $1 = destination /cas path, $2 = the materialized source tree.
+# $1 = destination /cas path, $2 = the materialized source tree, rest = paths
+# relative to it that survive the .nim exclusion.
 runtime_tree() {
   local dest=$1 src=$2 w f rel d
+  shift 2
   w=$(mktemp -d)
   while IFS= read -r f; do
     rel=${f#"$src"/}
@@ -57,6 +64,10 @@ runtime_tree() {
     ln -s "$f" "$w/$rel"
   done < <(find "$src" \( -type f -o -type l \) \
              ! -name '*.nim' ! -name '*.nims' ! -name '*.cfg')
+  for rel in "$@"; do
+    mkdir -p "$w/$(dirname "$rel")"
+    ln -sf "$src/$rel" "$w/$rel"
+  done
   caos put "$w" "$dest"
 }
 
@@ -118,6 +129,20 @@ NIMCACHE=/tmp/build/nimcache
 # /ccache-bin wrapper without this flag looks completely correct — `command -v
 # gcc` even reports the wrapper — while ccache records ZERO calls.
 CCACHE_NIM_FLAGS=(--cc:gcc --gcc.exe:/ccache-bin/gcc)
+
+# The flags the SHIPPED game binaries are compiled with, and the only
+# definition of them. They used to live in the root Dockerfile's NimFlags ARG;
+# `build-game-image` assembles the image around what `build` produces, so this
+# array IS the game's release build now — there is no second compile to drift
+# from.
+#
+# `--opt:speed` and `--stackTrace:on` are not free (they cost roughly a third
+# of the compile), and the temptation is to drop them from the inner loop and
+# keep them "for the release". Do not: an inner loop that compiles something
+# other than what ships is an inner loop that cannot tell you the ship is
+# broken. build-player made the same choice for policies and reports ~5.7s on a
+# warm ccache; this is the same trade.
+GAME_NIM_FLAGS=(-d:release -d:useMalloc --opt:speed --stackTrace:on --hints:off)
 
 # The block every build report ends with. Cache stats belong in the REPORT, not
 # a log: ccache reports an unreachable remote as a plain miss, so a cache that

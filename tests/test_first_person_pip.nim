@@ -32,7 +32,7 @@ suite "bundle asset paths":
   # and locally /client/* IS served, so it looked correct on every dev machine.
   # #131 fixed it by deriving the paths from the document (COG_BASE/ART_BASE).
   #
-  # The Dockerfile's `test -f` guards prove the PNGs SHIP; they say nothing
+  # build-viewer's bundle checks prove the PNGs SHIP; they say nothing
   # about how the page ASKS for them. This is the other half: a static scan
   # asserting no asset reference in either bundle page is root-absolute. Kept as
   # a text scan on purpose — the paths live in inline JS inside the HTML, so

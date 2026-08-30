@@ -140,14 +140,20 @@ suite "startup":
     ## no URL, and a game that never accepted a connection at all.
     check player.strip().endsWith("quit(0)")
 
-  test "both entrypoints are declared in the Dockerfile and the manifest":
+  test "both entrypoints are declared in the image tools and the manifest":
     ## ONE image, TWO entrypoints: /bin/ctf (which serves the paintball mode
     ## when the config gates it on) and /bin/paintball-player (the thin seat
     ## registrar the paintball policies run).
-    let dockerfile = readFile("Dockerfile")
-    check "src/paintball_player.nim" in dockerfile
-    check "/bin/ctf" in dockerfile
-    check "/bin/paintball-player" in dockerfile
+    ##
+    ## This used to read the root Dockerfile. The game image is assembled by
+    ## caos now — one compile in `build`, one layer in `build-game-image` —
+    ## so those two files are where the entrypoints are declared, and a
+    ## Dockerfile to read no longer exists.
+    let compile = readFile("caos-tools/build/worker.sh")
+    check "src/paintball_player.nim" in compile
+    let image = readFile("caos-tools/build-game-image/worker.sh")
+    check "/bin/ctf" in image
+    check "/bin/paintball-player" in image
     let manifest = parseJson(readFile("coworld_manifest_paintbot.json"))
     check manifest["game"]["runnable"]["run"][0].getStr() == "/bin/ctf"
     ## The paintball baselines are deliberately NOT manifest players: the

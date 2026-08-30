@@ -22,6 +22,8 @@ longer true.
 @param [name] Policy name on the platform. Default: coworld-ctf-<player>.
 @param [runtime] Runtime base to layer onto. Default: the tag players/baseline/Dockerfile names.
 @param [server] Platform API base URL. Default: https://softmax.com/api (coworld's DEFAULT_SUBMIT_SERVER).
+@param [league] League id to enter the new version in. Omitted, the version is registered and enters nothing.
+@param [auto-champion] Champion promotion mode once the policy qualifies: always (default), never, or manual. Only read with --league.
 @param [upload-salt] Force a re-upload — any fresh value re-keys the push and nothing else.
 END
 curry --base:@=DEEP-DEPS/imgtools --worker1:@=worker.sh --nim:@=DEEP-DEPS/nim --help=$HELP

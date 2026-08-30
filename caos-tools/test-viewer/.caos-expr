@@ -1,0 +1,19 @@
+# The `test-viewer` tool (caos SPEC, "Tools"): run the static replay viewer's
+# bundle inside the wasm runtime it will actually ship on.
+#
+# The docs are a HERE-STRING, so editing them re-keys this tool's arg tree and
+# NOTHING it runs.
+HELP=<<END
+Build the replay-viewer bundle (via build-viewer) and RUN it: step three
+fixture replays through the emitted wasm module under node, and run the client
+band decode-failure regression. Returns a line per check and a pass/fail
+banner.
+
+This is the only thing that sees wasm32 bugs. Nim's `int` is 32 bits there and
+the address space ends at 2 GB, so overflow checks trap on arithmetic that is
+silently fine on 64-bit native and a big board exhausts memory — twice that
+reached prod and every hosted replay hung on "WARMING UP" (PR #189). The native
+suite cannot catch either.
+@param [test-salt] Re-run the smokes while leaving the bundle build a cache hit — any fresh value re-keys the runs and nothing else.
+END
+curry --base:@=DEEP-DEPS/imgtools --worker1:@=worker.sh --nim:@=DEEP-DEPS/nim --help=$HELP
