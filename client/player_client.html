@@ -394,7 +394,22 @@ function drawSprite(){
      text is stale -- but "flowing" no longer unconditionally means "clear
      the overlay": a mid-life death now shows through the same plumbing. */
   s.classList.toggle("dead",isDead);
-  n(isDead?"you're down -- waiting to respawn...":"")
+  /* Copy bug fix (measured, not guessed: another lane polled the engine's
+     own cogAlive flag every ~0.7s and confirmed a BR human stays dead for
+     the whole round, only returning on the tick the round counter itself
+     advances -- so BR's elimination is enforced correctly, only this
+     WORDING was wrong, inherited unchanged from CTF where a respawn is
+     real). "waiting to respawn" is a promise BR never keeps -- BR is
+     ONE-LIFE, so a downed player is out for the rest of the round, not
+     queued for a respawn tick. Mode-aware off the same cameraContext this
+     file already resolves for the camera (isBrMap()/ensureCameraContext(),
+     called just above via updateCamera()) rather than deleting the word
+     for everyone: CTF really does respawn, so its copy is untouched.
+     Vocabulary is enforced project-wide -- SPLAT not KO, WIPEOUT not
+     elimination -- so BR's line says "wiped out", never "eliminated". */
+  n(isDead?(cameraContext==="br"?
+    "wiped out -- you're done for this round. next round starts soon...":
+    "you're down -- waiting to respawn..."):"")
 }
 function parseSprite(bytes){
   if(!spriteMode){spriteMode=true;l=255}
