@@ -22,6 +22,7 @@ import
   test_map_los,
   test_mapgen_styles,
   test_medkits,
+  test_policy_page,
   test_render_scale,
   test_shield_bubble,
   test_shields,
