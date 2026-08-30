@@ -7,7 +7,9 @@ Winner: YELLOW (TIGHT-TRADE play), 831 glory.
 
 ## Recipe
 
-From a checkout of this branch, at repo root (Docker must be running):
+This path is self-contained: Docker plus a static file server, nothing
+else — no local Nim toolchain required. From a checkout of this branch,
+at repo root (Docker must be running):
 
     tools/build_replay_viewer.sh "$(pwd)/static-replay-viewer" \
       && cp rt_episode/episode-s830.bitreplay static-replay-viewer/episode-s830.bitreplay \
@@ -35,6 +37,12 @@ a build artifact, rebuild any time.
   through silently.
 
 ## Re-verify the claims yourself
+
+This path is for engineers, not viewers: it needs a working local Nim
+toolchain and nimble deps synced (`nimby --global sync nimby.lock`), plus
+a `nim.cfg` at repo root — it's gitignored/untracked, so copy one in from
+an existing checkout (`cp ../other-checkout/nim.cfg .`). Without it,
+compilation fails with `Error: cannot open file: bitworld/spriteprotocol`.
 
     nim c -d:release -o:/tmp/verify_reflash tools/verify_reflash_roundtrip.nim
     REQUIRE_MID_FLASH=0 /tmp/verify_reflash rt_episode/episode-s830.bitreplay
