@@ -477,6 +477,71 @@ suite "BR spawn facing (finding 2)":
         check gm.spawnAimBrads(team, offset) == gm.spawnAimBrads(rotatedTeam, 0)
         check gm.spawnFlipH(team, offset) == gm.spawnFlipH(rotatedTeam, 0)
 
+suite "GLORY v11 (BR increment 3): site-gradient anchor is per-duo honest":
+  # The bug this closes: `slotAnchor`'s `layoutSides` branch answered
+  # Red's own point for Red and the SAME `axisHomeHi` point for every
+  # OTHER team, so `groundOwner`'s (sim.nim) nearest-pedestal search over
+  # `flagHome -> teamAnchor -> slotAnchor` could only ever resolve Red or
+  # whichever team won the tie -- 14 of 16 BR duos priced every glory
+  # deed at the flat `SiteMultEnemyPct`, never their own home rate. This
+  # was already a known symptom on the RENDER side too -- see this
+  # file's own "flagless board bake" comment just below, which worked
+  # around the identical collapse by simply not DRAWING the stacked
+  # pedestals rather than fixing the anchor they were stacked on.
+
+  test "every BR team gets its OWN distinct anchor, not Red's or a shared one":
+    let gm = ringBrMap()
+    var seen: seq[MapPoint]
+    for i in 0 ..< 16:
+      let anchor = gm.slotAnchor(Team(i))
+      check anchor notin seen
+      seen.add anchor
+    check seen.len == 16
+
+  test "each team's anchor IS its own authored spawn point (perTeam=1)":
+    let gm = ringBrMap()
+    for i in 0 ..< 16:
+      check gm.slotAnchor(Team(i)) == gm.spawnPoints[i]
+
+  test "perTeam > 1 still resolves each team to ITS OWN block, not a shared one":
+    # 4 teams, 2 points each (team-major, like fourTeamSpawnPointsNode) --
+    # slotAnchor must land on team i's FIRST point, never team 0's.
+    var gm = CtfMap(
+      width: W, height: H, layout: layoutSides, symmetry: symNone,
+      spawnGroups: 4,
+    )
+    let pts = [
+      MapPoint(x: 10, y: 10), MapPoint(x: 10, y: 20),     # Red
+      MapPoint(x: 20, y: 10), MapPoint(x: 20, y: 20),     # Blue
+      MapPoint(x: 30, y: 10), MapPoint(x: 30, y: 20),     # Green
+      MapPoint(x: 40, y: 10), MapPoint(x: 40, y: 20),     # Yellow
+    ]
+    for p in pts: gm.spawnPoints.add p
+    check gm.slotAnchor(Red) == pts[0]
+    check gm.slotAnchor(Blue) == pts[2]
+    check gm.slotAnchor(Green) == pts[4]
+    check gm.slotAnchor(Yellow) == pts[6]
+
+  test "classic 2-team sides map (no spawnPoints) keeps the untouched formula":
+    # `axisHomeLo`/`axisHomeHi`/`homeDepthOf` are arena.nim-private, so this
+    # asserts the OBSERVABLE contract the `spawnPoints.len > 0` guard is
+    # supposed to preserve exactly, rather than re-deriving their formula:
+    # Red and Blue still get their own DISTINCT points (the bug this test
+    # suite's sibling closes for BR never touches this classic path at
+    # all), both on the sides' shared y-axis, Red on the low edge.
+    let gm = CtfMap(
+      width: W, height: H, layout: layoutSides, symmetry: symMirror,
+      center: MapPoint(x: W div 2, y: H div 2),
+    )
+    check gm.spawnPoints.len == 0
+    let redAnchor = gm.slotAnchor(Red)
+    let blueAnchor = gm.slotAnchor(Blue)
+    check redAnchor != blueAnchor
+    check redAnchor.y == gm.center.y
+    check blueAnchor.y == gm.center.y
+    check redAnchor.x < gm.center.x
+    check blueAnchor.x > gm.center.x
+
 ## --- Flagless board bake (finding 3 of the launch-readiness review) ---
 ##
 ## renderArenaRgbaPair (map_art.nim, the native boardScale>1 board texture —
