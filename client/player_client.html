@@ -60,6 +60,26 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 #splat b{font:900 15vmin/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1vmin;
   color:#ff6a52;-webkit-text-stroke:.6vmin #1a0705;text-shadow:0 0 2vmin #000c}
 #splat.show{opacity:1;transform:scale(1) rotate(-3deg);transition:opacity 70ms ease-out,transform 70ms cubic-bezier(.22,1.8,.36,1)}
+/* Death card (Maxwell asks, live 8/29: "i need to see who killed me when i
+   die" / "i need to see why i died"): killer identity + weapon + distance,
+   rendered INSIDE the existing #s.dead overlay -- same element, same n()
+   plumbing, no second overlay system. Only ever built once a private
+   shot-feedback record for THIS death has actually arrived (the channel is
+   config-gated engine-side, allowShotFeedback); with the channel silent the
+   overlay renders exactly the plain text it always has. Hierarchy is
+   typography/weight only -- the killer NAME is the headline, everything
+   else steps down; no accent bars, no borders. */
+#s .dcard{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;
+  /* clears the HUD's top-center score strip (player_hud.js mounts above
+     this overlay in DOM order) -- margin on the CARD only, so the plain
+     channel-silent line keeps its exact historical position. */
+  margin-top:30px}
+#s .dcardBy{display:flex;align-items:baseline;gap:8px;font-weight:400;font-size:13px;color:#b9b3a9}
+#s .dcardWho{font-weight:800;font-size:19px;letter-spacing:.5px;color:#fff}
+#s .dcardChip{width:12px;height:12px;border-radius:2px;align-self:center;box-shadow:0 0 0 1px #000c}
+#s .dcardDetail{font:600 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.3px;color:#b9b3a9}
+#s .dcardFf{color:#e8a33d;font-weight:800}
+#s .dcardState{margin-top:2px;font-size:14px;color:#e8e8e8}
 #mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
 #mute:hover{background:#2a2620cc}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
@@ -441,9 +461,12 @@ function drawSprite(){
      for everyone: CTF really does respawn, so its copy is untouched.
      Vocabulary is enforced project-wide -- SPLAT not KO, WIPEOUT not
      elimination -- so BR's line says "wiped out", never "eliminated". */
-  n(isDead?(cameraContext==="br"?
-    "wiped out -- you're done for this round. next round starts soon...":
-    "you're down -- waiting to respawn..."):"")
+  /* renderDeathOverlay's channel-silent path is EXACTLY the n() call that
+     used to sit here -- same strings, same #s plumbing, per-frame same as
+     before; the structured death-card variant only exists once a private
+     shot-feedback record for THIS death has actually arrived (consumer
+     block below handleDamagePopBirth). */
+  renderDeathOverlay();
 }
 function parseSprite(bytes){
   if(!spriteMode){spriteMode=true;l=255}
@@ -610,13 +633,15 @@ let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
        straight into parseSprite/drawPixels, which chokes on it, hits the
        catch below, and calls w.close() -- so one unexpected text frame was
        enough to drop the human's connection outright (found auditing this
-       path before wiring a planned JSON hit/kill-feedback frame onto this
-       same socket -- that frame does not exist yet; nothing engine-side
-       sends one). No JSON consumer is wired up yet, so a text frame is
-       simply ignored here rather than crashing -- ignoring is strictly
-       safer than the previous behavior regardless of whether that feature
-       ever lands. */
-    if(typeof e.data==="string")return;
+       path before wiring the JSON shot-feedback frame onto this same
+       socket). That frame exists engine-side now (GameConfig.
+       allowShotFeedback, default OFF; the private shooter/victim
+       combat-outcome channel): the string branch routes to handleTextFrame
+       below, which parses defensively and ignores anything it does not
+       recognize -- a text frame still can never reach the Uint8Array path,
+       and a silent channel leaves this handler doing exactly what it did
+       before the consumer existed: nothing. */
+    if(typeof e.data==="string"){handleTextFrame(e.data);return;}
     const bytes=new Uint8Array(e.data);
     sawFrame=false;
     try{if(bytes.length===8192&&!spriteMode)drawPixels(bytes);else parseSprite(bytes)}
@@ -1203,8 +1228,8 @@ function controlsTick(){
      re-fired while still down, and impossible to fire for anyone but our
      own seated self by construction (seatedNow/wasSeated read only this
      client's own selfPos). */
-  if(!seatedNow&&wasSeated){isDead=true;triggerSelfSplat()}
-  else if(seatedNow)isDead=false;
+  if(!seatedNow&&wasSeated){isDead=true;diedAt=performance.now();triggerSelfSplat()}
+  else if(seatedNow){if(!wasSeated)deathInfo=null;isDead=false}
   wasSeated=seatedNow;
   let rot=null;
   /* directAimActive: the cursor already drives the turret directly (see the
@@ -1403,10 +1428,177 @@ function handleDamagePopBirth(px,py,spriteId){
   if(selfPos&&lastFireConfirmedAt&&performance.now()-lastFireConfirmedAt<=SELF_FIRE_CREDIT_MS){
     const edx=px-selfPos.x,edy=py-selfPos.y,engageRange=engageRangePx();
     if(edx*edx+edy*edy<=engageRange*engageRange){
+      /* Wire-first dedupe: when the authoritative shot-feedback channel
+         (consumer block below) already confirmed this same event a moment
+         ago, don't fire the heuristic feedback a second time -- one event,
+         one confirm. A kill still UPGRADES over a plain-hit confirm.
+         Channel silent (allowShotFeedback off, or not a takeover socket):
+         lastWireFeedbackAt stays 0 and the guard below can never suppress,
+         so this branch behaves exactly as it did before the channel. */
+      const nowT=performance.now();
+      if(lastWireFeedbackAt&&nowT-lastWireFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastWireFeedbackKill||!isKill))return;
+      lastPopFeedbackAt=nowT;lastPopFeedbackKill=isKill;
       triggerHitstop();triggerHitmarker(isKill);
       if(isKill)playKillConfirm();else playHitDealt();
     }
   }
+}
+/* ============ Private shot-feedback channel (consumer) ==============
+   Engine half: the config-gated (GameConfig.allowShotFeedback, default
+   OFF) shooter/victim combat-outcome channel -- a JSON TextMessage on the
+   TAKEOVER socket only, one object per tick with anything to say:
+     { "shotsLanded": [{kill,friendlyFire,weapon,distance,victimTeam,
+                        victimColor}...],
+       "hitsTaken":   [{kill,friendlyFire,weapon,distance,killerTeam,
+                        killerColor}...] }
+   weapon is "gun"|"spray"|"grenade"; identities are WORDS (team name +
+   player color name), never RGB; delivered UNFOGGED to the two direct
+   participants of each event only. Never sent at all on a tick with
+   nothing to say, and never sent anywhere when the gate is off -- so every
+   line below is provably inert on today's live config.
+
+   Two consumers, both feeding surfaces that already exist:
+   - hitsTaken kill records -> the death card inside the existing #s.dead
+     overlay ("who killed me" / "why i died": killer + weapon + distance +
+     friendly-fire), rendered by renderDeathOverlay from drawSprite's
+     existing per-frame status call.
+   - shotsLanded -> the EXISTING hitstop/hitmarker/kill-confirm path, so a
+     hit the damage-pop heuristic could never see (fogged/occluded victim:
+     a grenade corner-kill, a windup shot after the target broke LOS) now
+     confirms like any visible one. Deduped both ways against the pop
+     heuristic above so one event never confirms twice.
+==================================================================== */
+const SHOT_FEEDBACK_DEDUPE_MS=250;
+/* How far apart (ms) a fatal hitsTaken record and our own seated->unseated
+   death edge may land and still be the same death: same tick in practice
+   (the server sends both in one frame pass), sized generously for jitter.
+   Both orders happen -- the JSON can beat the sprite frame or trail it --
+   so the check is a window around diedAt, not an ordering. */
+const DEATH_ATTRIB_MS=3000;
+let lastPopFeedbackAt=0,lastPopFeedbackKill=false;
+let lastWireFeedbackAt=0,lastWireFeedbackKill=false;
+let deathInfo=null,diedAt=0,deathCardKey="";
+const shotFeedbackCounts={framesSeen:0,shotsLanded:0,hitsTaken:0,killsConfirmed:0,dedupedConfirms:0};
+/* Published for the HUD lane and for scripted verification, same idiom as
+   publishWeaponState above: read-only mirror, never consumed here. */
+function publishShotFeedback(){
+  window.shotFeedback={
+    channelLive:shotFeedbackCounts.framesSeen>0,
+    framesSeen:shotFeedbackCounts.framesSeen,
+    shotsLanded:shotFeedbackCounts.shotsLanded,
+    hitsTaken:shotFeedbackCounts.hitsTaken,
+    killsConfirmed:shotFeedbackCounts.killsConfirmed,
+    dedupedConfirms:shotFeedbackCounts.dedupedConfirms,
+    lastDeath:deathInfo?{team:deathInfo.team,color:deathInfo.color,
+      weapon:deathInfo.weapon,distance:deathInfo.distance,
+      friendlyFire:deathInfo.friendlyFire}:null
+  };
+}
+/* PlayerColorNames -> retro palette index (sim_types.nim PlayerColors /
+   PlayerColorNames, the same 16-entry palette as `p` at the top of this
+   file): turns the color WORD the wire carries (colors are words, never
+   RGB) into the killer's real on-field hue for the death-card chip. An
+   unknown word simply gets no chip -- never a guessed color. */
+const PLAYER_COLOR_INDEX={red:3,orange:7,yellow:8,"light blue":14,pink:4,
+  lime:11,blue:13,"pale blue":15,gray:1,white:2,"dark brown":5,brown:6,
+  "dark teal":9,green:10,"dark navy":12,black:0};
+function colorWordCss(word){
+  const idx=PLAYER_COLOR_INDEX[String(word||"").toLowerCase()];
+  if(idx===undefined)return null;
+  const o=idx*4;
+  return "rgb("+p[o]+","+p[o+1]+","+p[o+2]+")";
+}
+function handleTextFrame(text){
+  /* Defense in depth on top of the frame-type guard: the channel's payload
+     is a JSON OBJECT (first byte always '{' by contract). Anything else,
+     or anything that fails to parse, is ignored exactly as every text
+     frame was before this consumer existed. */
+  if(!text||text[0]!=="{")return;
+  let msg;
+  try{msg=JSON.parse(text)}catch(err){return}
+  if(!msg||typeof msg!=="object")return;
+  const landed=Array.isArray(msg.shotsLanded)?msg.shotsLanded:null;
+  const taken=Array.isArray(msg.hitsTaken)?msg.hitsTaken:null;
+  if(!landed&&!taken)return;
+  handleShotFeedback(landed||[],taken||[]);
+}
+function handleShotFeedback(landed,taken){
+  const nowT=performance.now();
+  shotFeedbackCounts.framesSeen++;
+  shotFeedbackCounts.shotsLanded+=landed.length;
+  shotFeedbackCounts.hitsTaken+=taken.length;
+  /* Victim half: a fatal record is the death card's data source. Last one
+     wins if several land in one message (a simultaneous trade can only
+     kill us once). Non-fatal hitsTaken add nothing here: our own hit pop
+     is at our own position and never fogged from us, so the existing
+     shake/vignette path already covers it. */
+  for(const h of taken){
+    if(h&&h.kill===true){
+      deathInfo={team:String(h.killerTeam||""),color:String(h.killerColor||""),
+        weapon:String(h.weapon||""),distance:Math.max(0,h.distance|0),
+        friendlyFire:h.friendlyFire===true,at:nowT};
+    }
+  }
+  /* Shooter half: feed the one feedback path that exists. One confirm per
+     message (a spray landing on three cogs is one trigger pull), kill
+     outranks hit, and a friendly-fire kill confirms as a plain hit --
+     truthful "it landed", no celebration chime for splatting a teammate. */
+  if(landed.length){
+    const realKill=landed.some(sh=>sh&&sh.kill===true&&sh.friendlyFire!==true);
+    if(lastPopFeedbackAt&&nowT-lastPopFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastPopFeedbackKill||!realKill)){
+      shotFeedbackCounts.dedupedConfirms++;
+    }else{
+      lastWireFeedbackAt=nowT;lastWireFeedbackKill=realKill;
+      if(realKill)shotFeedbackCounts.killsConfirmed++;
+      triggerHitstop();triggerHitmarker(realKill);
+      if(realKill)playKillConfirm();else playHitDealt();
+    }
+  }
+  publishShotFeedback();
+  if(isDead)scheduleDraw(); // a card datum trailing the death edge repaints now, not at the next packet
+}
+function deathStatusLine(){
+  return cameraContext==="br"?
+    "wiped out -- you're done for this round. next round starts soon...":
+    "you're down -- waiting to respawn...";
+}
+function renderDeathOverlay(){
+  if(!isDead){deathCardKey="";n("");return}
+  const line=deathStatusLine();
+  const info=(deathInfo&&Math.abs(deathInfo.at-diedAt)<=DEATH_ATTRIB_MS)?deathInfo:null;
+  if(!info){deathCardKey="";n(line);return}
+  /* Rebuild only when the card's content actually changes; the DOM check
+     covers any interleaved n() call (reconnect text etc.) having wiped the
+     card while the key still claimed it was up. */
+  const key=line+"|"+info.at+"|"+info.team+"|"+info.color+"|"+info.weapon+"|"+info.distance+"|"+info.friendlyFire;
+  if(key===deathCardKey&&s.firstElementChild&&s.firstElementChild.className==="dcard")return;
+  deathCardKey=key;
+  s.textContent="";
+  const card=document.createElement("div");card.className="dcard";
+  const by=document.createElement("div");by.className="dcardBy";
+  const verb=document.createElement("span");verb.textContent="splatted by";
+  by.appendChild(verb);
+  const chipColor=colorWordCss(info.color);
+  if(chipColor){
+    const chip=document.createElement("span");chip.className="dcardChip";
+    chip.style.background=chipColor;by.appendChild(chip);
+  }
+  const who=document.createElement("span");who.className="dcardWho";
+  who.textContent=(info.team||info.color||"unknown").toUpperCase();
+  by.appendChild(who);
+  card.appendChild(by);
+  const det=document.createElement("div");det.className="dcardDetail";
+  det.textContent=info.weapon+" \u00b7 "+info.distance+" px";
+  if(info.friendlyFire){
+    const ff=document.createElement("span");ff.className="dcardFf";
+    ff.textContent="friendly fire";
+    det.appendChild(document.createTextNode(" \u00b7 "));det.appendChild(ff);
+  }
+  card.appendChild(det);
+  const st=document.createElement("div");st.className="dcardState";st.textContent=line;
+  card.appendChild(st);
+  s.appendChild(card);
+  s.style.display="flex";
 }
 /* Drawn at the crosshair (where the player is already looking), not at the
    hit's world position -- reads instantly without competing with the
