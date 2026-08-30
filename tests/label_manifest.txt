@@ -62,6 +62,8 @@ perks <color> grenade thruster,luck mods hp <n> aim <n> nade <n> spd <n> luck <n
 player <color>
 player <color> <side>
 puddle <n>,<n> <n>,<n>
+roster <color> <name> <n> <n>/0
+roster <color> <name> <n> <n>/1
 score p<n> <n> <n>/0 color <n>
 score p<n> <n> <n>/1 color <n>
 score pip <color>
