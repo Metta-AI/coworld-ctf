@@ -32,6 +32,7 @@ when isMainModule:
 
   echo &"replay: {path}"
   echo &"  ticks re-simulated : {lastTick}"
+  echo &"  zone center        : ({srv.zoneCenter.x}, {srv.zoneCenter.y})  board: {srv.gameMap.width}x{srv.gameMap.height}"
   echo &"  final phase        : {srv.phase}  winner: {srv.winner}  draw: {srv.isDraw}"
   echo ""
   echo "TEAM GLORY LEDGER (srv.teamGlory after full re-simulation)"
