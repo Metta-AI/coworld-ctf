@@ -206,10 +206,18 @@ const
   # replay routes above already make. player_controls.js carries the
   # keyboard/mouse -> action-space translation and is inlined so the page
   # stays a single self-contained file. player_hud.js (maxwell/player-hud) gets
-  # the same treatment: the compiled server has no generic static-file route,
-  # so a bare <script src=...> tag resolves to nothing and silently never
-  # loads -- baking it inline at the same marker delivers it by the exact
-  # path the page already uses, with no new route and no new failure mode.
+  # the same treatment: the inlined <script> block IS what /client/player
+  # serves, at compile time (staticRead reads this file's CURRENT bytes into
+  # the binary), so the page never depends on a separate runtime fetch for
+  # either file, and any branch that edits client/player_hud.js and merges
+  # its changes here picks them up automatically on the next build -- no
+  # extra wiring needed. Do NOT also add a real <script src="player_hud.js">
+  # tag or a server route that serves this file's CONTENT at that URL: the
+  # HUD is already loaded via the inline block above, so either one would
+  # execute the whole script a second time. `/client/player_hud.js` as a
+  # bare URL is intentionally never given real content; the unmatched-path
+  # fallback below (see the /client/* 404 branch) is what keeps a stray
+  # direct request to it from lying with a 200 instead of failing loud.
   # DO NOT move this HTML to a different serving route or base path. Its
   # OTHER bare <script src=...> tag (snappyjs.min.js) resolves relative to
   # wherever this page is served from -- currently /client/player, which
@@ -1610,6 +1618,24 @@ proc httpHandler(request: Request) =
     bitworldClient.GlobalClientRoute
   ):
     discard
+  elif request.path.startsWith("/client/"):
+    # An unmatched /client/* path is, by construction, a missing static
+    # asset -- e.g. a direct GET to /client/player_hud.js, which names a
+    # real file in this repo's client/ dir but is never served at that URL
+    # (its content only ever reaches the browser inlined into /client/player
+    # -- see the long comment on EmbeddedPlayerClientHtml above). The blanket
+    # "CTF server" fallback below returns 200 for that case, which is
+    # precisely the failure class that hid this project's worst client bug
+    # twice: a status/byte-count check sees a healthy-looking 200 while the
+    # body is either ten bytes of plain text a <script> tag would try to
+    # execute and die on, or (the prior, worse case) a fully-formed HTML
+    # page for the WRONG route. Scoped to the /client/ namespace only --
+    # nothing here changes the response for any other unmatched path (root,
+    # health probes, etc.), since this lane has no visibility into what
+    # external tooling may depend on that behaviour.
+    var notFoundHeaders: HttpHeaders
+    notFoundHeaders["Content-Type"] = "text/plain"
+    request.respond(404, notFoundHeaders, "not found\n")
   else:
     var headers: HttpHeaders
     headers["Content-Type"] = "text/plain"
