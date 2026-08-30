@@ -57,10 +57,28 @@
      "corpse <color> <side>"                  — LabelPrefixCorpse (dead)
      "own aim <brads>"                        — LabelPrefixOwnAim
      "lives <hp>hp x<lives>"                  — LabelPrefixLives (OWN hp+lives)
+     "kd <kills>/<deaths>"                    — LabelPrefixKd (OWN, human wire only;
+                                                landed 50a13efc, absent on engines
+                                                before it — parsed by prefix, "—"
+                                                until it actually arrives)
      "hp <lit>/<total>[ shield <n>]"          — LabelPrefixHp (overhead, by proximity)
      "identity <color> <greekletter>[ shield][ nade] <weapon>" — LabelPrefixIdentity
      "team score <NAME> <kills>/<deaths>"     — addTeamScoreboard, per team, always sent
-     "score <name> <lives> color <n>"         — addScoreboard, per player, teams<=4 ONLY
+     "score <name> <lives> <kills>/<deaths> color <n>" — addScoreboard, per player
+                                                (50a13efc). OLDER ENGINES: the row is
+                                                "score <name> <lives> color <n>" and is
+                                                suppressed entirely above 4 teams; BOTH
+                                                shapes are parsed (kills/deaths null on
+                                                the old one) so this HUD works against
+                                                the deployed engine AND the next swap.
+                                                ROUTING (server.nim): only /client/global
+                                                builds (board + POV) run addScoreboard —
+                                                the live seated/takeover player stream
+                                                (buildSpriteProtocolPlayerUpdates) never
+                                                carries these rows, so on the live player
+                                                page the Tab table populates only via
+                                                fallbacks/push; rows appear wherever the
+                                                host Maps actually carry them.
      "fire icon" / "fire icon cooldown"       — LabelFireIcon / LabelFireIconCooldown
 
    THE CONTRACT — full combat-state family, defined now even where unpopulated
@@ -83,8 +101,10 @@
        },
 
        combat: {                                 // the family Maxwell asked to reserve
-         kills: null,             // ROUTED to realcog (Player.kills exists, sim_types.nim:1402)
-         deaths: null,            // ROUTED to realcog (Player.deaths, sim_types.nim:1403)
+         kills: number|null,      // RESOLVED — own "kd <k>/<d>" label (LabelPrefixKd,
+                                  //   50a13efc); null (renders "—") until the label
+                                  //   actually arrives, so older engines stay honest
+         deaths: number|null,     // RESOLVED — same label, same tolerance
          score: null,             // UNRESOLVED — Glory/XP not deployed to the field yet
          xp: null,                // UNRESOLVED — ditto
          level: null,             // UNRESOLVED — ditto
@@ -115,42 +135,48 @@
        variant: 'ctf' | 'br' | 'unknown',        // RESOLVED from live team count on the wire
        teamScores: [ { team, kills, deaths } ],   // RESOLVED — always sent regardless of team count
        teamsAlive: null,                          // ROUTED to realcog (teamLivesRemaining(), sim.nim:3198)
-       playerRows: [ { name, team, lives: number|null, kills: null, deaths: null,
-                        human: bool|null, self: bool } ],
-                                                   // lives RESOLVED for CTF (teams<=4) today; BR rows
-                                                   // are roster-only today (see D gap). kills/deaths
-                                                   // reserved on BOTH — ROUTED to realcog, same fix
-                                                   // as the >4-team scoreboard gap.
+       playerRows: [ { name, team, lives: number|null, kills: number|null,
+                        deaths: number|null, human: bool|null, self: bool } ],
+                                                   // built from "score " rows wherever the host Maps
+                                                   // carry them (50a13efc emits them per player at
+                                                   // EVERY team count, kills/deaths included); on an
+                                                   // old-shape row kills/deaths stay null, and BR
+                                                   // falls back to roster-only rows when no score
+                                                   // rows arrive at all (old engine, or the live
+                                                   // player stream — see ROUTING note above).
 
        roster: { resolved: bool, url: string }
      }
 
    KNOWN GAPS (told to the orchestrator; repeated here so the code and the
    report can never drift apart):
-     - combat.kills / combat.deaths: no per-player field is on the wire YET,
-       only the per-team aggregate (useless for attribution once a team has
-       more than one seat — duos, BR). CONFIRMED to exist server-side though
-       (Player.kills/Player.deaths, sim_types.nim:1402-1403, real attribution
-       at the kill/death sites) — a pure emission gap, routed to realcog.
-       NOT bridged from the existing damage-pop proximity+engagement-range
-       heuristic (that heuristic is a *guess*, already backing the transient
-       hitmarker/sound elsewhere) — a persistent, "trust me, I ticked up"
-       counter needs real attribution, not a guess dressed as one. Read by
-       PREFIX once the label lands (this codebase's convention), not exact
-       match — exact prefix TBD from realcog. Everything downstream (the
-       tick-emphasis animation, the scoreboard K/D columns) is already built
-       against the reserved field; only scanWire()'s TODO block needs a line.
+     - combat.kills / combat.deaths: RESOLVED (was the top gap here). The
+       engine now emits the own-stat "kd <kills>/<deaths>" label per tick on
+       the human player stream (LabelPrefixKd, 50a13efc) — real attribution
+       (Player.kills/deaths via roster.nim recordKill/recordDeath), NOT the
+       damage-pop proximity guess this file always refused to dress up as a
+       counter. Read by prefix in scanWire(); the tick-emphasis animation and
+       the scoreboard K/D columns were already built against the reserved
+       field, so the label's arrival lights them with no layout change.
+       Against a pre-50a13efc engine the label never arrives and the rail
+       stays at "—" — tolerance, not fabrication.
      - combat.score/xp/level/rank/buffs: Glory is not deployed to the field
        yet. Fields are reserved and always render as an honest placeholder.
-     - BR (>4 teams) playerRows: addScoreboard's per-player row loop
-       hard-returns above 4 teams (src/ctf/global.nim ~4979 — independently
-       confirmed by wire-audit), so there is NO live per-player lives/kd on
-       the wire in BR today. Routed to realcog (queued behind other work).
-       teamsAlive: teamLivesRemaining() (sim.nim:3198) exists but is only
-       called from end-card code today — also routed, small emission change.
-       Placement itself (sim.brPlacements(), broadcast.nim ~838) stays
-       END-CARD ONLY for now. BR rows are roster-only until landed;
-       lives/kills/deaths/teamsAlive/placement all render "—" honestly.
+     - BR (>4 teams) playerRows: the addScoreboard >4-team suppression was
+       LIFTED in 50a13efc — per-player rows (now carrying lives AND
+       kills/deaths) exist at every team count on the streams addScoreboard
+       feeds. Two consume-side realities remain, both handled below:
+       (a) ROUTING — server.nim routes only /client/global builds (board +
+       POV) through addScoreboard; the live seated/takeover human stream
+       never carries "score " rows, so on the live player page BR standings
+       still fall back to roster-only rows ("—" for the numbers, honestly).
+       (b) LEGIBILITY — where rows DO arrive, BR is up to 32 of them; the
+       Tab table caps at BR_MAX_ROWS sorted by kills (own row always kept
+       visible, an explicit "+N more" line for the rest) instead of
+       rendering a wall — see renderScoreboard.
+       teamsAlive: still reserved (teamLivesRemaining() is end-card only).
+       Placement (sim.brPlacements()) stays END-CARD ONLY; its always-empty
+       column is gone from the BR table in favor of the real lives column.
      - zone (BR shrink ring): RESOLVED TODAY, zero engine work — "zone "/
        "zonenext " labels are world knowledge on the player stream right now
        (labels.nim:238-259, global.nim:8692-8693). No tick-countdown value
@@ -239,12 +265,27 @@
     const m = /^(\S+) (\d+)\/(\d+)$/.exec(rest);
     return m ? { team: m[1], kills: +m[2], deaths: +m[3] } : null;
   }
-  // "score <name> <lives> color <n>" — per-player row, teams<=4 ONLY (addScoreboard)
-  // Name may itself contain spaces; greedy backtracking on `.+` correctly finds the
-  // trailing " <digits> color <digits>" regardless (mirrors how the label is built).
+  // "kd <kills>/<deaths>" — OWN persistent kill/death readout, human wire only
+  // (labels.nim LabelPrefixKd, landed 50a13efc). Absent on older engines; the
+  // caller keeps null (renders "—") rather than inventing a zero.
+  function parseKdLabel(label) {
+    const m = /^kd (\d+)\/(\d+)$/.exec(label);
+    return m ? { kills: +m[1], deaths: +m[2] } : null;
+  }
+  // Per-player scoreboard row (addScoreboard), BOTH deployed shapes:
+  //   NEW (50a13efc):  "score <name> <lives> <kills>/<deaths> color <n>"
+  //   OLD (deployed):  "score <name> <lives> color <n>"
+  // New shape is tried first; a new-shape row can never satisfy the old regex
+  // (the "/" blocks `(\d+) color`), and an old-shape row lacks the k/d token,
+  // so the two are mutually exclusive — no misparse window during the engine
+  // swap. kills/deaths come back null on the old shape (renders "—"), never 0.
+  // Name may itself contain spaces; greedy backtracking on `.+` correctly finds
+  // the trailing tokens regardless (mirrors how the label is built).
   function parseScoreLabel(label) {
-    const m = /^score (.+) (\d+) color (\d+)$/.exec(label);
-    return m ? { name: m[1], lives: +m[2] } : null;
+    let m = /^score (.+) (\d+) (\d+)\/(\d+) color (\d+)$/.exec(label);
+    if (m) return { name: m[1], lives: +m[2], kills: +m[3], deaths: +m[4] };
+    m = /^score (.+) (\d+) color (\d+)$/.exec(label);
+    return m ? { name: m[1], lives: +m[2], kills: null, deaths: null } : null;
   }
   // "identity <color> <greekletter>[ shield][ nade] <weapon>" (labels.nim labelIdentity)
   // <name> here is a per-slot GREEK LETTER (alpha..theta), not the player's display
@@ -354,15 +395,10 @@
       teamScoreRows: [],
       scoreRows: [],
       zone: null, zoneNext: null,
-      // TODO(engine kills/deaths emission, routed to realcog as of 8/29):
-      // once a per-player kills/deaths label lands (expected same family as
-      // the existing self "lives <hp>hp x<lives>" label — exact prefix TBD,
-      // read by prefix per this file's own convention, not exact-match), add
-      // one `if (label.indexOf(<prefix>) === 0)` case here setting
-      // raw.killsSelf/deathsSelf (own) and/or raw.scoreRows[i].kills/deaths
-      // (per-row, CTF+BR), then thread through buildState()'s combat/
-      // playerRows construction below — both already have the fields
-      // reserved (null) so this is the ONLY edit needed.
+      // Own kills/deaths off the "kd " label (the TODO this slot was reserved
+      // for — landed 50a13efc). Stays null when the label never arrives
+      // (pre-50a13efc engine), which renders as "—", never a fabricated 0.
+      kdSelf: null,
     };
     if (!objs || !sprs) return raw;
     objs.forEach(function (o) {
@@ -397,6 +433,7 @@
         return;
       }
       if (label.indexOf('lives ') === 0) { raw.livesLabel = parseLivesLabel(label); return; }
+      if (label.indexOf('kd ') === 0) { raw.kdSelf = parseKdLabel(label); return; }
       if (label.indexOf('hp ') === 0) {
         const hp = parseHpLabel(label);
         if (hp) raw.hpMarkers.push({ x: o.x, y: o.y, lit: hp.lit, total: hp.total, shield: hp.shield });
@@ -414,7 +451,7 @@
       }
       if (label.indexOf('score ') === 0) {
         const sc = parseScoreLabel(label);
-        if (sc) raw.scoreRows.push(sc); // {name, lives} — kills/deaths reserved, see buildState
+        if (sc) raw.scoreRows.push(sc); // {name, lives, kills, deaths} — k/d null on old-shape rows
         return;
       }
       if (label.indexOf('zone ') === 0) { raw.zone = parseZoneLabel(label.slice(5)); return; }
@@ -497,28 +534,29 @@
     const teamCount = raw.teamScoreRows.length;
     const variant = teamCount === 0 ? 'unknown' : (teamCount <= 4 ? 'ctf' : 'br');
 
-    // Player rows: CTF gets real per-player lives off the wire today; BR is
-    // roster-only today (see the BR gap note at the top of this file). Both
-    // branches reserve kills/deaths (null) NOW so that once realcog's
-    // per-player emission lands — routed for both the >4-team scoreboard
-    // gap and per-player K/D generally — populating them is a buildState
-    // edit only, never a render/layout edit.
+    // Player rows, from the wire's own "score " rows wherever the host Maps
+    // carry them — 50a13efc emits a row per player at EVERY team count, with
+    // kills/deaths in the row (null here when the row is the old deployed
+    // shape; see parseScoreLabel). Same mapping for CTF and BR. BR keeps its
+    // roster-only fallback for when NO score rows arrive at all — the two
+    // real cases being an old (pre-50a13efc) engine, where >4-team rows are
+    // suppressed outright, and the live seated player stream, which server.nim
+    // never routes through addScoreboard (see the ROUTING note up top).
     let playerRows = [];
-    if (variant === 'ctf') {
+    if (raw.scoreRows.length) {
       playerRows = raw.scoreRows.map(function (row) {
         const rEntry = roster.resolved ? roster.byName.get(row.name.toLowerCase()) : null;
-        const self = isSelfRow(row.name, rEntry);
         return {
           name: row.name, team: rEntry ? rEntry.team : null, lives: row.lives,
-          kills: null, deaths: null, // reserved — see TODO in scanWire()
-          human: rEntry ? rEntry.person : null, self: self,
+          kills: row.kills, deaths: row.deaths,
+          human: rEntry ? rEntry.person : null, self: isSelfRow(row.name, rEntry),
         };
       });
     } else if (variant === 'br' && roster.resolved) {
       roster.byName.forEach(function (rEntry) {
         playerRows.push({
           name: rEntry.name, team: rEntry.team, lives: null,
-          kills: null, deaths: null, // reserved — see TODO in scanWire()
+          kills: null, deaths: null, // no score rows on this stream — honest "—"
           human: rEntry.person, self: isSelfRow(rEntry.name, rEntry),
         });
       });
@@ -543,7 +581,13 @@
       selfTeam: raw.selfTeam,
       fire: { ready: raw.fireReady },
       health: health,
-      combat: { kills: null, deaths: null, score: null, xp: null, level: null, rank: null, buffs: [] },
+      combat: {
+        // Own K/D straight off the "kd " label (real attribution, 50a13efc);
+        // null — rendering "—" — whenever the label isn't on the wire.
+        kills: raw.kdSelf ? raw.kdSelf.kills : null,
+        deaths: raw.kdSelf ? raw.kdSelf.deaths : null,
+        score: null, xp: null, level: null, rank: null, buffs: [],
+      },
       // CTF-only; reserved. HUD_SPEC.md: the respawn ticks-remaining value
       // exists server-side (Player has the state) but is never sent on the
       // wire today. The render surface for this is fix-client3's center-
@@ -819,6 +863,10 @@
   // ---------------------------------------------------------------------
   // Scoreboard render: CTF vs BR variant, per the wire-derived team count.
   // ---------------------------------------------------------------------
+  // BR visible-row cap. 12 rows ≈ the 16-duo midgame's live half without
+  // approaching the 32-row wall the emitting lane flagged; own row is exempt
+  // from the cap (see below), so "where am I" never scrolls away.
+  const BR_MAX_ROWS = 12;
   function renderScoreboard(nodes, state) {
     const rows = state.playerRows.slice();
     // Team score / teams-alive is the always-on TOP-CENTER bar now (see
@@ -831,9 +879,9 @@
         if (a.team !== b.team) return (a.team || '').localeCompare(b.team || '');
         return (b.lives || 0) - (a.lives || 0);
       });
-      // kills/deaths columns are reserved (always "—" today) — see the
-      // TODO in scanWire(): the moment realcog's per-player emission lands,
-      // r.kills/r.deaths populate and this table needs no other change.
+      // K/D column lights up row by row as the new-shape "score " rows arrive
+      // (parseScoreLabel); old-shape rows keep an honest "—/—". No layout
+      // change either way — the column was built for this.
       html += rowsTable(rows, ['name', 'team', 'lives', 'kd', 'who'], function (r) {
         return '<td>' + escapeHtml(r.name) + '</td>' +
           '<td style="color:' + teamColor(r.team) + '">' + fmtDash(r.team) + '</td>' +
@@ -842,18 +890,51 @@
           '<td class="phud-dim">' + whoText(r.human) + '</td>';
       }, rows.length ? null : 'No standings data yet.');
     } else if (state.variant === 'br') {
-      html += '<h2>br · roster · <span class="phud-dim">teams in match: ' + fmtDash(state.teamScores.length) +
+      // Real wire rows (any lives/kills present) get "standings"; the
+      // roster-only fallback keeps calling itself what it is.
+      const haveWireRows = rows.some(function (r) { return r.lives !== null || r.kills !== null; });
+      html += '<h2>br · ' + (haveWireRows ? 'standings' : 'roster') +
+        ' · <span class="phud-dim">teams in match: ' + fmtDash(state.teamScores.length) +
         ' · teams alive: ' + fmtDash(state.teamsAlive) + '</span></h2>';
-      rows.sort(function (a, b) { return (a.team || '').localeCompare(b.team || ''); });
-      // placement is END-CARD ONLY today (sim.brPlacements(), never live) —
-      // kills/deaths reserved the same as CTF, both routed to realcog.
-      html += rowsTable(rows, ['name', 'team', 'placement', 'kd', 'who'], function (r) {
+      // 32-row legibility (the emitting lane's flagged handoff): a full BR
+      // roster as a wall of rows is unreadable mid-fight, so sort by kills
+      // (nulls last), then lives, then name, and CAP at BR_MAX_ROWS — with
+      // the own row ALWAYS kept visible (pulled up past the cap behind a
+      // "···" gap marker when it ranks below it) and an explicit "+N more"
+      // footer, so the cut is stated, never silent.
+      rows.sort(function (a, b) {
+        const ak = a.kills === null ? -1 : a.kills, bk = b.kills === null ? -1 : b.kills;
+        if (bk !== ak) return bk - ak;
+        if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
+        return String(a.name).localeCompare(String(b.name));
+      });
+      let visible = rows, hidden = 0;
+      if (rows.length > BR_MAX_ROWS) {
+        visible = rows.slice(0, BR_MAX_ROWS);
+        for (let i = BR_MAX_ROWS; i < rows.length; i++) {
+          if (rows[i].self) { // own row below the cap: show top N-1, gap, self
+            visible = rows.slice(0, BR_MAX_ROWS - 1);
+            visible.push({ gap: true }, rows[i]);
+            break;
+          }
+        }
+        hidden = rows.length - visible.filter(function (r) { return !r.gap; }).length;
+      }
+      // placement stays END-CARD ONLY (sim.brPlacements(), never live) — its
+      // always-empty column is gone; lives is real wire data now and, in a
+      // one-life mode, doubles as the alive/out read.
+      html += rowsTable(visible, ['name', 'team', 'lives', 'kd', 'who'], function (r) {
+        if (r.gap) return '<td colspan="5" class="phud-dim" style="text-align:center">···</td>';
         return '<td>' + escapeHtml(r.name) + '</td>' +
           '<td style="color:' + teamColor(r.team) + '">' + fmtDash(r.team) + '</td>' +
-          '<td class="phud-dim">—</td>' +
+          '<td>' + fmtDash(r.lives) + '</td>' +
           '<td class="phud-dim">' + fmtDash(r.kills) + '/' + fmtDash(r.deaths) + '</td>' +
           '<td class="phud-dim">' + whoText(r.human) + '</td>';
       }, rows.length ? null : (state.roster.resolved ? 'No standings data yet.' : 'Roster unavailable — no /api/field response.'));
+      if (hidden > 0) {
+        html += '<div class="phud-sub" style="padding:5px 0 1px">+' + hidden +
+          ' more · sorted by kills · your row always shown</div>';
+      }
     } else {
       html += '<div class="phud-empty">No standings data yet.</div>';
     }
