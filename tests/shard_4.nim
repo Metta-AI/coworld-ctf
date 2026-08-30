@@ -18,6 +18,7 @@ import
   test_perks,
   test_puddles,
   test_replay_controls,
+  test_shot_feedback_wire,
   test_trenches,
   test_weapon_observability,
   test_windows

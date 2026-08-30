@@ -1839,6 +1839,58 @@ proc buildRewardPacket(sim: SimServer): string {.measure.} =
       result.addStatLine("deaths", identity, account.deaths)
       result.addStatLine("captures", identity, account.captures)
 
+proc buildShotFeedbackPacket(
+  sim: SimServer,
+  feedback: seq[ShotFeedbackFx],
+  cog: int
+): string {.measure.} =
+  ## Builds the PRIVATE combat-outcome JSON for one takeover socket's cog
+  ## this tick (GameConfig.allowShotFeedback), from whichever entries in
+  ## `feedback` name `cog` as shooter or victim — the caller (this proc's one
+  ## call site, the takeover send pass below) has already filtered `feedback`
+  ## down to entries touching this cog at all, so every entry here matches at
+  ## least one of the two branches below.
+  ##
+  ## Deliberately built here as a plain JSON string, sent as its own
+  ## TextMessage — NOT folded into global.nim's sprite/label wire, which is
+  ## shared with every policy socket. Returns "" when neither array would
+  ## have anything in it, so the caller can skip the send outright.
+  ##
+  ## Delivered UNFOGGED: no fovVisibleAt check gates victimTeam/victimColor/
+  ## killerTeam/killerColor here. See ShotFeedbackFx's doc comment for why —
+  ## a direct participant in a combat event is entitled to its outcome
+  ## regardless of their own fog at the moment it resolved. This proc never
+  ## runs for any other seat, so that exception stays exactly as narrow as
+  ## the two participants of each individual event.
+  var shotsLanded = newJArray()
+  var hitsTaken = newJArray()
+  for fx in feedback:
+    if fx.shooterIndex == cog and fx.targetIndex >= 0 and
+        fx.targetIndex < sim.players.len:
+      let victim = sim.players[fx.targetIndex]
+      shotsLanded.add(%*{
+        "kill": fx.kill,
+        "friendlyFire": fx.friendlyFire,
+        "weapon": fx.weapon,
+        "distance": fx.distance,
+        "victimTeam": teamText(victim.team),
+        "victimColor": playerColorText(victim.color)
+      })
+    if fx.targetIndex == cog and fx.shooterIndex >= 0 and
+        fx.shooterIndex < sim.players.len:
+      let killer = sim.players[fx.shooterIndex]
+      hitsTaken.add(%*{
+        "kill": fx.kill,
+        "friendlyFire": fx.friendlyFire,
+        "weapon": fx.weapon,
+        "distance": fx.distance,
+        "killerTeam": teamText(killer.team),
+        "killerColor": playerColorText(killer.color)
+      })
+  if shotsLanded.len == 0 and hitsTaken.len == 0:
+    return ""
+  $(%*{"shotsLanded": shotsLanded, "hitsTaken": hitsTaken})
+
 proc declarePlayerFailure(slot: int, message: string) =
   ## Publishes the game-declared terminal player failure the platform runner
   ## polls for (COGAME_PLAYER_FAILURE_URI -> player_failure.json), so a lobby
@@ -2504,6 +2556,15 @@ proc runServerLoop*(
       continue
 
     var frameEvents = newJArray()
+    # Drained once per frame below (same "drain, then setLen(0)" shape as
+    # collectedEvents/sim.events just under this), and consumed ONLY by the
+    # takeover send pass further down — the ordinary per-seat (policy) send
+    # pass never reads it. Declared out here (not inside the `else:` step
+    # loop) so it survives to that later pass; stays empty for a replay
+    # frame, which is fine, since replay playback never has a takeover
+    # socket to deliver it to (takeoverSockets is only ever populated on the
+    # `not replayLoaded` path above).
+    var frameShotFeedback: seq[ShotFeedbackFx] = @[]
     if replayLoaded:
       frameEvents = replayPlayer.advanceReplayFrame(
         sim,
@@ -2559,6 +2620,16 @@ proc runServerLoop*(
           for event in sim.events:
             collectedEvents.add(event)
           sim.events.setLen(0)
+        # Same drain shape as sim.events just above, for the private
+        # shot-feedback channel (GameConfig.allowShotFeedback): empty on
+        # every config that leaves the gate off, since applyFire/
+        # resolveActiveArcCones/explodeGrenade only ever push to it when the
+        # gate is on. Accumulated across every step this frame (playbackSpeed
+        # can run several steps per frame), consumed once below by the
+        # takeover send pass only.
+        for fx in sim.shotFeedback:
+          frameShotFeedback.add fx
+        sim.shotFeedback.setLen(0)
         # Broadcast chrome's kill-feed/phase/gameover beats (stakes #7/#9):
         # the SAME diff-the-tracker-against-this-tick call the replay path
         # makes once per stepped tick via advanceReplayPlayback's callback,
@@ -2689,6 +2760,28 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(takeoverSockets[i])
+      # Private combat-outcome channel (GameConfig.allowShotFeedback): a
+      # SEPARATE TextMessage, never folded into the binary sprite/label wire
+      # above, so it can never reach the seat's underlying policy socket —
+      # only this takeover pass ever calls buildShotFeedbackPacket. Empty
+      # frameShotFeedback (the gate is off, or nothing landed this tick) is
+      # the overwhelmingly common case, so this filters and builds only when
+      # there is anything to say at all.
+      if frameShotFeedback.len > 0:
+        var cogShotFeedback: seq[ShotFeedbackFx] = @[]
+        for fx in frameShotFeedback:
+          if fx.shooterIndex == takeoverCogs[i] or fx.targetIndex == takeoverCogs[i]:
+            cogShotFeedback.add fx
+        if cogShotFeedback.len > 0:
+          let shotFeedbackPacket =
+            sim.buildShotFeedbackPacket(cogShotFeedback, takeoverCogs[i])
+          if shotFeedbackPacket.len > 0:
+            try:
+              takeoverSockets[i].send(shotFeedbackPacket, TextMessage)
+            except:
+              {.gcsafe.}:
+                withLock appState.lock:
+                  discard markSocketClosed(takeoverSockets[i])
 
     for websocket in rewardViewers:
       try:

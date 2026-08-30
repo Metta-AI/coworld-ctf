@@ -59,7 +59,8 @@ proc defaultGameConfig*(): GameConfig =
     barrageSaturateSec: BarrageSaturateSec,
     brMode: false,
     zonePhases: @[],
-    allowCallouts: false
+    allowCallouts: false,
+    allowShotFeedback: false
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -884,6 +885,9 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
   node.readConfigBool("brMode", config.brMode)
+  # GVNEXT(shotfeedback): appended read for the appended allowShotFeedback
+  # field (sim_types.nim) — same tail-append rule as brMode above.
+  node.readConfigBool("allowShotFeedback", config.allowShotFeedback)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1058,6 +1062,16 @@ proc echoCalloutKeys(config: GameConfig, node: JsonNode) =
   if config.allowCallouts:
     node["allowCallouts"] = %config.allowCallouts
 
+proc echoShotFeedbackKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the shot-feedback gate only when it is on, so an
+  ## allowShotFeedback-off game's replay config stays byte-identical to a
+  ## build without the field — same rule as echoCalloutKeys/
+  ## echoSeatTakeoverKeys above. Own named proc (not a tail-append inline in
+  ## configJson), for the same conflict-safety reason echoCalloutKeys is —
+  ## the echo-drop hazard this file's history already hit twice.
+  if config.allowShotFeedback:
+    node["allowShotFeedback"] = %config.allowShotFeedback
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1149,5 +1163,6 @@ proc configJson*(config: GameConfig): string =
   echoSeatTakeoverKeys(config, node)
   echoAimKeys(config, node)
   echoCalloutKeys(config, node)
+  echoShotFeedbackKeys(config, node)
   result = $node
 

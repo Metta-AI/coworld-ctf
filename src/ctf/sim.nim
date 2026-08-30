@@ -370,6 +370,7 @@ proc startGame*(sim: var SimServer) =
   sim.paintStains = @[]        ## each match starts on a clean arena.
   sim.diamondStains = @[]
   sim.damagePops = @[]
+  sim.shotFeedback = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   let groupOffset = sim.spawnGroupOffset()
@@ -1195,6 +1196,21 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let blocked = sim.absorbDamage(
         victimIndex, SprayPaintDamage, arcFire.attacker, "spray"
       )
+      if sim.config.allowShotFeedback:
+        # Same private hit-confirm the gun's damage site pushes (applyFire) —
+        # area weapons are cheap to cover here since victimIndex/attacker are
+        # already resolved above; see GameConfig.allowShotFeedback.
+        sim.shotFeedback.add ShotFeedbackFx(
+          shooterIndex: arcFire.attacker,
+          targetIndex: victimIndex,
+          kill: sim.players[victimIndex].hp <= 0,
+          friendlyFire: attacker.team == sim.players[victimIndex].team,
+          weapon: "spray",
+          distance: int(round(hypot(
+            float(sim.players[victimIndex].x - attacker.x),
+            float(sim.players[victimIndex].y - attacker.y)
+          )))
+        )
       if bubbleUp:
         # Blink the bubble toward the sprayer, as the gun's damage site does —
         # otherwise a fully-absorbed burst shows no feedback anywhere.
@@ -1564,6 +1580,24 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         ]
       )
     impactReported = true
+    if sim.config.allowShotFeedback:
+      # Private, gate-only hit-confirm for both combat participants: never
+      # broadcast, never in gameHash — server.nim's send loop drains and
+      # delivers this seq (see SimServer.shotFeedback / GameConfig.
+      # allowShotFeedback). hp is read AFTER absorbDamage above, so this
+      # already reflects whichever hp<=0 branch the code below takes.
+      # distance: the same hypot formula the (conditional, collectEvents-
+      # gated) ShotImpact event above uses, off the same ex/ey/sx/sy locals
+      # — recomputed here since that event's own computation only runs
+      # when collectEvents is on, a separate gate from allowShotFeedback.
+      sim.shotFeedback.add ShotFeedbackFx(
+        shooterIndex: shooterIndex,
+        targetIndex: targetIndex,
+        kill: sim.players[targetIndex].hp <= 0,
+        friendlyFire: shooter.team == sim.players[targetIndex].team,
+        weapon: "gun",
+        distance: int(round(hypot(float(ex - sx), float(ey - sy))))
+      )
     if bubbleUp:
       sim.bubbleImpacts.add BubbleImpactFx(
         playerIndex: targetIndex,
@@ -1957,6 +1991,19 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       # gun's damage site).
       bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
       blocked = sim.absorbDamage(i, dmg, throwerIndex, "grenade")
+    if sim.config.allowShotFeedback and throwerIndex >= 0 and i != throwerIndex:
+      # Same private hit-confirm the gun's damage site pushes (applyFire) —
+      # area weapons are cheap to cover here too. Excludes self-splash
+      # (i == throwerIndex, same guard the kill-crediting code below already
+      # uses) and an environment shell (throwerIndex < 0, no seat to notify).
+      sim.shotFeedback.add ShotFeedbackFx(
+        shooterIndex: throwerIndex,
+        targetIndex: i,
+        kill: sim.players[i].hp <= 0,
+        friendlyFire: sim.players[throwerIndex].team == sim.players[i].team,
+        weapon: "grenade",
+        distance: int(round(hypot(float(px - grenade.tx), float(py - grenade.ty))))
+      )
     if sim.players[i].hp > 0:
       inc sim.players[i].blastsSurvived    # `lucky`: caught, not killed
     if bubbleUp:
@@ -2791,10 +2838,20 @@ proc playerFov*(sim: SimServer, playerIndex: int): lent PlayerFov =
 
 proc fovVisibleAt*(sim: SimServer, playerIndex, x, y: int): bool =
   ## Returns whether one map point is inside a viewer's vision. Dead viewers
-  ## have no eyes: everything is fogged until they respawn. Call
-  ## refreshPlayerFov first.
+  ## have no eyes: everything is fogged until they respawn -- EXCEPT their
+  ## own last position, so the fatal hit's own "SPLAT" kill pop (added at
+  ## sim.players[targetIndex].x/y by killPlayer, THREE LINES before it sets
+  ## alive=false) is not fogged from the one viewer it exists to tell. A dead
+  ## cog's x/y never moves again until respawn (respawnPlayers.placePlayer
+  ## repositions it and flips alive=true in the same statement, so there is
+  ## no tick where x/y already reads the new spawn while alive still reads
+  ## false) -- so this narrowly hands back exactly one point, the viewer's
+  ## own body, never any other dead-viewer intel. Call refreshPlayerFov
+  ## first.
   if not sim.players[playerIndex].alive:
-    return false
+    let self = sim.players[playerIndex]
+    return x >= self.x and x < self.x + CollisionW and
+      y >= self.y and y < self.y + CollisionH
   if playerIndex >= sim.fovCaches.len or not sim.fovCaches[playerIndex].valid:
     return true
   let (cx, cy) = fovCellAt(x, y)
@@ -4188,6 +4245,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.paintStains = @[]
   sim.diamondStains = @[]
   sim.damagePops = @[]
+  sim.shotFeedback = @[]
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
   sim.startWaitTimer = 0
