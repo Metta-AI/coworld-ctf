@@ -1,48 +1,116 @@
 {
-  "$comment": "§5 — the PlayContext GAMEPLAY payload: episode-static facts, one byte string built once per seat, handed unchanged to play_init and to the socket packet (the control envelope travels beside it as a separate slice). Cap: MaxContextBytes (65536). Deliberately atlas-free and raster-free: goal validation and cover queries are host functions (§5/§6.1), so the maximum is a constant of the roster and map dimensions. Complete at first registration: with the roster closed by configuration (§5.1), everything here is a function of configuration alone, unchanged by lobby leaves or process replacement.",
+  "$comment": "\u00a75 \u2014 the PlayContext GAMEPLAY payload: episode-static facts, one byte string built once per seat, handed unchanged to play_init and to the socket packet (the control envelope travels beside it as a separate slice). Cap: MaxContextBytes (65536). Deliberately atlas-free and raster-free: goal validation and cover queries are host functions (\u00a75/\u00a76.1), so the maximum is a constant of the roster and map dimensions. Complete at first registration: with the roster closed by configuration (\u00a75.1), everything here is a function of configuration alone, unchanged by lobby leaves or process replacement. DIRECTION RULE: engine\u2192play payload \u2014 additionalProperties true; built plays ignore unknown fields (\u00a75).",
   "title": "play_context",
   "type": "object",
-  "required": ["schema", "v", "mode", "map", "roster", "self", "gun_range", "view_interval"],
-  "additionalProperties": false,
+  "required": [
+    "schema",
+    "v",
+    "mode",
+    "map",
+    "roster",
+    "self",
+    "gun_range",
+    "view_interval"
+  ],
+  "additionalProperties": true,
   "properties": {
-    "schema": {"const": "play_context"},
-    "v": {"const": 1},
-    "mode": {"enum": ["ctf", "koth", "br"], "$comment": "derived server-side (§5.1), never declared; also exposed to guards as mode.is_ctf / mode.is_koth / mode.is_br"},
+    "schema": {
+      "const": "play_context"
+    },
+    "v": {
+      "const": 1
+    },
+    "mode": {
+      "enum": [
+        "ctf",
+        "koth",
+        "br"
+      ],
+      "$comment": "derived server-side (\u00a75.1), never declared; also exposed to guards as mode.is_ctf / mode.is_koth / mode.is_br"
+    },
     "map": {
       "type": "object",
-      "required": ["name", "width", "height"],
+      "required": [
+        "name",
+        "width",
+        "height"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": {"type": "string", "$comment": "the resolved map identity (mapPath, or gen:<seed> / pool:<idx>)"},
-        "width": {"type": "integer"},
-        "height": {"type": "integer", "$comment": "map pixels"}
+        "name": {
+          "type": "string",
+          "$comment": "the resolved map identity (mapPath, or gen:<seed> / pool:<idx>)"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer",
+          "$comment": "map pixels"
+        }
       }
     },
     "roster": {
-      "$comment": "the complete configured closed roster (§5.1), seat order; 2..32 entries",
-      "type": "array", "maxItems": 32,
+      "$comment": "the complete configured closed roster (\u00a75.1), seat order; 2..32 entries",
+      "type": "array",
+      "maxItems": 32,
       "items": {
         "type": "object",
-        "required": ["seat", "team"],
+        "required": [
+          "seat",
+          "team"
+        ],
         "additionalProperties": false,
         "properties": {
-          "seat": {"type": "integer", "minimum": 0, "maximum": 31},
-          "team": {"type": "string"},
-          "control": {"enum": ["input", "play"], "$comment": "omit when input — so a play can tell play seats from legacy seats"}
+          "seat": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 31
+          },
+          "team": {
+            "type": "string"
+          },
+          "control": {
+            "enum": [
+              "input",
+              "play"
+            ],
+            "$comment": "omit when input \u2014 so a play can tell play seats from legacy seats"
+          }
         }
       }
     },
     "self": {
       "type": "object",
-      "required": ["seat", "team"],
+      "required": [
+        "seat",
+        "team"
+      ],
       "additionalProperties": false,
       "properties": {
-        "seat": {"type": "integer", "minimum": 0, "maximum": 31},
-        "team": {"type": "string"},
-        "duo_partner": {"type": "integer", "$comment": "the partner seat; present exactly in mode br, where a duo IS the two configured seats of one team (§5.1)"}
+        "seat": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31
+        },
+        "team": {
+          "type": "string"
+        },
+        "duo_partner": {
+          "type": "integer",
+          "$comment": "the partner seat; present exactly in mode br, where a duo IS the two configured seats of one team (\u00a75.1)"
+        }
       }
     },
-    "gun_range": {"type": "integer", "$comment": "the LIVE per-map weapon range (config.gunRange), never a constant (§4.2)"},
-    "view_interval": {"type": "integer", "minimum": 1, "maximum": 48, "$comment": "viewIntervalTicks: the LLM-bound frame cadence"}
+    "gun_range": {
+      "type": "integer",
+      "$comment": "the LIVE per-map weapon range (config.gunRange), never a constant (\u00a74.2)"
+    },
+    "view_interval": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 48,
+      "$comment": "viewIntervalTicks: the LLM-bound frame cadence"
+    }
   }
 }

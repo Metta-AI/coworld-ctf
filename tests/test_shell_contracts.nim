@@ -11,11 +11,12 @@
 ##   and echo per §5.1/§9.2/P2 — and a gate-off default config's replay JSON
 ##   gains no byte, the house rule this whole subsystem sits behind.
 
-import std/[algorithm, json, os, strutils, unittest]
+import std/[algorithm, json, os, re, strutils, tables, unittest]
 import ../src/ctf/sim_config
 import ../src/ctf/sim_types
 import ../src/shell/types
 import ../src/shell/canonical
+import std/math
 
 const FixtureDir = "tests" / "fixtures" / "shell"
 
@@ -28,8 +29,136 @@ const GoldenFiles = [
   "status_play_faulted.golden.json",
   "control_view.golden.json", "control_context.golden.json",
   "play_context.golden.json", "play_view.golden.json",
-  "manifest_pact.golden.json", "ladder_call.golden.json"
+  "manifest_pact.golden.json", "ladder_call.golden.json",
+  "floats.golden.json"
 ]
+
+const SchemaDir = "src" / "shell" / "schemas"
+
+## golden -> the schema it must conform to ("" = canonical-bytes only:
+## floats.golden.json pins the number grammar, not a message shape).
+const GoldenSchemas = {
+  "intent.golden.json": "intent.schema.json",
+  "intent_safe_hold.golden.json": "intent.schema.json",
+  "combat_policy.golden.json": "combat_policy.schema.json",
+  "status_module_accepted.golden.json": "status_entry.schema.json",
+  "status_module_ready.golden.json": "status_entry.schema.json",
+  "status_module_rejected.golden.json": "status_entry.schema.json",
+  "status_call_accepted.golden.json": "status_entry.schema.json",
+  "status_call_rejected.golden.json": "status_entry.schema.json",
+  "status_retune_refused.golden.json": "status_entry.schema.json",
+  "status_play_faulted.golden.json": "status_entry.schema.json",
+  "control_view.golden.json": "control_view.schema.json",
+  "control_context.golden.json": "control_context.schema.json",
+  "play_context.golden.json": "play_context.schema.json",
+  "play_view.golden.json": "play_view.schema.json",
+  "manifest_pact.golden.json": "manifest.schema.json",
+  "ladder_call.golden.json": "ladder_call.schema.json"
+}.toTable
+
+var schemaCache = initTable[string, JsonNode]()
+
+proc loadSchema(name: string): JsonNode =
+  if name notin schemaCache:
+    schemaCache[name] = parseJson(readFile(SchemaDir / name))
+  schemaCache[name]
+
+proc resolveRef(schema: JsonNode, root: JsonNode): (JsonNode, JsonNode) =
+  ## Returns (resolved schema, its root document) for local (#/$defs/...)
+  ## and cross-file references.
+  if schema.kind == JObject and schema.hasKey("$ref"):
+    let target = schema["$ref"].getStr()
+    if target.startsWith("#/$defs/"):
+      return (root["$defs"][target["#/$defs/".len .. ^1]], root)
+    let fileRoot = loadSchema(target)
+    return (fileRoot, fileRoot)
+  (schema, root)
+
+proc conforms(value: JsonNode, rawSchema: JsonNode, root: JsonNode,
+              path: string): seq[string] =
+  ## A deliberately minimal validator for exactly the features these
+  ## schemas use (type/const/enum/required/properties/additionalProperties/
+  ## items/pattern/minItems/maxItems/allOf-if-then/$ref/oneOf). NOT a
+  ## general JSON Schema engine; the schemas remain the normative text.
+  let (schema, root) = resolveRef(rawSchema, root)
+  template fail(msg: string) = result.add(path & ": " & msg)
+  if schema.hasKey("const"):
+    if value != schema["const"]: fail("const mismatch")
+  if schema.hasKey("enum"):
+    var hit = false
+    for option in schema["enum"]:
+      if value == option: hit = true
+    if not hit: fail("not in enum")
+  if schema.hasKey("type"):
+    let want = schema["type"].getStr()
+    let ok = case want
+      of "object": value.kind == JObject
+      of "array": value.kind == JArray
+      of "string": value.kind == JString
+      of "boolean": value.kind == JBool
+      of "integer": value.kind == JInt
+      of "number": value.kind in {JInt, JFloat}
+      else: true
+    if not ok: fail("type is not " & want)
+  if schema.hasKey("pattern") and value.kind == JString:
+    if not value.getStr().match(re("^(" &
+        schema["pattern"].getStr().strip(chars = {'^', '$'}) & ")$")):
+      fail("pattern mismatch")
+  if value.kind == JObject:
+    if schema.hasKey("required"):
+      for key in schema["required"]:
+        if not value.hasKey(key.getStr()): fail("missing " & key.getStr())
+    if schema.hasKey("properties"):
+      for key, sub in value.pairs:
+        if schema["properties"].hasKey(key):
+          result.add(conforms(sub, schema["properties"][key], root,
+                              path & "." & key))
+        elif schema.hasKey("additionalProperties"):
+          let extra = schema["additionalProperties"]
+          if extra.kind == JBool and not extra.getBool():
+            fail("unknown key " & key)
+          elif extra.kind == JObject:
+            result.add(conforms(sub, extra, root, path & "." & key))
+  if value.kind == JArray:
+    if schema.hasKey("minItems") and
+        value.len < schema["minItems"].getInt(): fail("too few items")
+    if schema.hasKey("maxItems") and
+        value.len > schema["maxItems"].getInt(): fail("too many items")
+    if schema.hasKey("items") and schema["items"].kind == JObject:
+      for i, item in value.elems:
+        result.add(conforms(item, schema["items"], root,
+                            path & "[" & $i & "]"))
+  if schema.hasKey("allOf"):
+    for rule in schema["allOf"]:
+      if rule.hasKey("if") and value.kind == JObject:
+        var applies = true
+        for key, cond in rule["if"]["properties"].pairs:
+          if not value.hasKey(key):
+            applies = false
+          elif cond.hasKey("const"):
+            if value[key] != cond["const"]: applies = false
+          elif cond.hasKey("enum"):
+            var hit = false
+            for option in cond["enum"]:
+              if value[key] == option: hit = true
+            if not hit: applies = false
+        if applies and rule.hasKey("then"):
+          let then = rule["then"]
+          if then.hasKey("required"):
+            for key in then["required"]:
+              if not value.hasKey(key.getStr()):
+                fail("arm requires " & key.getStr())
+          if then.hasKey("not"):
+            var banned: seq[string]
+            if then["not"].hasKey("required"):
+              for key in then["not"]["required"]: banned.add(key.getStr())
+            if then["not"].hasKey("anyOf"):
+              for arm in then["not"]["anyOf"]:
+                for key in arm["required"]: banned.add(key.getStr())
+            for key in banned:
+              if value.hasKey(key): fail("arm forbids " & key)
+      elif not rule.hasKey("if"):
+        result.add(conforms(value, rule, root, path))
 
 suite "shell canonical encoding":
   test "every golden fixture is its own canonical re-encoding":
@@ -69,6 +198,50 @@ suite "shell canonical encoding":
     expect ValueError: discard parseUint64Key(%"12x")      # non-digit
     expect ValueError: discard parseUint64Key(%"18446744073709551616") # 2^64
     check parseUint64Key(%"0") == 0'u64                    # bare zero is legal
+
+  test "canonicalFloat: the grammar is fixed and target-independent":
+    ## Review finding: bare `$` is not one cross-language encoding. The
+    ## grammar: shortest digits, plain notation inside [1e-6, 1e21),
+    ## -0.0 normalized, non-finite and out-of-range refused.
+    check canonicalFloat(-0.0) == "0.0"
+    check canonicalFloat(0.5) == "0.5"
+    check canonicalFloat(24.0) == "24.0"
+    check canonicalFloat(-2.5) == "-2.5"
+    check canonicalFloat(0.000001) == "0.000001"
+    check canonicalFloat(999999999999999900000.0) ==
+      "999999999999999900000.0"   # shortest digits, POINT-MOVED expansion
+    expect ValueError: discard canonicalFloat(NaN)
+    expect ValueError: discard canonicalFloat(Inf)
+    expect ValueError: discard canonicalFloat(-Inf)
+    expect ValueError: discard canonicalFloat(1e21)
+    expect ValueError: discard canonicalFloat(1e-7)
+
+  test "every message golden conforms to its normative schema":
+    ## Review finding: canonical bytes alone let a fixture drift from its
+    ## schema. The mini-validator covers exactly the features the schemas
+    ## use (unions via allOf if/then included).
+    for name, schemaName in GoldenSchemas.pairs:
+      let value = parseJson(readFile(FixtureDir / name))
+      let problems = conforms(value, loadSchema(schemaName),
+                              loadSchema(schemaName), name)
+      checkpoint($problems)
+      check problems.len == 0
+
+  test "the union arms actually discriminate (negative controls)":
+    ## A hold with a point, a navigate_to without one, a module_ready
+    ## missing its hash, and a visible_cone carrying the anonymous arm's
+    ## field must all FAIL their schemas — proving the arm rules bite.
+    proc bad(value: JsonNode, schemaName: string): bool =
+      conforms(value, loadSchema(schemaName), loadSchema(schemaName),
+               "neg").len > 0
+    check bad(%*{"schema": "intent", "v": 1, "kind": "hold",
+      "arrive_radius": 0.0, "point": [1, 2]}, "intent.schema.json")
+    check bad(%*{"schema": "intent", "v": 1, "kind": "navigate_to",
+      "arrive_radius": 0.0}, "intent.schema.json")
+    check bad(%*{"kind": "module_ready", "ordinal": "1", "gen": "1",
+      "upload_id": "1", "name": "pact"}, "status_entry.schema.json")
+    check bad(%*{"kind": "module_accepted", "ordinal": "07", "gen": "1",
+      "upload_id": "1"}, "status_entry.schema.json")
 
   test "every status-entry golden fits the 256-byte entry cap":
     for name in GoldenFiles:

@@ -1,25 +1,63 @@
 {
-  "$comment": "§4.3/§5 — the PlayView packet's control envelope (socket-only; the guest never sees it). Cap: MaxControlEnvelopeBytes (20480) = 16384 for ≤64 retained entries + 4096 for syntax and the mandatory fields. Statuses ride every frame until acknowledged (StatusAck high-water mark).",
+  "$comment": "\u00a74.3/\u00a75 \u2014 the PlayView packet's control envelope (socket-only; the guest never sees it). Cap: MaxControlEnvelopeBytes (20480) = 16384 for \u226464 retained entries + 4096 for syntax and the mandatory fields. Statuses ride every frame until acknowledged (StatusAck high-water mark). DIRECTION RULE: engine\u2192client \u2014 additionalProperties true; conforming clients ignore unknown fields.",
   "title": "control_view",
   "type": "object",
-  "required": ["schema", "v", "gen", "counters"],
-  "additionalProperties": false,
+  "required": [
+    "schema",
+    "v",
+    "gen",
+    "counters"
+  ],
+  "additionalProperties": true,
   "properties": {
-    "schema": {"const": "control_view"},
-    "v": {"const": 1},
-    "gen": {"type": "string", "$comment": "u64: the seat's CURRENT control generation (registration 1; bumped on activation, death, respawn, reconnect, replacement, kick)"},
-    "statuses": {"type": "array", "maxItems": 64, "items": {"$ref": "status_entry.schema.json"}, "$comment": "unacknowledged entries, ordinal order; omit when empty"},
+    "schema": {
+      "const": "control_view"
+    },
+    "v": {
+      "const": 1
+    },
+    "gen": {
+      "$ref": "uint64.schema.json",
+      "$comment": "u64: the seat's CURRENT control generation (registration 1; bumped on activation, death, respawn, reconnect, replacement, kick)"
+    },
+    "statuses": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "status_entry.schema.json"
+      },
+      "$comment": "unacknowledged entries, ordinal order; omit when empty"
+    },
     "counters": {
-      "$comment": "saturating u32 JSON numbers, ALWAYS present (a golden pins the worst case): deterministic-overflow and backpressure aggregates (§4.3) — never an unbounded list of dropped ids",
+      "$comment": "saturating u32 JSON numbers, ALWAYS present (a golden pins the worst case): deterministic-overflow and backpressure aggregates (\u00a74.3) \u2014 never an unbounded list of dropped ids",
       "type": "object",
-      "required": ["dropped_uploads", "dropped_calls", "dropped_chat", "faults_dropped", "backpressure"],
+      "required": [
+        "dropped_uploads",
+        "dropped_calls",
+        "dropped_chat",
+        "faults_dropped",
+        "backpressure"
+      ],
       "additionalProperties": false,
       "properties": {
-        "dropped_uploads": {"type": "integer"},
-        "dropped_calls": {"type": "integer"},
-        "dropped_chat": {"type": "integer", "$comment": "lobby-chat messages dropped at the rate caps (§9.2)"},
-        "faults_dropped": {"type": "integer", "$comment": "faults past even the reserved 16 slots"},
-        "backpressure": {"type": "integer", "$comment": "admissions refused for want of status capacity or compile-plane budget"}
+        "dropped_uploads": {
+          "type": "integer"
+        },
+        "dropped_calls": {
+          "type": "integer"
+        },
+        "dropped_chat": {
+          "type": "integer",
+          "$comment": "lobby-chat messages dropped at the rate caps (\u00a79.2)"
+        },
+        "faults_dropped": {
+          "type": "integer",
+          "$comment": "faults past even the reserved 16 slots"
+        },
+        "backpressure": {
+          "type": "integer",
+          "$comment": "admissions refused for want of status capacity or compile-plane budget"
+        }
       }
     }
   }

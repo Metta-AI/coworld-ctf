@@ -1,5 +1,5 @@
 {
-  "$comment": "§6.2 — the manifest a module's play_manifest export emits exactly once at the upload probe. Field names are the design's own. Names are scoped per seat; a reserved name (default, reflex_*) or a wrong abi rejects the module.",
+  "$comment": "§6.2 — the manifest a module's play_manifest export emits exactly once at the upload probe. Field names are the design's own. Names are scoped per seat; a reserved name (default, reflex_*) or a wrong abi rejects the module. `params` is the COMPLETE Appendix P.1 ParamSpec language, normatively encoded here (review finding: an unconstrained object let lanes diverge): at most 16 parameters, nesting depth ≤ 4, list caps ≤ 32, string caps ≤ 64 bytes.",
   "title": "play_manifest",
   "type": "object",
   "required": ["abi", "name", "class", "modes", "retune", "params"],
@@ -8,9 +8,49 @@
     "abi": {"const": 1},
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "$comment": "not default, not reflex_*"},
     "class": {"enum": ["controller", "overlay"]},
-    "doc": {"type": "string", "maxLength": 256, "$comment": "bytes; omit when empty"},
+    "doc": {"type": "string", "x_max_utf8_bytes": 256, "$comment": "cap is UTF-8 BYTES, engine-enforced (JSON Schema maxLength counts code points and is deliberately not used); omit when empty"},
     "modes": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"enum": ["ctf", "koth", "br"]}, "$comment": "SET: sorted, deduplicated, nonempty"},
     "retune": {"type": "boolean", "$comment": "must equal whether play_retune is exported (probe-verified)"},
-    "params": {"type": "object", "$comment": "a ParamSpec schema in the Appendix P.1 language, ≤ 16 parameters, validated against P.1's kinds and caps at upload; {} for a parameterless play"}
+    "params": {
+      "$comment": "parameter name -> ParamSpec; {} for a parameterless play; ≤ 16 parameters (MaxParamsPerSchema)",
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {"pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,31}$"},
+      "additionalProperties": {"$ref": "#/$defs/param_spec"}
+    }
+  },
+  "$defs": {
+    "param_spec": {
+      "$comment": "One P.1 kind. Depth of nested specs (tuple items, union arms, set/list element specs) ≤ ParamNestingMax (4). `required: true` marks a parameter with no default; `default` must itself validate against the spec.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["number", "bool", "enum", "point", "team_list", "set", "list", "seat_or_duo_ref", "tuple", "union", "condition"]},
+        "integer": {"type": "boolean", "$comment": "number only; every count, tick, hit point, seat, zone phase, and brad is integral (P.1)"},
+        "min": {"type": "number", "$comment": "number only; finite"},
+        "max": {"type": "number", "$comment": "number only; finite"},
+        "of": {
+          "$comment": "enum: the closed string set. set/list: the element kind — a kind NAME for scalar elements or a nested spec object.",
+          "oneOf": [
+            {"type": "array", "maxItems": 32, "items": {"type": "string", "x_max_utf8_bytes": 64}},
+            {"enum": ["number", "bool", "enum", "point", "team_list", "seat_or_duo_ref"]},
+            {"$ref": "#/$defs/param_spec"}
+          ]
+        },
+        "min_items": {"type": "integer", "minimum": 0, "maximum": 32, "$comment": "set/list only"},
+        "max_items": {"type": "integer", "minimum": 1, "maximum": 32, "$comment": "set/list only; P.1 list cap"},
+        "items": {"type": "array", "minItems": 2, "maxItems": 4, "items": {"$ref": "#/$defs/param_spec"}, "$comment": "tuple only: fixed arity, per-position kinds"},
+        "arms": {"type": "object", "maxProperties": 8, "additionalProperties": {"$ref": "#/$defs/param_spec"}, "$comment": "union only: exactly one key of these arms appears in a value"},
+        "default": {"$comment": "the literal default, absent for a required parameter; must validate against this spec"},
+        "required": {"type": "boolean", "$comment": "omit when false; true forbids `default`"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "enum"}}}, "then": {"required": ["of"]}},
+        {"if": {"properties": {"kind": {"const": "tuple"}}}, "then": {"required": ["items"]}},
+        {"if": {"properties": {"kind": {"const": "union"}}}, "then": {"required": ["arms"]}},
+        {"if": {"properties": {"kind": {"enum": ["set", "list"]}}}, "then": {"required": ["of"]}}
+      ]
+    }
   }
 }

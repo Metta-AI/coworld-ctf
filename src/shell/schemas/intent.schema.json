@@ -3,6 +3,10 @@
   "title": "intent",
   "type": "object",
   "required": ["schema", "v", "kind", "arrive_radius"],
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "navigate_to"}}}, "then": {"required": ["point"]}},
+    {"if": {"properties": {"kind": {"const": "hold"}}}, "then": {"not": {"required": ["point"]}}}
+  ],
   "additionalProperties": false,
   "properties": {
     "schema": {"const": "intent"},
@@ -23,7 +27,7 @@
     "idle_aim_center_brads": {"type": "integer", "minimum": 0, "maximum": 255, "$comment": "omit when unset; the finisher stamps it if absent (§7.3)"},
     "clamp_to_endzone": {"type": "boolean", "$comment": "omit when false; meaningful in ctf only, ignored elsewhere"},
     "suppress_fire_freeze": {"type": "boolean", "$comment": "omit when false"},
-    "reason": {"type": "string", "maxLength": 64, "$comment": "telemetry only; omit when empty; cap is BYTES of UTF-8"},
+    "reason": {"type": "string", "x_max_utf8_bytes": 64, "$comment": "telemetry only; omit when empty; the cap is UTF-8 BYTES, engine-enforced (maxLength counts code points and is deliberately not used)"},
     "combat": {"$ref": "combat_policy.schema.json", "$comment": "omit when neutral (everything empty/false). On the standing order this is the FOLDED policy (§7.1); on a controller emission it is the play's own."}
   }
 }
