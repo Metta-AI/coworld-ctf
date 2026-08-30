@@ -270,3 +270,22 @@ suite "policy_page: evaluate":
     let cp2 = compile(parsePolicyPage(DoorstepDenierJson), docExampleRegistry)
     let s3 = scoreIntent(cp2, ctx)
     check s1 == s3
+
+  test "a nil page is the empty page: scores 0, argmax ties to the first candidate":
+    # Regression for a real crash: flashPage() installs a default
+    # PolicyPage() (compiled == nil, CompiledPage is a ref) and the
+    # onepage runner's determinism design lands the episode-start flash at
+    # tick+1 -- wire first, swap at the boundary -- so every seat's first
+    # decide() argmaxes a nil CompiledPage. 31 of 32 seats SIGSEGV'd on a
+    # full recording before this guard: scoreIntent must treat nil as the
+    # documented empty page (zero rules, every intent scores 0) instead of
+    # iterating cp.rules on a nil ref.
+    var cp: CompiledPage
+    check cp.isNil
+    let ctx = mkCtx(initTable[string, float](), initTable[string, bool]())
+    check scoreIntent(cp, ctx) == 0.0
+
+    let ctxA = mkCtx({"self.hp_frac": 0.9}.toTable, {"cand.is_peel": true}.toTable)
+    let ctxB = mkCtx({"self.hp_frac": 0.1}.toTable, {"cand.is_medkit": true}.toTable)
+    let idx = argmax(cp, [ctxA, ctxB])
+    check idx == 0 # every intent ties at 0 against a nil page; first candidate wins
