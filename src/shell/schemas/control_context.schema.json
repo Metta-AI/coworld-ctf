@@ -1,5 +1,5 @@
 {
-  "$comment": "\u00a74.3 \u2014 the PlayContext packet's control envelope: the seat's FULL recovery state, sent at registration and on every (re)bind, before the transcript replay and the first view frame (\u00a79.2). Carries NO status list (retained statuses ride the first PlayView that follows). Cap: MaxControlEnvelopeBytes (20480), proven by a maximum-recovery golden. This inventory is normative: a field the protocol needs at reconnect lives here or nowhere. DIRECTION RULE: engine\u2192client \u2014 additionalProperties true; conforming clients ignore unknown fields.",
+  "$comment": "\u00a74.3 \u2014 the PlayContext packet's control envelope: the seat's FULL recovery state, sent at registration and on every (re)bind, before the transcript replay and the first view frame (\u00a79.2). Carries NO status list (retained statuses ride the first PlayView that follows). Cap: MaxControlEnvelopeBytes (20480), proven by a maximum-recovery golden. This inventory is normative: a field the protocol needs at reconnect lives here or nowhere. DIRECTION RULE: engine\u2192client \u2014 every object additionalProperties:true; conforming clients ignore unknown fields.",
   "title": "control_context",
   "type": "object",
   "required": [
@@ -35,7 +35,7 @@
         "proposal_id",
         "bytes"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "proposal_id": {
           "$ref": "uint64.schema.json"
@@ -57,7 +57,7 @@
           "sha256",
           "state"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "name": {
             "type": "string"
@@ -82,7 +82,7 @@
         "modules_left",
         "upload_bytes_left"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "modules_left": {
           "type": "integer",
@@ -101,7 +101,7 @@
         "upload_id",
         "proposal_id"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "upload_id": {
           "$ref": "uint64.schema.json"

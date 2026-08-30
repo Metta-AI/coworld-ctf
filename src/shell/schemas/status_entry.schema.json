@@ -1,5 +1,5 @@
 {
-  "$comment": "\u00a74.3 \u2014 one entry of the per-seat durable status list. The COMPLETE canonical serialized value (escaping included) is \u2264 StatusEntryMaxBytes (256); reasons and parameter paths are truncated to fit. Every entry carries its server-assigned monotonic ordinal and its immutable origin generation. u64 fields are decimal strings (README). Per-kind field requirements are enforced by the allOf arm rules (review finding: all-optional arms let incompatible producers pass).",
+  "$comment": "\u00a74.3 \u2014 one entry of the per-seat durable status list. The COMPLETE canonical serialized value (escaping included) is \u2264 StatusEntryMaxBytes (256); reasons and parameter paths are truncated to fit. Every entry carries its server-assigned monotonic ordinal and its immutable origin generation. u64 fields are decimal strings (README). Per-kind field requirements are enforced by the allOf arm rules (review finding: all-optional arms let incompatible producers pass). DIRECTION RULE: engine-outbound \u2014 every object in this tree is additionalProperties:true; decoders ignore unknown fields (\u00a75).",
   "title": "status_entry",
   "type": "object",
   "required": [
@@ -7,7 +7,7 @@
     "ordinal",
     "gen"
   ],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "kind": {
       "enum": [

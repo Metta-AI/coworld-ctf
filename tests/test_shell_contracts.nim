@@ -100,6 +100,33 @@ proc conforms(value: JsonNode, rawSchema: JsonNode, root: JsonNode,
       of "number": value.kind in {JInt, JFloat}
       else: true
     if not ok: fail("type is not " & want)
+  if schema.hasKey("oneOf"):
+    var passed = 0
+    for arm in schema["oneOf"]:
+      if conforms(value, arm, root, path).len == 0:
+        inc passed
+    if passed != 1: fail("oneOf matched " & $passed & " arms")
+  if schema.hasKey("minimum") and value.kind in {JInt, JFloat}:
+    if value.getFloat() < schema["minimum"].getFloat(): fail("below minimum")
+  if schema.hasKey("maximum") and value.kind in {JInt, JFloat}:
+    if value.getFloat() > schema["maximum"].getFloat(): fail("above maximum")
+  if schema.hasKey("maxLength") and value.kind == JString:
+    if value.getStr().len > schema["maxLength"].getInt():
+      fail("over maxLength")
+  if schema.hasKey("x_max_utf8_bytes") and value.kind == JString:
+    # the NORMATIVE byte cap (README): counted on the UTF-8 encoding
+    if value.getStr().len > schema["x_max_utf8_bytes"].getInt():
+      fail("over the UTF-8 byte cap")
+  if value.kind == JObject and schema.hasKey("maxProperties"):
+    var count = 0
+    for _ in value.keys: inc count
+    if count > schema["maxProperties"].getInt(): fail("too many properties")
+  if value.kind == JObject and schema.hasKey("propertyNames"):
+    let namePattern = schema["propertyNames"]["pattern"].getStr()
+    for key in value.keys:
+      if not key.match(re("^(" & namePattern.strip(chars = {'^', '$'}) &
+          ")$")):
+        fail("property name " & key & " fails pattern")
   if schema.hasKey("pattern") and value.kind == JString:
     if not value.getStr().match(re("^(" &
         schema["pattern"].getStr().strip(chars = {'^', '$'}) & ")$")):
@@ -108,17 +135,16 @@ proc conforms(value: JsonNode, rawSchema: JsonNode, root: JsonNode,
     if schema.hasKey("required"):
       for key in schema["required"]:
         if not value.hasKey(key.getStr()): fail("missing " & key.getStr())
-    if schema.hasKey("properties"):
-      for key, sub in value.pairs:
-        if schema["properties"].hasKey(key):
-          result.add(conforms(sub, schema["properties"][key], root,
-                              path & "." & key))
-        elif schema.hasKey("additionalProperties"):
-          let extra = schema["additionalProperties"]
-          if extra.kind == JBool and not extra.getBool():
-            fail("unknown key " & key)
-          elif extra.kind == JObject:
-            result.add(conforms(sub, extra, root, path & "." & key))
+    for key, sub in value.pairs:
+      if schema.hasKey("properties") and schema["properties"].hasKey(key):
+        result.add(conforms(sub, schema["properties"][key], root,
+                            path & "." & key))
+      elif schema.hasKey("additionalProperties"):
+        let extra = schema["additionalProperties"]
+        if extra.kind == JBool and not extra.getBool():
+          fail("unknown key " & key)
+        elif extra.kind == JObject:
+          result.add(conforms(sub, extra, root, path & "." & key))
   if value.kind == JArray:
     if schema.hasKey("minItems") and
         value.len < schema["minItems"].getInt(): fail("too few items")
@@ -144,6 +170,11 @@ proc conforms(value: JsonNode, rawSchema: JsonNode, root: JsonNode,
             if not hit: applies = false
         if applies and rule.hasKey("then"):
           let then = rule["then"]
+          if then.hasKey("properties"):
+            for key, sub in then["properties"].pairs:
+              if value.hasKey(key):
+                result.add(conforms(value[key], sub, root,
+                                    path & "." & key))
           if then.hasKey("required"):
             for key in then["required"]:
               if not value.hasKey(key.getStr()):
@@ -210,11 +241,17 @@ suite "shell canonical encoding":
     check canonicalFloat(0.000001) == "0.000001"
     check canonicalFloat(999999999999999900000.0) ==
       "999999999999999900000.0"   # shortest digits, POINT-MOVED expansion
+    # Outside the plain interval: the normalized exponent spelling (any
+    # finite number is encodable — Appendix P.1 has no magnitude bounds).
+    check canonicalFloat(1e-7) == "1e-7"
+    check canonicalFloat(1.5e-7) == "1.5e-7"
+    check canonicalFloat(1e21) == "1e+21"
+    check canonicalFloat(2.5e30) == "2.5e+30"
+    check canonicalFloat(1e-100) == "1e-100"
+    check canonicalFloat(-2.5e-9) == "-2.5e-9"
     expect ValueError: discard canonicalFloat(NaN)
     expect ValueError: discard canonicalFloat(Inf)
     expect ValueError: discard canonicalFloat(-Inf)
-    expect ValueError: discard canonicalFloat(1e21)
-    expect ValueError: discard canonicalFloat(1e-7)
 
   test "every message golden conforms to its normative schema":
     ## Review finding: canonical bytes alone let a fixture drift from its
@@ -226,6 +263,49 @@ suite "shell canonical encoding":
                               loadSchema(schemaName), name)
       checkpoint($problems)
       check problems.len == 0
+
+  test "manifest ParamSpec depth stays within ParamNestingMax":
+    ## The recursive $ref cannot carry the depth cap, so it is enforced
+    ## here semantically (and by the engine at upload, §6.2).
+    proc specDepth(spec: JsonNode): int =
+      result = 1
+      if spec.kind != JObject: return
+      if spec.hasKey("items"):
+        for item in spec["items"]:
+          result = max(result, 1 + specDepth(item))
+      if spec.hasKey("arms"):
+        for _, arm in spec["arms"].pairs:
+          result = max(result, 1 + specDepth(arm))
+      if spec.hasKey("of") and spec["of"].kind == JObject:
+        result = max(result, 1 + specDepth(spec["of"]))
+    let manifest = parseJson(readFile(FixtureDir / "manifest_pact.golden.json"))
+    var params = 0
+    for _, spec in manifest["params"].pairs:
+      inc params
+      check specDepth(spec) <= ParamNestingMax
+    check params <= MaxParamsPerSchema
+
+  test "the ParamSpec kind branches discriminate (negative controls)":
+    proc badSpec(spec: JsonNode): bool =
+      let wrapped = %*{"abi": 1, "name": "x", "class": "overlay",
+        "modes": ["br"], "retune": false, "params": {"p": spec}}
+      conforms(wrapped, loadSchema("manifest.schema.json"),
+               loadSchema("manifest.schema.json"), "neg").len > 0
+    check badSpec(%*{"kind": "bool", "arms": {}})          # bool bans arms
+    check badSpec(%*{"kind": "enum", "of": "number"})      # enum needs array
+    check badSpec(%*{"kind": "union"})                     # union needs arms
+    check badSpec(%*{"kind": "number", "required": true,
+      "default": 3})                                       # required+default
+    check not badSpec(%*{"kind": "bool", "default": false})
+
+  test "seventeen parameters fail the manifest cap (negative control)":
+    var params = newJObject()
+    for i in 0 .. 16:
+      params["p" & $i] = %*{"kind": "bool"}
+    let manifest = %*{"abi": 1, "name": "x", "class": "overlay",
+      "modes": ["br"], "retune": false, "params": params}
+    check conforms(manifest, loadSchema("manifest.schema.json"),
+                   loadSchema("manifest.schema.json"), "neg").len > 0
 
   test "the union arms actually discriminate (negative controls)":
     ## A hold with a point, a navigate_to without one, a module_ready

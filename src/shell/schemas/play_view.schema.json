@@ -1,5 +1,5 @@
 {
-  "$comment": "\u00a75/\u00a75.2/Appendix R \u2014 the per-tick GAMEPLAY payload: the seat's current fogged knowledge, one byte string handed unchanged to play_step and (at view cadence) to the socket. Cap: MaxViewFrameBytes (32768), backed by the element caps below with deterministic selection BEFORE encoding, so the encoded payload is always valid JSON. Fog provenance per field: the \u00a75.2 observation matrix is normative; nothing here is ever sourced from the omniscient SimEvent stream. Guard paths (world.alive_teams, self.hp_frac, \u2026) read this payload through the shared evaluator registry (\u00a75.1). DIRECTION RULE (review finding): this is an ENGINE\u2192PLAY payload \u2014 additionalProperties is true because built plays must ignore unknown fields so view additions stay compatible (\u00a75); strict unknown-field rejection applies only to client\u2192engine inputs (intent emissions, calls, manifests).",
+  "$comment": "\u00a75/\u00a75.2/Appendix R \u2014 the per-tick GAMEPLAY payload: the seat's current fogged knowledge, one byte string handed unchanged to play_step and (at view cadence) to the socket. Cap: MaxViewFrameBytes (32768), backed by the element caps below with deterministic selection BEFORE encoding, so the encoded payload is always valid JSON. Fog provenance per field: the \u00a75.2 observation matrix is normative; nothing here is ever sourced from the omniscient SimEvent stream. Guard paths (world.alive_teams, self.hp_frac, \u2026) read this payload through the shared evaluator registry (\u00a75.1). DIRECTION RULE (review finding): this is an ENGINE\u2192PLAY payload \u2014 every object in this tree is additionalProperties:true because built plays must ignore unknown fields so view additions stay compatible (\u00a75); strict unknown-field rejection applies only to client\u2192engine inputs (intent emissions, calls, manifests).",
   "title": "play_view",
   "type": "object",
   "required": [
@@ -34,7 +34,7 @@
         "aim_brads",
         "alive"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "pos": {
           "type": "array",
@@ -78,7 +78,7 @@
       "required": [
         "alive_teams"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "alive_teams": {
           "type": "integer",
@@ -92,7 +92,7 @@
             "current",
             "ticks_to_shrink"
           ],
-          "additionalProperties": false,
+          "additionalProperties": true,
           "properties": {
             "phase": {
               "type": "integer"
@@ -134,7 +134,7 @@
               "team",
               "state"
             ],
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
               "team": {
                 "type": "string"
@@ -177,7 +177,7 @@
           "pos",
           "fresh_tick"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "seat": {
             "type": "integer",
@@ -226,7 +226,7 @@
           "pos",
           "fresh_tick"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "kind": {
             "enum": [
@@ -264,7 +264,7 @@
           "tick",
           "dir_brads"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "tick": {
             "type": "integer"
@@ -290,7 +290,7 @@
           "killer_team",
           "victim_seat"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "tick": {
             "type": "integer"
@@ -317,7 +317,7 @@
           "pos",
           "tick"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "team": {
             "type": "string"
@@ -348,7 +348,7 @@
     "hazards": {
       "$comment": "Appendix R.1, normatively: every capped list truncates by the shared urgency predicate (covering hazards first, then ticks-to-blast ascending / recency descending, then distance, then stable event id)",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "grenades": {
           "$comment": "visible airborne grenades, \u2264 8: predicted blast center + ticks to blast are the safety inputs; pos is display metadata",
@@ -361,7 +361,7 @@
               "predicted_blast_pos",
               "ticks_to_blast"
             ],
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
               "pos": {
                 "type": "array",
@@ -395,7 +395,7 @@
               "pos",
               "tick"
             ],
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
               "pos": {
                 "type": "array",
@@ -419,7 +419,7 @@
             "release_tick",
             "blast_radius"
           ],
-          "additionalProperties": false,
+          "additionalProperties": true,
           "properties": {
             "target": {
               "type": "array",
@@ -448,7 +448,7 @@
               "kind",
               "tick"
             ],
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
               "kind": {
                 "enum": [

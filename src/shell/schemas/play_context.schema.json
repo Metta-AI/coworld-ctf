@@ -1,5 +1,5 @@
 {
-  "$comment": "\u00a75 \u2014 the PlayContext GAMEPLAY payload: episode-static facts, one byte string built once per seat, handed unchanged to play_init and to the socket packet (the control envelope travels beside it as a separate slice). Cap: MaxContextBytes (65536). Deliberately atlas-free and raster-free: goal validation and cover queries are host functions (\u00a75/\u00a76.1), so the maximum is a constant of the roster and map dimensions. Complete at first registration: with the roster closed by configuration (\u00a75.1), everything here is a function of configuration alone, unchanged by lobby leaves or process replacement. DIRECTION RULE: engine\u2192play payload \u2014 additionalProperties true; built plays ignore unknown fields (\u00a75).",
+  "$comment": "\u00a75 \u2014 the PlayContext GAMEPLAY payload: episode-static facts, one byte string built once per seat, handed unchanged to play_init and to the socket packet (the control envelope travels beside it as a separate slice). Cap: MaxContextBytes (65536). Deliberately atlas-free and raster-free: goal validation and cover queries are host functions (\u00a75/\u00a76.1), so the maximum is a constant of the roster and map dimensions. Complete at first registration: with the roster closed by configuration (\u00a75.1), everything here is a function of configuration alone, unchanged by lobby leaves or process replacement. DIRECTION RULE: engine\u2192play payload \u2014 every object additionalProperties:true; built plays ignore unknown fields (\u00a75).",
   "title": "play_context",
   "type": "object",
   "required": [
@@ -35,7 +35,7 @@
         "width",
         "height"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "name": {
           "type": "string",
@@ -60,7 +60,7 @@
           "seat",
           "team"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "seat": {
             "type": "integer",
@@ -86,7 +86,7 @@
         "seat",
         "team"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "seat": {
           "type": "integer",

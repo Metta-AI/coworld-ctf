@@ -1,5 +1,5 @@
 {
-  "$comment": "\u00a74.3/\u00a75 \u2014 the PlayView packet's control envelope (socket-only; the guest never sees it). Cap: MaxControlEnvelopeBytes (20480) = 16384 for \u226464 retained entries + 4096 for syntax and the mandatory fields. Statuses ride every frame until acknowledged (StatusAck high-water mark). DIRECTION RULE: engine\u2192client \u2014 additionalProperties true; conforming clients ignore unknown fields.",
+  "$comment": "\u00a74.3/\u00a75 \u2014 the PlayView packet's control envelope (socket-only; the guest never sees it). Cap: MaxControlEnvelopeBytes (20480) = 16384 for \u226464 retained entries + 4096 for syntax and the mandatory fields. Statuses ride every frame until acknowledged (StatusAck high-water mark). DIRECTION RULE: engine\u2192client \u2014 every object additionalProperties:true; conforming clients ignore unknown fields.",
   "title": "control_view",
   "type": "object",
   "required": [
@@ -38,7 +38,7 @@
         "faults_dropped",
         "backpressure"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "dropped_uploads": {
           "type": "integer"

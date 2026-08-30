@@ -13,11 +13,13 @@ Canonical encoding (Appendix P.1, binding for every producer):
 - Set kinds sorted + deduplicated before encoding; ordered-list kinds
   keep their order (order is meaning; duplicates rejected by name).
 - Integers are JSON numbers. Floats use the FIXED canonical grammar of
-  `canonical.nim`'s `canonicalFloat`: shortest round-trip decimal digits,
-  plain (non-exponent) notation required for `1e-6 <= |x| < 1e21` and for
-  zero, negative zero normalized to `0.0`, an integral float keeping its
-  `.0`, and NaN/Inf refused. No shell field carries magnitudes outside
-  the plain range; a value there is a producer error.
+  `canonical.nim`'s `canonicalFloat` (the reference implementation):
+  shortest round-trip decimal digits; plain notation for
+  `1e-6 <= |x| < 1e21` and for zero (an integral float keeps its `.0`,
+  negative zero normalizes to `0.0`); the normalized exponent spelling
+  `d[.ddd]e<sign><unpadded exponent>` outside that interval (`1e-7`,
+  `1.5e-7`, `1e+21`); NaN/Inf refused. Any finite number is encodable
+  (Appendix P.1 sets no magnitude bounds).
 - Every 64-bit identity (`upload_id`, `proposal_id`, `epoch`, ordinals,
   generations, marks) is a decimal string, no leading zeros, full uint64
   range. A numeric or malformed spelling is a schema rejection.

@@ -22,59 +22,69 @@
 import std/[json, algorithm, math, strutils]
 
 proc canonicalFloat*(value: float): string =
-  ## The canonical spelling of a JSON float, defined so every language
-  ## produces the same bytes (review finding: Nim's bare `$` is
-  ## target-dependent near the exponent thresholds and preserves "-0.0"):
+  ## The canonical spelling of a JSON float — ONE grammar every language
+  ## reproduces (this proc is the reference implementation):
   ##
-  ## - NaN and the infinities are NOT JSON and raise; a producer must never
+  ## - NaN and the infinities are not JSON and raise; a producer must never
   ##   emit them (the guard language likewise rejects non-finite literals).
-  ## - Negative zero normalizes to "0.0" (semantically equal values must
-  ##   encode identically).
-  ## - The digits are the shortest round-trip decimal (Ryu/Schubfach — what
-  ##   Nim's `$`, ECMAScript, Rust and modern C++ all produce).
-  ## - Plain (non-exponent) notation is REQUIRED for 1e-6 <= |x| < 1e21 and
-  ##   for zero (the ECMAScript thresholds); outside that range the value is
-  ##   an error here, because no shell contract field carries such
-  ##   magnitudes (positions, radii, fractions, permilles all fit), and
-  ##   refusing is safer than a second notation grammar.
-  ## - An integral float keeps its ".0" (JSON cannot distinguish 24 from
-  ##   24.0, so the producer's type decides the spelling).
+  ## - Zero (negative zero included) is "0.0".
+  ## - The digits are always the shortest round-trip decimal
+  ##   (Ryu/Schubfach — what Nim's `$`, ECMAScript, Rust and modern C++
+  ##   produce), leading and trailing zeros stripped.
+  ## - PLAIN notation for 1e-6 <= |x| < 1e21, with an integral value
+  ##   keeping its ".0" (JSON cannot distinguish 24 from 24.0, so the
+  ##   producer's type decides the spelling).
+  ## - EXPONENT notation outside that interval (Appendix P.1 permits any
+  ##   finite number, so no magnitude is refused):
+  ##   `d[.ddd]e<sign><exponent>` — one digit before the point, the sign
+  ##   always present ('+' or '-'), the exponent unpadded. "1e-7",
+  ##   "1.5e-7", "1e+21", "2.5e+30".
   if value.classify in {fcNan, fcInf, fcNegInf}:
     raise newException(ValueError, "non-finite floats are not encodable")
   if value == 0.0:
     return "0.0"
-  let magnitude = abs(value)
-  if magnitude < 1e-6 or magnitude >= 1e21:
-    raise newException(
-      ValueError, "float magnitude outside the canonical plain range")
-  result = $value
-  let eIdx = result.find({'e', 'E'})
+  # Extract the shortest digits and the decimal point position from Nim's
+  # shortest representation, whichever notation it chose.
+  var text = $value
+  var negative = false
+  if text[0] == '-':
+    negative = true
+    text = text[1 .. ^1]
+  var mantissa = text
+  var exp10 = 0
+  let eIdx = text.find({'e', 'E'})
   if eIdx >= 0:
-    # Nim's shortest form chose scientific notation inside the plain range
-    # (it does near the edges). Expand it by MOVING THE POINT through the
-    # shortest digits — never by reformatting the value (formatFloat's
-    # ffDecimal prints the exact binary expansion, which is not the
-    # shortest round-trip spelling and would diverge from other languages).
-    var mantissa = result[0 ..< eIdx]
-    let exponent = parseInt(result[eIdx + 1 .. ^1])
-    var negative = false
-    if mantissa[0] == '-':
-      negative = true
-      mantissa = mantissa[1 .. ^1]
-    let dotPos = mantissa.find('.')
-    let intLen = if dotPos < 0: mantissa.len else: dotPos
-    let digits = mantissa.replace(".", "")
-    let pointAt = intLen + exponent
+    mantissa = text[0 ..< eIdx]
+    exp10 = parseInt(text[eIdx + 1 .. ^1])
+  let dotPos = mantissa.find('.')
+  let intLen = if dotPos < 0: mantissa.len else: dotPos
+  var digits = mantissa.replace(".", "")
+  var pointAt = intLen + exp10   # the point sits before digits[pointAt]
+  var lead = 0
+  while lead < digits.len - 1 and digits[lead] == '0':
+    inc lead
+  digits = digits[lead .. ^1]
+  pointAt -= lead
+  while digits.len > 1 and digits[^1] == '0':
+    digits.setLen(digits.len - 1)
+  let magnitude = abs(value)
+  if magnitude >= 1e-6 and magnitude < 1e21:
     if pointAt <= 0:
-      result = "0." & repeat('0', -pointAt) & digits
+      result = "0." & repeat("0", -pointAt) & digits
     elif pointAt >= digits.len:
-      result = digits & repeat('0', pointAt - digits.len) & ".0"
+      result = digits & repeat("0", pointAt - digits.len) & ".0"
     else:
       result = digits[0 ..< pointAt] & "." & digits[pointAt .. ^1]
-    if negative:
-      result = "-" & result
-  if '.' notin result:
-    result.add(".0")
+  else:
+    let canonicalExp = pointAt - 1
+    result = $digits[0]
+    if digits.len > 1:
+      result.add("." & digits[1 .. ^1])
+    result.add("e")
+    result.add(if canonicalExp >= 0: "+" else: "-")
+    result.add($abs(canonicalExp))
+  if negative:
+    result = "-" & result
 
 proc canonicalJson*(node: JsonNode): string =
   ## Serializes a JSON tree under the canonical rules above. The tree's
