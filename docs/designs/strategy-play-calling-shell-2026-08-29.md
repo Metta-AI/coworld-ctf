@@ -23,8 +23,8 @@ material only. This design changes nothing in that lab.
 Season 2 pits language-model "policies" against each other, first in the new
 Battle Royale mode and over time in the other modes (classic CTF, and likely
 King of the Hill). Each policy directs a robot (a cog) during the match,
-and, where a lobby chat exists (today that means Maxwell's local match
-app, section 9), talks with the other policies before it starts.
+talks with the other policies in the engine's lobby chat phase before it
+starts (section 9), and shouts during it.
 
 The premise James and Maxwell have been building toward all season is
 flashing scripts to the bot. This design is the most direct realization of
@@ -90,7 +90,8 @@ flowchart LR
 Figure 1: The runtime shape. The game computes what a seat may know,
 runs the player's plays against it, and executes what they order. Four
 things cross the socket: modules and calls going in, view frames and
-durable statuses coming out. Nothing that runs at tick rate crosses a
+durable statuses coming out, plus chat in both directions (the lobby
+huddle before the match, shouts during it). Nothing that runs at tick rate crosses a
 wire.
 
 ## 2. Goals and non-goals
@@ -124,10 +125,9 @@ Non-goals:
   what makes stencil good at executing (movement, aiming, fighting,
   validated navigation) and deliberately discards its strategy layer and its
   habit of mutating shared state during decisions.
-- The lobby chat transport and UI. Maxwell's pre-round chat phase (a
-  local-app feature today) and his front end continue as they are; this
-  design plugs into them where they exist, and section 9 states the hosted
-  scoping plainly.
+- The match app's own pre-round chat for its local onepage bots, and its
+  front end. Both continue as they are; section 9 states how they split
+  from the engine's lobby chat phase, which this design does specify.
 - The offline play-authoring pipeline (log harvesting, forum mining). Plays
   are ordinary code; how a player decides what to write is their business.
 - The Arena component build of the game (`arena/`, the game itself compiled
@@ -396,7 +396,8 @@ Season 2 is a **server-enforced seat protocol**, not a library property. A
 seat is marked a **play seat** in the trusted match configuration (per
 seat, per episode). For such seats the server sends the `PlayContext` and
 the LLM-cadence `PlayView` frames, and accepts exactly: module uploads,
-play calls, the status-acknowledgment packet, and chat. Direct input masks
+play calls, the status-acknowledgment packet, lobby chat during the
+lobby phase, and in-match chat. Direct input masks
 (`0x84`) on a play seat are ignored, deterministically and with telemetry,
 so no player image can drop below the play boundary for an edge; ready
 packets (`0x85`) are likewise ignored, because a play seat's tick-rate
@@ -408,27 +409,40 @@ The play-seat messages use leading bytes outside the Sprite v1 client set
 (`0x81`–`0x86`, `bitworld/spriteprotocol.nim:34-39`), and the server's
 play-seat receive arm dispatches on the leading byte before anything
 reaches the Sprite parser, which would reject an unknown type anyway
-(`spriteprotocol.nim:495-502`). Chat still rides `0x81` in its Sprite
-framing. The play packets are normative here, because a protocol with
+(`spriteprotocol.nim:495-502`). Chat is unchanged in both directions
+and is part of this protocol, not an afterthought: a play seat sends a
+shout with the existing Sprite v1 chat packet (`0x81`, in the table),
+the engine applies it under the shout rules every seat plays by today
+(living shouter, at most ten characters, one per second, audible within
+`ShoutRange`, `docs/RULES.md:477-492`, `src/ctf/sim.nim:2236-2253`),
+and a play seat *hears* shouts through its `PlayView` gameplay payload
+(section 5), the same fogged, jittered, anonymous-slot-letter facts a
+Sprite client reads off the speech-bubble label. The play packets are
+normative here, because a protocol with
 named limits and no byte layout cannot be implemented interoperably or
-tested at its limits. All are binary WebSocket messages, exactly one
-packet per message, all integers little-endian, every packet beginning
-with its opcode byte and a protocol version byte (`1`; any other value
-rejects the packet), and every reserved byte must be zero or the packet
-is rejected:
+tested at its limits. The play packets (`0xA0` to `0xB2`) are binary
+WebSocket messages, exactly one packet per message, all integers
+little-endian, every packet beginning with its opcode byte and a
+protocol version byte (`1`; any other value rejects the packet), with
+every reserved byte zero or the packet is rejected; the legacy `0x81`
+chat row is the one exception and keeps the Sprite codec's framing:
 
 | Packet | Direction | Layout | Largest valid size |
 |---|---|---|---|
 | `ModuleUpload` `0xA0` | client to server | `u8 op, u8 ver, u64 uploadId, u32 len, u8[len] wasm` | 14 + 262144 = 262158 |
 | `PlayCall` `0xA1` | client to server | `u8 op, u8 ver, u64 proposalId, u32 len, u8[len] canonical ladder JSON` | 14 + 4096 = 4110 |
 | `StatusAck` `0xA2` | client to server | `u8 op, u8 ver, u8[6] reserved, u64 mark` | 16, fixed |
+| Chat `0x81` | client to server | the existing Sprite v1 chat packet, under the Sprite codec's own rules rather than this table's: `u8 op, u16 len, u8[len]` with a raw `u16` length, non-printable bytes dropped by the parser, the text truncated to ten characters afterward by `sanitizeShout`, and several Sprite client packets legal in one message (`bitworld/spriteprotocol.nim:477-484,504-526`, `src/ctf/sim.nim:2226-2253`); a message whose leading byte is a Sprite opcode is handed whole to that parser, and masks and ready packets inside it are ignored on a play seat | 3 + 65535 raw, bounded by the per-socket receive limit |
+| `LobbyChat` `0xA3` | client to server | `u8 op, u8 ver, u32 len, u8[len] UTF-8 text`; accepted only during the lobby chat phase (section 9) | 6 + 512 |
+| `LobbyChat` `0xB2` | server to client | `u8 op, u8 ver, u64 ordinal, u32 tick, u8 seat, u8 team, u32 len, u8[len] UTF-8 text`; one message per packet, broadcast to every play seat, never coalesced | 20 + 512 |
 | `PlayContext` `0xB0` | server to client | `u8 op, u8 ver, u32 controlLen, u8[controlLen] control JSON, u32 ctxLen, u8[ctxLen] context JSON` | 10 + 20480 + 65536 |
 | `PlayView` `0xB1` | server to client | `u8 op, u8 ver, u32 tick, u32 controlLen, u8[controlLen] control JSON, u32 viewLen, u8[viewLen] view JSON`; `viewLen = 0` is a control-only frame (pre-activation, or a dead seat) | 14 + 20480 + 32768 |
 
 Every packet's total size is an exact equation of its length fields,
 checked with overflow-safe arithmetic, with no trailing bytes permitted:
-`0xA0` and `0xA1` total `14 + len`; `0xA2` total `16`; `0xB0` total
-`10 + controlLen + ctxLen`; `0xB1` total `14 + controlLen + viewLen`. A
+`0xA0` and `0xA1` total `14 + len`; `0xA2` total `16`; `0xA3` total
+`6 + len`; `0xB0` total `10 + controlLen + ctxLen`; `0xB1` total
+`14 + controlLen + viewLen`; `0xB2` total `20 + len`. A
 decoder reads the second length only after range-checking the first
 slice against the message, and each length is also checked against its
 own cap. Any disagreement, truncation, or trailing byte rejects the
@@ -475,15 +489,29 @@ rejection, and reconnect are where implicit contracts rot:
   and reports through the durable status list: `moduleAccepted(uploadId)`
   at admission, then either `moduleReady(uploadId, name, sha256)` or
   `moduleRejected(uploadId, reason)`. Names come from the module's own
-  manifest, never from the message, and names are **scoped per seat**:
-  the binding map is `(seat, name) -> hash`, every seat may upload its
-  own `pact`, and a call resolves names only within its own seat's map
+  manifest, never from the message. The manifest is a small JSON
+  document the module itself emits when the engine calls its
+  `play_manifest` export during the upload probe (section 6.2): the ABI
+  version, the play's name and class, its supported modes, and its
+  parameter schema. It lives inside the module's own bytes (the SDK
+  generates it from the play's declaration), the engine reads it once at
+  upload, and the parsed copy stays beside the compiled module for the
+  episode. Names are **scoped per seat**: the binding map is `(seat,
+  name) -> hash`, every seat may upload its own `pact` (Maxwell's
+  negotiated-alliance reference play, section 6.4, is the obvious name
+  many playbooks will share), and a call resolves names only within its
+  own seat's map
   (the compiled-code cache still deduplicates globally by hash, sharing
   bytes but never names or outcomes). Within a seat and an episode a
   name binds to exactly one content hash: a second module whose manifest
   claims a bound name is rejected (`nameBound`) unless its bytes are
   identical, in which case the upload is a no-op acceptance
-  (`moduleReady` again, same hash). Terminal outcomes and bindings are
+  (`moduleReady` again, same hash). Said plainly: **a bound name is
+  never replaced within an episode.** A policy that wants a revised play
+  mid-match uploads the new bytes under a new name (`pact_v2`) and calls
+  that; the per-episode module and byte budgets bound how often it can,
+  and nothing a running ladder holds is ever swapped underneath it.
+  Terminal outcomes and bindings are
   committed in `uploadId` order within a seat, whatever order the
   compile pool finishes in, so a same-name race is decided by the
   protocol's admitted order and never by worker timing.
@@ -703,6 +731,13 @@ starts losing messages:
 | Per-socket pending message events (transport queue; all client-originated events incl. ping/pong) | 128 |
 | Per-socket pending bytes (transport queue) | 1048576 |
 | LLM-bound view frame interval (`viewIntervalTicks`, per-episode config) | default 6, range [1, 48] |
+| Lobby chat message size (`LobbyChatMaxBytes`, raw UTF-8 payload measured before validation; accepted bytes are unchanged) | 512 bytes |
+| Lobby chat messages per seat per phase / minimum spacing | 16 / 24 ticks |
+| Lobby chat phase length (`lobbyChatTicks`, per-episode config, wall-clock paced; section 9) | default 720 (30 s), range [0, 4320] |
+| Lobby join abort (the existing `lobbyJoinTimeoutTicks`; untouched unless the episode is a play-seat episode, where the presence budget replaces it; section 9) | as configured today |
+| Play-seat bind deadline (`playSeatBindTicks`, per-episode config, shell-gated; section 9) | default 7200 (300 s), range [1, 14400], required positive with any play seat |
+| Per-socket outbound queue (`MaxOutboundEvents` / `MaxOutboundBytes`; enqueued server-originated packets; section 9) | 256 / 2097152 |
+| Transcript replay pump (`ReplayPumpBatch`, `0xB2` packets enqueued per tick from the socket's cursor; section 9) | 64 |
 | `uploadId`, `proposalId`, epoch, status ordinals | uint64, monotonic, no wrap within an episode |
 | Backpressure and discard counters | uint32, saturating |
 
@@ -751,7 +786,143 @@ budgets (instance memory, fuel, emission caps) are in section 6.1's table.
   seat, in any phase, without `removePlayerAt`, without a leave or join
   record, and without index compaction; *loss* (transport close or
   error) moves the seat to `lost`, records a leave marker in telemetry
-  only, and changes nothing in the sim, the ladder, or the cog; *rebind*
+  only, and changes nothing in the sim, the ladder, or the cog. That
+  promise is only worth something if no *other* seat's departure can
+  shift a play seat's index underneath it, and today it can: the
+  non-squad close path deletes a leaver from the masks, inputs,
+  overlays, and sim (`src/ctf/server.nim:1520-1536`), and
+  `removePlayerAt` deletes the row and shifts every later index
+  (`src/ctf/roster.nim:437-449`). So in a play-seat episode
+  (`season2Shell` on and at least one `"play"` slot; every rule in this
+  bullet is gated on that, and a gate-on all-input roster keeps today's
+  behavior) **no seat is ever compacted before episode teardown**: an input
+  seat that disconnects keeps its row, its standing and pressed masks
+  are held at zero (an AFK player, which the sim already handles), and
+  results attribute it with the existing leave outcome; configured-slot
+  index and `sim.players` index are therefore the same stable identity
+  for the whole episode, and nothing play-owned (socket binding, body,
+  cog, ladder, masks, overlays, replay attribution, recovery context)
+  ever needs remapping. An input seat's tombstone accepts a **rebind**
+  during the lobby (the same slot and token re-authenticate onto the
+  same row, restoring its input; the presence budget of section 9.2
+  pauses), and none once the match is Playing, which is today's
+  Lobby-only admission rule kept. The replay must be able to tell a
+  reconnectable tombstone from a terminal one, and the legacy leave
+  record carries only time and seat (`bitworld/replays.nim:285-291`), so
+  play-seat episodes write **three new lifecycle records** instead of
+  reusing `ReplayLeave`, each `u8 type, u32 replayTimeMs, u8 seat`
+  (little-endian; `replayTimeMs` is the codec's time unit, as a leave
+  carries it, `bitworld/replays.nim:73-83`): `ReplayDisconnectRecord`
+  (`0x14`, a reconnectable tombstone), `ReplayKickRecord` (`0x15`, a
+  terminal tombstone), and `ReplayRebindRecord` (`0x16`). The bumped
+  format reserves its opcodes in one block so nothing collides: `0x10`
+  play call, `0x11` behavior annotation, `0x12` manifest, `0x13` lobby
+  chat, `0x14` to `0x16` the lifecycle records above (the codec's
+  existing types are `0x01` to `0x06`, `bitworld/replays.nim:74-79`).
+  None is a reinterpreted `ReplayJoin`, whose playback requires
+  `join.player == sim.players.len` and appends a row
+  (`src/ctf/replays.nim:383-390`). The lifecycle records live in the
+  lifecycle stream beside joins and leaves and are covered by the
+  gameplay hash chain like them, not by a manifest arm. Playback tracks
+  each seat as `connected`, `reconnectable` (after a disconnect record),
+  or `terminal` (after a kick record); a reader rejects a rebind whose
+  seat is out of range, whose time runs backward, whose seat is a play
+  seat (a play seat's transport loss writes no lifecycle record at all,
+  because nothing in the sim changes), or whose seat is not in
+  `reconnectable` (so a rebind after a kick, a duplicate rebind, and a
+  rebind without a disconnect are all rejections). The rebind mutator
+  clears the row's tombstone at the same boundary live rebind does and
+  touches nothing else; keyframes carry the three-way state so a seek
+  lands on it correctly; and within one time value the lifecycle records
+  are ordered after legacy leave records and before input, chat, lobby
+  chat, and game-start records. Byte goldens for all three records and
+  rejection fixtures for input kick then rebind, play kick then rebind,
+  play transport loss then a forged rebind, a duplicate rebind, backward
+  time, and a valid input disconnect then rebind pin it. The tombstone is
+  **seat state that survives game initialization and reset**, with one
+  normative accounting model rather than a choice. A seat tombstoned
+  *before* a game starts is accounted as a **never-participating seat**
+  for that game, and its **physical state is inert, not skipped**,
+  because `startGame` is also the only loop that normalizes every row
+  for a new game (position, alive, lives, health, cooldowns, carried
+  objective, combat counters, `src/ctf/sim.nim:340-391`), and a row
+  left un-normalized would carry stale death, carrying, or combat state
+  into the next game. So `startGame` initializes a tombstoned row to one
+  canonical inert state: dead, zero lives, no carried objective (an
+  objective it held is returned by the existing drop rule), no spawn
+  occupancy, and no eligibility for collision, targeting, damage, kills,
+  objectives, respawn, or team-elimination counts (it counts as already
+  eliminated), and the same inert state is applied the moment a seat is
+  tombstoned during the lobby before the first game, since `addPlayer`
+  had created it as an ordinary live row. `startGame` skips only its
+  *accounting* (no team assignment, no game count, no `won` reset;
+  today `recordGameTeamAssigned` would set its team, clear `won`, count
+  the game, and reset `abandoned`, `src/ctf/sim.nim:340-392`,
+  `src/ctf/roster.nim:550-562`). A seat tombstoned *during* a game is
+  physically an AFK body (present, zero input) and is accounted as an
+  abandoning participant, with the same reward as a removed leaver gets
+  today, which needs one deliberate step because the row is now
+  retained: today the server marks the account abandoned and removes
+  the player (`src/ctf/server.nim:1525-1536`), so `finishGame`'s
+  active-row loop never sees it and the account fallback loop pays it
+  exactly once as a non-active account with `hasTeam` true
+  (`src/ctf/sim.nim:2834-2856`; the time-limit draw branch has the same
+  shape, `:2801-2815`). So `finishGame` splits the two tombstone kinds:
+  a pre-start tombstone is excluded from every branch (active and
+  fallback), while an in-game tombstone is **skipped by the active-row
+  pass and paid once by the existing account fallback**, with the same
+  `hasTeam`, reward, `won`, wins, and draw behavior a removed player
+  gets today; achievements and reward packets follow the same split.
+  Paired goldens run the legacy removal path and the tombstone path
+  side by side for a win, a loss, a time-limit draw, and a mutual-wipe
+  draw and assert identical account counters and final rewards. Its
+  result status is the existing leave outcome. `resetGame`
+  never clears a tombstone (`src/ctf/sim.nim:3898-3901` today clears
+  `abandoned` for every account); only a `ReplayRebindRecord` (a real rebind) does, so a later
+  game in a `maxGames > 1` episode never revives a seat without a real
+  rebind. Replay keyframes and seeks carry both states. Goldens pin the
+  exact results JSON and account counters for pre-start absence,
+  in-game abandonment, a lobby rebind before the first start, and the
+  next game of a `maxGames > 1` episode, with first-game and second-game
+  cases where the tombstoned seat was previously alive, dead, and
+  carrying an objective, asserting physical state and gameplay events as
+  well as hashes; and native and WASM round trips
+  with seeks for leave then rebind before the first start and leave then
+  rebind in a later lobby, asserting presence state, masks, rewards,
+  results, indices, and hashes. The replay says the same thing: a
+  play-seat episode never writes a legacy `ReplayLeave` for a retained
+  seat; it writes the disconnect or kick record above, whose playback
+  marks the row abandoned (reconnectable or terminal) and zeroes its
+  masks in place instead of calling `removePlayerAt` (which today deletes
+  the row and, for non-squad games, its masks and overlays,
+  `src/ctf/replays.nim:353-381`). Legacy files and gate-off episodes
+  keep their destructive leave untouched, and the writer, the eager scan
+  and keyframes, both readers, and gate 2 (a lower-index input loss
+  round-tripping with identical hashes, indices, results attribution,
+  and seeks) cover the new records. Start sufficiency
+  in `joining` and `countdown` (section 9.2) counts **connected** seats,
+  input seats with a live socket and play seats that are bound, so an
+  abandoned row does not count toward `minPlayers` and the existing
+  reset rule keeps its meaning. An administrative *kick* in a shell
+  episode is a **terminal tombstone**, never `removePlayerAt`, and it
+  is defined by seat type. For an input seat: socket closed, no rebind
+  accepted, masks zero, row kept. For a play seat the runtime must stop
+  too, or the ladder would emit again next tick and the body would
+  overwrite the zero mask: the ladder is dropped (every instance and
+  its Store released, no fault records), the standing order is replaced
+  by the safe hold at epoch zero with an `installSafeIntent(reason:
+  kicked)` annotation, the control generation bumps, and the seat's
+  play step and body are **disabled for the rest of the episode**, so
+  its masks are zero by construction on every later tick rather than
+  by a one-time write; the `ReplayKickRecord` marks the terminal
+  tombstone, the annotation says why, and the recorded mask stream is
+  zeros from that tick. Episode teardown is the only removal. Goldens: a
+  lower-index input seat disconnects during chat and again during play
+  while a later play seat stays bound, then the play seat rebinds; a
+  countdown with an abandoned input row; a kick of a lower-index input
+  seat with a later play seat live; and a kick of a play seat, run on
+  through later ticks and a replay seek, asserting the ladder state,
+  the annotation, and an all-zero mask stream; *rebind*
   from `lost` or `bound` (the duplicate-connection rule: **the newest
   authenticated socket wins**, because a stale socket that cannot be
   closed by its own image is the common failure) bumps the control
@@ -759,9 +930,10 @@ budgets (instance memory, fuel, emission caps) are in section 6.1's table.
   closes or demotes the old socket, and discards every message still
   queued from it at the next drain by socket identity, so old and new
   messages racing in one drain can never interleave; and *close*, the
-  only destructive transition, happens on an explicit administrative
-  kick or episode teardown, never on transport loss, and is the one
-  path that still reaches the roster's removal. Goldens run in the tick
+  only destructive transition, happens on episode teardown (an
+  administrative kick is the tombstone above, never a removal), never on
+  transport loss, and is the one path that still reaches the roster's
+  removal. Goldens run in the tick
   loop: loss during `Playing`; rebind after loss; rebind while the old
   socket is still alive; old and new messages racing in the same drain;
   and an explicit kick; each asserting a stable cog and seat index, the
@@ -827,7 +999,7 @@ specifically to avoid a version bump,
 `origin/maxwell/br-season2-complete:src/ctf/replays.nim:253-270`). This
 design takes the other path deliberately: **Season 2 replays bump the
 replay format version.** The new version adds the call record as its own
-record type (no more chat-record flag), the per-seat behavior annotation
+record type (`0x10`; no more chat-record flag), the per-seat behavior annotation
 array, and the end-of-episode manifest (per-seat record counts and
 ordered-chain hashes). An annotation is a tagged union with an explicit
 discriminant and byte-golden layouts: `acceptedIntentChange(tick, seat,
@@ -947,8 +1119,11 @@ of the grid, exact or approximate, needs to exist anywhere but the engine.
 structured form. Gameplay payload: self state, tracked allies and enemies
 (position, team, health where known, aim, and freshness), item memory,
 zone rectangles and phase timing in Battle Royale, capture objectives in
-CTF, the seat's own standing `Intent` and active call epoch, and the
-hazard fields of Appendix R. Control envelope: the unacknowledged
+CTF, the seat's own standing `Intent` and active call epoch, the
+**shouts the seat has heard** (team color, the shouter's anonymous slot
+letter, the text, the jittered position, and the tick, exactly the
+facts a Sprite client's speech-bubble label carries), and the hazard
+fields of Appendix R. Control envelope: the unacknowledged
 statuses, the overflow and backpressure counters, and the control
 generation. Nothing about hidden enemies, other seats' orders, or match
 scoring crosses into the view; the fog rules that bound a human player
@@ -980,8 +1155,10 @@ always valid JSON and the caps make the maximum size a computable
 constant. The caps: tracked entities, at most the roster (32, so never
 truncated); item memory, 32 entries, keeping the freshest then the
 nearest; aggressor events against self, 16, most recent first; the
-public kill feed, 32, most recent first; and hazard lists per Appendix
-R.1. The firing-position and cover atlas is deliberately **not** in the
+public kill feed, 32, most recent first; heard shouts, at most one per
+live shouter and so at most the roster (32), which is the same bound
+the Sprite path has (`ShoutMaxCount = MaxPlayers`,
+`src/ctf/global.nim:370-377`); and hazard lists per Appendix R.1. The firing-position and cover atlas is deliberately **not** in the
 context: the source atlas creates a post for every cover-bearing
 navigation cell (`LAB:worldmap.nim:716-740`), so its cardinality scales
 with map area, and its ranking is query-dependent on anchor, threats,
@@ -1134,6 +1311,7 @@ impacts near a visible ward, and the ward's own track state.
 | bounty mark on a tracked enemy | view (track attribute) | fog-derived from the visible veteran marker (the ember plume, `origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867`), with track freshness; never the hidden level itself; an unseen or stale marker, or a mode without one, reads false | `target_law` (`ptBounty`) |
 | cover: best atlas post against given threat positions | host query `nearest_cover` over the engine-side atlas (section 6.1); the play supplies threat positions from its own fog-visible tracks | map-static, public (the query reveals only map facts) | `edge_ride`, `bodyguard`, default |
 | own standing `Intent`, call epoch | view | seat-private | all |
+| heard shouts: team color, anonymous slot letter, text, jittered position, tick | view (event list) | the game's existing shout audibility, sampled by the same code path the Sprite frame uses: every live shout the seat can hear (`shoutAudibleTo`, within `ShoutRange`, a fifth of the map width, through walls and fog; `src/ctf/sim.nim:2278`, `src/ctf/global.nim:6000-6022`), one per shouter because a re-shout replaces the old one (`src/ctf/sim.nim:2255-2268`), the position jittered with the same helper as the bubble, the identity resolved at frame build with the same resolver so a departed shouter reads `?` (`src/ctf/roster.nim:82-105`), expiring when the bubble does; a 32-audible-shout golden compares the field to the Sprite frame (`docs/RULES.md:477-492`) | the policy's LLM (in-match negotiation), any play |
 
 Hazards get their own rows, because the three reflexes cannot run on
 facts the matrix does not carry, and their provenance is the most
@@ -2104,8 +2282,10 @@ Acceptance gates, in order:
    the call record's paired negative controls (drop the records; shift
    them one tick; alter a module hash) each diverge its verification;
    annotation records survive round-tripping with their epochs and
-   sources intact; and the playbook archive verifies against the
-   recorded hashes.
+   sources intact; the playbook archive verifies against the
+   recorded hashes; and the lobby transcript round-trips with its four
+   negative controls (a record dropped, reordered, altered, and the
+   array truncated) each failing manifest verification.
 3. **Runtime containment.** Under all 32 seats at once, each of the
    hostile modules of section 6.1 (trap, infinite loop, memory growth,
    recursion bomb, emit flood, validator flood, hostile pointers) faults
@@ -2116,53 +2296,237 @@ Acceptance gates, in order:
    at `MaxCompileCommitsPerTick`, and the compiled cache at its cap), and
    the seat continues under the remaining entries or the default play.
 4. **End to end, local.** In the match app: a full Battle Royale episode
-   with policies uploading the reference playbook and running its
-   ladders, chat in the lobby, at least one mid-match re-call and one
-   mid-match upload, and the replay viewer displaying executed plays: the
+   with policies negotiating in the engine's lobby chat phase, uploading
+   the reference playbook and running its ladders, at least one mid-match
+   re-call, one mid-match upload, and in-match shouts heard through the
+   view, and the replay viewer displaying the lobby transcript and the
+   executed plays: the
    shape of Maxwell's verified 32-seat episodes
    (`origin/maxwell/br-season2-complete:rt_episode/`), upgraded to the
    play boundary.
-5. **End to end, hosted.** The no-huddle hosted path: a skeleton-image
-   policy on the platform's default resource envelope receives its
-   context, uploads a playbook, composes and sends an opening call, plays
-   a full episode, and re-calls mid-match.
+5. **End to end, hosted.** A skeleton-image policy on the platform's
+   default resource envelope receives its context, talks in the lobby
+   chat phase with the other seats, uploads a playbook, composes and
+   sends an opening call that names a partner it negotiated with, plays
+   a full episode, shouts and hears shouts, and re-calls mid-match.
 
-## 9. Integration with the lobby and the match app
+## 9. The lobby chat phase, and the match app
 
-- The pre-round chat phase continues as built; what changes is what a seat
-  does with it. A hosted policy is its own LLM and needs none of the app's
-  LLM machinery.
-- The app's page-generation step and its delivery paraphernalia are not
-  used by shell-built policies.
+- Pre-match negotiation between policies is a first-release feature, by
+  James's ruling, and the engine owns it: a **lobby chat phase** in which
+  every play seat hears every other play seat, with no fog, before the
+  first playing tick.
+- It rides the socket every play seat already has and the lobby phase the
+  engine already runs, so it works identically on the hosted platform and
+  in Maxwell's local match app, with no platform transport and no new
+  container-start choreography.
+- In-match chat is the existing shout, unchanged (section 4.3). The two
+  are different things on purpose: the huddle is open prose between
+  strategists; the shout is a ten-character, fog-bound, one-per-second
+  battlefield call.
 
-One scoping fact governs this section: **the pre-round huddle exists only
-in Maxwell's local match app today.** There is no hosted lobby-chat
-transport; the game's only chat is the in-match shout, which refuses to
-run before the Playing phase (`src/ctf/sim.nim:2236-2253`). So the first
-release of this shell draws the line plainly:
+### 9.1 Why the engine, and not the platform or the app
 
-- **Local and demo play** gets the full experience. The match app's flow
-  (Maxwell's lobby pages, `matchd`, the pre-round phase on
-  `PBP:origin/maxwell/lobby-chat`) keeps working; for seats running
-  shell-built policies the app launches them early enough to join the
-  huddle it hosts, and otherwise stays out of the strategy path. The
-  app-side LLM helper and page generation remain for Maxwell's existing
-  local bots and are not part of this design's path.
-- **Hosted play** works in the first release of the shell *without* a
-  pre-game huddle: the policy container starts, receives its
-  `PlayContext`, uploads its playbook, composes its opening call from
-  that playbook and any standing doctrine, and negotiates in-match
-  through shouts within their existing limits. A hosted pre-round chat
-  phase (who starts containers early, what transport carries the huddle,
-  its turn and transcript rules, and its start barrier) is a real feature
-  this design wants but does not specify; it is named as a separate
-  workstream in section 11, with its owner (platform orchestrator versus
-  an engine lobby phase) as the first question. James has set its
-  priority: it is critical for the first release of the *game*, even
-  though the first release of this *shell* ships without it.
+Today the pre-round huddle exists only inside Maxwell's local match app:
+its match daemon runs a bounded LLM chat before it spawns the game
+(`PBP:origin/maxwell/lobby-chat`), the engine refuses shouts before the
+Playing phase (`src/ctf/sim.nim:2236-2253`), and the hosted platform has
+no chat transport of any kind. The two ways to add one differ mostly in
+what they require of other people. A platform-orchestrated huddle needs
+a new transport between containers, a barrier that keeps containers
+alive and idle until every one has joined, a transcript store, and
+rules for how that transcript reaches the game; none of that exists in
+the runner, whose contract with a container is one websocket to one game
+(`personal_paintbot/player-build.md:10-22`). An engine lobby phase needs
+nothing outside this repository. The runner's actual order is: start
+the game container, wait for its health endpoint, then launch the
+player containers (local, `coworld/runner/runner.py:397-447`; hosted,
+`coworld/runner/kubernetes_runner.py:559-587` in the metta repository),
+which is exactly the order an engine-owned lobby wants, because the
+game sits in `joining` (section 9.2) until the required seats bind and
+the bind deadline bounds how long it will wait. Every play seat already
+has a socket and a pre-activation control channel (section 4.3). So the
+engine owns it.
+
+### 9.2 The phase
+
+With any play seat configured, the lobby runs as three substates on the
+existing lobby tick, and the transition table below is the contract: it
+says which clock owns each substate, what a rebind, a roster loss, a
+zero setting, or an early or late map build does, and P2 tests every
+crossing named in it.
+
+The lobby today is one state with one clock: `stepLobby` starts or
+decrements the `startWaitTicks` countdown as soon as `sim.players.len
+>= minPlayers`, resets it when the roster falls short, and starts at
+once when `startWaitTicks <= 0` (`src/ctf/sim.nim:3903-3923`); admission
+happens only during `Lobby` (`src/ctf/server.nim:1647-1655`); and a
+finite match whose roster stays short for `lobbyJoinTimeoutTicks` (an
+existing field, default 0 meaning never, hosted variants set 7200;
+`src/ctf/sim_types.nim:1406-1413`, `src/ctf/sim_config.nim:32-35`,
+`coworld_manifest_paintbot.json:194-205`) aborts with a no-show player
+failure (`src/ctf/server.nim:1578-1596`). With play seats the lobby
+becomes three substates, each with one owner clock, in this order, and
+nothing below changes a configuration with no play seat:
+
+| Substate | Entry | While in it | Exit |
+|---|---|---|---|
+| `joining` | lobby begins | roster sufficiency now means the existing `minPlayers` rule **and** every configured play seat bound (section 4.3's socket lifecycle). Outside the shell gate the existing `lobbyJoinTimeoutTicks` abort is untouched (it advances only while `sim.players.len < minPlayers`, `src/ctf/sim.nim:3903-3913,3065-3076`, and its default 0 means never). Inside a **play-seat episode**, the term this document uses for `season2Shell` on **and** at least one `control: "play"` slot (a gate-on all-input roster is not one, and keeps today's lobby, clocks, and removal byte-for-byte, which is the house rule), it is **suppressed**, so exactly one clock owns lobby termination and a simultaneous expiry cannot produce two artifacts (`src/ctf/server.nim:1578-1596` would otherwise blame `nextPlayerSlot` on the same tick): a new **presence budget**, `playSeatBindTicks`, which is a cumulative absence clock for the whole pre-activation period, not a first-bind timer: on every lobby tick from lobby start until Playing, in `joining`, `chatting`, and `countdown` alike, it advances on every tick in which the presence predicate is false, where presence is exactly `everyPlaySeatBound AND connectedSeatCount >= minPlayers` (so an optional input slot above `minPlayers` never consumes budget, and a play seat `lost` counts as absent just like one never bound), regardless of `sim.players.len` (a closed roster may have more slots than `minPlayers`, `src/ctf/sim_config.nim:722-727`, and a retained row keeps `sim.players.len` unchanged, so the existing clock alone could stop while a seat is still missing); a successful rebind pauses it without resetting it, and never replays the chat phase. Play-seat episodes must set it positive (validation rejects 0 there; without a play seat the field is inert and any value in range is accepted), and its default (7200, five minutes) is deliberately longer than the hosted runner's 180-second pod-startup allowance (`coworld/runner/kubernetes_runner.py:107,591-607` in the metta repository), because the clock starts at lobby start, which is game health, *before* the runner launches player pods; a slower default would blame a healthy policy whose pod is still scheduling, and the deployed hosted lobby timeout is the same 7200. On expiry the episode fails through the existing player-failure path, which carries exactly one `failed_policy_index` (`src/ctf/server.nim:1218-1229`; the runner contract requires one non-negative integer, metta `packages/coworld/src/coworld/docs/roles/GAME.md:63-76`): the **lowest absent configured slot** is the seat the platform attributes, and every other absent seat is listed diagnostically in the failure message. There is no cog for a default to drive, and the design does not pretend one into existence. Uploads and calls flow (section 4.3). Goldens: `slots.len > minPlayers` with the play seat missing after `minPlayers` has joined; a play-seat configuration with `lobbyJoinTimeoutTicks = 0`; two absent seats asserting the exact artifact and platform error; a hosted cold start where a play pod binds after 60 seconds and is not blamed; a lobby short of `minPlayers` with several absent seats running to the budget, asserting one artifact and no legacy-clock failure; `slots.len > minPlayers` with only an optional input seat absent, asserting the budget never advances; a gate-on all-input roster with `playSeatBindTicks = 0` and a missing player, asserting the legacy clock fires and writes today's artifact; and, for both an input seat and a play seat lost during `chatting` and during `countdown`, a no-rebind case that fails at the budget and a transient-rebind case that pauses it, each with `minPlayers == slots.len` and with `slots.len > minPlayers`. | roster sufficient: connected input seats and bound play seats reach `minPlayers`, and every play seat is bound |
+| `chatting` | once per episode, when `joining` exits and `lobbyChatTicks > 0` | the chat step below. The `startWaitTicks` countdown is **held**, not running. A play seat losing and rebinding its socket does not restart or extend the phase (persistent seat). An input seat leaving does not end chat and does not compact anything (section 4.3's no-compaction rule for play-seat episodes); if the roster is short when `countdown` re-checks sufficiency, the existing reset rule applies. | `lobbyChatTicks` elapsed, or skipped entirely when it is 0 |
+| `countdown` | `chatting` exits (or `joining` exits when chat is skipped) | the existing `startWaitTicks` logic, unchanged in shape: runs while sufficient, resets while short, immediate when 0, where "sufficient" is the connected-seat predicate of `joining` (an abandoned input row does not count) | countdown reaches 0 and the section 10 map barrier is satisfied (the map build starts when `joining` begins, so it normally finishes during chat) |
+
+**The chat step.** The phase lasts `lobbyChatTicks` (default 720,
+thirty seconds at the real tick rate; zero disables it, which is the
+byte-identical gate-off shape). It is paced by the wall clock even when
+`fastMode` is on: the server's early frame advance, which fires whenever
+every current player is ready (`src/ctf/server.nim:1005-1025`) and
+which play seats would trigger every tick because they always count as
+ready (section 4.3), is **suspended during `chatting`**, so 720 ticks
+is thirty seconds for an all-play roster and for a mixed one alike,
+while the ticks and ordinals recorded stay deterministic. Fixtures that
+need a fast lobby set `lobbyChatTicks` to 0 or a few ticks and script
+the transcript. A play seat sends `LobbyChat` (`0xA3`, section 4.3), admitted by one
+ordered algorithm so that every implementation accepts the same inputs
+and writes the same bytes: (1) the raw payload is at most
+`LobbyChatMaxBytes` (512), measured before anything else, else dropped;
+(2) it must be valid UTF-8 with no overlong or surrogate encodings, else
+rejected (`lobbyText`); (3) every scalar must be outside the C0 and C1
+control ranges (U+0000 to U+001F, U+007F to U+009F) except U+000A, which
+is the one line break allowed, and outside U+2028 and U+2029, else
+rejected (`lobbyText`); (4) no normalization is applied and no
+character is altered, so the accepted bytes are exactly the bytes sent;
+(5) a payload that is empty, or whose every byte is `0x20` or `0x0A`
+(an ASCII predicate on purpose, so no runtime's notion of Unicode
+whitespace enters the decision; a non-ASCII space is content), is
+rejected (`lobbyText`); then the rate caps: at most 16 messages per seat per
+phase and no two closer than 24 ticks, a message past either dropped
+at admission with the overflow counter, and one sent outside
+`chatting` rejected (`lobbyClosed`). The accepted bytes are the
+**canonical text**: the `0xB2` packet, the replay record, and the
+manifest hash all carry exactly them. Byte goldens cover invalid UTF-8,
+a multibyte scalar straddling the 512th byte, combining sequences
+(accepted unchanged), a control character, a lone newline, an
+whitespace-only payload, a payload of non-ASCII spaces (accepted), and
+a 513-byte payload. The engine stamps each accepted
+message with a **lobby ordinal** (per episode, monotonic across all
+seats), the tick, and the sender's seat index and team, and broadcasts
+it as a `LobbyChat` (`0xB2`) packet to every play seat, sender
+included, in ordinal order. Identity is open on purpose: a policy
+negotiating a pact must be able to name its partner, and the `seat:N`
+and `duo:<team>` references it hears are exactly the `SeatOrDuoRef`
+forms its calls use (Appendix P.1), so "we will not shoot you" in the
+lobby becomes `pact` with `partners: ["duo:navy"]` in the opening call
+with no translation. Player display names are not in the packet; a seat
+is a seat. After the phase, in-match communication is the shout.
+
+**Delivery is ordered, at-least-once, deduplicated by ordinal.** An
+ordered websocket proves order on one surviving connection and nothing
+about whether the client consumed the last packet before a disconnect,
+so the contract is stated as what the engine can promise. Every `0xB2`
+carries its ordinal; a conforming client keeps the highest ordinal it
+has applied and ignores any packet at or below it, and never coalesces
+`0xB2` packets (they are not frames). On every bind, including the
+first, the server atomically snapshots the transcript high-water mark
+`H`, sends the `PlayContext` with `H` in its control envelope, then
+replays ordinals `1..H` as `0xB2` packets in order, and only then opens
+the live stream; a message accepted while that replay is in flight gets
+ordinal `H+1` or later and is queued behind the replay, so a rebinding
+socket can never see `H+1` before `H`. The replay is bounded by the
+phase caps (32 seats × 16 messages × 532 bytes, about 272 KiB) and
+travels through the server's **outbound queue**, which this design
+defines because the transport caps of section 4.3 are all receive-side:
+per play-seat socket the server keeps one ordered outbound queue,
+bounded at `MaxOutboundEvents` (256) and `MaxOutboundBytes` (2 MiB),
+and the bound covers **every unsent byte through the transport**, not
+only the application's own deque. That needs a second transport patch
+beside the receive-side one of section 4.3, because in the pinned Mummy
+`WebSocket.send` only appends to a server-global send queue and returns
+(`mummy.nim:262-291`), the selector thread moves buffers into an
+unbounded per-socket deque (`mummy.nim:1232-1255`), and buffers leave
+it only when bytes are written (`mummy.nim:1097-1108,1342-1364`), so
+treating `send` as a dequeue would free the application's cap while a
+non-reading client accumulated unbounded memory inside the transport.
+The patch adds per-socket outbound admission (a send that would exceed
+the socket's cap is refused to the caller) and a completion callback
+per buffer (sent, or dropped on close), cancels a disconnected socket's
+queued buffers atomically, and lets the application keep coalescable
+frames in its own deque and hand a buffer over only when it is next to
+go, so coalescing happens before ownership transfers. The replay cursor
+advances only when a packet is admitted into that bounded pipeline, and
+capacity is freed only on completion. A real-socket test has the peer
+stop reading until the transport's write path backs up and asserts the
+per-socket and global queues, bytes, the disconnect, the cleanup, and
+the replay cursor all stay bounded. A full legal
+transcript is 512 messages, twice the event cap, so the replay is
+never enqueued whole: the socket carries a **replay cursor** into the
+episode transcript (which is episode memory, not socket memory), and
+the pump enqueues the next `0xB2` packets from the cursor only as queue
+space frees, at most `ReplayPumpBatch` (64) per tick, with one
+`PlayView` frame allowed to enqueue after each batch so a long replay
+cannot starve the control channel, and that frame is **control-only**
+(`viewLen = 0`, carrying durable statuses): gameplay `PlayView` frames
+and live `0xB2` messages above `H` both wait behind the cursor until it
+reaches `H`, so "only then opens the live stream" holds exactly. A
+wire-order golden at `H > ReplayPumpBatch` distinguishes control-only
+frames, gameplay frames, replayed `0xB2`, and a live `0xB2` accepted
+during pumping. The queue coalesces only
+`PlayView` frames, replacing an unsent frame with the newer one (the
+statuses it carried are durable and ride the next frame), and never
+coalesces `0xB0` or `0xB2`. Only a reader that stalls long enough for
+the bounded queue itself to fill overflows; it is disconnected, the
+seat goes to `lost` with its transcript and seat state intact, and a
+rebind discards the old socket's queue and starts a fresh cursor at 1.
+The constants are in the limits table and the queue is P2 work, with a
+maximum-transcript (`H = 512`) bind and rebind golden over a paused
+then resumed transport, and a stalled-reader golden that overflows.
+Goldens also cover a
+disconnect before a message was sent, a disconnect after it was sent
+but before the client consumed it, and a message arriving during a
+replay.
+
+### 9.3 Record, replay, and fast mode
+
+Every accepted lobby message is a replay record in its own right, with
+a physical contract because the codec rejects unknown record bytes and
+versions by design (`bitworld/replays.nim:352-362,381-446`). The bumped
+format of section 4.3 gains a third array beside the call records and
+the per-seat annotations: the **episode transcript**, a global array of
+`lobbyChat` records (`0x13`) with the layout `u8 type, u32 replayTimeMs, u64
+ordinal, u8 seat, u8 team, u16 len, u8[len] UTF-8 text` (`len ≤ 512`,
+little-endian, `replayTimeMs` the codec's time unit like every other
+record), stored in ordinal order, which is also time order, and within
+one time value placed after that tick's join, leave, and rebind records
+and before any call record. It drives no
+gameplay, so it is not mixed into the game hash; playback re-applies it
+into the lobby transcript the viewer shows (no sim mutator in its
+path). The end-of-episode manifest gains a global arm for it, a record
+count and an ordered-chain hash beside the per-seat arms, so a
+truncated, reordered, edited, or dropped transcript fails verification
+loudly; gate 2 carries those four negative controls. The viewers load
+the transcript eagerly at file open rather than through the tick
+cursor, because the viewer treats the lobby before `startTick` as dead
+air and auto-starts playback at Playing (`src/ctf/replays.nim:43-48`):
+the transcript panel (native and WASM) shows the whole huddle at any
+seek position, expanded before the first playing tick and collapsed
+after it. That panel is what lets a broadcast show the negotiation that
+produced the opening calls.
+
+### 9.4 The match app
+
+Maxwell's app keeps its own pre-round huddle for the local onepage bots
+it drives itself; for seats running shell-built policies it does not run
+one, because the engine's phase is the huddle, and running both would
+put two negotiations before one match. The app launches shell-built
+policies at the same point it launches any player process and then
+stays out of the strategy path; its lobby pages, `matchd`, and its
+page-generation step remain for its own bots and are not used by
+shell-built policies. Coordinating that split, and the transcript panel
+in his front end, joins the standing items with Maxwell (section 10,
+P0).
 
 Either way, a Season 2 policy image contains its LLM and its playbook of
-built modules; it connects to its seat, uploads, and calls.
+built modules; it connects to its seat, talks in the lobby, uploads, and
+calls.
 
 ## 10. Work plan
 
@@ -2282,23 +2646,40 @@ Ordered by dependency; each phase names its acceptance.
   recovery, and the persistent-seat socket lifecycle with its bind,
   loss, rebind, and close transitions in the server's admission and
   close paths) with its tests; the transport hardening (the per-socket
-  receive limit and pending-update cap, a named Mummy dependency patch or
-  fork, re-sized for module uploads); the replay format bump with the
+  receive limit and pending-update cap, and the per-socket outbound
+  admission and completion hooks of section 9.2, together one named
+  Mummy dependency patch or fork, re-sized for module uploads); the
+  replay format bump with the `ReplayRebindRecord`, the
   call record, the annotation array, the manifest, and the playbook
-  archive (gate 2); the explicit `GameMode` derivation; the three new
+  archive (gate 2); the lobby chat phase of section 9 (the `0xA3`/`0xB2`
+  packets, the three lobby substates with tests for every crossing in
+  the transition table, all-play and mixed rosters under both `fastMode`
+  values, the suspended early advance, the `lobbyChat` record and its
+  manifest arm, the bind-time transcript replay, and the caps); the
+  explicit `GameMode` derivation; the no-compaction rule for shell
+  episodes and the per-socket outbound queue of section 9; the five new
   configuration fields through the config parser, defaults, validation,
   echo, replay header, and the hosted manifest schema: the per-slot
   `control` of section 5.1, the root `season2Shell` gate of section 3.2
-  (default false), and the root `viewIntervalTicks` of section 4.3
-  (default 6, range [1, 48]), none of which exist in `GameConfig` today
+  (default false), the root `viewIntervalTicks` of section 4.3
+  (default 6, range [1, 48]), and the root `lobbyChatTicks` (default
+  720, range [0, 4320]) and `playSeatBindTicks` (default 7200, range
+  [1, 14400]) of section 9 (the existing `lobbyJoinTimeoutTicks` keeps
+  its deployed abort semantics everywhere except a play-seat episode,
+  where the presence budget replaces it), none of which exist in `GameConfig` today
   (`src/ctf/sim_types.nim:1386-1465`, `src/ctf/sim_config.nim:10-79`);
-  the hosted schema admits both root fields independently of the roster
+  the hosted schema admits all four root fields independently of the roster
   (so the gate-on, all-input configuration section 5.1 calls legal is
   host-authorable, and `viewIntervalTicks` simply has no effect without
   a play seat), and goldens cover gate-off with both omitted, gate-on
   with an all-input roster through the hosted schema, the cadence at 1,
-  6, 48, and 49 (rejected), and a `"play"` slot under gate-off
-  (rejected); and the page-to-play-call rename with Maxwell.
+  6, 48, and 49 (rejected), `lobbyChatTicks` at 0, 720, 4320, and 4321
+  (rejected), `playSeatBindTicks` at 0 with a play seat (rejected) and
+  without one (accepted, inert), 1, 7200, 14400, and 14401 (rejected),
+  a gate-on all-input roster with a missing player proving the legacy
+  clock and artifact, and a `"play"` slot under gate-off (rejected);
+  and the page-to-play-call
+  rename with Maxwell.
 - **P3: the play runtime.** The largest single piece. The embedded
   runtime wrapped in `src/shell/`: engine and store configuration
   (memory limiter, fuel, feature set, deterministic settings), the
@@ -2323,8 +2704,9 @@ Ordered by dependency; each phase names its acceptance.
   hosted platform's default resource envelope (250m CPU, 256 MiB;
   `personal_paintbot/player-build.md:39`). In the local match app: lobby
   chat to opening call to mid-match re-call to replay display (gate 4),
-  with Maxwell's front end reading the recorded calls. On the hosted
-  platform: the no-huddle path (gate 5).
+  with Maxwell's front end reading the recorded calls and the lobby
+  transcript. On the hosted platform: the full path including the lobby
+  chat phase (gate 5).
 
 ## 11. Risks and open questions
 
@@ -2358,15 +2740,14 @@ Ordered by dependency; each phase names its acceptance.
    goals may need a dedicated micro behavior in the body if plays cannot
    express it responsively enough; deferred until `bodyguard` is built and
    measured.
-7. **The hosted pre-round huddle is unbuilt and unowned.** The first
-   release of the shell ships hosted play without it (section 9), and
-   James rates it critical for the released game's first version.
-   Building it means deciding who starts policy containers before the
-   match, what transport carries the huddle, its turn, transcript, and
-   privacy rules, and its start barrier, and whether that belongs to the
-   platform orchestrator or to a new engine lobby phase. That decision
-   needs Maxwell and the platform owners at the table, and it gets its
-   own design.
+7. **The lobby chat phase is new engine surface with a wall-clock
+   cost.** It is specified (section 9) and owned by the engine, so the
+   ownership question is closed, but it adds thirty seconds of lobby to
+   every play-seat episode, a transcript panel to both viewers, and a
+   split with Maxwell's app-side huddle that has to be agreed rather
+   than assumed. Its privacy model is deliberately the simplest one
+   (every play seat hears everything); private side channels are a
+   later feature if anyone wants them.
 8. **The LLM-bound view cadence** is a per-episode configuration
    (`viewIntervalTicks`, default 6) rather than a measured choice; P5's
    hosted run should confirm that four frames a second plus
@@ -2758,8 +3139,11 @@ current design; everything decided, superseded, or answered lives here.
   intended; `avoid_conflict` is covered by `pact` plus `edge_ride`.
 - The design is multi-mode from the start; Battle Royale is the first
   target, and the view names the mode explicitly.
-- The hosted pre-round huddle is critical for the released game's first
-  version, though not necessarily for this shell's first version.
+- Pre-match chat between policies and in-match chat are both first
+  release features (James, 2026-08-30: "key features for an MVP"). The
+  pre-match huddle is an engine-native lobby chat phase, not a platform
+  or match-app feature (James: "the engine-native lobby chat phase is
+  really what we want"); in-match chat is the existing shout.
 - Playback never re-executes plays; masks stay the determinism artifact.
 
 ### H.2 Superseded architectures
@@ -2866,7 +3250,21 @@ behind `nearest_cover`, and the roster-shape and map-density
 validators); and the reflexes (the bounded `planEscape` primitive with
 integer arrival in the sim's own units, and the correction that the
 anonymous blast cue is post-blast evidence). A humanizer prose pass
-followed, with no technical changes. Maxwell's parallel
+followed, with no technical changes. Later the same day, after James's
+first read (four comments: the manifest, `pact`, the no-replacement
+rule, and the missing chat wiring) and his ruling that pre-match and
+in-match chat are first-release features owned by the engine, section 9
+was rewritten around the lobby chat phase and chat was wired through
+the protocol and the view; a fourth Codex collaboration reviewed that
+delta over eight rounds, capped at eight by James, to VERDICT:
+SATISFIED. Its findings produced the presence budget and the
+suppression of the legacy join timeout in play-seat episodes, the
+wall-clock-paced chat substate under fast mode, the lobby substate
+table, the no-compaction rule with its inert-tombstone accounting and
+the three physical lifecycle records, the outbound queue and its Mummy
+hooks with the transcript replay cursor, the canonical lobby text
+algorithm, and the correction that the runner starts the game before
+the players. Maxwell's parallel
 `BR_PLAYS.md` (2026-08-29 evening) independently converged on
 player-visible plays with typed parameters and a ladder-shaped call, and
 supplies the reference menu. Full earlier revisions are in the git
