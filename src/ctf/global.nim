@@ -728,6 +728,10 @@ const
   SpritePlayerOwnAimObjectId = 5023  ## ("own aim <brads>", player stream only).
   SpritePlayerKdSpriteId = 5024  ## own kill/death HUD text ("kd <n>/<n>"),
   SpritePlayerKdObjectId = 5025  ## human-wire only — see LabelPrefixKd.
+  RosterSpriteBase = 5026  ## One invisible roster-row marker per player,
+    ## keyed by row (join order) 0..MaxPlayers-1: 5026..5057. Player stream
+    ## only, human-wire only — see LabelPrefixRoster.
+  RosterObjectBase = 5058  ## Object twin of RosterSpriteBase: 5058..5089.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -870,6 +874,7 @@ const
     # kd-readout object (SpritePlayerKdObjectId, 5025) added alongside
     # weapon/own-aim.
     ("player HUD", SpritePlayerInterstitialObjectId, 20),
+    ("roster rows (player stream)", RosterObjectBase, MaxPlayers),
     ("flags", FlagObjectBase, TeamPoolWidth),
     ("own-view flag markers", SpritePlayerFlagObjectBase, TeamPoolWidth),
     ("player names", PlayerNameObjectBase, MaxPlayers),
@@ -1014,6 +1019,7 @@ const
     # 5000..5024: was 23 (5000..5022), widened to 25 to cover the own
     # kd-readout sprite (SpritePlayerKdSpriteId, 5024).
     ("player HUD", SpritePlayerFireSpriteId, 25),
+    ("roster rows (player stream)", RosterSpriteBase, MaxPlayers),
     ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
     ("selected soldiers", int(SelectedPlayerSpriteBase),
       2 * TeamPoolWidth * SoldierRotations),
@@ -4950,6 +4956,14 @@ proc scoreboardTextSpriteId(row: int): int =
 proc scoreboardPipSpriteId(colorIndex: int): int =
   ## Returns the stable score pip sprite id for one color.
   ScoreboardPipSpriteBase + colorIndex
+
+proc rosterObjectId(row: int): int =
+  ## Returns the stable roster-row object id for one player, player stream.
+  RosterObjectBase + row
+
+proc rosterSpriteId(row: int): int =
+  ## Returns the stable roster-row sprite id for one player, player stream.
+  RosterSpriteBase + row
 
 proc scoreboardName(player: Player): string =
   ## Returns the clickable scoreboard player label. The color pip next to the
@@ -8995,6 +9009,54 @@ proc buildSpriteProtocolPlayerUpdates*(
         HudTopRightLayerId,
         SpritePlayerKdSpriteId
       )
+
+      # Roster-wide scoreboard rows, human viewers only: restates the SAME
+      # per-player lives/kills/deaths data addScoreboard already draws on
+      # the separate global/spectator stream (`/client/global`), as plain
+      # labels — no pixel text rendered, the consuming HUD draws its own
+      # panel — so a human `/client/player` connection can read the WHOLE
+      # roster without a second socket (a second connection just to read a
+      # scoreboard would double the client's heaviest stream).
+      #
+      # Identified by (team, anonymous slot identity), NEVER by
+      # `scoreboardName()`/`player.address` — a raw connection address on
+      # this stream is exactly the leak
+      # tests/test_identity_privacy.nim polices ("no label in any player's
+      # frame contains a connection address"), which is why that address is
+      # fine on addScoreboard's OWN "score" row (the exempted
+      # global/spectator stream) but not here.
+      #
+      # Invisible 1x1 markers like own-aim below, one per roster seat, keyed
+      # by join order (rosterSpriteId/rosterObjectId): addSpriteChanged
+      # below only re-sends a row's bytes when that row's text actually
+      # changed since this connection's last packet (the same
+      # dirty-tracking the lives/kd labels already get "for free" from
+      # addSpriteChanged's own cache diff), so a quiet tick's cost is just
+      # the small per-row object-placement message, not the label text.
+      for i in 0 ..< sim.players.len:
+        let
+          rowPlayer = sim.players[i]
+          rowIdentity = IdentityNames[sim.slotIdentityIndex(rowPlayer.joinOrder)]
+        currentIds.add(rosterObjectId(i))
+        result.addSpriteChanged(
+          nextState.spriteDefs,
+          rosterSpriteId(i),
+          1,
+          1,
+          newRgbaPixels(1, 1),
+          labelRoster(
+            teamText(rowPlayer.team), rowIdentity,
+            rowPlayer.lives, rowPlayer.kills, rowPlayer.deaths
+          )
+        )
+        result.addBoardObject(
+          rosterObjectId(i),
+          0,
+          0,
+          0,
+          HudTopRightLayerId,
+          rosterSpriteId(i)
+        )
 
     # Own-aim readback: an invisible 1x1 marker whose LABEL states this
     # player's turret angle outright (`own aim <brads>`). The observation

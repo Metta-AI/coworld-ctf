@@ -139,6 +139,42 @@ const
     ## them too) — a policy wanting its own kill/death count is a real,
     ## separate ask (one-line ungate here) that was not in scope for the
     ## human-HUD request this label was added for.
+  LabelPrefixRoster* = "roster "
+    ## One roster row, restated on the PLAYER stream: `roster <team> <name>
+    ## <lives> <kills>/<deaths>`. This is the SAME underlying data
+    ## addScoreboard already draws as visible pixel rows on the separate
+    ## global/spectator stream (`/client/global`, "score "-prefixed — see
+    ## that label's own doc in global.nim) — restated here as a plain label,
+    ## no pixel text rendered, because a human `/client/player` connection
+    ## (the one a live gameplay client actually holds) never sees the global
+    ## stream at all, and a second socket just to read a scoreboard was
+    ## rejected as needlessly doubling the client's heaviest stream.
+    ##
+    ## `<name>` is DELIBERATELY the anonymous per-team slot identity
+    ## (IdentityNames, via `sim.slotIdentityIndex` — the exact scheme
+    ## `LabelPrefixIdentity` already uses), NEVER the raw connection address
+    ## `addScoreboard`'s own "score" row carries: a player frame is read by
+    ## that policy's rivals, and this codebase already polices exactly this
+    ## leak (`tests/test_identity_privacy.nim`, "no label in any player's
+    ## frame contains a connection address" — caught this label's first
+    ## draft red-handed before it shipped). `<team>` is `teamText(team)`,
+    ## single-word for all 16 BR colors — deliberately NOT
+    ## `playerColorName`/the render-palette name, which has five two-word
+    ## entries ("light blue", "pale blue", "dark brown", "dark teal",
+    ## "dark navy"). Every field in the tail is therefore a fixed, single
+    ## word or a number: a consumer just splits on spaces, no greedy/free
+    ## -text backtracking needed (unlike `score`'s raw-address name).
+    ## `(<team>, <name>)` uniquely identifies a roster seat, same as an
+    ## `identity` badge — cross-reference the two the same way a consumer
+    ## already has to.
+    ##
+    ## HUMAN-WIRE ONLY, same as `LabelPrefixKd`: gated on `not spritesOff`,
+    ## so the scripted/policy byte stream is untouched by this marker's
+    ## existence — proven, not assumed (see the 240-tick byte/FNV probe this
+    ## label's introducing commit cites). One marker per ROSTER SEAT, not per
+    ## viewer: every connected player's own stream restates the WHOLE
+    ## roster, so a lone `/client/player` socket is enough for a full
+    ## scoreboard panel.
   LabelPrefixIdentity* = "identity "
     ## Per-player badge, `identity <color> <name>[ shield][ nade] <weapon>`.
     ## See `labelIdentity` for the ordering invariant. Scan by PREFIX only: the
@@ -500,6 +536,15 @@ proc labelKd*(kills, deaths: int): string =
   ## The own kill/death HUD label, `kd <kills>/<deaths>`. See
   ## LabelPrefixKd for the human-only wire gating.
   LabelPrefixKd & $kills & "/" & $deaths
+
+proc labelRoster*(team, name: string; lives, kills, deaths: int): string =
+  ## One roster row on the player stream,
+  ## `roster <team> <name> <lives> <kills>/<deaths>`. `name` MUST be the
+  ## anonymous per-team slot identity (IdentityNames), never a connection
+  ## address — see LabelPrefixRoster for why and for the human-only wire
+  ## gating.
+  LabelPrefixRoster & team & " " & name & " " & $lives & " " &
+    $kills & "/" & $deaths
 
 proc labelCogWeapon*(color: string; spray: bool): string =
   ## The held-weapon sprite label on the board rig: `cog spray can <color>`
