@@ -82,6 +82,25 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 #s .dcardState{margin-top:2px;font-size:14px;color:#e8e8e8}
 #mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
 #mute:hover{background:#2a2620cc}
+/* Leave affordance ("way back to CTF" -- Maxwell, live 8/30): this file had
+   ZERO navigation chrome -- no link out, anywhere -- which is fine when
+   pbnf's play.html embeds us in its own sandboxed iframe (its own corner
+   "Leave the field" button already owns that job end to end: it POSTs
+   /api/field/leave and hands the guest an "Off the field" card with real
+   doors back to /play and /lobbies -- see server/field.mjs, web/play.html
+   in the pbnf-zerowait deploy repo). It is NOT fine standalone: a bare
+   /client/player or /client/takeover load (no portal chrome at all, e.g. a
+   direct link) left a human with genuinely no way back to anything once
+   seated -- a dead end, not a hint, which the product law here treats as a
+   failure outright. Shown ONLY when this document is its own top browsing
+   context (see the `window.top===window.self` gate below) -- the portal's
+   iframe is sandboxed WITHOUT allow-top-navigation, so a copy of this
+   button rendered inside it could never actually navigate anywhere; hiding
+   it there avoids a second, half-working "leave" competing with the one
+   that already works. Same corner, same button language, same hover as
+   #mute above -- one small utility cluster, not two separate systems. */
+#leave{position:fixed;right:10px;top:36px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
+#leave:hover{background:#2a2620cc}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
    pings (player_controls.js KEYMAP id "wheel", callout-spec.md sec.5). Sits
    above the canvas but never intercepts pointer events (pointer-events:none
@@ -123,10 +142,21 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <div id="dmgFlash" aria-hidden="true"></div>
 <div id="splat" aria-hidden="true"><b>SPLAT!</b></div>
 <button id="mute" type="button">sound: on</button>
+<button id="leave" type="button" hidden>leave</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
+/* Only offer it where it can actually work -- see #leave's own comment
+   above for why the portal's embedded iframe (sandboxed, no
+   allow-top-navigation) must stay on its own existing "Leave the field"
+   button instead of this one. "/" is the real, already-live front door
+   (Season 2 landing page: Free Play + Lobbies, each with its own BR/CTF
+   pick) -- never a page this file invents or owns. */
+if(window.top===window.self){
+  leaveBtn.hidden=false;
+  leaveBtn.onclick=()=>{location.href="/"};
+}
 const p=[0,0,0,255,194,195,199,255,255,241,232,255,255,0,77,255,255,119,168,255,95,87,79,255,171,82,54,255,255,163,0,255,255,236,39,255,126,37,83,255,0,135,81,255,0,228,54,255,29,43,83,255,131,118,156,255,41,173,255,255,255,204,170,255];
 const u=new URL(location.href),m=location.host?((location.protocol=="https:"?"wss:":"ws:")+"//"+location.host):"ws://localhost:8080";
 /* Reconnect interval in seconds. Used to default to 0 (off) unless a
