@@ -929,7 +929,7 @@
     // under fractional positions), so it gets the same discipline even
     // though left/top (not transform) is the property here.
     const cd = nodes.cooldown;
-    if (!state.seated || state.fire.ready === null) {
+    if (!state.seated || state.fire.ready === null || !haveCursor) {
       cd.style.opacity = '0';
     } else {
       cd.style.opacity = '1';
