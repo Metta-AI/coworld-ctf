@@ -1133,6 +1133,68 @@ addEventListener("mouseup",e=>{
 });
 c.addEventListener("contextmenu",e=>e.preventDefault());
 addEventListener("blur",()=>{lmb=false;stopFireLoop();closeWheel()});
+/* ---- Seam probe (?seamprobe=1 only) -----------------------------------
+   Maxwell sees flashing horizontal bars in LIVE play that his OWN
+   screenshots never catch, and neither did two prior instrumented scans
+   (field report 8/29). Working theory: a SCAN-OUT artifact -- display
+   tearing from a presentation update landing off the vsync beat -- which
+   by definition cannot show up in any frame-buffer capture, screenshot or
+   otherwise, because those all read the CANVAS'S OWN BACKING STORE (what
+   we drew), not what the GPU actually scanned out to the physical
+   display. This probe reads that same backing store via getImageData, so
+   it CANNOT see scan-out tearing either. What it CAN do is rule the
+   *buffer* in or out: catch a genuine bug where our own drawn pixels
+   momentarily contain a dark full-width row, as distinct from a
+   presentation-layer artifact downstream of what was drawn. A clean run
+   here is expected and does NOT contradict what Maxwell sees on his
+   actual display -- see updateCamera()'s whole-map branch above for the
+   other half of this investigation (a control arm: whole-map never
+   rewrites the camera transform mid-scene, so if the bars persist there
+   too, they can't be this camera's per-frame CSS churn).
+
+   NULL-ARM: on a static scene (nothing changes frame to frame -- e.g. the
+   pre-connect black canvas, or a paused game) every sampled row's EMA
+   baseline converges to its own steady brightness, so current never drops
+   SEAM_DROP_RATIO below it and __seamLog stays empty. A probe that fired
+   on a static scene would be measuring its own noise, not signal --
+   verify by loading with ?seamprobe=1 and checking window.__seamLog.length
+   stays 0 before ever connecting/moving.
+
+   Zero cost when the flag is absent: this entire block, including the rAF
+   loop, only exists inside the `if`. */
+const SEAMPROBE=u.searchParams.get("seamprobe")==="1";
+if(SEAMPROBE){
+  window.__seamLog=[];
+  const SEAM_ROWS=6,SEAM_BASELINE_EMA=0.1,SEAM_DROP_RATIO=0.35,SEAM_MIN_BASELINE=20,SEAM_LOG_MAX=200;
+  let seamBaseline=null,seamLastT=performance.now();
+  const seamRowY=i=>Math.max(0,Math.min(c.height-1,Math.round((i+1)*c.height/(SEAM_ROWS+1))));
+  function seamRowBrightness(y){
+    const band=x.getImageData(0,y,c.width,1).data;
+    let sum=0;
+    for(let px=0;px<band.length;px+=4)sum+=band[px]+band[px+1]+band[px+2];
+    return sum/(band.length/4)/3; // 0..255 average brightness across the full-width row
+  }
+  function seamTick(now){
+    requestAnimationFrame(seamTick);
+    if(c.width<2||c.height<SEAM_ROWS+2)return;
+    if(!seamBaseline)seamBaseline=new Array(SEAM_ROWS).fill(-1);
+    const flagged=[];
+    for(let i=0;i<SEAM_ROWS;i++){
+      const y=seamRowY(i),b=seamRowBrightness(y);
+      if(seamBaseline[i]<0){seamBaseline[i]=b;continue}
+      if(seamBaseline[i]>SEAM_MIN_BASELINE&&b<seamBaseline[i]*SEAM_DROP_RATIO)flagged.push(y);
+      seamBaseline[i]=seamBaseline[i]*(1-SEAM_BASELINE_EMA)+b*SEAM_BASELINE_EMA;
+    }
+    if(flagged.length){
+      const entry={t:now,rows:flagged,duration:now-seamLastT};
+      window.__seamLog.push(entry);
+      if(window.__seamLog.length>SEAM_LOG_MAX)window.__seamLog.shift();
+      console.log("[seamprobe]",entry);
+    }
+    seamLastT=now;
+  }
+  requestAnimationFrame(seamTick);
+}
 requestAnimationFrame(function ui(){drawHud();requestAnimationFrame(ui)});
 </script>
 </body>
