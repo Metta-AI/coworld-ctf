@@ -31,6 +31,20 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    them -- opaque black is correct there), the match keeps visibly playing
    out while we're dead, so this variant tints instead of hiding it. */
 #s.dead{background:#000a;align-items:flex-start;padding-top:20px;font-weight:600;text-shadow:0 1px 3px #000}
+/* Damage-taken edge vignette (Maxwell, live 8/29: "i need damage effect,
+   when i get damaged"). Deliberately the OPPOSITE shape of #splat below:
+   edges only, center left clear so it never blinds the player mid-fight,
+   and gone in a quarter-second rather than SPLAT's full held beat -- the
+   two need to read as different events (still hurting vs. just died) even
+   though both key off the same self-hit detection in handleDamagePopBirth.
+   Intensity (opacity, via the --dmg CSS var triggerDamageFlash sets) scales
+   with the pop's own "-<amount>" label text -- the same severity signal
+   the floating damage number already shows, just felt as well as read. */
+#dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:50;opacity:0;
+  --dmg:.5;
+  background:radial-gradient(ellipse at center,transparent 40%,rgba(210,20,20,calc(var(--dmg)*.85)) 100%);
+  transition:opacity 260ms ease-out}
+#dmgFlash.show{opacity:1;transition:opacity 30ms ease-out}
 /* Big SPLAT-on-death stamp (Maxwell, live 8/29): the #s.dead toast above is
    the whole-match "you're down, waiting to respawn" state and stays exactly
    as-is; this is a separate, momentary flourish on TOP of it at the instant
@@ -86,12 +100,13 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <div id="hud"></div>
 <div id="wheel" aria-hidden="true"><div id="wheelRing"></div><div id="wheelHub"></div></div>
 <div id="feed" aria-hidden="true"></div>
+<div id="dmgFlash" aria-hidden="true"></div>
 <div id="splat" aria-hidden="true"><b>SPLAT!</b></div>
 <button id="mute" type="button">sound: on</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),splatEl=document.getElementById("splat"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),x=c.getContext("2d");
 const p=[0,0,0,255,194,195,199,255,255,241,232,255,255,0,77,255,255,119,168,255,95,87,79,255,171,82,54,255,255,163,0,255,255,236,39,255,126,37,83,255,0,135,81,255,0,228,54,255,29,43,83,255,131,118,156,255,41,173,255,255,255,204,170,255];
 const PaletteRgb=[
   [0,0,0],[194,195,199],[255,241,232],[255,0,77],
@@ -1159,6 +1174,27 @@ function pushFeedEvent(color,isKill){
 function triggerHitstop(){hitstopUntil=Math.max(hitstopUntil,performance.now()+HITSTOP_MS);scheduleDraw()}
 function triggerShake(){const nowT=performance.now();shakeEndAt=Math.max(shakeEndAt,nowT+SHAKE_MS);shakeMag=SHAKE_MAG;scheduleDraw()}
 function triggerHitmarker(isKill){hitmarkerUntil=performance.now()+HITMARKER_MS;hitmarkerIsKill=isKill;scheduleDraw()}
+/* Damage-taken vignette. Same CSS-transition class-toggle idiom as
+   triggerSelfSplat below, just a different shape (see #dmgFlash's own
+   comment). DMG_FLASH_HOLD_MS is the brief full-intensity beat before
+   #dmgFlash's own 260ms decay transition takes over -- not a canvas draw,
+   so (like #splat) this can never be the source of any per-frame
+   c.style.transform churn. Amount comes straight off the same "-<amount>"
+   damage-pop label the floating number already renders (damagePopBucket
+   in global.nim buckets it to 1/2/3/6) -- not a new signal, just felt as
+   well as read. */
+const DMG_FLASH_HOLD_MS=80;
+let dmgFlashHideTimer=0;
+function triggerDamageFlash(amount){
+  if(!dmgFlashEl)return;
+  const severity=Math.max(.35,Math.min(1,(amount||1)/4));
+  dmgFlashEl.style.setProperty("--dmg",severity.toFixed(2));
+  clearTimeout(dmgFlashHideTimer);
+  dmgFlashEl.classList.remove("show");
+  void dmgFlashEl.offsetWidth; // force reflow so re-triggering mid-decay restarts the transition
+  dmgFlashEl.classList.add("show");
+  dmgFlashHideTimer=setTimeout(()=>{dmgFlashEl.classList.remove("show")},DMG_FLASH_HOLD_MS);
+}
 function handleDamagePopBirth(px,py,spriteId){
   const sp=sprites.get(spriteId);
   if(!sp||!sp.label||!sp.label.endsWith(" stage 0"))return;
@@ -1173,7 +1209,13 @@ function handleDamagePopBirth(px,py,spriteId){
   if(selfPos){
     const sdx=px-selfPos.x,sdy=py-selfPos.y;
     if(sdx*sdx+sdy*sdy<=SELF_HIT_RADIUS*SELF_HIT_RADIUS){
-      triggerShake();playHitTaken();return;
+      triggerShake();playHitTaken();
+      /* Skip the vignette on the hit that kills us -- #splat (triggered
+         separately, off the seatedNow death edge in controlsTick) already
+         owns that moment, and the two stacking would be visual noise on
+         top of each other rather than two distinct, readable events. */
+      if(!isKill)triggerDamageFlash(Math.abs(parseInt(sp.label.split(" ")[3],10))||1);
+      return;
     }
   }
   if(selfPos&&lastFireConfirmedAt&&performance.now()-lastFireConfirmedAt<=SELF_FIRE_CREDIT_MS){
