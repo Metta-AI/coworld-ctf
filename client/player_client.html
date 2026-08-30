@@ -537,6 +537,23 @@ let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
   w.onopen=()=>{reconnectAttempts=0;n("");lastFrameAt=performance.now()};
   w.onmessage=e=>{
     lastFrameAt=performance.now();everSawFrame=true;
+    /* Frame-type guard, MUST run before any Uint8Array conversion. This
+       socket is binary-only by contract (binaryType="arraybuffer" above),
+       but a text frame lands here as a plain JS string regardless of that
+       setting -- and `new Uint8Array(aString)` does NOT throw: a string is
+       iterable, so each character silently converts via ToNumber (digits to
+       their value, everything else to 0), producing a garbage-but-valid
+       byte array of the STRING's char length, not a real packet. That falls
+       straight into parseSprite/drawPixels, which chokes on it, hits the
+       catch below, and calls w.close() -- so one unexpected text frame was
+       enough to drop the human's connection outright (found auditing this
+       path before wiring a planned JSON hit/kill-feedback frame onto this
+       same socket -- that frame does not exist yet; nothing engine-side
+       sends one). No JSON consumer is wired up yet, so a text frame is
+       simply ignored here rather than crashing -- ignoring is strictly
+       safer than the previous behavior regardless of whether that feature
+       ever lands. */
+    if(typeof e.data==="string")return;
     const bytes=new Uint8Array(e.data);
     sawFrame=false;
     try{if(bytes.length===8192&&!spriteMode)drawPixels(bytes);else parseSprite(bytes)}
