@@ -31,10 +31,26 @@ restack-assembly, glory-inc1+inc2, reflash-integration, onepage-runner):
 3. `maxwell/br-team-outline`, `maxwell/br-lives-hud` — viewer/HUD ✅ folded
 4. `maxwell/br-ladder-design` — docs only (BR_LADDER.md) ✅ folded
 
-Then **one merge: season2-complete → main.** Claims **GV48** ("BR
-integration reaches main, gated dark") — no re-record, by the criterion
-above. Landing dark first is what makes every later phase reviewable
-against main instead of against a 313-commit stack.
+Then **one merge: season2-complete → main — with NO GameVersion bump.**
+Corrected 2026-08-30 after reading the codec: `bitworld/replays.nim:370`
+strict-equality-gates on `gameVersion` exactly as :363 does on
+`formatVersion`, so ANY GV bump orphans every archived replay at load,
+regardless of behavior. A dark landing therefore stays at GV47; version
+bumps are reserved for actual behavior changes (which carry re-records
+by construction). Landing dark first is what makes every later phase
+reviewable against main instead of against a 313-commit stack.
+
+Probe results (2026-08-30): merging main = 30 commits, 17 conflicts —
+~10 source files (the GV46/47 damage-credit stats work vs our gated
+additions), shard-import unions, and 6 BINARY fixture conflicts (both
+lineages re-recorded). Fixture resolution rule: MAIN's fixtures win
+(the merged engine's gate-off behavior must equal GV47 by the darkness
+criterion, and the fixtures are its proof); BR-gated fixtures
+(br-golden-16team) re-record on the merged engine if broken — that is a
+gated-fixture refresh, not an archived-replay re-record. Pre-merge BR
+demo recordings (rt_episode/*) are EXPECTED to stop re-simulating after
+the merge (main's stats rule is mode-independent); they are demo
+artifacts and get re-recorded post-merge.
 
 ## The third lineage (discovered during wave-1 folds)
 
@@ -52,13 +68,18 @@ branches.
 ## Wave 2 — the two changes that touch gameHash, in this order
 
 1. **Glory increment 3** (level-scaling + ledger INTO gameHash): claims
-   **GV49** and the ONE planned 7-fixture re-record. Sequenced first and
+   **GV48** and the ONE planned 7-fixture re-record. Sequenced first and
    alone so the re-record happens exactly once, on the merged lineage.
    (Re-records are a dice roll — nothing else batches with this.)
 2. **Play-calling P2's Season 2 gate** (call-hash + epoch mixing into
-   gameHash under `season2Shell`): claims **GV50** — the shell's first
-   live version. Gated dark by default, so no re-record; archived
-   gate-off replays stay valid.
+   gameHash under `season2Shell`): claims **GV49** — the shell's first
+   live version — ONLY if P2 changes gate-off behavior; otherwise no
+   bump, same rule as wave 1. Note for P2: the codec gates BOTH
+   `formatVersion` (:363) and `gameVersion` (:370) with strict equality
+   in the vendored bitworld package, so "old replays keep loading"
+   requires dual-read on both axes (or no bump), and the dual-read lands
+   either in the shared bitworld package or as a coworld-ctf load
+   override — an open design point for James.
 
 ## The replay format bump (P2, coordinated)
 
