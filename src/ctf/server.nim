@@ -845,6 +845,49 @@ proc disconnectWebSocket(websocket: WebSocket) =
   else:
     websocket.close()
 
+proc evictSeatTakeover(seat: int) =
+  ## Drops whichever websocket currently holds `seat`'s takeover, if any.
+  ##
+  ## This is the RESUME half of a reload: a browser tab that closes and
+  ## reopens (same seat, same token) fires its new /takeover upgrade on a
+  ## worker thread that can easily win the race against this process's own
+  ## cleanup of the OLD socket -- that cleanup is a once-per-tick affair
+  ## (the `closedSockets` drain, main loop), while a page reload's new
+  ## connection can land within the same tick the old one's close event is
+  ## still queued. Before this proc existed, `takeoverSeatTaken` saw the
+  ## stale entry as still live and `takeoverRejection` refused the reconnect
+  ## outright (403, at the WS upgrade -- before this engine ever gets a
+  ## chance to hand the new socket its one-time arena init), stranding the
+  ## reload on the client's blind ~2s retry (see player_client.html's own
+  ## comment on that retry: "the SAME identity/slot/token would happily be
+  ## re-admitted a moment later" -- true only once this proc closes the gap).
+  ##
+  ## Callers gate this on the reconnecting request already having proven it
+  ## holds the seat's own pinned token (see the call site) -- an UNTOKENED
+  ## seat has no secret to check, so it keeps the old first-come-first-served
+  ## exclusivity and never reaches here.
+  ##
+  ## Deliberately drops only the BOOKKEEPING, never calls disconnectWebSocket
+  ## on the stale entry: that proc shuts down a raw OS socket FD by number
+  ## (WebSocketSocketFields.clientSocket), and the whole reason this websocket
+  ## is "stale" is that its underlying connection is already closing or
+  ## closed on the client end -- exactly the condition under which the OS is
+  ## most likely to have ALREADY recycled that FD number for the brand-new
+  ## incoming connection this proc is trying to admit. Shutting it down here
+  ## risked shutting down the NEW socket instead (measured: intermittently
+  ## reproduced as "Connection closed before receiving a handshake response"
+  ## on the reconnecting client). Dropping the state is sufficient: the stale
+  ## socket, real or already-gone, simply stops appearing in any per-tick
+  ## loop (sockets/takeoverSockets are rebuilt from these tables every tick),
+  ## so it is silently retired either way, and its own eventual close event
+  ## (if it ever arrives) finds nothing left to clean up.
+  var stale: seq[WebSocket] = @[]
+  for websocket, takeover in appState.takeovers.pairs:
+    if takeover.seat == seat:
+      stale.add(websocket)
+  for websocket in stale:
+    discard removePlayerWebSocketState(websocket)
+
 proc identityIsKicked(identity: string): bool =
   ## Returns true when an identity is blocked from rejoining this match.
   let rewardIdentity = identity.rewardAddress()
@@ -1006,7 +1049,17 @@ proc takeoverRejection*(
     return "Seat takeover requires a configured slot."
   if config.slots[seat].token.len > 0 and token != config.slots[seat].token:
     return "Takeover token does not match seat " & $seat & "."
-  if seatTaken:
+  # A pinned token that matched the line above IS proof of identity: this
+  # connection holds the seat's own secret, so it is that seat's rightful
+  # human reconnecting (a browser reload is the common case), not a
+  # stranger trying to steal an occupied seat. Refusing it here behind a
+  # stale/zombie holder -- whose cleanup is a once-per-tick affair the
+  # reload's new socket can easily out-race (see evictSeatTakeover) -- is
+  # exactly the resume-vs-fresh-join asymmetry that left a reloaded /play
+  # tab stuck on the client's blind retry loop with a black arena in the
+  # meantime. Only an UNTOKENED seat (no secret to check identity against)
+  # keeps the old first-come-first-served exclusivity.
+  if seatTaken and config.slots[seat].token.len == 0:
     return "Seat " & $seat & " is already being taken over."
   ""
 
@@ -1260,9 +1313,23 @@ proc httpHandler(request: Request) =
       withLock appState.lock:
         # Re-checked under the lock: two upgrades can race between the
         # pre-upgrade check and here, and a seat takes exactly one human.
-        if not appState.config.allowSeatTakeover or seat.takeoverSeatTaken():
+        #
+        # `tokenProvesIdentity` mirrors takeoverRejection's own reasoning: a
+        # non-empty, already-token-matched seat means THIS connection is
+        # provably the seat's rightful holder (a reload is the common case),
+        # so it supersedes whatever stale/zombie socket still holds the seat
+        # (evictSeatTakeover) instead of queuing behind a cleanup pass that
+        # only runs once per main-loop tick. An untokened seat has no secret
+        # to check identity against, so it keeps the old exclusivity.
+        let tokenProvesIdentity =
+          seat >= 0 and seat < appState.config.slots.len and
+          appState.config.slots[seat].token.len > 0
+        if not appState.config.allowSeatTakeover or
+            (seat.takeoverSeatTaken() and not tokenProvesIdentity):
           lost = true
         else:
+          if seat.takeoverSeatTaken():
+            evictSeatTakeover(seat)
           if guestName.len == 0:
             guestName = "Guest" & $(appState.takeovers.len + 1)
           websocket.registerTakeoverWebSocket(
