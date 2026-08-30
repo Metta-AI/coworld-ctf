@@ -121,6 +121,24 @@ const
   LabelPrefixWeapon* = "weapon "
     ## Own weapon readout, `weapon <token>`. Authoritative for your own hands;
     ## inferring your weapon from floating markers gets it wrong under fog.
+  LabelPrefixKd* = "kd "
+    ## Own kill/death readout, `kd <kills>/<deaths>` — the seat's own
+    ## Player.kills/Player.deaths (sim_types.nim, real attribution at the
+    ## kill/death sites in roster.nim's recordKill/recordDeath; already mixed
+    ## into gameHash by sim_state.nim, so this label is pure emission of
+    ## state the sim already tracks, never a new source of truth).
+    ##
+    ## HUMAN-WIRE ONLY, deliberately: `buildSpriteProtocolPlayerUpdates` gates
+    ## this marker on `not spritesOff`, the same flag that already splits the
+    ## fog overlay/splatters/damage-pops as human-only. A Sprites Off
+    ## (0x87) viewer — every scripted league bot, `server.nim`'s own
+    ## opt-in gate — gets a BYTE-IDENTICAL stream to before this label
+    ## existed; only a human `/client/player` connection (spritesOff=false)
+    ## receives it. This is unlike `LabelPrefixLives`/`LabelPrefixWeapon`/
+    ## `LabelPrefixOwnAim` above, which are semantic and ungated (bots read
+    ## them too) — a policy wanting its own kill/death count is a real,
+    ## separate ask (one-line ungate here) that was not in scope for the
+    ## human-HUD request this label was added for.
   LabelPrefixIdentity* = "identity "
     ## Per-player badge, `identity <color> <name>[ shield][ nade] <weapon>`.
     ## See `labelIdentity` for the ordering invariant. Scan by PREFIX only: the
@@ -477,6 +495,11 @@ proc labelWeapon*(token: string): string =
   ## The own-weapon HUD label, `weapon <token>` — LabelWeaponGun or
   ## LabelWeaponSpray.
   LabelPrefixWeapon & token
+
+proc labelKd*(kills, deaths: int): string =
+  ## The own kill/death HUD label, `kd <kills>/<deaths>`. See
+  ## LabelPrefixKd for the human-only wire gating.
+  LabelPrefixKd & $kills & "/" & $deaths
 
 proc labelCogWeapon*(color: string; spray: bool): string =
   ## The held-weapon sprite label on the board rig: `cog spray can <color>`

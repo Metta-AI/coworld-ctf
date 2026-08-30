@@ -726,6 +726,8 @@ const
   SpritePlayerWeaponObjectId = 5021
   SpritePlayerOwnAimSpriteId = 5022  ## invisible own-aim readback marker
   SpritePlayerOwnAimObjectId = 5023  ## ("own aim <brads>", player stream only).
+  SpritePlayerKdSpriteId = 5024  ## own kill/death HUD text ("kd <n>/<n>"),
+  SpritePlayerKdObjectId = 5025  ## human-wire only — see LabelPrefixKd.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -864,7 +866,10 @@ const
     ("map bands", MapBandObjectBase, 960),
     ("players (POV view)", PlayerObjectBase, MaxPlayers),
     ("replay UI", ReplayTickObjectId, 5),
-    ("player HUD", SpritePlayerInterstitialObjectId, 16),
+    # 5006..5025: was 16 (5006..5021), widened to 20 to cover the own
+    # kd-readout object (SpritePlayerKdObjectId, 5025) added alongside
+    # weapon/own-aim.
+    ("player HUD", SpritePlayerInterstitialObjectId, 20),
     ("flags", FlagObjectBase, TeamPoolWidth),
     ("own-view flag markers", SpritePlayerFlagObjectBase, TeamPoolWidth),
     ("player names", PlayerNameObjectBase, MaxPlayers),
@@ -1006,7 +1011,9 @@ const
     # current base and range at TeamPoolWidth=16).
     ("identity badges", IdentityBadgeSpriteBase,
       TeamPoolWidth * IdentityNames.len * SoldierRotations),
-    ("player HUD", SpritePlayerFireSpriteId, 23),
+    # 5000..5024: was 23 (5000..5022), widened to 25 to cover the own
+    # kd-readout sprite (SpritePlayerKdSpriteId, 5024).
+    ("player HUD", SpritePlayerFireSpriteId, 25),
     ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
     ("selected soldiers", int(SelectedPlayerSpriteBase),
       2 * TeamPoolWidth * SoldierRotations),
@@ -4969,8 +4976,15 @@ proc scoreboardName(player: Player): string =
   player.playerLabelText()
 
 proc scoreboardText(player: Player): string =
-  ## Returns one compact scoreboard row.
-  player.scoreboardName() & " " & $player.lives
+  ## Returns one compact scoreboard row: name, lives, and kills/deaths — the
+  ## same "/" convention addTeamScoreboard already uses for its per-team
+  ## totals, applied here per player. Player.kills/Player.deaths are real
+  ## attribution (roster.nim recordKill/recordDeath), already mixed into
+  ## gameHash; this is pure emission, and it feeds BOTH the rendered pixel
+  ## text (buildSpriteProtocolTextSprite below) and the wire label, so a kill
+  ## ticks up something visible on the raw board, not just a hidden label.
+  player.scoreboardName() & " " & $player.lives & " " &
+    $player.kills & "/" & $player.deaths
 
 proc scoreboardJoinOrderAt(
   sim: SimServer,
@@ -4981,11 +4995,9 @@ proc scoreboardJoinOrderAt(
   ## Returns the join order for a clicked scoreboard name.
   if layer != TopLeftLayerId:
     return -1
-  # addScoreboard emits nothing on a >4-team field (see its own guard below),
-  # so there is no row here to click — without this, a click over the empty
-  # top-left corner could still resolve to a phantom player selection.
-  if sim.teams().len > 4:
-    return -1
+  # addScoreboard now emits a row per player at every team count (see its own
+  # doc below), so no >4-team early-out here either — the row/bounds checks
+  # right below already reject anything past the real roster.
   let row = (mouseY - ScoreboardY) div ScoreboardRowHeight
   if row < 0 or row >= sim.players.len:
     return -1
@@ -5020,22 +5032,37 @@ proc addScoreboard(
   packet: var seq[uint8],
   selectedJoinOrder: int
 ) {.measure.} =
-  ## Adds the top-left player score picker (per-team lives).
+  ## Adds the top-left player score picker (per-player lives + kills/deaths).
   ##
   ## One row per PLAYER, stacked top to bottom — a legible pick-list at 2-4
-  ## teams (a handful of rows), but at BR's 16 teams / up to 32 seats this is
-  ## a wall of "name lives" pixel-font rows covering a third of the arena
-  ## (the exact defect Maxwell's screenshot showed on the live global
-  ## viewer). Suppressed entirely past 4 teams: the layer/viewport still
-  ## register every tick (unconditional below, matching
-  ## buildSpriteProtocolInit/buildSpriteProtocolPlayerInit's own init-time
-  ## registration) — only the per-player row loop is skipped, so nothing
-  ## ever draws into it. Cosmetic only: this is spectator-stream sprite
-  ## emission, never gameHash.
+  ## teams (a handful of rows), but at BR's 16 teams / up to 32 seats this
+  ## used to be suppressed entirely past 4 teams, so BR never got live
+  ## per-player rows at all (the guard's own prior text cited a wall of
+  ## "name lives" pixel-font rows covering a third of the arena — the exact
+  ## defect Maxwell's screenshot showed on the live global viewer).
+  ##
+  ## VERDICT (this lane): that suppression was a DELIBERATE cost/legibility
+  ## control, not an unported <=4-team formula — the scoreboard object/sprite
+  ## id pools (ScoreboardTextObjectBase/ScoreboardPipObjectBase et al) were
+  ## already sized to MaxPlayers+8 (40) from the start, i.e. built with full
+  ## 32-seat BR headroom in mind; only the row LOOP itself carried the >4
+  ## early-out, layered on deliberately and later, with a cited screenshot
+  ## and reasoning in the guard's own comment. Lifted here so BR gets live
+  ## per-player rows too: the viewport height now grows to fit the roster
+  ## (instead of a fixed 116px that quietly clipped anything past ~16 rows)
+  ## rather than staying silently suppressed. The layer/viewport always
+  ## registered every tick regardless of team count (unconditional below,
+  ## matching buildSpriteProtocolInit/buildSpriteProtocolPlayerInit's own
+  ## init-time registration); only the row loop below actually changed.
+  ## Visual legibility at 32 rows (e.g. compact multi-column layout, or a
+  ## client-side cap) is left to the consuming HUD — this lane's mandate was
+  ## the wire data, not the picker's layout. Cosmetic only either way: this
+  ## is spectator-stream sprite emission, never gameHash.
+  let viewportHeight = max(
+    ScoreboardHeight, ScoreboardY + sim.players.len * ScoreboardRowHeight
+  )
   packet.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
-  packet.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
-  if sim.teams().len > 4:
-    return
+  packet.addViewport(TopLeftLayerId, ScoreboardWidth, viewportHeight)
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
@@ -8958,6 +8985,35 @@ proc buildSpriteProtocolPlayerUpdates*(
       HudTopRightLayerId,
       SpritePlayerWeaponSpriteId
     )
+
+    # Own kill/death readout, human viewers only: Player.kills/Player.deaths
+    # are real attribution (roster.nim recordKill/recordDeath) already mixed
+    # into gameHash, so this is pure emission of state the sim already
+    # tracks — the same class as the lives counter above. Gated on
+    # `not spritesOff` (unlike lives/weapon/own-aim, which stay ungated) so a
+    # scripted/policy viewer's byte stream is untouched by this addition; see
+    # labels.nim LabelPrefixKd for why the bot side was left alone.
+    if not spritesOff:
+      let kd = sim.buildSpriteProtocolTextSprite(
+        [labelKd(player.kills, player.deaths)], 2'u8
+      )
+      currentIds.add(SpritePlayerKdObjectId)
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerKdSpriteId,
+        kd.width,
+        kd.height,
+        kd.pixels,
+        labelKd(player.kills, player.deaths)
+      )
+      result.addBoardObject(
+        SpritePlayerKdObjectId,
+        23 - kd.width,
+        15,
+        0,
+        HudTopRightLayerId,
+        SpritePlayerKdSpriteId
+      )
 
     # Own-aim readback: an invisible 1x1 marker whose LABEL states this
     # player's turret angle outright (`own aim <brads>`). The observation
