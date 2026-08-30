@@ -1301,7 +1301,15 @@ proc takeoverStatusJson(): string =
   })
 
 proc httpHandler(request: Request) =
-  if request.path == HealthPath and request.httpMethod == "GET":
+  # "/health" (no z) is not a route this server ever defined, but it is the
+  # path tooling reaches for by reflex -- and until this fix it fell through
+  # to the "CTF server" catch-all below, which answers 200 for literally any
+  # unmatched path. That made a monitor curling /health indistinguishable
+  # from one curling the real health check: both saw 200. Answered as a real
+  # alias of HealthPath (same "healthy" body) rather than 404'd, because
+  # something IS already polling it expecting 200 -- this makes that 200
+  # true instead of refusing it outright.
+  if request.path in [HealthPath, "/health"] and request.httpMethod == "GET":
     var headers: HttpHeaders
     headers["Content-Type"] = "text/plain; charset=utf-8"
     headers["Cache-Control"] = "no-cache"
@@ -1636,6 +1644,30 @@ proc httpHandler(request: Request) =
     var notFoundHeaders: HttpHeaders
     notFoundHeaders["Content-Type"] = "text/plain"
     request.respond(404, notFoundHeaders, "not found\n")
+  elif request.path notin [
+      HealthPath, "/health", AdminWebSocketPath, TakeoverWebSocketPath,
+      TakeoverStatusPath, TakeoverSeatPath, CapabilitiesPath,
+      ControlRestartPath, ControlKickPath, WebSocketPath, GlobalWebSocketPath,
+      ReplayWebSocketPath, RewardWebSocketPath
+    ]:
+    # Same failure class as the /client/* branch above, extended to the rest
+    # of the surface: a path outside /client/ that is not one of this
+    # server's own top-level routes is, by construction, not a route at all
+    # -- e.g. /status or a typo'd /health (before the alias above), both
+    # measured live returning 200 "CTF server" and indistinguishable from a
+    # real check without reading the body. Investigated before narrowing
+    # this: neither the pbnf tooling (pbnf-swap/-route/-deploy all assert on
+    # /_app/health, /capabilities, or /api/field content -- never a bare
+    # unmatched path) nor the Node proxy in front of this process (app.mjs's
+    # own routes own everything under /api/ /lobby/ /match/ /assets/ /_app/
+    # and the exact page set; matchd.mjs's readiness probe is a raw TCP
+    # connect, no path at all) depends on an unrecognized top-level path
+    # answering 200. A path that IS one of ours but got the wrong method or
+    # missing upgrade headers still falls to the 200 branch below, unchanged
+    # -- this only narrows the "not a route we have at all" case.
+    var topLevelNotFoundHeaders: HttpHeaders
+    topLevelNotFoundHeaders["Content-Type"] = "text/plain"
+    request.respond(404, topLevelNotFoundHeaders, "not found\n")
   else:
     var headers: HttpHeaders
     headers["Content-Type"] = "text/plain"

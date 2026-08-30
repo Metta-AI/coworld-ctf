@@ -1,0 +1,219 @@
+#!/bin/bash
+# pbnf-swap: the GATED path for a direct hot-swap of the two binaries the
+# near field runs — vendor/bin/pbnf-fieldd and vendor/crew/pbnf-crew.out.
+#
+# Why this exists: the 8/28-8/29 incidents were not caused by vendor-engine.sh
+# failing — they were caused by a `cp` straight into vendor/ that never went
+# through vendor-engine.sh at all, so none of its gates (content/strings
+# sanity, codesign, atomic staging, provenance) ever ran. Root cause per the
+# ARMOR audit: an unscripted hot-swap path bypasses every gate. The fix is
+# not "remember to be careful" — it is making the gated path no harder to
+# run than the one it replaces.
+#
+#   pbnf-swap --server <path> --crew <path> [--reason "text"] [--sha <gitsha>] [--dry-run]
+#
+# --dry-run runs the strings/sha256/codesign gates and stops BEFORE touching
+# anything under ~/.pbnf — no snapshot, no copy, no restart, no DEPLOYED.txt
+# write. Use it to sanity-check a candidate pair with zero commitment.
+#
+# On ANY post-swap verify failure: this script does NOT auto-rollback. It
+# prints the exact `pbnf-restore <dir>` command naming the snapshot this run
+# just wrote, and leaves the new binaries live for a human to look at first.
+set -uo pipefail
+PB="$HOME/.pbnf"; APP="$PB/app"; LABEL=com.softmax.pbnf
+VENDOR_BIN="$APP/vendor/bin/pbnf-fieldd"
+VENDOR_CREW="$APP/vendor/crew/pbnf-crew.out"
+DEPLOYED="$APP/DEPLOYED.txt"
+BASE="http://127.0.0.1:7420"
+
+say() { printf '  %s\n' "$*"; }
+die() { echo; echo "REFUSED: $*" >&2; exit 1; }
+
+SERVER=""; CREW=""; REASON=""; SHA=""; DRYRUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --server) SERVER="${2:-}"; shift 2 ;;
+    --crew) CREW="${2:-}"; shift 2 ;;
+    --reason) REASON="${2:-}"; shift 2 ;;
+    --sha) SHA="${2:-}"; shift 2 ;;
+    --dry-run) DRYRUN=1; shift ;;
+    *) die "unknown arg: $1" ;;
+  esac
+done
+usage="usage: pbnf-swap --server <path> --crew <path> [--reason \"text\"] [--sha <gitsha>] [--dry-run]"
+[ -n "$SERVER" ] && [ -f "$SERVER" ] || die "$usage (server candidate missing or not given)"
+[ -n "$CREW" ] && [ -f "$CREW" ] || die "$usage (crew candidate missing or not given)"
+
+echo "=== pbnf-swap$([ "$DRYRUN" = 1 ] && echo ' (DRY RUN)') ==="
+say "server candidate: $SERVER"
+say "crew candidate:   $CREW"
+
+# ---- 0. stage candidates to scratch — NEVER mutate the candidate paths in
+# place. This matters even (especially) when the candidate IS the currently
+# live vendor/bin+vendor/crew (e.g. a --dry-run sanity check run against
+# what's already deployed): codesign below rewrites the file it's pointed
+# at, so signing the candidate path directly would silently touch
+# vendor/bin or vendor/crew during what is supposed to be a read-only gate
+# check. Same staging discipline vendor-engine.sh uses for the same reason.
+SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/pbnf-swap.XXXXXX")
+trap 'rm -rf "$SCRATCH"' EXIT
+cp "$SERVER" "$SCRATCH/pbnf-fieldd"
+cp "$CREW" "$SCRATCH/pbnf-crew.out"
+chmod +x "$SCRATCH/pbnf-fieldd" "$SCRATCH/pbnf-crew.out"
+CAND_SERVER="$SCRATCH/pbnf-fieldd"
+CAND_CREW="$SCRATCH/pbnf-crew.out"
+
+# ---- 1. strings gate -------------------------------------------------------
+# Full impostor-page check (scratch-port boot + content assertion) is what
+# vendor-engine.sh's content_gate() does for a whole-tree vendor run; that is
+# NOT required here per spec — this is a lighter, binary-only gate: size
+# sanity (catches a truncated/empty copy) plus a strings check that the
+# server candidate actually carries the takeover feature (catches exactly
+# the "wrongbin" incident: a pre-takeover build silently regressing the
+# field with no gate noticing).
+echo; say "-- strings gate --"
+sz_server=$(stat -f%z "$CAND_SERVER" 2>/dev/null || echo 0)
+sz_crew=$(stat -f%z "$CAND_CREW" 2>/dev/null || echo 0)
+say "server size: $sz_server bytes"
+say "crew size:   $sz_crew bytes"
+[ "$sz_server" -gt 1000000 ] || die "server candidate is $sz_server bytes — too small to be a real pbnf-fieldd build"
+[ "$sz_crew" -gt 100000 ] || die "crew candidate is $sz_crew bytes — too small to be a real pbnf-crew.out build"
+takeover_count=$(strings "$CAND_SERVER" | grep -c "allowSeatTakeover" || true)
+say "allowSeatTakeover occurrences in server candidate: ${takeover_count:-0}"
+[ "${takeover_count:-0}" -ge 1 ] || die "server candidate has no allowSeatTakeover string — this is a pre-takeover build (the exact 'wrongbin' incident this gate exists to catch)"
+say "strings gate: PASS"
+
+# ---- 2. codesign both + verify (on the scratch copies) ----------------------
+echo; say "-- codesign --"
+if [ "$(uname -s)" = "Darwin" ]; then
+  codesign -f -s - "$CAND_SERVER" 2>&1 | sed 's/^/    /' || die "codesign failed on server candidate"
+  codesign -f -s - "$CAND_CREW" 2>&1 | sed 's/^/    /' || die "codesign failed on crew candidate"
+  codesign -v "$CAND_SERVER" || die "codesign -v failed on server candidate"
+  codesign -v "$CAND_CREW" || die "codesign -v failed on crew candidate"
+  say "codesign: PASS — both candidates signed and verified"
+else
+  say "not Darwin — codesign is a no-op on this platform"
+fi
+
+# ---- 3. sha256 both, print — the FINAL signed bytes, i.e. what would
+# actually land in vendor/ if this weren't a dry run.
+echo; say "-- sha256 --"
+SHA_SERVER=$(shasum -a 256 "$CAND_SERVER" | awk '{print $1}')
+SHA_CREW=$(shasum -a 256 "$CAND_CREW" | awk '{print $1}')
+say "server sha256: $SHA_SERVER"
+say "crew sha256:   $SHA_CREW"
+
+if [ "$DRYRUN" = 1 ]; then
+  echo
+  say "DRY RUN: all gates passed. Stopping here — nothing under ~/.pbnf has been touched, no restart issued."
+  exit 0
+fi
+
+# ---- 4. snapshot current live binaries + auto-written PROVENANCE.txt -------
+TS=$(date +%Y%m%d-%H%M%S)
+SNAP="$PB/rollback-swap-$TS"
+mkdir -p "$SNAP"
+echo; say "-- snapshot --"
+OLD_SHA_SERVER="<none, no prior binary>"; OLD_SHA_CREW="<none, no prior binary>"
+if [ -f "$VENDOR_BIN" ]; then cp "$VENDOR_BIN" "$SNAP/pbnf-fieldd"; OLD_SHA_SERVER=$(shasum -a 256 "$VENDOR_BIN" | awk '{print $1}'); fi
+if [ -f "$VENDOR_CREW" ]; then cp "$VENDOR_CREW" "$SNAP/pbnf-crew.out"; OLD_SHA_CREW=$(shasum -a 256 "$VENDOR_CREW" | awk '{print $1}'); fi
+cat > "$SNAP/PROVENANCE.txt" <<EOF
+old server sha256: $OLD_SHA_SERVER
+old crew sha256:   $OLD_SHA_CREW
+new server sha256: $SHA_SERVER
+new crew sha256:   $SHA_CREW
+new server source: $SERVER
+new crew source:   $CREW
+git sha:           ${SHA:-<not provided>}
+reason:            ${REASON:-<not provided>}
+date:              $(date "+%Y-%m-%d %H:%M:%S %z")
+deployer:          pbnf-swap (script)
+EOF
+say "snapshot written: $SNAP"
+
+# ---- 5. atomic-ish copy into vendor/ ----------------------------------------
+# Source is the already-staged, already-signed SCRATCH copy — not the
+# original candidate path — so a candidate that happens to equal the live
+# vendor path (e.g. a restore re-affirming the same binary) is only ever
+# written to once, deliberately, right here.
+echo; say "-- swap --"
+mkdir -p "$(dirname "$VENDOR_BIN")" "$(dirname "$VENDOR_CREW")"
+cp "$CAND_SERVER" "$VENDOR_BIN.new" && mv "$VENDOR_BIN.new" "$VENDOR_BIN"
+cp "$CAND_CREW" "$VENDOR_CREW.new" && mv "$VENDOR_CREW.new" "$VENDOR_CREW"
+chmod +x "$VENDOR_BIN" "$VENDOR_CREW"
+say "swapped into $VENDOR_BIN"
+say "swapped into $VENDOR_CREW"
+
+# ---- 6. DEPLOYED.txt --------------------------------------------------------
+echo; say "-- DEPLOYED.txt --"
+cat > "$DEPLOYED" <<EOF
+# DEPLOYED.txt — what is actually running on this box right now.
+# Written by pbnf-swap. Do not hand-edit; the next swap overwrites this.
+server sha256: $SHA_SERVER
+crew sha256:   $SHA_CREW
+server source: $SERVER
+crew source:   $CREW
+git sha:       ${SHA:-<not provided>}
+reason:        ${REASON:-<not provided>}
+deployed:      $(date "+%Y-%m-%d %H:%M:%S %z")
+deployer:      pbnf-swap (script)
+rollback dir:  $SNAP
+EOF
+say "wrote $DEPLOYED"
+
+# ---- 7. restart --------------------------------------------------------------
+echo; say "-- kickstart --"
+launchctl kickstart -k "gui/$(id -u)/$LABEL"
+
+# ---- 8. post-swap verify, bounded ~60s --------------------------------------
+echo; say "-- post-swap verify (bounded ~60s) --"
+health_ok=0
+for i in 1 2 3 4 5 6 7 8; do
+  sleep 5
+  cap=$(curl -s -m 4 "$BASE/capabilities" 2>/dev/null)
+  field=$(curl -s -m 4 "$BASE/api/field" 2>/dev/null)
+  cap_ok=$(printf '%s' "$cap" | grep -c seatTakeover || true)
+  up_ok=$(printf '%s' "$field" | grep -c '"up":true' || true)
+  say "[$((i*5))s] /capabilities seatTakeover=${cap_ok:-0}  /api/field up=${up_ok:-0}"
+  if [ "${cap_ok:-0}" -ge 1 ] && [ "${up_ok:-0}" -ge 1 ]; then health_ok=1; break; fi
+done
+
+ws_ok=0
+if [ "$health_ok" = 1 ]; then
+  ws_code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' \
+    -H "Connection: Upgrade" -H "Upgrade: websocket" \
+    -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" \
+    "$BASE/takeover" 2>/dev/null)
+  say "WS-upgrade probe on /takeover -> http=$ws_code"
+  [ -n "$ws_code" ] && [ "$ws_code" != "000" ] && [ "$ws_code" != "200" ] && ws_ok=1
+fi
+
+growth_ok=0
+if [ "$health_ok" = 1 ]; then
+  L=$(curl -s -m 4 "$BASE/api/field" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).lobbyId||"")}catch(e){console.log("")}})' 2>/dev/null)
+  LOG="$APP/.run/$L/sim.log"
+  if [ -n "$L" ] && [ -f "$LOG" ]; then
+    n0=$(wc -l < "$LOG" | tr -d ' ')
+    say "sim.log($L) lines=$n0, waiting 15s for growth..."
+    sleep 15
+    n1=$(wc -l < "$LOG" | tr -d ' ')
+    combat=$(tail -n "$((n1 - n0 > 0 ? n1 - n0 : 0))" "$LOG" 2>/dev/null | grep -ciE "sprayed|killed" || true)
+    say "sim.log($L) lines=$n1 (grew by $((n1 - n0))), combat-looking lines in the new window=${combat:-0}"
+    [ "$n1" -gt "$n0" ] && [ "${combat:-0}" -ge 1 ] && growth_ok=1
+  else
+    say "could not resolve a live lobbyId/sim.log to watch — treating as growth check FAIL"
+  fi
+fi
+
+echo
+if [ "$health_ok" = 1 ] && [ "$ws_ok" = 1 ] && [ "$growth_ok" = 1 ]; then
+  say "VERIFY: PASS — capabilities/field healthy, /takeover WS-probe answered non-200, sim.log growing with combat lines."
+  exit 0
+fi
+
+say "VERIFY: FAILED (health=$health_ok ws=$ws_ok growth=$growth_ok)."
+say "New binaries are LIVE despite the failed verify — this script does not auto-rollback."
+say "ROLLBACK:"
+say "  $PB/bin/pbnf-restore $SNAP"
+say "(that snapshot holds the binaries that were live immediately before this swap)"
+exit 1
