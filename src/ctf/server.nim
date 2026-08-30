@@ -183,9 +183,10 @@ const
     "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
   ).spliceWireConstants()
   # SEASON 2 HUMAN SEAT, ported from maxwell/s2-controls-on-seat (byte-matched
-  # source, GameVersion 44 -> this GV45 tree; the 8-bit InputState mask and
-  # the /player websocket handshake are untouched by the BR bump, per this
-  # file's own GameVersion changelog comment in sim_types.nim). Our OWN player
+  # source, GameVersion 44 origin; this tree sits on main's GV47 after the
+  # wave-1 reconciliation — the 8-bit InputState mask and the /player
+  # websocket handshake are untouched by any of it, per sim_types.nim's
+  # GameVersion changelog comment). Our OWN player
   # client, vendored into this repo rather than patched into the pinned
   # ~/.nimby/pkgs/bitworld package -- the same ELEVATE-BY-REBUILD move the
   # replay routes above already make. player_controls.js carries the
@@ -2359,11 +2360,10 @@ proc runServerLoop*(
               echo "squads built: ", sim.players.len, " cogs, ",
                 config.numAgents, " seats, regime ", regimeText(sim.regime)
 
-        # NOTE: d5f8bb6 (s2-play-engine) also carried a "squad construction"
-        # block here (squadMode/numAgents/squadAlias/totalCogs/seatPolicyKind)
-        # from the unmerged Paintball KOTH lineage. Still hand-skipped as out
-        # of scope for this port: squadMode has no definition anywhere on
-        # this branch.
+        # (The Paintball KOTH squad-construction block that earlier ports of
+        # this branch hand-skipped is REAL now: the season-2 wave-1 merge
+        # brought the paintball lineage in, and the restored block sits
+        # directly above.)
         #
         # The seat-liveness-board populate call was ALSO hand-skipped on this
         # port (see git blame on this comment) -- the SeatSnapshot type,

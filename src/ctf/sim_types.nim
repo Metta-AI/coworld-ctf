@@ -2152,8 +2152,9 @@ type
     # from main rather than rewritten field-by-field; until increment 3
     # actually adds the causal subset to `gameHash` (and pays the one
     # deliberate fixture re-record that move costs), read every such claim
-    # as "will be" rather than "is". `GameVersion` stays 45 for the same
-    # reason: nothing here is causal yet, so no replay's rules changed.
+    # as "will be" rather than "is". `GameVersion` is untouched for the
+    # same reason (GV47 after the wave-1 reconciliation with main): nothing
+    # here is causal yet, so no replay's rules changed.
     #
     # Ten of these (steals/carrierKills/denials/stealTickThisLife/
     # contestedSteals/carryKills/capturedOutnumbered/capturedFastBreak/
@@ -2824,7 +2825,8 @@ type
     # the fix this port applies everywhere the equivalent loop appears.
     #
     # Same increment boundary as the Player block above: none of this is in
-    # `gameHash` yet (increment 3's job), so `GameVersion` stays 45.
+    # `gameHash` yet (increment 3's job), so `GameVersion` is untouched
+    # (GV47 after the wave-1 reconciliation with main).
     #
     # No supply-drop fields here (`supplyDropPickups` cut with the feature
     # -- see glory.nim's header); no `gloryObserver` (main's dev rig exists

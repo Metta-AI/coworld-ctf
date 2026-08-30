@@ -174,8 +174,13 @@ picked wasmtime (`docs/reports/wasm-runtime-embedding-2026-08-30.md`), the
 research report on Maxwell's Season 2 substrate
 (`docs/reports/maxwell-s2-paradigms-2026-08-29.md`), and the branch
 inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). The
-integration base for this work is Maxwell's `br-season2-complete` branch,
-not main; the design's P0 names the landing plan as the first job.
+BR season-2 substrate landed dark on main via the wave-1 reconciliation
+merge (PR #312, 2026-08-30; a convergence audit against the parallel
+independent merge is in
+`docs/reports/br-season2-landing-notes-2026-08-30.md`), so **main is the
+integration base** for the shell work now. The dark landing claimed no
+GameVersion (GV47 stands); GV48 is reserved for Maxwell's glory
+increment 3.
 
 ## Interaction radii must be derived from the art (learned 3x on the heart)
 
