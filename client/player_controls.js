@@ -233,7 +233,11 @@
       note: "no speed modifier exists in the engine, so Shift binds to nothing" },
     { id: "view",   label: "Camera",        keys: ["V", "-", "="], alt: [],
       wire: null, bits: [], status: "view",
-      note: "changes your view only; sends nothing to the server" },
+      note: "toggles whole-map / fit-vision follow (V, -, or = -- 2 stops); " +
+            "fit-vision zooms to the exact level that keeps your vision-range " +
+            "circle on screen, so nothing that can see/hit you is ever cropped " +
+            "off; CTF starts whole-map, BR starts fit-vision; choice is " +
+            "remembered per mode; view only, sends nothing to the server" },
   ];
 
   return {

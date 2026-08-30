@@ -202,12 +202,22 @@ function n(o){s.textContent=o;s.style.display=o?"flex":"none"}
    own function (rather than folded into updateCamera) because it also needs
    to re-run whenever the canvas's pixel buffer itself is resized. */
 function fit(){c.style.width=c.width+"px";c.style.height=c.height+"px"}
-function sizeCanvas(width,height){if(c.width!==width||c.height!==height){c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit();camInited=false;updateCamera()}}
+/* camInited/cameraTransformDirty are marked, not applied: the actual
+   c.style.transform write happens inside updateCamera(), and that must only
+   ever run from the rAF-gated draw tick (see updateCamera's own header
+   comment) -- this function is called synchronously from viewport()
+   mid-message, so calling updateCamera() here directly would be exactly the
+   off-beat presentation write that comment warns about. scheduleDraw()
+   queues the real paint for the next rAF instead. */
+function sizeCanvas(width,height){if(c.width!==width||c.height!==height){c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit();camInited=false;cameraTransformDirty=true;scheduleDraw()}}
 function sendMask(mask,force=false){if(!w||w.readyState!==1)return;if(!force&&mask===l)return;w.send(spriteMode?new Uint8Array([0x84,mask&255]):new Uint8Array([0,mask&255]));l=mask}
 function release(){k={};sendMask(0,true)}
 function chat(text){const clean=text.replace(/[^\x20-\x7e]/g,"");if(!clean||!w||w.readyState!==1)return;if(spriteMode){const b=new Uint8Array(clean.length+3);b[0]=0x81;b[1]=clean.length&255;b[2]=clean.length>>8;for(let j=0;j<clean.length;j++)b[j+3]=clean.charCodeAt(j);w.send(b)}else{const b=new Uint8Array(clean.length+1);b[0]=1;for(let j=0;j<clean.length;j++)b[j+1]=clean.charCodeAt(j);w.send(b)}}
 x.imageSmoothingEnabled=false;
-onresize=()=>{fit();updateCamera()};
+/* Same rule as sizeCanvas() above: a raw 'resize' event fires outside any
+   rAF, so it must not write the camera transform itself -- schedule the
+   next rAF tick and let updateCamera() run from there. */
+onresize=()=>{fit();scheduleDraw()};
 fit();
 onkeydown=e=>{
   ensureAudio();
@@ -222,6 +232,13 @@ onkeydown=e=>{
   /* Space is ITEM USE (engine ButtonC: hold charges, release throws), so it
      must never scroll the page. Arrows likewise. */
   if(e.code==="Space"||e.code.startsWith("Arrow"))e.preventDefault();
+  /* Camera mode cycle (KEYMAP id "view" -- V/-/= were already reserved
+     there, unwired). View-only: never touches sendMask/tickMask, so it can
+     never reach the server. Repeat-guarded by k[e.code] the same way the
+     digit pings just below are, so OS key-repeat while held doesn't spin
+     through modes. */
+  if(e.code==="KeyV"||e.code==="Equal"){e.preventDefault();if(!k[e.code])cycleCameraMode(1);k[e.code]=1;return}
+  if(e.code==="Minus"){e.preventDefault();if(!k[e.code])cycleCameraMode(-1);k[e.code]=1;return}
   /* 1-6 fire standard pings on the shout wire. Glory is passive -- there is
      nothing in it to "call" -- so the number keys carry callouts instead. */
   const d=/^Digit([1-6])$/.exec(e.code);
@@ -712,26 +729,133 @@ function findSelfAndAim(){
    back to the exact old whole-map-fit framing the instant selfPos is null
    (unseated, or dead -- see the death-state block below), so a spectator
    or a not-yet-seated guest never loses the full-board context. */
-/* CAMERA_ZOOM is a Maxwell feel-knob, not a derived constant -- tune freely.
-   whole-map-fit reads cogs at ~15-20px (legibility audit); the audit's own
-   "your cog pops" target is ~40-60px, which is what x3 landed on, but that
-   read as too tight a crop in live play (field report 8/29) -- x2 keeps the
-   self cog clearly legible while leaving more board in frame. */
-const CAMERA_ZOOM=2.0;
+/* CAMERA MODE (Maxwell field report 8/29): a fixed x2 follow overshot badly
+   on the classic CTF map ("zoomed way too far in out of nowhere") -- CTF's
+   board is a fraction of BR's, so one fixed zoom can't fit both. Worse
+   (Maxwell, same day, more urgent): "i am getting shot by bots off of my
+   screen" -- a fixed follow zoom can crop tighter than the cog's own
+   engagement range, so a bot within range to legally hit us can sit outside
+   our own viewport. That is a fairness bug, not a feel knob, so follow is
+   no longer a fixed multiplier at all: it is FIT-VISION, sized every frame
+   so the vision-range circle always fits on screen (see fitVisionScale()
+   below). The cycle is now just two stops on KEYMAP's already-reserved
+   "view" binding (id "view", player_controls.js) -- V/"=" cycle forward,
+   "-" cycles back, both just toggle with only two stops -- which existed in
+   KEYMAP as a stub (status:"view", keys V/-/=) before any of this was wired
+   up. */
+const CAMERA_MODES=[
+  {id:"whole",    follow:false}, // classic fit: full board, centered, never follows
+  {id:"fitvision",follow:true},  // follow, zoomed to guarantee the vision-range circle stays fully on screen
+];
 const CAMERA_EASE=0.12; // per-draw lerp toward the target -- settles in a few hundred ms, reads as a follow, not a cut.
-let camScale=1,camX=0,camY=0,camInited=false;
+/* BR detection: nothing on the player wire tells this client brMode or zone
+   state -- no config/JSON handshake reaches player_client.html (checked
+   against docs/PROTOCOL.md and server.nim's /player route) and zone state
+   is never sent to a player socket either. The one thing this client
+   already knows that correlates is the map's own pixel size, off the
+   layer-0 viewport packet (mapW/mapH, set in viewport() above). That
+   signal is solid here: BR's practice config (config.practice.json,
+   brMode:true) pins an exact 3211x1713 mapSpec -- the same "giant" class
+   test_mapgen.nim/test_zone.nim/global.nim all cite -- while every
+   classic/freeplay config (brMode:false: config.freeplay*.json) ships
+   mapPath:"arena" with no mapSpec override, rendering far smaller (the
+   ~1235-wide board the fit() comment above measures against). 3000 sits
+   clear of both: above classic's largest non-BR size class (2223, "huge")
+   and below BR's giant width, so an ordinary big classic map can't misfire
+   this as BR. */
+function isBrMap(){return mapW>=3000}
+function cameraStorageKey(ctx){return "ctfCameraMode:"+ctx}
+function defaultCameraModeIndex(ctx){return ctx==="br"?1:0} // BR defaults to fitvision (index 1); CTF defaults to whole-map (index 0)
+let cameraModeIndex=0,cameraContext=null,cameraContextKnown=false;
+/* FIT-VISION sizing. sim.nim's visionRange(sim) = config.gunRange * 3 div 2
+   (GV34) is the vision CONE's max reach; treated here as a full circle, not
+   narrowed to the current facing angle, because a bot can turn to face any
+   direction next tick and the bug is "a threat my cog could see is off MY
+   screen", not "off my screen while I happen to be facing away". gunRange
+   itself is NOT on the live player wire (confirmed above, isBrMap's header
+   comment) -- adding one is a server/wire change, out of scope for this
+   client-only lane on an urgent live-play fix. These are the two gunRange
+   values the configs THIS client actually connects to ship (read from the
+   files, not guessed): config.freeplay*.json set no mapSpec/gunRange
+   override and load the "arena" map, which arena.nim hardcodes to the
+   GunRange=1050 constant (sim_types.nim:423); config.practice.json (BR)
+   pins mapSpec.gunRange:331 outright. Keyed off the same br/classic split
+   isBrMap() already resolves -- if either config's gunRange ever changes,
+   this constant needs updating alongside it (there is no live cross-check
+   possible without that wire addition). */
+function assumedGunRangePx(ctx){return ctx==="br"?331:1050}
+function visionRadiusPx(ctx){return Math.floor(assumedGunRangePx(ctx)*3/2)}
+function fitVisionScale(){
+  const VISION_MARGIN=0.85; // Maxwell feel-knob: ~15% breathing room so a sprite's edge, not just its center, stays on screen at the vision boundary
+  const safeHalfDim=Math.min(innerWidth,innerHeight)/2*VISION_MARGIN;
+  return safeHalfDim/Math.max(1,visionRadiusPx(cameraContext));
+}
+/* Resolved lazily (once mapW/mapH arrive off the first viewport packet) and
+   memoized for the life of the page -- a page load is one match, so the
+   mode this client is playing never changes mid-session. */
+function ensureCameraContext(){
+  if(cameraContextKnown||!mapW||!mapH)return;
+  cameraContext=isBrMap()?"br":"classic";
+  cameraContextKnown=true;
+  let stored=null;
+  try{stored=localStorage.getItem(cameraStorageKey(cameraContext))}catch(e){}
+  const idx=stored===null?NaN:parseInt(stored,10);
+  cameraModeIndex=(idx>=0&&idx<CAMERA_MODES.length)?idx:defaultCameraModeIndex(cameraContext);
+}
+function cycleCameraMode(dir){
+  ensureCameraContext();
+  if(!cameraContextKnown)return; // no map known yet (pre-connect) -- nothing to cycle
+  cameraModeIndex=(cameraModeIndex+dir+CAMERA_MODES.length)%CAMERA_MODES.length;
+  camInited=false;cameraTransformDirty=true; // snap to the new mode instead of easing in from the old one
+  try{localStorage.setItem(cameraStorageKey(cameraContext),String(cameraModeIndex))}catch(e){}
+  scheduleDraw();
+}
+let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true;
 function updateCamera(){
+  /* This write must land ONLY from the rAF-driven draw tick (frameTick ->
+     drawSprite -> here), never synchronously from a WS onmessage handler or
+     a raw 'resize' event, so a camera transform can never land off the
+     vsync beat. sizeCanvas() and onresize used to call updateCamera()
+     directly; both now go through scheduleDraw() instead -- the same
+     schedule-then-let-the-rAF-tick-paint pattern triggerHitstop/
+     triggerShake/triggerHitmarker already use below. */
+  ensureCameraContext();
   const fitScale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));
   const seated=!!selfPos;
-  const targetScale=seated?fitScale*CAMERA_ZOOM:fitScale;
-  const targetX=seated?selfPos.x:c.width/2;
-  const targetY=seated?selfPos.y:c.height/2;
-  if(!camInited){camScale=targetScale;camX=targetX;camY=targetY;camInited=true}
-  else{
+  const mode=CAMERA_MODES[cameraModeIndex];
+  const follow=seated&&mode.follow;
+  /* max(): never zoom OUT past whole-map-fit even if the vision circle is
+     bigger than the map itself (true on classic -- 1575px vision radius vs
+     an ~1235px-wide board). At that point the entire finite map is already
+     on screen at fitScale, which trivially satisfies "nothing my cog can
+     see is off screen" (there is nothing beyond the map's edge to hide a
+     threat), so clamping to fitScale keeps that case from zooming out into
+     empty void chasing an unreachable circle. On BR (496px vision radius on
+     a 3211x1713 board) fitVisionScale() is the larger, binding term. */
+  const targetScale=follow?Math.max(fitScale,fitVisionScale()):fitScale;
+  const targetX=follow?selfPos.x:c.width/2;
+  const targetY=follow?selfPos.y:c.height/2;
+  if(!follow){
+    /* WHOLE-MAP is a STATIC frame: unlike follow modes it never chases a
+       moving target, so re-writing the transform every rAF tick here would
+       be pure per-frame churn on a value that (at a fixed window size)
+       never changes. Written only when the target actually moved (a
+       window/buffer resize, or cycleCameraMode marking it dirty on a mode
+       switch) and skipped outright otherwise -- so whole-map/CTF-default
+       sessions are a clean control arm for the seam probe further down:
+       c.style.transform is never touched mid-scene here, so if the
+       flashing bars Maxwell sees still show up in this mode, they cannot
+       be this camera's own per-frame CSS churn. */
+    if(!cameraTransformDirty&&targetScale===camScale&&targetX===camX&&targetY===camY)return;
+    camScale=targetScale;camX=targetX;camY=targetY;camInited=true;
+  }else if(!camInited){
+    camScale=targetScale;camX=targetX;camY=targetY;camInited=true;
+  }else{
     camScale+=(targetScale-camScale)*CAMERA_EASE;
     camX+=(targetX-camX)*CAMERA_EASE;
     camY+=(targetY-camY)*CAMERA_EASE;
   }
+  cameraTransformDirty=false;
   c.style.transform="translate("+(innerWidth/2-camX*camScale)+"px,"+(innerHeight/2-camY*camScale)+"px) scale("+camScale+")";
 }
 function toMap(ev){
@@ -845,7 +969,8 @@ function drawReticle(){
    idea, drawn client-side only, never transmitted). A white ring survives
    both zoom level and team-color palette collisions; "YOU" sits above it.
    Drawn in native canvas/world pixels, same as everything else on this
-   context, so it reads at CAMERA_ZOOM's magnification once seated. */
+   context, so it reads at the active camera mode's magnification once
+   seated, in both camera modes (legibility audit's whole point). */
 function drawSelfTag(){
   if(!selfPos)return;
   x.save();
