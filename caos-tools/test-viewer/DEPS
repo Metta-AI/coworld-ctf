@@ -1,0 +1,7 @@
+# This tool's worker image. caos/imgtools for the first stage, which assembles
+# the emsdk worker image the smokes run on — and which is also the image
+# `build-viewer` starts on, so currying it needs no second base.
+../../caos/imgtools imgtools
+
+# build-viewer's own deps job runs on caos/nim; it is curried through.
+../../caos/nim nim

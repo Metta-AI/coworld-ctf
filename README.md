@@ -139,11 +139,47 @@ Watch the match with the global viewer at <http://localhost:2000/client/global>.
 To play one slot yourself, open a configured player URL in the browser, e.g.
 `http://localhost:2000/client/player?slot=0&token=0xBADA55_0`.
 
+## Build and test with caos
+
+Everything CI does is a caos tool, and the same tools run locally. First time
+only, point this checkout at the stack — caos moves objects over git, so the
+server has to be a remote:
+
+```sh
+git remote add caos http://localhost:9090
+```
+
+Then bring a stack up (`caosd up`, idempotent — run it again any time) and:
+
+```sh
+caos-cli run-tool build          # both game entrypoints, with the shipped flags
+caos-cli run-tool test           # the whole suite, one cached job per module
+caos-cli run-tool build-player   # a policy (default: baseline)
+caos-cli run-tool build-viewer   # the static replay-viewer wasm bundle
+caos-cli run-tool test-viewer    # step fixture replays through that bundle
+```
+
+Each job is keyed on its actual inputs, so an unchanged build never runs and a
+one-file edit recompiles one file. `caos-cli run-tool <name> --help` is not a
+thing — the docs live in each tool's `.caos-expr`.
+
+**The stack has to be amd64** to produce images: both image tools assert that
+the binary they layer matches the base image's architecture, and the pinned
+emsdk toolchain is amd64-only. `build`, `test` and `build-player` are
+architecture-agnostic and run anywhere.
+
 ## Run the game with Docker
 
-> **Note:** the public CTF images are not published yet. Build the image locally
-> first (`docker build -t coworld-ctf:local .`) and substitute it below, or wait
-> for the published image. The flow mirrors Crewrift's.
+Build the two images with caos and load them into your local daemon:
+
+```sh
+tools/ci/caos_images.sh
+```
+
+That produces `coworld-ctf-game:latest` (the server, `/bin/ctf`, plus the
+paintball seat registrar at `/bin/paintball-player`) and
+`coworld-ctf-baseline:latest` (the baseline policy) — the same two images
+`coworld build` uploads.
 
 ```sh
 docker network create ctf-local || true
@@ -156,7 +192,7 @@ docker run --rm -d \
   -e COGAME_HOST=0.0.0.0 \
   -e COGAME_PORT=2000 \
   -e COGAME_CONFIG_URI=file:///workspace/ctf/config.json \
-  coworld-ctf:local
+  coworld-ctf-game:latest
 ```
 
 ## Policy starting points

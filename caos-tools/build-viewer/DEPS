@@ -1,0 +1,10 @@
+# This tool's worker image. caos/imgtools for the FIRST stage only: it reads the
+# pinned emsdk config with skopeo and assembles the worker image around it, and
+# skopeo is what that needs. Every later stage runs on the image it assembles.
+../../caos/imgtools imgtools
+
+# The Nim deps job runs on caos/nim, exactly as it does for `build` and `test`:
+# nimby clones 28 repos and the result is Nim SOURCE, which is the same tree
+# whichever compiler later reads it. Sharing the job is what keeps the wasm
+# build from re-fetching them.
+../../caos/nim nim

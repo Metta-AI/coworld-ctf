@@ -7,7 +7,10 @@
 # it builds. Rewording `@param [build-salt]` costs one arg-tree key; it does not
 # recompile a line of Nim.
 HELP=<<END
-Compile the game server (src/ctf.nim) inside caos and return its diagnostics.
+Compile the game — src/ctf.nim and src/paintball_player.nim, the image's two
+entry points — inside caos and return its diagnostics plus the two binaries
+under bin/. These are the SHIPPED builds, not a lighter check: build-game-image
+layers exactly this result, so nothing recompiles them downstream.
 The Nim deps come from a cached `deps` job keyed on nimby.lock, and the C
 compilation is ccache-backed, so an unchanged build never runs and a one-file
 edit recompiles one file. Nothing is handed in from the host: the tree is

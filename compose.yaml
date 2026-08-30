@@ -1,18 +1,21 @@
-x-coworld-role-contexts:
-  game: &game_context ${GAME_CONTEXT:-.}
-
+# The images `coworld build` reads. NEITHER SERVICE BUILDS: caos produces both
+# (caos-tools/build-game-image and caos-tools/build-image) and
+# tools/ci/caos_images.sh loads them into the local daemon under these tags, so
+# `docker compose build` is a no-op over images that already exist and
+# `docker compose pull` skips them.
+#
+# Why the build stanzas went away: two producers of one image is the failure
+# this repo kept paying for — CI compiled the game to test it, then the upload
+# compiled it again, from a different toolchain, to ship it. There is one
+# compile now (`caos-tools/build`), and what ships is what was tested.
+#
+# The service NAMES are load-bearing: coworld's bundle.py derives the manifest
+# placeholders from them ({{GAME_IMAGE}}, {{PLAYER_IMAGE}}), so renaming a
+# service silently orphans a placeholder in coworld_manifest_paintbot.json.
 services:
   game:
-    image: coworld-ctf-game:latest
+    image: ${GAME_TAG:-coworld-ctf-game:latest}
     platform: linux/amd64
-    build:
-      context: *game_context
-      dockerfile: Dockerfile
-      network: host
   player:
-    image: coworld-ctf-baseline:latest
+    image: ${PLAYER_TAG:-coworld-ctf-baseline:latest}
     platform: linux/amd64
-    build:
-      context: *game_context
-      dockerfile: players/baseline/Dockerfile
-      network: host

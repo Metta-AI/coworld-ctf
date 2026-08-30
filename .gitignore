@@ -3,7 +3,6 @@
 !*/
 !*.*
 !LICENSE
-!Dockerfile
 
 # Ignore hidden files, but not the license or github files.
 .*
@@ -21,6 +20,12 @@
 # sees git-tracked files, so an ignored worker is an invisible failure.
 !caos/nim/worker
 !caos/imgtools/worker
+# caos/emsdk is not a flake: `base` pins the upstream image by digest and
+# `worker` is the trampoline build-viewer layers onto it. Both are extensionless,
+# so both need naming here — caos only ever sees git-tracked files, and an
+# untracked one goes MISSING rather than breaking (see caos-tools/build below).
+!caos/emsdk/base
+!caos/emsdk/worker
 !.github/
 !.github/**
 !.gitignore

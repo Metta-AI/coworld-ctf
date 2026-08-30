@@ -15,6 +15,14 @@
 # whole-program, so ctf/sim.nim compiled into the server is different C from
 # the same module compiled into the test binary (measured: 681,959 vs 691,954
 # bytes). So this tool never waits on `test`, and vice versa.
+#
+# TWO BINARIES, ONE IMAGE, and that is the game's whole shipped surface:
+# /bin/ctf (the server, which also serves the paintball KOTH mode when the
+# config gates it on) and /bin/paintball-player (the thin paintball seat
+# registrar). They compile with GAME_NIM_FLAGS — the SHIPPED flags — because
+# `build-game-image` assembles the image around exactly this result. Nothing
+# recompiles them downstream, so what this tool returns is what runs in
+# production.
 set -euo pipefail
 
 fail() { echo "BUILD FAIL: $*" >&2; exit 1; }
@@ -83,14 +91,27 @@ compile)
   cd /tmp/build/src
   ph "copy ws to the fixed build path" >> /tmp/phases
 
-  R=/tmp/result; rm -rf "$R"; mkdir -p "$R"
+  R=/tmp/result; rm -rf "$R"; mkdir -p "$R/bin"
+  # A SEPARATE NIMCACHE PER BINARY. Nim's codegen is whole-program and both
+  # entry points pull in ctf/, so one shared nimcache would have each compile
+  # overwrite the other's .c for the same module and hand ccache a moving
+  # target. Fixed paths still (see NIMCACHE): absolute paths are baked into the
+  # generated C, so a cache that moves misses everything.
   set +e
-  nim c -d:release --hints:off "${CCACHE_NIM_FLAGS[@]}" "${DEPS_FLAGS[@]}" \
-    --nimcache:"$NIMCACHE" -o:/tmp/build/ctf src/ctf.nim > "$R/report" 2>&1
+  nim c "${GAME_NIM_FLAGS[@]}" "${CCACHE_NIM_FLAGS[@]}" "${DEPS_FLAGS[@]}" \
+    --nimcache:"$NIMCACHE/ctf" -o:/tmp/build/ctf src/ctf.nim > "$R/report" 2>&1
   status=$?
+  ph "nim c src/ctf.nim" >> /tmp/phases
+  if [ "$status" -eq 0 ]; then
+    { echo; echo "---- src/paintball_player.nim ----"; } >> "$R/report"
+    nim c "${GAME_NIM_FLAGS[@]}" "${CCACHE_NIM_FLAGS[@]}" "${DEPS_FLAGS[@]}" \
+      --nimcache:"$NIMCACHE/paintball-player" \
+      -o:/tmp/build/paintball-player src/paintball_player.nim >> "$R/report" 2>&1
+    status=$?
+    ph "nim c src/paintball_player.nim" >> /tmp/phases
+  fi
   set -e
   echo "$status" > "$R/status"
-  ph "nim c (frontend + C compile + link)" >> /tmp/phases
 
   {
     echo
@@ -103,9 +124,15 @@ compile)
   # precisely because something broke, and a job error takes an agent's turn
   # down with it.
   if [ "$status" -eq 0 ]; then
-    cp /tmp/build/ctf "$R/bin"
-    { echo; echo "BUILD OK  ($(stat -c %s /tmp/build/ctf) bytes)"; } >> "$R/report"
+    cp /tmp/build/ctf "$R/bin/ctf"
+    cp /tmp/build/paintball-player "$R/bin/paintball-player"
+    { echo
+      echo "BUILD OK"
+      echo "  /bin/ctf               $(stat -c %s /tmp/build/ctf) bytes"
+      echo "  /bin/paintball-player  $(stat -c %s /tmp/build/paintball-player) bytes"
+    } >> "$R/report"
   else
+    rmdir "$R/bin"
     { echo; echo "FAILED: nim exited $status"; } >> "$R/report"
   fi
 

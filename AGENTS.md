@@ -154,8 +154,10 @@ instead of blending in.
 - `tests/` — run `nim c -r tests/tests.nim` from the repo ROOT (assets
   resolve via `data/`). Use `-d:release` for anything heavy; debug builds
   are 10-50x slower through the per-pixel map code.
-- Dependencies come from nimby (`nimby --global sync nimby.lock`; the
-  Dockerfile is the canonical build recipe).
+- Dependencies come from nimby (`nimby --global sync nimby.lock`). The
+  canonical build recipe is `caos-tools/build`, which compiles both game
+  entrypoints with the shipped flags; `caos-tools/build-game-image` layers
+  exactly that output into the image the platform runs.
 
 ## Season 2 play-calling shell (design converged, NOT implemented)
 
