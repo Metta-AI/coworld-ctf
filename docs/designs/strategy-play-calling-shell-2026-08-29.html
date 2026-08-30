@@ -93,17 +93,14 @@
   ul, ol { padding-left: 24px; margin: 0 0 14px; }
   li { margin-bottom: 4px; }
   hr { border: 0; border-top: 1px solid var(--border); margin: 40px 0; }
-
   blockquote {
     border-left: 3px solid var(--ink-gold);
     margin: 18px 0 18px 2px;
-    padding: 4px 0 4px 18px;
-    font-family: var(--serif);
-    font-size: 14px;
-    line-height: 1.75;
-    font-style: italic;
+    padding: 2px 20px;
     color: var(--fg-subtle);
+    font-style: italic;
   }
+  blockquote code { font-style: normal; }
 
   /* Key-points opener: every section starts with scannable bullets */
   .key-points {
@@ -141,6 +138,7 @@
   }
   td { padding: 7px 12px 7px 0; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
   td.num, th.num { text-align: right; font-family: var(--mono); font-size: 12.5px; font-feature-settings: 'tnum' 1; }
+  .table-scroll { overflow-x: auto; }
 
   /* ============ Figures ============ */
   figure { margin: 24px 0 28px; }
@@ -379,305 +377,215 @@
 
   <!-- ============ Masthead ============ -->
   <header class="masthead">
-    <span class="eyebrow">Design Doc · 2026-08-29 · rev 9 — Codex cross-review converged (VERDICT: SATISFIED)</span>
+    <span class="eyebrow">Design Doc · 2026-08-29 · rev 10 — prose rewritten for clarity; technical content = rev 9, Codex-converged (VERDICT: SATISFIED)</span>
     <h1>The Play-Calling Shell: Compiled Plays Above the Intent Contract</h1>
-    <p class="context">Status: DESIGN · Author: James's coding agent, direction from James ·
-    Reviewers: Codex (cross-agent, round-gated, adversarial) and Maxwell (notified re: divergences).
-    <em>Provenance: synced copy for Maxwell and his coding agents; the canonical home is James's
+    <p class="context">Status: DESIGN. Written by James's coding agent, working from James's direction. Reviewers: Codex (cross-agent, round-gated) and Maxwell, who was notified of the two deliberate departures from his design described in §3.3. The prose of rev&nbsp;10 was fully rewritten for clarity on James's direction; no technical content has changed since rev&nbsp;9, which converged after nine rounds of adversarial cross-review by Codex. <em>Provenance: synced copy for Maxwell and his coding agents; the canonical home is James's
     paintbot lab (<code>paintbot_lab/docs/designs/strategy-play-calling-shell-2026-08-29.md</code>),
     whose <code>LAB:</code> tree is not in this repository. If the copies disagree, the lab copy wins.</em></p>
   </header>
 
-  <div class="callout callout-info">
-    <span class="callout-label">Companion documents (read first for context)</span>
-    The Season&nbsp;2 boundary research this design builds on — paradigm, interfaces, stencil
-    clusters<sup class="ref"><a href="#src-1" title="coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md">1</a></sup>;
-    the branch inventory and merge state recon<sup class="ref"><a href="#src-2" title="coworld-ctf:docs/recon/paintbot-s2-policy-shell-2026-08-29.md">2</a></sup>;
-    and the BR rung analysis — §2 kill list, §6 authorability, §7
-    preconditions<sup class="ref"><a href="#src-3" title="origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md (coworld-ctf)">3</a></sup>.
-    Citation conventions follow the research report: bare paths = coworld-ctf; <code>PBP:</code> =
-    coworld-paintbot-player; <code>LAB:</code> = this lab (<code>paintbot/stencil_nim/</code> unless
-    another lab path is given); <code>origin/&lt;branch&gt;:</code> = unmerged branch files. In this
-    rendering, every citation is a numbered superscript resolving to the <a href="#sources">Sources</a>
-    list; hover a reference for the full <code>file:line</code>.
-  </div>
-
   <!-- ============ Executive summary ============ -->
   <section id="summary">
     <h2>Executive Summary</h2>
-    <p>Season 2 pits LLM "policies" against each other in Battle Royale: the policy chats in a
-    pre-round lobby, then directs a cog mid-match. Maxwell's shipped substrate implements this as
-    <em>page scoring</em> — the LLM authors a JSON weight sheet over a fixed 12-intent menu, and a
-    bot argmaxes it every tick. James's ruling overhauls everything above the <code>Intent</code>
-    contract: plays become compiled Nim codelets — mini-programs producing a typed
-    <code>Intent</code> each tick — written and evolved by the player offline during the
-    optimization loop, while the runtime LLM only selects a play from its playbook and fills the
-    play's typed parameters. The cog executes that play until it is given a new one. The
-    sophistication of a strategy thereby lives in offline-authored, tested code; the runtime LLM
-    supplies strategic agility in the lobby and mid-match without runtime code generation, and each
-    play's knob count is exactly as wide as its author wants.</p>
-    <p>The design re-cuts Maxwell's three-layer constitution into four — CALL → PLAY → INTENT →
-    ACTION — shrinking the LLM's runtime artifact from a program-shaped weight sheet to a call: a
-    play name plus typed arguments. Compiled-in plays inherit the shell's determinism rather than
-    engineering it, ride the existing container deployment loop, and keep the flash payload well
-    under the record cap; both of Maxwell's page languages are retired. The accepted trade-off is
-    that the LLM cannot field a play the binary does not carry — by design, and made visible to the
-    LLM through a catalog handshake rather than left silent. The work is sequenced so that
-    behavior-preserving refactor phases carry exact parity gates, and every behavior-changing phase
-    is attributable to exactly one change.</p>
+    <p>Season 2 of Paintbot puts language-model policies into a Battle Royale game mode: each policy chats with the others in a pre-game lobby and then directs a robot during the match. In Maxwell's existing substrate, the LLM's influence takes the form of a JSON sheet of numeric weights that a bot re-scores every game tick. James has ruled a different split. The sophistication of a strategy should live in a library of <strong>plays</strong> — compiled Nim mini-programs that the player writes, tests, and evolves offline between matches, drawing on game logs and forum discussion. At runtime the LLM writes no code at all: it reads its playbook, negotiates in the lobby, and <em>calls a play</em> — it names one play and fills in that play's parameters — and the cog runs that play until someone hands it a new one.</p>
+    <p>This document defines the Play contract precisely and re-cuts the stack into four layers: the call, the play, the <code>Intent</code>, and the action. It reuses Maxwell's reflash channel and pre-round chat phase wherever they genuinely do not care what bytes they carry, and it preserves the lab's exact-replay validation, extended to account for play calls. The most consequential decisions are that plays are compiled Nim rather than any interpreted page language, and that per-tick scoring goes away — the selected play simply is the strategy until replaced. Making James's motivating "avoid conflict" play real requires one extension to the <code>Intent</code> contract, a combat-policy field the body's weapon paths learn to honor. The work is phased so that behavior-preserving refactors are proven bit-for-bit identical to stencil v69 before any behavior-changing work begins, and each behavior change then lands one attributable version at a time.</p>
   </section>
 
   <!-- ============ TOC ============ -->
   <nav class="toc">
     <span class="eyebrow">Contents</span>
     <ol>
-      <li><span class="toc-num">1</span><a href="#s1">Problem</a></li>
-      <li><span class="toc-num">2</span><a href="#s2">Goals and non-goals</a></li>
-      <li><span class="toc-num">3</span><a href="#s3">The paradigm, revised</a></li>
-      <li><span class="toc-num">4</span><a href="#s4">The Play contract (stencil-side)</a></li>
-      <li><span class="toc-num">5</span><a href="#s5">What is reused, byte-for-byte</a></li>
-      <li><span class="toc-num">6</span><a href="#s6">The play library</a></li>
-      <li><span class="toc-num">7</span><a href="#s7">App-side integration</a></li>
-      <li><span class="toc-num">8</span><a href="#s8">Determinism and validation</a></li>
-      <li><span class="toc-num">9</span><a href="#s9">Prerequisites and sequencing</a></li>
-      <li><span class="toc-num">10</span><a href="#s10">The outer loop (sketch, non-goal)</a></li>
-      <li><span class="toc-num">11</span><a href="#s11">Risks and open questions</a></li>
-      <li><span class="toc-num">12</span><a href="#s12">Affected files (planning aid)</a></li>
+      <li><span class="toc-num">·</span><a href="#companions">Companion Documents &amp; Citations</a></li>
+      <li><span class="toc-num">1</span><a href="#problem">The Problem This Design Solves</a></li>
+      <li><span class="toc-num">2</span><a href="#goals">Goals and Non-Goals</a></li>
+      <li><span class="toc-num">3</span><a href="#shape">The Shape of the System</a></li>
+      <li><span class="toc-num">4</span><a href="#contract">The Play Contract on the Stencil Side</a></li>
+      <li><span class="toc-num">5</span><a href="#reuse">What Is Reused Without Modification</a></li>
+      <li><span class="toc-num">6</span><a href="#library">The Play Library</a></li>
+      <li><span class="toc-num">7</span><a href="#app">Integration with the Match App</a></li>
+      <li><span class="toc-num">8</span><a href="#validation">Determinism and Validation</a></li>
+      <li><span class="toc-num">9</span><a href="#phases">Prerequisites and Phases</a></li>
+      <li><span class="toc-num">10</span><a href="#offline">The Offline Loop (a Sketch)</a></li>
+      <li><span class="toc-num">11</span><a href="#risks">Risks and Open Questions</a></li>
+      <li><span class="toc-num">12</span><a href="#files">Affected Files</a></li>
       <li><span class="toc-num">13</span><a href="#sources">Sources</a></li>
     </ol>
   </nav>
 
-  <!-- ============ 1 · Problem ============ -->
-  <section id="s1">
-    <h2>1 · Problem</h2>
-    <ul class="key-points">
-      <li>The shipped substrate is <em>page scoring</em>: the LLM authors a JSON weight sheet over a fixed 12-intent menu, and a bot argmaxes it every tick.</li>
-      <li>James's ruling replaces everything above the <code>Intent</code> contract: plays are codelets producing a typed <code>Intent</code>; the cog executes a play until given a new one.</li>
-      <li>Design goal: a strategy's sophistication lives in offline-authored, tested code; the runtime LLM only selects and parameterizes.</li>
-    </ul>
-    <p>Season 2 pits LLM "policies" against each other in Battle Royale: the policy chats in a
-    pre-round lobby, then directs a cog mid-match. Maxwell's shipped substrate (branch
-    <code>origin/maxwell/br-season2-complete</code>, cut 2026-08-29, = reflash-integration + glory
-    increments + playbook seeds + episode recorder) implements this as <em>page scoring</em>: the
-    LLM authors a JSON weight sheet over a fixed 12-intent menu, and a bot argmaxes it every
-    tick<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim">4</a></sup>.</p>
-    <p>James's ruling (2026-08-29) overhauls everything above the <code>Intent</code> contract:</p>
-    <blockquote>The plays are codelets/mini-programs which produce a typed <code>Intent</code> with
-    parameters at each tick. The <code>Intent</code>→action logic remains the same, using stencil
-    as the base. Those codelet plays are written by the player during the optimization loop —
-    bringing in logs from previous games and forum posts — and evolve over time. The policy LLM
-    starts with a playbook of these codelets, chats with other policies in the lobby, and selects a
-    play to give the cog, along with any parameter values the play requires. The cog executes that
-    play until it's given a new play.</blockquote>
-    <p>The design goal: the <em>sophistication</em> of a strategy lives in offline-authored, tested
-    code; the <em>runtime</em> LLM only selects and parameterizes. This gives (a) complex
-    strategies that evolve through the optimization loop and the forum, (b) on-the-fly strategic
-    agility in the lobby and mid-match without runtime code generation, and (c) player-controlled
-    knob count — each play's parameter schema is exactly as wide as its author wants.</p>
-  </section>
-
-  <!-- ============ 2 · Goals and non-goals ============ -->
-  <section id="s2">
-    <h2>2 · Goals and non-goals</h2>
-    <ul class="key-points">
-      <li>Six goals: the Play abstraction, reuse of Maxwell's reflash machinery, extended determinism instruments, the reflex/finalizer spec, the v1 play library with complete schemas, and sequencing against BR preconditions.</li>
-      <li>Non-goals: the mid-episode delivery lane, the forum/optimization outer loop, any interpreted play language, and the body's resolution order and machinery.</li>
-    </ul>
-    <p><strong>Goals</strong></p>
-    <ol>
-      <li>Define the Play abstraction and its contract with stencil's existing body.</li>
-      <li>Reuse Maxwell's reflash/pre-round machinery unchanged wherever it is payload-agnostic;
-      enumerate the exact deltas where it is not.</li>
-      <li>Preserve the lab's determinism/validation instruments (<code>compare_stencil.py</code> +
-      <code>replay.nim</code> exact-parity on recorded wire), extended to cover play calls.</li>
-      <li>Specify the reflex layer and the shell finalizer: what stays above and below the play,
-      fixed in the shell.</li>
-      <li>Name the v1 play library for BR with complete parameter schemas, making James's "avoid
-      conflict(squadmates)" example concrete end to end — including the one typed widening of
-      <code>Intent</code> it requires (<a href="#s4-2">§4.2</a>).</li>
-      <li>Sequence the work against the blocking BR preconditions, with parity anchors and
-      behavior-changing phases kept separate.</li>
-    </ol>
-    <p><strong>Non-goals</strong></p>
+  <!-- ============ Preamble ============ -->
+  <section id="companions">
+    <h2>Companion Documents &amp; Citations</h2>
+    <p>Two companion documents provide the background this design assumes:</p>
     <ul>
-      <li>The mid-episode delivery lane (service → running bot). Both ends are stubs by design
-      (<code>pollForNewPage</code><sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1341-1352">4</a></sup>;
-      <code>recordMidEpisodePage</code><sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:460-466">5</a></sup>);
-      this design defines the shell's hook and stops.</li>
-      <li>The forum/optimization outer loop tooling (log harvest → play authoring). Sketched in
-      <a href="#s10">§10</a>; designed separately.</li>
-      <li>Any interpreted play language. Ruled out for v1 (<a href="#s3-2">§3.2</a>).</li>
-      <li>Changing <code>resolveAction</code>'s resolution <em>order</em> or the
-      planner/follower/micro machinery. (One typed contract widening does thread new data through
-      the combat paths — <a href="#s4-2">§4.2</a> — the same way v69 threaded idle aim; that is a
-      contract extension, not a body redesign.)</li>
+      <li>A research report on Maxwell's Season 2 architecture<sup class="ref"><a href="#src-1" title="coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md">1</a></sup>: what the game engine, the match-orchestration app, and the prototype bot currently do, and where the boundaries between them sit.</li>
+      <li>An inventory of the relevant repositories and branches<sup class="ref"><a href="#src-2" title="coworld-ctf:docs/recon/paintbot-s2-policy-shell-2026-08-29.md">2</a></sup>, including what is and is not merged.</li>
+    </ul>
+    <p>A third document is cited heavily: Maxwell's <em>BR_LADDER</em> analysis<sup class="ref"><a href="#src-3" title="origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md (in coworld-ctf)">3</a></sup> of how the stencil bot would need to change to play Battle Royale. Its section&nbsp;2 lists which of stencil's current behaviors are meaningless in that mode, section&nbsp;6 analyzes how behaviors could be authored externally, and section&nbsp;7 lists the things that block stencil from playing Battle Royale at all today.</p>
+    <p>How to read the file citations in this document: every claim carries a superscript reference resolving to the numbered <a href="#sources">Sources</a> list, and the full <code>file:line</code> citation appears in each reference's hover text. In those citations, a bare path such as <code>src/ctf/sim.nim</code> refers to the <code>coworld-ctf</code> repository. A path prefixed <code>PBP:</code> refers to the <code>coworld-paintbot-player</code> repository. A path prefixed <code>LAB:</code> refers to this lab — specifically <code>paintbot/stencil_nim/</code> unless some other lab path is written out. A path prefixed <code>origin/&lt;branch&gt;:</code> refers to a file that exists only on that unmerged git branch.</p>
+  </section>
+
+  <!-- ============ 1 ============ -->
+  <section id="problem">
+    <h2>1 · The Problem This Design Solves</h2>
+    <ul class="key-points">
+      <li>Season 2 pits LLM policies against each other in Battle Royale; each policy chats in a lobby and then directs a cog during the match.</li>
+      <li>Maxwell's substrate has the LLM write a page of numeric weights that a bot re-scores every tick; James has ruled that everything above our bot's <code>Intent</code> level should be replaced with a different model.</li>
+      <li>Under that model, strategy lives in tested code written offline, and the runtime LLM only calls a play — a name plus parameter values.</li>
+    </ul>
+    <p>Season 2 of Paintbot pits language-model "policies" against each other in a Battle Royale game mode. Each policy is an LLM. It chats with the other policies in a pre-game lobby, and then it directs a robot (a "cog") during the match itself.</p>
+    <p>Maxwell has already built a substrate for this. His branch <code>origin/maxwell/br-season2-complete</code>, cut on 2026-08-29, combines the Battle Royale engine work, the mid-match "reflash" channel (explained in §5), a starter set of strategy documents, and an episode recorder. In his version of the system, the LLM's influence on the match takes the form of <em>page scoring</em>: the LLM writes a JSON sheet of numeric weights over a fixed menu of twelve possible intentions, and a bot re-scores that menu every game tick and acts on whichever intention scores highest<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim">4</a></sup>.</p>
+    <p>James has ruled that we should replace everything above the <code>Intent</code> level of our own bot with a different model. In his words:</p>
+    <blockquote>
+      <p>The plays are codelets/mini-programs which produce a typed <code>Intent</code> with parameters at each tick. The <code>Intent</code>→action logic remains the same, using stencil as the base. Those codelet plays are written by the player during the optimization loop — bringing in logs from previous games and forum posts — and evolve over time. The policy LLM starts with a playbook of these codelets, chats with other policies in the lobby, and selects a play to give the cog, along with any parameter values the play requires. The cog then executes that play until it's given a new play.</p>
+    </blockquote>
+    <p>The idea, unpacked: the sophistication of a strategy should live in real, tested code that we (the player, meaning James plus his coding agents) write offline, between matches, drawing on game logs and forum discussion. That code takes the form of a library of <strong>plays</strong>. At runtime, the LLM does not write any code at all. It reads its playbook, talks to the other policies in the lobby, and then <em>calls a play</em> — it names one play from the playbook and fills in that play's parameters. The cog runs that play until someone hands it a new one.</p>
+    <p>This arrangement buys three things at once. Complex strategies can grow over time through the offline loop, because they are ordinary code. The policies can still adapt on the fly — in the lobby and mid-match — because switching strategies is just calling a different play. And the player controls how many knobs the runtime LLM has to handle, because each play's author decides how many parameters that play exposes.</p>
+  </section>
+  <!-- ============ 2 ============ -->
+  <section id="goals">
+    <h2>2 · Goals and Non-Goals</h2>
+    <ul class="key-points">
+      <li>The design commits to six goals, from defining the Play abstraction precisely to ordering the work into phases.</li>
+      <li>Behavior-preserving phases are kept strictly separate from behavior-changing ones, and exact replay comparison remains the acceptance instrument.</li>
+      <li>Four things are explicitly out of scope: the mid-match delivery channel, the offline authoring tools, any interpreted play language, and changes to how actions are resolved.</li>
+    </ul>
+    <p>This design commits to six goals.</p>
+    <ol>
+      <li>Define the Play abstraction precisely, including its contract with the parts of stencil that do not change.</li>
+      <li>Reuse Maxwell's existing machinery — the reflash channel and the pre-round chat phase — unchanged wherever it genuinely does not care what bytes it is carrying, and spell out the exact places where it does need to change.</li>
+      <li>Preserve the lab's validation tooling. Our acceptance instrument is exact replay comparison (<code>compare_stencil.py</code> together with <code>replay.nim</code>), and it must keep working, extended to account for play calls.</li>
+      <li>Specify the two fixed pieces of decision logic that sit outside any play: the emergency behaviors the shell owns (§4.4) and the finishing step that runs after every decision (§4.3).</li>
+      <li>Name the first version of the play library for Battle Royale, with complete parameter definitions, so that James's motivating example — an "avoid conflict" play that takes a list of allied teams — is specified end to end. Making that example real requires one addition to the <code>Intent</code> type, which §4.2 describes.</li>
+      <li>Order the work into phases, keeping the phases that must not change behavior strictly separate from the phases that exist to change behavior.</li>
+    </ol>
+    <p>Four things are explicitly <em>not</em> goals of this design.</p>
+    <ul>
+      <li><strong>The mid-match delivery channel.</strong> Nothing currently exists that can tell a running bot "a new play call is ready for you." Both ends of that channel are deliberate stubs today: on the bot side, a placeholder that watches a file<sup class="ref"><a href="#src-4" title="onepage.nim:1341-1352">4</a></sup>, and on the app side, a bookkeeping function that nothing calls yet<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:460-466">5</a></sup>. This design defines the hook the future channel will call and stops there.</li>
+      <li><strong>The offline authoring tools.</strong> The pipeline that turns game logs and forum posts into new plays is sketched in §10 and will be designed separately.</li>
+      <li><strong>Any interpreted language for plays.</strong> Plays are compiled Nim. §3.2 records why, and what it would take to revisit that.</li>
+      <li><strong>Changes to how actions are resolved.</strong> The order of operations inside <code>resolveAction</code>, the path planner, the movement follower, and the micro-movement machinery all stay as they are. One new field does get added to the <code>Intent</code> type and threaded through the combat code (§4.2), in the same way an earlier version of stencil threaded idle-aim through — that is an extension of the existing contract, not a redesign of the body.</li>
     </ul>
   </section>
 
-  <!-- ============ 3 · The paradigm, revised ============ -->
-  <section id="s3">
-    <h2>3 · The paradigm, revised</h2>
+  <!-- ============ 3 ============ -->
+  <section id="shape">
+    <h2>3 · The Shape of the System</h2>
     <ul class="key-points">
-      <li>Four layers replace Maxwell's three: CALL → PLAY → INTENT → ACTION; the LLM's runtime artifact shrinks from a program-shaped weight sheet to a call.</li>
-      <li>Compiled Nim codelets are ratified: determinism is inherited, the deployment loop already exists, and the flash payload becomes trivial; both page languages are rejected.</li>
-      <li>Two deliberate divergences from Maxwell's constitution, ratified by James: entity-naming play parameters, and selection replacing per-tick scoring.</li>
+      <li>The stack is re-cut into four layers: the CALL (authored by the LLM at runtime), the PLAY (authored by the player offline), the INTENT, and the ACTION.</li>
+      <li>The LLM's runtime artifact shrinks from a program-shaped scoring sheet to a function call, which preserves Maxwell's safety property while removing the ceiling on strategic sophistication.</li>
+      <li>Two decision records are captured here: why plays are compiled Nim, and the two deliberate, ratified departures from Maxwell's design constitution.</li>
     </ul>
 
-    <h3 id="s3-1">3.1 Four layers</h3>
-    <p>Maxwell's constitution<sup class="ref"><a href="#src-6" title="origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md:15-48">6</a></sup>
-    has three layers: STRATEGY (LLM-authored page) → INTENT (fixed menu, page scores it) → ACTION
-    (engine-resolved). This design re-cuts it into four:</p>
+    <h3 id="shape-layers">3.1 Four layers</h3>
+    <p>Maxwell's design constitution<sup class="ref"><a href="#src-6" title="origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md:15-48">6</a></sup> describes three layers: STRATEGY (a scoring sheet the LLM writes), INTENT (a fixed menu the sheet scores), and ACTION (the engine turning the winning intention into button presses). This design re-cuts the stack into four layers.</p>
+    <div class="table-scroll">
     <table>
       <thead>
-        <tr><th>Layer</th><th>Artifact</th><th>Author</th><th>Cadence</th></tr>
+        <tr><th>Layer</th><th>What the artifact is</th><th>Who authors it</th><th>How often it changes</th></tr>
       </thead>
       <tbody>
-        <tr><td><strong>CALL</strong></td><td><code>{play, params}</code> — a play call</td><td>policy LLM (runtime selection)</td><td>spawn + reflash edges</td></tr>
-        <tr><td><strong>PLAY</strong></td><td>a compiled Nim codelet: params + belief → Intent</td><td>the player, offline</td><td>evolves per policy version</td></tr>
-        <tr><td><strong>INTENT</strong></td><td>stencil's typed <code>Intent</code> struct<sup class="ref"><a href="#src-7" title="LAB:types.nim:189-219">7</a></sup>, extended per <a href="#s4-2">§4.2</a></td><td>play output, shell-finalized</td><td>every tick</td></tr>
-        <tr><td><strong>ACTION</strong></td><td><code>resolveAction</code> → 8-bit mask<sup class="ref"><a href="#src-8" title="LAB:action.nim:402-551">8</a></sup></td><td>stencil body</td><td>every tick</td></tr>
+        <tr><td><strong>CALL</strong></td><td>a play call: <code>{play, params}</code> — one play's name plus its argument values</td><td>the policy LLM, at runtime</td><td>at bot startup, and at each mid-match reflash</td></tr>
+        <tr><td><strong>PLAY</strong></td><td>a compiled Nim mini-program that reads the world and produces one <code>Intent</code> per tick</td><td>the player, offline</td><td>with each new version of the policy binary</td></tr>
+        <tr><td><strong>INTENT</strong></td><td>stencil's existing typed <code>Intent</code> struct<sup class="ref"><a href="#src-7" title="LAB:types.nim:189-219">7</a></sup>, extended as described in §4.2</td><td>produced by the play, finished by the shell</td><td>every tick</td></tr>
+        <tr><td><strong>ACTION</strong></td><td><code>resolveAction</code> turning the <code>Intent</code> into the 8-bit input mask the game accepts<sup class="ref"><a href="#src-8" title="LAB:action.nim:402-551">8</a></sup></td><td>stencil's body, unchanged</td><td>every tick</td></tr>
       </tbody>
     </table>
-    <p>The LLM's runtime artifact shrinks from a program-shaped weight sheet to a <em>call</em>: a
-    play name plus typed arguments. Authoring moves entirely offline. This keeps the property
-    Maxwell's <code>"if"</code>-ban was protecting — no LLM-written control flow reaches the
-    match — while lifting the ceiling on strategy complexity to "anything the player can write,
-    test, and ship in Nim."</p>
-    <p>Terminology: <strong>play</strong> replaces <strong>page</strong> at the product level.
-    Wire-level names (<code>PolicyPageMagic</code>, <code>COWORLD_POLICY_PAGE</code>,
-    <code>applyPolicyPage</code>, the replay record) stay as-is until/unless Maxwell renames them;
-    this doc says "play call" for the payload those carriers move.</p>
-
-    <h3 id="s3-2">3.2 Why compiled Nim codelets (decision)</h3>
-    <div class="decision">
-      <span class="decision-label">Decision</span>
-      <p><strong>James ratified compiled-in plays.</strong> Recording the reasoning for future
-      readers:</p>
     </div>
-    <ul>
-      <li><strong>Determinism is inherited, not engineered.</strong> A play is shell code; the
-      shell is already deterministic given (frame stream, config, play-call stream). The lab's
-      falsifier<sup class="ref"><a href="#src-9" title="LAB:tools/compare_stencil.py">9</a></sup>
-      (278,016/278,016 exact decisions for v69) keeps working with the extensions in
-      <a href="#s8">§8</a>.</li>
-      <li><strong>The deployment loop already exists.</strong> Coworld policies ship as container
-      images; "edit Nim → build → upload" is the lab's routine
-      cadence<sup class="ref"><a href="#src-10" title="LAB:tools/build_player.sh">10</a></sup>.
-      Playbook evolution rides it for free.</li>
-      <li><strong>The flash payload becomes trivial</strong>: a play call is well under 1 KB
-      against the 60,000-byte record
-      cap<sup class="ref"><a href="#src-11" title="origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim:823-831">11</a></sup>.</li>
-      <li><strong>Rejected:</strong> the <code>rules</code> s-expression
-      VM<sup class="ref"><a href="#src-12" title="origin/maxwell/br-onepage-vm:src/ctf/policy_page.nim">12</a></sup>
-      and the <code>rows</code> stub — both exist to make LLM-authored artifacts safe; with
-      authoring moved offline they solve a problem this design no longer has. Also rejected for
-      v1: any embedded interpreter (Lua/wasm) — revisit only if same-binary play updates become a
-      demonstrated need, and research existing options first at that point.</li>
-    </ul>
-    <p>Trade-off accepted: the LLM cannot field a play the binary doesn't carry. That is the design
-    intent ("without needing to write new ones" — James), and the catalog handshake
-    (<a href="#s7-2">§7.2</a>) makes the constraint visible to the LLM instead of silent.</p>
+    <p>The important shift is in the top layer. In Maxwell's version, the artifact the LLM produces is shaped like a program: a sheet of weights that gets evaluated continuously. In this version, the LLM's runtime artifact shrinks to a <em>function call</em>: the name of a play plus typed arguments. All authoring moves offline. This preserves the property Maxwell's design was protecting — his page language rejects <code>"if"</code> outright, precisely so that no LLM-written control flow can reach a live match — while removing the ceiling on how sophisticated a strategy can be. A play can be anything the player can write, test, and ship in Nim.</p>
+    <p>A note on naming. James has ruled that the product-level word for this artifact is <strong>play</strong>, not "page." However, the wire-level and engine-level names — <code>PolicyPageMagic</code>, the <code>COWORLD_POLICY_PAGE</code> environment variable, the <code>applyPolicyPage</code> procedure, and the replay record format — all belong to Maxwell's code and keep their current names unless he renames them. When this document says "play call," it means the payload those mechanisms carry.</p>
 
-    <h3 id="s3-3">3.3 Divergences from Maxwell's constitution (deliberate, ratified by James)</h3>
-    <ol>
-      <li><strong>Entity-naming parameters.</strong> SCHEMA.md rules that a strategy "cannot name a
-      specific enemy or a specific pickup — there is no path for
-      it."<sup class="ref"><a href="#src-6" title="origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md">6</a></sup>
-      Play <em>parameters</em> relax this: a play's schema may accept entity references (team
-      colors, "partner"), because lobby-negotiated alliances — which the pre-round system prompt
-      itself
-      encourages<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:216-228">5</a></sup> —
-      need a no-shoot list to be actionable. The constraint moves from "inexpressible" to "typed,
-      play-scoped, and validated by the play author's schema."</li>
-      <li><strong>Selection replaces per-tick scoring.</strong> No argmax over behaviors in the
-      shell; the play is the behavior. (An individual play may still score sub-goals internally;
-      that becomes a play-authoring pattern, not architecture.)</li>
-    </ol>
-    <p>Maxwell was notified of both on 2026-08-29 (Discord); the second message with this document
-    follows.</p>
+    <h3 id="shape-nim">3.2 Why plays are compiled Nim (a decision record)</h3>
+    <div class="decision">
+      <span class="decision-label">Decision · Ratified by James</span>
+      <p><strong>Plays are compiled Nim, not an interpreted page language.</strong> James ratified this choice directly. The reasoning is recorded here for future readers, because it is the decision from which most of the design's simplicity flows.</p>
+    </div>
+    <p>First, determinism comes for free. A play is shell code, and the shell is already deterministic: given the same stream of game frames, the same configuration, and the same stream of play calls, it produces the same decisions. The lab's whole validation approach depends on that property — version 69 of stencil shipped on the strength of 278,016 out of 278,016 decisions reproduced exactly from recorded game traffic<sup class="ref"><a href="#src-9" title="LAB:tools/compare_stencil.py">9</a></sup> — and compiled plays keep it intact, with the extensions described in §8.</p>
+    <p>Second, the deployment pipeline already exists. Coworld policies ship as container images, and "edit the Nim, build the image, upload it" is already the lab's routine loop<sup class="ref"><a href="#src-10" title="LAB:tools/build_player.sh">10</a></sup>. Evolving the playbook requires no new infrastructure; a new playbook is just a new policy version.</p>
+    <p>Third, the payload that has to cross the network becomes tiny. A play call is well under a kilobyte, against a hard limit of 60,000 bytes imposed by the replay record format<sup class="ref"><a href="#src-11" title="origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim:823-831">11</a></sup>.</p>
+    <p>Two alternatives were considered and rejected. Maxwell's two page languages — the expression-based virtual machine<sup class="ref"><a href="#src-12" title="origin/maxwell/br-onepage-vm:src/ctf/policy_page.nim">12</a></sup> and the simpler row-of-weights placeholder that currently runs on the wire — both exist to make <em>LLM-authored</em> artifacts safe to execute. Once authoring moves offline into ordinary code review, they solve a problem we no longer have. An embedded interpreter (Lua, WebAssembly, or similar) was also rejected for now: it would buy the ability to update plays without rebuilding the binary, at the cost of designing and validating a whole interpreter's determinism story. If updating plays without a rebuild ever becomes a demonstrated need, that decision should be revisited — starting with a survey of existing options, not a hand-rolled interpreter.</p>
+    <p>The accepted trade-off is that the LLM cannot invoke a play the binary does not contain. That is not a limitation we are tolerating; it is the design intent. James's words: the policies select from complex strategies "without needing to write new ones." Section 7.2 describes how the lobby learns exactly which plays a given bot supports, so this constraint is visible to the LLM rather than a source of silent failures.</p>
+
+    <h3 id="shape-departures">3.3 Two deliberate departures from Maxwell's design constitution</h3>
+    <p>Both of these were ratified by James, and Maxwell was notified of both by direct message on 2026-08-29. A second message with this document followed.</p>
+    <div class="decision">
+      <span class="decision-label">Departure one · Ratified by James</span>
+      <p><strong>Play parameters may name other entities in the game.</strong> Maxwell's constitution states that a strategy "cannot name a specific enemy or a specific pickup — there is no path for it, so it cannot be expressed." Play <em>parameters</em> relax that rule: a play's author may declare parameters that refer to entities, such as a list of team colors. The reason is practical. The pre-round chat phase's own system prompt tells the policies that open collusion is rational<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:216-228">5</a></sup> — and an alliance negotiated in the lobby is worthless unless the cog can be told "do not shoot these teams." The safety rationale behind Maxwell's rule does not disappear; it moves. Instead of being <em>inexpressible</em>, entity references become typed, scoped to one play's declared parameters, and validated against that play's schema.</p>
+    </div>
+    <div class="decision">
+      <span class="decision-label">Departure two · Ratified by James</span>
+      <p><strong>Per-tick scoring goes away.</strong> In Maxwell's model, the strategy sheet is re-scored every tick and the best-scoring intention wins. In this model there is no scoring step in the shell at all: the selected play simply <em>is</em> the strategy, and it runs until replaced. (Nothing stops an individual play from doing its own internal scoring over sub-goals — that just becomes one pattern a play author might use, rather than the architecture of the system.)</p>
+    </div>
   </section>
-  <!-- ============ 4 · The Play contract ============ -->
-  <section id="s4">
-    <h2>4 · The Play Contract (stencil-side)</h2>
+  <!-- ============ 4 ============ -->
+  <section id="contract">
+    <h2>4 · The Play Contract on the Stencil Side</h2>
     <ul class="key-points">
-      <li>Closed tagged unions carry heterogeneous per-play params and state; module ownership is deliberately acyclic, and plays see the world only through an opaque <code>PlayView</code>.</li>
-      <li>One typed widening of <code>Intent</code>: a <code>CombatPolicy</code> field (<code>noShootTeams</code>/<code>protectTeams</code>) threaded through every weapon path, with an empty-policy parity default.</li>
-      <li>Per tick: unconditional guards → subscribed reflexes → the active play's <code>step</code> → a fixed, origin-aware shell finalizer.</li>
-      <li>Swap machinery is ported from onepage: one mutation point, propose-at-edge startup, a reassertion contract, and one transition shared by live and replay.</li>
+      <li>A play is a closed tagged union in a carefully layered module graph, and two compile-level proofs demonstrate that the layout works and that no play can reach a raw <code>Belief</code>.</li>
+      <li>The contract has four rules: the play's <code>step</code> is the mind, plays own their state explicitly, plays see only an opaque read-only <code>PlayView</code>, and intent semantics move from reason strings into a typed <code>IntentShape</code>.</li>
+      <li>One addition to <code>Intent</code> — the <code>CombatPolicy</code> field — gives plays a route to the trigger, enforced through every weapon path's existing friendly-fire machinery.</li>
+      <li>Each tick runs a fixed pipeline of guards, subscribed reflexes, the play, and a finisher; play calls take effect through one mutation point, always via the wire.</li>
     </ul>
 
-    <h3 id="s4-1">4.1 Types (concrete; the feasibility sketch)</h3>
-    <p>Heterogeneous per-play parameters and state are closed tagged unions — the registry stays a
-    flat <code>seq</code>, and the compiler enforces exhaustiveness the same way the existing enums
-    do. Module ownership is deliberately acyclic (a naive "plays.nim owns the union AND the
-    registry while plays import plays.nim" is a Nim import cycle — Codex round-3 finding 2).</p>
-    <p>The complete directed graph (each module imports only what is above it):</p>
+    <h3 id="contract-types">4.1 Types, and the module layout that makes them compilable</h3>
+    <p>Plays have different parameters and different internal state from one another, but the registry that holds them needs one concrete type for "a play." The standard Nim answer is a closed tagged union (an object variant): one enum lists every play, and the parameter and state types are variant objects over that enum. The compiler then enforces exhaustiveness the same way it does for stencil's existing enums.</p>
+    <p>The module layout needs care, because a naive arrangement — one <code>plays.nim</code> that owns both the shared types and the registry, with each play module importing it — is an import cycle Nim will reject. (Codex caught this in review round 3.) The complete dependency graph, in which each module imports only modules listed above it:</p>
 
     <figure>
-      <svg viewBox="0 0 640 368" role="img" aria-label="Module dependency graph: types/belief_state/worldmap feed play_queries, then play_contract, then the play modules, then play_registry, then plays.nim">
+      <svg viewBox="0 0 640 470" role="img" aria-label="Module dependency graph: types, belief_state and worldmap at the top, then play_queries.nim, play_contract.nim, plays modules, play_registry.nim, and plays.nim at the bottom, each importing only modules above it.">
         <defs>
-          <marker id="pg-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
             <path d="M0,0 L8,4 L0,8" fill="none" stroke="#859ebe" stroke-width="1.2"/>
           </marker>
         </defs>
-        <rect x="10" y="8" width="230" height="40" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
-        <text x="125" y="33" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#111827">types / belief_state / worldmap</text>
-        <text x="256" y="26" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">the raw world model — no play</text>
-        <text x="256" y="40" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">module reaches it directly</text>
+        <!-- boxes -->
+        <rect x="30" y="12" width="270" height="46" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="165" y="40" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#111827">types · belief_state · worldmap</text>
 
-        <line x1="125" y1="48" x2="125" y2="70" stroke="#859ebe" stroke-width="1.5" marker-end="url(#pg-arrow)"/>
-        <rect x="10" y="72" width="230" height="40" rx="3" fill="#eef2f7" stroke="#859ebe"/>
-        <text x="125" y="97" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#1a3875" font-weight="600">play_queries.nim</text>
-        <text x="256" y="90" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">opaque PlayView + GameMode + the</text>
-        <text x="256" y="104" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">audited read API; no raw Belief out</text>
+        <line x1="165" y1="58" x2="165" y2="86" stroke="#859ebe" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="30" y="88" width="270" height="46" rx="3" fill="#eef2f7" stroke="#859ebe"/>
+        <text x="165" y="116" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1a3875" font-weight="600">play_queries.nim</text>
+        <text x="320" y="106" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">owns the opaque PlayView, GameMode,</text>
+        <text x="320" y="122" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">and the audited read API; exports no raw Belief</text>
 
-        <line x1="125" y1="112" x2="125" y2="134" stroke="#859ebe" stroke-width="1.5" marker-end="url(#pg-arrow)"/>
-        <rect x="10" y="136" width="230" height="40" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
-        <text x="125" y="161" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#111827">play_contract.nim</text>
-        <text x="256" y="154" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">the shared types, incl. every</text>
-        <text x="256" y="168" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">PlayState arm</text>
+        <line x1="165" y1="134" x2="165" y2="162" stroke="#859ebe" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="30" y="164" width="270" height="46" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="165" y="192" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#111827">play_contract.nim</text>
+        <text x="320" y="182" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">the shared types, including</text>
+        <text x="320" y="198" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">every PlayState arm</text>
 
-        <line x1="125" y1="176" x2="125" y2="198" stroke="#859ebe" stroke-width="1.5" marker-end="url(#pg-arrow)"/>
-        <rect x="10" y="200" width="230" height="40" rx="3" fill="#eef2f7" stroke="#859ebe"/>
-        <text x="125" y="225" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#1a3875" font-weight="600">plays/&lt;name&gt;.nim</text>
-        <text x="256" y="218" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">one module per play; strict import</text>
-        <text x="256" y="232" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">allowlist, checked at build time</text>
+        <line x1="165" y1="210" x2="165" y2="238" stroke="#859ebe" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="30" y="240" width="270" height="46" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="165" y="268" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#111827">plays/&lt;name&gt;.nim</text>
+        <text x="320" y="258" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">one module per play; imports only the</text>
+        <text x="320" y="274" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">allowlisted set, enforced at build time</text>
 
-        <line x1="125" y1="240" x2="125" y2="262" stroke="#859ebe" stroke-width="1.5" marker-end="url(#pg-arrow)"/>
-        <rect x="10" y="264" width="230" height="40" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
-        <text x="125" y="289" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#111827">play_registry.nim</text>
-        <text x="256" y="282" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">let Playbook* = @[...] — the sole</text>
-        <text x="256" y="296" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">registration point</text>
+        <line x1="165" y1="286" x2="165" y2="314" stroke="#859ebe" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="30" y="316" width="270" height="46" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="165" y="344" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#111827">play_registry.nim</text>
+        <text x="320" y="334" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">declares let Playbook* = @[...];</text>
+        <text x="320" y="350" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">imports the play modules</text>
 
-        <line x1="125" y1="304" x2="125" y2="326" stroke="#859ebe" stroke-width="1.5" marker-end="url(#pg-arrow)"/>
-        <rect x="10" y="328" width="230" height="40" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
-        <text x="125" y="353" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#111827">plays.nim</text>
-        <text x="256" y="346" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">shell machinery; no play module</text>
-        <text x="256" y="360" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#555555">imports it back</text>
+        <line x1="165" y1="362" x2="165" y2="390" stroke="#859ebe" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="30" y="392" width="270" height="46" rx="3" fill="#eef2f7" stroke="#859ebe"/>
+        <text x="165" y="420" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="13" fill="#1a3875" font-weight="600">plays.nim</text>
+        <text x="320" y="410" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">the shell machinery; imports the registry;</text>
+        <text x="320" y="426" font-family="Merriweather Sans, sans-serif" font-size="11.5" fill="#555555">no play module imports it back</text>
+
+        <text x="30" y="462" font-family="Merriweather Sans, sans-serif" font-size="11" fill="#999999">Arrows point from imported to importer; each module imports only modules above it.</text>
       </svg>
-      <figcaption><span class="fig-label">Figure 1</span>The play module graph. Each module imports
-      only what is above it; the arrows point from dependency to dependent. The full import rules
-      per module follow.</figcaption>
+      <figcaption><span class="fig-label">Figure 1</span>The play module dependency graph. Each module imports only modules above it, which is what makes the type layout compile without an import cycle.</figcaption>
     </figure>
+
+    <p>The full per-module import rules, so nothing is lost from the graph:</p>
     <ul>
-      <li><code>play_queries.nim</code> — owns and exports the opaque <code>PlayView</code>,
-      <code>GameMode</code>, and the audited read API; exports no raw <code>Belief</code>; imports
-      no play module.</li>
-      <li><code>play_contract.nim</code> — the shared types below, including every
-      <code>PlayState</code> arm; imports <code>play_queries</code> to name <code>PlayView</code>,
-      nothing else play-related.</li>
-      <li><code>plays/&lt;name&gt;.nim</code> — one module per play; may import <em>only</em>
-      <code>play_contract</code>, <code>types</code>, <code>play_queries</code>, plus an explicit
-      safe <code>std/*</code> allowlist — math, options, sets, tables, algorithm, heapqueue; other
-      project modules and side-effecting std modules (os, net, times, osproc, …) are rejected —
-      build-time import check.</li>
-      <li><code>play_registry.nim</code> — <code>let Playbook* = @[...]</code>; imports the play
-      modules.</li>
-      <li><code>plays.nim</code> — shell machinery; imports the registry; no play module imports it
-      back.</li>
+      <li><code>play_queries.nim</code> — owns and exports the opaque <code>PlayView</code>, the <code>GameMode</code> enum, and the audited read API; exports no raw <code>Belief</code>; imports no play module.</li>
+      <li><code>play_contract.nim</code> — the shared types below, including every <code>PlayState</code> arm; imports <code>play_queries</code> so it can name <code>PlayView</code>, and nothing else play-related.</li>
+      <li><code>plays/&lt;name&gt;.nim</code> — one module per play; may import ONLY <code>play_contract</code>, <code>types</code>, <code>play_queries</code>, plus an explicitly allowlisted set of standard-library modules — <code>math</code>, <code>options</code>, <code>sets</code>, <code>tables</code>, <code>algorithm</code>, <code>heapqueue</code>; every other project module, and side-effecting standard modules such as <code>os</code>, <code>net</code>, <code>times</code>, and <code>osproc</code>, are rejected by a build-time import check.</li>
+      <li><code>play_registry.nim</code> — declares <code>let Playbook* = @[...]</code>; imports the play modules.</li>
+      <li><code>plays.nim</code> — the shell machinery; imports the registry; no play module imports it back.</li>
     </ul>
 
-    <p>Sketch (types in <code>play_contract.nim</code>):</p>
+    <p>The shared types, which live in <code>play_contract.nim</code>:</p>
 <pre><code>type
   PlayKind* = enum
     pkDefault, pkAvoidConflict, pkZoneRotate, pkThirdParty   # grows per play
@@ -697,7 +605,7 @@
     required*: bool
     default*: Option[ParamValue]       # required xor default: exactly one
     doc*: string                       # one line, surfaced in the catalog
-    minVal*, maxVal*: float            # vkNumber only; validated fail-loud
+    minVal*, maxVal*: float            # vkNumber only; checked on parse
     allowedStrings*: seq[string]       # vkString only; empty = free-form
 
   PlayParams* = Table[string, ParamValue]   # validated + defaulted at parse
@@ -719,874 +627,337 @@
 
   Play* = object
     kind*: PlayKind
-    name*: string                      # snake_case, the catalog/wire identity
+    name*: string                      # snake_case; the name used on the
+                                       # wire, in the catalog, and in replays
     doc*: string
     schema*: seq[ParamSpec]
-    reflexes*: set[Reflex]             # which shell reflexes this play delegates
+    reflexes*: set[Reflex]             # which shell reflexes this play
+                                       # delegates (see §4.4)
     init*: proc(params: PlayParams, view: PlayView): PlayState {.nimcall.}
     step*: proc(state: var PlayState, params: PlayParams,
                 view: PlayView): Intent {.nimcall.}</code></pre>
+    <p><code>init</code> receives the view because initialization needs to know the game mode and the world (§6.1), and it therefore runs only once both are known — the startup sequence in §4.6 spells out exactly when.</p>
+    <p>Phase 1 (§9) carries two proof obligations for this layout, both to be satisfied before any behavior work begins. First, the whole graph must compile with two plays of <em>different</em> parameter and state shapes registered through <code>play_registry.nim</code> — that proves the type design actually works in Nim, not just on paper. Second, a deliberately wrong play module that tries to read or write a raw <code>Belief</code> field must <em>fail</em> the build, proving that no such symbol can even reach a play.</p>
+    <p>The contract itself consists of four rules.</p>
+    <p><strong>Rule one: <code>step</code> is the mind.</strong> The play's <code>step</code> function replaces the decision-making part of today's <code>decideBaseObjective</code><sup class="ref"><a href="#src-13" title="LAB:strategy.nim:329-500">13</a></sup>. Everything it wants the cog to do is expressed by returning one <code>Intent</code>. It must put every movement goal through the existing goal-validation path (<code>reachableGoal</code>, which calls <code>nearestReachable</code><sup class="ref"><a href="#src-13" title="LAB:strategy.nim:107-110">13</a></sup>). A play whose goal cannot be validated returns a stay-put <code>Intent</code> with a reason attached; it never emits a raw "walk toward this pixel" instruction. That has been the law since stencil v66 and it does not change here.</p>
+    <p><strong>Rule two: plays own their state, explicitly and mutably.</strong> The <code>state: var PlayState</code> argument is the one place a play is <em>supposed</em> to write. <code>init</code> creates it when the play becomes active; it is thrown away when the play is replaced or the episode ends. Today, several of stencil's behaviors stash their working state — latches, counters, cool-downs — on the shared <code>Belief</code> object, which the lab's own architecture review flagged as a leak. As those behaviors are absorbed into plays, that state moves into <code>PlayState</code>. (There is one temporary exception, described in §4.4 and §6.1.)</p>
+    <p><strong>Rule three: plays never see <code>Belief</code> at all.</strong> <code>Belief</code> is a Nim <code>ref object</code> whose fields are all exported and mutable<sup class="ref"><a href="#src-14" title="LAB:belief_state.nim:19-137">14</a></sup>. If a play's <code>step</code> received it, nothing could stop the play from modifying it — an import restriction is useless once the type itself is in hand, and Codex demonstrated in review that every polite-looking alternative (a grep for assignment syntax, an import allowlist alone) has holes. So the contract is: <code>step</code> receives an opaque <code>PlayView</code> instead. <code>PlayView</code> is defined in <code>play_queries.nim</code> with a <em>private</em> field holding the underlying <code>Belief</code> reference — no copying — and plays read the world only through that module's exported query functions: fact getters, the goal-validation helpers, track and zone and item queries, <code>makeIntent</code>, and the game-mode value from §6.1.</p>
+    <p>The queries must also not leak. <code>Belief</code> and <code>WorldMap</code> are full of reference-backed containers<sup class="ref"><a href="#src-14" title="LAB:belief_state.nim:19-58">14</a></sup><sup class="ref"><a href="#src-15" title="LAB:worldmap.nim:70-94">15</a></sup>, and a query that returned one of those raw would hand a play shared mutable state through the back door. So query functions return plain values: scalars, value-type snapshots, or copied sequences of value-only records. Operations that need the map — validating a goal, looking up a firing position — run <em>inside</em> <code>play_queries</code> and return their results as values. Three tests pin this down: the compile-failure fixture for raw <code>Belief</code> access, a second compile-failure fixture for raw <code>WorldMap</code> access, and a runtime test proving that mutating a collection a query returned does not change <code>Belief</code>. Every future addition to <code>play_queries</code> gets reviewed on two axes: does the function body mutate anything (the lab has been burned before by a value that changed its own oscillator merely by being read<sup class="ref"><a href="#src-16" title="LAB:TENTATIVE_LESSONS.md:20-26">16</a></sup>), and does the return value alias anything. If the query surface ever proves too narrow for a play someone wants to write, the fix is to widen <code>play_queries</code> — never to loosen the boundary.</p>
+    <p><strong>Rule four: plays emit meaning through a type, and the reason string stays what it always was — a label for humans.</strong> Today, <code>makeIntent</code> takes a reason <em>string</em> and uses it to decide behavior: the exact string selects the cost profile, the micro-movement permissions, the arrival radius<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:40-99">13</a></sup>. That worked while every caller was in one file, but it is a trap for play authors — a reason like <code>"play:default:clear_spray"</code> would fall through the string match and silently lose all of those settings. BR_LADDER's authoring analysis warns about exactly this and recommends a separate semantic identifier<sup class="ref"><a href="#src-3" title="origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md:800-804">3</a></sup>. The ruling: <code>makeIntent</code> gains an explicit <code>shape</code> parameter — an <code>IntentShape</code> enum whose members are today's reason vocabulary — and the flag table keys off the enum. The string becomes pure telemetry, free to say whatever is most useful in a trace, for example <code>makeIntent(kind, point, shape = isClearSpray, reason = "play:default:clear_spray")</code>. Migrating the existing call sites is mechanical: each one's shape is the literal it passes today.</p>
 
-    <p><code>init</code> takes the view because initialization is mode- and world-aware
-    (<a href="#s6-1">§6.1</a>); it runs only when both are known — see the bootstrap rule in
-    <a href="#s4-6">§4.6</a>.</p>
-    <p>Feasibility proof obligations for P1, before any behavior work: (a) the contract compiles
-    with <strong>two</strong> plays of different parameter and state shapes registered through
-    <code>play_registry.nim</code>; (b) a <strong>compile-negative fixture</strong> — a play module
-    that tries to read or write a raw <code>Belief</code> field fails the build (no such symbol
-    reaches it).</p>
-    <p>Contract rules:</p>
-    <ul>
-      <li><strong><code>step</code> is the mind.</strong> It replaces the deliberate body of
-      <code>decideBaseObjective</code><sup class="ref"><a href="#src-13" title="LAB:strategy.nim:329-500">13</a></sup>.
-      Every goal routes through the validated-goal contract (<code>reachableGoal</code> →
-      <code>nearestReachable</code><sup class="ref"><a href="#src-13" title="LAB:strategy.nim:107-110">13</a></sup>) —
-      a play that cannot validate its goal emits a Hold with a reason, never a beeline. The v66
-      law, unchanged.</li>
-      <li><strong>Plays own their state, mutably and explicitly.</strong>
-      <code>state: var PlayState</code> is the one mutation surface a play is <em>supposed</em> to
-      use; it is created by <code>init</code> at swap time and dropped at the next swap or episode
-      edge.</li>
-      <li><strong>Plays never see <code>Belief</code> at all.</strong> <code>Belief</code> is a
-      <code>ref object</code> with exported mutable
-      fields<sup class="ref"><a href="#src-14" title="LAB:belief_state.nim:19-137">14</a></sup>; an
-      import allowlist alone cannot help once the type is nameable in a play's <code>step</code>
-      signature (Codex round-3 finding 1). Ruling: <code>step</code> takes an opaque
-      <strong><code>PlayView</code></strong> — defined in <code>play_queries.nim</code> with a
-      <strong>private</strong> backing <code>Belief</code> field (ref-backed, no copying) — and
-      plays read the world only through that module's exported query procs (fact getters + the
-      pure helpers: <code>reachableGoal</code>, track/zone/item queries, <code>makeIntent</code>,
-      plus the shell context of <a href="#s6-1">§6.1</a>). The import allowlist still applies (it
-      keeps helper-module sprawl out), but the mutation boundary is the private field: a play
-      cannot name a Belief field it cannot reach. <strong>And no mutable alias escapes</strong>:
-      Belief and <code>WorldMap</code> are ref objects full of reference-backed
-      containers<sup class="ref"><a href="#src-14" title="LAB:belief_state.nim:19-58">14</a></sup><sup class="ref"><a href="#src-15" title="LAB:worldmap.nim:70-94">15</a></sup>,
-      so a getter returning a raw ref, a backing <code>seq</code>, or a table would hand plays
-      shared mutable state without ever naming a Belief field. Contract: query procs return
-      scalars, value snapshots, or copied sequences of value-only records; map operations
-      (<code>reachableGoal</code>, post lookups) <em>execute inside</em> <code>play_queries</code>
-      and return values — <code>WorldMap</code>/<code>Belief</code> refs and their backing
-      containers never cross the boundary. Proof: the compile-negative fixtures (raw Belief
-      access; WorldMap field access) plus a runtime alias test — mutating a returned collection
-      must not change Belief. Query procs are audited on every addition for both in-body mutation
-      (the sweep-oscillator
-      lesson<sup class="ref"><a href="#src-16" title="LAB:TENTATIVE_LESSONS.md:20-26">16</a></sup>)
-      and result ownership. Latch/counter writes that today's rungs make on
-      Belief<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:434-438,448-455">13</a></sup>
-      move into <code>PlayState</code> as their rungs are absorbed into plays — except the
-      grandfathered legacy default (<a href="#s4-4">§4.4</a>, <a href="#s6-1">§6.1</a>); the
-      body's telemetry writes (leak #6) are unchanged. Escalation path if the query surface proves
-      too narrow: widen <code>play_queries</code>, never the boundary.</li>
-      <li><strong>Plays emit <em>semantic</em> intents; the reason string stays telemetry.</strong>
-      <code>makeIntent</code>'s <code>case reason</code> table is behavior-bearing today — the
-      exact string selects profiles, micro sets,
-      radii<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:40-99">13</a></sup> — and
-      BR_LADDER independently warns <code>reason</code> must not become load-bearing and
-      recommends a separate semantic
-      identifier<sup class="ref"><a href="#src-3" title="origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md:800-804">3</a></sup>.
-      Ruling: <code>makeIntent</code> gains an explicit semantic parameter — an
-      <code>IntentShape</code> enum whose members are today's reason vocabulary — and the
-      telemetry string becomes free-form: plays call
-      <code>makeIntent(kind, point, shape = isClearSpray, reason = "play:default:clear_spray")</code>.
-      The shape enum, not the string, drives the flag table. Migration of existing call sites is
-      mechanical (shape := the current literal).</li>
-    </ul>
-
-    <h3 id="s4-2">4.2 The one typed widening: <code>CombatPolicy</code> on <code>Intent</code></h3>
-    <p>Codex's round-1 review is right that the rev-1 contract could not implement
-    <code>avoid_conflict</code>: <code>Intent</code> carries movement/aim/micro
-    only<sup class="ref"><a href="#src-7" title="LAB:types.nim:189-219">7</a></sup>, and
-    <code>resolveAction</code> selects combat targets itself —
-    <code>selectTarget(belief, candidates)</code>, spray pursuit, and the grenade overlay never
-    consult the
-    mind<sup class="ref"><a href="#src-8" title="LAB:action.nim:472-524">8</a></sup><sup class="ref"><a href="#src-17" title="LAB:fight.nim:226-283">17</a></sup>.
-    A no-shoot list has <strong>no data path</strong> to the body without widening the contract. So
-    it widens — the same move v69 made for idle aim, and for the same reason: the decision belongs
-    to the mind, the mechanism to the body.</p>
+    <h3 id="contract-combat">4.2 One addition to <code>Intent</code>: the combat policy</h3>
+    <p>Codex's first review round proved that the contract as originally drafted could not implement James's motivating play. The <code>Intent</code> type carries movement, aim, and micro-movement permissions only<sup class="ref"><a href="#src-7" title="LAB:types.nim:189-219">7</a></sup>, and the body chooses its own combat targets — <code>selectTarget</code>, the spray-pursuit logic, and the grenade planner never consult the mind<sup class="ref"><a href="#src-8" title="LAB:action.nim:472-524">8</a></sup><sup class="ref"><a href="#src-17" title="LAB:fight.nim:226-283">17</a></sup>. A "don't shoot these teams" instruction therefore had <em>no route from the play to the trigger</em>. The fix is to widen the contract, exactly the way stencil v69 widened it for idle-aim: the decision moves into the mind's output type, and the body's machinery learns to honor it.</p>
 <pre><code>type
   CombatPolicy* = object
     noShootTeams*: set[Team]   # never targeted by gun, spray, or grenade
-    protectTeams*: set[Team]   # bias: up-weight proximity threats near these teams
+    protectTeams*: set[Team]   # up-weight proximity threats near these teams
 
   Intent* = object
     ...                        # all ten existing fields unchanged
     combat*: CombatPolicy      # default: both sets empty</code></pre>
-    <p>Body threading. "Never shoot" is stronger than "never select as the target endpoint" — the
-    body's own safety machinery shows the three ways a bullet, cone, or blast reaches a cog nobody
-    aimed at. The enforcement principle: <strong><code>noShootTeams</code> members join the
-    protected set that every existing friendly-safety check already consults</strong> — they are
-    treated the way teammates are treated today, in each weapon path:</p>
+    <p>"Never shoot" has to mean more than "never select as the aiming target." The body's own safety code shows the three ways a bullet, a spray cone, or a grenade blast can hit a cog nobody was aiming at, and the enforcement principle follows from it: <strong>members of <code>noShootTeams</code> join the protected set that every existing friendly-fire check already consults.</strong> They are treated the way teammates are treated today, in each weapon path:</p>
     <ul>
-      <li><em>Target selection</em>: <code>selectTarget</code> candidate filtering and
-      <code>scoreTarget</code>'s defensive-threat
-      term<sup class="ref"><a href="#src-17" title="LAB:fight.nim:150-283">17</a></sup> exclude
-      <code>noShootTeams</code> members; enemies <strong>threatening</strong>
-      <code>protectTeams</code> members are up-weighted. "Threatening" is defined
-      deterministically from what perception actually contains — observations carry
-      position/facing/aim/team/loadout but no attacker–victim
-      relation<sup class="ref"><a href="#src-7" title="LAB:types.nim:38-69">7</a></sup>, and heard
-      impacts have no attacker identity — so the relation is proximity-based, generalizing the
-      heuristic onepage already uses for <code>partner.in_combat</code> — made fully deterministic
-      by naming its constants <strong>and by defining both sides of the relation by color, never
-      by track container</strong>: stencil's <code>enemyTracks</code> is observer-relative (every
-      cog not the policy's own
-      color<sup class="ref"><a href="#src-18" title="LAB:perception.nim:325-346">18</a></sup><sup class="ref"><a href="#src-19" title="LAB:belief_update.nim:411-433">19</a></sup>),
-      so "enemy track near protected cog" would make two duo-mates on one protected team read as
-      threats to each other. The relation: a <em>protected candidate</em> is any fresh track
-      (teammate or enemy container) with <code>color in protectTeams</code>; a <em>threat
-      candidate</em> is any fresh track whose color differs from that protected cog's
-      <strong>and</strong> is in neither <code>noShootTeams</code> nor <code>protectTeams</code>
-      (listed teams are never threats to each other — anything else contradicts
-      <code>avoid_conflict</code>'s purpose). The policy's <strong>own team is legal in
-      <code>protectTeams</code></strong> (its cogs arrive via <code>teammateTracks</code>) — the
-      implementation scans both containers by color. Freshness: both tracks within
-      <code>TrackTtlTicks</code> (120<sup class="ref"><a href="#src-20" title="LAB:config.nim:144-149">20</a></sup>);
-      distance strictly <code>&lt;</code> <code>ProtectThreatRangePx</code> (default 200, matching
-      onepage's <code>ThreatRange</code>/strict-<code>&lt;</code>
-      precedent<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:75-84,1110-1118">4</a></sup>;
-      a new <code>STENCIL_*</code> knob). The up-weight is one new additive term in
-      <code>scoreTarget</code> with its own named weight knob (<code>ProtectThreatWeight</code>),
-      zero when <code>protectTeams</code> is empty (the parity default). Positioning tie-break for
-      <code>avoid_conflict</code>'s <code>protect</code>: nearest protected cog under threat, then
-      lowest cog index. No attacker attribution is claimed or needed; richer inference (aim-cone,
-      damage attribution) is explicitly future work. Fixtures: one clear threat; ambiguous
-      crossfire; stale tracks (each side of the pair stale independently); no observable threat;
-      two nearby cogs on one protected team (no mutual threat); two nearby protected teams (no
-      cross-threat); a real unprotected third-team threat; own-team protection via teammate
-      tracks. Tie-break unchanged: eligibility filter first, then nearest protected cog under
-      threat, then lowest cog index.</li>
-      <li><em>Every acquisition path, plus a final endpoint veto.</em> <code>selectTarget</code> is
-      not the only way the body acquires a target: outside an active firefight the gun falls back
-      to <code>belief.nearestEnemy</code><sup class="ref"><a href="#src-8" title="LAB:action.nim:472-476 (scan at :31-39)">8</a></sup>,
-      and the arc selector scans all enemies
-      independently<sup class="ref"><a href="#src-17" title="LAB:fight.nim:26-44">17</a></sup>. The
-      policy filter therefore applies at <strong>all</strong> acquisition sites
-      (<code>selectTarget</code>, <code>nearestEnemy</code>, <code>sprayTarget</code>/arc), and —
-      as defense in depth against any future path that forgets the early filter — a
-      <strong>final endpoint veto</strong> runs immediately before each weapon's fire decision,
-      refusing a <code>noShootTeams</code> endpoint regardless of how it was acquired (the
-      corridor helper alone cannot do this: it deliberately ignores the entity at the
-      endpoint<sup class="ref"><a href="#src-8" title="LAB:action.nim:94-105">8</a></sup>). Tests:
-      <code>Firefight=false</code> and <code>firefightActive=false</code> cases where the nearest
-      cog is excluded but a farther allowed target exists; an arc-selector case.</li>
-      <li><em>Gun</em>: the corridor check that refuses a shot when a teammate lies along the
-      segment<sup class="ref"><a href="#src-8" title="LAB:action.nim:94-118">8</a></sup> extends
-      its blocker set to <code>noShootTeams</code> — an allowed target behind a protected cog is
-      not a legal shot.</li>
-      <li><em>Spray</em>: the cone
-      paths<sup class="ref"><a href="#src-8" title="LAB:action.nim:51-60,490-499">8</a></sup>
-      refuse activation when a protected cog is inside the cone, exactly as for teammates.</li>
-      <li><em>Grenade</em>: the blast-safety
-      prediction<sup class="ref"><a href="#src-8" title="LAB:action.nim:273-278">8</a></sup> treats
-      protected cogs as splash-forbidden, and the cluster
-      planner<sup class="ref"><a href="#src-8" title="LAB:action.nim:285-335">8</a></sup> never
-      counts them as value. <strong>An in-progress charge is revalidated the tick
-      <code>CombatPolicy</code> changes</strong>: if the held throw (<code>belief.throwTarget</code>,
-      force-release path<sup class="ref"><a href="#src-8" title="LAB:action.nim:353-400">8</a></sup>)
-      would violate the new policy, the charge is cancelled, never force-released through the
-      veto.</li>
-      <li>The dead-tick hand-built
-      intent<sup class="ref"><a href="#src-21" title="LAB:policy.nim:103">21</a></sup> stamps
-      <code>combat = CombatPolicy()</code> — per the standing lesson that every new Intent field
-      must be stamped
-      there<sup class="ref"><a href="#src-16" title="LAB:TENTATIVE_LESSONS.md:28-32">16</a></sup>.</li>
-      <li><strong>Parity default:</strong> an empty <code>CombatPolicy</code> must be bit-identical
-      to today's behavior; the P1 parity gate proves it (<a href="#s8">§8</a>).</li>
-      <li><strong>Tests (landing with the first play that exercises them, P4c; controls in
-      P1):</strong> an excluded cog (a) between shooter and an allowed gun target, (b) inside the
-      spray cone beside an allowed target, (c) inside grenade radius of an allowed center, (d)
-      entering the policy while a grenade is already charging — plus the empty-policy parity
-      control.</li>
+      <li><strong>Every target-acquisition path is filtered, and there is a final veto at the trigger.</strong> <code>selectTarget</code> is not the only way the body picks a target: outside an active firefight, the gun falls back to <code>belief.nearestEnemy</code><sup class="ref"><a href="#src-8" title="LAB:action.nim:472-476 (unfiltered scan at :31-39)">8</a></sup>, and the spray-arc selector scans all enemies on its own<sup class="ref"><a href="#src-17" title="LAB:fight.nim:26-44">17</a></sup>. The filter therefore applies at all three acquisition sites. On top of that, as defense in depth against any future code path that forgets the early filter, a final check runs immediately before each weapon's fire decision and refuses a <code>noShootTeams</code> endpoint no matter how it was acquired. The corridor-safety helper cannot serve as this check, because it deliberately ignores the entity at the endpoint of the shot<sup class="ref"><a href="#src-8" title="LAB:action.nim:94-105">8</a></sup>. Tests cover the fallback paths specifically: cases with <code>Firefight</code> disabled and with <code>firefightActive</code> false, where the nearest cog is excluded but a farther legitimate target exists, plus an arc-selector case.</li>
+      <li><strong>Gun:</strong> the corridor check that already refuses a shot when a teammate stands along the bullet's path<sup class="ref"><a href="#src-8" title="LAB:action.nim:94-118">8</a></sup> extends its blocker set to <code>noShootTeams</code>. A legitimate target standing behind a protected cog is not a legal shot.</li>
+      <li><strong>Spray:</strong> the cone checks<sup class="ref"><a href="#src-8" title="LAB:action.nim:51-60,490-499">8</a></sup> refuse to activate when a protected cog is inside the cone, exactly as they do for teammates today.</li>
+      <li><strong>Grenade:</strong> the blast-radius prediction<sup class="ref"><a href="#src-8" title="LAB:action.nim:273-278">8</a></sup> treats protected cogs as must-not-splash, and the cluster planner<sup class="ref"><a href="#src-8" title="LAB:action.nim:285-335">8</a></sup> stops counting them as value in a target cluster. One subtlety needs its own rule: a grenade that is already charging when the combat policy changes still holds its old throw target, and the code will force-release an overdue charge<sup class="ref"><a href="#src-8" title="LAB:action.nim:353-400">8</a></sup>. So the charge is re-validated on the very tick the policy changes, and cancelled if the held throw would now violate it. A force-release never bypasses the veto.</li>
     </ul>
-    <p>This is the one place the design amends "the <code>Intent</code>→action logic remains the
-    same": the logic's <em>order and machinery</em> are unchanged; the contract gains one field the
-    machinery filters by. James has ratified the play's semantics ("not shoot anyone on that squad
-    mates list … and also cover them"); this is the minimal honest implementation of them.</p>
+    <p>The <code>protectTeams</code> half needs a careful definition, because stencil's perception does not actually know who is attacking whom. An observation carries a cog's position, facing, aim, team, and equipment — but no attacker-victim relationship<sup class="ref"><a href="#src-7" title="LAB:types.nim:38-69">7</a></sup>, and a heard impact carries no attacker identity. So "protecting" is defined through proximity, generalizing a heuristic Maxwell's prototype bot already uses for its partner. And the definition must be written in terms of <em>team colors</em>, not stencil's track containers, because those containers are relative to the observer: perception files every cog that is not the bot's own color under "enemies"<sup class="ref"><a href="#src-18" title="LAB:perception.nim:325-346">18</a></sup><sup class="ref"><a href="#src-19" title="LAB:belief_update.nim:411-433">19</a></sup>, which means two cogs on the same allied team would otherwise register as threats <em>to each other</em>.</p>
+    <p>The full relation: a <em>protected candidate</em> is any sufficiently fresh track — from either the teammate or the enemy container — whose color is in <code>protectTeams</code>. A <em>threat candidate</em> is any sufficiently fresh track whose color differs from that protected cog's, and is in neither <code>noShootTeams</code> nor <code>protectTeams</code> (teams on the list are never treated as threats to each other; anything else would contradict the play's purpose). The policy's own team is allowed in <code>protectTeams</code>; its cogs arrive through the teammate container, and the implementation scans both containers by color. "Sufficiently fresh" means both tracks are within <code>TrackTtlTicks</code> (120 ticks<sup class="ref"><a href="#src-20" title="LAB:config.nim:144-149">20</a></sup>). "Near" means strictly less than <code>ProtectThreatRangePx</code> apart — default 200 pixels, matching the precedent in Maxwell's bot<sup class="ref"><a href="#src-4" title="onepage.nim:75-84,1110-1118">4</a></sup>, exposed as a new <code>STENCIL_*</code> tuning knob. The up-weighting itself is one new additive term in <code>scoreTarget</code> with its own named weight knob (<code>ProtectThreatWeight</code>), which is zero when <code>protectTeams</code> is empty — that zero is what makes the empty policy behave identically to today. When the <code>avoid_conflict</code> play positions the cog to cover a protected ally, ties break deterministically: eligibility filter first, then the nearest protected cog under threat, then the lowest cog index.</p>
+    <p>Deliberate attacker attribution — inferring "this enemy is shooting at that ally" from aim cones or damage timing — is explicitly left as future work.</p>
+    <p>The protection relation carries its own test list: one unambiguous threat; an ambiguous crossfire; stale tracks, with each side of the pair going stale independently; no observable threat at all; two nearby cogs on a single protected team (who must not read as threats to each other); two nearby protected teams (likewise); a genuine threat from an unlisted third team; and protection of the policy's own team, exercised through the teammate track container.</p>
+    <p>Two bookkeeping rules complete the picture. The hand-built <code>Intent</code> that the orchestrator constructs on ticks when the cog is dead<sup class="ref"><a href="#src-21" title="LAB:policy.nim:103">21</a></sup> stamps <code>combat = CombatPolicy()</code>, because the lab has already learned the hard way that every new <code>Intent</code> field must be stamped there too<sup class="ref"><a href="#src-16" title="LAB:TENTATIVE_LESSONS.md:28-32">16</a></sup>. And the parity requirement is absolute: with both sets empty, behavior must be bit-for-bit identical to today's, which the Phase 1 gate proves (§8).</p>
+    <p>The test list for the whole mechanism (landing with the first play that exercises it, in Phase 4c, with the empty-policy control in Phase 1): an excluded cog standing between the shooter and a legitimate gun target; an excluded cog inside the spray cone next to a legitimate target; an excluded cog inside the grenade radius of a legitimate blast center; and a combat policy arriving while a grenade is already charging.</p>
+    <div class="callout callout-info">
+      <span class="callout-label">Scope note</span>
+      This is the one place where the design amends James's sentence "the <code>Intent</code>→action logic remains the same." The logic's order and machinery are unchanged; the contract gains one field that the machinery filters by. James has ratified the play's semantics — "not shoot anyone on that squad mates list … and also cover them" — and this is the minimal honest implementation of those semantics.
+    </div>
 
-    <h3 id="s4-3">4.3 The decide pipeline: reflexes → play → finalizer</h3>
-    <p>Per tick, the decide station
-    (today<sup class="ref"><a href="#src-21" title="LAB:policy.nim:99-105">21</a></sup>)
-    becomes:</p>
-    <ol>
-      <li><strong>Unconditional guards</strong>: <code>not_alive</code>, <code>no_worldmap</code> —
-      always shell-owned (they are prerequisites of <em>any</em> decision, and match today's
-      ordering).</li>
-      <li><strong>Subscribed reflexes</strong> (<a href="#s4-4">§4.4</a>): the shell runs exactly
-      the reflexes in the active play's <code>reflexes</code> set, in fixed order. If one fires,
-      its Intent goes to the finalizer; the play's <code>step</code> is not called this tick.</li>
-      <li><strong>The active play's <code>step</code></strong> otherwise.</li>
-      <li><strong>The shell finalizer</strong> (fixed, <strong>origin-aware</strong> — this answers
-      "who stamps what the ladder's tail used to" without changing control flow):
-        <ul>
-          <li>For an <strong>alive-path</strong> Intent (play or subscribed reflex): applies the
-          <strong>arc-pursuit override</strong> exactly as today's post-ladder step
-          does<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:504-514">13</a></sup> —
-          shell-owned combat opportunism, gated on the winning Intent's
-          <code>MicroSprayPursuit</code> flag, so a play opts out the same way rungs do today (by
-          shaping its micro set); then stamps
-          <code>idleAimCenterBrads</code><sup class="ref"><a href="#src-13" title="LAB:strategy.nim:515">13</a></sup> —
-          absence is a producer bug the body <code>.get</code>s
-          on<sup class="ref"><a href="#src-8" title="LAB:action.nim:525-533">8</a></sup>, so the
-          finalizer, not each play, owns it.</li>
-          <li>For the <strong><code>not_alive</code> guard</strong>: arc pursuit is bypassed —
-          today's dead branch never enters
-          <code>decideObjective</code><sup class="ref"><a href="#src-21" title="LAB:policy.nim:99-105">21</a></sup>,
-          and that exclusion is contract, not accident — and the Intent receives exactly the
-          fields the current dead branch stamps, plus the empty <code>CombatPolicy</code>.
-          Fixture: a dead-tick field-level parity test with hostile Belief values
-          (<code>iHaveArc</code> true, a live spray target) proving the exclusion is control flow,
-          not luck.</li>
-          <li>Both paths: prefix the telemetry reason with <code>play:&lt;name&gt;:</code> /
-          <code>reflex:</code> / <code>guard:</code> for trace.</li>
-        </ul>
-      </li>
-    </ol>
-    <p>Reflexes and finalizer are the only shell-owned decision logic; everything between them is
-    the play.</p>
-
-    <h3 id="s4-4">4.4 The reflex layer (subscribed, above the play)</h3>
-    <p>Reflexes are shell-implemented behaviors a play <em>delegates</em> via its
-    <code>reflexes</code> set (<a href="#s4-1">§4.1</a>) — subscription, not universal preemption,
-    because a universal reflex-first ladder is a behavior change in disguise: today's ladder runs
-    <code>carry_home</code> and the thief intercepts <em>before</em> grenade/spray
-    clearing<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:349-374">13</a></sup>, so a
-    carrier inside grenade range carries home rather than fleeing, and reflex-first would silently
-    invert that. The subscription model preserves both worlds:</p>
+    <h3 id="contract-tick">4.3 What happens each tick: guards, then the play, then the finisher</h3>
+    <p>Today, the orchestrator's decision station<sup class="ref"><a href="#src-21" title="LAB:policy.nim:99-105">21</a></sup> calls <code>decideObjective</code> when the cog is alive and hand-builds a stay-put intent when it is dead. Under this design, the station becomes a fixed four-step pipeline.</p>
+    <p><strong>Step one — unconditional guards.</strong> Two conditions preempt everything, exactly as they do today: the cog is dead (<code>not_alive</code>), or the world map has not been built yet (<code>no_worldmap</code>). These are prerequisites of any decision at all, and they are always the shell's job.</p>
+    <p><strong>Step two — the subscribed reflexes.</strong> The shell checks the emergency behaviors that the active play has <em>delegated</em> to it — §4.4 explains the delegation model. These run in a fixed order. If one fires, its <code>Intent</code> goes to the finisher and the play's <code>step</code> is not called this tick.</p>
+    <p><strong>Step three — the play.</strong> Otherwise, the active play's <code>step</code> runs and produces the tick's <code>Intent</code>.</p>
+    <p><strong>Step four — the finisher.</strong> A fixed shell step completes the <code>Intent</code> before it goes to the body. This step exists because two pieces of the current ladder's tail must keep happening and should not be every play author's responsibility — but it has to be <em>aware of where the intent came from</em>, because applying it blindly would change behavior Codex caught in review:</p>
     <ul>
-      <li><code>clear_grenade</code> (<code>rxClearGrenade</code>) — radial escape from grenade
-      warnings<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:359-370">13</a></sup>.</li>
-      <li><code>clear_spray</code> (<code>rxClearSpray</code>) — the scored 16-direction flee under
-      the existing hysteresis
-      latch<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:221-309">13</a></sup>.</li>
-      <li><code>zone_escape</code> (<code>rxZoneEscape</code>, BR only, new) — triggered on
-      <strong>damage-imminent</strong> (outside the rect with <code>dps &gt; 0</code> live, or the
-      shrink putting the cog outside within a small tick horizon), NOT on mere edge proximity — a
-      rim-hugging play must not fight its own reflex. Shortest validated route inside. Predictive
-      zone work stays in plays.</li>
-    </ul>
-    <p><strong>Reflex state is shell-owned and always current.</strong> Reflexes with memory (the
-    spray hysteresis
-    latch<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:186-225">13</a></sup>) keep it
-    in an explicit <code>ReflexState</code> owned by the shell, not on Belief and not in any play's
-    <code>PlayState</code>. Lifecycle: reset at episode edges; <strong>the reflex observers update
-    <code>ReflexState</code> every alive tick regardless of the active play's
-    subscriptions</strong> — subscription gates only whether a reflex may <em>preempt</em>, not
-    whether it <em>observes</em>. That rule is what makes persistence real across a swap: a play
-    change mid-flee finds the shell latch already active, because it never stopped watching (no
-    state bridging from the legacy fields needed). Fixture: with the legacy default active, enter
-    the hysteresis band (<code>sprayFleeActive</code> true), swap to a subscribed play, and assert
-    the flee continues uninterrupted. Exception for parity: the <strong>CTF legacy adapter</strong>
-    (<a href="#s6-1">§6.1</a> — a privileged shell path, not a play module) keeps using today's
-    Belief latch fields exactly as the code does now (the shell observer writes only
-    <code>ReflexState</code>, never Belief, and since the adapter runs with
-    <code>reflexes = {}</code> semantics the observer never preempts, so parity is untouched);
-    telemetry counters stay on Belief where they live today. The exception ends when P4 reworks
-    CTF strategy.</p>
-    <p>Subscription policy: <strong>new plays delegate everything applicable</strong>
-    (<code>{rxClearGrenade, rxClearSpray, rxZoneEscape}</code> on BR) so a play author never
-    re-implements survival; <strong>the CTF legacy adapter runs with
-    <code>reflexes = {}</code></strong> and keeps grenade/spray clearing as its own rungs in their
-    historical positions — which is what makes the P1 parity reduction exact: with
-    <code>reflexes = {}</code>, the pipeline is (unconditional guards) + (the full old ladder) +
-    (finalizer) = today's <code>decideObjective</code>, statement for statement. Adopting reflex
-    delegation for CTF play is a P4-measured behavior change, never a refactor claim.</p>
-    <p>Everything else that is currently a rung — <code>barrage_center</code>,
-    <code>carry_home</code>, item fetching, squad orders, posts — is play territory. The reflex
-    enum is deliberately small; growing it is a design decision, not a convenience. Reflex
-    preemption is visible in telemetry (<code>reflex:&lt;name&gt;</code>).</p>
-
-    <h3 id="s4-5">4.5 The playbook registry and catalog</h3>
-<pre><code>let Playbook*: seq[Play] = @[defaultPlay, avoidConflictPlay, ...]  # sole registration point</code></pre>
-    <ul>
-      <li>Names are the wire identity; renaming a play is a breaking change to any stored call and
-      is treated like a config-schema change.</li>
-      <li>Call validation is config-grade and fail-loud (the fail-loud config parser is the
-      template<sup class="ref"><a href="#src-20" title="LAB:config.nim:7-51">20</a></sup>):
-      unknown play name, unknown/missing/ill-typed param, out-of-range number, string outside
-      <code>allowedStrings</code>, malformed team name, duplicate team, non-finite number → the
-      call is <strong>rejected before it is proposed on the wire</strong> (mirrors onepage's
-      pre-propose
-      validation<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1445-1451">4</a></sup>),
-      and the active play is unchanged. At process start, an invalid startup call is FATAL
-      (mirrors onepage's startup
-      handling<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1533-1546">4</a></sup>).
-      Parsing applies <code>default</code> for every omitted optional param, so a
-      <code>PlayParams</code> is always total over the schema.</li>
-      <li><strong>Catalog provenance (single source of truth, no skew):</strong> the stencil binary
-      gains a <code>--print-catalog</code> mode that emits
-      <code>{"catalog": …, "catalog_hash": …}</code> to stdout and exits — <code>catalog</code>
-      carrying names, schemas (defaults, ranges, allowed values), and docs. The hash has a
-      byte-exact cross-language contract: <strong>SHA-256, lowercase hex, over the UTF-8 bytes of
-      the canonical JSON serialization of the <code>catalog</code> value</strong> — object keys
-      sorted, play/schema array order preserved as declared, shortest-round-trip number
-      formatting, no insignificant whitespace, no trailing newline; the <code>catalog_hash</code>
-      field is outside the hashed bytes by construction. A golden fixture (one checked-in catalog
-      byte string + expected digest, including non-ASCII doc text and numeric defaults) is
-      consumed by both the Nim and app test suites. The app obtains a seat's catalog by executing
-      <strong>the exact resolved seat binary</strong> offline once per build (cached by binary
-      hash) — never from a checkout, a sibling file, or a separately versioned asset, which would
-      recreate the skew the handshake exists to close. App-side and Nim-side validation consume
-      the same serialized catalog; shared conformance vectors cover omitted optionals, unknown
-      keys, wrong JSON types, invalid team names, duplicates, and non-finite/out-of-range numbers
-      (<a href="#s7-2">§7.2</a>).</li>
+      <li>For an intent from a live play or reflex: the finisher applies the spray-arc pursuit override exactly as today's post-ladder step does<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:504-514">13</a></sup>. This is shell-owned combat opportunism, and a play opts out of it the same way today's behaviors do, by shaping its intent's micro-permission set. The finisher then stamps the idle-aim center<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:515">13</a></sup> — a field whose absence the body treats as a bug and dereferences unconditionally<sup class="ref"><a href="#src-8" title="LAB:action.nim:525-533">8</a></sup>, so the finisher owns it rather than trusting each play to remember.</li>
+      <li>For the dead-cog guard's intent: the pursuit override is <em>skipped</em>. Today's dead branch never enters <code>decideObjective</code> at all<sup class="ref"><a href="#src-21" title="LAB:policy.nim:99-105">21</a></sup>, so pursuit cannot run on a dead tick — that exclusion is part of the current contract, not an accident, and the finisher preserves it. The dead-tick intent receives exactly the fields the current dead branch stamps, plus the new empty <code>CombatPolicy</code>. A test pins this with deliberately hostile belief values (<code>iHaveArc</code> true, a live spray target visible) to prove the exclusion is control flow, not luck.</li>
+      <li>In both cases the finisher prefixes the telemetry reason with <code>play:&lt;name&gt;:</code>, <code>reflex:&lt;name&gt;</code>, or <code>guard:&lt;name&gt;</code> so traces show who actually decided.</li>
     </ul>
 
-    <h3 id="s4-6">4.6 The swap state machine</h3>
-    <p>Ported from onepage's
-    propose/schedule/swap<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1206-1339">4</a></sup>,
-    with one contradiction from rev 1 resolved:</p>
+    <h3 id="contract-reflex">4.4 The reflex layer: emergencies a play can delegate to the shell</h3>
+    <p>A single play runs at a time, and a play might run for a long stretch between calls. Something has to guarantee that a cog does not die of simple negligence — standing in a grenade blast, ignoring a spray attack, getting caught by the shrinking zone — without every play author re-implementing survival. That something is the reflex layer: emergency behaviors implemented once, in the shell.</p>
+    <p>The first design draft made reflexes universal — they always ran before the play. Codex's review showed that this quietly changes today's behavior: in the current ladder, carrying the flag home and intercepting a flag thief <em>outrank</em> grenade and spray evasion<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:349-374">13</a></sup>. A carrier inside grenade range today keeps carrying; a universal reflex-first rule would make it flee instead. That is a gameplay change wearing a refactor's clothes.</p>
+    <p>So reflexes are <em>subscribed</em>, not imposed. Each play declares, in its <code>reflexes</code> field, which emergencies it delegates to the shell. The three subscribable reflexes:</p>
     <ul>
-      <li>One mutation point: the active <code>(Play, PlayState)</code> pair changes only in the
-      <code>maybeApplyReflash</code> equivalent.</li>
-      <li>Startup call arrives via env (<code>COWORLD_POLICY_PAGE</code> inline /
-      <code>COWORLD_POLICY_PAGE_FILE</code> path — names kept, <a href="#s3-1">§3.1</a>); it is
-      <strong>proposed on the wire at the playing edge</strong> so the replay records the opening
-      play (the determinism ruling onepage
-      encodes<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1210-1223">4</a></sup>,
-      adopted verbatim).</li>
-      <li><strong>Absence is a compatibility case, not an error</strong> (unlike onepage's
-      fatal-on-missing<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1268-1278">4</a></sup>,
-      which would break every existing stencil launcher — plain stencil
-      startup<sup class="ref"><a href="#src-22" title="LAB:stencil.nim:95-99">22</a></sup>, the
-      no-chat app spawn that omits page
-      env<sup class="ref"><a href="#src-23" title="PBP:origin/maxwell/lobby-chat:server/matchd.mjs:400-412">23</a></sup>,
-      and <code>self_play.py</code>): a missing env synthesizes the canonical raw
-      <code>{"play":"default","params":{}}</code>, validates it, and proposes it on-wire at the
-      playing edge like any other startup call — so the replay still records the opening play. A
-      <strong>present-but-invalid</strong> value remains FATAL at process start.
-      (<code>self_play.py</code>'s env allowlist additionally learns to pass
-      <code>COWORLD_POLICY_PAGE*</code>
-      through<sup class="ref"><a href="#src-24" title="LAB:tools/self_play.py:33-42">24</a></sup> —
-      <a href="#s12">§12</a>.)</li>
-      <li><strong>Bootstrap rule (the built-in default first; env bytes only via the
-      wire).</strong> Before the WorldMap exists there is no active <code>PlayState</code> — the
-      <code>no_worldmap</code> guard answers every tick, as rung 0 does today. At the first
-      completed WorldMap build the shell fixes <code>GameMode</code> (<a href="#s6-1">§6.1</a>)
-      and runs <code>init</code> exactly once for the <strong>canonical built-in default —
-      always</strong>, regardless of what the env carries. The env-provided startup raw (already
-      catalog-validated at process start) then travels the one road every call travels: proposed
-      on the wire at the playing edge, through <code>acceptCallEvent</code> — if canonical
-      default, it is the documented reassertion (observed, no re-<code>init</code>); if
-      different, it schedules normally and activates only in the <code>maybeApplyReflash</code>
-      equivalent at <code>T_effect</code>. This preserves the sole-mutation-point rule and the
-      replay contract: the first world-ready decisions are the built-in default's, and no
-      decision ever depends on env bytes replay has not consumed from the wire (the exact ruling
-      onepage
-      encodes<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1206-1222,1280-1317">4</a></sup>).
-      Fixtures: CTF and BR startup covering WorldMap creation, the pre-call ticks,
-      canonical-default reassertion, and a <strong>non-default startup call</strong> whose first
-      world-ready tick is still default, whose <code>T_effect</code> tick switches, and whose
-      replay diverges when the outbound record is dropped.</li>
-      <li>Swap boundary: <code>T_effect = T_req + max(1, fireWindupRemaining)</code> computed once,
-      using stencil's real windup state
-      (<code>fireHoldTicks</code><sup class="ref"><a href="#src-8" title="LAB:action.nim:424-432">8</a></sup>)
-      rather than onepage's local estimate. <code>init</code> runs at the swap tick; the old
-      play's state is dropped.</li>
-      <li><strong>Reassertion contract (rev-1 fix).</strong> Two raws are tracked separately:
-      <code>pendingRaw</code> (a candidate delivered but not yet sent) and <code>activeRaw</code>
-      (the call behind the running play). Duplicate-suppression applies only to
-      <code>pendingRaw</code> — the same candidate delivered twice before sending is sent once. A
-      delivered call whose raw equals <code>activeRaw</code> is a <strong>deliberate
-      reassertion</strong>: it IS sent on the wire (so the engine accepts it and increments the
-      epoch — the exact lost-repeated-event detectability the engine's epoch exists
-      for<sup class="ref"><a href="#src-25" title="sim_state.nim:347-385 (coworld-ctf)">25</a></sup><sup class="ref"><a href="#src-11" title="origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim:1900-1908">11</a></sup>),
-      and locally it is a state-preserving no-op: no <code>init</code>, <code>PlayState</code>
-      intact. A call with the same play but different params is a normal swap (state reset).
-      "Re-call to reset state" is therefore not a thing; if a play needs a reset knob, its author
-      adds a param.</li>
-      <li><strong>One transition for live and replay:</strong> both feed
-      <code>acceptCallEvent(raw, requestTick)</code> — if <code>raw == activeRaw</code>, the event
-      is observed (wire-visible, logged) but schedules nothing and runs no <code>init</code>;
-      otherwise the normal swap is scheduled. <code>replay.nim</code> calls the same function from
-      captured outbound records (<a href="#s8">§8</a>), so a reassertion cannot reset state in
-      replay while preserving it live.</li>
-      <li>Mid-episode trigger: a <code>pendingCall</code> hook checked each frame (the
-      <code>pendingProposal</code>
-      pattern<sup class="ref"><a href="#src-4" title="origin/maxwell/br-reflash-integration:players/onepage/onepage.nim:1445-1462">4</a></sup>),
-      fed by the file-watch stand-in for local dev; the real delivery lane plugs in here
-      (non-goal).</li>
+      <li><code>rxClearGrenade</code> — escape radially from an incoming grenade warning (today's logic<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:359-370">13</a></sup>).</li>
+      <li><code>rxClearSpray</code> — the scored sixteen-direction flee from spray attacks, with its existing trigger/release thresholds<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:221-309">13</a></sup>.</li>
+      <li><code>rxZoneEscape</code> — Battle Royale only, and new. It triggers on <em>imminent damage</em>: the cog is outside the zone rectangle while the zone is dealing damage, or the shrink will put the cog outside within a short horizon of ticks. It deliberately does not trigger on mere closeness to the edge — a play whose whole strategy is hugging the zone rim must not fight its own reflex. When it fires, it routes the cog to the nearest validated point inside. Everything <em>predictive</em> about the zone — rotating early, guessing the final circle — is play territory, not reflex territory.</li>
     </ul>
+    <p>Reflexes that need memory keep it in an explicit <code>ReflexState</code> owned by the shell — not on <code>Belief</code>, and not inside any play's state. Its lifecycle: it resets at episode boundaries, and it <strong>persists across play swaps, re-sent calls, and subscription changes</strong>. More than that, the reflex <em>observers</em> — the code that watches for spray attacks and updates the trigger/release latch — run every living tick regardless of what the active play subscribed to. Subscription controls only whether a reflex may <em>seize control</em>, never whether it <em>watches</em>. This is what makes the persistence guarantee real: if the policy calls a new play in the middle of a spray flee, the new play's first tick finds the shell latch already active, because the shell never stopped watching. There is no state to hand over from anywhere. The test for this: with the legacy behavior active, enter the spray-flee condition, switch to a play that subscribes to <code>rxClearSpray</code>, and confirm the flee continues without a gap.</p>
+    <p>One temporary exception exists for the sake of the compatibility proof. The legacy CTF behavior (§6.1) is served by a special adapter rather than a normal play, and that adapter's internal grenade/spray logic keeps using today's <code>Belief</code> latch fields exactly as the current code does. This is safe alongside the always-running shell observers because the observers write only to <code>ReflexState</code>, never to <code>Belief</code>, and because the adapter runs with an empty subscription set, so the observers never preempt it. The exception ends when Phase 4's strategy work retires the adapter.</p>
+    <p>Everything else that is a behavior today — centering during a grenade barrage, carrying the flag, fetching items, squad orders, defensive posts — belongs to plays, not reflexes. The reflex enum is deliberately small. Adding to it is a design decision, never a convenience. Every reflex preemption is visible in telemetry with a <code>reflex:</code> prefix.</p>
+
+    <h3 id="contract-registry">4.5 The playbook registry, validation, and the catalog</h3>
+    <p>The playbook is one sequence, declared in one place:</p>
+<pre><code>let Playbook*: seq[Play] = @[defaultPlay, avoidConflictPlay, ...]</code></pre>
+    <p>A play's <code>name</code> is its identity everywhere outside the binary — on the wire, in the lobby's catalog, and in saved replays. Renaming a play breaks every stored call that used the old name, so a rename is treated with the same gravity as changing a configuration schema.</p>
+    <p>Validating an incoming call follows the lab's existing configuration discipline<sup class="ref"><a href="#src-20" title="LAB:config.nim:7-51 is the model">20</a></sup>: every problem fails immediately with a specific error, and nothing is ever silently coerced. An unknown play name, a missing required parameter, a wrongly typed value, a number out of its declared range, a string outside its allowed set, a malformed or duplicated team name, a non-finite number — any of these causes the call to be <strong>rejected before it is ever proposed on the wire</strong>, mirroring the validate-before-send behavior of Maxwell's bot<sup class="ref"><a href="#src-4" title="onepage.nim:1445-1451">4</a></sup>, and the currently active play continues unaffected. At process startup the rule is harsher: a startup call that is <em>present but invalid</em> kills the process immediately (mirroring Maxwell's bot<sup class="ref"><a href="#src-4" title="onepage.nim:1533-1546">4</a></sup>), because a bot that silently ignored its instructions would be worse than one that visibly failed. Parsing fills in the declared default for every omitted optional parameter, so a parsed <code>PlayParams</code> always contains a value for every parameter in the schema.</p>
+    <p>The lobby needs to know which plays a given bot binary actually supports, and the answer must come from the binary itself — any second copy of that information would eventually drift. So the stencil binary gains a <code>--print-catalog</code> mode: run with that flag, it prints one JSON document, <code>{"catalog": ..., "catalog_hash": ...}</code>, and exits. The catalog holds every play's name, its full parameter schema (defaults, ranges, allowed values), and its documentation lines. The hash exists so a JavaScript consumer and the Nim producer can verify they are looking at the same catalog, and it has a byte-exact contract: SHA-256, rendered as lowercase hex, over the UTF-8 bytes of the canonical JSON serialization of the <code>catalog</code> value — object keys sorted, arrays kept in declared order, shortest-round-trip number formatting, no insignificant whitespace, no trailing newline. The <code>catalog_hash</code> field sits outside the hashed bytes by construction. A golden fixture — one checked-in catalog byte string with its expected digest, including non-ASCII documentation text and numeric defaults — is consumed by both the Nim and the app test suites, so the two implementations of "canonical JSON" can never quietly disagree.</p>
+
+    <h3 id="contract-effect">4.6 When a play call actually takes effect</h3>
+    <p>The mechanics of receiving and applying a call are ported from Maxwell's bot, whose propose/schedule/swap machinery was already reviewed and ratified on his side<sup class="ref"><a href="#src-4" title="onepage.nim:1206-1339">4</a></sup>. The rules, including two that came out of this design's own review rounds:</p>
+    <p><strong>There is exactly one mutation point.</strong> The active pair — the play and its state — changes in exactly one function, the equivalent of Maxwell's <code>maybeApplyReflash</code>. Nothing else ever touches it.</p>
+    <p><strong>The startup call arrives by environment variable, but takes effect only through the wire.</strong> The variables keep Maxwell's names: <code>COWORLD_POLICY_PAGE</code> for an inline JSON value, <code>COWORLD_POLICY_PAGE_FILE</code> for a file path. If neither is set, that is not an error — unlike Maxwell's bot, which dies without a page<sup class="ref"><a href="#src-4" title="onepage.nim:1268-1278">4</a></sup>, stencil has existing launch paths that set no such variable (plain startup<sup class="ref"><a href="#src-22" title="LAB:stencil.nim:95-99">22</a></sup>, the app's no-chat spawn, and <code>self_play.py</code>, whose environment allowlist will also learn to pass these variables through<sup class="ref"><a href="#src-23" title="LAB:tools/self_play.py:33-42">23</a></sup>). A missing variable simply synthesizes the canonical default call, <code>{"play":"default","params":{}}</code>.</p>
+    <p><strong>Startup, in order.</strong> Before the world map exists there is no active play state at all; the <code>no_worldmap</code> guard answers every tick, just as the ladder's first rung does today. When the first world-map build completes, the shell fixes the game mode (§6.1) and initializes <strong>the built-in default play — always</strong>, regardless of what the environment variable says. The environment-provided call (which was validated at process start) then travels the same road every call travels: it is proposed on the wire at the moment the match starts playing, flows through <code>acceptCallEvent</code> (below), and — if it differs from the default — takes effect at its scheduled tick like any mid-match call. This indirection is not ceremony. An environment variable is invisible to a replay; if it changed behavior directly, a replayed match would be missing an input and could not reproduce the game. Maxwell's bot encodes exactly this ruling<sup class="ref"><a href="#src-4" title="onepage.nim:1206-1222,1280-1317">4</a></sup>, and this design keeps it: the first world-ready decisions are the built-in default's, and no decision ever depends on bytes that the replay has not consumed from the wire. The startup fixtures cover both game modes and walk the whole sequence: world-map creation, the ticks before any call has landed, acceptance of the canonical default as a re-assertion, and a non-default startup call — for which the first world-ready tick still runs the default, the scheduled tick switches, and deleting the call's wire record makes the replay diverge.</p>
+    <p><strong>A new play takes effect after your own trigger is clear.</strong> The moment of effect is computed once, when the call is accepted: <code>T_effect = T_request + max(1, ticks remaining on the current fire wind-up)</code>. In plain terms: never swap your own strategy out from under your own pulled trigger. Stencil computes this from its real wind-up state (<code>fireHoldTicks</code><sup class="ref"><a href="#src-8" title="LAB:action.nim:424-432">8</a></sup>) — better information than the local estimate Maxwell's bot has to use. The new play's <code>init</code> runs at the effect tick, and the old play's state is discarded.</p>
+    <p><strong>Re-sending the same call is meaningful, and it does not reset anything.</strong> Two remembered values make this work: the raw bytes of the call currently <em>pending</em> (delivered but not yet sent), and the raw bytes of the call behind the <em>active</em> play. Duplicate suppression applies only to the pending slot — if the same candidate is delivered twice before it goes out, it is sent once. But a delivered call whose bytes equal the active call is a <em>deliberate re-assertion</em>, and it IS sent on the wire. The engine counts every accepted flash — even an identical one — in a counter it folds into the game's integrity hash, precisely so that a lost repeated event is detectable<sup class="ref"><a href="#src-24" title="sim_state.nim:347-385 (coworld-ctf)">24</a></sup><sup class="ref"><a href="#src-25" title="sim_types.nim:1900-1908 (coworld-ctf)">25</a></sup>; swallowing re-assertions locally would defeat that. On the bot side, a re-assertion is a state-preserving no-op: no <code>init</code>, state intact. A call with the same play but different parameters is an ordinary swap, with a state reset. Consequently "re-call the play to reset it" is not a thing; a play that wants a reset knob declares a parameter for it.</p>
+    <p><strong>Live play and replay share one code path.</strong> Both feed the same transition function, <code>acceptCallEvent(raw, requestTick)</code>: bytes equal to the active call → the event is observed (logged, visible on the wire) but schedules nothing and initializes nothing; different bytes → a normal scheduled swap. The replay reader calls this same function when it encounters a recorded call (§8), which is what makes it impossible for a re-assertion to preserve state live but reset it in replay.</p>
+    <p><strong>The mid-match hook.</strong> A <code>pendingCall</code> slot is checked every frame — the same pattern as Maxwell's <code>pendingProposal</code><sup class="ref"><a href="#src-4" title="onepage.nim:1445-1462">4</a></sup>. For local development it is fed by the file-watching stand-in; the real delivery channel, when it is built, plugs into this slot and nothing else.</p>
   </section>
-  <!-- ============ 5 · What is reused ============ -->
-  <section id="s5">
-    <h2>5 · What Is Reused, Byte-for-Byte</h2>
+
+  <!-- ============ 5 ============ -->
+  <section id="reuse">
+    <h2>5 · What Is Reused Without Modification</h2>
     <ul class="key-points">
-      <li>The reflash wire, gate, replay records, inbox drain, pre-round chat phase, and spawn env delivery are reused unchanged; the payload is opaque to all of them.</li>
-      <li>Stencil's <code>Intent</code> and combat paths are extended, not redesigned; empty-policy behavior is bit-identical.</li>
-      <li>Retired: both page languages, their reconciliation problem, the evaluate-all purity refactor, and per-tick selection hysteresis.</li>
+      <li>The reuse ledger below lists the machinery this design depends on and does not touch, from the reflash wire format to stencil's entire body.</li>
+      <li>Stencil's <code>Intent</code> type and combat code are extended, not redesigned; with the new field empty, behavior is bit-identical.</li>
+      <li>The design makes both of Maxwell's page languages, and the refactors they would have required, unnecessary.</li>
     </ul>
+    <p>The table below is the reuse ledger. Everything marked "unchanged" is code this design depends on and does not touch.</p>
+    <div class="table-scroll">
     <table>
       <thead>
-        <tr><th>Piece</th><th>Where</th><th>Status under this design</th></tr>
+        <tr><th>Piece</th><th>Where it lives</th><th>Status under this design</th></tr>
       </thead>
       <tbody>
-        <tr><td>Reflash wire (0x86 + <code>PolicyPageMagic</code>)</td><td>engine labels<sup class="ref"><a href="#src-26" title="origin/maxwell/br-reflash-integration:src/ctf/labels.nim:602-636">26</a></sup></td><td>unchanged; payload is opaque</td></tr>
-        <tr><td>Gate / acceptance / 60 KB cap</td><td>engine sim state<sup class="ref"><a href="#src-25" title="sim_state.nim:347-385 (coworld-ctf)">25</a></sup></td><td>unchanged</td></tr>
-        <tr><td>Replay record + hash + epoch + playback re-apply</td><td>engine replays<sup class="ref"><a href="#src-27" title="replays.nim:272-357,582-602 (coworld-ctf)">27</a></sup></td><td>unchanged</td></tr>
-        <tr><td>Tick-boundary inbox drain</td><td>engine server<sup class="ref"><a href="#src-28" title="server.nim:86-93,2327-2344 (coworld-ctf)">28</a></sup></td><td>unchanged</td></tr>
-        <tr><td>Pre-round chat phase (bounds, sequencing, fallback discipline, records)</td><td>app preround<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs">5</a></sup></td><td>reused; one step swapped (<a href="#s7-1">§7.1</a>)</td></tr>
-        <tr><td>Spawn env delivery (<code>pageEnv</code>)</td><td>app matchd<sup class="ref"><a href="#src-23" title="PBP:origin/maxwell/lobby-chat:server/matchd.mjs">23</a></sup></td><td>unchanged (call JSON starts with <code>{</code> → inline var)</td></tr>
-        <tr><td>Deferred boot (<code>finishBooting</code>)</td><td>same</td><td>unchanged</td></tr>
-        <tr><td>Stencil body: planner, follower, corridor, micro, resolution order</td><td>the lab (<code>stencil_nim</code>)</td><td>unchanged</td></tr>
-        <tr><td>Stencil <code>Intent</code> + combat paths</td><td>lab types, action, fight<sup class="ref"><a href="#src-7" title="LAB:types.nim">7</a></sup><sup class="ref"><a href="#src-8" title="LAB:action.nim">8</a></sup><sup class="ref"><a href="#src-17" title="LAB:fight.nim">17</a></sup></td><td><strong>extended, not redesigned</strong>: the <code>CombatPolicy</code> field + its filters (<a href="#s4-2">§4.2</a>); empty-policy behavior bit-identical</td></tr>
-        <tr><td>Base engine branch</td><td><code>origin/maxwell/br-season2-complete</code></td><td>the integration substrate</td></tr>
+        <tr><td>The reflash wire format (the <code>0x86</code> message type with the <code>"CTFPOLICYPAGE1\n"</code> prefix)</td><td>engine <code>labels</code> module<sup class="ref"><a href="#src-26" title="origin/maxwell/br-reflash-integration:src/ctf/labels.nim:602-636">26</a></sup></td><td>unchanged — the payload is opaque bytes to it</td></tr>
+        <tr><td>The engine's acceptance gate and 60&nbsp;KB size cap</td><td>engine sim state<sup class="ref"><a href="#src-24" title="sim_state.nim:347-385 (coworld-ctf)">24</a></sup></td><td>unchanged</td></tr>
+        <tr><td>The replay record, content hash, flash counter, and replay-time re-application</td><td>engine replays module<sup class="ref"><a href="#src-27" title="replays.nim:272-357,582-602 (coworld-ctf)">27</a></sup></td><td>unchanged</td></tr>
+        <tr><td>The engine's rule that inputs are applied only at tick boundaries</td><td>engine server<sup class="ref"><a href="#src-28" title="server.nim:86-93,2327-2344 (coworld-ctf)">28</a></sup></td><td>unchanged</td></tr>
+        <tr><td>The pre-round chat phase — its time limits, turn order, and never-fail fallback behavior</td><td>app pre-round module<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs">5</a></sup></td><td>reused; one step is replaced (§7.1)</td></tr>
+        <tr><td>Delivery of the startup payload through environment variables at spawn</td><td>app match daemon<sup class="ref"><a href="#src-29" title="PBP:origin/maxwell/lobby-chat:server/matchd.mjs">29</a></sup></td><td>unchanged — a play call is JSON starting with <code>{</code>, which already routes to the inline variable</td></tr>
+        <tr><td>The deferred match boot that waits for the chat phase</td><td>same<sup class="ref"><a href="#src-29" title="PBP:origin/maxwell/lobby-chat:server/matchd.mjs">29</a></sup></td><td>unchanged</td></tr>
+        <tr><td>Stencil's body: the planner, the movement follower, the corridor rule, micro-movement, and the order of <code>resolveAction</code></td><td>the stencil lab</td><td>unchanged</td></tr>
+        <tr><td>Stencil's <code>Intent</code> type and combat code</td><td>lab types, action, and fight modules<sup class="ref"><a href="#src-7" title="LAB:types.nim">7</a></sup><sup class="ref"><a href="#src-8" title="LAB:action.nim">8</a></sup><sup class="ref"><a href="#src-17" title="LAB:fight.nim">17</a></sup></td><td><strong>extended, not redesigned</strong>: the <code>CombatPolicy</code> field and its filters (§4.2); with the field empty, behavior is bit-identical</td></tr>
+        <tr><td>The engine branch this all builds on</td><td><code>origin/maxwell/br-season2-complete</code></td><td>the integration base</td></tr>
       </tbody>
     </table>
-    <p>What this design <strong>retires</strong>: both page languages (the <code>policy_page.nim</code>
-    VM + the <code>policy_stub.nim</code> rows), their reconciliation problem, the evaluate-all
-    purity refactor, and per-tick selection hysteresis.</p>
+    </div>
+    <p>And the list of things this design makes unnecessary: both of Maxwell's page languages (the expression VM and the row-of-weights placeholder), the work of reconciling them, the refactor that would have been needed to score all behaviors side-effect-free every tick, and the anti-flicker machinery a per-tick scorer would have required.</p>
   </section>
-
-  <!-- ============ 6 · The play library ============ -->
-  <section id="s6">
+  <!-- ============ 6 ============ -->
+  <section id="library">
     <h2>6 · The Play Library</h2>
     <ul class="key-points">
-      <li><code>default</code> is required, parameterless, and the parity anchor: a privileged CTF adapter on <code>gmCtf</code>, a normal read-only BR play on <code>gmBr</code>.</li>
-      <li><code>GameMode</code> is fixed once per episode at WorldMap build completion — explicit dispatch, never per-tick inference.</li>
-      <li>The v1 BR plays are small on purpose: <code>avoid_conflict</code>, <code>zone_rotate</code>, <code>third_party</code>; knob count is the author's choice.</li>
+      <li>Every playbook contains a play named <code>default</code>; in CTF it dispatches to a privileged adapter around today's ladder, and in Battle Royale it is a normal play written to the read-only contract.</li>
+      <li>The game mode is fixed once per episode, at world-map completion, by whether endzones were perceived.</li>
+      <li>The starting library is deliberately small — the default plus three plays — and grows through the optimization loop, not through this document.</li>
     </ul>
 
-    <h3 id="s6-1">6.1 The default play</h3>
-    <p><code>default</code> — required, parameterless, and the parity anchor. The CTF legacy
-    behavior is <strong>not a play module</strong>: today's ladder is mutation-heavy far beyond any
-    read-only <code>PlayView</code> contract — it clears squad-post fields, runs consensus, flips
-    latches, and bumps counters on
-    Belief<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:329-405,425-480">13</a></sup> —
-    so pretending it is a normal play would either break parity or force a mutating "query" export
-    every play could then call (Codex round-6 finding 1). Ruling: the <code>default</code> wire
-    identity dispatches on <code>GameMode</code> to two implementations —</p>
+    <h3 id="library-default">6.1 The default play, and how the game mode is decided</h3>
+    <p>Every playbook must contain a play named <code>default</code>. It takes no parameters, and it is the play a bot runs when nothing has told it otherwise. It is also the anchor for the compatibility proof, which forces an honest split in how it is implemented, because "default behavior" means different things in the two game modes.</p>
+    <p><strong>In classic CTF, the default is not a play module at all.</strong> Today's decision ladder is deeply entangled with <code>Belief</code> — it clears squad-order fields, runs the consensus protocol, flips latches, and bumps counters as it evaluates<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:329-405,425-480">13</a></sup>. No read-only <code>PlayView</code> contract can express that, and Codex's review made the choice stark: either break the compatibility promise, or export a mutating "query" that every play could then abuse. The design does neither. The <code>default</code> name, when the game mode is CTF, dispatches to a <strong>privileged adapter inside the shell</strong> — not under <code>plays/</code>, not subject to the import allowlist — which simply invokes today's <code>decideObjective(Belief)</code> unchanged: the full historical ladder, in its historical order, grenade and spray evasion in their historical positions, every <code>Belief</code> write exactly as now. Because <code>decideObjective</code> already contains the pursuit override and the idle-aim stamp<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:502-515">13</a></sup>, the adapter's result skips the finisher's behavioral steps — only the telemetry tag is applied — since running the pursuit override a second time on its own output would double-count and break the proof. The adapter is the sole exception to the mutation boundary, and it exists only to make "the refactor changed nothing" provable. Two tests pin it: a compile-level check that no module under <code>plays/</code> has any mutation privilege, and a parity test confirming the adapter is the only exception. As for retiring it: that is a <em>future</em> design's job, stated honestly. Phase 4a replaces only the role/posture slice of the ladder; the rest of the privileged writes — spray latches, consensus state, conversion state, counters — stay behind the adapter until a dedicated CTF strategy redesign migrates them properly, with its own baseline. This document does not promise that work.</p>
+    <p><strong>In Battle Royale, the default is a normal play</strong>, <code>plays/survive_default.nim</code>, written to the real read-only contract from its first line. Its behavior arrives in two steps. Until Phase 4b it is a deliberately inert placeholder: a validated hold-position intent (telemetry reason <code>play:default:br_hold</code>), no reflex subscriptions, empty state. The placeholder exists so the Phase 2 and Phase 3 Battle Royale binaries can compile, boot, and give the end-to-end test a stable, named baseline; its catalog documentation says "placeholder" in so many words. Phase 4b then replaces its body with the real survival behavior — rotate ahead of the shrinking zone, hold cover, stay near the partner — as a single measured change, with the wire name <code>default</code> never changing. This ordering exists because the lab's evaluation discipline requires one attributable change per version; shipping the placeholder and the survival logic together with the plumbing would make regressions unattributable.</p>
+    <p><strong>How the mode is decided.</strong> The shell context carries a <code>GameMode</code> value — <code>gmCtf</code> or <code>gmBr</code> — fixed once per episode at the moment the world-map build completes. The rule is simple and observable: if endzones were perceived by the time the map is built, the mode is CTF; if none were, it is Battle Royale. Battle Royale maps author no endzones at all — the engine forbids even inert ones<sup class="ref"><a href="#src-30" title="origin/maxwell/br-integrate:src/ctf/sim_types.nim:1309-1311">30</a></sup> — and Phase 2's perception work changes the map-build trigger so that it no longer <em>requires</em> endzones. The timing works out by construction: no play decision ever happens before the world map exists (the <code>no_worldmap</code> guard sees to that), so no play ever runs with the mode undetermined. The <code>default</code> name remains a single entry in the registry; the shell's activation step reads the mode and dispatches — CTF to the adapter, Battle Royale to the survive play. Both startup paths are covered by fixtures, and every play can read <code>GameMode</code> from its <code>PlayView</code>.</p>
+
+    <h3 id="library-plays">6.2 The first Battle Royale plays</h3>
+    <p>The starting library is deliberately small: the default plus three plays. The library grows through the optimization loop, not through this document. Parameter notation: <code>name: type (required, or its default) [constraints]</code>.</p>
+    <p><strong><code>avoid_conflict</code></strong> — James's motivating example.</p>
     <ul>
-      <li><code>gmCtf</code> → a <strong>privileged parity adapter in the shell</strong> (not under
-      <code>plays/</code>, not subject to the import allowlist) that invokes today's
-      <code>decideObjective(Belief)</code> path unchanged: full historical ladder order,
-      grenade/spray clearing internal, <code>reflexes = {}</code> semantics, every Belief write
-      exactly as now. Because <code>decideObjective</code> already contains the arc-pursuit
-      override and the idle-aim
-      stamp<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:502-515">13</a></sup>,
-      <strong>the adapter's result bypasses the finalizer's behavioral steps</strong> (only the
-      telemetry tag is applied) — running arc pursuit a second time on its own output would
-      double-fire the pursuit counter and break parity. It is the <em>sole</em> mutation exception
-      and exists only for the parity anchor. <strong>Its retirement is a future design, not a
-      promise of this one</strong>: P4a replaces only the roles/posture slice; the other
-      privileged Belief writes (spray latches, consensus/order state, conversion state, counters)
-      remain behind the adapter until a dedicated CTF strategy-rework design migrates them into
-      <code>PlayState</code>/shell operations with its own baseline — explicitly out of scope
-      here. Tests: a compile check that no module under <code>plays/</code> has mutation
-      privilege, and a parity test pinning the adapter as the only exception.</li>
-      <li><code>gmBr</code> → <code>plays/survive_default.nim</code>, a <strong>normal read-only
-      play</strong> written to the real contract from day one. <strong>Its behavior arrives in two
-      steps</strong>: until P4b it is a deliberately behavior-neutral placeholder — a validated
-      Hold at position (reason <code>play:default:br_hold</code>), no subscribed reflexes, empty
-      state — created with the seam in P1 so the P2/P3 BR binaries compile, boot, and give the
-      hosted round-trip a stable, named baseline; its catalog doc says "placeholder". P4b then
-      replaces its body with the real <code>survive</code> behavior (predictive zone rotation +
-      cover hold + partner proximity) as the one measured change, wire identity unchanged.</li>
+      <li><code>no_shoot_teams: TeamList (required)</code> — the teams this cog must never fire at, with any weapon. Implemented through <code>Intent.combat.noShootTeams</code> (§4.2).</li>
+      <li><code>protect: bool (default = false)</code> — when true, the listed teams also populate <code>combat.protectTeams</code>, and the play positions the cog to cover listed cogs that come under threat.</li>
     </ul>
-    <p>The CTF adapter keeps <strong>the Role machinery intact</strong>: role-keyed rungs,
-    role-keyed target scoring, and the orchestrator's assignment block stay
-    as-is<sup class="ref"><a href="#src-13" title="LAB:strategy.nim:404-420,480-491">13</a></sup><sup class="ref"><a href="#src-17" title="LAB:fight.nim:150-160,239-250">17</a></sup><sup class="ref"><a href="#src-21" title="LAB:policy.nim:55-98">21</a></sup>.
-    Byte-identical decisions to the pre-play shell, provable on the recorded-wire corpus
-    (<a href="#s8">§8</a>, gate 1). Role <em>deletion</em> is a separate, behavior-changing phase
-    with its own acceptance (<a href="#s9">§9</a>, P4) — parity and deletion cannot share a phase
-    (rev-1 finding 4; the replacement division-of-labor mechanism is itself the open design
-    question the lab directive
-    names<sup class="ref"><a href="#src-29" title="LAB:WORKING_CONTEXT.md:135-154">29</a></sup>).</p>
-    <p>On BR (post-preconditions) the default's <em>behavior</em> is <code>survive</code>:
-    predictive zone rotation + cover hold + partner proximity — the "do no harm" baseline a
-    fallback call can always name (<a href="#s7-1">§7.1</a>'s never-null rule needs it).</p>
-    <p><strong>Mode dispatch is explicit, not inferred per tick.</strong> The shell context carries
-    a <code>GameMode</code> (<code>gmCtf | gmBr</code>), fixed once per episode <strong>at WorldMap
-    build completion</strong>: endzones perceived by then → <code>gmCtf</code>, none →
-    <code>gmBr</code> (BR maps author no endzones, "not even INERT
-    ones"<sup class="ref"><a href="#src-30" title="origin/maxwell/br-integrate:src/ctf/sim_types.nim:1309-1311">30</a></sup>;
-    P2 changes the build gate to not <em>require</em> endzones). This is timing-safe by
-    construction: no play decision precedes the WorldMap (the <code>no_worldmap</code> guard holds
-    until it exists), so no play ever runs with mode undetermined. <code>default</code> stays one
-    wire identity and one <code>PlayKind</code>; <strong>the shell's activation step dispatches on
-    <code>GameMode</code></strong> — <code>gmCtf</code> to the privileged adapter,
-    <code>gmBr</code> to <code>plays/survive_default.nim</code>'s normal
-    <code>init</code>/<code>step</code> (above). Both startup paths are tested.
-    <code>GameMode</code> is exposed to all plays via <code>PlayView</code>.</p>
-
-    <h3 id="s6-2">6.2 v1 BR plays (small on purpose)</h3>
-    <p>Schema notation: <code>name: kind (required | default=X) [constraints]</code>.</p>
-    <ol>
-      <li><strong><code>avoid_conflict</code></strong> — James's motivating example.
-        <ul>
-          <li><code>no_shoot_teams: TeamList (required)</code> — teams never targeted (gun, spray,
-          grenade), via <code>Intent.combat.noShootTeams</code> (<a href="#s4-2">§4.2</a>).</li>
-          <li><code>protect: bool (default=false)</code> — when true, listed teams also populate
-          <code>combat.protectTeams</code>, and positioning biases toward listed cogs under
-          threat.</li>
-          <li>Behavior: route along the safe interior of the current/next zone rect preferring
-          cover (planner danger weights + post
-          atlas<sup class="ref"><a href="#src-31" title="LAB:planner.nim">31</a></sup><sup class="ref"><a href="#src-15" title="LAB:worldmap.nim:792-861">15</a></sup>);
-          combat policy as above.</li>
-        </ul>
-      </li>
-      <li><strong><code>zone_rotate</code></strong>
-        <ul>
-          <li><code>earliness: number (default=0.5) [0..1]</code> — rotate at phase edge vs.
-          late.</li>
-          <li><code>route_bias: string (default="cover") [allowed: "cover", "direct"]</code>.</li>
-          <li>Predictive rotation into <code>zonenext</code>; salvages <code>barrageGoal</code>'s
-          room-peak scorer restricted to the next rect, per BR_LADDER's suggestion.</li>
-        </ul>
-      </li>
-      <li><strong><code>third_party</code></strong>
-        <ul>
-          <li><code>min_advantage: number (default=1.0) [0..3]</code> — required HP/engagement
-          advantage before committing.</li>
-          <li><code>disengage_hp: number (default=1.0) [0..3]</code> — break off at/below.</li>
-          <li>Fight-detection → flank approach → disengage below threshold.</li>
-        </ul>
-      </li>
-    </ol>
-    <p>Parameter count per play is the author's choice — that is the design's point:
-    <code>avoid_conflict</code> exposes two knobs; a future <code>tempo</code> play might expose
-    ten.</p>
+    <p>The play routes the cog along the safe interior of the current and next zone rectangles, preferring positions with cover — this composes the existing planner's danger weighting with the firing-position atlas<sup class="ref"><a href="#src-31" title="LAB:planner.nim">31</a></sup><sup class="ref"><a href="#src-15" title="LAB:worldmap.nim:792-861">15</a></sup> — while the combat policy handles the weapons side.</p>
+    <p><strong><code>zone_rotate</code></strong></p>
+    <ul>
+      <li><code>earliness: number (default = 0.5) [0..1]</code> — rotate at the moment the next zone is announced (1) versus as late as survivable (0).</li>
+      <li><code>route_bias: string (default = "cover") [allowed: "cover", "direct"]</code>.</li>
+    </ul>
+    <p>Predictive rotation into the next zone rectangle. Its goal scoring salvages an existing piece of machinery: the barrage-centering room scorer, restricted to rooms inside the upcoming rectangle — a reuse BR_LADDER specifically recommends.</p>
+    <p><strong><code>third_party</code></strong></p>
+    <ul>
+      <li><code>min_advantage: number (default = 1.0) [0..3]</code> — the health/engagement advantage required before committing to crash someone else's fight.</li>
+      <li><code>disengage_hp: number (default = 1.0) [0..3]</code> — break off at or below this health.</li>
+    </ul>
+    <p>Detect a fight between two other parties, approach on a flank, and leave when the numbers stop being favorable.</p>
+    <p>The number of knobs per play is the author's choice, and that is the point of the whole design: <code>avoid_conflict</code> exposes two, and some future tempo-control play might expose ten.</p>
   </section>
 
-  <!-- ============ 7 · App-side integration ============ -->
-  <section id="s7">
-    <h2>7 · App-Side Integration (coworld-paintbot-player)</h2>
+  <!-- ============ 7 ============ -->
+  <section id="app">
+    <h2>7 · Integration with the Match App (coworld-paintbot-player)</h2>
     <ul class="key-points">
-      <li>The pre-round phase machinery is untouched; only the generation step changes — <code>page</code> becomes <code>call</code>, prompted with the seat's catalog, and a call is never null.</li>
-      <li>The catalog handshake executes <code>--print-catalog</code> on the exact resolved seat binary, cached by content hash; non-capable builds get no call env at all.</li>
-      <li>Mid-episode delivery is out of scope beyond the shell hook it will call; the record shape is already right.</li>
+      <li>The chat phase keeps its machinery; only the generation step changes, from writing a page to calling a play against the seat's catalog.</li>
+      <li>A seat always ends up with a call — every failure mode falls back to the one canonical default spelling.</li>
+      <li>The app learns a binary's playbook only by executing that exact binary with <code>--print-catalog</code>, under a strictly bounded probe; builds without the capability get no call variable at all.</li>
     </ul>
 
-    <h3 id="s7-1">7.1 Pre-round: page generation becomes play calling</h3>
-    <p>The phase machinery is untouched (2 rounds, 30 s budget, 12 s turns, 500-char replies,
-    sequential, fully open). The delta is the generation
-    step<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:377-413">5</a></sup>:</p>
-    <ul>
-      <li>CLI subcommand <code>page</code> → <strong><code>call</code></strong>: input gains the
-      seat's <strong>catalog JSON</strong> (<a href="#s4-5">§4.5</a>); output is
-      <code>{ok, call: {play, params}}</code>. The prompt is the catalog + the chat transcript + a
-      brief, replacing <code>SCHEMA.md</code>/<code>prompt.md</code> as the template source
-      (<code>loadPagePromptTemplate</code><sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:230-248">5</a></sup>).</li>
-      <li>Validation loop unchanged in shape: an invalid call (checked against the same serialized
-      catalog with the same conformance rules) retries with errors appended, ≤3 attempts;
-      <strong>a call is never null</strong> — every failure falls back to the canonical
-      <code>{"play":"default","params":{}}</code> with the existing <code>source</code>/<code>reason</code>
-      taxonomy<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:389-450">5</a></sup>.
-      <strong>Canonical shape everywhere:</strong> a missing top-level <code>params</code> is
-      <em>normalized</em> to <code>{}</code> before proposal (never rejected) by every producer —
-      normalization rather than rejection because raw byte equality is the reassertion identity
-      (<a href="#s4-6">§4.6</a>), and two spellings of the same default must not read as a
-      state-resetting swap. Conformance vector included; the app fallback raw is asserted
-      byte-equal to the shell's canonical default raw.</li>
-      <li>The Page record's <code>page</code> field carries the call object; records stay per-seat
-      (a duo runs two calls, possibly the same one).</li>
-    </ul>
+    <h3 id="app-preround">7.1 The pre-round phase calls a play instead of writing a page</h3>
+    <p>The chat phase machinery does not change: two rounds of open conversation, a thirty-second budget for the whole phase, twelve seconds per turn, replies capped at five hundred characters, every seat hearing every seat. The one step that changes is generation — the moment where, today, the phase asks an LLM to <em>write a page</em> for each seat<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:377-413">5</a></sup>.</p>
+    <p>Under this design, the CLI's <code>page</code> subcommand becomes a <code>call</code> subcommand. Its input gains the seat's play catalog (§4.5); its output is <code>{ok, call: {play, params}}</code>. The prompt shown to the LLM becomes the catalog — play names, parameter schemas, documentation — plus the chat transcript and a briefing, replacing the page-language schema documents as the prompt source (<code>loadPagePromptTemplate</code><sup class="ref"><a href="#src-5" title="preround.mjs:230-248">5</a></sup>).</p>
+    <p>The validation loop keeps its current shape: a call that fails validation (checked against the same serialized catalog, with the same conformance rules the bot itself applies) is retried with the errors appended to the conversation, up to three attempts. And the phase's cardinal rule holds: <strong>a seat always ends up with a call.</strong> Every failure mode — no API key, a timeout, three invalid attempts, a crashed CLI, the phase not running at all — falls back to the canonical default call with the existing <code>source</code>/<code>reason</code> bookkeeping<sup class="ref"><a href="#src-5" title="preround.mjs:389-450">5</a></sup>.</p>
+    <p>One canonical spelling, everywhere. The fallback, the prompt examples, and the bot all use exactly <code>{"play":"default","params":{}}</code>. A call whose top-level <code>params</code> key is missing is <em>normalized</em> to include the empty object before it is proposed — normalized rather than rejected, because raw byte equality is what identifies a re-sent call (§4.6), and two spellings of the same default must never read as a state-resetting change of play. This case is in the shared conformance vectors, and a test asserts the app's fallback bytes equal the shell's canonical default bytes exactly.</p>
+    <p>Play calls remain per-seat, exactly as pages are per-seat today. A duo is two seats and two calls, which may or may not name the same play.</p>
 
-    <h3 id="s7-2">7.2 The catalog handshake (concrete)</h3>
-    <ul>
-      <li>Build side: <code>--print-catalog</code> on the stencil binary (<a href="#s4-5">§4.5</a>)
-      is the only catalog source. The lab's build
-      script<sup class="ref"><a href="#src-10" title="LAB:tools/build_player.sh">10</a></sup> runs
-      it as a build gate (a binary that cannot print its catalog fails the build).</li>
-      <li>App side: seat-binary resolution (the <code>enginePaths().bots</code>
-      path<sup class="ref"><a href="#src-32" title="PBP:server/engine.mjs">32</a></sup>) gains a
-      <strong>bounded catalog probe</strong> in <code>matchd</code>/<code>preround</code>: execute
-      the resolved binary with <code>--print-catalog</code> once per build, under a short deadline
-      (2 s, then SIGKILL — a legacy binary that ignores the flag enters its connect/retry loop and
-      must be killed, not awaited), stdout/stderr capped (256 KB), requiring exactly one JSON
-      document whose embedded catalog hash recomputes. The result is a per-binary
-      <strong>capability</strong>: catalog-capable or not, cached by content hash.</li>
-      <li>Capability gating: only catalog-capable builds participate in call generation and
-      delivery. A non-capable build (today's <code>baseline</code>, <code>picasso</code>,
-      <code>onepage</code><sup class="ref"><a href="#src-32" title="PBP:origin/maxwell/lobby-chat:server/engine.mjs:77-123">32</a></sup>)
-      gets <strong>no call env at all</strong> — its spawn environment is exactly what it is
-      today (matchd already omits page env when no
-      page<sup class="ref"><a href="#src-23" title="PBP:origin/maxwell/lobby-chat:server/matchd.mjs:400-412">23</a></sup>) —
-      and the phase records <code>source: fallback_unavailable</code> with a reason naming the
-      binary. <code>{play:"default"}</code> is never delivered to a binary whose missing catalog
-      is the evidence it doesn't speak this contract. The phase never stalls (the preround "never
-      throws"
-      discipline<sup class="ref"><a href="#src-5" title="PBP:origin/maxwell/lobby-chat:server/preround.mjs:286-287">5</a></sup>).</li>
-      <li>Tests: two builds receive their own catalogs (anti-skew), plus fake-binary fixtures for
-      hang (deadline kill), oversized output, invalid JSON, bad hash, and legacy no-catalog
-      behavior.</li>
-    </ul>
+    <h3 id="app-catalog">7.2 How the lobby learns what a binary can do</h3>
+    <p>The only source of truth about a binary's playbook is the binary. The app obtains a seat's catalog by <em>executing the exact resolved seat binary</em> with <code>--print-catalog</code>, once per build, caching the result keyed by the binary's content hash. It never reads a catalog from a checkout, a sibling file, or any separately versioned asset — every one of those alternatives can drift from the binary it claims to describe, and drift is precisely the failure this handshake exists to prevent.</p>
+    <p>The probe is strictly bounded, because not every binary will cooperate. A legacy binary that does not know the flag will ignore it and enter its normal connect-and-retry loop; the probe therefore runs under a two-second deadline and then kills the process, caps stdout and stderr at 256&nbsp;KB, requires exactly one JSON document, and recomputes the embedded catalog hash. The outcome is a per-binary capability: this build can describe its plays, or it cannot.</p>
+    <p>Capability gates everything downstream. Only catalog-capable builds participate in call generation and delivery. A build that is not capable — which today means all of them: <code>baseline</code>, <code>picasso</code>, and Maxwell's <code>onepage</code><sup class="ref"><a href="#src-32" title="PBP:origin/maxwell/lobby-chat:server/engine.mjs:77-123">32</a></sup> — gets <strong>no call environment variable at all</strong>. Its spawn environment is exactly what it is today (the current code already omits the page variable when there is no page<sup class="ref"><a href="#src-29" title="matchd.mjs:400-412">29</a></sup>), and the phase records the seat as <code>fallback_unavailable</code> with a reason naming the binary. The design pointedly does <em>not</em> send <code>{"play":"default"}</code> to such a binary: the missing catalog is the evidence that the binary does not speak this contract, and handing it instructions anyway would be a guess. The phase never stalls in any of these cases, per its existing never-throw discipline<sup class="ref"><a href="#src-5" title="preround.mjs:286-287">5</a></sup>.</p>
+    <p>The test suite for this includes two builds receiving their own distinct catalogs (the drift case), and fake binaries that hang (deadline kill), print oversized output, print invalid JSON, embed a wrong hash, and predate the flag entirely.</p>
 
-    <h3 id="s7-3">7.3 Mid-episode</h3>
-    <p><code>recordMidEpisodePage</code> gains its caller when the delivery lane is built; the
-    record shape (<code>{pos, slot, tick, page→call, source, reason}</code>) is already right. Out
-    of scope here beyond noting the shell hook (<a href="#s4-6">§4.6</a>) it will call.</p>
+    <h3 id="app-midmatch">7.3 Mid-match calls</h3>
+    <p>When the mid-match delivery channel is eventually built, the app-side bookkeeping function <code>recordMidEpisodePage</code> finally gains its caller, and its record shape — position, slot, tick, the call, source, reason — is already right. On the bot side, the channel feeds the <code>pendingCall</code> hook and nothing else (§4.6). Everything in between is out of scope here.</p>
   </section>
 
-  <!-- ============ 8 · Determinism and validation ============ -->
-  <section id="s8">
+  <!-- ============ 8 ============ -->
+  <section id="validation">
     <h2>8 · Determinism and Validation</h2>
     <ul class="key-points">
-      <li>Call events have one source of truth in a capture: the outbound wire; both <code>replay.nim</code> and <code>compare_stencil.py</code> learn to consume them.</li>
-      <li>Three parity gates, in order: refactor parity (P1), swap determinism with paired negative controls (P3), hosted round-trip (P3).</li>
+      <li>In any recorded game, the stream of play calls has exactly one source of truth: the outbound wire.</li>
+      <li>The replay tool and the comparison script both gain the consuming side that does not exist yet — reading outbound call records and comparing intent fields, not just masks.</li>
+      <li>Three acceptance gates are earned in order: exact refactor parity, replayed swaps with negative controls, and a live round-trip against the engine.</li>
     </ul>
-    <p><strong>Call events have one source of truth in a capture: the outbound wire.</strong> Every
-    proposed call is an outbound <code>0x86</code> magic-prefixed frame, present in wire captures
-    (<code>STENCIL_WIRE_RECORD</code><sup class="ref"><a href="#src-22" title="LAB:stencil.nim:10-28">22</a></sup>).
-    The replay side must <em>consume</em> them, which it does not today: <code>replay.nim</code>
-    processes inbound packets
-    only<sup class="ref"><a href="#src-33" title="LAB:replay.nim:47-56">33</a></sup>, and
-    <code>compare_stencil.py</code> passes only <code>(wire path,
-    slot)</code><sup class="ref"><a href="#src-9" title="LAB:tools/compare_stencil.py:81-107">9</a></sup>.
-    Both are in scope (rev-1 finding 7):</p>
+    <p>The validation story rests on one principle: <strong>in any recorded game, the stream of play calls has exactly one source of truth — the outbound wire.</strong> Every proposed call, including the startup call, is an outbound <code>0x86</code> frame with the magic prefix, and the lab's wire recorder captures outbound frames already (<code>STENCIL_WIRE_RECORD</code><sup class="ref"><a href="#src-22" title="LAB:stencil.nim:10-28">22</a></sup>).</p>
+    <p>What does not exist yet is the consuming side, and Codex's review flagged both gaps precisely. The offline replay tool processes only inbound packets today<sup class="ref"><a href="#src-33" title="LAB:replay.nim:47-56">33</a></sup>, and the comparison script passes it only a capture path and a seat number<sup class="ref"><a href="#src-9" title="LAB:tools/compare_stencil.py:81-107">9</a></sup>. Both are in scope for this design:</p>
     <ul>
-      <li><code>replay.nim</code> learns the outbound call records: on encountering one after
-      decision tick N, it feeds the same <code>acceptCallEvent(raw, requestTick)</code> transition
-      the live path uses (<a href="#s4-6">§4.6</a>) — a differing raw schedules the swap under the
-      same <code>T_effect</code> rule from the replayed action-state windup; a reassertion is
-      observed without scheduling or <code>init</code>, so a stateful play's state survives in
-      replay exactly as it does live. Startup call included (it is on the wire at the playing
-      edge). Capture-time env (<code>COWORLD_POLICY_PAGE*</code>) is thereby <em>not</em> a second
-      source of call truth for replay; it remains part of capture identity only for process-start
-      validation. Fixtures: a stateful-play reassertion whose state must not reset, and a negative
-      control that incorrectly resets and must diverge.</li>
-      <li><code>compare_stencil.py</code> compares, in addition to mask+chat, the specialized
-      Intent fields that parity gate 1 asserts (profile, micro, radii, combat) — mask-only parity
-      can mask a lost flag (rev-1 finding 2's tail).</li>
+      <li><code>replay.nim</code> learns to consume the outbound call records. When it encounters one after decision tick N, it feeds the very same <code>acceptCallEvent(raw, requestTick)</code> function the live path uses (§4.6). A call that differs from the active one schedules a swap under the same effect-tick rule, computed from the replayed wind-up state; a re-sent identical call is observed without scheduling or re-initializing, so a play's accumulated state survives in replay exactly as it does live. The startup call needs no special handling, because it is on the wire like everything else. Capture-time environment variables are therefore <em>not</em> a second source of call truth for replay; they matter only for validating process startup. Two fixtures pin the semantics: a play with real internal state that receives a re-assertion and must not reset, and a deliberately broken variant that does reset and must visibly diverge.</li>
+      <li><code>compare_stencil.py</code> learns to compare more than the output mask and chat. The Phase 1 gate asserts the specialized <code>Intent</code> fields too — cost profile, micro-permissions, radii, combat policy — because a comparison of masks alone can hide a lost flag that only matters in rare situations.</li>
     </ul>
-    <p><strong>Parity gates,</strong> in order:</p>
+    <p>The acceptance gates, in the order they are earned:</p>
     <ol>
-      <li><em>Refactor parity (P1):</em> shell with plays compiled in, <code>default</code> play
-      active, roles intact, CTF corpus → exact mask+chat+field parity with v69.</li>
-      <li><em>Swap determinism (P3):</em> replay a capture containing mid-episode swaps twice →
-      identical; <strong>negative controls</strong>: drop the call records → divergence; shift
-      them one tick → divergence (the paired-negative-control discipline copied
-      deliberately<sup class="ref"><a href="#src-34" title="tests/test_policy_reflash.nim (coworld-ctf)">34</a></sup>).</li>
-      <li><em>Hosted round-trip (P3):</em> the hosted round-trip
-      pattern<sup class="ref"><a href="#src-35" title="tools/roundtrip_reflash_match.sh (coworld-ctf)">35</a></sup>
-      against a <code>br-season2-complete</code> server with a stencil seat, gate on + gate-off
-      control.</li>
+      <li><strong>The refactor gate (Phase 1).</strong> The rebuilt shell — plays compiled in, <code>default</code> active, roles intact — replays the existing CTF capture corpus and reproduces every decision exactly, field for field, against stencil v69.</li>
+      <li><strong>The swap gate (Phase 3).</strong> A capture containing mid-match play swaps replays identically twice. Then the negative controls, copied deliberately from the engine's own reflash test suite<sup class="ref"><a href="#src-34" title="tests/test_policy_reflash.nim (coworld-ctf)">34</a></sup>: delete the call records and the replay must diverge; shift them one tick and it must also diverge. A test that cannot fail is not a test.</li>
+      <li><strong>The live round-trip gate (Phase 3).</strong> The pattern of the round-trip reflash script<sup class="ref"><a href="#src-35" title="tools/roundtrip_reflash_match.sh (coworld-ctf)">35</a></sup>, run against a <code>br-season2-complete</code> engine build with a stencil seat: a real match, a mid-match play swap, plus a control run with the engine's reflash gate switched off, which must produce zero call records.</li>
     </ol>
   </section>
-
-  <!-- ============ 9 · Prerequisites and sequencing ============ -->
-  <section id="s9">
-    <h2>9 · Prerequisites and Sequencing</h2>
+  <!-- ============ 9 ============ -->
+  <section id="phases">
+    <h2>9 · Prerequisites and Phases</h2>
     <ul class="key-points">
-      <li>P0 times the WorldMap build on a BR-scale map before anything else; a first-frame stall re-scopes P2.</li>
-      <li>P1 lands the play seam on CTF behavior-preserving; P2 the BR perception preconditions; P3 the flash plumbing plus the hosted call-injection lane.</li>
-      <li>P4 splits behavior-changing strategy work so every hosted evaluation is attributable to one change; P5 is the app-side <code>call</code> step and catalog handshake.</li>
+      <li>Measurement comes first, behavior-preserving work second, and behavior-changing work last, in separately attributable pieces.</li>
+      <li>Phase 0 times the world-map build on a Battle Royale map before anything else is diagnosed; Phase 1 builds the whole play seam on CTF while changing nothing.</li>
+      <li>Phases 2 and 3 add Battle Royale perception and the live flash plumbing; Phase 4 changes behavior one hosted evaluation at a time; Phase 5 is the app side, in Maxwell's repository.</li>
     </ul>
+    <p>The work is ordered so that measurement comes first, behavior-preserving work comes second, and behavior-changing work comes last and arrives in separately attributable pieces.</p>
+    <p><strong>Phase 0 — measure the world-map build on a Battle Royale map.</strong> Before anything else. The Battle Royale field is about 6.9 times the area of the CTF arena (3211×1713 pixels), and stencil currently builds <em>all</em> of its map knowledge in the single tick after the map data arrives<sup class="ref"><a href="#src-21" title="LAB:policy.nim:39-50">21</a></sup><sup class="ref"><a href="#src-15" title="LAB:worldmap.nim:173-209">15</a></sup>. BR_LADDER flags this as an open, unmeasured risk — the kind that appears as a mysterious first-frame stall rather than an error — and says plainly that it is worth timing before anything else is diagnosed. If the build does not fit the budget, Phase 2 changes shape.</p>
+    <p><strong>Phase 1 — the play seam, on CTF, changing nothing.</strong> The module graph of §4.1 with its two compile-level proofs; the catalog mode; the reflex observers and the finisher; the <code>IntentShape</code> migration of <code>makeIntent</code>; the <code>CombatPolicy</code> field threaded through the body with its empty-value proof; the CTF adapter wired as <code>default</code>'s CTF dispatch (the legacy ladder untouched in <code>strategy.nim</code>); the Battle Royale placeholder <code>survive_default</code>; the swap machinery; environment loading; and the <code>replay.nim</code> and comparator extensions. The acceptance test is gate 1. None of this depends on Battle Royale.</p>
+    <p><strong>Phase 2 — Battle Royale perception.</strong> Everything the companion research report's §7.2 lists: widening <code>Team</code> to sixteen values, building the world map without endzones, reading the zone rectangles from the frame, partner tracking, and the lives-display fix. One item carries a warning label from BR_LADDER §5(a): <code>seatsPerTeam</code> currently computes the wrong value (4) for a duo, but that wrong value happens to route the squad table into the branch that produces the correct duo pairing — and correcting it to 2 also changes <code>defenderCount</code> and the <code>enemyLivesLeft</code> arithmetic. It cannot be "fixed" in isolation. Squad consensus is disabled outright for Battle Royale (<code>SquadCommand = 0</code>), per BR_LADDER's analysis of how it misbehaves for a lone survivor.</p>
+    <p><strong>Phase 3 — the flash plumbing, live against the engine.</strong> The propose-at-start behavior, the effect-tick rule, the file-watching stand-in for mid-match calls, and gates 2 and 3. This phase also establishes the hosted evaluation lane that Phase 4 depends on, since the LLM-driven path does not arrive until Phase 5: the platform already supports injecting per-policy environment variables at upload time (the paintball mode ships this way — <code>coworld upload-policy … --secret-env PLAYER_PROMPT=…</code><sup class="ref"><a href="#src-36" title="docs/paintball/COMMANDING.md:84-90 (coworld-ctf)">36</a></sup>). A Phase 4 candidate is uploaded with its evaluation call baked in the same way. The calls use registered names only: the Phase 4b candidate uploads with <code>--secret-env COWORLD_POLICY_PAGE='{"play":"default","params":{}}'</code> (in Battle Royale, mode dispatch selects the survival behavior — remember that <code>survive</code> is not a wire name), and each Phase 4c candidate uploads its own named call, for example <code>'{"play":"zone_rotate","params":{"earliness":0.5,"route_bias":"cover"}}'</code>. The round-trip gate checks the accepted on-wire bytes before any evaluation counts. Every Phase 4 evaluation therefore holds the call fixed and varies exactly one play.</p>
+    <p><strong>Phase 4 — the behavior changes, one at a time.</strong> Nothing in this phase claims byte-compatibility; every piece gets its own hosted evaluation, per the lab's one-change-per-version rule<sup class="ref"><a href="#src-37" title="personal_paintbot/AGENTS.md:60-70">37</a></sup>.</p>
     <ul>
-      <li><strong>P0 — time the WorldMap build on a BR-scale map</strong> before anything else
-      (BR_LADDER §7 item 6,
-      OPEN<sup class="ref"><a href="#src-3" title="origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md">3</a></sup>):
-      3211×1713 ≈ 6.9× CTF area, built in one
-      tick<sup class="ref"><a href="#src-21" title="LAB:policy.nim:39-50">21</a></sup><sup class="ref"><a href="#src-15" title="LAB:worldmap.nim:173-209">15</a></sup>.
-      A first-frame stall here re-scopes P2.</li>
-      <li><strong>P1 — the play seam on CTF, behavior-preserving</strong>: the module graph of
-      <a href="#s4-1">§4.1</a> (<code>play_contract</code>/<code>play_queries</code>/<code>play_registry</code>/<code>plays.nim</code>
-      shell; compiling two-play feasibility proof + compile-negative fixtures), catalog mode,
-      reflex observers/finalizer (<code>IntentShape</code> migration of <code>makeIntent</code>),
-      <code>CombatPolicy</code> threading with empty-policy parity, the <strong>CTF parity
-      adapter</strong> wired as <code>default</code>'s <code>gmCtf</code> dispatch (legacy ladder
-      untouched in <code>strategy.nim</code>), the BR placeholder <code>survive_default</code>,
-      swap machinery, env load, <code>replay.nim</code> + comparator extensions. Acceptance:
-      parity gate 1. No BR dependency.</li>
-      <li><strong>P2 — BR perception preconditions</strong> (research report §7.2, all of
-      it<sup class="ref"><a href="#src-1" title="coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md">1</a></sup>):
-      16-wide <code>Team</code>, WorldMap without endzones, <code>zone</code>/<code>zonenext</code>
-      percepts, partner tracking, lives-label fix; <code>seatsPerTeam</code> handled with
-      BR_LADDER §5(a)'s caveat (the wrong 4 currently yields the right duo pairing; correcting it
-      also moves <code>defenderCount</code>/<code>enemyLivesLeft</code>); squads disabled for BR
-      (<code>SquadCommand=0</code>).</li>
-      <li><strong>P3 — flash plumbing against the engine</strong>: propose-at-edge, swap boundary,
-      file-watch stand-in; parity gates 2–3. Also the <strong>hosted call-injection lane P4's
-      evaluations depend on</strong> (they precede P5's LLM path): the fixed evaluation call is
-      delivered as upload-time env — the platform already injects per-policy env at upload
-      (<code>coworld upload-policy … --secret-env PLAYER_PROMPT=…</code> is the shipped paintball
-      precedent<sup class="ref"><a href="#src-36" title="docs/paintball/COMMANDING.md:84-90 (coworld-ctf)">36</a></sup>) —
-      deterministic, non-LLM, recorded on-wire at the playing edge like any startup call. The
-      calls are the <em>registered</em> names only: P4b uploads with
-      <code>--secret-env COWORLD_POLICY_PAGE='{"play":"default","params":{}}'</code> (BR mode
-      dispatch selects the <code>survive</code> behavior — <code>survive</code> is not a wire
-      name, <a href="#s6-1">§6.1</a>); each P4c candidate uploads its named call, e.g.
-      <code>'{"play":"zone_rotate","params":{"earliness":0.5,"route_bias":"cover"}}'</code>. The
-      hosted round-trip gate asserts the accepted on-wire raw before an evaluation counts. Each
-      P4 evaluation thereby holds the call fixed and varies exactly one play.</li>
-      <li><strong>P4 — behavior-changing strategy work</strong>, split so every hosted evaluation
-      is attributable to one change (the lab's one-component-per-version
-      rule<sup class="ref"><a href="#src-37" title="personal_paintbot/AGENTS.md:60-70">37</a></sup>);
-      none of it is parity-gated:
-        <ul>
-          <li><em>P4a — roles/posture.</em> Role deletion and its dynamic-posture replacement are
-          <strong>not executable from this document</strong>: the replacement mechanism is the
-          open design question the lab directive
-          names<sup class="ref"><a href="#src-29" title="LAB:WORKING_CONTEXT.md:135-154">29</a></sup>
-          and gets its own approved design doc first. This document only sequences it (after P1's
-          roles-intact parity anchor) and constrains it (acceptance is hosted A/B against the P1
-          baseline, never byte parity). The <code>CombatPolicy</code> safety tests
-          (<a href="#s4-2">§4.2</a>) land with the first play that exercises them.</li>
-          <li><em>P4b — the BR <code>survive</code> default</em> — one version, one
-          evaluation.</li>
-          <li><em>P4c… — one version and one evaluation per v1 play</em>
-          (<a href="#s6-2">§6.2</a>), in whatever order the BR corpus makes most
-          informative.</li>
-        </ul>
-      </li>
-      <li><strong>P5 — app-side <code>call</code> step + catalog handshake</strong> (needs
-      Maxwell's repo; coordinate — <code>lobby-chat</code> branches off PBP main while BR branches
-      share a different base, a known conflict cluster).</li>
+      <li><em>Phase 4a — roles and posture.</em> Deleting the <code>Role</code> machinery and choosing its dynamic replacement is <strong>not executable from this document</strong>. The lab's own directive says the replacement mechanism is the central open design question<sup class="ref"><a href="#src-38" title="LAB:WORKING_CONTEXT.md:135-154">38</a></sup>, and it gets its own design doc first. This document only fixes its position in the sequence — after the Phase 1 baseline exists — and its acceptance style: a hosted comparison against that baseline, never byte parity. The combat-policy safety tests (§4.2) land with the first play that exercises them.</li>
+      <li><em>Phase 4b — the real Battle Royale survival default.</em> One version, one evaluation.</li>
+      <li><em>Phase 4c and onward — the version-one plays</em> (§6.2), one version and one evaluation each, in whatever order the accumulating match corpus makes most informative.</li>
     </ul>
+    <p><strong>Phase 5 — the app side.</strong> The <code>call</code> subcommand, the catalog probe, and the prompt changes, in Maxwell's repository, coordinated with him — noting that his <code>lobby-chat</code> branch and his Battle Royale branches currently diverge from different bases, a known merge hazard.</p>
   </section>
 
-  <!-- ============ 10 · The outer loop ============ -->
-  <section id="s10">
-    <h2>10 · The Outer Loop (sketch, non-goal)</h2>
+  <!-- ============ 10 ============ -->
+  <section id="offline">
+    <h2>10 · The Offline Loop (a Sketch; Not Part of This Design)</h2>
     <ul class="key-points">
-      <li>Plays are authored offline through the lab's existing ritual: design → implement → evidence → version log.</li>
-      <li>Harvest tooling is future work; nothing in the match path depends on it.</li>
+      <li>Plays are authored between matches through the lab's existing ritual, from harvested logs and forum discussion to a shipped policy version.</li>
+      <li>The harvesting tools do not exist yet, and nothing in the match path depends on them.</li>
     </ul>
-    <p>Plays are authored offline: harvest hosted episode logs + replay analyses + forum
-    discussion → propose/edit a play → property tests + self-play A/B → version the playbook with
-    the policy upload (the lab's existing ritual: design → implement → evidence →
-    <code>VERSION_LOG.md</code>). Tooling for the harvest step is future work; nothing in the
-    match path depends on it.</p>
+    <p>Plays are authored between matches: harvest the hosted episode logs and replay analyses, read the forum discussion, propose or revise a play, prove it with property tests and self-play comparisons, and ship it in the next policy version through the lab's existing ritual — design note, implementation, evidence, <code>VERSION_LOG.md</code> entry. The harvesting tools do not exist yet and are a separate piece of work. Nothing in the match path depends on them.</p>
   </section>
 
-  <!-- ============ 11 · Risks and open questions ============ -->
-  <section id="s11">
+  <!-- ============ 11 ============ -->
+  <section id="risks">
     <h2>11 · Risks and Open Questions</h2>
     <ul class="key-points">
-      <li>The sharpest exposure: a mis-called play runs until re-called — a bad pre-round call lasts the whole episode until the mid-episode lane exists.</li>
-      <li>Belief purity concentrates in <code>play_queries</code>'s exports; every addition is audited for mutation.</li>
-      <li><code>CombatPolicy</code> grows only with a play that needs it and a parity story for the empty value.</li>
+      <li>The sharpest exposure is that a wrong call sticks — bounded by reflexes and the default fallback, but largest while the mid-match channel does not exist.</li>
+      <li>The read-only boundary concentrates risk in <code>play_queries</code>, whose every addition is audited for mutation and aliasing.</li>
+      <li>Maxwell's replies on the two §3.3 departures are pending, and may adjust naming or shared vocabulary.</li>
     </ul>
     <ol>
-      <li><strong>Between-flash brittleness.</strong> A mis-called play runs until re-called; the
-      reflex layer bounds death-by-negligence but not strategic error. Mitigant: the default play
-      is strong, and fallback calls always name it. Real exposure until the mid-episode lane
-      exists (a bad pre-round call lasts the whole episode).</li>
-      <li><strong>Belief purity rests on the import boundary</strong> (<a href="#s4-1">§4.1</a>):
-      plays can only reach Belief through <code>play_queries.nim</code>, so the risk concentrates
-      in that module's exports — a query proc that mutates (the sweep-oscillator
-      lesson<sup class="ref"><a href="#src-16" title="LAB:TENTATIVE_LESSONS.md:20-26">16</a></sup>)
-      would be invisible to the import check. Review rule: <code>play_queries</code> exports are
-      audited for mutation on every addition.</li>
-      <li><strong><code>zone_escape</code> reflex threshold</strong> (damage-imminent horizon) to
-      be tuned in P3 against rim-hugging plays.</li>
-      <li><strong>WorldMap build cost</strong> (P0) — could force incremental construction and
-      re-scope P2.</li>
-      <li><strong><code>CombatPolicy</code> scope creep.</strong> Two sets today; pressure will
-      come for priorities, truces-with-conditions, focus targets. Rule: it grows only with a play
-      that needs it and a parity story for the empty value.</li>
-      <li><strong>Maxwell's response</strong> to the divergences (<a href="#s3-3">§3.3</a>) — may
-      adjust naming or the parameter-entity rule's phrasing in the shared vocabulary.</li>
+      <li><strong>A wrong call sticks.</strong> A badly chosen play runs until somebody calls a new one. The reflex layer bounds how badly that can go, but it bounds negligence, not strategic error. The mitigations are that the default play is genuinely strong and that every failure path falls back to it. The exposure is largest while the mid-match delivery channel does not exist, because until then, a bad pre-round call lasts the entire episode.</li>
+      <li><strong>The read-only boundary concentrates risk in <code>play_queries</code>.</strong> Plays can only reach the world through that module, which means a mutating or alias-leaking query is the one place the guarantee could quietly break — invisible to the import check. The review rule stands: every addition to that module is audited for both in-body mutation (the lab's sweep-oscillator lesson<sup class="ref"><a href="#src-16" title="LAB:TENTATIVE_LESSONS.md:20-26">16</a></sup>) and for what its return value aliases.</li>
+      <li><strong>The zone-escape reflex trigger needs tuning.</strong> "Imminent damage" has a horizon parameter, and it must be set so that rim-hugging plays are never fighting their own reflex. Phase 3 is where that gets tuned.</li>
+      <li><strong>The world-map build might not fit the tick budget</strong> on a Battle-Royale-sized map (Phase 0). If it does not, map construction goes incremental, and Phase 2 is re-planned.</li>
+      <li><strong><code>CombatPolicy</code> will attract feature requests.</strong> Two team-sets today; pressure will come for priority targets, conditional truces, focus fire. The rule: the type grows only together with a play that needs the addition, and only with a proof that the empty value still means "exactly today's behavior."</li>
+      <li><strong>Maxwell's replies are pending</strong> on the two departures in §3.3. His answers may adjust naming or how the parameter-entity rule is phrased in the shared vocabulary.</li>
     </ol>
-    <div class="callout callout-open">
-      <span class="callout-label">Open</span>
-      Items 3, 4, and 6 are the live open questions: the <code>zone_escape</code> threshold (tuned
-      in P3), the BR-scale WorldMap build cost (answered by P0), and Maxwell's response to the
-      §3.3 divergences.
-    </div>
   </section>
 
-  <!-- ============ 12 · Affected files ============ -->
-  <section id="s12">
-    <h2>12 · Affected Files (planning aid)</h2>
+  <!-- ============ 12 ============ -->
+  <section id="files">
+    <h2>12 · Affected Files</h2>
     <ul class="key-points">
-      <li>Five new lab modules with acyclic ownership per <a href="#s4-1">§4.1</a>; modifications concentrate in the stencil mind/body seam and the lab's tools.</li>
-      <li>App-side changes live in Maxwell's repo, coordinated; the engine needs nothing.</li>
+      <li>Five new modules follow the dependency graph of §4.1, from <code>play_queries.nim</code> down to the shell machinery in <code>plays.nim</code>.</li>
+      <li>Modified files span the lab's mind, body, tooling, and build; the engine itself changes not at all.</li>
+      <li>The app-side changes live in Maxwell's repository and are coordinated with him.</li>
     </ul>
-    <p><strong>New</strong> (acyclic ownership per <a href="#s4-1">§4.1</a>):</p>
+    <p>For planning. New modules, following the dependency graph in §4.1:</p>
     <ul>
-      <li><span class="cite">LAB:paintbot/stencil_nim/play_contract.nim</span> — shared types
-      including the <code>PlayState</code> arms.</li>
-      <li><span class="cite">LAB:…/play_queries.nim</span> — <code>PlayView</code> with private
-      Belief backing + the audited read API + <code>GameMode</code>.</li>
-      <li><span class="cite">LAB:…/plays/</span> — one module per play; import allowlist checked
-      in the build.</li>
-      <li><span class="cite">LAB:…/play_registry.nim</span> — the <code>Playbook</code>.</li>
-      <li><span class="cite">LAB:…/plays.nim</span> — shell machinery: guards, reflexes +
-      <code>ReflexState</code>, finalizer, swap including <code>acceptCallEvent</code>, the
-      privileged CTF parity adapter (<a href="#s6-1">§6.1</a>), catalog emission.</li>
+      <li><span class="cite">LAB:paintbot/stencil_nim/play_queries.nim</span> — the opaque <code>PlayView</code>, the <code>GameMode</code> value, and the audited read API.</li>
+      <li><span class="cite">LAB:paintbot/stencil_nim/play_contract.nim</span> — the shared types, including every <code>PlayState</code> variant.</li>
+      <li><span class="cite">LAB:paintbot/stencil_nim/plays/</span> — one module per play, with the import allowlist enforced at build time.</li>
+      <li><span class="cite">LAB:paintbot/stencil_nim/play_registry.nim</span> — the <code>Playbook</code>.</li>
+      <li><span class="cite">LAB:paintbot/stencil_nim/plays.nim</span> — the shell machinery: the guards, the reflex observers and <code>ReflexState</code>, the finisher, the swap machinery including <code>acceptCallEvent</code>, the privileged CTF adapter (§6.1), and catalog emission.</li>
     </ul>
-    <p><strong>Modified:</strong></p>
+    <p>Modified files:</p>
     <ul>
-      <li><span class="cite">LAB:types.nim</span> — <code>CombatPolicy</code> on
-      <code>Intent</code>; <code>IntentShape</code>.</li>
-      <li><span class="cite">LAB:strategy.nim</span> — <code>makeIntent</code> shape migration
-      only — the legacy ladder body <strong>stays in place</strong> behind the CTF parity adapter
-      through this design; it does not move into a default play; the shell's reflex observers and
-      finalizer are new code in <code>plays.nim</code>, not extractions.</li>
-      <li><span class="cite">LAB:action.nim</span> — combat-policy filters in
-      target/fire/spray/grenade paths; windup exposure for the swap boundary.</li>
-      <li><span class="cite">LAB:fight.nim</span> — candidate filter + protect weighting.</li>
-      <li><span class="cite">LAB:policy.nim</span> — decide station → reflex/play/finalizer;
-      dead-tick stamp; roles block deleted in P4.</li>
-      <li><span class="cite">LAB:perception.nim</span> + <span class="cite">LAB:belief_*.nim</span>
-      — BR percepts, 16 teams.</li>
-      <li><span class="cite">LAB:replay.nim</span> — outbound call-record consumption.</li>
-      <li><span class="cite">LAB:tools/compare_stencil.py</span> — field-level parity + call
-      inputs.</li>
-      <li><span class="cite">LAB:tools/self_play.py</span> — call env passthrough.</li>
-      <li><span class="cite">LAB:tools/build_player.sh</span> — catalog build gate.</li>
-      <li><span class="cite">LAB:Dockerfile</span> — unchanged runtime; catalog printed at
-      build.</li>
+      <li><span class="cite">LAB:types.nim</span> — the <code>CombatPolicy</code> field on <code>Intent</code>; the <code>IntentShape</code> enum.</li>
+      <li><span class="cite">LAB:strategy.nim</span> — the <code>makeIntent</code> shape migration only. The legacy ladder body stays where it is, behind the CTF adapter, for the life of this design; it does not move into a play. The reflex observers and the finisher are new code in <code>plays.nim</code>, not extractions from here.</li>
+      <li><span class="cite">LAB:action.nim</span> — the combat-policy filters in the target, fire, spray, and grenade paths; exposing the wind-up state for the effect-tick rule.</li>
+      <li><span class="cite">LAB:fight.nim</span> — the acquisition filter and the protect weighting.</li>
+      <li><span class="cite">LAB:policy.nim</span> — the decision station becomes guards → reflexes → play → finisher; the dead-tick stamp; the role-assignment block is deleted in Phase 4a.</li>
+      <li><span class="cite">LAB:perception.nim</span>, <span class="cite">LAB:belief_*.nim</span> — Battle Royale perception; sixteen teams.</li>
+      <li><span class="cite">LAB:replay.nim</span> — consuming outbound call records.</li>
+      <li><span class="cite">LAB:tools/compare_stencil.py</span> — field-level comparison and call inputs.</li>
+      <li><span class="cite">LAB:tools/self_play.py</span> — passing the call environment variables through.</li>
+      <li><span class="cite">LAB:tools/build_player.sh</span> — the catalog build gate.</li>
+      <li><span class="cite">LAB:Dockerfile</span> — unchanged at runtime; the catalog is printed at build time.</li>
     </ul>
-    <p><strong>App</strong> (Maxwell's repo, coordinated):</p>
-    <ul>
-      <li><span class="cite">PBP:server/preround.mjs</span> — <code>call</code> step + catalog
-      injection.</li>
-      <li><span class="cite">PBP:server/matchd.mjs</span> or
-      <span class="cite">PBP:server/engine.mjs</span> — catalog-by-execution + cache.</li>
-      <li>CLI <code>lobby_chat</code> — subcommand.</li>
-      <li>App tests — two-build anti-skew.</li>
-    </ul>
-    <p><strong>Engine:</strong> none required. (Product-level rename page→play is Maxwell's
-    call.)</p>
+    <p>In Maxwell's repository, coordinated with him: <span class="cite">PBP:server/preround.mjs</span> (the <code>call</code> step and catalog injection), <span class="cite">PBP:server/matchd.mjs</span> or <span class="cite">engine.mjs</span> (the bounded catalog probe and its cache), the <code>lobby_chat</code> CLI (the new subcommand), and the app tests (the two-build catalog case).</p>
+    <p>In the engine: nothing. The product-level rename of "page" to "play" is Maxwell's call to make.</p>
   </section>
 
   <!-- ============ Sources ============ -->
   <section id="sources">
     <h2>13 · Sources</h2>
-    <p>One entry per cited source file, in first-citation order; claims citing the same file share
-    one number. Prefixes: bare paths = coworld-ctf; <code>PBP:</code> = coworld-paintbot-player;
-    <code>LAB:</code> = this lab (<code>paintbot/stencil_nim/</code> unless another lab path is
-    given); <code>origin/&lt;branch&gt;:</code> = unmerged branch files. Line ranges cited per
-    claim appear in each superscript's hover text.</p>
+    <p>One entry per distinct cited source file, in first-citation order. When several claims cite the same file, they share one entry and number; the exact <code>file:line</code> range for each claim is in that reference's hover text. Path prefixes are explained in the <a href="#companions">preamble</a>: bare paths are <code>coworld-ctf</code>, <code>PBP:</code> is <code>coworld-paintbot-player</code>, <code>LAB:</code> is this lab (<code>paintbot/stencil_nim/</code> unless written out), and <code>origin/&lt;branch&gt;:</code> names an unmerged branch.</p>
     <ol class="sources">
-      <li id="src-1"><span class="cite">coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md</span> — companion boundary research: paradigm, interfaces, stencil clusters; its §7.2 lists the BR perception preconditions (P2).</li>
-      <li id="src-2"><span class="cite">coworld-ctf:docs/recon/paintbot-s2-policy-shell-2026-08-29.md</span> — companion recon: branch inventory and merge state.</li>
-      <li id="src-3"><span class="cite">origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md</span> (coworld-ctf) — BR rung analysis: §2 kill list, §6 authorability, §7 preconditions; the reason-string warning at :800-804.</li>
-      <li id="src-4"><span class="cite">origin/maxwell/br-reflash-integration:players/onepage/onepage.nim</span> — the shipped page-scoring bot: <code>pollForNewPage</code> stub, <code>ThreatRange</code> precedent, pre-propose validation, startup fatality, propose/schedule/swap machinery, <code>pendingProposal</code> pattern.</li>
-      <li id="src-5"><span class="cite">PBP:origin/maxwell/lobby-chat:server/preround.mjs</span> — the pre-round chat phase: generation step, validation/fallback taxonomy, alliance-encouraging system prompt, <code>recordMidEpisodePage</code> stub, "never throws" discipline.</li>
-      <li id="src-6"><span class="cite">origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md</span> — Maxwell's constitution: the three layers (:15-48) and the entity-naming rule.</li>
-      <li id="src-7"><span class="cite">LAB:types.nim</span> — stencil's typed <code>Intent</code> struct (:189-219); observation contents (:38-69).</li>
-      <li id="src-8"><span class="cite">LAB:action.nim</span> — <code>resolveAction</code> and the weapon paths: corridor check, spray cones, grenade blast-safety/cluster/force-release, <code>nearestEnemy</code> fallback, idle-aim <code>.get</code>, windup state (<code>fireHoldTicks</code>).</li>
-      <li id="src-9"><span class="cite">LAB:tools/compare_stencil.py</span> — the parity falsifier (278,016/278,016 exact decisions for v69); passes only <code>(wire path, slot)</code> today (:81-107).</li>
-      <li id="src-10"><span class="cite">LAB:tools/build_player.sh</span> — the "edit Nim → build → upload" cadence; gains the catalog build gate.</li>
-      <li id="src-11"><span class="cite">origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim</span> — the 60,000-byte record cap (:823-831); the reflash epoch (:1900-1908).</li>
-      <li id="src-12"><span class="cite">origin/maxwell/br-onepage-vm:src/ctf/policy_page.nim</span> — the rejected <code>rules</code> s-expression VM.</li>
-      <li id="src-13"><span class="cite">LAB:strategy.nim</span> — the deliberate ladder (:329-500), validated-goal contract (:107-110), <code>makeIntent</code> reason table (:40-99), grenade/spray rungs and latches, arc-pursuit override + idle-aim stamp (:502-515), role-keyed rungs.</li>
-      <li id="src-14"><span class="cite">LAB:belief_state.nim</span> — <code>Belief</code> is a <code>ref object</code> with exported mutable fields and reference-backed containers (:19-137).</li>
-      <li id="src-15"><span class="cite">LAB:worldmap.nim</span> — <code>WorldMap</code>'s ref-backed containers (:70-94); the post atlas (:792-861); the one-tick build (:173-209).</li>
-      <li id="src-16"><span class="cite">LAB:TENTATIVE_LESSONS.md</span> — the sweep-oscillator mutating-query lesson (:20-26); the stamp-every-new-Intent-field lesson (:28-32).</li>
-      <li id="src-17"><span class="cite">LAB:fight.nim</span> — <code>selectTarget</code>/<code>scoreTarget</code> (:150-283), spray pursuit (:226-283), the arc selector (:26-44), role-keyed target scoring.</li>
-      <li id="src-18"><span class="cite">LAB:perception.nim</span> — observer-relative <code>enemyTracks</code> (:325-346).</li>
-      <li id="src-19"><span class="cite">LAB:belief_update.nim</span> — track container population by color (:411-433).</li>
-      <li id="src-20"><span class="cite">LAB:config.nim</span> — <code>TrackTtlTicks</code> = 120 (:144-149); the fail-loud config parsing template (:7-51).</li>
-      <li id="src-21"><span class="cite">LAB:policy.nim</span> — the decide station (:99-105), dead-tick hand-built intent (:103), orchestrator assignment block (:55-98), WorldMap build timing (:39-50).</li>
-      <li id="src-22"><span class="cite">LAB:stencil.nim</span> — plain startup (:95-99); <code>STENCIL_WIRE_RECORD</code> capture (:10-28).</li>
-      <li id="src-23"><span class="cite">PBP:origin/maxwell/lobby-chat:server/matchd.mjs</span> — spawn env delivery (<code>pageEnv</code>); omits page env when there is no page (:400-412).</li>
-      <li id="src-24"><span class="cite">LAB:tools/self_play.py</span> — the env allowlist (:33-42).</li>
-      <li id="src-25"><span class="cite">sim_state.nim</span> (coworld-ctf) — reflash gate/acceptance/60 KB cap and epoch increment (:347-385).</li>
-      <li id="src-26"><span class="cite">origin/maxwell/br-reflash-integration:src/ctf/labels.nim</span> — the 0x86 + <code>PolicyPageMagic</code> wire (:602-636).</li>
-      <li id="src-27"><span class="cite">replays.nim</span> (coworld-ctf) — replay record + hash + epoch + playback re-apply (:272-357, :582-602).</li>
-      <li id="src-28"><span class="cite">server.nim</span> (coworld-ctf) — tick-boundary inbox drain (:86-93, :2327-2344).</li>
-      <li id="src-29"><span class="cite">LAB:WORKING_CONTEXT.md</span> — the lab directive naming the division-of-labor replacement as an open design question (:135-154).</li>
-      <li id="src-30"><span class="cite">origin/maxwell/br-integrate:src/ctf/sim_types.nim</span> — BR maps author no endzones, "not even INERT ones" (:1309-1311).</li>
-      <li id="src-31"><span class="cite">LAB:planner.nim</span> — danger weights used for cover-preferring routes.</li>
-      <li id="src-32"><span class="cite">PBP:origin/maxwell/lobby-chat:server/engine.mjs</span> — <code>enginePaths().bots</code> seat-binary resolution; today's non-capable builds (:77-123).</li>
-      <li id="src-33"><span class="cite">LAB:replay.nim</span> — processes inbound packets only today (:47-56).</li>
-      <li id="src-34"><span class="cite">tests/test_policy_reflash.nim</span> (coworld-ctf) — the paired-negative-control discipline.</li>
-      <li id="src-35"><span class="cite">tools/roundtrip_reflash_match.sh</span> (coworld-ctf) — the hosted round-trip pattern.</li>
-      <li id="src-36"><span class="cite">docs/paintball/COMMANDING.md</span> (coworld-ctf) — the <code>coworld upload-policy … --secret-env</code> precedent (:84-90).</li>
-      <li id="src-37"><span class="cite">personal_paintbot/AGENTS.md</span> — the lab's one-component-per-version rule (:60-70).</li>
+      <li id="src-1"><span class="cite">coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md</span> — companion research report on Maxwell's Season 2 architecture.</li>
+      <li id="src-2"><span class="cite">coworld-ctf:docs/recon/paintbot-s2-policy-shell-2026-08-29.md</span> — companion inventory of the relevant repositories and branches.</li>
+      <li id="src-3"><span class="cite">origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md</span> — Maxwell's analysis of how stencil would need to change to play Battle Royale (cited as BR_LADDER).</li>
+      <li id="src-4"><span class="cite">origin/maxwell/br-reflash-integration:players/onepage/onepage.nim</span> — Maxwell's prototype bot: page scoring, the propose/schedule/swap machinery, startup rules, and the partner-protection precedent.</li>
+      <li id="src-5"><span class="cite">PBP:origin/maxwell/lobby-chat:server/preround.mjs</span> — the pre-round chat phase: prompts, generation, fallback bookkeeping, and the never-throw discipline.</li>
+      <li id="src-6"><span class="cite">origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md</span> — Maxwell's design constitution: the three-layer STRATEGY/INTENT/ACTION model.</li>
+      <li id="src-7"><span class="cite">LAB:types.nim</span> — the <code>Intent</code> struct and the observation record.</li>
+      <li id="src-8"><span class="cite">LAB:action.nim</span> — <code>resolveAction</code> and the combat/safety machinery: target fallback, corridor check, spray cones, grenade planner, wind-up state, idle-aim dereference.</li>
+      <li id="src-9"><span class="cite">LAB:tools/compare_stencil.py</span> — the exact replay-comparison script (the v69 278,016/278,016 result).</li>
+      <li id="src-10"><span class="cite">LAB:tools/build_player.sh</span> — the edit/build/upload policy-image loop.</li>
+      <li id="src-11"><span class="cite">origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim</span> — the replay record format's 60,000-byte payload limit.</li>
+      <li id="src-12"><span class="cite">origin/maxwell/br-onepage-vm:src/ctf/policy_page.nim</span> — the expression-based page virtual machine.</li>
+      <li id="src-13"><span class="cite">LAB:strategy.nim</span> — the decision ladder, <code>makeIntent</code> and its reason-string dispatch, goal validation, evasion behaviors, and the post-ladder tail.</li>
+      <li id="src-14"><span class="cite">LAB:belief_state.nim</span> — the <code>Belief</code> ref object and its exported mutable fields and containers.</li>
+      <li id="src-15"><span class="cite">LAB:worldmap.nim</span> — the world-map containers, the single-tick build, and the firing-position atlas.</li>
+      <li id="src-16"><span class="cite">LAB:TENTATIVE_LESSONS.md</span> — recorded lab lessons: the sweep-oscillator read-mutation and the stamp-every-new-Intent-field rule.</li>
+      <li id="src-17"><span class="cite">LAB:fight.nim</span> — target scoring, the spray-arc selector, and the firefight logic.</li>
+      <li id="src-18"><span class="cite">LAB:perception.nim</span> — observation filing by team color.</li>
+      <li id="src-19"><span class="cite">LAB:belief_update.nim</span> — track-container updates relative to the observer.</li>
+      <li id="src-20"><span class="cite">LAB:config.nim</span> — the fail-fast configuration discipline and <code>TrackTtlTicks</code>.</li>
+      <li id="src-21"><span class="cite">LAB:policy.nim</span> — the orchestrator's decision station, the dead-tick branch, and the map-build trigger.</li>
+      <li id="src-22"><span class="cite">LAB:stencil.nim</span> — plain startup and the <code>STENCIL_WIRE_RECORD</code> outbound recorder.</li>
+      <li id="src-23"><span class="cite">LAB:tools/self_play.py</span> — the self-play harness and its environment allowlist.</li>
+      <li id="src-24"><span class="cite">sim_state.nim</span> (coworld-ctf) — the engine's flash acceptance gate and the accepted-flash counter.</li>
+      <li id="src-25"><span class="cite">sim_types.nim</span> (coworld-ctf) — the flash counter folded into the game's integrity hash.</li>
+      <li id="src-26"><span class="cite">origin/maxwell/br-reflash-integration:src/ctf/labels.nim</span> — the <code>0x86</code> reflash wire format with the <code>"CTFPOLICYPAGE1\n"</code> prefix.</li>
+      <li id="src-27"><span class="cite">replays.nim</span> (coworld-ctf) — the replay record, content hash, and replay-time re-application.</li>
+      <li id="src-28"><span class="cite">server.nim</span> (coworld-ctf) — inputs applied only at tick boundaries.</li>
+      <li id="src-29"><span class="cite">PBP:origin/maxwell/lobby-chat:server/matchd.mjs</span> — spawn environment, startup payload delivery, and the deferred match boot.</li>
+      <li id="src-30"><span class="cite">origin/maxwell/br-integrate:src/ctf/sim_types.nim</span> — Battle Royale maps forbid endzones, even inert ones.</li>
+      <li id="src-31"><span class="cite">LAB:planner.nim</span> — the path planner's danger weighting.</li>
+      <li id="src-32"><span class="cite">PBP:origin/maxwell/lobby-chat:server/engine.mjs</span> — the build roster (<code>baseline</code>, <code>picasso</code>, <code>onepage</code>).</li>
+      <li id="src-33"><span class="cite">LAB:replay.nim</span> — the offline replay tool (inbound-only today).</li>
+      <li id="src-34"><span class="cite">tests/test_policy_reflash.nim</span> (coworld-ctf) — the engine's reflash test suite, source of the negative controls.</li>
+      <li id="src-35"><span class="cite">tools/roundtrip_reflash_match.sh</span> (coworld-ctf) — the live round-trip test pattern.</li>
+      <li id="src-36"><span class="cite">docs/paintball/COMMANDING.md</span> (coworld-ctf) — per-policy environment injection at upload time.</li>
+      <li id="src-37"><span class="cite">personal_paintbot/AGENTS.md</span> — the lab's one-change-per-version evaluation rule.</li>
+      <li id="src-38"><span class="cite">LAB:WORKING_CONTEXT.md</span> — the lab directive naming the role-replacement mechanism as the central open design question.</li>
     </ol>
   </section>
 

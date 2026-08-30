@@ -7,37 +7,59 @@
 > which is not in this repository. If the copies ever disagree, the lab copy
 > wins.
 
-**Status:** DESIGN (rev 9; nine Codex cross-review rounds, converged at
-VERDICT: SATISFIED) ·
-**Date:** 2026-08-29 · **Author:** James's coding agent, direction from James ·
-**Reviewers:** Codex (cross-agent, round-gated, adversarial), Maxwell (notified
-re: divergences)
+**Status:** DESIGN (rev 10 — prose rewritten for clarity on James's direction;
+no technical content changed since rev 9, which converged after nine rounds of
+adversarial cross-review by Codex, ending in VERDICT: SATISFIED) ·
+**Date:** 2026-08-29 · **Author:** James's coding agent, working from James's
+direction · **Reviewers:** Codex (cross-agent, round-gated) and Maxwell
+(notified of the two deliberate departures from his design, described in §3.3)
 
-Companion documents (read first for context):
-- `coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md` — the boundary
-  research this design builds on (paradigm, interfaces, stencil clusters).
-- `coworld-ctf:docs/recon/paintbot-s2-policy-shell-2026-08-29.md` — branch
-  inventory and merge state.
-- `origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md` (coworld-ctf) — BR
-  rung analysis; §2 kill list, §6 authorability, §7 preconditions.
+Two companion documents provide the background this design assumes:
 
-Citation conventions follow the research report: bare paths = coworld-ctf;
-`PBP:` = coworld-paintbot-player; `LAB:` = this lab (`paintbot/stencil_nim/`
-unless another lab path is given); `origin/<branch>:` = unmerged branch files.
+- `coworld-ctf:docs/reports/maxwell-s2-paradigms-2026-08-29.md` — a research
+  report on Maxwell's Season 2 architecture: what the game engine, the
+  match-orchestration app, and the prototype bot currently do, and where the
+  boundaries between them sit.
+- `coworld-ctf:docs/recon/paintbot-s2-policy-shell-2026-08-29.md` — an
+  inventory of the relevant repositories and branches, including what is and
+  is not merged.
+
+A third document is cited heavily:
+`origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md` (in coworld-ctf) is
+Maxwell's analysis of how the stencil bot would need to change to play Battle
+Royale. Its section 2 lists which of stencil's current behaviors are
+meaningless in that mode, section 6 analyzes how behaviors could be authored
+externally, and section 7 lists the things that block stencil from playing
+Battle Royale at all today.
+
+How to read the file citations in this document: a bare path such as
+`src/ctf/sim.nim` refers to the `coworld-ctf` repository. A path prefixed
+`PBP:` refers to the `coworld-paintbot-player` repository. A path prefixed
+`LAB:` refers to this lab — specifically `paintbot/stencil_nim/` unless some
+other lab path is written out. A path prefixed `origin/<branch>:` refers to a
+file that exists only on that unmerged git branch.
 
 ---
 
-## 1. Problem
+## 1. The problem this design solves
 
-Season 2 pits LLM "policies" against each other in Battle Royale: the policy
-chats in a pre-round lobby, then directs a cog mid-match. Maxwell's shipped
-substrate (branch `origin/maxwell/br-season2-complete`, cut 2026-08-29, =
-reflash-integration + glory increments + playbook seeds + episode recorder)
-implements this as *page scoring*: the LLM authors a JSON weight sheet over a
-fixed 12-intent menu, and a bot argmaxes it every tick
+Season 2 of Paintbot pits language-model "policies" against each other in a
+Battle Royale game mode. Each policy is an LLM. It chats with the other
+policies in a pre-game lobby, and then it directs a robot (a "cog") during the
+match itself.
+
+Maxwell has already built a substrate for this. His branch
+`origin/maxwell/br-season2-complete`, cut on 2026-08-29, combines the Battle
+Royale engine work, the mid-match "reflash" channel (explained in §5), a
+starter set of strategy documents, and an episode recorder. In his version of
+the system, the LLM's influence on the match takes the form of *page scoring*:
+the LLM writes a JSON sheet of numeric weights over a fixed menu of twelve
+possible intentions, and a bot re-scores that menu every game tick and acts on
+whichever intention scores highest
 (`origin/maxwell/br-reflash-integration:players/onepage/onepage.nim`).
 
-James's ruling (2026-08-29) overhauls everything above the `Intent` contract:
+James has ruled that we should replace everything above the `Intent` level of
+our own bot with a different model. In his words:
 
 > The plays are codelets/mini-programs which produce a typed `Intent` with
 > parameters at each tick. The `Intent`→action logic remains the same, using
@@ -45,147 +67,212 @@ James's ruling (2026-08-29) overhauls everything above the `Intent` contract:
 > optimization loop — bringing in logs from previous games and forum posts — and
 > evolve over time. The policy LLM starts with a playbook of these codelets,
 > chats with other policies in the lobby, and selects a play to give the cog,
-> along with any parameter values the play requires. The cog executes that play
-> until it's given a new play.
+> along with any parameter values the play requires. The cog then executes that
+> play until it's given a new play.
 
-The design goal: the *sophistication* of a strategy lives in offline-authored,
-tested code; the *runtime* LLM only selects and parameterizes. This gives (a)
-complex strategies that evolve through the optimization loop and the forum, (b)
-on-the-fly strategic agility in the lobby and mid-match without runtime code
-generation, and (c) player-controlled knob count — each play's parameter schema
-is exactly as wide as its author wants.
+The idea, unpacked: the sophistication of a strategy should live in real,
+tested code that we (the player, meaning James plus his coding agents) write
+offline, between matches, drawing on game logs and forum discussion. That code
+takes the form of a library of **plays**. At runtime, the LLM does not write
+any code at all. It reads its playbook, talks to the other policies in the
+lobby, and then *calls a play* — it names one play from the playbook and fills
+in that play's parameters. The cog runs that play until someone hands it a new
+one.
+
+This arrangement buys three things at once. Complex strategies can grow over
+time through the offline loop, because they are ordinary code. The policies
+can still adapt on the fly — in the lobby and mid-match — because switching
+strategies is just calling a different play. And the player controls how many
+knobs the runtime LLM has to handle, because each play's author decides how
+many parameters that play exposes.
 
 ## 2. Goals and non-goals
 
-**Goals**
-1. Define the Play abstraction and its contract with stencil's existing body.
-2. Reuse Maxwell's reflash/pre-round machinery unchanged wherever it is
-   payload-agnostic; enumerate the exact deltas where it is not.
-3. Preserve the lab's determinism/validation instruments (`compare_stencil.py`
-   + `replay.nim` exact-parity on recorded wire), extended to cover play calls.
-4. Specify the reflex layer and the shell finalizer: what stays above and
-   below the play, fixed in the shell.
-5. Name the v1 play library for BR with complete parameter schemas, making
-   James's "avoid conflict(squadmates)" example concrete end to end —
-   including the one typed widening of `Intent` it requires (§4.2).
-6. Sequence the work against the blocking BR preconditions, with parity
-   anchors and behavior-changing phases kept separate.
+This design commits to six goals.
 
-**Non-goals**
-- The mid-episode delivery lane (service → running bot). Both ends are stubs by
-  design (`onepage.nim:1341-1352` `pollForNewPage`;
-  `PBP:origin/maxwell/lobby-chat:server/preround.mjs:460-466`
-  `recordMidEpisodePage`); this design defines the shell's hook and stops.
-- The forum/optimization outer loop tooling (log harvest → play authoring).
-  Sketched in §10; designed separately.
-- Any interpreted play language. Ruled out for v1 (§3.2).
-- Changing `resolveAction`'s resolution *order* or the planner/follower/micro
-  machinery. (One typed contract widening does thread new data through the
-  combat paths — §4.2 — the same way v69 threaded idle aim; that is a contract
-  extension, not a body redesign.)
+1. Define the Play abstraction precisely, including its contract with the
+   parts of stencil that do not change.
+2. Reuse Maxwell's existing machinery — the reflash channel and the pre-round
+   chat phase — unchanged wherever it genuinely does not care what bytes it is
+   carrying, and spell out the exact places where it does need to change.
+3. Preserve the lab's validation tooling. Our acceptance instrument is exact
+   replay comparison (`compare_stencil.py` together with `replay.nim`), and it
+   must keep working, extended to account for play calls.
+4. Specify the two fixed pieces of decision logic that sit outside any play:
+   the emergency behaviors the shell owns (§4.4) and the finishing step that
+   runs after every decision (§4.3).
+5. Name the first version of the play library for Battle Royale, with complete
+   parameter definitions, so that James's motivating example — an "avoid
+   conflict" play that takes a list of allied teams — is specified end to end.
+   Making that example real requires one addition to the `Intent` type, which
+   §4.2 describes.
+6. Order the work into phases, keeping the phases that must not change
+   behavior strictly separate from the phases that exist to change behavior.
 
-## 3. The paradigm, revised
+Four things are explicitly *not* goals of this design.
+
+- **The mid-match delivery channel.** Nothing currently exists that can tell a
+  running bot "a new play call is ready for you." Both ends of that channel
+  are deliberate stubs today: on the bot side, a placeholder that watches a
+  file (`onepage.nim:1341-1352`), and on the app side, a bookkeeping function
+  that nothing calls yet
+  (`PBP:origin/maxwell/lobby-chat:server/preround.mjs:460-466`). This design
+  defines the hook the future channel will call and stops there.
+- **The offline authoring tools.** The pipeline that turns game logs and forum
+  posts into new plays is sketched in §10 and will be designed separately.
+- **Any interpreted language for plays.** Plays are compiled Nim. §3.2 records
+  why, and what it would take to revisit that.
+- **Changes to how actions are resolved.** The order of operations inside
+  `resolveAction`, the path planner, the movement follower, and the
+  micro-movement machinery all stay as they are. One new field does get added
+  to the `Intent` type and threaded through the combat code (§4.2), in the
+  same way an earlier version of stencil threaded idle-aim through — that is
+  an extension of the existing contract, not a redesign of the body.
+
+## 3. The shape of the system
 
 ### 3.1 Four layers
 
-Maxwell's constitution (`origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md:15-48`)
-has three layers: STRATEGY (LLM-authored page) → INTENT (fixed menu, page
-scores it) → ACTION (engine-resolved). This design re-cuts it into four:
+Maxwell's design constitution
+(`origin/maxwell/br-onepage-vm:tools/flash/SCHEMA.md:15-48`) describes three
+layers: STRATEGY (a scoring sheet the LLM writes), INTENT (a fixed menu the
+sheet scores), and ACTION (the engine turning the winning intention into
+button presses). This design re-cuts the stack into four layers.
 
-| Layer | Artifact | Author | Cadence |
+| Layer | What the artifact is | Who authors it | How often it changes |
 |---|---|---|---|
-| **CALL** | `{play, params}` — a play call | policy LLM (runtime selection) | spawn + reflash edges |
-| **PLAY** | a compiled Nim codelet: params + belief → Intent | the player, offline | evolves per policy version |
-| **INTENT** | stencil's typed `Intent` struct (`LAB:types.nim:189-219`), extended per §4.2 | play output, shell-finalized | every tick |
-| **ACTION** | `resolveAction` → 8-bit mask (`LAB:action.nim:402-551`) | stencil body | every tick |
+| **CALL** | a play call: `{play, params}` — one play's name plus its argument values | the policy LLM, at runtime | at bot startup, and at each mid-match reflash |
+| **PLAY** | a compiled Nim mini-program that reads the world and produces one `Intent` per tick | the player, offline | with each new version of the policy binary |
+| **INTENT** | stencil's existing typed `Intent` struct (`LAB:types.nim:189-219`), extended as described in §4.2 | produced by the play, finished by the shell | every tick |
+| **ACTION** | `resolveAction` turning the `Intent` into the 8-bit input mask the game accepts (`LAB:action.nim:402-551`) | stencil's body, unchanged | every tick |
 
-The LLM's runtime artifact shrinks from a program-shaped weight sheet to a
-*call*: a play name plus typed arguments. Authoring moves entirely offline. This
-keeps the property Maxwell's `"if"`-ban was protecting — no LLM-written control
-flow reaches the match — while lifting the ceiling on strategy complexity to
-"anything the player can write, test, and ship in Nim."
+The important shift is in the top layer. In Maxwell's version, the artifact
+the LLM produces is shaped like a program: a sheet of weights that gets
+evaluated continuously. In this version, the LLM's runtime artifact shrinks to
+a *function call*: the name of a play plus typed arguments. All authoring
+moves offline. This preserves the property Maxwell's design was protecting —
+his page language rejects `"if"` outright, precisely so that no LLM-written
+control flow can reach a live match — while removing the ceiling on how
+sophisticated a strategy can be. A play can be anything the player can write,
+test, and ship in Nim.
 
-Terminology: **play** replaces **page** at the product level. Wire-level names
-(`PolicyPageMagic`, `COWORLD_POLICY_PAGE`, `applyPolicyPage`, the replay record)
-stay as-is until/unless Maxwell renames them; this doc says "play call" for the
-payload those carriers move.
+A note on naming. James has ruled that the product-level word for this
+artifact is **play**, not "page." However, the wire-level and engine-level
+names — `PolicyPageMagic`, the `COWORLD_POLICY_PAGE` environment variable,
+the `applyPolicyPage` procedure, and the replay record format — all belong to
+Maxwell's code and keep their current names unless he renames them. When this
+document says "play call," it means the payload those mechanisms carry.
 
-### 3.2 Why compiled Nim codelets (decision)
+### 3.2 Why plays are compiled Nim (a decision record)
 
-James ratified compiled-in plays. Recording the reasoning for future readers:
+James ratified this choice directly. The reasoning is recorded here for
+future readers, because it is the decision from which most of the design's
+simplicity flows.
 
-- **Determinism is inherited, not engineered.** A play is shell code; the shell
-  is already deterministic given (frame stream, config, play-call stream). The
-  lab's falsifier (`LAB:tools/compare_stencil.py`, 278,016/278,016 exact
-  decisions for v69) keeps working with the extensions in §8.
-- **The deployment loop already exists.** Coworld policies ship as container
-  images; "edit Nim → build → upload" is the lab's routine cadence
-  (`LAB:tools/build_player.sh`). Playbook evolution rides it for free.
-- **The flash payload becomes trivial**: a play call is well under 1 KB against
-  the 60,000-byte record cap (`origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim:823-831`).
-- **Rejected:** the `rules` s-expression VM
-  (`origin/maxwell/br-onepage-vm:src/ctf/policy_page.nim`) and the `rows` stub
-  — both exist to make LLM-authored artifacts safe; with authoring moved
-  offline they solve a problem this design no longer has. Also rejected for
-  v1: any embedded interpreter (Lua/wasm) — revisit only if same-binary play
-  updates become a demonstrated need, and research existing options first at
-  that point.
+First, determinism comes for free. A play is shell code, and the shell is
+already deterministic: given the same stream of game frames, the same
+configuration, and the same stream of play calls, it produces the same
+decisions. The lab's whole validation approach depends on that property —
+version 69 of stencil shipped on the strength of 278,016 out of 278,016
+decisions reproduced exactly from recorded game traffic
+(`LAB:tools/compare_stencil.py`) — and compiled plays keep it intact, with
+the extensions described in §8.
 
-Trade-off accepted: the LLM cannot field a play the binary doesn't carry.
-That is the design intent ("without needing to write new ones" — James), and
-the catalog handshake (§7.2) makes the constraint visible to the LLM instead
-of silent.
+Second, the deployment pipeline already exists. Coworld policies ship as
+container images, and "edit the Nim, build the image, upload it" is already
+the lab's routine loop (`LAB:tools/build_player.sh`). Evolving the playbook
+requires no new infrastructure; a new playbook is just a new policy version.
 
-### 3.3 Divergences from Maxwell's constitution (deliberate, ratified by James)
+Third, the payload that has to cross the network becomes tiny. A play call is
+well under a kilobyte, against a hard limit of 60,000 bytes imposed by the
+replay record format
+(`origin/maxwell/br-reflash-integration:src/ctf/sim_types.nim:823-831`).
 
-1. **Entity-naming parameters.** SCHEMA.md rules that a strategy "cannot name a
-   specific enemy or a specific pickup — there is no path for it." Play
-   *parameters* relax this: a play's schema may accept entity references (team
-   colors, "partner"), because lobby-negotiated alliances — which the pre-round
-   system prompt itself encourages
-   (`PBP:origin/maxwell/lobby-chat:server/preround.mjs:216-228`) — need a
-   no-shoot list to be actionable. The constraint moves from "inexpressible"
-   to "typed, play-scoped, and validated by the play author's schema."
-2. **Selection replaces per-tick scoring.** No argmax over behaviors in the
-   shell; the play is the behavior. (An individual play may still score
-   sub-goals internally; that becomes a play-authoring pattern, not
-   architecture.)
+Two alternatives were considered and rejected. Maxwell's two page languages —
+the expression-based virtual machine in
+`origin/maxwell/br-onepage-vm:src/ctf/policy_page.nim` and the simpler
+row-of-weights placeholder that currently runs on the wire — both exist to
+make *LLM-authored* artifacts safe to execute. Once authoring moves offline
+into ordinary code review, they solve a problem we no longer have. An
+embedded interpreter (Lua, WebAssembly, or similar) was also rejected for
+now: it would buy the ability to update plays without rebuilding the binary,
+at the cost of designing and validating a whole interpreter's determinism
+story. If updating plays without a rebuild ever becomes a demonstrated need,
+that decision should be revisited — starting with a survey of existing
+options, not a hand-rolled interpreter.
 
-Maxwell was notified of both on 2026-08-29 (Discord); the second message with
-this document follows.
+The accepted trade-off is that the LLM cannot invoke a play the binary does
+not contain. That is not a limitation we are tolerating; it is the design
+intent. James's words: the policies select from complex strategies "without
+needing to write new ones." Section 7.2 describes how the lobby learns
+exactly which plays a given bot supports, so this constraint is visible to
+the LLM rather than a source of silent failures.
 
-## 4. The Play contract (stencil-side)
+### 3.3 Two deliberate departures from Maxwell's design constitution
 
-### 4.1 Types (concrete; the feasibility sketch)
+Both of these were ratified by James, and Maxwell was notified of both by
+direct message on 2026-08-29. A second message with this document followed.
 
-Heterogeneous per-play parameters and state are closed tagged unions — the
-registry stays a flat `seq`, and the compiler enforces exhaustiveness the same
-way the existing enums do. Module ownership is deliberately acyclic (a naive
-"plays.nim owns the union AND the registry while plays import plays.nim" is a
-Nim import cycle — Codex round-3 finding 2):
+The first departure concerns naming other entities in the game. Maxwell's
+constitution states that a strategy "cannot name a specific enemy or a
+specific pickup — there is no path for it, so it cannot be expressed." Play
+*parameters* relax that rule: a play's author may declare parameters that
+refer to entities, such as a list of team colors. The reason is practical.
+The pre-round chat phase's own system prompt tells the policies that open
+collusion is rational (`PBP:origin/maxwell/lobby-chat:server/preround.mjs:216-228`)
+— and an alliance negotiated in the lobby is worthless unless the cog can be
+told "do not shoot these teams." The safety rationale behind Maxwell's rule
+does not disappear; it moves. Instead of being *inexpressible*, entity
+references become typed, scoped to one play's declared parameters, and
+validated against that play's schema.
 
-The complete directed graph (each module imports only what is left of it):
+The second departure is that per-tick scoring goes away. In Maxwell's model,
+the strategy sheet is re-scored every tick and the best-scoring intention
+wins. In this model there is no scoring step in the shell at all: the
+selected play simply *is* the strategy, and it runs until replaced. (Nothing
+stops an individual play from doing its own internal scoring over sub-goals —
+that just becomes one pattern a play author might use, rather than the
+architecture of the system.)
+
+## 4. The Play contract on the stencil side
+
+### 4.1 Types, and the module layout that makes them compilable
+
+Plays have different parameters and different internal state from one
+another, but the registry that holds them needs one concrete type for "a
+play." The standard Nim answer is a closed tagged union (an object variant):
+one enum lists every play, and the parameter and state types are variant
+objects over that enum. The compiler then enforces exhaustiveness the same
+way it does for stencil's existing enums.
+
+The module layout needs care, because a naive arrangement — one `plays.nim`
+that owns both the shared types and the registry, with each play module
+importing it — is an import cycle Nim will reject. (Codex caught this in
+review round 3.) The complete dependency graph, in which each module imports
+only modules listed above it:
 
 ```
 types / belief_state / worldmap
-  → play_queries.nim    (owns + exports the opaque PlayView, GameMode, and
-                         the audited read API; exports no raw Belief;
-                         imports NO play module)
-  → play_contract.nim   (the shared types below incl. every PlayState arm;
-                         imports play_queries to name PlayView, nothing else
-                         play-related)
+  → play_queries.nim    (owns and exports the opaque PlayView, the GameMode
+                         enum, and the audited read API; exports no raw
+                         Belief; imports no play module)
+  → play_contract.nim   (the shared types below, including every PlayState
+                         arm; imports play_queries so it can name PlayView,
+                         and nothing else play-related)
   → plays/<name>.nim    (one module per play; may import ONLY play_contract,
-                         types, play_queries, plus an explicit safe std/*
-                         allowlist — math, options, sets, tables, algorithm,
-                         heapqueue; other project modules and side-effecting
-                         std modules (os, net, times, osproc, …) are
-                         rejected — build-time import check)
-  → play_registry.nim   (let Playbook* = @[...]; imports the play modules)
-  → plays.nim           (shell machinery; imports the registry; no play
+                         types, play_queries, plus an explicitly allowlisted
+                         set of standard-library modules — math, options,
+                         sets, tables, algorithm, heapqueue; every other
+                         project module, and side-effecting standard modules
+                         such as os, net, times, and osproc, are rejected
+                         by a build-time import check)
+  → play_registry.nim   (declares `let Playbook* = @[...]`; imports the play
+                         modules)
+  → plays.nim           (the shell machinery; imports the registry; no play
                          module imports it back)
 ```
 
-Sketch (types in `play_contract.nim`):
+The shared types, which live in `play_contract.nim`:
 
 ```nim
 type
@@ -207,7 +294,7 @@ type
     required*: bool
     default*: Option[ParamValue]       # required xor default: exactly one
     doc*: string                       # one line, surfaced in the catalog
-    minVal*, maxVal*: float            # vkNumber only; validated fail-loud
+    minVal*, maxVal*: float            # vkNumber only; checked on parse
     allowedStrings*: seq[string]       # vkString only; empty = free-form
 
   PlayParams* = Table[string, ParamValue]   # validated + defaulted at parse
@@ -229,691 +316,906 @@ type
 
   Play* = object
     kind*: PlayKind
-    name*: string                      # snake_case, the catalog/wire identity
+    name*: string                      # snake_case; the name used on the
+                                       # wire, in the catalog, and in replays
     doc*: string
     schema*: seq[ParamSpec]
-    reflexes*: set[Reflex]             # which shell reflexes this play delegates
+    reflexes*: set[Reflex]             # which shell reflexes this play
+                                       # delegates (see §4.4)
     init*: proc(params: PlayParams, view: PlayView): PlayState {.nimcall.}
     step*: proc(state: var PlayState, params: PlayParams,
                 view: PlayView): Intent {.nimcall.}
 ```
 
-`init` takes the view because initialization is mode- and world-aware (§6.1);
-it runs only when both are known — see the bootstrap rule in §4.6.
+`init` receives the view because initialization needs to know the game mode
+and the world (§6.1), and it therefore runs only once both are known — the
+startup sequence in §4.6 spells out exactly when.
 
-Feasibility proof obligations for P1, before any behavior work: (a) the
-contract compiles with **two** plays of different parameter and state shapes
-registered through `play_registry.nim`; (b) a **compile-negative fixture** —
-a play module that tries to read or write a raw `Belief` field fails the
-build (no such symbol reaches it).
+Phase 1 (§9) carries two proof obligations for this layout, both to be
+satisfied before any behavior work begins. First, the whole graph must
+compile with two plays of *different* parameter and state shapes registered
+through `play_registry.nim` — that proves the type design actually works in
+Nim, not just on paper. Second, a deliberately wrong play module that tries
+to read or write a raw `Belief` field must *fail* the build, proving that no
+such symbol can even reach a play.
 
-Contract rules:
+The contract itself consists of four rules.
 
-- **`step` is the mind.** It replaces the deliberate body of
-  `decideBaseObjective` (`LAB:strategy.nim:329-500`). Every goal routes
-  through the validated-goal contract (`reachableGoal` → `nearestReachable`,
-  `LAB:strategy.nim:107-110`) — a play that cannot validate its goal emits a
-  Hold with a reason, never a beeline. The v66 law, unchanged.
-- **Plays own their state, mutably and explicitly.** `state: var PlayState` is
-  the one mutation surface a play is *supposed* to use; it is created by
-  `init` at swap time and dropped at the next swap or episode edge.
-- **Plays never see `Belief` at all.** `Belief` is a `ref object` with
-  exported mutable fields (`LAB:belief_state.nim:19-137`); an import
-  allowlist alone cannot help once the type is nameable in a play's `step`
-  signature (Codex round-3 finding 1). Ruling: `step` takes an opaque
-  **`PlayView`** — defined in `play_queries.nim` with a **private** backing
-  `Belief` field (ref-backed, no copying) — and plays read the world only
-  through that module's exported query procs (fact getters + the pure
-  helpers: `reachableGoal`, track/zone/item queries, `makeIntent`, plus the
-  shell context of §6.1). The import allowlist still applies (it keeps
-  helper-module sprawl out), but the mutation boundary is the private field:
-  a play cannot name a Belief field it cannot reach. **And no mutable alias
-  escapes**: Belief and `WorldMap` are ref objects full of reference-backed
-  containers (`LAB:belief_state.nim:19-58`, `LAB:worldmap.nim:70-94`), so a
-  getter returning a raw ref, a backing `seq`, or a table would hand plays
-  shared mutable state without ever naming a Belief field. Contract: query
-  procs return scalars, value snapshots, or copied sequences of value-only
-  records; map operations (`reachableGoal`, post lookups) *execute inside*
-  `play_queries` and return values — `WorldMap`/`Belief` refs and their
-  backing containers never cross the boundary. Proof: the compile-negative
-  fixtures (raw Belief access; WorldMap field access) plus a runtime alias
-  test — mutating a returned collection must not change Belief. Query procs
-  are audited on every addition for both in-body mutation (the
-  sweep-oscillator lesson, `LAB:TENTATIVE_LESSONS.md:20-26`) and result
-  ownership. Latch/counter writes that today's rungs
-  make on Belief (`LAB:strategy.nim:434-438,448-455`) move into `PlayState`
-  as their rungs are absorbed into plays — except the grandfathered legacy
-  default (§4.4, §6.1); the body's telemetry writes (leak #6) are unchanged.
-  Escalation path if the query surface proves too narrow: widen
-  `play_queries`, never the boundary.
-- **Plays emit *semantic* intents; the reason string stays telemetry.**
-  `makeIntent`'s `case reason` table is behavior-bearing today — the exact
-  string selects profiles, micro sets, radii (`LAB:strategy.nim:40-99`) — and
-  BR_LADDER independently warns `reason` must not become load-bearing and
-  recommends a separate semantic identifier
-  (`origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md:800-804`).
-  Ruling: `makeIntent` gains an explicit semantic parameter — an
-  `IntentShape` enum whose members are today's reason vocabulary — and the
-  telemetry string becomes free-form: plays call
-  `makeIntent(kind, point, shape = isClearSpray, reason = "play:default:clear_spray")`.
-  The shape enum, not the string, drives the flag table. Migration of existing
-  call sites is mechanical (shape := the current literal).
+**Rule one: `step` is the mind.** The play's `step` function replaces the
+decision-making part of today's `decideBaseObjective`
+(`LAB:strategy.nim:329-500`). Everything it wants the cog to do is expressed
+by returning one `Intent`. It must put every movement goal through the
+existing goal-validation path (`reachableGoal`, which calls
+`nearestReachable`; `LAB:strategy.nim:107-110`). A play whose goal cannot be
+validated returns a stay-put `Intent` with a reason attached; it never emits
+a raw "walk toward this pixel" instruction. That has been the law since
+stencil v66 and it does not change here.
 
-### 4.2 The one typed widening: `CombatPolicy` on `Intent`
+**Rule two: plays own their state, explicitly and mutably.** The
+`state: var PlayState` argument is the one place a play is *supposed* to
+write. `init` creates it when the play becomes active; it is thrown away when
+the play is replaced or the episode ends. Today, several of stencil's
+behaviors stash their working state — latches, counters, cool-downs — on the
+shared `Belief` object, which the lab's own architecture review flagged as a
+leak. As those behaviors are absorbed into plays, that state moves into
+`PlayState`. (There is one temporary exception, described in §4.4 and §6.1.)
 
-Codex's round-1 review is right that the rev-1 contract could not implement
-`avoid_conflict`: `Intent` carries movement/aim/micro only
-(`LAB:types.nim:189-219`), and `resolveAction` selects combat targets itself —
-`selectTarget(belief, candidates)`, spray pursuit, and the grenade overlay
-never consult the mind (`LAB:action.nim:472-524`, `LAB:fight.nim:226-283`).
-A no-shoot list has **no data path** to the body without widening the
-contract. So it widens — the same move v69 made for idle aim, and for the same
-reason: the decision belongs to the mind, the mechanism to the body.
+**Rule three: plays never see `Belief` at all.** `Belief` is a Nim `ref
+object` whose fields are all exported and mutable
+(`LAB:belief_state.nim:19-137`). If a play's `step` received it, nothing
+could stop the play from modifying it — an import restriction is useless once
+the type itself is in hand, and Codex demonstrated in review that every
+polite-looking alternative (a grep for assignment syntax, an import
+allowlist alone) has holes. So the contract is: `step` receives an opaque
+`PlayView` instead. `PlayView` is defined in `play_queries.nim` with a
+*private* field holding the underlying `Belief` reference — no copying — and
+plays read the world only through that module's exported query functions:
+fact getters, the goal-validation helpers, track and zone and item queries,
+`makeIntent`, and the game-mode value from §6.1.
+
+The queries must also not leak. `Belief` and `WorldMap` are full of
+reference-backed containers (`LAB:belief_state.nim:19-58`,
+`LAB:worldmap.nim:70-94`), and a query that returned one of those raw would
+hand a play shared mutable state through the back door. So query functions
+return plain values: scalars, value-type snapshots, or copied sequences of
+value-only records. Operations that need the map — validating a goal,
+looking up a firing position — run *inside* `play_queries` and return their
+results as values. Three tests pin this down: the compile-failure fixture for
+raw `Belief` access, a second compile-failure fixture for raw `WorldMap`
+access, and a runtime test proving that mutating a collection a query
+returned does not change `Belief`. Every future addition to `play_queries`
+gets reviewed on two axes: does the function body mutate anything (the lab
+has been burned before by a value that changed its own oscillator merely by
+being read — `LAB:TENTATIVE_LESSONS.md:20-26`), and does the return value
+alias anything. If the query surface ever proves too narrow for a play
+someone wants to write, the fix is to widen `play_queries` — never to loosen
+the boundary.
+
+**Rule four: plays emit meaning through a type, and the reason string stays
+what it always was — a label for humans.** Today, `makeIntent` takes a
+reason *string* and uses it to decide behavior: the exact string selects the
+cost profile, the micro-movement permissions, the arrival radius
+(`LAB:strategy.nim:40-99`). That worked while every caller was in one file,
+but it is a trap for play authors — a reason like
+`"play:default:clear_spray"` would fall through the string match and
+silently lose all of those settings. BR_LADDER's authoring analysis warns
+about exactly this and recommends a separate semantic identifier
+(`origin/maxwell/br-ladder-design:docs/designs/BR_LADDER.md:800-804`). The
+ruling: `makeIntent` gains an explicit `shape` parameter — an `IntentShape`
+enum whose members are today's reason vocabulary — and the flag table keys
+off the enum. The string becomes pure telemetry, free to say whatever is
+most useful in a trace, for example
+`makeIntent(kind, point, shape = isClearSpray, reason =
+"play:default:clear_spray")`. Migrating the existing call sites is
+mechanical: each one's shape is the literal it passes today.
+
+### 4.2 One addition to `Intent`: the combat policy
+
+Codex's first review round proved that the contract as originally drafted
+could not implement James's motivating play. The `Intent` type carries
+movement, aim, and micro-movement permissions only
+(`LAB:types.nim:189-219`), and the body chooses its own combat targets —
+`selectTarget`, the spray-pursuit logic, and the grenade planner never
+consult the mind (`LAB:action.nim:472-524`, `LAB:fight.nim:226-283`). A
+"don't shoot these teams" instruction therefore had *no route from the play
+to the trigger*. The fix is to widen the contract, exactly the way stencil
+v69 widened it for idle-aim: the decision moves into the mind's output type,
+and the body's machinery learns to honor it.
 
 ```nim
 type
   CombatPolicy* = object
     noShootTeams*: set[Team]   # never targeted by gun, spray, or grenade
-    protectTeams*: set[Team]   # bias: up-weight proximity threats near these teams
+    protectTeams*: set[Team]   # up-weight proximity threats near these teams
 
   Intent* = object
     ...                        # all ten existing fields unchanged
     combat*: CombatPolicy      # default: both sets empty
 ```
 
-Body threading. "Never shoot" is stronger than "never select as the target
-endpoint" — the body's own safety machinery shows the three ways a bullet,
-cone, or blast reaches a cog nobody aimed at. The enforcement principle:
-**`noShootTeams` members join the protected set that every existing
-friendly-safety check already consults** — they are treated the way teammates
-are treated today, in each weapon path:
-- *Target selection*: `selectTarget` candidate filtering and `scoreTarget`'s
-  defensive-threat term (`LAB:fight.nim:150-283`) exclude `noShootTeams`
-  members; enemies **threatening** `protectTeams` members are up-weighted.
-  "Threatening" is defined deterministically from what perception actually
-  contains — observations carry position/facing/aim/team/loadout but no
-  attacker–victim relation (`LAB:types.nim:38-69`), and heard impacts have no
-  attacker identity — so the relation is proximity-based, generalizing the
-  heuristic onepage already uses for `partner.in_combat` — made fully
-  deterministic by naming its constants **and by defining both sides of the
-  relation by color, never by track container**: stencil's `enemyTracks` is
-  observer-relative (every cog not the policy's own color,
-  `LAB:perception.nim:325-346`, `LAB:belief_update.nim:411-433`), so "enemy
-  track near protected cog" would make two duo-mates on one protected team
-  read as threats to each other. The relation: a *protected candidate* is
-  any fresh track (teammate or enemy container) with `color in
-  protectTeams`; a *threat candidate* is any fresh track whose color differs
-  from that protected cog's **and** is in neither `noShootTeams` nor
-  `protectTeams` (listed teams are never threats to each other — anything
-  else contradicts `avoid_conflict`'s purpose). The policy's **own team is
-  legal in `protectTeams`** (its cogs arrive via `teammateTracks`) — the
-  implementation scans both containers by color. Freshness: both tracks
-  within `TrackTtlTicks` (120, `LAB:config.nim:144-149`); distance strictly
-  `<` `ProtectThreatRangePx` (default 200, matching onepage's
-  `ThreatRange`/strict-`<` precedent, `onepage.nim:75-84,1110-1118`; a new
-  `STENCIL_*` knob). The up-weight is one new additive term in `scoreTarget`
-  with its own named weight knob (`ProtectThreatWeight`), zero when
-  `protectTeams` is empty (the parity default). Positioning tie-break for
-  `avoid_conflict`'s `protect`: nearest protected cog under threat, then
-  lowest cog index. No attacker attribution is claimed or needed; richer
-  inference (aim-cone, damage attribution) is explicitly future work.
-  Fixtures: one clear threat; ambiguous crossfire; stale tracks (each side of
-  the pair stale independently); no observable threat; two nearby cogs on one
-  protected team (no mutual threat); two nearby protected teams (no
-  cross-threat); a real unprotected third-team threat; own-team protection
-  via teammate tracks. Tie-break unchanged: eligibility filter first, then
-  nearest protected cog under threat, then lowest cog index.
-- *Every acquisition path, plus a final endpoint veto.* `selectTarget` is not
-  the only way the body acquires a target: outside an active firefight the
-  gun falls back to `belief.nearestEnemy` (`LAB:action.nim:472-476`, scan at
-  `:31-39`), and the arc selector scans all enemies independently
-  (`LAB:fight.nim:26-44`). The policy filter therefore applies at **all**
-  acquisition sites (`selectTarget`, `nearestEnemy`, `sprayTarget`/arc), and
-  — as defense in depth against any future path that forgets the early
-  filter — a **final endpoint veto** runs immediately before each weapon's
-  fire decision, refusing a `noShootTeams` endpoint regardless of how it was
-  acquired (the corridor helper alone cannot do this: it deliberately
-  ignores the entity at the endpoint, `LAB:action.nim:94-105`). Tests:
-  `Firefight=false` and `firefightActive=false` cases where the nearest cog
-  is excluded but a farther allowed target exists; an arc-selector case.
-- *Gun*: the corridor check that refuses a shot when a teammate lies along the
-  segment (`LAB:action.nim:94-118`) extends its blocker set to `noShootTeams`
-  — an allowed target behind a protected cog is not a legal shot.
-- *Spray*: the cone paths (`LAB:action.nim:51-60,490-499`) refuse activation
-  when a protected cog is inside the cone, exactly as for teammates.
-- *Grenade*: the blast-safety prediction (`LAB:action.nim:273-278`) treats
-  protected cogs as splash-forbidden, and the cluster planner
-  (`LAB:action.nim:285-335`) never counts them as value. **An in-progress
-  charge is revalidated the tick `CombatPolicy` changes**: if the held throw
-  (`belief.throwTarget`, force-release path `LAB:action.nim:353-400`) would
-  violate the new policy, the charge is cancelled, never force-released
-  through the veto.
-- The dead-tick hand-built intent (`LAB:policy.nim:103`) stamps
-  `combat = CombatPolicy()` — per the standing lesson that every new Intent
-  field must be stamped there (`LAB:TENTATIVE_LESSONS.md:28-32`).
-- **Parity default:** an empty `CombatPolicy` must be bit-identical to today's
-  behavior; the P1 parity gate proves it (§8).
-- **Tests (landing with the first play that exercises them, P4c; controls in
-  P1):** an excluded cog (a) between
-  shooter and an allowed gun target, (b) inside the spray cone beside an
-  allowed target, (c) inside grenade radius of an allowed center, (d) entering
-  the policy while a grenade is already charging — plus the empty-policy
-  parity control.
+"Never shoot" has to mean more than "never select as the aiming target." The
+body's own safety code shows the three ways a bullet, a spray cone, or a
+grenade blast can hit a cog nobody was aiming at, and the enforcement
+principle follows from it: **members of `noShootTeams` join the protected
+set that every existing friendly-fire check already consults.** They are
+treated the way teammates are treated today, in each weapon path:
 
-This is the one place the design amends "the `Intent`→action logic remains the
-same": the logic's *order and machinery* are unchanged; the contract gains one
-field the machinery filters by. James has ratified the play's semantics
-("not shoot anyone on that squad mates list … and also cover them"); this is
-the minimal honest implementation of them.
+- **Every target-acquisition path is filtered, and there is a final veto at
+  the trigger.** `selectTarget` is not the only way the body picks a target:
+  outside an active firefight, the gun falls back to `belief.nearestEnemy`
+  (`LAB:action.nim:472-476`, with the unfiltered scan at `:31-39`), and the
+  spray-arc selector scans all enemies on its own (`LAB:fight.nim:26-44`).
+  The filter therefore applies at all three acquisition sites. On top of
+  that, as defense in depth against any future code path that forgets the
+  early filter, a final check runs immediately before each weapon's fire
+  decision and refuses a `noShootTeams` endpoint no matter how it was
+  acquired. The corridor-safety helper cannot serve as this check, because
+  it deliberately ignores the entity at the endpoint of the shot
+  (`LAB:action.nim:94-105`). Tests cover the fallback paths specifically:
+  cases with `Firefight` disabled and with `firefightActive` false, where
+  the nearest cog is excluded but a farther legitimate target exists, plus
+  an arc-selector case.
+- **Gun:** the corridor check that already refuses a shot when a teammate
+  stands along the bullet's path (`LAB:action.nim:94-118`) extends its
+  blocker set to `noShootTeams`. A legitimate target standing behind a
+  protected cog is not a legal shot.
+- **Spray:** the cone checks (`LAB:action.nim:51-60,490-499`) refuse to
+  activate when a protected cog is inside the cone, exactly as they do for
+  teammates today.
+- **Grenade:** the blast-radius prediction (`LAB:action.nim:273-278`) treats
+  protected cogs as must-not-splash, and the cluster planner
+  (`LAB:action.nim:285-335`) stops counting them as value in a target
+  cluster. One subtlety needs its own rule: a grenade that is already
+  charging when the combat policy changes still holds its old throw target,
+  and the code will force-release an overdue charge
+  (`LAB:action.nim:353-400`). So the charge is re-validated on the very tick
+  the policy changes, and cancelled if the held throw would now violate it.
+  A force-release never bypasses the veto.
 
-### 4.3 The decide pipeline: reflexes → play → finalizer
+The `protectTeams` half needs a careful definition, because stencil's
+perception does not actually know who is attacking whom. An observation
+carries a cog's position, facing, aim, team, and equipment — but no
+attacker-victim relationship (`LAB:types.nim:38-69`), and a heard impact
+carries no attacker identity. So "protecting" is defined through proximity,
+generalizing a heuristic Maxwell's prototype bot already uses for its
+partner. And the definition must be written in terms of *team colors*, not
+stencil's track containers, because those containers are relative to the
+observer: perception files every cog that is not the bot's own color under
+"enemies" (`LAB:perception.nim:325-346`, `LAB:belief_update.nim:411-433`),
+which means two cogs on the same allied team would otherwise register as
+threats *to each other*.
 
-Per tick, the decide station (`LAB:policy.nim:99-105` today) becomes:
+The full relation: a *protected candidate* is any sufficiently fresh track —
+from either the teammate or the enemy container — whose color is in
+`protectTeams`. A *threat candidate* is any sufficiently fresh track whose
+color differs from that protected cog's, and is in neither `noShootTeams`
+nor `protectTeams` (teams on the list are never treated as threats to each
+other; anything else would contradict the play's purpose). The policy's own
+team is allowed in `protectTeams`; its cogs arrive through the teammate
+container, and the implementation scans both containers by color.
+"Sufficiently fresh" means both tracks are within `TrackTtlTicks` (120
+ticks; `LAB:config.nim:144-149`). "Near" means strictly less than
+`ProtectThreatRangePx` apart — default 200 pixels, matching the precedent in
+Maxwell's bot (`onepage.nim:75-84,1110-1118`), exposed as a new `STENCIL_*`
+tuning knob. The up-weighting itself is one new additive term in
+`scoreTarget` with its own named weight knob (`ProtectThreatWeight`), which
+is zero when `protectTeams` is empty — that zero is what makes the empty
+policy behave identically to today. When the `avoid_conflict` play positions
+the cog to cover a protected ally, ties break deterministically: eligibility
+filter first, then the nearest protected cog under threat, then the lowest
+cog index.
 
-1. **Unconditional guards**: `not_alive`, `no_worldmap` — always shell-owned
-   (they are prerequisites of *any* decision, and match today's ordering).
-2. **Subscribed reflexes** (§4.4): the shell runs exactly the reflexes in the
-   active play's `reflexes` set, in fixed order. If one fires, its Intent goes
-   to the finalizer; the play's `step` is not called this tick.
-3. **The active play's `step`** otherwise.
-4. **The shell finalizer** (fixed, **origin-aware** — this answers "who stamps
-   what the ladder's tail used to" without changing control flow):
-   - For an **alive-path** Intent (play or subscribed reflex): applies the
-     **arc-pursuit override** exactly as today's post-ladder step does
-     (`LAB:strategy.nim:504-514`) — shell-owned combat opportunism, gated on
-     the winning Intent's `MicroSprayPursuit` flag, so a play opts out the
-     same way rungs do today (by shaping its micro set); then stamps
-     `idleAimCenterBrads` (`LAB:strategy.nim:515`) — absence is a producer
-     bug the body `.get`s on (`LAB:action.nim:525-533`), so the finalizer,
-     not each play, owns it.
-   - For the **`not_alive` guard**: arc pursuit is bypassed — today's dead
-     branch never enters `decideObjective` (`LAB:policy.nim:99-105`), and
-     that exclusion is contract, not accident — and the Intent receives
-     exactly the fields the current dead branch stamps, plus the empty
-     `CombatPolicy`. Fixture: a dead-tick field-level parity test with
-     hostile Belief values (`iHaveArc` true, a live spray target) proving the
-     exclusion is control flow, not luck.
-   - Both paths: prefix the telemetry reason with `play:<name>:` /
-     `reflex:` / `guard:` for trace.
+Deliberate attacker attribution — inferring "this enemy is shooting at that
+ally" from aim cones or damage timing — is explicitly left as future work.
 
-Reflexes and finalizer are the only shell-owned decision logic; everything
-between them is the play.
+The protection relation carries its own test list: one unambiguous threat;
+an ambiguous crossfire; stale tracks, with each side of the pair going stale
+independently; no observable threat at all; two nearby cogs on a single
+protected team (who must not read as threats to each other); two nearby
+protected teams (likewise); a genuine threat from an unlisted third team;
+and protection of the policy's own team, exercised through the teammate
+track container.
 
-### 4.4 The reflex layer (subscribed, above the play)
+Two bookkeeping rules complete the picture. The hand-built `Intent` that the
+orchestrator constructs on ticks when the cog is dead (`LAB:policy.nim:103`)
+stamps `combat = CombatPolicy()`, because the lab has already learned the
+hard way that every new `Intent` field must be stamped there too
+(`LAB:TENTATIVE_LESSONS.md:28-32`). And the parity requirement is absolute:
+with both sets empty, behavior must be bit-for-bit identical to today's,
+which the Phase 1 gate proves (§8).
 
-Reflexes are shell-implemented behaviors a play *delegates* via its
-`reflexes` set (§4.1) — subscription, not universal preemption, because a
-universal reflex-first ladder is a behavior change in disguise: today's
-ladder runs `carry_home` and the thief intercepts *before* grenade/spray
-clearing (`LAB:strategy.nim:349-374`), so a carrier inside grenade range
-carries home rather than fleeing, and reflex-first would silently invert
-that. The subscription model preserves both worlds:
+The test list for the whole mechanism (landing with the first play that
+exercises it, in Phase 4c, with the empty-policy control in Phase 1): an
+excluded cog standing between the shooter and a legitimate gun target; an
+excluded cog inside the spray cone next to a legitimate target; an excluded
+cog inside the grenade radius of a legitimate blast center; and a combat
+policy arriving while a grenade is already charging.
 
-- `clear_grenade` (`rxClearGrenade`) — radial escape from grenade warnings
-  (`LAB:strategy.nim:359-370`).
-- `clear_spray` (`rxClearSpray`) — the scored 16-direction flee under the
-  existing hysteresis latch (`LAB:strategy.nim:221-309`).
-- `zone_escape` (`rxZoneEscape`, BR only, new) — triggered on
-  **damage-imminent** (outside the rect with `dps > 0` live, or the shrink
-  putting the cog outside within a small tick horizon), NOT on mere edge
-  proximity — a rim-hugging play must not fight its own reflex. Shortest
-  validated route inside. Predictive zone work stays in plays.
+This is the one place where the design amends James's sentence "the
+`Intent`→action logic remains the same." The logic's order and machinery are
+unchanged; the contract gains one field that the machinery filters by. James
+has ratified the play's semantics — "not shoot anyone on that squad mates
+list … and also cover them" — and this is the minimal honest implementation
+of those semantics.
 
-**Reflex state is shell-owned and always current.** Reflexes with memory (the
-spray hysteresis latch, `LAB:strategy.nim:186-225`) keep it in an explicit
-`ReflexState` owned by the shell, not on Belief and not in any play's
-`PlayState`. Lifecycle: reset at episode edges; **the reflex observers update
-`ReflexState` every alive tick regardless of the active play's
-subscriptions** — subscription gates only whether a reflex may *preempt*, not
-whether it *observes*. That rule is what makes persistence real across a
-swap: a play change mid-flee finds the shell latch already active, because it
-never stopped watching (no state bridging from the legacy fields needed).
-Fixture: with the legacy default active, enter the hysteresis band
-(`sprayFleeActive` true), swap to a subscribed play, and assert the flee
-continues uninterrupted. Exception for parity: the **CTF legacy adapter**
-(§6.1 — a privileged shell path, not a play module) keeps using today's
-Belief latch fields exactly as the code does now (the shell observer writes
-only `ReflexState`, never Belief, and since the adapter runs with
-`reflexes = {}` semantics the observer never preempts, so parity is
-untouched); telemetry counters stay on Belief where they live today. The
-exception ends when P4 reworks CTF strategy.
+### 4.3 What happens each tick: guards, then the play, then the finisher
 
-Subscription policy: **new plays delegate everything applicable**
-(`{rxClearGrenade, rxClearSpray, rxZoneEscape}` on BR) so a play author never
-re-implements survival; **the CTF legacy adapter runs with `reflexes = {}`** and
-keeps grenade/spray clearing as its own rungs in their historical positions —
-which is what makes the P1 parity reduction exact: with `reflexes = {}`, the
-pipeline is (unconditional guards) + (the full old ladder) + (finalizer) =
-today's `decideObjective`, statement for statement. Adopting reflex
-delegation for CTF play is a P4-measured behavior change, never a refactor
-claim.
+Today, the orchestrator's decision station (`LAB:policy.nim:99-105`) calls
+`decideObjective` when the cog is alive and hand-builds a stay-put intent
+when it is dead. Under this design, the station becomes a fixed four-step
+pipeline.
 
-Everything else that is currently a rung — `barrage_center`, `carry_home`,
-item fetching, squad orders, posts — is play territory. The reflex enum is
-deliberately small; growing it is a design decision, not a convenience.
-Reflex preemption is visible in telemetry (`reflex:<name>`).
+**Step one — unconditional guards.** Two conditions preempt everything,
+exactly as they do today: the cog is dead (`not_alive`), or the world map
+has not been built yet (`no_worldmap`). These are prerequisites of any
+decision at all, and they are always the shell's job.
 
-### 4.5 The playbook registry and catalog
+**Step two — the subscribed reflexes.** The shell checks the emergency
+behaviors that the active play has *delegated* to it — §4.4 explains the
+delegation model. These run in a fixed order. If one fires, its `Intent`
+goes to the finisher and the play's `step` is not called this tick.
+
+**Step three — the play.** Otherwise, the active play's `step` runs and
+produces the tick's `Intent`.
+
+**Step four — the finisher.** A fixed shell step completes the `Intent`
+before it goes to the body. This step exists because two pieces of the
+current ladder's tail must keep happening and should not be every play
+author's responsibility — but it has to be *aware of where the intent came
+from*, because applying it blindly would change behavior Codex caught in
+review:
+
+- For an intent from a live play or reflex: the finisher applies the
+  spray-arc pursuit override exactly as today's post-ladder step does
+  (`LAB:strategy.nim:504-514`). This is shell-owned combat opportunism, and
+  a play opts out of it the same way today's behaviors do, by shaping its
+  intent's micro-permission set. The finisher then stamps the idle-aim
+  center (`LAB:strategy.nim:515`) — a field whose absence the body treats
+  as a bug and dereferences unconditionally (`LAB:action.nim:525-533`), so
+  the finisher owns it rather than trusting each play to remember.
+- For the dead-cog guard's intent: the pursuit override is *skipped*.
+  Today's dead branch never enters `decideObjective` at all
+  (`LAB:policy.nim:99-105`), so pursuit cannot run on a dead tick — that
+  exclusion is part of the current contract, not an accident, and the
+  finisher preserves it. The dead-tick intent receives exactly the fields
+  the current dead branch stamps, plus the new empty `CombatPolicy`. A test
+  pins this with deliberately hostile belief values (`iHaveArc` true, a
+  live spray target visible) to prove the exclusion is control flow, not
+  luck.
+- In both cases the finisher prefixes the telemetry reason with
+  `play:<name>:`, `reflex:<name>`, or `guard:<name>` so traces show who
+  actually decided.
+
+### 4.4 The reflex layer: emergencies a play can delegate to the shell
+
+A single play runs at a time, and a play might run for a long stretch
+between calls. Something has to guarantee that a cog does not die of simple
+negligence — standing in a grenade blast, ignoring a spray attack, getting
+caught by the shrinking zone — without every play author re-implementing
+survival. That something is the reflex layer: emergency behaviors
+implemented once, in the shell.
+
+The first design draft made reflexes universal — they always ran before the
+play. Codex's review showed that this quietly changes today's behavior:
+in the current ladder, carrying the flag home and intercepting a flag thief
+*outrank* grenade and spray evasion (`LAB:strategy.nim:349-374`). A carrier
+inside grenade range today keeps carrying; a universal reflex-first rule
+would make it flee instead. That is a gameplay change wearing a refactor's
+clothes.
+
+So reflexes are *subscribed*, not imposed. Each play declares, in its
+`reflexes` field, which emergencies it delegates to the shell. The three
+subscribable reflexes:
+
+- `rxClearGrenade` — escape radially from an incoming grenade warning
+  (today's logic at `LAB:strategy.nim:359-370`).
+- `rxClearSpray` — the scored sixteen-direction flee from spray attacks,
+  with its existing trigger/release thresholds (`LAB:strategy.nim:221-309`).
+- `rxZoneEscape` — Battle Royale only, and new. It triggers on *imminent
+  damage*: the cog is outside the zone rectangle while the zone is dealing
+  damage, or the shrink will put the cog outside within a short horizon of
+  ticks. It deliberately does not trigger on mere closeness to the edge — a
+  play whose whole strategy is hugging the zone rim must not fight its own
+  reflex. When it fires, it routes the cog to the nearest validated point
+  inside. Everything *predictive* about the zone — rotating early, guessing
+  the final circle — is play territory, not reflex territory.
+
+Reflexes that need memory keep it in an explicit `ReflexState` owned by the
+shell — not on `Belief`, and not inside any play's state. Its lifecycle: it
+resets at episode boundaries, and it **persists across play swaps,
+re-sent calls, and subscription changes**. More than that, the reflex
+*observers* — the code that watches for spray attacks and updates the
+trigger/release latch — run every living tick regardless of what the active
+play subscribed to. Subscription controls only whether a reflex may *seize
+control*, never whether it *watches*. This is what makes the persistence
+guarantee real: if the policy calls a new play in the middle of a spray
+flee, the new play's first tick finds the shell latch already active,
+because the shell never stopped watching. There is no state to hand over
+from anywhere. The test for this: with the legacy behavior active, enter the
+spray-flee condition, switch to a play that subscribes to `rxClearSpray`,
+and confirm the flee continues without a gap.
+
+One temporary exception exists for the sake of the compatibility proof. The
+legacy CTF behavior (§6.1) is served by a special adapter rather than a
+normal play, and that adapter's internal grenade/spray logic keeps using
+today's `Belief` latch fields exactly as the current code does. This is safe
+alongside the always-running shell observers because the observers write
+only to `ReflexState`, never to `Belief`, and because the adapter runs with
+an empty subscription set, so the observers never preempt it. The exception
+ends when Phase 4's strategy work retires the adapter.
+
+Everything else that is a behavior today — centering during a grenade
+barrage, carrying the flag, fetching items, squad orders, defensive posts —
+belongs to plays, not reflexes. The reflex enum is deliberately small.
+Adding to it is a design decision, never a convenience. Every reflex
+preemption is visible in telemetry with a `reflex:` prefix.
+
+### 4.5 The playbook registry, validation, and the catalog
+
+The playbook is one sequence, declared in one place:
 
 ```nim
-let Playbook*: seq[Play] = @[defaultPlay, avoidConflictPlay, ...]  # sole registration point
+let Playbook*: seq[Play] = @[defaultPlay, avoidConflictPlay, ...]
 ```
 
-- Names are the wire identity; renaming a play is a breaking change to any
-  stored call and is treated like a config-schema change.
-- Call validation is config-grade and fail-loud (`LAB:config.nim:7-51` is the
-  template): unknown play name, unknown/missing/ill-typed param, out-of-range
-  number, string outside `allowedStrings`, malformed team name, duplicate
-  team, non-finite number → the call is **rejected before it is proposed on
-  the wire** (mirrors `onepage.nim:1445-1451`), and the active play is
-  unchanged. At process start, an invalid startup call is FATAL (mirrors
-  `onepage.nim:1533-1546`). Parsing applies `default` for every omitted
-  optional param, so a `PlayParams` is always total over the schema.
-- **Catalog provenance (single source of truth, no skew):** the stencil binary
-  gains a `--print-catalog` mode that emits `{"catalog": …, "catalog_hash":
-  …}` to stdout and exits — `catalog` carrying names, schemas (defaults,
-  ranges, allowed values), and docs. The hash has a byte-exact
-  cross-language contract: **SHA-256, lowercase hex, over the UTF-8 bytes of
-  the canonical JSON serialization of the `catalog` value** — object keys
-  sorted, play/schema array order preserved as declared, shortest-round-trip
-  number formatting, no insignificant whitespace, no trailing newline; the
-  `catalog_hash` field is outside the hashed bytes by construction. A golden
-  fixture (one checked-in catalog byte string + expected digest, including
-  non-ASCII doc text and numeric defaults) is consumed by both the Nim and
-  app test suites. The app obtains a seat's catalog by executing **the exact
-  resolved seat binary** offline once per build (cached by binary hash) —
-  never from a checkout, a sibling file, or a separately versioned asset,
-  which would recreate the skew the handshake exists to close. App-side and
-  Nim-side validation consume the same serialized catalog; shared conformance
-  vectors cover omitted optionals, unknown keys, wrong JSON types, invalid
-  team names, duplicates, and non-finite/out-of-range numbers (§7.2).
+A play's `name` is its identity everywhere outside the binary — on the wire,
+in the lobby's catalog, and in saved replays. Renaming a play breaks every
+stored call that used the old name, so a rename is treated with the same
+gravity as changing a configuration schema.
 
-### 4.6 The swap state machine
+Validating an incoming call follows the lab's existing configuration
+discipline (`LAB:config.nim:7-51` is the model): every problem fails
+immediately with a specific error, and nothing is ever silently coerced. An
+unknown play name, a missing required parameter, a wrongly typed value, a
+number out of its declared range, a string outside its allowed set, a
+malformed or duplicated team name, a non-finite number — any of these causes
+the call to be **rejected before it is ever proposed on the wire**, mirroring
+the validate-before-send behavior of Maxwell's bot (`onepage.nim:1445-1451`),
+and the currently active play continues unaffected. At process startup the
+rule is harsher: a startup call that is *present but invalid* kills the
+process immediately (mirroring `onepage.nim:1533-1546`), because a bot that
+silently ignored its instructions would be worse than one that visibly
+failed. Parsing fills in the declared default for every omitted optional
+parameter, so a parsed `PlayParams` always contains a value for every
+parameter in the schema.
 
-Ported from onepage's propose/schedule/swap (`onepage.nim:1206-1339`), with
-one contradiction from rev 1 resolved:
+The lobby needs to know which plays a given bot binary actually supports,
+and the answer must come from the binary itself — any second copy of that
+information would eventually drift. So the stencil binary gains a
+`--print-catalog` mode: run with that flag, it prints one JSON document,
+`{"catalog": ..., "catalog_hash": ...}`, and exits. The catalog holds every
+play's name, its full parameter schema (defaults, ranges, allowed values),
+and its documentation lines. The hash exists so a JavaScript consumer and
+the Nim producer can verify they are looking at the same catalog, and it
+has a byte-exact contract: SHA-256, rendered as lowercase hex, over the
+UTF-8 bytes of the canonical JSON serialization of the `catalog` value —
+object keys sorted, arrays kept in declared order,
+shortest-round-trip number formatting, no insignificant whitespace, no
+trailing newline. The `catalog_hash` field sits outside the hashed bytes by
+construction. A golden fixture — one checked-in catalog byte string with its
+expected digest, including non-ASCII documentation text and numeric
+defaults — is consumed by both the Nim and the app test suites, so the two
+implementations of "canonical JSON" can never quietly disagree.
 
-- One mutation point: the active `(Play, PlayState)` pair changes only in the
-  `maybeApplyReflash` equivalent.
-- Startup call arrives via env (`COWORLD_POLICY_PAGE` inline /
-  `COWORLD_POLICY_PAGE_FILE` path — names kept, §3.1); it is **proposed on
-  the wire at the playing edge** so the replay records the opening play (the
-  determinism ruling in `onepage.nim:1210-1223`, adopted verbatim).
-- **Absence is a compatibility case, not an error** (unlike onepage's
-  fatal-on-missing, `onepage.nim:1268-1278`, which would break every existing
-  stencil launcher — plain `stencil.nim:95-99` startup, the no-chat app spawn
-  that omits page env (`PBP:origin/maxwell/lobby-chat:server/matchd.mjs:400-412`),
-  and `self_play.py`): a missing env synthesizes the canonical raw
-  `{"play":"default","params":{}}`, validates it, and proposes it on-wire at
-  the playing edge like any other startup call — so the replay still records
-  the opening play. A **present-but-invalid** value remains FATAL at process
-  start. (`self_play.py`'s env allowlist additionally learns to pass
-  `COWORLD_POLICY_PAGE*` through, `LAB:tools/self_play.py:33-42` — §12.)
-- **Bootstrap rule (the built-in default first; env bytes only via the
-  wire).** Before the WorldMap exists there is no active `PlayState` — the
-  `no_worldmap` guard answers every tick, as rung 0 does today. At the first
-  completed WorldMap build the shell fixes `GameMode` (§6.1) and runs `init`
-  exactly once for the **canonical built-in default — always**, regardless of
-  what the env carries. The env-provided startup raw (already
-  catalog-validated at process start) then travels the one road every call
-  travels: proposed on the wire at the playing edge, through
-  `acceptCallEvent` — if canonical default, it is the documented reassertion
-  (observed, no re-`init`); if different, it schedules normally and
-  activates only in the `maybeApplyReflash` equivalent at `T_effect`. This
-  preserves the sole-mutation-point rule and the replay contract: the first
-  world-ready decisions are the built-in default's, and no decision ever
-  depends on env bytes replay has not consumed from the wire (the exact
-  ruling onepage encodes, `onepage.nim:1206-1222,1280-1317`). Fixtures: CTF
-  and BR startup covering WorldMap creation, the pre-call ticks,
-  canonical-default reassertion, and a **non-default startup call** whose
-  first world-ready tick is still default, whose `T_effect` tick switches,
-  and whose replay diverges when the outbound record is dropped.
-- Swap boundary: `T_effect = T_req + max(1, fireWindupRemaining)` computed
-  once, using stencil's real windup state (`fireHoldTicks`,
-  `LAB:action.nim:424-432`) rather than onepage's local estimate. `init` runs
-  at the swap tick; the old play's state is dropped.
-- **Reassertion contract (rev-1 fix).** Two raws are tracked separately:
-  `pendingRaw` (a candidate delivered but not yet sent) and `activeRaw` (the
-  call behind the running play). Duplicate-suppression applies only to
-  `pendingRaw` — the same candidate delivered twice before sending is sent
-  once. A delivered call whose raw equals `activeRaw` is a **deliberate
-  reassertion**: it IS sent on the wire (so the engine accepts it and
-  increments the epoch — the exact lost-repeated-event detectability the
-  engine's epoch exists for, `sim_state.nim:347-385` +
-  `sim_types.nim:1900-1908`), and locally it is a state-preserving no-op: no
-  `init`, `PlayState` intact. A call with the same play but different params
-  is a normal swap (state reset). "Re-call to reset state" is therefore not a
-  thing; if a play needs a reset knob, its author adds a param.
-- **One transition for live and replay:** both feed
-  `acceptCallEvent(raw, requestTick)` — if `raw == activeRaw`, the event is
-  observed (wire-visible, logged) but schedules nothing and runs no `init`;
-  otherwise the normal swap is scheduled. `replay.nim` calls the same
-  function from captured outbound records (§8), so a reassertion cannot
-  reset state in replay while preserving it live.
-- Mid-episode trigger: a `pendingCall` hook checked each frame (the
-  `pendingProposal` pattern, `onepage.nim:1445-1462`), fed by the file-watch
-  stand-in for local dev; the real delivery lane plugs in here (non-goal).
+### 4.6 When a play call actually takes effect
 
-## 5. What is reused, byte-for-byte
+The mechanics of receiving and applying a call are ported from Maxwell's
+bot, whose propose/schedule/swap machinery was already reviewed and ratified
+on his side (`onepage.nim:1206-1339`). The rules, including two that came
+out of this design's own review rounds:
 
-| Piece | Where | Status under this design |
+**There is exactly one mutation point.** The active pair — the play and its
+state — changes in exactly one function, the equivalent of Maxwell's
+`maybeApplyReflash`. Nothing else ever touches it.
+
+**The startup call arrives by environment variable, but takes effect only
+through the wire.** The variables keep Maxwell's names:
+`COWORLD_POLICY_PAGE` for an inline JSON value, `COWORLD_POLICY_PAGE_FILE`
+for a file path. If neither is set, that is not an error — unlike Maxwell's
+bot, which dies without a page (`onepage.nim:1268-1278`), stencil has
+existing launch paths that set no such variable (plain startup at
+`LAB:stencil.nim:95-99`, the app's no-chat spawn, and `self_play.py`, whose
+environment allowlist will also learn to pass these variables through —
+`LAB:tools/self_play.py:33-42`). A missing variable simply synthesizes the
+canonical default call, `{"play":"default","params":{}}`.
+
+**Startup, in order.** Before the world map exists there is no active play
+state at all; the `no_worldmap` guard answers every tick, just as the
+ladder's first rung does today. When the first world-map build completes,
+the shell fixes the game mode (§6.1) and initializes **the built-in default
+play — always**, regardless of what the environment variable says. The
+environment-provided call (which was validated at process start) then
+travels the same road every call travels: it is proposed on the wire at the
+moment the match starts playing, flows through `acceptCallEvent` (below),
+and — if it differs from the default — takes effect at its scheduled tick
+like any mid-match call. This indirection is not ceremony. An environment
+variable is invisible to a replay; if it changed behavior directly, a
+replayed match would be missing an input and could not reproduce the game.
+Maxwell's bot encodes exactly this ruling (`onepage.nim:1206-1222,1280-1317`),
+and this design keeps it: the first world-ready decisions are the built-in
+default's, and no decision ever depends on bytes that the replay has not
+consumed from the wire. The startup fixtures cover both game modes and walk
+the whole sequence: world-map creation, the ticks before any call has
+landed, acceptance of the canonical default as a re-assertion, and a
+non-default startup call — for which the first world-ready tick still runs
+the default, the scheduled tick switches, and deleting the call's wire
+record makes the replay diverge.
+
+**A new play takes effect after your own trigger is clear.** The moment of
+effect is computed once, when the call is accepted:
+`T_effect = T_request + max(1, ticks remaining on the current fire
+wind-up)`. In plain terms: never swap your own strategy out from under your
+own pulled trigger. Stencil computes this from its real wind-up state
+(`fireHoldTicks`, `LAB:action.nim:424-432`) — better information than the
+local estimate Maxwell's bot has to use. The new play's `init` runs at the
+effect tick, and the old play's state is discarded.
+
+**Re-sending the same call is meaningful, and it does not reset anything.**
+Two remembered values make this work: the raw bytes of the call currently
+*pending* (delivered but not yet sent), and the raw bytes of the call behind
+the *active* play. Duplicate suppression applies only to the pending slot —
+if the same candidate is delivered twice before it goes out, it is sent
+once. But a delivered call whose bytes equal the active call is a
+*deliberate re-assertion*, and it IS sent on the wire. The engine counts
+every accepted flash — even an identical one — in a counter it folds into
+the game's integrity hash, precisely so that a lost repeated event is
+detectable (`sim_state.nim:347-385`, `sim_types.nim:1900-1908`); swallowing
+re-assertions locally would defeat that. On the bot side, a re-assertion is
+a state-preserving no-op: no `init`, state intact. A call with the same play
+but different parameters is an ordinary swap, with a state reset.
+Consequently "re-call the play to reset it" is not a thing; a play that
+wants a reset knob declares a parameter for it.
+
+**Live play and replay share one code path.** Both feed the same transition
+function, `acceptCallEvent(raw, requestTick)`: bytes equal to the active
+call → the event is observed (logged, visible on the wire) but schedules
+nothing and initializes nothing; different bytes → a normal scheduled swap.
+The replay reader calls this same function when it encounters a recorded
+call (§8), which is what makes it impossible for a re-assertion to preserve
+state live but reset it in replay.
+
+**The mid-match hook.** A `pendingCall` slot is checked every frame — the
+same pattern as Maxwell's `pendingProposal` (`onepage.nim:1445-1462`). For
+local development it is fed by the file-watching stand-in; the real delivery
+channel, when it is built, plugs into this slot and nothing else.
+
+## 5. What is reused without modification
+
+The table below is the reuse ledger. Everything marked "unchanged" is code
+this design depends on and does not touch.
+
+| Piece | Where it lives | Status under this design |
 |---|---|---|
-| Reflash wire (0x86 + `PolicyPageMagic`) | `origin/maxwell/br-reflash-integration:src/ctf/labels.nim:602-636` | unchanged; payload is opaque |
-| Gate / acceptance / 60 KB cap | `sim_state.nim:347-385` | unchanged |
-| Replay record + hash + epoch + playback re-apply | `replays.nim:272-357,582-602` | unchanged |
-| Tick-boundary inbox drain | `server.nim:86-93,2327-2344` | unchanged |
-| Pre-round chat phase (bounds, sequencing, fallback discipline, records) | `PBP:origin/maxwell/lobby-chat:server/preround.mjs` | reused; one step swapped (§7.1) |
-| Spawn env delivery (`pageEnv`) | `PBP:origin/maxwell/lobby-chat:server/matchd.mjs` | unchanged (call JSON starts with `{` → inline var) |
-| Deferred boot (`finishBooting`) | same | unchanged |
-| Stencil body: planner, follower, corridor, micro, resolution order | `LAB:` | unchanged |
-| Stencil `Intent` + combat paths | `LAB:types.nim`, `action.nim`, `fight.nim` | **extended, not redesigned**: the `CombatPolicy` field + its filters (§4.2); empty-policy behavior bit-identical |
-| Base engine branch | `origin/maxwell/br-season2-complete` | the integration substrate |
+| The reflash wire format (the `0x86` message type with the `"CTFPOLICYPAGE1\n"` prefix) | `origin/maxwell/br-reflash-integration:src/ctf/labels.nim:602-636` | unchanged — the payload is opaque bytes to it |
+| The engine's acceptance gate and 60 KB size cap | `sim_state.nim:347-385` | unchanged |
+| The replay record, content hash, flash counter, and replay-time re-application | `replays.nim:272-357,582-602` | unchanged |
+| The engine's rule that inputs are applied only at tick boundaries | `server.nim:86-93,2327-2344` | unchanged |
+| The pre-round chat phase — its time limits, turn order, and never-fail fallback behavior | `PBP:origin/maxwell/lobby-chat:server/preround.mjs` | reused; one step is replaced (§7.1) |
+| Delivery of the startup payload through environment variables at spawn | `PBP:origin/maxwell/lobby-chat:server/matchd.mjs` | unchanged — a play call is JSON starting with `{`, which already routes to the inline variable |
+| The deferred match boot that waits for the chat phase | same | unchanged |
+| Stencil's body: the planner, the movement follower, the corridor rule, micro-movement, and the order of `resolveAction` | `LAB:` | unchanged |
+| Stencil's `Intent` type and combat code | `LAB:types.nim`, `action.nim`, `fight.nim` | **extended, not redesigned**: the `CombatPolicy` field and its filters (§4.2); with the field empty, behavior is bit-identical |
+| The engine branch this all builds on | `origin/maxwell/br-season2-complete` | the integration base |
 
-What this design **retires**: both page languages (`policy_page.nim` VM +
-`policy_stub.nim` rows), their reconciliation problem, the evaluate-all purity
-refactor, and per-tick selection hysteresis.
+And the list of things this design makes unnecessary: both of Maxwell's page
+languages (the expression VM and the row-of-weights placeholder), the work
+of reconciling them, the refactor that would have been needed to score all
+behaviors side-effect-free every tick, and the anti-flicker machinery a
+per-tick scorer would have required.
 
 ## 6. The play library
 
-### 6.1 The default play
+### 6.1 The default play, and how the game mode is decided
 
-`default` — required, parameterless, and the parity anchor. The CTF legacy
-behavior is **not a play module**: today's ladder is mutation-heavy far
-beyond any read-only `PlayView` contract — it clears squad-post fields, runs
-consensus, flips latches, and bumps counters on Belief
-(`LAB:strategy.nim:329-405,425-480`) — so pretending it is a normal play
-would either break parity or force a mutating "query" export every play
-could then call (Codex round-6 finding 1). Ruling: the `default` wire
-identity dispatches on `GameMode` to two implementations —
-- `gmCtf` → a **privileged parity adapter in the shell** (not under
-  `plays/`, not subject to the import allowlist) that invokes today's
-  `decideObjective(Belief)` path unchanged: full historical ladder order,
-  grenade/spray clearing internal, `reflexes = {}` semantics, every Belief
-  write exactly as now. Because `decideObjective` already contains the
-  arc-pursuit override and the idle-aim stamp (`LAB:strategy.nim:502-515`),
-  **the adapter's result bypasses the finalizer's behavioral steps** (only
-  the telemetry tag is applied) — running arc pursuit a second time on its
-  own output would double-fire the pursuit counter and break parity. It is
-  the *sole* mutation exception and exists only for the parity anchor.
-  **Its retirement is a future design, not a promise of this one**: P4a
-  replaces only the roles/posture slice; the other privileged Belief writes
-  (spray latches, consensus/order state, conversion state, counters) remain
-  behind the adapter until a dedicated CTF strategy-rework design migrates
-  them into `PlayState`/shell operations with its own baseline — explicitly
-  out of scope here. Tests: a compile check that no module under `plays/`
-  has mutation privilege, and a parity test pinning the adapter as the only
-  exception.
-- `gmBr` → `plays/survive_default.nim`, a **normal read-only play** written
-  to the real contract from day one. **Its behavior arrives in two steps**:
-  until P4b it is a deliberately behavior-neutral placeholder — a validated
-  Hold at position (reason `play:default:br_hold`), no subscribed reflexes,
-  empty state — created with the seam in P1 so the P2/P3 BR binaries compile,
-  boot, and give the hosted round-trip a stable, named baseline; its catalog
-  doc says "placeholder". P4b then replaces its body with the real `survive`
-  behavior (predictive zone rotation + cover hold + partner proximity) as
-  the one measured change, wire identity unchanged.
+Every playbook must contain a play named `default`. It takes no parameters,
+and it is the play a bot runs when nothing has told it otherwise. It is also
+the anchor for the compatibility proof, which forces an honest split in how
+it is implemented, because "default behavior" means different things in the
+two game modes.
 
-The CTF adapter keeps **the Role machinery intact**: role-keyed rungs,
-role-keyed target scoring, and the orchestrator's assignment block stay as-is
-(`LAB:strategy.nim:404-420,480-491`, `LAB:fight.nim:150-160,239-250`,
-`LAB:policy.nim:55-98`). Byte-identical decisions to the pre-play shell,
-provable on the recorded-wire corpus (§8, gate 1). Role *deletion* is a
-separate, behavior-changing phase with its own acceptance (§9, P4) — parity
-and deletion cannot share a phase (rev-1 finding 4; the replacement
-division-of-labor mechanism is itself the open design question the lab
-directive names, `LAB:WORKING_CONTEXT.md:135-154`).
+**In classic CTF, the default is not a play module at all.** Today's
+decision ladder is deeply entangled with `Belief` — it clears squad-order
+fields, runs the consensus protocol, flips latches, and bumps counters as it
+evaluates (`LAB:strategy.nim:329-405,425-480`). No read-only `PlayView`
+contract can express that, and Codex's review made the choice stark: either
+break the compatibility promise, or export a mutating "query" that every
+play could then abuse. The design does neither. The `default` name, when the
+game mode is CTF, dispatches to a **privileged adapter inside the shell** —
+not under `plays/`, not subject to the import allowlist — which simply
+invokes today's `decideObjective(Belief)` unchanged: the full historical
+ladder, in its historical order, grenade and spray evasion in their
+historical positions, every `Belief` write exactly as now. Because
+`decideObjective` already contains the pursuit override and the idle-aim
+stamp (`LAB:strategy.nim:502-515`), the adapter's result skips the
+finisher's behavioral steps — only the telemetry tag is applied — since
+running the pursuit override a second time on its own output would
+double-count and break the proof. The adapter is the sole exception to the
+mutation boundary, and it exists only to make "the refactor changed
+nothing" provable. Two tests pin it: a compile-level check that no module
+under `plays/` has any mutation privilege, and a parity test confirming the
+adapter is the only exception. As for retiring it: that is a *future*
+design's job, stated honestly. Phase 4a replaces only the role/posture
+slice of the ladder; the rest of the privileged writes — spray latches,
+consensus state, conversion state, counters — stay behind the adapter until
+a dedicated CTF strategy redesign migrates them properly, with its own
+baseline. This document does not promise that work.
 
-On BR (post-preconditions) the default's *behavior* is `survive`: predictive
-zone rotation + cover hold + partner proximity — the "do no harm" baseline a
-fallback call can always name (§7.1's never-null rule needs it).
+**In Battle Royale, the default is a normal play**,
+`plays/survive_default.nim`, written to the real read-only contract from its
+first line. Its behavior arrives in two steps. Until Phase 4b it is a
+deliberately inert placeholder: a validated hold-position intent (telemetry
+reason `play:default:br_hold`), no reflex subscriptions, empty state. The
+placeholder exists so the Phase 2 and Phase 3 Battle Royale binaries can
+compile, boot, and give the end-to-end test a stable, named baseline; its
+catalog documentation says "placeholder" in so many words. Phase 4b then
+replaces its body with the real survival behavior — rotate ahead of the
+shrinking zone, hold cover, stay near the partner — as a single measured
+change, with the wire name `default` never changing. This ordering exists
+because the lab's evaluation discipline requires one attributable change
+per version; shipping the placeholder and the survival logic together with
+the plumbing would make regressions unattributable.
 
-**Mode dispatch is explicit, not inferred per tick.** The shell context
-carries a `GameMode` (`gmCtf | gmBr`), fixed once per episode **at WorldMap
-build completion**: endzones perceived by then → `gmCtf`, none → `gmBr` (BR
-maps author no endzones, "not even INERT ones" —
-`origin/maxwell/br-integrate:src/ctf/sim_types.nim:1309-1311`; P2 changes the
-build gate to not *require* endzones). This is timing-safe by construction:
-no play decision precedes the WorldMap (the `no_worldmap` guard holds until
-it exists), so no play ever runs with mode undetermined. `default` stays one
-wire identity and one `PlayKind`; **the shell's activation step dispatches on
-`GameMode`** — `gmCtf` to the privileged adapter, `gmBr` to
-`plays/survive_default.nim`'s normal `init`/`step` (above). Both startup
-paths are tested. `GameMode` is exposed to all plays via `PlayView`.
+**How the mode is decided.** The shell context carries a `GameMode` value —
+`gmCtf` or `gmBr` — fixed once per episode at the moment the world-map
+build completes. The rule is simple and observable: if endzones were
+perceived by the time the map is built, the mode is CTF; if none were, it
+is Battle Royale. Battle Royale maps author no endzones at all — the engine
+forbids even inert ones
+(`origin/maxwell/br-integrate:src/ctf/sim_types.nim:1309-1311`) — and Phase
+2's perception work changes the map-build trigger so that it no longer
+*requires* endzones. The timing works out by construction: no play decision
+ever happens before the world map exists (the `no_worldmap` guard sees to
+that), so no play ever runs with the mode undetermined. The `default` name
+remains a single entry in the registry; the shell's activation step reads
+the mode and dispatches — CTF to the adapter, Battle Royale to the
+survive play. Both startup paths are covered by fixtures, and every play
+can read `GameMode` from its `PlayView`.
 
-### 6.2 v1 BR plays (small on purpose)
+### 6.2 The first Battle Royale plays
 
-Schema notation: `name: kind (required | default=X) [constraints]`.
+The starting library is deliberately small: the default plus three plays.
+The library grows through the optimization loop, not through this document.
+Parameter notation: `name: type (required, or its default) [constraints]`.
 
-1. **`avoid_conflict`** — James's motivating example.
-   - `no_shoot_teams: TeamList (required)` — teams never targeted (gun, spray,
-     grenade), via `Intent.combat.noShootTeams` (§4.2).
-   - `protect: bool (default=false)` — when true, listed teams also populate
-     `combat.protectTeams`, and positioning biases toward listed cogs under
-     threat.
-   - Behavior: route along the safe interior of the current/next zone rect
-     preferring cover (planner danger weights + post atlas,
-     `LAB:planner.nim`, `LAB:worldmap.nim:792-861`); combat policy as above.
-2. **`zone_rotate`**
-   - `earliness: number (default=0.5) [0..1]` — rotate at phase edge vs. late.
-   - `route_bias: string (default="cover") [allowed: "cover", "direct"]`.
-   - Predictive rotation into `zonenext`; salvages `barrageGoal`'s room-peak
-     scorer restricted to the next rect, per BR_LADDER's suggestion.
-3. **`third_party`**
-   - `min_advantage: number (default=1.0) [0..3]` — required HP/engagement
-     advantage before committing.
-   - `disengage_hp: number (default=1.0) [0..3]` — break off at/below.
-   - Fight-detection → flank approach → disengage below threshold.
+**`avoid_conflict`** — James's motivating example.
 
-Parameter count per play is the author's choice — that is the design's point:
-`avoid_conflict` exposes two knobs; a future `tempo` play might expose ten.
+- `no_shoot_teams: TeamList (required)` — the teams this cog must never
+  fire at, with any weapon. Implemented through
+  `Intent.combat.noShootTeams` (§4.2).
+- `protect: bool (default = false)` — when true, the listed teams also
+  populate `combat.protectTeams`, and the play positions the cog to cover
+  listed cogs that come under threat.
 
-## 7. App-side integration (coworld-paintbot-player)
+The play routes the cog along the safe interior of the current and next
+zone rectangles, preferring positions with cover — this composes the
+existing planner's danger weighting with the firing-position atlas
+(`LAB:planner.nim`, `LAB:worldmap.nim:792-861`) — while the combat policy
+handles the weapons side.
 
-### 7.1 Pre-round: page generation becomes play calling
+**`zone_rotate`**
 
-The phase machinery is untouched (2 rounds, 30 s budget, 12 s turns, 500-char
-replies, sequential, fully open). The delta is the generation step
-(`preround.mjs:377-413`):
+- `earliness: number (default = 0.5) [0..1]` — rotate at the moment the
+  next zone is announced (1) versus as late as survivable (0).
+- `route_bias: string (default = "cover") [allowed: "cover", "direct"]`.
 
-- CLI subcommand `page` → **`call`**: input gains the seat's **catalog JSON**
-  (§4.5); output is `{ok, call: {play, params}}`. The prompt is the catalog +
-  the chat transcript + a brief, replacing `SCHEMA.md`/`prompt.md` as the
-  template source (`loadPagePromptTemplate`, `preround.mjs:230-248`).
-- Validation loop unchanged in shape: an invalid call (checked against the
-  same serialized catalog with the same conformance rules) retries with
-  errors appended, ≤3 attempts; **a call is never null** — every failure
-  falls back to the canonical `{"play":"default","params":{}}` with the
-  existing `source`/`reason` taxonomy (`preround.mjs:389-450`). **Canonical
-  shape everywhere:** a missing top-level `params` is *normalized* to `{}`
-  before proposal (never rejected) by every producer — normalization rather
-  than rejection because raw byte equality is the reassertion identity
-  (§4.6), and two spellings of the same default must not read as a
-  state-resetting swap. Conformance vector included; the app fallback raw is
-  asserted byte-equal to the shell's canonical default raw.
-- The Page record's `page` field carries the call object; records stay
-  per-seat (a duo runs two calls, possibly the same one).
+Predictive rotation into the next zone rectangle. Its goal scoring salvages
+an existing piece of machinery: the barrage-centering room scorer, restricted
+to rooms inside the upcoming rectangle — a reuse BR_LADDER specifically
+recommends.
 
-### 7.2 The catalog handshake (concrete)
+**`third_party`**
 
-- Build side: `--print-catalog` on the stencil binary (§4.5) is the only
-  catalog source. `LAB:tools/build_player.sh` runs it as a build gate (a
-  binary that cannot print its catalog fails the build).
-- App side: seat-binary resolution (`PBP:server/engine.mjs`'s
-  `enginePaths().bots` path) gains a **bounded catalog probe** in
-  `matchd`/`preround`: execute the resolved binary with `--print-catalog`
-  once per build, under a short deadline (2 s, then SIGKILL — a legacy binary
-  that ignores the flag enters its connect/retry loop and must be killed, not
-  awaited), stdout/stderr capped (256 KB), requiring exactly one JSON
-  document whose embedded catalog hash recomputes. The result is a
-  per-binary **capability**: catalog-capable or not, cached by content hash.
-- Capability gating: only catalog-capable builds participate in call
-  generation and delivery. A non-capable build (today's `baseline`,
-  `picasso`, `onepage` — `PBP:origin/maxwell/lobby-chat:server/engine.mjs:77-123`)
-  gets **no call env at all** — its spawn environment is exactly what it is
-  today (`matchd.mjs:400-412` already omits page env when no page) — and the
-  phase records `source: fallback_unavailable` with a reason naming the
-  binary. `{play:"default"}` is never delivered to a binary whose missing
-  catalog is the evidence it doesn't speak this contract. The phase never
-  stalls (the preround "never throws" discipline, `preround.mjs:286-287`).
-- Tests: two builds receive their own catalogs (anti-skew), plus fake-binary
-  fixtures for hang (deadline kill), oversized output, invalid JSON, bad
-  hash, and legacy no-catalog behavior.
+- `min_advantage: number (default = 1.0) [0..3]` — the health/engagement
+  advantage required before committing to crash someone else's fight.
+- `disengage_hp: number (default = 1.0) [0..3]` — break off at or below
+  this health.
 
-### 7.3 Mid-episode
+Detect a fight between two other parties, approach on a flank, and leave
+when the numbers stop being favorable.
 
-`recordMidEpisodePage` gains its caller when the delivery lane is built; the
-record shape (`{pos, slot, tick, page→call, source, reason}`) is already
-right. Out of scope here beyond noting the shell hook (§4.6) it will call.
+The number of knobs per play is the author's choice, and that is the point
+of the whole design: `avoid_conflict` exposes two, and some future
+tempo-control play might expose ten.
+
+## 7. Integration with the match app (coworld-paintbot-player)
+
+### 7.1 The pre-round phase calls a play instead of writing a page
+
+The chat phase machinery does not change: two rounds of open conversation,
+a thirty-second budget for the whole phase, twelve seconds per turn,
+replies capped at five hundred characters, every seat hearing every seat.
+The one step that changes is generation — the moment where, today, the
+phase asks an LLM to *write a page* for each seat
+(`preround.mjs:377-413`).
+
+Under this design, the CLI's `page` subcommand becomes a `call` subcommand.
+Its input gains the seat's play catalog (§4.5); its output is
+`{ok, call: {play, params}}`. The prompt shown to the LLM becomes the
+catalog — play names, parameter schemas, documentation — plus the chat
+transcript and a briefing, replacing the page-language schema documents as
+the prompt source (`loadPagePromptTemplate`, `preround.mjs:230-248`).
+
+The validation loop keeps its current shape: a call that fails validation
+(checked against the same serialized catalog, with the same conformance
+rules the bot itself applies) is retried with the errors appended to the
+conversation, up to three attempts. And the phase's cardinal rule holds: **a
+seat always ends up with a call.** Every failure mode — no API key, a
+timeout, three invalid attempts, a crashed CLI, the phase not running at
+all — falls back to the canonical default call with the existing
+`source`/`reason` bookkeeping (`preround.mjs:389-450`).
+
+One canonical spelling, everywhere. The fallback, the prompt examples, and
+the bot all use exactly `{"play":"default","params":{}}`. A call whose
+top-level `params` key is missing is *normalized* to include the empty
+object before it is proposed — normalized rather than rejected, because raw
+byte equality is what identifies a re-sent call (§4.6), and two spellings
+of the same default must never read as a state-resetting change of play.
+This case is in the shared conformance vectors, and a test asserts the app's
+fallback bytes equal the shell's canonical default bytes exactly.
+
+Play calls remain per-seat, exactly as pages are per-seat today. A duo is
+two seats and two calls, which may or may not name the same play.
+
+### 7.2 How the lobby learns what a binary can do
+
+The only source of truth about a binary's playbook is the binary. The app
+obtains a seat's catalog by *executing the exact resolved seat binary* with
+`--print-catalog`, once per build, caching the result keyed by the binary's
+content hash. It never reads a catalog from a checkout, a sibling file, or
+any separately versioned asset — every one of those alternatives can drift
+from the binary it claims to describe, and drift is precisely the failure
+this handshake exists to prevent.
+
+The probe is strictly bounded, because not every binary will cooperate. A
+legacy binary that does not know the flag will ignore it and enter its
+normal connect-and-retry loop; the probe therefore runs under a two-second
+deadline and then kills the process, caps stdout and stderr at 256 KB,
+requires exactly one JSON document, and recomputes the embedded catalog
+hash. The outcome is a per-binary capability: this build can describe its
+plays, or it cannot.
+
+Capability gates everything downstream. Only catalog-capable builds
+participate in call generation and delivery. A build that is not capable —
+which today means all of them: `baseline`, `picasso`, and Maxwell's
+`onepage` (`PBP:origin/maxwell/lobby-chat:server/engine.mjs:77-123`) — gets
+**no call environment variable at all**. Its spawn environment is exactly
+what it is today (the current code already omits the page variable when
+there is no page, `matchd.mjs:400-412`), and the phase records the seat as
+`fallback_unavailable` with a reason naming the binary. The design pointedly
+does *not* send `{"play":"default"}` to such a binary: the missing catalog
+is the evidence that the binary does not speak this contract, and handing it
+instructions anyway would be a guess. The phase never stalls in any of
+these cases, per its existing never-throw discipline
+(`preround.mjs:286-287`).
+
+The test suite for this includes two builds receiving their own distinct
+catalogs (the drift case), and fake binaries that hang (deadline kill),
+print oversized output, print invalid JSON, embed a wrong hash, and predate
+the flag entirely.
+
+### 7.3 Mid-match calls
+
+When the mid-match delivery channel is eventually built, the app-side
+bookkeeping function `recordMidEpisodePage` finally gains its caller, and
+its record shape — position, slot, tick, the call, source, reason — is
+already right. On the bot side, the channel feeds the `pendingCall` hook
+and nothing else (§4.6). Everything in between is out of scope here.
 
 ## 8. Determinism and validation
 
-**Call events have one source of truth in a capture: the outbound wire.**
-Every proposed call is an outbound `0x86` magic-prefixed frame, present in
-wire captures (`STENCIL_WIRE_RECORD`, `LAB:stencil.nim:10-28`). The replay
-side must *consume* them, which it does not today: `replay.nim` processes
-inbound packets only (`LAB:replay.nim:47-56`), and `compare_stencil.py`
-passes only `(wire path, slot)` (`LAB:tools/compare_stencil.py:81-107`).
-Both are in scope (rev-1 finding 7):
+The validation story rests on one principle: **in any recorded game, the
+stream of play calls has exactly one source of truth — the outbound wire.**
+Every proposed call, including the startup call, is an outbound `0x86`
+frame with the magic prefix, and the lab's wire recorder captures outbound
+frames already (`STENCIL_WIRE_RECORD`, `LAB:stencil.nim:10-28`).
 
-- `replay.nim` learns the outbound call records: on encountering one after
-  decision tick N, it feeds the same `acceptCallEvent(raw, requestTick)`
-  transition the live path uses (§4.6) — a differing raw schedules the swap
-  under the same `T_effect` rule from the replayed action-state windup; a
-  reassertion is observed without scheduling or `init`, so a stateful play's
-  state survives in replay exactly as it does live. Startup call included
-  (it is on the wire at the playing edge). Capture-time env
-  (`COWORLD_POLICY_PAGE*`) is thereby *not* a second source of call truth
-  for replay; it remains part of capture identity only for process-start
-  validation. Fixtures: a stateful-play reassertion whose state must not
-  reset, and a negative control that incorrectly resets and must diverge.
-- `compare_stencil.py` compares, in addition to mask+chat, the specialized
-  Intent fields that parity gate 1 asserts (profile, micro, radii, combat) —
-  mask-only parity can mask a lost flag (rev-1 finding 2's tail).
+What does not exist yet is the consuming side, and Codex's review flagged
+both gaps precisely. The offline replay tool processes only inbound packets
+today (`LAB:replay.nim:47-56`), and the comparison script passes it only a
+capture path and a seat number (`LAB:tools/compare_stencil.py:81-107`).
+Both are in scope for this design:
 
-**Parity gates,** in order:
-1. *Refactor parity (P1):* shell with plays compiled in, `default` play
-   active, roles intact, CTF corpus → exact mask+chat+field parity with v69.
-2. *Swap determinism (P3):* replay a capture containing mid-episode swaps
-   twice → identical; **negative controls**: drop the call records →
-   divergence; shift them one tick → divergence (the paired-negative-control
-   discipline from `tests/test_policy_reflash.nim`, copied deliberately).
-3. *Hosted round-trip (P3):* the `tools/roundtrip_reflash_match.sh` pattern
-   against a `br-season2-complete` server with a stencil seat, gate on +
-   gate-off control.
+- `replay.nim` learns to consume the outbound call records. When it
+  encounters one after decision tick N, it feeds the very same
+  `acceptCallEvent(raw, requestTick)` function the live path uses (§4.6). A
+  call that differs from the active one schedules a swap under the same
+  effect-tick rule, computed from the replayed wind-up state; a re-sent
+  identical call is observed without scheduling or re-initializing, so a
+  play's accumulated state survives in replay exactly as it does live. The
+  startup call needs no special handling, because it is on the wire like
+  everything else. Capture-time environment variables are therefore *not* a
+  second source of call truth for replay; they matter only for validating
+  process startup. Two fixtures pin the semantics: a play with real
+  internal state that receives a re-assertion and must not reset, and a
+  deliberately broken variant that does reset and must visibly diverge.
+- `compare_stencil.py` learns to compare more than the output mask and chat.
+  The Phase 1 gate asserts the specialized `Intent` fields too — cost
+  profile, micro-permissions, radii, combat policy — because a comparison of
+  masks alone can hide a lost flag that only matters in rare situations.
 
-## 9. Prerequisites and sequencing
+The acceptance gates, in the order they are earned:
 
-- **P0 — time the WorldMap build on a BR-scale map** before anything else
-  (BR_LADDER §7 item 6, OPEN): 3211×1713 ≈ 6.9× CTF area, built in one tick
-  (`LAB:policy.nim:39-50`, `LAB:worldmap.nim:173-209`). A first-frame stall
-  here re-scopes P2.
-- **P1 — the play seam on CTF, behavior-preserving**: the module graph of
-  §4.1 (`play_contract`/`play_queries`/`play_registry`/`plays.nim` shell;
-  compiling two-play feasibility proof + compile-negative fixtures), catalog
-  mode, reflex observers/finalizer (`IntentShape` migration of `makeIntent`),
-  `CombatPolicy` threading with empty-policy parity, the **CTF parity
-  adapter** wired as `default`'s `gmCtf` dispatch (legacy ladder untouched in
-  `strategy.nim`), the BR placeholder `survive_default`, swap machinery, env
-  load, `replay.nim` + comparator extensions. Acceptance: parity gate 1. No
-  BR dependency.
-- **P2 — BR perception preconditions** (research report §7.2, all of it):
-  16-wide `Team`, WorldMap without endzones, `zone`/`zonenext` percepts,
-  partner tracking, lives-label fix; `seatsPerTeam` handled with BR_LADDER
-  §5(a)'s caveat (the wrong 4 currently yields the right duo pairing;
-  correcting it also moves `defenderCount`/`enemyLivesLeft`); squads disabled
-  for BR (`SquadCommand=0`).
-- **P3 — flash plumbing against the engine**: propose-at-edge, swap boundary,
-  file-watch stand-in; parity gates 2–3. Also the **hosted call-injection
-  lane P4's evaluations depend on** (they precede P5's LLM path): the fixed
-  evaluation call is delivered as upload-time env — the platform already
-  injects per-policy env at upload (`coworld upload-policy … --secret-env
-  PLAYER_PROMPT=…` is the shipped paintball precedent,
-  `docs/paintball/COMMANDING.md:84-90`) — deterministic, non-LLM, recorded
-  on-wire at the playing edge like any startup call. The calls are the
-  *registered* names only: P4b uploads with
-  `--secret-env COWORLD_POLICY_PAGE='{"play":"default","params":{}}'` (BR
-  mode dispatch selects the `survive` behavior — `survive` is not a wire
-  name, §6.1); each P4c candidate uploads its named call, e.g.
-  `'{"play":"zone_rotate","params":{"earliness":0.5,"route_bias":"cover"}}'`.
-  The hosted round-trip gate asserts the accepted on-wire raw before an
-  evaluation counts. Each P4 evaluation thereby holds the call fixed and
-  varies exactly one play.
-- **P4 — behavior-changing strategy work**, split so every hosted evaluation
-  is attributable to one change (the lab's one-component-per-version rule,
-  `personal_paintbot/AGENTS.md:60-70`); none of it is parity-gated:
-  - *P4a — roles/posture.* Role deletion and its dynamic-posture replacement
-    are **not executable from this document**: the replacement mechanism is
-    the open design question the lab directive names
-    (`LAB:WORKING_CONTEXT.md:135-154`) and gets its own approved design doc
-    first. This document only sequences it (after P1's roles-intact parity
-    anchor) and constrains it (acceptance is hosted A/B against the P1
-    baseline, never byte parity). The `CombatPolicy` safety tests (§4.2)
-    land with the first play that exercises them.
-  - *P4b — the BR `survive` default* — one version, one evaluation.
-  - *P4c… — one version and one evaluation per v1 play* (§6.2), in whatever
-    order the BR corpus makes most informative.
-- **P5 — app-side `call` step + catalog handshake** (needs Maxwell's repo;
-  coordinate — `lobby-chat` branches off PBP main while BR branches share a
-  different base, a known conflict cluster).
+1. **The refactor gate (Phase 1).** The rebuilt shell — plays compiled in,
+   `default` active, roles intact — replays the existing CTF capture corpus
+   and reproduces every decision exactly, field for field, against stencil
+   v69.
+2. **The swap gate (Phase 3).** A capture containing mid-match play swaps
+   replays identically twice. Then the negative controls, copied
+   deliberately from the engine's own reflash test suite
+   (`tests/test_policy_reflash.nim`): delete the call records and the replay
+   must diverge; shift them one tick and it must also diverge. A test that
+   cannot fail is not a test.
+3. **The live round-trip gate (Phase 3).** The pattern of
+   `tools/roundtrip_reflash_match.sh`, run against a
+   `br-season2-complete` engine build with a stencil seat: a real match, a
+   mid-match play swap, plus a control run with the engine's reflash gate
+   switched off, which must produce zero call records.
 
-## 10. The outer loop (sketch, non-goal)
+## 9. Prerequisites and phases
 
-Plays are authored offline: harvest hosted episode logs + replay analyses +
-forum discussion → propose/edit a play → property tests + self-play A/B →
-version the playbook with the policy upload (the lab's existing ritual:
-design → implement → evidence → `VERSION_LOG.md`). Tooling for the harvest
-step is future work; nothing in the match path depends on it.
+The work is ordered so that measurement comes first, behavior-preserving
+work comes second, and behavior-changing work comes last and arrives in
+separately attributable pieces.
+
+**Phase 0 — measure the world-map build on a Battle Royale map.** Before
+anything else. The Battle Royale field is about 6.9 times the area of the
+CTF arena (3211×1713 pixels), and stencil currently builds *all* of its map
+knowledge in the single tick after the map data arrives
+(`LAB:policy.nim:39-50`, `LAB:worldmap.nim:173-209`). BR_LADDER flags this
+as an open, unmeasured risk — the kind that appears as a mysterious
+first-frame stall rather than an error — and says plainly that it is worth
+timing before anything else is diagnosed. If the build does not fit the
+budget, Phase 2 changes shape.
+
+**Phase 1 — the play seam, on CTF, changing nothing.** The module graph of
+§4.1 with its two compile-level proofs; the catalog mode; the reflex
+observers and the finisher; the `IntentShape` migration of `makeIntent`;
+the `CombatPolicy` field threaded through the body with its empty-value
+proof; the CTF adapter wired as `default`'s CTF dispatch (the legacy ladder
+untouched in `strategy.nim`); the Battle Royale placeholder
+`survive_default`; the swap machinery; environment loading; and the
+`replay.nim` and comparator extensions. The acceptance test is gate 1. None
+of this depends on Battle Royale.
+
+**Phase 2 — Battle Royale perception.** Everything the companion research
+report's §7.2 lists: widening `Team` to sixteen values, building the world
+map without endzones, reading the zone rectangles from the frame, partner
+tracking, and the lives-display fix. One item carries a warning label from
+BR_LADDER §5(a): `seatsPerTeam` currently computes the wrong value (4) for
+a duo, but that wrong value happens to route the squad table into the
+branch that produces the correct duo pairing — and correcting it to 2 also
+changes `defenderCount` and the `enemyLivesLeft` arithmetic. It cannot be
+"fixed" in isolation. Squad consensus is disabled outright for Battle
+Royale (`SquadCommand = 0`), per BR_LADDER's analysis of how it
+misbehaves for a lone survivor.
+
+**Phase 3 — the flash plumbing, live against the engine.** The
+propose-at-start behavior, the effect-tick rule, the file-watching
+stand-in for mid-match calls, and gates 2 and 3. This phase also
+establishes the hosted evaluation lane that Phase 4 depends on, since the
+LLM-driven path does not arrive until Phase 5: the platform already
+supports injecting per-policy environment variables at upload time (the
+paintball mode ships this way — `coworld upload-policy … --secret-env
+PLAYER_PROMPT=…`, `docs/paintball/COMMANDING.md:84-90`). A Phase 4
+candidate is uploaded with its evaluation call baked in the same way. The
+calls use registered names only: the Phase 4b candidate uploads with
+`--secret-env COWORLD_POLICY_PAGE='{"play":"default","params":{}}'` (in
+Battle Royale, mode dispatch selects the survival behavior — remember that
+`survive` is not a wire name), and each Phase 4c candidate uploads its own
+named call, for example
+`'{"play":"zone_rotate","params":{"earliness":0.5,"route_bias":"cover"}}'`.
+The round-trip gate checks the accepted on-wire bytes before any
+evaluation counts. Every Phase 4 evaluation therefore holds the call fixed
+and varies exactly one play.
+
+**Phase 4 — the behavior changes, one at a time.** Nothing in this phase
+claims byte-compatibility; every piece gets its own hosted evaluation,
+per the lab's one-change-per-version rule
+(`personal_paintbot/AGENTS.md:60-70`).
+
+- *Phase 4a — roles and posture.* Deleting the `Role` machinery and
+  choosing its dynamic replacement is **not executable from this
+  document**. The lab's own directive says the replacement mechanism is
+  the central open design question (`LAB:WORKING_CONTEXT.md:135-154`), and
+  it gets its own design doc first. This document only fixes its position
+  in the sequence — after the Phase 1 baseline exists — and its acceptance
+  style: a hosted comparison against that baseline, never byte parity. The
+  combat-policy safety tests (§4.2) land with the first play that
+  exercises them.
+- *Phase 4b — the real Battle Royale survival default.* One version, one
+  evaluation.
+- *Phase 4c and onward — the version-one plays* (§6.2), one version and
+  one evaluation each, in whatever order the accumulating match corpus
+  makes most informative.
+
+**Phase 5 — the app side.** The `call` subcommand, the catalog probe, and
+the prompt changes, in Maxwell's repository, coordinated with him — noting
+that his `lobby-chat` branch and his Battle Royale branches currently
+diverge from different bases, a known merge hazard.
+
+## 10. The offline loop (a sketch; not part of this design)
+
+Plays are authored between matches: harvest the hosted episode logs and
+replay analyses, read the forum discussion, propose or revise a play, prove
+it with property tests and self-play comparisons, and ship it in the next
+policy version through the lab's existing ritual — design note,
+implementation, evidence, `VERSION_LOG.md` entry. The harvesting tools do
+not exist yet and are a separate piece of work. Nothing in the match path
+depends on them.
 
 ## 11. Risks and open questions
 
-1. **Between-flash brittleness.** A mis-called play runs until re-called; the
-   reflex layer bounds death-by-negligence but not strategic error. Mitigant:
-   the default play is strong, and fallback calls always name it. Real
-   exposure until the mid-episode lane exists (a bad pre-round call lasts the
-   whole episode).
-2. **Belief purity rests on the import boundary** (§4.1): plays can only
-   reach Belief through `play_queries.nim`, so the risk concentrates in that
-   module's exports — a query proc that mutates (the sweep-oscillator lesson,
-   `LAB:TENTATIVE_LESSONS.md:20-26`) would be invisible to the import check.
-   Review rule: `play_queries` exports are audited for mutation on every
-   addition.
-3. **`zone_escape` reflex threshold** (damage-imminent horizon) to be tuned in
-   P3 against rim-hugging plays.
-4. **WorldMap build cost** (P0) — could force incremental construction and
-   re-scope P2.
-5. **`CombatPolicy` scope creep.** Two sets today; pressure will come for
-   priorities, truces-with-conditions, focus targets. Rule: it grows only
-   with a play that needs it and a parity story for the empty value.
-6. **Maxwell's response** to the divergences (§3.3) — may adjust naming or
-   the parameter-entity rule's phrasing in the shared vocabulary.
+1. **A wrong call sticks.** A badly chosen play runs until somebody calls a
+   new one. The reflex layer bounds how badly that can go, but it bounds
+   negligence, not strategic error. The mitigations are that the default
+   play is genuinely strong and that every failure path falls back to it.
+   The exposure is largest while the mid-match delivery channel does not
+   exist, because until then, a bad pre-round call lasts the entire episode.
+2. **The read-only boundary concentrates risk in `play_queries`.** Plays can
+   only reach the world through that module, which means a mutating or
+   alias-leaking query is the one place the guarantee could quietly break —
+   invisible to the import check. The review rule stands: every addition to
+   that module is audited for both in-body mutation (the lab's
+   sweep-oscillator lesson, `LAB:TENTATIVE_LESSONS.md:20-26`) and for what
+   its return value aliases.
+3. **The zone-escape reflex trigger needs tuning.** "Imminent damage" has a
+   horizon parameter, and it must be set so that rim-hugging plays are never
+   fighting their own reflex. Phase 3 is where that gets tuned.
+4. **The world-map build might not fit the tick budget** on a
+   Battle-Royale-sized map (Phase 0). If it does not, map construction goes
+   incremental, and Phase 2 is re-planned.
+5. **`CombatPolicy` will attract feature requests.** Two team-sets today;
+   pressure will come for priority targets, conditional truces, focus fire.
+   The rule: the type grows only together with a play that needs the
+   addition, and only with a proof that the empty value still means
+   "exactly today's behavior."
+6. **Maxwell's replies are pending** on the two departures in §3.3. His
+   answers may adjust naming or how the parameter-entity rule is phrased in
+   the shared vocabulary.
 
-## 12. Affected files (planning aid)
+## 12. Affected files
 
-- New (acyclic ownership per §4.1): `LAB:paintbot/stencil_nim/play_contract.nim`
-  (shared types incl. `PlayState` arms), `LAB:…/play_queries.nim` (`PlayView`
-  with private Belief backing + the audited read API + `GameMode`),
-  `LAB:…/plays/` (one module per play; import allowlist checked in the
-  build), `LAB:…/play_registry.nim` (the `Playbook`), `LAB:…/plays.nim`
-  (shell machinery: guards, reflexes + `ReflexState`, finalizer, swap incl.
-  `acceptCallEvent`, the privileged CTF parity adapter (§6.1), catalog
-  emission).
-- Modified: `LAB:types.nim` (`CombatPolicy` on `Intent`; `IntentShape`),
-  `LAB:strategy.nim` (`makeIntent` shape migration only — the legacy ladder
-  body **stays in place** behind the CTF parity adapter through this design;
-  it does not move into a default
-  play; the shell's reflex observers and finalizer are new code in
-  `plays.nim`, not extractions), `LAB:action.nim` (combat-policy
-  filters in target/fire/spray/grenade paths; windup exposure for the swap
-  boundary), `LAB:fight.nim` (candidate filter + protect weighting),
-  `LAB:policy.nim` (decide station → reflex/play/finalizer; dead-tick stamp;
-  roles block deleted in P4), `LAB:perception.nim` + `LAB:belief_*.nim`
-  (BR percepts, 16 teams), `LAB:replay.nim` (outbound call-record
-  consumption), `LAB:tools/compare_stencil.py` (field-level parity + call
-  inputs), `LAB:tools/self_play.py` (call env passthrough),
-  `LAB:tools/build_player.sh` (catalog build gate), `LAB:Dockerfile`
-  (unchanged runtime; catalog printed at build).
-- App (Maxwell's repo, coordinated): `PBP:server/preround.mjs` (`call` step +
-  catalog injection), `PBP:server/matchd.mjs` or `engine.mjs`
-  (catalog-by-execution + cache), CLI `lobby_chat` (subcommand), app tests
-  (two-build anti-skew).
-- Engine: none required. (Product-level rename page→play is Maxwell's call.)
+For planning. New modules, following the dependency graph in §4.1:
+
+- `LAB:paintbot/stencil_nim/play_queries.nim` — the opaque `PlayView`, the
+  `GameMode` value, and the audited read API.
+- `LAB:paintbot/stencil_nim/play_contract.nim` — the shared types,
+  including every `PlayState` variant.
+- `LAB:paintbot/stencil_nim/plays/` — one module per play, with the import
+  allowlist enforced at build time.
+- `LAB:paintbot/stencil_nim/play_registry.nim` — the `Playbook`.
+- `LAB:paintbot/stencil_nim/plays.nim` — the shell machinery: the guards,
+  the reflex observers and `ReflexState`, the finisher, the swap machinery
+  including `acceptCallEvent`, the privileged CTF adapter (§6.1), and
+  catalog emission.
+
+Modified files:
+
+- `LAB:types.nim` — the `CombatPolicy` field on `Intent`; the `IntentShape`
+  enum.
+- `LAB:strategy.nim` — the `makeIntent` shape migration only. The legacy
+  ladder body stays where it is, behind the CTF adapter, for the life of
+  this design; it does not move into a play. The reflex observers and the
+  finisher are new code in `plays.nim`, not extractions from here.
+- `LAB:action.nim` — the combat-policy filters in the target, fire, spray,
+  and grenade paths; exposing the wind-up state for the effect-tick rule.
+- `LAB:fight.nim` — the acquisition filter and the protect weighting.
+- `LAB:policy.nim` — the decision station becomes guards → reflexes → play →
+  finisher; the dead-tick stamp; the role-assignment block is deleted in
+  Phase 4a.
+- `LAB:perception.nim`, `LAB:belief_*.nim` — Battle Royale perception;
+  sixteen teams.
+- `LAB:replay.nim` — consuming outbound call records.
+- `LAB:tools/compare_stencil.py` — field-level comparison and call inputs.
+- `LAB:tools/self_play.py` — passing the call environment variables through.
+- `LAB:tools/build_player.sh` — the catalog build gate.
+- `LAB:Dockerfile` — unchanged at runtime; the catalog is printed at build
+  time.
+
+In Maxwell's repository, coordinated with him: `PBP:server/preround.mjs`
+(the `call` step and catalog injection), `PBP:server/matchd.mjs` or
+`engine.mjs` (the bounded catalog probe and its cache), the `lobby_chat`
+CLI (the new subcommand), and the app tests (the two-build catalog case).
+
+In the engine: nothing. The product-level rename of "page" to "play" is
+Maxwell's call to make.
