@@ -106,13 +106,15 @@ legacy runner path.
   roundtrip verifier + glory dump + honest-roster tooling land in wave 1
   and become the template.
 
-## Hosted pre-round huddle (separate workstream, owner TBD)
+## Hosted pre-round huddle — RULED by Maxwell 2026-08-30: IN THE GAME IMAGE
 
-Recommendation to bring to the platform conversation: **platform
-orchestrator owns it** (early container start, transport, transcript,
-start barrier); the engine contributes only a named lobby-phase barrier.
-Grounds: artifact provenance and container lifecycle are platform facts;
-the engine's only chat is in-match by construction (`applyShout` refuses
-outside Playing — a separation worth keeping structural); and the lobby
-owning coordination is the standing product law. The local match app's
-`lobby-chat` phase remains the reference experience.
+Supersedes this plan's earlier platform-orchestrator recommendation
+(withdrawn with James the same day). **The huddle is an engine lobby
+phase: it happens in-game before the match, is recorded in the replay as
+part of the episode, and is visible to the viewer in playback.** Nothing
+huddle-shaped goes observatory-side (the standing never-touch-observatory
+ruling applies). The platform's only job is starting policy containers
+early enough to attend the phase. The local match app's `lobby-chat`
+experience is the model, promoted into the engine; the huddle transcript
+is a candidate record type alongside the call record in the format-v2
+work. P5's no-huddle hosted path remains the valid interim.
