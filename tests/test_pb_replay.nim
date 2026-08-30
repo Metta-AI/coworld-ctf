@@ -1,0 +1,408 @@
+## An end-to-end episode that WRITES a replay, then proves the recorded masks
+## re-simulate to the identical hash chain — the property the wasm viewer
+## depends on — and that tools/replay_summary.py reads it as strict UTF-8 JSON.
+import std/[json, os, osproc, strutils, unicode, unittest]
+import ctf/[replays, replay_runtime, broadcast]
+import pb_helpers
+
+const
+  Ticks = 240          ## short on purpose: this runs in DEBUG too.
+  Games = 2
+
+const LegalIntents = ["paint_hill", "hold_hill", "hunt", "guard",
+                      "paint_path", "fall_back"]
+
+proc orderViolations(
+  sim: SimServer, directive: SquadDirective, commanded: seq[int]
+): int =
+  ## Every bound the reply schema puts on ONE issued order set, counted rather
+  ## than asserted so the episode loop can keep playing and report a total.
+  if directive.orders.len != commanded.len:
+    inc result
+  if directive.note.runeLen > MaxNoteRunes:
+    inc result
+  var seen: seq[int]
+  for order in directive.orders:
+    if order.cogIndex notin commanded or order.cogIndex in seen:
+      inc result
+    seen.add(order.cogIndex)
+    if order.id != sim.cogAlias(order.cogIndex):
+      inc result
+    if order.id.runeLen > MaxCogIdRunes:
+      inc result
+    if $order.intent notin LegalIntents:
+      inc result
+    if order.targetX < 0 or order.targetX >= MapWidth:
+      inc result
+    if order.targetY < 0 or order.targetY >= MapHeight:
+      inc result
+    if order.say.runeLen > MaxSayRunes:
+      inc result
+    if order.hasFace and (order.faceX < 0 or order.faceX >= MapWidth or
+        order.faceY < 0 or order.faceY >= MapHeight):
+      inc result
+
+proc maskViolations(mask: uint8): int =
+  ## The actuator bounds: never Up+Down, never Left+Right, never C.
+  if (mask and ButtonUp) != 0 and (mask and ButtonDown) != 0:
+    inc result
+  if (mask and ButtonLeft) != 0 and (mask and ButtonRight) != 0:
+    inc result
+  if (mask and ButtonC) != 0:
+    inc result
+
+proc recordEpisode(path: string): tuple[
+  hashes, records, orders, masks, violations: int, results: string] =
+  ## Plays a scripted-vs-scripted episode straight through the SIM (no
+  ## sockets), writing exactly the records the server writes: joins per cog,
+  ## per-cog mask changes, the control records, cog shouts, and one gameHash
+  ## per tick.
+  var config = defaultGameConfig()
+  config.update(paintballConfigJson(
+    maxTicks = Ticks, maxGames = Games,
+    regimes = @["resident", "visitor"]))
+  var sim = initSimServer(config)
+  sim.gameEventLoggingEnabled = false
+  var writer = openReplayWriter(path, config.configJson())
+  defer: writer.closeReplayWriter()
+
+  proc seatCog(order: int): string =
+    toUpperAscii(teamText(sim.teamForSlot(order))) & "-" &
+      IdentityNames[sim.slotIdentityIndex(order)]
+
+  ## A deliberately NON-ASCII policy label so the strict-UTF-8 path is real.
+  discard sim.addPlayer("daveey", 0, "t0")
+  discard sim.addPlayer("daveey-1", 1, "t1")
+  for order in 2 ..< sim.totalCogs():
+    discard sim.addPlayer(seatCog(order), order, "", trusted = true)
+  sim.seatNames[0] = "daveey"
+  sim.seatNames[1] = "daveey-1"
+  for order in 0 ..< sim.players.len:
+    writer.writeJoin(tickTime(sim.tickCount), order,
+      sim.players[order].address, order,
+      (if order < 2: "t" & $order else: ""))
+    writer.lastMasks.add(0)
+  for seat in 0 .. 1:
+    let record = registerRecord(seat, teamText(sim.teamForSlot(seat)),
+      "pötten-" & $seat, "scripted", "holdline")
+    writer.writeChat(tickTime(sim.tickCount), seat, record)
+    inc result.records
+
+  var ctl = initControlState(sim)
+  var directives = newSeq[SquadDirective](2)
+  let kinds = [blHoldline, blSprayer]
+  ## Deliberately NOT sim.startGame(): the server never calls it either — the
+  ## first sim.step runs stepLobby, which starts the game when the roster is
+  ## full and startWaitTicks is 0. Starting it by hand here shifts
+  ## gameStartTick by one tick relative to playback and the hash chain
+  ## diverges at tick 1.
+  var gamesPlayed = 0
+  var prev = newSeq[InputState](sim.players.len)
+  while gamesPlayed < Games and sim.tickCount < Ticks * Games + 400:
+    ctl.observeEnemies(sim)
+    if sim.phase == Playing and
+        sim.gameTicksElapsed() mod sim.config.turnTicks == 0:
+      let turn = sim.gameTicksElapsed() div sim.config.turnTicks
+      for seat in 0 .. 1:
+        directives[seat] =
+          scriptedDirective(ctl, sim, kinds[seat], sim.commandedCogs(seat))
+        result.violations += sim.orderViolations(
+          directives[seat], sim.commandedCogs(seat))
+        result.orders += directives[seat].orders.len
+        ## A non-ASCII note, so the record really carries multi-byte text.
+        directives[seat].note = "hüll " & $turn
+        let record = directives[seat].boundedDirectiveRecord(
+          sim.gameIndex + 1, turn, seat, teamText(sim.teamForSlot(seat)),
+          regimeText(sim.regime))
+        check record.runeLen <= MaxDirectiveRunes
+        writer.writeChat(tickTime(sim.tickCount), seat, record)
+        sim.pushFeedDirective(record)
+        inc result.records
+        for order in directives[seat].orders:
+          if order.say.len > 0 and sim.applyShout(order.cogIndex, order.say):
+            writer.writeChat(tickTime(sim.tickCount), order.cogIndex, order.say)
+    var inputs = newSeq[InputState](sim.players.len)
+    if sim.phase == Playing:
+      for cogIndex in 0 ..< sim.players.len:
+        let seat = sim.cogSeat(cogIndex)
+        var order: CogOrder
+        var found = false
+        for candidate in directives[seat].orders:
+          if candidate.cogIndex == cogIndex:
+            order = candidate
+            found = true
+            break
+        if not found:
+          let scripted = scriptedDirective(ctl, sim, blHoldline, @[cogIndex])
+          if scripted.orders.len == 0:
+            continue
+          order = scripted.orders[0]
+        let mask = ctl.compileMask(sim, order, cogIndex)
+        result.violations += maskViolations(mask)
+        inc result.masks
+        inputs[cogIndex] = decodeInputMask(mask)
+        writer.writeInputMaskChange(tickTime(sim.tickCount), cogIndex, mask)
+    else:
+      ## The server records the all-zero lobby masks too; see its comment.
+      for cogIndex in 0 ..< sim.players.len:
+        writer.writeInputMaskChange(tickTime(sim.tickCount), cogIndex, 0)
+    let phaseBefore = sim.phase
+    sim.step(inputs, prev)
+    prev = inputs
+    writer.writeHash(uint32(sim.tickCount), sim.gameHash())
+    inc result.hashes
+    if phaseBefore != GameOver and sim.phase == GameOver:
+      inc gamesPlayed
+      sim.gameHill.add(sim.hillTicks)
+      sim.gameRegimes.add(sim.regime)
+      sim.gameIndex = gamesPlayed
+      if gamesPlayed < config.regimes.len:
+        sim.regime = config.regimes[gamesPlayed]
+    if sim.needsReregister:
+      ## The lobby reset dropped the roster: re-seat the squads exactly as the
+      ## server does, and record the joins so playback re-derives them.
+      sim.needsReregister = false
+      for order in 0 ..< sim.totalCogs():
+        discard sim.addPlayer(
+          (if order < 2: sim.seatNames[order] else: seatCog(order)),
+          order, "", trusted = true)
+        writer.writeJoin(tickTime(sim.tickCount), order,
+          sim.players[order].address, order, "")
+      while writer.lastMasks.len < sim.players.len:
+        writer.lastMasks.add(0)
+  result.results = sim.playerResultsJson()
+  ## The same builder the server writes at episode end (decide.resultRecord),
+  ## so this fixture cannot drift from the real record.
+  writer.writeChat(tickTime(sim.tickCount), 0, sim.resultRecord())
+  inc result.records
+  writeFile(path.changeFileExt("results.json"), result.results)
+
+suite "replay":
+  let dir = getTempDir() / "paintball-test-replay"
+  createDir(dir)
+  let path = dir / "episode.bitreplay"
+
+  test "an all-scripted episode plays to its natural end and reports complete":
+    ## Checklist item 7, first sentence: an all-scripted episode run to the
+    ## NATURAL end, `results.reason == "complete"`, and every order and every
+    ## actuator mask inside its legal bounds — checked on the real episode
+    ## rather than only on the 500 synthetic states in test_control.nim. The
+    ## reason was previously accepted as any of three values, which passes
+    ## whether the episode finished or died.
+    let written = recordEpisode(path)
+    check written.hashes > Ticks
+    check written.records > 4
+    check fileExists(path)
+    check getFileSize(path) > 1000
+    let results = parseJson(readFile(path.changeFileExt("results.json")))
+    check results["names"].len == 2
+    echo "episode: reason=", results["reason"].getStr(), " endRule=",
+      results["endRule"].getStr(), " games=", results["games"].getInt(),
+      " finalTick=", results["finalTick"].getInt(), " orders=", written.orders,
+      " masks=", written.masks
+    check results["reason"].getStr() == ReasonComplete
+    check results["endRule"].getStr() in
+      [EndRuleFullTime, EndRuleMercy, EndRuleWipe]
+    check results["games"].getInt() == Games
+    check results["finalTick"].getInt() > Ticks
+    ## Both squads played every turn of both games, and nothing they were told
+    ## to do or actually pressed was out of bounds.
+    check written.orders >= 8
+    check written.masks > Ticks
+    check written.violations == 0
+
+  test "parseReplayBytes accepts it and every recorded hash re-simulates":
+    let data = parseReplayBytes(readFile(path))
+    check data.hashes.len > Ticks
+    check data.joins.len >= 8
+    check data.inputs.len > 100
+    check data.chats.len > 4
+    ## mismatchQuit = true: a single divergent bit RAISES here rather than
+    ## being tolerated, because this test IS the determinism gate.
+    var runtime = initReplayRuntime(data, mismatchQuit = true,
+      gameEventLoggingEnabled = false)
+    var player = runtime.player
+    var sim = runtime.sim
+    var steps = 0
+    while player.playing and sim.tickCount < player.replayMaxTick():
+      player.stepReplay(sim)
+      inc steps
+    check steps > Ticks
+    check not player.hashValidationFailed
+    check player.hashMismatchTick == -1
+
+  test "the recorded stream carries the beats a spectator needs":
+    let data = parseReplayBytes(readFile(path))
+    var
+      directives = 0
+      registers = 0
+      results = 0
+      shouts = 0
+    for chat in data.chats:
+      if chat.message.len > 0 and chat.message[0] == '{':
+        let node = parseJson(chat.message)
+        case node{"k"}.getStr()
+        of "directive": inc directives
+        of "register": inc registers
+        of "result": inc results
+        else: discard
+      else:
+        inc shouts
+    check registers == 2
+    check results == 1
+    check directives >= 4              ## one per seat per turn, both games
+    check shouts > 0
+    ## And re-simulating derives the gameplay beats from state deltas.
+    var runtime = initReplayRuntime(data, mismatchQuit = false,
+      gameEventLoggingEnabled = false)
+    var player = runtime.player
+    var sim = runtime.sim
+    var tracker = initBroadcastTracker()
+    var kinds: seq[string]
+    while player.playing and sim.tickCount < player.replayMaxTick():
+      player.stepReplay(sim)
+      let events = newJArray()
+      sim.stepEvents(tracker, events)
+      for event in events:
+        let kind = event["k"].getStr()
+        if kind notin kinds:
+          kinds.add(kind)
+    echo "derived event kinds: ", kinds
+    check "gamestart" in kinds
+    check "paint" in kinds
+    ## Design §Tests 9 names these too, and the derived stream now carries
+    ## them: a burst leaving the can, and a cog that lost hit points and
+    ## stayed up — which at 3 hp and sprayDamage 1 is the COMMON outcome and
+    ## the one the match feed had no row for at all.
+    check "spray" in kinds
+    check "tag" in kinds
+
+  test "replay_summary.py prints strict UTF-8 JSON with the non-ASCII text":
+    let (output, code) = execCmdEx(
+      "python3 tools/replay_summary.py " & quoteShell(path))
+    check code == 0
+    check validateUtf8(output) == -1
+    let node = parseJson(output)
+    check node["protocol"].getStr() == "paintball/v1"
+    check node["seed"].getInt() == 679961
+    check node["names"][0].getStr() == "daveey"
+    check node["fallbacks"].getInt() == 0
+    check node["directives"].len >= 4
+    ## The non-ASCII policy label and note survived the round trip intact.
+    var sawUmlaut = false
+    for kind in node["policyKinds"]:
+      check kind.getStr() == "scripted"
+    for directive in node["directives"]:
+      if "hüll" in directive["note"].getStr():
+        sawUmlaut = true
+    check sawUmlaut
+    check node["results"]["names"].len == 2
+
+  test "playback advances the game index and the regime, game by game":
+    ## gameIndex/regime are written only by the live loop and are not in
+    ## gameHash, so playback used to leave them frozen: a two-game cert replay
+    ## read "GAME 1/2 · RESIDENT" at 0%, at 50% and at 100%, and the visitor
+    ## half was never announced to the spectator.
+    let data = parseReplayBytes(readFile(path))
+    var runtime = initReplayRuntime(data, mismatchQuit = true,
+      gameEventLoggingEnabled = false)
+    var player = runtime.player
+    var sim = runtime.sim
+    check sim.gameIndex == 0
+    check sim.regime == regimeResident
+    var sawVisitor = false
+    while player.playing and sim.tickCount < player.replayMaxTick():
+      player.stepReplay(sim)
+      if sim.regime == regimeVisitor:
+        sawVisitor = true
+    check sawVisitor                      ## the second half IS announced
+    check sim.gameIndex == Games          ## both halves accounted for
+    check sim.gameHill.len == Games
+    check sim.gameRegimes == @[regimeResident, regimeVisitor]
+
+  test "a seek past the keyframed prefix converges in bounded slices":
+    ## The viewer-check scar (2026-08-25): the hosted 50 % scrub read
+    ## identically to the 0 % one. A seek lands on the newest keyframe at or
+    ## before its target and RE-SIMULATES the gap, and while the precompute
+    ## walk is still running the keyframes only cover its prefix — so the
+    ## 50 % click on a 4 405-tick replay asked one presentation frame to
+    ## re-simulate ~2 000 ticks. Two properties are pinned here: the seek
+    ## MOVES on the first frame (the readout changes), and no single frame
+    ## walks more than SeekTicksPerFrame ticks.
+    let data = parseReplayBytes(readFile(path))
+    var runtime = initReplayRuntime(data, mismatchQuit = true,
+      gameEventLoggingEnabled = false)
+    var player = runtime.player
+    var sim = runtime.sim
+    ## The hosted state: the walk has only keyframed a short prefix.
+    check not player.scanComplete
+    let
+      startTick = sim.tickCount
+      target = player.replayMaxTick() - 1
+    player.applyReplaySeek(sim, target)
+    check not player.playing                       ## a seek pauses
+    check player.pendingSeekTick == target
+    let noop = proc () = discard
+    var frames = 0
+    var maxStep = 0
+    while player.pendingSeekTick >= 0 and frames < 1000:
+      let before = sim.tickCount
+      player.advanceReplayPlayback(sim, noop, noop)
+      maxStep = max(maxStep, sim.tickCount - before)
+      inc frames
+      if frames == 1:
+        ## The FIRST frame after the click already moved the clock — which is
+        ## the whole point: a viewer probe 700 ms later reads a new tick.
+        check sim.tickCount != startTick
+    echo "seek from ", startTick, " to ", target, " converged in ", frames,
+      " frames, largest single-frame walk ", maxStep, " ticks"
+    check frames >= 1
+    check maxStep <= SeekTicksPerFrame
+    ## A gap wider than one slice must take more than one frame — that is the
+    ## bound doing its job rather than the fixture being short.
+    if target - startTick > SeekTicksPerFrame:
+      check frames > 1
+    check sim.tickCount == target
+    check player.pendingSeekTick == -1
+
+  test "the momentum series is the HILL-TICK difference, not lives":
+    ## The starter graphed lives here. With `lives: 12` per cog that series is
+    ## near-flat over a paintball episode and shows tag attrition, so the
+    ## momentum graph said nothing about the only thing being contested. The
+    ## series now carries each team's CUMULATIVE hill ticks, and the chrome's
+    ## two-team renderer plots their difference.
+    let data = parseReplayBytes(readFile(path))
+    var runtime = initReplayRuntime(data, mismatchQuit = true,
+      gameEventLoggingEnabled = false)
+    var player = runtime.player
+    ## Drive the precompute walk to completion, as the hosted viewer does a
+    ## bounded slice at a time.
+    while not player.scanComplete:
+      player.advanceReplayScan(4000)
+    check player.leadSeries.len >= 2
+    for point in player.leadSeries:
+      check point.len == 3               ## [tick, red, blue]
+      ## Cumulative: a hill count never goes down inside an episode.
+      check point[1] >= 0
+      check point[2] >= 0
+    for i in 1 ..< player.leadSeries.len:
+      check player.leadSeries[i][1] >= player.leadSeries[i - 1][1]
+      check player.leadSeries[i][2] >= player.leadSeries[i - 1][2]
+    ## And the final point is the episode's real hill totals, summed over both
+    ## games exactly as the results document sums them.
+    var sim = runtime.sim
+    while player.playing and sim.tickCount < player.replayMaxTick():
+      player.stepReplay(sim)
+    var total: array[Team, int]
+    for archived in sim.gameHill:
+      for team in sim.teams():
+        total[team] += archived[team]
+    echo "lead series: ", player.leadSeries.len, " points, final ",
+      player.leadSeries[^1], " vs archived hill ticks red=", total[Red],
+      " blue=", total[Blue]
+    check player.leadSeries[^1][1] == total[Red]
+    check player.leadSeries[^1][2] == total[Blue]
+    ## A lives series could not satisfy that equality: 8 cogs x 12 lives is
+    ## never the archived hill count. (This fixture is 2 x 240 ticks, far too
+    ## short for anyone to reach 80% of the hill, so the totals here are 0 —
+    ## which is exactly what makes the equality discriminating.)

@@ -249,6 +249,47 @@ the `zone`/`zonenext` stated-marker grammar.
 
 ---
 
+## Paintball King of the Hill mode
+
+Config-gated squad mode (docs/paintball/RULES.md): every gate OFF by default,
+and a gate-off config plays the classic rules byte-identically (no GV bump —
+the trenches/procgen precedent). Seats are squad commanders driven by the
+server-side control layer (`control.nim` / `decide.nim` / `llm.nim`), not
+Sprite v1 input senders.
+
+| Field | Type / default | JSON key | Bounds | Effect |
+|---|---|---|---|---|
+| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` turns squad mode on. 2 in the published `paintball` variant. |
+| `cogsPerTeam` | int / `4` | | `1..8` | Cogs one seat commands (RED-alpha..delta). |
+| `loadout` | string / `"ctf"` | | `"ctf"` or `"paintball"` | `paintball` = spray can always held, no gun, NO pickups, hearts retired. |
+| `floorPaint` | bool / `false` | | | The paint-tile grid exists and cones repaint it. |
+| `paintBuff` | bool / `false` | | needs `floorPaint` | Own colour underfoot = speed + heal; enemy colour = slow. |
+| `hill` | bool / `false` | | needs `floorPaint` | KotH replaces the capture win condition. |
+| `paintTile` | int / `34` | | `>=4` | Px side of one floor-paint tile. |
+| `hillRadiusTiles` | int / `2` | | `>=0` | Hill = the (2r+1)^2 tile block at map centre. |
+| `hillOwnPermille` | int / `800` | | `501..1000` | Coverage permille that OWNS the hill (>500 so at most one owner). |
+| `hillDecisiveTicks` | int / `720` | | `>=1` | Hill-tick margin worth a full 1.0 game score. |
+| `paintSpeedOwnPct` | int / `125` | | `>=1` | Speed/accel percent on own colour. |
+| `paintSpeedEnemyPct` | int / `85` | | `>=1` | Speed/accel percent on enemy colour. |
+| `paintHealTicks` | int / `48` | | `>=1` | Consecutive own-paint ticks per +1 hp. |
+| `sprayDamage` | int / `3` (SprayPaintDamage) | | `>=1` | Hp per cone touch (the paintball variant sets 1). Acts in EVERY mode. |
+| `regimes` | seq / `["resident"]` | | 1..4 entries | Regime per game of the episode: `resident` (whole squad) / `visitor` (alpha only). |
+| `turnTicks` | int / `108` | | `>=1` | Sim ticks per decision turn (4.5 s). |
+| `turnBudgetMs` | int / `10000` | | `>=1` | Hard monotonic cap around one whole turn. |
+| `attempt1Ms` | int / `6000` | | whole seconds; `attempt1Ms+retryMs<=turnBudgetMs` | First LLM batch deadline. |
+| `retryMs` | int / `3000` | | whole seconds | Single retry batch deadline. |
+| `turnSpacingMs` | int / `5000` | | `>=0` | Wall-clock floor between batch starts. |
+| `wallClockBudgetSeconds` | int / `690` | | `>=1` | Engine hard stop -> episode reason `deadline`. |
+| `model` | string / `""` | | | Pinned Bedrock/Anthropic model; "" = auto. |
+| `maxOutputTokens` | int / `900` | | | LLM max_tokens. |
+
+Paintball consts (sim_types.nim): `PaintTile`, `MaxPaintTiles`=768,
+`HillFlipThrottleTicks`=12, `AimUnitX/Y` (integer aim table — the mode's only
+new hashed arithmetic, wasm-exact by construction), the `Default*` fallbacks
+for every field above.
+
+---
+
 ## Combat
 
 | Field | Type / default | Bounds | Effect |

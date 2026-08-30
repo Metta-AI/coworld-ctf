@@ -30,5 +30,9 @@ import
   test_shot_accuracy,
   test_shouts,
   test_spinning_diamonds,
+  test_pb_control,
+  test_pb_directives,
+  test_pb_manifest,
+  test_pb_regimes,
   test_team_art
 {.warning[UnusedImport]: on.}

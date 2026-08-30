@@ -541,9 +541,39 @@ const
                                ## painted diamond costs one sprite per spin
                                ## step, not 16 at once.
   StainObjectBase = 38500      ## one object per stain: 38500..39699, between
-                               ## the rig object pools (..38491) and the debug
-                               ## pool at 40000. Moved off 33000: the widened
-                               ## tracer-dot pool (24000..35327) swallowed it.
+                               ## the rig object pools (..38491) and the
+                               ## paint-tile pool below. Moved off 33000: the
+                               ## widened tracer-dot pool (24000..35327)
+                               ## swallowed it.
+  ## --- Paintball FLOOR PAINT (the tile grid) ---
+  ## The floor is not a decal pile any more: it is a fixed grid of owned
+  ## tiles, so it renders as ONE object per tile, re-placed only when that
+  ## tile's owner changes since this viewer's last frame. That makes a fully
+  ## repainted board cost 740 object messages ONCE, not per frame, and it can
+  ## never grow without bound the way an append-only stain list can.
+  PaintTileSpriteBase = 35500  ## 2 teams x PaintTileVariants blots:
+                               ## 35500..35515, in the gap between the diamond
+                               ## paint (..35427) and the endzone fade bands
+                               ## (36600+).
+  PaintTileVariants = 8        ## picked by a hash of the TILE INDEX, so a
+                               ## painted area reads as organic spray rather
+                               ## than a rubber-stamped checkerboard.
+  PaintTileObjectBase = 40000  ## one object per tile: 40000..40767, above
+                               ## the endzone fades (..39955).
+  PaintTileOverlap = 6         ## px the blot oversizes its tile on each axis,
+                               ## so neighbouring tiles of one colour merge
+                               ## into a field instead of reading as dots.
+  PaintTileSize = PaintTile + PaintTileOverlap
+  PaintTilePeakAlpha = 104.0   ## the stain compositor's own peak: paint the
+                               ## floor reads THROUGH, never a colour swap.
+  PaintTileZ = low(int16) + 2  ## floor decal, exactly where stains sit.
+  ## --- Paintball HILL overlay ---
+  ## Drawn server-side, in the sprite stream, so it appears identically live,
+  ## in the native replay server and in the wasm bundle with no client-side
+  ## board-geometry maths (broadcast_core.js stays byte-identical).
+  HillSpriteBase = 35520       ## 0 = unowned chalk, 1 = red ring, 2 = blue ring.
+  HillObjectId = 40770
+  HillRingZ = low(int16) + 3   ## above the floor paint, below every actor.
   StainVariants = 8            ## distinct blot shapes, picked by the stain's own
                                ## hash so a lane of paint never reads as one
                                ## rubber-stamped sprite repeated.
@@ -811,7 +841,12 @@ const
   ProtocolTextObjectBase = 9000
   ProtocolTextZ = 30010
   DebugSpriteBase* = 40000     ## 1024 sprite ids per player for debug overlays.
-  DebugObjectBase* = 40000     ## 1024 object ids per player for debug overlays.
+  DebugObjectBase* = 41000     ## 1024 object ids per player for debug overlays.
+                               ## Moved off 40000: the paint-tile pool
+                               ## (40000..40767) and the hill overlay (40770)
+                               ## grew under it. Debug-only, never in league
+                               ## games, and it already spilled the u16
+                               ## ceiling at 32 players before the move.
   DebugPlayerIdStride* = 1024  ## Payload sprite/object ids must stay in
                                ## 0..1023; larger ids alias via modulo.
   DebugOverlayZ* = 29000       ## Above gameplay, below protocol text.
@@ -897,6 +932,8 @@ const
     ("rig wheels", RigWheelObjectBase, MaxPlayers * 3),
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
+    ("paint tiles", PaintTileObjectBase, MaxPaintTiles),
+    ("hill overlay", HillObjectId, 1),
     ("barrage marker", BarrageMarkerObjectId, 1),
     ("zone marker", ZoneMarkerBase, ZoneMarkerCount),
   ]
@@ -917,8 +954,8 @@ static:
   ## in the table: it must only sit above every gameplay pool. (With 32
   ## players its top ids exceed the u16 ceiling — a pre-existing, debug-only
   ## spill; debug overlays never run in league games.)
-  doAssert DebugObjectBase >= StainObjectBase + StainMaxCount,
-    "debug object pool must start above the paint stains"
+  doAssert DebugObjectBase >= PaintTileObjectBase + MaxPaintTiles,
+    "debug object pool must start above the paint tiles"
   doAssert DebugObjectBase >=
       EndzoneFadeObjectBase + TeamPoolWidth * MaxEndzoneFadeBands,
     "debug object pool must start above the endzone fade bands"
@@ -1013,6 +1050,8 @@ const
       16 * DamagePopBucketCount * DamagePopStages),
     ("kill pops", KillPopSpriteBase, 16 * DamagePopStages),
     ("paint stains", StainSpriteBase, StainMaxCount),
+    ("paint tiles", PaintTileSpriteBase, 2 * PaintTileVariants),
+    ("hill overlay", HillSpriteBase, 3),
     ("barrage marker", BarrageMarkerSpriteId, 1),
     ("diamond paint", DiamondPaintSpriteBase, 8 * 16),
     ("zone marker", ZoneMarkerBase, ZoneMarkerCount),
@@ -1090,6 +1129,12 @@ type
     cogDriveTick*: int           ## sim.tickCount at the last cogDrive step; a
                                  ## non-sequential jump snaps the pose instead of
                                  ## integrating across it (scrub-safe).
+    paintTilesSent*: seq[uint8]  ## per tile, the owner code this viewer was
+                                 ## last told about. The paint grid is
+                                 ## re-placed INCREMENTALLY off this diff, so
+                                 ## a steady board costs zero object messages.
+    hillOwnerSent*: int          ## -1 = nothing sent yet; else the owner code
+                                 ## the hill ring currently shows.
     stainsSent*: int             ## how many permanent paint stains this viewer
                                  ## already holds. Stains are append-only and
                                  ## emitted once each (addPaintStains), so this
@@ -1522,6 +1567,7 @@ proc initGlobalViewerState*(): GlobalViewerState =
   result.povSelectPending = -2   ## -2 = no request; -1 = clear; >=0 = slot.
   result.cogDriveTick = low(int)  ## no drive step yet; the first frame snaps.
   result.shoutLingerTick = low(int)  ## no shout pass yet; see addBoardShouts.
+  result.hillOwnerSent = -1          ## nothing sent yet; see addHillOverlay.
 
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
@@ -1980,7 +2026,7 @@ proc applyGlobalViewerMessage*(
         else:
           state.scrubbingReplay = false
     of SpriteClientChatMessage:
-      # Whole-string ctf-side commands are intercepted before the legacy
+      # Whole-string paintball-side commands are intercepted before the legacy
       # char-by-char transport path, so a multi-digit tick or slot is never
       # mangled into speed keystrokes.
       if item.text.startsWith("s:"):
@@ -3078,6 +3124,94 @@ proc buildPaintStainSprite(
         if sim.isArtWall(mapX, mapY) != stain.onWall:
           continue
       result.putRawRgbaPixel(y * outSize + x, paintR, paintG, paintB, alpha)
+
+proc buildPaintTileSprite(colorIndex, variant: int): seq[uint8] {.measure.} =
+  ## One floor-paint tile: a matte splat of team paint soaked into the
+  ## concrete, sized a few pixels larger than the tile so neighbours of one
+  ## colour merge into a field. Deliberately the STAIN look, not the wet
+  ## on-hit splat — peak alpha PaintTilePeakAlpha, so the floor's grain reads
+  ## straight through and a painted lane says "this ground is theirs" without
+  ## out-shouting the cogs standing on it.
+  ##
+  ## Rasterized AT the emission scale (the board sprite rule), so the ragged
+  ## edge stays crisp instead of blocky-upscaled. Sixteen of these exist for
+  ## the whole match (2 teams x PaintTileVariants), picked per tile by a hash
+  ## of the tile index.
+  let
+    k = max(1, boardScale)
+    outSize = PaintTileSize * k
+  result = newRgbaPixels(outSize, outSize)
+  let
+    base = teamPaintRgba(PlayerColors[colorIndex and 0x0f])
+    paintR = uint8(min(255, base.r.int * 92 div 100))
+    paintG = uint8(min(255, base.g.int * 92 div 100))
+    paintB = uint8(min(255, base.b.int * 92 div 100))
+    half = float(outSize - k) / 2
+    v = float(variant)
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
+      let
+        dx = (float(x) - half) / max(1.0, half)
+        dy = (float(y) - half) / max(1.0, half)
+        # A square metric, not a disc: tiles have to cover their corners or a
+        # solid field reads as a grid of dots.
+        radial = max(abs(dx), abs(dy))
+        angle = arctan2(dy, dx)
+        edge = 0.94 + 0.06 * sin(angle * 3.0 + v) +
+          0.03 * sin(angle * 7.0 + v * 2.0)
+      if radial >= edge:
+        continue
+      let density = clamp((edge - radial) / 0.14, 0.0, 1.0)
+      var noise = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32 +
+        uint32(variant) * 2246822519'u32
+      noise = (noise xor (noise shr 13)) * 1274126177'u32
+      let
+        grain = float(int((noise shr 16) mod 1000)) / 1000.0
+        frayed = density - 0.26 * grain
+      if frayed <= 0.02:
+        continue
+      let alpha = uint8(clamp(
+        PaintTilePeakAlpha * pow(min(1.0, frayed), 0.75) * (0.74 + 0.26 * grain),
+        0.0, 255.0))
+      if alpha <= 3:
+        continue
+      result.putRawRgbaPixel(y * outSize + x, paintR, paintG, paintB, alpha)
+
+proc hillOverlaySize(sim: SimServer): int =
+  ## The hill square in map pixels: the (2r+1) tile block it covers.
+  (2 * max(0, sim.config.hillRadiusTiles) + 1) * sim.paintTileSize()
+
+proc buildHillSprite(sim: SimServer, owner: int): seq[uint8] {.measure.} =
+  ## The hill: a chalk square baked onto the floor, plus a ring in the
+  ## owner's colour (grey while unowned). `owner` is 0 unowned, 1 RED, 2 BLUE.
+  let
+    k = max(1, boardScale)
+    span = hillOverlaySize(sim)
+    outSize = max(1, span * k)
+  result = newRgbaPixels(outSize, outSize)
+  let tint =
+    case owner
+    of 1: RedEndzoneColor
+    of 2: BlueEndzoneColor
+    else: rgba(200, 190, 172, 255)
+  let
+    chalk = max(1, 2 * k)
+    ring = max(2, 4 * k)
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
+      let
+        edge = min(min(x, y), min(outSize - 1 - x, outSize - 1 - y))
+      var alpha = 0
+      if edge < ring:
+        ## The owner ring: a bright band hugging the hill's rim.
+        alpha = (if owner == 0: 90 else: 190)
+      elif edge < ring + chalk:
+        ## A faint chalk inset so the square reads even when nobody owns it.
+        alpha = 46
+      if alpha <= 0:
+        continue
+      result.putRawRgbaPixel(
+        y * outSize + x, tint.r, tint.g, tint.b, uint8(alpha))
 
 ## --- Smooth (vector) board text — spectator supersample only ---
 ## Every 1× stream keeps the retro pixel fonts byte-for-byte (the player
@@ -4193,6 +4327,30 @@ proc buildSmoothShoutBubble(
     smoothShoutBubbleCache.clear()
   smoothShoutBubbleCache[cacheKey] = result
 
+proc shoutBubblePlacement*(
+  game: SimServer, anchorX, tailTipY, bubbleW, bubbleH: int
+): tuple[x, y: int] =
+  ## Where one speech bubble is PLACED, in logical map pixels, so that it is
+  ## always wholly inside the board — the frame every spectator client fits
+  ## the whole map into.
+  ##
+  ## The bubble grows UPWARD from the shouter, and a cog can stand on the top
+  ## row of the arena: placing it at `tailTipY - bubbleH` unclamped puts the
+  ## body at a negative y, where the map layer canvas silently clips it and a
+  ## sentence renders as a sliver. That is the cogchemists defect of
+  ## 2026-08-24 verbatim, and nothing in a load signal, a soak or a screenshot
+  ## can see it. So: if the bubble does not fit above the tail tip it FLIPS
+  ## below it (the tail is cosmetic; being read is not), and either way both
+  ## axes are clamped into the board rect.
+  let
+    maxX = max(0, game.gameMap.width - bubbleW)
+    maxY = max(0, game.gameMap.height - bubbleH)
+  result.x = clamp(anchorX - bubbleW div 2, 0, maxX)
+  result.y =
+    if tailTipY - bubbleH >= 0: tailTipY - bubbleH
+    else: tailTipY + ShoutFloat
+  result.y = clamp(result.y, 0, maxY)
+
 proc buildShoutBubble*(
   game: SimServer,
   team: Team,
@@ -4272,6 +4430,16 @@ proc buildShoutBubble*(
     ShoutPadX, ShoutPadY, 0'u8,  # palette 0 = near-black ink
     bold = true
   )
+
+proc shoutBubbleMaxHeight*(game: SimServer): int =
+  ## The height of the tallest bubble the SERVER can ever produce: the shout
+  ## cap (ShoutMaxChars runes) in the font it will be drawn in, at this
+  ## board's bubble zoom. This is the reserved band — sized from the cap the
+  ## server enforces and measured in the real font, never by eye — and it is
+  ## reserved whether or not anyone is speaking, so nothing about the scene
+  ## depends on a remark landing.
+  let zoom = shoutBubbleZoomFor(game.gameMap.width, game.gameMap.height)
+  game.buildShoutBubble(Red, repeat("W", ShoutMaxChars), zoom).height
 
 proc centeredTextX(sim: SimServer, text: string): int =
   ## Returns the centered x position for interstitial text.
@@ -4549,7 +4717,7 @@ proc addSpriteProtocolInterstitialSprites(
   )
 
 proc buildFlagBannerSprite(team: Team): seq[uint8] {.measure.} =
-  ## The carried CTF objective: a glowing team-colored HEART-GEM relic (Red =
+  ## The carried PAINTBALL objective: a glowing team-colored HEART-GEM relic (Red =
   ## crimson life-crystal, Blue = frost life-crystal), loaded from the hand-
   ## painted PNG and scaled to the small carried footprint. 0.7.0 renamed the
   ## "flag" a heart in-sim ("heart returned home"), so the object reads as a
@@ -5184,6 +5352,37 @@ proc overheadAnchorY(player: Player): int =
   ## Y of the soldier body's top edge — the anchor for stacking overhead UI
   ## (HP bar, name, shout) just above the helmet, independent of canvas size.
   player.y + CollisionH div 2 - SoldierBodyPx div 2
+
+proc shoutAnchor*(player: Player): tuple[x, tailTipY: int] =
+  ## Where a live shout by this cog hangs from: the bubble's tail tip, stacked
+  ## above the hp bar and the name label. One definition, used by the draw
+  ## pass, by the worst-case fixture generator and by tests/test_shouts.nim,
+  ## so no second copy of it can drift.
+  (player.x + CollisionW div 2,
+   player.overheadAnchorY() - OverheadYOffset - HpBarH - TextLineHeight - 2)
+
+proc shoutBubbleRectFor*(
+  game: SimServer, playerIndex: int, text: string
+): tuple[x, y, w, h: int] =
+  ## The map-space rect the bubble for `text` shouted by this cog occupies,
+  ## through exactly the geometry the draw pass uses. Exported so a worst-case
+  ## frame can be BUILT from it (tools/record_text_fixture.nim) and asserted
+  ## on (tests/test_shouts.nim) without re-deriving any of it.
+  ## The bubble the BOARD draws: the board section of the packet builder runs
+  ## at the supersampled render scale, and the smooth bubble it bakes there has
+  ## slightly different logical dims than the 1x pixel one, so answer for that
+  ## scale rather than for whatever the last caller left behind.
+  let previousScale = boardScale
+  boardScale = boardRenderScaleFor(game.gameMap.width, game.gameMap.height)
+  defer: boardScale = previousScale
+  let
+    player = game.players[playerIndex]
+    zoom = shoutBubbleZoomFor(game.gameMap.width, game.gameMap.height)
+    bubble = game.buildShoutBubble(player.team, text, zoom)
+    anchor = player.shoutAnchor()
+    place = shoutBubblePlacement(
+      game, anchor.x, anchor.tailTipY, bubble.width, bubble.height)
+  (place.x, place.y, bubble.width, bubble.height)
 
 proc selectSpritePlayer(
   sim: SimServer,
@@ -6291,6 +6490,11 @@ proc addShouts(
         else:
           labelShout(
             teamText(shout.team), sim.shoutIdentityName(shout), shout.text)
+      ## Same clamp as the board pass: a shouter standing on the top row of
+      ## the map would otherwise place its bubble at a negative y, where the
+      ## layer canvas clips it to a sliver.
+      place = shoutBubblePlacement(
+        sim, anchorX, tailTipY, bubble.width, bubble.height)
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
@@ -6303,8 +6507,8 @@ proc addShouts(
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      anchorX - bubble.width div 2,
-      tailTipY - bubble.height,
+      place.x,
+      place.y,
       ShoutBubbleZ,
       MapLayerId,
       spriteId
@@ -6413,16 +6617,17 @@ proc addBoardShouts(
     for player in sim.players:
       if player.address == state.shoutSlots[slot]:
         if player.alive:
-          state.shoutLinger[slot].anchorX = player.x + CollisionW div 2
-          state.shoutLinger[slot].tailTipY =
-            player.overheadAnchorY() - OverheadYOffset -
-            HpBarH - TextLineHeight - 2
+          let anchor = player.shoutAnchor()
+          state.shoutLinger[slot].anchorX = anchor.x
+          state.shoutLinger[slot].tailTipY = anchor.tailTipY
         break
     let
       linger = state.shoutLinger[slot]
       bubble = sim.buildShoutBubble(linger.team, linger.text, zoom)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
+      place = shoutBubblePlacement(
+        sim, linger.anchorX, linger.tailTipY, bubble.width, bubble.height)
     packet.addBoardSpriteChanged(
       state.spriteDefs,
       spriteId,
@@ -6435,8 +6640,8 @@ proc addBoardShouts(
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      linger.anchorX - bubble.width div 2,
-      linger.tailTipY - bubble.height,
+      place.x,
+      place.y,
       ShoutBubbleZ,
       MapLayerId,
       spriteId
@@ -6690,6 +6895,101 @@ proc addPaintStains(
       spriteId
     )
     inc state.stainsSent
+
+proc addPaintTiles(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the floor-paint grid INCREMENTALLY: only tiles whose owner changed
+  ## since this viewer's last frame are re-placed, so a steady board costs
+  ## nothing per frame and a whole repaint costs one object message per tile.
+  ##
+  ## Like the map bands and the wall stains, these objects are deliberately
+  ## NOT tracked in `currentIds`: the per-frame delete diff only reaps ids it
+  ## saw in a previous frame's list, so leaving them out is exactly what makes
+  ## them persist.
+  ##
+  ## Spectator/board only — the POV/RL observation stream never receives the
+  ## grid as art (a seat reads its floor through the ordinary fogged board),
+  ## and `mapRgba` is never touched.
+  if not sim.config.floorPaint or sim.paintOwner.len == 0:
+    return
+  if state.paintTilesSent.len != sim.paintOwner.len:
+    # First frame for this viewer, or the grid was resized/reset: forget
+    # everything and re-place from empty.
+    for i in 0 ..< min(state.paintTilesSent.len, MaxPaintTiles):
+      if state.paintTilesSent[i] != 0:
+        packet.addDeleteObject(PaintTileObjectBase + i)
+    state.paintTilesSent = newSeq[uint8](sim.paintOwner.len)
+  let
+    size = sim.paintTileSize()
+    offset = PaintTileOverlap div 2
+  for tile in 0 ..< min(sim.paintOwner.len, MaxPaintTiles):
+    let owner = sim.paintOwner[tile]
+    if owner == state.paintTilesSent[tile]:
+      continue
+    state.paintTilesSent[tile] = owner
+    if owner == 0:
+      packet.addDeleteObject(PaintTileObjectBase + tile)
+      continue
+    let
+      team = paintTeamOf(owner)
+      colorIndex = playerColorIndex(teamColor(team))
+      ## A hash of the TILE INDEX, so one tile always draws the same blot
+      ## however many times it changes hands.
+      variant = int((uint32(tile) * 2654435761'u32) shr 28) mod PaintTileVariants
+      spriteId = PaintTileSpriteBase + ord(team) * PaintTileVariants + variant
+      tx = (tile mod sim.paintGridW) * size - offset
+      ty = (tile div sim.paintGridW) * size - offset
+    packet.addBoardSpriteChanged(
+      state.spriteDefs,
+      spriteId,
+      PaintTileSize,
+      PaintTileSize,
+      buildPaintTileSprite(colorIndex, variant),
+      "paint tile " & teamText(team) & " variant " & $variant,
+      native = boardScale
+    )
+    packet.addBoardObject(
+      PaintTileObjectBase + tile, tx, ty, PaintTileZ, MapLayerId, spriteId)
+
+proc addHillOverlay(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## The hill: a chalk square with a ring in the owner's colour. Emitted from
+  ## the SIM, not drawn by the page, so the overlay is identical live, in the
+  ## native replay server and in the wasm bundle — and broadcast_core.js
+  ## stays byte-identical to the starter's.
+  if not sim.config.hill:
+    return
+  let
+    owner = (if sim.hillOwned: ord(sim.hillOwner) + 1 else: 0)
+    span = hillOverlaySize(sim)
+    spriteId = HillSpriteBase + owner
+  currentIds.add(HillObjectId)
+  if state.hillOwnerSent != owner:
+    state.hillOwnerSent = owner
+  packet.addBoardSpriteChanged(
+    state.spriteDefs,
+    spriteId,
+    span,
+    span,
+    sim.buildHillSprite(owner),
+    "hill " & (if owner == 0: "unowned" else: teamText(Team(owner - 1))),
+    native = boardScale
+  )
+  packet.addBoardObject(
+    HillObjectId,
+    MapWidth div 2 - span div 2,
+    MapHeight div 2 - span div 2,
+    HillRingZ,
+    MapLayerId,
+    spriteId
+  )
 
 proc addBarrageMarker(
   sim: SimServer,
@@ -8593,7 +8893,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       player = sim.players[playerIndex]
       viewerIsGhost = not player.alive
     if not viewerIsGhost:
-      discard sim.refreshPlayerFov(playerIndex)
+      sim.refreshSeatFov(playerIndex)
 
     # The full static map, always drawn: terrain is static knowledge. Sent
     # to sprites-off bots too (12 bytes, pixel-free sprite): the map OBJECT
@@ -9590,6 +9890,8 @@ proc buildSpriteProtocolUpdates*(
     # objects — must re-arm the cursor, or the board would come back with every
     # stain object referencing a sprite id the client no longer has defined.
     nextState.stainsSent = 0
+    nextState.paintTilesSent = @[]
+    nextState.hillOwnerSent = -1
     if not povActive:
       nextState.initialized = false
   nextState.povActive = povActive
@@ -9674,6 +9976,11 @@ proc buildSpriteProtocolUpdates*(
   # Permanent terrain paint: incremental (only stains this viewer lacks) and
   # intentionally NOT tracked in currentIds, so it persists like the map bands.
   sim.addPaintStains(nextState, result)
+  # NEW (paintball): the floor-paint grid (incremental, persistent) and the
+  # hill overlay. The board IS the readout — territory is legible at a glance
+  # because the arena visibly changes colour as the game goes.
+  sim.addPaintTiles(nextState, result)
+  sim.addHillOverlay(nextState, currentIds, result)
   sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
   sim.addZoneMarkers(nextState.spriteDefs, currentIds, result)
   sim.addZoneEdgeBand(nextState.spriteDefs, currentIds, result)

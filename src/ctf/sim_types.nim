@@ -29,37 +29,46 @@ export glory
 
 const
   GameName* = "ctf"
-  GameVersion* = "45"  ## GV45 (BR integration): SIXTEEN TEAMS, ELIMINATION,
-    ## A CLOSING ZONE. A replay's version string is supposed to identify the
-    ## rules that produced it, and this build can seat up to 16 teams (`Team`
-    ## widened from 4, BR_MAPGEN.md §6.2), run the no-respawn `brMode`
-    ## elimination ruleset instead of classic capture/wipe scoring, and close
-    ## a shrinking rectangular zone (`zonePhases`) that deals environmental
-    ## damage outside it — none of which any earlier GameVersion's rules
-    ## could produce. Re-scanned every origin branch first: nothing claims 45
-    ## yet (main and every live branch sit on 44).
+  GameVersion* = "47"  ## GV47 (stats rule): DAMAGE IS CREDITED, AND SPLIT.
+    ## `absorbDamage` — the one subtraction point — now mirrors every hit onto
+    ## the attacker's reward account, split by team exactly the way GV45 split
+    ## kills: hp taken off an ENEMY accumulates in `hitDamage`, hp taken off a
+    ## TEAMMATE in `teamHitDamage`, and self-damage counts as neither. Both
+    ## are exported as their own stat lines (`hit_damage` / `team_hit_damage`)
+    ## and results fields (`hitDamage` / `teamHitDamage`). No gameplay rule
+    ## moves: the counters are off-hash bookkeeping for reward shaping (an RL
+    ## policy gets shot-level credit instead of waiting for a kill). The bump
+    ## is for the WIRE: RewardAccount is flatty-serialized into every replay
+    ## keyframe, so two new fields relayout it and a GV45 replay cannot be
+    ## read back. Fixtures re-recorded. (GV46 is claimed by the glory port.)
     ##
-    ## NOT taken for the reason some BR lanes originally deferred it on
-    ## (BR_MAPGEN.md §6.2's flatty-misalignment worry: `array[Team, X]`
-    ## fields reachable from the flatty-serialized SimServer are fixed-width
-    ## runs with no length prefix, so a 16-wide run read by a 4-wide reader
-    ## was predicted to desync every subsequent keyframe field SILENTLY).
-    ## That prediction never reproduced — every fixture already hashed and
-    ## re-simulated clean with `Team` 16 wide, because keyframes are derived
-    ## in-process and never read back from a replay file (the established
-    ## "puddle contract"), so the widened array runs never cross a file
-    ## boundary. Taken instead because the RULES changed, which is the one
-    ## reason a replay's version string exists at all.
+    ## Season 2 / BR integration (16 teams, elimination, a closing zone;
+    ## docs/designs/BR_SEASON2_LANDING_PLAN.md) lands in this same tree via
+    ## the main-merge WITHOUT claiming a GameVersion bump of its own — an
+    ## earlier draft of this lineage briefly claimed GV45 for it, but that
+    ## number belongs to main's team-kills stats rule (below) and the claim
+    ## is retracted. bitworld's codec strict-gates both `formatVersion` and
+    ## `gameVersion` on load (bitworld/replays.nim:363,370), so any bump
+    ## orphans every archived replay regardless of whether it actually
+    ## changed behavior. `brMode`, `zonePhases`, and the widened `Team` (up
+    ## to 16) are all gated off by default, so classic (non-BR) play stays
+    ## byte-identical to GV47 — the darkness criterion this merge exists to
+    ## prove, with the six pinned fixtures (main's re-recorded versions) as
+    ## the evidence. A future landing claims a real GV number only when it
+    ## actually changes gate-off behavior (see the landing plan's GV48/49
+    ## reservations).
     ##
-    ## Classic (non-BR) play is UNCHANGED, byte for byte: brMode/zonePhases
-    ## both default off, `Team` widening only adds unused enum values a
-    ## 2-4-team board never reaches, and GV44's home-dealing rotation is
-    ## untouched. But BR play is genuinely new — no earlier GameVersion could
-    ## even boot a 16-team elimination-with-zone episode — so the six pinned
-    ## fixtures (all classic, 2-4 teams) re-record to the SAME content under
-    ## the new stamp: re-recorded on an idle machine (1-minute load ~4-5,
-    ## confirmed stable) via tools/record_all_fixtures.sh, hash-verified from
-    ## disk via tools/extract_events.nim, no beat or asserted winner changed.
+    ## Previously GV45 (stats rule): TEAM KILLS ARE NOT KILLS. The
+    ## hashed per-player `kills` counter now counts ENEMY kills only: killing
+    ## a teammate — gun, grenade blast, or spray cone alike — increments only
+    ## `teamKills`, which is newly mirrored onto the reward account and
+    ## exported as its own stat line (`team_kills`) and results field
+    ## (`teamKills` / squad `teamTags`). A backstab therefore no longer
+    ## inflates K, the kill metrics, cluster (multi-kill) honors, or
+    ## kill-spree achievements. The killfeed still attributes backstabs: the
+    ## broadcast tracker diffs TOTAL credited kills (kills + teamKills).
+    ## `kills` is hashed state, so a GV44 replay containing a team kill does
+    ## not re-simulate: fixtures re-recorded.
     ##
     ## Previously GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
     ## On every board with more than two teams, WHICH TEAM OWNS WHICH HOME is
@@ -857,6 +866,142 @@ const
     ## flash never happened. The margin under 65535 covers the record's own
     ## hash prefix.
 
+  # --- Paintball King of the Hill (docs/plans/2026-08-25-paintball-design.md) ---
+  # Every value below is a DEFAULT for the matching GameConfig field; a
+  # variant may override it. All paintball arithmetic is integer-only so the
+  # native server and the wasm viewer re-derive the identical tick.
+  PaintTile* = 34               ## px side of one floor-paint tile: one cog body.
+  MaxPaintTiles* = 768          ## render-pool ceiling on the paint grid; the
+                                ## 1235x659 arena needs 37 x 20 = 740.
+  DefaultHillRadiusTiles* = 2   ## hill = the (2r+1)^2 tile block at map centre.
+  DefaultHillOwnPermille* = 800 ## >= 80% of the hill's FLOOR tiles owns it.
+                                ## Above 500, so at most one team can qualify.
+  DefaultHillDecisiveTicks* = 720  ## hill-tick margin worth a full 1.0 game score.
+  DefaultPaintSpeedOwnPct* = 125   ## own colour underfoot: x125% speed/accel.
+  DefaultPaintSpeedEnemyPct* = 85  ## enemy colour underfoot: x85% speed/accel.
+  DefaultPaintHealTicks* = 48   ## consecutive ticks on own paint per +1 hp.
+  HillFlipThrottleTicks* = 12   ## min ticks between two `hillflip` beats, so a
+                                ## contested rim cannot flood the feed.
+  DefaultCogsPerTeam* = 4       ## cogs one seat commands (RED-alpha..delta).
+  DefaultSprayDamage* = 1       ## hp per cone touch under the paintball loadout
+                                ## (the starter's SprayPaintDamage is 3): three
+                                ## touches tag a 3 hp cog out, which is what
+                                ## makes the heal half of the buff matter.
+  DefaultTurnTicks* = 108       ## 4.5 s of sim time per decision turn.
+  ## v1.1 timing amendment (2026-08-25). The 0.1.2 deadlines were 4500/2000 ms
+  ## inside a 7000 ms cap, and curly's timeout is CURLOPT_TIMEOUT — whole
+  ## seconds — so attempt 1 really ran with 4 s. Paintball's own sidecar
+  ## measured a 4618 ms median over 85 hosted calls (56 of them past 4 s) and
+  ## every successful LLM directive reported a 3999–4001 ms latency: the
+  ## deadline, not the model, was answering. All three values are now whole
+  ## seconds so the configured number IS the effective one, and attempt 1
+  ## clears that median by ~1.4 s.
+  DefaultTurnBudgetMs* = 10_000 ## hard monotonic cap around one whole turn.
+  DefaultAttempt1Ms* = 6000     ## first parallel batch deadline (6 s exactly).
+  DefaultRetryMs* = 3000        ## single retry batch deadline (6 + 3 <= 10).
+  DefaultTurnSpacingMs* = 5000  ## wall-clock floor between batch STARTS; holds
+                                ## 2 seats under the sidecar's 30 req/min cap.
+  DefaultWallClockBudgetSeconds* = 690
+                                ## engine hard stop, 57.5% of the assumed 1200 s
+                                ## episodeTimeoutSeconds (the 60% pin).
+  DefaultMaxOutputTokens* = 900 ## 400 truncates Haiku mid-object.
+  LoadoutCtf* = "ctf"           ## the starter's loadout: pickups, gun, hearts.
+  LoadoutPaintball* = "paintball"  ## spray can always held, no pickups, no gun.
+  RegimeResidentText* = "resident"
+  RegimeVisitorText* = "visitor"
+  MaxNoteRunes* = 160           ## directive note cap, in RUNES (never bytes).
+  MaxSayRunes* = ShoutMaxChars  ## a cog's shout cap, in RUNES.
+  MaxPolicyLabelRunes* = 48     ## `register.policy` cap, in RUNES.
+  MaxFallbackDetailRunes* = 200 ## `fallback.detail` cap, in RUNES.
+  MaxDirectiveRunes* = 900      ## whole serialized `directive` record cap.
+  MaxPromptRunes* = 4000        ## PLAYER_PROMPT transport cap (truncate, never
+                                ## reject); never written to the replay.
+  MaxCogIdRunes* = 12           ## `cogs[].id` cap, in RUNES.
+  AimUnitScale* = 1024
+    ## Fixed-point scale of the integer aim table below. The paint grid's cone
+    ## test is the one piece of NEW hashed arithmetic in this fork, and Nim's
+    ## `int` is 32-bit under `--cpu:wasm32`, so it is integer-only end to end:
+    ## a compile-time cos/sin would be evaluated by whichever libm the build
+    ## container ships and could differ by an ulp between the amd64 game image
+    ## and the emscripten viewer image. These literals cannot.
+  AimUnitX*: array[256, int] = [
+     1024,  1024,  1023,  1021,  1019,  1016,  1013,  1009,
+     1004,   999,   993,   987,   980,   972,   964,   955,
+      946,   936,   926,   915,   903,   891,   878,   865,
+      851,   837,   822,   807,   792,   775,   759,   742,
+      724,   706,   688,   669,   650,   630,   610,   590,
+      569,   548,   526,   505,   483,   460,   438,   415,
+      392,   369,   345,   321,   297,   273,   249,   224,
+      200,   175,   150,   125,   100,    75,    50,    25,
+        0,   -25,   -50,   -75,  -100,  -125,  -150,  -175,
+     -200,  -224,  -249,  -273,  -297,  -321,  -345,  -369,
+     -392,  -415,  -438,  -460,  -483,  -505,  -526,  -548,
+     -569,  -590,  -610,  -630,  -650,  -669,  -688,  -706,
+     -724,  -742,  -759,  -775,  -792,  -807,  -822,  -837,
+     -851,  -865,  -878,  -891,  -903,  -915,  -926,  -936,
+     -946,  -955,  -964,  -972,  -980,  -987,  -993,  -999,
+    -1004, -1009, -1013, -1016, -1019, -1021, -1023, -1024,
+    -1024, -1024, -1023, -1021, -1019, -1016, -1013, -1009,
+    -1004,  -999,  -993,  -987,  -980,  -972,  -964,  -955,
+     -946,  -936,  -926,  -915,  -903,  -891,  -878,  -865,
+     -851,  -837,  -822,  -807,  -792,  -775,  -759,  -742,
+     -724,  -706,  -688,  -669,  -650,  -630,  -610,  -590,
+     -569,  -548,  -526,  -505,  -483,  -460,  -438,  -415,
+     -392,  -369,  -345,  -321,  -297,  -273,  -249,  -224,
+     -200,  -175,  -150,  -125,  -100,   -75,   -50,   -25,
+        0,    25,    50,    75,   100,   125,   150,   175,
+      200,   224,   249,   273,   297,   321,   345,   369,
+      392,   415,   438,   460,   483,   505,   526,   548,
+      569,   590,   610,   630,   650,   669,   688,   706,
+      724,   742,   759,   775,   792,   807,   822,   837,
+      851,   865,   878,   891,   903,   915,   926,   936,
+      946,   955,   964,   972,   980,   987,   993,   999,
+     1004,  1009,  1013,  1016,  1019,  1021,  1023,  1024
+  ]
+  AimUnitY*: array[256, int] = [
+        0,   -25,   -50,   -75,  -100,  -125,  -150,  -175,
+     -200,  -224,  -249,  -273,  -297,  -321,  -345,  -369,
+     -392,  -415,  -438,  -460,  -483,  -505,  -526,  -548,
+     -569,  -590,  -610,  -630,  -650,  -669,  -688,  -706,
+     -724,  -742,  -759,  -775,  -792,  -807,  -822,  -837,
+     -851,  -865,  -878,  -891,  -903,  -915,  -926,  -936,
+     -946,  -955,  -964,  -972,  -980,  -987,  -993,  -999,
+    -1004, -1009, -1013, -1016, -1019, -1021, -1023, -1024,
+    -1024, -1024, -1023, -1021, -1019, -1016, -1013, -1009,
+    -1004,  -999,  -993,  -987,  -980,  -972,  -964,  -955,
+     -946,  -936,  -926,  -915,  -903,  -891,  -878,  -865,
+     -851,  -837,  -822,  -807,  -792,  -775,  -759,  -742,
+     -724,  -706,  -688,  -669,  -650,  -630,  -610,  -590,
+     -569,  -548,  -526,  -505,  -483,  -460,  -438,  -415,
+     -392,  -369,  -345,  -321,  -297,  -273,  -249,  -224,
+     -200,  -175,  -150,  -125,  -100,   -75,   -50,   -25,
+        0,    25,    50,    75,   100,   125,   150,   175,
+      200,   224,   249,   273,   297,   321,   345,   369,
+      392,   415,   438,   460,   483,   505,   526,   548,
+      569,   590,   610,   630,   650,   669,   688,   706,
+      724,   742,   759,   775,   792,   807,   822,   837,
+      851,   865,   878,   891,   903,   915,   926,   936,
+      946,   955,   964,   972,   980,   987,   993,   999,
+     1004,  1009,  1013,  1016,  1019,  1021,  1023,  1024,
+     1024,  1024,  1023,  1021,  1019,  1016,  1013,  1009,
+     1004,   999,   993,   987,   980,   972,   964,   955,
+      946,   936,   926,   915,   903,   891,   878,   865,
+      851,   837,   822,   807,   792,   775,   759,   742,
+      724,   706,   688,   669,   650,   630,   610,   590,
+      569,   548,   526,   505,   483,   460,   438,   415,
+      392,   369,   345,   321,   297,   273,   249,   224,
+      200,   175,   150,   125,   100,    75,    50,    25
+  ]
+  ReasonComplete* = "complete"
+  ReasonDeadline* = "deadline"
+  ReasonFault* = "fault"
+  EndRuleFullTime* = "full_time"
+  EndRuleMercy* = "mercy"
+  EndRuleWipe* = "wipe"
+  EndRuleWallClock* = "wall_clock"
+  EndRuleSimFault* = "sim_fault"
+  EndRuleHostError* = "host_error"
+
   TextLineHeight* = 7
   MapSpriteId* = 1
   MapObjectId* = 1
@@ -1075,7 +1220,28 @@ type
     luckChance*: int     ## luck: chance a landed gun shot is lucky, permille.
     luckDamage*: int     ## luck: hit points a lucky shot removes.
 
+  PaintUnder* = enum
+    ## What a cog's BODY CENTRE is standing on this tick, sampled once per
+    ## tick by updatePaintBuff and consumed by the next tick's applyInput.
+    puNone                     ## unpainted floor.
+    puOwn                      ## this cog's own team colour.
+    puEnemy                    ## the other team's colour.
+
+  Regime* = enum
+    ## Which cogs of a team its seat drives for one GAME of the episode.
+    ## `resident` = all four; `visitor` = alpha only, the other three run the
+    ## published `holdline` baseline. Ordinals are wire format.
+    regimeResident
+    regimeVisitor
+
   CtfError* = object of ValueError
+
+  SimGuardError* = object of CatchableError
+    ## A sim INVARIANT tripped: a paint index out of range, a cog outside the
+    ## map, hill counts that cannot be true. The design note's end-condition
+    ## table row 5 says what happens next — the episode ends `fault` /
+    ## `sim_fault`, both seats score 0.500, and the partial replay is written
+    ## — and the server's tick loop is the only place that catches it.
 
   GamePhase* = enum
     Lobby
@@ -1436,7 +1602,17 @@ type
     reward*: int
     wins*: array[Team, int]    ## lifetime wins while seated on each team.
     games*: array[Team, int]   ## lifetime games seated on each team.
-    kills*: int
+    kills*: int                ## enemy kills only (GV45); backstabs land in
+                               ## teamKills.
+    teamKills*: int            ## teammates this address killed, kept apart
+                               ## from kills so the metrics and results
+                               ## never conflate the two.
+    hitDamage*: int            ## hp this address took off ENEMIES (GV47),
+                               ## summed over every gun/spray/grenade hit —
+                               ## the shot-level counterpart of `kills`.
+    teamHitDamage*: int        ## hp this address took off TEAMMATES, kept
+                               ## apart from hitDamage for the same reason
+                               ## teamKills is kept apart from kills.
     deaths*: int
     captures*: int
     earnedAchievements*: seq[string]
@@ -1735,6 +1911,33 @@ type
                                   ## gameHash mixes nothing new, so a league
                                   ## replay is byte-identical to a build
                                   ## without this field.
+    # --- paintball gates (all OFF by default: a gate-off config plays the
+    # starter's rules unchanged, which is what keeps the inherited engine
+    # meaningful) ---
+    numAgents*: int               ## seats (websocket connections). 2 here; a
+                                  ## seat commands one four-cog squad.
+    cogsPerTeam*: int             ## cogs a team fields (4).
+    loadout*: string              ## LoadoutCtf (default) or LoadoutPaintball.
+    floorPaint*: bool             ## the paint grid exists and cones repaint it.
+    paintBuff*: bool              ## own/enemy paint changes speed and heals.
+    hill*: bool                   ## KotH replaces the capture win condition.
+    paintTile*: int               ## px side of one paint tile.
+    hillRadiusTiles*: int         ## hill is the (2r+1)^2 tile block at centre.
+    hillOwnPermille*: int         ## coverage permille that OWNS the hill.
+    hillDecisiveTicks*: int       ## hill-tick margin worth a 1.0 game score.
+    paintSpeedOwnPct*: int        ## speed/accel percent on own colour.
+    paintSpeedEnemyPct*: int      ## speed/accel percent on enemy colour.
+    paintHealTicks*: int          ## consecutive own-paint ticks per +1 hp.
+    sprayDamage*: int             ## hp removed by one cone touch.
+    regimes*: seq[Regime]         ## regime per game index (resident/visitor).
+    turnTicks*: int               ## sim ticks per decision turn.
+    turnBudgetMs*: int            ## monotonic cap on one whole turn.
+    attempt1Ms*: int              ## first batch deadline.
+    retryMs*: int                 ## retry batch deadline.
+    turnSpacingMs*: int           ## wall-clock floor between batch starts.
+    wallClockBudgetSeconds*: int  ## engine hard stop -> reason "deadline".
+    model*: string                ## pinned Bedrock/Anthropic model, "" = auto.
+    maxOutputTokens*: int         ## LLM max_tokens.
 
   Player* = object
     x*, y*: int
@@ -1799,7 +2002,8 @@ type
     color*: uint8
     skin*: Skin               ## cosmetic only; excluded from gameHash.
     reward*: int
-    kills*: int
+    kills*: int                ## enemy kills only (GV45, hashed); a teammate
+                               ## kill lands in teamKills instead.
     deaths*: int
     captures*: int
     shotsFired*: int           ## shots this player released; analysis-only,
@@ -1812,8 +2016,9 @@ type
     multiKills3*: int          ## grenade blasts / spray bursts that
                                ## killed 3 or more; analysis-only, excluded
                                ## from gameHash.
-    teamKills*: int            ## teammates this player killed (backstabs);
-                               ## analysis-only, excluded from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs),
+                               ## kept apart from kills (GV45); excluded
+                               ## from gameHash.
     arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
@@ -2071,6 +2276,18 @@ type
     tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool  ## GLORY:
                                ## analysis-only pickup-touched flags, same
                                ## status main gave them.
+    seat*: int                 ## which SEAT (websocket) owns this cog's squad:
+                               ## 0 = RED command, 1 = BLUE command. Set at
+                               ## squad construction from the cog's team, so a
+                               ## broadcast event keyed by slot keeps working.
+                               ## Derived from config, so excluded from gameHash.
+    paintUnder*: PaintUnder    ## what this cog's centre stood on at the END of
+                               ## the previous tick; consumed by applyInput.
+                               ## HASHED (it changes movement).
+    ownPaintTicks*: int        ## consecutive ticks on own colour; at
+                               ## paintHealTicks it heals 1 hp and resets.
+                               ## Reset by stepping off, by damage, by death
+                               ## and at the start of each game. HASHED.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -2260,8 +2477,9 @@ type
     Shot        ## a gun shot released (source = shooter).
     Hit         ## a released shot connected with an enemy on its ray.
     Damage      ## hit points removed (gun/spray/grenade), amount = hp lost.
-    Kill        ## a CREDITED kill (mirrors recordKill; self-kills by own
-                ## grenade are a Death without a Kill).
+    Kill        ## a CREDITED kill, enemy and teammate alike (mirrors
+                ## recordKillCredit; self-kills by own grenade are a Death
+                ## without a Kill).
     Death       ## a player died (source = victim, target = killer).
     FlagSteal   ## a flag left its pedestal on an enemy's back.
     FlagReturn  ## a flag went home for any reason other than capture.
@@ -2277,8 +2495,20 @@ type
     SprayUse    ## one active spray-cone tick and the damage it dealt.
     Pickup      ## a player picked up an item; item names the pickup.
     ShoutEvent  ## a player shouted; content is the sanitized text.
+    PaintTiles  ## NEW: one cone repainted `amount` floor tiles this tick,
+                ## `hp` of which were hill tiles.
+    HillFlip    ## NEW: hill ownership changed; weapon = the new owner's team
+                ## name or "none", amount = its coverage percent.
+    HillHold    ## NEW: one more banked SECOND of hill time; weapon = team,
+                ## amount = seconds held.
+    Directive   ## NEW: a seat's directive for a turn; weapon = the source
+                ## ("llm" | "scripted" | "fallback"), amount = the turn index,
+                ## content = the note.
     # ── GLORY PORT (increment 2/3) ── appended, never inserted, per this enum's own
-    # positional discipline (matches the struct-field rule above).
+    # positional discipline (matches the struct-field rule above). Appended
+    # AFTER main's paintball event kinds (PaintTiles..Directive) so that any
+    # archived replay encoding those ordinals keeps them unchanged; ours are
+    # new tail entries.
     GloryDeed   ## a deed minted through `awardDeed` (weapon = $deed).
     Achievement ## an achievement tier claimed through `claimAchievement`.
     LevelUp     ## a cog's per-life ladder rank climbed (source = cog,
@@ -2547,6 +2777,40 @@ type
                                ## an unconfigured game's hash chain is
                                ## byte-identical to a build without this
                                ## field at all.
+    # --- paintball state (appended at the END of the type: keyframes are
+    # flatty-POSITIONAL, so new fields may only be appended) ---
+    paintOwner*: seq[uint8]    ## gw*gh tiles: 0 unpainted, 1 RED, 2 BLUE.
+                               ## HASHED, eight bytes at a time.
+    paintFloor*: seq[bool]     ## whether a tile is PAINTABLE — its centre
+                               ## pixel is not wall at spin frame 0. Computed
+                               ## ONCE at map install, so the native server
+                               ## and the wasm viewer agree exactly.
+    paintGridW*, paintGridH*: int
+    paintCount*: array[Team, int]   ## painted tiles per team (incremental).
+    hillTiles*: seq[int]       ## flat tile indices inside the hill square.
+    hillFloorTiles*: int       ## how many of those are PAINTABLE (the
+                               ## denominator of the 80% test).
+    hillPaint*: array[Team, int]    ## hill tiles owned per team (incremental).
+    hillTicks*: array[Team, int]    ## banked hill points THIS game. HASHED.
+    hillOwner*: Team           ## meaningful only while hillOwned is true.
+    hillOwned*: bool
+    lastHillFlipTick*: int     ## throttle for the `hillflip` beat.
+    regime*: Regime            ## the regime THIS game is played under.
+    gameIndex*: int            ## 0-based index of the game inside the episode.
+    gameHill*: seq[array[Team, int]]  ## archived hillTicks per finished game.
+    gameRegimes*: seq[Regime]  ## the regime each finished game was played under.
+    endReason*: string         ## ReasonComplete / ReasonDeadline / ReasonFault.
+    endRule*: string           ## EndRuleFullTime / Mercy / Wipe / WallClock / ...
+    llmTurns*: array[2, int]   ## per seat: turns whose directive came from an LLM.
+    fallbackTurns*: array[2, int]  ## per seat: turns that fell back to scripted.
+    seatNames*: array[2, string]   ## real policy names, SPECTATOR SIDE ONLY.
+    seatPolicyKind*: array[2, string]  ## "llm" | "scripted".
+    feedDirectives*: seq[string]   ## the last few `directive` chat records, as
+                               ## JSON text, so the broadcast feed can show the
+                               ## commander lines LIVE and in replay from one
+                               ## source. Non-hashed presentation state (the
+                               ## puddleTicks rule); a keyframe scrub restores
+                               ## it exactly through the flatty snapshot.
 
     # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
     # The team ledger, its rampage state and its one-shot claim gates --

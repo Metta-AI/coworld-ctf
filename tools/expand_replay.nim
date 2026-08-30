@@ -113,7 +113,9 @@ proc syncPlayers(
   while track.alive.len < sim.players.len:
     let i = track.alive.len
     track.alive.add(sim.players[i].alive)
-    track.kills.add(sim.players[i].kills)
+    # Diff TOTAL credited kills (kills + teamKills): GV45 keeps backstabs out
+    # of the kill stat, but the timeline must still attribute them.
+    track.kills.add(sim.players[i].kills + sim.players[i].teamKills)
     track.deaths.add(sim.players[i].deaths)
     track.captures.add(sim.players[i].captures)
     track.rewards.add(sim.players[i].reward)
@@ -129,7 +131,8 @@ proc killerThisTick(sim: SimServer, track: TrackState): int =
   result = -1
   var killerCount = 0
   for i, player in sim.players:
-    if i < track.kills.len and player.kills > track.kills[i]:
+    if i < track.kills.len and
+        player.kills + player.teamKills > track.kills[i]:
       inc killerCount
       result = i
   if killerCount > 1:
@@ -157,7 +160,7 @@ proc printKillsAndDeaths(
     elif p.alive and not track.alive[i]:
       events.addPlayerEvent(tick, Respawn, sim, i)
     track.alive[i] = p.alive
-    track.kills[i] = p.kills
+    track.kills[i] = p.kills + p.teamKills
     track.deaths[i] = p.deaths
 
 proc printShots(

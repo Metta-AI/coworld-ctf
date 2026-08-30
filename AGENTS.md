@@ -136,6 +136,16 @@ instead of blending in.
   `sim.nim` — the gameplay core and step loop.
 - `src/ctf/map_pool.nim` — GENERATED curated terrain-pool seeds; rewrite it
   only via `tools/gen_map_pool.nim`, never by hand.
+- Paintball King of the Hill — a config-gated squad mode merged back from
+  Metta-AI/cogame-paintball (docs/paintball/: RULES, PROTOCOL, COMMANDING,
+  the design note). Every gate defaults OFF and a gate-off config plays the
+  classic rules byte-identically; the `paintball` manifest variant turns it
+  on. Mode modules in `src/ctf/`: `paint.nim` (paint grid + hill),
+  `control.nim` (directive -> actuator masks), `directives.nim` (the reply
+  schema), `baselines.nim` (holdline/sprayer), `llm.nim` (Bedrock/Anthropic
+  transport), `decide.nim` (the per-turn batch); `src/paintball_player.nim`
+  is the thin seat registrar (`/bin/paintball-player`). Its tests are
+  `tests/test_pb_*.nim` (+ `pb_helpers.nim`), sharded like everything else.
 - `tools/map_render.nim` — the shared map rasterizer behind both
   `render_map_pool.nim` and the map editor. It is a PURE function of a
   `CtfMap`: it must never install a map or read the process-global arena
@@ -146,6 +156,26 @@ instead of blending in.
   are 10-50x slower through the per-pixel map code.
 - Dependencies come from nimby (`nimby --global sync nimby.lock`; the
   Dockerfile is the canonical build recipe).
+
+## Season 2 play-calling shell (design converged, NOT implemented)
+
+The authoritative plan for Season 2 (language-model policies that upload
+WebAssembly "plays", a game-side body ported from stencil, an embedded
+wasmtime runtime, the play-seat protocol, and the engine-native lobby chat
+phase) is `docs/designs/strategy-play-calling-shell-2026-08-29.md`, with a
+commentable HTML twin beside it. It is a design, cross-reviewed to
+convergence; none of it exists in `src/` yet. Before touching anything it
+names (`src/shell/`, play seats, the replay format bump, the Mummy patch,
+the new config fields), read it and build to it; when the code and the
+design disagree during implementation, the design's Appendix H records why
+each decision was made, and a change to a ratified decision goes through
+James, not around the doc. Supporting material: the runtime comparison that
+picked wasmtime (`docs/reports/wasm-runtime-embedding-2026-08-30.md`), the
+research report on Maxwell's Season 2 substrate
+(`docs/reports/maxwell-s2-paradigms-2026-08-29.md`), and the branch
+inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). The
+integration base for this work is Maxwell's `br-season2-complete` branch,
+not main; the design's P0 names the landing plan as the first job.
 
 ## Interaction radii must be derived from the art (learned 3x on the heart)
 

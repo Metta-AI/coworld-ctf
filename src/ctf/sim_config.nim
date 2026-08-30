@@ -60,7 +60,30 @@ proc defaultGameConfig*(): GameConfig =
     brMode: false,
     zonePhases: @[],
     allowCallouts: false,
-    allowPolicyReflash: false
+    allowPolicyReflash: false,
+    numAgents: 0,
+    cogsPerTeam: DefaultCogsPerTeam,
+    loadout: LoadoutCtf,
+    floorPaint: false,
+    paintBuff: false,
+    hill: false,
+    paintTile: PaintTile,
+    hillRadiusTiles: DefaultHillRadiusTiles,
+    hillOwnPermille: DefaultHillOwnPermille,
+    hillDecisiveTicks: DefaultHillDecisiveTicks,
+    paintSpeedOwnPct: DefaultPaintSpeedOwnPct,
+    paintSpeedEnemyPct: DefaultPaintSpeedEnemyPct,
+    paintHealTicks: DefaultPaintHealTicks,
+    sprayDamage: SprayPaintDamage,
+    regimes: @[regimeResident],
+    turnTicks: DefaultTurnTicks,
+    turnBudgetMs: DefaultTurnBudgetMs,
+    attempt1Ms: DefaultAttempt1Ms,
+    retryMs: DefaultRetryMs,
+    turnSpacingMs: DefaultTurnSpacingMs,
+    wallClockBudgetSeconds: DefaultWallClockBudgetSeconds,
+    model: "",
+    maxOutputTokens: DefaultMaxOutputTokens
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -623,6 +646,47 @@ proc readConfigZoneCenter(
         "(needs x in " & $loX & ".." & $hiX & ", y in " & $loY & ".." &
         $hiY & ")."
     )
+proc parseRegime*(text: string): Regime =
+  ## Parses one authored regime name; raises on anything else. The enum is
+  ## closed on purpose — an unknown regime would silently change which cogs a
+  ## seat drives, which is the whole measurement this coworld exists for.
+  case text.strip().toLowerAscii()
+  of RegimeResidentText: regimeResident
+  of RegimeVisitorText: regimeVisitor
+  else:
+    raise newException(
+      CtfError,
+      "Config field regimes has unknown entry " & text & "; expected " &
+        RegimeResidentText & " or " & RegimeVisitorText & "."
+    )
+
+proc regimeText*(regime: Regime): string =
+  ## The authored/wire name of one regime.
+  case regime
+  of regimeResident: RegimeResidentText
+  of regimeVisitor: RegimeVisitorText
+
+proc readConfigRegimes(node: JsonNode, config: var GameConfig) =
+  ## Reads the optional per-game regime list. Bounded at 4 entries so the
+  ## shape exists for a future mixed matrix without any variant being able to
+  ## schedule an unbounded episode.
+  if not node.hasKey("regimes"):
+    return
+  let items = node["regimes"]
+  if items.kind != JArray:
+    raise newException(CtfError, "Config field regimes must be an array.")
+  if items.len < 1 or items.len > 4:
+    raise newException(
+      CtfError, "Config field regimes must have 1..4 entries.")
+  var regimes: seq[Regime] = @[]
+  for i, item in items.elems:
+    if item.kind != JString:
+      raise newException(
+        CtfError,
+        "Config field regimes[" & $i & "] must be a string."
+      )
+    regimes.add(parseRegime(item.getStr()))
+  config.regimes = regimes
 
 proc validate(config: GameConfig) =
   ## Raises if a gameplay config has invalid values.
@@ -757,6 +821,76 @@ proc validate(config: GameConfig) =
         "Config field zonePhases[" & $i & "].dps must not be negative."
       )
     previousZPermille = phase.zPermille
+  if config.loadout notin [LoadoutCtf, LoadoutPaintball]:
+    raise newException(
+      CtfError,
+      "Config field loadout must be " & LoadoutCtf & " or " &
+        LoadoutPaintball & "; got " & config.loadout & "."
+    )
+  if config.cogsPerTeam < 1 or config.cogsPerTeam > 8:
+    raise newException(CtfError, "Config field cogsPerTeam must be 1..8.")
+  if config.paintTile < 4:
+    raise newException(CtfError, "Config field paintTile must be at least 4.")
+  if config.hillRadiusTiles < 0:
+    raise newException(
+      CtfError, "Config field hillRadiusTiles must not be negative.")
+  if config.hillOwnPermille <= 500 or config.hillOwnPermille > 1000:
+    raise newException(
+      CtfError,
+      "Config field hillOwnPermille must be 501..1000 so at most one team " &
+        "can own the hill."
+    )
+  if config.hillDecisiveTicks < 1:
+    raise newException(
+      CtfError, "Config field hillDecisiveTicks must be at least 1.")
+  if config.paintSpeedOwnPct < 1 or config.paintSpeedEnemyPct < 1:
+    raise newException(
+      CtfError, "Config field paintSpeed*Pct must be positive.")
+  if config.paintHealTicks < 1:
+    raise newException(
+      CtfError, "Config field paintHealTicks must be at least 1.")
+  if config.sprayDamage < 1:
+    raise newException(
+      CtfError, "Config field sprayDamage must be at least 1.")
+  if config.regimes.len < 1 or config.regimes.len > 4:
+    raise newException(
+      CtfError, "Config field regimes must have 1..4 entries.")
+  if config.turnTicks < 1:
+    raise newException(CtfError, "Config field turnTicks must be at least 1.")
+  if config.turnBudgetMs < 1 or config.attempt1Ms < 1 or config.retryMs < 1:
+    raise newException(
+      CtfError, "Config LLM deadline fields must be positive.")
+  if config.attempt1Ms + config.retryMs > config.turnBudgetMs:
+    raise newException(
+      CtfError,
+      "Config fields attempt1Ms + retryMs must fit inside turnBudgetMs."
+    )
+  if config.attempt1Ms mod 1000 != 0 or config.retryMs mod 1000 != 0:
+    ## v1.1 timing amendment: curly passes the deadline to CURLOPT_TIMEOUT,
+    ## which is WHOLE SECONDS, and the turn loop floors the conversion. A
+    ## sub-second value is therefore not the deadline it claims to be —
+    ## `attempt1Ms: 4500` ran with 4 s against a 4618 ms sidecar median and
+    ## every successful call landed on 3999–4001 ms.
+    raise newException(
+      CtfError,
+      "Config fields attempt1Ms and retryMs must be whole seconds " &
+      "(multiples of 1000): curly's transport timeout has whole-second " &
+      "granularity, so anything else is silently floored."
+    )
+  if config.turnSpacingMs < 0:
+    raise newException(
+      CtfError, "Config field turnSpacingMs must not be negative.")
+  if config.wallClockBudgetSeconds < 1:
+    raise newException(
+      CtfError, "Config field wallClockBudgetSeconds must be positive.")
+  if config.paintBuff and not config.floorPaint:
+    raise newException(
+      CtfError, "Config field paintBuff requires floorPaint.")
+  if config.hill and not config.floorPaint:
+    raise newException(
+      CtfError, "Config field hill requires floorPaint.")
+  if config.numAgents < 0:
+    raise newException(CtfError, "Config field num_agents must not be negative.")
   if config.slots.len > MaxPlayers:
     raise newException(CtfError, "Config field slots cannot have more than 8 entries.")
   if config.closedRoster and config.slots.len < config.minPlayers:
@@ -855,6 +989,30 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigString("mapEndzone", config.mapGen.endzone)
   node.readConfigInt("mapEndzoneRadius", config.mapGen.endzoneRadius)
   node.readConfigInt("mapBaseDepth", config.mapGen.baseDepth)
+  node.readConfigInt("num_agents", config.numAgents)
+  node.readConfigInt("numAgents", config.numAgents)
+  node.readConfigInt("cogsPerTeam", config.cogsPerTeam)
+  node.readConfigString("loadout", config.loadout)
+  node.readConfigBool("floorPaint", config.floorPaint)
+  node.readConfigBool("paintBuff", config.paintBuff)
+  node.readConfigBool("hill", config.hill)
+  node.readConfigInt("paintTile", config.paintTile)
+  node.readConfigInt("hillRadiusTiles", config.hillRadiusTiles)
+  node.readConfigInt("hillOwnPermille", config.hillOwnPermille)
+  node.readConfigInt("hillDecisiveTicks", config.hillDecisiveTicks)
+  node.readConfigInt("paintSpeedOwnPct", config.paintSpeedOwnPct)
+  node.readConfigInt("paintSpeedEnemyPct", config.paintSpeedEnemyPct)
+  node.readConfigInt("paintHealTicks", config.paintHealTicks)
+  node.readConfigInt("sprayDamage", config.sprayDamage)
+  node.readConfigInt("turnTicks", config.turnTicks)
+  node.readConfigInt("turnBudgetMs", config.turnBudgetMs)
+  node.readConfigInt("attempt1Ms", config.attempt1Ms)
+  node.readConfigInt("retryMs", config.retryMs)
+  node.readConfigInt("turnSpacingMs", config.turnSpacingMs)
+  node.readConfigInt("wallClockBudgetSeconds", config.wallClockBudgetSeconds)
+  node.readConfigString("model", config.model)
+  node.readConfigInt("maxOutputTokens", config.maxOutputTokens)
+  node.readConfigRegimes(config)
   if node.hasKey("mapSpec"):
     if node["mapSpec"].kind != JObject:
       raise newException(CtfError, "Config field mapSpec must be an object.")
@@ -983,6 +1141,48 @@ proc echoBarrageKeys(config: GameConfig, node: JsonNode) =
     node["barrageStartPerSec"] = %config.barrageStartPerSec
     node["barrageStartSec"] = %config.barrageStartSec
     node["barrageSaturateSec"] = %config.barrageSaturateSec
+
+proc echoPaintballKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the paintball keys only when the mode is engaged, so a classic
+  ## game's replay config stays byte-identical to pre-paintball builds. When
+  ## the mode IS on, echo every key: the wasm viewer re-derives the paint grid
+  ## and the hill from this config, so a missing key would re-simulate a
+  ## different game.
+  let paintballOn = config.loadout != LoadoutCtf or config.floorPaint or
+    config.hill or config.numAgents > 0
+  if paintballOn:
+    node["num_agents"] = %config.numAgents
+    node["cogsPerTeam"] = %config.cogsPerTeam
+    node["loadout"] = %config.loadout
+    node["floorPaint"] = %config.floorPaint
+    node["paintBuff"] = %config.paintBuff
+    node["hill"] = %config.hill
+    node["paintTile"] = %config.paintTile
+    node["hillRadiusTiles"] = %config.hillRadiusTiles
+    node["hillOwnPermille"] = %config.hillOwnPermille
+    node["hillDecisiveTicks"] = %config.hillDecisiveTicks
+    node["paintSpeedOwnPct"] = %config.paintSpeedOwnPct
+    node["paintSpeedEnemyPct"] = %config.paintSpeedEnemyPct
+    node["paintHealTicks"] = %config.paintHealTicks
+    node["turnTicks"] = %config.turnTicks
+    node["turnBudgetMs"] = %config.turnBudgetMs
+    node["attempt1Ms"] = %config.attempt1Ms
+    node["retryMs"] = %config.retryMs
+    node["turnSpacingMs"] = %config.turnSpacingMs
+    node["wallClockBudgetSeconds"] = %config.wallClockBudgetSeconds
+    node["maxOutputTokens"] = %config.maxOutputTokens
+    node["regimes"] = (block:
+      var arr = newJArray()
+      for regime in config.regimes:
+        arr.add(%regimeText(regime))
+      arr)
+    if config.model.len > 0:
+      node["model"] = %config.model
+  # sprayDamage acts in every mode (the spray cone reads it wherever it
+  # fires), so like puddleDamagePct it is pinned whenever it departs from
+  # its default even with the paintball gates off.
+  if paintballOn or config.sprayDamage != SprayPaintDamage:
+    node["sprayDamage"] = %config.sprayDamage
 
 proc echoZonePhaseKeys(config: GameConfig, node: JsonNode) =
   ## Echo the zone schedule only when configured, so a zone-free game's
@@ -1158,6 +1358,7 @@ proc configJson*(config: GameConfig): string =
     node["players"] = players
   echoPuddleKeys(config, node)
   echoBarrierKeys(config, node)
+  echoPaintballKeys(config, node)
   echoHandicapKeys(config, node)
   echoPerkKeys(config, node)
   echoPerkModKeys(config, node)
