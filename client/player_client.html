@@ -12,7 +12,7 @@ body{display:flex;align-items:center;justify-content:center}
    world" note by fit()) and is panned/zoomed under it purely via CSS
    transform -- the pixel buffer this camera crops is identical either way. */
 #viewport{position:fixed;inset:0;overflow:hidden}
-canvas{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated;image-rendering:crisp-edges}
+canvas{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated;image-rendering:crisp-edges;will-change:transform}
 /* Minimal kill feed (legibility audit #8): a real event stream this client
    already receives (the same damage-pop births that already drive hitstop/
    hitmarker/shake below) rendered as text -- last FEED_MAX lines, newest on
@@ -907,6 +907,44 @@ function cycleCameraMode(dir){
   scheduleDraw();
 }
 let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true;
+/* COMPOSITOR TEARING FIX (blackbars lane, live 8/29 -- root-caused via a
+   discriminating experiment: at the same instant during held WASD + mouse
+   sweep, the canvas backing store via toDataURL() was clean AND an
+   independent from-scratch recomposite using this exact transform math was
+   clean, but the real compositor screenshot of that same instant showed
+   clear full-width dark bands -- so this is compositor-side, not a draw or
+   decode bug, and whole-map (static transform, no follow) was clean in
+   every frame -- a genuine control arm).
+
+   FIRST PASS (quantize camScale + round translate to integer px + dedupe
+   identical writes) verified INSUFFICIENT with a real compositor capture
+   (GPU chromium, --use-angle=metal, held movement): bands were still
+   directly visible in 2/19 captured frames. Root cause of the shortfall,
+   confirmed against the same capture's own camera-state log: camScale is
+   ALREADY effectively constant during pure translation (it only depends on
+   window size / vision radius, never on selfPos), so quantizing it did
+   nothing for the moving case -- it only helped the at-rest/settling case,
+   which the capture shows was already clean before this fix existed. The
+   part that actually keeps changing during real movement is camX/camY
+   (translate), by several real pixels every single rAF tick -- more than
+   one integer or one 0.02 scale step, so rounding never collapses two
+   consecutive frames to the same string while the player is actually
+   moving.
+   This pass adds the two remaining levers: (1) `will-change:transform` on
+   the canvas (see canvas{} above) -- a standard hint that keeps the
+   element pinned to its own compositor layer instead of being
+   promoted/demoted around an ever-changing transform, which is a known
+   source of exactly this class of glitch; (2) FOLLOW_WRITE_EVERY_N below
+   -- the actual DOM write happens on at most 1 in N rAF ticks while
+   following (the internal camScale/camX/camY lerp above still runs every
+   tick, so the eased FEEL is unchanged -- only how often the result lands
+   on the element is throttled), cutting compositor churn during sustained
+   motion instead of relying on quantization to coincidentally repeat a
+   value it structurally cannot repeat while genuinely moving. */
+const CAMERA_SCALE_QUANT=0.02; // round camScale to steps this coarse before writing -- coarse enough that near-converged lerp frames repeat the same step
+const FOLLOW_WRITE_EVERY_N=2; // write the transform at most every Nth rAF tick while following; N=1 would be "every tick" (the old, unthrottled behavior)
+let followWriteCounter=0;
+let lastTransformX=null,lastTransformY=null,lastTransformScale=null;
 function updateCamera(){
   /* This write must land ONLY from the rAF-driven draw tick (frameTick ->
      drawSprite -> here), never synchronously from a WS onmessage handler or
@@ -931,6 +969,7 @@ function updateCamera(){
   const targetScale=follow?Math.max(fitScale,fitVisionScale()):fitScale;
   const targetX=follow?selfPos.x:c.width/2;
   const targetY=follow?selfPos.y:c.height/2;
+  let easing=false;
   if(!follow){
     /* WHOLE-MAP is a STATIC frame: unlike follow modes it never chases a
        moving target, so re-writing the transform every rAF tick here would
@@ -950,9 +989,30 @@ function updateCamera(){
     camScale+=(targetScale-camScale)*CAMERA_EASE;
     camX+=(targetX-camX)*CAMERA_EASE;
     camY+=(targetY-camY)*CAMERA_EASE;
+    easing=true;
   }
   cameraTransformDirty=false;
-  c.style.transform="translate("+(innerWidth/2-camX*camScale)+"px,"+(innerHeight/2-camY*camScale)+"px) scale("+camScale+")";
+  /* Write-frequency throttle (see FOLLOW_WRITE_EVERY_N's own comment
+     above): only while ONGOING-eased (not the initial snap, not
+     whole-map, both of which should land immediately) and only skips the
+     DOM WRITE below -- the lerp above still advanced this tick regardless,
+     so next tick's camX/camY are already correct; this just spaces out
+     how often that state actually reaches the element. */
+  if(easing){
+    followWriteCounter=(followWriteCounter+1)%FOLLOW_WRITE_EVERY_N;
+    if(followWriteCounter!==0)return;
+  }
+  /* Quantize THEN dedupe: qScale/qX/qY are computed together (translate
+     off the SAME quantized scale, not the raw one) so the written string
+     is always internally consistent, and the write itself is skipped
+     outright when it would be byte-identical to what's already on the
+     element -- the actual mechanism that stops handing the compositor a
+     fresh resample every tick, not just coarser numbers. */
+  const qScale=Math.round(camScale/CAMERA_SCALE_QUANT)*CAMERA_SCALE_QUANT;
+  const qX=Math.round(innerWidth/2-camX*qScale),qY=Math.round(innerHeight/2-camY*qScale);
+  if(qX===lastTransformX&&qY===lastTransformY&&qScale===lastTransformScale)return;
+  lastTransformX=qX;lastTransformY=qY;lastTransformScale=qScale;
+  c.style.transform="translate("+qX+"px,"+qY+"px) scale("+qScale+")";
 }
 function toMap(ev){
   const r=c.getBoundingClientRect();
