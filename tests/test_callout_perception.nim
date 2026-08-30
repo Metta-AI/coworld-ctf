@@ -7,9 +7,9 @@
 ## the human-visible bubble (buildShoutBubble, which always draws the raw
 ## text) stays exactly what it was.
 ##
-## Asserted against the SOURCE contract (Shout.isCallout/calloutId/
-## calloutCell in sim_types.nim, parseCallout in sim.nim, labelCallout in
-## labels.nim) — not against this file's own prose.
+## Asserted against the SOURCE contract (Shout.isCallout/calloutKind/
+## calloutCell and CalloutKind in sim_types.nim, parseCallout in sim.nim,
+## labelCallout in labels.nim) — not against this file's own prose.
 
 import
   helpers,
@@ -58,7 +58,11 @@ suite "callout gate off: byte-identical to plain chat":
     check sim.applyShout(0, "!3")
     let shout = sim.recentShouts[0]
     check shout.isCallout == false
-    check shout.calloutId == 0
+    # calloutKind has no "not applicable" member of its own (unlike the old
+    # calloutId's 0 sentinel) -- isCallout==false is the ONLY thing a reader
+    # may rely on; the gate-off path never even calls parseCallout, so
+    # calloutKind just sits at its Nim zero value.
+    check shout.calloutKind == CalloutKind(0)
     check shout.calloutCell == ""
     # The raw text — what buildShoutBubble draws for a HUMAN — is untouched.
     check shout.text == "!3"
@@ -74,7 +78,7 @@ suite "callout gate off: byte-identical to plain chat":
     # Same scenario run twice, once through a bang message and once through
     # plain text of equal weight; the ONLY thing gameHash may depend on here
     # is shout.text's bytes (already true pre-callout) — never
-    # isCallout/calloutId/calloutCell, which is exactly what stays gated in
+    # isCallout/calloutKind/calloutCell, which is exactly what stays gated in
     # sim_state.nim's gameHash.
     var sim1 = calloutGame(2, allowCallouts = false)
     var sim2 = calloutGame(2, allowCallouts = false)
@@ -89,7 +93,7 @@ suite "callout gate on: a ping is a distinct, perceivable event":
     check sim.applyShout(0, "!3")
     let shout = sim.recentShouts[0]
     check shout.isCallout == true
-    check shout.calloutId == 3
+    check shout.calloutKind == coFallBack   # "!3" == FALL BACK! (callout-spec.md §5)
     check shout.calloutCell == ""
     check shout.text == "!3"          # human-visible bubble text unchanged
 
@@ -98,16 +102,37 @@ suite "callout gate on: a ping is a distinct, perceivable event":
     check sim.applyShout(0, "!1 F9")
     let shout = sim.recentShouts[0]
     check shout.isCallout == true
-    check shout.calloutId == 1
+    check shout.calloutKind == coSpotted    # "!1" == SPOTTED HERE!
     check shout.calloutCell == "F9"
+
+  test "every wire digit 1-6 maps to its named rung, in spec order":
+    # Pins the digit<->CalloutKind mapping the whole design rests on: ord(kind)
+    # + 1 == the wire digit, so the table below IS callout-spec.md §5's column.
+    const Expected = [
+      coSpotted, coPush, coFallBack, coBackup, coNiceOne, coReserved]
+    var sim = calloutGame(2, allowCallouts = true)
+    for i, kind in Expected:
+      sim.players[0].lastShoutTick = -1
+      check sim.applyShout(0, "!" & $(i + 1))
+      check sim.recentShouts[0].calloutKind == kind
+
+  test "the accepted digit range is derived from CalloutKind's cardinality, not a literal":
+    # Documents the extensibility property this lane exists to build: adding
+    # a member to CalloutKind (sim_types.nim) widens the accepted digit by
+    # exactly one with NO change to parseCallout. Today's cardinality is 6
+    # (ids 1-6); id 7 is refused until a 7th member actually exists.
+    check ord(high(CalloutKind)) == 5
+    var sim = calloutGame(2, allowCallouts = true)
+    check sim.applyShout(0, "!7")
+    check sim.recentShouts[0].isCallout == false
 
   test "the perceived label switches to the callout prefix, by the source contract":
     var sim = calloutGame(2, allowCallouts = true)
     check sim.applyShout(0, "!1 F9")
     sim.standOn(viewer = 1, target = 0)
     let heard = sim.pingLabels(viewerIndex = 1)
-    check heard == @[labelCallout("red", "alpha", 1, "F9")]
-    check heard == @["red callout alpha: 1 F9"]
+    check heard == @[labelCallout("red", "alpha", calloutKindLabel(coSpotted), "F9")]
+    check heard == @["red callout alpha: Spotted F9"]
     # A policy scanning by PREFIX (callout-spec.md's "labels are the API,
     # read by PREFIX") finds it under the NEW family, not the old one.
     check heard[0].startsWith(labelCalloutPrefix("red"))
@@ -120,7 +145,6 @@ suite "callout gate on: a ping is a distinct, perceivable event":
       check sim.applyShout(0, badText)
       let shout = sim.recentShouts[0]
       check shout.isCallout == false
-      check shout.calloutId == 0
       check shout.calloutCell == ""
       check shout.text == badText
 

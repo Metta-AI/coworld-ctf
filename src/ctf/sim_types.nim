@@ -1666,7 +1666,7 @@ type
                                   ## this is on) but, when it parses as
                                   ## `!<id>[ <cell>]`, is additionally
                                   ## recognized as a structured CALLOUT: the
-                                  ## Shout's isCallout/calloutId/calloutCell
+                                  ## Shout's isCallout/calloutKind/calloutCell
                                   ## fields are populated (parseCallout,
                                   ## sim.nim) and the player-stream label
                                   ## switches from `<color> shout ` to
@@ -2171,6 +2171,34 @@ type
     content*: string           ## sanitized shout content, "" = n/a.
     damages*: seq[EventDamage] ## victims damaged by this impact/use.
 
+  CalloutKind* = enum
+    ## The standard ping vocabulary (callout-spec.md §5), named for what a
+    ## listener does with each rung instead of the bare wire digit that used
+    ## to be its only identity. `co`-prefixed: same house convention as
+    ## `layoutSides`/`gmCtf`/`ptWeakened` — a short lowercase tag plus a
+    ## PascalCase name.
+    ##
+    ## OPEN TO EXTENSION, by design: the wire digit a member parses from is
+    ## `ord(kind) + 1` (`parseCallout`, sim.nim), so the accepted digit range
+    ## is `1 .. ord(high(CalloutKind)) + 1` — derived from this enum's
+    ## cardinality, not a literal. Adding a seventh rung is exactly: add a
+    ## member below and give it a case in whatever CONSUMER (policy-side)
+    ## code reacts to it. `parseCallout`, the gameHash mixer, and
+    ## `labelCallout` all need NO change for that — they carry a
+    ## `CalloutKind` opaquely (`ord` for hashing, `calloutKindLabel` for
+    ## display) and never branch on which member it is, exactly as they
+    ## never branched on the old bare integer id. Authorable/custom rungs
+    ## are explicit future work (James's ruling), not built here; this type
+    ## only makes sure a future rung is never locked out by the parser.
+    coSpotted   ## "SPOTTED HERE!" -- seed/refresh an enemy sighting at <cell>
+    coPush      ## "PUSH HERE!" -- nudge the team's push toward <cell>
+    coFallBack  ## "FALL BACK!" -- rally on the caller; no cell
+    coBackup    ## "ON ME! / NEED BACKUP" -- orient toward the caller; no cell
+    coNiceOne   ## "NICE ONE!" -- social/vanity tier only, never movement/intel
+    coReserved  ## reserved wheel/hotkey slot; no meaning assigned yet
+                ## (callout-spec.md §5 row 6) -- a named placeholder, not a
+                ## gap, so the digit still round-trips end to end today.
+
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
@@ -2190,8 +2218,13 @@ type
                                ## off-gate replay's gameHash and labels
                                ## byte-identical to a build without this
                                ## field (see gameHash in sim_state.nim).
-    calloutId*: int            ## the digit 1-6 from a valid `!<id>` prefix;
-                               ## 0 when this shout is not a callout.
+    calloutKind*: CalloutKind  ## the named rung a valid `!<id>` prefix
+                               ## selected; meaningless (default `coSpotted`,
+                               ## ordinal 0 -- the same zero value `calloutId`
+                               ## used to carry for "not a callout") when
+                               ## `isCallout` is false. Always gate on
+                               ## `isCallout` first, exactly as the old
+                               ## bare-int field required.
     calloutCell*: string       ## the optional trailing grid-cell token
                                ## (e.g. "F9"), "" when absent or not a
                                ## callout.
@@ -2529,6 +2562,16 @@ proc teams*(sim: SimServer): Slice[Team] =
   ## Returns the active teams in one game.
   sim.gameMap.teams()
 
+
+proc calloutKindLabel*(kind: CalloutKind): string =
+  ## The self-describing rung name for the wire label, e.g. `coSpotted` ->
+  ## `"Spotted"` — a mechanical strip of the `co` naming-convention prefix
+  ## off the enum's OWN Nim identifier (`$kind`), not a lookup table or a
+  ## `case`. That means it is automatically correct for a future
+  ## `coRung7` -> `"Rung7"` with zero edits here, which is the whole point:
+  ## a consumer reads a callout's meaning off `labelCallout` (labels.nim)
+  ## without ever needing ~/.ctf/knowledge/callout-spec.md.
+  ($kind)[2 .. ^1]
 
 proc teamText*(team: Team): string =
   ## Returns the readable team name.

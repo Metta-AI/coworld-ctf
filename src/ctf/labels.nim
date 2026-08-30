@@ -514,15 +514,25 @@ proc labelCalloutPrefix*(color: string): string =
   ## ordinary shout text for a leading `!`.
   color & " callout "
 
-proc labelCallout*(color, name: string; id: int; cell: string): string =
-  ## A callout speech bubble label: `<color> callout <name>: <id>` or
-  ## `<color> callout <name>: <id> <cell>` when the ping carried a grid
-  ## cell. Mirrors `labelShout`'s shape exactly (`name` is the same
+proc labelCallout*(color, name, kindLabel, cell: string): string =
+  ## A callout speech bubble label: `<color> callout <name>: <kindLabel>` or
+  ## `<color> callout <name>: <kindLabel> <cell>` when the ping carried a
+  ## grid cell. Mirrors `labelShout`'s shape exactly (`name` is the same
   ## anonymous Greek slot letter, never the connecting address) but the
-  ## payload is the STRUCTURED id/cell pair, not the raw `!`-prefixed shout
-  ## text — a consumer splits on `": "` then on the one interior space,
-  ## never string-matches the bang.
-  result = labelCalloutPrefix(color) & name & ": " & $id
+  ## payload is the STRUCTURED kind/cell pair, not the raw `!`-prefixed
+  ## shout text — a consumer splits on `": "` then on the one interior
+  ## space, never string-matches the bang.
+  ##
+  ## `kindLabel` is the caller-computed, SELF-DESCRIBING rung name
+  ## (`calloutKindLabel(shout.calloutKind)` in sim_types.nim — e.g.
+  ## "Spotted"), not the bare wire digit the old
+  ## `labelCallout(color, name, id: int, cell)` emitted here: a consumer
+  ## reads what a ping MEANS straight off this label, with no dependency on
+  ## the out-of-band callout-spec.md to decode a number. Plain `string`
+  ## here (not `CalloutKind`) because this module keeps ZERO imports (see
+  ## file header) — the enum lives in `sim_types.nim`, which the caller
+  ## already has.
+  result = labelCalloutPrefix(color) & name & ": " & kindLabel
   if cell.len > 0:
     result.add " " & cell
 

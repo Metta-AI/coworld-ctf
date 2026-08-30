@@ -309,7 +309,7 @@ proc gameHash*(sim: SimServer): uint64 =
     # — the same rule as the zonePhases/barrageStartTick guards above.
     if sim.config.allowCallouts:
       result.mixHashBool(shout.isCallout)
-      result.mixHashInt(shout.calloutId)
+      result.mixHashInt(ord(shout.calloutKind))
       for c in shout.calloutCell:
         result.mixHashInt(ord(c))
 

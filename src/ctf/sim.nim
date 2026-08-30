@@ -2284,29 +2284,41 @@ proc sanitizeShout*(text: string): string =
 
 proc parseCallout*(
   text: string
-): tuple[isCallout: bool, id: int, cell: string] =
+): tuple[isCallout: bool, kind: CalloutKind, cell: string] =
   ## Parses an already-sanitized shout as the standard ping vocabulary
   ## (callout-spec.md §5): `!<id>[ <cell>]`, where `<id>` is a single digit
-  ## 1-6 and `<cell>` — when present — is one space-free token (the wheel's
-  ## chessCell grid string, e.g. "F9"). Anything else — a bare "!", a
-  ## multi-digit id, an out-of-range digit, or a second space — is NOT a
-  ## callout and returns `(false, 0, "")`, so the caller falls through and
-  ## treats the message as ordinary chat. Only ever consulted when
-  ## `config.allowCallouts` is on (see `applyShout`); this proc itself has
-  ## no config dependency, so it stays trivially unit-testable.
-  result = (false, 0, "")
+  ## selecting a `CalloutKind` rung (`kind = CalloutKind(id - 1)`) and
+  ## `<cell>` — when present — is one space-free token (the wheel's
+  ## chessCell grid string, e.g. "F9"). The accepted digit range is
+  ## `1 .. ord(high(CalloutKind)) + 1` — DERIVED from `CalloutKind`'s own
+  ## cardinality (sim_types.nim), never a literal here, so adding a
+  ## member there widens what this proc accepts with no edit to this
+  ## proc. Anything else — a bare "!", a multi-digit id, an out-of-range
+  ## digit, or a second space — is NOT a callout and returns
+  ## `(false, low(CalloutKind), "")`, so the caller falls through and
+  ## treats the message as ordinary chat (the `kind` value is a don't-care
+  ## filler in that case — always gate on `isCallout` first). Only ever
+  ## consulted when `config.allowCallouts` is on (see `applyShout`); this
+  ## proc itself has no config dependency, so it stays trivially
+  ## unit-testable.
+  result = (false, low(CalloutKind), "")
   if text.len < 2 or text[0] != '!':
     return
-  if text[1] < '1' or text[1] > '6':
+  const DigitFloor = ord('1')
+  let digitCeil = DigitFloor + ord(high(CalloutKind))  ## inclusive; grows
+                                                        ## automatically
+                                                        ## with CalloutKind.
+  if ord(text[1]) < DigitFloor or ord(text[1]) > digitCeil:
     return
+  let kind = CalloutKind(ord(text[1]) - DigitFloor)
   if text.len == 2:
-    return (true, ord(text[1]) - ord('0'), "")
+    return (true, kind, "")
   if text[2] != ' ':
     return                       # e.g. "!12" — id must be exactly one digit.
   let cell = text[3 .. ^1]
   if cell.len == 0 or ' ' in cell:
     return
-  return (true, ord(text[1]) - ord('0'), cell)
+  return (true, kind, cell)
 
 proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.discardable.} =
   ## Applies one player chat message as a shout: a short message audible to
@@ -2339,14 +2351,14 @@ proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.dis
     x: sim.players[playerIndex].x + CollisionW div 2,
     y: sim.players[playerIndex].y + CollisionH div 2
   )
-  # Config-gated: off, this block never runs, so isCallout/calloutId/
+  # Config-gated: off, this block never runs, so isCallout/calloutKind/
   # calloutCell stay at their zero value on every shout — see gameHash
   # (sim_state.nim) for why that is what keeps a gate-off replay
   # byte-identical to a build that never added these fields.
   if sim.config.allowCallouts:
     let parsed = parseCallout(shoutText)
     shout.isCallout = parsed.isCallout
-    shout.calloutId = parsed.id
+    shout.calloutKind = parsed.kind
     shout.calloutCell = parsed.cell
   kept.add shout
   sim.recentShouts = kept

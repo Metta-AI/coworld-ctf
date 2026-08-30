@@ -6288,7 +6288,7 @@ proc addShouts(
         if shout.isCallout:
           labelCallout(
             teamText(shout.team), sim.shoutIdentityName(shout),
-            shout.calloutId, shout.calloutCell)
+            calloutKindLabel(shout.calloutKind), shout.calloutCell)
         else:
           labelShout(
             teamText(shout.team), sim.shoutIdentityName(shout), shout.text)
