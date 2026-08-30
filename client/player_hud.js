@@ -63,6 +63,24 @@
                                                 until it actually arrives)
      "hp <lit>/<total>[ shield <n>]"          — LabelPrefixHp (overhead, by proximity)
      "identity <color> <greekletter>[ shield][ nade] <weapon>" — LabelPrefixIdentity
+     "roster <team> <name> <lives> <kills>/<deaths>" — LabelPrefixRoster
+                                                (8ad1c420): ONE marker per roster
+                                                seat on EVERY player stream, human
+                                                wire only (`not spritesOff`), all
+                                                modes. This is what fills the Tab
+                                                table on the live player page.
+                                                <team> = teamText (single word, all
+                                                16 BR colors); <name> = the same
+                                                anonymous per-team slot identity
+                                                the identity/shout labels use
+                                                (alpha..theta, ranked within team,
+                                                wraps) — NEVER a connection
+                                                address; rendered as-is. Every
+                                                field a fixed token; no greedy
+                                                matching needed. Absent on engines
+                                                before 8ad1c420 — rows then fall
+                                                back to "score " rows / the HTTP
+                                                roster, same as ever.
      "team score <NAME> <kills>/<deaths>"     — addTeamScoreboard, per team, always sent
      "score <name> <lives> <kills>/<deaths> color <n>" — addScoreboard, per player
                                                 (50a13efc). OLDER ENGINES: the row is
@@ -137,13 +155,15 @@
        teamsAlive: null,                          // ROUTED to realcog (teamLivesRemaining(), sim.nim:3198)
        playerRows: [ { name, team, lives: number|null, kills: number|null,
                         deaths: number|null, human: bool|null, self: bool } ],
-                                                   // built from "score " rows wherever the host Maps
-                                                   // carry them (50a13efc emits them per player at
-                                                   // EVERY team count, kills/deaths included); on an
-                                                   // old-shape row kills/deaths stay null, and BR
-                                                   // falls back to roster-only rows when no score
-                                                   // rows arrive at all (old engine, or the live
-                                                   // player stream — see ROUTING note above).
+                                                   // source priority: "roster " markers (the live
+                                                   // player stream's own full roster, 8ad1c420) >
+                                                   // "score " rows (global-backed hosts; old-shape
+                                                   // rows keep kills/deaths null) > the HTTP roster
+                                                   // fallback (names only). On the roster-marker
+                                                   // path `name` is the anonymous slot identity and
+                                                   // `human` stays null (nothing joins an anonymous
+                                                   // row to the HTTP roster's real names — honest
+                                                   // "—", not a guess).
 
        roster: { resolved: bool, url: string }
      }
@@ -162,18 +182,21 @@
        stays at "—" — tolerance, not fabrication.
      - combat.score/xp/level/rank/buffs: Glory is not deployed to the field
        yet. Fields are reserved and always render as an honest placeholder.
-     - BR (>4 teams) playerRows: the addScoreboard >4-team suppression was
-       LIFTED in 50a13efc — per-player rows (now carrying lives AND
-       kills/deaths) exist at every team count on the streams addScoreboard
-       feeds. Two consume-side realities remain, both handled below:
-       (a) ROUTING — server.nim routes only /client/global builds (board +
-       POV) through addScoreboard; the live seated/takeover human stream
-       never carries "score " rows, so on the live player page BR standings
-       still fall back to roster-only rows ("—" for the numbers, honestly).
-       (b) LEGIBILITY — where rows DO arrive, BR is up to 32 of them; the
-       Tab table caps at BR_MAX_ROWS sorted by kills (own row always kept
-       visible, an explicit "+N more" line for the rest) instead of
-       rendering a wall — see renderScoreboard.
+     - BR (>4 teams) playerRows: RESOLVED end to end. 50a13efc lifted the
+       addScoreboard >4-team suppression ("score " rows at every team count,
+       kills/deaths included — /client/global builds only), and 8ad1c420
+       closed the routing gap this file's earlier revision documented: the
+       live player stream now carries its own "roster " marker per seat, so
+       the Tab table fills from real wire data on the live player page in
+       every mode. What remains by design:
+       (a) LEGIBILITY — BR is up to 32 rows; the Tab table caps at
+       BR_MAX_ROWS sorted by kills (own row always kept visible, an
+       explicit "+N more" line for the rest) instead of rendering a wall —
+       see renderScoreboard.
+       (b) SELF on the roster path — roster names are anonymous; the own
+       row resolves via selfTeam when unambiguous (one seat on my team),
+       else via the identity badge nearest the self cog; else no row is
+       highlighted (never a guess).
        teamsAlive: still reserved (teamLivesRemaining() is end-card only).
        Placement (sim.brPlacements()) stays END-CARD ONLY; its always-empty
        column is gone from the BR table in favor of the real lives column.
@@ -272,6 +295,15 @@
     const m = /^kd (\d+)\/(\d+)$/.exec(label);
     return m ? { kills: +m[1], deaths: +m[2] } : null;
   }
+  // "roster <team> <name> <lives> <kills>/<deaths>" — one marker per roster
+  // seat on the live player stream (labels.nim LabelPrefixRoster, 8ad1c420).
+  // Every field is a single fixed token by contract (the emitting commit
+  // rebuilt the shape around that after test_identity_privacy.nim caught a
+  // connection address in the first draft) — so no greedy matching here.
+  function parseRosterLabel(label) {
+    const m = /^roster (\S+) (\S+) (\d+) (\d+)\/(\d+)$/.exec(label);
+    return m ? { team: m[1], name: m[2], lives: +m[3], kills: +m[4], deaths: +m[5] } : null;
+  }
   // Per-player scoreboard row (addScoreboard), BOTH deployed shapes:
   //   NEW (50a13efc):  "score <name> <lives> <kills>/<deaths> color <n>"
   //   OLD (deployed):  "score <name> <lives> color <n>"
@@ -308,10 +340,20 @@
   }
 
   // ---------------------------------------------------------------------
-  // Team color tokens — mirrors player_client.html's TEAM_TINT (own copy so
-  // this module has zero coupling to that file beyond the wire Maps).
+  // Team color tokens — the 4 CTF words mirror player_client.html's
+  // TEAM_TINT (own copy so this module has zero coupling to that file
+  // beyond the wire Maps). The 12 BR-only words come from the engine's own
+  // team palette (sim_types.nim teamColor indices into the client's 16-
+  // color palette), lifted toward readable luminance where the raw palette
+  // entry would vanish as text on the dark panel (black/umber/navy/plum) —
+  // a display map keyed by the wire's team WORD, never an identity claim.
   // ---------------------------------------------------------------------
-  const TEAM_COLOR = { red: '#e0523a', blue: '#3f7cc4', green: '#45a85e', yellow: '#ddc531' };
+  const TEAM_COLOR = {
+    red: '#e0523a', blue: '#3f7cc4', green: '#45a85e', yellow: '#ddc531',
+    black: '#8d8d8d', silver: '#c2c3c7', ivory: '#fff1e8', pink: '#ff77a8',
+    umber: '#8a6f5a', rust: '#ab5236', orange: '#ffa300', plum: '#a34a78',
+    lime: '#00e436', navy: '#5a6fb4', azure: '#29adff', peach: '#ffccaa',
+  };
   function teamColor(word) { return (word && TEAM_COLOR[word]) || '#b7b0a3'; }
 
   const GLORY_RANKS = ['PRIMER', 'DABBLER', 'SPLATTER', 'DRENCHER', 'ARTIST', 'MAESTRO'];
@@ -394,6 +436,7 @@
       cogs: [],            // {x,y,color,side,alive,self}
       teamScoreRows: [],
       scoreRows: [],
+      rosterRows: [], // "roster " markers — the live player stream's full roster (8ad1c420)
       zone: null, zoneNext: null,
       // Own kills/deaths off the "kd " label (the TODO this slot was reserved
       // for — landed 50a13efc). Stays null when the label never arrives
@@ -447,6 +490,11 @@
       if (label.indexOf('team score ') === 0) {
         const ts = parseTeamScoreLabel(label);
         if (ts) raw.teamScoreRows.push(ts);
+        return;
+      }
+      if (label.indexOf('roster ') === 0) {
+        const rr = parseRosterLabel(label);
+        if (rr) raw.rosterRows.push(rr);
         return;
       }
       if (label.indexOf('score ') === 0) {
@@ -534,16 +582,36 @@
     const teamCount = raw.teamScoreRows.length;
     const variant = teamCount === 0 ? 'unknown' : (teamCount <= 4 ? 'ctf' : 'br');
 
-    // Player rows, from the wire's own "score " rows wherever the host Maps
-    // carry them — 50a13efc emits a row per player at EVERY team count, with
-    // kills/deaths in the row (null here when the row is the old deployed
-    // shape; see parseScoreLabel). Same mapping for CTF and BR. BR keeps its
-    // roster-only fallback for when NO score rows arrive at all — the two
-    // real cases being an old (pre-50a13efc) engine, where >4-team rows are
-    // suppressed outright, and the live seated player stream, which server.nim
-    // never routes through addScoreboard (see the ROUTING note up top).
+    // Player rows, best wire source first:
+    //   1. "roster " markers (8ad1c420) — the live player stream's own full
+    //      roster: team/lives/kills/deaths per seat, anonymous slot names.
+    //   2. "score " rows (50a13efc, global-backed hosts) — display names;
+    //      kills/deaths null when the row is the old deployed shape.
+    //   3. the HTTP roster (names only) — BR's last-resort fallback against
+    //      a pre-50a13efc engine.
     let playerRows = [];
-    if (raw.scoreRows.length) {
+    if (raw.rosterRows.length) {
+      // SELF on anonymous rows: unambiguous when my team has exactly one
+      // seat; otherwise the identity badge nearest my own cog names my slot
+      // identity; otherwise no row is marked (honest, never a guess).
+      let selfName = null;
+      if (seated && raw.selfTeam) {
+        const mine = raw.rosterRows.filter(function (r) { return r.team === raw.selfTeam; });
+        if (mine.length === 1) selfName = mine[0].name;
+        else {
+          const idn = nearest(raw.identityMarkers, raw.self.x, raw.self.y, 40);
+          if (idn) selfName = idn.greek;
+        }
+      }
+      playerRows = raw.rosterRows.map(function (row) {
+        return {
+          name: row.name, team: row.team, lives: row.lives,
+          kills: row.kills, deaths: row.deaths,
+          human: null, // anonymous rows never join the HTTP roster — honest "—"
+          self: row.team === raw.selfTeam && row.name === selfName,
+        };
+      });
+    } else if (raw.scoreRows.length) {
       playerRows = raw.scoreRows.map(function (row) {
         const rEntry = roster.resolved ? roster.byName.get(row.name.toLowerCase()) : null;
         return {
@@ -556,7 +624,7 @@
       roster.byName.forEach(function (rEntry) {
         playerRows.push({
           name: rEntry.name, team: rEntry.team, lives: null,
-          kills: null, deaths: null, // no score rows on this stream — honest "—"
+          kills: null, deaths: null, // nothing per-player on this wire — honest "—"
           human: rEntry.person, self: isSelfRow(rEntry.name, rEntry),
         });
       });
