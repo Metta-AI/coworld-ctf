@@ -101,6 +101,32 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    #mute above -- one small utility cluster, not two separate systems. */
 #leave{position:fixed;right:10px;top:36px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
 #leave:hover{background:#2a2620cc}
+/* Round-flip beat (BR only -- "it respawned me", diagnosed as a missing
+   transition: BR elimination is permanent within a round -- lives forced to
+   0, sim.nim -- so the ONLY way this file's existing seatedNow&&!wasSeated
+   spawn edge can ever fire again after a real death is a fresh round. The
+   death card already says so ("next round starts soon...") and then just
+   vanishes the instant control returns, same frame the new cog can already
+   move and fire -- nothing ever marked the boundary, so a new round reads
+   as your last life continuing. This card marks it: a brief, unmissable,
+   NON-blocking beat (pointer-events:none throughout -- WASD/mouse/fire work
+   under it from frame one, never gated on it) that fades on its own,
+   never a modal wait. No round NUMBER: the player stream carries none
+   (sim_types.nim/server.nim checked), so this states only the one fact the
+   client actually has -- a boundary just happened -- rather than inventing
+   a count. Center screen like #splat above, but a calm informational card
+   (warm dark panel, not a full-bleed color stamp) since this is a status
+   notice, not a hit reaction -- typography carries the hierarchy (bold
+   headline, plain subline), no icon, no border flourish. */
+#roundFlip{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;z-index:52;opacity:0;transition:opacity 260ms ease-out}
+#roundFlip.show{opacity:1;transition:opacity 90ms ease-out}
+#roundFlip .rfCard{display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:12px 22px;background:#1a1714e6;border:1px solid #4a453c;border-radius:4px;
+  box-shadow:0 6px 20px #000a;text-align:center}
+#roundFlip .rfWho{font:800 15px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;
+  text-transform:uppercase;color:#e8e4dc}
+#roundFlip .rfSub{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;color:#b9b3a9}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
    pings (player_controls.js KEYMAP id "wheel", callout-spec.md sec.5). Sits
    above the canvas but never intercepts pointer events (pointer-events:none
@@ -141,12 +167,13 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <div id="feed" aria-hidden="true"></div>
 <div id="dmgFlash" aria-hidden="true"></div>
 <div id="splat" aria-hidden="true"><b>SPLAT!</b></div>
+<div id="roundFlip" aria-hidden="true"><div class="rfCard"><div class="rfWho">new round</div><div class="rfSub">you're back in it</div></div></div>
 <button id="mute" type="button">sound: on</button>
 <button id="leave" type="button" hidden>leave</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),roundFlipEl=document.getElementById("roundFlip"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
 /* Only offer it where it can actually work -- see #leave's own comment
    above for why the portal's embedded iframe (sandboxed, no
    allow-top-navigation) must stay on its own existing "Leave the field"
@@ -1286,7 +1313,22 @@ function controlsTick(){
      own seated self by construction (seatedNow/wasSeated read only this
      client's own selfPos). */
   if(!seatedNow&&wasSeated){isDead=true;diedAt=performance.now();triggerSelfSplat()}
-  else if(seatedNow){if(!wasSeated)deathInfo=null;isDead=false}
+  else if(seatedNow){
+    if(!wasSeated){
+      /* BR elimination is permanent within a round (sim.nim forces lives to
+         0 on the kill, no mid-round respawn), so a real self marker showing
+         up again after a real death (isDead was true, not just "never
+         joined yet") can only mean a fresh round dealt us back in -- the
+         one client-local signal this file has for "that was a round
+         boundary", with no wire field to confirm it further. isBrMap(),
+         not cameraContext: this runs off the network tick, not the draw
+         tick that calls ensureCameraContext(), so it reads mapW directly
+         rather than depending on draw-loop ordering having run first. */
+      if(isDead&&isBrMap())triggerRoundFlip();
+      deathInfo=null;
+    }
+    isDead=false;
+  }
   wasSeated=seatedNow;
   let rot=null;
   /* directAimActive: the cursor already drives the turret directly (see the
@@ -1429,6 +1471,22 @@ function triggerSelfSplat(){
   void splatEl.offsetWidth; // force reflow so the class churn above actually restarts the CSS transition
   splatEl.classList.add("show");
   splatHideTimer=setTimeout(()=>{splatEl.classList.remove("show")},SELF_SPLAT_HOLD_MS);
+}
+/* Round-flip beat: same class-toggle-on-a-timer idiom as triggerSelfSplat
+   above, held long enough to actually register (short-and-unmissable, not
+   long-and-informative -- Maxwell's own call on this tradeoff) but never
+   gating input, since #roundFlip is pointer-events:none for its entire
+   life -- movement/aim/fire all read normally underneath it starting the
+   very first frame of the new life. */
+const ROUND_FLIP_HOLD_MS=1500;
+let roundFlipHideTimer=0;
+function triggerRoundFlip(){
+  if(!roundFlipEl)return;
+  clearTimeout(roundFlipHideTimer);
+  roundFlipEl.classList.remove("show");
+  void roundFlipEl.offsetWidth; // force reflow so a rapid re-trigger restarts the fade cleanly
+  roundFlipEl.classList.add("show");
+  roundFlipHideTimer=setTimeout(()=>{roundFlipEl.classList.remove("show")},ROUND_FLIP_HOLD_MS);
 }
 const FEED_MAX=4, FEED_HOLD_MS=4500, FEED_FADE_MS=1400;
 function pushFeedEvent(color,isKill){
