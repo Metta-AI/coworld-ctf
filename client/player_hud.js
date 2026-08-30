@@ -633,6 +633,18 @@
     + '#phud-top .phud-eyebrow{align-self:center;}\n'
     + '#phud-mini-wrap{position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}\n'
     + '#phud-mini-wrap .phud-eyebrow{padding-right:2px;}\n'
+    // The panel chrome (background/border/padding) lives on a dedicated
+    // #phud-mini-frame wrapper, NOT on the canvas itself. Found by testing
+    // over the real client, not by inspection: a <canvas> is a "replaced
+    // element" with its own intrinsic bitmap size (168x90, set via its
+    // width/height attributes, not CSS) — putting .phud-panel's padding/
+    // border directly on that same element produced a flex-column parent
+    // that shrink-wrapped to a SMALLER box than the canvas actually painted
+    // at, so the real rendered panel spilled ~90px past the intended
+    // right:10px/bottom:10px inset and got clipped by the raw viewport edge
+    // instead. Separating "the box" from "the bitmap" into two elements
+    // fixes the measurement at its root instead of fighting flex sizing.
+    + '#phud-mini-frame{display:inline-block;line-height:0;}\n'
     + '#phud-mini{display:block;image-rendering:pixelated;}\n'
     + '#phud-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_WORD + ';font-size:10px;font-weight:700;letter-spacing:.1em;'
     + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:3px 7px;user-select:none;}\n'
@@ -671,7 +683,7 @@
       '<div id="phud-mini-wrap">' +
       '<div id="phud-toggle">standings · tab</div>' +
       '<div><span class="phud-eyebrow" id="phud-mini-label" style="display:block;text-align:right;margin-bottom:3px;">map</span>' +
-      '<canvas id="phud-mini" class="phud-panel"></canvas></div>' +
+      '<div id="phud-mini-frame" class="phud-panel"><canvas id="phud-mini"></canvas></div></div>' +
       '</div>' +
       '<div id="phud-score" class="phud-panel"><div id="phud-score-body"></div></div>';
     document.body.appendChild(root);
