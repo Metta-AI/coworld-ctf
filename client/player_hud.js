@@ -730,22 +730,45 @@
     + '#phud-cond{position:fixed;left:10px;bottom:8px;display:flex;gap:12px;align-items:baseline;}\n'
     + '#phud-cond .phud-stat{display:flex;flex-direction:column;gap:1px;}\n'
     + '#phud-cond .phud-hp-low{color:#ff6a52;}\n'
-    // Crosshair region carries 3 jobs already (reticle + hitmarker, both
-    // fix-client3's, both a ~10-14px cross drawn exactly ON the cursor
-    // pixel): the readiness pip sits deliberately OFF that footprint, not
-    // stacked on it — offset further than a first pass, and a fixed small
-    // dot/ring (presence vs absence of glow), never a sweeping/depleting
-    // shape (the wire is a boolean ready/not-ready, global.nim:8787 — no
-    // numeric remaining-time exists, so no progress idiom is honest here).
-    + '#phud-cooldown{position:fixed;left:0;top:0;width:11px;height:11px;margin:-24px 0 0 20px;'
-    + 'border-radius:50%;pointer-events:none;transition:opacity .12s;}\n'
-    + '#phud-cooldown.ready{background:#e8a33d;box-shadow:0 0 5px #e8a33da0;}\n'
-    + '#phud-cooldown.cooling{background:transparent;border:2px solid #8a7f72;opacity:.7;}\n'
+    // Weapon-ready pip — REDESIGNED off a live field report (Maxwell, playing
+    // BR): "there is a yellow dot near my cursor, but not on it... i already
+    // have a crosshair ON my cursor. and this yellow dot is big enough to
+    // cover any cog on my screen so definitely not for aiming." The prior
+    // build cursor-anchored this at 11px + a 5px glow (bigger under the
+    // .pop feedback), offset from the cursor by a fixed margin — exactly
+    // the shape of that complaint: close enough to the crosshair to read as
+    // a SECOND aim marker, big enough to occlude a cog, and it never sat
+    // where the eye already was (the actual crosshair, drawn by fix-client3
+    // AT the cursor pixel). Fix ships as the design review calls for: this
+    // is a STATUS, not a position, so it moves OFF the cursor entirely and
+    // anchors to a fixed HUD position inside the condition panel (bottom-
+    // left, alongside hp/lives) — nowhere near the reticle, impossible to
+    // mistake for an aim aid — and shrinks to a 7px pip so it can never
+    // occlude a cog even transiently. Filled amber = ready / hollow ring =
+    // cooling (unchanged semantics; the wire is a boolean ready/not-ready,
+    // global.nim:8787 — no numeric remaining-time exists, so still no
+    // progress idiom), plus the short word (READY/COOLING) next to it so
+    // the state reads with zero ambiguity even before the color registers.
+    + '#phud-cooldown{display:inline-block;width:7px;height:7px;margin-right:5px;'
+    + 'vertical-align:middle;border-radius:50%;transition:opacity .12s;}\n'
+    + '#phud-cooldown.ready{background:#e8a33d;box-shadow:0 0 3px #e8a33d90;}\n'
+    + '#phud-cooldown.cooling{background:transparent;border:1.5px solid #8a7f72;}\n'
     + '#phud-cooldown.pop{animation:phud-pop .22s ease-out;}\n'
-    + '@keyframes phud-pop{0%{transform:scale(1.7);}100%{transform:scale(1);}}\n'
+    + '@keyframes phud-pop{0%{transform:scale(1.6);}100%{transform:scale(1);}}\n'
     + '#phud-top{position:fixed;left:50%;top:9px;transform:translateX(-50%);display:flex;gap:16px;align-items:baseline;}\n'
     + '#phud-top .t{font-family:' + F_NUM + ';font-size:13px;font-weight:700;letter-spacing:.05em;}\n'
     + '#phud-top .phud-eyebrow{align-self:center;}\n'
+    // Per-team-color alive chips — Maxwell: "i can't see what colors are
+    // still alive in the header." The BR top bar carried teams-alive/zone
+    // as TEXT only; this adds the at-a-glance row the report asked for.
+    // Filled square = that team's color, still in it; hollow/greyed square
+    // = eliminated — the SAME filled-vs-hollow vocabulary the minimap dots
+    // already use for bot-vs-unknown, reused here for alive-vs-wiped rather
+    // than invented fresh (see renderTopBar/teamAliveChips for the wire
+    // read this is driven by).
+    + '#phud-top .phud-chips{display:inline-flex;gap:3px;align-items:center;align-self:center;}\n'
+    + '#phud-top .phud-chip{width:9px;height:9px;border-radius:2px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
+    + '#phud-top .phud-chip.wiped{background:transparent;opacity:.5;box-shadow:inset 0 0 0 1px rgba(184,172,152,.6);}\n'
     + '#phud-mini-wrap{position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}\n'
     + '#phud-mini-wrap .phud-eyebrow{padding-right:2px;}\n'
     // The panel chrome (background/border/padding) lives on a dedicated
@@ -760,7 +783,30 @@
     // instead. Separating "the box" from "the bitmap" into two elements
     // fixes the measurement at its root instead of fighting flex sizing.
     + '#phud-mini-frame{display:inline-block;line-height:0;}\n'
-    + '#phud-mini{display:block;image-rendering:pixelated;}\n'
+    // THE crop bug (still reproducing after the 90px-spill fix above, at
+    // Maxwell's own real window size): the host page's OWN top-level
+    // `canvas{...}` rule (player_client.html, scoped to the world canvas #c
+    // — position:absolute;left:0;top:0;transform-origin:0 0) is a bare TYPE
+    // selector, so it matches every <canvas> on the page, including this
+    // one — and because #phud-mini here never declared `position`/`left`/
+    // `top` of its own, those three properties cascade in from the host
+    // rule (an ID selector only wins the properties it actually sets; an
+    // unset property still falls through to a lower-specificity rule that
+    // DOES set it). Confirmed live, not guessed: getComputedStyle(#phud-
+    // mini).position read back "absolute" with left/top "0px" in a harness
+    // built from the real player_client.html markup. The nearest POSITIONED
+    // ancestor is #phud-mini-wrap itself (position:fixed above), so the
+    // canvas rendered as a 168x100 box pinned to *that* element's top-left
+    // corner and — being absolutely positioned — stopped contributing to
+    // #phud-mini-frame's inline-block sizing entirely (frame collapsed to
+    // just its own padding/border). Net effect: the visible bitmap floats
+    // detached from its own chrome and, depending on how wide the rest of
+    // the column (the toggle button/label) happens to be, its right/bottom
+    // edge can land past the viewport edge — silent, size-dependent
+    // cropping, exactly what was reported. Fix: reclaim the 3 properties
+    // explicitly so this element can never again inherit host-page canvas
+    // styling by accident, at any window size.
+    + '#phud-mini{display:block;position:static;left:auto;top:auto;image-rendering:pixelated;}\n'
     + '#phud-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_WORD + ';font-size:10px;font-weight:700;letter-spacing:.1em;'
     + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:3px 7px;user-select:none;}\n'
     + '#phud-toggle:hover{color:#f2e8d8;}\n'
@@ -793,9 +839,9 @@
       '<div id="phud-cond" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">condition</span><span class="phud-num" id="phud-hp">—</span></div>' +
       '<div class="phud-stat"><span class="phud-eyebrow">lives</span><span class="phud-num" id="phud-lv">—</span></div>' +
+      '<div class="phud-stat"><span class="phud-eyebrow">weapon</span><span class="phud-num"><span id="phud-cooldown"></span><span id="phud-weapon-text">—</span></span></div>' +
       '<div class="phud-stat" id="phud-buffwrap" style="display:none"><span class="phud-eyebrow">buffs</span><span class="phud-sub" id="phud-buffs"></span></div>' +
       '</div>' +
-      '<div id="phud-cooldown"></div>' +
       '<div id="phud-mini-wrap">' +
       '<div id="phud-toggle">standings · tab</div>' +
       '<div><span class="phud-eyebrow" id="phud-mini-label" style="display:block;text-align:right;margin-bottom:3px;">map</span>' +
@@ -810,7 +856,7 @@
       sc: root.querySelector('#phud-sc'), rk: root.querySelector('#phud-rk'),
       hp: root.querySelector('#phud-hp'), lv: root.querySelector('#phud-lv'),
       buffWrap: root.querySelector('#phud-buffwrap'), buffs: root.querySelector('#phud-buffs'),
-      cooldown: root.querySelector('#phud-cooldown'),
+      cooldown: root.querySelector('#phud-cooldown'), weaponText: root.querySelector('#phud-weapon-text'),
       mini: root.querySelector('#phud-mini'),
       miniLabel: root.querySelector('#phud-mini-label'),
       toggle: root.querySelector('#phud-toggle'),
@@ -818,13 +864,6 @@
       scoreBody: root.querySelector('#phud-score-body'),
     };
   }
-
-  // ---------------------------------------------------------------------
-  // Own cursor tracking, screen space, fully independent of the host's
-  // internal (map-space) mouseX/mouseY.
-  // ---------------------------------------------------------------------
-  let cursorX = innerWidth / 2, cursorY = innerHeight / 2, haveCursor = false;
-  addEventListener('mousemove', function (e) { cursorX = e.clientX; cursorY = e.clientY; haveCursor = true; }, { passive: true });
 
   // ---------------------------------------------------------------------
   // Tab-to-show scoreboard + click-toggle fallback. Never steals Tab while
@@ -855,13 +894,28 @@
   // This draws its own, independently, off the client's live canvas.)
   // ---------------------------------------------------------------------
   const MINIMAP_MAX_W = 168, MINIMAP_MAX_H = 100;
+  // Defense in depth alongside the #phud-mini position fix above (the
+  // actual root cause of the reported crop): clamp the on-screen budget to
+  // whatever room the corner ACTUALLY has at the CURRENT viewport size, so
+  // the panel can never claim more than fits between its own 10px inset and
+  // the edge of the screen, independent of the fixed MINIMAP_MAX_W/H budget
+  // above (which alone assumes the corner always has >=~200x160px of slack
+  // — true at every size this lane tested, kept here for whatever size
+  // wasn't). Numbers below are the wrap's own CSS: MINI_INSET_PX matches
+  // #phud-mini-wrap's right/bottom; MINI_CHROME_W_PX is #phud-mini-frame's
+  // own padding+border (9*2 + 1*2); MINI_CHROME_H_PX is everything stacked
+  // ABOVE the canvas in that same corner — the toggle button, the wrap's
+  // gap, the eyebrow label, and the frame's own padding+border.
+  const MINI_INSET_PX = 10, MINI_CHROME_W_PX = 20, MINI_CHROME_H_PX = 60;
   let lastMiniDrawAt = 0;
   function drawMinimap(miniCanvas, canvasEl, state) {
     if (!canvasEl || state.map.w < 2 || state.map.h < 2) { miniCanvas.width = 0; miniCanvas.height = 0; return; }
     const now = performance.now();
     if (now - lastMiniDrawAt < 90) return; // throttle, matches the cadence of the prior-art minimap
     lastMiniDrawAt = now;
-    const scale = Math.min(MINIMAP_MAX_W / state.map.w, MINIMAP_MAX_H / state.map.h);
+    const boundW = Math.min(MINIMAP_MAX_W, Math.max(40, innerWidth - MINI_INSET_PX * 2 - MINI_CHROME_W_PX));
+    const boundH = Math.min(MINIMAP_MAX_H, Math.max(40, innerHeight - MINI_INSET_PX * 2 - MINI_CHROME_H_PX));
+    const scale = Math.min(boundW / state.map.w, boundH / state.map.h);
     const w = Math.max(1, Math.round(state.map.w * scale)), h = Math.max(1, Math.round(state.map.h * scale));
     if (miniCanvas.width !== w) miniCanvas.width = w;
     if (miniCanvas.height !== h) miniCanvas.height = h;
@@ -1041,11 +1095,61 @@
         }).join('');
     } else {
       const zoneWord = state.zone ? (state.zone.shrinking ? 'SHRINKING' : 'HOLD') : '—';
+      const chips = teamAliveChips(state);
       nodes.top.innerHTML =
-        '<span class="phud-eyebrow">teams alive</span><span class="t">' + fmtDash(state.teamsAlive) +
+        '<span class="phud-eyebrow">teams alive</span><span class="t">' +
+        fmtDash(chips.aliveCount != null ? chips.aliveCount : state.teamsAlive) +
         ' <span class="phud-dim">/ ' + fmtDash(state.teamScores.length) + '</span></span>' +
+        '<span class="phud-chips">' + chips.html + '</span>' +
         '<span class="phud-eyebrow">zone</span><span class="t">' + zoneWord + '</span>';
     }
+  }
+  // Per-team elimination read, keyed lowercase: "team score <NAME> ..." ships
+  // NAME upper-ascii'd (addTeamScoreboard, global.nim:4327) while the roster
+  // marker's <team> ships the bare lowercase color word (global.nim:4499,
+  // "roster " & teamText(team), no .toUpperAscii) — two casings for the same
+  // identity, confirmed against the engine source rather than assumed, so
+  // both keys get lowercased before the join. Same rule the BR scoreboard's
+  // own SPLAT/ALIVE status column uses (deaths>0 = eliminated, BR's one-life
+  // rule), applied per TEAM instead of per row: a team reads WIPED only once
+  // every seat we have data for reads deaths>0. A team with NO deaths data
+  // at all (old-shape "score " rows, or the HTTP-roster names-only fallback)
+  // stays presumed alive — never a fabricated elimination.
+  function teamAliveStatus(state) {
+    const byTeam = new Map();
+    state.playerRows.forEach(function (r) {
+      if (!r.team) return;
+      const key = String(r.team).toLowerCase();
+      const e = byTeam.get(key) || { anyAlive: false, anyData: false };
+      if (r.deaths !== null) { e.anyData = true; if (r.deaths === 0) e.anyAlive = true; }
+      byTeam.set(key, e);
+    });
+    return byTeam;
+  }
+  // The top-bar chip row itself: one small square per team in the match
+  // (state.teamScores — RESOLVED, always sent regardless of team count, so
+  // its list of teams is reliable even when no per-seat data has arrived
+  // yet). Filled = alive or unknown (honest default); hollow/greyed =
+  // confirmed wiped. aliveCount is a locally-derived DISPLAY read (same
+  // pattern as "shrinking"/"ALIVE"/"SPLAT" elsewhere in this file) — it does
+  // NOT change the reserved state.teamsAlive contract field, which stays
+  // whatever buildState() set it to (null today; real feed once realcog
+  // routes teamLivesRemaining() onto the wire).
+  function teamAliveChips(state) {
+    const status = teamAliveStatus(state);
+    const teams = state.teamScores.map(function (t) { return t.team; });
+    if (!teams.length) return { html: '', aliveCount: null };
+    let aliveCount = 0, html = '';
+    teams.forEach(function (team) {
+      const key = String(team).toLowerCase();
+      const e = status.get(key);
+      const wiped = !!(e && e.anyData && !e.anyAlive);
+      if (!wiped) aliveCount++;
+      html += '<i class="phud-chip' + (wiped ? ' wiped' : '') + '"' +
+        (wiped ? '' : ' style="background:' + teamColor(key) + '"') +
+        ' title="' + escapeHtml(team) + (wiped ? ' — eliminated' : '') + '"></i>';
+    });
+    return { html: html, aliveCount: aliveCount };
   }
   function whoText(human) { return human === true ? 'HUMAN' : human === false ? 'BOT' : '—'; }
   function escapeHtml(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -1069,7 +1173,6 @@
   let nodes = null, canvasEl = null;
   let prevKills = null, prevSeated = false;
   let cooldownPrevReady = null;
-  let lastCooldownX = null, lastCooldownY = null;
   // Found by testing (a live tick-animation check came back silently false):
   // the self-attaching auto-scan loop below and the public update() push API
   // both write the SAME shared render state (prevKills, cooldownPrevReady,
@@ -1097,24 +1200,17 @@
   }
 
   function render(state, now) {
-    // A — fire cooldown, screen-cursor-anchored. No seat = nothing to show.
-    // Position writes are ROUNDED and SKIPPED-WHEN-UNCHANGED on purpose: the
-    // black-bars root cause elsewhere in this client was a per-rAF transform
-    // write with sub-pixel drift onto a pixelated-rendering element — this
-    // is the same class of element (screen-fixed, small, would show banding
-    // under fractional positions), so it gets the same discipline even
-    // though left/top (not transform) is the property here.
+    // A — weapon-ready STATUS, fixed in the condition panel (bottom-left),
+    // never cursor-anchored — see the CSS block's own comment for the field
+    // report this replaced. No seat = nothing to show.
     const cd = nodes.cooldown;
-    if (!state.seated || state.fire.ready === null || !haveCursor) {
+    if (!state.seated || state.fire.ready === null) {
       cd.style.opacity = '0';
+      nodes.weaponText.textContent = '—';
     } else {
       cd.style.opacity = '1';
-      const cx = Math.round(cursorX), cy = Math.round(cursorY);
-      if (cx !== lastCooldownX || cy !== lastCooldownY) {
-        cd.style.left = cx + 'px'; cd.style.top = cy + 'px';
-        lastCooldownX = cx; lastCooldownY = cy;
-      }
       cd.className = state.fire.ready ? 'ready' : 'cooling';
+      nodes.weaponText.textContent = state.fire.ready ? 'READY' : 'COOLING';
       if (state.fire.ready && cooldownPrevReady === false) {
         cd.classList.add('pop'); // it just finished cooling — a real transition, not fabricated progress
         setTimeout(function () { cd.classList.remove('pop'); }, 240);
