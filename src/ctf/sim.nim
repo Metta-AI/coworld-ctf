@@ -1209,7 +1209,11 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           distance: int(round(hypot(
             float(sim.players[victimIndex].x - attacker.x),
             float(sim.players[victimIndex].y - attacker.y)
-          )))
+          ))),
+          # Killcam (sim_types.nim ShotFeedbackFx.shooterX): the sprayer's
+          # center this cone tick, same convention as the gun site's sx/sy.
+          shooterX: attacker.x + CollisionW div 2,
+          shooterY: attacker.y + CollisionH div 2
         )
       if bubbleUp:
         # Blink the bubble toward the sprayer, as the gun's damage site does —
@@ -1596,7 +1600,11 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         kill: sim.players[targetIndex].hp <= 0,
         friendlyFire: shooter.team == sim.players[targetIndex].team,
         weapon: "gun",
-        distance: int(round(hypot(float(ex - sx), float(ey - sy))))
+        distance: int(round(hypot(float(ex - sx), float(ey - sy)))),
+        # Killcam (sim_types.nim ShotFeedbackFx.shooterX): the shooter's
+        # center at release — the same sx/sy this shot's ray was cast from.
+        shooterX: sx,
+        shooterY: sy
       )
     if bubbleUp:
       sim.bubbleImpacts.add BubbleImpactFx(
@@ -2002,7 +2010,12 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
         kill: sim.players[i].hp <= 0,
         friendlyFire: sim.players[throwerIndex].team == sim.players[i].team,
         weapon: "grenade",
-        distance: int(round(hypot(float(px - grenade.tx), float(py - grenade.ty))))
+        distance: int(round(hypot(float(px - grenade.tx), float(py - grenade.ty)))),
+        # Killcam (sim_types.nim ShotFeedbackFx.shooterX): the THROWER's
+        # center at blast resolution — where they stand when it bursts, the
+        # spot a camera should find them at, not the launch point.
+        shooterX: sim.players[throwerIndex].x + CollisionW div 2,
+        shooterY: sim.players[throwerIndex].y + CollisionH div 2
       )
     if sim.players[i].hp > 0:
       inc sim.players[i].blastsSurvived    # `lucky`: caught, not killed

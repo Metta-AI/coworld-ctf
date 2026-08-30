@@ -7,7 +7,10 @@
 ## entirely, so turning the feature on must not perturb it), and every
 ## populate site (applyFire/resolveActiveArcCones/explodeGrenade) must record
 ## exactly what the source computes: kill, friendlyFire, weapon, distance,
-## shooterIndex, targetIndex.
+## shooterIndex, targetIndex, and (killcam) shooterX/shooterY — the
+## shooter's center at the moment the damage resolved, captured on EVERY
+## record here but serialized only into fatal hitsTaken wire entries
+## (that half is test_shot_feedback_wire.nim's to assert).
 ##
 ## The server-side delivery half (buildShotFeedbackPacket's JSON, drained and
 ## routed to shooter/victim takeover sockets only) is asserted separately in
@@ -121,13 +124,22 @@ suite "shot feedback gate on: populated at the source, matching the event it des
     check fx.friendlyFire == false
     check fx.weapon == "gun"
     check fx.distance == 40
+    # Killcam: the shooter's center at release — exactly the sx/sy the shot's
+    # ray was cast from (lineUpShot pinned the shooter at the map center).
+    check fx.shooterX == game.gameMap.center.x + CollisionW div 2
+    check fx.shooterY == game.gameMap.center.y + CollisionH div 2
 
-  test "a non-fatal gun hit: kill is false":
+  test "a non-fatal gun hit: kill is false (position still CAPTURED sim-side)":
     var game = feedbackGame(2, allowShotFeedback = true)
     game.lineUpShot(shooter = 0, target = 1, gap = 40)
     game.tryFire(0)
     check game.shotFeedback.len == 1
     check game.shotFeedback[0].kill == false
+    # The capture is unconditional at the populate site; the fatal-only
+    # narrowing is a SERIALIZATION rule (buildShotFeedbackPacket), so the
+    # non-fatal record still carries the position it was born with.
+    check game.shotFeedback[0].shooterX == game.gameMap.center.x + CollisionW div 2
+    check game.shotFeedback[0].shooterY == game.gameMap.center.y + CollisionH div 2
 
   test "friendly fire is flagged when shooter and target share a team":
     var game = feedbackGame(2, allowShotFeedback = true)
@@ -157,6 +169,10 @@ suite "shot feedback gate on: populated at the source, matching the event it des
     check fx.kill == true
     check fx.friendlyFire == false
     check fx.weapon == "spray"
+    # Killcam: the sprayer's center this cone tick — the same ax/ay this
+    # test already computed to place the victim in reach.
+    check fx.shooterX == ax
+    check fx.shooterY == ay
 
   test "a grenade kill populates weapon=grenade with the right indices":
     var game = feedbackGame(2, allowShotFeedback = true)
@@ -172,6 +188,11 @@ suite "shot feedback gate on: populated at the source, matching the event it des
     check fx.targetIndex == 1
     check fx.kill == true
     check fx.weapon == "grenade"
+    # Killcam: the THROWER's center at blast resolution (they never moved
+    # this step — no inputs, zero velocity), not the blast point at map
+    # center they lobbed it onto.
+    check fx.shooterX == game.players[0].x + CollisionW div 2
+    check fx.shooterY == game.players[0].y + CollisionH div 2
 
   test "a grenade never reports self-splash on its own thrower":
     var game = feedbackGame(2, allowShotFeedback = true)
