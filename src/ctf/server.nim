@@ -129,6 +129,30 @@ type
     requestedSlot: int
     slotIndex: int
 
+func defuseScriptClose(src: string): string =
+  ## Splicing a staticRead'd JS file inline as `<script>` + content +
+  ## `</script>` is only safe if the content never contains the literal
+  ## bytes "</script" -- HTML's script-raw-text-end scan matches that
+  ## sequence case-insensitively no matter where it sits (inside a JS
+  ## string, a `/* comment */`, anywhere), and ends the tag right there,
+  ## silently truncating the rest of the file and corrupting whatever
+  ## HTML gets parsed after it. player_hud.js's own header comment shows
+  ## its `<script src="player_hud.js"></script>` include line as example
+  ## text, which trips exactly this. Defuse every occurrence (case
+  ## insensitive) by splitting the sequence with a backslash -- inert
+  ## inside a JS comment or string, but no longer a tag-close to the
+  ## HTML parser -- before any inline splice.
+  result = newStringOfCap(src.len)
+  var i = 0
+  while i < src.len:
+    if i + 8 <= src.len and src[i] == '<' and src[i + 1] == '/' and
+        src[i + 2 ..< i + 8].toLowerAscii() == "script":
+      result.add("<\\/script")
+      i += 8
+    else:
+      result.add(src[i])
+      inc i
+
 const
   # Sentinel for `appState.playerIndices`: a player websocket that has
   # registered but has not yet been resolved into a live `sim.players`
@@ -191,10 +215,30 @@ const
   # ~/.nimby/pkgs/bitworld package -- the same ELEVATE-BY-REBUILD move the
   # replay routes above already make. player_controls.js carries the
   # keyboard/mouse -> action-space translation and is inlined so the page
-  # stays a single self-contained file.
+  # stays a single self-contained file. player_hud.js (maxwell/player-hud) gets
+  # the same treatment: the compiled server has no generic static-file route,
+  # so a bare <script src=...> tag resolves to nothing and silently never
+  # loads -- baking it inline at the same marker delivers it by the exact
+  # path the page already uses, with no new route and no new failure mode.
+  # DO NOT move this HTML to a different serving route or base path. Its
+  # OTHER bare <script src=...> tag (snappyjs.min.js) resolves relative to
+  # wherever this page is served from -- currently /client/player, which
+  # happens to line up with bitworld's OWN generic client router serving
+  # /client/snappyjs.min.js (a completely separate staticRead'd asset, from
+  # the vendored bitworld package, not this repo's client/ dir). That
+  # alignment is accidental, not designed, and there is no static route
+  # here to fall back on if it breaks: a human client would silently lose
+  # snappy sprite decode, desync mid-packet, and have its websocket closed
+  # -- bots keep playing, humans go dark. Changing this route is a decision
+  # for whoever owns that risk, not a drive-by tidy-up.
   EmbeddedPlayerClientHtml = staticRead("../../client/player_client.html").replace(
     "<script src=\"player_controls.js\"></script>",
-    "<script>" & staticRead("../../client/player_controls.js") & "</script>"
+    "<script>" & defuseScriptClose(staticRead("../../client/player_controls.js")) &
+      "</script>"
+  ).replace(
+    "<script src=\"player_hud.js\"></script>",
+    "<script>" & defuseScriptClose(staticRead("../../client/player_hud.js")) &
+      "</script>"
   )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
@@ -860,6 +904,49 @@ proc disconnectWebSocket(websocket: WebSocket) =
   else:
     websocket.close()
 
+proc evictSeatTakeover(seat: int) =
+  ## Drops whichever websocket currently holds `seat`'s takeover, if any.
+  ##
+  ## This is the RESUME half of a reload: a browser tab that closes and
+  ## reopens (same seat, same token) fires its new /takeover upgrade on a
+  ## worker thread that can easily win the race against this process's own
+  ## cleanup of the OLD socket -- that cleanup is a once-per-tick affair
+  ## (the `closedSockets` drain, main loop), while a page reload's new
+  ## connection can land within the same tick the old one's close event is
+  ## still queued. Before this proc existed, `takeoverSeatTaken` saw the
+  ## stale entry as still live and `takeoverRejection` refused the reconnect
+  ## outright (403, at the WS upgrade -- before this engine ever gets a
+  ## chance to hand the new socket its one-time arena init), stranding the
+  ## reload on the client's blind ~2s retry (see player_client.html's own
+  ## comment on that retry: "the SAME identity/slot/token would happily be
+  ## re-admitted a moment later" -- true only once this proc closes the gap).
+  ##
+  ## Callers gate this on the reconnecting request already having proven it
+  ## holds the seat's own pinned token (see the call site) -- an UNTOKENED
+  ## seat has no secret to check, so it keeps the old first-come-first-served
+  ## exclusivity and never reaches here.
+  ##
+  ## Deliberately drops only the BOOKKEEPING, never calls disconnectWebSocket
+  ## on the stale entry: that proc shuts down a raw OS socket FD by number
+  ## (WebSocketSocketFields.clientSocket), and the whole reason this websocket
+  ## is "stale" is that its underlying connection is already closing or
+  ## closed on the client end -- exactly the condition under which the OS is
+  ## most likely to have ALREADY recycled that FD number for the brand-new
+  ## incoming connection this proc is trying to admit. Shutting it down here
+  ## risked shutting down the NEW socket instead (measured: intermittently
+  ## reproduced as "Connection closed before receiving a handshake response"
+  ## on the reconnecting client). Dropping the state is sufficient: the stale
+  ## socket, real or already-gone, simply stops appearing in any per-tick
+  ## loop (sockets/takeoverSockets are rebuilt from these tables every tick),
+  ## so it is silently retired either way, and its own eventual close event
+  ## (if it ever arrives) finds nothing left to clean up.
+  var stale: seq[WebSocket] = @[]
+  for websocket, takeover in appState.takeovers.pairs:
+    if takeover.seat == seat:
+      stale.add(websocket)
+  for websocket in stale:
+    discard removePlayerWebSocketState(websocket)
+
 proc identityIsKicked(identity: string): bool =
   ## Returns true when an identity is blocked from rejoining this match.
   let rewardIdentity = identity.rewardAddress()
@@ -1021,7 +1108,17 @@ proc takeoverRejection*(
     return "Seat takeover requires a configured slot."
   if config.slots[seat].token.len > 0 and token != config.slots[seat].token:
     return "Takeover token does not match seat " & $seat & "."
-  if seatTaken:
+  # A pinned token that matched the line above IS proof of identity: this
+  # connection holds the seat's own secret, so it is that seat's rightful
+  # human reconnecting (a browser reload is the common case), not a
+  # stranger trying to steal an occupied seat. Refusing it here behind a
+  # stale/zombie holder -- whose cleanup is a once-per-tick affair the
+  # reload's new socket can easily out-race (see evictSeatTakeover) -- is
+  # exactly the resume-vs-fresh-join asymmetry that left a reloaded /play
+  # tab stuck on the client's blind retry loop with a black arena in the
+  # meantime. Only an UNTOKENED seat (no secret to check identity against)
+  # keeps the old first-come-first-served exclusivity.
+  if seatTaken and config.slots[seat].token.len == 0:
     return "Seat " & $seat & " is already being taken over."
   ""
 
@@ -1031,15 +1128,34 @@ proc directAimEnabled(): bool =
     withLock appState.lock:
       result = appState.config.allowDirectAim
 
+proc aimAssistEnabled(): bool =
+  ## Returns true when this config arms freeplay aim assist.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowAimAssist
+
+proc calloutsEnabled(): bool =
+  ## Returns true when this config arms the callout channel.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowCallouts
+
 proc capabilitiesJson(): string =
   ## What this server will GRANT a human connection. The same client bundle is
   ## served to league and play servers, so the client feature-DETECTS here
-  ## rather than being built two ways. A league config advertises both as
-  ## false, and asking anyway is refused at the upgrade — advertising and
-  ## enforcement read the same config field, so they cannot drift.
+  ## rather than being built two ways. A league config advertises all four as
+  ## false, and asking anyway is refused at the upgrade (or, for aim
+  ## assist/callouts, simply never applied) — advertising and enforcement
+  ## read the same config fields, so they cannot drift. All four of this
+  ## config's armed gates are mirrored here, not just the two the shipped
+  ## takeover.html shell happens to read today — a future consumer asking
+  ## this endpoint about aim assist or callouts gets a real answer instead of
+  ## a silent `undefined`.
   $(%*{
     "seatTakeover": seatTakeoverEnabled(),
-    "directAim": directAimEnabled()
+    "directAim": directAimEnabled(),
+    "allowAimAssist": aimAssistEnabled(),
+    "allowCallouts": calloutsEnabled()
   })
 
 proc pickFreeplaySeat*(
@@ -1132,14 +1248,40 @@ proc freeplaySeatJson(): string =
        else: pick.waitTicks * 1000 div ReplayFps)
   })
 
+proc takeoverStateLabel(takeover: SeatTakeover, brMode: bool): string =
+  ## The status word a surface renders for one pending/driving takeover row.
+  ##
+  ## "driving": the swap has landed, this human is in the sim right now.
+  ##
+  ## "seated-awaiting-round" (brMode only): the request is bound to a seat
+  ## whose cog is down RIGHT NOW in a mode where a down cog never respawns
+  ## mid-round (sim.nim's killPlayer forces lives=0/respawnTimer=0 for the
+  ## rest of the round in brMode) — so nothing sub-second is coming for this
+  ## seat; the swap lands at the next spawn, which in brMode means the next
+  ## round (landSeatTakeoversOnNewMatch). Distinct from "suiting-up" so a
+  ## client can show honest "you're in next round" copy instead of implying
+  ## an imminent respawn that is not going to happen.
+  ##
+  ## "suiting-up": every other pending case — a CTF cog mid-respawn-timer, a
+  ## seat with no cog sampled yet, or a brMode cog that is ALIVE right now and
+  ## about to land on literally the next frame (the `instant` path).
+  if takeover.active:
+    "driving"
+  elif brMode and takeover.observed and not takeover.cogAlive:
+    "seated-awaiting-round"
+  else:
+    "suiting-up"
+
 proc takeoverStatusJson(): string =
   ## Returns the seat-takeover state a surface renders: who is on which seat
   ## and whether they are still suiting up. Ordered by seat so the strip does
   ## not reshuffle between polls.
   let enabled = seatTakeoverEnabled()
   var rows: seq[SeatTakeover] = @[]
+  var brMode = false
   {.gcsafe.}:
     withLock appState.lock:
+      brMode = appState.config.brMode
       for _, takeover in appState.takeovers.pairs:
         rows.add(takeover)
   rows.sort(proc (a, b: SeatTakeover): int = cmp(a.seat, b.seat))
@@ -1149,7 +1291,7 @@ proc takeoverStatusJson(): string =
       "seat": takeover.seat,
       "requestedSeat": takeover.requestedSeat,
       "name": takeover.name,
-      "state": (if takeover.active: "driving" else: "suiting-up"),
+      "state": takeover.takeoverStateLabel(brMode),
       "cog": takeover.cog,
       "cogAlive": takeover.cogAlive,
       "cogX": takeover.cogX,
@@ -1230,9 +1372,23 @@ proc httpHandler(request: Request) =
       withLock appState.lock:
         # Re-checked under the lock: two upgrades can race between the
         # pre-upgrade check and here, and a seat takes exactly one human.
-        if not appState.config.allowSeatTakeover or seat.takeoverSeatTaken():
+        #
+        # `tokenProvesIdentity` mirrors takeoverRejection's own reasoning: a
+        # non-empty, already-token-matched seat means THIS connection is
+        # provably the seat's rightful holder (a reload is the common case),
+        # so it supersedes whatever stale/zombie socket still holds the seat
+        # (evictSeatTakeover) instead of queuing behind a cleanup pass that
+        # only runs once per main-loop tick. An untokened seat has no secret
+        # to check identity against, so it keeps the old exclusivity.
+        let tokenProvesIdentity =
+          seat >= 0 and seat < appState.config.slots.len and
+          appState.config.slots[seat].token.len > 0
+        if not appState.config.allowSeatTakeover or
+            (seat.takeoverSeatTaken() and not tokenProvesIdentity):
           lost = true
         else:
+          if seat.takeoverSeatTaken():
+            evictSeatTakeover(seat)
           if guestName.len == 0:
             guestName = "Guest" & $(appState.takeovers.len + 1)
           websocket.registerTakeoverWebSocket(

@@ -94,6 +94,23 @@ suite "direct aim: the gate discriminates":
     check config.takeoverRejection(0, "nope", true, false).len > 0
     check config.takeoverRejection(0, "secret", true, false) == ""
 
+  test "a MATCHING pinned token supersedes a stale takeover instead of queuing behind it":
+    # The resume-vs-fresh-join bug: a browser reload's new /takeover upgrade
+    # can win the race against this process's own once-per-tick cleanup of
+    # the OLD (closing) socket, so `seatTaken` is still true when the reload
+    # arrives. A pinned token that matches IS proof this connection holds the
+    # seat's own secret -- the reload is admitted (server.nim's httpHandler
+    # then calls evictSeatTakeover to drop the stale holder) rather than
+    # bounced into the client's blind ~2s retry with a black arena meanwhile.
+    var config = playConfig()
+    config.slots = @[PlayerSlotConfig(token: "secret")]
+    check config.takeoverRejection(0, "secret", false, true) == ""
+
+  test "an UNTOKENED seat keeps the old exclusivity -- no secret to prove identity with":
+    var config = playConfig()
+    config.slots = @[PlayerSlotConfig(token: "")]
+    check config.takeoverRejection(0, "", false, true).len > 0
+
   test "the advertised capabilities are read off the same config fields":
     initAppState()
     check capabilitiesJson().parseJson()["directAim"].getBool() == false
@@ -101,6 +118,30 @@ suite "direct aim: the gate discriminates":
     appState.config = playConfig()
     check capabilitiesJson().parseJson()["directAim"].getBool()
     check capabilitiesJson().parseJson()["seatTakeover"].getBool()
+    initAppState()
+
+  test "all four armed gates are mirrored on /capabilities, not just two":
+    # truth-lens audit #3: /capabilities used to report only seatTakeover and
+    # directAim, silently omitting allowAimAssist/allowCallouts even when the
+    # running config had them on. A league config (nothing armed) must still
+    # refuse on all four; a freeplay config with every gate on must advertise
+    # all four honestly, driven off the real config fields, not literals.
+    initAppState()
+    appState.config = leagueConfig()
+    let refused = capabilitiesJson().parseJson()
+    check refused["seatTakeover"].getBool() == false
+    check refused["directAim"].getBool() == false
+    check refused["allowAimAssist"].getBool() == false
+    check refused["allowCallouts"].getBool() == false
+    var armed = playConfig()
+    armed.allowAimAssist = true
+    armed.allowCallouts = true
+    appState.config = armed
+    let granted = capabilitiesJson().parseJson()
+    check granted["seatTakeover"].getBool()
+    check granted["directAim"].getBool()
+    check granted["allowAimAssist"].getBool()
+    check granted["allowCallouts"].getBool()
     initAppState()
 
 suite "direct aim: a PLAY replay says so, and re-simulates":
