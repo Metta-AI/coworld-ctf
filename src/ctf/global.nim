@@ -8828,9 +8828,30 @@ proc buildSpriteProtocolPlayerUpdates*(
           SpritePlayerFireSpriteId
       )
 
-    # Lives counter on the top-right HUD layer.
+    # Lives counter on the top-right HUD layer. BR seats a cog with ZERO
+    # spare lives (seatLivesFor: a BR cog never respawns, so `lives` reads 0
+    # from the opening tick, alive or dead — see seatLivesFor/killPlayer in
+    # sim.nim), so the "x0" tail is not a death readout, it is the mode's
+    # permanent value. Showing it anyway reads to a human as "zero lives
+    # left" on a cog that is standing there fighting. Drop the tail in BR:
+    # there is no spare count to state truthfully, so hp alone is the honest
+    # readout. CTF keeps the untouched format, where `lives` genuinely
+    # counts remaining respawns. Gated on the mode flag (not on lives == 0)
+    # because a fresh BR seat and a dead CTF seat share that value for
+    # different reasons.
+    #
+    # This text IS the wire label too (LabelPrefixLives & livesText below) —
+    # the reference policy (players/baseline) only ever parses the digits
+    # before the literal "hp" substring for its own hp, via
+    # `text.find("hp")` / `text[0 ..< cut]`, and never reads anything past
+    # it. Dropping the " x<lives>" tail in BR does not change that parsed
+    # value, so no policy observation changes.
     let
-      livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
+      livesText =
+        if sim.config.brMode:
+          $(player.hp + player.shieldHp) & "hp"
+        else:
+          $(player.hp + player.shieldHp) & "hp x" & $player.lives
       lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
