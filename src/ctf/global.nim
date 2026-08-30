@@ -644,10 +644,25 @@ const
   RigSpraySpriteBase = 76600   ## team×16 aim → keys 76600..76663 (held spray can +
                                ## glow): the swap-in art while a cog carries a
                                ## can, sharing the gun's object slot.
+  RigSelfHeadSpriteBase = 200000  ## skin×16 aim → keys 200000..200031: the
+                               ## PLAYER-VIEW self head, a pool distinct from
+                               ## RigHeadSpriteBase because a sprite's LABEL
+                               ## lives on its definition, shared by every
+                               ## player object that references the id — the
+                               ## viewer's own cog needs a private id so its
+                               ## head can carry the `self <color> <side>`
+                               ## label (player_client.html's follow-camera
+                               ## contract) without relabeling every other
+                               ## player sharing that team/skin/pose. Placed
+                               ## far clear of the 40000..76663 rig pose range.
   ## Object pools sit clear of the tracer-dot pool (24000..35327) and the
   ## damage/kill pops (38000..38031); rig objects live at 38100+ (32 players
   ## each). Moved off 32000+: the widened tracer-dot pool swallowed that range.
-  RigHeadObjectBase = 38100    ## 1 head object per player: 38100..38131.
+  RigHeadObjectBase* = 38100   ## 1 head object per player: 38100..38131.
+                               ## Exported: the player-view rig now lands on
+                               ## this same object id (see addCogRigObjects),
+                               ## so tests asserting a rig-rendered player's
+                               ## presence/label need it.
   RigArmObjectBase = 38140     ## 2 arm objects per player: 38140..38203.
   RigLegObjectBase = 38220     ## 3 leg objects per player: 38220..38315.
   RigWheelObjectBase = 38340   ## 3 wheel objects per player: 38340..38435.
@@ -1135,6 +1150,18 @@ type
                                  ## allowDirectAim config ever reads it, so a
                                  ## league game is untouched.
     spriteDefs: seq[SpriteDefinition]
+    cogDrive*: array[MaxPlayers, CogDriveState]  ## per-player segmented-trike
+                                 ## animation state for THIS viewer's rig
+                                 ## render — the player-view twin of
+                                 ## GlobalViewerState.cogDrive (see there for
+                                 ## the field-by-field meaning). A human
+                                 ## viewer only draws players it can actually
+                                 ## see, but the array is flat by player
+                                 ## index (not by visible-slot) so a player
+                                 ## popping in/out of fog never aliases onto
+                                 ## another player's drive state.
+    cogDriveTick*: int           ## sim.tickCount at the last cogDrive step;
+                                 ## see GlobalViewerState.cogDriveTick.
 
   ProtocolTextItem = ref object
     spriteId: int
@@ -1526,6 +1553,9 @@ proc initGlobalViewerState*(): GlobalViewerState =
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
+  result.cogDriveTick = low(int)  ## no drive step yet; the first frame snaps
+                                   ## every player's rig to rest (see
+                                   ## GlobalViewerState.cogDriveTick).
 
 proc resetPlayerViewerStateForRound*(state: PlayerViewerState) =
   ## Round-transition reset for one PLAYER (human) viewer connection — see
@@ -1720,6 +1750,15 @@ proc rigHeadSpriteId(team: Team, skin: Skin, aimStep: int): int =
     ord(skin) * 2 * RigSteps +
     ord(team) * RigSteps +
     aimStep)
+
+proc rigSelfHeadSpriteId(skin: Skin, aimStep: int): int =
+  ## Player-view-only head sprite id for the viewing player's OWN cog — see
+  ## RigSelfHeadSpriteBase. No team dimension: unlike the shared team-pool
+  ## head, this id is never referenced by more than one viewer's own object,
+  ## so there is nothing to disambiguate by team (the baked PIXELS still
+  ## follow the player's true team; only the id/label pool is team-free,
+  ## matching the historical selfSoldierSpriteId convention).
+  wireSpriteId(RigSelfHeadSpriteBase + ord(skin) * RigSteps + aimStep)
 
 proc rigGunSpriteId(team: Team, aimStep: int): int =
   wireSpriteId(RigGunSpriteBase + ord(team) * RigSteps + aimStep)
@@ -8500,6 +8539,22 @@ proc addDamagePops(
     currentIds.add(objectId)
     packet.addBoardObject(objectId, px, py, DamagePopZ, MapLayerId, spriteId)
 
+# Forward declaration: the board section (buildSpriteProtocolUpdates, below)
+# and the player-view section (buildSpriteProtocolPlayerUpdates, right here)
+# both place the articulated rig; the full definition lives further down,
+# next to the rest of the board-section helpers it shares
+# bakePixels/canonicalSprite locals with.
+proc addCogRigObjects(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  player: Player,
+  drive: CogDriveState,
+  carrying: bool,
+  isSelf = false
+)
+
 proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
@@ -8631,6 +8686,31 @@ proc buildSpriteProtocolPlayerUpdates*(
             PlantedFlagSpriteBase + ord(team)
           )
 
+    # Advance the per-player segmented-trike drive animation for THIS human
+    # viewer, exactly mirroring the board's cogDrive step (buildSpriteProtocolUpdates
+    # below) — a sprites-off bot never renders the rig, so it never pays for the
+    # animation state either. Same scrub-safe rule: a sequential 1..16-tick delta
+    # smooths, anything else (first frame, pause/resume, a round transition's tick
+    # reset) snaps to a fresh rest pose.
+    if not spritesOff:
+      const MaxSmoothStepTicks = PlaybackSpeeds[^1]
+      let neverStepped = nextState.cogDriveTick == low(int)
+      let tickDelta =
+        if neverStepped: 0 else: sim.tickCount - nextState.cogDriveTick
+      if neverStepped or tickDelta != 0:
+        let sequential = not neverStepped and
+          tickDelta >= 1 and tickDelta <= MaxSmoothStepTicks
+        for i in 0 ..< sim.players.len:
+          let p = sim.players[i]
+          if not p.alive:
+            nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+          elif sequential and nextState.cogDrive[i].initialized:
+            nextState.cogDrive[i] = stepCogDrive(
+              nextState.cogDrive[i], p.velX, p.velY, p.aimBrads)
+          else:
+            nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+        nextState.cogDriveTick = sim.tickCount
+
     # Players: yourself (a distinct outlined self marker) is always visible;
     # everyone else — teammates included — only inside your vision; corpses
     # only for ghost viewers.
@@ -8641,6 +8721,27 @@ proc buildSpriteProtocolPlayerUpdates*(
             not sim.playerVisibleTo(playerIndex, i):
           continue
       elif not viewerIsGhost:
+        continue
+      if other.alive and not spritesOff:
+        # A human viewer sees the REAL articulated rig (head+gun+arms track
+        # AIM, legs+wheels track MOVEMENT) — the same board-only rig the
+        # spectator/replay stream has always drawn (addCogRigObjects below).
+        # `isSelf` swaps the head's sprite id + label for the viewer's own
+        # cog so the "self <color> <side>" prefix (player_client.html's
+        # follow-camera contract) keeps landing on exactly one object, same
+        # as the flat self marker it replaces. A sprites-off (bot) viewer
+        # falls straight through to the untouched flat branch below — this
+        # whole rig path never executes for spritesOff, so that observation
+        # stream stays byte-for-byte unchanged.
+        sim.addCogRigObjects(
+          nextState.spriteDefs,
+          currentIds,
+          result,
+          other,
+          nextState.cogDrive[i],
+          carrying = sim.carriedFlagTeam(i) >= 0,
+          isSelf = i == playerIndex and not viewerIsGhost
+        )
         continue
       # GV24/25: every OTHER soldier sprite in a player view — enemy,
       # teammate, corpse — renders with FUZZED aim (fuzzedAimBrads): exact
@@ -8659,6 +8760,8 @@ proc buildSpriteProtocolPlayerUpdates*(
         # Yourself reads as a distinct white-outlined soldier rotated to your
         # TRUE aim (GV26): you know your own gun exactly — the fuzz exists to
         # hide OTHERS' aim, and your self marker is your own state, not a leak.
+        # (Only reached here for spritesOff=true — a human self already took
+        # the rig branch above.)
         let rot = soldierRotIndex(other.aimBrads)
         spriteId = selfSoldierSpriteId(other.skin, rot)
         result.addSpriteChanged(
@@ -9293,7 +9396,8 @@ proc addCogRigObjects(
   packet: var seq[uint8],
   player: Player,
   drive: CogDriveState,
-  carrying: bool
+  carrying: bool,
+  isSelf = false
 ) =
   ## Places one cog's articulated TURRET trike. Every segment sprite is baked in
   ## the same RigCanvas, HUB-centered, so all objects share ONE canvas position
@@ -9305,6 +9409,17 @@ proc addCogRigObjects(
   ## heart itself is emitted in the flag loop.
   ## Z (painter depth ~ map Y): rear wheel/leg < front wheels < front legs < head
   ## < arms (arms cradle the forward heart on top).
+  ##
+  ## `isSelf` (player-view only; board never sets it) swaps the HEAD segment's
+  ## sprite id + label for a viewer-private "self" pool: player_client.html's
+  ## seated follow camera finds its target by scanning for a sprite label that
+  ## STARTS WITH "self " (LabelPrefixSelf) — the same contract the old flat
+  ## selfSoldierSpriteId used to carry — so the rig's head must keep shipping
+  ## that exact prefix for the viewing player's own cog. A shared head sprite id
+  ## carries ONE label for every player drawn with it (the label lives on the
+  ## sprite DEFINITION, not the per-player object placement), so self needs its
+  ## own dedicated id — reusing the team-pool head id would force every other
+  ## player of the same team/skin/pose to also read as "self" (or vice versa).
   let
     color = teamText(player.team)
     aimStep = soldierRotIndex(player.aimBrads)
@@ -9317,6 +9432,19 @@ proc addCogRigObjects(
     # Center the RigCanvas on the player (canvas center = hub). 1× map px.
     rigX = player.x + CollisionW div 2 - RigCanvas div 2
     rigY = player.y + CollisionH div 2 - RigCanvas div 2
+    # Self reads its TRUE aim exactly (GV26 parity with the old self marker);
+    # the side follows soldierFacingRight the same way the flat self sprite's
+    # label did.
+    headSide = if soldierFacingRight(aimStep): LabelSideRight else: LabelSideLeft
+    headSpriteId =
+      if isSelf: rigSelfHeadSpriteId(player.skin, aimStep)
+      else: rigHeadSpriteId(player.team, player.skin, aimStep)
+    headLabel =
+      if isSelf: labelSelf(color, headSide)
+      else: rigSegLabel(rsHead, color)
+
+  proc segLabel(seg: RigSeg): string =
+    if seg == rsHead: headLabel else: rigSegLabel(seg, color)
 
   # Precompute the movement-driven leg/wheel steps.
   proc legSprite(seg: RigSeg): int =
@@ -9364,9 +9492,7 @@ proc addCogRigObjects(
       wheelSprite(rsWheelR, drive.casterFR), player.y - 2),
     (rsLegFL, RigLegObjectBase + base*3 + 0, legSprite(rsLegFL), player.y - 1),
     (rsLegFR, RigLegObjectBase + base*3 + 1, legSprite(rsLegFR), player.y - 1),
-    (rsHead, RigHeadObjectBase + base,
-      rigHeadSpriteId(player.team, player.skin, aimStep),
-      player.y)]
+    (rsHead, RigHeadObjectBase + base, headSpriteId, player.y)]
   # Arms = the cog's SHOULDER pads. They're part of the cog's fixed silhouette:
   # always drawn, always in their natural tucked pose, rotating with the HEAD/aim
   # (never jutting forward — the earlier "reach" pose read as weird prongs). At rest
@@ -9400,13 +9526,13 @@ proc addCogRigObjects(
           packet.addBoardSpriteChanged(
             spriteDefs, spriteId, RigCanvas, RigCanvas,
             rigSegPixels(player.team, s.seg, headStep, 0, 0, boardScale),
-            rigSegLabel(s.seg, color), native = boardScale)
+            segLabel(s.seg), native = boardScale)
       else:
         if articulated and spriteId != canonicalSprite(s.seg):
           dec rigPoseDefBudget
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, RigCanvas, RigCanvas,
-          bakePixels(s.seg), rigSegLabel(s.seg, color), native = boardScale)
+          bakePixels(s.seg), segLabel(s.seg), native = boardScale)
     currentIds.add(s.objectId)
     packet.addBoardObject(s.objectId, rigX, rigY, s.z, MapLayerId, spriteId)
 
