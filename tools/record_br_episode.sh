@@ -35,7 +35,7 @@ PORT="${PORT:-21777}"
 SEATS="${SEATS:-32}"
 CFG=$(mktemp /tmp/ctf-br-showmatch-cfg-$$-XXXXXX)
 python3 - "$CFG" "$SEED" "$MAXTICKS" "$MAPSPEC" "$SEATS" "$ROSTER" <<'PY'
-import json, sys
+import json, os, sys
 cfg = json.load(open("config.json"))
 cfg["seed"] = int(sys.argv[2])
 cfg["maxTicks"] = int(sys.argv[3])
@@ -81,11 +81,20 @@ cfg["allowPolicyReflash"] = True
 # closes fully to z=0.001 by MAXTICKS, which structurally rules out a
 # maxTicks timeout (no interior left at the cap, whatever the bots do).
 # Proportional to the same MAXTICKS this script actually runs with (default
-# 6000, same as record_br_match.sh's derivation): waits sum to maxTicks/2,
-# shrinks sum to maxTicks/2.
+# 6000, same as record_br_match.sh's derivation): the first wait defaults
+# to maxTicks/3 (see BR_FIRST_WAIT below), shrinks sum to maxTicks/2, so
+# the schedule closes fully by ~5/6 of maxTicks.
 T = int(sys.argv[3])
+# First-wall timing: measured on episode-final (seed 31337), combat is over
+# by ~tick 1000 after the Playing edge while the first shrink waited until
+# T/2 (3000) — two thousand ticks of dead air. Default is now T/3 (2000 at
+# T=6000): late enough for competent policies that actually fight longer,
+# early enough that the zone takes over roughly when the fighting fades.
+# Override per-recording with BR_FIRST_WAIT=<ticks> to tune pacing without
+# editing this table.
+FIRST_WAIT = int(os.environ.get("BR_FIRST_WAIT", T // 3))
 cfg["zonePhases"] = [
-    {"z": 0.824, "waitTicks": T // 2, "shrinkTicks": T * 528 // 6000, "dps": 0},
+    {"z": 0.824, "waitTicks": FIRST_WAIT, "shrinkTicks": T * 528 // 6000, "dps": 0},
     {"z": 0.648, "waitTicks": 0, "shrinkTicks": T * 528 // 6000, "dps": 2},
     {"z": 0.472, "waitTicks": 0, "shrinkTicks": T * 528 // 6000, "dps": 4},
     {"z": 0.296, "waitTicks": 0, "shrinkTicks": T * 528 // 6000, "dps": 8},
