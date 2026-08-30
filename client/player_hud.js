@@ -199,7 +199,10 @@
        highlighted (never a guess).
        teamsAlive: still reserved (teamLivesRemaining() is end-card only).
        Placement (sim.brPlacements()) stays END-CARD ONLY; its always-empty
-       column is gone from the BR table in favor of the real lives column.
+       column is gone from the BR table. So is the numeric lives column:
+       wire lives = respawns remaining, which reads 0 for every LIVING
+       one-life player — BR renders an ALIVE/SPLAT status column derived
+       from the row's own deaths count instead (see renderScoreboard).
      - zone (BR shrink ring): RESOLVED TODAY, zero engine work — "zone "/
        "zonenext " labels are world knowledge on the player stream right now
        (labels.nim:238-259, global.nim:8692-8693). No tick-countdown value
@@ -772,6 +775,7 @@
     + '#phud-score td{padding:3px 8px 3px 0;border-bottom:1px solid rgba(232,163,61,.14);white-space:nowrap;}\n'
     + '#phud-score tr.self td{color:#e8a33d;font-weight:700;}\n'
     + '#phud-score .phud-dim{color:#b8ac98;}\n'
+    + '#phud-score .phud-splat{color:#ff6a52;font-weight:700;letter-spacing:.06em;}\n'
     + '#phud-score .phud-empty{color:#8a7f72;font-style:italic;padding:8px 0;}\n'
     ;
 
@@ -973,7 +977,10 @@
       rows.sort(function (a, b) {
         const ak = a.kills === null ? -1 : a.kills, bk = b.kills === null ? -1 : b.kills;
         if (bk !== ak) return bk - ak;
-        if ((b.lives || 0) !== (a.lives || 0)) return (b.lives || 0) - (a.lives || 0);
+        // Alive above eliminated at equal kills (deaths asc, no-data last) —
+        // the wire's own deaths count, not the misleading BR lives number.
+        const ad = a.deaths === null ? 9999 : a.deaths, bd = b.deaths === null ? 9999 : b.deaths;
+        if (ad !== bd) return ad - bd;
         return String(a.name).localeCompare(String(b.name));
       });
       let visible = rows, hidden = 0;
@@ -988,14 +995,22 @@
         }
         hidden = rows.length - visible.filter(function (r) { return !r.gap; }).length;
       }
-      // placement stays END-CARD ONLY (sim.brPlacements(), never live) — its
-      // always-empty column is gone; lives is real wire data now and, in a
-      // one-life mode, doubles as the alive/out read.
-      html += rowsTable(visible, ['name', 'team', 'lives', 'kd', 'who'], function (r) {
+      // placement stays END-CARD ONLY (sim.brPlacements(), never live).
+      // NO numeric lives column in BR: the wire's lives value is RESPAWNS
+      // REMAINING, so in a one-life mode every LIVING player reads 0 — a
+      // column of zeros next to living players says "everyone is dead"
+      // (caught on the first real 16-solo field, coordinator-confirmed).
+      // Status renders instead, derived from the row's own deaths count
+      // under BR's one rule (killPlayer: first death is elimination):
+      // deaths>0 = SPLAT, deaths==0 = ALIVE, no data (HTTP-roster fallback
+      // rows) = an honest em-dash. CTF keeps the numeric column, where the
+      // number is true.
+      html += rowsTable(visible, ['name', 'team', 'status', 'kd', 'who'], function (r) {
         if (r.gap) return '<td colspan="5" class="phud-dim" style="text-align:center">···</td>';
+        const status = r.deaths === null ? '—' : (r.deaths > 0 ? 'SPLAT' : 'ALIVE');
         return '<td>' + escapeHtml(r.name) + '</td>' +
           '<td style="color:' + teamColor(r.team) + '">' + fmtDash(r.team) + '</td>' +
-          '<td>' + fmtDash(r.lives) + '</td>' +
+          '<td class="' + (r.deaths !== null && r.deaths > 0 ? 'phud-splat' : 'phud-dim') + '">' + status + '</td>' +
           '<td class="phud-dim">' + fmtDash(r.kills) + '/' + fmtDash(r.deaths) + '</td>' +
           '<td class="phud-dim">' + whoText(r.human) + '</td>';
       }, rows.length ? null : (state.roster.resolved ? 'No standings data yet.' : 'Roster unavailable — no /api/field response.'));
@@ -1038,7 +1053,7 @@
   // inside the table, never a hidden/replaced table) — an empty scoreboard
   // reads as "not yet", not as broken chrome.
   function rowsTable(rows, cols, rowFn, emptyMsg) {
-    const headers = { name: 'Name', team: 'Team', lives: 'Lives', placement: 'Placement', kd: 'K/D', who: '' };
+    const headers = { name: 'Name', team: 'Team', lives: 'Lives', status: 'Status', placement: 'Placement', kd: 'K/D', who: '' };
     let h = '<table><thead><tr>' + cols.map(function (c) { return '<th>' + headers[c] + '</th>'; }).join('') + '</tr></thead><tbody>';
     if (emptyMsg) {
       h += '<tr><td colspan="' + cols.length + '" class="phud-empty">' + emptyMsg + '</td></tr>';
