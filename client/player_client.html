@@ -31,6 +31,21 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    them -- opaque black is correct there), the match keeps visibly playing
    out while we're dead, so this variant tints instead of hiding it. */
 #s.dead{background:#000a;align-items:flex-start;padding-top:20px;font-weight:600;text-shadow:0 1px 3px #000}
+/* Big SPLAT-on-death stamp (Maxwell, live 8/29): the #s.dead toast above is
+   the whole-match "you're down, waiting to respawn" state and stays exactly
+   as-is; this is a separate, momentary flourish on TOP of it at the instant
+   OUR OWN cog goes down, in the same kill-red already used for the kill
+   feed/hitmarker above (#ff6a52 / rgba(255,60,40,*)) rather than a new
+   color. A pure CSS-transition-driven class toggle (triggerSelfSplat()
+   below flips classes on a timer, same idiom as #feed's fade above) -- not
+   a canvas draw, so it never touches c.style.transform or the world camera
+   and cannot be the source of any per-frame presentation churn there. */
+#splat{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;z-index:55;opacity:0;transform:scale(1.35) rotate(-3deg);
+  transition:opacity 700ms ease-in,transform 700ms ease-in}
+#splat b{font:900 15vmin/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1vmin;
+  color:#ff6a52;-webkit-text-stroke:.6vmin #1a0705;text-shadow:0 0 2vmin #000c}
+#splat.show{opacity:1;transform:scale(1) rotate(-3deg);transition:opacity 70ms ease-out,transform 70ms cubic-bezier(.22,1.8,.36,1)}
 #mute{position:fixed;right:10px;top:9px;color:#e8e4dc;background:#1a1714cc;border:1px solid #4a453c;padding:4px 8px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;cursor:pointer;border-radius:3px;user-select:none}
 #mute:hover{background:#2a2620cc}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
@@ -71,11 +86,12 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <div id="hud"></div>
 <div id="wheel" aria-hidden="true"><div id="wheelRing"></div><div id="wheelHub"></div></div>
 <div id="feed" aria-hidden="true"></div>
+<div id="splat" aria-hidden="true"><b>SPLAT!</b></div>
 <button id="mute" type="button">sound: on</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),splatEl=document.getElementById("splat"),x=c.getContext("2d");
 const p=[0,0,0,255,194,195,199,255,255,241,232,255,255,0,77,255,255,119,168,255,95,87,79,255,171,82,54,255,255,163,0,255,255,236,39,255,126,37,83,255,0,135,81,255,0,228,54,255,29,43,83,255,131,118,156,255,41,173,255,255,255,204,170,255];
 const PaletteRgb=[
   [0,0,0],[194,195,199],[255,241,232],[255,0,77],
@@ -780,8 +796,12 @@ function controlsTick(){
      fresh self marker appears -- a respawn or the next round's spawn,
      whichever comes first. drawSprite()'s status line renders it through
      the exact same #s overlay/n() plumbing already used for
-     connecting/reconnecting text. */
-  if(!seatedNow&&wasSeated)isDead=true;
+     connecting/reconnecting text. The SAME edge also fires the big SPLAT
+     stamp (Maxwell, live 8/29) -- one-shot, on the transition only, never
+     re-fired while still down, and impossible to fire for anyone but our
+     own seated self by construction (seatedNow/wasSeated read only this
+     client's own selfPos). */
+  if(!seatedNow&&wasSeated){isDead=true;triggerSelfSplat()}
   else if(seatedNow)isDead=false;
   wasSeated=seatedNow;
   let rot=null;
@@ -880,6 +900,22 @@ let hitstopUntil=0,shakeEndAt=0,shakeMag=0,hitmarkerUntil=0,hitmarkerIsKill=fals
    same fog-of-war rule as everything else in this file, never an oracle.
    The label carries the SIDE that took the hit, never an attacker identity
    (the wire has none), so lines never claim one. */
+/* Big SPLAT-on-death stamp: same setTimeout-driven class-toggle idiom as
+   pushFeedEvent below, and equally not a canvas draw -- CSS transitions do
+   the actual animating on the compositor, this JS only ever flips a class
+   at two fixed moments. SELF_SPLAT_HOLD_MS is the brief full-punch beat
+   before the ~1s ease-in decay (#splat's base transition) hands off to the
+   subtler #s.dead toast still showing underneath it the whole time. */
+const SELF_SPLAT_HOLD_MS=140;
+let splatHideTimer=0;
+function triggerSelfSplat(){
+  if(!splatEl)return;
+  clearTimeout(splatHideTimer);
+  splatEl.classList.remove("show"); // restart the pop-in transition even mid-decay (rapid re-death edge case)
+  void splatEl.offsetWidth; // force reflow so the class churn above actually restarts the CSS transition
+  splatEl.classList.add("show");
+  splatHideTimer=setTimeout(()=>{splatEl.classList.remove("show")},SELF_SPLAT_HOLD_MS);
+}
 const FEED_MAX=4, FEED_HOLD_MS=4500, FEED_FADE_MS=1400;
 function pushFeedEvent(color,isKill){
   if(!feedEl)return;
