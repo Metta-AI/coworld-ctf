@@ -609,6 +609,12 @@ proc flash*(json: string): CompiledPage =
 
 proc scoreIntent*(cp: CompiledPage, ctx: IntentContext): float =
   ## Rules apply in order; a rule whose `when` is false contributes nothing.
+  ## A nil page IS the empty page: zero rules, every intent scores 0. This
+  ## is what a caller holding a default/unflashed page gets, and it must
+  ## score, not crash -- the runner's decide loop runs on the flash edge's
+  ## own frame, one tick before the scheduled swap lands.
+  if cp.isNil:
+    return 0.0
   var acc = 0.0
   for r in cp.rules:
     if r.whenFn(ctx) != 0.0:
@@ -620,7 +626,8 @@ proc argmax*(cp: CompiledPage, intents: openArray[IntentContext]): int =
   ## never a concrete target — the engine resolves the winner into targets
   ## and then the action mask. -1 if `intents` is empty. Ties keep the first
   ## (lowest-index) winner — deterministic, no dependence on iteration/hash
-  ## order.
+  ## order. A nil (unflashed/empty) page ties every intent at 0, so the
+  ## first candidate wins — same rule, degenerate input.
   result = -1
   var best = NegInf
   for i in 0 ..< intents.len:
