@@ -1,0 +1,162 @@
+[
+ {
+  "slot": 0,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat00.sh",
+  "name": "red-ring-hugger-0"
+ },
+ {
+  "slot": 1,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat01.sh",
+  "name": "red-ring-hugger-1"
+ },
+ {
+  "slot": 2,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat02.sh",
+  "name": "blue-wide-intel-0"
+ },
+ {
+  "slot": 3,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat03.sh",
+  "name": "blue-wide-intel-1"
+ },
+ {
+  "slot": 4,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat04.sh",
+  "name": "green-edge-farmer-0"
+ },
+ {
+  "slot": 5,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat05.sh",
+  "name": "green-edge-farmer-1"
+ },
+ {
+  "slot": 6,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat06.sh",
+  "name": "yellow-tight-trade-0"
+ },
+ {
+  "slot": 7,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat07.sh",
+  "name": "yellow-tight-trade-1"
+ },
+ {
+  "slot": 8,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat08.sh",
+  "name": "black-third-party-jackal-0"
+ },
+ {
+  "slot": 9,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat09.sh",
+  "name": "black-third-party-jackal-1"
+ },
+ {
+  "slot": 10,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat10.sh",
+  "name": "silver-point-blank-control-0"
+ },
+ {
+  "slot": 11,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat11.sh",
+  "name": "silver-point-blank-control-1"
+ },
+ {
+  "slot": 12,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat12.sh",
+  "name": "ivory-ring-hugger-0"
+ },
+ {
+  "slot": 13,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat13.sh",
+  "name": "ivory-ring-hugger-1"
+ },
+ {
+  "slot": 14,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat14.sh",
+  "name": "pink-wide-intel-0"
+ },
+ {
+  "slot": 15,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat15.sh",
+  "name": "pink-wide-intel-1"
+ },
+ {
+  "slot": 16,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat16.sh",
+  "name": "umber-edge-farmer-0"
+ },
+ {
+  "slot": 17,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat17.sh",
+  "name": "umber-edge-farmer-1"
+ },
+ {
+  "slot": 18,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat18.sh",
+  "name": "rust-tight-trade-0"
+ },
+ {
+  "slot": 19,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat19.sh",
+  "name": "rust-tight-trade-1"
+ },
+ {
+  "slot": 20,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat20.sh",
+  "name": "orange-third-party-jackal-0"
+ },
+ {
+  "slot": 21,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat21.sh",
+  "name": "orange-third-party-jackal-1"
+ },
+ {
+  "slot": 22,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat22.sh",
+  "name": "plum-point-blank-control-0"
+ },
+ {
+  "slot": 23,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat23.sh",
+  "name": "plum-point-blank-control-1"
+ },
+ {
+  "slot": 24,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat24.sh",
+  "name": "lime-ring-hugger-0"
+ },
+ {
+  "slot": 25,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat25.sh",
+  "name": "lime-ring-hugger-1"
+ },
+ {
+  "slot": 26,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat26.sh",
+  "name": "navy-wide-intel-0"
+ },
+ {
+  "slot": 27,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat27.sh",
+  "name": "navy-wide-intel-1"
+ },
+ {
+  "slot": 28,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat28.sh",
+  "name": "azure-edge-farmer-0"
+ },
+ {
+  "slot": 29,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat29.sh",
+  "name": "azure-edge-farmer-1"
+ },
+ {
+  "slot": 30,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat30.sh",
+  "name": "peach-tight-trade-0"
+ },
+ {
+  "slot": 31,
+  "bin": "/Users/maxwellstarr/projects/ctf-br-season2/rt_episode/wrappers/seat31.sh",
+  "name": "peach-tight-trade-1"
+ }
+]

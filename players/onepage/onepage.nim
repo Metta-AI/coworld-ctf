@@ -1086,6 +1086,19 @@ proc fullPathRegistry(): seq[tuple[path: string, kind: PathKind]] =
     result.add (path: "intent.is_" & IntentTagName[it], kind: pkBool)
   result.add (path: "intent.target_hp", kind: pkNumber)
   result.add (path: "intent.target_dist", kind: pkNumber)
+  # BR-SEASON2-INTEGRATION: playbook-page vocabulary aliases/gaps (see
+  # numberPath/boolPath/intentTagBool's matching cases and policy_stub.nim's
+  # swap note for what each one really resolves to).
+  result.add (path: "intent.is_ring_safe", kind: pkBool)
+  result.add (path: "intent.is_cover", kind: pkBool)
+  result.add (path: "intent.is_medkit", kind: pkBool)
+  result.add (path: "intent.dist", kind: pkNumber)
+  result.add (path: "intent.enemy_hp_frac", kind: pkNumber)
+  result.add (path: "partner.hp_frac", kind: pkNumber)
+  result.add (path: "self.ticks_to_ring_close", kind: pkNumber)
+  result.add (path: "self.in_ring", kind: pkBool)
+  result.add (path: "self.partner_alive", kind: pkBool)
+  result.add (path: "intent.exposure", kind: pkNumber)
 
 # -----------------------------------------------------------------------------
 # World -> path resolution: the concrete (perception-true) feature set this
@@ -1162,6 +1175,14 @@ proc intentTagBool(intent: Intent, path: string): bool =
   of "intent.is_partner": intent in {RegroupPartner, SupportPartner}
   of "intent.is_zone": intent in {RotateToRing, HoldRingSafe, AvoidFight}
   of "intent.is_grenade": intent == UseGrenade
+  # BR-SEASON2-INTEGRATION ALIASES: tools/flash/playbook/*.json (authored on
+  # maxwell/br-onepage-vm) uses these three names for tags this resolver
+  # already computes under a different name — same real perception, no new
+  # data. See policy_stub.nim's swap-note header for the merge that exposed
+  # this vocabulary drift between the two branches.
+  of "intent.is_ring_safe": intent == HoldRingSafe
+  of "intent.is_cover": intent == HoldRingSafe
+  of "intent.is_medkit": intent == Heal
   else: path == ("intent.is_" & IntentTagName[intent])
 
 proc numberPath(bot: OnepageBot, me: Vec, f: WorldFeatures, intent: Intent, path: string): float =
@@ -1177,6 +1198,26 @@ proc numberPath(bot: OnepageBot, me: Vec, f: WorldFeatures, intent: Intent, path
   of "world.third_party_dist": f.worldThirdPartyDist
   of "intent.target_hp": intentTargetHp(bot, me, intent)
   of "intent.target_dist": intentTargetDist(bot, me, intent)
+  # BR-SEASON2-INTEGRATION ALIASES / GAPS (see policy_stub.nim's swap note):
+  of "intent.dist": intentTargetDist(bot, me, intent)                # alias
+  of "intent.enemy_hp_frac":                                         # real, derived
+    let hp = intentTargetHp(bot, me, intent)
+    (if hp < 0: -1.0 else: hp / float(MaxHp))
+  of "partner.hp_frac":                                              # real, derived
+    (if bot.mates.len > 0: float(bot.mates[0].hp) / float(MaxHp) else: -1.0)
+  of "self.ticks_to_ring_close":
+    # GAP, NOT FIXED: no zone-phase countdown reaches this bot (only the
+    # current/next zone RECT, never its timing) — reported honestly rather
+    # than invented. Conservative default ("plenty of time left") so a page
+    # gating on this falls back to its "not self.in_ring" branch instead of
+    # a fabricated countdown.
+    999999.0
+  of "intent.exposure":
+    # GAP, NOT FIXED: this resolver has no line-of-sight/cover-density signal
+    # (no "am I in the open" perception exists in this branch's onepage.nim
+    # at all). Neutral default (never penalizes, never rewards) rather than
+    # a fabricated exposure model.
+    0.0
   else: 0.0
 
 proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
@@ -1185,6 +1226,8 @@ proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
   of "partner.in_combat": f.partnerInCombat
   of "world.in_zone": f.worldInZone
   of "world.carrying_nade": f.worldCarryingNade
+  of "self.in_ring": f.worldInZone                # alias, real
+  of "self.partner_alive": f.partnerAlive          # alias, real
   else: intentTagBool(intent, path)
 
 proc selectIntentFor(bot: OnepageBot, me: Vec, page: PolicyPage, f: WorldFeatures): Intent =
