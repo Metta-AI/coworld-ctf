@@ -7,6 +7,7 @@
 ## without ever executing it. Wired in here (fast shard, cheap pure-func
 ## tests, no SimServer).
 {.warning[UnusedImport]: off.}
+{.define(shellShardRegressionGate).}
 import
   test_achievements,
   test_board_click_select,
@@ -45,6 +46,7 @@ import
   test_shell_first_light,
   test_shell_guards,
   test_shell_calls,
+  test_shell_ladder,
   test_shell_module_validation,
   test_shell_packets,
   test_shell_runtime,

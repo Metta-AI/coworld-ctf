@@ -167,6 +167,12 @@ suite "shell emit validator":
       GC_enableOrc()
     echo "SHELL_EMIT_VALIDATION_MAX_US ", (maxNs.float / 1000.0)
     when defined(release):
-      check maxNs <= 15_000
+      when defined(shellShardRegressionGate):
+        # Shard 2 runs concurrently with the other CI shards, so this path keeps
+        # a regression-class ceiling while the serial focused phase gate above
+        # remains the strict 15 us acceptance check.
+        check maxNs <= 100_000
+      else:
+        check maxNs <= 15_000
     else:
       check maxNs > 0
