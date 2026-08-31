@@ -49,6 +49,7 @@ import
   test_shell_module_validation,
   test_shell_packets,
   test_shell_replacement,
+  test_shell_reflexes,
   test_shell_runtime,
   test_shell_standing_order,
   test_shield_bubble,

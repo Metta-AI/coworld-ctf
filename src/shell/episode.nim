@@ -67,10 +67,16 @@ type
     map*: BodyMap
     nav*: BodyNavSystem
     seats*: seq[FirstLightSeatState]
+    bodyActivations: int
 
 proc firstLightInventory*(): FirstLightInventory =
   ## FIRST LIGHT is intentionally the zero-guest special case.
   FirstLightInventory()
+
+proc bodyActivationCount*(episode: FirstLightEpisode): int =
+  ## Test/readback surface for the server invariant that playback consumes
+  ## recorded masks and never constructs SeatBody instances.
+  episode.bodyActivations
 
 proc initFirstLightEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
@@ -87,6 +93,19 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     if control == scPlay:
       result.enabled = true
       result.seats.add(FirstLightSeatState(seat: uint8(index)))
+
+proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
+    controls: openArray[SlotControl],
+    map: BodyMap = nil,
+    liveGunRangePx: int = GunRange): FirstLightEpisode =
+  ## Playback consumes recorded InputState masks; the body path is a live-server
+  ## producer only. Even for a shell-on recording, this owner keeps no nav,
+  ## seats, or SeatBody instances.
+  discard season2Shell
+  discard controls
+  discard liveGunRangePx
+  result.brMode = brMode
+  result.map = map
 
 proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
     season2Shell, brMode: bool, controls: openArray[SlotControl],
@@ -218,6 +237,7 @@ proc step*(episode: var FirstLightEpisode,
       state.activate(frame, tick,
         if state.everActivated: "respawn" else: "activation",
         episode.nav, result)
+      inc episode.bodyActivations
     if state.active and frame.playing and frame.alive:
       state.body.updateBelief(frame.bodyInputs, tick)
       state.standing.stepFirstLightDefault(state.body, tick,

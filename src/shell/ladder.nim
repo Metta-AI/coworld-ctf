@@ -42,12 +42,22 @@ type
     ready*: bool
     makeGuest*: LadderGuestFactory
 
+  LadderNativeBase* = object
+    ## Engine-native base selected above guest controllers: currently an
+    ## Appendix R reflex. Ladder keeps this shape generic so it does not import
+    ## reflex observer state or body execution code.
+    intent*: Intent
+    goal*: Option[ValidatedGoal]
+    provenance*: Provenance
+    contributingEpoch*: uint64
+
   LadderSeatInput* = object
     alive*: bool
     contextBytes*: string
     viewBytes*: string
     guardContext*: IntentContext
     defaultIntent*: Intent
+    nativeBase*: Option[LadderNativeBase]
 
   LadderStatus* = object
     seat*: int
@@ -567,33 +577,42 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
 
   var base = input.defaultIntent
   var provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
-  var controllerIndex = driver.seats[seatIndex].livePassingController(
-    input.guardContext)
-  if controllerIndex >= 0:
-    while controllerIndex >= 0:
-      output.selectedEntryId =
-        driver.seats[seatIndex].entries[controllerIndex].call.entryId
-      driver.stepEntry(seatIndex, controllerIndex, input, tick, output)
-      let controller = driver.seats[seatIndex].entries[controllerIndex]
-      if controller.state == pisLive and controller.cachedIntent.isSome:
-        base = controller.cachedIntent.get.intent.get
-        output.goal = controller.cachedIntent.get.goal
-        provenance.base = controller.provenanceFor(tick)
-        output.contributingEpoch = max(output.contributingEpoch,
-          controller.callEpoch)
-        break
-      if controller.state == pisFaulted:
-        controllerIndex = driver.seats[seatIndex].livePassingController(
-          input.guardContext, controllerIndex + 1)
-      else:
-        output.usedDefault = true
-        break
-    if provenance.base.kind == pbDefault:
-      output.usedDefault = true
-    else:
-      output.usedDefault = false
+  if input.nativeBase.isSome:
+    let native = input.nativeBase.get
+    base = native.intent
+    output.goal = native.goal
+    provenance = native.provenance
+    output.contributingEpoch = max(output.contributingEpoch,
+      native.contributingEpoch)
+    output.usedDefault = false
   else:
-    output.usedDefault = true
+    var controllerIndex = driver.seats[seatIndex].livePassingController(
+      input.guardContext)
+    if controllerIndex >= 0:
+      while controllerIndex >= 0:
+        output.selectedEntryId =
+          driver.seats[seatIndex].entries[controllerIndex].call.entryId
+        driver.stepEntry(seatIndex, controllerIndex, input, tick, output)
+        let controller = driver.seats[seatIndex].entries[controllerIndex]
+        if controller.state == pisLive and controller.cachedIntent.isSome:
+          base = controller.cachedIntent.get.intent.get
+          output.goal = controller.cachedIntent.get.goal
+          provenance.base = controller.provenanceFor(tick)
+          output.contributingEpoch = max(output.contributingEpoch,
+            controller.callEpoch)
+          break
+        if controller.state == pisFaulted:
+          controllerIndex = driver.seats[seatIndex].livePassingController(
+            input.guardContext, controllerIndex + 1)
+        else:
+          output.usedDefault = true
+          break
+      if provenance.base.kind == pbDefault:
+        output.usedDefault = true
+      else:
+        output.usedDefault = false
+    else:
+      output.usedDefault = true
 
   for entry in driver.seats[seatIndex].entries:
     if entry.call.playClass == mcOverlay and entry.state == pisLive and

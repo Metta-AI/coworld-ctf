@@ -94,8 +94,9 @@ proc pathDanger(map: BodyMap, danger: BodyDangerField,
   for point in path:
     result += danger.sample(map, point)
 
-proc recordMasks(path: string, masks: openArray[InputState]) =
-  var writer = openReplayWriter(path, "{}")
+proc recordMasks(path: string, masks: openArray[InputState],
+                 configJson = "{}") =
+  var writer = openReplayWriter(path, configJson)
   writer.lastMasks = newSeq[uint8](masks.len)
   for index in 0 ..< writer.lastMasks.len:
     writer.lastMasks[index] = ButtonA
@@ -226,6 +227,26 @@ suite "shell FIRST LIGHT":
     check replay.inputs.len == 32
     for index, input in replay.inputs:
       check input.player == uint8(index)
+
+  test "playback over shell-on recording constructs zero SeatBody instances":
+    let path = getTempDir() / "shell-on-playback-no-bodies.bitreplay"
+    defer:
+      if fileExists(path):
+        removeFile(path)
+    recordMasks(path, [InputState(up: true)],
+      "{\"season2Shell\":true,\"brMode\":true}")
+    let replay = parseReplayBytes(readFile(path))
+    check parseJson(replay.configJson)["season2Shell"].getBool()
+
+    let map = testBodyMap()
+    var playback = initFirstLightPlaybackEpisode(true, true,
+      controls(scPlay, 1), map, 331)
+    check not playback.enabled
+    check playback.nav == nil
+    check playback.seats.len == 0
+    check playback.bodyActivationCount == 0
+    discard playback.step([frame(map, 0)], 1)
+    check playback.bodyActivationCount == 0
 
   test "gate-off hook is byte-identical and constructs no guest inventory":
     var episode = initFirstLightEpisode(false, true, controls(scInput, 2))
