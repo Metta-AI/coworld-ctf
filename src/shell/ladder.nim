@@ -16,8 +16,10 @@ import body_map, call_validation, emit_validator, guards, instance,
 type
   LadderEmission* = object
     intent*: Option[Intent]
+    goal*: Option[ValidatedGoal]
     policy*: Option[CombatPolicy]
     canonicalBytes*: string
+    acceptedTick*: uint32
 
   LadderInvocationResult* = object
     faulted*: bool
@@ -64,7 +66,9 @@ type
     usedDefault*: bool
     stepCount*: int
     intent*: Intent
+    goal*: Option[ValidatedGoal]
     provenance*: Provenance
+    contributingEpoch*: uint64
 
   LadderTickResult* = object
     seats*: seq[LadderSeatTick]
@@ -101,6 +105,7 @@ type
     cachedIntent: Option[LadderEmission]
     cachedPolicy: Option[LadderEmission]
     oldParamsBytes: string
+    callEpoch: uint64
 
   LadderSeat = object
     entries: seq[LadderEntry]
@@ -126,6 +131,7 @@ proc toLadder(invocation: ShellInvocationResult,
     case emitClass
     of ecController:
       result.emission.intent = some(accepted.intent)
+      result.emission.goal = accepted.goal
     of ecOverlay:
       result.emission.policy = some(accepted.policy)
 
@@ -296,7 +302,8 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
     let binding = bindings.boundFor(call.play).get
     var entry = LadderEntry(call: call, hash: binding.hash,
       originGeneration: originGeneration,
-      guard: compiledGuard(call.guardBytes, driver.registry))
+      guard: compiledGuard(call.guardBytes, driver.registry),
+      callEpoch: nextEpoch)
     let oldIndex = oldEntries.matchingEntry(call, binding.hash)
     if oldIndex >= 0:
       var old = addr oldEntries[oldIndex]
@@ -313,6 +320,7 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
         entry.state = pisPendingRetune
         entry.guest = old[].guest
         entry.oldParamsBytes = replacement.oldParamsBytes
+        entry.callEpoch = nextEpoch
         old[].guest = nil
       of raStartAbsent:
         discard
@@ -478,13 +486,18 @@ proc foldOverlay(target: var CombatPolicy; overlay: CombatPolicy) =
   target.holdFire = target.holdFire or overlay.holdFire
 
 proc provenanceFor(entry: LadderEntry; tick: uint32): ProvenanceBase =
+  discard tick
   ProvenanceBase(kind: pbEntry, entryId: entry.call.entryId,
-    moduleSha256: entry.hash, emitTick: tick)
+    moduleSha256: entry.hash, emitTick: entry.cachedIntent.get.acceptedTick)
 
 proc overlayContribution(entry: LadderEntry; tick: uint32): OverlayContribution =
+  discard tick
   OverlayContribution(entryId: entry.call.entryId, moduleSha256: entry.hash,
-    acceptedTick: tick,
+    acceptedTick: entry.cachedPolicy.get.acceptedTick,
     policySha256: sha256(entry.cachedPolicy.get.canonicalBytes).toHex())
+
+proc sameEmission(a, b: LadderEmission): bool =
+  a.canonicalBytes == b.canonicalBytes
 
 proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
                input: LadderSeatInput; tick: uint32;
@@ -506,9 +519,17 @@ proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return
   if stepResult.emission.intent.isSome:
-    entry[].cachedIntent = some(stepResult.emission)
+    var emission = stepResult.emission
+    if entry[].cachedIntent.isNone or
+        not entry[].cachedIntent.get.sameEmission(emission):
+      emission.acceptedTick = tick
+      entry[].cachedIntent = some(emission)
   if stepResult.emission.policy.isSome:
-    entry[].cachedPolicy = some(stepResult.emission)
+    var emission = stepResult.emission
+    if entry[].cachedPolicy.isNone or
+        not entry[].cachedPolicy.get.sameEmission(emission):
+      emission.acceptedTick = tick
+      entry[].cachedPolicy = some(emission)
 
 proc livePassingController(seat: LadderSeat, ctx: IntentContext;
                            start = 0): int =
@@ -556,7 +577,10 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
       let controller = driver.seats[seatIndex].entries[controllerIndex]
       if controller.state == pisLive and controller.cachedIntent.isSome:
         base = controller.cachedIntent.get.intent.get
+        output.goal = controller.cachedIntent.get.goal
         provenance.base = controller.provenanceFor(tick)
+        output.contributingEpoch = max(output.contributingEpoch,
+          controller.callEpoch)
         break
       if controller.state == pisFaulted:
         controllerIndex = driver.seats[seatIndex].livePassingController(
@@ -576,6 +600,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
         entry.guardPasses(input.guardContext) and entry.cachedPolicy.isSome:
       base.combat.foldOverlay(entry.cachedPolicy.get.policy.get)
       provenance.overlays.add entry.overlayContribution(tick)
+      output.contributingEpoch = max(output.contributingEpoch, entry.callEpoch)
 
   output.intent = base
   output.provenance = provenance

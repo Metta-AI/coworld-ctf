@@ -29,6 +29,7 @@ type
     accepted*: bool
     normalized*: bool
     intent*: Intent
+    goal*: Option[ValidatedGoal]
     policy*: CombatPolicy
     canonicalBytes*: string
     reason*: string
@@ -332,6 +333,7 @@ proc validateEmit*(bytes: sink string,
         let resolved = validated.get.goalPoint.toMapPoint
         result.normalized = resolved != accepted.point.get
         accepted.point = some(resolved)
+        result.goal = some(validated.get)
       result.intent = accepted
       result.canonicalBytes = canonicalIntent(accepted)
       result.accepted = true

@@ -21,6 +21,7 @@ type
     code*: int32
     normalized*: bool
     intent*: Intent
+    goal*: Option[ValidatedGoal]
     policy*: CombatPolicy
 
   ShellInvocationResult* = object
@@ -164,6 +165,7 @@ proc emitCallback(env: pointer; caller: ptr WasmtimeCaller;
         code: outcome.code,
         normalized: outcome.normalized,
         intent: outcome.intent,
+        goal: outcome.goal,
         policy: outcome.policy))
     host.emitCodes.add(outcome.code)
     setI32(results, outcome.code)
