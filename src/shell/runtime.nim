@@ -6,6 +6,7 @@
 
 import std/[atomics, os, strutils]
 
+import types
 import wasmtime_c
 
 when not compileOption("threads"):
@@ -47,6 +48,7 @@ type
     ticker: Thread[ptr EpochTickerState]
     tickerStarted: bool
     tickerJoined: bool
+    compilationCount: Atomic[uint64]
 
   RuntimeModule* = ref object
     owner: RuntimeEngine
@@ -209,12 +211,28 @@ proc close*(module: RuntimeModule) =
     wasmtimeModuleDelete(module.raw)
     module.raw = nil
 
+proc validateModuleBytes*(runtime: RuntimeEngine; bytes: openArray[byte])
+proc compileValidatedModule*(runtime: RuntimeEngine;
+    bytes: openArray[byte]): RuntimeModule
+
 proc compileModule*(runtime: RuntimeEngine;
     bytes: openArray[byte]): RuntimeModule =
+  runtime.validateModuleBytes(bytes)
+  runtime.compileValidatedModule(bytes)
+
+proc validateModuleBytes*(runtime: RuntimeEngine; bytes: openArray[byte]) =
   if not runtime.isOpen:
     raise newException(ShellRuntimeError, "Engine is closed")
   requireNoError(wasmtimeModuleValidate(runtime.raw, bytes.bytesPtr,
     bytes.len.csize_t), "module validation")
+
+proc compileValidatedModule*(runtime: RuntimeEngine;
+    bytes: openArray[byte]): RuntimeModule =
+  ## Compiles bytes already accepted by `validateModuleBytes`. Keeping this
+  ## operation separate makes the function-count gate observably pre-compile.
+  if not runtime.isOpen:
+    raise newException(ShellRuntimeError, "Engine is closed")
+  discard runtime.compilationCount.fetchAdd(1'u64, moRelaxed)
   var compiled: ptr WasmtimeModule
   let error = wasmtimeModuleNew(runtime.raw, bytes.bytesPtr,
     bytes.len.csize_t, addr compiled)
@@ -229,6 +247,168 @@ proc compileModule*(runtime: RuntimeEngine;
   new(result)
   result.owner = runtime
   result.raw = compiled
+
+proc moduleCompilationCount*(runtime: RuntimeEngine): uint64 =
+  if runtime == nil:
+    return 0
+  runtime.compilationCount.load(moRelaxed)
+
+type
+  ManifestProbeState = object
+    emissions: int
+    logs: int
+    bytes: string
+    callbackError: string
+
+proc callerBytes(caller: ptr WasmtimeCaller; offset, length, limit: int32): string =
+  if caller == nil or offset < 0 or length < 0 or length > limit:
+    raise newException(ShellRuntimeError, "invalid host-call byte range")
+  var memoryItem: WasmtimeExtern
+  if not wasmtimeCallerExportGet(caller, "memory", 6, addr memoryItem):
+    raise newException(ShellRuntimeError, "host call has no memory export")
+  defer: wasmtimeExternDelete(addr memoryItem)
+  if shellWasmtimeExternKind(addr memoryItem) != WasmtimeExternMemory:
+    raise newException(ShellRuntimeError, "host call memory export has wrong kind")
+  let context = wasmtimeCallerContext(caller)
+  let memory = shellWasmtimeExternMemory(addr memoryItem)
+  let available = wasmtimeMemoryDataSize(context, memory).uint64
+  if offset.uint64 + length.uint64 > available:
+    raise newException(ShellRuntimeError, "host-call byte range exceeds memory")
+  result = newString(length)
+  if length > 0:
+    copyMem(addr result[0], cast[pointer](cast[uint](
+      wasmtimeMemoryData(context, memory)) + offset.uint), length)
+
+proc manifestEmitCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
+    nresults: csize_t): ptr WasmTrap {.cdecl.} =
+  let state = cast[ptr ManifestProbeState](env)
+  if state == nil or nargs != 2 or nresults != 1:
+    return nil
+  let values = cast[ptr UncheckedArray[WasmtimeVal]](args)
+  inc state.emissions
+  try:
+    state.bytes = callerBytes(caller,
+      shellWasmtimeValI32Get(addr values[0]),
+      shellWasmtimeValI32Get(addr values[1]), MaxEmitBytes.int32)
+    shellWasmtimeValI32Set(results, 0)
+  except CatchableError as error:
+    state.callbackError = error.msg
+    shellWasmtimeValI32Set(results, -1)
+
+proc manifestLogCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
+    nresults: csize_t): ptr WasmTrap {.cdecl.} =
+  let state = cast[ptr ManifestProbeState](env)
+  if state == nil or nargs != 3 or nresults != 0:
+    return nil
+  let values = cast[ptr UncheckedArray[WasmtimeVal]](args)
+  inc state.logs
+  try:
+    if state.logs > MaxLogCallsPerInvocation:
+      raise newException(ShellRuntimeError, "manifest log call limit exceeded")
+    discard callerBytes(caller, shellWasmtimeValI32Get(addr values[1]),
+      shellWasmtimeValI32Get(addr values[2]), MaxLogBytesPerCall.int32)
+  except CatchableError as error:
+    state.callbackError = error.msg
+
+proc manifestSpatialCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
+    nresults: csize_t): ptr WasmTrap {.cdecl.} =
+  let state = cast[ptr ManifestProbeState](env)
+  if state != nil:
+    state.callbackError = "spatial imports are unavailable during manifest probe"
+  if nresults == 1:
+    shellWasmtimeValI64Set(results, -1)
+
+proc defineProbeFunc(linker: ptr WasmtimeLinker; name: string;
+    functionType: ptr WasmFuncType; callback: WasmtimeCallback;
+    state: ptr ManifestProbeState) =
+  requireNoError(shellWasmtimeLinkerDefineFunc(linker, "play", 4,
+    name.cstring, name.len.csize_t, functionType, callback, state),
+    "define play." & name)
+
+proc probeManifestBytes*(module: RuntimeModule;
+    fuel = ManifestFuel.uint64): string =
+  ## Runs one metered manifest invocation in one fresh Store. The Store is
+  ## always deleted before return, immediately releasing its pooling slot.
+  if module == nil or module.raw == nil or not module.owner.isOpen:
+    raise newException(ShellRuntimeError, "module or Engine is closed")
+  var state: ManifestProbeState
+  let store = wasmtimeStoreNew(module.owner.raw, nil, nil)
+  if store == nil:
+    raise newException(ShellRuntimeError, "manifest Store creation failed")
+  defer: wasmtimeStoreDelete(store)
+  let context = wasmtimeStoreContext(store)
+  wasmtimeStoreLimiter(store, MaxMemoryBytes.int64, -1, 1, 1, 1)
+  requireNoError(wasmtimeContextSetFuel(context, fuel), "manifest Store fuel")
+  wasmtimeContextSetEpochDeadline(context, EpochDeadlineTicks.uint64)
+
+  let linker = wasmtimeLinkerNew(module.owner.raw)
+  if linker == nil:
+    raise newException(ShellRuntimeError, "manifest linker creation failed")
+  defer: wasmtimeLinkerDelete(linker)
+  let emitType = shellWasmtimeEmitFuncType()
+  let logType = shellWasmtimeLogFuncType()
+  let reachableType = shellWasmtimeReachableFuncType()
+  let coverType = shellWasmtimeCoverFuncType()
+  if emitType == nil or logType == nil or reachableType == nil or coverType == nil:
+    if coverType != nil: wasmFuncTypeDelete(coverType)
+    if reachableType != nil: wasmFuncTypeDelete(reachableType)
+    if logType != nil: wasmFuncTypeDelete(logType)
+    if emitType != nil: wasmFuncTypeDelete(emitType)
+    raise newException(ShellRuntimeError, "manifest host type creation failed")
+  defer:
+    wasmFuncTypeDelete(coverType)
+    wasmFuncTypeDelete(reachableType)
+    wasmFuncTypeDelete(logType)
+    wasmFuncTypeDelete(emitType)
+  defineProbeFunc(linker, "emit", emitType, manifestEmitCallback, addr state)
+  defineProbeFunc(linker, "log", logType, manifestLogCallback, addr state)
+  defineProbeFunc(linker, "nearest_reachable", reachableType,
+    manifestSpatialCallback, addr state)
+  defineProbeFunc(linker, "nearest_cover", coverType,
+    manifestSpatialCallback, addr state)
+
+  var instance: WasmtimeInstance
+  var trap: ptr WasmTrap
+  let instantiateError = wasmtimeLinkerInstantiate(linker, context, module.raw,
+    addr instance, addr trap)
+  if instantiateError != nil:
+    if trap != nil: discard consumeTrap(trap)
+    raise newException(ShellRuntimeError,
+      "manifest instantiation: " & consumeError(instantiateError))
+  if trap != nil:
+    let detail = consumeTrap(trap)
+    raise newException(ShellRuntimeTrap,
+      "manifest instantiation trapped: " & detail.message)
+
+  var manifestItem: WasmtimeExtern
+  if not wasmtimeInstanceExportGet(context, addr instance, "play_manifest", 13,
+      addr manifestItem) or
+      shellWasmtimeExternKind(addr manifestItem) != WasmtimeExternFunc:
+    raise newException(ShellRuntimeError, "missing play_manifest export")
+  defer: wasmtimeExternDelete(addr manifestItem)
+  trap = nil
+  let callError = wasmtimeFuncCall(context,
+    shellWasmtimeExternFunc(addr manifestItem), nil, 0, nil, 0, addr trap)
+  if callError != nil:
+    if trap != nil: discard consumeTrap(trap)
+    raise newException(ShellRuntimeError,
+      "play_manifest call: " & consumeError(callError))
+  if trap != nil:
+    let detail = consumeTrap(trap)
+    var exception = newException(ShellRuntimeTrap,
+      "play_manifest trapped: " & detail.message)
+    exception.code = detail.code
+    raise exception
+  if state.callbackError.len > 0:
+    raise newException(ShellRuntimeError,
+      "manifest host call: " & state.callbackError)
+  if state.emissions != 1:
+    raise newException(ShellRuntimeError,
+      "play_manifest emitted " & $state.emissions & " times; expected exactly one")
+  state.bytes
 
 proc close*(instance: RuntimeInstance) =
   ## The Store owns the instance and returns its pool slot on deletion.

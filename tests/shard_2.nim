@@ -37,6 +37,7 @@ import
   test_shell_contracts,
   test_shell_default_play,
   test_shell_first_light,
+  test_shell_module_validation,
   test_shell_packets,
   test_shell_runtime,
   test_shell_standing_order,

@@ -25,19 +25,33 @@ when WasmtimeCapiRoot.len == 0:
 type
   WasmConfig* {.importc: "wasm_config_t", header: WasmtimeHeader.} = object
   WasmEngine* {.importc: "wasm_engine_t", header: WasmtimeHeader.} = object
+  WasmFuncType* {.importc: "wasm_functype_t", header: WasmtimeHeader.} = object
   WasmTrap* {.importc: "wasm_trap_t", header: WasmtimeHeader.} = object
   WasmtimeContext* {.importc: "wasmtime_context_t",
       header: WasmtimeHeader.} = object
   WasmtimeError* {.importc: "wasmtime_error_t",
       header: WasmtimeHeader.} = object
+  WasmtimeExtern* {.importc: "wasmtime_extern_t",
+      header: WasmtimeHeader.} = object
+  WasmtimeFunc* {.importc: "wasmtime_func_t",
+      header: WasmtimeHeader.} = object
   WasmtimeInstance* {.importc: "wasmtime_instance_t",
       header: WasmtimeHeader.} = object
   WasmtimeModule* {.importc: "wasmtime_module_t",
+      header: WasmtimeHeader.} = object
+  WasmtimeLinker* {.importc: "wasmtime_linker_t",
+      header: WasmtimeHeader.} = object
+  WasmtimeMemory* {.importc: "wasmtime_memory_t",
+      header: WasmtimeHeader.} = object
+  WasmtimeCaller* {.importc: "wasmtime_caller_t",
       header: WasmtimeHeader.} = object
   WasmtimePoolingConfig* {.
       importc: "wasmtime_pooling_allocation_config_t",
       header: WasmtimeHeader.} = object
   WasmtimeStore* {.importc: "wasmtime_store_t",
+      header: WasmtimeHeader.} = object
+  WasmtimeVal* {.importc: "wasmtime_val_t", header: WasmtimeHeader.} = object
+  WasmtimeConstVal* {.importc: "const wasmtime_val_t",
       header: WasmtimeHeader.} = object
 
   WasmByteVec* {.importc: "wasm_byte_vec_t", header: WasmtimeHeader,
@@ -45,8 +59,14 @@ type
     size*: csize_t
     data*: ptr uint8
 
+  WasmtimeCallback* = proc(env: pointer; caller: ptr WasmtimeCaller;
+      args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
+      nresults: csize_t): ptr WasmTrap {.cdecl.}
+
 const
   WasmtimeStrategyCranelift* = 1'u8
+  WasmtimeExternFunc* = 0'u8
+  WasmtimeExternMemory* = 3'u8
 
 proc wasmConfigNew*(): ptr WasmConfig {.importc: "wasm_config_new",
     header: WasmtimeHeader.}
@@ -194,6 +214,42 @@ proc wasmtimeInstanceNew*(context: ptr WasmtimeContext;
     module: ptr WasmtimeModule; imports: pointer; importCount: csize_t;
     instance: ptr WasmtimeInstance; trap: ptr ptr WasmTrap): ptr WasmtimeError {.
     importc: "wasmtime_instance_new", header: WasmtimeHeader.}
+proc wasmtimeLinkerNew*(engine: ptr WasmEngine): ptr WasmtimeLinker {.
+    importc: "wasmtime_linker_new", header: WasmtimeHeader.}
+proc wasmtimeLinkerDelete*(linker: ptr WasmtimeLinker) {.
+    importc: "wasmtime_linker_delete", header: WasmtimeHeader.}
+proc shellWasmtimeLinkerDefineFunc*(linker: ptr WasmtimeLinker;
+    module: cstring; moduleLen: csize_t; name: cstring; nameLen: csize_t;
+    functionType: ptr WasmFuncType; callback: WasmtimeCallback;
+    data: pointer): ptr WasmtimeError {.
+    importc: "shell_wasmtime_linker_define_func", header: WasmtimeHeader.}
+proc wasmtimeLinkerInstantiate*(linker: ptr WasmtimeLinker;
+    context: ptr WasmtimeContext; module: ptr WasmtimeModule;
+    instance: ptr WasmtimeInstance; trap: ptr ptr WasmTrap): ptr WasmtimeError {.
+    importc: "wasmtime_linker_instantiate", header: WasmtimeHeader.}
+proc wasmtimeInstanceExportGet*(context: ptr WasmtimeContext;
+    instance: ptr WasmtimeInstance; name: cstring; nameLen: csize_t;
+    item: ptr WasmtimeExtern): bool {.importc: "wasmtime_instance_export_get",
+    header: WasmtimeHeader.}
+proc wasmtimeExternDelete*(item: ptr WasmtimeExtern) {.
+    importc: "wasmtime_extern_delete", header: WasmtimeHeader.}
+proc wasmtimeFuncCall*(context: ptr WasmtimeContext; function: ptr WasmtimeFunc;
+    args: ptr WasmtimeVal; nargs: csize_t; results: ptr WasmtimeVal;
+    nresults: csize_t; trap: ptr ptr WasmTrap): ptr WasmtimeError {.
+    importc: "wasmtime_func_call", header: WasmtimeHeader.}
+proc wasmtimeCallerExportGet*(caller: ptr WasmtimeCaller; name: cstring;
+    nameLen: csize_t; item: ptr WasmtimeExtern): bool {.
+    importc: "wasmtime_caller_export_get", header: WasmtimeHeader.}
+proc wasmtimeCallerContext*(caller: ptr WasmtimeCaller): ptr WasmtimeContext {.
+    importc: "wasmtime_caller_context", header: WasmtimeHeader.}
+proc wasmtimeMemoryData*(context: ptr WasmtimeContext;
+    memory: ptr WasmtimeMemory): ptr uint8 {.importc: "wasmtime_memory_data",
+    header: WasmtimeHeader.}
+proc wasmtimeMemoryDataSize*(context: ptr WasmtimeContext;
+    memory: ptr WasmtimeMemory): csize_t {.
+    importc: "wasmtime_memory_data_size", header: WasmtimeHeader.}
+proc wasmFuncTypeDelete*(functionType: ptr WasmFuncType) {.
+    importc: "wasm_functype_delete", header: WasmtimeHeader.}
 
 proc wasmtimeErrorMessage*(error: ptr WasmtimeError;
     output: ptr WasmByteVec) {.importc: "wasmtime_error_message",
@@ -208,6 +264,11 @@ proc wasmTrapDelete*(trap: ptr WasmTrap) {.importc: "wasm_trap_delete",
     header: WasmtimeHeader.}
 proc wasmByteVecDelete*(bytes: ptr WasmByteVec) {.
     importc: "wasm_byte_vec_delete", header: WasmtimeHeader.}
+## Test-fixture conversion only. Never pass untrusted or production input to
+## the WAT parser; production module admission accepts binary Wasm bytes only.
+proc wasmtimeWat2Wasm*(wat: cstring; watLen: csize_t;
+    output: ptr WasmByteVec): ptr WasmtimeError {.
+    importc: "wasmtime_wat2wasm", header: WasmtimeHeader.}
 
 proc shellWasmtimeAbiOk*(): cint {.importc: "shell_wasmtime_abi_ok",
     header: WasmtimeHeader.}
@@ -223,3 +284,23 @@ proc shellWasmtimeValRawAlignment*(): csize_t {.
     importc: "shell_wasmtime_val_raw_alignment", header: WasmtimeHeader.}
 proc shellWasmtimeVersion*(): cstring {.importc: "shell_wasmtime_version",
     header: WasmtimeHeader.}
+proc shellWasmtimeValI32Set*(value: ptr WasmtimeVal; number: int32) {.
+    importc: "shell_wasmtime_val_i32_set", header: WasmtimeHeader.}
+proc shellWasmtimeValI32Get*(value: ptr WasmtimeVal): int32 {.
+    importc: "shell_wasmtime_val_i32_get", header: WasmtimeHeader.}
+proc shellWasmtimeValI64Set*(value: ptr WasmtimeVal; number: int64) {.
+    importc: "shell_wasmtime_val_i64_set", header: WasmtimeHeader.}
+proc shellWasmtimeExternKind*(item: ptr WasmtimeExtern): uint8 {.
+    importc: "shell_wasmtime_extern_kind", header: WasmtimeHeader.}
+proc shellWasmtimeExternFunc*(item: ptr WasmtimeExtern): ptr WasmtimeFunc {.
+    importc: "shell_wasmtime_extern_func", header: WasmtimeHeader.}
+proc shellWasmtimeExternMemory*(item: ptr WasmtimeExtern): ptr WasmtimeMemory {.
+    importc: "shell_wasmtime_extern_memory", header: WasmtimeHeader.}
+proc shellWasmtimeEmitFuncType*(): ptr WasmFuncType {.
+    importc: "shell_wasmtime_emit_functype", header: WasmtimeHeader.}
+proc shellWasmtimeLogFuncType*(): ptr WasmFuncType {.
+    importc: "shell_wasmtime_log_functype", header: WasmtimeHeader.}
+proc shellWasmtimeReachableFuncType*(): ptr WasmFuncType {.
+    importc: "shell_wasmtime_reachable_functype", header: WasmtimeHeader.}
+proc shellWasmtimeCoverFuncType*(): ptr WasmFuncType {.
+    importc: "shell_wasmtime_cover_functype", header: WasmtimeHeader.}
