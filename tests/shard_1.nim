@@ -30,5 +30,6 @@ import
   # caches self-heal on a map size mismatch (both pinned by its own tests).
   test_replay_switch_caches,
   test_rich_events,
+  test_route_honesty,
   test_trade_pair
 {.warning[UnusedImport]: on.}
