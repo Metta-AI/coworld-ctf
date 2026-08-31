@@ -225,7 +225,7 @@ gate, on the same side of the hash boundary: plays run in the server
 process, but their output reaches the record only as masks (hashed) and
 annotations (not hashed).
 
-### 3.3 The four ported-with-improvement rulings
+### 3.3 The six ported-with-improvement rulings
 
 **One target-acquisition route.** The ported combat layer routes every
 target choice through the scored selector (`scoreTarget`,
@@ -267,6 +267,32 @@ ruling, and a fixed CTF golden cycles a seat through more than
 `MaxRouteFieldsPerSeat` goals, evicts the original field, and compares
 the next plan against stencil with the difference attributed.
 
+**Staggered danger-field rebuilds.** A fifth ruling, forced by P0's
+body measurement (2026-08-30): thirty-two seats rebuilding their
+multi-source danger fields on the same tick cost ~109 ms on a fast
+development core — an order of magnitude over the body's share of the
+quarter-tick budget, and the hosted CPU floor is slower. The port
+therefore staggers rebuilds deterministically: seats rebuild on a
+round-robin cadence (a fixed fraction per tick, the divisor chosen from
+the measured burst so the per-tick share fits with margin), so a seat's
+danger field may be up to one cadence period stale, by a bounded and
+deterministic amount. Stencil never ran thirty-two bodies in one
+process, so this is the honest model, not a compromise of one. The
+differential allowlist covers it, and a golden pins the cadence.
+
+**Bounded cold planning per tick.** A sixth ruling, from the same
+measurement: one cold worst-case plan on the giant field cost ~65 ms —
+alone exceeding the entire quarter-tick allowance — so a mass retarget
+(every seat replanning at once) is unboundable without a rule. The port
+bounds cold plans per tick with a deterministic queue: seats over the
+budget keep executing their standing route and take their planning turn
+on a later tick, in seat-index round-robin resuming where the last tick
+stopped (the house quota pattern of §6.1's `MaxInitsPerTick`). The
+differential allowlist covers the delay; a golden pins the queue order
+under a mass retarget. Whether the cold plan itself is reducible (a
+warm oracle, coarse-first planning) is a named P1 investigation, not a
+gate: the queue makes the tick safe either way.
+
 ### 3.4 Porting verification
 
 The port is verified by a temporary adapter that runs the ported body and
@@ -274,7 +300,7 @@ stencil's original side by side on identical inputs and compares executor
 outputs. The scope of that comparison is stated plainly, because two
 facts bound it. Stencil cannot run Battle Royale at all (its world model
 waits for endzones and lacks the zone percepts), so the differential test
-covers **CTF only**. And the four rulings of section 3.3 change behavior
+covers **CTF only**. And the six rulings of section 3.3 change behavior
 on purpose, so blanket output equality is not the expectation: the
 differential test targets the *unchanged* subcomponents (the planner's
 routes, the follower and corridor behavior, the unmodified combat paths)
@@ -3175,6 +3201,13 @@ current design; everything decided, superseded, or answered lives here.
 - Goal validation becomes type-enforced (`ValidatedGoal`) in the engine,
   and plays reach the exact validator by host function.
 - The spray-pursuit override is deleted, not made optional.
+- P0's body measurement (2026-08-30) ratified two further port rulings
+  (James, via the PM): deterministic staggering of per-seat danger-field
+  rebuilds, and a per-tick cold-planning budget with a deterministic
+  queue — both in §3.3, both differential-allowlisted, adopted because
+  the measured worst tick (32 synchronized rebuilds ~109 ms; one cold
+  giant-field plan ~65 ms) cannot fit the quarter-tick acceptance by
+  scheduling alone.
 - Cross-play shared memory: not added; world knowledge persists in
   game-side belief, and play state stays per instance ("keep it simple").
   The `retune` flag covers same-play parameter updates without a state
