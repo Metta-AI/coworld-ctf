@@ -7,7 +7,7 @@ import
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
   control, directives, baselines, decide, mux,
-  ../shell/[body, body_map, episode, standing_order, transport],
+  ../shell/[body, body_map, episode, ingress, standing_order, transport],
   ../shell/dispatch, ../shell/packets, ../shell/seats
 
 when defined(posix):
@@ -153,6 +153,8 @@ type
     playSpriteInputIgnored: int
     playSpriteReadyIgnored: int
     playSpriteDebugIgnored: int
+    playIngress: seq[PlayIngressSeat[WebSocket]]
+    playIngressConfigured: bool
 
   ServerThreadArgs = object
     server: ptr Server
@@ -533,6 +535,8 @@ proc initAppState() =
   appState.playSpriteInputIgnored = 0
   appState.playSpriteReadyIgnored = 0
   appState.playSpriteDebugIgnored = 0
+  appState.playIngress = @[]
+  appState.playIngressConfigured = false
 
 proc comparePendingPlayerJoins(
   a,
@@ -596,11 +600,30 @@ proc addressIsKicked(address: string): bool =
   let identity = address.rewardAddress()
   address in appState.kickedIdentities or identity in appState.kickedIdentities
 
+proc configurePlayIngress(config: GameConfig) =
+  appState.playIngress = newSeq[PlayIngressSeat[WebSocket]](config.slots.len)
+  for seat in 0 ..< appState.playIngress.len:
+    appState.playIngress[seat] = initPlayIngressSeat[WebSocket]()
+  appState.playIngressConfigured = true
+
+proc ensurePlayIngressConfigured() =
+  if not appState.playIngressConfigured:
+    configurePlayIngress(appState.config)
+
+proc playIngressSeat(seat: int): ptr PlayIngressSeat[WebSocket] =
+  ensurePlayIngressConfigured()
+  if seat >= 0 and seat < appState.playIngress.len and
+      appState.config.isPlaySeat(seat):
+    return appState.playIngress[seat].addr
+  nil
+
 proc registerPlayerWebSocket(
   websocket: WebSocket,
   identity: string,
   slot: int,
-  token: string
+  token: string,
+  replacedPlaySocket: var bool,
+  oldPlaySocket: var WebSocket,
 ): bool =
   ## Registers one websocket as a player connection.
   appState.globalViewers.del(websocket)
@@ -608,20 +631,47 @@ proc registerPlayerWebSocket(
   discard removePlayerWebSocketState(websocket)
   if identity.addressIsKicked():
     return false
+  var restoredPlayerIndex =
+    if appState.replayLoaded: -1 else: UnresolvedPlayerIndex
+  let ingressSeat = slot.playIngressSeat()
+  if ingressSeat != nil:
+    let bound = ingressSeat[].binding.bindSocket(websocket)
+    # The generation bump precedes this stale-only drain. `admits` therefore
+    # rejects every predecessor item without admitting new work off-tick, and
+    # releases the bounded per-tick queue slots for the replacement.
+    discard ingressSeat[].drainPlayIngress()
+    if bound.replaced:
+      replacedPlaySocket = true
+      oldPlaySocket = bound.oldSocket
+      restoredPlayerIndex = appState.playerIndices.getOrDefault(
+        oldPlaySocket, ingressSeat[].playerIndex)
+      if restoredPlayerIndex >= 0 and restoredPlayerIndex < UnresolvedPlayerIndex:
+        ingressSeat[].playerIndex = restoredPlayerIndex
+      discard removePlayerWebSocketState(oldPlaySocket)
+    elif ingressSeat[].playerIndex >= 0:
+      restoredPlayerIndex = ingressSeat[].playerIndex
   appState.playerViewers[websocket] = initPlayerViewerState()
   appState.playerAddresses[websocket] = identity
   appState.playerSlots[websocket] = slot
   appState.playerTokens[websocket] = token
-  appState.playerIndices[websocket] =
-    if appState.replayLoaded:
-      -1
-    else:
-      UnresolvedPlayerIndex
+  appState.playerIndices[websocket] = restoredPlayerIndex
   appState.inputMasks[websocket] = 0
   appState.inputPressedMasks[websocket] = 0
   appState.lastAppliedMasks[websocket] = 0
   appState.playerReady[websocket] = false
   true
+
+proc registerPlayerWebSocket(
+  websocket: WebSocket,
+  identity: string,
+  slot: int,
+  token: string,
+): bool =
+  var
+    replacedPlaySocket = false
+    oldPlaySocket: WebSocket
+  websocket.registerPlayerWebSocket(
+    identity, slot, token, replacedPlaySocket, oldPlaySocket)
 
 proc takeoverSeatTaken(seat: int): bool =
   ## Returns true when a human already holds (or is suiting up for) a seat.
@@ -892,10 +942,27 @@ proc applyPlaySeatSpriteMessage(websocket: WebSocket, data: string) =
   if chatText.len > 0:
     appState.chatMessages[websocket] = chatText
 
-proc dispatchPlaySeatMessage(websocket: WebSocket, seat: int, data: string) =
+proc dispatchPlaySeatMessage(
+  websocket: WebSocket,
+  seat: int,
+  data: string,
+): bool =
   ## Owns the play socket's leading-byte switch. Shell framing is decoded
-  ## before any Sprite parser sees the message; absent downstream consumers
-  ## reject at the seam rather than silently falling into Sprite parsing.
+  ## before any Sprite parser sees the message. Uploads and calls stop here in
+  ## a bounded generation-stamped queue; their consumer runs on the tick.
+  result = true
+  let ingressSeat = seat.playIngressSeat()
+  if ingressSeat == nil:
+    inc appState.playProtocolRejected
+    return
+  let generation = ingressSeat[].binding.generation
+  case ingressSeat[].inspectPlayMessage(websocket, generation, data.len)
+  of piiStale:
+    return
+  of piiDisconnect:
+    return false
+  of piiAllowed:
+    discard
   let received = data.classifyPlaySeatMessage()
   case received.kind
   of prSprite:
@@ -907,15 +974,10 @@ proc dispatchPlaySeatMessage(websocket: WebSocket, seat: int, data: string) =
   of prIgnoredSpriteDebug:
     inc appState.playSpriteDebugIgnored
   of prModuleUpload:
-    if playReceiveConsumers.moduleUpload == nil:
-      inc appState.playProtocolRejected
-    else:
-      playReceiveConsumers.moduleUpload(websocket, seat, received.moduleUpload)
+    discard ingressSeat[].queueUpload(
+      websocket, generation, received.moduleUpload)
   of prPlayCall:
-    if playReceiveConsumers.playCall == nil:
-      inc appState.playProtocolRejected
-    else:
-      playReceiveConsumers.playCall(websocket, seat, received.playCall)
+    discard ingressSeat[].queueCall(websocket, generation, received.playCall)
   of prStatusAck:
     if playReceiveConsumers.statusAck == nil:
       inc appState.playProtocolRejected
@@ -928,6 +990,40 @@ proc dispatchPlaySeatMessage(websocket: WebSocket, seat: int, data: string) =
       playReceiveConsumers.lobbyChat(websocket, seat, received.lobbyChat)
   of prRejected:
     inc appState.playProtocolRejected
+
+proc drainPlayIngressAtTickBoundary*() =
+  ## Moves the bounded socket queues onto the game thread. Generation checks
+  ## happen inside the drain, so a replaced socket can never hand work across
+  ## the lane-C seam even if its message was queued first.
+  var
+    admitted: seq[tuple[seat: int, message: PlayIngressMessage[WebSocket]]]
+    rejected = 0
+  {.gcsafe.}:
+    withLock appState.lock:
+      ensurePlayIngressConfigured()
+      for seat in 0 ..< appState.playIngress.len:
+        var drained = appState.playIngress[seat].drainPlayIngress()
+        rejected += drained.rejected
+        for message in drained.admitted:
+          admitted.add((seat, message))
+  for item in admitted:
+    case item.message.kind
+    of pimUpload:
+      if playReceiveConsumers.moduleUpload == nil:
+        inc rejected
+      else:
+        playReceiveConsumers.moduleUpload(
+          item.message.socket, item.seat, item.message.upload)
+    of pimCall:
+      if playReceiveConsumers.playCall == nil:
+        inc rejected
+      else:
+        playReceiveConsumers.playCall(
+          item.message.socket, item.seat, item.message.call)
+  if rejected > 0:
+    {.gcsafe.}:
+      withLock appState.lock:
+        appState.playProtocolRejected += rejected
 
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
@@ -1649,13 +1745,19 @@ proc httpHandler(request: Request) =
         request.upgradePlaySeatWebSocket()
       else:
         request.upgradeToWebSocket()
-    var accepted = false
+    var
+      accepted = false
+      replacedPlaySocket = false
+      oldPlaySocket: WebSocket
     {.gcsafe.}:
       withLock appState.lock:
-        accepted = websocket.registerPlayerWebSocket(identity, slot, token)
+        accepted = websocket.registerPlayerWebSocket(
+          identity, slot, token, replacedPlaySocket, oldPlaySocket)
     if not accepted:
       websocket.disconnectWebSocket()
       return
+    if replacedPlaySocket:
+      oldPlaySocket.disconnectWebSocket()
     echo "player connected: ", identity
   elif request.path == GlobalWebSocketPath and request.httpMethod == "GET" and
       request.isWebSocketUpgrade():
@@ -1967,12 +2069,14 @@ proc websocketHandler(
     if message.kind == Ping:
       websocket.send(message.data, Pong)
     elif message.kind == BinaryMessage:
+      var disconnectPlaySocket = false
       {.gcsafe.}:
         withLock appState.lock:
           let playSeat = websocket.playSeatIndex()
           if playSeat >= 0 and websocket in appState.playerViewers and
               not appState.replayLoaded:
-            websocket.dispatchPlaySeatMessage(playSeat, message.data)
+            disconnectPlaySocket = not websocket.dispatchPlaySeatMessage(
+              playSeat, message.data)
           elif message.data.isPlayerReadyPacket() and
               websocket in appState.playerReady:
             appState.playerReady[websocket] = true
@@ -1985,11 +2089,18 @@ proc websocketHandler(
           elif websocket in appState.playerViewers and
               not appState.replayLoaded:
             websocket.applyPlayerSpriteMessage(message.data)
+      if disconnectPlaySocket:
+        websocket.disconnectWebSocket()
   of ErrorEvent, CloseEvent:
     var who = ""
     {.gcsafe.}:
       withLock appState.lock:
         let newlyClosed = markSocketClosed(websocket)
+        let playSeat = websocket.playSeatIndex()
+        if newlyClosed and playSeat >= 0:
+          let ingressSeat = playSeat.playIngressSeat()
+          if ingressSeat != nil:
+            discard ingressSeat[].binding.lose(websocket)
         if newlyClosed and websocket in appState.playerAddresses:
           who = appState.playerAddresses[websocket]
     if who.len > 0:
@@ -2707,9 +2818,15 @@ proc runServerLoop*(
   defer:
     finishProfileTrace()
     replayWriter.closeReplayWriter()
+    {.gcsafe.}:
+      withLock appState.lock:
+        for seat in 0 ..< appState.playIngress.len:
+          if appState.config.isPlaySeat(seat):
+            appState.playIngress[seat].binding.close()
   appState.replayLoaded = replayLoaded
   appState.replayServerMode = replayLoaded
   appState.config = config
+  configurePlayIngress(config)
   recordStartupReplayUri(replayLoaded)
 
   # Tier-2 event sink. Off unless the platform configured a destination, so a
@@ -2922,6 +3039,7 @@ proc runServerLoop*(
           withLock appState.lock:
             appState.replayLoaded = true
             appState.config = config
+            configurePlayIngress(config)
             appState.currentReplayUri = pendingReplayUri
             if appState.loadingReplayUri == pendingReplayUri:
               appState.loadingReplayUri = ""
@@ -2934,6 +3052,16 @@ proc runServerLoop*(
           appState.chatMessages.clear()
           appState.policyPageFlashes.clear()
         for websocket in appState.closedSockets:
+          let closedSlot = appState.playerSlots.getOrDefault(websocket, -1)
+          if not replayLoaded and appState.config.isPlaySeat(closedSlot):
+            let ingressSeat = closedSlot.playIngressSeat()
+            if ingressSeat != nil:
+              let playerIndex = appState.playerIndices.getOrDefault(
+                websocket, -1)
+              if playerIndex >= 0 and playerIndex < UnresolvedPlayerIndex:
+                ingressSeat[].playerIndex = playerIndex
+            discard removeWebSocketState(websocket)
+            continue
           if squadMode:
             # A seat that drops does NOT remove its cogs: the squad is fixed
             # for the whole episode, its directive source degrades to the
@@ -3079,6 +3207,13 @@ proc runServerLoop*(
                 appState.playerIndices[websocket] = -1
             for join in sim.admitPendingJoins(
                 pendingPlayers, socketsToClose, liveOverlays):
+              let admittedSlot = appState.playerSlots.getOrDefault(
+                join.websocket, -1)
+              if appState.config.isPlaySeat(admittedSlot):
+                let ingressSeat = admittedSlot.playIngressSeat()
+                if ingressSeat != nil:
+                  ingressSeat[].playerIndex =
+                    appState.playerIndices[join.websocket]
               replayWriter.writeJoin(
                 tickTime(sim.tickCount),
                 appState.playerIndices[join.websocket],
@@ -3694,6 +3829,8 @@ proc runServerLoop*(
         stepPressedInputMasks = pressedInputMasks
         lastStepInputs = prevInputs
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
+        if config.isPlaySeatEpisode():
+          drainPlayIngressAtTickBoundary()
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
         if firstLightEpisode.enabled:
