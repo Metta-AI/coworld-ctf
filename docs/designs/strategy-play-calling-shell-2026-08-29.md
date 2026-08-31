@@ -1726,12 +1726,12 @@ not the mechanism.
 | `ReflexCandidateSpacingPx` / `ReflexCandidateRadiusPx` / `MaxReflexCandidates` (Appendix R.2's planning primitive) | 16 / 256 / 1089 |
 | `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
 | `MaxBinaryViewFrameBytes` (play-facing fixed-layout binary play-view frame; fuel-derived under the 60%-of-`StepFuel` full-scan rule from `BINARY-VIEW-SPEC.md`) | 8192 |
-| `MaxBinaryContextBytes` (play-facing fixed-layout binary play-context frame; same section-table family as the view) | 8192 |
+| `MaxBinaryContextBytes` (play-facing fixed-layout binary play-context frame; the 60% rule would allow ~150 KB, the actual context frame is ~140 B, and 8192 is chosen for symmetry with the view cap and bounded-allocation hygiene, not derived) | 8192 |
 | `MaxViewFrameBytes` (JSON socket/replay play-view payload; retained for the canonical JSON copy while the play's fixed-layout binary view frame has its own cap) | 32768 |
 | `MaxContextBytes` (JSON socket/replay play-context payload; no atlas, section 5; retained for the canonical JSON copy under the same socket/replay versus play-binary split) | 65536 |
 | `MaxInitsPerTick` (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped; P0-retuned) | 2 |
 | `ValidatorRadiusPx` (stencil's `32 * NavCell`, an *engine* constant; queries answered from the exact precomputed table) | 256 |
-| `MaxValidatorTableBytes` (play-seat map validator cap on the per-spawn-component distance rasters) | 268435456 |
+| `MaxValidatorTableBytes` (play-seat map validator cap on the per-spawn-component canonical-winner rasters) | 268435456 |
 | `MaxPendingCompileBytes` (server-wide raw bytes admitted but not yet finished; admission backpressures past it) | 8388608 |
 | `MaxCompileCommitsPerTick` (finished results committed per tick boundary, round-robin by seat) | 8 |
 | `MaxCompiledCacheBytes` (server-wide resident compiled-module cache, reserved at admission; provisional until P0 measures expansion) | 268435456 |
@@ -3306,8 +3306,8 @@ current design; everything decided, superseded, or answered lives here.
   generator census under thinning provides the cap headroom. Reflex
   worst-case (lane C measured, 32-seat max reflex plan): 10.8 ms-class
   (9.9-11.1 observed) vs the 4.0 ms runtime share — over budget at
-  freeze. Lever: the §6.1 fully-resolved validator answer table (QUEUED,
-  lane A, next after this package) replacing per-candidate tie-scan
+  freeze. Lever: the §6.1 fully-resolved validator answer table (landed
+  in lane A) replacing per-candidate tie-scan
   resolution with O(1) lookup; fallback lever: reflex plan caps.
 - Ruling ten (2026-08-31, lane A) decoupled route-field minting from the
   plan path: plans spend the persisted 256-unit per-tick budget first,

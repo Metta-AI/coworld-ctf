@@ -60,7 +60,7 @@ type
 
   DistanceTable = object
     component: uint16
-    distances: seq[uint32]
+    winners: seq[uint32]
 
   HomeField = object
     group: int
@@ -251,7 +251,8 @@ proc buildComponents(map: BodyMap) =
           map.component[neighbor] = label
           queue.add(neighbor)
 
-proc transform1d(source: openArray[uint32], output: var openArray[uint32]) =
+proc transform1d(source: openArray[uint32], output: var openArray[uint32],
+                 winners: var openArray[int]) =
   if source.len == 0:
     return
   var sites = newSeq[int](source.len)
@@ -280,28 +281,40 @@ proc transform1d(source: openArray[uint32], output: var openArray[uint32]) =
     let delta = q - sites[k]
     let value = uint64(delta * delta) + uint64(source[sites[k]])
     output[q] = uint32(min(value, uint64(EdtInfinity)))
+    winners[q] = sites[k]
 
 proc buildDistanceTable(map: BodyMap, component: uint16): DistanceTable =
   result.component = component
-  result.distances = newSeq[uint32](map.component.len)
+  result.winners = newSeq[uint32](map.component.len)
+  # The validator contract is row-major, not arbitrary-nearest. The row pass
+  # chooses the smallest x for same-row distance ties; the column pass chooses
+  # the smallest y for total-distance ties and then reuses that row's smallest
+  # x. Together that is the old scanner's `(distance, y, x)` ordering.
   var rowInput = newSeq[uint32](map.mapWidth)
   var rowOutput = newSeq[uint32](map.mapWidth)
+  var rowWinners = newSeq[int](map.mapWidth)
   var intermediate = newSeq[uint32](map.component.len)
+  var intermediateWinners = newSeq[uint32](map.component.len)
   for y in 0 ..< map.mapHeight:
     for x in 0 ..< map.mapWidth:
       rowInput[x] = if map.component[y * map.mapWidth + x] == component:
         0'u32 else: EdtInfinity
-    transform1d(rowInput, rowOutput)
+    transform1d(rowInput, rowOutput, rowWinners)
     for x in 0 ..< map.mapWidth:
       intermediate[y * map.mapWidth + x] = rowOutput[x]
+      intermediateWinners[y * map.mapWidth + x] = uint32(rowWinners[x])
   var columnInput = newSeq[uint32](map.mapHeight)
   var columnOutput = newSeq[uint32](map.mapHeight)
+  var columnWinners = newSeq[int](map.mapHeight)
   for x in 0 ..< map.mapWidth:
     for y in 0 ..< map.mapHeight:
       columnInput[y] = intermediate[y * map.mapWidth + x]
-    transform1d(columnInput, columnOutput)
+    transform1d(columnInput, columnOutput, columnWinners)
     for y in 0 ..< map.mapHeight:
-      result.distances[y * map.mapWidth + x] = columnOutput[y]
+      let winnerY = columnWinners[y]
+      let winnerX = intermediateWinners[winnerY * map.mapWidth + x].int
+      result.winners[y * map.mapWidth + x] =
+        uint32(winnerY * map.mapWidth + winnerX)
 
 proc tableFor(map: BodyMap, component: uint16): int =
   for index, table in map.validatorTables:
@@ -313,19 +326,54 @@ proc resolveNearest(map: BodyMap, table: DistanceTable,
                     point: BodyPoint, maxRadiusPx: int): Option[BodyPoint] =
   if maxRadiusPx < 0 or not map.inBounds(point):
     return none(BodyPoint)
-  let distance = table.distances[map.pixelIndex(point.x, point.y)]
+  let winner = table.winners[map.pixelIndex(point.x, point.y)].int
+  let x = winner mod map.mapWidth
+  let y = winner div map.mapWidth
+  let dx = int64(x - point.x)
+  let dy = int64(y - point.y)
+  let distance = dx * dx + dy * dy
   let radiusSquared = int64(maxRadiusPx) * int64(maxRadiusPx)
-  if int64(distance) > radiusSquared:
+  if distance > radiusSquared:
     return none(BodyPoint)
-  let radius = int(ceil(sqrt(distance.float64)))
-  for y in max(0, point.y - radius) .. min(map.mapHeight - 1, point.y + radius):
-    for x in max(0, point.x - radius) .. min(map.mapWidth - 1, point.x + radius):
+  some((x, y))
+
+proc resolveNearestByRowMajorScan*(map: BodyMap, component: int,
+                                   point: BodyPoint,
+                                   maxRadiusPx: int): Option[BodyPoint] =
+  ## Test/measurement oracle for the pre-table validator behavior: scan the
+  ## bounded row-major box and keep the first component pixel at the smallest
+  ## squared distance.
+  if component <= 0 or maxRadiusPx < 0 or not map.inBounds(point):
+    return none(BodyPoint)
+  let label = uint16(component)
+  let radiusSquared = int64(maxRadiusPx) * int64(maxRadiusPx)
+  var bestDistance = radiusSquared + 1
+  for y in max(0, point.y - maxRadiusPx) ..
+      min(map.mapHeight - 1, point.y + maxRadiusPx):
+    for x in max(0, point.x - maxRadiusPx) ..
+        min(map.mapWidth - 1, point.x + maxRadiusPx):
       let dx = int64(x - point.x)
       let dy = int64(y - point.y)
-      if map.component[map.pixelIndex(x, y)] == table.component and
-          uint32(dx * dx + dy * dy) == distance:
-        return some((x, y))
-  none(BodyPoint)
+      let distance = dx * dx + dy * dy
+      if distance < bestDistance and distance <= radiusSquared and
+          map.component[map.pixelIndex(x, y)] == label:
+        bestDistance = distance
+        result = some((x, y))
+
+proc validatorDistanceSquaredForComponent*(map: BodyMap, component: int,
+                                           point: BodyPoint): Option[uint32] =
+  if component <= 0 or not map.inBounds(point):
+    return none(uint32)
+  let tableIndex = map.tableFor(uint16(component))
+  if tableIndex < 0:
+    return none(uint32)
+  let winner = map.validatorTables[tableIndex].
+    winners[map.pixelIndex(point.x, point.y)].int
+  let x = winner mod map.mapWidth
+  let y = winner div map.mapWidth
+  let dx = int64(x - point.x)
+  let dy = int64(y - point.y)
+  some(uint32(dx * dx + dy * dy))
 
 proc validateGoal*(map: BodyMap, requested,
                    fromPoint: BodyPoint): Option[ValidatedGoal] =

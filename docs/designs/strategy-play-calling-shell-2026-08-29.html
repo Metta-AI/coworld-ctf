@@ -1839,12 +1839,12 @@
         <tr><td><code>ReflexCandidateSpacingPx</code> / <code>ReflexCandidateRadiusPx</code> / <code>MaxReflexCandidates</code> (<a href="#r-2">Appendix R.2</a>'s planning primitive)</td><td>16 / 256 / 1089</td></tr>
         <tr><td><code>MaxLogCallsPerInvocation</code> / <code>MaxLogBytesPerCall</code></td><td>4 / 256</td></tr>
         <tr><td><code>MaxBinaryViewFrameBytes</code> (play-facing fixed-layout binary play-view frame)</td><td>8192</td></tr>
-        <tr><td><code>MaxBinaryContextBytes</code> (play-facing fixed-layout binary play-context frame)</td><td>8192</td></tr>
+        <tr><td><code>MaxBinaryContextBytes</code> (play-facing fixed-layout binary play-context frame; the 60% rule would allow ~150 KB, the actual context frame is ~140 B, and 8192 is chosen for symmetry with the view cap and bounded-allocation hygiene, not derived)</td><td>8192</td></tr>
         <tr><td><code>MaxViewFrameBytes</code> (JSON socket/replay play-view payload)</td><td>32768</td></tr>
         <tr><td><code>MaxContextBytes</code> (JSON socket/replay play-context payload; no atlas, <a href="#s5">section 5</a>)</td><td>65536</td></tr>
         <tr><td><code>MaxInitsPerTick</code> (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped)</td><td>4</td></tr>
         <tr><td><code>ValidatorRadiusPx</code> (stencil's <code>32 * NavCell</code>, an <em>engine</em> constant; queries answered from the exact precomputed table)</td><td>256</td></tr>
-        <tr><td><code>MaxValidatorTableBytes</code> (play-seat map validator cap on the per-spawn-component distance rasters)</td><td>268435456</td></tr>
+        <tr><td><code>MaxValidatorTableBytes</code> (play-seat map validator cap on the per-spawn-component canonical-winner rasters)</td><td>268435456</td></tr>
         <tr><td><code>MaxPendingCompileBytes</code> (server-wide raw bytes admitted but not yet finished; admission backpressures past it)</td><td>8388608</td></tr>
         <tr><td><code>MaxCompileCommitsPerTick</code> (finished results committed per tick boundary, round-robin by seat)</td><td>8</td></tr>
         <tr><td><code>MaxCompiledCacheBytes</code> (server-wide resident compiled-module cache, reserved at admission; provisional until P0 measures expansion)</td><td>268435456</td></tr>

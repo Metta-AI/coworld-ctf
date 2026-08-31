@@ -386,13 +386,16 @@ const
     ## socket/replay JSON copy remains governed by MaxViewFrameBytes.
   MaxBinaryContextBytes* = 8192
     ## Binary play_init context cap for the fixed-layout context frame. The
-    ## socket/replay JSON copy remains governed by MaxContextBytes.
+    ## 60% rule would allow ~150 KB; the actual context frame is ~140 B;
+    ## 8,192 is chosen for symmetry with the view cap and bounded-allocation
+    ## hygiene, not derived. The socket/replay JSON copy remains governed by
+    ## MaxContextBytes.
   MaxViewFrameBytes* = 32768
   MaxContextBytes* = 65536
   ValidatorRadiusPx* = 256            ## stencil's 32 × NavCell; an ENGINE
                                       ## constant, asserted equal (§6.1)
   MaxValidatorTableBytes* = 268435456
-    ## P0: provisional until the giant-field distance rasters are measured.
+    ## P0: provisional until the giant-field validator rasters are measured.
   MaxPendingCompileBytes* = 8388608
   MaxCompileCommitsPerTick* = 8
   MaxCompiledCacheBytes* = 268435456

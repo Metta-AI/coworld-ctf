@@ -1,7 +1,7 @@
 ## Phase-1 laws for the Season 2 body's immutable episode map and exact
 ## standing-goal validator.
 
-import std/[json, math, options, os, unittest]
+import std/[json, math, options, os, random, unittest]
 import ../src/ctf/arena
 import ../src/ctf/sim_types
 import ../src/shell/body_cache
@@ -59,6 +59,18 @@ proc tieMap(): BodyMap =
   for y in 72 ..< Height - 1:
     for x in 1 ..< Width - 1: walkable[y * Width + x] = true
   newBodyMap(walkable, Width, Height, 2, @[(16, 32), (88, 32)])
+
+proc constructedValidatorTieMap(): BodyMap =
+  const Width = 1024
+  const Height = 1024
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      walkable[y * Width + x] = true
+  for y in 100 .. 924:
+    for x in 500 .. 524:
+      walkable[y * Width + x] = false
+  newBodyMap(walkable, Width, Height, 2, @[(100, 100)])
 
 proc brMap(): CtfMap =
   const Side = 256
@@ -125,6 +137,44 @@ proc thinnedLattice(size: int): seq[bool] =
     for x in 0 ..< size:
       result[y * size + x] = x mod 16 != 12
 
+proc firstPointInComponent(map: BodyMap, component: int): BodyPoint =
+  for y in 0 ..< map.height:
+    for x in 0 ..< map.width:
+      if map.componentOf((x, y)) == component:
+        return (x, y)
+  raise newException(ValueError, "component has no standable point: " &
+    $component)
+
+proc assertValidatorEqualsScan(map: BodyMap, start, requested: BodyPoint) =
+  let component = map.componentOf(start)
+  check component != 0
+  let expected = map.resolveNearestByRowMajorScan(component, requested,
+    shellTypes.ValidatorRadiusPx)
+  let actual = map.validateGoal(requested, start)
+  check actual.isSome == expected.isSome
+  if expected.isSome and actual.isSome:
+    check actual.get.goalPoint == expected.get
+    check actual.get.goalComponent == component
+
+proc findDeepestCase(map: BodyMap, component: int):
+    tuple[point: BodyPoint, distance: uint32] =
+  let radiusSquared = uint32(shellTypes.ValidatorRadiusPx *
+    shellTypes.ValidatorRadiusPx)
+  var found = false
+  for y in 0 ..< map.height:
+    for x in 0 ..< map.width:
+      let distance = map.validatorDistanceSquaredForComponent(
+        component, (x, y))
+      if distance.isNone:
+        continue
+      check distance.get <= radiusSquared
+      if not found or distance.get > result.distance:
+        found = true
+        result.point = (x, y)
+        result.distance = distance.get
+  if not found:
+    raise newException(ValueError, "could not find validator distance cases")
+
 suite "shell body immutable episode map":
   test "component-by-component static fields match the pinned stencil golden":
     let (map, expected) = twoComponentMap()
@@ -188,6 +238,21 @@ suite "shell body immutable episode map":
     check goal.goalComponent == map.componentOf((16, 32))
     check goal.belongsTo(map)
 
+  test "validator winner table is exhaustive against row-major scan on fixture":
+    let (map, _) = twoComponentMap()
+    for component in 1 .. map.componentCount:
+      let start = map.firstPointInComponent(component)
+      for y in 0 ..< map.height:
+        for x in 0 ..< map.width:
+          map.assertValidatorEqualsScan(start, (x, y))
+
+  test "validator winner table keeps row-major tie rule on constructed large map":
+    let map = constructedValidatorTieMap()
+    let start = (100, 100)
+    let requested = (512, 512)
+    map.assertValidatorEqualsScan(start, requested)
+    check map.validateGoal(requested, start).get.goalPoint == (493, 512)
+
   test "ValidatedGoal has no external construction or mutable map escape":
     let (map, _) = twoComponentMap()
     static:
@@ -217,6 +282,34 @@ suite "shell body immutable episode map":
     check map.maxAtlasPostsInRadius <= shellTypes.MaxCoverPostsExamined
     for point in gameMap.spawnPoints:
       check map.componentOf((point.x, point.y)) != 0
+
+  test "BR golden validator edge and deepest cases match row-major scan":
+    let gameMap = mapFromSpecJson(readFile("tests/fixtures/br-golden-map.json"))
+    let map = newBodyMap(gameMap)
+    let start = (gameMap.spawnPoints[0].x, gameMap.spawnPoints[0].y)
+    let component = map.componentOf(start)
+    check component != 0
+
+    let deepest = map.findDeepestCase(component)
+    map.assertValidatorEqualsScan(start, deepest.point)
+    check map.validateGoal(deepest.point, start).isSome
+    check deepest.distance <=
+      uint32(shellTypes.ValidatorRadiusPx * shellTypes.ValidatorRadiusPx)
+
+    for requested in [
+      (0, 0), (map.width - 1, 0), (0, map.height - 1),
+      (map.width - 1, map.height - 1), deepest.point]:
+      map.assertValidatorEqualsScan(start, requested)
+
+  test "BR golden validator random sweep samples row-major scan":
+    const SampleCount = 4096
+    let gameMap = mapFromSpecJson(readFile("tests/fixtures/br-golden-map.json"))
+    let map = newBodyMap(gameMap)
+    let start = (gameMap.spawnPoints[0].x, gameMap.spawnPoints[0].y)
+    var rng = initRand(0x5EED_100A)
+    for _ in 0 ..< SampleCount:
+      let requested = (rng.rand(map.width - 1), rng.rand(map.height - 1))
+      map.assertValidatorEqualsScan(start, requested)
 
   test "atlas thinning keeps only the 16px candidate grid":
     let (map, _) = twoComponentMap()

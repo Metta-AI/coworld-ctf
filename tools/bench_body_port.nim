@@ -179,7 +179,7 @@ proc freezeBudgetDetails(scenario: Scenario): JsonNode =
 
 proc writeBackRow(scenario: Scenario): JsonNode =
   let details = scenario.freezeBudgetDetails
-  details["row"] = %"Reflex worst-case (lane C measured, 32-seat max reflex plan): 10.8 ms-class (9.9-11.1 observed) vs the 4.0 ms runtime share — over budget at freeze. Lever: the §6.1 fully-resolved validator answer table (QUEUED, lane A, next after this package) replacing per-candidate tie-scan resolution with O(1) lookup; fallback lever: reflex plan caps."
+  details["row"] = %"Reflex worst-case (lane C measured, 32-seat max reflex plan): 10.8 ms-class (9.9-11.1 observed) vs the 4.0 ms runtime share — over budget at freeze. Lever: the §6.1 fully-resolved validator answer table (landed in lane A) replacing per-candidate tie-scan resolution with O(1) lookup; fallback lever: reflex plan caps."
   latencyRow("freeze.write_back.reflex_worst_case", details)
 
 proc realScorerWriteBackRow(scenario: Scenario): JsonNode =
@@ -729,6 +729,62 @@ proc duckRow(options: Options, scenario: Scenario): JsonNode =
   details["duck_contrast"] = %duck.contrast
   row("port.duck_cold_warm", warm, details)
 
+proc validatorScanProbeMap(): BodyMap =
+  const Width = 720
+  const Height = 96
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 .. 100:
+      walkable[y * Width + x] = true
+    for x in 600 ..< Width - 1:
+      walkable[y * Width + x] = true
+  newBodyMap(walkable, Width, Height, 2, @[(30, 30), (650, 30)])
+
+proc validatorBuildRow(options: Options, scenario: Scenario): JsonNode =
+  let sampleCount = min(options.samples, 5)
+  var built: BodyMap
+  let samples = measure(options.warmups, sampleCount,
+    proc() = built = scenario.rebuildEpisodeMap)
+  let details = scenario.mapDetails
+  details["framing"] =
+    %"representative activation barrier: rebuild the episode body map before seats plan"
+  details["validator_tables"] = %built.validatorTableCount
+  details["validator_logical_bytes"] = %built.validatorLogicalBytes
+  details["validator_bytes_per_component"] = %validatorBytesFor(
+    built.width, built.height, 1)
+  details["p0_giant_single_component_bytes"] = %validatorBytesFor(
+    3211, 1713, 1)
+  details["max_validator_table_bytes"] = %shellTypes.MaxValidatorTableBytes
+  details["memory_choice"] =
+    %"winner-only uint32 raster; distance is recomputed from winner coordinates"
+  details["sample_cap"] = %5
+  row("validator.table_build_representative_barrier", samples, details)
+
+proc validatorLookupRows(options: Options): seq[JsonNode] =
+  let map = validatorScanProbeMap()
+  let start: BodyPoint = (30, 30)
+  let requested: BodyPoint = (350, 30)
+  let component = map.componentOf(start)
+  let resolved = map.validateGoal(requested, start)
+  if resolved.isNone or resolved.get.goalPoint != (94, 30):
+    raise newException(ValueError,
+      "validator lookup probe no longer resolves to the radius-256 golden")
+  let scanSamples = measure(options.warmups, options.samples,
+    proc() = discard map.resolveNearestByRowMajorScan(component, requested,
+      shellTypes.ValidatorRadiusPx))
+  let tableSamples = measure(options.warmups, options.samples,
+    proc() = discard map.validateGoal(requested, start))
+  let details = %*{"map_width": map.width, "map_height": map.height,
+    "component": component, "requested": [requested.x, requested.y],
+    "resolved": [resolved.get.goalPoint.x, resolved.get.goalPoint.y],
+    "distance_squared": 256 * 256,
+    "validator_radius_px": shellTypes.ValidatorRadiusPx,
+    "case": "deep-in-wall request at the exact validator radius"}
+  result.add(row("validator.lookup_deep_wall_row_major_scan",
+    scanSamples, details))
+  result.add(row("validator.lookup_deep_wall_table",
+    tableSamples, details))
+
 proc censusSeeds(): seq[int] =
   for index in 0 .. 32:
     result.add(4242 + index * 1009)
@@ -791,10 +847,13 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
     result.add(scenario.realScorerWriteBackRow)
   of "view": result.addRows(options.viewRows())
   of "episode": result.add(options.episodeRow(scenario))
+  of "validator":
+    result.add(options.validatorBuildRow(scenario))
+    result.addRows(options.validatorLookupRows())
   of "duck": result.add(options.duckRow(scenario))
   else:
     raise newException(ValueError,
-      "cases are smoke, all, danger, planning, latency, view, episode, duck, census")
+      "cases are smoke, all, danger, planning, latency, view, episode, validator, duck, census")
 
 proc gitHead(): string =
   try:
