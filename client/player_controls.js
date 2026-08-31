@@ -24,12 +24,19 @@
 //
 // Bit values are ButtonUp..ButtonC, spriteprotocol.nim:20-27.
 //
-// AIM IS DEAD-RECKONED, BY ENGINE MANDATE. Every soldier sprite in a player
-// view -- including your own self marker -- renders with a FUZZED aim
-// (global.nim:6211-6226, GV24). That comment states the contract outright:
-// "your true aim is knowable only from the commands you issued, never from
-// the pixels." So we integrate the commands we issue. Picasso's turret does
-// the same thing internally (players/picasso/baseline.nim:47-54).
+// AIM TRACKING, updated for GV26+. Every OTHER soldier sprite in a player
+// view still renders a FUZZED aim (global.nim fuzzedAimBrads, GV24) -- watch
+// another bot and you cannot read its exact gun angle -- but the self marker
+// was EXEMPTED from that fuzz at GV26 ("your gun is your own state, not a
+// leak"), and the wire additionally carries an exact `own aim <brads>` HUD
+// readback every player-view frame (docs/PROTOCOL.md "Your own aim"). A
+// client should RESYNC its own aim estimate from that marker every tick
+// (player_client.html's controlsTick does), using the integrator below
+// (stepAim/rotateButton) only to fill the rare tick the marker has not
+// shown up yet -- never as the primary source, the way this file's aim
+// helpers were originally written to be used stand-alone (e.g. Picasso's
+// turret, players/picasso/baseline.nim:47-54, which has no such marker to
+// read and must dead-reckon for real).
 
 (function (root, factory) {
   const api = factory();
@@ -72,9 +79,14 @@
   }
 
   // Which rotate button traverses shortest toward `desired`? null = park.
-  // This is the whole of "mouse aim": there is no analog aim field on the
-  // wire (the server decodes and DISCARDS mouse packets, global.nim:1339),
-  // so a human aims exactly the way a policy does -- one rotate button/tick.
+  // This is the whole of "mouse aim" on a plain /player connection: the
+  // server there decodes and DISCARDS mouse packets (global.nim
+  // applyPlayerViewerMessage used to discard SpriteClientMouseMoveMessage
+  // outright), so a human aims exactly the way a policy does -- one rotate
+  // button per tick. A /takeover connection with directAim granted is the
+  // exception: the server now KEEPS that same message kind there and drives
+  // the turret from it directly (see player_client.html's directAimActive),
+  // and that path calls this function only as the (now-inert) fallback.
   function rotateButton(estAim, desiredAim) {
     const d = shortestDelta(estAim, desiredAim);
     if (Math.abs(d) < AIM_DEADZONE) return null;
@@ -221,7 +233,11 @@
       note: "no speed modifier exists in the engine, so Shift binds to nothing" },
     { id: "view",   label: "Camera",        keys: ["V", "-", "="], alt: [],
       wire: null, bits: [], status: "view",
-      note: "changes your view only; sends nothing to the server" },
+      note: "toggles whole-map / fit-vision follow (V, -, or = -- 2 stops); " +
+            "fit-vision zooms to the exact level that keeps your vision-range " +
+            "circle on screen, so nothing that can see/hit you is ever cropped " +
+            "off; CTF starts whole-map, BR starts fit-vision; choice is " +
+            "remembered per mode; view only, sends nothing to the server" },
   ];
 
   return {

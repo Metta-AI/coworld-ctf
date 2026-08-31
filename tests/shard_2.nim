@@ -29,6 +29,7 @@ import
   test_shield_bubble,
   test_shields,
   test_shot_accuracy,
+  test_shot_feedback,
   test_shouts,
   test_spinning_diamonds,
   test_pb_control,

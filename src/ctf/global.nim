@@ -674,10 +674,25 @@ const
   RigSpraySpriteBase = 76600   ## team×16 aim → keys 76600..76663 (held spray can +
                                ## glow): the swap-in art while a cog carries a
                                ## can, sharing the gun's object slot.
+  RigSelfHeadSpriteBase = 200000  ## skin×16 aim → keys 200000..200031: the
+                               ## PLAYER-VIEW self head, a pool distinct from
+                               ## RigHeadSpriteBase because a sprite's LABEL
+                               ## lives on its definition, shared by every
+                               ## player object that references the id — the
+                               ## viewer's own cog needs a private id so its
+                               ## head can carry the `self <color> <side>`
+                               ## label (player_client.html's follow-camera
+                               ## contract) without relabeling every other
+                               ## player sharing that team/skin/pose. Placed
+                               ## far clear of the 40000..76663 rig pose range.
   ## Object pools sit clear of the tracer-dot pool (24000..35327) and the
   ## damage/kill pops (38000..38031); rig objects live at 38100+ (32 players
   ## each). Moved off 32000+: the widened tracer-dot pool swallowed that range.
-  RigHeadObjectBase = 38100    ## 1 head object per player: 38100..38131.
+  RigHeadObjectBase* = 38100   ## 1 head object per player: 38100..38131.
+                               ## Exported: the player-view rig now lands on
+                               ## this same object id (see addCogRigObjects),
+                               ## so tests asserting a rig-rendered player's
+                               ## presence/label need it.
   RigArmObjectBase = 38140     ## 2 arm objects per player: 38140..38203.
   RigLegObjectBase = 38220     ## 3 leg objects per player: 38220..38315.
   RigWheelObjectBase = 38340   ## 3 wheel objects per player: 38340..38435.
@@ -741,6 +756,12 @@ const
   SpritePlayerWeaponObjectId = 5021
   SpritePlayerOwnAimSpriteId = 5022  ## invisible own-aim readback marker
   SpritePlayerOwnAimObjectId = 5023  ## ("own aim <brads>", player stream only).
+  SpritePlayerKdSpriteId = 5024  ## own kill/death HUD text ("kd <n>/<n>"),
+  SpritePlayerKdObjectId = 5025  ## human-wire only — see LabelPrefixKd.
+  RosterSpriteBase = 5026  ## One invisible roster-row marker per player,
+    ## keyed by row (join order) 0..MaxPlayers-1: 5026..5057. Player stream
+    ## only, human-wire only — see LabelPrefixRoster.
+  RosterObjectBase = 5058  ## Object twin of RosterSpriteBase: 5058..5089.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -884,7 +905,11 @@ const
     ("map bands", MapBandObjectBase, 960),
     ("players (POV view)", PlayerObjectBase, MaxPlayers),
     ("replay UI", ReplayTickObjectId, 5),
-    ("player HUD", SpritePlayerInterstitialObjectId, 16),
+    # 5006..5025: was 16 (5006..5021), widened to 20 to cover the own
+    # kd-readout object (SpritePlayerKdObjectId, 5025) added alongside
+    # weapon/own-aim.
+    ("player HUD", SpritePlayerInterstitialObjectId, 20),
+    ("roster rows (player stream)", RosterObjectBase, MaxPlayers),
     ("flags", FlagObjectBase, TeamPoolWidth),
     ("own-view flag markers", SpritePlayerFlagObjectBase, TeamPoolWidth),
     ("player names", PlayerNameObjectBase, MaxPlayers),
@@ -1028,7 +1053,10 @@ const
     # current base and range at TeamPoolWidth=16).
     ("identity badges", IdentityBadgeSpriteBase,
       TeamPoolWidth * IdentityNames.len * SoldierRotations),
-    ("player HUD", SpritePlayerFireSpriteId, 23),
+    # 5000..5024: was 23 (5000..5022), widened to 25 to cover the own
+    # kd-readout sprite (SpritePlayerKdSpriteId, 5024).
+    ("player HUD", SpritePlayerFireSpriteId, 25),
+    ("roster rows (player stream)", RosterSpriteBase, MaxPlayers),
     ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
     ("selected soldiers", int(SelectedPlayerSpriteBase),
       2 * TeamPoolWidth * SoldierRotations),
@@ -1180,6 +1208,18 @@ type
                                  ## allowDirectAim config ever reads it, so a
                                  ## league game is untouched.
     spriteDefs: seq[SpriteDefinition]
+    cogDrive*: array[MaxPlayers, CogDriveState]  ## per-player segmented-trike
+                                 ## animation state for THIS viewer's rig
+                                 ## render — the player-view twin of
+                                 ## GlobalViewerState.cogDrive (see there for
+                                 ## the field-by-field meaning). A human
+                                 ## viewer only draws players it can actually
+                                 ## see, but the array is flat by player
+                                 ## index (not by visible-slot) so a player
+                                 ## popping in/out of fog never aliases onto
+                                 ## another player's drive state.
+    cogDriveTick*: int           ## sim.tickCount at the last cogDrive step;
+                                 ## see GlobalViewerState.cogDriveTick.
 
   ProtocolTextItem = ref object
     spriteId: int
@@ -1572,6 +1612,9 @@ proc initGlobalViewerState*(): GlobalViewerState =
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
+  result.cogDriveTick = low(int)  ## no drive step yet; the first frame snaps
+                                   ## every player's rig to rest (see
+                                   ## GlobalViewerState.cogDriveTick).
 
 proc resetPlayerViewerStateForRound*(state: PlayerViewerState) =
   ## Round-transition reset for one PLAYER (human) viewer connection — see
@@ -1766,6 +1809,15 @@ proc rigHeadSpriteId(team: Team, skin: Skin, aimStep: int): int =
     ord(skin) * 2 * RigSteps +
     ord(team) * RigSteps +
     aimStep)
+
+proc rigSelfHeadSpriteId(skin: Skin, aimStep: int): int =
+  ## Player-view-only head sprite id for the viewing player's OWN cog — see
+  ## RigSelfHeadSpriteBase. No team dimension: unlike the shared team-pool
+  ## head, this id is never referenced by more than one viewer's own object,
+  ## so there is nothing to disambiguate by team (the baked PIXELS still
+  ## follow the player's true team; only the id/label pool is team-free,
+  ## matching the historical selfSoldierSpriteId convention).
+  wireSpriteId(RigSelfHeadSpriteBase + ord(skin) * RigSteps + aimStep)
 
 proc rigGunSpriteId(team: Team, aimStep: int): int =
   wireSpriteId(RigGunSpriteBase + ord(team) * RigSteps + aimStep)
@@ -5130,14 +5182,29 @@ proc scoreboardPipSpriteId(colorIndex: int): int =
   ## Returns the stable score pip sprite id for one color.
   ScoreboardPipSpriteBase + colorIndex
 
+proc rosterObjectId(row: int): int =
+  ## Returns the stable roster-row object id for one player, player stream.
+  RosterObjectBase + row
+
+proc rosterSpriteId(row: int): int =
+  ## Returns the stable roster-row sprite id for one player, player stream.
+  RosterSpriteBase + row
+
 proc scoreboardName(player: Player): string =
   ## Returns the clickable scoreboard player label. The color pip next to the
   ## row already carries the team, so no (red)/(blue) tag.
   player.playerLabelText()
 
 proc scoreboardText(player: Player): string =
-  ## Returns one compact scoreboard row.
-  player.scoreboardName() & " " & $player.lives
+  ## Returns one compact scoreboard row: name, lives, and kills/deaths — the
+  ## same "/" convention addTeamScoreboard already uses for its per-team
+  ## totals, applied here per player. Player.kills/Player.deaths are real
+  ## attribution (roster.nim recordKill/recordDeath), already mixed into
+  ## gameHash; this is pure emission, and it feeds BOTH the rendered pixel
+  ## text (buildSpriteProtocolTextSprite below) and the wire label, so a kill
+  ## ticks up something visible on the raw board, not just a hidden label.
+  player.scoreboardName() & " " & $player.lives & " " &
+    $player.kills & "/" & $player.deaths
 
 proc scoreboardJoinOrderAt(
   sim: SimServer,
@@ -5148,11 +5215,9 @@ proc scoreboardJoinOrderAt(
   ## Returns the join order for a clicked scoreboard name.
   if layer != TopLeftLayerId:
     return -1
-  # addScoreboard emits nothing on a >4-team field (see its own guard below),
-  # so there is no row here to click — without this, a click over the empty
-  # top-left corner could still resolve to a phantom player selection.
-  if sim.teams().len > 4:
-    return -1
+  # addScoreboard now emits a row per player at every team count (see its own
+  # doc below), so no >4-team early-out here either — the row/bounds checks
+  # right below already reject anything past the real roster.
   let row = (mouseY - ScoreboardY) div ScoreboardRowHeight
   if row < 0 or row >= sim.players.len:
     return -1
@@ -5187,22 +5252,37 @@ proc addScoreboard(
   packet: var seq[uint8],
   selectedJoinOrder: int
 ) {.measure.} =
-  ## Adds the top-left player score picker (per-team lives).
+  ## Adds the top-left player score picker (per-player lives + kills/deaths).
   ##
   ## One row per PLAYER, stacked top to bottom — a legible pick-list at 2-4
-  ## teams (a handful of rows), but at BR's 16 teams / up to 32 seats this is
-  ## a wall of "name lives" pixel-font rows covering a third of the arena
-  ## (the exact defect Maxwell's screenshot showed on the live global
-  ## viewer). Suppressed entirely past 4 teams: the layer/viewport still
-  ## register every tick (unconditional below, matching
-  ## buildSpriteProtocolInit/buildSpriteProtocolPlayerInit's own init-time
-  ## registration) — only the per-player row loop is skipped, so nothing
-  ## ever draws into it. Cosmetic only: this is spectator-stream sprite
-  ## emission, never gameHash.
+  ## teams (a handful of rows), but at BR's 16 teams / up to 32 seats this
+  ## used to be suppressed entirely past 4 teams, so BR never got live
+  ## per-player rows at all (the guard's own prior text cited a wall of
+  ## "name lives" pixel-font rows covering a third of the arena — the exact
+  ## defect Maxwell's screenshot showed on the live global viewer).
+  ##
+  ## VERDICT (this lane): that suppression was a DELIBERATE cost/legibility
+  ## control, not an unported <=4-team formula — the scoreboard object/sprite
+  ## id pools (ScoreboardTextObjectBase/ScoreboardPipObjectBase et al) were
+  ## already sized to MaxPlayers+8 (40) from the start, i.e. built with full
+  ## 32-seat BR headroom in mind; only the row LOOP itself carried the >4
+  ## early-out, layered on deliberately and later, with a cited screenshot
+  ## and reasoning in the guard's own comment. Lifted here so BR gets live
+  ## per-player rows too: the viewport height now grows to fit the roster
+  ## (instead of a fixed 116px that quietly clipped anything past ~16 rows)
+  ## rather than staying silently suppressed. The layer/viewport always
+  ## registered every tick regardless of team count (unconditional below,
+  ## matching buildSpriteProtocolInit/buildSpriteProtocolPlayerInit's own
+  ## init-time registration); only the row loop below actually changed.
+  ## Visual legibility at 32 rows (e.g. compact multi-column layout, or a
+  ## client-side cap) is left to the consuming HUD — this lane's mandate was
+  ## the wire data, not the picker's layout. Cosmetic only either way: this
+  ## is spectator-stream sprite emission, never gameHash.
+  let viewportHeight = max(
+    ScoreboardHeight, ScoreboardY + sim.players.len * ScoreboardRowHeight
+  )
   packet.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
-  packet.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
-  if sim.teams().len > 4:
-    return
+  packet.addViewport(TopLeftLayerId, ScoreboardWidth, viewportHeight)
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
@@ -8857,6 +8937,22 @@ proc addDamagePops(
     currentIds.add(objectId)
     packet.addBoardObject(objectId, px, py, DamagePopZ, MapLayerId, spriteId)
 
+# Forward declaration: the board section (buildSpriteProtocolUpdates, below)
+# and the player-view section (buildSpriteProtocolPlayerUpdates, right here)
+# both place the articulated rig; the full definition lives further down,
+# next to the rest of the board-section helpers it shares
+# bakePixels/canonicalSprite locals with.
+proc addCogRigObjects(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  player: Player,
+  drive: CogDriveState,
+  carrying: bool,
+  isSelf = false
+)
+
 proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
@@ -8988,6 +9084,31 @@ proc buildSpriteProtocolPlayerUpdates*(
             PlantedFlagSpriteBase + ord(team)
           )
 
+    # Advance the per-player segmented-trike drive animation for THIS human
+    # viewer, exactly mirroring the board's cogDrive step (buildSpriteProtocolUpdates
+    # below) — a sprites-off bot never renders the rig, so it never pays for the
+    # animation state either. Same scrub-safe rule: a sequential 1..16-tick delta
+    # smooths, anything else (first frame, pause/resume, a round transition's tick
+    # reset) snaps to a fresh rest pose.
+    if not spritesOff:
+      const MaxSmoothStepTicks = PlaybackSpeeds[^1]
+      let neverStepped = nextState.cogDriveTick == low(int)
+      let tickDelta =
+        if neverStepped: 0 else: sim.tickCount - nextState.cogDriveTick
+      if neverStepped or tickDelta != 0:
+        let sequential = not neverStepped and
+          tickDelta >= 1 and tickDelta <= MaxSmoothStepTicks
+        for i in 0 ..< sim.players.len:
+          let p = sim.players[i]
+          if not p.alive:
+            nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+          elif sequential and nextState.cogDrive[i].initialized:
+            nextState.cogDrive[i] = stepCogDrive(
+              nextState.cogDrive[i], p.velX, p.velY, p.aimBrads)
+          else:
+            nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+        nextState.cogDriveTick = sim.tickCount
+
     # Players: yourself (a distinct outlined self marker) is always visible;
     # everyone else — teammates included — only inside your vision; corpses
     # only for ghost viewers.
@@ -8998,6 +9119,27 @@ proc buildSpriteProtocolPlayerUpdates*(
             not sim.playerVisibleTo(playerIndex, i):
           continue
       elif not viewerIsGhost:
+        continue
+      if other.alive and not spritesOff:
+        # A human viewer sees the REAL articulated rig (head+gun+arms track
+        # AIM, legs+wheels track MOVEMENT) — the same board-only rig the
+        # spectator/replay stream has always drawn (addCogRigObjects below).
+        # `isSelf` swaps the head's sprite id + label for the viewer's own
+        # cog so the "self <color> <side>" prefix (player_client.html's
+        # follow-camera contract) keeps landing on exactly one object, same
+        # as the flat self marker it replaces. A sprites-off (bot) viewer
+        # falls straight through to the untouched flat branch below — this
+        # whole rig path never executes for spritesOff, so that observation
+        # stream stays byte-for-byte unchanged.
+        sim.addCogRigObjects(
+          nextState.spriteDefs,
+          currentIds,
+          result,
+          other,
+          nextState.cogDrive[i],
+          carrying = sim.carriedFlagTeam(i) >= 0,
+          isSelf = i == playerIndex and not viewerIsGhost
+        )
         continue
       # GV24/25: every OTHER soldier sprite in a player view — enemy,
       # teammate, corpse — renders with FUZZED aim (fuzzedAimBrads): exact
@@ -9016,6 +9158,8 @@ proc buildSpriteProtocolPlayerUpdates*(
         # Yourself reads as a distinct white-outlined soldier rotated to your
         # TRUE aim (GV26): you know your own gun exactly — the fuzz exists to
         # hide OTHERS' aim, and your self marker is your own state, not a leak.
+        # (Only reached here for spritesOff=true — a human self already took
+        # the rig branch above.)
         let rot = soldierRotIndex(other.aimBrads)
         spriteId = selfSoldierSpriteId(other.skin, rot)
         result.addSpriteChanged(
@@ -9214,6 +9358,98 @@ proc buildSpriteProtocolPlayerUpdates*(
       HudTopRightLayerId,
       SpritePlayerWeaponSpriteId
     )
+
+    # Own kill/death readout, human viewers only: MATCH-scoped attribution
+    # (roster.nim recordKill/recordDeath, read back through
+    # matchKillsDeaths), not the per-round Player.kills/Player.deaths — those
+    # reset every startGame (every round, including a BR match's
+    # resetToLobby-then-rejoin between rounds), which is correct for
+    # gameHash and per-round reward math but wrong for a HUD readout: a
+    # player's K/D is a MATCH statistic and must not visibly reset off a
+    # round boundary (or, a fortiori, off the player's own death — killPlayer
+    # never touches either counter). matchKillsDeaths is deliberately NOT
+    # itself mixed into gameHash (same as every other rewardAccounts field —
+    # see gameHash's own comments), but it IS a pure function of the
+    # already-hashed recordKill/recordDeath call sequence, so it replays
+    # identically without needing to be hashed itself. Gated on
+    # `not spritesOff` (unlike lives/weapon/own-aim, which stay ungated) so a
+    # scripted/policy viewer's byte stream is untouched by this addition; see
+    # labels.nim LabelPrefixKd for why the bot side was left alone.
+    if not spritesOff:
+      let
+        kdTally = sim.matchKillsDeaths(playerIndex)
+        kd = sim.buildSpriteProtocolTextSprite(
+          [labelKd(kdTally.kills, kdTally.deaths)], 2'u8
+        )
+      currentIds.add(SpritePlayerKdObjectId)
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerKdSpriteId,
+        kd.width,
+        kd.height,
+        kd.pixels,
+        labelKd(kdTally.kills, kdTally.deaths)
+      )
+      result.addBoardObject(
+        SpritePlayerKdObjectId,
+        23 - kd.width,
+        15,
+        0,
+        HudTopRightLayerId,
+        SpritePlayerKdSpriteId
+      )
+
+      # Roster-wide scoreboard rows, human viewers only: restates the SAME
+      # per-player lives/kills/deaths data addScoreboard already draws on
+      # the separate global/spectator stream (`/client/global`), as plain
+      # labels — no pixel text rendered, the consuming HUD draws its own
+      # panel — so a human `/client/player` connection can read the WHOLE
+      # roster without a second socket (a second connection just to read a
+      # scoreboard would double the client's heaviest stream).
+      #
+      # Identified by (team, anonymous slot identity), NEVER by
+      # `scoreboardName()`/`player.address` — a raw connection address on
+      # this stream is exactly the leak
+      # tests/test_identity_privacy.nim polices ("no label in any player's
+      # frame contains a connection address"), which is why that address is
+      # fine on addScoreboard's OWN "score" row (the exempted
+      # global/spectator stream) but not here.
+      #
+      # Invisible 1x1 markers like own-aim below, one per roster seat, keyed
+      # by join order (rosterSpriteId/rosterObjectId): addSpriteChanged
+      # below only re-sends a row's bytes when that row's text actually
+      # changed since this connection's last packet (the same
+      # dirty-tracking the lives/kd labels already get "for free" from
+      # addSpriteChanged's own cache diff), so a quiet tick's cost is just
+      # the small per-row object-placement message, not the label text.
+      for i in 0 ..< sim.players.len:
+        let
+          rowPlayer = sim.players[i]
+          rowIdentity = IdentityNames[sim.slotIdentityIndex(rowPlayer.joinOrder)]
+          rowKd = sim.matchKillsDeaths(i)
+            ## Match-scoped, same as the own-kd label above — NOT
+            ## rowPlayer.kills/deaths, which reset every round. rowPlayer.lives
+            ## stays round-scoped on purpose: lives ARE a per-round resource.
+        currentIds.add(rosterObjectId(i))
+        result.addSpriteChanged(
+          nextState.spriteDefs,
+          rosterSpriteId(i),
+          1,
+          1,
+          newRgbaPixels(1, 1),
+          labelRoster(
+            teamText(rowPlayer.team), rowIdentity,
+            rowPlayer.lives, rowKd.kills, rowKd.deaths
+          )
+        )
+        result.addBoardObject(
+          rosterObjectId(i),
+          0,
+          0,
+          0,
+          HudTopRightLayerId,
+          rosterSpriteId(i)
+        )
 
     # Own-aim readback: an invisible 1x1 marker whose LABEL states this
     # player's turret angle outright (`own aim <brads>`). The observation
@@ -9671,7 +9907,8 @@ proc addCogRigObjects(
   packet: var seq[uint8],
   player: Player,
   drive: CogDriveState,
-  carrying: bool
+  carrying: bool,
+  isSelf = false
 ) =
   ## Places one cog's articulated TURRET trike. Every segment sprite is baked in
   ## the same RigCanvas, HUB-centered, so all objects share ONE canvas position
@@ -9683,6 +9920,17 @@ proc addCogRigObjects(
   ## heart itself is emitted in the flag loop.
   ## Z (painter depth ~ map Y): rear wheel/leg < front wheels < front legs < head
   ## < arms (arms cradle the forward heart on top).
+  ##
+  ## `isSelf` (player-view only; board never sets it) swaps the HEAD segment's
+  ## sprite id + label for a viewer-private "self" pool: player_client.html's
+  ## seated follow camera finds its target by scanning for a sprite label that
+  ## STARTS WITH "self " (LabelPrefixSelf) — the same contract the old flat
+  ## selfSoldierSpriteId used to carry — so the rig's head must keep shipping
+  ## that exact prefix for the viewing player's own cog. A shared head sprite id
+  ## carries ONE label for every player drawn with it (the label lives on the
+  ## sprite DEFINITION, not the per-player object placement), so self needs its
+  ## own dedicated id — reusing the team-pool head id would force every other
+  ## player of the same team/skin/pose to also read as "self" (or vice versa).
   let
     color = teamText(player.team)
     aimStep = soldierRotIndex(player.aimBrads)
@@ -9695,6 +9943,19 @@ proc addCogRigObjects(
     # Center the RigCanvas on the player (canvas center = hub). 1× map px.
     rigX = player.x + CollisionW div 2 - RigCanvas div 2
     rigY = player.y + CollisionH div 2 - RigCanvas div 2
+    # Self reads its TRUE aim exactly (GV26 parity with the old self marker);
+    # the side follows soldierFacingRight the same way the flat self sprite's
+    # label did.
+    headSide = if soldierFacingRight(aimStep): LabelSideRight else: LabelSideLeft
+    headSpriteId =
+      if isSelf: rigSelfHeadSpriteId(player.skin, aimStep)
+      else: rigHeadSpriteId(player.team, player.skin, aimStep)
+    headLabel =
+      if isSelf: labelSelf(color, headSide)
+      else: rigSegLabel(rsHead, color)
+
+  proc segLabel(seg: RigSeg): string =
+    if seg == rsHead: headLabel else: rigSegLabel(seg, color)
 
   # Precompute the movement-driven leg/wheel steps.
   proc legSprite(seg: RigSeg): int =
@@ -9742,9 +10003,7 @@ proc addCogRigObjects(
       wheelSprite(rsWheelR, drive.casterFR), player.y - 2),
     (rsLegFL, RigLegObjectBase + base*3 + 0, legSprite(rsLegFL), player.y - 1),
     (rsLegFR, RigLegObjectBase + base*3 + 1, legSprite(rsLegFR), player.y - 1),
-    (rsHead, RigHeadObjectBase + base,
-      rigHeadSpriteId(player.team, player.skin, aimStep),
-      player.y)]
+    (rsHead, RigHeadObjectBase + base, headSpriteId, player.y)]
   # Arms = the cog's SHOULDER pads. They're part of the cog's fixed silhouette:
   # always drawn, always in their natural tucked pose, rotating with the HEAD/aim
   # (never jutting forward — the earlier "reach" pose read as weird prongs). At rest
@@ -9778,13 +10037,13 @@ proc addCogRigObjects(
           packet.addBoardSpriteChanged(
             spriteDefs, spriteId, RigCanvas, RigCanvas,
             rigSegPixels(player.team, s.seg, headStep, 0, 0, boardScale),
-            rigSegLabel(s.seg, color), native = boardScale)
+            segLabel(s.seg), native = boardScale)
       else:
         if articulated and spriteId != canonicalSprite(s.seg):
           dec rigPoseDefBudget
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, RigCanvas, RigCanvas,
-          bakePixels(s.seg), rigSegLabel(s.seg, color), native = boardScale)
+          bakePixels(s.seg), segLabel(s.seg), native = boardScale)
     currentIds.add(s.objectId)
     packet.addBoardObject(s.objectId, rigX, rigY, s.z, MapLayerId, spriteId)
 
