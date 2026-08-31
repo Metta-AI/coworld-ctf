@@ -284,10 +284,13 @@ differential allowlist covers it, and a golden pins the cadence.
 measurement: one cold worst-case plan on the giant field cost ~65 ms —
 alone exceeding the entire quarter-tick allowance — so a mass retarget
 (every seat replanning at once) is unboundable without a rule. The port
-bounds cold plans per tick with a deterministic queue: seats over the
-budget keep executing their standing route and take their planning turn
-on a later tick, in seat-index round-robin resuming where the last tick
-stopped (the house quota pattern of §6.1's `MaxInitsPerTick`). The
+bounds cold-planning WORK per tick — a deterministic search-expansion
+budget, not a plans-per-tick count, because one cold plan alone exceeds
+the allowance: a plan that exhausts the tick's budget suspends with
+resumable search state and continues on a later tick, and seats queue
+for budget in seat-index round-robin resuming where the last tick
+stopped (the house quota pattern of §6.1's `MaxInitsPerTick`). A seat
+whose plan is suspended keeps executing its standing route. The
 differential allowlist covers the delay; a golden pins the queue order
 under a mass retarget. Whether the cold plan itself is reducible (a
 warm oracle, coarse-first planning) is a named P1 investigation, not a
