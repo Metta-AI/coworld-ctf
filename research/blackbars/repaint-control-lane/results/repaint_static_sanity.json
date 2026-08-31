@@ -1,0 +1,9 @@
+{
+  "label": "repaint_static",
+  "n": 700,
+  "seconds": 78.007,
+  "distinctTransforms": 1,
+  "distinctHashesSampled": 4,
+  "hashSamples": 140,
+  "selfPosXRange": 1194
+}

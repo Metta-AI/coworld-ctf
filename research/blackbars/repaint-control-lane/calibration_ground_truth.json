@@ -1,0 +1,42 @@
+{
+  "_note": "Hand-labelled ground truth used to validate classify_burst.py, established by full-frame visual inspection (downscaled/JPEG-compressed crops, never raw full-res reads) against the pre-existing drive2.js capture corpus at /private/tmp/blackbars/shots/ (see research/blackbars/BLACKBARS_DIAGNOSIS.md for that corpus's own capture method). Source frames are NOT copied into the repo (they are large PNGs in /private/tmp); this file records the verdicts and the reasoning, which is the reusable artifact.",
+  "confirmed_true_positive": {
+    "moving_1": "full-frame view shows 2 clear full-width bands (~rows 370-400, ~630-660) cutting uniformly across floor, walls, and the dark cave region alike -- not texture-aligned.",
+    "moving_2": "most dramatic example: multiple full-width bands across two separate clusters (~rows 400-430, ~600-780), visibly cutting straight through a wall region on the right.",
+    "moving_6": "dense, high-contrast comb of ~6-8 evenly spaced full-width lines (~rows 740-830) layered on top of the map's own much fainter baseline floor-grate texture at the same location (confirmed by direct comparison against moving_8's much fainter baseline at the same screen region)."
+  },
+  "confirmed_true_negative": {
+    "moving_8": "baseline decorative floor-grate/platform-groove texture, identical across moving_8/9/10/11 -- a real static sprite feature, not the bug (matches the original diagnosis's own 'cosmetic aliasing, present in both synth and screenshot' callout).",
+    "moving_9": "same as moving_8 (bit-identical camstate: camX/camY/camScale frozen -- the fully-converged tail of the original burst).",
+    "moving_10": "same as moving_8/9; explicitly named 'confirmed clean' in the original diagnosis doc.",
+    "moving_11": "full-frame check: plain platform, no artifact, no unusual striping.",
+    "moving_12": "IMPORTANT CORRECTION: an earlier synth-crosscheck design flagged this as a true positive. Direct pixel inspection showed the synth capture (taken via a separate toDataURL() round-trip, timed after the real screenshot) had already drifted to different scene content (a barrel/prop appearing where the screenshot showed a plain platform) even though camX/camY were bit-identical to moving_11/13 -- i.e. camera was frozen, but SCENE content changed between the two capture calls. That is a timing-gap false positive in the crosscheck method, not a real band. Re-classified clean after this was understood; this is the concrete reason classify_burst.py never uses a second, differently-timed capture pathway.",
+    "moving_13": "part of the same frozen-camstate trio as 11/12; clean.",
+    "moving_0": "classify_burst.py: clean, no independent full-frame re-check performed (time-boxed); low priority since not part of the movement-burst's confirmed-hit cluster.",
+    "moving_3": "same as moving_0.",
+    "moving_4": "same as moving_0.",
+    "moving_7": "same as moving_0.",
+    "seated_rest_0": "static/idle burst, clean by original diagnosis and re-confirmed by row-profile.",
+    "seated_rest_1": "same.",
+    "seated_rest_2": "same.",
+    "seated_rest_3": "same.",
+    "preseat_1": "whole-map static control, clean.",
+    "preseat_2": "same.",
+    "preseat_3": "same."
+  },
+  "known_false_positive": {
+    "preseat_0": "whole-map/low-zoom view: Stage 1 flags ~10-12 candidate dips that, on inspection, land almost exactly on multiples of a single ~16px period -- the floor's own repeating tile-grid texture, confirmed by a full-resolution crop. Stage 2 (world-coordinate persistence) fails to reject these here specifically because this whole-map camera scale is only sampled 4 times total in the corpus, so a real grid line has no other same-scale frame to be cross-checked against. This is a SPECIFIC, understood, low-N/low-zoom blind spot. The deployed repaint-vs-motion experiment never uses whole-map scale (both arms sit in fitvision/follow mode), so this failure mode is not expected to apply there -- N=700/arm gives Stage 2 hundreds of chances to see any real feature recur."
+  },
+  "borderline_excluded_from_tally": {
+    "moving_5": "single faint full-width line (~row 665), much weaker than the moving_1/2/6 examples. classify_burst.py (Stage1+Stage2) calls it clean (rejected via persistence match elsewhere in the burst); a version without persistence-checking called it a true hit. Genuinely ambiguous by eye at this resolution -- excluded from the formal FP/FN tally rather than forced into either bucket."
+  },
+  "validated_error_rates": {
+    "false_negative_rate": "0/3 = 0% on confirmed unambiguous positives",
+    "false_positive_rate": "1/18 = 5.6% on confirmed negatives, root-caused to a specific low-zoom/low-N mechanism not present in the deployed experiment design",
+    "rejected_designs": [
+      "Stage-1-only (no cross-check): false-positives on moving_8/9/10 (real platform groove texture) and preseat_0 (grid texture) -- see classify_stage1_only.py.",
+      "Stage1 + screenshot-vs-synth crosscheck: false-positived moving_12 due to a real timing gap between the two capture pathways letting unrelated scene content change -- see classify_synth_crosscheck_REJECTED.py.",
+      "Stage1 + Stage2 + periodicity filter (reject >=3 evenly-spaced dips as grid texture): false-negatived moving_6, whose own real bars are themselves fairly evenly spaced -- filter discarded, not shipped."
+    ]
+  }
+}

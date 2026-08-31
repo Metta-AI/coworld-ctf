@@ -1,0 +1,13 @@
+{
+  "test_commit": "5742afec45e34752f023615220123d0c26642bb7 (branch maxwell/scale-probe-camfix, docs commit d32fee53 on top)",
+  "rig": "private local worktree /private/tmp/blackbars-rig/engine, server+8 baseline bots on 127.0.0.1:27931 -- NOT the shared 100.102.207.18:7420 field. Every mutating Playwright call in drive-repaintcontrol.js asserts page.url() starts with the local BASE before proceeding.",
+  "browser": "playwright chromium, headless:false, args:['--use-angle=metal'] -- headless defaults to SwiftShader (a different renderer) and does not reproduce this bug per prior findings.",
+  "capture_cadence_measured": {
+    "motion_arm_fps": 4.96,
+    "repaint_static_arm_fps": 8.97,
+    "note": "real page.screenshot() round trips, not fixed to 60fps; slower than the game's own render loop, see report for the power/detection caveat this implies."
+  },
+  "wall_pinning_mitigation": "movement legs cycle KeyD->KeyS->KeyA->KeyW every 15 captured frames (never a single held key for the whole capture), matching the documented fix for the wall-pinning trap.",
+  "camera_mode_gotcha_found_and_fixed": "this commit's player_client.html has a CAMERA_MODES toggle (whole-map vs fitvision/follow) that defaults to WHOLE-MAP (static, non-follow) for a non-BR/classic freeplay match -- confirmed by a smoke test where camX/camY sat bit-identical across 25 captured frames despite selfPos moving 127+ world px. Fixed by explicitly calling cycleCameraMode(1) right after seating, matching the precedent in the earlier drive-scaleprobe.js script.",
+  "classifier_edge_bug_found_and_fixed": "the first full N=700/arm run produced 2 (motion) and 3 (repaint_static) 'hits', ALL at the identical row range 9-16 in every case. Direct pixel inspection showed row 0 of every screenshot in this capture is a flat ~230-brightness 1px seam (a screenshot/iframe-boundingBox clip artifact, not game content) that skews Stage 1's smoothed vertical baseline near the top margin. Fixed by excluding a top/bottom margin (30px) from Stage 1 candidate detection; re-validated against the full 22-frame calibration corpus with NO change to any of those verdicts (still 3/3 true positives, 17/18 true negatives, the 1 known preseat_0 false positive unchanged). Re-running classification after the fix gave 0/700 raw Stage-1 candidates in BOTH arms (not just 0 after cross-validation -- 0 even before it)."
+}
