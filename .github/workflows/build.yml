@@ -72,7 +72,12 @@ jobs:
           test -f "$wasmtime_root/lib/libwasmtime.so"
           echo "WASMTIME_C_API=$wasmtime_root" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$wasmtime_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-      - run: nim check src/ctf.nim
+      # WASMTIME_C_API is already in the environment from the provision step,
+      # so src/shell/episode.nim imports the wasmtime runtime. That module
+      # refuses to compile without the same flags shard 2 already passes.
+      # Bare `nim check src/ctf.nim` started failing on main the moment the
+      # shell landing set WASMTIME_C_API before this step.
+      - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
       - name: Compile test shards (release)
         run: |
           for i in 1 2 3 4; do

@@ -158,6 +158,7 @@ for (const rel of windowModules) {
 // ---- 2. the served bundle is not stale --------------------------------
 const bundled = [
   ['client/broadcast_core.js', 'static-replay-viewer/broadcast_core.js'],
+  ['client/chrome_common.js', 'static-replay-viewer/chrome_common.js'],
   ['replay-viewer/static_replay.js', 'static-replay-viewer/static_replay.js'],
   ['replay-viewer/static_replay_worker.js',
     'static-replay-viewer/static_replay_worker.js'],
