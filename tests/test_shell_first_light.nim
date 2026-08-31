@@ -248,7 +248,7 @@ suite "shell FIRST LIGHT":
     discard playback.step([frame(map, 0)], 1)
     check playback.bodyActivationCount == 0
 
-  test "gate-off hook is byte-identical and constructs no guest inventory":
+  test "gate-off hook is byte-identical and runtime inventory is compile-time":
     var episode = initFirstLightEpisode(false, true, controls(scInput, 2))
     let before = @[InputState(up: true, attack: true), InputState(left: true)]
     let map = testBodyMap()
@@ -270,11 +270,18 @@ suite "shell FIRST LIGHT":
     check afterBytes == beforeBytes
 
     let inventory = firstLightInventory()
-    check not inventory.wasmtime
-    check not inventory.uploads
-    check not inventory.calls
-    check not inventory.stores
-    check not inventory.ladder
+    when ShellRuntimeAvailable:
+      check inventory.wasmtime
+      check inventory.uploads
+      check inventory.calls
+      check inventory.stores
+      check inventory.ladder
+    else:
+      check not inventory.wasmtime
+      check not inventory.uploads
+      check not inventory.calls
+      check not inventory.stores
+      check not inventory.ladder
 
   test "episode rebuilds scheduled danger before cold planning":
     let map = dangerChoiceMap()

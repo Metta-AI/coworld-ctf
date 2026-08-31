@@ -2,7 +2,7 @@
 ## FL-B body through hold/rotate/cover/partner changes, prints install telemetry
 ## and movement summaries, then measures 32 seats after 30 warm ticks.
 
-import std/[algorithm, options, strformat, strutils]
+import std/[algorithm, options, os, strformat, strutils]
 import bitworld/spriteprotocol
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
@@ -16,6 +16,9 @@ const
   RuntimeGateNs = 4_000_000'i64
   TelemetryTicks = 300
   InstallTelemetryTicks = 8
+
+proc repoRoot(): string =
+  currentSourcePath.parentDir.parentDir
 
 proc probeMap(): BodyMap =
   const Side = 1024
@@ -174,6 +177,28 @@ proc movementSummary(tick: int, masks: openArray[FirstLightMask]): string =
   &"FIRST_LIGHT_MASK_SUMMARY tick={tick} seats={masks.len} " &
     &"moving={moving} aiming={aiming}"
 
+proc configureDemoPlay(episode: var FirstLightEpisode) =
+  let path = getEnv("FIRST_LIGHT_CONFIG_PATH")
+  if path.len == 0 or not fileExists(path):
+    return
+  for line in episode.configureFirstLightDemoPlayFromJson(readFile(path),
+      repoRoot()):
+    echo line
+
+proc configureAllSeatEdgeRide(episode: var FirstLightEpisode) =
+  var seats: seq[int]
+  for seat in 0 ..< Seats:
+    seats.add seat
+  for line in episode.configureFirstLightPlay(FirstLightPlayConfig(
+      modulePath: repoRoot() / "play_sdk" / ".build" / "edge_ride.wasm",
+      playName: "edge_ride",
+      paramsBytes: "{\"coverBias\":0.8,\"enterLead\":120,\"margin\":220}",
+      seats: seats,
+      uploadIdBase: 30_000,
+      proposalIdBase: 40_000,
+      originGeneration: 1)):
+    echo line
+
 proc dangerProof() =
   let map = dangerProbeMap()
   let start: BodyPoint = (32, 80)
@@ -224,6 +249,7 @@ proc main() =
     "executor=lane-a-fl-b"
 
   var telemetry = initFirstLightEpisode(true, true, controls(), map, 331)
+  telemetry.configureDemoPlay()
   var telemetryPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
     telemetryPositions[seat] = (100 + seat, 100)
@@ -255,6 +281,7 @@ proc main() =
   dangerProof()
 
   var measured = initFirstLightEpisode(true, true, controls(), moveMap, 331)
+  measured.configureAllSeatEdgeRide()
   var measuredPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
     measuredPositions[seat] = (10 + seat, 10)

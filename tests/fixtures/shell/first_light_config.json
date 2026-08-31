@@ -45,6 +45,15 @@
   "startWaitTicks": 0,
   "speed": 1,
   "fastMode": false,
+  "firstLightPlay": {
+    "modulePath": "play_sdk/.build/edge_ride.wasm",
+    "playName": "edge_ride",
+    "params": {"coverBias": 0.8, "enterLead": 120, "margin": 220},
+    "seats": [0, 1, 2, 3, 4, 5, 6, 7],
+    "uploadIdBase": 10000,
+    "proposalIdBase": 20000,
+    "originGeneration": 1
+  },
   "slots": [
     {"control": "play"}, {"control": "play"},
     {"control": "play"}, {"control": "play"},

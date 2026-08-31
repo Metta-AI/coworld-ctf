@@ -25,8 +25,8 @@ proc goldenOk(v: SdkView): bool =
     v.world.aliveTeamsPresent and v.world.aliveTeams == 9 and
     v.world.zone.phasePresent and v.world.zone.phase == 2 and
     v.world.zone.current.present and v.world.zone.current.x1 == 400 and
-    v.world.zone.current.y1 == 200 and v.world.zone.current.x2 == 1600 and
-    v.world.zone.current.y2 == 900 and
+    v.world.zone.current.y1 == 200 and v.world.zone.current.x2 == 2000 and
+    v.world.zone.current.y2 == 1100 and
     v.world.zone.ticksToShrinkPresent and
     v.world.zone.ticksToShrink == 240 and
     v.trackCount == 2 and

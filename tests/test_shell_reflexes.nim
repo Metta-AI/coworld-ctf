@@ -59,8 +59,10 @@ proc fakeBinding(): LadderBinding =
   result.manifest = manifestFor("controller")
   result.hash = repeat('c', 64)
   result.ready = true
-  result.makeGuest = proc(entry: ValidatedCallEntry,
+  result.makeGuest = proc(seatIndex: int; entry: ValidatedCallEntry,
                           emitClass: EmitClass): LadderGuest =
+    discard seatIndex
+    discard entry
     discard emitClass
     new(result)
     result.runInit = proc(paramsBytes, contextBytes: string): LadderInvocationResult =

@@ -14,6 +14,13 @@ The build uses the arena recipe minus WASI: imports must live only in the
 `play` namespace. The SDK stubs expose `emit`, `log`, `nearest_reachable`, and
 `nearest_cover`.
 
+## Testing decoders
+
+Decoder tests must anchor on a landed contract artifact: checked-in golden
+bytes, a schema-derived fixture, or production-validator output. Do not prove a
+reader against bytes emitted only by the same lane's temporary producer; reader
+and writer self-agreement does not prove the contract.
+
 `nearest_cover` is now backed by the engine-side atlas scorer. Its API is stable;
 candidate density is governed by the engine's frozen `MaxCoverRadiusPx` and
 `MaxCoverPostsExamined` caps.

@@ -1,6 +1,6 @@
 ## Reference `edge_ride` controller through the production shell runtime path.
 
-import std/[math, options, os, osproc, sequtils, strutils, unittest]
+import std/[json, math, options, os, osproc, sequtils, strutils, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[abi, body, body_map, default_play, emit_validator,
@@ -115,6 +115,18 @@ proc fullViewFor(tick: int; self: BodyPoint; current: array[4, int];
     "," & $current[1] & "," & $current[2] & "," & $current[3] &
     "],\"dps\":1,\"phase\":2,\"ticks_to_shrink\":" & $ticksToShrink & "}}}"
 
+proc rectArray(node: JsonNode): array[4, int] =
+  require node.kind == JArray
+  require node.len == 4
+  for index in 0 .. 3:
+    result[index] = node[index].getInt
+
+proc goldenZoneRects(): tuple[current, next: array[4, int]] =
+  let zone = parseJson(readFile(FixtureDir / "play_view.golden.json"))[
+    "world"]["zone"]
+  result.current = zone["current"].rectArray
+  result.next = zone["next"].rectArray
+
 proc pointOf(invocation: ShellInvocationResult): BodyPoint =
   let point = invocation.lastAccepted.get.intent.point.get
   (point.x, point.y)
@@ -129,8 +141,8 @@ proc isAtlasPost(map: BodyMap; point: BodyPoint): bool =
   false
 
 proc rectContains(rect: array[4, int]; point: BodyPoint): bool =
-  point.x >= min(rect[0], rect[2]) and point.x <= max(rect[0], rect[2]) and
-    point.y >= min(rect[1], rect[3]) and point.y <= max(rect[1], rect[3])
+  point.x >= rect[0] and point.x <= rect[0] + rect[2] and
+    point.y >= rect[1] and point.y <= rect[1] + rect[3]
 
 proc advance(pos, target: BodyPoint; speed: float): BodyPoint =
   let
@@ -182,7 +194,7 @@ suite "edge_ride reference play":
     let module = engine.edgeModule()
     defer: module.close()
     let map = testMap()
-    let current = [400, 200, 1600, 900]
+    let current = [400, 200, 1200, 700]
 
     var defaults = engine.newEdgeInstance(module, map, (550, 300))
     defer: defaults.close()
@@ -213,8 +225,8 @@ suite "edge_ride reference play":
     defer: module.close()
     let map = testMap()
     let
-      current = [400, 200, 1600, 900]
-      next = [900, 450, 1250, 750]
+      current = [400, 200, 1200, 700]
+      next = [900, 450, 350, 300]
 
     block outsideCurrent:
       var instance = engine.newEdgeInstance(module, map, (300, 300))
@@ -261,7 +273,7 @@ suite "edge_ride reference play":
     let module = engine.edgeModule()
     defer: module.close()
     let map = testMap()
-    let current = [400, 200, 1600, 900]
+    let current = [400, 200, 1200, 700]
 
     var plain = engine.newEdgeInstance(module, map, (550, 300))
     defer: plain.close()
@@ -290,7 +302,7 @@ suite "edge_ride reference play":
     var instance = engine.newEdgeInstance(module, map, (550, 300))
     defer: instance.close()
     instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":220}")
-    let view = viewFor(1, (550, 300), [400, 200, 1600, 900], 240,
+    let view = viewFor(1, (550, 300), [400, 200, 1200, 700], 240,
       includeNext = false)
 
     let first = instance.invokeStep(view, 1)
@@ -309,19 +321,19 @@ suite "edge_ride reference play":
     for badView in [
         "{\"bogus\":tru,\"schema\":\"play_view\",\"self\":{\"pos\":[550,300]}," &
           "\"tick\":1441,\"v\":1,\"world\":{\"zone\":{\"current\":" &
-          "[400,200,1600,900],\"ticks_to_shrink\":240}}}",
+          "[400,200,1200,700],\"ticks_to_shrink\":240}}}",
         "{\"bogus\":1e+,\"schema\":\"play_view\",\"self\":{\"pos\":[550,300]}," &
           "\"tick\":1441,\"v\":1,\"world\":{\"zone\":{\"current\":" &
-          "[400,200,1600,900],\"ticks_to_shrink\":240}}}",
+          "[400,200,1200,700],\"ticks_to_shrink\":240}}}",
         "{\"bogus\":{],\"schema\":\"play_view\",\"self\":{\"pos\":[550,300]}," &
           "\"tick\":1441,\"v\":1,\"world\":{\"zone\":{\"current\":" &
-          "[400,200,1600,900],\"ticks_to_shrink\":240}}}",
+          "[400,200,1200,700],\"ticks_to_shrink\":240}}}",
         "{\"bogus\":[},\"schema\":\"play_view\",\"self\":{\"pos\":[550,300]}," &
           "\"tick\":1441,\"v\":1,\"world\":{\"zone\":{\"current\":" &
-          "[400,200,1600,900],\"ticks_to_shrink\":240}}}",
+          "[400,200,1200,700],\"ticks_to_shrink\":240}}}",
         "{\"aggressors\":[{\"dir_brads\":64,\"tick\":1400}]," &
           "\"schema\":\"play_view\",\"self\":{\"pos\":[550,300]},\"v\":1," &
-          "\"world\":{\"zone\":{\"current\":[400,200,1600,900]," &
+          "\"world\":{\"zone\":{\"current\":[400,200,1200,700]," &
           "\"ticks_to_shrink\":240}}}"]:
       var instance = engine.newEdgeInstance(module, map, (550, 300))
       defer: instance.close()
@@ -334,9 +346,42 @@ suite "edge_ride reference play":
     defer: good.close()
     good.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":220}")
     let goodStep = good.invokeStep(fullViewFor(1441, (550, 300),
-      [400, 200, 1600, 900], 240, tracks = 1), 1441)
+      [400, 200, 1200, 700], 240, tracks = 1), 1441)
     check not goodStep.faulted
     check goodStep.returned == 0
+
+  test "zone rectangles decode the schema width-height form":
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    let module = engine.edgeModule()
+    defer: module.close()
+    let map = testMap()
+    let (goldenCurrent, goldenNext) = goldenZoneRects()
+    check goldenCurrent == [400, 200, 1600, 900]
+    check goldenNext == [700, 350, 800, 450]
+
+    block currentSpansWidthHeight:
+      var instance = engine.newEdgeInstance(module, map, (1700, 850))
+      defer: instance.close()
+      instance.initOk("{\"coverBias\":0.0,\"enterLead\":0,\"margin\":40}")
+      let view = viewFor(1441, (1700, 850), goldenCurrent, 240,
+        includeNext = false)
+      let step = instance.invokeStep(view, 1441)
+      check not step.faulted
+      check step.returned == 0
+      check step.reasonOf == "edge_ride:hold"
+
+    block nextSpansWidthHeight:
+      var instance = engine.newEdgeInstance(module, map, (1000, 600))
+      defer: instance.close()
+      instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":40}")
+      let view = viewFor(1441, (1000, 600), goldenCurrent, 120,
+        goldenNext)
+      let step = instance.invokeStep(view, 1441)
+      check not step.faulted
+      check step.returned == 0
+      check step.reasonOf == "edge_ride:enter"
+      check step.pointOf == (1000, 600)
 
   test "lean and large BR controller view fuel rows are reported honestly":
     let engine = newRuntimeEngine()
@@ -349,7 +394,7 @@ suite "edge_ride reference play":
       var instance = engine.newEdgeInstance(module, map, (550, 300))
       defer: instance.close()
       instance.initOk("{}")
-      let view = viewFor(1441, (550, 300), [400, 200, 1600, 900], 240,
+      let view = viewFor(1441, (550, 300), [400, 200, 1200, 700], 240,
         includeNext = false)
       let step = instance.invokeStep(view, 1441)
       let consumed = step.fuelConsumed
@@ -366,7 +411,7 @@ suite "edge_ride reference play":
       var instance = engine.newEdgeInstance(module, map, (550, 300))
       defer: instance.close()
       instance.initOk("{}")
-      let view = fullViewFor(1441, (550, 300), [400, 200, 1600, 900], 240,
+      let view = fullViewFor(1441, (550, 300), [400, 200, 1200, 700], 240,
         tracks = 32)
       let step = instance.invokeStep(view, 1441)
       echo "EDGE_RIDE_VIEW_FUEL kind=large view_len=", view.len,
@@ -386,8 +431,8 @@ suite "edge_ride reference play":
     edge.initOk("{\"coverBias\":0.0,\"enterLead\":200,\"margin\":80}")
 
     let
-      current = [400, 200, 1600, 900]
-      next = [900, 450, 1250, 750]
+      current = [400, 200, 1200, 700]
+      next = [900, 450, 350, 300]
       rotateTarget = (1075, 600)
     var
       edgePos: BodyPoint = (760, 260)

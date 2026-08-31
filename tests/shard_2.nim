@@ -45,6 +45,7 @@ import
   test_shell_containment,
   test_shell_cover_scorer,
   test_shell_default_play,
+  test_shell_episode_ladder,
   test_shell_effective_order,
   test_shell_emit_validator,
   test_shell_first_light,

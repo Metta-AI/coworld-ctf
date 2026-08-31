@@ -77,6 +77,15 @@ type
     perSeatChargedBytes*: seq[int]
     cache*: CacheSnapshot
 
+  BoundModule* = object
+    ## Production binding surface after stage-7 commit: the seat-local name
+    ## table chooses a content hash, then the content cache supplies the
+    ## compiled module for instance creation.
+    name*: string
+    hash*: string
+    manifest*: PlayManifest
+    module*: RuntimeModule
+
   WorkerTaskKind = enum
     wtkStop
     wtkHash
@@ -623,3 +632,17 @@ proc boundHash*(plane: CompilePlane; seatIndex: int; name: string): string =
   if seatIndex < 0 or seatIndex >= plane.seats.len:
     return ""
   plane.seats[seatIndex].names.getOrDefault(name, "")
+
+proc boundModule*(plane: CompilePlane; seatIndex: int;
+                  name: string): Option[BoundModule] =
+  if plane == nil or seatIndex < 0 or seatIndex >= plane.seats.len:
+    return none(BoundModule)
+  let hash = plane.boundHash(seatIndex, name)
+  if hash.len == 0:
+    return none(BoundModule)
+  let outcome = plane.cache.cachedOutcome(hash)
+  if outcome.isNone:
+    return none(BoundModule)
+  let content = outcome.get
+  some(BoundModule(name: name, hash: hash, manifest: content.manifest,
+    module: content.module))

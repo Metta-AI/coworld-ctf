@@ -33,7 +33,7 @@ type
     runRetune*: proc(oldParamsBytes, newParamsBytes: string): LadderInvocationResult {.closure.}
     close*: proc() {.closure.}
 
-  LadderGuestFactory* = proc(entry: ValidatedCallEntry,
+  LadderGuestFactory* = proc(seatIndex: int; entry: ValidatedCallEntry,
     emitClass: EmitClass): LadderGuest {.closure.}
 
   LadderBinding* = object
@@ -57,6 +57,7 @@ type
     viewBytes*: string
     guardContext*: IntentContext
     defaultIntent*: Intent
+    defaultGoal*: Option[ValidatedGoal]
     nativeBase*: Option[LadderNativeBase]
 
   LadderStatus* = object
@@ -392,7 +393,7 @@ proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   let factory = bindings.bindingFactory(entry[])
   if factory == nil:
     return false
-  entry[].guest = factory(entry[].call, entry[].emitClass)
+  entry[].guest = factory(seatIndex, entry[].call, entry[].emitClass)
   if entry[].guest == nil:
     entry[].state = pisFaulted
     let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
@@ -561,6 +562,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
         entry.state = pisParked
     output.usedDefault = true
     output.intent = input.defaultIntent
+    output.goal = input.defaultGoal
     output.provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
     return
 
@@ -576,6 +578,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
       driver.stepEntry(seatIndex, index, input, tick, output)
 
   var base = input.defaultIntent
+  output.goal = input.defaultGoal
   var provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
   if input.nativeBase.isSome:
     let native = input.nativeBase.get

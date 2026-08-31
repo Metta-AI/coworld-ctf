@@ -4,7 +4,7 @@
 ## as manifest-name binding stay in `compile_plane.nim`; keeping them out of
 ## this table is what makes cross-seat deduplication safe.
 
-import std/[tables]
+import std/[options, tables]
 
 import canonical_fast, manifest, runtime, types
 
@@ -107,6 +107,18 @@ proc snapshot*(cache: ModuleCache): CacheSnapshot =
 
 proc residentBytes*(cache: ModuleCache): int =
   if cache == nil: 0 else: cache.residentBytes
+
+proc cachedOutcome*(cache: ModuleCache; hash: string): Option[ContentOutcome] =
+  ## Read-only lookup for a compiled content outcome. Seat-local name binding
+  ## remains owned by the compile plane; this accessor exposes only the
+  ## already-accepted content terminal for runtime binding.
+  if cache == nil or hash notin cache.entries:
+    return none(ContentOutcome)
+  let entry = cache.entries[hash]
+  if entry.state == ccsCompiled and entry.outcome.accepted:
+    some(entry.outcome)
+  else:
+    none(ContentOutcome)
 
 proc writeStatusEntry*(w: var CanonicalWriter; entry: StatusEntry) =
   ## Encodes one durable status entry using Appendix P.1 key order. All u64

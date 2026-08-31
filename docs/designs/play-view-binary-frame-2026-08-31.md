@@ -82,6 +82,10 @@ presence bits, made cheap. Absent is never zero-that-lies: an anonymous
 aggressor's seat stays distinguishable from seat 0, which was a real
 trap in the JSON reader.
 
+**Rectangles.** Every rectangle is four `i32` fields in schema order:
+`x, y, w, h`. This matches the JSON `play_view.schema.json` contract exactly;
+binary encoders must not switch to corner form.
+
 **Strings.** Team names are a closed 16-name set, so a record carries a
 `team_id: u8`, not a string. The only genuinely free-form text is shout
 content (≤10 bytes by schema). Put those in one tail blob with

@@ -105,8 +105,9 @@ proc binding(book: FakeBook; name: string; playClass = "controller"):
   result.manifest = manifestFor(name, playClass)
   result.hash = hashFor(name)
   result.ready = true
-  result.makeGuest = proc(entry: ValidatedCallEntry,
+  result.makeGuest = proc(seatIndex: int; entry: ValidatedCallEntry,
                           emitClass: EmitClass): LadderGuest =
+    discard seatIndex
     fakeGuest(book, entry, emitClass)
 
 proc registry(): PathRegistry =

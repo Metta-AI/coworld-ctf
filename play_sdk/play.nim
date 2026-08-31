@@ -543,8 +543,10 @@ proc readRect(r: var JsonReader): SdkRect =
       return
   if not r.take(']'):
     return
+  # Wire form follows play_view.schema.json: [x, y, w, h]. Keep SdkRect's
+  # internal corner shape, but convert exactly once at the parser boundary.
   result = SdkRect(present: true, x1: values[0], y1: values[1],
-    x2: values[2], y2: values[3])
+    x2: values[0] + values[2], y2: values[1] + values[3])
 
 proc beginObject(r: var JsonReader): bool =
   r.take('{')
@@ -768,6 +770,16 @@ proc readEdgeRideZone(r: var JsonReader; outView: var EdgeRideView) =
     else:
       discard r.skipValue()
 
+proc readEdgeRideSelf(r: var JsonReader; outView: var EdgeRideView) =
+  if not r.beginObject():
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "pos"):
+      outView.selfPos = r.readPoint()
+    else:
+      discard r.skipValue()
+
 proc readEdgeRideWorld(r: var JsonReader; outView: var EdgeRideView) =
   if not r.beginObject():
     return
@@ -789,8 +801,7 @@ proc readEdgeRideViewInto*(view: PlayView; outView: var EdgeRideView): bool =
   var key: JsonString
   while r.nextObjectKey(key):
     if r.stringEquals(key, "self"):
-      let self = r.readSelf()
-      outView.selfPos = self.pos
+      r.readEdgeRideSelf(outView)
     elif r.stringEquals(key, "tick"):
       outView.tickPresent = r.readIntValue(outView.tick)
     elif r.stringEquals(key, "world"):
