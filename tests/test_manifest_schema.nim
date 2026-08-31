@@ -85,7 +85,30 @@ const SampleJson = """{
   "teams": {"teams": 4, "mapPath": "gen"},
   "tokens": {"tokens": ["tokA"]},
   "visionBubble": {"visionBubble": 50},
-  "visionConeDeg": {"visionConeDeg": 45}
+  "visionConeDeg": {"visionConeDeg": 45},
+  "num_agents": {"num_agents": 2},
+  "cogsPerTeam": {"cogsPerTeam": 3},
+  "loadout": {"loadout": "paintball"},
+  "floorPaint": {"floorPaint": true},
+  "paintBuff": {"paintBuff": true, "floorPaint": true},
+  "hill": {"hill": true, "floorPaint": true},
+  "paintTile": {"paintTile": 40},
+  "hillRadiusTiles": {"hillRadiusTiles": 3},
+  "hillOwnPermille": {"hillOwnPermille": 700},
+  "hillDecisiveTicks": {"hillDecisiveTicks": 500},
+  "paintSpeedOwnPct": {"paintSpeedOwnPct": 130},
+  "paintSpeedEnemyPct": {"paintSpeedEnemyPct": 70},
+  "paintHealTicks": {"paintHealTicks": 24},
+  "sprayDamage": {"sprayDamage": 2},
+  "regimes": {"regimes": ["visitor"]},
+  "turnTicks": {"turnTicks": 96},
+  "turnBudgetMs": {"turnBudgetMs": 12000},
+  "attempt1Ms": {"attempt1Ms": 5000},
+  "retryMs": {"retryMs": 2000},
+  "turnSpacingMs": {"turnSpacingMs": 4000},
+  "wallClockBudgetSeconds": {"wallClockBudgetSeconds": 600},
+  "model": {"model": "claude-haiku-4-5"},
+  "maxOutputTokens": {"maxOutputTokens": 800}
 }"""
 
 suite "league manifest config_schema vs GameConfig":
@@ -156,14 +179,17 @@ suite "league manifest config_schema vs GameConfig":
     let expected = defaultGameConfig().aimTurnRate
     check schema["properties"]["aimTurnRate"]["default"].getInt == expected
     for variant in parseFile(GameDir / ManifestName)["variants"]:
-      check variant["game_config"]["aimTurnRate"].getInt == expected
+      # A variant that omits the key inherits the engine default, which is
+      # exactly the value being pinned (the paintball variant does this).
+      if variant["game_config"].hasKey("aimTurnRate"):
+        check variant["game_config"]["aimTurnRate"].getInt == expected
 
   test "one manifest preserves Paintbot ids and namespaces CTF ids":
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
     check variantIds == @["2v2", "4ffa", "4ffa8", "default", "1v1",
-      "ctf-default", "ctf-1v1"]
+      "ctf-default", "ctf-1v1", "paintball"]
 
   test "ctf publishes namespaced default and two-seat custom-lobby variants":
     let
