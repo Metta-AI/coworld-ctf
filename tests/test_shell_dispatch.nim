@@ -2,11 +2,16 @@
 
 import std/[atomics, unittest]
 import ../src/ctf/labels
+import ../src/shell/types
+import ./raw_websocket_client
 
 include ../src/ctf/server
 
 var
   seenUpload, seenCall, seenAck, seenLobby: Atomic[uint64]
+  uploadDeliveries, callDeliveries, seenUploadBytes: Atomic[int]
+  ackDeliveries, ackRetiredSlots: Atomic[int]
+  ackRetiredProposal: Atomic[uint64]
 
 proc consumeUpload(
   websocket: WebSocket,
@@ -14,8 +19,9 @@ proc consumeUpload(
   packet: ModuleUploadPacket,
 ) {.gcsafe.} =
   doAssert seat == 0
-  doAssert packet.wasm == "wasm"
   seenUpload.store(packet.uploadId)
+  seenUploadBytes.store(packet.wasm.len)
+  discard uploadDeliveries.fetchAdd(1)
 
 proc consumeCall(
   websocket: WebSocket,
@@ -23,16 +29,21 @@ proc consumeCall(
   packet: PlayCallPacket,
 ) {.gcsafe.} =
   doAssert seat == 0
-  doAssert packet.callBytes == "{}"
   seenCall.store(packet.proposalId)
+  discard callDeliveries.fetchAdd(1)
 
 proc consumeAck(
   websocket: WebSocket,
   seat: int,
   packet: StatusAckPacket,
-) {.gcsafe.} =
+): PlayIngressFeedback {.gcsafe.} =
   doAssert seat == 0
   seenAck.store(packet.mark)
+  discard ackDeliveries.fetchAdd(1)
+  result.statusSlotsRetired = ackRetiredSlots.load
+  let proposalId = ackRetiredProposal.load
+  if proposalId != 0:
+    result.retiredProposalIds = @[proposalId]
 
 proc consumeLobby(
   websocket: WebSocket,
@@ -66,6 +77,12 @@ suite "server play receive arm":
     seenCall.store(0)
     seenAck.store(0)
     seenLobby.store(0)
+    uploadDeliveries.store(0)
+    callDeliveries.store(0)
+    seenUploadBytes.store(0)
+    ackDeliveries.store(0)
+    ackRetiredSlots.store(0)
+    ackRetiredProposal.store(0)
 
   test "play packets reach registered seams and malformed bytes reject":
     appState.config = playConfig(scPlay)
@@ -80,15 +97,348 @@ suite "server play receive arm":
       StatusAckPacket(mark: 9).encodePacket()))
     websocketHandler(ws, MessageEvent, binaryMessage(
       LobbyChatSendPacket(text: "hello").encodePacket()))
+    check seenUpload.load == 0
+    check seenCall.load == 0
+    check seenAck.load == 0
+    check seenLobby.load == 1
+    drainPlayIngressAtTickBoundary()
     check seenUpload.load == 7
     check seenCall.load == 8
     check seenAck.load == 9
-    check seenLobby.load == 1
 
     let rejectedBefore = appState.playProtocolRejected
     websocketHandler(ws, MessageEvent, binaryMessage("\xA0\x02"))
     websocketHandler(ws, MessageEvent, binaryMessage("\x80"))
     check appState.playProtocolRejected == rejectedBefore + 2
+
+  test "newest authenticated socket invalidates queued work from its predecessor":
+    appState.config = playConfig(scPlay)
+    let
+      oldSocket = cast[WebSocket](11)
+      newSocket = cast[WebSocket](12)
+    check oldSocket.registerPlayerWebSocket("play", 0, "token")
+    appState.playerIndices[oldSocket] = 4
+    websocketHandler(oldSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "old").encodePacket()))
+
+    var
+      replaced = false
+      replacedSocket: WebSocket
+    check newSocket.registerPlayerWebSocket(
+      "play", 0, "token", replaced, replacedSocket)
+    check replaced
+    check replacedSocket == oldSocket
+    check appState.playerIndices[newSocket] == 4
+    check appState.playIngress[0].binding.generation == 2
+    # The rebind consumes the old socket's tick allowance. The next real
+    # tick drain resets it; only then does the replacement get fresh service.
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == 0
+    websocketHandler(newSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "new").encodePacket()))
+
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == 1
+    check seenUpload.load == 2
+    check appState.playIngress[0].binding.state == pssBound
+
+    websocketHandler(oldSocket, CloseEvent, Message())
+    check appState.playIngress[0].binding.state == pssBound
+    websocketHandler(newSocket, CloseEvent, Message())
+    check appState.playIngress[0].binding.state == pssLost
+    check appState.playerIndices[newSocket] == 4
+
+  test "rebind does not refresh the per-tick classification byte budget":
+    appState.config = playConfig(scPlay)
+    let
+      oldSocket = cast[WebSocket](25)
+      newSocket = cast[WebSocket](26)
+      maximumUpload = ModuleUploadPacket(
+        uploadId: 1, wasm: newString(MaxModuleBytes)).encodePacket()
+    check oldSocket.registerPlayerWebSocket("play", 0, "token")
+    websocketHandler(oldSocket, MessageEvent, binaryMessage(maximumUpload))
+
+    var
+      replaced = false
+      replacedSocket: WebSocket
+    check newSocket.registerPlayerWebSocket(
+      "play", 0, "token", replaced, replacedSocket)
+    check replaced
+    websocketHandler(newSocket, MessageEvent, binaryMessage(maximumUpload))
+
+    # Two maximum uploads exceed the one-tick classification byte cap even
+    # though the authenticated socket changed between them.
+    check appState.playIngress[0].binding.state == pssLost
+    check appState.playIngress[0].pendingCount == 0
+
+  test "rebind does not refresh the per-tick upload queue slot":
+    appState.config = playConfig(scPlay)
+    let
+      oldSocket = cast[WebSocket](27)
+      newSocket = cast[WebSocket](28)
+    check oldSocket.registerPlayerWebSocket("play", 0, "token")
+    websocketHandler(oldSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "old").encodePacket()))
+
+    var
+      replaced = false
+      replacedSocket: WebSocket
+    check newSocket.registerPlayerWebSocket(
+      "play", 0, "token", replaced, replacedSocket)
+    check replaced
+    check appState.playIngress[0].pendingCount == 0
+    websocketHandler(newSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "same-tick").encodePacket()))
+    check appState.playIngress[0].pendingCount == 0
+    check appState.playIngress[0].counters.droppedUploads == 1
+
+    # The tick drain resets the spent allowance even though stale eviction
+    # left no pending payload to admit.
+    drainPlayIngressAtTickBoundary()
+    websocketHandler(newSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "next-tick").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == 1
+    check seenUpload.load == 2
+
+  test "per-tick upload and call caps drop deterministically":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](13)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for uploadId in 1'u64 .. 2'u64:
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: uploadId, wasm: "x").encodePacket()))
+    for proposalId in 1'u64 .. 3'u64:
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: proposalId, callBytes: "{}").encodePacket()))
+
+    check appState.playIngress[0].pendingCount == 3
+    check appState.playIngress[0].counters.droppedUploads == 1
+    check appState.playIngress[0].counters.droppedCalls == 1
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == 1
+    check callDeliveries.load == 2
+
+  test "upload module budget enforces limit minus one, limit, and limit plus one":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](14)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for uploadId in 1'u64 .. uint64(MaxModulesPerSeatPerEpisode - 1):
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: uploadId, wasm: "").encodePacket()))
+      drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].admittedModules ==
+      MaxModulesPerSeatPerEpisode - 1
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(
+        uploadId: uint64(MaxModulesPerSeatPerEpisode),
+        wasm: "").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].admittedModules == MaxModulesPerSeatPerEpisode
+    check uploadDeliveries.load == MaxModulesPerSeatPerEpisode
+
+    let rejectedBefore = appState.playProtocolRejected
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(
+        uploadId: uint64(MaxModulesPerSeatPerEpisode + 1),
+        wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == MaxModulesPerSeatPerEpisode
+    check appState.playProtocolRejected == rejectedBefore + 1
+
+  test "upload byte budget enforces limit minus one, limit, and limit plus one":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](18)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for uploadId in 1'u64 .. 7'u64:
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        ModuleUploadPacket(
+          uploadId: uploadId,
+          wasm: newString(MaxModuleBytes)).encodePacket()))
+      drainPlayIngressAtTickBoundary()
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(
+        uploadId: 8,
+        wasm: newString(MaxModuleBytes - 1)).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].admittedUploadBytes ==
+      uint64(MaxUploadBytesPerSeatPerEpisode - 1)
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 9, wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].admittedUploadBytes ==
+      uint64(MaxUploadBytesPerSeatPerEpisode)
+    let rejectedBefore = appState.playProtocolRejected
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 10, wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].admittedUploadBytes ==
+      uint64(MaxUploadBytesPerSeatPerEpisode)
+    check appState.playProtocolRejected == rejectedBefore + 1
+
+  test "id floors reject stale and conflicting retries without a second handoff":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](15)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    template sendAndDrain(packet: ModuleUploadPacket) =
+      websocketHandler(ws, MessageEvent, binaryMessage(packet.encodePacket()))
+      drainPlayIngressAtTickBoundary()
+
+    sendAndDrain(ModuleUploadPacket(uploadId: 2, wasm: "same"))
+    sendAndDrain(ModuleUploadPacket(uploadId: 2, wasm: "same"))
+    sendAndDrain(ModuleUploadPacket(uploadId: 2, wasm: "different"))
+    sendAndDrain(ModuleUploadPacket(uploadId: 1, wasm: "stale"))
+    sendAndDrain(ModuleUploadPacket(uploadId: 3, wasm: "new"))
+
+    check uploadDeliveries.load == 2
+    check seenUpload.load == 3
+    check appState.playProtocolRejected == 2
+
+  test "status reservations backpressure before consuming a call id":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](16)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for proposalId in 1'u64 .. 2'u64:
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: proposalId, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots ==
+      2 * (1 + MaxLadderEntries)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 3, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check callDeliveries.load == 2
+    check appState.playIngress[0].counters.backpressure == 1
+    check appState.playIngress[0].proposalIdFloor == 2
+
+  test "ack feedback releases upload capacity before same-tick call admission":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](19)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots == 2
+
+    ackRetiredSlots.store(2)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 1, callBytes: "{}").encodePacket()))
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 1).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+
+    check ackDeliveries.load == 1
+    check callDeliveries.load == 1
+    check appState.playIngress[0].reservedStatusSlots ==
+      1 + MaxLadderEntries
+
+  test "a full upload budget can call after its reservations retire":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](20)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for uploadId in 1'u64 .. uint64(MaxModulesPerSeatPerEpisode):
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: uploadId, wasm: "").encodePacket()))
+      drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots == 32
+
+    ackRetiredSlots.store(32)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 32).encodePacket()))
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 1, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check callDeliveries.load == 1
+    check appState.playIngress[0].reservedStatusSlots ==
+      1 + MaxLadderEntries
+
+  test "call payload eviction waits for explicit complete retirement feedback":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](21)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 7, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].hasCallPayload(7)
+
+    ackRetiredSlots.store(1)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 1).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].hasCallPayload(7)
+
+    ackRetiredSlots.store(MaxLadderEntries)
+    ackRetiredProposal.store(7)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 2).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check not appState.playIngress[0].hasCallPayload(7)
+    check appState.playIngress[0].reservedStatusSlots == 0
+
+  test "over-retirement clamps and counts instead of raising in production":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](23)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots == 2
+
+    applyPlayIngressFeedback(0, PlayIngressFeedback(statusSlotsRetired: 99))
+    check appState.playIngress[0].reservedStatusSlots == 0
+    check appState.playIngress[0].counters.feedbackErrors == 1
+    check appState.playIngressFeedbackErrors == 1
+
+    applyPlayIngressFeedback(99, PlayIngressFeedback(statusSlotsRetired: 1))
+    check appState.playIngressFeedbackErrors == 2
+
+    expect ValueError:
+      appState.playIngress[0].applyPlayIngressFeedbackStrict(
+        PlayIngressFeedback(statusSlotsRetired: 1))
+
+  test "unknown retired proposal is ignored and counted":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](24)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 7, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].hasCallPayload(7)
+
+    applyPlayIngressFeedback(0, PlayIngressFeedback(
+      retiredProposalIds: @[999'u64]))
+    check appState.playIngress[0].hasCallPayload(7)
+    check appState.playIngress[0].counters.feedbackErrors == 1
+    check appState.playIngressFeedbackErrors == 1
+
+    expect ValueError:
+      appState.playIngress[0].applyPlayIngressFeedbackStrict(
+        PlayIngressFeedback(retiredProposalIds: @[999'u64]))
+
+  test "StatusAck coalesces to the greatest mark and runs once on the tick":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](22)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for mark in [5'u64, 3'u64, 8'u64]:
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: mark).encodePacket()))
+    check seenAck.load == 0
+    drainPlayIngressAtTickBoundary()
+    check seenAck.load == 8
+    check ackDeliveries.load == 1
+
+  test "an absent lane-C consumer rejects only after tick admission":
+    appState.config = playConfig(scPlay)
+    playReceiveConsumers.moduleUpload = nil
+    let ws = cast[WebSocket](17)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "x").encodePacket()))
+    check appState.playProtocolRejected == 0
+    drainPlayIngressAtTickBoundary()
+    check appState.playProtocolRejected == 1
 
   test "play input and ready are ignored with telemetry but Sprite chat passes":
     appState.config = playConfig(scPlay)
@@ -211,3 +561,40 @@ suite "server play receive arm":
     config.slots[0].control = scPlay
     config.season2Shell = false
     check not config.playerUpgradeUsesPlaySeatTransport(0)
+
+  test "maximum-size A0 crosses the real play socket and tick seam":
+    appState.config = playConfig(scPlay)
+    appState.config.closedRoster = true
+    appState.config.slots[0].name = "play"
+    appState.config.slots[0].token = "secret"
+    configurePlayIngress(appState.config)
+
+    var httpServer = newServer(httpHandler, websocketHandler, workerThreads = 1)
+    var
+      serverThread: Thread[ServerThreadArgs]
+      serverPtr = cast[ptr Server](unsafeAddr httpServer)
+    createThread(
+      serverThread,
+      serverThreadProc,
+      ServerThreadArgs(
+        server: serverPtr,
+        address: "127.0.0.1",
+        port: 8396))
+    httpServer.waitUntilReady()
+
+    let client = connectRawWebSocket(
+      8396, "/player?slot=0&token=secret")
+    client.sendBinary(ModuleUploadPacket(
+      uploadId: 99,
+      wasm: newString(MaxModuleBytes)).encodePacket())
+    let deadline = epochTime() + 10.0
+    while seenUpload.load != 99 and epochTime() < deadline:
+      drainPlayIngressAtTickBoundary()
+      sleep(5)
+
+    check seenUpload.load == 99
+    check seenUploadBytes.load == MaxModuleBytes
+    check uploadDeliveries.load == 1
+    client.close()
+    httpServer.close()
+    joinThread(serverThread)

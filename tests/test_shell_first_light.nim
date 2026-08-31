@@ -1,6 +1,6 @@
 ## Phase P3-2/P3-FL: FIRST LIGHT lifecycle, gate, annotation, and mask handoff.
 
-import std/[json, os, options, sequtils, unittest]
+import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
 import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
@@ -94,8 +94,9 @@ proc pathDanger(map: BodyMap, danger: BodyDangerField,
   for point in path:
     result += danger.sample(map, point)
 
-proc recordMasks(path: string, masks: openArray[InputState]) =
-  var writer = openReplayWriter(path, "{}")
+proc recordMasks(path: string, masks: openArray[InputState],
+                 configJson = "{}") =
+  var writer = openReplayWriter(path, configJson)
   writer.lastMasks = newSeq[uint8](masks.len)
   for index in 0 ..< writer.lastMasks.len:
     writer.lastMasks[index] = ButtonA
@@ -126,6 +127,19 @@ suite "shell FIRST LIGHT":
     check config.slots.len == 32
     for slot in config.slots:
       check slot.control == scPlay
+
+  test "configured play seats parse strictly instead of inventing seat zero":
+    let map = testBodyMap()
+    for seats in ["[\"oops\"]", "[-1]", "[32]", "[1]", "[0,0]"]:
+      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+        map, 331)
+      let lines = episode.configureFirstLightDemoPlayFromJson(
+        "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
+        "\"playName\":\"missing\",\"params\":{},\"seats\":" & seats & "}}")
+      check lines.len == 1
+      check lines[0].startsWith(
+        "FIRST_LIGHT_PLAY configured=false reason=parse_error")
+      check "seat=0" notin lines[0]
 
   test "activation installs safe hold then the epoch-zero default same tick":
     let map = testBodyMap()
@@ -227,7 +241,27 @@ suite "shell FIRST LIGHT":
     for index, input in replay.inputs:
       check input.player == uint8(index)
 
-  test "gate-off hook is byte-identical and constructs no guest inventory":
+  test "playback over shell-on recording constructs zero SeatBody instances":
+    let path = getTempDir() / "shell-on-playback-no-bodies.bitreplay"
+    defer:
+      if fileExists(path):
+        removeFile(path)
+    recordMasks(path, [InputState(up: true)],
+      "{\"season2Shell\":true,\"brMode\":true}")
+    let replay = parseReplayBytes(readFile(path))
+    check parseJson(replay.configJson)["season2Shell"].getBool()
+
+    let map = testBodyMap()
+    var playback = initFirstLightPlaybackEpisode(true, true,
+      controls(scPlay, 1), map, 331)
+    check not playback.enabled
+    check playback.nav == nil
+    check playback.seats.len == 0
+    check playback.bodyActivationCount == 0
+    discard playback.step([frame(map, 0)], 1)
+    check playback.bodyActivationCount == 0
+
+  test "gate-off hook is byte-identical and runtime inventory is compile-time":
     var episode = initFirstLightEpisode(false, true, controls(scInput, 2))
     let before = @[InputState(up: true, attack: true), InputState(left: true)]
     let map = testBodyMap()
@@ -249,11 +283,18 @@ suite "shell FIRST LIGHT":
     check afterBytes == beforeBytes
 
     let inventory = firstLightInventory()
-    check not inventory.wasmtime
-    check not inventory.uploads
-    check not inventory.calls
-    check not inventory.stores
-    check not inventory.ladder
+    when ShellRuntimeAvailable:
+      check inventory.wasmtime
+      check inventory.uploads
+      check inventory.calls
+      check inventory.stores
+      check inventory.ladder
+    else:
+      check not inventory.wasmtime
+      check not inventory.uploads
+      check not inventory.calls
+      check not inventory.stores
+      check not inventory.ladder
 
   test "episode rebuilds scheduled danger before cold planning":
     let map = dangerChoiceMap()

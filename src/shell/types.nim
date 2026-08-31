@@ -331,6 +331,15 @@ const
   # ── §6.1: runtime budgets (constants of ABI version 1) ────────────────
   ShellAbiVersion* = 1
   MaxInstancePages* = 16              ## 64 KiB pages: 1 MiB linear memory
+  MaxFunctionsPerModule* = 4096
+    ## P0 (new, James 2026-08-30): §6.2 interface-check cap on defined
+    ## functions per module, the lever that keeps the 8x reservation
+    ## honest. Generous for real plays (reference plays are dozens of
+    ## functions); provisional until the freeze.
+  MaxInstanceTableElements* = MaxFunctionsPerModule
+    ## P0 provisional (James, 2026-08-31): a play has no legitimate funcref
+    ## table larger than its maximum defined function count, and 4096 table
+    ## elements bound table memory trivially.
   MaxInstancesPerSeat* = 16           ## one per ladder entry
   StepFuel* = 50_000
     ## P0-retuned (James, 2026-08-30) from the measured spike: 200k fuel x
@@ -380,12 +389,22 @@ const
   MaxReflexCandidates* = 1089         ## (2·16+1)²
   MaxLogCallsPerInvocation* = 4
   MaxLogBytesPerCall* = 256
+  MaxBinaryViewFrameBytes* = 8192
+    ## PM-ratified binary view split (2026-08-31): the play-readable
+    ## fixed-layout binary frame gets its own fuel-derived cap. The
+    ## socket/replay JSON copy remains governed by MaxViewFrameBytes.
+  MaxBinaryContextBytes* = 8192
+    ## Binary play_init context cap for the fixed-layout context frame. The
+    ## 60% rule would allow ~150 KB; the actual context frame is ~140 B;
+    ## 8,192 is chosen for symmetry with the view cap and bounded-allocation
+    ## hygiene, not derived. The socket/replay JSON copy remains governed by
+    ## MaxContextBytes.
   MaxViewFrameBytes* = 32768
   MaxContextBytes* = 65536
   ValidatorRadiusPx* = 256            ## stencil's 32 × NavCell; an ENGINE
                                       ## constant, asserted equal (§6.1)
   MaxValidatorTableBytes* = 268435456
-    ## P0: provisional until the giant-field distance rasters are measured.
+    ## P0: provisional until the giant-field validator rasters are measured.
   MaxPendingCompileBytes* = 8388608
   MaxCompileCommitsPerTick* = 8
   MaxCompiledCacheBytes* = 268435456
@@ -393,13 +412,8 @@ const
   CompiledBytesPerRawByte* = 8
     ## Held at 8 (James, 2026-08-30): the adversarial 65,529-function
     ## 256 KiB module measured 71.9x, so the bound is enforced at its
-    ## source instead — MaxFunctionsPerModule below refuses the shape at
+    ## source instead — MaxFunctionsPerModule refuses the shape at
     ## validation. Provisional until the freeze re-measures capped shapes.
-  MaxFunctionsPerModule* = 4096
-    ## P0 (new, James 2026-08-30): §6.2 interface-check cap on defined
-    ## functions per module, the lever that keeps the 8x reservation
-    ## honest. Generous for real plays (reference plays are dozens of
-    ## functions); provisional until the freeze.
   EpochTickerMs* = 5                  ## wall-clock backstop on GUEST code
   EpochDeadlineTicks* = 4             ## deadline, in ticker epochs
   GuestStackBytes* = 262144           ## max_wasm_stack; overflow traps

@@ -15,6 +15,7 @@ const IdleAimDeadband = AimTurnRate div 2
 type
   BodySelfState* = object
     pos*: BodyPoint
+    hp*: int
     hpFrac*: float
     aimBrads*: int
     alive*: bool
@@ -234,8 +235,9 @@ proc dangerInputFromTracks*(body: SeatBody, tick: uint32,
 
 proc beliefFingerprint*(body: SeatBody): Hash =
   var value = hash(body.seatIndex) !& hash(body.selfState.pos) !&
-    hash(body.selfState.hpFrac) !& hash(body.selfState.aimBrads) !&
-    hash(body.selfState.alive) !& hash(body.selfState.carrying)
+    hash(body.selfState.hp) !& hash(body.selfState.hpFrac) !&
+    hash(body.selfState.aimBrads) !& hash(body.selfState.alive) !&
+    hash(body.selfState.carrying)
   for seat in 0 ..< MaxPlayers:
     value = value !& hash(body.tracks[seat].isSome)
     if body.tracks[seat].isSome:

@@ -37,7 +37,7 @@
 ## positionally rather than walking JSON at eval time.
 
 import
-  std/[algorithm, json, sequtils, sha1, strutils, tables]
+  std/[algorithm, json, math, sequtils, sha1, strutils, tables]
 
 # ----------------------------------------------------------------------------
 # Errors
@@ -102,6 +102,15 @@ type
     name*: string
     traits*: Table[string, float]
     rules*: seq[Rule]
+
+  GuardExpression* = object
+    ## Opaque single-expression wrapper for shell-internal guard validation.
+    ## The underlying Expr stays private to this module.
+    expr: Expr
+
+  GuardExpressionStats* = object
+    nodes*: int
+    depth*: int
 
 # ----------------------------------------------------------------------------
 # The path registry — the injection point.
@@ -307,6 +316,12 @@ proc parsePolicyPage*(js: JsonNode): PolicyPage =
 proc parsePolicyPage*(s: string): PolicyPage =
   parsePolicyPage(parseJson(s))
 
+proc parseGuardExpression*(js: JsonNode): GuardExpression =
+  GuardExpression(expr: parseExpr(js))
+
+proc parseGuardExpression*(s: string): GuardExpression =
+  parseGuardExpression(parseJson(s))
+
 # ----------------------------------------------------------------------------
 # Validation — the load-bearing feature. An unknown `get` path (or any other
 # semantic defect) must NEVER silently evaluate to 0; it is a hard reject
@@ -419,6 +434,46 @@ proc validate*(page: PolicyPage, registry: PathRegistry): seq[string] =
     for e in errs:
       result.add "rule " & $i & ": " & e
 
+proc collectStats(e: Expr, level: int, stats: var GuardExpressionStats,
+                  errors: var seq[string]) =
+  inc stats.nodes
+  stats.depth = max(stats.depth, level)
+  case e.kind
+  of ekNum:
+    if e.numVal.classify in {fcNan, fcInf, fcNegInf}:
+      errors.add "number literal must be finite"
+  of ekOp:
+    for arg in e.args:
+      collectStats(arg, level + 1, stats, errors)
+  else:
+    discard
+
+proc stats*(guard: GuardExpression): GuardExpressionStats =
+  var errors: seq[string]
+  if guard.expr != nil:
+    collectStats(guard.expr, 1, result, errors)
+
+proc validateBooleanExpression*(guard: GuardExpression,
+    registry: PathRegistry; maxDepth = high(int); maxNodes = high(int)):
+    seq[string] =
+  result = @[]
+  if guard.expr == nil:
+    result.add "guard expression is empty"
+    return
+  var expressionStats: GuardExpressionStats
+  collectStats(guard.expr, 1, expressionStats, result)
+  if expressionStats.depth > maxDepth:
+    result.add "guard expression exceeds depth cap " & $maxDepth
+  if expressionStats.nodes > maxNodes:
+    result.add "guard expression exceeds node cap " & $maxNodes
+  var semanticErrors: seq[string]
+  let kind = inferKind(guard.expr, registry, initTable[string, float](),
+    semanticErrors)
+  if kind != vkBool:
+    semanticErrors.add "guard expression must be boolean-valued"
+  for error in semanticErrors:
+    result.add error
+
 # ----------------------------------------------------------------------------
 # Compile + intern
 # ----------------------------------------------------------------------------
@@ -435,6 +490,8 @@ type
     resolveBool*: proc(path: string): bool {.closure.}
 
   NumFn = proc(ctx: IntentContext): float {.closure.}
+
+  GuardFn* = proc(ctx: IntentContext): bool {.closure.}
 
   CompiledRule = object
     whenFn: NumFn
@@ -571,6 +628,16 @@ proc compileExpr(e: Expr, registry: PathRegistry, traits: Table[string, float]):
       result = proc(ctx: IntentContext): float = (if f0(ctx) == 0.0: 1.0 else: 0.0)
     else:
       raise newException(PolicyParseError, "unknown op at compile time: '" & e.op & "'")
+
+proc compileBooleanExpression*(guard: GuardExpression,
+    registry: PathRegistry; maxDepth = high(int); maxNodes = high(int)):
+    GuardFn =
+  let errors = validateBooleanExpression(guard, registry, maxDepth, maxNodes)
+  if errors.len > 0:
+    raise newException(ValueError,
+      "cannot compile invalid guard expression: " & errors.join("; "))
+  let fn = compileExpr(guard.expr, registry, initTable[string, float]())
+  result = proc(ctx: IntentContext): bool = fn(ctx) != 0.0
 
 proc compile*(page: PolicyPage, registry: PathRegistry): CompiledPage =
   let errs = validate(page, registry)

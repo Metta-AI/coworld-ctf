@@ -1,5 +1,11 @@
 ## Seat navigation coordinator: danger cadence, global cold-work scheduler,
 ## atomic route replacement, and stencil-exact warm follower behavior.
+##
+## One 256-unit budget per tick. Plans are spent first, in the existing
+## persisted seat-index round robin. Field minting consumes only what
+## the plan pass leaves, through its own persisted seat-index cursor,
+## with at most one mint in flight server-wide. A play's order moves the
+## cog before it warms the oracle.
 
 import std/[hashes, math, options]
 import bitworld/spriteprotocol
@@ -42,6 +48,9 @@ type
     cache*: BodySeatCache
     planner*: BodyPlanner
     job*: BodyPlanJob
+    mintJob*: BodyMintJob
+    mintGoal*: Option[BodyPoint]
+    mintRevision*: uint64
     danger*: BodyDangerField
     dangerWorkspace: DangerWorkspace
     dangerKernel: seq[float32]
@@ -76,6 +85,13 @@ type
     units*: int
     completed*: bool
 
+  MintVisit* = object
+    tick*: int
+    seat*: int
+    revision*: uint64
+    units*: int
+    completed*: bool
+
   DangerRebuild* = object
     tick*: int
     seat*: int
@@ -84,11 +100,15 @@ type
   BodyNavSystem* = ref object
     map*: BodyMap
     seats*: seq[BodyNavSeat]
+    minter*: BodyFieldMinter
     dangerK*: int
     lastPlanSeat*: int
+    lastMintSeat*: int
     planningTrace: seq[PlanningVisit]
+    mintTrace: seq[MintVisit]
     dangerTrace: seq[DangerRebuild]
     planningTraceLen: int
+    mintTraceLen: int
     dangerTraceLen: int
 
 proc pyRound(value: float): int =
@@ -156,9 +176,12 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     raise newException(ValueError, "trace capacity must not be negative")
   new(result)
   result.map = map
+  result.minter = newBodyFieldMinter(map)
   result.dangerK = dangerK
   result.lastPlanSeat = -1
+  result.lastMintSeat = -1
   result.planningTrace = newSeq[PlanningVisit](traceCapacity)
+  result.mintTrace = newSeq[MintVisit](traceCapacity)
   result.dangerTrace = newSeq[DangerRebuild](traceCapacity)
   result.seats = newSeq[BodyNavSeat](seatCount)
   let dangerGeometry = initDangerGeometry(liveGunRangePx)
@@ -188,10 +211,20 @@ proc recordPlanning(system: BodyNavSystem, value: PlanningVisit) {.inline.} =
     system.planningTrace[system.planningTraceLen] = value
     inc system.planningTraceLen
 
+proc recordMint(system: BodyNavSystem, value: MintVisit) {.inline.} =
+  if system.mintTraceLen < system.mintTrace.len:
+    system.mintTrace[system.mintTraceLen] = value
+    inc system.mintTraceLen
+
 proc planningTraceSnapshot*(system: BodyNavSystem): seq[PlanningVisit] =
   result = newSeq[PlanningVisit](system.planningTraceLen)
   for index in 0 ..< system.planningTraceLen:
     result[index] = system.planningTrace[index]
+
+proc mintTraceSnapshot*(system: BodyNavSystem): seq[MintVisit] =
+  result = newSeq[MintVisit](system.mintTraceLen)
+  for index in 0 ..< system.mintTraceLen:
+    result[index] = system.mintTrace[index]
 
 proc dangerTraceSnapshot*(system: BodyNavSystem): seq[DangerRebuild] =
   result = newSeq[DangerRebuild](system.dangerTraceLen)
@@ -391,6 +424,24 @@ proc dangerFingerprint*(seat: BodyNavSeat): Hash =
     value = value !& hash(sample)
   !$value
 
+proc mintQueuedOrPending*(seat: BodyNavSeat): bool =
+  seat.mintGoal.isSome or seat.mintJob.mintPending
+
+proc enqueueMint(seat: BodyNavSeat, goal: BodyPoint, revision: uint64) =
+  let key = seat.cache.routeKey(goal)
+  if seat.cache.routeSlotReady(key):
+    return
+  if seat.mintJob.mintPending:
+    if seat.mintJob.routeKey != key:
+      seat.cache.cancelMint(seat.mintJob)
+      seat.mintGoal = some(goal)
+      seat.mintRevision = revision
+    return
+  if seat.mintGoal.isSome and seat.cache.routeKey(seat.mintGoal.get) == key:
+    return
+  seat.mintGoal = some(goal)
+  seat.mintRevision = revision
+
 proc replacePlan*(system: BodyNavSystem, seatIndex: int, revision: uint64,
                   selfXy: BodyPoint, goal: ValidatedGoal,
                   profile = shellTypes.cpDefault,
@@ -403,6 +454,7 @@ proc replacePlan*(system: BodyNavSystem, seatIndex: int, revision: uint64,
   seat.desiredProfile = profile
   seat.planner.startPlan(seat.cache, seat.job, revision, selfXy,
     goal, profile, avoid)
+  seat.enqueueMint(goal.goalPoint, revision)
 
 proc installCompletedPath(seat: BodyNavSeat) =
   swap(seat.path, seat.planner.resultPath)
@@ -413,11 +465,38 @@ proc installCompletedPath(seat: BodyNavSeat) =
   seat.cursor = 0
   seat.stuckTicks = 0
 
-proc runPlanningTick*(system: BodyNavSystem, tick: int,
-    evaluationOrder: openArray[int] = []): int =
-  ## One persisted seat-index round robin owns the server-wide budget.
+proc hasPendingPlan(system: BodyNavSystem): bool =
+  for seat in system.seats:
+    if seat.job.planPending:
+      return true
+
+proc hasPendingMint*(system: BodyNavSystem): bool =
+  for seat in system.seats:
+    if seat.mintQueuedOrPending:
+      return true
+
+proc activeMintSeat(system: BodyNavSystem): int =
+  for index, seat in system.seats:
+    if seat.mintJob.mintPending:
+      return index
+  -1
+
+proc nextQueuedMintSeat(system: BodyNavSystem): int =
+  var scanned = 0
+  var index = floorMod(system.lastMintSeat + 1, system.seats.len)
+  while scanned < system.seats.len:
+    if system.seats[index].mintGoal.isSome:
+      return index
+    inc scanned
+    index = (index + 1) mod system.seats.len
+  -1
+
+proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
+    evaluationOrder: openArray[int] = [], runMints = true): int =
+  ## The plan pass owns the budget first; the field minter can spend only the
+  ## unclaimed tail, through its own persisted cursor.
   discard evaluationOrder
-  var budget = ColdPlanBudgetPerTick
+  var budget = budgetLimit
   var scanned = 0
   var index = floorMod(system.lastPlanSeat + 1, system.seats.len)
   while budget > 0 and scanned < system.seats.len:
@@ -437,9 +516,48 @@ proc runPlanningTick*(system: BodyNavSystem, tick: int,
           "pending plan made no progress under available budget")
     inc scanned
     index = (index + 1) mod system.seats.len
-  ColdPlanBudgetPerTick - budget
+  if runMints and budget > 0:
+    var mintSeat = system.activeMintSeat()
+    if mintSeat < 0:
+      mintSeat = system.nextQueuedMintSeat()
+      if mintSeat >= 0:
+        let seat = system.seats[mintSeat]
+        system.lastMintSeat = mintSeat
+        system.minter.beginMint(seat.cache, seat.mintJob,
+          seat.mintGoal.get, seat.mintRevision)
+    if mintSeat >= 0:
+      let seat = system.seats[mintSeat]
+      let revision = seat.mintJob.revision
+      let units = system.minter.stepMint(seat.cache, seat.mintJob, budget)
+      system.recordMint(MintVisit(tick: tick, seat: mintSeat,
+        revision: revision, units: units, completed: seat.mintJob.mintFinished))
+      if seat.mintJob.mintFinished:
+        seat.mintGoal = none(BodyPoint)
+      elif units == 0 and seat.mintJob.mintPending:
+        raise newException(BodyMapError,
+          "pending mint made no progress under available budget")
+  budgetLimit - budget
+
+proc runPlanningTick*(system: BodyNavSystem, tick: int,
+    evaluationOrder: openArray[int] = []): int =
+  system.runPlanningWork(tick, ColdPlanBudgetPerTick, evaluationOrder)
+
+proc prewarmColdPlans*(system: BodyNavSystem) =
+  ## Activation-barrier cold-plan drain.
+  ##
+  ## This is intentionally off-tick work for the §10 activation barrier. The
+  ## 256-unit `runPlanningTick` budget still governs PLAYING ticks; this API is
+  ## not a playing-tick shortcut. It drains repeated scheduler chunks through
+  ## the same persisted seat-index round robin, records barrier visits with
+  ## `tick = -1`, and publishes paths through the ordinary completion install
+  ## path. It deliberately does not warm route fields: after ruling 10 a plan
+  ## never needs a field, and stencil mints fields lazily on demand.
+  while system.hasPendingPlan:
+    discard system.runPlanningWork(-1, ColdPlanBudgetPerTick, [], false)
 
 proc planCursor*(system: BodyNavSystem): int = system.lastPlanSeat
+
+proc mintCursor*(system: BodyNavSystem): int = system.lastMintSeat
 
 proc activePath*(seat: BodyNavSeat): seq[BodyPoint] =
   result = newSeq[BodyPoint](seat.pathLen)

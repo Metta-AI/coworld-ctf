@@ -26,7 +26,8 @@ const GoldenFiles = [
   "status_play_faulted.golden.json",
   "control_view.golden.json", "control_context.golden.json",
   "play_context.golden.json", "play_view.golden.json",
-  "manifest_pact.golden.json", "ladder_call.golden.json",
+  "manifest_edge_ride.golden.json", "manifest_pact.golden.json",
+  "ladder_call.golden.json",
   "floats.golden.json"
 ]
 

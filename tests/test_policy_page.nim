@@ -133,6 +133,26 @@ suite "policy_page: parse + compile":
     check errs.len > 0
     check errs.anyIt("when" in it)
 
+  test "single-expression guard API reuses page semantics without leaking Expr":
+    let guard = parseGuardExpression(
+      """["and",["get","partner.alive"],["<",["get","partner.dist"],64]]""")
+    let errors = validateBooleanExpression(guard, DefaultPathRegistry, 4, 64)
+    check errors.len == 0
+    let compiled = compileBooleanExpression(guard, DefaultPathRegistry, 4, 64)
+    let ctx = mkCtx({"partner.dist": 12.0}.toTable,
+      {"partner.alive": true}.toTable)
+    check compiled(ctx)
+
+    let page = parsePolicyPage("""
+    { "paintbot_policy": 1, "name": "same-guard",
+      "rules": [
+        { "when": ["and",["get","partner.alive"],["<",["get","partner.dist"],64]],
+          "score": 7 }
+      ]}
+    """)
+    check compile(page, DefaultPathRegistry).scoreIntent(ctx) == 7.0
+    check not compiles(default(Expr))
+
 suite "policy_page: interning":
 
   test "two identical pages intern to ONE compiled object":
