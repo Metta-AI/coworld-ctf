@@ -7,12 +7,43 @@ import
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
   control, directives, baselines, decide, mux,
-  ../shell/[body, body_map, episode, standing_order]
+  ../shell/[body, body_map, episode, standing_order, transport],
+  ../shell/dispatch, ../shell/packets, ../shell/seats
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
 
 type
+  PlayModuleUploadConsumer* = proc(
+    websocket: WebSocket,
+    seat: int,
+    packet: ModuleUploadPacket,
+  ) {.gcsafe.}
+
+  PlayCallConsumer* = proc(
+    websocket: WebSocket,
+    seat: int,
+    packet: PlayCallPacket,
+  ) {.gcsafe.}
+
+  PlayStatusAckConsumer* = proc(
+    websocket: WebSocket,
+    seat: int,
+    packet: StatusAckPacket,
+  ) {.gcsafe.}
+
+  PlayLobbyChatConsumer* = proc(
+    websocket: WebSocket,
+    seat: int,
+    packet: LobbyChatSendPacket,
+  ) {.gcsafe.}
+
+  PlayReceiveConsumers = object
+    moduleUpload: PlayModuleUploadConsumer
+    playCall: PlayCallConsumer
+    statusAck: PlayStatusAckConsumer
+    lobbyChat: PlayLobbyChatConsumer
+
   WebSocketSocketFields = object
     server: Server
     clientSocket: SocketHandle
@@ -118,6 +149,10 @@ type
     closedSockets: seq[WebSocket]
     nextAnonymousPlayer: int
     config: GameConfig
+    playProtocolRejected: int
+    playSpriteInputIgnored: int
+    playSpriteReadyIgnored: int
+    playSpriteDebugIgnored: int
 
   ServerThreadArgs = object
     server: ptr Server
@@ -130,6 +165,24 @@ type
     token: string
     requestedSlot: int
     slotIndex: int
+
+var playReceiveConsumers: PlayReceiveConsumers
+
+proc registerPlayModuleUploadConsumer*(consumer: PlayModuleUploadConsumer) =
+  ## Startup-only registration seam consumed by the play-runtime lane.
+  playReceiveConsumers.moduleUpload = consumer
+
+proc registerPlayCallConsumer*(consumer: PlayCallConsumer) =
+  ## Startup-only registration seam consumed by the play-runtime lane.
+  playReceiveConsumers.playCall = consumer
+
+proc registerPlayStatusAckConsumer*(consumer: PlayStatusAckConsumer) =
+  ## Startup-only registration seam consumed by the play-runtime lane.
+  playReceiveConsumers.statusAck = consumer
+
+proc registerPlayLobbyChatConsumer*(consumer: PlayLobbyChatConsumer) =
+  ## Startup-only registration seam consumed by Maxwell's lobby implementation.
+  playReceiveConsumers.lobbyChat = consumer
 
 func defuseScriptClose(src: string): string =
   ## Splicing a staticRead'd JS file inline as `<script>` + content +
@@ -451,6 +504,10 @@ proc initAppState() =
   appState.closedSockets = @[]
   appState.nextAnonymousPlayer = 1
   appState.config = defaultGameConfig()
+  appState.playProtocolRejected = 0
+  appState.playSpriteInputIgnored = 0
+  appState.playSpriteReadyIgnored = 0
+  appState.playSpriteDebugIgnored = 0
 
 proc comparePendingPlayerJoins(
   a,
@@ -740,6 +797,113 @@ proc isPlayerWebSocket(websocket: WebSocket): bool =
       websocket notin appState.rewardViewers and
       websocket notin appState.takeovers
 
+proc playSeatIndex(websocket: WebSocket): int =
+  ## Returns the stable configured seat for a play socket, or -1. The gate is
+  ## intentionally conjunctive: season2Shell on with an all-input roster is
+  ## byte-identical to the legacy path.
+  let seat = appState.playerSlots.getOrDefault(websocket, -1)
+  if appState.config.isPlaySeat(seat):
+    return seat
+  -1
+
+proc applyPlayerSpriteMessage(websocket: WebSocket, data: string) =
+  ## Applies one complete Sprite-protocol WebSocket message. Caller holds
+  ## appState.lock; this is the unchanged legacy non-play path.
+  var
+    mask = appState.inputMasks.getOrDefault(websocket, 0)
+    pressedMask = appState.inputPressedMasks.getOrDefault(websocket, 0)
+    chatText = ""
+    policyPage = ""
+  appState.playerViewers[websocket].applyPlayerViewerMessage(
+    data,
+    mask,
+    pressedMask,
+    chatText,
+    policyPage
+  )
+  appState.inputMasks[websocket] = mask
+  appState.inputPressedMasks[websocket] = pressedMask
+  if chatText.len > 0:
+    appState.chatMessages[websocket] = chatText
+  # The one-page-policy REFLASH receive arm, parked in the inbox the tick
+  # loop drains. Admission remains a tick-boundary sim decision.
+  if policyPage.len > 0:
+    appState.policyPageFlashes[websocket] = policyPage
+
+proc applyPlaySeatSpriteMessage(websocket: WebSocket, data: string) =
+  ## Preserves the shared Sprite parser's chat and mouse behavior, but never
+  ## lets embedded input or debug-sprite packets cross the play boundary.
+  ## Leading forbidden packets are filtered by dispatch; this catches them
+  ## behind another legal opcode in the same WebSocket message.
+  let
+    originalMask = appState.inputMasks.getOrDefault(websocket, 0)
+    originalPressedMask =
+      appState.inputPressedMasks.getOrDefault(websocket, 0)
+    originalDebugCount =
+      appState.playerViewers[websocket].pendingDebugSprites.len
+  var hasDebugSprite = false
+  for item in data.parseSpriteClientMessages():
+    if item.kind == SpriteClientDebugSpriteMessage:
+      hasDebugSprite = true
+  var
+    discardedMask = originalMask
+    discardedPressedMask = originalPressedMask
+    chatText = ""
+    policyPage = ""
+  appState.playerViewers[websocket].applyPlayerViewerMessage(
+    data,
+    discardedMask,
+    discardedPressedMask,
+    chatText,
+    policyPage
+  )
+  if discardedMask != originalMask or
+      discardedPressedMask != originalPressedMask:
+    inc appState.playSpriteInputIgnored
+  if hasDebugSprite:
+    appState.playerViewers[websocket].pendingDebugSprites.setLen(
+      originalDebugCount)
+    inc appState.playSpriteDebugIgnored
+  if chatText.len > 0:
+    appState.chatMessages[websocket] = chatText
+
+proc dispatchPlaySeatMessage(websocket: WebSocket, seat: int, data: string) =
+  ## Owns the play socket's leading-byte switch. Shell framing is decoded
+  ## before any Sprite parser sees the message; absent downstream consumers
+  ## reject at the seam rather than silently falling into Sprite parsing.
+  let received = data.classifyPlaySeatMessage()
+  case received.kind
+  of prSprite:
+    websocket.applyPlaySeatSpriteMessage(received.spriteBytes)
+  of prIgnoredSpriteInput:
+    inc appState.playSpriteInputIgnored
+  of prIgnoredSpriteReady:
+    inc appState.playSpriteReadyIgnored
+  of prIgnoredSpriteDebug:
+    inc appState.playSpriteDebugIgnored
+  of prModuleUpload:
+    if playReceiveConsumers.moduleUpload == nil:
+      inc appState.playProtocolRejected
+    else:
+      playReceiveConsumers.moduleUpload(websocket, seat, received.moduleUpload)
+  of prPlayCall:
+    if playReceiveConsumers.playCall == nil:
+      inc appState.playProtocolRejected
+    else:
+      playReceiveConsumers.playCall(websocket, seat, received.playCall)
+  of prStatusAck:
+    if playReceiveConsumers.statusAck == nil:
+      inc appState.playProtocolRejected
+    else:
+      playReceiveConsumers.statusAck(websocket, seat, received.statusAck)
+  of prLobbyChat:
+    if playReceiveConsumers.lobbyChat == nil:
+      inc appState.playProtocolRejected
+    else:
+      playReceiveConsumers.lobbyChat(websocket, seat, received.lobbyChat)
+  of prRejected:
+    inc appState.playProtocolRejected
+
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
   if websocket in appState.globalViewers:
@@ -881,6 +1045,11 @@ proc playerSlot(request: Request): int =
 proc playerToken(request: Request): string =
   ## Returns the player join token.
   request.queryParams.getOrDefault("token", "").strip()
+
+proc playerUpgradeUsesPlaySeatTransport*(config: GameConfig, slot: int): bool =
+  ## Chooses the larger socket caps only for a configured play seat under the
+  ## conjunctive Season 2 gate. Limits are transport caps, not admission.
+  config.isPlaySeat(slot)
 
 proc controlHeaders(): HttpHeaders =
   ## Returns headers for admin-panel control requests.
@@ -1424,6 +1593,7 @@ proc httpHandler(request: Request) =
       slot = request.playerSlot()
       token = request.playerToken()
       identity = request.playerIdentity(slot, token)
+    var usePlaySeatTransport = false
     {.gcsafe.}:
       withLock appState.lock:
         let joinError = appState.config.configuredPlayerJoinError(
@@ -1434,10 +1604,16 @@ proc httpHandler(request: Request) =
         if joinError.len > 0:
           request.respondForbiddenWebSocket(joinError)
           return
+        usePlaySeatTransport =
+          appState.config.playerUpgradeUsesPlaySeatTransport(slot)
     if identity.identityIsKicked():
       request.respondKicked()
       return
-    let websocket = request.upgradeToWebSocket()
+    let websocket =
+      if usePlaySeatTransport:
+        request.upgradePlaySeatWebSocket()
+      else:
+        request.upgradeToWebSocket()
     var accepted = false
     {.gcsafe.}:
       withLock appState.lock:
@@ -1726,7 +1902,11 @@ proc websocketHandler(
     elif message.kind == BinaryMessage:
       {.gcsafe.}:
         withLock appState.lock:
-          if message.data.isPlayerReadyPacket() and
+          let playSeat = websocket.playSeatIndex()
+          if playSeat >= 0 and websocket in appState.playerViewers and
+              not appState.replayLoaded:
+            websocket.dispatchPlaySeatMessage(playSeat, message.data)
+          elif message.data.isPlayerReadyPacket() and
               websocket in appState.playerReady:
             appState.playerReady[websocket] = true
           elif message.data.isSpritesOffPacket():
@@ -1737,35 +1917,7 @@ proc websocketHandler(
             )
           elif websocket in appState.playerViewers and
               not appState.replayLoaded:
-            var
-              mask = appState.inputMasks.getOrDefault(websocket, 0)
-              pressedMask = appState.inputPressedMasks.getOrDefault(
-                websocket,
-                0
-              )
-              chatText = ""
-              policyPage = ""
-            appState.playerViewers[websocket].applyPlayerViewerMessage(
-              message.data,
-              mask,
-              pressedMask,
-              chatText,
-              policyPage
-            )
-            appState.inputMasks[websocket] = mask
-            appState.inputPressedMasks[websocket] = pressedMask
-            if chatText.len > 0:
-              appState.chatMessages[websocket] = chatText
-            # The one-page-policy REFLASH receive arm, parked in the inbox
-            # the tick loop drains — deliberately the SAME shape as the
-            # chat line above it. Nothing here consults the sim: this runs
-            # on the websocket thread, and a page handed to the sim between
-            # two ticks would land between two hashes and be unrecordable
-            # at any single tick. Whether the page is ACCEPTED is decided
-            # once, at the drain, by `sim.applyPolicyPage` — the single
-            # predicate playback consults too.
-            if policyPage.len > 0:
-              appState.policyPageFlashes[websocket] = policyPage
+            websocket.applyPlayerSpriteMessage(message.data)
   of ErrorEvent, CloseEvent:
     var who = ""
     {.gcsafe.}:
