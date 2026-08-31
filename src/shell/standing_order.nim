@@ -1,44 +1,15 @@
 ## The zero-guest §7.4 standing-order path used by FIRST LIGHT.
 
 import std/options
-import bitworld/spriteprotocol
 import ../ctf/sim_types
-import body_map
+import body, body_map
 import types
 import default_play
 import finisher
 
-export default_play, finisher
+export body, default_play, finisher
 
 type
-  BodyTickInputs* = object
-    input*: InputState
-
-  LaneABrSnapshot* = object
-    ## Lane-C adapter snapshot until lane A FL-A relays its read surface.
-    ## Goal proof construction already uses lane A's concrete BodyMap.
-    selfPos*: MapPoint
-    currentZone*: MapRect
-    nextZone*: MapRect
-    ticksToNextShrink*: int
-    zoneDps*: int
-    idleAimCenterBrads*: int
-    threatPositions*: seq[MapPoint]
-    rotateTarget*: Option[MapPoint]
-    coverGoal*: Option[ValidatedGoal]
-    partnerTarget*: Option[MapPoint]
-
-  SeatBody* = object
-    seat*: uint8
-    map*: BodyMap
-    brSnapshot*: LaneABrSnapshot
-    partner*: PartnerTelemetry
-    hasInstalledIntent*: bool
-    installedIntent*: Intent
-    installedGoal*: Option[ValidatedGoal]
-    installedEffectiveEpoch*: uint64
-    installCount*: int
-
   StandingOrderState* = object
     hasStanding*: bool
     intent*: Intent
@@ -49,56 +20,45 @@ type
     lastDefaultRule*: BrDefaultRule
     annotations*: seq[ShellAnnotation]
 
-proc activateSeatBody*(map: BodyMap, seat: uint8): SeatBody =
-  ## Frozen lane-A operation; wrapper remains lane C until FL-A relays it.
-  SeatBody(seat: seat, map: map)
+  BrDefaultFallbacks* = object
+    ## Lane-C first-light fallbacks for facts lane A FL-B does not expose yet.
+    ## Self and partner come from lane A's body accessors after updateBelief.
+    ## Zone timing/rects are public server facts, and nearest-cover scoring is
+    ## represented by an already validated goal until lane A relays that scorer.
+    currentZone*: MapRect
+    nextZone*: MapRect
+    ticksToNextShrink*: int
+    zoneDps*: int
+    idleAimCenterBrads*: int
+    rotateTarget*: Option[BodyPoint]
+    coverGoal*: Option[ValidatedGoal]
 
-proc setStandingIntent*(body: var SeatBody, intent: Intent,
-    goal: Option[ValidatedGoal], effectiveEpoch: uint64) =
-  ## Frozen lane-A operation; the goal argument prevents a raw point from
-  ## crossing the install boundary.
-  assert (intent.kind == ikNavigateTo) == goal.isSome
-  if goal.isSome:
-    assert intent.point == some(goal.get.goalPoint.toMapPoint)
-  body.hasInstalledIntent = true
-  body.installedIntent = intent
-  body.installedGoal = goal
-  body.installedEffectiveEpoch = effectiveEpoch
-  inc body.installCount
+proc center(rect: MapRect): BodyPoint =
+  (rect.x + rect.w div 2, rect.y + rect.h div 2)
 
-proc seatTick*(body: var SeatBody, inputs: BodyTickInputs,
-    tick: uint32): InputState =
-  ## Frozen lane-A operation; execution is supplied by lane A on relay.
-  discard body
-  discard tick
-  inputs.input
-
-proc partnerTelemetry*(body: SeatBody): PartnerTelemetry =
-  ## Frozen granted accessor; concrete visibility/staleness stays in lane A.
-  body.partner
-
-proc brDefaultFacts*(body: SeatBody, tick: uint32): BrDefaultFacts =
-  ## Lane-C adapter over the current read surface. On FL-A relay this keeps its
-  ## result type and reads the concrete lane-A accessors instead.
+proc brDefaultFacts*(body: SeatBody, tick: uint32,
+    fallback: BrDefaultFallbacks): BrDefaultFacts =
+  ## Lane-C adapter over lane A's current read surface. The body state,
+  ## fog-filtered tracks, and partner grant are real FL-B accessors. The
+  ## fallback argument is explicitly limited to facts not yet exposed by lane A.
   var threats: seq[BodyPoint]
-  for point in body.brSnapshot.threatPositions:
-    threats.add(point.toBodyPoint)
+  for track in body.tracks:
+    if track.isSome and track.get.freshTick == tick:
+      threats.add(track.get.pos)
   BrDefaultFacts(
     tick: tick,
     map: body.map,
-    selfPos: body.brSnapshot.selfPos.toBodyPoint,
-    currentZone: body.brSnapshot.currentZone,
-    nextZone: body.brSnapshot.nextZone,
-    ticksToNextShrink: body.brSnapshot.ticksToNextShrink,
-    zoneDps: body.brSnapshot.zoneDps,
-    idleAimCenterBrads: body.brSnapshot.idleAimCenterBrads,
+    selfPos: body.selfState.pos,
+    currentZone: fallback.currentZone,
+    nextZone: fallback.nextZone,
+    ticksToNextShrink: fallback.ticksToNextShrink,
+    zoneDps: fallback.zoneDps,
+    idleAimCenterBrads: fallback.idleAimCenterBrads,
     threatPositions: threats,
     partner: partnerTelemetry(body),
-    rotateTarget: if body.brSnapshot.rotateTarget.isSome:
-      some(body.brSnapshot.rotateTarget.get.toBodyPoint) else: none(BodyPoint),
-    coverGoal: body.brSnapshot.coverGoal,
-    partnerTarget: if body.brSnapshot.partnerTarget.isSome:
-      some(body.brSnapshot.partnerTarget.get.toBodyPoint) else: none(BodyPoint))
+    rotateTarget: if fallback.rotateTarget.isSome:
+      fallback.rotateTarget.get else: fallback.nextZone.center,
+    coverGoal: fallback.coverGoal)
 
 proc sameProvenance(a, b: Provenance): bool =
   if a.base.kind != b.base.kind or a.overlays != b.overlays:
@@ -114,11 +74,11 @@ proc sameProvenance(a, b: Provenance): bool =
     a.base.reflexName == b.base.reflexName
 
 proc stepFirstLightDefault*(state: var StandingOrderState,
-    body: var SeatBody, tick: uint32) =
+    body: SeatBody, tick: uint32, fallback: BrDefaultFallbacks) =
   ## Recomputes the default every fallback tick, folds zero overlays, finishes,
   ## and installs only on bytes/provenance/epoch difference. FIRST LIGHT reads
   ## the state's initialized epoch zero and never advances it.
-  let facts = brDefaultFacts(body, tick)
+  let facts = brDefaultFacts(body, tick, fallback)
   let decision = computeBrDefault(facts)
   state.lastDefaultRule = decision.rule
   let finished = finishDefault(decision.intent, facts.idleAimCenterBrads)
@@ -137,7 +97,7 @@ proc stepFirstLightDefault*(state: var StandingOrderState,
     state.installedEffectiveEpoch = effectiveEpoch
     state.annotations.add(ShellAnnotation(
       tick: tick,
-      seat: body.seat,
+      seat: uint8(body.seatIndex),
       kind: akAcceptedIntentChange,
       effectiveEpoch: effectiveEpoch,
       provenance: finished.provenance,

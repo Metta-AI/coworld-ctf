@@ -3,18 +3,10 @@
 
 import std/options
 import ../ctf/sim_types
-import body_map
+import body, body_map
 import types
 
 type
-  # ADOPT-ON-RELAY: lane A owns the concrete representation. The fields are
-  # the PM-granted partnerTelemetry result and no partner order or target.
-  PartnerTelemetry* = object
-    identity*: SeatRef
-    pos*: MapPoint
-    aimBrads*: int
-    alive*: bool
-
   BrDefaultRule* = enum
     brRotate
     brPartnerLeash
@@ -34,10 +26,9 @@ type
     zoneDps*: int
     idleAimCenterBrads*: int
     threatPositions*: seq[BodyPoint]
-    partner*: PartnerTelemetry
-    rotateTarget*: Option[BodyPoint]
+    partner*: Option[PartnerTelemetry]
+    rotateTarget*: BodyPoint
     coverGoal*: Option[ValidatedGoal]
-    partnerTarget*: Option[BodyPoint]
 
   DefaultDecision* = object
     rule*: BrDefaultRule
@@ -72,18 +63,16 @@ proc navigate(goal: ValidatedGoal, arriveRadius: float, reason: string,
   result.goal = some(goal)
 
 proc partnerOutsideLeash(facts: BrDefaultFacts): bool =
-  if not facts.partner.alive:
+  if facts.partner.isNone or not facts.partner.get.alive:
     return false
-  let dx = int64(facts.partner.pos.x) - int64(facts.selfPos.x)
-  let dy = int64(facts.partner.pos.y) - int64(facts.selfPos.y)
+  let partner = facts.partner.get
+  let dx = int64(partner.pos.x) - int64(facts.selfPos.x)
+  let dy = int64(partner.pos.y) - int64(facts.selfPos.y)
   let leash = int64(BrPartnerLeashPx)
   dx * dx + dy * dy > leash * leash
 
-proc validatedTarget(facts: BrDefaultFacts,
-                     target: Option[BodyPoint]): Option[ValidatedGoal] =
-  if target.isNone:
-    return none(ValidatedGoal)
-  facts.map.validateGoal(target.get, facts.selfPos)
+proc validatedTarget(facts: BrDefaultFacts, target: BodyPoint): Option[ValidatedGoal] =
+  facts.map.validateGoal(target, facts.selfPos)
 
 proc computeBrDefault*(facts: BrDefaultFacts): DefaultDecision =
   ## Implements the single proposed priority block above. Raw rotate/partner
@@ -102,7 +91,7 @@ proc computeBrDefault*(facts: BrDefaultFacts): DefaultDecision =
           return
     of brPartnerLeash:
       if facts.partnerOutsideLeash:
-        let partnerGoal = facts.validatedTarget(facts.partnerTarget)
+        let partnerGoal = facts.validatedTarget(facts.partner.get.pos)
         if partnerGoal.isSome:
           result = navigate(partnerGoal.get, BrPartnerArriveRadiusPx,
             "default:partner", movingGoal = true)

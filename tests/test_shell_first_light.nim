@@ -1,33 +1,58 @@
-## Phase P3-2: FIRST LIGHT lifecycle, gate, annotation, and mask handoff.
+## Phase P3-2/P3-FL: FIRST LIGHT lifecycle, gate, annotation, and mask handoff.
 
-import std/[json, os, unittest]
+import std/[json, os, options, sequtils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
-import ../src/shell/[default_play, episode, standing_order, types]
+import ../src/shell/[body, body_map, default_play, episode,
+  standing_order, types]
 
 proc controls(kind: SlotControl, count: int): seq[SlotControl] =
   result = newSeq[SlotControl](count)
   for control in result.mitems:
     control = kind
 
-proc frame(seat: int, alive = true, playing = true): FirstLightSeatFrame =
+proc testBodyMap(): BodyMap =
+  const Side = 128
+  var walkable = newSeq[bool](Side * Side)
+  for value in walkable.mitems:
+    value = true
+  newBodyMap(walkable, Side, Side, 1, @[(10, 10)])
+
+proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
+  BrDefaultFallbacks(
+    currentZone: MapRect(x: 0, y: 0, w: 400, h: 400),
+    nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
+    ticksToNextShrink: BrRotateLeadTicks + 1,
+    zoneDps: 1,
+    idleAimCenterBrads: seat mod 256,
+    coverGoal: none(ValidatedGoal))
+
+proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
+           playing = true): FirstLightSeatFrame =
+  let selfPos = if pos == (0, 0): (10 + seat, 10) else: pos
   FirstLightSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
     present: true,
     playing: playing,
     alive: alive,
-    snapshot: LaneABrSnapshot(
-      selfPos: MapPoint(x: 10 + seat, y: 10),
-      currentZone: MapRect(x: 0, y: 0, w: 400, h: 400),
-      nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
-      ticksToNextShrink: BrRotateLeadTicks + 1,
-      zoneDps: 1,
-      idleAimCenterBrads: seat mod 256),
-    partner: PartnerTelemetry(
-      identity: SeatRef(uint8(seat xor 1)),
-      pos: MapPoint(x: 20 + seat, y: 20),
-      alive: true))
+    bodyInputs: BodyTickInputs(
+      self: BodySelfState(pos: selfPos, hpFrac: 1.0,
+        aimBrads: seat mod 256, alive: alive, carrying: false),
+      partner: some(PartnerSample(seat: uint8(seat xor 1),
+        pos: (20 + seat, 20), alive: true))),
+    defaultFallbacks: fallback(map, seat))
+
+proc applyMask(pos: var BodyPoint, input: InputState) =
+  let bits = input.encodeInputMask()
+  if (bits and ButtonLeft) != 0:
+    dec pos.x, 4
+  if (bits and ButtonRight) != 0:
+    inc pos.x, 4
+  if (bits and ButtonUp) != 0:
+    dec pos.y, 4
+  if (bits and ButtonDown) != 0:
+    inc pos.y, 4
 
 proc recordMasks(path: string, masks: openArray[InputState]) =
   var writer = openReplayWriter(path, "{}")
@@ -45,19 +70,28 @@ suite "shell FIRST LIGHT":
     let firstLight = parseFile(testsDir /
       "fixtures/shell/first_light_config.json")
     for key, value in firstLight.pairs:
-      merged[key] = value
+      if value.kind == JNull:
+        merged.delete(key)
+      else:
+        merged[key] = value
     var config = defaultGameConfig()
     config.update($merged)
     check config.season2Shell
     check config.brMode
+    check config.teams == 2
+    check config.mapPath == "gen"
+    check config.mapSpec.len > 0
+    check parseJson(config.mapSpec)["name"].getStr() == "first-light-open-br"
     check config.minPlayers == 32
     check config.slots.len == 32
     for slot in config.slots:
       check slot.control == scPlay
 
   test "activation installs safe hold then the epoch-zero default same tick":
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1))
-    let output = episode.step([frame(0)], 7)
+    let map = testBodyMap()
+    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      map, 331)
+    let output = episode.step([frame(map, 0)], 7)
     check output.annotations.len == 2
     check output.annotations[0].kind == akInstallSafeIntent
     check output.annotations[0].installGeneration == 0
@@ -77,12 +111,13 @@ suite "shell FIRST LIGHT":
       "\"kind\":\"hold\",\"reason\":\"default:hold\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check output.masks.len == 1
-    check output.masks[0].input.encodeInputMask() == 0
 
   test "death clears cache and BR never respawns":
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1))
-    discard episode.step([frame(0)], 1)
-    let death = episode.observeDeaths([frame(0, alive = false)], 2)
+    let map = testBodyMap()
+    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      map, 331)
+    discard episode.step([frame(map, 0)], 1)
+    let death = episode.observeDeaths([frame(map, 0, alive = false)], 2)
     check death.len == 1
     check death[0].kind == akClearOnDeath
     check death[0].clearGeneration == 0
@@ -90,17 +125,19 @@ suite "shell FIRST LIGHT":
     check episode.seats[0].eliminated
     check not episode.seats[0].standing.hasStanding
 
-    let impossibleRespawn = episode.step([frame(0)], 3)
+    let impossibleRespawn = episode.step([frame(map, 0)], 3)
     check impossibleRespawn.annotations.len == 0
     check impossibleRespawn.installs.len == 0
     check not episode.seats[0].active
 
   test "shared respawn installs fresh safe and default bytes":
-    var episode = initFirstLightEpisode(true, false, controls(scPlay, 1))
-    let first = episode.step([frame(0)], 1)
+    let map = testBodyMap()
+    var episode = initFirstLightEpisode(true, false, controls(scPlay, 1),
+      map, 331)
+    let first = episode.step([frame(map, 0)], 1)
     let firstDefault = first.installs[^1].bytes
-    discard episode.observeDeaths([frame(0, alive = false)], 2)
-    let respawn = episode.step([frame(0)], 3)
+    discard episode.observeDeaths([frame(map, 0, alive = false)], 2)
+    let respawn = episode.step([frame(map, 0)], 3)
     check respawn.annotations.len == 2
     check respawn.annotations[0].kind == akInstallSafeIntent
     check respawn.annotations[0].installReason == "respawn"
@@ -111,17 +148,31 @@ suite "shell FIRST LIGHT":
       "\"kind\":\"hold\",\"reason\":\"first_light:safe_respawn\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check respawn.installs[^1].bytes == firstDefault
-    check episode.seats[0].body.installCount == 2
 
-  test "32 placeholder bodies hand zero masks through the ordinary replay path":
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 32))
-    var frames: seq[FirstLightSeatFrame]
+  test "32 real bodies hand movement masks through the ordinary replay path":
+    let map = testBodyMap()
+    var episode = initFirstLightEpisode(true, true, controls(scPlay, 32),
+      map, 331)
+    var positions: array[32, BodyPoint]
     for seat in 0 ..< 32:
-      frames.add(frame(seat))
-    let output = episode.step(frames, 1)
+      positions[seat] = (10 + seat, 10)
+    var output: FirstLightTickResult
+    var sawMovement = false
+    for tick in 1 .. 400:
+      var frames: seq[FirstLightSeatFrame]
+      for seat in 0 ..< 32:
+        var row = frame(map, seat, positions[seat])
+        row.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks
+        row.defaultFallbacks.rotateTarget = some((100, 100))
+        frames.add(row)
+      output = episode.step(frames, uint32(tick))
+      if output.masks.anyIt((it.input.encodeInputMask() and
+          (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0):
+        sawMovement = true
+      for mask in output.masks:
+        positions[mask.seat.int].applyMask(mask.input)
     check output.masks.len == 32
-    check output.annotations.len == 64
-    check output.installs.len == 64
+    check sawMovement
 
     let path = getTempDir() / "shell-first-light-masks.bitreplay"
     defer:
@@ -129,19 +180,18 @@ suite "shell FIRST LIGHT":
         removeFile(path)
     var masks: seq[InputState]
     for mask in output.masks:
-      check mask.input.encodeInputMask() == 0
       masks.add(mask.input)
     recordMasks(path, masks)
     let replay = parseReplayBytes(readFile(path))
     check replay.inputs.len == 32
     for index, input in replay.inputs:
       check input.player == uint8(index)
-      check input.keys == 0
 
   test "gate-off hook is byte-identical and constructs no guest inventory":
     var episode = initFirstLightEpisode(false, true, controls(scInput, 2))
     let before = @[InputState(up: true, attack: true), InputState(left: true)]
-    let output = episode.step([frame(0), frame(1)], 1)
+    let map = testBodyMap()
+    let output = episode.step([frame(map, 0), frame(map, 1)], 1)
     check not episode.enabled
     check output.masks.len == 0
     check output.annotations.len == 0

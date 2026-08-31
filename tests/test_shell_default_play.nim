@@ -2,7 +2,8 @@
 
 import std/[algorithm, json, options, os, random, strutils, unittest]
 import ../src/ctf/sim_types
-import ../src/shell/[body_map, canonical, canonical_fast, default_play, finisher, types]
+import ../src/shell/[body_map, canonical, canonical_fast, default_play,
+  finisher, types]
 
 proc testBodyMap(): BodyMap =
   const Side = 512
@@ -25,9 +26,8 @@ proc baseFacts(): BrDefaultFacts =
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 1,
     idleAimCenterBrads: 64,
-    partner: PartnerTelemetry(
-      identity: SeatRef(1), pos: MapPoint(x: 20, y: 20),
-      aimBrads: 32, alive: true))
+    partner: some((seat: 1'u8, pos: (20, 20), aimBrads: 32, alive: true)),
+    rotateTarget: (150, 150))
 
 proc wireName(kind: IntentKind): string =
   if kind == ikNavigateTo: "navigate_to" else: "hold"
@@ -170,11 +170,11 @@ proc randomizedIntent(rng: var Rand, index: int): Intent =
 suite "shell default play":
   test "proposed BR rule priority is rotate, partner, cover, hold":
     var facts = baseFacts()
-    facts.rotateTarget = some((200, 200))
-    facts.partnerTarget = some((100, 100))
+    facts.rotateTarget = (200, 200)
     facts.coverGoal = some(facts.map.goal(40, 40))
     facts.threatPositions = @[(300, 300)]
-    facts.partner.pos = MapPoint(x: 399, y: 399)
+    facts.partner = some((seat: 1'u8, pos: (399, 399),
+      aimBrads: 32, alive: true))
     facts.ticksToNextShrink = BrRotateLeadTicks
 
     let rotate = computeBrDefault(facts)
@@ -185,9 +185,10 @@ suite "shell default play":
     facts.ticksToNextShrink = BrRotateLeadTicks + 1
     let partner = computeBrDefault(facts)
     check partner.rule == brPartnerLeash
-    check partner.intent.point == some(MapPoint(x: 100, y: 100))
+    check partner.intent.point == some(MapPoint(x: 399, y: 399))
 
-    facts.partner.pos = MapPoint(x: 20, y: 20)
+    facts.partner = some((seat: 1'u8, pos: (20, 20),
+      aimBrads: 32, alive: true))
     let cover = computeBrDefault(facts)
     check cover.rule == brCoverHold
     check cover.intent.point == some(MapPoint(x: 40, y: 40))

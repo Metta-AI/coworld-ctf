@@ -35,7 +35,12 @@ import sys
 with open(sys.argv[1]) as source:
     config = json.load(source)
 with open(sys.argv[2]) as source:
-    config.update(json.load(source))
+    patch = json.load(source)
+for key, value in patch.items():
+    if value is None:
+        config.pop(key, None)
+    else:
+        config[key] = value
 with open(sys.argv[3], "w") as destination:
     json.dump(config, destination, separators=(",", ":"))
 PY
@@ -85,6 +90,6 @@ done
 
 echo "FIRST LIGHT server is live; these are presence clients, not policies."
 echo "Viewer: http://localhost:$PORT/client/global"
-echo "Lane A FL-B is not landed: cogs intentionally stand still."
+echo "Lane A FL-B is bound: movement comes from the real body seatTick."
 echo "Install telemetry follows (tick, seat, rule, provenance, bytes hash):"
 tail -n +1 -f "$SERVER_LOG"

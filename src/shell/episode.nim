@@ -1,15 +1,15 @@
 ## FIRST LIGHT's gate-on episode owner: lifecycle, standing-order handoff,
 ## ordinary InputState masks, annotations, and split body/runtime timings.
 ##
-## Lane A FL-B is not landed. This module deliberately runs only through the
-## PM-frozen ADOPT-ON-RELAY operations in standing_order. In particular it has
-## no movement, pathfinding, or Intent-to-mask translation; today's seatTick
-## returns the no-op/hold mask supplied by BodyTickInputs.
+## Lane A FL-B supplies the concrete body, belief-lite, navigation, and
+## movement-only seatTick. This module owns only the server-side lifecycle,
+## default-order installation, mask handoff, annotations, and timing split.
 
 import std/[monotimes, options, strformat, strutils, times]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_map
+import body_nav
 import types
 import standing_order
 
@@ -22,16 +22,16 @@ type
     ladder*: bool
 
   FirstLightSeatFrame* = object
-    ## One coherent tick-boundary handoff. The placeholder snapshot and
-    ## partner value are replaced by lane A's owner reads on FL-B relay.
+    ## One coherent tick-boundary handoff. bodyInputs is lane A's real
+    ## belief-lite surface; defaultFallbacks carries only the first-light
+    ## facts not yet exposed by lane A accessors.
     seat*: uint8
     playerIndex*: int
     present*: bool
     playing*: bool
     alive*: bool
-    snapshot*: LaneABrSnapshot
-    partner*: PartnerTelemetry
     bodyInputs*: BodyTickInputs
+    defaultFallbacks*: BrDefaultFallbacks
 
   FirstLightMask* = object
     seat*: uint8
@@ -65,6 +65,7 @@ type
     enabled*: bool
     brMode*: bool
     map*: BodyMap
+    nav*: BodyNavSystem
     seats*: seq[FirstLightSeatState]
 
 proc firstLightInventory*(): FirstLightInventory =
@@ -73,11 +74,15 @@ proc firstLightInventory*(): FirstLightInventory =
 
 proc initFirstLightEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
-    map: BodyMap = nil): FirstLightEpisode =
+    map: BodyMap = nil,
+    liveGunRangePx: int = GunRange): FirstLightEpisode =
   result.brMode = brMode
   result.map = map
   if not season2Shell:
     return
+  if map == nil:
+    raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
+  result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx)
   for index, control in controls:
     if control == scPlay:
       result.enabled = true
@@ -112,7 +117,7 @@ proc installRecord(annotation: ShellAnnotation,
     bytes: bytes)
 
 proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
-    annotations: var seq[ShellAnnotation]) =
+    nav: BodyNavSystem, annotations: var seq[ShellAnnotation]) =
   annotations.add(ShellAnnotation(
     tick: tick,
     seat: state.seat,
@@ -120,17 +125,16 @@ proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
     clearGeneration: 0))
   state.active = false
   state.standing = StandingOrderState()
-  # Lane A's park/clear lifecycle body replaces this direct reset on FL-A.
-  # This is not a new seam and carries no executor behavior.
-  state.body = activateSeatBody(state.body.map, state.seat)
+  state.body = nil
+  nav.setSeatActive(state.seat.int, false)
 
 proc activate(state: var FirstLightSeatState, frame: FirstLightSeatFrame,
-    tick: uint32, reason: string, map: BodyMap,
+    tick: uint32, reason: string, nav: BodyNavSystem,
     output: var FirstLightTickResult) =
-  state.body = activateSeatBody(map, state.seat)
-  state.body.brSnapshot = frame.snapshot
-  state.body.partner = frame.partner
-  let safe = safeIntent(reason, frame.snapshot.idleAimCenterBrads)
+  state.body = activateSeatBody(nav, state.seat.int)
+  nav.setSeatActive(state.seat.int, true)
+  state.body.updateBelief(frame.bodyInputs, tick)
+  let safe = safeIntent(reason, frame.defaultFallbacks.idleAimCenterBrads)
   let safeBytes = canonicalIntent(safe.intent)
   setStandingIntent(state.body, safe.intent, none(ValidatedGoal), 0)
   state.standing = StandingOrderState(
@@ -185,30 +189,31 @@ proc step*(episode: var FirstLightEpisode,
 
     let runtimeStarted = getMonoTime()
     if state.active and not frame.alive:
-      state.resetAfterDeath(tick, result.annotations)
+      state.resetAfterDeath(tick, episode.nav, result.annotations)
       if episode.brMode:
         state.eliminated = true
     if frame.playing and frame.alive and not state.active and
         not state.eliminated:
       state.activate(frame, tick,
         if state.everActivated: "respawn" else: "activation",
-        episode.map, result)
+        episode.nav, result)
     if state.active and frame.playing and frame.alive:
-      state.body.brSnapshot = frame.snapshot
-      state.body.partner = frame.partner
-      state.standing.stepFirstLightDefault(state.body, tick)
+      state.body.updateBelief(frame.bodyInputs, tick)
+      state.standing.stepFirstLightDefault(state.body, tick,
+        frame.defaultFallbacks)
       state.appendStandingChanges(result)
     result.runtimeNanoseconds += (getMonoTime() - runtimeStarted).inNanoseconds
 
-    # Every present play seat hands one mask to the caller each tick. With the
-    # phase-14 placeholder seatTick this is deliberately the all-zero hold.
-    var input = frame.bodyInputs.input
+    # Every present play seat hands one mask to the caller each tick. Lane A's
+    # FL-B seatTick is the sole movement/action executor for active seats.
+    var input = InputState()
     if state.active and frame.playing and frame.alive:
       let bodyStarted = getMonoTime()
       input = seatTick(state.body, frame.bodyInputs, tick)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
     result.masks.add(FirstLightMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
+  discard episode.nav.runPlanningTick(tick.int)
 
 proc observeDeaths*(episode: var FirstLightEpisode,
     frames: openArray[FirstLightSeatFrame], tick: uint32): seq[ShellAnnotation] =
@@ -218,10 +223,10 @@ proc observeDeaths*(episode: var FirstLightEpisode,
     return
   for state in episode.seats.mitems:
     if not state.active:
-      continue
+          continue
     for frame in frames:
       if frame.seat == state.seat and frame.present and not frame.alive:
-        state.resetAfterDeath(tick, result)
+        state.resetAfterDeath(tick, episode.nav, result)
         if episode.brMode:
           state.eliminated = true
         break

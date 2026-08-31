@@ -5,7 +5,7 @@
 
 import std/[algorithm, monotimes, options, strformat, times]
 import ../src/ctf/sim_types
-import ../src/shell/[body_map, default_play, standing_order, types]
+import ../src/shell/[body, body_map, default_play, standing_order, types]
 
 const
   Seats = 32
@@ -29,54 +29,42 @@ proc main() =
   var bodies = newSeq[SeatBody](Seats)
   var states = newSeq[StandingOrderState](Seats)
   for seat in 0 ..< Seats:
-    bodies[seat] = activateSeatBody(map, uint8(seat))
-    bodies[seat].brSnapshot = LaneABrSnapshot(
-      selfPos: MapPoint(x: 100 + seat, y: 100),
-      currentZone: MapRect(x: 0, y: 0, w: 800, h: 800),
-      nextZone: MapRect(x: 100, y: 100, w: 600, h: 600),
-      ticksToNextShrink: BrRotateLeadTicks + 1,
-      zoneDps: 2,
-      idleAimCenterBrads: seat * 7 mod 256,
-      threatPositions: @[
-        MapPoint(x: 500, y: 500), MapPoint(x: 510, y: 490),
-        MapPoint(x: 520, y: 480), MapPoint(x: 530, y: 470),
-        MapPoint(x: 540, y: 460), MapPoint(x: 550, y: 450),
-        MapPoint(x: 560, y: 440), MapPoint(x: 570, y: 430)])
-    bodies[seat].partner = PartnerTelemetry(
-      identity: SeatRef(uint8(seat xor 1)),
-      pos: MapPoint(x: 120 + seat, y: 120),
-      aimBrads: seat * 11 mod 256,
-      alive: true)
+    bodies[seat] = activateSeatBody(map, seat, 331)
     states[seat].annotations = newSeqOfCap[ShellAnnotation](
       WarmupBatches + SampleBatches)
 
   proc runBatch(tick: int) =
     for seat in 0 ..< Seats:
       let point = MapPoint(x: 200 + (tick and 1), y: 300 + seat)
+      var input = BodyTickInputs(
+        self: BodySelfState(pos: (100 + seat, 100), hpFrac: 1.0,
+          aimBrads: seat * 7 mod 256, alive: true, carrying: false),
+        partner: some(PartnerSample(seat: uint8(seat xor 1),
+          pos: (120 + seat, 120), aimBrads: seat * 11 mod 256,
+          alive: true)))
+      var fallback = BrDefaultFallbacks(
+        currentZone: MapRect(x: 0, y: 0, w: 800, h: 800),
+        nextZone: MapRect(x: 100, y: 100, w: 600, h: 600),
+        ticksToNextShrink: BrRotateLeadTicks + 1,
+        zoneDps: 2,
+        idleAimCenterBrads: seat * 7 mod 256,
+        coverGoal: none(ValidatedGoal))
       case tick mod 3
       of 0:
-        bodies[seat].brSnapshot.ticksToNextShrink = BrRotateLeadTicks
-        bodies[seat].brSnapshot.rotateTarget = some(point)
-        bodies[seat].brSnapshot.partnerTarget = none(MapPoint)
-        bodies[seat].brSnapshot.coverGoal = none(ValidatedGoal)
-        bodies[seat].brSnapshot.threatPositions.setLen(0)
+        fallback.ticksToNextShrink = BrRotateLeadTicks
+        fallback.rotateTarget = some(point.toBodyPoint)
       of 1:
-        bodies[seat].brSnapshot.ticksToNextShrink = BrRotateLeadTicks + 1
-        bodies[seat].partner.pos = MapPoint(x: 900, y: 900)
-        bodies[seat].brSnapshot.rotateTarget = none(MapPoint)
-        bodies[seat].brSnapshot.partnerTarget = some(point)
-        bodies[seat].brSnapshot.coverGoal = none(ValidatedGoal)
-        bodies[seat].brSnapshot.threatPositions.setLen(0)
+        input.partner = some(PartnerSample(seat: uint8(seat xor 1),
+          pos: point.toBodyPoint, aimBrads: seat * 11 mod 256, alive: true))
       else:
-        bodies[seat].brSnapshot.ticksToNextShrink = BrRotateLeadTicks + 1
-        bodies[seat].partner.pos = MapPoint(x: 120 + seat, y: 120)
-        bodies[seat].brSnapshot.rotateTarget = none(MapPoint)
-        bodies[seat].brSnapshot.partnerTarget = none(MapPoint)
-        bodies[seat].brSnapshot.coverGoal =
-          some(map.validateGoal(point.toBodyPoint,
-            bodies[seat].brSnapshot.selfPos.toBodyPoint).get)
-        bodies[seat].brSnapshot.threatPositions = @[MapPoint(x: 500, y: 500)]
-      states[seat].stepFirstLightDefault(bodies[seat], uint32(tick))
+        fallback.coverGoal = some(map.validateGoal(point.toBodyPoint,
+          input.self.pos).get)
+        input.visibleTracks = @[BodyTrackUpdate(seat: 31 - seat,
+          pos: (500, 500), team: Blue, aimBrads: 0, hpKnown: some(3),
+          tick: uint32(tick))]
+      bodies[seat].updateBelief(input, uint32(tick))
+      states[seat].stepFirstLightDefault(bodies[seat], uint32(tick),
+        fallback)
 
   for tick in 1 .. WarmupBatches:
     runBatch(tick)
@@ -90,7 +78,7 @@ proc main() =
   samples.sort()
   var checksum = 0
   for seat in 0 ..< Seats:
-    checksum += bodies[seat].installCount
+    checksum += states[seat].annotations.len
     checksum += states[seat].intentBytes.len
 
   let median = percentile(samples, 50, 100)

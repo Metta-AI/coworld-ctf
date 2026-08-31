@@ -1,9 +1,10 @@
-## Phase P3-1: the zero-guest standing order and its annotation predicate.
+## Phase P3-1/P3-FL: standing-order default install bound to lane A FL-B body.
 
 import std/[json, options, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/sim_types
-import ../src/shell/[body_map, canonical, default_play, standing_order, types]
+import ../src/shell/[body, body_map, canonical, default_play,
+  standing_order, types]
 
 proc testBodyMap(): BodyMap =
   const Side = 512
@@ -15,55 +16,63 @@ proc testBodyMap(): BodyMap =
 proc goal(map: BodyMap, x, y: int): ValidatedGoal =
   map.validateGoal((x, y), (10, 10)).get
 
-proc bodyFixture(): SeatBody =
-  result = activateSeatBody(testBodyMap(), 3)
-  result.brSnapshot = LaneABrSnapshot(
-    selfPos: MapPoint(x: 10, y: 10),
+proc inputs(self = (10, 10), partner = (20, 20), tick = 1'u32,
+            threats: seq[BodyPoint] = @[]): BodyTickInputs =
+  result.self = BodySelfState(pos: self, hpFrac: 1.0, aimBrads: 32,
+    alive: true, carrying: false)
+  result.partner = some(PartnerSample(seat: 4, pos: partner,
+    aimBrads: 32, alive: true))
+  for index, threat in threats:
+    result.visibleTracks.add(BodyTrackUpdate(seat: index + 10,
+      pos: threat, team: Blue, aimBrads: 0, hpKnown: some(3), tick: tick))
+
+proc fallback(map: BodyMap): BrDefaultFallbacks =
+  BrDefaultFallbacks(
     currentZone: MapRect(x: 0, y: 0, w: 400, h: 400),
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 1,
-    idleAimCenterBrads: 64)
-  result.partner = PartnerTelemetry(
-    identity: SeatRef(4), pos: MapPoint(x: 20, y: 20),
-    aimBrads: 32, alive: true)
+    idleAimCenterBrads: 64,
+    coverGoal: none(ValidatedGoal))
+
+proc bodyFixture(): SeatBody =
+  result = activateSeatBody(testBodyMap(), 3, 331)
+  result.updateBelief(inputs(), 1)
 
 suite "shell standing order":
   test "default changes on current facts while effective epoch stays zero":
-    var body = bodyFixture()
+    let body = bodyFixture()
     var standing: StandingOrderState
+    var facts = fallback(body.map)
 
-    standing.stepFirstLightDefault(body, 1)
+    standing.stepFirstLightDefault(body, 1, facts)
     check standing.annotations.len == 1
-    check body.installCount == 1
 
     # An identical consecutive default is still recomputed but writes no
     # annotation and performs no body install.
-    standing.stepFirstLightDefault(body, 2)
+    standing.stepFirstLightDefault(body, 2, facts)
     check standing.annotations.len == 1
-    check body.installCount == 1
 
     # Zone change: rotate on the same tick.
-    body.brSnapshot.ticksToNextShrink = BrRotateLeadTicks
-    body.brSnapshot.rotateTarget = some(MapPoint(x: 200, y: 200))
-    standing.stepFirstLightDefault(body, 3)
+    facts.ticksToNextShrink = BrRotateLeadTicks
+    facts.rotateTarget = some((200, 200))
+    standing.stepFirstLightDefault(body, 3, facts)
 
     # Threat change: hold cover on the same tick.
-    body.brSnapshot.ticksToNextShrink = BrRotateLeadTicks + 1
-    body.brSnapshot.threatPositions = @[MapPoint(x: 300, y: 300)]
-    body.brSnapshot.coverGoal = some(body.map.goal(40, 40))
-    standing.stepFirstLightDefault(body, 4)
+    facts.ticksToNextShrink = BrRotateLeadTicks + 1
+    facts.rotateTarget = none(BodyPoint)
+    facts.coverGoal = some(body.map.goal(40, 40))
+    body.updateBelief(inputs(tick = 4'u32, threats = @[(300, 300)]), 4)
+    standing.stepFirstLightDefault(body, 4, facts)
 
     # Partner change: leash on the same tick.
-    body.brSnapshot.threatPositions.setLen(0)
-    body.partner.pos = MapPoint(x: 399, y: 399)
-    body.brSnapshot.partnerTarget = some(MapPoint(x: 100, y: 100))
-    standing.stepFirstLightDefault(body, 5)
+    facts.coverGoal = none(ValidatedGoal)
+    body.updateBelief(inputs(partner = (399, 399)), 5)
+    standing.stepFirstLightDefault(body, 5, facts)
 
     check standing.annotations.len == 4
-    check body.installCount == 4
     check standing.effectiveEpoch == 0
-    check body.installedEffectiveEpoch == 0
+    check body.effectiveEpoch == 0
     for annotation in standing.annotations:
       check annotation.kind == akAcceptedIntentChange
       check annotation.effectiveEpoch == 0
@@ -87,24 +96,27 @@ suite "shell standing order":
     check standing.annotations[3].intentBytes ==
       "{\"arrive_radius\":64.0,\"idle_aim_center_brads\":64," &
       "\"kind\":\"navigate_to\",\"moving_goal\":true," &
-      "\"point\":[100,100],\"reason\":\"default:partner\"," &
+      "\"point\":[399,399],\"reason\":\"default:partner\"," &
       "\"schema\":\"intent\",\"v\":1}"
 
   test "frozen setter carries validated goal and effective epoch":
-    var body = activateSeatBody(testBodyMap(), 7)
+    let body = activateSeatBody(testBodyMap(), 7, 331)
     let validated = body.map.goal(12, 34)
     let intent = Intent(
       kind: ikNavigateTo,
       point: some(validated.goalPoint.toMapPoint),
       arriveRadius: 8.0)
     setStandingIntent(body, intent, some(validated), 0)
-    check body.installedGoal == some(validated)
-    check body.installedEffectiveEpoch == 0
+    check body.standingGoal == some(validated)
+    check body.effectiveEpoch == 0
 
-    expect AssertionDefect:
+    expect ValueError:
       setStandingIntent(body, intent, none(ValidatedGoal), 0)
 
-  test "other frozen placeholder operations preserve their signatures":
-    var body = activateSeatBody(testBodyMap(), 9)
-    check partnerTelemetry(body).alive == false
-    check seatTick(body, BodyTickInputs(input: InputState(right: true)), 11).right
+  test "lane A body operations preserve their final signatures":
+    let body = activateSeatBody(testBodyMap(), 9, 331)
+    check partnerTelemetry(body).isNone
+    let input = body.seatTick(BodyTickInputs(
+      self: BodySelfState(pos: (10, 10), hpFrac: 1.0, aimBrads: 0,
+        alive: true, carrying: false)), 11)
+    check input.encodeInputMask() == 0
