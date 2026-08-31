@@ -22,6 +22,18 @@ const
   ItemMemoryCap = 32
   AggressorWindowTicks = 120'u32
   KillFeedWindowTicks = 240'u32
+  # PORTED from the pinned lab — parity-bound, do NOT tune. Changing one of
+  # these changes the gate-1 differential, not just behaviour.
+  FirefightTargetMinDwellTicks* = 8     ## LAB config.nim:164-165
+  FirefightTargetSwitchMargin* = 0.10   ## LAB config.nim:166-167
+  FirefightShootabilityWeight* = 0.35   ## LAB config.nim:179-180
+  # SHELL INVENTIONS — wards are a §4.2 shell concept with no stencil
+  # counterpart, so these are chosen, not ported, and are legitimately
+  # tunable. WardThreatScoreBoost sits deliberately above the shootability
+  # weight so a ward's attacker outranks a merely-shootable target; that
+  # ratio is a design judgement, not a measurement.
+  WardAimToleranceBrads* = 8
+  WardThreatScoreBoost* = 0.65
 
 type
   BodyItemKind* = enum
@@ -146,8 +158,8 @@ type
   BodyTickInputs* = object
     ## Contracted trust boundary. The server supplies only this seat's
     ## fog-filtered facts and the explicit duo telemetry grant. The body never
-    ## receives raw sim state. Track filtering for team/noShoot/protect remains
-    ## caller-owned until the Phase 4 combat policy lands.
+    ## receives raw sim state. The phase-4 combat selector owns noShoot/protect
+    ## filtering before a track can become a vetted weapon target.
     self*: BodySelfState
     visibleTracks*: seq[BodyTrackUpdate]
     partner*: Option[PartnerSample]
@@ -161,6 +173,40 @@ type
 
   PreferenceScores* = object
     weakened*, isolated*, revenge*, bounty*: float
+
+  CombatCandidateInput* = object
+    ## Phase-4 target-acquisition input from the future weapon geometry pass.
+    ## `baseScore` is the already-computed Stencil-like score term for facts
+    ## this phase does not yet own (aim cost, corridor clearance, weapon/item
+    ## state). This selector owns policy filtering, preference order,
+    ## ward-threat bias, and target stickiness.
+    seat*: int
+    shootable*: bool
+    baseScore*: float
+    identity*: Option[int]
+
+  CombatTarget* = object
+    ## Vetted target. Construction is private to this module: weapon actuation
+    ## in phase 5 must receive one of these from `selectCombatTarget` or a
+    ## re-validation proc, so a noShoot endpoint is not a normal representable
+    ## firing decision.
+    seat: int
+    team: Team
+    pos: BodyPoint
+    identity: Option[int]
+
+  CombatDecision* = object
+    target: CombatTarget
+    score: float
+    selectedTick: uint32
+    shootable: bool
+
+  ScoredCombatCandidate = object
+    target: CombatTarget
+    preference: seq[float]
+    score: float
+    selectedTick: uint32
+    shootable: bool
 
   SeatBody* = ref object
     map*: BodyMap
@@ -177,6 +223,8 @@ type
     effectiveEpoch*: uint64
     standingGoal*: Option[ValidatedGoal]
     partnerGrant: Option[PartnerTelemetry]
+    heldCombatTarget: Option[CombatTarget]
+    heldCombatSelectedTick: uint32
 
 proc tickInsideWindow(eventTick, now, window: uint32): bool =
   eventTick <= now and uint64(now - eventTick) < uint64(window)
@@ -507,6 +555,251 @@ proc compareByPreference*(body: SeatBody, leftSeat, rightSeat: int,
     if left[index] > right[index]: return -1
     if left[index] < right[index]: return 1
   cmp(leftSeat, rightSeat)
+
+proc seatIndex(seatRef: shellTypes.SeatRef): int {.inline.} =
+  int(uint8(seatRef))
+
+proc containsSeat(set: shellTypes.ProtectedSet, seat: int): bool =
+  for seatRef in set.seats:
+    if seatRef.seatIndex == seat:
+      return true
+  false
+
+proc containsTrack(set: shellTypes.ProtectedSet, seat: int,
+                   team: Team): bool =
+  team in set.teams or set.containsSeat(seat)
+
+proc noShootTarget*(policy: shellTypes.CombatPolicy, seat: int,
+                    team: Team): bool =
+  validateSeat(seat, "combat target")
+  policy.noShoot.containsTrack(seat, team)
+
+proc protectedPolicyTarget*(policy: shellTypes.CombatPolicy, seat: int,
+                            team: Team): bool =
+  ## Wards are not threat targets. `noShoot` also joins the protected set for
+  ## every later weapon path (§4.2), so both sets are excluded here.
+  validateSeat(seat, "combat target")
+  policy.noShoot.containsTrack(seat, team) or
+    policy.protect.containsTrack(seat, team)
+
+proc combatSeat*(target: CombatTarget): int {.inline.} = target.seat
+proc combatTeam*(target: CombatTarget): Team {.inline.} = target.team
+proc combatPos*(target: CombatTarget): BodyPoint {.inline.} = target.pos
+proc combatIdentity*(target: CombatTarget): Option[int] {.inline.} =
+  target.identity
+proc combatTarget*(decision: CombatDecision): CombatTarget {.inline.} =
+  decision.target
+proc combatScore*(decision: CombatDecision): float {.inline.} = decision.score
+proc combatSelectedTick*(decision: CombatDecision): uint32 {.inline.} =
+  decision.selectedTick
+proc combatShootable*(decision: CombatDecision): bool {.inline.} =
+  decision.shootable
+
+proc sameTarget(a, b: CombatTarget): bool =
+  ## Body tracks are keyed by server seat. Optional identity is retained for
+  ## the Stencil comparator, not for equality.
+  a.seat == b.seat
+
+proc aimedAtPoint(fromPos: BodyPoint, aimBrads: int,
+                  point: BodyPoint): bool =
+  let desired = bradsOfVector(point.x - fromPos.x, point.y - fromPos.y)
+  abs(shortestAimBradsDelta(aimBrads, desired)) <= WardAimToleranceBrads
+
+proc inLiveWeaponRange(fromPos, point: BodyPoint,
+                       liveWeaponRangePx: int): bool =
+  if liveWeaponRangePx <= 0:
+    raise newException(ValueError, "live weapon range must be positive")
+  let range = int64(liveWeaponRangePx)
+  distanceSquared(fromPos, point) <= range * range
+
+proc trackThreatensPoint(track: BodyTrack, point: BodyPoint,
+                         liveWeaponRangePx: int): bool =
+  if not inLiveWeaponRange(track.pos, point, liveWeaponRangePx):
+    return false
+  if track.aimBrads.isSome:
+    return aimedAtPoint(track.pos, track.aimBrads.get, point)
+  # Ruling 2026-08-31 kept unreadable aim as a named contract path; §4.2
+  # keeps proximity as the fallback signal for exactly that case.
+  true
+
+proc aimedAtUs*(body: SeatBody, targetSeat: int, tick: uint32,
+                liveWeaponRangePx: int): bool =
+  validateSeat(targetSeat, "combat target")
+  if body.tracks[targetSeat].isNone:
+    return false
+  let track = body.tracks[targetSeat].get
+  track.freshTick == tick and
+    track.trackThreatensPoint(body.selfState.pos, liveWeaponRangePx)
+
+proc protectedWardPositions(body: SeatBody, policy: shellTypes.CombatPolicy,
+                            tick: uint32): seq[tuple[seat: int, pos: BodyPoint]] =
+  var seen: set[uint8]
+  for seat in 0 ..< MaxPlayers:
+    if body.tracks[seat].isSome:
+      let track = body.tracks[seat].get
+      if track.freshTick == tick and policy.protect.containsTrack(seat, track.team):
+        result.add((seat: seat, pos: track.pos))
+        seen.incl(uint8(seat))
+  if body.partnerGrant.isSome:
+    let partner = body.partnerGrant.get
+    if partner.alive and policy.protect.containsSeat(partner.seat.int) and
+        partner.seat notin seen:
+      result.add((seat: partner.seat.int, pos: partner.pos))
+
+proc threatensProtectedWard*(body: SeatBody,
+    policy: shellTypes.CombatPolicy, targetSeat: int, tick: uint32,
+    liveWeaponRangePx: int): bool =
+  validateSeat(targetSeat, "combat target")
+  if body.tracks[targetSeat].isNone:
+    return false
+  let track = body.tracks[targetSeat].get
+  if track.freshTick != tick or
+      policy.protectedPolicyTarget(targetSeat, track.team):
+    return false
+  for ward in body.protectedWardPositions(policy, tick):
+    if ward.seat != targetSeat and
+        track.trackThreatensPoint(ward.pos, liveWeaponRangePx):
+      return true
+  false
+
+proc returnFirePermitted(body: SeatBody, targetSeat: int, tick: uint32): bool =
+  for event in body.aggressorEvents:
+    if tickInsideWindow(event.tick, tick, AggressorWindowTicks) and
+        event.seat == some(targetSeat):
+      return true
+  false
+
+proc compareScoredCombat(a, b: ScoredCombatCandidate): int =
+  for index in 0 ..< min(a.preference.len, b.preference.len):
+    if a.preference[index] > b.preference[index]: return -1
+    if a.preference[index] < b.preference[index]: return 1
+  result = cmp(b.score, a.score)
+  if result != 0: return
+  let
+    aKnown = if a.target.identity.isSome: 0 else: 1
+    bKnown = if b.target.identity.isSome: 0 else: 1
+  result = cmp(aKnown, bKnown)
+  if result != 0: return
+  let
+    aIdentity = if a.target.identity.isSome: a.target.identity.get else: 8
+    bIdentity = if b.target.identity.isSome: b.target.identity.get else: 8
+  result = cmp(aIdentity, bIdentity)
+  if result != 0: return
+  result = cmp(a.target.pos.y div NavCell, b.target.pos.y div NavCell)
+  if result == 0:
+    result = cmp(a.target.pos.x div NavCell, b.target.pos.x div NavCell)
+
+proc candidateByTarget(candidates: openArray[ScoredCombatCandidate],
+                       target: CombatTarget): Option[ScoredCombatCandidate] =
+  for candidate in candidates:
+    if candidate.target.sameTarget(target):
+      return some(candidate)
+
+proc toDecision(candidate: ScoredCombatCandidate): CombatDecision =
+  CombatDecision(target: candidate.target, score: candidate.score,
+    selectedTick: candidate.selectedTick, shootable: candidate.shootable)
+
+proc recordSelectedCombatTarget(body: SeatBody,
+                                candidate: ScoredCombatCandidate,
+                                tick: uint32): CombatDecision =
+  let changed = body.heldCombatTarget.isNone or
+    not body.heldCombatTarget.get.sameTarget(candidate.target)
+  if changed:
+    body.heldCombatTarget = some(candidate.target)
+    body.heldCombatSelectedTick = tick
+  var selected = candidate
+  selected.selectedTick = body.heldCombatSelectedTick
+  selected.toDecision
+
+proc selectCombatTarget*(body: SeatBody, policy: shellTypes.CombatPolicy,
+    inputs: openArray[CombatCandidateInput], tick: uint32,
+    liveWeaponRangePx, targetMaxHp: int): Option[CombatDecision] =
+  ## The single phase-4 target-acquisition route. Ordering is:
+  ## 1. structural noShoot/protect exclusion;
+  ## 2. holdFire engageability;
+  ## 3. policy preference tuple;
+  ## 4. Stencil's score/identity/cell comparator;
+  ## 5. Stencil's target stickiness.
+  ##
+  ## CTF defender/heart-stolen override arms from the lab are intentionally
+  ## absent here: the BR-first body seam has no heart-stolen/thief fact, and
+  ## pursuit remains deleted by ruling 3.
+  if liveWeaponRangePx <= 0:
+    raise newException(ValueError, "live weapon range must be positive")
+  if targetMaxHp <= 0:
+    raise newException(ValueError, "target max hp must be positive")
+
+  var scored: seq[ScoredCombatCandidate]
+  for input in inputs:
+    validateSeat(input.seat, "combat candidate")
+    if input.seat == body.seatIndex or body.tracks[input.seat].isNone:
+      continue
+    let track = body.tracks[input.seat].get
+    if track.freshTick != tick:
+      continue
+    if policy.protectedPolicyTarget(input.seat, track.team):
+      continue
+    if policy.holdFire and not body.returnFirePermitted(input.seat, tick):
+      continue
+    let wardScore =
+      if body.threatensProtectedWard(policy, input.seat, tick,
+          liveWeaponRangePx):
+        WardThreatScoreBoost
+      else:
+        0.0
+    scored.add(ScoredCombatCandidate(
+      target: CombatTarget(seat: input.seat, team: track.team,
+        pos: track.pos, identity: input.identity),
+      preference: body.preferenceScoreTuple(input.seat, policy.prefer,
+        tick, liveWeaponRangePx, targetMaxHp),
+      score: input.baseScore + wardScore + FirefightShootabilityWeight *
+        (if input.shootable: 1.0 else: -1.0),
+      shootable: input.shootable))
+
+  if scored.len == 0:
+    body.heldCombatTarget = none(CombatTarget)
+    return none(CombatDecision)
+
+  scored.sort(compareScoredCombat)
+  let best = scored[0]
+  if body.heldCombatTarget.isNone:
+    return some(body.recordSelectedCombatTarget(best, tick))
+  let current = scored.candidateByTarget(body.heldCombatTarget.get)
+  if current.isNone:
+    return some(body.recordSelectedCombatTarget(best, tick))
+  if current.get.target.sameTarget(best.target):
+    return some(body.recordSelectedCombatTarget(current.get, tick))
+  let age = tick - body.heldCombatSelectedTick
+  let immediate = (not current.get.shootable) and best.shootable
+  let materiallyBetter = age >= FirefightTargetMinDwellTicks.uint32 and
+    best.score >= current.get.score + FirefightTargetSwitchMargin
+  if immediate or materiallyBetter:
+    return some(body.recordSelectedCombatTarget(best, tick))
+  some(body.recordSelectedCombatTarget(current.get, tick))
+
+proc combatTargetStillAllowed*(body: SeatBody,
+    policy: shellTypes.CombatPolicy, target: CombatTarget): bool =
+  ## Final weapon veto hook for phase 5: re-check the endpoint against the
+  ## current standing policy immediately before actuation.
+  discard body
+  not policy.protectedPolicyTarget(target.seat, target.team)
+
+proc revalidateGrenadeCommit*(body: SeatBody,
+    policy: shellTypes.CombatPolicy, target: CombatTarget,
+    splashSeats: openArray[int]): Option[CombatTarget] =
+  ## Grenade decisions are re-validated at commit time, against the current
+  ## standing policy and the current predicted splash victims. A policy change
+  ## or newly protected splash victim cancels the commit instead of force-
+  ## releasing the stale throw.
+  if not body.combatTargetStillAllowed(policy, target):
+    return none(CombatTarget)
+  for seat in splashSeats:
+    validateSeat(seat, "grenade splash")
+    if body.tracks[seat].isSome:
+      let track = body.tracks[seat].get
+      if policy.protectedPolicyTarget(seat, track.team):
+        return none(CombatTarget)
+  some(target)
 
 proc arrived(pos, goal: BodyPoint, radius: float): bool =
   let
