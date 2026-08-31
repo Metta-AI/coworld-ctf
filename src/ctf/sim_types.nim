@@ -29,6 +29,18 @@ export glory
 
 const
   GameName* = "ctf"
+  ReplayCompatibleGameVersions* = ["48"]
+    ## The replay-load allowlist (play-calling design §4.3): versions whose
+    ## recorded files still play back correctly under THIS engine. The
+    ## criterion is the GameVersion changelog below, not chronology — a
+    ## version is listed only when nothing since changed the gameHash
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV47 is
+    ## excluded because GV48 added the glory ledger to gameHash itself
+    ## ("every .bitreplay this engine has ever produced ... needs a GV48
+    ## stamp to load again"); GV46 was already excluded because GV47
+    ## relaid RewardAccount on the wire. Widening requires a real archived
+    ## fixture that survives initialization and stepping (PM ruling,
+    ## 2026-08-30), never a header rewrite.
   GameVersion* = "48"
     ## GV48 (GLORY PORT increment 3/3, GLORY v11): the ledger is CAUSAL now.
     ## Every per-player counter and per-team field `glory.nim`'s own

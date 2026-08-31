@@ -24,6 +24,7 @@ import
   test_medkits,
   test_policy_page,
   test_render_scale,
+  test_replay_compat,
   test_shard_wiring,
   test_shell_contracts,
   test_shell_packets,
