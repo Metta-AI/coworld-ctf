@@ -350,8 +350,14 @@ const
                                       ## measured ~62 µs/emit; P3 carries a
                                       ## ≤15 µs engineering acceptance)
   MaxEmitBytes* = 4096
-  MaxSpatialCallsPerStep* = 4         ## nearest_reachable + nearest_cover;
-                                      ## P0-retuned 8→4
+  MaxSpatialCallsPerStep* = 2         ## nearest_reachable + nearest_cover;
+                                      ## PM freeze ruling (2026-08-31) after
+                                      ## lane C measured the real scorer at
+                                      ## 19.9-20.2 us/call at the 1536-post
+                                      ## cap (linear in the cap, ~13.3 us at
+                                      ## the frozen 1024); de-provisioned
+                                      ## from P0's 8→4 retune to fit the
+                                      ## runtime share.
   MaxCoverRadiusPx* = 331
     ## P0-adjusted (James, 2026-08-30): Battle Royale's derived weapon range
     ## (§4.2's equal-share formula) — cover beyond the range anyone can
@@ -361,13 +367,12 @@ const
     ## radius ≥ 256 fits 512 there). Still provisional until the full
     ## launch-map census freezes it (§10).
   MaxCoverThreats* = 8
-  MaxCoverPostsExamined* = 1536
-    ## P0-adjusted with the radius above: the BR golden map holds 1,248
-    ## posts in a 331px disc at its densest point; 1536 gives margin.
-    ## Asserted per map at load in play-seat configurations; provisional
-    ## until the launch-map census (§10). Thinning the atlas on giant
-    ## fields (a behavioral ruling) is the named reserve if the combined
-    ## worst-tick verdict cannot afford this cap's host-call pricing.
+  MaxCoverPostsExamined* = 1024
+    ## PM freeze ruling (2026-08-31): atlas posts are minted only on the
+    ## 16px candidate grid, and the generator census under thinning fits
+    ## below 1024 with headroom. Asserted per map at load in play-seat
+    ## configurations; denser maps are rejected rather than spilling host
+    ## call work past the frozen cap.
   MaxRouteFieldsPerSeat* = 4          ## §3.1 seat layer
   MaxDuckEntriesPerSeat* = 256
   ReflexCandidateSpacingPx* = 16      ## Appendix R.2 planEscape lattice

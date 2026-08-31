@@ -1,0 +1,586 @@
+## Stencil-free timing probe for the committed Season 2 body port.
+
+when not defined(release):
+  {.error: "bench_body_port must be compiled with -d:release".}
+
+import std/[algorithm, json, math, monotimes, options, os, osproc, tables,
+  strutils, times]
+import ../src/ctf/arena as ctfArena
+import ../src/ctf/sim_types as ctfTypes
+import ../src/shell/body_cache
+import ../src/shell/body_map
+import ../src/shell/body_nav
+import ../src/shell/body_planner
+import ../src/shell/types as shellTypes
+
+type
+  Options = object
+    selectedCase: string
+    seeds: seq[int]
+    warmups, samples: int
+    output: string
+
+  Scenario = object
+    seed: int
+    gameMap: ctfTypes.CtfMap
+    map: BodyMap
+    smoke: bool
+    smokeWalkable: seq[bool]
+    smokeSpawns: seq[BodyPoint]
+
+proc parseIntList(text: string): seq[int] =
+  for item in text.split(','):
+    result.add(parseInt(item.strip()))
+
+proc parseOptions(): Options =
+  result = Options(selectedCase: "all", seeds: @[4242], warmups: 5,
+    samples: 50)
+  let args = commandLineParams()
+  var index = 0
+  while index < args.len:
+    if not args[index].startsWith("--"):
+      raise newException(ValueError,
+        "unexpected positional argument: " & args[index])
+    let parts = args[index][2 .. ^1].split('=', 1)
+    let key = parts[0]
+    var value = if parts.len == 2: parts[1] else: ""
+    if value.len == 0:
+      inc index
+      if index >= args.len:
+        raise newException(ValueError, "missing value for --" & key)
+      value = args[index]
+    case key
+    of "case": result.selectedCase = value
+    of "seeds": result.seeds = parseIntList(value)
+    of "warmups": result.warmups = parseInt(value)
+    of "samples": result.samples = parseInt(value)
+    of "output", "o": result.output = value
+    else: raise newException(ValueError, "unknown option --" & key)
+    inc index
+  if result.warmups < 0 or result.samples <= 0 or result.seeds.len == 0:
+    raise newException(ValueError,
+      "warmups must be >= 0; samples and seeds must be nonzero")
+
+proc elapsedNs(started: MonoTime): int64 =
+  (getMonoTime() - started).inNanoseconds
+
+proc measure(warmups, samples: int,
+             body: proc() {.closure.}): seq[int64] =
+  for _ in 0 ..< warmups:
+    body()
+  for _ in 0 ..< samples:
+    let started = getMonoTime()
+    body()
+    result.add(elapsedNs(started))
+
+proc percentile(samples: openArray[int64], fraction: float): int64 =
+  var ordered = @samples
+  ordered.sort()
+  ordered[clamp(int(ceil(fraction * ordered.len.float)) - 1,
+    0, ordered.high)]
+
+proc row(name: string, samples: seq[int64],
+         details = newJObject()): JsonNode =
+  %*{"name": name, "samples": samples.len,
+    "median_ns": percentile(samples, 0.5),
+    "p95_ns": percentile(samples, 0.95), "details": details}
+
+proc generatedScenario(seed: int): Scenario =
+  ## The committed BR golden-map spec, not a generated CTF giant: the
+  ## season-2 target field. Generated 2-team giant maps are covered by the
+  ## dedicated thinned-atlas census case; this timing scenario keeps the
+  ## BR golden geometry stable and varies goals only.
+  result.seed = seed
+  result.gameMap = ctfArena.mapFromSpecJson(
+    readFile("tests/fixtures/br-golden-map.json"))
+  result.map = newBodyMap(result.gameMap)
+
+proc smokeScenario(): Scenario =
+  const Width = 384
+  const Height = 160
+  result.smoke = true
+  result.smokeWalkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      result.smokeWalkable[y * Width + x] = true
+  result.smokeSpawns = @[(16, 80), (Width - 17, 80)]
+  result.map = newBodyMap(result.smokeWalkable, Width, Height, 2,
+    result.smokeSpawns)
+
+proc rebuildEpisodeMap(scenario: Scenario): BodyMap =
+  if scenario.smoke:
+    newBodyMap(scenario.smokeWalkable, scenario.map.width,
+      scenario.map.height, 2, scenario.smokeSpawns)
+  else:
+    newBodyMap(scenario.gameMap)
+
+proc mapDetails(scenario: Scenario): JsonNode =
+  %*{"seed": scenario.seed, "map_width": scenario.map.width,
+    "map_height": scenario.map.height,
+    "grid_w": scenario.map.gridWidth,
+    "grid_h": scenario.map.gridHeight,
+    "groups": scenario.map.groupCount,
+    "components": scenario.map.componentCount,
+    "atlas_posts": scenario.map.atlasPostCount}
+
+proc anchor(scenario: Scenario): BodyPoint =
+  if scenario.smoke:
+    scenario.smokeSpawns[0]
+  else:
+    (16, 16)  # standable on the BR golden map (the phase-2 golden's start)
+
+proc dangerInput(scenario: Scenario): DangerInput =
+  result.selfXy = scenario.anchor
+  if not scenario.map.canStand(result.selfXy):
+    raise newException(ValueError, "danger probe anchor is not standable")
+  let towardCenter = if result.selfXy.x < scenario.map.width div 2: 1 else: -1
+  let offsets = [
+    (96, 0), (176, -80), (248, 112), (328, -144),
+    (408, 176), (480, -208), (544, 224), (592, -32)]
+  for index, offset in offsets:
+    let requested: BodyPoint = (
+      clamp(result.selfXy.x + towardCenter * offset[0],
+        0, scenario.map.width - 1),
+      clamp(result.selfXy.y + offset[1], 0, scenario.map.height - 1))
+    let resolved = scenario.map.validateGoal(requested, result.selfXy)
+    if resolved.isNone:
+      raise newException(ValueError,
+        "danger source cannot resolve in the anchor component: " & $requested)
+    result.candidates.add(DangerCandidate(
+      seatIndex: index + 1, pos: resolved.get.goalPoint))
+
+proc sourceDetails(input: DangerInput): JsonNode =
+  result = newJArray()
+  for source in input.candidates:
+    result.add(%*{"seat": source.seatIndex,
+      "x": source.pos.x, "y": source.pos.y})
+
+proc latencyMs(ticks: int): float =
+  ticks.float * 1000.0 / 24.0
+
+proc latencyRow(name: string, details: JsonNode): JsonNode =
+  %*{"name": name, "samples": 1, "median_ns": 0, "p95_ns": 0,
+    "details": details}
+
+proc freezeBudgetDetails(scenario: Scenario): JsonNode =
+  result = scenario.mapDetails
+  result["danger_cadence_k"] = %DangerCadenceK
+  result["cold_plan_budget_per_tick"] = %ColdPlanBudgetPerTick
+  result["atlas_candidate_grid_px"] = %16
+  result["max_cover_radius_px"] = %shellTypes.MaxCoverRadiusPx
+  result["max_cover_posts_examined"] = %shellTypes.MaxCoverPostsExamined
+  result["max_cover_threats"] = %shellTypes.MaxCoverThreats
+  result["max_spatial_calls_per_step"] = %shellTypes.MaxSpatialCallsPerStep
+
+proc writeBackRow(scenario: Scenario): JsonNode =
+  let details = scenario.freezeBudgetDetails
+  details["row"] = %"Reflex worst-case (lane C measured, 32-seat max reflex plan): 10.8 ms-class (9.9-11.1 observed) vs the 4.0 ms runtime share — over budget at freeze. Lever: the §6.1 fully-resolved validator answer table (QUEUED, lane A, next after this package) replacing per-candidate tie-scan resolution with O(1) lookup; fallback lever: reflex plan caps."
+  latencyRow("freeze.write_back.reflex_worst_case", details)
+
+proc realScorerWriteBackRow(scenario: Scenario): JsonNode =
+  let details = scenario.freezeBudgetDetails
+  details["row"] = %"nearest_cover real scorer (lane C measured): 19.9-20.2 us/call at cap 1,536, linear in cap — at the frozen 1,024 cap and MaxSpatialCallsPerStep=2, the adversarial spatial-call tick is ~2.6 ms of the 4.0 ms runtime share; lever if it regresses: spatial bucketing (QUEUED, lane C side)."
+  latencyRow("freeze.write_back.nearest_cover_real_scorer", details)
+
+proc dangerRow(options: Options, scenario: Scenario,
+               liveRange: int): JsonNode =
+  let system = newBodyNavSystem(scenario.map, 1, liveRange)
+  let input = scenario.dangerInput
+  let samples = measure(options.warmups, options.samples,
+    proc() = system.seats[0].rebuildDanger(scenario.map, input, 0))
+  let details = scenario.mapDetails
+  details["source_count"] = %input.candidates.len
+  details["source_positions"] = input.sourceDetails
+  details["self_x"] = %input.selfXy.x
+  details["self_y"] = %input.selfXy.y
+  details["live_gun_range_px"] = %liveRange
+  details["danger_fingerprint"] = %($system.seats[0].dangerFingerprint)
+  row("port.danger_rebuild_8src_live" & $liveRange, samples, details)
+
+proc planningGoals(scenario: Scenario): seq[BodyPoint] =
+  if scenario.smoke:
+    for seat in 0 ..< 32:
+      result.add((scenario.map.width - 24 - (seat mod 8) * 8,
+                  scenario.map.height - 24 - (seat div 8) * 8))
+  else:
+    for seat in 0 ..< 32:
+      result.add((3194 - (seat mod 8) * 16,
+                  1696 - (seat div 8) * 16))
+
+proc hasPendingPlan(system: BodyNavSystem): bool =
+  for seat in system.seats:
+    if seat.job.planPending:
+      return true
+
+proc planCompletionTicks(map: BodyMap, start: BodyPoint, requested: BodyPoint,
+                         prewarmed: bool): JsonNode =
+  let goal = map.validateGoal(requested, start)
+  if goal.isNone:
+    raise newException(ValueError,
+      "latency goal cannot resolve: " & $requested)
+  let system = newBodyNavSystem(map, 1, 331, DangerCadenceK, 100_000)
+  if prewarmed:
+    system.replacePlan(0, 1, start, goal.get)
+    system.prewarmColdPlans()
+  system.replacePlan(0, 2, start, goal.get)
+  var tick = 0
+  while system.seats[0].job.planPending:
+    discard system.runPlanningTick(tick)
+    if system.seats[0].job.planSucceeded:
+      result = %*{"requested": [requested.x, requested.y],
+        "resolved": [goal.get.goalPoint.x, goal.get.goalPoint.y],
+        "completion_tick": tick, "ticks_elapsed": tick + 1,
+        "ms_at_24hz": latencyMs(tick + 1),
+        "work_units": system.seats[0].job.workUnits,
+        "prewarmed_route_field": prewarmed}
+      return
+    inc tick
+    if tick > 100_000:
+      raise newException(ValueError, "latency plan did not complete")
+  raise newException(ValueError, "latency plan completed before measurement")
+
+proc latencyRows(options: Options, scenario: Scenario): seq[JsonNode] =
+  discard options
+  let start = scenario.anchor
+  if not scenario.map.canStand(start):
+    raise newException(ValueError, "latency probe start is not standable")
+
+  block dangerLatency:
+    let system = newBodyNavSystem(scenario.map, 32, 331, DangerCadenceK, 128)
+    var emptyInputs = newSeq[DangerInput](32)
+    var threatInputs = newSeq[DangerInput](32)
+    let base = scenario.dangerInput
+    for seat in 0 ..< 32:
+      emptyInputs[seat].selfXy = base.selfXy
+      threatInputs[seat] = base
+    system.initializeDanger(emptyInputs, -1)
+    var seenTick: Table[int, int]
+    for tick in 0 ..< DangerCadenceK:
+      system.rebuildScheduledDanger(tick, threatInputs)
+      for visit in system.dangerTraceSnapshot:
+        if visit.sourceCount > 0 and visit.seat notin seenTick:
+          seenTick[visit.seat] = visit.tick
+    var distribution = newJArray()
+    var worst = 0
+    for seat in 0 ..< 32:
+      let latency = seenTick[seat]
+      worst = max(worst, latency)
+      distribution.add(%latency)
+    let details = scenario.freezeBudgetDetails
+    details["stimulus_tick"] = %0
+    details["worst_ticks"] = %worst
+    details["worst_ms_at_24hz"] = %latencyMs(worst)
+    details["distribution_ticks"] = distribution
+    details["note"] =
+      %"measured from new threat in DangerInput to scheduled rebuild trace"
+    result.add(latencyRow("latency.danger_new_threat", details))
+
+  let goals = scenario.planningGoals
+  let typicalIndices = @[7, 15, 23, 31]
+  for prewarmed in [false, true]:
+    var samples = newJArray()
+    var worstTypical = 0
+    for index in typicalIndices:
+      let sample = planCompletionTicks(scenario.map, start, goals[index],
+        prewarmed)
+      worstTypical = max(worstTypical, sample["ticks_elapsed"].getInt)
+      samples.add(sample)
+    var details = scenario.freezeBudgetDetails
+    details["goal_set"] = %"quartile goals"
+    details["goal_indices"] = %typicalIndices
+    details["prewarmed_route_fields"] = %prewarmed
+    details["worst_ticks_elapsed"] = %worstTypical
+    details["worst_ms_at_24hz"] = %latencyMs(worstTypical)
+    details["samples"] = samples
+    result.add(latencyRow("latency.intent_to_movement_typical" &
+      (if prewarmed: "_prewarmed" else: ""), details))
+
+    let worstSample = planCompletionTicks(scenario.map, start, goals[0],
+      prewarmed)
+    details = scenario.freezeBudgetDetails
+    details["goal_set"] = %"far pair"
+    details["goal_index"] = %0
+    details["prewarmed_route_fields"] = %prewarmed
+    details["ticks_elapsed"] = %worstSample["ticks_elapsed"].getInt
+    details["ms_at_24hz"] = %worstSample["ms_at_24hz"].getFloat
+    details["sample"] = worstSample
+    result.add(latencyRow("latency.intent_to_movement_worst" &
+      (if prewarmed: "_prewarmed" else: ""), details))
+
+  let zoneGoal = (scenario.map.width div 2, scenario.map.height div 2)
+  let zoneSample = planCompletionTicks(scenario.map, start, zoneGoal, true)
+  var zoneDetails = scenario.freezeBudgetDetails
+  zoneDetails["stimulus"] = %"zone-driven goal install"
+  zoneDetails["body_side_split"] =
+    %"measures body-side route completion only; play-side decision latency is lane C"
+  zoneDetails["ticks_elapsed"] = %zoneSample["ticks_elapsed"].getInt
+  zoneDetails["ms_at_24hz"] = %zoneSample["ms_at_24hz"].getFloat
+  zoneDetails["sample"] = zoneSample
+  result.add(latencyRow("latency.zone_shrink_to_waypoint", zoneDetails))
+
+proc stageBucket(stage: PlanStage): string =
+  case stage
+  of pjsRouteClear:
+    "clear"
+  of pjsRouteSearch:
+    "dijkstra"
+  of pjsAstarSearch:
+    "astar"
+  else:
+    "mixed"
+
+proc classifyPlanningTick(system: BodyNavSystem, traceStart: int,
+                          stagesBefore: openArray[PlanStage]): string =
+  result = ""
+  let trace = system.planningTraceSnapshot
+  for index in traceStart ..< trace.len:
+    let visit = trace[index]
+    if visit.units == 0:
+      continue
+    let before = stagesBefore[visit.seat]
+    let after = system.seats[visit.seat].job.stage
+    var bucket = before.stageBucket
+    if before != after:
+      bucket = "mixed"
+    if result.len == 0:
+      result = bucket
+    elif result != bucket:
+      result = "mixed"
+  if result.len == 0:
+    result = "mixed"
+
+proc planningRows(options: Options, scenario: Scenario): seq[JsonNode] =
+  let system = newBodyNavSystem(scenario.map, 32, 331)
+  let start = scenario.anchor
+  if not scenario.map.canStand(start):
+    raise newException(ValueError, "planning probe start is not standable")
+  let requestedGoals = scenario.planningGoals
+  var resolvedGoals = newJArray()
+  for seat, requested in requestedGoals:
+    let goal = scenario.map.validateGoal(requested, start)
+    if goal.isNone:
+      raise newException(ValueError,
+        "planning goal cannot resolve: " & $requested)
+    system.replacePlan(seat, uint64(seat + 1), start, goal.get)
+    resolvedGoals.add(%*{"seat": seat, "requested": [requested.x, requested.y],
+      "resolved": [goal.get.goalPoint.x, goal.get.goalPoint.y]})
+
+  var tick = 0
+  for _ in 0 ..< options.warmups:
+    if not system.hasPendingPlan:
+      raise newException(ValueError, "planning jobs ended during warmup")
+    let spent = system.runPlanningTick(tick)
+    if spent != ColdPlanBudgetPerTick:
+      raise newException(ValueError,
+        "planning warmup did not spend the full budget: " & $spent)
+    inc tick
+
+  var earlySamples: seq[int64]
+  var earlyUnits: seq[int]
+  var stageSamples = newJObject()
+  var stageUnits = newJObject()
+  var stageTicks = newJObject()
+  for name in ["clear", "dijkstra", "astar", "mixed"]:
+    stageSamples[name] = newJArray()
+    stageUnits[name] = newJArray()
+    stageTicks[name] = newJArray()
+
+  while system.hasPendingPlan:
+    let measuringEarly = earlySamples.len < options.samples
+    var stagesBefore = newSeq[PlanStage](system.seats.len)
+    for index, seat in system.seats:
+      stagesBefore[index] = seat.job.stage
+    let traceStart = system.planningTraceSnapshot.len
+    if not system.hasPendingPlan:
+      raise newException(ValueError, "planning jobs ended before all samples")
+    let started = getMonoTime()
+    let spent = system.runPlanningTick(tick)
+    let ns = elapsedNs(started)
+    if not scenario.smoke and spent != ColdPlanBudgetPerTick:
+      raise newException(ValueError,
+        "planning sample did not spend the full budget: " & $spent)
+    let bucket = system.classifyPlanningTick(traceStart, stagesBefore)
+    if measuringEarly:
+      earlySamples.add(ns)
+      earlyUnits.add(spent)
+    if stageSamples[bucket].len < options.samples:
+      stageSamples[bucket].add(%ns)
+      stageUnits[bucket].add(%spent)
+      stageTicks[bucket].add(%tick)
+    inc tick
+    if earlySamples.len == options.samples and
+        stageSamples["clear"].len >= options.samples and
+        stageSamples["dijkstra"].len >= options.samples and
+        stageSamples["astar"].len >= options.samples and
+        stageSamples["mixed"].len > 0:
+      break
+
+  if earlySamples.len < options.samples:
+    raise newException(ValueError, "planning jobs ended before all early samples")
+
+  proc baseDetails(): JsonNode =
+    result = scenario.mapDetails
+    result["seat_count"] = %32
+    result["start"] = %*[start.x, start.y]
+    result["goals"] = resolvedGoals
+    result["budget_per_tick"] = %ColdPlanBudgetPerTick
+    result["first_measured_tick"] = %options.warmups
+
+  let earlyDetails = baseDetails()
+  earlyDetails["units_spent"] = %earlyUnits
+  earlyDetails["units_min"] = %earlyUnits.min
+  earlyDetails["units_max"] = %earlyUnits.max
+  earlyDetails["compatibility_note"] =
+    %"same early drain window formerly reported as port.planning_tick_saturated"
+  result.add(row("port.planning_tick_early_drain", earlySamples,
+    earlyDetails))
+
+  for bucket in ["clear", "dijkstra", "astar", "mixed"]:
+    if stageSamples[bucket].len == 0:
+      continue
+    var samples: seq[int64]
+    var units: seq[int]
+    for node in stageSamples[bucket]:
+      samples.add(node.getInt.int64)
+    for node in stageUnits[bucket]:
+      units.add(node.getInt)
+    let details = baseDetails()
+    details["stage_bucket"] = %bucket
+    details["units_spent"] = %units
+    details["units_min"] = %units.min
+    details["units_max"] = %units.max
+    details["ticks"] = stageTicks[bucket]
+    if bucket == "mixed":
+      details["mixed_tick_count"] = %samples.len
+    result.add(row("port.planning_tick_" & bucket, samples, details))
+
+proc episodeRow(options: Options, scenario: Scenario): JsonNode =
+  let sampleCount = min(options.samples, 5)
+  var built: BodyMap
+  let samples = measure(options.warmups, sampleCount,
+    proc() = built = scenario.rebuildEpisodeMap)
+  let details = scenario.mapDetails
+  details["validator_tables"] = %built.validatorTableCount
+  details["validator_logical_bytes"] = %built.validatorLogicalBytes
+  details["home_fields"] = %built.homeFieldCount
+  details["rooms"] = %built.roomCount
+  details["chokes"] = %built.chokeCount
+  details["sample_cap"] = %5
+  row("port.episode_build", samples, details)
+
+proc duckRow(options: Options, scenario: Scenario): JsonNode =
+  if scenario.map.atlasPostCount == 0:
+    raise newException(ValueError, "map has no atlas post for duck probe")
+  let cache = newBodySeatCache(scenario.map)
+  var duck: BodyDuckResult
+  let coldStarted = getMonoTime()
+  duck = cache.duckFor(0)
+  let coldNs = elapsedNs(coldStarted)
+  let warm = measure(options.warmups, options.samples,
+    proc() = duck = cache.duckFor(0))
+  let details = scenario.mapDetails
+  details["atlas_index"] = %0
+  details["cold_ns"] = %coldNs
+  details["warm_samples"] = %warm.len
+  details["duck_x"] = %duck.pos.x
+  details["duck_y"] = %duck.pos.y
+  details["duck_contrast"] = %duck.contrast
+  row("port.duck_cold_warm", warm, details)
+
+proc censusSeeds(): seq[int] =
+  for index in 0 .. 32:
+    result.add(4242 + index * 1009)
+
+proc censusRow(): JsonNode =
+  var perSeed = newJArray()
+  var maxCount = 0
+  var maxSeed = 0
+  let overrides = ctfTypes.MapGenOverrides(size: "giant",
+    windows: -1, pits: -1, pitDensity: -1)
+  for seed in censusSeeds():
+    let gameMap = ctfArena.generateCtfMap(seed, overrides, 2)
+    let map = newBodyMap(gameMap)
+    let count = map.maxAtlasPostsInRadius
+    if count > maxCount:
+      maxCount = count
+      maxSeed = seed
+    perSeed.add(%*{"seed": seed, "width": map.width, "height": map.height,
+      "atlas_posts": map.atlasPostCount, "densest_disc_posts": count})
+  let details = %*{"seed_formula": "4242 + k*1009, k=0..32",
+    "map_size": "giant", "teams": 2, "atlas_candidate_grid_px": 16,
+    "max_cover_radius_px": shellTypes.MaxCoverRadiusPx,
+    "max_cover_posts_examined": shellTypes.MaxCoverPostsExamined,
+    "max_densest_disc_posts": maxCount, "max_seed": maxSeed,
+    "headroom_posts": shellTypes.MaxCoverPostsExamined - maxCount,
+    "per_seed": perSeed}
+  latencyRow("census.thinned_atlas_giant_33", details)
+
+proc addRows(target: JsonNode, rows: openArray[JsonNode]) =
+  for item in rows:
+    target.add(item)
+
+proc addRows(target: var seq[JsonNode], rows: openArray[JsonNode]) =
+  for item in rows:
+    target.add(item)
+
+proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
+  case options.selectedCase
+  of "smoke", "all":
+    result.add(options.dangerRow(scenario, 331))
+    result.add(options.dangerRow(scenario, 1050))
+    result.addRows(options.planningRows(scenario))
+    result.addRows(options.latencyRows(scenario))
+    result.add(options.episodeRow(scenario))
+    result.add(options.duckRow(scenario))
+    result.add(scenario.writeBackRow)
+    result.add(scenario.realScorerWriteBackRow)
+  of "danger":
+    result.add(options.dangerRow(scenario, 331))
+    result.add(options.dangerRow(scenario, 1050))
+  of "planning": result.addRows(options.planningRows(scenario))
+  of "latency":
+    result.addRows(options.latencyRows(scenario))
+    result.add(scenario.writeBackRow)
+    result.add(scenario.realScorerWriteBackRow)
+  of "episode": result.add(options.episodeRow(scenario))
+  of "duck": result.add(options.duckRow(scenario))
+  else:
+    raise newException(ValueError,
+      "cases are smoke, all, danger, planning, latency, episode, duck, census")
+
+proc gitHead(): string =
+  try:
+    execProcess("git", args = ["rev-parse", "HEAD"],
+      options = {poUsePath}).strip()
+  except OSError:
+    "unknown"
+
+proc main() =
+  var options = parseOptions()
+  let smoke = options.selectedCase == "smoke"
+  if smoke:
+    options.warmups = 0
+    options.samples = 1
+  var rows = newJArray()
+  if options.selectedCase == "census":
+    rows.add(censusRow())
+  elif smoke:
+    rows.addRows(options.runCase(smokeScenario()))
+  else:
+    for seed in options.seeds:
+      rows.addRows(options.runCase(generatedScenario(seed)))
+  let output = %*{"harness": "body-port-probe", "release": true,
+    "repo_commit": gitHead(), "case": options.selectedCase,
+    "seeds": options.seeds, "warmups": options.warmups,
+    "samples": options.samples, "rows": rows}
+  let encoded = pretty(output)
+  if options.output.len > 0:
+    let destination = absolutePath(options.output)
+    if destination.startsWith(getCurrentDir() & DirSep):
+      raise newException(ValueError,
+        "benchmark output must stay outside the repository")
+    writeFile(destination, encoded & "\n")
+  echo encoded
+
+when isMainModule:
+  main()

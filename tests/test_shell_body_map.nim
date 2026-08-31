@@ -1,13 +1,21 @@
 ## Phase-1 laws for the Season 2 body's immutable episode map and exact
 ## standing-goal validator.
 
-import std/[json, options, os, unittest]
+import std/[json, math, options, os, unittest]
 import ../src/ctf/arena
 import ../src/ctf/sim_types
+import ../src/shell/body_cache
 import ../src/shell/body_map
 import ../src/shell/types as shellTypes
 
 const FixtureDir = "tests" / "fixtures" / "shell" / "body"
+const
+  TestAtlasSectorCount = 16
+  TestPostReachCapPx = 1300
+
+type TestRaySample = object
+  offset: BodyPoint
+  distance: uint16
 
 proc mix(hash: var uint64, value: int) =
   hash = (hash xor uint64(cast[uint32](value))) * 1099511628211'u64
@@ -63,6 +71,59 @@ proc brMap(): CtfMap =
     for column in 0 ..< 4:
       result.spawnPoints.add(MapPoint(
         x: 32 + column * 64, y: 32 + row * 64))
+
+proc pyRound(value: float): int =
+  let lower = floor(value).int
+  let fraction = value - lower.float
+  if fraction < 0.5: lower
+  elif fraction > 0.5: lower + 1
+  elif (lower and 1) == 0: lower
+  else: lower + 1
+
+proc atlasRaySamples(): array[TestAtlasSectorCount, seq[TestRaySample]] =
+  for sector in 0 ..< TestAtlasSectorCount:
+    let angle = sector.float * 2.0 * PI / TestAtlasSectorCount.float
+    let dirX = cos(angle)
+    let dirY = sin(angle)
+    for distance in 1 .. TestPostReachCapPx:
+      let sample = (pyRound(dirX * distance.float),
+                    pyRound(dirY * distance.float))
+      if result[sector].len > 0 and result[sector][^1].offset == sample:
+        result[sector][^1].distance = uint16(distance)
+      else:
+        result[sector].add(TestRaySample(
+          offset: sample, distance: uint16(distance)))
+
+proc testRayReach(map: BodyMap, point: BodyPoint,
+                  samples: openArray[TestRaySample]): uint16 =
+  var reached = 0
+  for sample in samples:
+    let sx = point.x + sample.offset.x
+    let sy = point.y + sample.offset.y
+    if sx.uint >= map.width.uint or sy.uint >= map.height.uint or
+        map.isWall((sx, sy)):
+      break
+    reached = sample.distance.int
+  uint16(reached)
+
+proc independentThinnedAtlas(map: BodyMap): seq[BodyAtlasPost] =
+  let samples = atlasRaySamples()
+  for gy in 0 ..< map.gridHeight:
+    for gx in 0 ..< map.gridWidth:
+      if (gx and 1) != 0 or (gy and 1) != 0:
+        continue
+      if map.coverDirections((gx, gy)) == 0:
+        continue
+      var post = BodyAtlasPost(pos: cellCenter((gx, gy)))
+      for sector in 0 ..< TestAtlasSectorCount:
+        post.reach[sector] = map.testRayReach(post.pos, samples[sector])
+      result.add(post)
+
+proc thinnedLattice(size: int): seq[bool] =
+  result = newSeq[bool](size * size)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      result[y * size + x] = x mod 16 != 12
 
 suite "shell body immutable episode map":
   test "component-by-component static fields match the pinned stencil golden":
@@ -157,6 +218,47 @@ suite "shell body immutable episode map":
     for point in gameMap.spawnPoints:
       check map.componentOf((point.x, point.y)) != 0
 
+  test "atlas thinning keeps only the 16px candidate grid":
+    let (map, _) = twoComponentMap()
+    let expected = map.independentThinnedAtlas()
+    check map.atlasPostCount == expected.len
+    for index, expectedPost in expected:
+      let actual = map.atlasPostAt(index)
+      check actual.pos == expectedPost.pos
+      check actual.reach == expectedPost.reach
+      let cell = map.cellOf(actual.pos)
+      check (cell.x and 1) == 0
+      check (cell.y and 1) == 0
+
+  test "duck cache works on thinned atlas posts":
+    const Side = 512
+    let map = newBodyMap(thinnedLattice(Side), Side, Side, 2, @[(20, 20)])
+    check map.atlasPostCount > shellTypes.MaxDuckEntriesPerSeat
+    let cache = newBodySeatCache(map)
+    for index in 0 ..< shellTypes.MaxDuckEntriesPerSeat:
+      let duck = cache.duckFor(index)
+      check map.canStand(duck.pos)
+    check cache.duckEntryCount == shellTypes.MaxDuckEntriesPerSeat
+    let firstKey = map.routeKey(map.atlasPostAt(0).pos)
+    discard cache.duckFor(shellTypes.MaxDuckEntriesPerSeat)
+    check firstKey notin cache.duckKeys
+
+  test "atlas density cap riders use thinned construction":
+    const BoundarySide = 512
+    let boundary = newBodyMap(thinnedLattice(BoundarySide), BoundarySide,
+      BoundarySide, 2, @[(20, 20)])
+    # The synthetic 16px lattice measures 957 posts in its densest 331px disc,
+    # just below the frozen 1,024-post cap.
+    check boundary.maxAtlasPostsInRadius == 957
+
+    const DenseSide = 640
+    # The larger synthetic 16px lattice measures 1,309 posts in its densest
+    # 331px disc under the thinned construction, so it remains a one-past-
+    # density negative control for MaxCoverPostsExamined=1,024.
+    expect BodyMapError:
+      discard newBodyMap(thinnedLattice(DenseSide), DenseSide, DenseSide, 2,
+        @[(20, 20)])
+
   test "validator byte cap arithmetic is exact":
     check validatorBytesFor(3211, 1713, 1) == 22_001_772
     check validatorBytesFor(3211, 1713, 12) <=
@@ -164,18 +266,8 @@ suite "shell body immutable episode map":
     check validatorBytesFor(3211, 1713, 13) >
       shellTypes.MaxValidatorTableBytes.int64
 
-  test "invalid spawn and over-dense atlas fail the activation build":
+  test "invalid spawn fails the activation build":
     var tiny = newSeq[bool](32 * 32)
     for value in tiny.mitems: value = true
     expect BodyMapError:
       discard newBodyMap(tiny, 32, 32, 2, @[(0, 0)])
-
-    const Side = 512
-    var dense = newSeq[bool](Side * Side)
-    for y in 1 ..< Side - 1:
-      for x in 1 ..< Side - 1:
-        # This 28px wall lattice measures 2,217 posts in its densest 331px
-        # disc, comfortably over MaxCoverPostsExamined=1,536.
-        dense[y * Side + x] = x mod 28 != 0
-    expect BodyMapError:
-      discard newBodyMap(dense, Side, Side, 2, @[(12, 12)])

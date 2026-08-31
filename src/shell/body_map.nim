@@ -690,6 +690,8 @@ proc buildPostAtlas(map: BodyMap) =
   let cardinal = map.cardinalReach()
   for gy in 0 ..< map.navHeight:
     for gx in 0 ..< map.navWidth:
+      if (gx and 1) != 0 or (gy and 1) != 0:
+        continue
       let cellIndex = map.gridIndex(gx, gy)
       if map.coverDirs[cellIndex] == 0:
         continue
