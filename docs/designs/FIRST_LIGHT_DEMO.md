@@ -1,12 +1,19 @@
 # First light — watch the play-calling shell's first live episode
 
 First light is the play-calling shell's first runnable milestone: a 32-seat
-(16 duos × 2) BR episode where every seat is driven by the shell's body layer
-executing the engine-native default play. Movement, zone awareness, cover
-holds, and partner cohesion are real; **weapons are deliberately not compiled
-into this build** — eliminations come from zone damage only. There is no WASM
-guest yet: the default play is the engine-side decision path that uploaded
-plays will later replace, and the decision stream is the proof surface.
+(16 duos × 2) BR episode driven by the shell's body layer. Movement, zone
+awareness, cover holds, and partner cohesion are real; **weapons are
+deliberately not compiled into this build** — eliminations come from zone
+damage only.
+
+**The demo now runs mixed seats**: seats 0–7 are driven by `edge_ride`, a
+real uploaded WASM play that travels the full production path (upload →
+validate → compile → commit → call → ladder) inside the live episode, while
+seats 8–31 run the engine-native default play as the floor. edge_ride plays
+the zone earlier and smarter than the default — expect its cogs to move to
+the next zone rectangle well before the default seats react, arriving in
+cover with time to spare. `FIRST_LIGHT_PLAY_*` log lines carry the upload/
+commit/call evidence and `provenance=entry:edge_ride` marks its installs.
 
 ## Run it
 

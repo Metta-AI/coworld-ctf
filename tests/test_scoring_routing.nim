@@ -19,6 +19,13 @@
 ## tests below for the right reason (a 500/500 tie with no `kills` key /
 ## the wrong schema entirely), while paintball scoring is provably
 ## untouched either way.
+##
+## The first test's `scores` assertions were updated for the glory-as-
+## league-score pass: the CTF path's `scores` field now carries banked
+## glory (winner = its team's ledger total, loser = 0), not the old
+## WinReward/LossReward RL figures -- see test_glory_league_score.nim for
+## the dedicated winner/loser/draw/abort/zero-glory coverage and the
+## paintball-untouched MD5 proof.
 
 import
   std/[json, unittest],
@@ -38,7 +45,16 @@ suite "scoring schema routing":
     # A real kill through the real credit path, then a real decisive finish
     # -- not a fabricated results field.
     sim.recordKillCredit(0, 1)
+    # A real glory mint (not a fabricated results field either) so `scores`
+    # has something nonzero from the ledger to report.
+    sim.awardDeed(Red, dHonorableKill, 10, 10)
     sim.finishGame(Red)
+    # Read the ledger AFTER finishGame: finishGame's own conclusion-only
+    # mints (e.g. Clean Sheet, evalCleanSheetAtConclusion) can still add to
+    # it, so the total the results doc must report is whatever the ledger
+    # holds once the match has fully wrapped up, not a snapshot mid-way.
+    let redGlory = sim.teamGlory[Red]
+    check redGlory > 0  # sanity: this scenario actually minted something.
 
     let results = parseJson(sim.playerResultsJson())
     # The CTF schema, not the squad/hill schema: presence of `kills`
@@ -49,11 +65,19 @@ suite "scoring schema routing":
     check results["kills"][0].getInt() == 1
     check results["win"][0].getBool()
     check not results["win"][1].getBool()
-    # The bug's signature was EVERY seat landing on the literal 500/500
-    # (0.5/0.5) tie. A real decisive win must not.
+    # `scores` is now the GLORY-AS-LEAGUE-SCORE field (see roster.nim's
+    # ctfPlayerResultsJson doc comment): the winner banks its team's exact
+    # ledger total, the loser banks exactly 0 -- not the old WinReward/
+    # LossReward RL-training figures.
     check results["scores"][0].getInt() != results["scores"][1].getInt()
-    check results["scores"][0].getInt() == WinReward
-    check results["scores"][1].getInt() == LossReward
+    check results["scores"][0].getInt() == redGlory
+    check results["scores"][1].getInt() == 0
+    # The RL training reward signal itself is UNTOUCHED: it never lived in
+    # this results document (a separate, real-time `buildRewardPacket`
+    # websocket message reads `player.reward`), so repurposing `scores` here
+    # cannot have perturbed it.
+    check sim.players[0].reward == WinReward
+    check sim.players[1].reward == LossReward
 
   test "a paintball config with num_agents == 0 still routes on loadout, not the seat count":
     ## The discriminating edge in the OTHER direction: a hypothetical
