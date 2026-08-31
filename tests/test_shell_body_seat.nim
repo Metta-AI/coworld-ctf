@@ -191,6 +191,28 @@ suite "shell body seat belief-lite seam":
     check body.standingGoal.isNone
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
 
+  test "safe epoch zero intent clears stale navigation work":
+    let map = openMap()
+    let body = activateSeatBody(map, 3, 331)
+    let start: BodyPoint = (16, 48)
+    let point: BodyPoint = (160, 48)
+    let goal = map.validateGoal(point, start).get
+
+    body.setStandingIntent(navigateIntent(point), some(goal), 9)
+    body.nav.replacePlan(body.seatIndex, 9, start, goal)
+    check body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isSome
+
+    body.setStandingIntent(holdIntent(), none(ValidatedGoal), 0)
+    check body.effectiveEpoch == 0
+    check body.standingIntent.kind == shellTypes.ikHold
+    check body.standingGoal.isNone
+    check not body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
+
+    let input = body.seatTick(BodyTickInputs(self: selfState(start)), 10)
+    check input.mask == 0
+
   test "fog absence preserves stale tracks and never invents knowledge":
     let body = activateSeatBody(openMap(), 0, 331)
     for track in body.tracks:

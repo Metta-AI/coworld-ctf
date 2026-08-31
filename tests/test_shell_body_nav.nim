@@ -115,7 +115,7 @@ type MassPlanResult = object
   paths: seq[seq[BodyPoint]]
   routeKeys: seq[seq[int]]
   trace: seq[PlanningVisit]
-  ticks, workUnits: int
+  ticks, workUnits, cursor: int
 
 proc referencePath(map: BodyMap, start: BodyPoint,
                    goal: ValidatedGoal): seq[BodyPoint] =
@@ -158,6 +158,32 @@ proc runMassPlan(map: BodyMap, start: BodyPoint,
     result.routeKeys[seat] = system.seats[seat].cache.routeKeys
     result.workUnits += system.seats[seat].job.workUnits
   result.trace = system.planningTraceSnapshot
+  result.cursor = system.planCursor
+
+proc collectMassPlan(system: BodyNavSystem): MassPlanResult =
+  result.paths = newSeq[seq[BodyPoint]](32)
+  result.routeKeys = newSeq[seq[int]](32)
+  for seat in 0 ..< 32:
+    doAssert system.seats[seat].job.planSucceeded
+    doAssert system.seats[seat].pathRevision == uint64(200 + seat)
+    result.paths[seat] = system.seats[seat].activePath
+    result.routeKeys[seat] = system.seats[seat].cache.routeKeys
+    result.workUnits += system.seats[seat].job.workUnits
+  result.trace = system.planningTraceSnapshot
+  result.cursor = system.planCursor
+
+proc runPrewarmMassPlan(map: BodyMap, start: BodyPoint,
+                        requestedGoals: seq[BodyPoint],
+                        planOrder: seq[int]): MassPlanResult =
+  let system = newBodyNavSystem(map, 32, 331, DangerCadenceK, 100_000)
+  let standing = @[(24, 16), (32, 16)]
+  for seat in planOrder:
+    let goal = map.validateGoal(requestedGoals[seat], start).get
+    system.seats[seat].setActivePathForTest(standing, 100)
+    system.replacePlan(seat, uint64(200 + seat), start, goal)
+    doAssert system.seats[seat].activePath == standing
+  system.prewarmColdPlans()
+  result = collectMassPlan(system)
 
 suite "shell body seat navigation":
   test "route and duck caches are bounded, pinned, LRU, and non-minting":
@@ -368,6 +394,57 @@ suite "shell body seat navigation":
     check permuted.trace == baseline.trace
     check permuted.ticks == baseline.ticks
     check permuted.workUnits == baseline.workUnits
+
+    let prewarmed = runPrewarmMassPlan(map, start, requestedGoals, forward)
+    check prewarmed.paths == baseline.paths
+    check prewarmed.routeKeys == baseline.routeKeys
+    check prewarmed.workUnits == baseline.workUnits
+    check prewarmed.cursor == baseline.cursor
+    check prewarmed.trace.len == baseline.trace.len
+    for index, visit in prewarmed.trace:
+      let budgeted = baseline.trace[index]
+      check visit.tick == -1
+      check visit.seat == budgeted.seat
+      check visit.revision == budgeted.revision
+      check visit.units == budgeted.units
+      check visit.completed == budgeted.completed
+
+    let prewarmedPermuted = runPrewarmMassPlan(map, start, requestedGoals,
+      permutation)
+    check prewarmedPermuted.paths == prewarmed.paths
+    check prewarmedPermuted.routeKeys == prewarmed.routeKeys
+    check prewarmedPermuted.trace == prewarmed.trace
+    check prewarmedPermuted.cursor == prewarmed.cursor
+    check prewarmedPermuted.workUnits == prewarmed.workUnits
+
+  test "prewarmed activation has no playing-tick cold work until new intent":
+    let gameMap = mapFromSpecJson(readFile("tests/fixtures/br-golden-map.json"))
+    let map = newBodyMap(gameMap)
+    let start: BodyPoint = (16, 16)
+    let firstGoal = map.validateGoal((3194, 1696), start).get
+    let secondGoal = map.validateGoal((3162, 1664), start).get
+    let system = newBodyNavSystem(map, 2, 331, DangerCadenceK, 100_000)
+    system.replacePlan(0, 10, start, firstGoal)
+    system.replacePlan(1, 11, start, secondGoal)
+    system.prewarmColdPlans()
+    let barrierTrace = system.planningTraceSnapshot
+    check barrierTrace.len > 2
+    check barrierTrace.allIt(it.tick == -1)
+    check system.seats[0].job.planSucceeded
+    check system.seats[1].job.planSucceeded
+    check barrierTrace.anyIt(it.seat == 0 and it.completed)
+    check barrierTrace.anyIt(it.seat == 1 and it.completed)
+
+    check system.runPlanningTick(12) == 0
+    check system.planningTraceSnapshot == barrierTrace
+
+    system.replacePlan(0, 12, start, secondGoal)
+    let spent = system.runPlanningTick(13)
+    check spent > 0
+    let playingTrace = system.planningTraceSnapshot
+    check playingTrace.len > barrierTrace.len
+    check playingTrace[^1].tick == 13
+    check playingTrace[^1].seat == 0
 
   test "follower corridor, octants, and stuck state match stencil":
     let map = openMap()

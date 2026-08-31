@@ -413,11 +413,16 @@ proc installCompletedPath(seat: BodyNavSeat) =
   seat.cursor = 0
   seat.stuckTicks = 0
 
-proc runPlanningTick*(system: BodyNavSystem, tick: int,
+proc hasPendingPlan(system: BodyNavSystem): bool =
+  for seat in system.seats:
+    if seat.job.planPending:
+      return true
+
+proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
     evaluationOrder: openArray[int] = []): int =
   ## One persisted seat-index round robin owns the server-wide budget.
   discard evaluationOrder
-  var budget = ColdPlanBudgetPerTick
+  var budget = budgetLimit
   var scanned = 0
   var index = floorMod(system.lastPlanSeat + 1, system.seats.len)
   while budget > 0 and scanned < system.seats.len:
@@ -437,7 +442,23 @@ proc runPlanningTick*(system: BodyNavSystem, tick: int,
           "pending plan made no progress under available budget")
     inc scanned
     index = (index + 1) mod system.seats.len
-  ColdPlanBudgetPerTick - budget
+  budgetLimit - budget
+
+proc runPlanningTick*(system: BodyNavSystem, tick: int,
+    evaluationOrder: openArray[int] = []): int =
+  system.runPlanningWork(tick, ColdPlanBudgetPerTick, evaluationOrder)
+
+proc prewarmColdPlans*(system: BodyNavSystem) =
+  ## Activation-barrier cold-plan drain.
+  ##
+  ## This is intentionally off-tick work for the §10 activation barrier. The
+  ## 256-unit `runPlanningTick` budget still governs PLAYING ticks; this API is
+  ## not a playing-tick shortcut. It drains repeated scheduler chunks through
+  ## the same persisted seat-index round robin, records barrier visits with
+  ## `tick = -1`, and publishes paths through the ordinary completion install
+  ## path.
+  while system.hasPendingPlan:
+    discard system.runPlanningWork(-1, ColdPlanBudgetPerTick)
 
 proc planCursor*(system: BodyNavSystem): int = system.lastPlanSeat
 
