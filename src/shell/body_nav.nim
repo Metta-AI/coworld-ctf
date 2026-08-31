@@ -492,7 +492,7 @@ proc nextQueuedMintSeat(system: BodyNavSystem): int =
   -1
 
 proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
-    evaluationOrder: openArray[int] = []): int =
+    evaluationOrder: openArray[int] = [], runMints = true): int =
   ## The plan pass owns the budget first; the field minter can spend only the
   ## unclaimed tail, through its own persisted cursor.
   discard evaluationOrder
@@ -516,7 +516,7 @@ proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
           "pending plan made no progress under available budget")
     inc scanned
     index = (index + 1) mod system.seats.len
-  if budget > 0:
+  if runMints and budget > 0:
     var mintSeat = system.activeMintSeat()
     if mintSeat < 0:
       mintSeat = system.nextQueuedMintSeat()
@@ -543,16 +543,17 @@ proc runPlanningTick*(system: BodyNavSystem, tick: int,
   system.runPlanningWork(tick, ColdPlanBudgetPerTick, evaluationOrder)
 
 proc prewarmColdPlans*(system: BodyNavSystem) =
-  ## Activation-barrier cold-plan and route-field drain.
+  ## Activation-barrier cold-plan drain.
   ##
   ## This is intentionally off-tick work for the §10 activation barrier. The
   ## 256-unit `runPlanningTick` budget still governs PLAYING ticks; this API is
   ## not a playing-tick shortcut. It drains repeated scheduler chunks through
   ## the same persisted seat-index round robin, records barrier visits with
   ## `tick = -1`, and publishes paths through the ordinary completion install
-  ## path; field mints publish through the ordinary route-cache path.
-  while system.hasPendingPlan or system.hasPendingMint:
-    discard system.runPlanningWork(-1, ColdPlanBudgetPerTick)
+  ## path. It deliberately does not warm route fields: after ruling 10 a plan
+  ## never needs a field, and stencil mints fields lazily on demand.
+  while system.hasPendingPlan:
+    discard system.runPlanningWork(-1, ColdPlanBudgetPerTick, [], false)
 
 proc planCursor*(system: BodyNavSystem): int = system.lastPlanSeat
 

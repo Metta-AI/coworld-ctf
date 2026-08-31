@@ -214,13 +214,13 @@ proc hasPendingPlan(system: BodyNavSystem): bool =
       return true
 
 proc planCompletionTicks(map: BodyMap, start: BodyPoint, requested: BodyPoint,
-                         prewarmed: bool): JsonNode =
+                         afterPlanOnlyBarrier: bool): JsonNode =
   let goal = map.validateGoal(requested, start)
   if goal.isNone:
     raise newException(ValueError,
       "latency goal cannot resolve: " & $requested)
   let system = newBodyNavSystem(map, 1, 331, DangerCadenceK, 100_000)
-  if prewarmed:
+  if afterPlanOnlyBarrier:
     system.replacePlan(0, 1, start, goal.get)
     system.prewarmColdPlans()
   system.replacePlan(0, 2, start, goal.get)
@@ -233,7 +233,7 @@ proc planCompletionTicks(map: BodyMap, start: BodyPoint, requested: BodyPoint,
         "completion_tick": tick, "ticks_elapsed": tick + 1,
         "ms_at_24hz": latencyMs(tick + 1),
         "work_units": system.seats[0].job.workUnits,
-        "prewarmed_route_field": prewarmed}
+        "after_plan_only_barrier": afterPlanOnlyBarrier}
       return
     inc tick
     if tick > 100_000:
@@ -278,35 +278,37 @@ proc latencyRows(options: Options, scenario: Scenario): seq[JsonNode] =
 
   let goals = scenario.planningGoals
   let typicalIndices = @[7, 15, 23, 31]
-  for prewarmed in [false, true]:
+  for afterPlanOnlyBarrier in [false, true]:
     var samples = newJArray()
     var worstTypical = 0
     for index in typicalIndices:
       let sample = planCompletionTicks(scenario.map, start, goals[index],
-        prewarmed)
+        afterPlanOnlyBarrier)
       worstTypical = max(worstTypical, sample["ticks_elapsed"].getInt)
       samples.add(sample)
     var details = scenario.freezeBudgetDetails
     details["goal_set"] = %"quartile goals"
     details["goal_indices"] = %typicalIndices
-    details["prewarmed_route_fields"] = %prewarmed
+    details["after_plan_only_barrier"] = %afterPlanOnlyBarrier
+    details["prewarmed_route_fields"] = %false
     details["worst_ticks_elapsed"] = %worstTypical
     details["worst_ms_at_24hz"] = %latencyMs(worstTypical)
     details["samples"] = samples
     result.add(latencyRow("latency.intent_to_movement_typical" &
-      (if prewarmed: "_prewarmed" else: ""), details))
+      (if afterPlanOnlyBarrier: "_after_plan_only_barrier" else: ""), details))
 
     let worstSample = planCompletionTicks(scenario.map, start, goals[0],
-      prewarmed)
+      afterPlanOnlyBarrier)
     details = scenario.freezeBudgetDetails
     details["goal_set"] = %"far pair"
     details["goal_index"] = %0
-    details["prewarmed_route_fields"] = %prewarmed
+    details["after_plan_only_barrier"] = %afterPlanOnlyBarrier
+    details["prewarmed_route_fields"] = %false
     details["ticks_elapsed"] = %worstSample["ticks_elapsed"].getInt
     details["ms_at_24hz"] = %worstSample["ms_at_24hz"].getFloat
     details["sample"] = worstSample
     result.add(latencyRow("latency.intent_to_movement_worst" &
-      (if prewarmed: "_prewarmed" else: ""), details))
+      (if afterPlanOnlyBarrier: "_after_plan_only_barrier" else: ""), details))
 
   let zoneGoal = (scenario.map.width div 2, scenario.map.height div 2)
   let zoneSample = planCompletionTicks(scenario.map, start, zoneGoal, true)
@@ -324,9 +326,7 @@ proc activationBarrierRow(options: Options, scenario: Scenario): JsonNode =
   let goals = scenario.planningGoals
   let start = scenario.anchor
   var lastPlanVisits = 0
-  var lastMintVisits = 0
-  var lastCompletedMints = 0
-  var lastReadyFields = 0
+  var lastQueuedMints = 0
   let samples = measure(options.warmups, sampleCount,
     proc() =
       let system = newBodyNavSystem(scenario.map, 32, 331,
@@ -339,30 +339,24 @@ proc activationBarrierRow(options: Options, scenario: Scenario): JsonNode =
         system.replacePlan(seat, uint64(seat + 1), start, goal.get)
       system.prewarmColdPlans()
       lastPlanVisits = system.planningTraceSnapshot.len
-      lastMintVisits = system.mintTraceSnapshot.len
-      lastCompletedMints = 0
-      lastReadyFields = 0
-      for visit in system.mintTraceSnapshot:
-        if visit.completed:
-          inc lastCompletedMints
+      lastQueuedMints = 0
       for seat in system.seats:
-        lastReadyFields += seat.cache.readyRouteFieldCount)
+        if seat.mintQueuedOrPending:
+          inc lastQueuedMints)
   let p95Ms = percentile(samples, 0.95).float / 1_000_000.0
   let details = scenario.freezeBudgetDetails
   details["seat_count"] = %32
   details["goal_count"] = %goals.len
   details["sample_cap"] = %5
   details["samples_requested"] = %options.samples
-  details["pre_change_m4_p95_ms"] = %434.0
   details["p95_ms"] = %p95Ms
-  details["p95_delta_vs_pre_change_ms"] = %(p95Ms - 434.0)
+  details["baseline_note"] =
+    %"absolute p95 only; the previously reported 434.0 ms value was episode_build, not a pre-change prewarm measurement"
   details["includes_plan_drain"] = %true
-  details["includes_route_field_mint_drain"] = %true
+  details["includes_route_field_mint_drain"] = %false
   details["last_plan_trace_visits"] = %lastPlanVisits
-  details["last_mint_trace_visits"] = %lastMintVisits
-  details["last_completed_mints"] = %lastCompletedMints
-  details["last_ready_route_fields"] = %lastReadyFields
-  row("latency.activation_barrier_prewarm32_with_mints", samples, details)
+  details["last_queued_mints"] = %lastQueuedMints
+  row("latency.activation_barrier_prewarm32_plans_only", samples, details)
 
 proc viewSource(seat: int): PlayViewSource =
   result = PlayViewSource(

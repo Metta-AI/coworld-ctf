@@ -262,6 +262,7 @@ type MassPlanResult = object
   paths: seq[seq[BodyPoint]]
   routeKeys: seq[seq[int]]
   readyRouteKeys: seq[seq[int]]
+  queuedMints: seq[bool]
   trace: seq[PlanningVisit]
   mintTrace: seq[MintVisit]
   ticks, workUnits, cursor, mintCursor: int
@@ -301,12 +302,14 @@ proc runMassPlan(map: BodyMap, start: BodyPoint,
   result.paths = newSeq[seq[BodyPoint]](32)
   result.routeKeys = newSeq[seq[int]](32)
   result.readyRouteKeys = newSeq[seq[int]](32)
+  result.queuedMints = newSeq[bool](32)
   for seat in 0 ..< 32:
     doAssert system.seats[seat].job.planSucceeded
     doAssert system.seats[seat].pathRevision == uint64(200 + seat)
     result.paths[seat] = system.seats[seat].activePath
     result.routeKeys[seat] = system.seats[seat].cache.routeKeys
     result.readyRouteKeys[seat] = system.seats[seat].cache.readyRouteKeys
+    result.queuedMints[seat] = system.seats[seat].mintQueuedOrPending
     result.workUnits += system.seats[seat].job.workUnits
   result.trace = system.planningTraceSnapshot
   result.mintTrace = system.mintTraceSnapshot
@@ -317,12 +320,14 @@ proc collectMassPlan(system: BodyNavSystem): MassPlanResult =
   result.paths = newSeq[seq[BodyPoint]](32)
   result.routeKeys = newSeq[seq[int]](32)
   result.readyRouteKeys = newSeq[seq[int]](32)
+  result.queuedMints = newSeq[bool](32)
   for seat in 0 ..< 32:
     doAssert system.seats[seat].job.planSucceeded
     doAssert system.seats[seat].pathRevision == uint64(200 + seat)
     result.paths[seat] = system.seats[seat].activePath
     result.routeKeys[seat] = system.seats[seat].cache.routeKeys
     result.readyRouteKeys[seat] = system.seats[seat].cache.readyRouteKeys
+    result.queuedMints[seat] = system.seats[seat].mintQueuedOrPending
     result.workUnits += system.seats[seat].job.workUnits
   result.trace = system.planningTraceSnapshot
   result.mintTrace = system.mintTraceSnapshot
@@ -603,7 +608,7 @@ suite "shell body seat navigation":
     check withMint.mintTraceSnapshot.anyIt(it.completed)
     assertBudgetBound(withMint.planningTraceSnapshot, withMint.mintTraceSnapshot)
 
-  test "prewarm and budgeted quiescence produce the same plans and fields":
+  test "prewarm and budgeted plan drain produce the same plans":
     let map = openMap()
     let start: BodyPoint = (16, 80)
     let goals = @[(352, 80), (336, 96), (320, 112), (304, 128)]
@@ -616,14 +621,17 @@ suite "shell body seat navigation":
       budgeted.replacePlan(seat, uint64(seat + 1), start, goal)
 
     prewarmed.prewarmColdPlans()
-    discard budgeted.runToQuiescence()
+    while budgeted.anyPendingPlan:
+      discard budgeted.runPlanningTick(0)
 
-    for seat, requested in goals:
+    for seat in 0 ..< goals.len:
       check prewarmed.seats[seat].activePath == budgeted.seats[seat].activePath
-      check prewarmed.seats[seat].cache.readyRouteKeys ==
-        budgeted.seats[seat].cache.readyRouteKeys
-      check prewarmed.seats[seat].cache.routeRasterSnapshot(requested) ==
-        budgeted.seats[seat].cache.routeRasterSnapshot(requested)
+      # The activation barrier is plans-only by PM ruling 2026-08-31:
+      # after ruling 10, plans do not need route fields, and stencil mints
+      # fields lazily on demand. The barrier must keep queued mints intact
+      # rather than forcing their rasters ready here.
+      check prewarmed.seats[seat].mintQueuedOrPending
+      check prewarmed.seats[seat].cache.readyRouteKeys.len == 0
 
     let barrierPlanTrace = prewarmed.planningTraceSnapshot
     let budgetPlanTrace = budgeted.planningTraceSnapshot
@@ -636,16 +644,46 @@ suite "shell body seat navigation":
       check visit.units == budgetVisit.units
       check visit.completed == budgetVisit.completed
 
-    let barrierMintTrace = prewarmed.mintTraceSnapshot
-    let budgetMintTrace = budgeted.mintTraceSnapshot
-    check barrierMintTrace.len == budgetMintTrace.len
-    for index, visit in barrierMintTrace:
-      let budgetVisit = budgetMintTrace[index]
-      check visit.tick == -1
-      check visit.seat == budgetVisit.seat
-      check visit.revision == budgetVisit.revision
-      check visit.units == budgetVisit.units
-      check visit.completed == budgetVisit.completed
+    check prewarmed.mintTraceSnapshot.len == 0
+
+  test "plans-only prewarm preserves queued mints for ordinary play drain":
+    let map = openMap()
+    let start: BodyPoint = (16, 80)
+    let first = map.validateGoal((352, 80), start).get
+    let second = map.validateGoal((336, 96), start).get
+    let withQueuedMint = newBodyNavSystem(map, 2, 331, DangerCadenceK, 10_000)
+    let plain = newBodyNavSystem(map, 2, 331, DangerCadenceK, 10_000)
+
+    withQueuedMint.replacePlan(0, 1, start, first)
+    withQueuedMint.prewarmColdPlans()
+    let barrierTrace = withQueuedMint.planningTraceSnapshot
+    check withQueuedMint.seats[0].job.planSucceeded
+    check withQueuedMint.seats[0].mintQueuedOrPending
+    check withQueuedMint.mintTraceSnapshot.len == 0
+
+    withQueuedMint.replacePlan(1, 2, start, second)
+    plain.replacePlan(1, 2, start, second)
+    var tick = 0
+    while withQueuedMint.seats[1].job.planPending:
+      discard withQueuedMint.runPlanningTick(tick)
+      inc tick
+    tick = 0
+    while plain.seats[1].job.planPending:
+      discard plain.runPlanningTick(tick)
+      inc tick
+
+    let mixedPlanTrace = withQueuedMint.planningTraceSnapshot[barrierTrace.len .. ^1]
+    check mixedPlanTrace == plain.planningTraceSnapshot
+
+    while withQueuedMint.anyPendingWork:
+      discard withQueuedMint.runPlanningTick(tick)
+      inc tick
+    check withQueuedMint.seats[0].cache.routeSlotReady(first.goalPoint)
+    check withQueuedMint.seats[1].cache.routeSlotReady(second.goalPoint)
+    check not withQueuedMint.hasPendingMint
+    check withQueuedMint.mintTraceSnapshot.anyIt(it.completed)
+    assertBudgetBound(withQueuedMint.planningTraceSnapshot,
+      withQueuedMint.mintTraceSnapshot)
 
   test "mint lifecycle cancels, preserves, and skips at the right boundaries":
     let map = openMap()
@@ -676,6 +714,9 @@ suite "shell body seat navigation":
     check system.seats[0].mintGoal == some(second.goalPoint)
 
     system.prewarmColdPlans()
+    check not system.seats[0].cache.routeSlotReady(second.goalPoint)
+    check system.seats[0].mintQueuedOrPending
+    discard system.runToQuiescence()
     check system.seats[0].cache.routeSlotReady(second.goalPoint)
     check not system.seats[0].mintQueuedOrPending
     let readyCount = system.seats[0].cache.routeFieldCount
@@ -726,11 +767,15 @@ suite "shell body seat navigation":
     check prewarmed.paths == baseline.paths
     check prewarmed.workUnits == baseline.workUnits
     check prewarmed.cursor == baseline.cursor
+    check prewarmed.queuedMints.allIt(it)
     assertBudgetBound(prewarmed.trace, prewarmed.mintTrace)
+    # Plans-only prewarm intentionally leaves route-field mints queued. After
+    # ruling 10, plans are not blocked by route fields; stencil mints fields
+    # lazily on demand, so the activation barrier must not warm them.
     for seat in 0 ..< 32:
       let key = map.routeKey(requestedGoals[seat])
-      check key in prewarmed.routeKeys[seat]
-      check key in prewarmed.readyRouteKeys[seat]
+      check key notin prewarmed.readyRouteKeys[seat]
+    check prewarmed.mintTrace.len == 0
     check prewarmed.trace.len == baseline.trace.len
     for index, visit in prewarmed.trace:
       let budgeted = baseline.trace[index]
@@ -745,6 +790,7 @@ suite "shell body seat navigation":
     check prewarmedPermuted.paths == prewarmed.paths
     check prewarmedPermuted.routeKeys == prewarmed.routeKeys
     check prewarmedPermuted.readyRouteKeys == prewarmed.readyRouteKeys
+    check prewarmedPermuted.queuedMints == prewarmed.queuedMints
     check prewarmedPermuted.trace == prewarmed.trace
     check prewarmedPermuted.mintTrace == prewarmed.mintTrace
     check prewarmedPermuted.cursor == prewarmed.cursor
@@ -769,7 +815,7 @@ suite "shell body seat navigation":
     check barrierTrace.anyIt(it.seat == 0 and it.completed)
     check barrierTrace.anyIt(it.seat == 1 and it.completed)
 
-    check system.runPlanningTick(12) == 0
+    discard system.runPlanningTick(12)
     check system.planningTraceSnapshot == barrierTrace
 
     system.replacePlan(0, 12, start, secondGoal)

@@ -3314,6 +3314,15 @@ current design; everything decided, superseded, or answered lives here.
   the binary encoder. One selection model feeds both encoders: the rows
   a play reads and the rows on the socket and in the replay are the same
   rows in the same order; only the encoding differs.
+- Socket view production staggers by seat across the interval window
+  (PM ruling, 2026-08-31): seat `s` is produced on ticks where
+  `tick mod viewIntervalTicks == s mod viewIntervalTicks`, the same
+  deterministic stagger as ruling five's danger rebuilds. At the default
+  interval of 6 that is about six frames per tick, roughly 0.6-0.7 ms of
+  the measured 32-seat 3.51 ms under the current composition. Producing
+  all 32 frames on one tick is a config-floor case only, reachable solely
+  by setting `viewIntervalTicks = 1` explicitly. Whoever builds the
+  per-tick view caller owns implementing this stagger; it is not optional.
 - Cross-play shared memory: not added; world knowledge persists in
   game-side belief, and play state stays per instance ("keep it simple").
   The `retune` flag covers same-play parameter updates without a state
