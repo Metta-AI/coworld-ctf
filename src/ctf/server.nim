@@ -2079,6 +2079,97 @@ proc buildShotFeedbackPacket(
     return ""
   $(%*{"shotsLanded": shotsLanded, "hitsTaken": hitsTaken})
 
+const CosmeticFxShotSamples = 14
+  ## Points sampled along one in-flight shot's beam for the cosmetic-fx
+  ## channel below — the same count broadcast.nim's firstPersonJson uses for
+  ## the PiP's tracer polyline, kept in step even though this channel draws
+  ## top-down (raw world xy) instead of the PiP's projected bearing/range.
+
+proc buildCosmeticFxPacket(
+  sim: SimServer,
+  viewerIndex: int
+): string {.measure.} =
+  ## Builds the fog-clipped cosmetic-effects JSON for one takeover socket's
+  ## cog this tick (GameConfig.allowCosmeticFx): the two effects
+  ## global.nim's addShotTracers/addPaintStains draw for the spectator/
+  ## broadcast board only — paint tracers and permanent ground stains —
+  ## rebuilt here straight from sim.recentShots/sim.paintStains and
+  ## fog-clipped to `viewerIndex` with the same sim.fovVisibleAt check those
+  ## two procs (and addSplatters' player path) already use.
+  ##
+  ## Deliberately a SEPARATE JSON TextMessage, like buildShotFeedbackPacket
+  ## beside it — NOT folded into global.nim's sprite/label wire, which is
+  ## shared with every policy/mux socket. That is what makes this channel
+  ## safe BY CONSTRUCTION rather than by filtering: this proc has exactly
+  ## one caller (the takeover send pass below), so a policy's own connection
+  ## for this exact seat is simply never a target of the call, regardless of
+  ## the gate — see GameConfig.allowCosmeticFx's own doc comment. Returns ""
+  ## when nothing survives the fog clip, so the caller can skip the send.
+  ##
+  ## Wire shape — one effect FAMILY, `kind`-tagged so a future member (a
+  ## glory toast, a killstreak) is an additive new object in the same array,
+  ## never a new message type:
+  ##   {"fx": [
+  ##     {"kind":"tracer", "pts":[[x,y]|null, ...], "age":int,
+  ##      "color":string, "hit":bool},
+  ##     {"kind":"stain", "x":int, "y":int, "color":string, "onWall":bool},
+  ##     ...
+  ##   ]}
+  ## A tracer's `pts` walks muzzle -> impact; a sample this seat's fog does
+  ## not currently cover is `null` rather than omitted, so the client BREAKS
+  ## the line there instead of drawing a straight shot through fog — the
+  ## same contract broadcast.nim's firstPersonJson already uses for the PiP
+  ## inset. `color` is the same word playerColorText already gives
+  ## buildShotFeedbackPacket's victimColor/killerColor, so the client's
+  ## existing colorWordCss() palette lookup (player_client.html) applies
+  ## unchanged.
+  if not sim.config.allowCosmeticFx:
+    return ""
+  if viewerIndex < 0 or viewerIndex >= sim.players.len:
+    return ""
+  var fx = newJArray()
+  for shot in sim.recentShots:
+    let
+      sx0 = float(shot.x0)
+      sy0 = float(shot.y0)
+      sx1 = float(shot.x1)
+      sy1 = float(shot.y1)
+    var
+      pts = newJArray()
+      anyVisible = false
+    for s in 0 ..< CosmeticFxShotSamples:
+      let
+        f = float(s) / float(CosmeticFxShotSamples - 1)
+        wx = sx0 + (sx1 - sx0) * f
+        wy = sy0 + (sy1 - sy0) * f
+      if sim.fovVisibleAt(viewerIndex, int(wx), int(wy)):
+        anyVisible = true
+        pts.add(%*[int(wx), int(wy)])
+      else:
+        pts.add(newJNull())
+    if not anyVisible:
+      continue
+    fx.add(%*{
+      "kind": "tracer",
+      "pts": pts,
+      "age": sim.tickCount - shot.firedTick,
+      "color": playerColorText(shot.color),
+      "hit": shot.hit
+    })
+  for stain in sim.paintStains:
+    if not sim.fovVisibleAt(viewerIndex, stain.x, stain.y):
+      continue
+    fx.add(%*{
+      "kind": "stain",
+      "x": stain.x,
+      "y": stain.y,
+      "color": playerColorText(stain.color),
+      "onWall": stain.onWall
+    })
+  if fx.len == 0:
+    return ""
+  $(%*{"fx": fx})
+
 proc declarePlayerFailure(slot: int, message: string) =
   ## Publishes the game-declared terminal player failure the platform runner
   ## polls for (COGAME_PLAYER_FAILURE_URI -> player_failure.json), so a lobby
@@ -2970,6 +3061,22 @@ proc runServerLoop*(
               {.gcsafe.}:
                 withLock appState.lock:
                   discard markSocketClosed(takeoverSockets[i])
+      # Cosmetic-effects channel (GameConfig.allowCosmeticFx): same shape as
+      # the shot-feedback block just above — a SEPARATE TextMessage that only
+      # this takeover pass ever builds or sends, so it can never reach the
+      # seat's underlying policy/mux socket regardless of the gate. Rebuilt
+      # fresh from live sim state every tick (sim.recentShots/sim.paintStains
+      # are already fog-clipped inside the builder), not drained from a
+      # per-frame buffer like shot feedback — there is nothing to accumulate
+      # across steps here.
+      let cosmeticFxPacket = sim.buildCosmeticFxPacket(takeoverCogs[i])
+      if cosmeticFxPacket.len > 0:
+        try:
+          takeoverSockets[i].send(cosmeticFxPacket, TextMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(takeoverSockets[i])
 
     for websocket in rewardViewers:
       try:

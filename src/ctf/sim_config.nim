@@ -60,7 +60,8 @@ proc defaultGameConfig*(): GameConfig =
     brMode: false,
     zonePhases: @[],
     allowCallouts: false,
-    allowShotFeedback: false
+    allowShotFeedback: false,
+    allowCosmeticFx: false
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -888,6 +889,9 @@ proc update*(config: var GameConfig, jsonText: string) =
   # GVNEXT(shotfeedback): appended read for the appended allowShotFeedback
   # field (sim_types.nim) — same tail-append rule as brMode above.
   node.readConfigBool("allowShotFeedback", config.allowShotFeedback)
+  # GVNEXT(cosmeticfx): appended read for the appended allowCosmeticFx field
+  # (sim_types.nim) — same tail-append rule as allowShotFeedback above.
+  node.readConfigBool("allowCosmeticFx", config.allowCosmeticFx)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1072,6 +1076,13 @@ proc echoShotFeedbackKeys(config: GameConfig, node: JsonNode) =
   if config.allowShotFeedback:
     node["allowShotFeedback"] = %config.allowShotFeedback
 
+proc echoCosmeticFxKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the cosmetic-fx gate only when it is on, so an allowCosmeticFx-off
+  ## game's replay config stays byte-identical to a build without the field
+  ## — same rule as echoShotFeedbackKeys/echoCalloutKeys above.
+  if config.allowCosmeticFx:
+    node["allowCosmeticFx"] = %config.allowCosmeticFx
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1164,5 +1175,6 @@ proc configJson*(config: GameConfig): string =
   echoAimKeys(config, node)
   echoCalloutKeys(config, node)
   echoShotFeedbackKeys(config, node)
+  echoCosmeticFxKeys(config, node)
   result = $node
 

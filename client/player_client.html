@@ -592,6 +592,7 @@ function drawSprite(){
     layer.ctx.putImageData(layer.image,0,0);
     x.drawImage(layer.canvas,0,0)
   }
+  renderCosmeticFx();
   drawReticle();
   drawHitmarker(nowT);
   drawSelfTag();
@@ -1985,8 +1986,91 @@ function handleTextFrame(text){
   if(!msg||typeof msg!=="object")return;
   const landed=Array.isArray(msg.shotsLanded)?msg.shotsLanded:null;
   const taken=Array.isArray(msg.hitsTaken)?msg.hitsTaken:null;
-  if(!landed&&!taken)return;
-  handleShotFeedback(landed||[],taken||[]);
+  if(landed||taken)handleShotFeedback(landed||[],taken||[]);
+  /* Cosmetic-effects channel (GameConfig.allowCosmeticFx, server.nim's
+     buildCosmeticFxPacket): its own top-level key, so it can arrive in the
+     same message shape as shot feedback above without either shadowing the
+     other -- in practice server.nim sends them as separate TextMessages, but
+     nothing here assumes that stays true. `kind`-tagged per entry so a
+     future family member (glory toast, killstreak) needs no new top-level
+     key or new client dispatch, only a new case in renderCosmeticFx below. */
+  if(Array.isArray(msg.fx))handleCosmeticFx(msg.fx);
+}
+/* Cosmetic-effects state: REPLACED wholesale on every message, never merged
+   or accumulated. The server already fog-clips to exactly what this seat
+   currently sees (sim.fovVisibleAt, same rule as every sprite object), so
+   last message's set is authoritative and a stale leftover from before a
+   turn or a fog change must not linger -- the same "only what you can see
+   RIGHT NOW" contract splatters/stains already follow on the sprite wire. */
+let cosmeticFxTracers=[],cosmeticFxStains=[];
+function handleCosmeticFx(list){
+  const tracers=[],stains=[];
+  for(const e of list){
+    if(!e||typeof e!=="object")continue;
+    if(e.kind==="tracer"&&Array.isArray(e.pts))tracers.push(e);
+    else if(e.kind==="stain"&&typeof e.x==="number"&&typeof e.y==="number")stains.push(e);
+    // else: an unrecognized kind is ignored, not an error -- the additive
+    // contract GameConfig.allowCosmeticFx's doc comment promises.
+  }
+  cosmeticFxTracers=tracers;cosmeticFxStains=stains;
+}
+/* Draws the two shipped effect kinds in the SAME visual language the
+   spectator/broadcast board already uses for these (global.nim's
+   addShotTracers/addPaintStains + the softmax-viewer ground truth): a
+   colored trail from muzzle toward impact, brighter near the paint head and
+   fading toward the shooter, plus a soft colored blot where dried paint hit
+   the map. Called from drawSprite() AFTER the sprite layers composite (paint
+   flies in front of the cogs that fired it) and BEFORE the reticle/hitmarker/
+   self-tag HUD -- same order broadcast.nim's board keeps. Coordinates are
+   raw world xy, exactly like every object's dispX/dispY: the camera's pan/
+   zoom is a CSS transform on the whole canvas (updateCamera), never a
+   per-draw-call transform, so nothing extra is needed here to track it. */
+const COSMETIC_FX_MAX_AGE_TICKS=24; // ShotFxTicks(12) x2: fully faded well before the next tracer set replaces this one.
+function renderCosmeticFx(){
+  if(!cosmeticFxStains.length&&!cosmeticFxTracers.length)return;
+  x.save();
+  for(const stain of cosmeticFxStains){
+    const css=colorWordCss(stain.color);
+    if(!css)continue;
+    const r=stain.onWall?5:7;
+    const g=x.createRadialGradient(stain.x,stain.y,0,stain.x,stain.y,r);
+    g.addColorStop(0,css);g.addColorStop(1,cssAlpha(css,0));
+    x.fillStyle=g;x.globalAlpha=stain.onWall?0.55:0.7;
+    x.beginPath();x.arc(stain.x,stain.y,r,0,Math.PI*2);x.fill();
+  }
+  for(const tr of cosmeticFxTracers){
+    const css=colorWordCss(tr.color);
+    if(!css)continue;
+    const age=Math.max(0,tr.age|0);
+    if(age>COSMETIC_FX_MAX_AGE_TICKS)continue;
+    const fade=1-Math.min(1,age/COSMETIC_FX_MAX_AGE_TICKS);
+    x.strokeStyle=css;x.lineWidth=tr.hit?2:1;x.lineCap="round";
+    x.globalAlpha=(tr.hit?0.9:0.5)*fade;
+    let open=false;
+    x.beginPath();
+    for(const pt of tr.pts){
+      if(!Array.isArray(pt)){open=false;continue}
+      if(!open){x.moveTo(pt[0],pt[1]);open=true}
+      else x.lineTo(pt[0],pt[1]);
+    }
+    x.stroke();
+    // Bright head at the impact end on a confirmed hit -- the same "leading
+    // paintball" accent global.nim's tracerHeadSpriteId draws on the board.
+    if(tr.hit){
+      const head=tr.pts[tr.pts.length-1];
+      if(Array.isArray(head)){
+        x.globalAlpha=fade;x.fillStyle=css;
+        x.beginPath();x.arc(head[0],head[1],2.5,0,Math.PI*2);x.fill();
+      }
+    }
+  }
+  x.restore();
+}
+function cssAlpha(rgbCss,a){
+  // colorWordCss returns "rgb(r,g,b)"; splice in an alpha channel for the
+  // gradient's outer stop without a second color table.
+  const m=/rgb\(([^)]+)\)/.exec(rgbCss);
+  return m?"rgba("+m[1]+","+a+")":rgbCss;
 }
 function handleShotFeedback(landed,taken){
   const nowT=performance.now();

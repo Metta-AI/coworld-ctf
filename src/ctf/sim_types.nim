@@ -1775,6 +1775,50 @@ type
                               ## and nothing is sent — byte-identical to a
                               ## build without this field, for every socket,
                               ## policy or takeover alike.
+    # GVNEXT(cosmeticfx): appended field, same append-safety reasoning as
+    # allowShotFeedback above -- a scalar bool on GameConfig, not an
+    # array[Team, X] run inside the flatty-serialized state.
+    allowCosmeticFx*: bool  ## freeplay only: streams the two spectator-only
+                            ## cosmetic effects (global.nim's addShotTracers/
+                            ## addPaintStains -- paint tracers and permanent
+                            ## ground stains) to a HUMAN's own takeover
+                            ## socket, fog-clipped to exactly what that seat
+                            ## can see this tick. Built and sent by
+                            ## server.nim (buildCosmeticFxPacket) as its own
+                            ## JSON TextMessage -- never folded into
+                            ## global.nim's buildSpriteProtocolPlayerUpdates,
+                            ## which is shared with every policy/mux socket:
+                            ## `{"fx": [{"kind":"tracer", "pts":[[x,y]|null,
+                            ## ...], "age":int, "color":string, "hit":bool},
+                            ## {"kind":"stain", "x":int, "y":int,
+                            ## "color":string, "onWall":bool}, ...]}`.
+                            ## `kind` makes the array additive: a future
+                            ## glory-toast or killstreak entry is a new
+                            ## object in the same list, not a new message --
+                            ## see buildCosmeticFxPacket's own doc comment
+                            ## for the shared "effect family" seam.
+                            ##
+                            ## SAFE BY CONSTRUCTION, not by filtering:
+                            ## buildCosmeticFxPacket is called from exactly
+                            ## one place, the takeover send pass (the same
+                            ## call site buildShotFeedbackPacket already
+                            ## uses beside it) -- a policy's own connection
+                            ## for this exact seat is simply never a target
+                            ## of that call, so it cannot receive this
+                            ## regardless of the gate. mapRgba and the RL
+                            ## observation surface are never touched (see
+                            ## addPaintStains' own doc comment for why that
+                            ## surface must stay clean).
+                            ##
+                            ## false (the default) = the channel does not
+                            ## exist: buildCosmeticFxPacket is never called
+                            ## from the takeover pass, nothing is built,
+                            ## nothing is sent -- byte-identical to a build
+                            ## without this field, for every socket, policy
+                            ## or takeover alike. Reads sim.recentShots/
+                            ## sim.paintStains, both already cosmetic-only
+                            ## and excluded from gameHash, so this can never
+                            ## move the hash either way.
 
   Player* = object
     x*, y*: int

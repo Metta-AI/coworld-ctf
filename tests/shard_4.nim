@@ -6,6 +6,7 @@ import
   test_br_golden_e2e,
   test_broadcast_state,
   test_corpse_label,
+  test_cosmetic_fx_wire,
   test_extract_events,
   test_grenades,
   test_handicaps,
