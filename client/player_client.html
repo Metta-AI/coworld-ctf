@@ -589,8 +589,10 @@ function drawSprite(){
      file already resolves for the camera (isBrMap()/ensureCameraContext(),
      called just above via updateCamera()) rather than deleting the word
      for everyone: CTF really does respawn, so its copy is untouched.
-     Vocabulary is enforced project-wide -- SPLAT not KO, WIPEOUT not
-     elimination -- so BR's line says "wiped out", never "eliminated". */
+     Vocabulary is paintball's own register, project-wide -- SPLAT not KO,
+     "you're out" not "eliminated" (nor the earlier invented "wiped out") --
+     so BR's line uses the sport's real word for a player who is done for
+     the round, see deathStatusLine() below. */
   /* renderDeathOverlay's channel-silent path is EXACTLY the n() call that
      used to sit here -- same strings, same #s plumbing, per-frame same as
      before; the structured death-card variant only exists once a private
