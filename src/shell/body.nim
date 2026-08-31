@@ -5,9 +5,12 @@
 ## added in FL-C.
 
 import std/[hashes, options]
+import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_cache, body_map, body_nav, body_planner
 import types as shellTypes
+
+const IdleAimDeadband = AimTurnRate div 2
 
 type
   BodySelfState* = object
@@ -158,6 +161,64 @@ proc partnerTelemetry*(body: SeatBody): Option[PartnerTelemetry] =
   ## remains available only through ordinary fogged tracks. updateBelief
   ## clears the grant on absence or death, exactly at that input tick.
   body.partnerGrant
+
+proc arrived(pos, goal: BodyPoint, radius: float): bool =
+  let
+    dx = pos.x - goal.x
+    dy = pos.y - goal.y
+  float(dx * dx + dy * dy) <= radius * radius
+
+proc idleAimMask(body: SeatBody): uint8 =
+  ## FIRST-LIGHT PLACEHOLDER: converges the aim to the center and holds.
+  ## Stencil's idle aim is an oscillating sweep around the center
+  ## (LAB:action.nim:62-68, idleSweepAim); phase 5's full action port
+  ## replaces this with the stencil-exact sweep — the phase-7 CTF
+  ## differential exercises that path, never this one.
+  if body.standingIntent.idleAimCenterBrads.isNone:
+    return 0'u8
+  let desired = ((body.standingIntent.idleAimCenterBrads.get mod
+    AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+  let delta = shortestAimBradsDelta(body.selfState.aimBrads, desired)
+  if delta > IdleAimDeadband:
+    ButtonB
+  elif delta < -IdleAimDeadband:
+    ButtonSelect
+  else:
+    0'u8
+
+proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
+               tick: uint32): InputState =
+  ## Executes one seat's movement-only body tick.
+  ##
+  ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
+  ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
+  body.updateBelief(inputs, tick)
+  if not body.selfState.alive:
+    return InputState()
+
+  var mask = 0'u8
+  case body.standingIntent.kind
+  of shellTypes.ikHold:
+    mask = body.idleAimMask()
+  of shellTypes.ikNavigateTo:
+    if body.standingGoal.isNone:
+      return decodeInputMask(body.idleAimMask())
+    let goal = body.standingGoal.get
+    let seat = body.nav.seats[body.seatIndex]
+    if arrived(body.selfState.pos, goal.goalPoint,
+        body.standingIntent.arriveRadius):
+      seat.resetProgress(body.selfState.pos)
+      mask = body.idleAimMask()
+    else:
+      let waypoint = body.nav.navigationWaypoint(body.seatIndex,
+        body.selfState.pos, goal, tick.int,
+        body.standingIntent.movingGoal, body.standingIntent.profile)
+      mask = octantToward(body.selfState.pos, waypoint)
+      if mask != 0'u8:
+        seat.noteProgress(body.selfState.pos)
+      else:
+        mask = body.idleAimMask()
+  decodeInputMask(mask)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,
                             predicate: TrackPredicate): DangerInput =

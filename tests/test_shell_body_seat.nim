@@ -1,6 +1,7 @@
-## FL-A laws for the contracted per-seat body data seam.
+## FL-A/FL-B laws for the contracted per-seat body data and movement seam.
 
-import std/[options, unittest]
+import std/[options, sequtils, unittest]
+import bitworld/spriteprotocol
 import ../src/ctf/sim_types
 import ../src/shell/body
 import ../src/shell/body_cache
@@ -29,18 +30,69 @@ proc smallOpenMap(): BodyMap =
   newBodyMap(walkable, Width, Height, 2,
     @[(16, 24), (Width - 17, 24)])
 
-proc selfState(pos: BodyPoint = (16, 48), alive = true): BodySelfState =
-  BodySelfState(pos: pos, hpFrac: 2.0 / 3.0, aimBrads: 32,
+proc selfState(pos: BodyPoint = (16, 48), alive = true,
+               aimBrads = 32): BodySelfState =
+  BodySelfState(pos: pos, hpFrac: 2.0 / 3.0, aimBrads: aimBrads,
     alive: alive, carrying: false)
 
-proc holdIntent(): shellTypes.Intent =
+proc holdIntent(idleAim = none(int)): shellTypes.Intent =
   shellTypes.Intent(kind: shellTypes.ikHold, point: none(MapPoint),
-    profile: shellTypes.cpDefault, combat: shellTypes.CombatPolicy())
+    idleAimCenterBrads: idleAim, profile: shellTypes.cpDefault,
+    combat: shellTypes.CombatPolicy())
 
-proc navigateIntent(point: BodyPoint): shellTypes.Intent =
+proc navigateIntent(point: BodyPoint, arriveRadius = 0.0,
+                    movingGoal = false, idleAim = none(int)): shellTypes.Intent =
   shellTypes.Intent(kind: shellTypes.ikNavigateTo,
     point: some(MapPoint(x: point.x, y: point.y)),
-    profile: shellTypes.cpDefault, combat: shellTypes.CombatPolicy())
+    arriveRadius: arriveRadius, movingGoal: movingGoal,
+    idleAimCenterBrads: idleAim, profile: shellTypes.cpDefault,
+    combat: shellTypes.CombatPolicy())
+
+proc hasMovement(input: InputState): bool =
+  input.up or input.down or input.left or input.right
+
+proc mask(input: InputState): uint8 =
+  encodeInputMask(input)
+
+proc withoutActuatorWeapons(input: InputState): bool =
+  not input.attack and not input.c
+
+proc stepPosition(pos: BodyPoint, input: InputState): BodyPoint =
+  result = pos
+  if input.left:
+    dec result.x, 8
+  if input.right:
+    inc result.x, 8
+  if input.up:
+    dec result.y, 8
+  if input.down:
+    inc result.y, 8
+
+proc stepAim(aimBrads: int, input: InputState): int =
+  result = aimBrads
+  if input.b and not input.select:
+    result = (result + AimTurnRate) mod AimBradsTurn
+  elif input.select and not input.b:
+    result = (result - AimTurnRate + AimBradsTurn) mod AimBradsTurn
+
+proc near(a, b: BodyPoint, radius: float): bool =
+  let
+    dx = a.x - b.x
+    dy = a.y - b.y
+  float(dx * dx + dy * dy) <= radius * radius
+
+proc settlePlans(nav: BodyNavSystem, tick: var int, limit = 400) =
+  var guard = 0
+  while guard < limit:
+    var pending = false
+    for seat in nav.seats:
+      pending = pending or seat.job.planPending
+    if not pending:
+      return
+    discard nav.runPlanningTick(tick)
+    inc tick
+    inc guard
+  raise newException(ValueError, "planning did not settle")
 
 suite "shell body seat belief-lite seam":
   test "activation installs the safe standing order":
@@ -218,3 +270,159 @@ suite "shell body seat belief-lite seam":
     check input.candidates.len == 1
     check input.candidates[0].seatIndex == 2
     check input.candidates[0].pos == (70, 40)
+
+  test "seatTick follows externally-budgeted navigation to a standing goal":
+    let map = openMap()
+    let nav = newBodyNavSystem(map, 1, 331)
+    let body = activateSeatBody(nav, 0)
+    let start: BodyPoint = (16, 48)
+    let target: BodyPoint = (160, 48)
+    let goal = map.validateGoal(target, start).get
+    body.setStandingIntent(navigateIntent(target, arriveRadius = 10.0),
+      some(goal), 1)
+
+    var
+      pos = start
+      aim = 32
+      tick = 0
+      masks: seq[uint8]
+    while tick < 512 and not near(pos, goal.goalPoint, 10.0):
+      let traceLen = nav.planningTraceSnapshot.len
+      let input = body.seatTick(BodyTickInputs(
+        self: selfState(pos, aimBrads = aim)), tick.uint32)
+      check nav.planningTraceSnapshot.len == traceLen
+      masks.add(input.mask)
+      check input.withoutActuatorWeapons
+      check nav.dangerTraceSnapshot.len == 0
+      discard nav.runPlanningTick(tick)
+      check nav.planningTraceSnapshot.len >= traceLen
+      pos = stepPosition(pos, input)
+      aim = stepAim(aim, input)
+      inc tick
+
+    check near(pos, goal.goalPoint, 10.0)
+    check masks.anyIt((it and (ButtonUp or ButtonDown or ButtonLeft or
+      ButtonRight)) != 0)
+
+    let stopped = body.seatTick(BodyTickInputs(
+      self: selfState(pos, aimBrads = aim)), tick.uint32)
+    check not stopped.hasMovement
+    check stopped.withoutActuatorWeapons
+
+    let replayNav = newBodyNavSystem(map, 1, 331)
+    let replayBody = activateSeatBody(replayNav, 0)
+    replayBody.setStandingIntent(navigateIntent(target, arriveRadius = 10.0),
+      some(goal), 1)
+    var replayPos = start
+    var replayAim = 32
+    for replayTick, expected in masks:
+      let input = replayBody.seatTick(BodyTickInputs(
+        self: selfState(replayPos, aimBrads = replayAim)), replayTick.uint32)
+      check input.mask == expected
+      discard replayNav.runPlanningTick(replayTick)
+      replayPos = stepPosition(replayPos, input)
+      replayAim = stepAim(replayAim, input)
+
+  test "seatTick hold emits no movement and honors idle aim":
+    let body = activateSeatBody(openMap(), 0, 331)
+    body.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
+
+    let rotating = body.seatTick(BodyTickInputs(
+      self: selfState(aimBrads = 0)), 0)
+    check not rotating.hasMovement
+    check rotating.b
+    check not rotating.select
+    check rotating.withoutActuatorWeapons
+
+    let settled = body.seatTick(BodyTickInputs(
+      self: selfState(aimBrads = 63)), 1)
+    check settled.mask == 0
+
+  test "seatTick arrival stops movement before scheduling route work":
+    let map = openMap()
+    let body = activateSeatBody(map, 0, 331)
+    let start: BodyPoint = (16, 48)
+    let target: BodyPoint = (24, 48)
+    let goal = map.validateGoal(target, start).get
+    body.setStandingIntent(navigateIntent(target, arriveRadius = 12.0),
+      some(goal), 1)
+
+    let input = body.seatTick(BodyTickInputs(
+      self: selfState(start, aimBrads = 32)), 0)
+    check input.mask == 0
+    check not body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.planningTraceSnapshot.len == 0
+
+  test "seatTick dead seats return zero while still applying belief":
+    let body = activateSeatBody(openMap(), 0, 331)
+    let start: BodyPoint = (16, 48)
+    let target: BodyPoint = (160, 48)
+    let goal = body.map.validateGoal(target, start).get
+    body.setStandingIntent(navigateIntent(target), some(goal), 1)
+
+    let input = body.seatTick(BodyTickInputs(self: selfState(start,
+      alive = false), visibleTracks: @[
+        BodyTrackUpdate(seat: 5, pos: (80, 48), team: Blue,
+          aimBrads: 64, hpKnown: some(2), tick: 7)]), 7)
+    check input.mask == 0
+    check body.tracks[5].isSome
+    check body.tracks[5].get.pos == (80, 48)
+    check not body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.planningTraceSnapshot.len == 0
+
+  test "seatTick never emits weapon bits during mixed movement and idle aim":
+    let map = openMap()
+    let nav = newBodyNavSystem(map, 1, 331)
+    let body = activateSeatBody(nav, 0)
+    let start: BodyPoint = (16, 48)
+    let target: BodyPoint = (160, 48)
+    let goal = map.validateGoal(target, start).get
+    body.setStandingIntent(navigateIntent(target, arriveRadius = 10.0,
+      movingGoal = true, idleAim = some(64)), some(goal), 1)
+
+    var
+      pos = start
+      aim = 0
+    for tick in 0 ..< 512:
+      let input = body.seatTick(BodyTickInputs(
+        self: selfState(pos, aimBrads = aim)), tick.uint32)
+      check (input.mask and ButtonA) == 0
+      check (input.mask and ButtonC) == 0
+      discard nav.runPlanningTick(tick)
+      pos = stepPosition(pos, input)
+      aim = stepAim(aim, input)
+
+  test "seatTick order is deterministic across shared episode navigation":
+    proc runOrder(order: seq[int]): tuple[masks: array[2, seq[uint8]],
+                                         paths: array[2, seq[BodyPoint]]] =
+      let map = smallOpenMap()
+      let nav = newBodyNavSystem(map, 2, 331)
+      let bodies = [activateSeatBody(nav, 0), activateSeatBody(nav, 1)]
+      var positions: array[2, BodyPoint] = [(16, 24), (48, 24)]
+      let goals = [
+        map.validateGoal((48, 24), positions[0]).get,
+        map.validateGoal((16, 24), positions[1]).get]
+      bodies[0].setStandingIntent(navigateIntent((48, 24),
+        arriveRadius = 8.0), some(goals[0]), 1)
+      bodies[1].setStandingIntent(navigateIntent((16, 24),
+        arriveRadius = 8.0), some(goals[1]), 1)
+
+      var tick = 0
+      while tick < 80:
+        for seat in order:
+          let input = bodies[seat].seatTick(BodyTickInputs(
+            self: selfState(positions[seat], aimBrads = 32)), tick.uint32)
+          result.masks[seat].add(input.mask)
+        discard nav.runPlanningTick(tick)
+        for seat in 0 .. 1:
+          positions[seat] = stepPosition(positions[seat],
+            decodeInputMask(result.masks[seat][^1]))
+        inc tick
+      nav.settlePlans(tick)
+      for seat in 0 .. 1:
+        result.paths[seat] = nav.seats[seat].activePath
+
+    let forward = runOrder(@[0, 1])
+    let reversed = runOrder(@[1, 0])
+    check forward.masks == reversed.masks
+    check forward.paths == reversed.paths
