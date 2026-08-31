@@ -1,0 +1,8 @@
+# This tool's worker image: skopeo to move the image, jq for the registry's and
+# the platform's JSON, curl for the three API calls. No compiler, and no
+# container engine — see caos/imgtools.
+../../caos/imgtools imgtools
+
+# build-image runs on the same image and is curried in as an ordinary arg, so
+# `upload` is `build` plus a push rather than a second assembly.
+../../caos/nim nim

@@ -4,7 +4,8 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime, events, wire_constants
+  sim, global, replays, broadcast, replay_runtime, events, wire_constants,
+  control, directives, baselines, decide, mux
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -83,6 +84,14 @@ type
     inputPressedMasks: Table[WebSocket, uint8]
     lastAppliedMasks: Table[WebSocket, uint8]
     chatMessages: Table[WebSocket, string]
+    policyPageFlashes: Table[WebSocket, string]
+      ## One-page-policy REFLASH inbox, one pending page per seat socket,
+      ## drained at the next tick boundary exactly like chatMessages beside
+      ## it. A page handed to the sim anywhere but a tick boundary would land
+      ## between two hashes and be unrecordable at any single tick, so the
+      ## receive side (the websocket handler, which is the policy runner's
+      ## half of this feature) never touches the sim — it only drops the page
+      ## here.
     playerIndices: Table[WebSocket, int]
     playerAddresses: Table[WebSocket, string]
     playerSlots: Table[WebSocket, int]
@@ -198,9 +207,10 @@ const
     "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
   ).spliceWireConstants()
   # SEASON 2 HUMAN SEAT, ported from maxwell/s2-controls-on-seat (byte-matched
-  # source, GameVersion 44 -> this GV45 tree; the 8-bit InputState mask and
-  # the /player websocket handshake are untouched by the BR bump, per this
-  # file's own GameVersion changelog comment in sim_types.nim). Our OWN player
+  # source, GameVersion 44 origin; this tree sits on main's GV47 after the
+  # wave-1 reconciliation — the 8-bit InputState mask and the /player
+  # websocket handshake are untouched by any of it, per sim_types.nim's
+  # GameVersion changelog comment). Our OWN player
   # client, vendored into this repo rather than patched into the pinned
   # ~/.nimby/pkgs/bitworld package -- the same ELEVATE-BY-REBUILD move the
   # replay routes above already make. player_controls.js carries the
@@ -339,6 +349,9 @@ const
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes* = 900_000
+  ShutdownGraceSeconds = 20  ## paintball squad mode: /healthz + /global keep
+                             ## answering this long after the artifacts are
+                             ## written, then the process exits.
   # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
   # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
   # which the grenade input bit needs.
@@ -414,6 +427,7 @@ proc initAppState() =
   appState.inputPressedMasks = initTable[WebSocket, uint8]()
   appState.lastAppliedMasks = initTable[WebSocket, uint8]()
   appState.chatMessages = initTable[WebSocket, string]()
+  appState.policyPageFlashes = initTable[WebSocket, string]()
   appState.playerIndices = initTable[WebSocket, int]()
   appState.playerAddresses = initTable[WebSocket, string]()
   appState.playerSlots = initTable[WebSocket, int]()
@@ -465,6 +479,7 @@ proc removePlayerWebSocketState(websocket: WebSocket): int =
   appState.inputPressedMasks.del(websocket)
   appState.lastAppliedMasks.del(websocket)
   appState.chatMessages.del(websocket)
+  appState.policyPageFlashes.del(websocket)
   appState.playerAddresses.del(websocket)
   appState.playerSlots.del(websocket)
   appState.playerTokens.del(websocket)
@@ -1669,16 +1684,28 @@ proc websocketHandler(
                 0
               )
               chatText = ""
+              policyPage = ""
             appState.playerViewers[websocket].applyPlayerViewerMessage(
               message.data,
               mask,
               pressedMask,
-              chatText
+              chatText,
+              policyPage
             )
             appState.inputMasks[websocket] = mask
             appState.inputPressedMasks[websocket] = pressedMask
             if chatText.len > 0:
               appState.chatMessages[websocket] = chatText
+            # The one-page-policy REFLASH receive arm, parked in the inbox
+            # the tick loop drains — deliberately the SAME shape as the
+            # chat line above it. Nothing here consults the sim: this runs
+            # on the websocket thread, and a page handed to the sim between
+            # two ticks would land between two hashes and be unrecordable
+            # at any single tick. Whether the page is ACCEPTED is decided
+            # once, at the drain, by `sim.applyPolicyPage` — the single
+            # predicate playback consults too.
+            if policyPage.len > 0:
+              appState.policyPageFlashes[websocket] = policyPage
   of ErrorEvent, CloseEvent:
     var who = ""
     {.gcsafe.}:
@@ -1705,13 +1732,20 @@ proc resetPlayerReady(
             playerIndices[i] < playerCount and
             websocket in appState.playerReady:
           appState.playerReady[websocket] = false
+    if muxState.enabled:
+      withLock muxState.lock:
+        for slot in 0 ..< MaxMuxSeats:
+          if muxState.seats[slot].joined and
+              muxState.seats[slot].playerIndex >= 0 and
+              muxState.seats[slot].playerIndex < playerCount:
+            muxState.seats[slot].ready = false
 
 proc allPlayersReady(
   sockets: openArray[WebSocket],
   playerIndices: openArray[int],
   playerCount: int
 ): bool =
-  ## Returns true when every active player socket sent ready.
+  ## Returns true when every active player (socket or mux seat) sent ready.
   var activePlayers = 0
   {.gcsafe.}:
     withLock appState.lock:
@@ -1722,6 +1756,15 @@ proc allPlayersReady(
         inc activePlayers
         if not appState.playerReady.getOrDefault(websocket, false):
           return false
+    if muxState.enabled:
+      withLock muxState.lock:
+        for slot in 0 ..< MaxMuxSeats:
+          if muxState.seats[slot].joined and
+              muxState.seats[slot].playerIndex >= 0 and
+              muxState.seats[slot].playerIndex < playerCount:
+            inc activePlayers
+            if not muxState.seats[slot].ready:
+              return false
   activePlayers > 0
 
 type
@@ -1947,6 +1990,9 @@ proc buildRewardPacket(sim: SimServer): string {.measure.} =
         result.addStatLine("games_" & teamText(team), identity,
           account.games[team])
       result.addStatLine("kills", identity, account.kills)
+      result.addStatLine("team_kills", identity, account.teamKills)
+      result.addStatLine("hit_damage", identity, account.hitDamage)
+      result.addStatLine("team_hit_damage", identity, account.teamHitDamage)
       result.addStatLine("deaths", identity, account.deaths)
       result.addStatLine("captures", identity, account.captures)
 
@@ -2036,6 +2082,34 @@ proc declarePlayerFailure(slot: int, message: string) =
     )
   except CatchableError as e:
     echo "player-failure declaration failed: ", e.msg
+
+proc parseRegistration(
+  text: string
+): tuple[ok: bool, prompt, scripted, policy: string] =
+  ## A seat's ONE Sprite v1 chat message, read as its registration:
+  ##   {"type":"register","prompt":"…","scripted":"holdline"|null,"policy":"…"}
+  ## Anything that is not that object is not a registration.
+  result = (false, "", "", "")
+  if text.len == 0 or text[0] != '{':
+    return
+  var node: JsonNode
+  try:
+    node = parseJson(text)
+  except CatchableError:
+    return
+  if node.kind != JObject or node{"type"}.getStr() != "register":
+    return
+  result.ok = true
+  result.prompt = node{"prompt"}.getStr()
+  if not node{"scripted"}.isNil and node{"scripted"}.kind == JString:
+    result.scripted = node{"scripted"}.getStr()
+  result.policy = node{"policy"}.getStr()
+
+proc squadAlias(sim: SimServer, order: int): string =
+  ## The ANONYMOUS in-game name of the cog that will occupy slot `order`,
+  ## resolved from the config alone so it is identical on every replay.
+  toUpperAscii(teamText(sim.teamForSlot(order))) & "-" &
+    IdentityNames[sim.slotIdentityIndex(order)]
 
 proc runServerLoop*(
   host = DefaultHost,
@@ -2159,7 +2233,34 @@ proc runServerLoop*(
   )
   httpServer.waitUntilReady()
 
+  # --- mux transport (RL training) -----------------------------------------
+  # COGAME_MUX_SOCKET multiplexes every policy seat of this env over ONE Unix
+  # domain socket (see ctf/mux.nim). Unset (prod, live play): no listener, no
+  # behavior change anywhere.
+  let muxSocketPath = getEnv("COGAME_MUX_SOCKET")
+  if muxSocketPath.len > 0:
+    if replayLoaded:
+      raise newException(CtfError, "COGAME_MUX_SOCKET is not a replay-mode transport")
+    startMux(muxSocketPath)
+  defer: closeMux()
+  var muxViewers: array[MaxMuxSeats, PlayerViewerState]
+
+  # --- paintball squad mode -------------------------------------------------
+  # `num_agents` seats drive `num_agents * cogsPerTeam` cogs. The seats join
+  # exactly as the starter's players do (slots 0..num_agents-1, token-checked);
+  # once they are all in, the server fills the rest of the squads with trusted
+  # joins carrying only the cogs' ANONYMOUS aliases, and from then on every
+  # actuator mask comes from the control layer rather than from a socket.
+  let squadMode = not replayLoaded and config.numAgents > 0 and
+    config.cogsPerTeam > 1
   var
+    engine =
+      if squadMode: initDecisionEngine(sim) else: DecisionEngine()
+    squadsBuilt = false
+    squadForceStart = false
+    lastTurnKey = -1
+    episodeStart = getMonoTime()
+    deadlineHit = false
     liveOverlays: seq[DebugOverlay] = @[]
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
@@ -2201,6 +2302,22 @@ proc runServerLoop*(
       replaySeekTicks: seq[int] = @[]
       shouldReset = false
       quitAfterFrame = false
+
+    # The engine's own hard stop, checked before anything else this
+    # iteration: `wallClockBudgetSeconds` is 57.5% of the assumed 1200 s
+    # episodeTimeoutSeconds, so paintball always settles and scores itself
+    # rather than being silently discarded for overrunning.
+    if squadMode and not deadlineHit and
+        (getMonoTime() - episodeStart).inSeconds.int >=
+          config.wallClockBudgetSeconds:
+      deadlineHit = true
+      sim.endReason = ReasonDeadline
+      sim.endRule = EndRuleWallClock
+      let leader = sim.hillLeader()
+      echo "wall-clock budget of ", config.wallClockBudgetSeconds,
+        "s reached; settling the episode from the hill counts at this tick"
+      sim.finishGame(leader.team, isDraw = leader.draw)
+      quitAfterFrame = true
 
     {.gcsafe.}:
       withLock appState.lock:
@@ -2261,7 +2378,15 @@ proc runServerLoop*(
           shouldReset = true
           appState.resetRequested = false
           appState.chatMessages.clear()
+          appState.policyPageFlashes.clear()
         for websocket in appState.closedSockets:
+          if squadMode:
+            # A seat that drops does NOT remove its cogs: the squad is fixed
+            # for the whole episode, its directive source degrades to the
+            # holdline baseline, and the seat revives on reconnect. Deleting
+            # the row would renumber every later cog mid-replay.
+            discard removeWebSocketState(websocket)
+            continue
           if not replayLoaded and sim.phase == Lobby and
               websocket in appState.playerIndices:
             let leaverSlot = appState.playerSlots.getOrDefault(websocket, -1)
@@ -2306,7 +2431,21 @@ proc runServerLoop*(
                   liveOverlays.delete(playerIndex)
             sim.removePlayer(websocket)
             socketsToClose.add(websocket)
-        if not replayLoaded and sim.lobbyJoinTimedOut():
+        if squadMode and not squadsBuilt and sim.lobbyJoinTimedOut():
+          # A seat that never connects does NOT end the episode. Report the
+          # no-show to the platform (lowest missing slot only), then build the
+          # squads anyway: that seat's cogs run the published holdline
+          # baseline for the whole episode and both games play to full time.
+          let stuckSlot = sim.nextPlayerSlot()
+          declarePlayerFailure(
+            stuckSlot,
+            "player slot " & $stuckSlot & " never joined the lobby within " &
+              $sim.config.lobbyJoinTimeoutTicks & " lobby ticks (~" &
+              $(sim.config.lobbyJoinTimeoutTicks div TargetFps) &
+              "s); its squad plays the holdline baseline"
+          )
+          squadForceStart = true
+        if not replayLoaded and not squadMode and sim.lobbyJoinTimedOut():
           # Joins are strictly slot-sequential, so the seat the lobby is stuck
           # waiting on is exactly nextPlayerSlot(). Declare it before dying so
           # the platform charges the no-show to that policy (player_error with
@@ -2325,7 +2464,7 @@ proc runServerLoop*(
               " never joined within " & $sim.config.lobbyJoinTimeoutTicks &
               " lobby ticks"
           )
-        if not replayLoaded and sim.shouldAbortFiniteMatch():
+        if not replayLoaded and not squadMode and sim.shouldAbortFiniteMatch():
           # Playing/GameOver roster loss now resolves deterministically
           # inside sim.step (recorded leaves re-derive it in replays); only
           # the lobby dissolve and process exit stay live-server concerns.
@@ -2396,12 +2535,84 @@ proc runServerLoop*(
               while replayWriter.lastMasks.len < sim.players.len:
                 replayWriter.lastMasks.add(0)
               progressed = true
+            # Mux seats join through the same strictly slot-sequential
+            # admission: a pending mux JOIN is seated exactly when its slot is
+            # the next open one, interleaving freely with websocket joins
+            # (external baseline bots keep using websockets).
+            if muxState.enabled and sim.phase == Lobby:
+              var muxJoins: seq[MuxJoinRequest] = @[]
+              withLock muxState.lock:
+                muxJoins = muxState.pendingJoins
+              for join in muxJoins:
+                if join.slot != sim.nextPlayerSlot():
+                  continue
+                # Same identity resolution as the websocket upgrade path: a
+                # token that names a configured slot plays under that slot's
+                # configured identity.
+                let configuredName =
+                  sim.config.configuredPlayerName(join.slot, join.token)
+                let address =
+                  if configuredName.len > 0: configuredName else: join.address
+                var admittedIndex = -1
+                try:
+                  admittedIndex = sim.addPlayer(address, join.slot, join.token)
+                except CtfError as error:
+                  echo "mux: join for slot ", join.slot, " refused: ", error.msg
+                withLock muxState.lock:
+                  for i in 0 ..< muxState.pendingJoins.len:
+                    if muxState.pendingJoins[i].slot == join.slot:
+                      muxState.pendingJoins.delete(i)
+                      break
+                  if admittedIndex >= 0:
+                    muxState.seats[join.slot].playerIndex = admittedIndex
+                    muxState.seats[join.slot].ready = false
+                if admittedIndex >= 0:
+                  muxViewers[join.slot] = initPlayerViewerState()
+                  replayWriter.writeJoin(
+                    tickTime(sim.tickCount), admittedIndex, address,
+                    join.slot, join.token)
+                  while replayWriter.lastMasks.len < sim.players.len:
+                    replayWriter.lastMasks.add(0)
+                  while liveOverlays.len < sim.players.len:
+                    liveOverlays.add(DebugOverlay())
+                  progressed = true
 
-        # NOTE: d5f8bb6 (s2-play-engine) also carried a "squad construction"
-        # block here (squadMode/numAgents/squadAlias/totalCogs/seatPolicyKind)
-        # from the unmerged Paintball KOTH lineage. Still hand-skipped as out
-        # of scope for this port: squadMode has no definition anywhere on
-        # this branch.
+          # --- squad construction ------------------------------------------
+          # Once every seat is seated (or the lobby budget expired and a
+          # no-show has been reported), fill the rest of both squads with
+          # trusted joins. The cogs carry ONLY their anonymous aliases, so the
+          # replay's join stream leaks no policy identity; the real names ride
+          # in the config JSON and in the redacted `register` records.
+          if squadMode and not squadsBuilt and sim.phase == Lobby and
+              (sim.players.len >= config.numAgents or squadForceStart):
+            for order in sim.players.len ..< sim.totalCogs():
+              try:
+                discard sim.addPlayer(
+                  sim.squadAlias(order), order, "", trusted = true)
+              except CtfError as error:
+                echo "squad construction failed at cog ", order, ": ",
+                  error.msg
+                break
+              replayWriter.writeJoin(
+                tickTime(sim.tickCount), order, sim.squadAlias(order),
+                order, "")
+              while replayWriter.lastMasks.len < sim.players.len:
+                replayWriter.lastMasks.add(0)
+              while liveOverlays.len < sim.players.len:
+                liveOverlays.add(DebugOverlay())
+            squadsBuilt = sim.players.len >= sim.totalCogs()
+            if squadsBuilt:
+              for seat in 0 ..< config.numAgents:
+                if seat < sim.players.len and seat <= sim.seatNames.high:
+                  sim.seatNames[seat] = sim.players[seat].address
+                  sim.seatPolicyKind[seat] = engine.policyKind(seat)
+              echo "squads built: ", sim.players.len, " cogs, ",
+                config.numAgents, " seats, regime ", regimeText(sim.regime)
+
+        # (The Paintball KOTH squad-construction block that earlier ports of
+        # this branch hand-skipped is REAL now: the season-2 wave-1 merge
+        # brought the paintball lineage in, and the restored block sits
+        # directly above.)
         #
         # The seat-liveness-board populate call was ALSO hand-skipped on this
         # port (see git blame on this comment) -- the SeatSnapshot type,
@@ -2491,6 +2702,12 @@ proc runServerLoop*(
           playerViewerStates.add(appState.playerViewers[websocket])
           if replayLoaded:
             continue
+          if squadMode:
+            # Seats send NO inputs: every actuator mask comes from the
+            # control layer below, indexed by COG. Sampling the socket here
+            # would write a second, conflicting mask record per tick.
+            appState.inputPressedMasks[websocket] = 0
+            continue
           # THE SWAP, and the whole of it: while a human drives this cog the
           # seat's mask is read off the human's socket instead of the policy's.
           # Same cog, same team, same eight buttons, same replay record under
@@ -2537,12 +2754,96 @@ proc runServerLoop*(
             appState.takeovers[inputSocket].lastMask = appliedMask
             appState.takeovers[inputSocket].policyMask =
               appState.inputMasks.getOrDefault(websocket, 0)
+        if muxState.enabled and not replayLoaded and not squadMode:
+          # Mux seat inputs, sampled with the same down/pressed edge
+          # semantics as the websocket loop above.
+          withLock muxState.lock:
+            for slot in 0 ..< MaxMuxSeats:
+              if not muxState.seats[slot].joined:
+                continue
+              let playerIndex = muxState.seats[slot].playerIndex
+              if playerIndex < 0 or playerIndex >= inputs.len:
+                continue
+              let pressedMask = muxState.seats[slot].pressedMask
+              muxState.seats[slot].pressedMask = 0
+              let currentMask = muxState.seats[slot].inputMask
+              let appliedMask = currentMask or pressedMask
+              inputs[playerIndex] = decodeInputMask(appliedMask)
+              downInputs[playerIndex] = decodeInputMask(currentMask)
+              downInputMasks[playerIndex] = currentMask
+              pressedInputMasks[playerIndex] = pressedMask
+              replayWriter.writeInputFrameMasks(
+                tickTime(sim.tickCount),
+                playerIndex,
+                appliedMask,
+                pressedMask
+              )
         if not replayLoaded:
+          # Registrations that cannot be applied YET are HELD, not dropped.
+          # Joins are strictly slot-sequential, so a seat whose slot is not the
+          # next open one waits for the lower slots — and the lobby sends
+          # frames to a socket before it has been admitted, so both the seat's
+          # first registration and the one it re-sends after its first frame
+          # can arrive while its player index is still 0x7fffffff. Clearing the
+          # table then discarded them for good and the champion played the
+          # scripted holdline baseline for the whole episode with no `register`
+          # record at all (paintball round 3, 2026-08-25: "player connected:
+          # daveey-1" first, then only "seat 0 registered" twice). Bounded by
+          # construction: one entry per live socket, dropped with the socket.
+          var heldRegistrations: seq[(WebSocket, string)] = @[]
           for websocket, chatText in appState.chatMessages.pairs:
             let playerIndex = appState.playerIndices.getOrDefault(
               websocket,
               -1
             )
+            if squadMode:
+              # A seat's chat is its REGISTRATION, consumed here and never
+              # applied as a shout or written to the replay chat stream: the
+              # prompt is a secret. What the replay gets is a redacted
+              # `register` record — the policy label and kind only. Any other
+              # chat text from a seat is dropped: cogs shout, seats do not.
+              if playerIndex < 0 or playerIndex >= config.numAgents:
+                if websocket.isPlayerWebSocket() and
+                    parseRegistration(chatText).ok:
+                  heldRegistrations.add((websocket, chatText))
+                continue
+              let registration = parseRegistration(chatText)
+              if not registration.ok:
+                continue
+              var policy = engine.seats[playerIndex]
+              let firstRegistration = not policy.registered
+              policy.registered = true
+              policy.prompt = registration.prompt.truncateRunes(MaxPromptRunes)
+              policy.isLlm = policy.prompt.len > 0
+              policy.baseline = parseBaseline(registration.scripted)
+              policy.label =
+                if registration.policy.len > 0: registration.policy
+                elif policy.isLlm: "prompt"
+                else: $policy.baseline
+              engine.seats[playerIndex] = policy
+              if playerIndex <= sim.seatPolicyKind.high:
+                sim.seatPolicyKind[playerIndex] =
+                  engine.policyKind(playerIndex)
+              # One `register` record and one log line per seat. The seat
+              # re-sends its registration for the first ~10 s of frames (see
+              # src/paintball_player.nim), so recording every copy would put
+              # ten identical records in the replay and ten identical lines in
+              # the game log.
+              if firstRegistration:
+                replayWriter.writeChat(
+                  tickTime(sim.tickCount),
+                  playerIndex,
+                  registerRecord(
+                    playerIndex,
+                    teamText(sim.teamForSlot(playerIndex)),
+                    policy.label,
+                    engine.policyKind(playerIndex),
+                    $policy.baseline
+                  )
+                )
+                echo "seat ", playerIndex, " registered: kind=",
+                  engine.policyKind(playerIndex), " baseline=", $policy.baseline
+              continue
             if sim.applyShout(playerIndex, chatText):
               replayWriter.writeChat(
                 tickTime(sim.tickCount),
@@ -2550,6 +2851,26 @@ proc runServerLoop*(
                 chatText
               )
           appState.chatMessages.clear()
+          # The one-page-policy REFLASH drain, written in the shout drain's
+          # shape on purpose: apply at a tick boundary, and record EXACTLY
+          # what the sim accepted, stamped with the tick it was accepted on.
+          # `applyPolicyPage` is the single predicate both this path and
+          # playback consult, so the file can never claim a flash the sim
+          # refused, nor omit one it took.
+          for websocket, page in appState.policyPageFlashes.pairs:
+            let playerIndex = appState.playerIndices.getOrDefault(
+              websocket,
+              -1
+            )
+            if sim.applyPolicyPage(playerIndex, page):
+              replayWriter.writePolicyPageFlash(
+                tickTime(sim.tickCount),
+                playerIndex,
+                page
+              )
+          appState.policyPageFlashes.clear()
+          for (websocket, chatText) in heldRegistrations:
+            appState.chatMessages[websocket] = chatText
         for websocket, state in appState.globalViewers.pairs:
           globalViewers.add(websocket)
           globalStates.add(state)
@@ -2685,6 +3006,91 @@ proc runServerLoop*(
         lastTick, false, sockets, playerIndices, sim.players.len)
       continue
 
+    # ------------------------------------------------------------------
+    #  PAINTBALL: the decision turn, then the control-compiled actuator
+    #  masks. This is the determinism boundary — the control layer and the
+    #  LLM live on THIS side of it, and only the masks below are recorded,
+    #  so the wasm viewer re-derives the whole match from them without ever
+    #  running either.
+    # ------------------------------------------------------------------
+    if squadMode and squadsBuilt and sim.phase == Playing:
+      let
+        elapsedSeconds = (getMonoTime() - episodeStart).inSeconds.int
+        turnTicks = max(1, config.turnTicks)
+        turnIndex = sim.gameTicksElapsed() div turnTicks
+        turnKey = sim.gameIndex * 1_000_000 + turnIndex
+      engine.ctl.observeEnemies(sim)
+      if sim.gameTicksElapsed() mod turnTicks == 0 and turnKey != lastTurnKey:
+        lastTurnKey = turnKey
+        let turnsPerGame =
+          if config.maxTicks > 0: max(1, config.maxTicks div turnTicks) else: 0
+        let records = engine.turn(sim, turnIndex, turnsPerGame, elapsedSeconds)
+        for record in records:
+          replayWriter.writeChat(tickTime(sim.tickCount), 0, record)
+        for seat in 0 ..< engine.directives.len:
+          if not engine.haveDirective[seat]:
+            continue
+          let directive = engine.directives[seat]
+          case directive.source
+          of dsLlm: inc sim.llmTurns[min(seat, sim.llmTurns.high)]
+          of dsFallback: inc sim.fallbackTurns[min(seat, sim.fallbackTurns.high)]
+          of dsScripted: discard
+          let record = directive.boundedDirectiveRecord(
+            sim.gameIndex + 1, turnIndex, seat,
+            teamText(sim.teamForSlot(seat)), regimeText(sim.regime))
+          replayWriter.writeChat(tickTime(sim.tickCount), seat, record)
+          sim.pushFeedDirective(record)
+          sim.emitEvent(
+            Directive, source = seat, weapon = $directive.source,
+            amount = turnIndex, content = directive.note)
+          # A cog's `say` is a REAL in-game shout: hashed state both sides
+          # hear, so it is written to the replay chat stream by cog index and
+          # re-applied identically at playback.
+          for order in directive.orders:
+            if order.say.len == 0:
+              continue
+            if sim.applyShout(order.cogIndex, order.say):
+              replayWriter.writeChat(
+                tickTime(sim.tickCount), order.cogIndex, order.say)
+      # Compile one mask per COG, in index order, every tick.
+      inputs = newSeq[InputState](sim.players.len)
+      for cogIndex in 0 ..< sim.players.len:
+        let seat = sim.cogSeat(cogIndex)
+        var order: CogOrder
+        var found = false
+        if sim.seatCommands(seat, cogIndex) and seat < engine.directives.len and
+            engine.haveDirective[seat]:
+          for candidate in engine.directives[seat].orders:
+            if candidate.cogIndex == cogIndex:
+              order = candidate
+              found = true
+              break
+        if not found:
+          # Either this cog is a scripted teammate in a `visitor` game, or its
+          # seat has no directive yet. Both play the published holdline
+          # baseline, which is what "adapt to a partner you know the rules of"
+          # means here.
+          let scripted = engine.holdlineFor(sim, @[cogIndex])
+          if scripted.orders.len > 0:
+            order = scripted.orders[0]
+            found = true
+        if not found:
+          continue
+        let mask = engine.ctl.compileMask(sim, order, cogIndex)
+        inputs[cogIndex] = decodeInputMask(mask)
+        replayWriter.writeInputMaskChange(
+          tickTime(sim.tickCount), cogIndex, mask)
+      downInputs = inputs
+    elif squadMode and squadsBuilt and sim.players.len > 0:
+      # NOT playing (the lobby between the two games of an episode, or the
+      # game-over hold): the server steps with all-zero inputs, so the replay
+      # has to be told that. Without it, playback keeps re-applying the last
+      # masks of the previous game and the first Playing tick of the next one
+      # sees a different `prev` — which decides whether a fresh A press fires,
+      # and diverges the hash chain at exactly that tick.
+      for cogIndex in 0 ..< sim.players.len:
+        replayWriter.writeInputMaskChange(tickTime(sim.tickCount), cogIndex, 0)
+
     var frameEvents = newJArray()
     # Drained once per frame below (same "drain, then setLen(0)" shape as
     # collectedEvents/sim.events just under this), and consumed ONLY by the
@@ -2724,15 +3130,6 @@ proc runServerLoop*(
         # on its policy heading and every shot missing. Playback applies the
         # held bearing at the matching point in stepReplay, so the two
         # orderings are one ordering.
-        #
-        # NOTE: d5f8bb6 wrapped the following sim.step in a squadMode-gated
-        # try/except (SimGuardError/CatchableError -> a paintball "fault" end
-        # condition, EndRuleSimFault/EndRuleHostError). squadMode and those
-        # EndRule constants have no definition anywhere on this branch (the
-        # unmerged Paintball KOTH lineage) -- hand-skipped, same as the squad
-        # construction block above. A CLASSIC/BR game keeps its historical
-        # behavior: an exception out of step() propagates and the runner sees
-        # the crash, exactly as it did before this cherry-pick.
         if not replayLoaded and appState.config.allowDirectAim:
           for cog in 0 ..< sim.players.len:
             var brads = -1
@@ -2743,7 +3140,39 @@ proc runServerLoop*(
               sim.applyDirectAim(cog, brads)
             replayWriter.writeDirectAimChange(
               lastDirectAim, tickTime(sim.tickCount), cog, brads)
-        sim.step(stepInputs, stepPrevInputs)
+        # The paintball `fault` end conditions (design §End conditions rows 5
+        # and 6), now live on this branch: squadMode and the EndRuleSimFault/
+        # EndRuleHostError constants landed via this same main-merge (an
+        # earlier revision of this file hand-skipped this wrap because
+        # neither existed yet on the unmerged Paintball KOTH lineage — that
+        # note is now stale). A tripped sim invariant or any other exception
+        # out of the tick is NOT a silent non-zero exit there: the episode
+        # ends here, both seats score 0.500 (roster.playerResultsJson's fault
+        # branch), and the artifact block below still writes the partial
+        # replay, the results and the events. A CLASSIC/BR game keeps its
+        # historical behavior: an exception out of step() propagates and the
+        # runner sees the crash, exactly as it did before this merge.
+        var faultRule = ""
+        try:
+          sim.step(stepInputs, stepPrevInputs)
+        except SimGuardError as guard:
+          if not squadMode:
+            raise
+          echo "paintball: SIM GUARD tripped at tick ", sim.tickCount, ": ",
+            guard.msg
+          faultRule = EndRuleSimFault
+        except CatchableError as error:
+          if not squadMode:
+            raise
+          echo "paintball: HOST ERROR at tick ", sim.tickCount, ": ",
+            error.msg
+          faultRule = EndRuleHostError
+        if faultRule.len > 0:
+          sim.endReason = ReasonFault
+          sim.endRule = faultRule
+          sim.phase = GameOver
+          quitAfterFrame = true
+          break
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.
@@ -2783,6 +3212,19 @@ proc runServerLoop*(
         if config.maxGames > 0 and phaseBeforeStep != GameOver and
             sim.phase == GameOver:
           inc gamesPlayed
+          if squadMode:
+            # Archive this half and arm the next one's regime BEFORE the
+            # lobby reset that precedes the next startGame.
+            sim.gameHill.add(sim.hillTicks)
+            sim.gameRegimes.add(sim.regime)
+            sim.gameIndex = gamesPlayed
+            if config.regimes.len > 0:
+              sim.regime = config.regimes[min(gamesPlayed, config.regimes.high)]
+            squadsBuilt = false
+            lastTurnKey = -1
+            echo "game ", gamesPlayed, " done; hill red=",
+              sim.gameHill[^1][Red], " blue=", sim.gameHill[^1][Blue],
+              "; next regime ", regimeText(sim.regime)
         if config.maxGames > 0 and gamesPlayed >= config.maxGames:
           quitAfterFrame = true
           break
@@ -2821,6 +3263,12 @@ proc runServerLoop*(
             else:
               appState.playerViewers[websocket].resetPlayerViewerStateForRound()
           landSeatTakeoversOnNewMatch()
+      if muxState.enabled:
+        # Between-games roster reset (multi-trial episodes): mux seats rejoin
+        # through the admission loop like websocket seats do.
+        muxRequeueJoins()
+        for slot in 0 ..< MaxMuxSeats:
+          muxViewers[slot] = initPlayerViewerState()
 
     if not replayLoaded and config.fastMode:
       sockets.resetPlayerReady(playerIndices, sim.players.len)
@@ -2913,6 +3361,39 @@ proc runServerLoop*(
                 withLock appState.lock:
                   discard markSocketClosed(takeoverSockets[i])
 
+    if muxConnected():
+      # Mux seat frames: the exact wire bytes the websocket path would send
+      # (same builder, dedup, and chunking; one record per would-be message,
+      # including the empty frame-count message), batched into one write.
+      var muxSeatRows: seq[(int, int)] = @[]
+      {.gcsafe.}:
+        withLock muxState.lock:
+          for slot in 0 ..< MaxMuxSeats:
+            if muxState.seats[slot].joined:
+              muxSeatRows.add((slot, muxState.seats[slot].playerIndex))
+      var muxBatch = ""
+      for (slot, muxPlayerIndex) in muxSeatRows:
+        var nextState: PlayerViewerState
+        let framePacket = sim.buildSpriteProtocolPlayerUpdates(
+          muxPlayerIndex,
+          muxViewers[slot],
+          nextState,
+          spritesOff = false
+        )
+        # Stored before dedup mutates nextState.sentPlacements — the same
+        # ordering as the websocket loop above, so frames stay byte-identical.
+        muxViewers[slot] = nextState
+        let wirePacket = dedupObjectPlacements(
+          framePacket,
+          nextState.sentPlacements
+        )
+        serverMetrics.recordTraffic(muxPlayerIndex, wirePacket)
+        if wirePacket.len == 0:
+          muxAppendFrame(muxBatch, slot, [])
+        for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
+          muxAppendFrame(muxBatch, slot, chunk)
+      muxSend(muxBatch)
+
     for websocket in rewardViewers:
       try:
         websocket.send(rewardPacket, TextMessage)
@@ -3004,6 +3485,15 @@ proc runServerLoop*(
       finishProfileTrace()
 
     if quitAfterFrame:
+      if squadMode:
+        # The `result` control record: the full results document, written once
+        # into the replay chat stream at episode end (docs/PROTOCOL.md record
+        # table), so a paintball replay is self-sufficient — the outcome would
+        # otherwise live only at COGAME_RESULTS_URI, which a spectator with
+        # the bytes cannot read. Never applied as a shout at playback (a
+        # leading '{' marks a control record in squad mode), so the hash chain
+        # is untouched. Classic replays never carry it.
+        replayWriter.writeChat(tickTime(sim.tickCount), 0, resultRecord(sim))
       if saveReplayPath.len > 0:
         echo "Writing replay file: ", saveReplayPath
       replayWriter.closeReplayWriter()
@@ -3057,6 +3547,16 @@ proc runServerLoop*(
             serverMetrics.metricsJson(sim, sim.tickCount) & "\n")
           echo "Metrics written: ", metricsPath,
             " (", getFileSize(metricsPath), " bytes)"
+      if squadMode:
+        # Bounded shutdown grace: the certification runner pings /healthz and
+        # /global AFTER the player pods start, and a short squad episode can
+        # already have written its artifacts by then. Keep answering for a
+        # bounded window, then exit — the runner waits on process exit anyway.
+        # Classic games exit immediately, as they always have.
+        let graceUntil =
+          getMonoTime() + initDuration(seconds = ShutdownGraceSeconds)
+        while getMonoTime() < graceUntil:
+          sleep(200)
       httpServer.close()
       joinThread(serverThread)
       break

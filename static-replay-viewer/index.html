@@ -227,6 +227,39 @@ html, body {
 .plates.row.many .squad { display: none; }  /* per-seat pips are unreadable
                                                at 16 chips; the numeral is
                                                the honest summary. */
+/* BR top bar (>4 teams): ensureScorebug's `many` branch replaces the whole
+   16-chip row with ONE compact live stat per side — teams alive (left) and
+   cogs standing (right) — instead of the compaction above. "N of 16 chips,
+   all reading 0 LIVES LEFT" was the exact defect Maxwell called
+   unacceptable; the number that matters at a glance during BR play is how
+   many teams are still in it, not sixteen individually illegible plates.
+   Per-team detail moves to the end-card, which can afford the room. */
+.br-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.br-stat-num {
+  font-family: var(--pixfont);
+  font-size: calc(24 * var(--u));
+  line-height: 1;
+  color: var(--paper);
+  font-variant-numeric: tabular-nums;
+}
+.br-stat-label {
+  margin-top: calc(2 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+/* Endgame tension at 3-or-fewer teams left: the same amber pulse grammar the
+   classic scorebug already uses for a dominant lead (see .plate.leader
+   above), reused here rather than inventing a second pulse language. */
+.br-stat.urgent .br-stat-num { color: var(--amber); animation: leaderpulse 1.9s ease-in-out infinite; }
 /* Orientation is a SIDE property, not a color property: right-side plates
    mirror so both team names stay innermost, flanking the clock. */
 .plate.side-r { flex-direction: row-reverse; text-align: right; }
@@ -744,6 +777,9 @@ html, body {
    page — so these controls are the primary way in, not a fallback, and they are
    always present. The minimap only appears once there is something off-screen
    to locate (zoom > 1); at fit it would just be the board again, smaller. */
+/* Hidden while the end-card is up — see the .ended toggle in the render
+   loop's gameover branch, right above ingestCapHearts's caller. */
+#viewpanel.ended { display: none; }
 #viewpanel {
   position: absolute;
   top: calc(var(--topband, 0px) + 10 * var(--u));
@@ -1089,8 +1125,32 @@ html, body {
   padding: calc(20 * var(--u));
   text-align: center;
 }
-#endcard.on { display: flex; animation: cardfade 420ms ease-out; }
+#endcard.on { display: flex; animation: ec-shake 160ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ec-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(calc(-2 * var(--u)), calc(1 * var(--u))); }
+  50% { transform: translate(calc(2 * var(--u)), calc(-1 * var(--u))); }
+  75% { transform: translate(calc(-1 * var(--u)), calc(0.5 * var(--u))); }
+  100% { transform: translate(0, 0); }
+}
+/* Impact flash: a brief full-bleed wash in the winner's own color (JS sets
+   --tc on #endcard itself at reveal — teamCol() covers all 16 BR colors,
+   not just the four CSS utility classes), so the reveal reads as a beat
+   instead of a plain fade. Negative z-index, local to #endcard's own
+   stacking context, so it never leaks under the board. Gone by 220ms —
+   well before anything needs reading. */
+#endcard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--tc, var(--amber));
+  opacity: 0;
+}
+#endcard.on::before { animation: ec-flash-fade 220ms ease-out; }
+@keyframes ec-flash-fade { 0% { opacity: 0.5; } 100% { opacity: 0; } }
 #endcard .headline { color: var(--tc, var(--ghost)); }
 #endcard .headline {
   font-family: var(--pixfont);
@@ -1103,6 +1163,13 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+#endcard.on .headline {
+  animation: ec-headline-pop 220ms cubic-bezier(.2, 1.6, .4, 1) both;
+}
+@keyframes ec-headline-pop {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 #endcard .how {
   font-family: var(--finefont);
@@ -1125,14 +1192,102 @@ html, body {
   margin-top: calc(-4 * var(--u));
 }
 /* match-stats scoreboard — one panel per team, winner ringed in amber.
-   Wraps + centers so a 3rd/4th team panel folds to a second row. */
+   Wraps + centers so a 3rd/4th team panel folds to a second row.
+   max-height + overflow-y is the fix for the "duo cards clip the top bar /
+   transport bleeds through" defect: #endcard's own box is already bounded
+   between --topband and --band (see #endcard above), but it has no overflow
+   rule of its own, and a 16-team BR field, wrapped, is routinely taller than
+   that box. The overflow used to escape #endcard's box (and its background)
+   entirely — the escaping rows painted directly over the scorebug/transport
+   bands with nothing behind them, reading as clipping/bleed-through. Capping
+   THIS element and letting it scroll internally keeps the headline/hero
+   pinned on-screen and contains any overflow inside the card's own bounds. */
 #endcard .ec-teams {
   display: flex;
   gap: calc(22 * var(--u));
   align-items: stretch;
   flex-wrap: wrap;
   justify-content: center;
+  max-height: 52%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+/* ---- BR (elim) variant: a winner-dominant hero card + a ranked, compressed
+   field list — replaces the per-team KDA panel grid above, which is still
+   used as-is for classic 2-4 team CTF (#endcard .ec-teams:not(.br)). BR has
+   no per-match glory data yet (that lane lands separately), so this shows
+   only what the wire actually carries: lives, placement, and kills summed
+   from the roster — never a glory/XP/rank vocabulary. */
+#endcard .ec-teams.br {
+  flex-direction: column;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: calc(10 * var(--u));
+  width: 100%;
+  max-width: calc(360 * var(--u));
+}
+#endcard .ec-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(3 * var(--u));
+}
+#endcard .ec-hero-name {
+  font-family: var(--pixfont);
+  font-size: calc(20 * var(--u));
+  letter-spacing: 0.04em;
+  color: var(--tc, var(--paper));
+  text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
+}
+#endcard .ec-hero-line {
+  font-family: var(--finefont);
+  font-size: calc(10.5 * var(--u));
+  color: var(--paper-dim);
+}
+#endcard .ec-field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: calc(1 * var(--u));
+}
+#endcard .ec-frow {
+  display: grid;
+  grid-template-columns: calc(28 * var(--u)) 1fr calc(34 * var(--u)) calc(44 * var(--u));
+  gap: calc(8 * var(--u));
+  align-items: center;
+  padding: calc(3 * var(--u)) calc(6 * var(--u));
+  font-family: var(--pixfont);
+  font-size: calc(11 * var(--u));
+  background: rgba(20, 14, 9, 0.4);
+}
+#endcard .ec-frank {
+  color: var(--paper-dim);
+  font-size: calc(9 * var(--u));
+  text-align: right;
+}
+#endcard .ec-fname {
+  color: var(--tc, var(--paper));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+#endcard .ec-fstat {
+  color: var(--paper-dim);
+  font-size: calc(9.5 * var(--u));
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#endcard .ec-frow.ec-fcompressed {
+  grid-template-columns: calc(28 * var(--u)) 1fr;
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+  background: none;
+  font-style: italic;
+}
+#endcard .ec-frow.ec-fcompressed .ec-fname { color: var(--paper-dim); }
 #endcard .ec-team {
   width: calc(215 * var(--u));
   padding: calc(9 * var(--u)) calc(12 * var(--u));
@@ -1181,9 +1336,16 @@ html, body {
 #endcard .ec-thead,
 #endcard .ec-row {
   display: grid;
-  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u)) calc(26 * var(--u));
+  /* CTF: Player K D TK Clstr Cap — six tracks, slimmed so the extra TK
+     column still leaves the name a readable share of the fixed panel */
+  grid-template-columns: 1fr calc(18 * var(--u)) calc(18 * var(--u)) calc(18 * var(--u)) calc(24 * var(--u)) calc(24 * var(--u));
   gap: calc(5 * var(--u));
   align-items: center;
+}
+/* paintball keeps its four-column layout (Cog Tags Out Paint) */
+#endcard.pb .ec-thead,
+#endcard.pb .ec-row {
+  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u));
 }
 #endcard .ec-thead {
   font-family: var(--finefont);
@@ -1202,6 +1364,9 @@ html, body {
   padding: calc(1.5 * var(--u)) 0;
 }
 #endcard .ec-row .n { text-align: center; font-variant-numeric: tabular-nums; }
+/* team kills are a shame stat: the count reads in the killfeed's team-kill
+   red, so a backstabber's line is spotted at a glance */
+#endcard .ec-row .n.tk { color: var(--red); }
 /* a 4-team match can retire several rival hearts (GV32: a capture eliminates
    its team and play continues), so the Cap cell lays its hearts in a row,
    later hearts shingling over earlier ones so three still fit the column */
@@ -2004,6 +2169,16 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   // ---- core (board renderer + WS) ----
   var lastState = null;
+  // PAINTBALL mode: latched on the first frame that carries a squad-game
+  // field (`regime` only rides squad frames). Classic frames never set it.
+  var PB_MODE = false;
+  var PB_CTX = null;             // filled at the end of this IIFE (hoisted)
+  // A scrubber click that arrives before the first chrome frame used to be
+  // DROPPED: click-to-seek needs [startTick, maxTick] off the frame to map the
+  // x-fraction onto a tick, and the handler simply returned when there was no
+  // frame yet. The fraction is remembered instead and resolved on the first
+  // frame that carries the axis — the same one-shot shape as ?t=.
+  var SEEK_FRAC = null;
   var replayAdapter = window.CtfStaticReplay || null;
   var coreConfig = {
     canvas: canvas,
@@ -2107,9 +2282,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
+    if (!PB_MODE && s.regime !== undefined) PB_MODE = true;
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (SEEK_T != null) { send('s:' + SEEK_T); SEEK_T = null; }
+    if (SEEK_FRAC != null && s.en) { seekToFraction(s, SEEK_FRAC); SEEK_FRAC = null; }
     applyAchievementFocus(s);
 
     // The board's real native size, read off the core's letterbox transform.
@@ -2158,10 +2335,22 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       armZoneEndcard(hasZoneField);
       if (zoneEndcardShown) renderEndcard(s);
       if (s.over) setVerdict(s.over);
+      // The zoom/minimap instrument has nothing left to do once the card is
+      // up (there's no live position to track) and #endcard's own
+      // background is a translucent wash, not opaque — a verification pass
+      // caught its hard-edged controls still faintly visible through the
+      // card's top-right corner. Transport stays untouched: seeking back
+      // into the match from the score screen is a deliberate feature (see
+      // #endcard's own CSS comment), not a bleed-through bug.
+      $('viewpanel').classList.add('ended');
     } else {
       $('endcard').classList.remove('on');
+      $('viewpanel').classList.remove('ended');
       resetZoneEndcard();
     }
+
+    // PAINTBALL additions run last, over the classic chrome's own render.
+    if (PB_MODE && window.PaintballChrome) window.PaintballChrome.frame(s, PB_CTX, jumped);
 
     lastTick = s.t;
   }
@@ -2286,8 +2475,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var sbTeams = null;
   function ensureScorebug(teams, flagless, elim) {
     // The mode is part of the rebuild key: a frame that flips it must
-    // rebuild the plates, not repaint stale flag glyphs forever.
-    var key = teams.join(',') + '|' + (flagless ? 'f' : '') + (elim ? 'e' : '');
+    // rebuild the plates, not repaint stale flag glyphs forever. Paintball
+    // frames arrive after the first classic-built frame, so PB_MODE joins
+    // the key too — the plates rebuild once when the mode is known.
+    var key = teams.join(',') + '|' + (flagless ? 'f' : '') + (elim ? 'e' : '') +
+      (PB_MODE ? '|pb' : '');
     if (sbTeams === key) return;
     sbTeams = key;
     var sides = [$('plates-l'), $('plates-r')];
@@ -2299,10 +2491,50 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     sides[1].classList.toggle('row', teams.length > 2);
     sides[0].classList.toggle('many', many);
     sides[1].classList.toggle('many', many);
+    if (many) {
+      // BR (16 seats): sixteen name+lives chips is unreadable noise — the
+      // number that matters live is how many teams are still in it, not a
+      // wall of identical-looking plates. One compact stat per side
+      // replaces the whole chip row (see .br-stat); renderScorebug fills
+      // the numbers in. Per-team detail moves to the end-card instead.
+      sides[0].innerHTML =
+        '<div class="br-stat" id="br-stat-alive">' +
+        '<div class="br-stat-num" id="br-alive-num">' + teams.length + '</div>' +
+        '<div class="br-stat-label">Teams alive</div>' +
+        '</div>';
+      sides[1].innerHTML =
+        '<div class="br-stat" id="br-stat-cogs">' +
+        '<div class="br-stat-num" id="br-cogs-num">0</div>' +
+        '<div class="br-stat-label">Cogs standing</div>' +
+        '</div>';
+      return;
+    }
     teams.forEach(function (team, i) {
       var plate = document.createElement('div');
       plate.className = 'plate ' + team + ' ' + (i % 2 === 0 ? 'side-l' : 'side-r');
       plate.setAttribute('data-team', team);
+      if (PB_MODE) {
+        // PAINTBALL: the plate's CONTENTS change (hill time held, live hill
+        // coverage, tag-outs) — the plate, the sides, the squad strip and the
+        // clock column are the classic ones. The heart/flag icon is gone with
+        // the objective it belonged to.
+        plate.innerHTML =
+          '<div class="hillchip" id="hill-' + team + '" title="Hill coverage">—</div>' +
+          '<div class="team-id">' +
+          '<div class="lives-line">' +
+          '<span class="team-name plate-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
+          '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
+          '<span class="lives-label pb-lbl">Hill</span>' +
+          '<span class="lives-num" id="lives-' + team + '">—</span>' +
+          '</div>' +
+          '<div class="pb-sub">' +
+          '<span class="pb-tags pb-lbl" id="tags-' + team + '"></span>' +
+          '<span class="squad" id="squad-' + team + '"></span>' +
+          '</div>' +
+          '</div>';
+        sides[i % 2].appendChild(plate);
+        return;
+      }
       // BR: a colour swatch, and "Alive" rather than "Lives" — with no
       // respawns the numeral is cogs still standing, not a spare pool.
       plate.innerHTML =
@@ -2339,9 +2571,59 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       lives[team] = (tr[team] && tr[team].lives) || 0;
     });
 
+    if (teams.length > 4) {
+      // BR top-bar stats (see ensureScorebug's `many` branch): teams alive
+      // from the live lives count (0 = eliminated, matches the end-card's
+      // own definition), cogs standing summed straight off the roster.
+      var aliveTeams = teams.filter(function (t) { return lives[t] > 0; }).length;
+      var aliveNum = $('br-alive-num');
+      if (aliveNum) aliveNum.textContent = aliveTeams;
+      var cogsAlive = 0;
+      (s.roster || []).forEach(function (p) { if (p.alive) cogsAlive++; });
+      var cogsNum = $('br-cogs-num');
+      if (cogsNum) cogsNum.textContent = cogsAlive;
+      var aliveStat = $('br-stat-alive');
+      if (aliveStat) {
+        aliveStat.classList.toggle('urgent', aliveTeams > 0 && aliveTeams <= 3 && s.ph === 'playing');
+      }
+      return;
+    }
+
     teams.forEach(function (team) {
       setName('name-' + team, teamName(s, team, team.toUpperCase()));
       setHandicap('hcap-' + team, s, team);
+      if (PB_MODE) {
+        var t = tr[team] || {};
+        // PAINTBALL: the big numeral is HILL TIME HELD (M:SS), the chip is
+        // live hill coverage, and the sub-line counts tag-outs. '—' until the
+        // frame actually carries this team's entry.
+        $('lives-' + team).textContent = tr[team] ? fmt(t.held || 0) : '—';
+        var chip = $('hill-' + team);
+        if (chip) {
+          chip.textContent = tr[team] ? (t.cov || 0) + '%' : '—';
+          chip.classList.toggle('own', !!t.own);
+          chip.style.color = teamCol(team) || PAPER;
+        }
+        var tagsEl = $('tags-' + team);
+        if (tagsEl) {
+          tagsEl.textContent = tr[team]
+            ? (t.tags || 0) + ' tags · ' + (t.cogs || 0) + ' up' : '';
+        }
+        renderSquad($('squad-' + team), s, team, s.pov);
+        // leader pulse when this team leads every rival on banked hill time
+        var bestPbRival = -Infinity;
+        teams.forEach(function (o) {
+          if (o !== team) bestPbRival = Math.max(bestPbRival, (tr[o] && tr[o].held) || 0);
+        });
+        var pbPlate = document.querySelector('.plate[data-team="' + team + '"]');
+        if (pbPlate) {
+          pbPlate.classList.toggle(
+            'leader',
+            (t.held || 0) - bestPbRival >= 5 && s.ph === 'playing'
+          );
+        }
+        return;
+      }
       // '—' until the frame actually carries this team's entry (a pre-roster
       // frame would otherwise read as a real 0). Matches the league shell.
       $('lives-' + team).textContent = tr[team] ? lives[team] : '—';
@@ -3523,6 +3805,16 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   //  Beats → surfaces  (§5)
   // ============================================================
   function applyEvent(e, s) {
+    // PAINTBALL: every beat goes through the appended game block, which draws
+    // LABELLED, CLICKABLE buttons on the scrubber (pbBeat) instead of
+    // chrome_common's unlabelled div markers. When the block handles a kind
+    // it returns true, so the classic switch never doubles it; classic
+    // replays never enter this branch at all.
+    if (PB_MODE && window.PaintballChrome &&
+        window.PaintballChrome.event(e, s, PB_CTX)) {
+      beatPulse();
+      return;
+    }
     switch (e.k) {
       case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); break;
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
@@ -3668,6 +3960,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // (A time-limit ending is always a draw in the current rules — the sim's
     // checkMaxTicks path never crowns a winner — so timeLimit only pairs
     // with draw here.)
+    if (o.endRule !== undefined) {
+      // PAINTBALL names the RULE the server actually applied, so the chip can
+      // never disagree with the endRule in results.json.
+      switch (o.endRule) {
+        case 'wipe': return o.draw ? 'MUTUAL WIPE' : 'WIPE';
+        case 'mercy': return 'MERCY — LEAD BEYOND THE CLOCK';
+        case 'wall_clock': return 'WALL-CLOCK STOP';
+        case 'sim_fault':
+        case 'host_error': return 'FAULT — NO RESULT';
+        default: return o.draw ? 'FULL TIME — DEAD EVEN' : 'FULL TIME ON THE HILL';
+      }
+    }
     if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
     var losers = teams.filter(function (t) { return t !== o.winner; });
     var bestLoser = 0;
@@ -3740,11 +4044,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function renderEndcardRows(s, team, el, mvpSlot) {
     // Final per-player stat lines, top killer first. The MVP (winning team's
     // best line) reads in amber — no star prefix, it would break the name
-    // column's alignment. Clstr counts grenade/spray multi-kill events; the
-    // Cap column renders each captured heart itself, one per capture, in the
-    // captured team's color; a dagger icon marks
-    // teammate kills. A mixed team (2+ policies) groups its rows under policy
-    // subheaders so each policy's contribution reads separately.
+    // column's alignment. K counts enemy kills only; TK counts teammate
+    // kills, its own column so the two stats never conflate. Clstr counts
+    // grenade/spray multi-kill events; the Cap column renders each captured
+    // heart itself, one per capture, in the captured team's color. A mixed
+    // team (2+ policies) groups its rows under policy subheaders so each
+    // policy's contribution reads separately.
     var rows = (s.roster || []).filter(function (p) { return p.team === team; })
       .slice().sort(endcardOrder);
     var pols = teamPolicies(s, team);
@@ -3752,15 +4057,30 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var html = '';
     function rowHtml(p) {
       var mvp = mvpSlot != null && p.s === mvpSlot;
-      var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
+      if (PB_MODE) {
+        // PAINTBALL: the row is a COG (its anonymous alias), and the columns
+        // are tags dealt, tags taken and what its squad painted. Kills and
+        // captures are not the score here and never appear as one.
+        var pbMarks = endcardBadge('bs', p.tk, 'Friendly fire — tagged a teammate');
+        var tr = (s.teams || {})[p.team] || {};
+        return '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
+          '<span class="pcell">' +
+          '<span class="pname">' + esc(p.alias || shortName(rosterName(s, p.s))) + '</span>' +
+          pbMarks +
+          '</span>' +
+          '<span class="n">' + (p.k || 0) + '</span>' +
+          '<span class="n">' + (p.d || 0) + '</span>' +
+          '<span class="n clstr">' + (tr.paint || 0) + '</span>' +
+          '</div>';
+      }
       var cluster = (p.mk2 || 0) + (p.mk3 || 0);
       return '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
         '<span class="pcell">' +
         '<span class="pname">' + esc(shortName(rosterName(s, p.s))) + '</span>' +
-        marks +
         '</span>' +
         '<span class="n">' + (p.k || 0) + '</span>' +
         '<span class="n">' + (p.d || 0) + '</span>' +
+        '<span class="n tk" title="Team kills — killed a teammate">' + (p.tk > 0 ? p.tk : '') + '</span>' +
         '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
         '<span class="n cap">' + capturedHeartsHtml(s, p) + '</span>' +
         '</div>';
@@ -3782,26 +4102,133 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // Rebuild the endcard's per-team stat panels when the active team set
   // changes (once per match in practice): one panel per team, in display order.
   var ecTeams = null;
-  function ensureEndcardTeams(teams) {
-    var key = teams.join(',');
+  function ensureEndcardTeams(teams, elim) {
+    var key = teams.join(',') + (elim ? '|br' : '|ctf') + (PB_MODE ? '|pb' : '');
     if (ecTeams === key) return;
     ecTeams = key;
+    $('endcard').classList.toggle('pb', PB_MODE);
     var wrap = $('ec-teams');
     wrap.innerHTML = '';
+    wrap.classList.toggle('br', !!elim);
+    if (elim) {
+      // BR: a winner-dominant hero card + a ranked, compressed field list —
+      // see renderEndcardBR. Deliberately NOT the per-team KDA panel grid
+      // below (16 of those is exactly the "16 identical cards, winner
+      // buried" defect this replaces).
+      var hero = document.createElement('div');
+      hero.className = 'ec-hero';
+      hero.innerHTML =
+        '<div class="ec-hero-name" id="ec-hero-name">—</div>' +
+        '<div class="ec-hero-line" id="ec-hero-line"></div>';
+      wrap.appendChild(hero);
+      var field = document.createElement('div');
+      field.className = 'ec-field';
+      field.id = 'ec-field';
+      wrap.appendChild(field);
+      return;
+    }
     teams.forEach(function (team) {
       var el = document.createElement('div');
       el.className = 'ec-team';
       el.id = 'ec-team-' + team;
-      el.innerHTML =
-        '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
-        '<div class="ec-lives">' +
-        '<span class="fl-num ' + team + '" id="ec-' + team + '">0</span>' +
-        '<span class="fl-cap">Lives left</span>' +
-        '</div>' +
-        '<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>' +
-        '<div id="ec-rows-' + team + '"></div>';
+      el.innerHTML = PB_MODE
+        ? '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
+          '<div class="ec-lives">' +
+          '<span class="fl-num ' + team + '" id="ec-' + team + '">0:00</span>' +
+          '<span class="fl-cap">Hill time</span>' +
+          '</div>' +
+          '<div class="ec-thead"><span>Cog</span><span>Tags</span><span>Out</span><span>Paint</span></div>' +
+          '<div id="ec-rows-' + team + '"></div>'
+        : '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
+          '<div class="ec-lives">' +
+          '<span class="fl-num ' + team + '" id="ec-' + team + '">0</span>' +
+          '<span class="fl-cap">Lives left</span>' +
+          '</div>' +
+          '<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>TK</span><span>Clstr</span><span>Cap</span></div>' +
+          '<div id="ec-rows-' + team + '"></div>';
       wrap.appendChild(el);
     });
+  }
+
+  var BR_SHOW_RANKS = 4; // ranks below the winner shown individually before compressing
+
+  function ordinal(n) {
+    var suf = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (suf[(v - 20) % 10] || suf[v] || suf[0]);
+  }
+  function teamKillTotal(s, team) {
+    var total = 0;
+    (s.roster || []).forEach(function (p) { if (p.team === team) total += (p.k || 0); });
+    return total;
+  }
+  function teamAliveCount(s, team) {
+    var n = 0;
+    (s.roster || []).forEach(function (p) { if (p.team === team && p.alive) n++; });
+    return n;
+  }
+  function teamSeatCount(s, team) {
+    var n = 0;
+    (s.roster || []).forEach(function (p) { if (p.team === team) n++; });
+    return n;
+  }
+
+  // BR end-card body: winner-dominant hero + the rest of the field in
+  // placement order, compressed past BR_SHOW_RANKS. Placement comes from the
+  // wire's over.teams[team].place when the server ships it (BR games only);
+  // an older replay without that field falls back to final-lives ordering —
+  // an honest approximation (ties at 0 lives keep their activeTeams order),
+  // never invented elimination time. No glory/XP/rank vocabulary anywhere
+  // here — kills/lives/placement are exactly what's computed, named for
+  // what they are.
+  function renderEndcardBR(s, o, teams) {
+    var winner = o.draw ? null : o.winner;
+    var ranked = teams.slice().sort(function (a, b) {
+      var pa = (o.teams[a] && o.teams[a].place) || 0;
+      var pb = (o.teams[b] && o.teams[b].place) || 0;
+      if (pa && pb) return pa - pb;
+      if (a === winner) return -1;
+      if (b === winner) return 1;
+      return overLives(o, b) - overLives(o, a);
+    });
+
+    var heroName = $('ec-hero-name'), heroLine = $('ec-hero-line');
+    if (winner) {
+      heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
+      heroName.textContent = teamName(s, winner, String(winner).toUpperCase());
+      var rivals = teams.length - 1;
+      var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
+      var heroKills = teamKillTotal(s, winner);
+      heroLine.textContent = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
+        ' — ' + heroAlive + ' of ' + heroSeats + (heroSeats === 1 ? ' cog' : ' cogs') +
+        ' standing · ' + heroKills + (heroKills === 1 ? ' kill' : ' kills');
+    } else {
+      heroName.style.removeProperty('--tc');
+      heroName.textContent = 'NO SURVIVORS';
+      heroLine.textContent = 'Every team was eliminated — no team left standing.';
+    }
+
+    var rest = winner ? ranked.filter(function (t) { return t !== winner; }) : ranked;
+    var shown = rest.slice(0, BR_SHOW_RANKS);
+    var hidden = rest.slice(BR_SHOW_RANKS);
+    var html = '';
+    shown.forEach(function (team, i) {
+      var place = (o.teams[team] && o.teams[team].place) || (i + (winner ? 2 : 1));
+      var lv = overLives(o, team);
+      html += '<div class="ec-frow">' +
+        '<span class="ec-frank">' + ordinal(place) + '</span>' +
+        '<span class="ec-fname" style="--tc:' + (teamCol(team) || AMBER) + '">' +
+        esc(teamName(s, team, team.toUpperCase())) + '</span>' +
+        '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
+        '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
+        '</div>';
+    });
+    if (hidden.length) {
+      html += '<div class="ec-frow ec-fcompressed">' +
+        '<span class="ec-frank">···</span>' +
+        '<span class="ec-fname">' + hidden.length + ' more eliminated earlier</span>' +
+        '</div>';
+    }
+    $('ec-field').innerHTML = html;
   }
 
   function renderEndcard(s) {
@@ -3810,7 +4237,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card.classList.add('on'); // own the frame at GameOver (§8) — before either verdict branch
     var o = s.over;
     var teams = activeTeams(s);
-    ensureEndcardTeams(teams);
+    var elim = isElim(s);
+    ensureEndcardTeams(teams, elim);
 
     // The loop countdown ticks every second while everything else is frozen,
     // so it renders unconditionally; the static content is keyed and only
@@ -3835,14 +4263,60 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         .sort(endcardOrder);
       if (winners.length) mvpSlot = winners[0].s;
     }
-    teams.forEach(function (team) {
-      $('ec-' + team).textContent = overLives(o, team);
-      $('ec-tname-' + team).textContent = teamName(s, team, team.toUpperCase());
-      $('ec-team-' + team).classList.toggle('win', !o.draw && o.winner === team);
-      renderEndcardRows(s, team, $('ec-rows-' + team), mvpSlot);
-    });
+    if (elim) {
+      renderEndcardBR(s, o, teams);
+    } else {
+      teams.forEach(function (team) {
+        $('ec-' + team).textContent = PB_MODE
+          ? fmt(team === 'red' ? (o.hillRed || 0) : (o.hillBlue || 0))
+          : overLives(o, team);
+        $('ec-tname-' + team).textContent = teamName(s, team, team.toUpperCase());
+        $('ec-team-' + team).classList.toggle('win', !o.draw && o.winner === team);
+        renderEndcardRows(s, team, $('ec-rows-' + team), mvpSlot);
+      });
+    }
+
+    if (PB_MODE) {
+      // PAINTBALL: the verdict names the rule the server applied and always
+      // states both banked hill clocks.
+      var hillLine = 'RED holds ' + fmt(o.hillRed || 0) + ' — BLUE ' +
+        fmt(o.hillBlue || 0) + ' · game ' + (o.game || 1) + '/' + (o.games || 1) +
+        ' · ' + String(o.regime || '').toUpperCase();
+      if (o.draw) {
+        head.className = 'headline draw';
+        head.textContent = 'DEAD EVEN';
+        how.textContent = hillLine +
+          ' — both squads banked the same hill time, so this half scores 0.500 each.';
+        return;
+      }
+      var pbWinner = o.winner;
+      var pbWinName = teamName(s, pbWinner, String(pbWinner).toUpperCase());
+      head.className = 'headline ' + pbWinner;
+      head.textContent = pbWinName + ' WINS';
+      switch (o.endRule) {
+        case 'wipe':
+          head.textContent = pbWinName + ' WIPES THE FIELD';
+          how.textContent = hillLine +
+            ' — the other squad ran out of cogs, so the survivor was credited' +
+            ' every remaining tick.';
+          break;
+        case 'mercy':
+          how.textContent = hillLine +
+            ' — the lead was bigger than the clock left, so the rules ended it.';
+          break;
+        case 'wall_clock':
+          how.textContent = hillLine +
+            ' — the engine hit its wall-clock budget and scored the half from' +
+            ' the hill counts at that tick.';
+          break;
+        default:
+          how.textContent = hillLine + ' — full time on the hill clock.';
+      }
+      return;
+    }
 
     if (o.draw) {
+      card.style.setProperty('--tc', PAPER);
       head.className = 'headline draw';
       head.textContent = 'DRAW — NO SCORE';
       how.textContent = o.timeLimit
@@ -3853,6 +4327,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
     var winner = o.winner;
     var winName = teamName(s, winner, String(winner).toUpperCase());
+    card.style.setProperty('--tc', teamCol(winner) || AMBER);
     head.className = 'headline ' + winner;
     head.textContent = winName + ' WINS';
 
@@ -3896,15 +4371,24 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   $('btn-skip').addEventListener('click', function () { send('f'); });
 
   // click-to-seek: map x-fraction to a tick and send s:<tick>
+  // Map an x-fraction of the scrubber onto the shown [startTick, maxTick] axis
+  // and seek there. One place, shared by a live click and by a click that had
+  // to wait for the first frame.
+  function seekToFraction(s, frac) {
+    var st = Math.max(0, s.st || 0);
+    var mx = Math.max(st + 1, s.mx || 1);
+    send('s:' + (st + Math.round(frac * (mx - st))));
+  }
+
   $('scrub').addEventListener('click', function (ev) {
-    if (!lastState || !lastState.en) return;
     var rect = this.getBoundingClientRect();
     var frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
-    // Map the click back onto the shown [startTick, maxTick] axis.
-    var st = Math.max(0, lastState.st || 0);
-    var mx = Math.max(st + 1, lastState.mx || 1);
-    var tick = st + Math.round(frac * (mx - st));
-    send('s:' + tick);
+    // The axis lives on the frame, so a click before the first frame cannot be
+    // mapped yet — QUEUE it (onFrame flushes SEEK_FRAC) rather than dropping
+    // it. A dropped first click is invisible: the board is already drawn, the
+    // transport looks alive, and the viewer just does not move.
+    if (!lastState || !lastState.en) { SEEK_FRAC = frac; return; }
+    seekToFraction(lastState, frac);
   });
 
   // pov clear (togglePov lives in the shared chrome, driven via ctx.sendPov)
@@ -4279,9 +4763,338 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   ro.observe(viewport);
   window.addEventListener('resize', relayout);
 
+  // The context the appended PAINTBALL block reads the classic chrome
+  // through. Declared here (hoisted `var`, so onFrame sees it however early
+  // the first frame lands) rather than duplicating any of it: the game block
+  // must not re-implement naming, escaping, feed insertion or the transport.
+  PB_CTX = {
+    $: $, C: C, esc: esc, fmt: fmt, send: send,
+    teamCol: teamCol, activeTeams: activeTeams, teamOf: teamOf,
+    teamName: teamName, rosterName: rosterName, shortName: shortName,
+    pushFeed: pushFeed, banner: banner, togglePov: togglePov,
+    getState: function () { return lastState; }
+  };
+  if (window.PaintballChrome) window.PaintballChrome.install(PB_CTX);
+
   relayout();
   core.start();
 })();
 </script>
+<!-- ============================================================
+     PAINTBALL additions to the inherited coworld-ctf chrome
+     ============================================================
+     Everything above this banner is the classic broadcast page, edited only
+     where the mode demands and always behind PB_MODE: the scorebug plates'
+     CONTENTS, the feed and beat routing, and the endcard's stat columns all
+     branch on PB_MODE, which latches on the first frame that carries a squad
+     field — a classic replay never enters any of it. The classic #viewpanel
+     (zoom bar + minimap) is kept for both modes: classic boards can be
+     colossal, and on the fixed paintball arena it simply reads FIT.
+
+     Nothing here touches the transport band. relayout() still owns --hudscale,
+     --topband and --band on :root; the endcard still stops at
+     bottom: var(--band, 0px) and is still dismissed by every seek; and every
+     scrubber beat this block draws is a LABELLED, CLICKABLE BUTTON that seeks
+     on click, styled for EVERY kind the sim emits — gamestart, hillflip.red,
+     hillflip.blue, tagout.red, tagout.blue and gameover. The builder carries a
+     pb- prefix precisely so it can never be shadowed by the chrome alias
+     block's own hoisted declaration of the shared one (cogame-tandem,
+     2026-08-23).
+     ============================================================ -->
+<style>
+/* --- scorebug: hill chip, hill clock, tag line ------------------------- */
+/* The plate name must survive a 360px featured-match iframe: it grows into
+   whatever room the plate has and ellipsises only when it genuinely runs out,
+   never collapsing to a bare "…". */
+.plate-name {
+  flex: 1 1 auto;
+  min-width: 3.2em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plate .hillchip {
+  font-family: var(--pixfont);
+  font-size: calc(13 * var(--u));
+  line-height: 1;
+  min-width: calc(30 * var(--u));
+  text-align: center;
+  padding: calc(3 * var(--u)) calc(4 * var(--u));
+  background: rgba(12, 9, 6, 0.55);
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(242, 232, 216, 0.14);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.plate .hillchip.own {
+  background: rgba(232, 163, 61, 0.16);
+  box-shadow: inset 0 0 0 calc(1.5 * var(--u)) currentColor;
+}
+.plate .pb-sub {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--u));
+  margin-top: calc(3 * var(--u));
+}
+.plate.side-r .pb-sub { flex-direction: row-reverse; }
+.plate .pb-tags {
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  white-space: nowrap;
+}
+/* Under 640px of board the labels go: the plates read
+   "▮ daveey 1:56 — 1:14 daveey-1 ▮" plus the clock and the regime chip. */
+#stage.tiny .pb-tags,
+#stage.tiny .plate .lives-label,
+#stage.tiny .plate .hillchip { display: none; }
+
+/* --- the regime chip under the clock ----------------------------------- */
+#pb-regime {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+/* --- scrubber beats: one rule per kind the sim emits -------------------- */
+/* Buttons, not divs: each carries a title + aria-label and seeks on click. */
+button.beat-marker {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+  background: var(--paper-dim);
+}
+.beat-marker.gamestart {
+  background: var(--paper);
+  width: calc(2 * var(--u));
+  height: calc(12 * var(--u));
+  opacity: 0.75;
+}
+.beat-marker.hillflip { width: calc(3 * var(--u)); height: calc(12 * var(--u)); }
+.beat-marker.hillflip.red { background: var(--red); }
+.beat-marker.hillflip.blue { background: var(--blue); }
+.beat-marker.tagout { height: calc(6 * var(--u)); opacity: 0.85; }
+.beat-marker.tagout.red { background: var(--red); }
+.beat-marker.tagout.blue { background: var(--blue); }
+.beat-marker.gameover {
+  background: var(--amber);
+  width: calc(3 * var(--u));
+  height: calc(14 * var(--u));
+}
+
+/* --- buff pips over the feed rows -------------------------------------- */
+.feed-row .pb-buff { color: var(--amber); font-family: var(--pixfont); }
+.feed-row .pb-hill { color: var(--amber); letter-spacing: 0.08em; }
+</style>
+<script>
+(function () {
+  'use strict';
+  // Every name here carries a pb- prefix ON PURPOSE. The page's chrome alias
+  // block declares the shared beat builder with a hoisted `var`, so a
+  // game-block function of that same name is silently swallowed by it and the
+  // scrubber ends up with unlabelled div markers that never seek
+  // (cogame-tandem, 2026-08-23). tests/test_viewer.nim asserts the whole
+  // alias list is untouched below this banner.
+  var CTX = null;
+  var placed = {};          // "tick|kind|team" -> true (dedup)
+  var lastRegime = '';
+  var lastGame = -1;
+
+  function $(id) { return document.getElementById(id); }
+
+  function scrubGeometry(s) {
+    var st = Math.max(0, s.st || 0);
+    var mx = Math.max(st + 1, s.mx || 1);
+    return { st: st, span: mx - st };
+  }
+
+  function pbBeat(s, tick, kind, team, label) {
+    var key = tick + '|' + kind + '|' + (team || '');
+    if (placed[key]) return;
+    placed[key] = true;
+    var scrub = $('scrub');
+    if (!scrub) return;
+    var g = scrubGeometry(s);
+    var el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'beat-marker ' + kind + (team ? ' ' + team : '');
+    el.style.left =
+      (Math.min(1, Math.max(0, (tick - g.st) / g.span)) * 100) + '%';
+    el.title = label;
+    el.setAttribute('aria-label', label);
+    el.__tick = tick;
+    el.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      CTX.send('s:' + tick);
+    });
+    scrub.appendChild(el);
+  }
+
+  function feedRow(html, cls) {
+    var row = document.createElement('div');
+    row.className = 'feed-row' + (cls ? ' ' + cls : '');
+    row.innerHTML = html;
+    CTX.pushFeed(row);
+  }
+
+  function cogName(s, slot) {
+    var roster = s.roster || [];
+    for (var i = 0; i < roster.length; i++) {
+      if (roster[i].s === slot) return roster[i].alias || roster[i].name;
+    }
+    return '#' + slot;
+  }
+
+  // Every beat and feed row paintball produces. Returns true when the event
+  // was handled here, so the inherited switch never doubles it.
+  function pbEvent(e, s, ctx) {
+    CTX = ctx;
+    switch (e.k) {
+      case 'gamestart':
+        pbBeat(s, e.t, 'gamestart', '',
+          'Game ' + e.game + ' of ' + e.games + ' — ' +
+          String(e.regime || '').toUpperCase() + ' — click to jump here');
+        CTX.banner('GAME ' + e.game + '/' + e.games + ' — ' +
+          String(e.regime || '').toUpperCase(), 'amb');
+        return true;
+      case 'hillflip':
+        if (e.team) {
+          pbBeat(s, e.t, 'hillflip', e.team,
+            String(e.team).toUpperCase() + ' takes the hill at ' + e.pct +
+            '% — click to jump here');
+          feedRow('<span class="pb-hill">' +
+            CTX.esc(String(e.team).toUpperCase()) + ' TAKES THE HILL — ' +
+            e.pct + '%</span>');
+          CTX.banner(String(e.team).toUpperCase() + ' TAKES THE HILL', e.team);
+        } else {
+          feedRow('<span class="pb-hill">THE HILL IS CONTESTED</span>');
+        }
+        return true;
+      case 'tagout':
+        pbBeat(s, e.t, 'tagout', e.team,
+          CTX.esc(e.victimAlias || cogName(s, e.victim)) +
+          ' tagged out — click to jump here');
+        feedRow(
+          '<span class="who ' + (CTX.teamOf(s, e.by) || '') + '">' +
+          CTX.esc(e.byAlias || (e.by >= 0 ? cogName(s, e.by) : 'the arena')) +
+          '</span><span class="glyph">▸</span>' +
+          '<span class="who ' + (e.team || '') + '">' +
+          CTX.esc(e.victimAlias || cogName(s, e.victim)) + '</span>' +
+          '<span class="badge">tagged out</span>');
+        return true;
+      case 'gameover':
+        pbBeat(s, e.t, 'gameover', '',
+          'Game over — ' + (e.draw ? 'dead even' :
+            String(e.winner || '').toUpperCase() + ' holds the hill') +
+          ' — click to jump here');
+        return false;   // the end-card is state-driven; let the page see it too
+      case 'tag':
+        // The COMMON outcome in paintball: three touches tag a cog out, so
+        // most sprays that connect are this, not a tagout. The feed says so
+        // in the note's own words.
+        feedRow(
+          '<span class="who ' + (e.team || '') + '">' +
+          CTX.esc(e.victimAlias || cogName(s, e.victim)) +
+          '</span><span class="glyph">·</span>' +
+          '<span class="badge">tagged, ' + e.hp + ' hp left</span>');
+        return true;
+      case 'hillhold':
+      case 'paint':
+      case 'heal':
+      case 'spray':
+        return true;    // continuous colour; the BOARD is that readout
+      case 'kill':
+        return true;    // paintball draws the tagout row instead
+    }
+    return false;
+  }
+
+  // The commander lines: the directive `note` and each cog's `say` are what a
+  // spectator actually sees the LLM doing, so they get their own feed rows.
+  var seenDirective = {};
+  function pbDirectives(s) {
+    var records = s.directives;
+    if (!records || !records.length) return;
+    for (var i = 0; i < records.length; i++) {
+      var d = records[i];
+      var key = d.game + ':' + d.turn + ':' + d.seat;
+      if (seenDirective[key]) continue;
+      seenDirective[key] = true;
+      if (!d.note) continue;
+      feedRow('<span class="who ' + (d.team || '') + '">' +
+        CTX.esc(String(d.team || '').toUpperCase()) + ' command</span>' +
+        '<span class="glyph">:</span><span class="badge">' +
+        CTX.esc(d.note) + '</span>');
+    }
+  }
+
+  function ensureRegimeChip() {
+    if ($('pb-regime')) return $('pb-regime');
+    var clock = $('clock');
+    if (!clock) return null;
+    var el = document.createElement('div');
+    el.id = 'pb-regime';
+    clock.appendChild(el);
+    return el;
+  }
+
+  function pbFrame(s, ctx, jumped) {
+    CTX = ctx;
+    if (jumped) placed = {};
+    // The regime is on screen at ALL times: the resident/visitor split is the
+    // thing a spectator most needs told.
+    var chip = ensureRegimeChip();
+    if (chip) {
+      var turn = s.turnTicks > 0
+        ? Math.floor(Math.max(0, s.t - (s.st || 0)) / s.turnTicks) + 1 : 0;
+      var turns = (s.mt > 0 && s.turnTicks > 0)
+        ? Math.max(1, Math.floor(s.mt / s.turnTicks)) : 0;
+      var text = 'game ' + (s.game || 1) + '/' + (s.games || 1) + ' · ' +
+        String(s.regime || '').toUpperCase() +
+        (turns > 0 ? ' · turn ' + Math.min(turn, turns) + '/' + turns : '');
+      if (chip.textContent !== text) chip.textContent = text;
+    }
+    if (s.game !== lastGame || s.regime !== lastRegime) {
+      lastGame = s.game;
+      lastRegime = s.regime;
+    }
+    pbDirectives(s);
+    // The up-front beat timeline (shipped ONCE by the server) places every
+    // marker before playback reaches it, exactly as the starter's flag beats
+    // did — but as labelled buttons.
+    if (s.beats && s.beats.length) {
+      for (var i = 0; i < s.beats.length; i++) {
+        var b = s.beats[i];
+        if (b.k === 'hillflip' && b.team) {
+          pbBeat(s, b.t, 'hillflip', b.team,
+            String(b.team).toUpperCase() + ' takes the hill at ' + b.pct +
+            '% — click to jump here');
+        } else if (b.k === 'tagout') {
+          pbBeat(s, b.t, 'tagout', b.team,
+            'A ' + String(b.team || '').toUpperCase() +
+            ' cog is tagged out — click to jump here');
+        } else if (b.k === 'gamestart') {
+          pbBeat(s, b.t, 'gamestart', '',
+            'Game ' + b.game + ' of ' + b.games + ' — ' +
+            String(b.regime || '').toUpperCase() + ' — click to jump here');
+        } else if (b.k === 'gameover') {
+          pbBeat(s, b.t, 'gameover', '', 'Game over — click to jump here');
+        }
+      }
+    }
+  }
+
+  window.PaintballChrome = {
+    install: function (ctx) { CTX = ctx; },
+    frame: pbFrame,
+    event: pbEvent
+  };
+})();
+</script>
+
 </body>
 </html>

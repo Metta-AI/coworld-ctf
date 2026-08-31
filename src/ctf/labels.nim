@@ -620,3 +620,40 @@ const PolicyScannedLabels* = [
   labelWeapon(LabelWeaponGun),
   labelWeapon(LabelWeaponSpray)
 ]
+
+
+const PolicyPageMagic* = "CTFPOLICYPAGE1\n"
+  ## NOT a sprite label — a WIRE prefix, and here for the same reason
+  ## everything else in this file is here: it is a producer/consumer contract
+  ## between the engine and a policy whose failure mode is silent.
+  ##
+  ## A one-page-policy REFLASH rides the 0x86 debug-sprite opcode, which is a
+  ## generic byte blob the server already parses, so a reflash needs no wire
+  ## change to reach the engine. But that opcode still carries real debug
+  ## overlays, and this prefix is the ONLY thing telling the two apart. It was
+  ## briefly declared twice — once in `global.nim`'s receive arm, once in
+  ## `players/onepage/onepage.nim`'s sender — with nothing tying the copies
+  ## together. Editing one would not have failed a build or a test; it would
+  ## have made every reflash proposal silently decode as an overlay packet,
+  ## and a dropped reflash is an applied-but-unrecorded input, the one thing
+  ## determinism cannot survive. One definition, both halves, no drift.
+  ##
+  ## **The leading byte is load-bearing and must stay outside 0x01..0x06.**
+  ## The discrimination is not merely "unlikely to collide", it is impossible
+  ## in the forward direction: a debug-sprite payload is parsed by
+  ## `parseSpritePacket`, whose only valid leading opcodes are
+  ## SpriteMessageSprite/Object/DeleteObject/ClearObjects/Viewport/Layer =
+  ## 0x01..0x06, and 'C' is 0x43. No legitimate overlay packet can begin with
+  ## this magic. "Improving" the prefix to something starting in that opcode
+  ## range would silently reopen the collision — it is the only way this
+  ## guarantee can be lost, and nothing else in the code would notice.
+  ##
+  ## **It is not a label and must never be registered as one.** Unlike
+  ## everything above it, this string is never attached to a sprite object,
+  ## so it is invisible to the manifest sweep (which is built from a live
+  ## frame, not by scanning this file) and it does not belong in
+  ## `PolicyScannedLabels` or `tests/label_manifest.txt`. Adding it to
+  ## either would fail confusingly, describing a vocabulary the renderer
+  ## never emits. It lives here for the ZERO-IMPORTS property and the shared
+  ## producer/consumer reach, not because it is part of the observation
+  ## schema.
