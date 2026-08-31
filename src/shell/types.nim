@@ -286,7 +286,9 @@ const
   MaxCallsPerSeatPerTick* = 2
   MaxCallBytes* = 4096                ## canonical ladder JSON (Appendix P)
   MaxLadderEntries* = 16
-  MaxActiveOverlays* = 4              ## bounds guest steps/seat/tick at 5
+  MaxActiveOverlays* = 2              ## bounds guest steps/seat/tick at 3;
+                                      ## P0-retuned 4→2 (the worst tick
+                                      ## drops 160→96 guest steps)
   MaxRetainedStatusEntries* = 64      ## of which StatusFaultReserve reserved
   StatusFaultReserve* = 16
   StatusEntryMaxBytes* = 256          ## complete serialized value
@@ -317,20 +319,26 @@ const
   ShellAbiVersion* = 1
   MaxInstancePages* = 16              ## 64 KiB pages: 1 MiB linear memory
   MaxInstancesPerSeat* = 16           ## one per ladder entry
-  StepFuel* = 200_000
-    ## P0: provisional until the worst-tick measurement (§10) confirms 32
-    ## seats at full budget fit the quarter-tick acceptance.
-  InitFuel* = 1_000_000
-    ## P0: provisional, same rule.
+  StepFuel* = 50_000
+    ## P0-retuned (James, 2026-08-30) from the measured spike: 200k fuel x
+    ## 160 steps metered ~32M guest instructions/tick, 8-13x over the
+    ## runtime's share. Provisional until the freeze (native x86 + quiet
+    ## window runs).
+  InitFuel* = 500_000
+    ## P0-retuned with StepFuel; provisional until the freeze.
   ManifestFuel* = 1_000_000
     ## P0: provisional, same rule.
   MaxInitsPerSeatPerTick* = 1
-  MaxInitsPerTick* = 4                ## server-wide, round-robin by seat
+  MaxInitsPerTick* = 2                ## server-wide, round-robin by seat;
+                                      ## P0-retuned 4→2
   MaxAllocsPerInvocation* = 2
-  MaxStepsPerSeatPerTick* = 5         ## MaxActiveOverlays + 1 controller
-  MaxEmitsPerStep* = 4
+  MaxStepsPerSeatPerTick* = 3         ## MaxActiveOverlays + 1 controller
+  MaxEmitsPerStep* = 2                ## P0-retuned 4→2 (emit validation
+                                      ## measured ~62 µs/emit; P3 carries a
+                                      ## ≤15 µs engineering acceptance)
   MaxEmitBytes* = 4096
-  MaxSpatialCallsPerStep* = 8         ## nearest_reachable + nearest_cover
+  MaxSpatialCallsPerStep* = 4         ## nearest_reachable + nearest_cover;
+                                      ## P0-retuned 8→4
   MaxCoverRadiusPx* = 331
     ## P0-adjusted (James, 2026-08-30): Battle Royale's derived weapon range
     ## (§4.2's equal-share formula) — cover beyond the range anyone can
@@ -365,7 +373,15 @@ const
   MaxCompiledCacheBytes* = 268435456
     ## P0: provisional until compile-expansion measurement.
   CompiledBytesPerRawByte* = 8
-    ## P0: provisional reservation bound until adversarial shapes measure.
+    ## Held at 8 (James, 2026-08-30): the adversarial 65,529-function
+    ## 256 KiB module measured 71.9x, so the bound is enforced at its
+    ## source instead — MaxFunctionsPerModule below refuses the shape at
+    ## validation. Provisional until the freeze re-measures capped shapes.
+  MaxFunctionsPerModule* = 4096
+    ## P0 (new, James 2026-08-30): §6.2 interface-check cap on defined
+    ## functions per module, the lever that keeps the 8x reservation
+    ## honest. Generous for real plays (reference plays are dozens of
+    ## functions); provisional until the freeze.
   EpochTickerMs* = 5                  ## wall-clock backstop on GUEST code
   EpochDeadlineTicks* = 4             ## deadline, in ticker epochs
   GuestStackBytes* = 262144           ## max_wasm_stack; overflow traps

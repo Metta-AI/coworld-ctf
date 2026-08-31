@@ -225,7 +225,7 @@ gate, on the same side of the hash boundary: plays run in the server
 process, but their output reaches the record only as masks (hashed) and
 annotations (not hashed).
 
-### 3.3 The six ported-with-improvement rulings
+### 3.3 The seven ported-with-improvement rulings
 
 **One target-acquisition route.** The ported combat layer routes every
 target choice through the scored selector (`scoreTarget`,
@@ -296,6 +296,17 @@ under a mass retarget. Whether the cold plan itself is reducible (a
 warm oracle, coarse-first planning) is a named P1 investigation, not a
 gate: the queue makes the tick safe either way.
 
+**Capped danger-rebuild sources.** A seventh ruling, from the same
+measurement's sharpest edge: one seat rebuilding its danger field
+against all 31 other seats as sources measured ~13.1 ms — over the
+entire quarter-tick allowance on that seat's scheduled turn, and
+staggering (ruling five) cannot shrink a single rebuild. The port caps
+the sources per rebuild at the 8 nearest live threats, selected
+deterministically (distance, then seat index); the far tail of a
+31-source field contributes little to the gradient a body actually
+follows. The differential allowlist covers it, and a golden pins the
+selection at the cap boundary.
+
 ### 3.4 Porting verification
 
 The port is verified by a temporary adapter that runs the ported body and
@@ -303,7 +314,7 @@ stencil's original side by side on identical inputs and compares executor
 outputs. The scope of that comparison is stated plainly, because two
 facts bound it. Stencil cannot run Battle Royale at all (its world model
 waits for endzones and lacks the zone percepts), so the differential test
-covers **CTF only**. And the six rulings of section 3.3 change behavior
+covers **CTF only**. And the seven rulings of section 3.3 change behavior
 on purpose, so blanket output equality is not the expectation: the
 differential test targets the *unchanged* subcomponents (the planner's
 routes, the follower and corridor behavior, the unmodified combat paths)
@@ -747,7 +758,7 @@ starts losing messages:
 | Call proposals admitted per seat per tick | 2 |
 | Call size (canonical ladder JSON; Appendix P) | 4096 bytes |
 | Ladder entries per call | 16 |
-| Overlay entries per call (`MaxActiveOverlays`; bounds guest steps per seat per tick at five) | 4 |
+| Overlay entries per call (`MaxActiveOverlays`; bounds guest steps per seat per tick at three; P0-retuned 4→2) | 2 |
 | Retained unacknowledged status entries per seat (of which 16 reserved for faults) | 64 |
 | Status entry size (complete serialized value; reasons truncated to fit) | 256 bytes |
 | Retained unacknowledged status bytes per seat (implied) | 16384 |
@@ -1656,16 +1667,16 @@ not the mechanism.
 |---|---|
 | `MaxInstancePages` (linear memory, 64 KiB pages) | 16 (1 MiB) |
 | `MaxInstancesPerSeat` | 16 (one per ladder entry; equals the entries cap) |
-| `StepFuel` (fuel units per `play_step`; host-call bodies are not fuel-metered and are bounded by the per-step call caps below) | 200,000 |
-| `InitFuel` (per `play_init` or `play_retune`) | 1,000,000 |
+| `StepFuel` (fuel units per `play_step`; host-call bodies are not fuel-metered and are bounded by the per-step call caps below; P0-retuned 200,000→50,000 — the measured worst tick metered ~32M guest instructions at the old value) | 50,000 |
+| `InitFuel` (per `play_init` or `play_retune`; P0-retuned) | 500,000 |
 | `MaxInitsPerSeatPerTick` (instances initialized or retuned per seat per tick; section 7.2) | 1 |
 | `ManifestFuel` (per `play_manifest`) | 1,000,000 |
 | `MaxAllocsPerInvocation` (`play_alloc` calls per invocation; two is the most any consumer needs) | 2 |
-| `MaxActiveOverlays` (overlay entries per call; call validation rejects more) | 4 |
-| `MaxStepsPerSeatPerTick` (implied: `MaxActiveOverlays` overlays plus one controller) | 5 |
-| `MaxEmitsPerStep` | 4 |
+| `MaxActiveOverlays` (overlay entries per call; call validation rejects more; P0-retuned) | 2 |
+| `MaxStepsPerSeatPerTick` (implied: `MaxActiveOverlays` overlays plus one controller) | 3 |
+| `MaxEmitsPerStep` (P0-retuned; P3 additionally carries a ≤15 µs per-emit validation acceptance — the spike measured ~62 µs, a parse cost, not a contract) | 2 |
 | `MaxEmitBytes` | 4096 |
-| `MaxSpatialCallsPerStep` (`nearest_reachable` and `nearest_cover` together) | 8 |
+| `MaxSpatialCallsPerStep` (`nearest_reachable` and `nearest_cover` together; P0-retuned) | 4 |
 | `MaxCoverRadiusPx` (`nearest_cover` search radius clamp; bounds posts examined per call; P0-adjusted 600→331, the BR derived weapon range, after the BR golden map measured 2,564 posts in a 600px disc — stencil-identical — with no radius ≥256 fitting the old cap) | 331 |
 | `MaxCoverThreats` (threat positions per `nearest_cover` call) | 8 |
 | `MaxCoverPostsExamined` (atlas posts any `MaxCoverRadiusPx` disc may contain; asserted for every map at load in play-seat configurations, which reject a denser map; P0-adjusted 512→1536 with the radius above — the BR golden map's densest 331px disc holds 1,248; giant-field atlas thinning is the named reserve if worst-tick pricing cannot afford it; provisional until the launch-map census, see section 10) | 1536 |
@@ -1674,13 +1685,14 @@ not the mechanism.
 | `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
 | `MaxViewFrameBytes` (the step's input) | 32768 |
 | `MaxContextBytes` (the init's second input; no atlas, section 5) | 65536 |
-| `MaxInitsPerTick` (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped) | 4 |
+| `MaxInitsPerTick` (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped; P0-retuned) | 2 |
 | `ValidatorRadiusPx` (stencil's `32 * NavCell`, an *engine* constant; queries answered from the exact precomputed table) | 256 |
 | `MaxValidatorTableBytes` (play-seat map validator cap on the per-spawn-component distance rasters) | 268435456 |
 | `MaxPendingCompileBytes` (server-wide raw bytes admitted but not yet finished; admission backpressures past it) | 8388608 |
 | `MaxCompileCommitsPerTick` (finished results committed per tick boundary, round-robin by seat) | 8 |
 | `MaxCompiledCacheBytes` (server-wide resident compiled-module cache, reserved at admission; provisional until P0 measures expansion) | 268435456 |
-| `CompiledBytesPerRawByte` (reservation bound; provisional until P0) | 8 |
+| `CompiledBytesPerRawByte` (reservation bound; held at 8 — the adversarial 65,529-function shape measured 71.9x, so `MaxFunctionsPerModule` below refuses it at validation instead) | 8 |
+| `MaxFunctionsPerModule` (P0, new: §6.2 interface-check cap on defined functions; the lever that keeps the 8x reservation honest) | 4096 |
 | Epoch ticker period / step deadline (guest-code wall-clock backstop only) | 5 ms / 4 epochs |
 | Guest stack (`max_wasm_stack`) | 256 KiB, overflow traps |
 
@@ -1768,7 +1780,9 @@ its reason in `moduleRejected` and nothing later runs.
    exceptions, tail calls, garbage collection, memory64, and the component
    model are refused by name.
 4. **Interface check**: exactly one exported memory with a declared
-   maximum ≤ `MaxInstancePages`; the required exports with the exact
+   maximum ≤ `MaxInstancePages`; at most `MaxFunctionsPerModule` defined
+   functions (the compiled-size reservation's honesty lever, refused as
+   `tooManyFunctions`); the required exports with the exact
    signatures of section 6.1; the optional `play_retune` if present with
    the exact signature; imports a subset of the `play` namespace with
    exact signatures; no start function (a start function runs before the
@@ -2045,9 +2059,10 @@ stays within the roster-sized caps of section 4.1 for any number of
 overlays; preference tags are concatenated in ladder order and
 deduplicated keeping the first occurrence, so the folded list holds at
 most the four distinct tags; `holdFire` is the disjunction. A call may
-carry at most `MaxActiveOverlays` overlay entries (four), which is what
-bounds guest steps per seat per tick at five (every passing overlay plus
-one controller) and makes P0's worst tick a fixed number; overlays are
+carry at most `MaxActiveOverlays` overlay entries (two, P0-retuned from
+four), which is what bounds guest steps per seat per tick at three
+(every passing overlay plus one controller) and makes P0's worst tick a
+fixed number; overlays are
 never rationed across ticks, because a safety policy that arrives late
 is a stale safety policy. A four-overlay golden at every cap pins the
 fold.
@@ -3211,6 +3226,18 @@ current design; everything decided, superseded, or answered lives here.
   the measured worst tick (32 synchronized rebuilds ~109 ms; one cold
   giant-field plan ~65 ms) cannot fit the quarter-tick acceptance by
   scheduling alone.
+- P0's combined measurement (both halves, 2026-08-30) ratified the
+  BUDGET RETUNE (James): `MaxActiveOverlays` 4→2, `StepFuel`
+  200k→50k, `MaxEmitsPerStep` 4→2, `MaxSpatialCallsPerStep` 8→4,
+  `MaxInitsPerTick` 4→2, `InitFuel` 1M→500k; `CompiledBytesPerRawByte`
+  held at 8 with the new `MaxFunctionsPerModule` (4096) interface cap
+  refusing the 71.9x adversarial shape at its source; §3.3 ruling
+  seven (8-source danger-rebuild cap) folded in; sub-allocations of
+  the quarter tick fixed at body ≤5.0 ms / runtime ≤4.0 ms / control
+  plane ≤1.4 ms; and a P3 engineering acceptance of ≤15 µs per emit
+  validation. All provisional until the freeze: the native gen-5+ x86
+  run and the quiet-window body pass, after which the frozen values
+  get the full cold review and the measured-values write-back.
 - The atlas constants were P0-adjusted (James, 2026-08-30):
   `MaxCoverRadiusPx` 600→331 (the BR derived weapon range) and
   `MaxCoverPostsExamined` 512→1536, after lane A measured the BR golden
