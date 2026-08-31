@@ -679,7 +679,7 @@ proc recordDeath*(sim: var SimServer, playerIndex: int) =
 
 proc matchKillsDeaths*(sim: SimServer, playerIndex: int): tuple[kills, deaths: int] =
   ## The MATCH-scoped kill/death tally for one seat: the address-keyed
-  ## RewardAccount counters recordKill/recordDeath maintain alongside the
+  ## RewardAccount counters recordKillCredit/recordDeath maintain alongside the
   ## per-round Player.kills/Player.deaths above. The Player fields are
   ## zeroed every startGame — i.e. every ROUND, including a BR match's
   ## resetToLobby-then-rejoin cycle between rounds — while the

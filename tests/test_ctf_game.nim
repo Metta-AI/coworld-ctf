@@ -772,7 +772,7 @@ suite "ctf game":
 
   test "kd is match-scoped: matchKillsDeaths survives the round boundary that zeroes Player.kills/deaths":
     var sim = twoTeamGame()
-    sim.recordKill(0)
+    sim.recordKillCredit(0, 1)
     sim.recordDeath(1)
     check sim.players[0].kills == 1
     check sim.players[1].deaths == 1
@@ -791,7 +791,7 @@ suite "ctf game":
 
   test "kd persists across a full resetToLobby + rejoin, BR's actual round cycle":
     var sim = twoTeamGame()
-    sim.recordKill(0)
+    sim.recordKillCredit(0, 1)
     sim.recordDeath(1)
 
     sim.resetToLobby()
