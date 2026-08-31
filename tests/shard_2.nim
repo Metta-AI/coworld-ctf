@@ -51,6 +51,7 @@ import
   test_shell_effective_order,
   test_shell_emit_validator,
   test_shell_first_light,
+  test_shell_first_light_server,
   test_shell_guards,
   test_shell_calls,
   test_shell_ladder,

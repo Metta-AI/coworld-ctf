@@ -166,7 +166,7 @@ proc frame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
     playing: true,
     alive: true,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: pos, hpFrac: 1.0, aimBrads: 32,
+      self: BodySelfState(pos: pos, hp: 4, hpFrac: 1.0, aimBrads: 32,
         alive: true, carrying: false)),
     defaultFallbacks: BrDefaultFallbacks(
       currentZone: MapRect(x: 0, y: 0, w: 512, h: 256),

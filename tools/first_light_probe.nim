@@ -8,6 +8,9 @@ import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
   episode, standing_order]
 
+when ShellRuntimeAvailable:
+  import ../src/shell/[module_validation, runtime, types]
+
 const
   Seats = 32
   WarmTicks = 30
@@ -55,7 +58,7 @@ proc frame(tick, seat: int, map: BodyMap,
            positions: array[Seats, BodyPoint]): FirstLightSeatFrame =
   let self = positions[seat]
   var input = BodyTickInputs(
-    self: BodySelfState(pos: self, hpFrac: 1.0,
+    self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
       aimBrads: seat * 7 mod 256, alive: true, carrying: false),
     partner: some(PartnerSample(seat: uint8(seat xor 1),
       pos: (120 + seat, 120), aimBrads: seat * 11 mod 256,
@@ -103,7 +106,7 @@ proc movementFrame(map: BodyMap, seat: int,
     playing: true,
     alive: true,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: self, hpFrac: 1.0,
+      self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
         aimBrads: seat mod 256, alive: true, carrying: false),
       partner: some(PartnerSample(seat: uint8(seat xor 1),
         pos: (20 + seat, 20), alive: true))),
@@ -130,7 +133,7 @@ proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
     playing: true,
     alive: true,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: self, hpFrac: 1.0,
+      self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
         aimBrads: 0, alive: true, carrying: false)),
     defaultFallbacks: BrDefaultFallbacks(
       currentZone: MapRect(x: 0, y: 0, w: 384, h: 160),
@@ -199,6 +202,46 @@ proc configureAllSeatEdgeRide(episode: var FirstLightEpisode) =
       originGeneration: 1)):
     echo line
 
+when ShellRuntimeAvailable:
+  proc readBytes(path: string): seq[byte] =
+    let text = readFile(path)
+    result = newSeq[byte](text.len)
+    if text.len > 0:
+      copyMem(addr result[0], unsafeAddr text[0], text.len)
+
+  proc printModuleSize(engine: RuntimeEngine; label, path: string) =
+    if not fileExists(path):
+      echo &"SHELL_MODULE_SIZE target={runtimeTarget()} play={label} " &
+        &"path={path} available=false"
+      return
+    let bytes = readBytes(path)
+    var outcome = engine.validateUploadedModule(bytes)
+    defer: outcome.close()
+    let reservation = bytes.len * CompiledBytesPerRawByte
+    if not outcome.accepted:
+      echo &"SHELL_MODULE_SIZE target={runtimeTarget()} play={label} " &
+        &"raw_bytes={bytes.len} reservation_bytes={reservation} " &
+        &"accepted=false reason={outcome.reason} detail={outcome.detail}"
+      return
+    let serialized = outcome.module.serializedModuleBytes()
+    let ratio = serialized.float / bytes.len.float
+    echo &"SHELL_MODULE_SIZE target={runtimeTarget()} play={label} " &
+      &"raw_bytes={bytes.len} serialized_bytes={serialized} " &
+      &"reservation_bytes={reservation} ratio={ratio:.6f} accepted=true " &
+      &"over_reservation={serialized > reservation}"
+
+  proc moduleSizeProof() =
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    echo "SHELL_RUNTIME_MANIFEST ", runtimeManifest()
+    engine.printModuleSize("hello_play",
+      repoRoot() / "play_sdk" / ".build" / "hello_play.wasm")
+    engine.printModuleSize("edge_ride",
+      repoRoot() / "play_sdk" / ".build" / "edge_ride.wasm")
+
+else:
+  proc moduleSizeProof() = discard
+
 proc dangerProof() =
   let map = dangerProbeMap()
   let start: BodyPoint = (32, 80)
@@ -247,6 +290,7 @@ proc main() =
     &"uploads={inventory.uploads} calls={inventory.calls} " &
     &"stores={inventory.stores} ladder={inventory.ladder} " &
     "executor=lane-a-fl-b"
+  moduleSizeProof()
 
   var telemetry = initFirstLightEpisode(true, true, controls(), map, 331)
   telemetry.configureDemoPlay()

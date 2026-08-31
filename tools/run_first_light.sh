@@ -18,6 +18,11 @@ SERVER_LOG="$RUN_DIR/server.log"
 FETCH_LOG="$RUN_DIR/fetch_deps.log"
 mkdir -p "$RUN_DIR"
 
+if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+  echo "port $PORT in use — another first-light server is running; kill it or set FIRST_LIGHT_PORT" >&2
+  exit 1
+fi
+
 PIDS=()
 cleanup() {
   if [ "${#PIDS[@]}" -gt 0 ]; then
@@ -55,6 +60,8 @@ if [ -z "$WASMTIME_C_API" ] || [ -z "$WASI_SDK_PATH" ]; then
   exit 1
 fi
 
+WASI_SDK_PATH="$WASI_SDK_PATH" nim c -f --hints:off \
+  play_sdk/examples/hello_play.nim
 WASI_SDK_PATH="$WASI_SDK_PATH" nim c -f --hints:off \
   play_sdk/reference/edge_ride.nim
 

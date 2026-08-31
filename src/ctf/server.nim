@@ -2692,9 +2692,11 @@ proc bodyPoint(player: Player): BodyPoint =
 proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
   let player = sim.players[playerIndex]
   let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
+  let hp = player.hp + player.shieldHp
   BodySelfState(
     pos: player.bodyPoint,
-    hpFrac: float(player.hp + player.shieldHp) / float(maxHp + ShieldLayerHp),
+    hp: hp,
+    hpFrac: float(hp) / float(maxHp + ShieldLayerHp),
     aimBrads: player.aimBrads,
     alive: player.alive,
     carrying: player.carryingFlag)

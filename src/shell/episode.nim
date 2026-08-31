@@ -90,6 +90,7 @@ type
   FirstLightEpisode* = object
     enabled*: bool
     brMode*: bool
+    rosterSize*: int
     map*: BodyMap
     nav*: BodyNavSystem
     seats*: seq[FirstLightSeatState]
@@ -128,6 +129,7 @@ proc provisionalFirstLightView*(frame: FirstLightSeatFrame;
   let self = frame.bodyInputs.self
   "{\"schema\":\"play_view\",\"self\":{\"aim_brads\":" & $self.aimBrads &
     ",\"alive\":" & (if self.alive: "true" else: "false") &
+    ",\"hp\":" & $self.hp &
     ",\"hp_frac\":" & $self.hpFrac &
     ",\"pos\":[" & $self.pos.x & "," & $self.pos.y & "]}," &
     "\"tick\":" & $tick &
@@ -159,6 +161,7 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     map: BodyMap = nil,
     liveGunRangePx: int = GunRange): FirstLightEpisode =
   result.brMode = brMode
+  result.rosterSize = controls.len
   result.map = map
   if not season2Shell:
     return
@@ -186,6 +189,7 @@ proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
   discard controls
   discard liveGunRangePx
   result.brMode = brMode
+  result.rosterSize = controls.len
   result.map = map
 
 proc closeFirstLightEpisode*(episode: var FirstLightEpisode) =
@@ -290,6 +294,20 @@ proc firstLightPlayNode(configJson: string): JsonNode =
   let root = parseJson(configJson)
   root{"firstLightPlay"}
 
+proc firstLightPlayConfigRefusal(episode: FirstLightEpisode;
+    config: FirstLightPlayConfig): Option[string] =
+  ## Config validity is independent of whether the Wasmtime runtime was linked.
+  ## The compile-time runtime gate decides only whether a valid play can run.
+  if not episode.enabled:
+    return some("FIRST_LIGHT_PLAY configured=false reason=episode_disabled")
+  if config.seats.len == 0:
+    return some("FIRST_LIGHT_PLAY configured=false reason=no_seats")
+  for seat in config.seats:
+    if seat < 0 or seat >= episode.rosterSize:
+      raise newException(ValueError,
+        "firstLightPlay.seats entry outside roster")
+  none(string)
+
 when ShellRuntimeAvailable:
   proc noGuardContext(): IntentContext =
     IntentContext(
@@ -345,14 +363,9 @@ when ShellRuntimeAvailable:
       config: FirstLightPlayConfig): seq[string] =
     ## Binds a configured first-light play through the production admission,
     ## compile, cache, instance, and call-validation seams.
-    if not episode.enabled:
-      return @["FIRST_LIGHT_PLAY configured=false reason=episode_disabled"]
-    if config.seats.len == 0:
-      return @["FIRST_LIGHT_PLAY configured=false reason=no_seats"]
-    for seat in config.seats:
-      if seat < 0 or seat >= episode.runtimeState.frames.len:
-        raise newException(ValueError,
-          "firstLightPlay.seats entry outside roster")
+    let refusal = episode.firstLightPlayConfigRefusal(config)
+    if refusal.isSome:
+      return @[refusal.get]
     if not fileExists(config.modulePath):
       return @["FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
         config.modulePath]
@@ -396,8 +409,9 @@ when ShellRuntimeAvailable:
 else:
   proc configureFirstLightPlay*(episode: var FirstLightEpisode;
       config: FirstLightPlayConfig): seq[string] =
-    discard episode
-    discard config
+    let refusal = episode.firstLightPlayConfigRefusal(config)
+    if refusal.isSome:
+      return @[refusal.get]
     @["FIRST_LIGHT_PLAY configured=false reason=runtime_unavailable " &
       "hint=compile with --threads:on and WASMTIME_C_API"]
 

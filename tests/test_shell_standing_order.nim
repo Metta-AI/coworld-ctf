@@ -18,7 +18,7 @@ proc goal(map: BodyMap, x, y: int): ValidatedGoal =
 
 proc inputs(self = (10, 10), partner = (20, 20), tick = 1'u32,
             threats: seq[BodyPoint] = @[]): BodyTickInputs =
-  result.self = BodySelfState(pos: self, hpFrac: 1.0, aimBrads: 32,
+  result.self = BodySelfState(pos: self, hp: 4, hpFrac: 1.0, aimBrads: 32,
     alive: true, carrying: false)
   result.partner = some(PartnerSample(seat: 4, pos: partner,
     aimBrads: 32, alive: true))
@@ -118,6 +118,6 @@ suite "shell standing order":
     let body = activateSeatBody(testBodyMap(), 9, 331)
     check partnerTelemetry(body).isNone
     let input = body.seatTick(BodyTickInputs(
-      self: BodySelfState(pos: (10, 10), hpFrac: 1.0, aimBrads: 0,
+      self: BodySelfState(pos: (10, 10), hp: 4, hpFrac: 1.0, aimBrads: 0,
         alive: true, carrying: false)), 11)
     check input.encodeInputMask() == 0
