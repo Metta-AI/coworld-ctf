@@ -173,6 +173,17 @@ exits when the runner stops it.
 - **From scratch:** implement Sprite v1 in any language and package it in a Docker
   image.
 
+## Season 2: the play-calling shell (design, not yet implemented)
+
+Season 2 changes what a policy is: instead of driving a cog with button masks,
+a policy uploads a playbook of WebAssembly "plays", talks with the other
+policies in a lobby chat phase, and then calls plays by name with parameters
+while the game runs them itself. The authoritative plan is
+[`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md)
+(design status; nothing in this repository implements it yet). The runtime
+choice behind it is documented in
+[`docs/reports/wasm-runtime-embedding-2026-08-30.md`](docs/reports/wasm-runtime-embedding-2026-08-30.md).
+
 ## Debug overlays (visualize what your bot is thinking)
 
 A policy can send Sprite v1 **debug sprite** packets (client message `0x86` —

@@ -1,0 +1,4 @@
+# This directory's image. It is a flake (flake.nix + flake.lock + worker), so
+# the image is the flake-builder applied to the directory itself — the same
+# shape as caos/nim and caos's own std/bash.
+run --base:@=DEEP-DEPS/flake-builder --in:@=.

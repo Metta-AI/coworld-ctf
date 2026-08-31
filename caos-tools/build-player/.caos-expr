@@ -7,13 +7,13 @@
 # it builds. An agent tuning a bot rewords a `@param` for free.
 HELP=<<END
 Compile a policy (players/<name>/<name>.nim) inside caos and return its
-diagnostics, with the SAME flags players/baseline/Dockerfile ships with, so a
-policy that is green here is one whose shipped image will compile. (It is a
-CHECK, not a replacement for that image: the binary here links against the
-worker's glibc, not the Dockerfile's debian one.) The Nim deps come from the
-same cached `deps` job the game build uses, and the C compilation is
-ccache-backed, so an unchanged build never runs. Nothing is handed in from the
-host: the policy is compiled from source, in a worker.
+diagnostics, with the SAME flags players/baseline/Dockerfile ships with — and,
+since that Dockerfile builds on this same caos/nim image, the binary this
+returns is linked exactly like the shipped one and can be dropped into the
+policy image as-is. The Nim deps come from the same cached `deps` job the game build
+uses, and the C compilation is ccache-backed, so an unchanged build never runs.
+Nothing is handed in from the host: the policy is compiled from source, in a
+worker.
 @param [player] Which policy under players/ to build — the directory name, whose entry point is players/<name>/<name>.nim. Default: baseline.
 @param [defines] Extra defines for the compile, space-separated, e.g. "-d:taunt -d:tuneCarrierFireRange=140". Each must be -d:… or --define:… — this arg is not a general flag escape hatch.
 @param [build-salt] Force a rebuild — any fresh value (e.g. $(date --iso=s)) re-keys this build and nothing else.
