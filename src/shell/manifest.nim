@@ -27,6 +27,7 @@ type
 
   ParamSpec* = ref object
     kind*: string
+    bytes*: string
 
   ManifestParam* = object
     name*: string
@@ -147,6 +148,7 @@ proc validateSpec(spec: Value; path: string; depth: int): ParamSpec =
     invalid(path & ".kind is unknown")
   new(result)
   result.kind = kind
+  result.bytes = valueBytes(spec)
 
   var permitted = ["kind", "default", "required"].toHashSet
   case kind

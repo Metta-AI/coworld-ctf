@@ -43,6 +43,8 @@ import
   test_shell_default_play,
   test_shell_emit_validator,
   test_shell_first_light,
+  test_shell_guards,
+  test_shell_calls,
   test_shell_module_validation,
   test_shell_packets,
   test_shell_runtime,
