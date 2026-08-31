@@ -268,6 +268,45 @@ suite "edge_ride reference play":
       check not step.faulted
       check step.reasonOf == "edge_ride:hold"
 
+  test "a rectangle narrower than twice the margin still spreads the seats":
+    ## The endgame regression: the standoff band used to collapse to the
+    ## rectangle's midpoint on any span shorter than `2 * margin`, so every
+    ## seat was answered with the same pixel and the squad piled up and
+    ## jittered on one spot. Distinct seats in a narrow rectangle must keep
+    ## distinct destinations.
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    let module = engine.edgeModule()
+    defer: module.close()
+    let map = testMap()
+    let
+      narrow = [400, 200, 400, 300]  # x 400..800, y 200..500
+      margin = 220                   # 2 * margin = 440 > either span
+      seats: array[3, BodyPoint] = [(420, 220), (600, 350), (780, 480)]
+    var targets: seq[BodyPoint]
+
+    for seat in seats:
+      var instance = engine.newEdgeInstance(module, map, seat)
+      defer: instance.close()
+      instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":" &
+        $margin & "}")
+      let step = instance.invokeStep(
+        viewFor(1, seat, narrow, 240, includeNext = false), 1, seat)
+      check not step.faulted
+      check step.returned == 0
+      check step.reasonOf == "edge_ride:margin"
+      let target = step.pointOf
+      check narrow.rectContains(target)
+      targets.add target
+
+    check targets.deduplicate.len == seats.len
+    ## The band is centred, so the ordering of the seats survives the inset
+    ## rather than every seat being clamped onto the midpoint.
+    check targets[0].x < targets[1].x
+    check targets[1].x < targets[2].x
+    check targets[0].y < targets[1].y
+    check targets[1].y < targets[2].y
+
   test "spatial-call accounting stays inside the two-call envelope":
     let engine = newRuntimeEngine()
     defer: engine.close()
