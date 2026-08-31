@@ -17,6 +17,7 @@ import ../src/ctf/sim_types
 import ../src/shell/types
 import ../src/shell/canonical
 import ../src/shell/canonical_fast
+import ../src/shell/manifest
 import ../src/shell/policy_encoding
 import std/math
 
@@ -322,6 +323,16 @@ suite "shell canonical encoding":
       inc params
       check specDepth(spec) <= ParamNestingMax
     check params <= MaxParamsPerSchema
+
+  test "every manifest golden is accepted by the production parser":
+    ## JSON Schema cannot express canonical set order, so the production
+    ## manifest parser is the contract oracle for sorted enum/set values.
+    for name in GoldenFiles:
+      if name.startsWith("manifest_"):
+        let bytes = readFile(FixtureDir / name)
+        let hasRetune = parseJson(bytes)["retune"].getBool
+        let parsed = parseManifest(bytes, hasRetune = hasRetune)
+        check parsed.name.len > 0
 
   test "the ParamSpec kind branches discriminate (negative controls)":
     proc badSpec(spec: JsonNode): bool =

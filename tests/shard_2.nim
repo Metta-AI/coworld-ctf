@@ -29,6 +29,7 @@ import
   test_pb_manifest,
   test_pb_regimes,
   test_play_harness,
+  test_play_pact,
   test_play_sdk,
   test_policy_page,
   test_render_scale,

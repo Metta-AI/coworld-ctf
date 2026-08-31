@@ -4,11 +4,11 @@
 ## validation, and instance invocation code. The CLI is only argument parsing
 ## and printing; it does not get a private validation or ABI mode.
 
-import std/[json, options, os]
+import std/[json, options, os, strutils]
 
-import ../ctf/arena
+import ../ctf/[arena, sim_types]
 import abi, body_map, canonical, canonical_fast, emit_validator, instance, manifest,
-  module_validation, runtime
+  module_validation, runtime, types
 
 type
   HarnessError* = object of CatchableError
@@ -33,6 +33,8 @@ type
     mapSpecPath*: string
     selfPos*: BodyPoint
     emitClass*: EmitClass
+    mode*: GameMode
+    duoSeats*: array[Team, DuoSeats]
     frames*: seq[HarnessFrame]
 
   HarnessFrameTrace* = object
@@ -97,6 +99,35 @@ proc parseEmitClass(text: string): EmitClass =
   of "overlay": ecOverlay
   else: harnessInvalid("emit_class must be controller or overlay")
 
+proc emitClassName(value: EmitClass): string =
+  case value
+  of ecController: "controller"
+  of ecOverlay: "overlay"
+
+proc emitClassOf(value: ManifestClass): EmitClass =
+  case value
+  of mcController: ecController
+  of mcOverlay: ecOverlay
+
+proc parseMode(text: string): GameMode =
+  case text
+  of "ctf": gmCtf
+  of "koth": gmKoth
+  of "br": gmBr
+  else: harnessInvalid("mode must be ctf, koth, or br")
+
+proc parseTeam(text: string): Team =
+  for team in Team:
+    if ($team).toLowerAscii == text:
+      return team
+  harnessInvalid("unknown team in duo_seats: " & text)
+
+proc parseSeat(node: JsonNode; field: string): SeatRef =
+  let value = node.getInt()
+  if value < 0 or value >= MaxPlayers:
+    harnessInvalid(field & " must be a valid seat")
+  SeatRef(uint8(value))
+
 proc resolveRelative(path, baseDir: string): string =
   if path.len == 0 or path.isAbsolute:
     return path
@@ -122,6 +153,20 @@ proc parseHarnessCase*(bytes: string; baseDir = ""): HarnessCase =
   result.emitClass =
     if root.hasKey("emit_class"): parseEmitClass(root["emit_class"].getStr())
     else: ecController
+  result.mode =
+    if root.hasKey("mode"): parseMode(root["mode"].getStr())
+    else: gmCtf
+  if root.hasKey("duo_seats"):
+    let duos = root["duo_seats"]
+    if duos.kind != JObject:
+      harnessInvalid("duo_seats must be an object")
+    for teamName, seats in duos:
+      if seats.kind != JArray or seats.len != 2:
+        harnessInvalid("duo_seats." & teamName & " must hold two seats")
+      let team = parseTeam(teamName)
+      result.duoSeats[team] = DuoSeats(configured: true,
+        seats: [seats[0].parseSeat("duo_seats." & teamName & "[0]"),
+          seats[1].parseSeat("duo_seats." & teamName & "[1]")])
   if not root.hasKey("frames") or root["frames"].kind != JArray:
     harnessInvalid("harness case requires frames array")
   for frameNode in root["frames"]:
@@ -194,9 +239,19 @@ proc runHarnessCase*(caseData: HarnessCase): HarnessTrace =
     return
   result.manifestName = validation.manifest.name
 
+  var invokesManifest = false
+  for frame in caseData.frames:
+    if frame.kind == hfManifest:
+      invokesManifest = true
+  if invokesManifest:
+    let manifestClass = emitClassOf(validation.manifest.playClass)
+    if caseData.emitClass != manifestClass:
+      harnessInvalid("emit_class " & caseData.emitClass.emitClassName &
+        " disagrees with manifest class " & manifestClass.emitClassName)
+
   let map = caseData.mapFor()
   var shell = newShellInstance(validation.module, map, caseData.selfPos,
-    caseData.emitClass)
+    caseData.emitClass, caseData.mode, caseData.duoSeats)
   defer: shell.close()
 
   for frame in caseData.frames:
