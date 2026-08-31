@@ -272,8 +272,7 @@ suite "shell ABI":
       "i32.const 0"))
     defer: validCover.close()
     let coverResult = validCover.instance.invokeStep("{}", 1)
-    check coverResult.faulted
-    check coverResult.reason == "nearest_cover not yet implemented"
+    check not coverResult.faulted
     check coverResult.counters.spatialCalls == 1
 
   test "manifest/init/step/retune phase matrix faults illegal imports":

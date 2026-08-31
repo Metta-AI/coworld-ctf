@@ -7,7 +7,8 @@
 import std/options
 
 import ../ctf/sim_types
-import abi, body_map, emit_validator, module_cache, runtime, types, wasmtime_c
+import abi, body_cache, body_map, cover_scorer, emit_validator, module_cache,
+  runtime, types, wasmtime_c
 
 type
   InvocationKind* = enum
@@ -40,6 +41,7 @@ type
     invocation: AbiInvocation
     inAllocator: bool
     map: BodyMap
+    cache: BodySeatCache
     selfPos: BodyPoint
     emitClass: EmitClass
     mode: GameMode
@@ -129,6 +131,12 @@ proc readI32Le(bytes: string, offset: int): int32 =
 
 proc packPoint(point: BodyPoint): int64 =
   (int64(point.x) shl 32) or int64(uint32(point.y))
+
+proc readThreats(bytes: string; count: int): seq[BodyPoint] =
+  result = newSeqOfCap[BodyPoint](count)
+  for index in 0 ..< count:
+    result.add((readI32Le(bytes, index * 8).int,
+      readI32Le(bytes, index * 8 + 4).int))
 
 proc emitCallback(env: pointer; caller: ptr WasmtimeCaller;
     args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
@@ -246,22 +254,24 @@ proc nearestCoverCallback(env: pointer; caller: ptr WasmtimeCaller;
     shellWasmtimeValI64Set(results, -3)
     return nil
   try:
+    var threats: seq[BodyPoint]
     if threatsLen > 0:
       let bytes = checkedGuestBytes(caller, threatsPtr, threatsLen * 8,
         MaxCoverThreats * 8)
-      for index in 0 ..< threatsLen.int:
-        let threatX = readI32Le(bytes, index * 8)
-        let threatY = readI32Le(bytes, index * 8 + 4)
-        if threatX < 0 or threatY < 0 or threatX.int >= host.map.width or
-            threatY.int >= host.map.height:
+      threats = readThreats(bytes, threatsLen.int)
+      for threat in threats:
+        if threat.x < 0 or threat.y < 0 or threat.x >= host.map.width or
+            threat.y >= host.map.height:
           shellWasmtimeValI64Set(results, -3)
           return nil
+    let answer = host.cache.nearestCoverPoint((x.int, y.int), radius.int,
+      bearing.int, threats)
+    shellWasmtimeValI64Set(results,
+      if answer.isSome: packPoint(answer.get) else: -1)
   except CatchableError as error:
     host.invocation.fault(error.msg)
     shellWasmtimeValI64Set(results, -1)
     return nil
-  host.invocation.fault("nearest_cover not yet implemented")
-  shellWasmtimeValI64Set(results, -1)
 
 proc defineHostFunc(linker: ptr WasmtimeLinker; name: string;
     functionType: ptr WasmFuncType; callback: WasmtimeCallback;
@@ -297,6 +307,8 @@ proc newShellInstance*(module: RuntimeModule, map: BodyMap,
   new(result)
   result.module = module
   result.host.map = map
+  if map != nil:
+    result.host.cache = newBodySeatCache(map)
   result.host.selfPos = selfPos
   result.host.emitClass = emitClass
   result.host.mode = mode
