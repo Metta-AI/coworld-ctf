@@ -74,3 +74,34 @@ VARIANT UNDER TEST (-d:dynRole), one rule, both directions
   Overwatch is only ever removed, never created: its post is scanned once at
   nav-build, so a seat promoted into it mid-game would hold a post that was
   never picked for it.
+
+APPENDED 2026-08-31, before any dynRole episode completed (coordinator
+request). The bar above is UNCHANGED; this adds how a miss is reported.
+
+THREE OUTCOME BANDS
+  >= 93/160  headroom demonstrated; the design direction is worth building.
+  <= 80/160  dynamic role assignment does not beat static for this bot.
+             Reported plainly as the negative result.
+  81..92     real-looking but NOT proven at N=160. Reported as underpowered
+             with the point estimate, its exact interval, and the N that
+             would resolve it. NOT reported as "failed" -- 93 was set to
+             protect against a false positive, and reading a near miss as a
+             refutation converts that protection into a false negative.
+
+SIDE VARIANCE, measured not assumed (calibration split 0.550 red / 0.375 blue)
+  Balanced alternation is a BLOCKED design (80 episodes per side stratum), so
+  the side effect is removed from the variance, not added to it:
+    unstratified Var 1.5537e-3 (SE 3.94pp)  <- the interval reported
+    stratified   Var 1.5059e-3 (SE 3.88pp)  <- the design's true variance
+    side component 4.785e-5 = 3.1% of total; reported CI is 1.6% too wide.
+  So a middle-band result is ordinary binomial noise at N=160, and the cheap
+  resolution is more episodes rather than a better heuristic.
+
+SUBJECT CAVEAT (recorded before the result, docs/lessons.md #3)
+  The shipped league champion is a FORK: daveey-cogamer/games/paintbot/
+  policies/paintbot-focusfire/baseline.nim, 6,734 lines, DEFINES carrying 47
+  flags including -d:zonePhalanx -- a SECOND static duty table overlaying
+  roleForSeat. This battery grades the 3,474-line repo baseline at plain
+  -d:release: the file named in the task, and the build every prior scrimmage
+  battery used as "the baseline bot". The champion define set does compile
+  against the repo source (verified), so a confirmation arm is available.
