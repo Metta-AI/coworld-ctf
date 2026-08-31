@@ -2026,6 +2026,147 @@ type
                                   ## positive in a play-seat episode (where
                                   ## it REPLACES lobbyJoinTimeoutTicks);
                                   ## inert without one.
+    # GVNEXT(shotfeedback): appended field, same append-safety reasoning as
+    # brMode/allowCallouts above — a scalar bool on GameConfig, not an
+    # array[Team, X] run inside the flatty-serialized state.
+    allowShotFeedback*: bool  ## freeplay only: a resolved shot that LANDS on
+                              ## a target (gun, spray cone, or grenade blast)
+                              ## additionally pushes a PRIVATE combat-outcome
+                              ## record — see ShotFeedbackFx — to the TWO
+                              ## seats it happened to, each on their own
+                              ## takeover socket only, as a plain JSON
+                              ## TextMessage (never the sprite/label wire, so
+                              ## this stays entirely out of global.nim):
+                              ## `{"shotsLanded": [{"kill": bool,
+                              ## "friendlyFire": bool, "weapon": string,
+                              ## "distance": int, "victimTeam": string,
+                              ## "victimColor": string}, ...], "hitsTaken":
+                              ## [{"kill": bool, "friendlyFire": bool,
+                              ## "weapon": string, "distance": int,
+                              ## "killerTeam": string, "killerColor":
+                              ## string}, ...]}` — plus, on a hitsTaken entry
+                              ## ONLY where "kill" is true (killcam), three
+                              ## additional keys: "killerX"/"killerY" (the
+                              ## killer's center at the fatal impact) and
+                              ## "killerAlive" (the killer's alive state read
+                              ## at delivery). Never present on a non-fatal
+                              ## hitsTaken entry or on any shotsLanded entry
+                              ## — see ShotFeedbackFx.shooterX's doc comment
+                              ## for why the position is scoped to the one
+                              ## participant already dead when it is sent.
+                              ## Both arrays, since either
+                              ## side can in principle have more than one
+                              ## combat event resolve in the same tick, and
+                              ## a socket that is BOTH a shooter and a victim
+                              ## this tick (a mutual trade) gets both keys
+                              ## non-empty. Every JSON payload is an object,
+                              ## so its first byte is always `{` (0x7B) —
+                              ## trivially distinguishable from a sprite
+                              ## frame's header even by content alone, as
+                              ## cheap defense-in-depth on top of the frame
+                              ## type itself.
+                              ##
+                              ## 🚨 HARD CLIENT PRECONDITION, checked and
+                              ## confirmed still open as of this field's
+                              ## introduction: the takeover socket's ONLY
+                              ## prior traffic is BinaryMessage
+                              ## (server.nim's sprite/label wire everywhere
+                              ## else); client/player_client.html's
+                              ## `onmessage` unconditionally does
+                              ## `new Uint8Array(e.data)` before checking
+                              ## anything else. A JS string is iterable, so
+                              ## that conversion does NOT throw — it silently
+                              ## produces a wrong-length garbage byte array,
+                              ## which then reaches `parseSprite`, which is
+                              ## likely to throw on it, whose catch block
+                              ## calls `w.close()`. Left as-is, turning this
+                              ## flag on for a real browser client closes
+                              ## the human's OWN connection the first time
+                              ## they land a hit. DO NOT set this true for
+                              ## any config a browser client connects to
+                              ## until the client's `onmessage` checks the
+                              ## frame type (e.g. `typeof e.data ===
+                              ## 'string'`) before the Uint8Array conversion.
+                              ##
+                              ## Built and sent directly by server.nim
+                              ## (buildShotFeedbackPacket), never through
+                              ## global.nim's buildSpriteProtocolPlayerUpdates
+                              ## — a policy's own socket for this exact seat
+                              ## is simply never a target of that send call,
+                              ## so it cannot receive this regardless of the
+                              ## gate.
+                              ##
+                              ## Delivered UNFOGGED: `victimTeam`/
+                              ## `victimColor`/`killerTeam`/`killerColor`
+                              ## are always present, not conditioned on
+                              ## fovVisibleAt. This is deliberate, not an
+                              ## oversight — see ShotFeedbackFx's own doc
+                              ## comment for why a direct participant is
+                              ## entitled to their combat outcome regardless
+                              ## of their own fog, and the two concrete cases
+                              ## (grenade blasts have no per-victim
+                              ## line-of-sight check at all, sim.nim's
+                              ## explodeGrenade; windup delay can let a
+                              ## target break line of sight between aim-lock
+                              ## and resolution) that make the general fog
+                              ## rule actively wrong for these two seats on
+                              ## their own combat events. It remains a
+                              ## narrow, principled exception: nobody but
+                              ## the shooter and the victim of THIS event
+                              ## ever receives it.
+                              ##
+                              ## false (the default) = the channel does not
+                              ## exist: applyFire/resolveActiveArcCones/
+                              ## explodeGrenade push nothing to
+                              ## `shotFeedback`, server.nim's drain collects
+                              ## nothing, buildShotFeedbackPacket returns ""
+                              ## and nothing is sent — byte-identical to a
+                              ## build without this field, for every socket,
+                              ## policy or takeover alike.
+    # GVNEXT(cosmeticfx): appended field, same append-safety reasoning as
+    # allowShotFeedback above -- a scalar bool on GameConfig, not an
+    # array[Team, X] run inside the flatty-serialized state.
+    allowCosmeticFx*: bool  ## freeplay only: streams the two spectator-only
+                            ## cosmetic effects (global.nim's addShotTracers/
+                            ## addPaintStains -- paint tracers and permanent
+                            ## ground stains) to a HUMAN's own takeover
+                            ## socket, fog-clipped to exactly what that seat
+                            ## can see this tick. Built and sent by
+                            ## server.nim (buildCosmeticFxPacket) as its own
+                            ## JSON TextMessage -- never folded into
+                            ## global.nim's buildSpriteProtocolPlayerUpdates,
+                            ## which is shared with every policy/mux socket:
+                            ## `{"fx": [{"kind":"tracer", "pts":[[x,y]|null,
+                            ## ...], "age":int, "color":string, "hit":bool},
+                            ## {"kind":"stain", "x":int, "y":int,
+                            ## "color":string, "onWall":bool}, ...]}`.
+                            ## `kind` makes the array additive: a future
+                            ## glory-toast or killstreak entry is a new
+                            ## object in the same list, not a new message --
+                            ## see buildCosmeticFxPacket's own doc comment
+                            ## for the shared "effect family" seam.
+                            ##
+                            ## SAFE BY CONSTRUCTION, not by filtering:
+                            ## buildCosmeticFxPacket is called from exactly
+                            ## one place, the takeover send pass (the same
+                            ## call site buildShotFeedbackPacket already
+                            ## uses beside it) -- a policy's own connection
+                            ## for this exact seat is simply never a target
+                            ## of that call, so it cannot receive this
+                            ## regardless of the gate. mapRgba and the RL
+                            ## observation surface are never touched (see
+                            ## addPaintStains' own doc comment for why that
+                            ## surface must stay clean).
+                            ##
+                            ## false (the default) = the channel does not
+                            ## exist: buildCosmeticFxPacket is never called
+                            ## from the takeover pass, nothing is built,
+                            ## nothing is sent -- byte-identical to a build
+                            ## without this field, for every socket, policy
+                            ## or takeover alike. Reads sim.recentShots/
+                            ## sim.paintStains, both already cosmetic-only
+                            ## and excluded from gameHash, so this can never
+                            ## move the hash either way.
 
   Player* = object
     x*, y*: int
@@ -2566,6 +2707,71 @@ type
                                ## SATISFIED the tier, or -1 for a team tree
                                ## (`treeSquad`) which no single cog can own.
 
+  ShotFeedbackFx* = object
+    ## A PRIVATE, one-shot combat-outcome record: config-gated
+    ## (`allowShotFeedback`, default off) and, like every Fx type above,
+    ## never mixed into gameHash — sim_state.nim's gameHash is hand-built
+    ## field by field and never reads this seq. Unlike the FADING Fx types
+    ## above, this is not an animation: server.nim's per-tick send loop
+    ## drains it once (see SimServer.shotFeedback) and delivers it, as a
+    ## plain JSON TextMessage (never the sprite/label wire — see
+    ## GameConfig.allowShotFeedback), to exactly the TWO seats this event
+    ## happened to: the shooter's own takeover socket gets a "shotsLanded"
+    ## entry, the victim's own takeover socket gets a "hitsTaken" entry —
+    ## never broadcast to anyone else, never pruned by age. A seat with no
+    ## human takeover (the ordinary policy case) has nothing to deliver to,
+    ## so it is simply never sent there.
+    ##
+    ## Delivered UNFOGGED to both: a direct participant in a combat event is
+    ## entitled to know its outcome (including who the other side was)
+    ## regardless of whether their own fog rendered the other side at the
+    ## moment it resolved — see the two concrete cases in
+    ## GameConfig.allowShotFeedback's doc comment (grenade blasts have no
+    ## per-victim line-of-sight check; windup delay can let a target break
+    ## line of sight between aim-lock and resolution). This is a narrow,
+    ## principled exception scoped to the two participants of THIS event,
+    ## not a general unfogging — a bystander, spectator, or policy never
+    ## receives it.
+    shooterIndex*: int  ## who fired. Also the ONE index this delivers to as
+                        ## "shotsLanded" (their own takeover socket only).
+    targetIndex*: int   ## who was struck. Also the ONE index this delivers
+                        ## to as "hitsTaken" (their own takeover socket only).
+    kill*: bool          ## true = a fatal hit this shot (the target's HP
+                        ## reached 0 — a "SPLAT", the same word the kill pop
+                        ## draws, DamageFx.kill above); false = a non-fatal
+                        ## hit. Named `kill` (not `splat`) to match
+                        ## DamageFx.kill's own field name one line up.
+    friendlyFire*: bool  ## shooter.team == victim's team at the moment of
+                        ## impact. Stored here (not re-derived at delivery)
+                        ## because it is already in hand at every populate
+                        ## site (applyFire/resolveActiveArcCones/
+                        ## explodeGrenade all have both teams bound locally)
+                        ## and a dead victim's team never changes after the
+                        ## fact, unlike its live x/y.
+    weapon*: string      ## "gun" | "spray" | "grenade" — the same literal
+                        ## already passed to absorbDamage/emitEvent at each
+                        ## populate site, just carried one step further.
+    distance*: int       ## rounded pixel distance from shooter to victim at
+                        ## impact — already computed (or a one-line hypot of
+                        ## already-bound points) at every populate site.
+    shooterX*: int       ## the shooter's CENTER x at the moment the damage
+                        ## resolved — the same instant `distance` above was
+                        ## measured (for a grenade: the thrower's position at
+                        ## BLAST resolution, where they stand now, not where
+                        ## they threw from — that is where a camera finds
+                        ## them). Captured on every record (the point is
+                        ## already bound at each populate site), but
+                        ## SERIALIZED only into a FATAL hitsTaken entry
+                        ## (killerX/killerY, the killcam contract): a per-hit
+                        ## shooter position delivered to a still-LIVING
+                        ## victim would be a wallhack, while a dead victim
+                        ## can no longer act on it — the same narrow fog
+                        ## exception as the own-death pop (BUG A in
+                        ## test_shot_feedback.nim). See
+                        ## buildShotFeedbackPacket (server.nim), the ONLY
+                        ## reader.
+    shooterY*: int       ## the shooter's CENTER y; see shooterX.
+
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
     ## emitted at the exact in-sim site where the fact is known first-hand
@@ -2784,6 +2990,10 @@ type
                                ## keyframe scrub restores the paint of that tick.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
+    shotFeedback*: seq[ShotFeedbackFx]  ## PRIVATE one-shot hit-confirms,
+      ## config-gated (allowShotFeedback) and excluded from gameHash; drained
+      ## every tick by server.nim's send loop (see ShotFeedbackFx's doc
+      ## comment), never pruned by age like the fading Fx seqs above it.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: seq[PickupSpawn]      ## 4 on the classic formula (every
                                           ## 2-4 team map); the map's own

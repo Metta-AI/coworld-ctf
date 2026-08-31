@@ -46,6 +46,7 @@ identity <color> <name> nade gun
 identity <color> <name> shield gun
 identity <color> <name> spray
 interstitial background
+kd <n>/0
 lives <n>hp x<n>
 map
 map band <n>
@@ -61,7 +62,10 @@ perks <color> grenade thruster,luck mods hp <n> aim <n> nade <n> spd <n> luck <n
 player <color>
 player <color> <side>
 puddle <n>,<n> <n>,<n>
-score p<n> <n> color <n>
+roster <color> <name> <n> <n>/0
+roster <color> <name> <n> <n>/1
+score p<n> <n> <n>/0 color <n>
+score p<n> <n> <n>/1 color <n>
 score pip <color>
 selected player <color> <side>
 self <color> <side>

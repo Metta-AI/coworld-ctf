@@ -15,6 +15,7 @@
   "fireWindupTicks": 5,
   "allowSeatTakeover": true,
   "allowDirectAim": true,
+  "allowCosmeticFx": true,
   "loadout": "paintball",
   "floorPaint": true,
   "tokens": [
