@@ -5,7 +5,8 @@ import
   bitworld/runtime,
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
-  control, directives, baselines, decide, mux
+  control, directives, baselines, decide, mux,
+  ../shell/episode
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -2178,6 +2179,22 @@ proc runServerLoop*(
     broadcastTracker =
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
+    firstLightEpisode: FirstLightEpisode
+
+  # FIRST LIGHT is reachable only under the two-part runtime gate. Gate-on
+  # with an all-input roster and every gate-off configuration leave the zero
+  # value untouched and never call into the episode owner.
+  var firstLightControls: seq[SlotControl]
+  var hasFirstLightSeat = false
+  for slot in config.slots:
+    firstLightControls.add(slot.control)
+    if slot.control == scPlay:
+      hasFirstLightSeat = true
+  if not replayLoaded and config.season2Shell and hasFirstLightSeat:
+    firstLightEpisode = initFirstLightEpisode(
+      config.season2Shell, config.brMode, firstLightControls)
+    echo "FIRST_LIGHT enabled play_seats=", firstLightEpisode.seats.len,
+      " executor=ADOPT-ON-RELAY-noop"
 
   while true:
     var
@@ -2615,6 +2632,17 @@ proc runServerLoop*(
             # would write a second, conflicting mask record per tick.
             appState.inputPressedMasks[websocket] = 0
             continue
+          if firstLightEpisode.enabled and playerIndex >= 0 and
+              playerIndex < sim.players.len:
+            let slot = sim.players[playerIndex].joinOrder
+            if slot >= 0 and slot < config.slots.len and
+                config.slots[slot].control == scPlay:
+              # A play socket supplies presence and receives its view; it can
+              # never supply an actuator mask. FIRST LIGHT's frozen seatTick
+              # handoff below is the sole source for this configured seat.
+              appState.inputMasks[websocket] = 0
+              appState.inputPressedMasks[websocket] = 0
+              continue
           # THE SWAP, and the whole of it: while a human drives this cog the
           # seat's mask is read off the human's socket instead of the policy's.
           # Same cog, same team, same eight buttons, same replay record under
@@ -2671,6 +2699,12 @@ proc runServerLoop*(
               let playerIndex = muxState.seats[slot].playerIndex
               if playerIndex < 0 or playerIndex >= inputs.len:
                 continue
+              if firstLightEpisode.enabled and
+                  playerIndex < sim.players.len:
+                let playerSlot = sim.players[playerIndex].joinOrder
+                if playerSlot >= 0 and playerSlot < config.slots.len and
+                    config.slots[playerSlot].control == scPlay:
+                  continue
               let pressedMask = muxState.seats[slot].pressedMask
               muxState.seats[slot].pressedMask = 0
               let currentMask = muxState.seats[slot].inputMask
@@ -3010,6 +3044,35 @@ proc runServerLoop*(
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
+        if firstLightEpisode.enabled:
+          var frames: seq[FirstLightSeatFrame]
+          for playerIndex, player in sim.players:
+            let slot = player.joinOrder
+            if slot < 0 or slot >= config.slots.len or
+                config.slots[slot].control != scPlay:
+              continue
+            # ADOPT-ON-RELAY: lane A FL-B replaces the zero snapshot with its
+            # coherent private body facts. Lane C intentionally does not read
+            # SimServer positions, threats, zone internals, or partner state.
+            frames.add(FirstLightSeatFrame(
+              seat: uint8(slot),
+              playerIndex: playerIndex,
+              present: true,
+              playing: sim.phase == Playing,
+              alive: player.alive))
+          let firstLight = firstLightEpisode.step(
+            frames, uint32(sim.tickCount + 1))
+          for mask in firstLight.masks:
+            if mask.playerIndex < 0 or mask.playerIndex >= stepInputs.len:
+              continue
+            stepInputs[mask.playerIndex] = mask.input
+            if mask.playerIndex < downInputs.len:
+              downInputs[mask.playerIndex] = mask.input
+            replayWriter.writeInputMaskChange(
+              tickTime(sim.tickCount), mask.playerIndex,
+              mask.input.encodeInputMask())
+          for install in firstLight.installs:
+            echo install.formatInstall()
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
@@ -3064,6 +3127,26 @@ proc runServerLoop*(
           sim.phase = GameOver
           quitAfterFrame = true
           break
+        if firstLightEpisode.enabled:
+          # Death is observed immediately after the sim step that caused it,
+          # so clear-on-death carries that completed tick rather than waiting
+          # for the next actuator pass. This hook performs no second default,
+          # body call, or mask handoff.
+          var lifecycleFrames: seq[FirstLightSeatFrame]
+          for playerIndex, player in sim.players:
+            let slot = player.joinOrder
+            if slot < 0 or slot >= config.slots.len or
+                config.slots[slot].control != scPlay:
+              continue
+            lifecycleFrames.add(FirstLightSeatFrame(
+              seat: uint8(slot),
+              playerIndex: playerIndex,
+              present: true,
+              playing: false,
+              alive: player.alive))
+          for annotation in firstLightEpisode.observeDeaths(
+              lifecycleFrames, uint32(sim.tickCount)):
+            echo annotation.formatLifecycleAnnotation()
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.

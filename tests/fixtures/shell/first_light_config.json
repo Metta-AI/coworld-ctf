@@ -1,0 +1,29 @@
+{
+  "season2Shell": true,
+  "viewIntervalTicks": 6,
+  "lobbyChatTicks": 0,
+  "playSeatBindTicks": 7200,
+  "maxGames": 0,
+  "maxTicks": 0,
+  "startWaitTicks": 0,
+  "speed": 1,
+  "fastMode": false,
+  "slots": [
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"}
+  ]
+}
