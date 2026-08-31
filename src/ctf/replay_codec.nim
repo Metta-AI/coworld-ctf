@@ -48,13 +48,17 @@ proc readReplayString(bytes: string, offset: var int): string =
   offset += length
 
 proc readReplayBytes(bytes: string, offset: var int): seq[uint8] =
-  let length = int(bytes.readU32(offset))
-  if offset + length > bytes.len:
+  let
+    length = bytes.readU32(offset)
+    remaining = bytes.len - offset
+  # Replay u32 values are checked unsigned before any int conversion; wasm32 is a first-class viewer target (§8).
+  if uint64(length) > uint64(remaining):
     raise newException(ReplayError, "Replay file is truncated at byte " & $offset)
-  result = newSeq[uint8](length)
-  for index in 0 ..< length:
+  let checkedLength = int(length)
+  result = newSeq[uint8](checkedLength)
+  for index in 0 ..< checkedLength:
     result[index] = bytes[offset + index].uint8
-  offset += length
+  offset += checkedLength
 
 proc isCompressedReplayBytes(bytes: string): bool =
   if bytes.len > 18:
@@ -140,7 +144,8 @@ proc parseFormat2Records(
   replay: var ReplayData
 ) =
   var
-    lastTick = -1
+    lastTick = 0'u32
+    hasLastTick = false
     lastInputTime = 0'u32
     lastJoinTime = 0'u32
     lastLeaveTime = 0'u32
@@ -153,13 +158,15 @@ proc parseFormat2Records(
       let
         tick = replayBytes.readU32(offset)
         hash = replayBytes.readU64(offset)
-      if int(tick) <= lastTick:
+      # Replay u32 values are checked unsigned before any int conversion; wasm32 is a first-class viewer target (§8).
+      if hasLastTick and tick <= lastTick:
         case spec.hashOrder
         of rhoStop:
           break
         of rhoError:
           raise newException(ReplayError, "Replay tick hashes move backward")
-      lastTick = int(tick)
+      lastTick = tick
+      hasLastTick = true
       replay.hashes.add(ReplayHash(tick: tick, hash: hash))
     of ReplayInputRecord:
       let input = ReplayInput(

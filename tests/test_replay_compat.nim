@@ -197,6 +197,29 @@ suite "CTF replay compatibility frontend":
       let replay = parseReplayBytes(replayHeader(formatVersion) & body)
       check replay.hashes == @[ReplayHash(tick: 2, hash: 20)]
 
+  test "format 2 keeps high-bit hash ticks in the uint32 domain":
+    # High-bit ticks are legal, not hostile: native bitworld accepts them, so
+    # the wasm32 reader must preserve that behavior rather than reject them.
+    let forward = parseReplayBytes(
+      replayHeader(2) &
+      hashRecord(0x7fff_ffff'u32, 1) &
+      hashRecord(0x8000_0000'u32, 2)
+    )
+    check forward.hashes == @[
+      ReplayHash(tick: 0x7fff_ffff'u32, hash: 1),
+      ReplayHash(tick: 0x8000_0000'u32, hash: 2)
+    ]
+
+    let backward = parseReplayBytes(
+      replayHeader(2) &
+      hashRecord(0x8000_0000'u32, 2) &
+      hashRecord(0x7fff_ffff'u32, 1) &
+      char(0xff)
+    )
+    check backward.hashes == @[
+      ReplayHash(tick: 0x8000_0000'u32, hash: 2)
+    ]
+
   test "format 2 rejects backward timestamps independently per stream":
     let cases = [
       (inputRecord(2, 0, 0) & inputRecord(1, 0, 0), "input"),
@@ -227,6 +250,15 @@ suite "CTF replay compatibility frontend":
       let truncated = completeHeader & record[0 .. ^2]
       expectReplayError("Replay file is truncated at byte"):
         discard parseReplayBytes(truncated)
+
+  test "format 2 rejects a high-bit debug length before int conversion":
+    var hostile = replayHeader(2)
+    hostile.addU8(ReplayDebugSpriteRecord)
+    hostile.addU32(1)
+    hostile.addU8(0)
+    hostile.addU32(0x8000_0000'u32)
+    expectReplayError("Replay file is truncated at byte"):
+      discard parseReplayBytes(hostile)
 
   test "format 2 obeys the chat-allowed rule":
     var noChatSpec = CtfReplaySpec
