@@ -65,6 +65,23 @@ type
 proc initCanonicalWriter*(capacity: int = 256): CanonicalWriter =
   result.buf = newStringOfCap(capacity)
 
+proc addEscapedString(buf: var string, value: string) =
+  ## `escapeJson` with a bulk fast path: a string with no byte that
+  ## escapes ('"', '\\', control) is appended whole. Bytes >= 0x20 other
+  ## than those two pass through escapeJsonUnquoted unchanged, so the
+  ## output is identical either way (the golden tests pin it).
+  var clean = true
+  for c in value:
+    if c == '"' or c == '\\' or ord(c) < 0x20:
+      clean = false
+      break
+  buf.add('"')
+  if clean:
+    buf.add(value)
+  else:
+    escapeJsonUnquoted(value, buf)
+  buf.add('"')
+
 proc reset*(w: var CanonicalWriter) =
   ## Clears the writer for reuse, keeping the buffer's capacity — the
   ## per-tick encode path allocates nothing after warm-up.
@@ -120,7 +137,7 @@ proc key*(w: var CanonicalWriter, name: string) =
       w.frames[^1].lastKey & "\""
     w.frames[^1].lastKey = name
   inc w.frames[^1].count
-  escapeJson(name, w.buf)
+  addEscapedString(w.buf, name)
   w.buf.add(':')
   w.frames[^1].keyPending = true
 
@@ -142,7 +159,7 @@ proc addFloat*(w: var CanonicalWriter, value: float) =
 
 proc addString*(w: var CanonicalWriter, value: string) =
   w.beforeValue()
-  escapeJson(value, w.buf)
+  addEscapedString(w.buf, value)
 
 proc addBool*(w: var CanonicalWriter, value: bool) =
   w.beforeValue()
@@ -378,11 +395,13 @@ proc decodeString(r: var CanonicalReader, scan: StringScan,
   ## "\/" , "A" and every other legal-but-different JSON spelling
   ## is rejected. A token with no backslash is canonical iff it scanned
   ## clean, which scanString already proved.
-  into.setLen(0)
   if not scan.hasEscape:
-    for i in scan.start ..< scan.stop:
-      into.add(r.data[i])
+    let length = scan.stop - scan.start
+    into.setLen(length)
+    if length > 0:
+      copyMem(addr into[0], addr r.data[scan.start], length)
   else:
+    into.setLen(0)
     var i = scan.start
     while i < scan.stop:
       let c = r.data[i]
@@ -556,8 +575,15 @@ proc skipValue*(r: var CanonicalReader) =
     while r.nextElement():
       r.skipValue()
   of cvString:
-    var scratch: string
-    r.readStringInto(scratch)
+    let scan = r.scanString()
+    if scan.hasEscape:
+      # Escapes present: the canonicality proof needs the decode +
+      # re-escape comparison.
+      var scratch: string
+      r.decodeString(scan, scratch)
+    else:
+      # No escapes: scanString already proved canonicality, skip the copy.
+      r.pos = scan.stop + 1
   of cvInt:
     discard r.readInt()
   of cvFloat:
