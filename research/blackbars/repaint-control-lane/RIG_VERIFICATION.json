@@ -1,0 +1,8 @@
+{
+  "issue": "the first rig (built from maxwell/scale-probe-camfix @ 5742afec) served a 1518-line player_client.html; live prod serves 3458 lines. All N=2100 frames from that rig are WITHDRAWN as evidence -- they were measured against the wrong build.",
+  "fix": "rebuilt from tag deployed/swap7-20260830 (commit c6c27ca7fc269e475a43ad32a9c1f540d29349c4), the exact commit recorded in ~/.pbnf/app/DEPLOYED.txt for the live field.",
+  "verification": "curl -s http://127.0.0.1:27932/client/player served an HTML file with MD5 e1f0ca3ce2b00fd4e1d56456099446d6, 3458 lines -- BYTE-IDENTICAL to a fresh read-only curl of http://100.102.207.18:7420/client/player (same MD5, same line count, same 12/12 marker hits). This is provably the same client Maxwell is looking at, not just a plausible match.",
+  "rig2_path": "/private/tmp/blackbars-rig2/engine (git worktree of deployed/swap7-20260830)",
+  "rig2_port": 27932,
+  "config_used": "config.freeplay.json (minPlayers=8, 8 slots, tokens 0xBADA55_0.._7 -- matches this session's established takeover token convention)"
+}
