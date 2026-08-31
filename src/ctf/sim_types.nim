@@ -2140,8 +2140,8 @@ type
                             ## ...], "age":int, "color":string, "hit":bool},
                             ## {"kind":"stain", "x":int, "y":int,
                             ## "color":string, "onWall":bool}, ...]}`.
-                            ## `kind` makes the array additive: a future
-                            ## glory-toast or killstreak entry is a new
+                            ## `kind` makes the array additive: the "glory"
+                            ## kind (GloryDeedFx) is exactly this -- one more
                             ## object in the same list, not a new message --
                             ## see buildCosmeticFxPacket's own doc comment
                             ## for the shared "effect family" seam.
@@ -2772,6 +2772,79 @@ type
                         ## reader.
     shooterY*: int       ## the shooter's CENTER y; see shooterX.
 
+  GloryDeedFx* = object
+    ## A PRIVATE, one-shot glory-toast source: config-gated
+    ## (`allowCosmeticFx`, the same gate the tracer/stain kinds above use)
+    ## and, like every Fx type on this page, never mixed into gameHash. Same
+    ## drain shape as ShotFeedbackFx just above -- server.nim's per-tick send
+    ## loop drains SimServer.gloryDeeds once into a frame-scoped seq (across
+    ## however many steps this frame ran, at playbackSpeed > 1) and threads
+    ## it into buildCosmeticFxPacket, which serializes it as the channel's
+    ## "glory" kind -- never pruned by age like the fading Fx types above.
+    ##
+    ## RE-POINTED (GV48 awardDeed merge): this type originally predated
+    ## GloryFx/awardDeed (no Deed enum, no weighted point economy) and was
+    ## sourced from recordKill/recordCapture (roster.nim), the only mint
+    ## points that swap9-era lineage had. Now that `awardDeed` (sim.nim,
+    ## "THE SINGLE MINT") exists, every field below is populated from the
+    ## real deed at the one place it is minted -- `awardDeed`'s own
+    ## `fxActor` parameter, passed only at the kill-deed site (`killPlayer`)
+    ## and the `dCapture` site (`checkWinCondition`), the same two
+    ## categories the original wire covered, just re-sourced instead of
+    ## synthesized. See `awardDeed`'s own doc comment on `fxActor` for the
+    ## grenade-kill exclusion this preserves.
+    tick*: int              ## sim.tickCount at mint (the caller's own tick,
+                            ## not delivery time -- see ShotFeedbackFx re:
+                            ## why populate-time facts are captured, not
+                            ## re-derived at send).
+    word*: string           ## `deedPopWord(deed)` at mint time (glory.nim)
+                            ## -- e.g. "TAG", "SPRAYED", "POINT-BLANK",
+                            ## "PAYBACK", "CAPTURE", ... the SAME one-word
+                            ## vocabulary the local on-screen score pop
+                            ## already carries (`addGloryPop`'s own `word`
+                            ## arg inside `awardDeed`), not a synthesized
+                            ## stand-in.
+    amount*: int            ## the REAL minted glory (`mintGlory(...)`'s
+                            ## result inside `awardDeed`) -- the same number
+                            ## `sim.teamGlory[team]` was just credited with,
+                            ## not a flat 1.
+    actorIndex*: int        ## the crediting seat's sim.players[] index at
+                            ## mint time -- SERVER-SIDE ONLY, never
+                            ## serialized raw (see buildCosmeticFxPacket's
+                            ## "self" field). A SEAT, not a team: `awardDeed`'s
+                            ## `fxActor` argument (killPlayer's killerIndex,
+                            ## checkWinCondition's carrierIndex) is already
+                            ## the specific shooter/carrier index, cheaply,
+                            ## distinct from its teammate's -- see
+                            ## buildCosmeticFxPacket's own doc comment for
+                            ## the seat-vs-duo call this answers.
+    team*: Team              ## the crediting seat's team AT MINT TIME --
+                            ## captured here rather than re-read from
+                            ## sim.players[actorIndex] at build/send time,
+                            ## the same populate-time-facts discipline
+                            ## ShotFeedbackFx's friendlyFire field already
+                            ## documents (a dead seat's team never changes
+                            ## after the fact, but the record should not
+                            ## depend on that being true, or on the actor
+                            ## still existing at the same index, by the
+                            ## time this drains).
+    x*: int
+    y*: int                 ## the ACTOR's own live position at mint time
+                            ## (`sim.players[fxActor].x/y`, centered) --
+                            ## mirrors `awardDeed`'s own score-pop `earned`
+                            ## branch (popX/popY), deliberately NEVER
+                            ## `awardDeed`'s `x, y` params (the PRICING
+                            ## site -- see that proc's own doc comment on
+                            ## why those must never double as a draw
+                            ## position). Fog-clipped exactly like
+                            ## PaintStain: a single fovVisibleAt point
+                            ## check, not a sampled beam like ShotFx, since
+                            ## a deed happens at one place, not along a
+                            ## path. A future mint site with no real actor
+                            ## must not emit at all (fail closed) rather
+                            ## than guess a point -- see
+                            ## buildCosmeticFxPacket.
+
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
     ## emitted at the exact in-sim site where the fact is known first-hand
@@ -2994,6 +3067,10 @@ type
       ## config-gated (allowShotFeedback) and excluded from gameHash; drained
       ## every tick by server.nim's send loop (see ShotFeedbackFx's doc
       ## comment), never pruned by age like the fading Fx seqs above it.
+    gloryDeeds*: seq[GloryDeedFx]  ## PRIVATE one-shot glory-toast sources,
+      ## config-gated (allowCosmeticFx) and excluded from gameHash; drained
+      ## every tick by server.nim's send loop exactly like shotFeedback just
+      ## above (see GloryDeedFx's own doc comment).
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: seq[PickupSpawn]      ## 4 on the classic formula (every
                                           ## 2-4 team map); the map's own

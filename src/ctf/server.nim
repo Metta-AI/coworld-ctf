@@ -1338,6 +1338,15 @@ proc aimAssistEnabled(): bool =
     withLock appState.lock:
       result = appState.config.allowAimAssist
 
+proc cosmeticFxEnabled(): bool =
+  ## Returns true when this config arms the private cosmetic-effects channel
+  ## (GameConfig.allowCosmeticFx) — the gate itself has worked since it
+  ## shipped, this just reports it here too, same as the other three gates
+  ## below.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowCosmeticFx
+
 proc calloutsEnabled(): bool =
   ## Returns true when this config arms the callout channel.
   {.gcsafe.}:
@@ -1347,19 +1356,20 @@ proc calloutsEnabled(): bool =
 proc capabilitiesJson(): string =
   ## What this server will GRANT a human connection. The same client bundle is
   ## served to league and play servers, so the client feature-DETECTS here
-  ## rather than being built two ways. A league config advertises all four as
-  ## false, and asking anyway is refused at the upgrade (or, for aim
-  ## assist/callouts, simply never applied) — advertising and enforcement
-  ## read the same config fields, so they cannot drift. All four of this
-  ## config's armed gates are mirrored here, not just the two the shipped
-  ## takeover.html shell happens to read today — a future consumer asking
-  ## this endpoint about aim assist or callouts gets a real answer instead of
-  ## a silent `undefined`.
+  ## rather than being built two ways. A league config advertises all of
+  ## these as false, and asking anyway is refused at the upgrade (or, for aim
+  ## assist/callouts/cosmetic fx, simply never applied) — advertising and
+  ## enforcement read the same config fields, so they cannot drift. Every one
+  ## of this config's armed gates is mirrored here, not just the two the
+  ## shipped takeover.html shell happens to read today — a future consumer
+  ## asking this endpoint about aim assist, callouts, or the cosmetic-fx/
+  ## glory-toast channel gets a real answer instead of a silent `undefined`.
   $(%*{
     "seatTakeover": seatTakeoverEnabled(),
     "directAim": directAimEnabled(),
     "allowAimAssist": aimAssistEnabled(),
-    "allowCallouts": calloutsEnabled()
+    "allowCallouts": calloutsEnabled(),
+    "allowCosmeticFx": cosmeticFxEnabled()
   })
 
 proc pickFreeplaySeat*(
@@ -2344,7 +2354,8 @@ const CosmeticFxShotSamples = 14
 
 proc buildCosmeticFxPacket(
   sim: SimServer,
-  viewerIndex: int
+  viewerIndex: int,
+  gloryDeeds: seq[GloryDeedFx] = @[]
 ): string {.measure.} =
   ## Builds the fog-clipped cosmetic-effects JSON for one takeover socket's
   ## cog this tick (GameConfig.allowCosmeticFx): the two effects
@@ -2352,7 +2363,14 @@ proc buildCosmeticFxPacket(
   ## broadcast board only — paint tracers and permanent ground stains —
   ## rebuilt here straight from sim.recentShots/sim.paintStains and
   ## fog-clipped to `viewerIndex` with the same sim.fovVisibleAt check those
-  ## two procs (and addSplatters' player path) already use.
+  ## two procs (and addSplatters' player path) already use. `gloryDeeds` is
+  ## the third source: a frame-scoped seq the caller has already drained
+  ## from sim.gloryDeeds (see the takeover send pass below), not sim state
+  ## read directly like the two above — it is a one-shot queue like
+  ## shotFeedback, not a fading/aged Fx seq, so it cannot be reread here
+  ## after the frame that minted it. Defaulted to `@[]` so every existing
+  ## call site (including every test in test_cosmetic_fx_wire.nim) keeps
+  ## compiling unchanged.
   ##
   ## Deliberately a SEPARATE JSON TextMessage, like buildShotFeedbackPacket
   ## beside it — NOT folded into global.nim's sprite/label wire, which is
@@ -2363,13 +2381,14 @@ proc buildCosmeticFxPacket(
   ## the gate — see GameConfig.allowCosmeticFx's own doc comment. Returns ""
   ## when nothing survives the fog clip, so the caller can skip the send.
   ##
-  ## Wire shape — one effect FAMILY, `kind`-tagged so a future member (a
-  ## glory toast, a killstreak) is an additive new object in the same array,
-  ## never a new message type:
+  ## Wire shape — one effect FAMILY, `kind`-tagged so a member added later
+  ## is an additive new object in the same array, never a new message type:
   ##   {"fx": [
   ##     {"kind":"tracer", "pts":[[x,y]|null, ...], "age":int,
   ##      "color":string, "hit":bool},
   ##     {"kind":"stain", "x":int, "y":int, "color":string, "onWall":bool},
+  ##     {"kind":"glory", "tick":int, "word":string, "amount":int,
+  ##      "team":string, "self":bool, "x":int, "y":int},
   ##     ...
   ##   ]}
   ## A tracer's `pts` walks muzzle -> impact; a sample this seat's fog does
@@ -2380,6 +2399,37 @@ proc buildCosmeticFxPacket(
   ## buildShotFeedbackPacket's victimColor/killerColor, so the client's
   ## existing colorWordCss() palette lookup (player_client.html) applies
   ## unchanged.
+  ##
+  ## The "glory" kind (GloryDeedFx, RE-POINTED onto GV48's `awardDeed`
+  ## ("THE SINGLE MINT", sim.nim) via its `fxActor` parameter — see
+  ## GloryDeedFx's own doc comment for the swap9-era delta this replaced):
+  ## fog-clipped by a SINGLE fovVisibleAt point check at the deed's actor
+  ## position, the same single-point discipline `stain` above uses — not
+  ## the multi-sample beam `tracer` walks, since a deed happens at one
+  ## place, not along a path. A deed whose actorIndex is out of range is
+  ## skipped outright (fail closed): there is no positionless fallback
+  ## here, and there should never need to be one — both current mint sites
+  ## (the kill-deed award in `killPlayer`, `dCapture` in
+  ## `checkWinCondition`) have a real actor in hand, and any future one that
+  ## genuinely lacks one should not emit at all rather than guess a point a
+  ## fog check can't honestly clear. `team` below is `deed.team` — captured
+  ## at MINT time by the same populate-time-facts rule every field here
+  ## follows, never re-read from sim.players[deed.actorIndex] at build/send
+  ## time (that seat could in principle no longer mean the same thing by the
+  ## time this drains, even though today's same-tick drain makes it moot in
+  ## practice — see GloryDeedFx.team's own doc comment).
+  ##
+  ## `self` answers the seat-vs-duo question AT THE WIRE: `awardDeed`'s
+  ## `fxActor` caller already knows the specific crediting SEAT (a
+  ## sim.players[] index, not a team-level identity — see GloryDeedFx.
+  ## actorIndex's own doc comment), so this could have shipped seat-grain.
+  ## It ships as a derived boolean instead (`self` = actorIndex == viewerIndex)
+  ## plus `team`, never the raw actorIndex or an address: a duo's two seats
+  ## already share one `color` by default in this config (roster.nim's
+  ## addPlayer: `color = teamColor(team)` unless a slot pins its own), so
+  ## `color`/`team` alone would read as "your DUO scored" even for your own
+  ## kill — `self` is what lets the display layer say "YOU scored" instead,
+  ## without this channel ever putting a bare seat index on the wire.
   if not sim.config.allowCosmeticFx:
     return ""
   if viewerIndex < 0 or viewerIndex >= sim.players.len:
@@ -2422,6 +2472,21 @@ proc buildCosmeticFxPacket(
       "y": stain.y,
       "color": playerColorText(stain.color),
       "onWall": stain.onWall
+    })
+  for deed in gloryDeeds:
+    if deed.actorIndex < 0 or deed.actorIndex >= sim.players.len:
+      continue
+    if not sim.fovVisibleAt(viewerIndex, deed.x, deed.y):
+      continue
+    fx.add(%*{
+      "kind": "glory",
+      "tick": deed.tick,
+      "word": deed.word,
+      "amount": deed.amount,
+      "team": teamText(deed.team),
+      "self": deed.actorIndex == viewerIndex,
+      "x": deed.x,
+      "y": deed.y
     })
   if fx.len == 0:
     return ""
@@ -3608,6 +3673,11 @@ proc runServerLoop*(
     # socket to deliver it to (takeoverSockets is only ever populated on the
     # `not replayLoaded` path above).
     var frameShotFeedback: seq[ShotFeedbackFx] = @[]
+    # Same drain shape and same reason as frameShotFeedback just above (a
+    # one-shot queue, not a fading Fx seq, so it must survive across however
+    # many steps this frame runs at playbackSpeed > 1): consumed only by the
+    # takeover send pass's buildCosmeticFxPacket call further down.
+    var frameGloryDeeds: seq[GloryDeedFx] = @[]
     if replayLoaded:
       frameEvents = replayPlayer.advanceReplayFrame(
         sim,
@@ -3761,6 +3831,13 @@ proc runServerLoop*(
         for fx in sim.shotFeedback:
           frameShotFeedback.add fx
         sim.shotFeedback.setLen(0)
+        # Same drain shape, same reason, for the glory-toast queue
+        # (GameConfig.allowCosmeticFx): empty whenever the gate is off,
+        # since awardDeed's `fxActor` callers only push to it gated
+        # (see GloryDeedFx's doc comment).
+        for deed in sim.gloryDeeds:
+          frameGloryDeeds.add deed
+        sim.gloryDeeds.setLen(0)
         # Broadcast chrome's kill-feed/phase/gameover beats (stakes #7/#9):
         # the SAME diff-the-tracker-against-this-tick call the replay path
         # makes once per stepped tick via advanceReplayPlayback's callback,
@@ -3937,12 +4014,14 @@ proc runServerLoop*(
       # Cosmetic-effects channel (GameConfig.allowCosmeticFx): same shape as
       # the shot-feedback block just above — a SEPARATE TextMessage that only
       # this takeover pass ever builds or sends, so it can never reach the
-      # seat's underlying policy/mux socket regardless of the gate. Rebuilt
-      # fresh from live sim state every tick (sim.recentShots/sim.paintStains
-      # are already fog-clipped inside the builder), not drained from a
-      # per-frame buffer like shot feedback — there is nothing to accumulate
-      # across steps here.
-      let cosmeticFxPacket = sim.buildCosmeticFxPacket(takeoverCogs[i])
+      # seat's underlying policy/mux socket regardless of the gate. The
+      # tracer/stain kinds are rebuilt fresh from live sim state every tick
+      # (sim.recentShots/sim.paintStains are already fog-clipped inside the
+      # builder); the glory kind is different — a one-shot queue like shot
+      # feedback, so it IS drained from the per-frame buffer above
+      # (frameGloryDeeds) and threaded in here.
+      let cosmeticFxPacket =
+        sim.buildCosmeticFxPacket(takeoverCogs[i], frameGloryDeeds)
       if cosmeticFxPacket.len > 0:
         try:
           takeoverSockets[i].send(cosmeticFxPacket, TextMessage)
