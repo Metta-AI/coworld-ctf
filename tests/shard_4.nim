@@ -11,6 +11,7 @@ import
   test_handicaps,
   test_identity_badges,
   test_label_contract,
+  test_lobby_chat,
   test_lobby_reconnect_wedge,
   test_map_export,
   test_movement_slide,

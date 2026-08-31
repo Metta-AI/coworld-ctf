@@ -540,6 +540,7 @@ proc addPlayer*(
     color: color,
     skin: slot.skin,
     lastShoutTick: -1,
+    lastLobbyChatTick: -1,
     paintHitTick: -1,
     reward: sim.rewardAccounts[accountIndex].reward
   )

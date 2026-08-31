@@ -373,6 +373,70 @@ proc writePolicyPageFlash*(
     encodePolicyPageRecord(page)
   )
 
+const
+  RecLobbyChat* = 0x13'u8
+    ## The landed top-level replay record type (James, ratified on main:
+    ## src/shell/types.nim:267-270): `u8 type, u32 replayTimeMs, u64
+    ## ordinal, u8 seat, u8 team, u16 len, u8[len] UTF-8 text` (len <=
+    ## LobbyChatMaxBytes, little-endian), global transcript array, ordinal
+    ## order (§9.3). huddle-v1's OWNERSHIP is EMIT ONLY: this proc builds
+    ## the record's own canonical bytes; the shell lane's format-v2 codec
+    ## (CtfReplayFormatVersion 1 -> 2, still unbuilt on main —
+    ## src/shell/types.nim:255-258) owns appending them to a live
+    ## .bitreplay stream, reading them back, and the manifest's ordered-
+    ## chain arm. `bitworld/replays.nim` stays untouched (no exposed
+    ## raw-record-type append — every writeXXX proc there hardcodes its
+    ## own leading byte, 0x01..0x06), so there is no live-writer hookup
+    ## for this proc to call yet; that dependency is called out in the PR.
+
+proc encodeLobbyChatTranscriptRecord*(
+  replayTimeMs: uint32,
+  ordinal: uint64,
+  seat: uint8,
+  team: uint8,
+  text: string
+): string =
+  ## The exact canonical bytes of replay record `0x13` (RecLobbyChat),
+  ## conforming byte-for-byte to src/shell/types.nim:267-270. A pure
+  ## encoder: see RecLobbyChat's comment for why nothing appends this to
+  ## a live replay file yet.
+  doAssert text.len <= LobbyChatMaxBytes
+  result = newString(17 + text.len)
+  result[0] = char(RecLobbyChat)
+  for shift in 0 ..< 4:
+    result[1 + shift] =
+      char(uint8((replayTimeMs shr (uint32(shift) * 8'u32)) and 0xff'u32))
+  for shift in 0 ..< 8:
+    result[5 + shift] = char(uint8((ordinal shr (shift * 8)) and 0xff'u64))
+  result[13] = char(seat)
+  result[14] = char(team)
+  let len = uint16(text.len)
+  result[15] = char(uint8(len and 0xff'u16))
+  result[16] = char(uint8(len shr 8))
+  for i in 0 ..< text.len:
+    result[17 + i] = text[i]
+
+proc decodeLobbyChatTranscriptRecord*(
+  bytes: string
+): tuple[replayTimeMs: uint32, ordinal: uint64, seat: uint8, team: uint8,
+    text: string] =
+  ## The inverse of encodeLobbyChatTranscriptRecord, kept ONLY so this
+  ## lane's own goldens can assert a round trip against the landed layout
+  ## — reading a REAL replay's transcript is the shell lane's format-v2
+  ## codec, not this proc (see RecLobbyChat's comment).
+  doAssert bytes.len >= 17 and uint8(bytes[0]) == RecLobbyChat
+  var replayTimeMs: uint32
+  for shift in 0 ..< 4:
+    replayTimeMs = replayTimeMs or (uint32(uint8(bytes[1 + shift])) shl (shift * 8))
+  var ordinal: uint64
+  for shift in 0 ..< 8:
+    ordinal = ordinal or (uint64(uint8(bytes[5 + shift])) shl (shift * 8))
+  let seat = uint8(bytes[13])
+  let team = uint8(bytes[14])
+  let len = uint16(uint8(bytes[15])) or (uint16(uint8(bytes[16])) shl 8)
+  doAssert bytes.len == 17 + int(len)
+  result = (replayTimeMs, ordinal, seat, team, bytes[17 ..< 17 + int(len)])
+
 proc openReplayWriter*(path: string, configJson: string): ReplayWriter =
   ## Opens a replay file and writes the header.
   replayCodec.openReplayWriter(path, configJson, CtfReplaySpec)
