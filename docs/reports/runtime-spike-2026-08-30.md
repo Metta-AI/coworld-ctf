@@ -767,3 +767,33 @@ limit today.
 Native x86 evidence is retained outside the source tree in
 `/tmp/devbox-x86/all-cpu{1,2,4,6}.log`, `compile-cpu1.log`, `smoke.log`, and
 `build.log`.
+
+### canonical_fast projection (measured helper, projected tick)
+
+The helper's M-series measurements are 1.61 µs per shaped typed-walk Intent
+validation, approximately 28 µs for canonical validation of a near-
+`MaxEmitBytes` adversarial value, and 148 µs to stream 32 play views. The view
+encode is now charged to the body sub-allocation under the ratified pipeline
+ruling; it is not part of the runtime projection below.
+
+The tick values are **projections, not tick measurements**. The committed
+retuned ledger contains 192 emits: 96 steps × `MaxEmitsPerStep` 2.
+
+| Row | Arithmetic | Emit share |
+|---|---|---:|
+| measured spike stand-in | 192 × approximately 62 µs | approximately 11.9 ms measured stand-in |
+| adversarial canonical_fast ceiling | 192 × 28 µs | 5.376 ms, approximately 5.38 ms projected |
+| shaped canonical_fast path | 192 × 1.61 µs | 0.309 ms, approximately 0.31 ms projected |
+
+These substitutions replace only the validation component of the 62 µs
+stand-in. The normalization transaction and goal lookup remain stand-in-priced
+until P3's real emit validator exists. The 64 control-plane ladder validations
+at 4,096 bytes each also need a canonical_fast-shaped remeasurement on the
+next devbox trip or in P3 phase 7; no projected control-plane number is
+invented here.
+
+The honest headline is therefore that the emit share moves from approximately
+11.9 ms measured-stand-in to approximately 5.4 ms projected at the adversarial
+ceiling, or approximately 0.31 ms on the projected shaped path. Whether the
+runtime share fits 4.0 ms remains **unmeasured** until the P3 validator is
+benchmarked on canonical_fast; this projection does not claim that it fits.
