@@ -42,7 +42,7 @@ suite "incremental replay scan":
         sliced.advanceReplayScan(slice)
         inc guard
         doAssert guard < 100_000, "scan never completed"
-      check sliced.livesSeries == reference.livesSeries
+      check sliced.leadSeries == reference.leadSeries
       check $sliced.beatEvents == $reference.beatEvents
       check sliced.lullSpans == reference.lullSpans
       check sliced.keyframeTicks() == reference.keyframeTicks()

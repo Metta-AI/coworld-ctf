@@ -329,7 +329,13 @@ always drawn — but moving entities are fogged:
   shoulder is fair game even when the body's center is safely covered).
   More exposure means more aim angles connect.
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
-  so firing into a cluster of teammates can kill your own escort.
+  so firing into a cluster of teammates can kill your own escort. A teammate
+  kill is counted as a **team kill** (GV45) — its own stat in the metrics,
+  results, and endscreen — and never inflates the killer's kill count,
+  multi-kill honors, or kill sprees. The hit points a shot removes are split
+  the same way (GV47): hp taken off an enemy accumulates as **hit damage**,
+  hp taken off a teammate as **team hit damage**, and hurting yourself
+  counts as neither.
 - **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
   tick picks its target against the same snapshot before any kill applies: a
   mutual face-off duel kills both shooters, and neither team gains an
@@ -851,9 +857,11 @@ Scoring is **sparse and win-only**:
 - **Mutual-wipe draw** (both teams eliminated on the same tick): 0 for both
   sides — both at least fought to a decision.
 
-Kills, deaths, heart pickups, carry time, and captures are still **recorded** in
-the episode results for leaderboards and analysis — they just do not award
-points. This keeps the training objective tied purely to winning.
+Kills, team kills (kept as separate stats since GV45), hit damage and team
+hit damage (split the same way since GV47), deaths, heart pickups, carry time,
+and captures are still **recorded** in the episode results for leaderboards
+and analysis — they just do not award points. This keeps the training
+objective tied purely to winning.
 
 ## Controls
 

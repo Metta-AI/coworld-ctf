@@ -1,0 +1,6 @@
+{"rows":{
+  "ROTATE_TO_RING":{"bias":6.0,"weights":{"world.zone_dist":3.0,"world.in_zone":-4.0}},
+  "HOLD_RING_SAFE":{"bias":2.0,"weights":{"world.in_zone":2.0}},
+  "ENGAGE":{"bias":0.1},
+  "THIRD_PARTY":{"bias":1.2,"weights":{"world.third_party_dist":-0.6}}
+}}

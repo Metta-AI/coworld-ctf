@@ -5,7 +5,7 @@
 ## docs/plans/2026-08-01-sim-split.md; re-exported by sim.nim.
 
 import
-  std/[random, strutils],
+  std/[json, random, strutils],
   bitworld/spriteprotocol, pixie,
   sim_types, arena, sim_config
 
@@ -198,6 +198,19 @@ proc grenadeThrowerSlot*(
 ): int {.inline.} =
   grenade.throwerSlot
 
+proc policyPageHash*(page: string): uint64 =
+  ## The content hash of one flashed one-page policy: FNV-1a 64 over the raw
+  ## page bytes, the same mixer gameHash itself is built from.
+  ##
+  ## One function, three readers, on purpose: the sim stamps it at flash
+  ## time, the replay writer puts it in the record, and the replay reader
+  ## re-derives it from the recorded page and refuses a record whose two
+  ## disagree. A second implementation anywhere would be a second chance for
+  ## the live and playback sides to hash the same page differently.
+  result = 14695981039346656037'u64
+  for c in page:
+    result.mixHashInt(ord(c))
+
 proc gameHash*(sim: SimServer): uint64 =
   ## Returns a deterministic hash of gameplay state.
   result = 14695981039346656037'u64
@@ -224,7 +237,16 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(sim.zoneCenter.x)
     result.mixHashInt(sim.zoneCenter.y)
   result.mixHashBool(sim.isDraw)
-  result.mixHashBool(sim.needsReregister)
+  if sim.config.numAgents == 0:
+    ## In a seat-commanded (paintball) episode `needsReregister` is live-server
+    ## lobby plumbing: resetToLobby raises it and the SERVER lowers it as part
+    ## of re-seating the roster between the episode's games, and re-seating is
+    ## not a recorded event — a replay cannot re-derive the lowering, so the
+    ## flag would break the hash chain on the first tick of game two. It stays
+    ## OUT of the hash there (the puddleTicks rule; the flatty keyframe still
+    ## restores it exactly) and IN the hash for every classic game, where the
+    ## chain has always carried it.
+    result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)
   for team in sim.teams():
     result.mixHashInt(sim.flags[team].x)
@@ -273,6 +295,24 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+    # Mixed only when the one-page-policy channel is armed, so a
+    # reflash-off replay's hash trajectory is byte-identical to a build that
+    # never added these fields — the same rule as the
+    # allowCallouts/zonePhases/barrageStartTick guards.
+    #
+    # WHY a strategy page belongs in a GAMEPLAY hash at all: a reflash is a
+    # real, out-of-band input to the episode — the cog plays differently
+    # after it. The recorded button masks alone cannot witness it, so a
+    # replay that lost the reflash record would re-simulate SILENTLY and
+    # attribute the match to a strategy it never ran. Mixing the active
+    # page's content hash and flash count turns that silent lie into a hash
+    # mismatch at the exact tick the page went missing. The CONTENT itself
+    # is not mixed (it is already summarised by policyPageHash, computed
+    # once at flash time) — hashing a multi-KB page on every seat every tick
+    # would be real CPU for no extra discrimination.
+    if sim.config.allowPolicyReflash:
+      result.mixHash(player.policyPageHash)
+      result.mixHashInt(player.policyPageEpoch)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -294,6 +334,32 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(grenade.launchTick)
     result.mixHashInt(grenade.flightTicks)
     result.mixHashInt(grenade.thrower)
+  # --- paintball state, APPENDED after every existing mix so the ordering of
+  # the inherited fields stays stable. All of it is gameplay state the wasm
+  # viewer re-derives from the recorded masks, so all of it is hashed:
+  # paintOwner (eight tiles at a time as a uint64 word), the hill counters,
+  # and per cog the heal streak and what it is standing on.
+  if sim.config.floorPaint:
+    var word = 0'u64
+    var filled = 0
+    for code in sim.paintOwner:
+      word = (word shl 8) or uint64(code)
+      inc filled
+      if filled == 8:
+        result.mixHash(word)
+        word = 0
+        filled = 0
+    if filled > 0:
+      result.mixHash(word)
+    for team in Red .. Blue:
+      result.mixHashInt(sim.paintCount[team])
+      result.mixHashInt(sim.hillPaint[team])
+      result.mixHashInt(sim.hillTicks[team])
+    result.mixHashInt(ord(sim.hillOwner))
+    result.mixHashBool(sim.hillOwned)
+    for player in sim.players:
+      result.mixHashInt(player.ownPaintTicks)
+      result.mixHashInt(ord(player.paintUnder))
   result.mixHashInt(sim.recentShouts.len)
   for shout in sim.recentShouts:
     for c in shout.address:
@@ -312,6 +378,68 @@ proc gameHash*(sim: SimServer): uint64 =
       result.mixHashInt(shout.calloutId)
       for c in shout.calloutCell:
         result.mixHashInt(ord(c))
+
+proc applyPolicyPage*(
+  sim: var SimServer,
+  playerIndex: int,
+  page: string
+): bool {.discardable.} =
+  ## Flashes one one-page policy onto one seat, at THIS tick. Returns whether
+  ## the page was accepted; the caller records a replay event for exactly the
+  ## accepted ones (see server.nim, which mirrors the shout drain).
+  ##
+  ## The acceptance rule is deliberately as small as it can be — armed gate,
+  ## real seat, non-empty page under the record's size ceiling — and depends
+  ## on NOTHING that could be in flight: not the phase, not whether the cog
+  ## is alive, not a cooldown. Every extra clause here is another way for the
+  ## live server and playback to reach different verdicts on the same page
+  ## and diverge, and the two flash regimes both need the permissive rule
+  ## anyway: BR re-flashes at an ARBITRARY tick (its cogs have one life, so
+  ## there is no spawn edge to hang it on) and CTF flashes on a respawn edge,
+  ## when the cog is momentarily not alive.
+  ##
+  ## The size refusal is the load-bearing one. A page over the record's
+  ## uint16 length prefix would apply live and then be unwritable to the
+  ## replay — an applied-but-unrecorded input, the single outcome
+  ## determinism cannot survive. Refusing it BEFORE any state moves keeps
+  ## live and playback agreeing that the flash never happened.
+  if not sim.config.allowPolicyReflash:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if page.len == 0 or page.len > MaxPolicyPageBytes:
+    return false
+  sim.players[playerIndex].policyPage = page
+  sim.players[playerIndex].policyPageHash = policyPageHash(page)
+  sim.players[playerIndex].policyPageTick = sim.tickCount
+  # Every accepted flash bumps the epoch, INCLUDING a re-flash of the page
+  # already loaded: reasserting the current plan is the most common thing an
+  # LLM does, and without the bump that event would leave no trace in the
+  # hash and a lost record for it would replay clean.
+  inc sim.players[playerIndex].policyPageEpoch
+  true
+
+const MaxFeedDirectives* = 8
+  ## How many commander lines the match feed keeps. The feed shows four rows
+  ## at a time and a seek re-hydrates from the keyframe, so a short ring is
+  ## all the client can ever draw.
+
+proc pushFeedDirective*(sim: var SimServer, record: string) =
+  ## Records one `directive` chat record for the broadcast feed. Called from
+  ## the live server as it writes the record AND from the replay's chat
+  ## re-application, so the feed tells the same story either way. Never
+  ## hashed: this is presentation state.
+  if record.len == 0 or record[0] != '{':
+    return
+  try:
+    let node = parseJson(record)
+    if node.kind != JObject or node{"k"}.getStr() != "directive":
+      return
+  except CatchableError:
+    return
+  sim.feedDirectives.add(record)
+  if sim.feedDirectives.len > MaxFeedDirectives:
+    sim.feedDirectives.delete(0)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:
