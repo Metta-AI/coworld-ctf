@@ -36,7 +36,7 @@ proc toolPath(key: string): string =
 
 proc buildWasm(source, output: string; extraFlags = ""): seq[byte] =
   let command = "WASI_SDK_PATH=" & quoteShell(toolPath("WASI_SDK_PATH")) &
-    " nim c " & extraFlags & (if extraFlags.len > 0: " " else: "") &
+    " nim c -f " & extraFlags & (if extraFlags.len > 0: " " else: "") &
     quoteShell(source)
   let built = execCmdEx(command)
   require built.exitCode == 0
@@ -272,6 +272,13 @@ suite "pact reference play":
     check zoneArm.step(viewFor(1, 9, 3)).lastAccepted.get.bytes ==
       canonicalCombatPolicy(CombatPolicy())
 
+    var invalidPartner = engine.newPactInstance()
+    defer: invalidPartner.close()
+    let invalidInit = invalidPartner.invokeInit(
+      "{\"partners\":[\"seat:7\",\"bogus\"],\"protect\":true}", "{}")
+    check invalidInit.faulted
+    check invalidInit.reason == "play_init returned nonzero"
+
   test "policy emissions are accepted and fold to host canonical bytes":
     let engine = newRuntimeEngine()
     defer: engine.close()
@@ -360,6 +367,39 @@ suite "pact reference play":
     check anonymous.step(viewFor(1, 9, 1,
       aggressors = "{\"dir_brads\":1,\"tick\":1}")).lastAccepted.get.bytes ==
       policyBytes([7], protect = true)
+
+  test "duo betrayal expands to remaining concrete seats":
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    var duos: array[Team, DuoSeats]
+    duos.withDuo(Navy, 10, 2)
+    let tracks = "{\"fresh_tick\":1,\"pos\":[1,2],\"seat\":10," &
+      "\"team\":\"navy\"},{\"fresh_tick\":1,\"pos\":[3,4]," &
+      "\"seat\":2,\"team\":\"navy\"}"
+    let betrayed = viewFor(1, 9, 1, tracks = tracks,
+      aggressors = "{\"dir_brads\":1,\"seat\":10,\"tick\":1}")
+
+    var returnFire = engine.newPactInstance(duos)
+    defer: returnFire.close()
+    returnFire.initOk("{\"holdFire\":{\"tick\":9999}," &
+      "\"onBetrayal\":\"returnFire\",\"partners\":[\"duo:navy\"]," &
+      "\"protect\":true}")
+    let returned = returnFire.step(betrayed)
+    check not returned.faulted
+    check returned.emitCodes == @[AbiOk]
+    check returned.lastAccepted.get.bytes == policyBytes([2], protect = true)
+
+    var disengage = engine.newPactInstance(duos)
+    defer: disengage.close()
+    disengage.initOk("{\"holdFire\":{\"tick\":9999}," &
+      "\"onBetrayal\":\"disengage\",\"partners\":[\"duo:navy\"]," &
+      "\"protect\":true}")
+    let disengaged = disengage.step(betrayed)
+    check not disengaged.faulted
+    check disengaged.lastAccepted.get.bytes ==
+      canonicalCombatPolicy(CombatPolicy(noShoot: ProtectedSet(seats: @[
+        SeatRef(2), SeatRef(10)]), protect: ProtectedSet(seats: @[
+        SeatRef(2)])))
 
   test "unchanged policy emits only once":
     let engine = newRuntimeEngine()

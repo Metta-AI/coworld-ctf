@@ -66,6 +66,7 @@ type
     phasePresent*: bool
     phase*: int32
     current*: SdkRect
+    next*: SdkRect
     ticksToShrinkPresent*: bool
     ticksToShrink*: int32
 
@@ -147,6 +148,22 @@ type
     holdFireValue*: int32
     protect*: bool
     onBetrayal*: BetrayalMode
+
+  EdgeRideParams* = object
+    valid*: bool
+    margin*: int32
+    coverBiasScaled*: int32
+    enterLead*: int32
+
+  EdgeRideView* = object
+    valid*: bool
+    tickPresent*: bool
+    tick*: int32
+    selfPos*: SdkPoint
+    current*: SdkRect
+    next*: SdkRect
+    ticksToShrinkPresent*: bool
+    ticksToShrink*: int32
 
   JsonReader = object
     base: ptr UncheckedArray[byte]
@@ -394,6 +411,62 @@ proc readNumberScaled(r: var JsonReader; value: var int32): bool =
     value = -value
   true
 
+proc scalarEnded(r: JsonReader): bool {.inline.} =
+  r.atEnd or r.ch in {',', '}', ']'}
+
+proc skipLiteral(r: var JsonReader; literal: static[string]): bool =
+  for ch in literal:
+    if not r.take(ch):
+      return false
+  if not r.scalarEnded:
+    r.ok = false
+    return false
+  true
+
+proc skipNumber(r: var JsonReader): bool =
+  if r.ch == '-':
+    inc r.pos
+  var seen = false
+  while r.ok and not r.atEnd:
+    let digit = r.digitAt(r.pos)
+    if digit < 0:
+      break
+    seen = true
+    inc r.pos
+  if not seen:
+    r.ok = false
+    return false
+  if not r.atEnd and r.ch == '.':
+    inc r.pos
+    var fractionSeen = false
+    while r.ok and not r.atEnd:
+      let digit = r.digitAt(r.pos)
+      if digit < 0:
+        break
+      fractionSeen = true
+      inc r.pos
+    if not fractionSeen:
+      r.ok = false
+      return false
+  if not r.atEnd and r.ch in {'e', 'E'}:
+    inc r.pos
+    if not r.atEnd and r.ch in {'+', '-'}:
+      inc r.pos
+    var exponentSeen = false
+    while r.ok and not r.atEnd:
+      let digit = r.digitAt(r.pos)
+      if digit < 0:
+        break
+      exponentSeen = true
+      inc r.pos
+    if not exponentSeen:
+      r.ok = false
+      return false
+  if not r.scalarEnded:
+    r.ok = false
+    return false
+  true
+
 proc skipValue(r: var JsonReader; depth: int32 = 0): bool =
   if not r.ok or depth > 16:
     r.ok = false
@@ -402,57 +475,50 @@ proc skipValue(r: var JsonReader; depth: int32 = 0): bool =
   of '"':
     result = r.skipRawString()
   of '{':
-    var nesting = 0'i32
-    while r.ok and not r.atEnd:
-      case r.ch
-      of '"':
-        if not r.skipRawString():
-          return false
-        continue
-      of '{', '[':
-        inc nesting
-      of '}', ']':
-        dec nesting
-        inc r.pos
-        if nesting == 0:
-          return true
-        continue
-      of '\\':
-        r.ok = false
-        return false
-      else:
-        discard
+    if not r.take('{'):
+      return false
+    if not r.atEnd and r.ch == '}':
       inc r.pos
-    r.ok = false
+      return true
+    while r.ok:
+      discard r.readKey()
+      if not r.take(':') or not r.skipValue(depth + 1):
+        return false
+      if not r.atEnd and r.ch == ',':
+        inc r.pos
+        continue
+      if not r.atEnd and r.ch == '}':
+        inc r.pos
+        return true
+      r.ok = false
+      return false
     return false
   of '[':
-    var nesting = 0'i32
-    while r.ok and not r.atEnd:
-      case r.ch
-      of '"':
-        if not r.skipRawString():
-          return false
-        continue
-      of '{', '[':
-        inc nesting
-      of '}', ']':
-        dec nesting
-        inc r.pos
-        if nesting == 0:
-          return true
-        continue
-      of '\\':
-        r.ok = false
+    if not r.take('['):
+      return false
+    if not r.atEnd and r.ch == ']':
+      inc r.pos
+      return true
+    while r.ok:
+      if not r.skipValue(depth + 1):
         return false
-      else:
-        discard
-      inc r.pos
-    r.ok = false
+      if not r.atEnd and r.ch == ',':
+        inc r.pos
+        continue
+      if not r.atEnd and r.ch == ']':
+        inc r.pos
+        return true
+      r.ok = false
+      return false
     return false
-  of '-', '0' .. '9', 't', 'f', 'n':
-    while r.ok and not r.atEnd and r.ch notin {',', '}', ']'}:
-      inc r.pos
-    result = true
+  of 't':
+    result = r.skipLiteral("true")
+  of 'f':
+    result = r.skipLiteral("false")
+  of 'n':
+    result = r.skipLiteral("null")
+  of '-', '0' .. '9':
+    result = r.skipNumber()
   else:
     r.ok = false
     return false
@@ -537,6 +603,8 @@ proc readZone(r: var JsonReader): SdkZone =
   while r.nextObjectKey(key):
     if r.stringEquals(key, "current"):
       result.current = r.readRect()
+    elif r.stringEquals(key, "next"):
+      result.next = r.readRect()
     elif r.stringEquals(key, "phase"):
       result.phasePresent = r.readIntValue(result.phase)
     elif r.stringEquals(key, "ticks_to_shrink"):
@@ -685,6 +753,54 @@ proc readViewInto*(view: PlayView; outView: var SdkView): bool =
 proc readView*(view: PlayView): SdkView =
   discard readViewInto(view, result)
 
+proc readEdgeRideZone(r: var JsonReader; outView: var EdgeRideView) =
+  if not r.beginObject():
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "current"):
+      outView.current = r.readRect()
+    elif r.stringEquals(key, "next"):
+      outView.next = r.readRect()
+    elif r.stringEquals(key, "ticks_to_shrink"):
+      outView.ticksToShrinkPresent =
+        r.readIntValue(outView.ticksToShrink)
+    else:
+      discard r.skipValue()
+
+proc readEdgeRideWorld(r: var JsonReader; outView: var EdgeRideView) =
+  if not r.beginObject():
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "zone"):
+      r.readEdgeRideZone(outView)
+    else:
+      discard r.skipValue()
+
+proc readEdgeRideViewInto*(view: PlayView; outView: var EdgeRideView): bool =
+  ## Transitional structural reader for `edge_ride`: walks top-level keys once,
+  ## decodes only self.pos plus BR zone fields, and structurally skips
+  ## heavyweight arrays such as tracks without decoding rows.
+  outView = default(EdgeRideView)
+  var r = initJsonReader(view.data, view.len)
+  if not r.beginObject():
+    return false
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "self"):
+      let self = r.readSelf()
+      outView.selfPos = self.pos
+    elif r.stringEquals(key, "tick"):
+      outView.tickPresent = r.readIntValue(outView.tick)
+    elif r.stringEquals(key, "world"):
+      r.readEdgeRideWorld(outView)
+    else:
+      discard r.skipValue()
+  outView.valid = r.ok and r.pos == r.len and outView.tickPresent and
+    outView.selfPos.present and outView.current.present
+  outView.valid
+
 proc readPactParams*(ctx: PlayContext): PactParams =
   result.valid = true
   result.holdFireKind = hfAliveTeams
@@ -706,13 +822,13 @@ proc readPactParams*(ctx: PlayContext): PactParams =
         inc armCount
         if r.stringEquals(arm, "aliveTeams"):
           result.holdFireKind = hfAliveTeams
-          result.valid = r.readIntValue(result.holdFireValue)
+          result.valid = result.valid and r.readIntValue(result.holdFireValue)
         elif r.stringEquals(arm, "tick"):
           result.holdFireKind = hfTick
-          result.valid = r.readIntValue(result.holdFireValue)
+          result.valid = result.valid and r.readIntValue(result.holdFireValue)
         elif r.stringEquals(arm, "zonePhase"):
           result.holdFireKind = hfZonePhase
-          result.valid = r.readIntValue(result.holdFireValue)
+          result.valid = result.valid and r.readIntValue(result.holdFireValue)
         else:
           discard r.skipValue()
           result.valid = false
@@ -750,11 +866,39 @@ proc readPactParams*(ctx: PlayContext): PactParams =
           else:
             result.valid = false
     elif r.stringEquals(key, "protect"):
-      result.valid = r.readBoolValue(result.protect)
+      result.valid = result.valid and r.readBoolValue(result.protect)
     else:
       discard r.skipValue()
   if not result.partnersPresent or result.partnerCount == 0:
     result.valid = false
+  result.valid = result.valid and r.ok and r.pos == r.len
+
+proc readEdgeRideParams*(ctx: PlayContext): EdgeRideParams =
+  result.valid = true
+  result.margin = 220
+  result.coverBiasScaled = 800_000
+  result.enterLead = 120
+  var r = initJsonReader(ctx.data, ctx.len)
+  if not r.beginObject():
+    result.valid = false
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "coverBias"):
+      result.valid = result.valid and r.readNumberScaled(result.coverBiasScaled)
+      if result.coverBiasScaled < 0 or result.coverBiasScaled > 1_000_000:
+        result.valid = false
+    elif r.stringEquals(key, "enterLead"):
+      result.valid = result.valid and r.readIntValue(result.enterLead)
+      if result.enterLead < 0 or result.enterLead > 600:
+        result.valid = false
+    elif r.stringEquals(key, "margin"):
+      result.valid = result.valid and r.readIntValue(result.margin)
+      if result.margin < 40 or result.margin > 600:
+        result.valid = false
+    else:
+      discard r.skipValue()
+      result.valid = false
   result.valid = result.valid and r.ok and r.pos == r.len
 
 {.pop.}
@@ -771,8 +915,8 @@ proc nearestReachable*(x, y: int32): ValidatedGoal =
 
 proc nearestCover*(x, y, radius: int32; bearingBrads: int32 = -1): ValidatedGoal =
   ## Host cover query over the engine-side atlas. The scorer is now live;
-  ## candidate density is still freeze-pending and is governed by the
-  ## engine's `MaxCoverRadiusPx`/`MaxCoverPostsExamined` caps.
+  ## candidate density is governed by the engine's frozen
+  ## `MaxCoverRadiusPx`/`MaxCoverPostsExamined` caps.
   unpackGoal(playNearestCover(x, y, radius, bearingBrads, 0, 0))
 
 proc log*(level: int32; bytes: openArray[byte]) =

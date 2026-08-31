@@ -106,13 +106,42 @@ proc seatExcludedForRef(value: PactRef;
   of prDuo:
     false
 
+proc addRef(dest: var array[MaxPactRefs, PactRef]; count: var int32;
+            value: PactRef) =
+  if count < MaxPactRefs:
+    dest[count] = value
+    inc count
+
+proc addDuoRemainder(dest: var array[MaxPactRefs, PactRef]; count: var int32;
+                     view: SdkView; team: SdkTeam;
+                     excluded: array[MaxPolicySeats, bool]) =
+  for trackIndex in 0 ..< view.trackCount:
+    let track = view.tracks[trackIndex]
+    if track.seatPresent and track.teamPresent and track.team == team and
+        track.seat >= 0 and track.seat < MaxPolicySeats and
+        not excluded[track.seat]:
+      dest.addRef(count, PactRef(kind: prSeat, seat: track.seat))
+
 proc addActiveRefs(dest: var array[MaxPactRefs, PactRef]; count: var int32;
-                   excluded: array[MaxPolicySeats, bool]) =
+                   view: SdkView; excluded: array[MaxPolicySeats, bool]) =
   for index in 0 ..< params.partnerCount:
     let partner = params.partners[index]
-    if not seatExcludedForRef(partner, excluded) and count < MaxPactRefs:
-      dest[count] = partner
-      inc count
+    case partner.kind
+    of prSeat:
+      if not seatExcludedForRef(partner, excluded):
+        dest.addRef(count, partner)
+    of prDuo:
+      var betrayedMember = false
+      for trackIndex in 0 ..< view.trackCount:
+        let track = view.tracks[trackIndex]
+        if track.seatPresent and track.teamPresent and
+            track.team == partner.team and track.seat >= 0 and
+            track.seat < MaxPolicySeats and excluded[track.seat]:
+          betrayedMember = true
+      if betrayedMember:
+        dest.addDuoRemainder(count, view, partner.team, excluded)
+      else:
+        dest.addRef(count, partner)
 
 proc endConditionReached(view: SdkView): bool =
   case params.holdFireKind
@@ -161,9 +190,9 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   if not ended:
     let partnerSeats = resolvePartners(decoded)
     markBetrayals(decoded, partnerSeats)
-    noShoot.addActiveRefs(noShootCount, betrayedNoShoot)
+    noShoot.addActiveRefs(noShootCount, decoded, betrayedNoShoot)
     if params.protect:
-      protect.addActiveRefs(protectCount, betrayedProtect)
+      protect.addActiveRefs(protectCount, decoded, betrayedProtect)
 
   if samePolicy(noShoot, noShootCount, protect, protectCount):
     resetArena()

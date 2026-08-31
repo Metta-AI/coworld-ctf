@@ -32,7 +32,8 @@ const GoldenFiles = [
   "status_play_faulted.golden.json",
   "control_view.golden.json", "control_context.golden.json",
   "play_context.golden.json", "play_view.golden.json",
-  "manifest_pact.golden.json", "ladder_call.golden.json",
+  "manifest_edge_ride.golden.json", "manifest_pact.golden.json",
+  "ladder_call.golden.json",
   "floats.golden.json"
 ]
 
@@ -55,6 +56,7 @@ const GoldenSchemas = {
   "control_context.golden.json": "control_context.schema.json",
   "play_context.golden.json": "play_context.schema.json",
   "play_view.golden.json": "play_view.schema.json",
+  "manifest_edge_ride.golden.json": "manifest.schema.json",
   "manifest_pact.golden.json": "manifest.schema.json",
   "ladder_call.golden.json": "ladder_call.schema.json"
 }.toTable

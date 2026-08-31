@@ -239,15 +239,10 @@ proc runHarnessCase*(caseData: HarnessCase): HarnessTrace =
     return
   result.manifestName = validation.manifest.name
 
-  var invokesManifest = false
-  for frame in caseData.frames:
-    if frame.kind == hfManifest:
-      invokesManifest = true
-  if invokesManifest:
-    let manifestClass = emitClassOf(validation.manifest.playClass)
-    if caseData.emitClass != manifestClass:
-      harnessInvalid("emit_class " & caseData.emitClass.emitClassName &
-        " disagrees with manifest class " & manifestClass.emitClassName)
+  let manifestClass = emitClassOf(validation.manifest.playClass)
+  if caseData.emitClass != manifestClass:
+    harnessInvalid("emit_class " & caseData.emitClass.emitClassName &
+      " disagrees with manifest class " & manifestClass.emitClassName)
 
   let map = caseData.mapFor()
   var shell = newShellInstance(validation.module, map, caseData.selfPos,

@@ -66,8 +66,8 @@ proc writeBytes(path: string; bytes: openArray[byte]) =
   writeFile(path, text)
 
 proc moduleWat(name, stepBody: string; retuneBody = "i32.const 0";
-               memory = "1 16"): string =
-  let manifest = "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
+               memory = "1 16"; playClass = "controller"): string =
+  let manifest = "{\"abi\":1,\"class\":\"" & playClass & "\",\"modes\":[\"br\"]," &
     "\"name\":\"" & name & "\",\"params\":{},\"retune\":true}"
   let blockedIntent =
     "{\"arrive_radius\":24.0,\"kind\":\"navigate_to\",\"point\":[0,0]," &
@@ -97,10 +97,11 @@ proc writeCase(dir, name, frames: string): string =
     "\",\"self\":[30,30],\"frames\":" & frames & "}")
 
 proc makeCase(dir, name, stepBody: string; frames: string;
-              retuneBody = "i32.const 0"; memory = "1 16"): string =
+              retuneBody = "i32.const 0"; memory = "1 16";
+              playClass = "controller"): string =
   createDir(dir)
   writeBytes(dir / (name & ".wasm"),
-    watBytes(moduleWat(name, stepBody, retuneBody, memory)))
+    watBytes(moduleWat(name, stepBody, retuneBody, memory, playClass)))
   writeCase(dir, name, frames)
 
 proc runCli(casePath: string): string =
@@ -179,3 +180,18 @@ suite "play harness":
       check cli == runHarnessFile(pair[0])
       check cli == readFile(FixtureDir / pair[1]).strip
       assertValidationParity(pair[0], cli)
+
+  test "manifest class is enforced even without a manifest frame":
+    ensureHarnessBuilt()
+    let dir = getTempDir() / ("coworld-play-harness-class-" &
+      $getCurrentProcessId())
+    if dirExists(dir):
+      removeDir(dir)
+    createDir(dir)
+    defer: removeDir(dir)
+
+    let casePath = makeCase(dir, "overlay_case", "i32.const 0",
+      frames = "[{\"op\":\"init\",\"params\":{},\"context\":{}}]",
+      playClass = "overlay")
+    expect HarnessError:
+      discard runHarnessFile(casePath)
