@@ -99,7 +99,16 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
      this overlay in DOM order) -- margin on the CARD only, so the plain
      channel-silent line keeps its exact historical position. */
   margin-top:30px}
-#s .dcardBy{display:flex;align-items:baseline;gap:8px;font-weight:400;font-size:13px;color:#b9b3a9}
+/* Headline only ("splatted by BLUE") joins the event-face system -- same
+   var(--eventfont) stack #splat/.rfWho already use, Maxwell's own call
+   under delegation: this is the death card's one big beat, same register
+   as SPLAT/round-over/match-over, not a readout. font-family cascades
+   from .dcardBy into .dcardWho below (the team-name span) so both pieces
+   of the headline render in the same face; .dcardDetail (marker · distance)
+   and .dcardState (status line) are deliberately left OUT -- they stay
+   system font, per the "a display face may not touch readouts" rule
+   already stated at --eventfont's definition above. */
+#s .dcardBy{display:flex;align-items:baseline;gap:8px;font-family:var(--eventfont);font-weight:400;font-size:13px;color:#b9b3a9}
 #s .dcardWho{font-weight:800;font-size:19px;letter-spacing:.5px;color:#fff}
 #s .dcardChip{width:12px;height:12px;border-radius:2px;align-self:center;box-shadow:0 0 0 1px #000c}
 #s .dcardDetail{font:600 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.3px;color:#b9b3a9}
@@ -2162,6 +2171,17 @@ function handleShotFeedback(landed,taken){
   publishShotFeedback();
   if(isDead)scheduleDraw(); // a card datum trailing the death edge repaints now, not at the next packet
 }
+/* Display-layer word only (Maxwell's ruling, 8/30): real paintball's own
+   name for the gun, "marker". The wire word stays "gun" -- labels.nim,
+   sim.nim's weapon="gun" literal, and info.weapon's three-way contract
+   (handleShotFeedback/handleTextFrame above) are untouched, so a rival
+   policy or replay tool reading the private shot-feedback channel sees
+   exactly what it always has. This function exists ONLY to relabel what a
+   human reads on the death card; spray/grenade are unaffected -- the
+   ruling covers the gun, not the whole weapon set. */
+function displayWeaponWord(weapon){
+  return weapon==="gun"?"marker":weapon;
+}
 function deathStatusLine(){
   /* "you're out" replaces the invented "wiped out": real paintball's own
      word for a player who has taken a hit and is done for the point (see
@@ -2202,7 +2222,7 @@ function renderDeathOverlay(){
   by.appendChild(who);
   card.appendChild(by);
   const det=document.createElement("div");det.className="dcardDetail";
-  det.textContent=info.weapon+" \u00b7 "+info.distance+" px";
+  det.textContent=displayWeaponWord(info.weapon)+" \u00b7 "+info.distance+" px";
   if(info.friendlyFire){
     const ff=document.createElement("span");ff.className="dcardFf";
     ff.textContent="friendly fire";
