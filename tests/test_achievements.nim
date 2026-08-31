@@ -424,7 +424,7 @@ suite "achievements":
     var sim2 = policyPairGame()
     sim2.lastCaptureTeam = Red
     sim2.lastCaptureTick = sim2.tickCount
-    sim2.recordKill(1)                      # a teammate killed someone
+    sim2.recordKillCredit(1, 2)             # a teammate killed an enemy
     sim2.finishGame(Red)
     check AchievementHeist notin sim2.earned("pol0")
     # A wipe win (no capture this tick) is not a heist.

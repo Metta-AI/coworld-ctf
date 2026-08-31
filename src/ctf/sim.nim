@@ -9,8 +9,517 @@ import
   bitworld/server,
   pixie
 
-import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
-export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
+import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster, paint
+export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster, paint
+
+# ─────────────────────────────────────────────────────────────────────────
+# GLORY PORT, increment 2/3 — the team ledger, the per-life ladder,
+# achievements. Deed/xp/achievement mints only: the ladder does NOT yet
+# change how a cog plays.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Ported from main's src/ctf/sim.nim (GloryVersion 10 era) onto this split,
+# N-team, flagless-capable lineage. Pricing lives in glory.nim (untouched);
+# this is the plumbing, generalized in exactly the places the two-team
+# original couldn't have been: `enemy(team)` (a Red<->Blue-only flip) is
+# gone from every proc below, replaced with a loop over `sim.teams()` (the
+# active-team prefix this file's own convention already uses everywhere
+# else an N-team-safe iteration is needed).
+#
+# INCREMENT BOUNDARY: main's level-ladder BUFF accessors (playerWindupTicks/
+# playerFireCooldown/playerGunRange/playerSprayReset/playerMaxHp/
+# playerCarrierSpeedPct, each `levelX(base, level)`) are deliberately NOT
+# ported here -- that is increment 3's job. `xp`/`level` mint and are
+# visible on the wire (`rosterJson`'s "xp"/"lvl"), but no gameplay call site
+# reads them back: `config.gunRange`/`fireCooldownTicks`/`fireWindupTicks`/
+# `maxHpFor`/`carrierSpeedPct` are all untouched, so a level today is a
+# scoreboard fact, not a combat advantage.
+#
+# Four cuts from main, all already declared in glory.nim's own header and
+# repeated here only as pointers, not re-argued:
+#   - No supply drop (`dropSupply`, `supplyDropCredit` et al): v1 BR ships
+#     without it. `addXp`'s AceLevel supply-tap block is omitted outright.
+#   - No `floorGameClock`: GV41 (sim_types.nim's own GameVersion history)
+#     already removed the "action floor" clock model this fed -- the two
+#     source call sites (a kill, a heart steal) simply drop the call.
+#   - `treeMedKit` (all five tiers) is UNREACHABLE: every tier gates on
+#     `supplyShared`/`supplySaves`, fields that do not exist without the
+#     supply drop. `satisfiedAchievements` below omits the tree's block
+#     entirely (the fields it would read don't exist to read) rather than
+#     silently making the tree false with real-looking code.
+#   - No level-ladder buff accessors (see INCREMENT BOUNDARY above).
+
+func groundOwner*(sim: SimServer, x, y: int): Team =
+  ## Which team's ground a point sits on: the NEAREST HOME PEDESTAL wins.
+  ## N-team-safe by construction (nearest-Voronoi-cell, no midline), so this
+  ## only needed `sim.teams()` in place of source's `for team in Team` to
+  ## port -- see this file's own `Team`-widening note on why a raw
+  ## `for team in Team` touches inactive slots on any config seating fewer
+  ## than a full roster.
+  result = sim.teams().a
+  var best = high(int)
+  for team in sim.teams():
+    let
+      home = sim.gameMap.flagHome(team)
+      dx = home.x - x
+      dy = home.y - y
+      d2 = dx * dx + dy * dy
+    if d2 < best:
+      best = d2
+      result = team
+
+func deedSitePct*(sim: SimServer, team: Team, x, y: int): int =
+  ## The within-arena gradient for a deed by one team at a point.
+  let owner = sim.groundOwner(x, y)
+  siteMultPct(ownerIsSelf = owner == team, ownerIsNone = false)
+
+proc teamAliveCount(sim: SimServer, team: Team): int =
+  for player in sim.players:
+    if player.team == team and player.alive:
+      inc result
+
+proc heatCool*(sim: var SimServer) =
+  ## Embers bleed with quiet: a stalled rampage falls back down the ladder.
+  ## Without this a team banks a multiplier it has stopped earning.
+  ## Wired into the per-tick `step*` loop alongside `evalAchievementsAllTeams`.
+  for team in sim.teams():
+    if sim.heatEmbers[team] <= 0:
+      continue
+    let quietSince = max(sim.heatLastDeed[team], sim.heatLastDecay[team])
+    if sim.tickCount - quietSince >= HeatDecayTicks:
+      sim.heatEmbers[team] = max(0, sim.heatEmbers[team] - HeatEmberDecay)
+      sim.heatLastDecay[team] = sim.tickCount
+
+proc gloryPopWeaker(aLabelLen, aAmount, bLabelLen, bAmount: int): bool =
+  ## True when a pop described by (aLabelLen, aAmount) should yield to one
+  ## described by (bLabelLen, bAmount) in a same-earner queue: a named claim
+  ## always outranks a bare deed/rank-up number, and within the same kind
+  ## the bigger |payout| wins.
+  let aClaim = aLabelLen > 0
+  let bClaim = bLabelLen > 0
+  if aClaim != bClaim:
+    return bClaim
+  abs(aAmount) < abs(bAmount)
+
+proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
+                 label = "", first = false, word = "", earnerIndex = -1) =
+  ## Push one floating score pop at a deed site. COSMETIC ONLY: `gloryPops`
+  ## is excluded from gameHash exactly like `damagePops`/`splatters`, so
+  ## this can never move a replay.
+  if amount == 0 and label.len == 0 and word.len == 0:
+    return
+  if label.len == 0:
+    for pop in sim.gloryPops.mitems:
+      if pop.tick == sim.tickCount and pop.team == team and pop.label.len == 0 and
+          pop.word == word and
+          abs(pop.x - x) <= GloryPopCoalescePx and
+          abs(pop.y - y) <= GloryPopCoalescePx:
+        pop.amount += amount
+        return
+  var row = 0
+  for pop in sim.gloryPops:
+    if abs(pop.x - x) <= GloryPopCoalescePx and
+        abs(pop.y - y) <= GloryPopCoalescePx:
+      row = max(row, pop.row + 1)
+  let boundedRow = min(row, GloryPopMaxStack)
+  var startDelay = boundedRow * GloryPopStaggerTicks
+  if earnerIndex >= 0:
+    var earnerIdxs: seq[int] = @[]
+    for i, pop in sim.gloryPops:
+      if pop.earnerIndex == earnerIndex:
+        earnerIdxs.add i
+    if earnerIdxs.len >= GloryPopUnitQueueCap:
+      var weakestPos = 0
+      for p in 1 ..< earnerIdxs.len:
+        if gloryPopWeaker(
+            sim.gloryPops[earnerIdxs[p]].label.len, sim.gloryPops[earnerIdxs[p]].amount,
+            sim.gloryPops[earnerIdxs[weakestPos]].label.len, sim.gloryPops[earnerIdxs[weakestPos]].amount):
+          weakestPos = p
+      let weakestIdx = earnerIdxs[weakestPos]
+      if gloryPopWeaker(
+          label.len, amount,
+          sim.gloryPops[weakestIdx].label.len, sim.gloryPops[weakestIdx].amount):
+        return
+      sim.gloryPops.delete(weakestIdx)
+      earnerIdxs.delete(weakestPos)
+      for p in 0 ..< earnerIdxs.len:
+        if earnerIdxs[p] > weakestIdx:
+          dec earnerIdxs[p]
+    var lastQueuedStart = -1
+    for i in earnerIdxs:
+      let queued = sim.gloryPops[i]
+      lastQueuedStart = max(lastQueuedStart, queued.tick + queued.startDelay)
+    startDelay =
+      if lastQueuedStart < 0: 0
+      else: max(0, lastQueuedStart + GloryPopUnitStaggerTicks - sim.tickCount)
+  sim.gloryPops.add GloryFx(
+    x: x, y: y, tick: sim.tickCount, amount: amount, team: team, label: label,
+    word: word, first: first, row: boundedRow, earnerIndex: earnerIndex,
+    startDelay: startDelay
+  )
+
+proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
+                times = 1, byIndex = -1) =
+  ## THE SINGLE MINT. Every glory award in the engine goes through here.
+  ##
+  ## `x, y` is the PRICING site and nothing else -- feeds `deedSitePct`, and
+  ## even though `teamGlory` is NOT (yet) in `gameHash` on this increment
+  ## (see this file's own INCREMENT BOUNDARY note above), these coordinates
+  ## must still never be repurposed as a draw position -- increment 3 is
+  ## exactly the move that puts the ledger in the hash, and this call site
+  ## should not need to change when it does. `byIndex` is the EARNER and is
+  ## cosmetic only: it moves the score pop, never the money.
+  if deed == dNone or times <= 0:
+    return
+  let sitePct = sim.deedSitePct(team, x, y)
+  # N-team generalization of source's `sim.flags[enemy(team)].carrier`: this
+  # was "is a player on `team` currently carrying THE (single) enemy's
+  # flag"; here it is "carrying ANY other team's flag" -- the natural
+  # extension, and on every real (flagless) BR map this loop never finds a
+  # carrier at all, so `carrying` is always false, matching the flag-keyed
+  # deeds' own permanently-inert status (see glory.nim's header).
+  var carrying = false
+  for otherTeam in sim.teams():
+    if otherTeam == team:
+      continue
+    let c = sim.flags[otherTeam].carrier
+    if c >= 0 and sim.players[c].team == team:
+      carrying = true
+      break
+  let amount = mintGlory(deed, sim.heatEmbers[team], sitePct, carrying) * times
+  sim.teamGlory[team] += amount
+  inc sim.deedCounts[deed], times
+  sim.deedGloryMass[deed] += amount
+  if popsScore(deed):
+    let
+      earned = byIndex >= 0 and byIndex < sim.players.len
+      popX = if earned: sim.players[byIndex].x else: x
+      popY = if earned: sim.players[byIndex].y else: y
+    sim.addGloryPop(team, popX, popY, amount, word = deedPopWord(deed),
+                    earnerIndex = (if earned: byIndex else: -1))
+  if paysHeat(deed):
+    sim.heatEmbers[team] = min(HeatEmberCap, sim.heatEmbers[team] + times)
+    sim.heatLastDeed[team] = sim.tickCount
+  if sim.gameEventLoggingEnabled:
+    sim.logGameEvent(teamText(team) & " " & deedName(deed) &
+                     (if amount == 0: ""
+                      elif amount < 0: " " & $amount
+                      else: " +" & $amount))
+  # Tier-2 mirror. `target = ord(team)` is ported byte-for-byte from main,
+  # including its own pre-existing quirk: `emitEvent`'s `target` param is a
+  # PLAYER INDEX everywhere else, and a team ordinal happens to alias one
+  # whenever `ord(team) < sim.players.len`. Analysis-only (never gameHash),
+  # so this is preserved as-is rather than "fixed" outside this port's
+  # mandate -- see this file's port-header note on pricing-vs-plumbing.
+  sim.emitEvent(
+    GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
+    amount = amount, x = float(x), y = float(y)
+  )
+
+proc teamConvertedKits(sim: SimServer, team: Team): int =
+  ## How many of the four kits this team has CONVERTED. GLORY-PORT-TODO:
+  ## main's `med` leg reads `player.supplyShared` (a supply-drop-share
+  ## fact) -- that field does not exist on this port (no supply drop, v1;
+  ## see this section's header), so `med` is omitted rather than faked as
+  ## always-false-but-present. The squad tree's `kits >= 4` tiers are
+  ## therefore capped at 3 (nade+spray+shield) until supply drop lands.
+  var nade, spray, shield = false
+  for player in sim.players:
+    if player.team != team:
+      continue
+    if player.grenadeKills >= 1: nade = true
+    if player.sprayKills >= 1: spray = true
+    if player.assists >= 1: shield = true
+  ord(nade) + ord(spray) + ord(shield)
+
+proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
+                       isFirst: bool, byIndex = -1) =
+  ## Mint one achievement tier for a team, with the first-claim multiplier
+  ## decided BY THE CALLER (the tie logic lives in evalAchievementsAllTeams).
+  let key = achievementKey(tree, tier)
+  if sim.claimed[team][key]:
+    return
+  sim.claimed[team][key] = true
+  let
+    effectiveFirst = isFirst and tier == AchievementTiers - 1
+    home = sim.gameMap.flagHome(team)
+    amount = mintAchievement(tier, sim.deedSitePct(team, home.x, home.y),
+                             effectiveFirst)
+  sim.claimedFirst[key] = true
+  sim.teamGlory[team] += amount
+  inc sim.deedCounts[dAchievement]
+  sim.deedGloryMass[dAchievement] += amount
+  let byCog = byIndex >= 0 and byIndex < sim.players.len and
+              sim.players[byIndex].team == team
+  sim.achievementFeed.add AchievementClaim(
+    tick: sim.tickCount, team: team, tree: tree, tier: tier,
+    glory: amount, first: effectiveFirst,
+    slot: (if byCog: sim.players[byIndex].joinOrder else: -1)
+  )
+  if byCog and sim.players[byIndex].alive:
+    sim.addGloryPop(team, sim.players[byIndex].x, sim.players[byIndex].y,
+                    amount, label = achievementName(tree, tier),
+                    first = effectiveFirst, earnerIndex = byIndex)
+  if sim.gameEventLoggingEnabled:
+    sim.logGameEvent(
+      teamText(team) & " achievement: " & achievementName(tree, tier) &
+      (if effectiveFirst: " (FIRST!)" else: "") & " +" & $amount
+    )
+  sim.emitEvent(
+    Achievement, source = (if byCog: byIndex else: -1), target = ord(team),
+    weapon = $tree, amount = amount, hp = tier, blocked = ord(effectiveFirst),
+    x = float(home.x), y = float(home.y)
+  )
+
+proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
+                       byIndex = -1) =
+  ## Sequential (first-come) arity: first = nobody has taken the tier yet.
+  sim.claimAchievement(
+    team, tree, tier,
+    isFirst = not sim.claimedFirst[achievementKey(tree, tier)],
+    byIndex = byIndex)
+
+type SatisfiedBy = array[Tree, array[AchievementTiers, int]]
+
+const
+  Unsatisfied = -2
+  NoCog = -1
+
+proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
+  ## Pure satisfaction read over engine-truth counters. See glory.nim /
+  ## main's own copy of this proc for the full per-tier design rationale;
+  ## comments here are trimmed to what changed in the port.
+  ##
+  ## GLORY-PORT-TODO: `treeMedKit` (all 5 tiers) is OMITTED below, not
+  ## faked false -- see `teamConvertedKits`'s comment. Every other tree
+  ## ported clean: none of Gun/Spray/Grenade/Shield/Carrier/Defender/Squad
+  ## depend on anything this lineage lacks.
+  var
+    best: SatisfiedBy
+    anyCapture = false
+    kits = sim.teamConvertedKits(team)
+  for tree in Tree:
+    for tier in 0 ..< AchievementTiers:
+      best[tree][tier] = Unsatisfied
+  for idx, player in sim.players:
+    if player.team != team:
+      continue
+    template earn(tr: Tree, ti: int) =
+      if best[tr][ti] == Unsatisfied: best[tr][ti] = idx
+    if player.captures > 0: anyCapture = true
+
+    if player.gunKills >= 1:          earn(treeGun, 0)
+    if player.gunKills >= 3:          earn(treeGun, 1)
+    if player.aceKills >= 1:          earn(treeGun, 2)
+    if player.level >= MaxLevel:      earn(treeGun, 3)
+    if player.longshotKills >= 1:     earn(treeGun, 4)
+
+    if player.sprayKills >= 1:        earn(treeSpray, 0)
+    if player.sprayKills >= 2:        earn(treeSpray, 1)
+    if player.sprayKillsThisPickup >= 2: earn(treeSpray, 2)
+    if player.sprayKillsThisPickup >= 3: earn(treeSpray, 3)
+    if player.sprayMultiKills >= 1:   earn(treeSpray, 4)
+
+    if player.grenadeKills >= 1:      earn(treeGrenade, 0)
+    if player.grenadeKills >= 2:      earn(treeGrenade, 1)
+    if player.grenadeMultiKills >= 1: earn(treeGrenade, 2)
+    if player.grenadeMultiKills >= 2: earn(treeGrenade, 3)
+    if player.grenadeKills >= 3:      earn(treeGrenade, 4)
+
+    if player.assists >= 1:           earn(treeShield, 0)
+    if player.escortKills >= 1:       earn(treeShield, 1)
+    if player.rescues >= 1:           earn(treeShield, 2)
+    if player.secondWind:             earn(treeShield, 3)
+
+    if player.contestedSteals >= 1:   earn(treeCarrier, 0)
+    if player.captures >= 1:          earn(treeCarrier, 1)
+    if player.carryKills >= 1:        earn(treeCarrier, 2)
+    if player.capturedOutnumbered:    earn(treeCarrier, 3)
+    if player.capturedFastBreak:      earn(treeCarrier, 4)
+
+    if player.carrierKills >= 1:      earn(treeDefender, 0)
+    if player.denials >= 1:           earn(treeDefender, 1)
+    if player.carrierKills >= 2:      earn(treeDefender, 2)
+    if player.peelTick >= 0 and player.stealTickThisLife > player.peelTick and
+       player.stealTickThisLife - player.peelTick <= RevengeTicks:
+                                      earn(treeDefender, 3)
+    if player.denials >= 2:           earn(treeDefender, 4)
+
+  if kits >= 2:                       best[treeSquad][0] = NoCog
+  if kits >= 3:                       best[treeSquad][1] = NoCog
+  # best[treeSquad][2]/[4] (>=4 kits) are UNREACHABLE here -- GLORY-PORT-TODO,
+  # see teamConvertedKits: `kits` tops out at 3 without the medkit leg.
+  # best[treeSquad][3] (Clean Sheet) stays Unsatisfied here BY DESIGN -- see
+  # the proc comment and `evalCleanSheetAtConclusion`.
+  if kits >= 4 and anyCapture:        best[treeSquad][4] = NoCog
+
+  if sim.squadVolleyDone[team]:       best[treeShield][4] = NoCog
+
+  result = best
+
+proc evalAchievements*(sim: var SimServer, team: Team) =
+  ## Poll one team and claim anything newly satisfied, sequential-first.
+  ## Called from tests and any single-team poller, NOT from `awardDeed`.
+  if sim.phase != Playing:
+    return
+  let best = sim.satisfiedAchievements(team)
+  for tree in Tree:
+    for tier in 0 ..< AchievementTiers:
+      if best[tree][tier] != Unsatisfied:
+        sim.claimAchievement(team, tree, tier, byIndex = best[tree][tier])
+
+proc evalAchievementsAllTeams*(sim: var SimServer) =
+  ## The per-tick pass: judge EVERY team's satisfied tiers first, then mint,
+  ## so a same-tick multi-team completion is a genuine tie (every same-tick
+  ## claimant takes the first-claim multiplier).
+  if sim.phase != Playing:
+    return
+  var sat: array[Team, SatisfiedBy]
+  for team in sim.teams():
+    sat[team] = sim.satisfiedAchievements(team)
+  var untakenAtTickStart: array[AchievementTrees * AchievementTiers, bool]
+  for key in 0 ..< untakenAtTickStart.len:
+    untakenAtTickStart[key] = not sim.claimedFirst[key]
+  for team in sim.teams():
+    for tree in Tree:
+      for tier in 0 ..< AchievementTiers:
+        if sat[team][tree][tier] != Unsatisfied:
+          sim.claimAchievement(team, tree, tier,
+            isFirst = untakenAtTickStart[achievementKey(tree, tier)],
+            byIndex = sat[team][tree][tier])
+
+proc evalCleanSheetAtConclusion*(sim: var SimServer) =
+  ## Clean Sheet (`treeSquad` tier IV): zero team kills across the WHOLE
+  ## roster for the ENTIRE game, claimable only once the game has actually
+  ## concluded. `satisfiedAchievements` never reports this tier, so this is
+  ## its one and only mint site, called once from `finishGame`.
+  let key = achievementKey(treeSquad, 3)
+  let wasUntaken = not sim.claimedFirst[key]
+  for team in sim.teams():
+    var clean = true
+    for player in sim.players:
+      if player.team == team and player.teamKills > 0:
+        clean = false
+        break
+    if clean:
+      sim.claimAchievement(team, treeSquad, 3, isFirst = wasUntaken)
+
+proc recordTeamKillRing(sim: var SimServer, team: Team, killerIndex: int) =
+  ## v9 (GLORY LAW E3): appends one non-friendly kill to `team`'s small
+  ## recent-kill ring, prunes it to the live `SquadVolleyWindowTicks` window
+  ## (and a hard `SquadVolleyRingCap`), then pins `squadVolleyDone[team]`
+  ## ONCE the ring shows `SquadVolleyMinDistinct`+ DISTINCT killers inside
+  ## the window -- the `Squad Volley` gate.
+  var kept: seq[tuple[killerIndex: int, tick: int]] = @[]
+  for entry in sim.teamKillRing[team]:
+    if sim.tickCount - entry.tick <= SquadVolleyWindowTicks:
+      kept.add entry
+  kept.add (killerIndex: killerIndex, tick: sim.tickCount)
+  if kept.len > SquadVolleyRingCap:
+    kept = kept[kept.len - SquadVolleyRingCap ..< kept.len]
+  sim.teamKillRing[team] = kept
+  if not sim.squadVolleyDone[team]:
+    var distinctKillers: seq[int] = @[]
+    for entry in kept:
+      if entry.killerIndex notin distinctKillers:
+        distinctKillers.add entry.killerIndex
+    if distinctKillers.len >= SquadVolleyMinDistinct:
+      sim.squadVolleyDone[team] = true
+
+proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
+  ## Move a cog along its per-life ladder, and mint the level-up if it
+  ## climbs. Negative amounts are how friendly fire de-levels you.
+  ##
+  ## GLORY-PORT-TODO: main's AceLevel supply-drop tap
+  ## (`supplyDropCredit += amount; sim.dropSupply(playerIndex)`) is CUT --
+  ## v1 BR ships without supply drop (glory.nim's header). The level ladder
+  ## and its buffs (windup/hp/cooldown/spray-reset/grenade-charges/carrier
+  ## speed) are UNCHANGED by this cut.
+  if playerIndex < 0 or playerIndex >= sim.players.len or amount == 0:
+    return
+  let before = sim.players[playerIndex].level
+  sim.players[playerIndex].xp = max(0, sim.players[playerIndex].xp + amount)
+  sim.players[playerIndex].level = levelForXp(sim.players[playerIndex].xp)
+  let after = sim.players[playerIndex].level
+  if after > before:
+    sim.awardDeed(
+      sim.players[playerIndex].team, dLevelUp,
+      sim.players[playerIndex].x, sim.players[playerIndex].y, after - before,
+      byIndex = playerIndex
+    )
+    # GLORYVERSION 10 (leveling pays POWER, not the scoreboard): `dLevelUp`
+    # mints 0g, so `popsScore` excludes it and the generic pop above never
+    # fires. The moment still deserves a pop -- mint it directly, `word`
+    # (never `label`, see main's own comment on why), short GloryFxTicks
+    # life -- it fires ~40x/episode, an AchievementFxTicks-length claim pop
+    # would never clear before the next one lands.
+    if sim.players[playerIndex].alive:
+      sim.addGloryPop(
+        sim.players[playerIndex].team,
+        sim.players[playerIndex].x, sim.players[playerIndex].y, 0,
+        word = deedPopWord(dLevelUp) & " " & repeat("*", clampLevel(after)),
+        earnerIndex = playerIndex
+      )
+    if sim.gameEventLoggingEnabled:
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) & " is " &
+        levelName(after)
+      )
+    sim.emitEvent(
+      LevelUp, source = playerIndex, amount = after,
+      x = float(sim.players[playerIndex].x), y = float(sim.players[playerIndex].y)
+    )
+
+proc resetLadder*(sim: var SimServer, playerIndex: int) =
+  ## Death forfeits the whole per-life ladder: xp, level, buffs. THE ANTI-
+  ## SNOWBALL RULE -- a runaway cog is a `dAceTag` bounty and killing it
+  ## puts it back to a recruit.
+  ##
+  ## GLORY-PORT-TODO cut: main also zeroes `supplyDropCredit`/
+  ## `supplyDropsThisLife`/`lastSupplyDropTick` here -- none exist on this
+  ## port (no supply drop, v1).
+  sim.players[playerIndex].xp = 0
+  sim.players[playerIndex].level = 0
+  sim.players[playerIndex].stealTickThisLife = -1
+
+proc resetGloryLedger*(sim: var SimServer) =
+  ## Zeroes every TEAM/GAME-level glory field: the ledger, its rampage
+  ## state, the one-shot claim gates, the fire-counter audit and the
+  ## cosmetic pop queue. Does NOT touch per-player counters (startGame's
+  ## own per-player loop owns those). Called from `startGame`.
+  for team in sim.teams():
+    sim.teamGlory[team] = 0
+    sim.heatEmbers[team] = 0
+    sim.heatLastDeed[team] = 0
+    sim.heatLastDecay[team] = 0
+    sim.squadVolleyDone[team] = false
+    sim.teamKillRing[team] = @[]
+    for key in 0 ..< sim.claimed[team].len:
+      sim.claimed[team][key] = false
+  for key in 0 ..< sim.claimedFirst.len:
+    sim.claimedFirst[key] = false
+  for deed in Deed:
+    sim.deedCounts[deed] = 0
+    sim.deedGloryMass[deed] = 0
+  sim.firstBloodDone = false
+  sim.achievementFeed = @[]
+  sim.gloryPops = @[]
+
+proc stealIsContested(sim: SimServer, playerIndex: int): bool =
+  ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer
+  ## at the exact moment the heart leaves its pedestal -- the fact
+  ## `Hands On` gates on. Already N-team-safe (no `enemy()` call).
+  let
+    team = sim.players[playerIndex].team
+    px = sim.players[playerIndex].x
+    py = sim.players[playerIndex].y
+    rangeSq = ContestedStealPx * ContestedStealPx
+  for i, other in sim.players:
+    if i == playerIndex or other.team == team or not other.alive:
+      continue
+    if distSq(px, py, other.x, other.y) <= rangeSq:
+      return true
+  false
 
 proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
   ## The four grenade spawn points. Sides maps keep the classic corners;
@@ -164,6 +673,12 @@ proc barrierSpawnPoints*(gameMap: CtfMap, perTeam: int): seq[tuple[x, y: int]] =
     )
     result.add(gameMap.teamOrbitPoints(red))
 
+proc paintballLoadout*(sim: SimServer): bool {.inline.} =
+  ## True while the paintball loadout is on: every cog holds a spray can and
+  ## never loses it, the gun is disabled (the starter's own rule for a can
+  ## carrier), NO pickups are placed at all, and there is no heart objective.
+  sim.config.loadout == LoadoutPaintball
+
 template placeWalkablePickups(
   sim: var SimServer,
   spawnsField: untyped,
@@ -176,6 +691,15 @@ template placeWalkablePickups(
   ## placement in resetGrenades — its points are walkable by construction
   ## and were never nudged before the authored path existed, so that branch
   ## stays byte-identical rather than routing through here.)
+  ##
+  ## Under the paintball loadout NO pickup is placed at all: the family is
+  ## emptied instead. The pickup/update path is already skipped there, so an
+  ## un-emptied family could not be taken — but it was still reported in the
+  ## seats' first-person JSON, listed as a map item and drawn on the board, so
+  ## the picture and the LLM's view both carried objects the rules do not have.
+  if sim.paintballLoadout():
+    sim.spawnsField.setLen(0)
+    return
   let targetsOnce = targets   # evaluate the expression once, not per use
   sim.spawnsField.setLen(targetsOnce.len)
   for i in 0 ..< sim.spawnsField.len:
@@ -193,12 +717,16 @@ proc resetGrenades*(sim: var SimServer) =
   ## formula, the same "map's own list first, formula fallback" rule
   ## resetShields/resetSprayPaints use. The authored path is nudged to the
   ## nearest walkable floor via placeWalkablePickups, same as the other
-  ## three item families (generator points are not guaranteed walkable).
-  ## The classic formula path keeps its original UNNUDGED placement
-  ## byte-for-byte — those points are walkable by construction (§ the
-  ## formula's own layout-specific insets) and were never nudged before
+  ## three item families (generator points are not guaranteed walkable) —
+  ## and, like every placeWalkablePickups family, empties outright under the
+  ## paintball loadout. The classic formula path keeps its original UNNUDGED
+  ## placement byte-for-byte — those points are walkable by construction (§
+  ## the formula's own layout-specific insets) and were never nudged before
   ## this change, so this branch must stay a literal copy of the old loop
-  ## for every 2-4 team map's replay to hash identically.
+  ## for every 2-4 team map's replay to hash identically, MODULO the
+  ## paintball gate below (`present`): under the paintball loadout the
+  ## corners stay EMPTY (the spawn array is fixed-size, so "not placed" is
+  ## `present: false` here); nothing is drawn, reported or takeable.
   ##
   ## BR path defense-in-depth: validateMap (arena.nim) now rejects any
   ## flagless+spawnGroups>1 map that omits grenadeSpawns (the SAME `and`
@@ -224,11 +752,13 @@ proc resetGrenades*(sim: var SimServer) =
       targets.add(point)
     sim.placeWalkablePickups(grenadeSpawns, targets)
   else:
-    let points = sim.gameMap.grenadeSpawnPoints()
+    let
+      points = sim.gameMap.grenadeSpawnPoints()
+      present = not sim.paintballLoadout()
     sim.grenadeSpawns.setLen(points.len)
     for i in 0 ..< sim.grenadeSpawns.len:
       sim.grenadeSpawns[i] = PickupSpawn(
-        x: points[i].x, y: points[i].y, present: true, respawnAt: 0
+        x: points[i].x, y: points[i].y, present: present, respawnAt: 0
       )
   sim.airborneGrenades = @[]
   for i in 0 ..< sim.players.len:
@@ -361,6 +891,83 @@ proc resetZone*(sim: var SimServer) =
       # desync the rest of the tick's RNG-consuming calls.
       sim.gameMap.center
 
+proc seatCount*(sim: SimServer): int {.inline.} =
+  ## How many SEATS (websocket connections) this game has. Two here: one seat
+  ## commands one four-cog squad.
+  max(1, sim.config.numAgents)
+
+proc cogSeat*(sim: SimServer, cogIndex: int): int {.inline.} =
+  ## Which seat owns a cog. Cogs are dealt round-robin across the teams by
+  ## the roster's own slot rule, so cog index parity IS the team ordinal and
+  ## therefore the seat: 0, 2, 4, 6 are RED-alpha..delta and 1, 3, 5, 7 are
+  ## BLUE-alpha..delta. Keeping the interleave means `teamForSlot` and
+  ## `slotIdentityIndex` are inherited unchanged.
+  if cogIndex < 0: 0 else: cogIndex mod sim.seatCount()
+
+proc cogIdentityIndex*(sim: SimServer, cogIndex: int): int {.inline.} =
+  ## The cog's rank inside its squad: 0 = alpha, 1 = beta, 2 = gamma, 3 = delta.
+  if cogIndex < 0: 0 else: (cogIndex div sim.seatCount()) mod IdentityNames.len
+
+proc cogAlias*(sim: SimServer, cogIndex: int): string =
+  ## The cog's ANONYMOUS in-game name — "RED-alpha". This is the only name a
+  ## seat, a prompt or a shout ever sees; real policy names live spectator
+  ## side only (the replay config, roster[].name, teams.<color>.policies,
+  ## results.names and the DOM chrome).
+  if cogIndex < 0 or cogIndex >= sim.players.len:
+    return "?"
+  toUpperAscii(teamText(sim.players[cogIndex].team)) & "-" &
+    IdentityNames[sim.cogIdentityIndex(cogIndex)]
+
+proc totalCogs*(sim: SimServer): int {.inline.} =
+  ## Every cog on the board: one squad per seat.
+  sim.seatCount() * max(1, sim.config.cogsPerTeam)
+
+proc seatCommands*(sim: SimServer, seat, cogIndex: int): bool =
+  ## Whether `seat` drives this cog under the game's CURRENT regime.
+  ## `resident` = the whole squad; `visitor` = alpha only, the other three
+  ## run the published `holdline` baseline.
+  if sim.cogSeat(cogIndex) != seat:
+    return false
+  case sim.regime
+  of regimeResident: true
+  of regimeVisitor: sim.cogIdentityIndex(cogIndex) == 0
+
+proc squadCogs*(sim: SimServer, seat: int): seq[int] =
+  ## Every cog of one seat's squad, in index order.
+  for i in 0 ..< sim.players.len:
+    if sim.cogSeat(i) == seat:
+      result.add(i)
+
+proc commandedCogs*(sim: SimServer, seat: int): seq[int] =
+  ## The cogs this seat actually commands this game (4 resident, 1 visitor).
+  for i in 0 ..< sim.players.len:
+    if sim.seatCommands(seat, i):
+      result.add(i)
+
+proc armSprayCans*(sim: var SimServer) =
+  ## Puts a spray can in every cog's hand and keeps it there — on spawn, on
+  ## respawn, on death, ever. With the can held the starter already disables
+  ## the gun (docs/RULES.md, canFire), so `resolveSimultaneousFire` is never
+  ## populated in a paintball game and no new code is needed for that half.
+  if not sim.paintballLoadout():
+    return
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasSprayPaint = true
+
+proc retireHearts*(sim: var SimServer) =
+  ## There is no heart objective under the paintball loadout: `hill` replaces
+  ## the capture win condition. Marking every flag RETIRED is the starter's own
+  ## out-of-play state (GV32/GV33) — a retired heart is never drawn, cannot be
+  ## stolen and cannot be captured — so the objective disappears from the board
+  ## and from every observation stream with no new render or pickup branch.
+  if not sim.paintballLoadout():
+    return
+  for team in Team:
+    sim.flags[team].carrier = -1
+    sim.flags[team].captured = true
+  for i in 0 ..< sim.players.len:
+    sim.players[i].carryingFlag = false
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
@@ -373,6 +980,10 @@ proc startGame*(sim: var SimServer) =
   sim.shotFeedback = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
+  # GLORY: every ledger, multiplier and one-shot achievement gate resets at
+  # the game boundary -- a per-episode economy that leaked across games
+  # would make the first game's heat/claims silently price the second one.
+  sim.resetGloryLedger()
   let groupOffset = sim.spawnGroupOffset()
     ## Same offset arrangeHomePositions just used to place every seat (a pure
     ## function of the config seed) — spawnAimBrads' BR path needs it too, so
@@ -387,6 +998,44 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].lastDeathTick = -1
     sim.players[i].hp =
       sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+    sim.resetLadder(i)
+    sim.players[i].grenadeCharges = 0
+    sim.players[i].sprayKillsThisPickup = 0
+    sim.players[i].gunKills = 0
+    sim.players[i].sprayKills = 0
+    sim.players[i].grenadeKills = 0
+    sim.players[i].longshotKills = 0
+    sim.players[i].soakedHp = 0
+    sim.players[i].clutchHeals = 0
+    sim.players[i].steals = 0
+    sim.players[i].carrierKills = 0
+    sim.players[i].denials = 0
+    sim.players[i].aceKills = 0
+    sim.players[i].sprayMultiKills = 0
+    sim.players[i].grenadeMultiKills = 0
+    sim.players[i].clutchCarryHeals = 0
+    sim.players[i].contestedSteals = 0
+    sim.players[i].carryKills = 0
+    sim.players[i].assists = 0
+    sim.players[i].rescues = 0
+    sim.players[i].escortKills = 0
+    sim.players[i].clutchHealTick = -1
+    sim.players[i].peelTick = -1
+    sim.players[i].lastDamagedBy = -1
+    sim.players[i].lastDamagedByTick = -1
+    sim.players[i].menacingTick = -1
+    sim.players[i].menacingVictim = -1
+    sim.players[i].rescuedTick = -1
+    sim.players[i].secondWind = false
+    sim.players[i].capturedOutnumbered = false
+    sim.players[i].capturedFastBreak = false
+    sim.players[i].lastKilledBy = -1
+    sim.players[i].lastKilledByTick = -1
+    sim.players[i].arcEnemyKillsThisFire = 0
+    sim.players[i].tookMedKit = false
+    sim.players[i].tookGrenade = false
+    sim.players[i].tookSpray = false
+    sim.players[i].tookShield = false
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -434,6 +1083,16 @@ proc startGame*(sim: var SimServer) =
   sim.resetSprayPaints()
   sim.resetBarriers()
   sim.resetZone()
+  # Paintball: the can is issued for good, the hearts leave play, and the
+  # floor starts clean. Each GAME of the episode is an independent board.
+  sim.armSprayCans()
+  sim.retireHearts()
+  for i in 0 ..< sim.players.len:
+    sim.players[i].paintUnder = puNone
+    sim.players[i].ownPaintTicks = 0
+  if sim.config.floorPaint:
+    sim.clearPaintGrid()
+  sim.feedDirectives = @[]
   sim.emitPhaseChange(Playing)
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
@@ -820,6 +1479,53 @@ proc paintPathClear*(sim: SimServer, ax, ay, bx, by: int): bool =
       return false
   true
 
+proc paintConeTiles*(sim: var SimServer, attackerIndex: int): tuple[tiles, hillTiles: int] =
+  ## NEW (paintball): repaints every PAINTABLE tile whose CENTRE lies inside
+  ## this cog's active cone, in the sprayer's team colour. Called once per
+  ## active cone per tick from resolveActiveArcCones, in cog index order, so
+  ## two cones overlapping a tile on one tick resolve deterministically.
+  ##
+  ## The predicate is `tileInCone` — the starter's cone geometry with the
+  ## victim's body radius set to zero — and paint respects line of sight for
+  ## the same reason damage does: paint does not go through a wall.
+  ##
+  ## Only tiles inside the cone's bounding box are considered, so the sweep
+  ## costs a couple of hundred integer tests per burst rather than a scan of
+  ## all 740 tiles.
+  if not sim.config.floorPaint:
+    return (0, 0)
+  if attackerIndex < 0 or attackerIndex >= sim.players.len:
+    return (0, 0)
+  let attacker = sim.players[attackerIndex]
+  if attacker.arcTicksLeft <= 0 or attacker.arcAimBrads < 0:
+    return (0, 0)
+  let
+    ax = attacker.x + CollisionW div 2
+    ay = attacker.y + CollisionH div 2
+    reach = SprayPaintReach
+    maxWidth = SprayPaintMaxWidth
+    size = sim.paintTileSize()
+    team = attacker.team
+    x0 = max(0, (ax - reach) div size)
+    y0 = max(0, (ay - reach) div size)
+    x1 = min(sim.paintGridW - 1, (ax + reach) div size)
+    y1 = min(sim.paintGridH - 1, (ay + reach) div size)
+  for ty in y0 .. y1:
+    for tx in x0 .. x1:
+      let tile = ty * sim.paintGridW + tx
+      if not sim.paintFloor[tile]:
+        continue
+      let (cx, cy) = sim.paintTileCentre(tile)
+      if not tileInCone(ax, ay, attacker.arcAimBrads, reach, maxWidth, cx, cy):
+        continue
+      if not sim.paintPathClear(ax, ay, cx, cy):
+        continue
+      let onHill = sim.hillContains(tile)
+      if sim.paintTile(tile, team):
+        inc result.tiles
+        if onHill:
+          inc result.hillTiles
+
 proc flattenBarrier(sim: var SimServer, index: int, color: uint8,
                     cause: string) =
   ## Removes one standing barrier with a crumple splatter at its center
@@ -896,7 +1602,9 @@ proc killPlayer*(
   killerIndex: int,
   killerSlot = -1,
   elimination = false,
-  cause = ""
+  cause = "",
+  weapon = "",
+  multi = false
 ) =
   ## Applies a fatal hit: return any carried flag to its pedestal, decrement
   ## lives, start respawn. GV35: an `elimination` death (the team's heart was
@@ -904,11 +1612,115 @@ proc killPlayer*(
   ## deaths-stat increment and no per-player "killed by" line, because nobody
   ## shot these players; the team lost. The endscreen's D column stays a
   ## record of combat deaths.
+  ##
+  ## GLORY PORT (increment 2/3): `weapon`/`multi` are appended (never inserted) so
+  ## every existing positional call site (`sim.killPlayer(victimIndex,
+  ## attacker)`, `sim.killPlayer(i, throwerIndex, throwerSlot, cause = ...)`)
+  ## keeps binding its own args exactly where it already did. This is ALSO
+  ## the single chokepoint where a kill is PRICED, same discipline main's
+  ## own killPlayer used -- the three weapon damage sites (gun/spray-arc/
+  ## grenade) each already know their own weapon and multi-kill state
+  ## first-hand, so they pass it in here rather than this proc guessing by
+  ## counter-diffing.
   if targetIndex < 0 or targetIndex >= sim.players.len:
     return
   if not sim.players[targetIndex].alive:
     return
   if not elimination:
+    # GLORY: read the kill CONTEXT before anything below mutates it -- the
+    # flag-return loop a few lines down clears `carryingFlag`, so asking
+    # afterwards would price every peel as a plain kill, and the peel is
+    # the deed most worth being able to see. Skipped for an `elimination`
+    # death (a captured team folding, not a combat kill -- nobody shot
+    # these players) for the same reason the deaths-stat/log-line guard
+    # above it exists.
+    block priceTheKill:
+      if killerIndex < 0 or killerIndex >= sim.players.len:
+        break priceTheKill
+      let
+        victim = sim.players[targetIndex]
+        killer = sim.players[killerIndex]
+        victimHome = sim.gameMap.flagHome(victim.team)
+        dxHome = victim.x - victimHome.x
+        dyHome = victim.y - victimHome.y
+        dx = victim.x - killer.x
+        dy = victim.y - killer.y
+        opening = dx * victim.velX + dy * victim.velY
+      # N-team generalization of source's `sim.flags[enemy(killer.team)]`:
+      # "a TEAMMATE (not the killer) currently runs ANY enemy heart", same
+      # extension `awardDeed`'s own carry-hold check above uses.
+      var escortCarrier = -1
+      for otherTeam in sim.teams():
+        if otherTeam == killer.team: continue
+        let c = sim.flags[otherTeam].carrier
+        if c >= 0 and sim.players[c].team == killer.team and c != killerIndex:
+          escortCarrier = c
+          break
+      let ctx = KillContext(
+        friendly: victim.team == killer.team,
+        victimCarrying: victim.carryingFlag,
+        nearVictimHome: dxHome * dxHome + dyHome * dyHome <=
+                        DenialPx * DenialPx,
+        victimLevel: victim.level,
+        multi: multi,
+        rangePx: int(sqrt(float(dx * dx + dy * dy))),
+        weaponSpray: weapon == "spray",
+        weaponGrenade: weapon == "grenade",
+        avengesKiller: killer.lastKilledBy == targetIndex and
+                       killer.lastKilledByTick >= 0 and
+                       sim.tickCount - killer.lastKilledByTick <= RevengeTicks,
+        fleeing: opening > 0,
+        escorted: escortCarrier >= 0
+      )
+      let deed = killDeed(ctx)
+      sim.awardDeed(killer.team, deed, victim.x, victim.y,
+                    byIndex = killerIndex)
+      # Achievement counters, keyed off the RESOLVED deed so they can never
+      # disagree with what was actually minted.
+      if not ctx.friendly:
+        if ctx.weaponSpray:
+          inc sim.players[killerIndex].sprayKills
+          inc sim.players[killerIndex].sprayKillsThisPickup
+        elif ctx.weaponGrenade:
+          inc sim.players[killerIndex].grenadeKills
+        else:
+          inc sim.players[killerIndex].gunKills
+        if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
+        if ctx.victimLevel >= AceLevel:
+          inc sim.players[killerIndex].aceKills
+        if ctx.victimCarrying:
+          inc sim.players[killerIndex].carrierKills
+          sim.players[killerIndex].peelTick = sim.tickCount
+          if ctx.nearVictimHome: inc sim.players[killerIndex].denials
+        if killer.carryingFlag: inc sim.players[killerIndex].carryKills
+        if ctx.escorted:
+          inc sim.players[killerIndex].escortKills
+        let victimDamager = victim.lastDamagedBy
+        if victimDamager >= 0 and victimDamager < sim.players.len and
+           victimDamager != killerIndex and
+           sim.players[victimDamager].team == killer.team and
+           victim.lastDamagedByTick >= 0 and
+           sim.tickCount - victim.lastDamagedByTick <= AssistWindowTicks:
+          inc sim.players[victimDamager].assists
+        if victim.menacingTick >= 0 and
+           sim.tickCount - victim.menacingTick <= RescueWindowTicks:
+          let menaced = victim.menacingVictim
+          if menaced >= 0 and menaced < sim.players.len and
+             menaced != killerIndex and
+             sim.players[menaced].team == killer.team:
+            inc sim.players[killerIndex].rescues
+            sim.players[menaced].rescuedTick = sim.tickCount
+        if killer.rescuedTick >= 0 and
+           sim.tickCount - killer.rescuedTick <= SecondWindTicks:
+          sim.players[killerIndex].secondWind = true
+        sim.recordTeamKillRing(killer.team, killerIndex)
+      if not sim.firstBloodDone and not ctx.friendly:
+        sim.firstBloodDone = true
+        sim.awardDeed(killer.team, dFirstBlood, victim.x, victim.y,
+                      byIndex = killerIndex)
+      sim.addXp(killerIndex, killXp(ctx))
+    sim.players[targetIndex].lastKilledBy = killerIndex
+    sim.players[targetIndex].lastKilledByTick = sim.tickCount
     # An environmental death (cause text, no killer) logs its own line; a
     # combat death keeps the classic "killed by" attribution.
     if cause.len > 0:
@@ -925,10 +1737,14 @@ proc killPlayer*(
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
   sim.players[targetIndex].shieldHp = 0
-  sim.players[targetIndex].hasSprayPaint = false
+  # Under the paintball loadout the can is never lost: a tagged-out cog comes
+  # back holding it, because there is nowhere on the map to pick another up.
+  sim.players[targetIndex].hasSprayPaint = sim.paintballLoadout()
   sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].arcAimBrads = -1
   sim.players[targetIndex].throwCharge = 0
+  sim.players[targetIndex].ownPaintTicks = 0
+  sim.players[targetIndex].paintUnder = puNone
   sim.players[targetIndex].hasBarrier = false  # carried cardboard is lost too.
   sim.players[targetIndex].puddleTicks = 0
   for team in sim.teams():
@@ -959,6 +1775,19 @@ proc killPlayer*(
     kill: true
   )
   sim.players[targetIndex].alive = false
+  # GLORY: THE ANTI-SNOWBALL RULE -- a cog's whole per-life ladder dies with
+  # it. This is the price of granting real power at all, and on BR (one
+  # life = the episode) it is what still bounds a levelled cog to one life
+  # even though there is only ever one life to bound.
+  #
+  # GLORY-PORT-TODO: main also leaves a lingering ace glow/star-row at the
+  # death spot here (`sim.aceDeathFx.add AceDeathFx(...)`, gated on
+  # `level >= AceLevel`, captured before this reset zeroes it) -- that FX
+  # type/renderer isn't ported (see this port's report: FX pop RENDERING
+  # is out of scope, only the data-producing side is in). The ladder reset
+  # itself is unaffected; only the cosmetic lingering glow is missing.
+  sim.resetLadder(targetIndex)
+  sim.players[targetIndex].grenadeCharges = 0
   sim.players[targetIndex].killsThisLife = 0
   sim.players[targetIndex].healsThisLife = 0
   sim.players[targetIndex].hurtByMask = 0   # the next life starts untouched
@@ -1016,6 +1845,8 @@ proc absorbDamage*(
   ## hit at all breaks `spotless`), and, when the caller names an attacker,
   ## that attacker's damageDealt (self-damage excluded) with its grenade
   ## share. Environmental damage (puddles, barrage shells) passes no attacker.
+  ## GV47 credits the attacker's reward account from the same spot, split
+  ## enemy/teammate — see roster.recordHitDamage.
   ##
   ## `assassin` is judged here too: a gun or grenade hit that drops the
   ## victim from living hp to none, landed by an attacker that had not yet
@@ -1031,6 +1862,9 @@ proc absorbDamage*(
       sim.players[targetIndex].hurtByMask =
         sim.players[targetIndex].hurtByMask or bit
     inc sim.players[attackerIndex].damageDealt, amount
+    # GV47: the same hp, mirrored onto the reward account split by team, so
+    # shaping can pay for enemy chip damage and charge for friendly fire.
+    sim.recordHitDamage(attackerIndex, targetIndex, amount)
     case weapon
     of "grenade": inc sim.players[attackerIndex].grenadeDamageDealt, amount
     of "gun": inc sim.players[attackerIndex].gunDamageDealt, amount
@@ -1038,7 +1872,20 @@ proc absorbDamage*(
     else: discard
     if sim.playerTrench(attackerIndex) >= 0:
       inc sim.players[attackerIndex].pitDamageDealt, amount
+  # Any damage restarts the heal clock: two seconds of UNINTERRUPTED time on
+  # your own colour is what buys a hit point back.
+  if amount > 0:
+    sim.players[targetIndex].ownPaintTicks = 0
   let fromShield = min(sim.players[targetIndex].shieldHp, amount)
+  if fromShield > 0:
+    # GLORY: `dShieldSoak` -- kept as a fire/audit counter even though
+    # `XpPerShieldSoak`/its drama price are zero+tombstoned (v9 LAW E1),
+    # same status main gives it.
+    sim.awardDeed(sim.players[targetIndex].team, dShieldSoak,
+                  sim.players[targetIndex].x, sim.players[targetIndex].y,
+                  times = fromShield)
+    sim.addXp(targetIndex, XpPerShieldSoak * fromShield)
+    sim.players[targetIndex].soakedHp += fromShield
   sim.players[targetIndex].shieldHp -= fromShield
   sim.players[targetIndex].hp -= amount - fromShield
   if firstTouch and hpBefore > 0 and sim.players[targetIndex].hp <= 0 and
@@ -1178,6 +2025,22 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           let (sxw, syw) = sim.seatInWall(rx, ry, ux, uy)
           sim.addPaintStain(sxw, syw, teamColor(attacker.team), onWall = true)
           break sprayStain
+    # NEW (paintball): the same cone repaints the FLOOR TILES it covers. This
+    # is the only thing that paints the floor under the paintball loadout —
+    # there is no gun, no grenade and no barrage — so a squad's territory is
+    # exactly the ground its cans have swept.
+    block paintFloorFromCone:
+      let painted = sim.paintConeTiles(arcFire.attacker)
+      if painted.tiles > 0:
+        sim.emitEvent(
+          PaintTiles,
+          source = arcFire.attacker,
+          weapon = "spray",
+          amount = painted.tiles,
+          hp = painted.hillTiles,
+          x = float(attacker.x + CollisionW div 2),
+          y = float(attacker.y + CollisionH div 2)
+        )
     for victimIndex in arcFire.victims:
       if victimIndex < 0 or victimIndex >= sim.players.len:
         continue
@@ -1193,8 +2056,9 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       # paintball (see the gun's damage site).
       let bubbleUp = sim.players[victimIndex].hasShield and
         sim.players[victimIndex].shieldHp > 0
+      let sprayDamage = max(1, sim.config.sprayDamage)
       let blocked = sim.absorbDamage(
-        victimIndex, SprayPaintDamage, arcFire.attacker, "spray"
+        victimIndex, sprayDamage, arcFire.attacker, "spray"
       )
       if sim.config.allowShotFeedback:
         # Same private hit-confirm the gun's damage site pushes (applyFire) —
@@ -1235,14 +2099,14 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         vy = float(sim.players[victimIndex].y + CollisionH div 2)
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
-        weapon = "spray", amount = SprayPaintDamage,
+        weapon = "spray", amount = sprayDamage,
         hp = max(0, sim.players[victimIndex].hp),
         blocked = blocked, x = vx, y = vy
       )
       if sim.collectEvents:
         damages.add sim.eventDamage(
           victimIndex,
-          SprayPaintDamage,
+          sprayDamage,
           max(0, sim.players[victimIndex].hp),
           blocked
         )
@@ -1251,26 +2115,52 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         x: sim.players[victimIndex].x + CollisionW div 2,
         y: sim.players[victimIndex].y + CollisionH div 2,
         tick: sim.tickCount,
-        amount: SprayPaintDamage, color: sim.players[victimIndex].color
+        amount: sprayDamage, color: sim.players[victimIndex].color
       )
+      # GLORY: damage is the DENSE half of the ladder -- identical block to
+      # the gun's own damage site, see its comment there. Priced from the
+      # CONFIGURED sprayDamage (the hp the victim actually lost), not the
+      # classic constant: paintball configures 1, and crediting 3 there
+      # would advance the ladder three times too fast.
+      if arcFire.attacker >= 0 and arcFire.attacker < sim.players.len and
+          sim.players[arcFire.attacker].team != sim.players[victimIndex].team:
+        sim.addXp(arcFire.attacker, XpPerDamage * sprayDamage)
+        if sim.players[victimIndex].hp > 0:
+          sim.players[victimIndex].lastDamagedBy = arcFire.attacker
+          sim.players[victimIndex].lastDamagedByTick = sim.tickCount
+          if sim.players[victimIndex].hp <= ClutchHpThreshold:
+            sim.players[arcFire.attacker].menacingTick = sim.tickCount
+            sim.players[arcFire.attacker].menacingVictim = victimIndex
       if sim.players[victimIndex].hp <= 0:
-        sim.killPlayer(victimIndex, arcFire.attacker)
+        # GLORY: `multi` reflects the PRIOR value of `arcKillsThisFire` --
+        # this is the 2nd+ kill of the activation iff it was already >=1
+        # before the increment below.
+        let
+          arcMulti = sim.players[arcFire.attacker].arcKillsThisFire > 0
+          teamKill =
+            sim.players[victimIndex].team == sim.players[arcFire.attacker].team
+        sim.killPlayer(victimIndex, arcFire.attacker, weapon = "spray",
+                       multi = arcMulti)
         if victimIndex != arcFire.attacker:
-          sim.recordKill(arcFire.attacker)
-          sim.recordTeamKill(arcFire.attacker, victimIndex)
+          sim.recordKillCredit(arcFire.attacker, victimIndex)
           sim.emitEvent(
             Kill, source = arcFire.attacker, target = victimIndex,
-            weapon = "spray", amount = SprayPaintDamage, x = vx, y = vy
+            weapon = "spray", amount = sprayDamage, x = vx, y = vy
           )
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
           # triple; a fourth+ stays inside the already-counted triple.
-          inc sim.players[arcFire.attacker].arcKillsThisFire
-          if sim.players[arcFire.attacker].arcKillsThisFire == 2:
-            inc sim.players[arcFire.attacker].multiKills2
-          elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
-            dec sim.players[arcFire.attacker].multiKills2
-            inc sim.players[arcFire.attacker].multiKills3
+          # Enemy kills only — a sprayed teammate is a backstab, not an honor
+          # (GV45 stats rule; also excludes the GLORY sprayMultiKills counter,
+          # same reasoning).
+          if not teamKill:
+            inc sim.players[arcFire.attacker].arcKillsThisFire
+            if sim.players[arcFire.attacker].arcKillsThisFire == 2:
+              inc sim.players[arcFire.attacker].multiKills2
+              inc sim.players[arcFire.attacker].sprayMultiKills
+            elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
+              dec sim.players[arcFire.attacker].multiKills2
+              inc sim.players[arcFire.attacker].multiKills3
     if sim.collectEvents:
       sim.emitEvent(
         SprayUse,
@@ -1628,10 +2518,24 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       amount: damage,
       color: sim.players[targetIndex].color
     )
+    # GLORY: damage is the DENSE half of the ladder (pairs with the sparse
+    # deed events above) -- every hit lands XpPerDamage, enemy-only, gun
+    # included. Also sets the ASSIST ("who set this kill up") / RESCUE
+    # ("who left a teammate at clutch hp alive") plumbing `killPlayer`'s
+    # kill-pricing context reads -- identical block at the spray/arc and
+    # grenade sites.
+    if shooterIndex >= 0 and shooterIndex < sim.players.len and
+        sim.players[shooterIndex].team != sim.players[targetIndex].team:
+      sim.addXp(shooterIndex, XpPerDamage * 1)
+      if sim.players[targetIndex].hp > 0:
+        sim.players[targetIndex].lastDamagedBy = shooterIndex
+        sim.players[targetIndex].lastDamagedByTick = sim.tickCount
+        if sim.players[targetIndex].hp <= ClutchHpThreshold:
+          sim.players[shooterIndex].menacingTick = sim.tickCount
+          sim.players[shooterIndex].menacingVictim = targetIndex
     if sim.players[targetIndex].hp <= 0:
-      sim.killPlayer(targetIndex, shooterIndex)
-      sim.recordKill(shooterIndex)
-      sim.recordTeamKill(shooterIndex, targetIndex)
+      sim.killPlayer(targetIndex, shooterIndex, weapon = "gun")
+      sim.recordKillCredit(shooterIndex, targetIndex)
       sim.emitEvent(
         Kill, source = shooterIndex, target = targetIndex, weapon = "gun",
         amount = damage,
@@ -1929,7 +2833,6 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   # a landing reads as that team's paint-bomb — and the sprite id stays within
   # the two team-color slots, never colliding with the tracer pool.
   let
-    legacyThrowerIndex = sim.legacyGrenadeThrowerIndex(grenade)
     throwerSlot = sim.grenadeThrowerSlot(grenade)
     throwerIndex = sim.playerIndexForSlot(throwerSlot)
     # An environment shell (grenade barrage, throwerSlot -1) has no owning
@@ -2049,32 +2952,65 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       x: px, y: py, tick: sim.tickCount,
       amount: dmg, color: sim.players[i].color
     )
+    # GLORY: damage is the DENSE half of the ladder -- identical block to
+    # the gun's own damage site, see its comment there. Uses `throwerIndex`
+    # (this loop's own current-frame identity, already reconciled against
+    # GV24 compaction below) rather than `grenade.thrower` directly.
+    if throwerIndex >= 0 and throwerIndex < sim.players.len and
+        sim.players[throwerIndex].team != sim.players[i].team:
+      sim.addXp(throwerIndex, XpPerDamage * dmg)
+      if sim.players[i].hp > 0:
+        sim.players[i].lastDamagedBy = throwerIndex
+        sim.players[i].lastDamagedByTick = sim.tickCount
+        if sim.players[i].hp <= ClutchHpThreshold:
+          sim.players[throwerIndex].menacingTick = sim.tickCount
+          sim.players[throwerIndex].menacingVictim = i
     if sim.players[i].hp <= 0:
+      # GLORY: `multi` reflects the PRIOR value of `blastKills` -- this is
+      # the 2nd+ kill of the blast iff a valid, non-self kill already
+      # landed from it before this one.
+      let grenadeMulti = blastKills > 0
       # An environment shell logs its own death line instead of the combat
       # "killed by" attribution (there is nobody to credit).
       sim.killPlayer(
         i, throwerIndex, throwerSlot,
-        cause = (if throwerSlot < 0: "shelled by the grenade barrage" else: "")
+        cause = (if throwerSlot < 0: "shelled by the grenade barrage" else: ""),
+        weapon = "grenade", multi = grenadeMulti
       )
       if throwerSlot >= 0 and throwerSlot != sim.eventSlot(i):
+        # GV45: the credit routes by team — an enemy kill to `kills`, a
+        # blasted teammate to `teamKills`. The account is credited via the
+        # immutable thrower identity (the thrower may have left the game);
+        # the live counters ride the current index when the thrower is still
+        # seated, mirroring recordKillCredit without double-crediting the
+        # account. (The GV24 legacy-index hash quirk retires with the bump.)
+        let
+          throwerTeam =
+            if throwerIndex >= 0: sim.players[throwerIndex].team
+            else: sim.teamForSlot(throwerSlot)
+          teamKill = throwerTeam == sim.players[i].team
         if grenade.throwerAccount >= 0 and
             grenade.throwerAccount < sim.rewardAccounts.len:
-          inc sim.rewardAccounts[grenade.throwerAccount].kills
-        if legacyThrowerIndex >= 0 and legacyThrowerIndex != i:
-          # Preserve the exact GV24 hash even if compaction made this legacy
-          # live index point at a different player. Results and events above
-          # use the immutable thrower identity.
-          inc sim.players[legacyThrowerIndex].kills
-          sim.noteLifeKill(legacyThrowerIndex)
+          if teamKill:
+            inc sim.rewardAccounts[grenade.throwerAccount].teamKills
+          else:
+            inc sim.rewardAccounts[grenade.throwerAccount].kills
         if throwerIndex >= 0 and throwerIndex != i:
-          sim.recordTeamKill(throwerIndex, i)
+          if teamKill:
+            inc sim.players[throwerIndex].teamKills
+          else:
+            inc sim.players[throwerIndex].kills
+            sim.noteLifeKill(throwerIndex)
         sim.emitEvent(
           Kill, source = throwerIndex, target = i, weapon = "grenade",
           amount = dmg, x = float(px), y = float(py),
           sourceSlot = throwerSlot
         )
-        if throwerIndex >= 0 and throwerIndex != i:
+        # Cluster (multi-kill) honors count enemy kills only.
+        if throwerIndex >= 0 and throwerIndex != i and not teamKill:
           inc blastKills
+          if blastKills == 2:
+            inc sim.players[throwerIndex].grenadeMultiKills
   if sim.collectEvents:
     sim.emitEvent(
       GrenadeImpact,
@@ -2189,10 +3125,27 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].team, sim.players[playerIndex].perks)
   if sim.players[playerIndex].hp >= maxHp:
     return
+  # GLORY: read BEFORE the pickup heals, like the kill site reads its
+  # context before mutation -- "at/near clutch hp" only means anything
+  # measured against the PRE-heal hp.
+  let onOneHp = sim.players[playerIndex].hp <= ClutchHpThreshold
   sim.pickupByTouch(playerIndex, medKitSpawns, MedKitPickupRange,
       MedKitRespawnTicks):
+    if onOneHp:
+      sim.awardDeed(sim.players[playerIndex].team, dClutchHeal,
+                    sim.players[playerIndex].x, sim.players[playerIndex].y)
+      sim.addXp(playerIndex, XpPerClutchHeal)
+      inc sim.players[playerIndex].clutchHeals
+      sim.players[playerIndex].clutchHealTick = sim.tickCount
+      if sim.players[playerIndex].carryingFlag:
+        inc sim.players[playerIndex].clutchCarryHeals
     let healed = maxHp - sim.players[playerIndex].hp
     sim.players[playerIndex].hp = maxHp
+    # GLORY: the general pickup+heal mint. `XpPerPickup`/`XpPerHeal` are
+    # both zero+tombstoned (v9 LAW E1, self-heal no longer pays) -- this
+    # call site stays wired anyway so a future re-price needs no new
+    # plumbing, same discipline `dShieldSoak` above holds.
+    sim.addXp(playerIndex, XpPerPickup + XpPerHeal * healed)
     sim.noteLifeHeal(playerIndex)
     sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
     sim.emitEvent(
@@ -2426,8 +3379,23 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     if sim.flags[flagTeam].carrier >= 0 or sim.flags[flagTeam].captured:
       continue
     if distSq(px, py, sim.flags[flagTeam].x, sim.flags[flagTeam].y) <= rangeSq:
+      # GLORY: read BEFORE the steal mutates anything, same discipline the
+      # kill site's context read uses. GLORY-PORT-TODO: source also called
+      # `sim.floorGameClock()` here (a steal keeps at least
+      # ActionClockFloorTicks on the clock) -- GV41 (this file's own
+      # GameVersion history, sim_types.nim) already removed the "action
+      # floor"/overtimeTicks clock model that fed, so the call is dropped
+      # outright rather than ported onto a mechanism that no longer exists.
+      let contested = sim.stealIsContested(playerIndex)
       sim.flags[flagTeam].carrier = playerIndex
       sim.players[playerIndex].carryingFlag = true
+      sim.awardDeed(sim.players[playerIndex].team, dFlagSteal,
+                    sim.players[playerIndex].x, sim.players[playerIndex].y)
+      sim.addXp(playerIndex, XpPerSteal)
+      if contested:
+        inc sim.players[playerIndex].contestedSteals
+      inc sim.players[playerIndex].steals
+      sim.players[playerIndex].stealTickThisLife = sim.tickCount
       sim.emitEvent(
         FlagSteal, source = playerIndex,
         x = float(sim.flags[flagTeam].x), y = float(sim.flags[flagTeam].y)
@@ -2545,9 +3513,15 @@ proc applyInput*(
   let
     speedScale =
       if player.carryingFlag: sim.config.carrierSpeedPct else: 100
+    # The floor-paint buff composes MULTIPLICATIVELY AFTER the carrier scale
+    # and BEFORE the trench divisor, in exactly this integer order so both
+    # ends of the map round identically. paintPct is 100 whenever the buff is
+    # gated off, which makes the gate-off path byte-identical.
+    paintPct = sim.paintSpeedPct(playerIndex)
     maxSpeed =
-      sim.config.maxSpeedFor(player.team, player.perks) * speedScale div 100
-    accel = sim.config.accel * speedScale div 100
+      (sim.config.maxSpeedFor(player.team, player.perks) * speedScale div 100) *
+        paintPct div 100
+    accel = (sim.config.accel * speedScale div 100) * paintPct div 100
     # CLIMBING OUT of a trench is slow; dropping in and moving around it
     # are not. While the center is inside a pit, each axis whose motion
     # points AWAY from the pit's center — up that wall — is capped at 1/5
@@ -2882,6 +3856,36 @@ proc playerVisibleTo*(sim: SimServer, viewerIndex, targetIndex: int): bool =
     sim.players[targetIndex].y + CollisionH div 2
   )
 
+proc refreshSeatFov*(sim: var SimServer, viewerIndex: int) =
+  ## Refreshes one viewer's fog AND, in a squad game, ORs in the fog of every
+  ## other cog the same SEAT commands under the current regime.
+  ##
+  ## The seat is the observer, not the cog: a `resident` seat legitimately
+  ## sees through all four of its cogs, while a `visitor` seat sees only
+  ## through alpha — which is exactly what makes the visitor half a genuinely
+  ## narrower view and the resident/visitor comparison worth measuring. Doing
+  ## it by OR-ing into the viewing cog's cached grid means every downstream
+  ## consumer (the frame builder, the first-person inset, entity culling)
+  ## picks the union up with no further change.
+  discard sim.refreshPlayerFov(viewerIndex)
+  if sim.config.numAgents <= 0 or sim.config.cogsPerTeam <= 1:
+    return
+  let seat = sim.cogSeat(viewerIndex)
+  if not sim.seatCommands(seat, viewerIndex):
+    return
+  for other in sim.commandedCogs(seat):
+    if other == viewerIndex or not sim.players[other].alive:
+      continue
+    discard sim.refreshPlayerFov(other)
+    if sim.fovCaches[other].visible.len != sim.fovCaches[viewerIndex].visible.len:
+      continue
+    for cell in 0 ..< sim.fovCaches[viewerIndex].visible.len:
+      if sim.fovCaches[other].visible[cell]:
+        sim.fovCaches[viewerIndex].visible[cell] = true
+  # The union is a per-FRAME derivation, so it must not be mistaken for a
+  # valid single-cog cache on the next tick.
+  sim.fovCaches[viewerIndex].valid = false
+
 proc flagVisibleTo*(sim: SimServer, viewerIndex: int, team: Team): bool =
   ## Returns whether one team's flag is observable by a viewer: always on its
   ## pedestal; riding a carrier it is exactly as visible as the carrier.
@@ -3012,6 +4016,12 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.isDraw = isDraw
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
+  # GLORY: Clean Sheet (treeSquad tier IV) is a FULL-GAME requirement --
+  # `satisfiedAchievements` never reports it, so this is its one and only
+  # mint site, placed before the `isDraw` early return so it fires on every
+  # conclusion (draw or decisive), matching the achievement's own "the
+  # whole game, however it ended" scope.
+  sim.evalCleanSheetAtConclusion()
   if isDraw:
     if timeLimitReached:
       # A time-limit draw is a lose-lose: every player on both teams takes
@@ -3718,6 +4728,127 @@ proc updateBarrage*(sim: var SimServer) =
     if sim.airborneGrenades.len < MaxPlayers:
       sim.launchBarrageShell()
 
+proc awardWipe(sim: var SimServer, winner, loser: Team) =
+  ## Mints `dWipe` at the exact in-sim site of the deciding kill: the
+  ## losing team's last player to fall THIS tick, paid out over their
+  ## killer. `checkWinCondition`'s draw branch never calls this, so a
+  ## mutual wipe can never pay two windfalls.
+  ##
+  ## GLORY PORT (increment 2/3): ported as a 2-argument (winner, loser) proc, same
+  ## as main -- `checkWinCondition` below generalizes the CALLER to find
+  ## which team(s) to call it for on an N-team board (main's own version
+  ## could assume exactly one `loser` because it only ever ran on 2-team
+  ## play); this proc's own body needed no N-team change at all.
+  var
+    siteX, siteY: int
+    killerIndex = -1
+    found = false
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team != loser:
+      continue
+    if sim.players[i].lastKilledByTick == sim.tickCount:
+      siteX = sim.players[i].x
+      siteY = sim.players[i].y
+      let by = sim.players[i].lastKilledBy
+      if by >= 0 and by < sim.players.len and sim.players[by].team == winner:
+        killerIndex = by
+      found = true
+      break
+  if not found:
+    for i in 0 ..< sim.players.len:
+      if sim.players[i].team == loser:
+        siteX = sim.players[i].x
+        siteY = sim.players[i].y
+        found = true
+        break
+  if not found:
+    return
+  sim.awardDeed(winner, dWipe, siteX, siteY, byIndex = killerIndex)
+
+proc updatePaintBuff*(sim: var SimServer) =
+  ## NEW (paintball): the once-per-tick "what am I standing on" evaluation.
+  ##
+  ## Runs at the END of tick t; the speed multiplier it records is consumed by
+  ## `applyInput` on tick t+1, so there is exactly ONE evaluation per cog per
+  ## tick and both halves of the buff read the SAME snapshot.
+  ##
+  ## The heal counter is reset by stepping off own paint for even one tick, by
+  ## taking any damage (absorbDamage), by dying (killPlayer) and at the start
+  ## of each game (startGame).
+  if not sim.config.floorPaint:
+    return
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive:
+      sim.players[i].paintUnder = puNone
+      sim.players[i].ownPaintTicks = 0
+      continue
+    let under = sim.paintUnderFor(i)
+    sim.players[i].paintUnder = under
+    if not sim.config.paintBuff:
+      continue
+    if under != puOwn:
+      sim.players[i].ownPaintTicks = 0
+      continue
+    inc sim.players[i].ownPaintTicks
+    if sim.players[i].ownPaintTicks < max(1, sim.config.paintHealTicks):
+      continue
+    sim.players[i].ownPaintTicks = 0
+    let maxHp = sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+    if sim.players[i].hp >= maxHp:
+      continue
+    inc sim.players[i].hp
+    sim.emitEvent(
+      Heal, source = i, amount = 1, hp = sim.players[i].hp,
+      x = float(sim.players[i].x + CollisionW div 2),
+      y = float(sim.players[i].y + CollisionH div 2)
+    )
+
+proc updateHill*(sim: var SimServer) =
+  ## NEW (paintball): recompute hill ownership from the incremental tile
+  ## counts and bank one point per owned tick. An ownership CHANGE emits a
+  ## `hillflip` analysis event, throttled to at most one per
+  ## HillFlipThrottleTicks so a contested rim cannot flood the feed.
+  if not sim.config.hill:
+    return
+  var
+    owner = Red
+    owned = false
+  for team in sim.teams():
+    if sim.hillOwnsFor(team):
+      owner = team
+      owned = true
+      break
+  if owned != sim.hillOwned or (owned and owner != sim.hillOwner):
+    sim.hillOwned = owned
+    sim.hillOwner = owner
+    if sim.tickCount - sim.lastHillFlipTick >= HillFlipThrottleTicks:
+      sim.lastHillFlipTick = sim.tickCount
+      if owned:
+        sim.logGameEvent(
+          teamText(owner) & " takes the hill (" &
+            $sim.hillCoveragePct(owner) & "%)")
+      else:
+        sim.logGameEvent("the hill is contested")
+      sim.emitEvent(
+        HillFlip,
+        weapon = (if owned: teamText(owner) else: "none"),
+        amount = (if owned: sim.hillCoveragePct(owner) else: 0)
+      )
+  if sim.hillOwned:
+    inc sim.hillTicks[sim.hillOwner]
+    if sim.hillTicks[sim.hillOwner] mod TargetFps == 0:
+      sim.emitEvent(
+        HillHold,
+        weapon = teamText(sim.hillOwner),
+        amount = sim.hillTicks[sim.hillOwner] div TargetFps
+      )
+
+proc hillLeader*(sim: SimServer): tuple[team: Team, draw: bool] =
+  ## The team with more banked hill ticks this game, and whether it is level.
+  if sim.hillTicks[Red] > sim.hillTicks[Blue]: (Red, false)
+  elif sim.hillTicks[Blue] > sim.hillTicks[Red]: (Blue, false)
+  else: (Red, true)
+
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
   if sim.phase != Playing or sim.players.len == 0:
@@ -3755,6 +4886,25 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
         cy = carrier.y + CollisionH div 2
       if zone.inCaptureZone(cx, cy):
         sim.recordCapture(carrierIndex)
+        # GLORY: capture deed/xp + the "Uphill"/"Fast Break" achievement
+        # pins -- kept at this call site (not inside `recordCapture`
+        # itself) because `roster.nim` cannot see `awardDeed`/`addXp`/
+        # `teamAliveCount` (import direction; see `recordCapture`'s own
+        # comment). Read/pinned BEFORE the flag-reset mutations a few
+        # lines down, same "context before mutation" discipline the kill
+        # site uses. `flagTeam` (this loop's own var) is the N-team-safe
+        # replacement for main's hardcoded `if team == Red: Blue else: Red`
+        # -- the SPECIFIC team whose heart this was, more correct than
+        # main's own "the one other team" even in the 2-team case main was
+        # written for.
+        if sim.teamAliveCount(carrier.team) < sim.teamAliveCount(flagTeam):
+          sim.players[carrierIndex].capturedOutnumbered = true
+        if sim.players[carrierIndex].stealTickThisLife >= 0 and
+           sim.tickCount - sim.players[carrierIndex].stealTickThisLife <=
+               FastBreakTicks:
+          sim.players[carrierIndex].capturedFastBreak = true
+        sim.awardDeed(carrier.team, dCapture, carrier.x, carrier.y)
+        sim.addXp(carrierIndex, XpPerCapture)
         sim.emitEvent(
           Capture, source = carrierIndex,
           x = float(cx), y = float(cy)
@@ -3805,8 +4955,31 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       inc aliveCount
       lastAlive = team
   if aliveCount == 1:
+    # GLORY: `dWipe` -- fire only for a team that crossed from alive to
+    # dead on THIS exact tick, never for one eliminated earlier in the
+    # match. On a 2-team board this is always exactly the loser (main's
+    # own case). On an N-team board, `checkWinCondition`'s wipe branch
+    # only runs when `aliveCount` reaches 1 at all -- so a team eliminated
+    # several ticks earlier is already dead by the time this fires, and
+    # must NOT re-mint a stale wipe using its corpse's current (meaningless)
+    # position. `justDied` is the guard `awardWipe`'s own defensive
+    # fallback (built for a "should not happen" 2-team case) can't provide
+    # by itself on N teams -- checked HERE so that fallback never masks a
+    # stale re-fire.
+    for loserTeam in sim.teams():
+      if loserTeam == lastAlive or sim.teamHasLivePlayers(loserTeam):
+        continue
+      var justDied = false
+      for player in sim.players:
+        if player.team == loserTeam and player.lastKilledByTick == sim.tickCount:
+          justDied = true
+          break
+      if justDied:
+        sim.awardWipe(lastAlive, loserTeam)
     sim.finishGame(lastAlive)
   elif aliveCount == 0:
+    # GLORY: a mutual wipe is a draw -- never mint dWipe here, matching
+    # main's own rule (no windfall for a game nobody won).
     sim.finishGame(Red, isDraw = true)
 
 proc checkMaxTicks(sim: var SimServer) =
@@ -3823,6 +4996,49 @@ proc checkMaxTicks(sim: var SimServer) =
     sim.finishGame(winner, isDraw = isDraw, timeLimitReached = true)
     return
   sim.finishGame(Red, isDraw = true, timeLimitReached = true)
+
+proc checkKothEnd*(sim: var SimServer) =
+  ## NEW (paintball): replaces checkWinCondition + checkMaxTicks while
+  ## `hill` is on, evaluated in exactly this order.
+  ##
+  ## 1. WIPE — a team with no cog alive and no lives left loses on the spot,
+  ##    and the SURVIVOR is credited every remaining tick. Crediting the
+  ##    remainder is what stops a wipe from being worth less than playing the
+  ##    clock out.
+  ## 2. MERCY — the lead exceeds the ticks remaining, so the result can no
+  ##    longer change.
+  ## 3. FULL TIME — the clock ran out; equal hill ticks is a draw.
+  if sim.phase != Playing or sim.players.len == 0:
+    return
+  let
+    elapsed = sim.gameTicksElapsed()
+    limit = sim.config.maxTicks
+    remaining = (if limit > 0: max(0, limit - elapsed) else: high(int) div 4)
+  var
+    standing = 0
+    survivor = Red
+  for team in sim.teams():
+    if sim.teamHasLivePlayers(team):
+      inc standing
+      survivor = team
+  if standing <= 1:
+    if standing == 1:
+      sim.hillTicks[survivor] += (if limit > 0: remaining else: 0)
+      sim.endRule = EndRuleWipe
+      sim.finishGame(survivor)
+    else:
+      sim.endRule = EndRuleWipe
+      sim.finishGame(Red, isDraw = true)
+    return
+  if limit > 0 and abs(sim.hillTicks[Red] - sim.hillTicks[Blue]) > remaining:
+    let leader = sim.hillLeader()
+    sim.endRule = EndRuleMercy
+    sim.finishGame(leader.team, isDraw = leader.draw)
+    return
+  if limit > 0 and elapsed >= limit:
+    let leader = sim.hillLeader()
+    sim.endRule = EndRuleFullTime
+    sim.finishGame(leader.team, isDraw = leader.draw, timeLimitReached = true)
 
 proc decodeGridFont(image: Image, cellW, cellH, cols: int,
     spacing = 1): PixelFont =
@@ -4209,6 +5425,18 @@ proc initSimServer*(config: GameConfig): SimServer =
   ## here the masks track the art (updateAnimatedDiamonds, every step).
   result.initDiamondPatches()
   discard result.applyDiamondGeometry(0)   # no roster yet: nobody to push out.
+  ## The paint grid's PAINTABLE mask is computed here, against the wall mask
+  ## with the diamonds at spin frame 0 — the one state the native server and
+  ## the wasm viewer are both guaranteed to be in at map install.
+  result.initPaintGrid()
+  result.regime =
+    if result.config.regimes.len > 0: result.config.regimes[0]
+    else: regimeResident
+  result.gameIndex = 0
+  result.gameHill = @[]
+  result.gameRegimes = @[]
+  result.endReason = ReasonComplete
+  result.endRule = EndRuleFullTime
   result.fovCaches = @[]
   result.players = @[]
   result.nextJoinOrder = 0
@@ -4241,8 +5469,19 @@ proc resetToLobby*(sim: var SimServer) =
   ## to move and land inside the stone the new game starts with. (Safe to run
   ## with the roster already emptied above: no one is left to be engulfed, so
   ## the displacement pass this returns true for has nothing to do.)
-  sim.tickCount = 0
-  discard sim.applyDiamondGeometry(0)
+  if sim.config.numAgents > 0:
+    ## A paintball EPISODE is two games, and the replay codec stops parsing at
+    ## the first non-increasing tick hash (ReplaySpec.hashOrder = rhoStop). So
+    ## the tick clock must stay MONOTONIC across the games: rewinding it here
+    ## truncated the recording at game one and threw the whole visitor half —
+    ## half the league score — away. The diamonds are still rewound to spin
+    ## frame 0 for the reason above; the very next updateAnimatedDiamonds
+    ## re-stamps whatever frame the running clock implies, so the geometry
+    ## stays a pure function of the tick either way.
+    discard sim.applyDiamondGeometry(0)
+  else:
+    sim.tickCount = 0
+    discard sim.applyDiamondGeometry(0)
   sim.resetGrenades()
   sim.resetMedKits()
   sim.resetShields()
@@ -4259,6 +5498,8 @@ proc resetToLobby*(sim: var SimServer) =
   sim.diamondStains = @[]
   sim.damagePops = @[]
   sim.shotFeedback = @[]
+  sim.clearPaintGrid()
+  sim.feedDirectives = @[]
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
   sim.startWaitTimer = 0
@@ -4373,12 +5614,25 @@ template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
       kept.add fx
   sim.fxField = kept
 
+
 proc step*(
   sim: var SimServer,
   inputs: openArray[InputState],
   prevInputs: openArray[InputState]
 ) {.measure.} =
   inc sim.tickCount
+
+  # GLORY: the heat ladder cools on a stalled streak -- called unconditionally
+  # every tick (same as main), same reasoning as evalAchievementsAllTeams
+  # below: cheap, and a no-op whenever heatEmbers is already 0 (Lobby/GameOver).
+  sim.heatCool()
+
+  # GLORY: the per-tick achievement pass -- judges every team's satisfied
+  # tiers before any claim mints, so a same-tick multi-team completion is a
+  # genuine tie (its own internal `if sim.phase != Playing: return` makes
+  # this safe to call unconditionally, same as main's own placement ahead
+  # of the Lobby/GameOver early-returns below).
+  sim.evalAchievementsAllTeams()
 
   # The center diamonds turn BEFORE anything moves or fires this tick, so
   # movement, bullets, and vision all resolve against the geometry the tick
@@ -4450,21 +5704,26 @@ proc step*(
   for playerIndex in arcFiring:
     sim.startArcFire(playerIndex)
   sim.resolveActiveArcCones()
-  sim.updateGrenades()
-  sim.updateMedKits()
-  sim.updateShields()
-  sim.updateSprayPaints()
-  sim.updateBarriers()
+  # Pickups and the heart objective are skipped ENTIRELY under the paintball
+  # loadout, because nothing is placed: no grenades, med kits, shields, spray
+  # cans, cardboard or hearts exist on the board to update or to touch.
+  if not sim.paintballLoadout():
+    sim.updateGrenades()
+    sim.updateMedKits()
+    sim.updateShields()
+    sim.updateSprayPaints()
+    sim.updateBarriers()
 
-  for playerIndex in 0 ..< sim.players.len:
-    sim.tryPickupFlags(playerIndex)
-    sim.tryPickupGrenades(playerIndex)
-    sim.tryPickupMedKits(playerIndex)
-    sim.tryPickupShields(playerIndex)
-    sim.tryPickupSprayPaints(playerIndex)
-    sim.tryPickupBarriers(playerIndex)
-  sim.updateFlags()
+    for playerIndex in 0 ..< sim.players.len:
+      sim.tryPickupFlags(playerIndex)
+      sim.tryPickupGrenades(playerIndex)
+      sim.tryPickupMedKits(playerIndex)
+      sim.tryPickupShields(playerIndex)
+      sim.tryPickupSprayPaints(playerIndex)
+      sim.tryPickupBarriers(playerIndex)
+    sim.updateFlags()
   sim.respawnPlayers()
+  sim.armSprayCans()          ## a respawned cog comes back holding its can.
   sim.updatePackTicks()
   # Puddle damage resolves after movement and pickups, before the win check,
   # so a lethal roll feeds the same tick's wipe resolution. The shrink zone
@@ -4474,8 +5733,21 @@ proc step*(
   sim.updateZone()
   sim.updateBarrage()
 
-  sim.checkWinCondition()
-  sim.checkMaxTicks()
+  # NEW (paintball), in the design note's order: the buff snapshot, then the
+  # hill, then the KotH end conditions IN PLACE OF the capture/wipe checks.
+  sim.updatePaintBuff()
+  if sim.config.floorPaint or sim.config.hill:
+    ## The sim guard: the incremental paint/hill counters and the cog
+    ## positions every score is derived from, checked before a game is ended
+    ## on them. A trip raises SimGuardError, which the server's tick loop
+    ## turns into `fault` / `sim_fault` (design §End conditions row 5).
+    sim.checkPaintInvariants()
+  sim.updateHill()
+  if sim.config.hill:
+    sim.checkKothEnd()
+  else:
+    sim.checkWinCondition()
+    sim.checkMaxTicks()
 
   # Prune expired shot tracers and splatters (cosmetic only; excluded from
   # gameHash).
@@ -4493,3 +5765,9 @@ proc step*(
     (if fx.hit: HitFxTicks else: SplatterFxTicks))
   sim.pruneAgedFx(damagePops, tick,
     (if fx.kill: KillFxTicks else: DamageFxTicks))
+  # GLORY: cosmetic pop expiry (never gameHash) -- a named claim lives the
+  # longer AchievementFxTicks, a bare deed/rank-up pop the shorter
+  # GloryFxTicks (RANK UP deliberately uses this short life: it fires
+  # ~40x/episode and would pile up under the longer claim duration).
+  sim.pruneAgedFx(gloryPops, tick,
+    (if fx.label.len > 0: AchievementFxTicks else: GloryFxTicks))
