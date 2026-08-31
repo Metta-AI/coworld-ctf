@@ -12,6 +12,7 @@ import ../src/shell/body_map
 import ../src/shell/body_nav
 import ../src/shell/body_planner
 import ../src/shell/types as shellTypes
+import ../src/shell/view as shellView
 
 type
   Options = object
@@ -363,6 +364,103 @@ proc activationBarrierRow(options: Options, scenario: Scenario): JsonNode =
   details["last_ready_route_fields"] = %lastReadyFields
   row("latency.activation_barrier_prewarm32_with_mints", samples, details)
 
+proc viewSource(seat: int): PlayViewSource =
+  result = PlayViewSource(
+    tick: 12345'u32,
+    mode: gmBr,
+    epoch: uint64(seat + 1),
+    self: PlaySelf(pos: (1605 + seat, 856), hp: 9, hpFrac: 0.9,
+      aimBrads: (seat * 17) mod 256, alive: true),
+    aliveTeams: 16,
+    zone: some(PlayZone(phase: 3,
+      current: PlayRect(x: 100, y: 100, w: 3000, h: 1500),
+      next: some(PlayRect(x: 200, y: 200, w: 2800, h: 1300)),
+      ticksToShrink: 240, dps: 2)),
+    intent: some(shellTypes.Intent(kind: ikNavigateTo,
+      point: some(MapPoint(x: 3000, y: 850)),
+      arriveRadius: 24.0,
+      movingGoal: true,
+      profile: cpCarrier,
+      micro: {mfFormationBias, mfPeekDuck},
+      idleAimCenterBrads: some(128),
+      clampToEndzone: true,
+      suppressFireFreeze: true,
+      reason: "benchmark")))
+  for index in 0 ..< 32:
+    result.tracks.add(PlayTrack(seat: index, team: Team(index div 2),
+      pos: (100 + index * 31, 200 + index * 13),
+      aimBrads: some((index * 17) mod 256),
+      hp: some(10 - (index mod 4)), freshTick: 12345'u32 - uint32(index),
+      bounty: index mod 7 == 0))
+    result.items.add(PlayItem(eventId: uint64(index), kind: pikMedkit,
+      pos: (40 + index * 23, 60 + index * 11),
+      present: some(index mod 3 != 0),
+      freshTick: 12300'u32 + uint32(index)))
+    result.killFeed.add(PlayKillFeedRow(eventId: uint64(index),
+      tick: 12000'u32 + uint32(index), killerTeam: Team(index div 2),
+      victimSeat: (index + 1) mod 32))
+    result.shouts.add(PlayShout(eventId: uint64(index),
+      team: Team(index div 2), slotLetter: $char(ord('A') + index mod 26),
+      text: "contact", pos: (500 + index, 700 - index),
+      tick: 12345'u32 - uint32(index)))
+  for index in 0 ..< 16:
+    result.aggressors.add(PlayAggressor(eventId: uint64(index),
+      tick: 12340'u32 - uint32(index), dirBrads: (index * 19) mod 256,
+      seat: some(index)))
+  for index in 0 ..< 8:
+    result.hazards.grenades.add(PlayGrenadeHazard(eventId: uint64(index),
+      coversSelf: index == 0, pos: (900 + index, 800 + index),
+      predictedBlastPos: (920 + index, 810 + index),
+      ticksToBlast: 20 - index))
+    if index mod 2 == 0:
+      result.hazards.sprays.add(PlaySprayHazard(kind: pshVisibleCone,
+        eventId: uint64(index), coversSelf: index == 0,
+        tick: 12340'u32 - uint32(index), attackerSeat: index,
+        origin: (700 + index, 600 + index), aimBrads: index * 8,
+        reachPx: 331, maxWidthPx: 96))
+    else:
+      result.hazards.sprays.add(PlaySprayHazard(kind: pshAnonymousImpact,
+        eventId: uint64(index), coversSelf: false,
+        tick: 12340'u32 - uint32(index),
+        impactPos: (700 + index, 600 + index),
+        incomingDirBrads: index * 8))
+  for index in 0 ..< 4:
+    result.hazards.blastCues.add(PlayBlastCue(eventId: uint64(index),
+      coversSelf: index == 0, pos: (1000 + index, 500 + index),
+      tick: 12340'u32 + uint32(index)))
+  result.hazards.ownThrow = some(PlayOwnThrow(
+    target: (1700, 900), releaseTick: 12360, blastRadius: 96))
+
+proc viewRows(options: Options): seq[JsonNode] =
+  var sources: seq[PlayViewSource]
+  for seat in 0 ..< 32:
+    sources.add(viewSource(seat))
+  var producer = newPlayViewProducer()
+  var maxBytes = 0
+  var selectedRows = newJArray()
+  let sampleModel = selectPlayView(sources[0], shellTypes.MaxViewFrameBytes)
+  selectedRows.add(%*{"tracks": sampleModel.tracks.len,
+    "items": sampleModel.items.len, "aggressors": sampleModel.aggressors.len,
+    "kill_feed": sampleModel.killFeed.len, "shouts": sampleModel.shouts.len,
+    "grenades": sampleModel.hazards.grenades.len,
+    "blast_cues": sampleModel.hazards.blastCues.len,
+    "sprays": sampleModel.hazards.sprays.len,
+    "own_throw": sampleModel.hazards.ownThrow.isSome})
+  let samples = measure(options.warmups, options.samples,
+    proc() =
+      for source in sources:
+        let bytes = producer.buildPlayView(source, shellTypes.MaxViewFrameBytes)
+        maxBytes = max(maxBytes, bytes.len))
+  let details = %*{"seat_count": 32,
+    "max_view_frame_bytes": shellTypes.MaxViewFrameBytes,
+    "max_observed_frame_bytes": maxBytes,
+    "acceptance_p95_ms": 2.5,
+    "acceptance": "32-seat canonical JSON build+encode for socket/replay path",
+    "json_guest_reader_fuel_acceptance":
+      "fixed-layout binary play copy uses its own 8192-byte cap in the next package after 28-57 fuel/byte JSON measurement",
+    "selected_rows_sample": selectedRows}
+  result.add(row("view.json_batch32_build_encode", samples, details))
+
 proc stageBucket(stage: PlanStage): string =
   case stage
   of pjsAstarSearch:
@@ -572,6 +670,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
     result.addRows(options.planningRows(scenario))
     result.addRows(options.latencyRows(scenario))
     result.add(options.activationBarrierRow(scenario))
+    result.addRows(options.viewRows())
     result.add(options.episodeRow(scenario))
     result.add(options.duckRow(scenario))
     result.add(scenario.writeBackRow)
@@ -585,11 +684,12 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
     result.add(options.activationBarrierRow(scenario))
     result.add(scenario.writeBackRow)
     result.add(scenario.realScorerWriteBackRow)
+  of "view": result.addRows(options.viewRows())
   of "episode": result.add(options.episodeRow(scenario))
   of "duck": result.add(options.duckRow(scenario))
   else:
     raise newException(ValueError,
-      "cases are smoke, all, danger, planning, latency, episode, duck, census")
+      "cases are smoke, all, danger, planning, latency, view, episode, duck, census")
 
 proc gitHead(): string =
   try:

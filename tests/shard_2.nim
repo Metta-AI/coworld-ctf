@@ -39,6 +39,7 @@ import
   test_shell_first_light,
   test_shell_packets,
   test_shell_standing_order,
+  test_shell_view,
   test_shield_bubble,
   test_shields,
   test_shot_accuracy,
