@@ -252,6 +252,15 @@ const
     ## u8 team, u32 len, u8[len] UTF-8 text. Total = 20 + len. One message
     ## per packet, broadcast to every play seat, never coalesced.
 
+  # ── Pre-match vote phase (#319/#322, Maxwell's side): RESERVED ────────
+  # Opcodes 0xA4 (BallotCast, client→server) and 0xB3 (VoteState,
+  # server→client) plus replay record 0x17 (vote records, hash-coupled
+  # like 0x14–0x16, no manifest arm) are claimed by the vote phase and
+  # must not be reused. Byte layouts land with that implementation after
+  # our byte-exact verification of #322; nothing here defines them yet.
+  OpBallotCastReserved* = 0xA4'u8
+  OpVoteStateReserved* = 0xB3'u8
+
   # ── §4.3/§9.3: bumped replay format's new record types ────────────────
   # CtfReplayFormatVersion bumps 1 → 2 in P2 (lane B); the block is
   # reserved here so nothing collides. The codec's existing types are
@@ -276,6 +285,10 @@ const
     ## u8 type, u32 replayTimeMs, u8 seat — clears a reconnectable
     ## tombstone; rejected for play seats, out-of-range seats, backward
     ## time, or a seat not in `reconnectable` (§4.3)
+  RecVoteReserved* = 0x17'u8
+    ## RESERVED for the pre-match vote phase (#319/#322): hash-coupled
+    ## like 0x14–0x16, no manifest arm. Layout lands with that
+    ## implementation; do not reuse the number.
 
   # ── §4.3: protocol limits (wire constants of the protocol version) ────
   MaxModuleBytes* = 262144            ## raw wasm bytes per module
