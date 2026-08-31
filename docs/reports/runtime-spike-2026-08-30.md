@@ -229,6 +229,23 @@ memory range checks and copies, and callback crossings. Synthetic work models
 host algorithms that do not yet exist. Mixed rows contain both. Micro rows are
 diagnostic and are not summed to manufacture the directly timed aggregate.
 
+The final runner makes emit-path selection target-local. Before each isolated
+or saturated matrix child builds the 512-instance rig, it probes the
+adversarial-late-rejection and max-shaped-valid-Intent cost models for 20
+repeats each, prints both totals and the selected path, then uses the
+measured-worse path for the full aggregate. The probe is outside warm-up and
+timed samples. It therefore does not assume one emit path is more expensive on
+every compilation target.
+
+The final-round native Linux arm64 1-CPU sanity cell, binary SHA-256
+`839b4fe59c93bb008f5ca59c31fc43c53b6e62b1d553dcd9258d8ae413460c46`,
+printed the probe twice as required. The isolated child selected adversarial
+late rejection at 876.671 us versus 636.587 us for valid Intent; the saturated
+child made the same selection at 948.547 us versus 622.753 us. Its isolated
+and saturated maxima were 143.205 ms and 406.674 ms, so both verdicts remained
+FAIL. This was a selection/verdict sanity run and does not replace the accepted
+full-matrix timing table below.
+
 | Component | Unit result | Classification | Assumption or boundary |
 |---|---:|---|---|
 | `nearest_cover`, 1,536 posts | 11.938 us/call | synthetic | 1,536 posts × 8 threats plus cold duck contrast |
@@ -505,6 +522,10 @@ The post-report validation sweep passed its structural checks:
   timing table. Every saturated sample retained by them proves both workers
   remained inside their active queue-processing loops; discarded counts are
   explicit in each queue summary.
+- The final native Linux arm64 1-CPU `all` sanity cell printed both per-target
+  emit probes, selected their measured-worse path for each full aggregate, and
+  preserved both FAIL verdicts. No other matrix cell was rerun in the final
+  review round.
 - The full `nix develop` shell remains blocked by the independently confirmed
   pre-existing `caos-tools` dependency failure. The Nix smoke instead used Nim
   2.2.4 from locked nixpkgs revision

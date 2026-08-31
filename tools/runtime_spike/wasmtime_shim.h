@@ -148,10 +148,10 @@ static inline wasm_functype_t *runtime_spike_log_functype(void) {
 static inline wasmtime_error_t *runtime_spike_linker_define_func(
     wasmtime_linker_t *linker, const char *module, size_t module_len,
     const char *name, size_t name_len, const wasm_functype_t *ty,
-    void *callback, void *data) {
+    wasmtime_func_callback_t callback, void *data) {
   return wasmtime_linker_define_func(
       linker, module, module_len, name, name_len, ty,
-      (wasmtime_func_callback_t)callback, data, NULL);
+      callback, data, NULL);
 }
 
 #endif

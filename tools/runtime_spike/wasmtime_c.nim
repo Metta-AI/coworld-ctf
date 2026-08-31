@@ -19,10 +19,13 @@ type
   WasmtimeLinker* {.importc: "wasmtime_linker_t", header: WasmtimeHeader.} = object
   WasmtimeMemory* {.importc: "wasmtime_memory_t", header: WasmtimeHeader.} = object
   WasmtimeModule* {.importc: "wasmtime_module_t", header: WasmtimeHeader.} = object
+  WasmtimeCaller* {.importc: "wasmtime_caller_t", header: WasmtimeHeader.} = object
   WasmtimePoolingConfig* {.importc: "wasmtime_pooling_allocation_config_t",
       header: WasmtimeHeader.} = object
   WasmtimeStore* {.importc: "wasmtime_store_t", header: WasmtimeHeader.} = object
   WasmtimeVal* {.importc: "wasmtime_val_t", header: WasmtimeHeader.} = object
+  WasmtimeConstVal* {.importc: "const wasmtime_val_t",
+      header: WasmtimeHeader.} = object
 
   WasmByteVec* {.importc: "wasm_byte_vec_t", header: WasmtimeHeader, bycopy.} = object
     size*: csize_t
@@ -33,8 +36,8 @@ type
     size*: csize_t
     data*: ptr ptr WasmImportType
 
-  WasmtimeCallback* = proc(env: pointer; caller: pointer;
-      args: ptr WasmtimeVal; nargs: csize_t; results: ptr WasmtimeVal;
+  WasmtimeCallback* = proc(env: pointer; caller: ptr WasmtimeCaller;
+      args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
       nresults: csize_t): ptr WasmTrap {.cdecl.}
 
 const
@@ -153,7 +156,7 @@ proc wasmtimeLinkerDelete*(linker: ptr WasmtimeLinker) {.
     importc: "wasmtime_linker_delete", header: WasmtimeHeader.}
 proc runtimeSpikeLinkerDefineFunc*(linker: ptr WasmtimeLinker; module: cstring;
     moduleLen: csize_t; name: cstring; nameLen: csize_t;
-    functionType: ptr WasmFuncType; callback: pointer;
+    functionType: ptr WasmFuncType; callback: WasmtimeCallback;
     data: pointer): ptr WasmtimeError {.
     importc: "runtime_spike_linker_define_func", header: WasmtimeHeader.}
 proc wasmtimeLinkerInstantiate*(linker: ptr WasmtimeLinker;
@@ -188,10 +191,10 @@ proc wasmtimeMemoryGrow*(context: ptr WasmtimeContext;
     memory: ptr WasmtimeMemory; delta: uint64; previousSize: ptr uint64):
     ptr WasmtimeError {.importc: "wasmtime_memory_grow",
     header: WasmtimeHeader.}
-proc wasmtimeCallerExportGet*(caller: pointer; name: cstring;
+proc wasmtimeCallerExportGet*(caller: ptr WasmtimeCaller; name: cstring;
     nameLen: csize_t; item: ptr WasmtimeExtern): bool {.
     importc: "wasmtime_caller_export_get", header: WasmtimeHeader.}
-proc wasmtimeCallerContext*(caller: pointer): ptr WasmtimeContext {.
+proc wasmtimeCallerContext*(caller: ptr WasmtimeCaller): ptr WasmtimeContext {.
     importc: "wasmtime_caller_context", header: WasmtimeHeader.}
 
 proc wasmtimeErrorMessage*(error: ptr WasmtimeError; output: ptr WasmByteVec) {.

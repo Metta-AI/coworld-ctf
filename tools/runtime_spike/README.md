@@ -166,6 +166,13 @@ is not a body/view/world-map measurement and is not a whole-server verdict.
 The 64-entry `nearest_reachable` tie scan remains an explicitly unverified
 assumption.
 
+Every isolated or saturated matrix child first probes both emit cost-model
+paths for 20 repeats on its own target. It prints `EMIT_PROBE` with the
+adversarial-late-rejection total, the max-shaped-valid-Intent total, and the
+selected path. The full aggregate then uses the measured-worse path. The probe
+is outside the warm-up and timed tick samples, so a verdict never assumes that
+the adversarial path is more expensive on every compilation target.
+
 Before the aggregate, the mode prints per-component micro rows, compares the
 all-cover spatial maximum with a half-cover/half-reachable mix, measures one
 identical compute module under fuel/epoch off, fuel only, epoch only, and both,

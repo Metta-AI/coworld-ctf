@@ -290,8 +290,9 @@ proc callFunction(context: ptr WasmtimeContext; function: ptr WasmtimeFunc;
       raise newException(ValueError, "function returned a non-i32 value")
     result.result = runtimeSpikeValI32Get(addr results[0])
 
-proc emitCallback(env, caller: pointer; args: ptr WasmtimeVal;
-    nargs: csize_t; results: ptr WasmtimeVal; nresults: csize_t):
+proc emitCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal; nargs: csize_t; results: ptr WasmtimeVal;
+    nresults: csize_t):
     ptr WasmTrap {.cdecl.} =
   if env == nil or caller == nil or nargs != 2 or nresults != 1:
     return nil
@@ -340,7 +341,7 @@ proc initMemoryRig(helloPath: string): MemoryRig =
     if result.functionType == nil:
       raise newException(ValueError, "memory rig emit type creation failed")
     requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
-      "emit", 4, result.functionType, cast[pointer](emitCallback), nil),
+      "emit", 4, result.functionType, emitCallback, nil),
       "memory rig define play.emit")
   except:
     if result.functionType != nil:
@@ -604,7 +605,7 @@ proc cleanHello(engine: ptr WasmEngine; module: ptr WasmtimeModule;
     raise newException(ValueError, "could not create play.emit function type")
   defer: wasmFuncTypeDelete(functionType)
   requireNoError(runtimeSpikeLinkerDefineFunc(linker, "play", 4, "emit", 4,
-    functionType, cast[pointer](emitCallback), addr state), "define play.emit")
+    functionType, emitCallback, addr state), "define play.emit")
   var instance: WasmtimeInstance
   var trap: ptr WasmTrap
   requireNoError(wasmtimeLinkerInstantiate(linker, context, module,
@@ -669,9 +670,10 @@ proc runTrapFixture(engine: ptr WasmEngine; bytes: seq[byte]; label: string;
     state.stopped.store(false, moRelaxed)
     var ticker: Thread[ptr TickerState]
     createThread(ticker, tickerMain, addr state)
+    defer:
+      state.stopped.store(true, moRelease)
+      joinThread(ticker)
     result = callFunction(runtime.context, function, [], 0)
-    state.stopped.store(true, moRelease)
-    joinThread(ticker)
   else:
     result = callFunction(runtime.context, function, [], 0)
   result.requireTrap(expectedCode, label)
@@ -872,7 +874,7 @@ proc compileParent(repeats: int) =
 
 proc parsePositive(value, option: string): int
 
-proc callerBytes(caller: pointer; offset, length: int32): string =
+proc callerBytes(caller: ptr WasmtimeCaller; offset, length: int32): string =
   if caller == nil or offset < 0 or length < 0:
     raise newException(ValueError, "invalid callback byte range")
   var memoryItem: WasmtimeExtern
@@ -891,7 +893,8 @@ proc callerBytes(caller: pointer; offset, length: int32): string =
     copyMem(addr result[0], cast[pointer](cast[uint](
       wasmtimeMemoryData(context, memory)) + offset.uint), length)
 
-proc tickCoverCallback(env, caller: pointer; args: ptr WasmtimeVal;
+proc tickCoverCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal;
     nargs: csize_t; results: ptr WasmtimeVal; nresults: csize_t):
     ptr WasmTrap {.cdecl.} =
   let host = cast[ptr TickHostState](env)
@@ -913,7 +916,8 @@ proc tickCoverCallback(env, caller: pointer; args: ptr WasmtimeVal;
     host.callbackError = error.msg
     runtimeSpikeValI64Set(results, -3)
 
-proc tickEmitCallback(env, caller: pointer; args: ptr WasmtimeVal;
+proc tickEmitCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal;
     nargs: csize_t; results: ptr WasmtimeVal; nresults: csize_t):
     ptr WasmTrap {.cdecl.} =
   let host = cast[ptr TickHostState](env)
@@ -929,7 +933,8 @@ proc tickEmitCallback(env, caller: pointer; args: ptr WasmtimeVal;
     host.callbackError = error.msg
     runtimeSpikeValI32Set(results, -1)
 
-proc tickLogCallback(env, caller: pointer; args: ptr WasmtimeVal;
+proc tickLogCallback(env: pointer; caller: ptr WasmtimeCaller;
+    args: ptr WasmtimeConstVal;
     nargs: csize_t; results: ptr WasmtimeVal; nresults: csize_t):
     ptr WasmTrap {.cdecl.} =
   let host = cast[ptr TickHostState](env)
@@ -958,13 +963,13 @@ proc initTickRig(useValidIntent: bool): TickRig =
     result.host.validIntent = if useValidIntent: validIntentBytes() else: ""
     requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
       "nearest_cover", 13, result.coverType,
-      cast[pointer](tickCoverCallback), addr result.host),
+      tickCoverCallback, addr result.host),
       "define play.nearest_cover")
     requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
-      "emit", 4, result.emitType, cast[pointer](tickEmitCallback),
+      "emit", 4, result.emitType, tickEmitCallback,
       addr result.host), "define tick play.emit")
     requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
-      "log", 3, result.logType, cast[pointer](tickLogCallback),
+      "log", 3, result.logType, tickLogCallback,
       addr result.host), "define play.log")
   except:
     if result.logType != nil: wasmFuncTypeDelete(result.logType)
@@ -1112,6 +1117,27 @@ proc microRow(name, classification: string; iterations: int;
   echo &"MICRO component={name} class={classification} iterations={iterations} " &
     &"total_us={formatMicros(result)} ns_per_unit=" &
     &"{result.float / iterations.float:.3f}"
+
+proc selectWorseEmitPath(repeats = 20): bool =
+  let guestJson = "{\"a\":\"" & repeat("x", 4_087) & "\"} "
+  let validIntent = validIntentBytes()
+  var adversarialState, validState: TickCounters
+  for _ in 0 ..< max(1, repeats div 5):
+    adversarialState.modelEmit(guestJson, "")
+    validState.modelEmit(guestJson, validIntent)
+  let adversarialStarted = getMonoTime()
+  for _ in 0 ..< repeats:
+    adversarialState.modelEmit(guestJson, "")
+  let adversarialNs = elapsedNanoseconds(adversarialStarted)
+  let validStarted = getMonoTime()
+  for _ in 0 ..< repeats:
+    validState.modelEmit(guestJson, validIntent)
+  let validNs = elapsedNanoseconds(validStarted)
+  result = validNs >= adversarialNs
+  echo "EMIT_PROBE repeats=" & $repeats & " selected=" &
+    (if result: "valid-intent" else: "adversarial-late-rejection") &
+    &" adversarial_total_us={formatMicros(adversarialNs)} " &
+    &"valid_total_us={formatMicros(validNs)}"
 
 proc spatialComparison(): bool =
   const Repeats = 20
@@ -1435,7 +1461,7 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
 
   initializeCostModels()
   let exactLadder = ladderBytes()
-  var useValidIntent = false
+  let useValidIntent = selectWorseEmitPath()
   if includeDiagnostics:
     runtimeOverheadRows()
     guardCostRow()
@@ -1453,10 +1479,8 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
     let validEmitNs = microRow("emit_valid_intent",
       "synthetic-host-parse-canonical-schema", 16,
       proc() = microState.modelEmit(guestJson, validIntent))
-    useValidIntent = validEmitNs >= adversarialEmitNs
-    echo "EMIT_SELECTION selected=" &
-      (if useValidIntent: "valid-intent" else: "adversarial-late-rejection") &
-      &" adversarial_total_us={formatMicros(adversarialEmitNs)} " &
+    echo "EMIT_MICRO adversarial_total_us=" &
+      &"{formatMicros(adversarialEmitNs)} " &
       &"valid_total_us={formatMicros(validEmitNs)}"
     discard microRow("log", "synthetic-host-sink", 128,
       proc() = microState.modelLog(guestJson[0 ..< MaxLogBytesPerCall]))
