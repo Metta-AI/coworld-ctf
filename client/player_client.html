@@ -45,6 +45,27 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
   background:radial-gradient(ellipse at center,transparent 40%,rgba(210,20,20,calc(var(--dmg)*.85)) 100%);
   transition:opacity 260ms ease-out}
 #dmgFlash.show{opacity:1;transition:opacity 30ms ease-out}
+/* Event-chrome display face (Maxwell, "it can't say SPLAT when you die AND
+   when a game ends even if you win... and the font is not painty at all"):
+   ui-monospace read as a terminal/HUD face for the one moment that most
+   needs to feel like paint, not code. Reused, not new: 'rajdhani' is
+   already self-hosted at /client/font.ttf (staticRead("../../data/font.ttf")
+   in server.nim, served for replay_broadcast.html's own --pixfont) -- this
+   is the SAME file, SAME route, so this costs zero new bytes in the binary
+   and zero new network origin, just one more <link>-free @font-face pointed
+   at an asset the server already serves. It is Paintbot's own established
+   "broadcast voice" (the endcard headline, the season2 cheat sheet), not a
+   new brand -- extending it to the player's own event beats keeps "how the
+   game announces itself" as ONE register, distinct from the Ink & Print
+   document chrome (HUD numbers, rosters, body copy below stay in the
+   existing system-font stacks; --eventfont is scoped to headline words on
+   the big beats ONLY, per Maxwell's rule that a display face may not touch
+   readouts). Condensed/dense weight reads at a glance and holds up against
+   a moving painted arena far better than a thin monospace or a serif with
+   no bold cut -- see the report for why EB Garamond/Merriweather (the
+   Ink & Print pair) were considered and passed over for this specific job. */
+@font-face{font-family:'rajdhani';src:url('font.ttf') format('truetype');font-display:swap}
+:root{--eventfont:'rajdhani','Segoe UI',system-ui,sans-serif}
 /* Big SPLAT-on-death stamp (Maxwell, live 8/29): the #s.dead toast above is
    the whole-match "you're down, waiting to respawn" state and stays exactly
    as-is; this is a separate, momentary flourish on TOP of it at the instant
@@ -53,11 +74,15 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    color. A pure CSS-transition-driven class toggle (triggerSelfSplat()
    below flips classes on a timer, same idiom as #feed's fade above) -- not
    a canvas draw, so it never touches c.style.transform or the world camera
-   and cannot be the source of any per-frame presentation churn there. */
+   and cannot be the source of any per-frame presentation churn there.
+   SPLAT is an IMPACT word now and only an impact word: triggerSelfSplat()
+   fires exclusively off a confirmed fatal hit (see the map-object-liveness
+   gate on the death edge below) -- never off a round or match ending, even
+   one we won. */
 #splat{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
   pointer-events:none;z-index:55;opacity:0;transform:scale(1.35) rotate(-3deg);
   transition:opacity 700ms ease-in,transform 700ms ease-in}
-#splat b{font:900 15vmin/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1vmin;
+#splat b{font:900 15vmin/1 var(--eventfont);letter-spacing:.5vmin;
   color:#ff6a52;-webkit-text-stroke:.6vmin #1a0705;text-shadow:0 0 2vmin #000c}
 #splat.show{opacity:1;transform:scale(1) rotate(-3deg);transition:opacity 70ms ease-out,transform 70ms cubic-bezier(.22,1.8,.36,1)}
 /* Death card (Maxwell asks, live 8/29: "i need to see who killed me when i
@@ -118,15 +143,61 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    (warm dark panel, not a full-bleed color stamp) since this is a status
    notice, not a hit reaction -- typography carries the hierarchy (bold
    headline, plain subline), no icon, no border flourish. */
+/* #matchOver (Maxwell: "it can't say SPLAT! ... when a game ends even if you
+   win"): the boundary this file had NO signal for at all. seatedNow going
+   false used to mean exactly one thing -- a fatal hit -- so triggerSelfSplat
+   fired on it unconditionally. But sim.step's own resetToLobby() (sim.nim)
+   tears every player's cog down at once when a round/match concludes,
+   whether that seat is alive or dead -- a still-standing, possibly-WINNING
+   player hits the exact same "my sprite just vanished" edge a splatted one
+   does. Per docs/PROTOCOL.md ("Lobby and interstitial detection"), the map
+   camera object (id 1) is the one signal the player wire actually carries
+   for this: the server deletes it for the lobby AND the game-over
+   interstitial, and ONLY then -- it stays present for the whole Playing
+   phase, fatal hits included. So the death edge below now checks
+   objects.has(1): still present -> a real death, SPLAT as before; gone ->
+   the round/match itself just ended, never a death, so neither SPLAT nor
+   "wiped out"/"you're out" (a win must not say what a death says) -- this
+   calm card instead, honestly scoped to the one fact available (a boundary
+   happened), same discipline as the round-flip card below and never a
+   claim of WHO won, since that signal does not exist on this wire (a
+   server/wire change, out of scope for this client-only lane -- see the
+   report). Same shared .rfCard/.rfWho/.rfSub treatment as #roundFlip: both
+   are "boundary notice" beats (calm, centered, non-blocking), the one tier
+   below #splat's "hit reaction" (full-bleed, urgent) -- they are siblings,
+   not two systems. */
+#matchOver{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;z-index:52;opacity:0;transition:opacity 260ms ease-out}
+#matchOver.show{opacity:1;transition:opacity 90ms ease-out}
+/* Round-flip beat (BR only -- "it respawned me", diagnosed as a missing
+   transition: BR elimination is permanent within a round -- lives forced to
+   0, sim.nim -- so the ONLY way this file's existing seatedNow&&!wasSeated
+   spawn edge can ever fire again after a real death is a fresh round. The
+   death card already says so ("next round starts soon...") and then just
+   vanishes the instant control returns, same frame the new cog can already
+   move and fire -- nothing ever marked the boundary, so a new round reads
+   as your last life continuing. This card marks it: a brief, unmissable,
+   NON-blocking beat (pointer-events:none throughout -- WASD/mouse/fire work
+   under it from frame one, never gated on it) that fades on its own,
+   never a modal wait. No round NUMBER: the player stream carries none
+   (sim_types.nim/server.nim checked), so this states only the one fact the
+   client actually has -- a boundary just happened -- rather than inventing
+   a count. Center screen like #splat above, but a calm informational card
+   (warm dark panel, not a full-bleed color stamp) since this is a status
+   notice, not a hit reaction -- typography carries the hierarchy (bold
+   headline, plain subline), no icon, no border flourish. Now armed off
+   roundBoundaryPending rather than isDead alone, so it fires just as
+   reliably after "the round ended while I was still alive" as it does
+   after a real death -- see #matchOver above and the death-edge code. */
 #roundFlip{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
   pointer-events:none;z-index:52;opacity:0;transition:opacity 260ms ease-out}
 #roundFlip.show{opacity:1;transition:opacity 90ms ease-out}
-#roundFlip .rfCard{display:flex;flex-direction:column;align-items:center;gap:3px;
+#roundFlip .rfCard,#matchOver .rfCard{display:flex;flex-direction:column;align-items:center;gap:3px;
   padding:12px 22px;background:#1a1714e6;border:1px solid #4a453c;border-radius:4px;
   box-shadow:0 6px 20px #000a;text-align:center}
-#roundFlip .rfWho{font:800 15px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;
+#roundFlip .rfWho,#matchOver .rfWho{font:800 20px var(--eventfont);letter-spacing:1px;
   text-transform:uppercase;color:#e8e4dc}
-#roundFlip .rfSub{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;color:#b9b3a9}
+#roundFlip .rfSub,#matchOver .rfSub{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;color:#b9b3a9}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
    pings (player_controls.js KEYMAP id "wheel", callout-spec.md sec.5). Sits
    above the canvas but never intercepts pointer events (pointer-events:none
@@ -167,13 +238,14 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <div id="feed" aria-hidden="true"></div>
 <div id="dmgFlash" aria-hidden="true"></div>
 <div id="splat" aria-hidden="true"><b>SPLAT!</b></div>
-<div id="roundFlip" aria-hidden="true"><div class="rfCard"><div class="rfWho">new round</div><div class="rfSub">you're back in it</div></div></div>
+<div id="matchOver" aria-hidden="true"><div class="rfCard"><div class="rfWho"></div><div class="rfSub"></div></div></div>
+<div id="roundFlip" aria-hidden="true"><div class="rfCard"><div class="rfWho">new round</div><div class="rfSub">back on the field</div></div></div>
 <button id="mute" type="button">sound: on</button>
 <button id="leave" type="button" hidden>leave</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),roundFlipEl=document.getElementById("roundFlip"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),roundFlipEl=document.getElementById("roundFlip"),matchOverEl=document.getElementById("matchOver"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
 /* Only offer it where it can actually work -- see #leave's own comment
    above for why the portal's embedded iframe (sandboxed, no
    allow-top-navigation) must stay on its own existing "Leave the field"
@@ -842,6 +914,14 @@ let lastRotateDesiredBrads=null;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
 let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=false;
+/* roundEndedAlive: the sibling of isDead for the OTHER way seatedNow can go
+   false -- the round/match itself ending while this seat never took a fatal
+   hit (see the death-edge check and #matchOver's own comment). Kept
+   separate from isDead on purpose: isDead alone gates SPLAT/the death card,
+   so a win can never accidentally render either. roundBoundaryPending is
+   just "either of the two just happened", read once on re-seat to decide
+   whether the round-flip card is owed. */
+let roundEndedAlive=false,roundBoundaryPending=false;
 let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
 
 /* The ping wheel is a SEPARATE lane. We own only the seam: swallow the
@@ -1383,8 +1463,25 @@ function controlsTick(){
      stamp (Maxwell, live 8/29) -- one-shot, on the transition only, never
      re-fired while still down, and impossible to fire for anyone but our
      own seated self by construction (seatedNow/wasSeated read only this
-     client's own selfPos). */
-  if(!seatedNow&&wasSeated){isDead=true;diedAt=performance.now();triggerSelfSplat()}
+     client's own selfPos).
+     BUT that edge does not ONLY mean "I died" -- sim.nim's resetToLobby()
+     tears every seat's cog down at once when a round/match concludes,
+     alive or dead, so a still-standing (possibly winning) player hits this
+     exact same edge. objects.has(1) is the disambiguator: per
+     docs/PROTOCOL.md ("Lobby and interstitial detection") the map camera
+     object (id 1) is deleted for the lobby AND the game-over interstitial
+     and ONLY then, staying present through the whole Playing phase
+     (fatal hits included). Still present -> a real death, SPLAT as always.
+     Gone -> the round/match itself just ended and this seat never took a
+     hit -- never SPLAT, never the death card, never "you're out" (a win
+     must not be told what a death is told); see #matchOver's own comment
+     for the honest, outcome-agnostic copy that plays instead. */
+  if(!seatedNow&&wasSeated){
+    diedAt=performance.now();
+    if(objects.has(1)){isDead=true;triggerSelfSplat()}
+    else{roundEndedAlive=true;triggerMatchOver()}
+    roundBoundaryPending=true;
+  }
   else if(seatedNow){
     if(!wasSeated){
       /* BR elimination is permanent within a round (sim.nim forces lives to
@@ -1395,11 +1492,14 @@ function controlsTick(){
          boundary", with no wire field to confirm it further. isBrMap(),
          not cameraContext: this runs off the network tick, not the draw
          tick that calls ensureCameraContext(), so it reads mapW directly
-         rather than depending on draw-loop ordering having run first. */
-      if(isDead&&isBrMap())triggerRoundFlip();
+         rather than depending on draw-loop ordering having run first.
+         Armed off roundBoundaryPending (death OR round-ended-alive), not
+         isDead alone, so a win gets the same "a boundary happened" beat a
+         death does -- see #matchOver. */
+      if(roundBoundaryPending&&isBrMap())triggerRoundFlip();
       deathInfo=null;
     }
-    isDead=false;
+    isDead=false;roundEndedAlive=false;roundBoundaryPending=false;
   }
   wasSeated=seatedNow;
   let rot=null;
@@ -1619,6 +1719,36 @@ function triggerRoundFlip(){
   void roundFlipEl.offsetWidth; // force reflow so a rapid re-trigger restarts the fade cleanly
   roundFlipEl.classList.add("show");
   roundFlipHideTimer=setTimeout(()=>{roundFlipEl.classList.remove("show")},ROUND_FLIP_HOLD_MS);
+}
+/* #matchOver beat: same class-toggle-on-a-timer idiom as triggerSelfSplat/
+   triggerRoundFlip, held for the same window as the round-flip card since
+   both are the calm "boundary notice" tier. Text is set here, not in the
+   HTML, because it is the one piece of this file that is genuinely
+   mode-aware content rather than mode-aware styling: BR calls its cycle a
+   "round", classic calls the whole thing a "match" (same split
+   deathStatusLine already makes). Never claims a winner -- see this
+   element's CSS comment for why that signal does not exist on this wire. */
+const MATCH_OVER_HOLD_MS=1500;
+let matchOverHideTimer=0;
+function matchOverCopy(){
+  /* isBrMap(), not cameraContext -- same reasoning as the roundBoundaryPending
+     check above: this fires off the network tick, not the draw tick that
+     resolves cameraContext, so it reads mapW directly. */
+  return isBrMap()?
+    {who:"round over",sub:"you made it through — next round starts soon..."}:
+    {who:"match over",sub:"you made it to the end — next match starts soon..."};
+}
+function triggerMatchOver(){
+  if(!matchOverEl)return;
+  const copy=matchOverCopy();
+  const whoEl=matchOverEl.querySelector(".rfWho"),subEl=matchOverEl.querySelector(".rfSub");
+  if(whoEl)whoEl.textContent=copy.who;
+  if(subEl)subEl.textContent=copy.sub;
+  clearTimeout(matchOverHideTimer);
+  matchOverEl.classList.remove("show");
+  void matchOverEl.offsetWidth; // force reflow so a rapid re-trigger restarts the fade cleanly
+  matchOverEl.classList.add("show");
+  matchOverHideTimer=setTimeout(()=>{matchOverEl.classList.remove("show")},MATCH_OVER_HOLD_MS);
 }
 const FEED_MAX=4, FEED_HOLD_MS=4500, FEED_FADE_MS=1400;
 function pushFeedEvent(color,isKill){
@@ -1881,8 +2011,17 @@ function handleShotFeedback(landed,taken){
   if(isDead)scheduleDraw(); // a card datum trailing the death edge repaints now, not at the next packet
 }
 function deathStatusLine(){
+  /* "you're out" replaces the invented "wiped out": real paintball's own
+     word for a player who has taken a hit and is done for the point (see
+     the report's vocabulary table) -- "OUT" for the elimination itself,
+     never "eliminated", never "killed". SPLAT already owns the impact; this
+     line only ever owns the OUTCOME of a confirmed hit, and only fires from
+     the isDead branch (a real fatal hit, gated on objects.has(1) above) --
+     never on a round/match ending some other way, so a win can never read
+     this line. CTF's respawn line is untouched: a mid-life death there
+     really is temporary, so it never needed the sport's elimination word. */
   return cameraContext==="br"?
-    "wiped out -- you're done for this round. next round starts soon...":
+    "you're out for this round -- next round starts soon...":
     "you're down -- waiting to respawn...";
 }
 function renderDeathOverlay(){
