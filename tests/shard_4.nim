@@ -8,6 +8,7 @@ import
   test_corpse_label,
   test_cosmetic_fx_wire,
   test_extract_events,
+  test_glory_fx_wire,
   test_grenades,
   test_handicaps,
   test_identity_badges,

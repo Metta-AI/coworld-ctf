@@ -371,6 +371,7 @@ proc startGame*(sim: var SimServer) =
   sim.diamondStains = @[]
   sim.damagePops = @[]
   sim.shotFeedback = @[]
+  sim.gloryDeeds = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   let groupOffset = sim.spawnGroupOffset()
@@ -1262,6 +1263,17 @@ proc resolveActiveArcCones*(sim: var SimServer) =
             Kill, source = arcFire.attacker, target = victimIndex,
             weapon = "spray", amount = SprayPaintDamage, x = vx, y = vy
           )
+          # Glory-toast channel source -- see the gun-kill site above
+          # (applyFire) for the full comment; same gate, same shape.
+          if sim.config.allowCosmeticFx:
+            sim.gloryDeeds.add GloryDeedFx(
+              tick: sim.tickCount,
+              word: "kill",
+              amount: 1,
+              actorIndex: arcFire.attacker,
+              x: sim.players[victimIndex].x + CollisionW div 2,
+              y: sim.players[victimIndex].y + CollisionH div 2
+            )
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
           # triple; a fourth+ stays inside the already-counted triple.
@@ -1638,6 +1650,19 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         x = float(sim.players[targetIndex].x + CollisionW div 2),
         y = float(sim.players[targetIndex].y + CollisionH div 2)
       )
+      # Glory-toast channel source (GameConfig.allowCosmeticFx): gated at
+      # mint, same as shotFeedback's own push just below this one in the
+      # spray-cone path -- byte-identical to a build without this field when
+      # the gate is off. See GloryDeedFx's doc comment (sim_types.nim).
+      if sim.config.allowCosmeticFx:
+        sim.gloryDeeds.add GloryDeedFx(
+          tick: sim.tickCount,
+          word: "kill",
+          amount: 1,
+          actorIndex: shooterIndex,
+          x: sim.players[targetIndex].x + CollisionW div 2,
+          y: sim.players[targetIndex].y + CollisionH div 2
+        )
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -3759,6 +3784,19 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
           Capture, source = carrierIndex,
           x = float(cx), y = float(cy)
         )
+        # Glory-toast channel source -- see the gun-kill site (applyFire)
+        # for the full comment; same gate, same shape. Dead code under the
+        # brMode guard above (BR disarms captures entirely), kept for the
+        # non-BR configs this channel also serves.
+        if sim.config.allowCosmeticFx:
+          sim.gloryDeeds.add GloryDeedFx(
+            tick: sim.tickCount,
+            word: "capture",
+            amount: 1,
+            actorIndex: carrierIndex,
+            x: cx,
+            y: cy
+          )
         sim.logGameEvent(
           teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
         )
@@ -4259,6 +4297,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.diamondStains = @[]
   sim.damagePops = @[]
   sim.shotFeedback = @[]
+  sim.gloryDeeds = @[]
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
   sim.startWaitTimer = 0
