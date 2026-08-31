@@ -210,6 +210,23 @@ suite "shell combat policy":
         [candidate(1, 1.0, identity = none(int)),
          candidate(3, 1.0, identity = none(int))], 1, 331, 3).selectedSeat == 3
 
+    block unknownSameCellFallsBackToSeat:
+      proc choose(inputs: openArray[CombatCandidateInput]): int =
+        let body = activateSeatBody(openMap(), 0, 331)
+        body.updateTracks(1, [
+          track(4, p(64, 40), Blue, 1),
+          track(2, p(66, 42), Green, 1)])
+        body.selectCombatTarget(CombatPolicy(), inputs, 1, 331, 3).selectedSeat
+
+      let left = [
+        candidate(4, 1.0, identity = none(int)),
+        candidate(2, 1.0, identity = none(int))]
+      let right = [
+        candidate(2, 1.0, identity = none(int)),
+        candidate(4, 1.0, identity = none(int))]
+      check choose(left) == 2
+      check choose(right) == 2
+
   test "ward threat uses live range, aim bearing, fallback proximity, and exclusions":
     let policy = CombatPolicy(protect: ProtectedSet(seats: @[SeatRef(5'u8)]))
     let body = activateSeatBody(openMap(), 0, 331)
@@ -244,6 +261,19 @@ suite "shell combat policy":
     check body.revalidateGrenadeCommit(
       CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(2'u8)])),
       target, [2]).isNone
+
+    let absent = activateSeatBody(openMap(), 0, 331)
+    absent.updateTracks(31, [track(1, p(64, 40), Blue, 31)])
+    let absentTarget = absent.selectCombatTarget(CombatPolicy(),
+      [candidate(1, 1.0)], 31, 331, 3).get.combatTarget
+    check absent.revalidateGrenadeCommit(
+      CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(2'u8)])),
+      absentTarget, [2]).isNone
+    # Team bans need a fog-readable team. With no track for splash seat 2, the
+    # seat id is known but its team is not, so a team-only ban cannot cancel.
+    check absent.revalidateGrenadeCommit(
+      CombatPolicy(noShoot: ProtectedSet(teams: {Green})),
+      absentTarget, [2]).isSome
 
   test "selection is deterministic across repeats and candidate permutations":
     proc filled(): SeatBody =

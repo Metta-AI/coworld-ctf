@@ -621,6 +621,12 @@ proc protectedPolicyTarget*(policy: shellTypes.CombatPolicy, seat: int,
   policy.noShoot.containsTrack(seat, team) or
     policy.protect.containsTrack(seat, team)
 
+proc protectedPolicySeat*(policy: shellTypes.CombatPolicy, seat: int): bool =
+  ## Seat-level policy vetoes are not fog-derived. They apply anywhere the
+  ## current policy names a seat, even if no current track exists for it.
+  validateSeat(seat, "combat target")
+  policy.noShoot.containsSeat(seat) or policy.protect.containsSeat(seat)
+
 proc combatSeat*(target: CombatTarget): int {.inline.} = target.seat
 proc combatTeam*(target: CombatTarget): Team {.inline.} = target.team
 proc combatPos*(target: CombatTarget): BodyPoint {.inline.} = target.pos
@@ -727,6 +733,12 @@ proc compareScoredCombat(a, b: ScoredCombatCandidate): int =
   result = cmp(a.target.pos.y div NavCell, b.target.pos.y div NavCell)
   if result == 0:
     result = cmp(a.target.pos.x div NavCell, b.target.pos.x div NavCell)
+  if result != 0: return
+  # Deliberate refinement over Stencil's scoreCmp (fight.nim:184): Stencil
+  # resolves this latent tie by input sequence order, but the shell selector
+  # contract requires input-order independence. This only changes cases Stencil
+  # already left order-dependent; keep it visible for the phase-7 allowlist.
+  result = cmp(a.target.seat, b.target.seat)
 
 proc candidateByTarget(candidates: openArray[ScoredCombatCandidate],
                        target: CombatTarget): Option[ScoredCombatCandidate] =
@@ -834,6 +846,10 @@ proc revalidateGrenadeCommit*(body: SeatBody,
     return none(CombatTarget)
   for seat in splashSeats:
     validateSeat(seat, "grenade splash")
+    # Tracks gate fog-derived facts; they must never gate a policy veto. The
+    # splash predictor already names a seat, and a seat id is not fogged.
+    if policy.protectedPolicySeat(seat):
+      return none(CombatTarget)
     if body.tracks[seat].isSome:
       let track = body.tracks[seat].get
       if policy.protectedPolicyTarget(seat, track.team):
