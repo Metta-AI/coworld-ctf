@@ -22,6 +22,10 @@ proc controllerContext(map: BodyMap): EmitValidationContext =
 proc overlayContext(map: BodyMap): EmitValidationContext =
   EmitValidationContext(map: map, selfPos: (30, 30), emitClass: ecOverlay)
 
+proc withDuo(ctx: var EmitValidationContext, team: Team, a, b: int) =
+  ctx.duoSeats[team] = DuoSeats(configured: true,
+    seats: [SeatRef(uint8(a)), SeatRef(uint8(b))])
+
 proc intentBytes(kind = ikNavigateTo; point = some(MapPoint(x: 30, y: 30));
                  reason = ""; idleAim = none(int)): string =
   canonicalIntent(Intent(kind: kind, point: point, arriveRadius: 24.0,
@@ -89,6 +93,53 @@ suite "shell emit validator":
     check validateEmit("{\"no_shoot\":{\"teams\":[\"bogus\"]}," &
       "\"schema\":\"combat_policy\",\"v\":1}", map.overlayContext).code ==
       AbiUnknownReference
+
+  test "duo seat refs resolve only in battle royale and fold to plain seats":
+    let map = openRoomsMap()
+    var br = map.overlayContext
+    br.mode = gmBr
+    br.withDuo(Navy, 10, 2)
+    let accepted = validateEmit("{\"no_shoot\":{\"seats\":[" &
+      "\"duo:navy\",\"seat:2\"]},\"schema\":\"combat_policy\",\"v\":1}", br)
+    check accepted.code == AbiOk
+    check accepted.accepted
+    check accepted.canonicalBytes == "{\"no_shoot\":{\"seats\":[" &
+      "\"seat:10\",\"seat:2\"]},\"schema\":\"combat_policy\",\"v\":1}"
+
+    for mode in [gmCtf, gmKoth]:
+      var ctx = map.overlayContext
+      ctx.mode = mode
+      ctx.withDuo(Navy, 10, 2)
+      let rejected = validateEmit("{\"no_shoot\":{\"seats\":[" &
+        "\"duo:navy\"]},\"schema\":\"combat_policy\",\"v\":1}", ctx)
+      check rejected.code == AbiUnknownReference
+      check rejected.reason == "noDuosInMode"
+
+    var unknownDuo = map.overlayContext
+    unknownDuo.mode = gmBr
+    check validateEmit("{\"no_shoot\":{\"seats\":[\"duo:navy\"]}," &
+      "\"schema\":\"combat_policy\",\"v\":1}", unknownDuo).code ==
+      AbiUnknownReference
+    check validateEmit("{\"no_shoot\":{\"seats\":[\"duo:bogus\"]}," &
+      "\"schema\":\"combat_policy\",\"v\":1}", unknownDuo).code ==
+      AbiUnknownReference
+
+  test "protected set writer is shared across finisher and emit validation":
+    let map = openRoomsMap()
+    let protectedSet = ProtectedSet(seats: @[
+      SeatRef(2), SeatRef(10), SeatRef(30), SeatRef(2)])
+    let policy = CombatPolicy(noShoot: protectedSet)
+    let protectedBytes = "{\"seats\":[\"seat:10\",\"seat:2\",\"seat:30\"]}"
+    let emitBytes = canonicalCombatPolicy(policy)
+    let finishBytes = canonicalIntent(Intent(kind: ikHold, arriveRadius: 0.0,
+      combat: policy))
+    check emitBytes == "{\"no_shoot\":" & protectedBytes &
+      ",\"schema\":\"combat_policy\",\"v\":1}"
+    check finishBytes == "{\"arrive_radius\":0.0,\"combat\":{\"no_shoot\":" &
+      protectedBytes & ",\"schema\":\"combat_policy\",\"v\":1}," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}"
+    check validateEmit(emitBytes, map.overlayContext).canonicalBytes ==
+      emitBytes
 
   test "validation stays under the local warm max gate":
     let map = openRoomsMap()

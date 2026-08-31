@@ -6,6 +6,7 @@
 
 import std/options
 
+import ../ctf/sim_types
 import abi, body_map, emit_validator, module_cache, runtime, types, wasmtime_c
 
 type
@@ -40,6 +41,8 @@ type
     map: BodyMap
     selfPos: BodyPoint
     emitClass: EmitClass
+    mode: GameMode
+    duoSeats: array[Team, DuoSeats]
     pendingAccepted: Option[ShellEmission]
     manifestBytes: string
     emitCodes: seq[int32]
@@ -153,7 +156,8 @@ proc emitCallback(env: pointer; caller: ptr WasmtimeCaller;
         setI32(results, AbiOk)
       return nil
     let outcome = validateEmit(bytes, EmitValidationContext(
-      map: host.map, selfPos: host.selfPos, emitClass: host.emitClass))
+      map: host.map, selfPos: host.selfPos, emitClass: host.emitClass,
+      mode: host.mode, duoSeats: host.duoSeats))
     if outcome.accepted:
       host.pendingAccepted = some(ShellEmission(
         bytes: outcome.canonicalBytes,
@@ -282,7 +286,10 @@ proc requireExportedFunc(instance: ShellInstance, name: string): WasmtimeFunc =
 
 proc newShellInstance*(module: RuntimeModule, map: BodyMap,
                        selfPos: BodyPoint,
-                       emitClass = ecController): ShellInstance =
+                       emitClass = ecController,
+                       mode = gmCtf,
+                       duoSeats: array[Team, DuoSeats] = default(
+                         array[Team, DuoSeats])): ShellInstance =
   if module == nil or module.rawModule == nil or not module.ownerEngine.isOpen:
     raise newException(ShellRuntimeError, "module or Engine is closed")
   new(result)
@@ -290,6 +297,8 @@ proc newShellInstance*(module: RuntimeModule, map: BodyMap,
   result.host.map = map
   result.host.selfPos = selfPos
   result.host.emitClass = emitClass
+  result.host.mode = mode
+  result.host.duoSeats = duoSeats
   result.store = wasmtimeStoreNew(module.ownerEngine.rawEngine, nil, nil)
   if result.store == nil:
     raise newException(ShellRuntimeError, "instance Store creation failed")

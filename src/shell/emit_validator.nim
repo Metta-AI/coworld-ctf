@@ -3,20 +3,26 @@
 ## No JsonNode tree is built here. The accepted controller path normalizes
 ## navigation goals with lane A's real BodyMap.validateGoal proof.
 
-import std/[algorithm, math, options, strutils]
+import std/[math, options, strutils]
 
 import ../ctf/sim_types
-import abi, body_map, canonical_fast, finisher, types
+import abi, body_map, canonical_fast, finisher, policy_encoding, types
 
 type
   EmitClass* = enum
     ecController
     ecOverlay
 
+  DuoSeats* = object
+    configured*: bool
+    seats*: array[2, SeatRef]
+
   EmitValidationContext* = object
     map*: BodyMap
     selfPos*: BodyPoint
     emitClass*: EmitClass
+    mode*: GameMode
+    duoSeats*: array[Team, DuoSeats]
 
   EmitValidationResult* = object
     code*: int32
@@ -25,6 +31,7 @@ type
     intent*: Intent
     policy*: CombatPolicy
     canonicalBytes*: string
+    reason*: string
 
   EmitValidationError = object of CatchableError
     code: int32
@@ -72,7 +79,7 @@ proc parseTeam(value: string): Team =
       return team
   unknown("unknown team reference")
 
-proc parseSeat(value: string): SeatRef =
+proc parseDirectSeat(value: string): SeatRef =
   if not value.startsWith("seat:"):
     unknown("unknown seat reference")
   let digits = value[5 .. ^1]
@@ -87,6 +94,24 @@ proc parseSeat(value: string): SeatRef =
       unknown("unknown seat reference")
   SeatRef(uint8(parsed))
 
+proc addSeatRef(result: var ProtectedSet, value: string,
+                ctx: EmitValidationContext) =
+  if value.startsWith("seat:"):
+    result.seats.add(parseDirectSeat(value))
+  elif value.startsWith("duo:"):
+    if ctx.mode != gmBr:
+      unknown("noDuosInMode")
+    let suffix = value[4 .. ^1]
+    if suffix.len == 0:
+      unknown("unknown team reference")
+    let team = parseTeam(suffix)
+    if not ctx.duoSeats[team].configured:
+      unknown("unknown team reference")
+    result.seats.add(ctx.duoSeats[team].seats[0])
+    result.seats.add(ctx.duoSeats[team].seats[1])
+  else:
+    unknown("unknown seat reference")
+
 proc parsePoint(r: var CanonicalReader, map: BodyMap): MapPoint =
   r.enterArray()
   if not r.nextElement(): schema("point needs x")
@@ -100,7 +125,8 @@ proc parsePoint(r: var CanonicalReader, map: BodyMap): MapPoint =
   if map != nil and (result.x >= map.width or result.y >= map.height):
     rangeViolation("point outside map")
 
-proc parseProtectedSet(r: var CanonicalReader): ProtectedSet =
+proc parseProtectedSet(r: var CanonicalReader,
+                       ctx: EmitValidationContext): ProtectedSet =
   r.enterObject()
   var key: string
   while r.nextKey(key):
@@ -108,7 +134,7 @@ proc parseProtectedSet(r: var CanonicalReader): ProtectedSet =
     of "seats":
       r.enterArray()
       while r.nextElement():
-        result.seats.add(parseSeat(r.readRequiredString()))
+        result.addSeatRef(r.readRequiredString(), ctx)
     of "teams":
       r.enterArray()
       while r.nextElement():
@@ -132,7 +158,8 @@ proc parseMicroFlag(value: string): MicroFlag =
   of "steal_rush_exempt": mfStealRushExempt
   else: schema("unknown micro flag")
 
-proc parseCombatPolicy(r: var CanonicalReader): CombatPolicy =
+proc parseCombatPolicy(r: var CanonicalReader,
+                       ctx: EmitValidationContext): CombatPolicy =
   var schemaName = ""
   var version = -1'i64
   r.enterObject()
@@ -142,7 +169,7 @@ proc parseCombatPolicy(r: var CanonicalReader): CombatPolicy =
     of "hold_fire":
       result.holdFire = r.readRequiredBool()
     of "no_shoot":
-      result.noShoot = r.parseProtectedSet()
+      result.noShoot = r.parseProtectedSet(ctx)
     of "prefer":
       var seen: set[PreferTag]
       r.enterArray()
@@ -155,7 +182,7 @@ proc parseCombatPolicy(r: var CanonicalReader): CombatPolicy =
         seen.incl(tag)
         result.prefer.add(tag)
     of "protect":
-      result.protect = r.parseProtectedSet()
+      result.protect = r.parseProtectedSet(ctx)
     of "schema":
       schemaName = r.readRequiredString()
     of "v":
@@ -196,7 +223,7 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
     of "clamp_to_endzone":
       result.clampToEndzone = r.readRequiredBool()
     of "combat":
-      result.combat = r.parseCombatPolicy()
+      result.combat = r.parseCombatPolicy(ctx)
     of "idle_aim_center_brads":
       let value = r.readRequiredInt()
       if value < 0 or value > 255:
@@ -241,34 +268,11 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
   if (result.kind == ikNavigateTo) != result.point.isSome:
     schema("point presence does not match intent kind")
 
-proc writeProtectedSet(w: var CanonicalWriter, value: ProtectedSet) =
-  w.beginObject()
-  if value.seats.len > 0:
-    var seats: seq[int]
-    for seat in value.seats:
-      let raw = int(uint8(seat))
-      if raw notin seats:
-        seats.add(raw)
-    seats.sort()
-    w.key("seats")
-    w.beginArray()
-    for seat in seats:
-      w.addString("seat:" & $seat)
-    w.endArray()
-  if value.teams.card > 0:
-    w.key("teams")
-    w.beginArray()
-    for team in Team:
-      if team in value.teams:
-        w.addString(($team).toLowerAscii)
-    w.endArray()
-  w.endObject()
-
 proc writeCombatPolicy(w: var CanonicalWriter, value: CombatPolicy) =
   w.beginObject()
   if value.holdFire:
     w.field("hold_fire", true)
-  if value.noShoot.seats.len > 0 or value.noShoot.teams.card > 0:
+  if not value.noShoot.protectedSetEmpty:
     w.key("no_shoot")
     w.writeProtectedSet(value.noShoot)
   if value.prefer.len > 0:
@@ -281,7 +285,7 @@ proc writeCombatPolicy(w: var CanonicalWriter, value: CombatPolicy) =
       of ptRevenge: w.addString("revenge")
       of ptBounty: w.addString("bounty")
     w.endArray()
-  if value.protect.seats.len > 0 or value.protect.teams.card > 0:
+  if not value.protect.protectedSetEmpty:
     w.key("protect")
     w.writeProtectedSet(value.protect)
   w.field("schema", "combat_policy")
@@ -333,12 +337,13 @@ proc validateEmit*(bytes: sink string,
       result.accepted = true
       result.code = if result.normalized: AbiNormalized else: AbiOk
     of ecOverlay:
-      result.policy = reader.parseCombatPolicy()
+      result.policy = reader.parseCombatPolicy(ctx)
       reader.finish()
       result.canonicalBytes = canonicalCombatPolicy(result.policy)
       result.accepted = true
       result.code = AbiOk
   except EmitValidationError as error:
     result.code = error.code
+    result.reason = error.msg
   except CanonicalError:
     result.code = AbiSchemaViolation
