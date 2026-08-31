@@ -254,6 +254,7 @@ proc nearestCoverCallback(env: pointer; caller: ptr WasmtimeCaller;
     host.invocation.fault(error.msg)
     shellWasmtimeValI64Set(results, -1)
     return nil
+  host.invocation.fault("nearest_cover not yet implemented")
   shellWasmtimeValI64Set(results, -1)
 
 proc defineHostFunc(linker: ptr WasmtimeLinker; name: string;
@@ -293,7 +294,8 @@ proc newShellInstance*(module: RuntimeModule, map: BodyMap,
   if result.store == nil:
     raise newException(ShellRuntimeError, "instance Store creation failed")
   result.context = wasmtimeStoreContext(result.store)
-  wasmtimeStoreLimiter(result.store, MaxMemoryBytes.int64, -1, 1, 1, 1)
+  wasmtimeStoreLimiter(result.store, MaxMemoryBytes.int64,
+    MaxInstanceTableElements.int64, 1, 1, 1)
   requireNoError(wasmtimeContextSetFuel(result.context, InitialStoreFuel),
     "initial instance Store fuel")
   wasmtimeContextSetEpochDeadline(result.context,

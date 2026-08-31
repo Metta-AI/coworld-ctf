@@ -307,6 +307,10 @@ proc manifestEmitCallback(env: pointer; caller: ptr WasmtimeCaller;
     return nil
   let values = cast[ptr UncheckedArray[WasmtimeVal]](args)
   inc state.emissions
+  if state.emissions > 1:
+    state.callbackError = "play_manifest emitted more than once"
+    shellWasmtimeValI32Set(results, -1)
+    return nil
   try:
     state.bytes = callerBytes(caller,
       shellWasmtimeValI32Get(addr values[0]),
@@ -360,7 +364,8 @@ proc probeManifestBytes*(module: RuntimeModule;
     raise newException(ShellRuntimeError, "manifest Store creation failed")
   defer: wasmtimeStoreDelete(store)
   let context = wasmtimeStoreContext(store)
-  wasmtimeStoreLimiter(store, MaxMemoryBytes.int64, -1, 1, 1, 1)
+  wasmtimeStoreLimiter(store, MaxMemoryBytes.int64,
+    MaxInstanceTableElements.int64, 1, 1, 1)
   requireNoError(wasmtimeContextSetFuel(context, fuel), "manifest Store fuel")
   wasmtimeContextSetEpochDeadline(context, EpochDeadlineTicks.uint64)
 
@@ -448,7 +453,8 @@ proc instantiate*(module: RuntimeModule;
   if result.store == nil:
     raise newException(ShellRuntimeError, "wasmtime_store_new returned nil")
   result.context = wasmtimeStoreContext(result.store)
-  wasmtimeStoreLimiter(result.store, MaxMemoryBytes.int64, -1, 1, 1, 1)
+  wasmtimeStoreLimiter(result.store, MaxMemoryBytes.int64,
+    MaxInstanceTableElements.int64, 1, 1, 1)
 
   try:
     requireNoError(wasmtimeContextSetFuel(result.context, fuel),

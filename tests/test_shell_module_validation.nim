@@ -30,6 +30,23 @@ proc countedValidWat(count: int): string =
   result.add "(func (export \"play_init\") (param i32 i32 i32 i32) (result i32) i32.const 0)\n"
   result.add "(func (export \"play_step\") (param i32 i32) (result i32) i32.const 0))"
 
+proc validManifestModule(prefix = ""; manifestBody = ""): string =
+  const ManifestBytes =
+    "{\\22abi\\22:1,\\22class\\22:\\22controller\\22,\\22modes\\22:[\\22br\\22],\\22name\\22:\\22alpha\\22,\\22params\\22:{},\\22retune\\22:false}"
+  result = "(module\n" &
+    "(import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    prefix &
+    "(memory (export \"memory\") 1 16)\n" &
+    "(data (i32.const 0) \"" & ManifestBytes & "\")\n" &
+    "(func (export \"play_alloc\") (param i32) (result i32) i32.const 1024)\n" &
+    "(func (export \"play_manifest\") " &
+      (if manifestBody.len == 0:
+        "i32.const 0 i32.const 87 call $emit drop"
+      else:
+        manifestBody) & ")\n" &
+    "(func (export \"play_init\") (param i32 i32 i32 i32) (result i32) i32.const 0)\n" &
+    "(func (export \"play_step\") (param i32 i32) (result i32) i32.const 0))"
+
 proc uleb(output: var seq[byte]; value: uint32) =
   var remaining = value
   while true:
@@ -109,6 +126,18 @@ suite "shell module content validation":
     check outcome.reason == "tooManyFunctions"
     check engine.moduleCompilationCount() == before
 
+  test "unbounded and oversized tables are rejected before module_new":
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    for text in [
+        validManifestModule("(table 1 funcref)\n"),
+        validManifestModule("(table 1 " &
+          $(MaxInstanceTableElements + 1) & " funcref)\n")]:
+      let before = engine.moduleCompilationCount()
+      var outcome = engine.validateUploadedModule(watBytes(text))
+      check outcome.reason == "badInterface"
+      check engine.moduleCompilationCount() == before
+
   test "retained 65529-function control is refused before module_new":
     let bytes = emptyFunctionsModule(65_529)
     check bytes.len <= MaxModuleBytes
@@ -125,6 +154,13 @@ suite "shell module content validation":
     for name in ["zero_emit", "two_emit"]:
       var outcome = engine.validateUploadedModule(fixture(name))
       check outcome.reason == "manifestProbe"
+
+    var secondOob = engine.validateUploadedModule(watBytes(validManifestModule(
+      manifestBody = "i32.const 0 i32.const 87 call $emit drop " &
+        "i32.const 2147483647 i32.const 1 call $emit drop")))
+    check secondOob.reason == "manifestProbe"
+    check secondOob.detail.contains("play_manifest emitted more than once")
+    check not secondOob.detail.contains("byte range")
 
   test "manifest probe owns traps and enforces fuel and epoch backstop":
     let engine = newRuntimeEngine()

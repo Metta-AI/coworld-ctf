@@ -29,7 +29,7 @@ proc intentBytes(point = some(MapPoint(x: 30, y: 30))): string =
 
 proc shellWat(stepBody: string; allocBody = "i32.const 4096";
               initBody = "i32.const 0"; retuneBody = "i32.const 0";
-              includeRetune = true): string =
+              includeRetune = true; tableDecl = ""): string =
   let acceptedIntent = intentBytes()
   let manifest = "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
     "\"name\":\"alpha\",\"params\":{},\"retune\":" &
@@ -42,6 +42,7 @@ proc shellWat(stepBody: string; allocBody = "i32.const 4096";
     "  (import \"play\" \"nearest_cover\" " &
       "(func $nearest_cover (param i32 i32 i32 i32 i32 i32) (result i64)))\n" &
     "  (memory (export \"memory\") 1 16)\n" &
+    tableDecl &
     "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
     "  (data (i32.const 512) \"" & acceptedIntent.watEscape & "\")\n" &
     "  (func (export \"play_alloc\") (param i32) (result i32) " &
@@ -88,6 +89,12 @@ proc hostileModules(): seq[HostileModule] =
     HostileModule(name: "growth_loop", attack: caStep,
       bytes: watBytes(shellWat(
         "(loop $again i32.const 1 memory.grow drop br $again) i32.const 0"))),
+    HostileModule(name: "table_growth", attack: caStep,
+      bytes: watBytes(shellWat(
+        "ref.null func i32.const 1000000 table.grow $calls " &
+          "i32.const -1 i32.ne if unreachable end i32.const 1",
+        tableDecl = "  (table $calls 1 " &
+          $MaxInstanceTableElements & " funcref)\n"))),
     HostileModule(name: "oob_emit", attack: caStep,
       bytes: watBytes(shellWat(
         "i32.const 65535 i32.const 2 call $emit drop i32.const 0"))),

@@ -237,20 +237,27 @@ suite "shell ABI":
     check illegal.instance.invokeStep("{}", 1).faulted
 
   test "spatial imports validate quota before hostile pointers and scalar domains":
-    var spatial = compileFixture(shellWat(
-      "i32.const 30 i32.const 30 call $nearest_reachable drop " &
-      "i32.const 30 i32.const 30 i32.const 64 i32.const 255 " &
-        "i32.const 512 i32.const 0 call $nearest_cover drop " &
-      "i32.const -1 i32.const 30 call $nearest_reachable drop " &
+    var scalarBeforePointer = compileFixture(shellWat(
       "i32.const 30 i32.const 30 i32.const 64 i32.const 256 " &
-        "i32.const 512 i32.const 0 call $nearest_cover drop " &
-      "i32.const 30 i32.const 30 i32.const 64 i32.const -1 " &
         "i32.const 2147483647 i32.const 8 call $nearest_cover drop " &
       "i32.const 0"))
-    defer: spatial.close()
-    let result = spatial.instance.invokeStep("{}", 1)
-    check not result.faulted
-    check result.counters.spatialCalls == MaxSpatialCallsPerStep
+    defer: scalarBeforePointer.close()
+    let scalarResult = scalarBeforePointer.instance.invokeStep("{}", 1)
+    check not scalarResult.faulted
+    check scalarResult.counters.spatialCalls == 1
+
+    var quotaBeforePointer = compileFixture(shellWat(
+      "i32.const 30 i32.const 30 call $nearest_reachable drop " &
+      "i32.const 30 i32.const 30 call $nearest_reachable drop " &
+      "i32.const 30 i32.const 30 call $nearest_reachable drop " &
+      "i32.const 30 i32.const 30 call $nearest_reachable drop " &
+      "i32.const 30 i32.const 30 i32.const 64 i32.const 255 " &
+        "i32.const 2147483647 i32.const 8 call $nearest_cover drop " &
+      "i32.const 0"))
+    defer: quotaBeforePointer.close()
+    let quotaResult = quotaBeforePointer.instance.invokeStep("{}", 1)
+    check not quotaResult.faulted
+    check quotaResult.counters.spatialCalls == MaxSpatialCallsPerStep
 
     var badPointerBeforeQuota = compileFixture(shellWat(
       "i32.const 30 i32.const 30 i32.const 64 i32.const -1 " &
@@ -258,6 +265,16 @@ suite "shell ABI":
       "i32.const 0"))
     defer: badPointerBeforeQuota.close()
     check badPointerBeforeQuota.instance.invokeStep("{}", 1).faulted
+
+    var validCover = compileFixture(shellWat(
+      "i32.const 30 i32.const 30 i32.const 64 i32.const 255 " &
+        "i32.const 512 i32.const 0 call $nearest_cover drop " &
+      "i32.const 0"))
+    defer: validCover.close()
+    let coverResult = validCover.instance.invokeStep("{}", 1)
+    check coverResult.faulted
+    check coverResult.reason == "nearest_cover not yet implemented"
+    check coverResult.counters.spatialCalls == 1
 
   test "manifest/init/step/retune phase matrix faults illegal imports":
     var manifestSpatial = compileFixture(shellWat("i32.const 0",

@@ -104,6 +104,7 @@ proc inspectModuleInterface*(bytes: openArray[byte]): ModuleInterface =
   var exports: seq[ExportEntry]
   var memoryCount = 0
   var memoryMax = -1
+  var tableCount = 0
   var sawStart = false
   var seenSections: HashSet[byte]
 
@@ -147,6 +148,20 @@ proc inspectModuleInterface*(bytes: openArray[byte]): ModuleInterface =
       functions = newSeqOfCap[uint32](count)
       for _ in 0 ..< count:
         functions.add s.readUleb()
+    of 4:
+      tableCount = s.readUleb().int
+      if tableCount > 1:
+        reject("badInterface", "shell modules may declare at most one table")
+      for _ in 0 ..< tableCount:
+        discard s.readByte() # element reference type
+        let flags = s.readUleb()
+        discard s.readUleb() # minimum
+        if (flags and 1) == 0:
+          reject("badInterface", "table must declare a maximum")
+        let tableMax = s.readUleb().int
+        if tableMax > MaxInstanceTableElements:
+          reject("badInterface", "table maximum exceeds " &
+            $MaxInstanceTableElements & " elements")
     of 5:
       memoryCount = s.readUleb().int
       for _ in 0 ..< memoryCount:
