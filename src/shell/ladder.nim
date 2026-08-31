@@ -11,7 +11,7 @@ import crunchy/[common, sha256]
 import ../ctf/policy_page
 import ../ctf/sim_types
 import body_map, call_validation, emit_validator, guards, instance,
-  manifest, module_cache, types
+  manifest, module_cache, replacement, types
 
 type
   LadderEmission* = object
@@ -78,6 +78,18 @@ type
     epoch*: uint64
     status*: StatusEntry
     statusBytes*: string
+
+  LadderEntrySnapshot* = object
+    entryId*: string
+    play*: string
+    hash*: string
+    paramsBytes*: string
+    oldParamsBytes*: string
+    state*: PlayInstanceState
+    originGeneration*: uint64
+    hasGuest*: bool
+    hasCachedIntent*: bool
+    hasCachedPolicy*: bool
 
   LadderEntry = object
     call: ValidatedCallEntry
@@ -148,6 +160,10 @@ proc close(entry: var LadderEntry) =
   if entry.guest != nil and entry.guest.close != nil:
     entry.guest.close()
   entry.guest = nil
+
+proc clearCache(entry: var LadderEntry) =
+  entry.cachedIntent = none(LadderEmission)
+  entry.cachedPolicy = none(LadderEmission)
 
 proc close*(driver: LadderDriver) =
   if driver == nil:
@@ -224,6 +240,33 @@ proc matchingEntry(oldEntries: var seq[LadderEntry],
       return index
   -1
 
+proc replacementEntry(entry: LadderEntry): ReplacementEntry =
+  ReplacementEntry(entryId: entry.call.entryId, playName: entry.call.play,
+    moduleHash: entry.hash, paramsBytes: entry.call.paramsBytes,
+    state: entry.state)
+
+proc replacementEntry(call: ValidatedCallEntry; hash: string): ReplacementEntry =
+  ReplacementEntry(entryId: call.entryId, playName: call.play,
+    moduleHash: hash, paramsBytes: call.paramsBytes, retune: call.retune)
+
+proc entrySnapshots*(driver: LadderDriver; seatIndex: int):
+    seq[LadderEntrySnapshot] =
+  if driver == nil or seatIndex < 0 or seatIndex >= driver.seats.len:
+    return
+  for entry in driver.seats[seatIndex].entries:
+    result.add LadderEntrySnapshot(entryId: entry.call.entryId,
+      play: entry.call.play, hash: entry.hash,
+      paramsBytes: entry.call.paramsBytes,
+      oldParamsBytes: entry.oldParamsBytes, state: entry.state,
+      originGeneration: entry.originGeneration, hasGuest: entry.guest != nil,
+      hasCachedIntent: entry.cachedIntent.isSome,
+      hasCachedPolicy: entry.cachedPolicy.isSome)
+
+proc seatEpoch*(driver: LadderDriver; seatIndex: int): uint64 =
+  if driver == nil or seatIndex < 0 or seatIndex >= driver.seats.len:
+    return 0
+  driver.seats[seatIndex].epoch
+
 proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
                  originGeneration: uint64; tick: uint32; bytes: sink string;
                  bindings: openArray[LadderBinding];
@@ -257,18 +300,22 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
     let oldIndex = oldEntries.matchingEntry(call, binding.hash)
     if oldIndex >= 0:
       var old = addr oldEntries[oldIndex]
-      if old[].state in {pisLive, pisParked} and call.retune and
-          old[].call.paramsBytes == call.paramsBytes:
+      let replacement = classifyReplacement([old[].replacementEntry],
+        replacementEntry(call, binding.hash))
+      case replacement.action
+      of raAdoptIdentical:
         entry.state = old[].state
         entry.guest = old[].guest
         entry.cachedIntent = old[].cachedIntent
         entry.cachedPolicy = old[].cachedPolicy
         old[].guest = nil
-      elif old[].state in {pisLive, pisParked} and call.retune:
+      of raPendingRetune:
         entry.state = pisPendingRetune
         entry.guest = old[].guest
-        entry.oldParamsBytes = old[].call.paramsBytes
+        entry.oldParamsBytes = replacement.oldParamsBytes
         old[].guest = nil
+      of raStartAbsent:
+        discard
     newEntries.add entry
 
   for old in oldEntries.mitems:
@@ -479,6 +526,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
   if not input.alive:
     for entry in driver.seats[seatIndex].entries.mitems:
       if entry.state == pisLive:
+        entry.clearCache()
         entry.state = pisParked
     output.usedDefault = true
     output.intent = input.defaultIntent
@@ -487,6 +535,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
 
   for entry in driver.seats[seatIndex].entries.mitems:
     if entry.state == pisParked:
+      entry.clearCache()
       entry.state = pisLive
 
   for index in 0 ..< driver.seats[seatIndex].entries.len:
