@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-rt/roundtrip.bitreplay}"
-MAPSPEC="${2:-br-match-map-14005.json}"
+MAPSPEC="${2:-tests/fixtures/br-match-map-14005.json}"
 SEED="${SEED:-777001}"
 MAXTICKS="${MAXTICKS:-900}"
 PORT="${PORT:-21471}"

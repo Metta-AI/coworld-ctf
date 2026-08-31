@@ -89,7 +89,7 @@ independently-built policies.
   git-log-able "Picasso vNN" checkpoint found in the time available, used
   in its place rather than guess at an unverifiable "v58" label.
 - **Seed**: map draw seed 4242; match/sim seed 90210 (`tools/record_br_showmatch.sh
-  br-showmatch.bitreplay br-match-showmatch-4242.json 90210 /tmp/br-showmatch/roster.json`).
+  br-showmatch.bitreplay tests/fixtures/br-match-showmatch-4242.json 90210 /tmp/br-showmatch/roster.json`).
 
 ## What happened
 
@@ -159,7 +159,7 @@ still closed.
   reachable at its own `?replay=` URL.
 - Map draw: `/tmp/br-showmatch/draw-4242.json` (brmapkit's own grammar,
   ephemeral scratch, not tracked — matches the round-9 draw's own
-  precedent); converted spec tracked at `br-match-showmatch-4242.json`.
+  precedent); converted spec tracked at `tests/fixtures/br-match-showmatch-4242.json`.
 - Roster: `/tmp/br-showmatch/roster.json` (ephemeral scratch — the four
   binaries it points at live under `/tmp/bots/`, also not tracked; anyone
   re-running this needs to rebuild them from the branches/commits named in
