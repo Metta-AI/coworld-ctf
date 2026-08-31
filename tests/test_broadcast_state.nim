@@ -158,16 +158,19 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 44,
-      # seed 1: Blue captures the red heart, eliminating Red).
+      # is pinned to the current recording of the fixture (GameVersion 47,
+      # seed 1: Red captures the blue heart, eliminating Blue). A seed does
+      # not pin the outcome — the bots are separate processes — so which side
+      # wins is re-pinned on every re-record; the STRUCTURE (a capture ending,
+      # no draw, no time limit) is what the test is actually asserting.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       # GV32: the captured heart ends the game in the "captured" state.
-      check state["teams"]["red"]["flag"].getStr == "captured"
-      check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
+      check state["teams"]["blue"]["flag"].getStr == "captured"
+      check state["teams"]["red"]["flag"].getStr in ["home", "taken"]
       # The verdict carries a team-keyed map (any team count) that agrees with
       # the legacy red/blue scalars.
       for team in ["red", "blue"]:
@@ -208,21 +211,21 @@ suite "broadcast state channel":
       replay.mismatchQuit = true
       replay.buildReplayKeyframes(sim)
       # One lives count per team on every change point, ticks non-decreasing.
-      check replay.livesSeries.len >= 2
+      check replay.leadSeries.len >= 2
       var lastTick = -1
-      for point in replay.livesSeries:
+      for point in replay.leadSeries:
         check point.len == 1 + 2  # tick + one lives value per team
         check point[0] >= lastTick
         lastTick = point[0]
       # The chrome frame publishes it as {teams, pts} in Team order.
       let state = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
-        replay.livesSeries
+        replay.leadSeries
       ))
       check state["lead"]["teams"].len == 2
       check state["lead"]["teams"][0].getStr == "red"
       check state["lead"]["teams"][1].getStr == "blue"
-      check state["lead"]["pts"].len == replay.livesSeries.len
+      check state["lead"]["pts"].len == replay.leadSeries.len
       for row in state["lead"]["pts"]:
         check row.len == 3
     finally:
@@ -253,7 +256,7 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "blue"
+      check verdicts[0]["winner"].getStr == "red"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,

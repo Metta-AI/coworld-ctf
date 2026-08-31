@@ -31,5 +31,9 @@ import
   test_replay_switch_caches,
   test_rich_events,
   test_route_honesty,
-  test_trade_pair
+  test_trade_pair,
+  test_pb_buff,
+  test_pb_hill,
+  test_pb_paint,
+  test_pb_scoring
 {.warning[UnusedImport]: on.}

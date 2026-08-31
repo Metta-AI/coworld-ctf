@@ -8,10 +8,10 @@
 # skipped rather than registered.
 #
 # Keyed on `nimby.lock` ALONE. The lock file is the whole `--in`, deliberately:
-# bind the repo tree here and every source edit re-fetches 29 git repos. As it
+# bind the repo tree here and every source edit re-fetches 28 git repos. As it
 # stands this runs once per lock change and is a cache hit forever after.
 #
-# Result: { <pkg>/ x29, nim.cfg, paths.txt }.
+# Result: { <pkg>/ x28, nim.cfg, paths.txt }.
 set -euo pipefail
 
 fail() { echo "DEPS FAIL: $*" >&2; exit 1; }
@@ -26,7 +26,24 @@ cd "$W"
 # nimby syncs into the CWD, one directory per package, and writes a nim.cfg of
 # relative --path: lines beside them.
 export HOME=/tmp
-nimby sync nimby.lock >/tmp/nimby.log 2>&1 || { tail -20 /tmp/nimby.log >&2; fail "nimby sync"; }
+# BOUNDED, because nothing upstream will cut this off. A caos job carries no
+# execution deadline: the server sends `"deadline_ms": 0` and says so in as many
+# words (crates/server/src/runner.rs), reasoning that a deadline plus a forced
+# requeue would race a fresh worker against a still-running one. The `deadline`
+# that does exist there is pending_timeout — how long a job waits to be PICKED
+# UP, not how long it may then run.
+#
+# So a stalled clone (not a failed one — a stalled one) hangs this job forever,
+# and from outside it is indistinguishable from a slow cold fetch. That is not
+# hypothetical: it cost three hours once, after a `caosd reset` forced a cold
+# refetch of all 28 repos and one of them simply stopped.
+#
+# A cold sync of the full lock measures 23s, so 900s is ~39x headroom: it can
+# only fire on a genuine stall, never on a slow day.
+# The error path below already prints the log tail; today a stall is the one
+# failure that never reaches it.
+timeout 900 nimby sync nimby.lock >/tmp/nimby.log 2>&1 \
+  || { tail -20 /tmp/nimby.log >&2; fail "nimby sync (timeout 900s: stalled clone?)"; }
 
 # A partial tree is worse than no tree: it would cache as a valid result and
 # every later build would fail against it for reasons that point nowhere near
