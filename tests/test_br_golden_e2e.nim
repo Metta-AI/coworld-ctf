@@ -29,13 +29,17 @@
 ##
 ## The two numeric floors below (MinDisplacementPx, MinTeamsFiring) are
 ## read off THIS fixture's own recorded numbers (seed 4242) with margin, not
-## invented: the recording's least-active team (plum) still moved ~1547px,
-## and all 16 teams fired at least one shot (several duos fired only once —
-## MinTeamsFiring stays at 12, not 16, so a re-record that legitimately
-## silences one or two early-eliminated duos does not itself fail this
-## suite). The contract is "the bug this lane fixed cannot silently come
-## back", not an arbitrary tuning target — re-derive both honestly from
-## whatever a re-record actually produces.
+## invented. RE-DERIVED for GameVersion 48 (GLORY v11, BR increment 3 —
+## this fixture was re-recorded fresh for the gameHash schema change, same
+## seed/recipe, new engine): the recording's least-active team (blue) moved
+## 791px and 15 of 16 teams fired at least one shot (one duo, presumably
+## eliminated early, never fired). MinDisplacementPx drops 500 -> 400 (a
+## ~2x margin below 791, the same "wide margin, not wafer-thin" cushion the
+## original 500-vs-~1547px fit held); MinTeamsFiring drops 12 -> 11 (a
+## 4-duo cushion below 15, matching the original's 4-duo cushion below 16).
+## The contract is "the bug this lane fixed cannot silently come back", not
+## an arbitrary tuning target — re-derive both honestly from whatever a
+## re-record actually produces, exactly as this pass did.
 ##
 ## This fixture ALSO carries the "hunt-fix" evidence a separate recording
 ## (the gitignored br-showmatch2.bitreplay) was originally kept around to
@@ -57,14 +61,17 @@ const
   FixturePath = GameDir / "tests" / "fixtures" / "br-golden-16team.bitreplay"
   MapSpecPath = GameDir / "tests" / "fixtures" / "br-golden-map.json"
   Teams = 16
-  MinDisplacementPx = 500.0
-    ## floor: the recording's quietest team (plum) still moved ~1547px; 500
-    ## leaves wide margin while still catching a team that never left its
-    ## pocket.
-  MinTeamsFiring = 12
-    ## floor: all 16 fired in the recording; 12 leaves margin for a
-    ## legitimately quiet duo (eliminated early) without masking the
-    ## perception-cap regression this suite exists to catch.
+  MinDisplacementPx = 400.0
+    ## floor: the GameVersion-48 recording's quietest team (blue) moved
+    ## 791px; 400 leaves a real margin while still catching a team that
+    ## never left its pocket. (Was 500, fit against a GV47 recording whose
+    ## quietest team moved ~1547px.)
+  MinTeamsFiring = 11
+    ## floor: 15 of 16 fired in the GameVersion-48 recording (one duo,
+    ## presumably eliminated early, never fired); 11 leaves margin for a
+    ## legitimately quiet duo without masking the perception-cap
+    ## regression this suite exists to catch. (Was 12, fit against a
+    ## GV47 recording where all 16 fired.)
   BrRosterColors = [
     "red", "blue", "green", "yellow", "black", "silver", "ivory", "pink",
     "umber", "rust", "orange", "plum", "lime", "navy", "azure", "peach",

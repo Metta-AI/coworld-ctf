@@ -181,9 +181,51 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 10
+  GloryVersion* = 11
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v11 (2026-08-30, BR increment 3, the glory-inc3 wave): makes the BR
+    ## ledger honest against real measured numbers, gated everywhere on
+    ## `sim.config.brMode` so a classic 2-/4-team ledger is unaffected.
+    ##   - `PointBlankPx`/`LongshotPx`/`DenialPx` are now priced as a
+    ##     FRACTION of the live map's `gunRange` (`pointBlankPxFor`/
+    ##     `longshotPxFor`/`denialPxFor`, `CtfReferenceGunRange`), not an
+    ##     absolute px figure -- unscaled, BR's 331px gunRange
+    ##     (`br-golden-map.json`) inflated `PointBlankPx` from a rare
+    ##     duel-range bonus (10.5% of CTF's reference range) into 33% of
+    ##     BR's whole range, the modal kill; `LongshotPx` (700px) exceeded
+    ##     BR's gunRange outright, structurally dead and taking gun-tree
+    ##     tier V with it. See `CtfReferenceGunRange`'s own comment.
+    ##   - `LevelThresholds` gains a BR-only multiplier
+    ##     (`BrLevelThresholdMultPct`) via `levelForXp`'s new `brMode`
+    ##     param: BR's xp is damage-only (no heal/pickup/shield xp, per the
+    ##     v9 self-care law) at `XpPerDamage=3` and the gun deals 1 hp, so
+    ##     one tag was exactly L1 and ~5.3 tags capped a cog at L5
+    ##     permanently for the rest of the one-life episode -- `resetLadder`
+    ##     (the anti-snowball rule) cannot fire in BR, since the reset
+    ##     always lands on a death that is ALSO the cog's permanent
+    ##     elimination. See `BrLevelThresholdMultPct`'s own comment for the
+    ##     `episode-s830` measurement this was tuned against.
+    ##   - `dRevengeKill` ("PAYBACK") gains a second, BR-only gate:
+    ##     avenging a DEAD PARTNER's killer (`avengesPartner`, via
+    ##     `partner.lastKilledBy`), not just avenging your OWN killer
+    ##     (`avengesKiller`, structurally unreachable in BR -- a killer who
+    ##     had ever died is already permanently eliminated). Tapered to at
+    ##     most one mint per cog per episode (`avengedPartner`).
+    ##   - `awardWipe` (`dWipe`) is disabled outright in `brMode` -- see its
+    ##     own comment in sim.nim.
+    ##   - `slotAnchor`'s `layoutSides` branch (arena.nim) no longer
+    ##     collapses every non-Red team onto the SAME anchor point when a
+    ##     BR map's `spawnPoints` are authored -- each team gets its own
+    ##     point, so `groundOwner`'s nearest-pedestal search (the site
+    ##     gradient, §3) can actually tell 16 BR duos' ground apart instead
+    ##     of resolving every non-Red deed at the flat `SiteMultEnemyPct`.
+    ##   - The whole ledger (team glory, heat, per-player xp/level/counters,
+    ##     achievement claims) enters `gameHash` for the first time (was
+    ##     GLORY PORT increment 2/3, is now increment 3/3) -- `GameVersion`
+    ##     bumps 47->48 alongside this, in the same commit that re-records
+    ##     every `.bitreplay` fixture.
     ##
     ## v10 (2026-08-26, GLORYVERSION 10 WAVE, Maxwell's ruling verbatim: the
     ## leveling tree "shouldn't earn Glory for each action, they simply get
@@ -712,7 +754,9 @@ const
   MaxLevel* = 5
 
   LevelThresholds* = [9, 15, 24, 33, 48]
-    ## Cumulative XP for levels 1..5, within ONE life.
+    ## Cumulative XP for levels 1..5, within ONE life. CTF only -- BR reads
+    ## these through `BrLevelThresholdMultPct` (below) via `levelForXp`'s
+    ## `brMode` param, never bare.
     ##
     ## v9 (GLORY LAW E1, 2026-08-26): RE-FIT -- `XpPerHeal`, `XpPerClutchHeal`,
     ## `XpPerShieldSoak` and the heal-gated `XpPerPickup` all go to 0 this
@@ -763,6 +807,53 @@ const
     ## against kill-based xp and made L5 a never-an-episode legend (0 in 120
     ## real episodes) -- superseded by the 2026-08-21 work-based fit, itself
     ## now superseded by this one.
+
+  BrLevelThresholdMultPct* = 200
+    ## GLORY v11 (BR increment 3): `LevelThresholds` scaled by this percent
+    ## for a `brMode` episode ONLY (`levelForXp`'s `brMode` param) -- CTF
+    ## reads the bare table, unaffected.
+    ##
+    ## BR's xp pool is a fraction of CTF's by construction: it is
+    ## damage-only (every heal/pickup/shield xp source is zeroed by the v9
+    ## self-care law, and BR ships no flag play to draw `XpPerSteal`/
+    ## `XpPerCapture` from -- flagless, per `glory.nim`'s header). With the
+    ## default 3 hp per cog and `XpPerDamage=3`, ONE FULL KILL ("a tag")
+    ## lands 9xp -- exactly the unscaled L1 threshold, so a single kill
+    ## insta-levels, and the unscaled L5 (48xp) needs only ~5.3 solo kills
+    ## to cap a cog's buffs for the rest of the one-life episode --
+    ## `resetLadder` (the anti-snowball rule) cannot rescue this the way it
+    ## does in CTF, because in BR the death that triggers it is ALSO the
+    ## cog's permanent elimination; there is no next life to reset FOR.
+    ##
+    ## Design target (Maxwell's ruling): the median episode WINNER should
+    ## reach L3-L4 by endgame, with L5 exceptional, not the default
+    ## outcome. Re-simulated two fresh 16-duo BR episodes end to end
+    ## (`dump_glory_from_replay`'s multiplier-sweep table, 2026-08-30:
+    ## `tests/fixtures/br-golden-16team.bitreplay` and a fresh recording
+    ## at the SAME map/seed the stale, unloadable `rt_episode/
+    ## episode-s830.bitreplay` fixture (pre-GameVersion-bump, refuses to
+    ## even parse) was named for) -- both, played by the plain baseline
+    ## policy on every one of the 32 seats, topped out at only 18-21 FINAL
+    ## xp for the most active cog in the whole match (2-3 kills' worth),
+    ## nowhere near even the UNSCALED L3 (24xp): the simple baseline bot
+    ## measurably under-plays the aggressive, diverse-policy field the
+    ## 5.3-tag capping problem above was measured against, so neither
+    ## local re-sim can pin an exact real-field percentile. What both DO
+    ## confirm: the unscaled table's own arithmetic problem (a solo kill
+    ## insta-leveling) and that doubling every rung directly fixes it
+    ## without over-correcting into unreachable -- the same "an unreached
+    ## gate is the same failure as a mistuned one" law this project
+    ## already holds every other threshold to. 200% moves what WAS the
+    ## L5 floor (48xp, ~5.3 kills) to the NEW L3 (48xp again, now the
+    ## midpoint of the ladder instead of its ceiling) and pushes L5 to
+    ## 96xp (~10.7 solo kills) -- a genuinely exceptional single-life
+    ## haul, while L1 (18xp, 2 kills) no longer insta-levels off one tag.
+    ## Re-derive this against a real, diverse-policy BR corpus once one is
+    ## available; a flat, unreasoned 4x (400%, L5 = 192xp ≈ 21.3 solo
+    ## kills in one life) was considered and rejected for pushing L5 from
+    ## "exceptional" into "practically unreachable" -- the same
+    ## unfired-gate failure class this project's own memory of unreachable
+    ## gates (§7's layer-monopoly sibling) already warns against.
 
   # ── What levels a cog: WORK, not kills (Maxwell's ruling, 2026-08-21) ──
   #
@@ -1093,6 +1184,34 @@ const
                               ## confirms 17.5% (42/240) EXACTLY, so this is
                               ## the correct operationalization and `DenialPx`
                               ## needs no further move.
+
+  CtfReferenceGunRange* = 1050
+    ## The map `gunRange` (sim_types.nim's stock `GunRange`, what every
+    ## classic CTF map ships with, arena.nim: "fixed, never scaled with the
+    ## field") that `PointBlankPx`/`LongshotPx`/`DenialPx` above were each
+    ## fit against. GLORY v11 (2026-08-30, BR increment 3 measurement):
+    ## these three were absolute pixel constants, silently assuming every
+    ## map shares CTF's own gunRange. BR does not -- `br-golden-map.json`
+    ## ships `gunRange: 331`, less than a third of the reference. Priced
+    ## unscaled, `PointBlankPx` (110px, 10.5% of 1050) becomes 33.2% of
+    ## BR's 331 -- inflated from a rare duel-range bonus into the MODAL
+    ## kill, the exact layer-monopoly failure `PointBlankPx`'s own v2 cut
+    ## already fixed once for CTF. `LongshotPx` (700px) EXCEEDS BR's whole
+    ## gunRange outright -- structurally dead, taking gun-tree tier V
+    ## ("Sharpshooter") down with it. `pointBlankPxFor`/`longshotPxFor`/
+    ## `denialPxFor` below re-derive each as the SAME fraction of
+    ## whichever map's gunRange is actually live, so a non-standard
+    ## gunRange reprices proportionally instead of silently drifting the
+    ## deed's real-world rarity. Every classic CTF map ships gunRange ==
+    ## this constant (arena.nim never scales it with the field), so the
+    ## three accessors return their unscaled reference constants there --
+    ## byte-identical pricing to before this version for every 2- and
+    ## 4-team fixture in the suite; only a non-reference gunRange (BR
+    ## today) sees a different number.
+  PointBlankPermille* = 105   ## round(110 * 1000 / 1050).
+  LongshotPermille* = 667     ## round(700 * 1000 / 1050).
+  DenialPermille* = 571       ## round(600 * 1000 / 1050).
+
   RevengeTicks* = 240         ## ~10s to answer your killer.
                               ## ⚠️ UNCALIBRATED (GLORY C7): a round
                               ## 10-second design choice (matching
@@ -1787,12 +1906,20 @@ func heatMult*(embers: int): int {.inline.} =
   let rung = heatRung(embers)
   HeatLadder[if rung > HeatLadder.high: HeatLadder.high else: rung]
 
-func levelForXp*(xp: int): int {.inline.} =
+func levelForXp*(xp: int, brMode: bool = false): int {.inline.} =
   ## Level 0..MaxLevel for a cog's CURRENT-LIFE xp. Monotonic in xp, so a
   ## level can never dip while the life continues.
+  ##
+  ## `brMode` (GLORY v11, default false so every pre-v11 call site and test
+  ## keeps its exact CTF answer): scales `LevelThresholds` by
+  ## `BrLevelThresholdMultPct` -- see that constant's own comment for why
+  ## BR's damage-only, flagless xp pool needs a taller ladder than CTF's.
   result = 0
   for threshold in LevelThresholds:
-    if xp >= threshold:
+    let t =
+      if brMode: threshold * BrLevelThresholdMultPct div 100
+      else: threshold
+    if xp >= t:
       inc result
     else:
       break
@@ -1899,9 +2026,29 @@ type
     victimLevel*: int      ## the victim's level at the moment it died.
     multi*: bool           ## this blast or cone activation killed 2+.
     rangePx*: int          ## shooter-to-victim distance.
+    gunRange*: int         ## the LIVE map's config.gunRange, so `killDeed`
+                           ## can re-derive `PointBlankPx`/`LongshotPx` as a
+                           ## fraction of THIS game's range rather than
+                           ## CTF's own (see `CtfReferenceGunRange`). Zero
+                           ## (every test's bare `KillContext{}`) is the
+                           ## "unresolved" sentinel: `pointBlankPxFor`/
+                           ## `longshotPxFor` fall back to the unscaled
+                           ## reference constant, so every existing pure
+                           ## test keeps its exact pre-v11 answer.
     weaponSpray*: bool
     weaponGrenade*: bool
     avengesKiller*: bool   ## the victim had killed this cog inside RevengeTicks.
+    avengesPartner*: bool  ## GLORY v11 (BR increment 3): the victim is the
+                           ## same cog that killed THIS killer's DEAD DUO
+                           ## PARTNER (`partner.lastKilledBy`) -- BR's own
+                           ## gate onto "PAYBACK", since `avengesKiller`
+                           ## above is structurally unreachable there (a
+                           ## killer who had ever died is already
+                           ## permanently eliminated in a one-life episode,
+                           ## so it can never be the one pulling the
+                           ## trigger now). Filled at the kill site
+                           ## (sim.nim's `killPlayer`), same discipline as
+                           ## every other `KillContext` field.
     fleeing*: bool         ## the victim was moving away from the killer.
     escorted*: bool        ## a TEAMMATE of the killer -- not the killer --
                            ## currently carries the enemy heart. Distinct from
@@ -1911,6 +2058,23 @@ type
                            ## `CarrierHoldMultPct`'s multiplier through
                            ## `mintGlory`, so this prices covering the runner
                            ## as its own act rather than double-counting theirs.
+
+func scaledByGunRange(refPx, gunRange: int): int {.inline.} =
+  ## `refPx` (measured at `CtfReferenceGunRange`) rescaled to the SAME
+  ## fraction of `gunRange`. `gunRange <= 0` is the unresolved sentinel
+  ## (see `KillContext.gunRange`'s own comment) -- returns `refPx` itself,
+  ## unscaled.
+  if gunRange <= 0: refPx
+  else: refPx * gunRange div CtfReferenceGunRange
+
+func pointBlankPxFor*(gunRange: int): int {.inline.} =
+  scaledByGunRange(PointBlankPx, gunRange)
+
+func longshotPxFor*(gunRange: int): int {.inline.} =
+  scaledByGunRange(LongshotPx, gunRange)
+
+func denialPxFor*(gunRange: int): int {.inline.} =
+  scaledByGunRange(DenialPx, gunRange)
 
 func killDeed*(ctx: KillContext): Deed =
   ## Resolve a kill to its ONE deed. Order is the pricing hierarchy: the
@@ -1928,9 +2092,9 @@ func killDeed*(ctx: KillContext): Deed =
   if ctx.victimCarrying: return dCarrierKill
   if ctx.victimLevel >= AceLevel: return dAceTag
   if ctx.multi: return dSplashMultiKill
-  if ctx.rangePx >= LongshotPx: return dLongshotKill
-  if ctx.rangePx <= PointBlankPx: return dPointBlankKill
-  if ctx.avengesKiller: return dRevengeKill
+  if ctx.rangePx >= longshotPxFor(ctx.gunRange): return dLongshotKill
+  if ctx.rangePx <= pointBlankPxFor(ctx.gunRange): return dPointBlankKill
+  if ctx.avengesKiller or ctx.avengesPartner: return dRevengeKill
   if ctx.fleeing: return dRunDown
   if ctx.escorted: return dEscortKill
   if ctx.weaponSpray: return dSprayKill

@@ -439,7 +439,8 @@ proc addXp*(sim: var SimServer, playerIndex: int, amount: int) =
     return
   let before = sim.players[playerIndex].level
   sim.players[playerIndex].xp = max(0, sim.players[playerIndex].xp + amount)
-  sim.players[playerIndex].level = levelForXp(sim.players[playerIndex].xp)
+  sim.players[playerIndex].level =
+    levelForXp(sim.players[playerIndex].xp, sim.config.brMode)
   let after = sim.players[playerIndex].level
   if after > before:
     sim.awardDeed(
@@ -1018,6 +1019,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].assists = 0
     sim.players[i].rescues = 0
     sim.players[i].escortKills = 0
+    sim.players[i].avengedPartner = false
     sim.players[i].clutchHealTick = -1
     sim.players[i].peelTick = -1
     sim.players[i].lastDamagedBy = -1
@@ -1655,25 +1657,56 @@ proc killPlayer*(
         if c >= 0 and sim.players[c].team == killer.team and c != killerIndex:
           escortCarrier = c
           break
+      # GLORY v11 (BR increment 3): the three distance gates below are
+      # priced as a FRACTION of THIS map's gunRange, not an absolute px
+      # figure -- see `CtfReferenceGunRange`'s own comment on `glory.nim`.
+      # `denialPxFor` resolves once here (rather than inline in the
+      # KillContext literal below) so the SAME number backs both
+      # `nearVictimHome` and any future caller; `pointBlankPxFor`/
+      # `longshotPxFor` resolve inside `killDeed` itself off `ctx.gunRange`.
+      let denialPxNow = denialPxFor(sim.config.gunRange)
+      # GLORY v11 (BR increment 3): "PAYBACK" (`dRevengeKill`) re-gated onto
+      # the DEAD DUO PARTNER's killer in brMode, where `avengesKiller` above
+      # can never fire -- a killer who had ever died is already permanently
+      # eliminated in a one-life episode, so it can never be the one
+      # pulling the trigger now. A duo's partner is simply the other cog
+      # sharing `killer.team` (BR seats exactly two per team). Tapered to
+      # at most one mint per cog per episode via `avengedPartner`, checked
+      # here so a cog that already collected its payback never re-arms.
+      var avengesPartner = false
+      if sim.config.brMode and not killer.avengedPartner:
+        for i, p in sim.players:
+          if p.team == killer.team and i != killerIndex:
+            if not p.alive and p.lastKilledBy == targetIndex:
+              avengesPartner = true
+            break
       let ctx = KillContext(
         friendly: victim.team == killer.team,
         victimCarrying: victim.carryingFlag,
         nearVictimHome: dxHome * dxHome + dyHome * dyHome <=
-                        DenialPx * DenialPx,
+                        denialPxNow * denialPxNow,
         victimLevel: victim.level,
         multi: multi,
         rangePx: int(sqrt(float(dx * dx + dy * dy))),
+        gunRange: sim.config.gunRange,
         weaponSpray: weapon == "spray",
         weaponGrenade: weapon == "grenade",
         avengesKiller: killer.lastKilledBy == targetIndex and
                        killer.lastKilledByTick >= 0 and
                        sim.tickCount - killer.lastKilledByTick <= RevengeTicks,
+        avengesPartner: avengesPartner,
         fleeing: opening > 0,
         escorted: escortCarrier >= 0
       )
       let deed = killDeed(ctx)
       sim.awardDeed(killer.team, deed, victim.x, victim.y,
                     byIndex = killerIndex)
+      # The taper only latches once the payback ACTUALLY minted: a kill
+      # that also satisfies a higher-precedence descriptor (an ace tag, a
+      # denial, ...) resolves to that deed instead, same as `avengesKiller`
+      # already yields precedence in every other case `killDeed` covers.
+      if deed == dRevengeKill and avengesPartner:
+        sim.players[killerIndex].avengedPartner = true
       # Achievement counters, keyed off the RESOLVED deed so they can never
       # disagree with what was actually minted.
       if not ctx.friendly:
@@ -1684,7 +1717,15 @@ proc killPlayer*(
           inc sim.players[killerIndex].grenadeKills
         else:
           inc sim.players[killerIndex].gunKills
-        if ctx.rangePx >= LongshotPx: inc sim.players[killerIndex].longshotKills
+        # `longshotKills` tracks the raw DISTANCE fact (same as before this
+        # version), independent of which deed precedence actually resolved
+        # to -- a long-range kill that ALSO satisfies a higher-priority
+        # deed (an ace tag, a denial, ...) still counts here, same as it
+        # did when this compared against the flat `LongshotPx` constant.
+        # Only the THRESHOLD moved (now a fraction of `ctx.gunRange`, see
+        # `CtfReferenceGunRange`), never this counter's own semantics.
+        if ctx.rangePx >= longshotPxFor(ctx.gunRange):
+          inc sim.players[killerIndex].longshotKills
         if ctx.victimLevel >= AceLevel:
           inc sim.players[killerIndex].aceKills
         if ctx.victimCarrying:
@@ -4669,6 +4710,29 @@ proc awardWipe(sim: var SimServer, winner, loser: Team) =
   ## which team(s) to call it for on an N-team board (main's own version
   ## could assume exactly one `loser` because it only ever ran on 2-team
   ## play); this proc's own body needed no N-team change at all.
+  ##
+  ## GLORY v11 (BR increment 3): DISABLED outright in `brMode` -- CTF is
+  ## untouched (2-team play still mints the classic wipe). In a 16-team
+  ## single-elimination BR board this fires on essentially every episode
+  ## that isn't a mutual draw, always paying out to whichever team happens
+  ## to be the sole survivor -- a near-fixed win bonus, not a dominance
+  ## signal. MEASURED (re-simulating the GV47 `episode-s830` reference
+  ## recording, PR #313, and its five 31337-seeded siblings, 2026-08-30):
+  ## winner glory converged to 626-627g across every one of them despite
+  ## different seeds and different match shapes -- exactly the
+  ## "structural constant dominating the ledger" this cut removes. On
+  ## s830 specifically (886g total, 16/16 teams nonzero), disabling this
+  ## one mint (re-simulated against the SAME recorded inputs, so the
+  ## match itself replays identically) dropped the winner from 626g to
+  ## 26g and the episode total from 886g to 286g -- a single deed mint
+  ## was 95.8% of the eventual winner's WHOLE episode glory. (The mint
+  ## priced above its own 400g base here because the site gradient's
+  ## `groundOwner` was still degenerate at record time -- see the E7
+  ## `slotAnchor` fix, same wave -- so it is not a pure measure of
+  ## `dWipe`'s base price alone; the STRUCTURAL point, that one mint ate
+  ## nearly the whole ledger, holds regardless.)
+  if sim.config.brMode:
+    return
   var
     siteX, siteY: int
     killerIndex = -1

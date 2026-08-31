@@ -105,6 +105,29 @@ suite "glory: one kill, one deed":
     ctx.nearVictimHome = true
     check killDeed(ctx) == dDenial
 
+  test "BR's partner-avenge gate mints the SAME payback as avenging your own killer":
+    # GLORY v11 (BR increment 3): `avengesKiller` is structurally dead in
+    # BR (a killer who had ever died is already permanently eliminated),
+    # so `avengesPartner` -- killing your DEAD DUO PARTNER's own killer --
+    # is BR's own route onto "PAYBACK". Same deed, same precedence slot.
+    # rangePx sits strictly between PointBlankPx and LongshotPx (both
+    # default-unresolved to their unscaled CTF reference here) so neither
+    # shot-distance branch preempts the precedence check below.
+    check killDeed(KillContext(avengesPartner: true, rangePx: 300)) == dRevengeKill
+    check killDeed(KillContext(avengesKiller: true, rangePx: 300)) ==
+      killDeed(KillContext(avengesPartner: true, rangePx: 300))
+
+  test "partner-avenge yields to every higher-precedence descriptor, same as avengesKiller":
+    # The precedence law must hold identically for both gates onto
+    # `dRevengeKill` -- an ace tag, a denial, a longshot, ... all still
+    # outrank "payback", whichever gate fired it.
+    check killDeed(KillContext(avengesPartner: true, victimLevel: AceLevel)) ==
+      dAceTag
+    check killDeed(
+      KillContext(avengesPartner: true, victimCarrying: true, nearVictimHome: true)
+    ) == dDenial
+    check killDeed(KillContext(avengesPartner: true, friendly: true)) == dTeamKill
+
   test "a kill resolves to exactly one deed for every context":
     # Exhaustive over the boolean context: the point is that `killDeed` is
     # total and single-valued, so no combination can ever mint twice. This is
@@ -300,6 +323,47 @@ suite "glory: the per-life ladder":
     # shield. A levelled cog must not collide with that reading.
     check levelMaxHp(3, MaxLevel) < 6
 
+suite "glory: BR level pacing (GLORY v11, BR increment 3)":
+  # BR's one-life-per-episode structure means `resetLadder` (the
+  # anti-snowball rule) can never rescue an over-easy ladder the way CTF's
+  # respawn cycle does -- see `BrLevelThresholdMultPct`'s own comment for
+  # the measured arithmetic (a solo kill insta-levels at the bare table).
+
+  test "CTF (brMode=false, the default) reads the bare table, unaffected":
+    for xp in [0, 9, 15, 24, 33, 48, 60]:
+      check levelForXp(xp) == levelForXp(xp, brMode = false)
+
+  test "one full kill's worth of xp no longer insta-levels in BR":
+    # Default 3 hp, XpPerDamage=3 -> one solo kill = 9xp. At the bare
+    # table this IS the L1 floor (the arithmetic problem this constant
+    # exists to fix); scaled for BR it must fall short of L1.
+    let oneKillXp = 3 * XpPerDamage
+    check levelForXp(oneKillXp) >= 1                     # CTF: still true
+    check levelForXp(oneKillXp, brMode = true) == 0       # BR: no longer
+
+  test "what used to be the L5 floor is now roughly the BR L3 floor":
+    # The design move this constant makes: double every rung, so the OLD
+    # L5 ceiling (48xp, ~5.3 solo kills) becomes a mid-ladder rung instead
+    # of the top one.
+    check levelForXp(LevelThresholds[4], brMode = true) ==
+      levelForXp(LevelThresholds[2])  # both land exactly on a threshold
+
+  test "BR's L5 demands roughly double the kills the bare table asked for":
+    let bareL5Kills = LevelThresholds[4].float / (3 * XpPerDamage).float
+    let brL5Kills =
+      (LevelThresholds[4] * BrLevelThresholdMultPct div 100).float /
+      (3 * XpPerDamage).float
+    check brL5Kills > bareL5Kills * 1.5   # meaningfully harder...
+    check brL5Kills < bareL5Kills * 3.0   # ...but not unreachable
+
+  test "BR level is still monotonic in xp and never dips mid-life":
+    var previous = 0
+    for xp in 0 .. (LevelThresholds[^1] * BrLevelThresholdMultPct div 100) + 50:
+      let level = levelForXp(xp, brMode = true)
+      check level >= previous
+      check level <= MaxLevel
+      previous = level
+
 suite "glory: the supply drop cannot be farmed":
 
   test "a hiding veteran produces nothing":
@@ -333,3 +397,51 @@ suite "glory: the supply drop cannot be farmed":
     check SupplyDropCycle.len == 4
     for kit in ["med kit", "grenade", "spray can", "shield"]:
       check kit in SupplyDropCycle
+
+suite "glory: distance gates scale with the live map's gunRange":
+  # GLORY v11 (BR increment 3): `PointBlankPx`/`LongshotPx`/`DenialPx` were
+  # absolute px, fit against CTF's own stock gunRange (`CtfReferenceGunRange`,
+  # 1050). BR ships gunRange 331 (`br-golden-map.json`) -- unscaled, 110px
+  # is 33% of that range (the median kill, not a rare one) and 700px exceeds
+  # it outright (structurally dead). These three laws assert the fix: the
+  # unresolved (0/unset) sentinel is byte-identical to the old flat
+  # constant, and a real map's gunRange reprices proportionally.
+
+  test "an unresolved gunRange (every bare pre-v11 KillContext) is byte-identical":
+    check pointBlankPxFor(0) == PointBlankPx
+    check longshotPxFor(0) == LongshotPx
+    check denialPxFor(0) == DenialPx
+
+  test "the reference gunRange itself is a no-op rescale":
+    check pointBlankPxFor(CtfReferenceGunRange) == PointBlankPx
+    check longshotPxFor(CtfReferenceGunRange) == LongshotPx
+    check denialPxFor(CtfReferenceGunRange) == DenialPx
+
+  test "BR's gunRange de-inflates point-blank back off the median kill":
+    const BrGunRange = 331  # tests/fixtures/br-golden-map.json
+    let px = pointBlankPxFor(BrGunRange)
+    # Unscaled, 110px would be 33% of BR's range -- the failure this v11
+    # cut exists to close. Scaled, it should sit back near CTF's own ~10.5%.
+    check px * 100 div BrGunRange <= 15
+    check px < PointBlankPx  # strictly smaller on a shorter-range map
+
+  test "BR's gunRange revives Longshot instead of leaving it structurally dead":
+    const BrGunRange = 331
+    let px = longshotPxFor(BrGunRange)
+    check px < BrGunRange       # reachable at all (700 > 331 never was)
+    check px > 0
+
+  test "a kill resolves against the SAME live gunRange it was priced at":
+    # The precedence law from "glory: one kill, one deed" still has to hold
+    # once the gate is gunRange-relative, not just at the CTF reference.
+    const BrGunRange = 331
+    let closePx = pointBlankPxFor(BrGunRange)
+    let farPx = longshotPxFor(BrGunRange)
+    check killDeed(KillContext(rangePx: closePx, gunRange: BrGunRange)) ==
+      dPointBlankKill
+    check killDeed(KillContext(rangePx: farPx, gunRange: BrGunRange)) ==
+      dLongshotKill
+    # The identical rangePx reads as an ORDINARY kill at the CTF reference
+    # (gunRange unset falls back to the unscaled 700px floor) -- same
+    # distance, different map, different verdict.
+    check killDeed(KillContext(rangePx: farPx)) != dLongshotKill

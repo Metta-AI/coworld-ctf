@@ -29,7 +29,30 @@ export glory
 
 const
   GameName* = "ctf"
-  GameVersion* = "47"  ## GV47 (stats rule): DAMAGE IS CREDITED, AND SPLIT.
+  GameVersion* = "48"
+    ## GV48 (GLORY PORT increment 3/3, GLORY v11): the ledger is CAUSAL now.
+    ## Every per-player counter and per-team field `glory.nim`'s own
+    ## GLORY PORT increment-2/3 comments marked "will be" hashed (xp,
+    ## level, the achievement-gate counters, `teamGlory`, heat, the
+    ## achievement claim sets, `firstBloodDone`, `squadVolleyDone`) now
+    ## actually enters `gameHash` (see `gameHash`'s own two new blocks,
+    ## sim_state.nim) — the increment-3 move those comments named,
+    ## claimed here as the real GV48 the landing plan (BR_SEASON2_
+    ## LANDING_PLAN.md) reserved for it. Bundled in the SAME wave (GLORY
+    ## v11, `glory.nim`'s own changelog): BR's distance-gated deeds now
+    ## scale with the live map's gunRange, BR's level ladder is rescaled
+    ## for its one-life episodes, `dRevengeKill` gains a BR-only
+    ## partner-avenge gate, `awardWipe` is disabled in `brMode`, and the
+    ## site-gradient anchor (`slotAnchor`) is per-duo honest instead of
+    ## collapsing 14 of 16 BR teams onto one shared point. None of the
+    ## pricing changes touch a single BYTE a classic (non-BR) replay's
+    ## hash trajectory would have produced before this version — every
+    ## gate reads `sim.config.brMode` — but the SCHEMA change (new fields
+    ## entering `gameHash` at all) means every `.bitreplay` this engine
+    ## has ever produced, BR or classic, needs a GV48 stamp to load again;
+    ## all 7 committed fixtures re-recorded this same commit.
+    ##
+    ## Previously GV47 (stats rule): DAMAGE IS CREDITED, AND SPLIT.
     ## `absorbDamage` — the one subtraction point — now mirrors every hit onto
     ## the attacker's reward account, split by team exactly the way GV45 split
     ## kills: hp taken off an ENEMY accumulates in `hitDamage`, hp taken off a
@@ -2192,23 +2215,18 @@ type
                                ## exactly the case an LLM produces most —
                                ## reasserting the current plan.
 
-    # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
+    # ── GLORY PORT, increment 3/3 DONE (GLORY v11, GameVersion 48) ───────
     # Ported field-for-field from main's src/ctf/glory.nim-era Player
     # (verified by diffing the two struct bodies, not eyeballed). Appended
     # at the END of the object per this file's own flatty-positional rule.
     #
-    # INCREMENT BOUNDARY: `sim_state.gameHash` is an explicit fixed field
-    # list, not reflective, so none of these fields are mixed into it here
-    # — they are read/written but provably inert to replay determinism.
-    # Every per-field "causal (hashed)"/"in gameHash" comment below
-    # describes this porch's EVENTUAL (increment 3) status, ported verbatim
-    # from main rather than rewritten field-by-field; until increment 3
-    # actually adds the causal subset to `gameHash` (and pays the one
-    # deliberate fixture re-record that move costs), read every such claim
-    # as "will be" rather than "is". `GameVersion` is untouched for the
-    # same reason (GV47 after the wave-1 reconciliation with main): nothing
-    # here is causal yet, so no replay's rules changed.
-    #
+    # INCREMENT BOUNDARY, RESOLVED: increment 3 (this version) added the
+    # causal subset below to `gameHash` (`sim_state.nim`'s own two new
+    # blocks) and claimed the real GV48 the landing plan reserved for it.
+    # Every per-field "causal (hashed)"/"in gameHash" comment below is now
+    # simply TRUE, not a forward promise — read it as "is", not "will be".
+    # All 7 committed `.bitreplay` fixtures were re-recorded in the same
+    # commit that flipped this switch.    #
     # Ten of these (steals/carrierKills/denials/stealTickThisLife/
     # contestedSteals/carryKills/capturedOutnumbered/capturedFastBreak/
     # peelTick/escortKills) are flag-keyed and therefore PERMANENTLY AT
@@ -2313,6 +2331,19 @@ type
     escortKills*: int          ## GLORY: non-friendly kills landed while a
                                ## TEAMMATE (not this cog) ran the enemy
                                ## heart (the `Escort Duty` gate). Flag-keyed.
+    avengedPartner*: bool      ## GLORY v11 (BR increment 3): true once this
+                               ## cog has minted `dRevengeKill` ("PAYBACK")
+                               ## by killing its DEAD DUO PARTNER's own
+                               ## killer (`partner.lastKilledBy`) -- BR's
+                               ## own gate onto `dRevengeKill`, since
+                               ## `avengesKiller` (avenging YOUR OWN killer)
+                               ## is structurally unreachable in BR (a
+                               ## killer who had ever died is already
+                               ## permanently eliminated, never fires
+                               ## again). Tapers this BR gate to at most one
+                               ## mint per cog per episode -- see
+                               ## `killPlayer`'s own comment (sim.nim).
+                               ## CAUSAL (gates a deed): in gameHash.
     # ── GLORY analysis-only (never in gameHash) ─────────────────────────
     arcEnemyKillsThisFire*: int ## GLORY: non-friendly kills scored by the
                                ## current spray activation; feeds
@@ -2866,7 +2897,7 @@ type
                                ## puddleTicks rule); a keyframe scrub restores
                                ## it exactly through the flatty snapshot.
 
-    # ── GLORY PORT, increment 2/3 ────────────────────────────────────────
+    # ── GLORY PORT, increment 3/3 DONE (GLORY v11, GameVersion 48) ───────
     # The team ledger, its rampage state and its one-shot claim gates --
     # ported field-for-field from main's SimServer, appended at the END
     # per this file's own flatty-positional rule. `array[Team, ...]` sizes
@@ -2877,16 +2908,19 @@ type
     # one place main's own code got this wrong for a 2-team-only game and
     # the fix this port applies everywhere the equivalent loop appears.
     #
-    # Same increment boundary as the Player block above: none of this is in
-    # `gameHash` yet (increment 3's job), so `GameVersion` is untouched
-    # (GV47 after the wave-1 reconciliation with main).
-    #
+    # Same increment boundary as the Player block above, RESOLVED the same
+    # way: `teamGlory`/`heatEmbers`/`heatLastDeed`/`heatLastDecay`/
+    # `claimed`/`claimedFirst`/`firstBloodDone`/`squadVolleyDone` all enter
+    # `gameHash` as of this version (GameVersion 48) -- `teamKillRing`
+    # (scratch bookkeeping) and `deedCounts`/`deedGloryMass`/`gloryPops`/
+    # `achievementFeed` (audit/cosmetic) stay OUT, per each field's own
+    # comment below.    #
     # No supply-drop fields here (`supplyDropPickups` cut with the feature
     # -- see glory.nim's header); no `gloryObserver` (main's dev rig exists
     # to replay PRE-glory recordings with the ledger overlaid as pure
     # accounting -- there is no pre-glory BR recording to backfill, so the
-    # rig has no BR use case; the golden fixture will simply be re-recorded
-    # fresh whenever increment 3 lands).
+    # rig has no BR use case; the golden fixture was re-recorded fresh in
+    # the same commit that landed this increment).
     teamGlory*: array[Team, int]      ## GLORY: the team ledger.
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
