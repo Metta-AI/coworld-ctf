@@ -1,5 +1,5 @@
-## Phase-14 cover scorer laws. Selection goldens are tagged
-## RE-BLESS-ON-FREEZE because launch-map cover density is still freeze-pending.
+## Phase-14 cover scorer laws. Selection goldens were re-blessed after the
+## launch-map cover-density freeze.
 
 import std/[algorithm, math, monotimes, options, times, unittest]
 
@@ -157,17 +157,15 @@ suite "shell nearest_cover scorer":
       shellTypes.MaxCoverRadiusPx, 64, threats)
     check noneBearing.found
     check suppliedBearing.found
-    # RE-BLESS-ON-FREEZE: scorer selection depends on freeze-pending cover density.
-    check noneBearing.point == (508, 356)
-    # RE-BLESS-ON-FREEZE: supplied bearing must stay independently pinned.
-    check suppliedBearing.point == (652, 596)
+    check noneBearing.point == (516, 356)
+    check suppliedBearing.point == (804, 180)
     check noneBearing.point != suppliedBearing.point
 
   test "empty atlas disc returns the true no-cover answer":
     let map = brMap()
     check newBodySeatCache(map).nearestCoverPoint((0, 0), 1, -1, []).isNone
 
-  test "32-seat cover tick micro row prints the current 1536-cap cost":
+  test "32-seat cover tick micro row prints the current 1024-cap cost":
     let map = brMap()
     var caches: array[32, BodySeatCache]
     for cache in caches.mitems:

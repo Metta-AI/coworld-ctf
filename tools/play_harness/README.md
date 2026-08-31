@@ -32,7 +32,7 @@ The output is canonical JSON containing module acceptance/rejection, invocation
 return codes, fuel remaining, fault/refusal reason, counters, emit return codes,
 manifest bytes, and the last accepted canonical emission.
 
-Authoring envelope: the freeze-pending spatial-call budget is two spatial calls
+Authoring envelope: the spatial-call budget is two spatial calls
 per step. A play comparing more than two cover candidates per step is doing the
-scorer job itself. The current branch still reads the live P0 constants from
-`src/shell/types.nim`; the constant change lands in the freeze commit.
+scorer job itself. The engine contract now enforces this with
+`MaxSpatialCallsPerStep = 2` in `src/shell/types.nim`.

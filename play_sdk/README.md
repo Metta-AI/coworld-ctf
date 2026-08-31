@@ -15,10 +15,10 @@ The build uses the arena recipe minus WASI: imports must live only in the
 `nearest_cover`.
 
 `nearest_cover` is now backed by the engine-side atlas scorer. Its API is stable;
-candidate density remains freeze-pending and is governed by the engine's
-`MaxCoverRadiusPx` and `MaxCoverPostsExamined` caps.
+candidate density is governed by the engine's frozen `MaxCoverRadiusPx` and
+`MaxCoverPostsExamined` caps.
 
-Authoring envelope: the freeze-pending spatial-call budget is two spatial calls
+Authoring envelope: the spatial-call budget is two spatial calls
 per step. A play comparing more than two cover candidates per step is doing the
-scorer job itself. The current branch still reads the live P0 constants from the
-engine; the constant change lands in the freeze commit.
+scorer job itself. The engine contract now enforces this with
+`MaxSpatialCallsPerStep = 2`.
