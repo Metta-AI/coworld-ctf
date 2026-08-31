@@ -8,12 +8,17 @@
 ## owns stepLobby's substates and the 0xA3 (client→server) / 0xB2
 ## (server→client) HANDLING logic, and it EMITS replay record `0x13`
 ## (RecLobbyChat, src/shell/types.nim:267-270) — it does NOT own the
-## play-seat receive-arm DISPATCH SWITCH (a seam the shell exposes; it
-## does not exist on main yet — grepped, confirmed, reported), the socket
-## lifecycle, records 0x14-0x16, or the format-v2 codec that would read
-## record 0x13 back and roll it into the manifest's ordered-chain arm.
-## Nothing here drives a live socket or a live .bitreplay file for that
-## reason — see the "record 0x13" suite below for exactly what IS proven.
+## play-seat receive-arm SOCKET WIRING. James's decode dispatch
+## (`decodeClientPacket`, src/shell/packets.nim) already covers 0xA0-0xA3
+## including OpLobbyChatSend, fixture-tested (tests/test_shell_packets.nim)
+## — it is simply unwired to any live socket yet (confirmed: zero
+## references outside src/shell/ and tests/). Our applyLobbyChat plugs in
+## as the OpLobbyChatSend handler once that wiring lands. Also not ours:
+## the socket lifecycle, records 0x14-0x16, or the format-v2 codec that
+## would read record 0x13 back and roll it into the manifest's
+## ordered-chain arm. Nothing here drives a live socket or a live
+## .bitreplay file for that reason — see the "record 0x13" suite below
+## for exactly what IS proven.
 ##
 ## The central darkness claim this suite has to prove, not just assert: the
 ## chatting substate is armed by `hasPlaySeat` (a "play" control slot,
@@ -283,10 +288,11 @@ suite "lobby chat: applyShout stays untouched":
 
 suite "lobby chat: the 0xA3/0xB2 wire codec, byte for byte":
   ## OURS per the ownership split: the pure parse/build functions
-  ## (sim.nim). The RECEIVE-ARM dispatch switch that would call
-  ## parseLobbyChatSendPacket from a live socket is a seam the play-seat
-  ## shell exposes (§4.3) — it does not exist on main yet, so nothing here
-  ## drives a socket; these are pure byte-level round trips only.
+  ## (sim.nim). James's decodeClientPacket (src/shell/packets.nim) already
+  ## dispatches OpLobbyChatSend among 0xA0-0xA3 — it is unwired to any live
+  ## socket yet, and our applyLobbyChat is the handler it will call once
+  ## that wiring lands. Nothing here drives a socket for that reason;
+  ## these are pure byte-level round trips only.
   test "a 0xA3 send packet parses back to its exact text":
     var bytes = newString(6 + 5)
     bytes[0] = char(LobbyChatSendOp)
