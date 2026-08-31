@@ -194,7 +194,12 @@
     function start() {
       if (started || !offscreen || failed) return;
       started = true;
-      var replayUrl = new URLSearchParams(location.search).get('replay');
+      // Host mints index.html?v=2#replay=<url> (fragment is not in the HTTP
+      // request, so the immutable HTML cache key does not vary per episode).
+      // Read loc.hash first; keep ?replay= as the local-URL fallback.
+      var replayUrl =
+        new URLSearchParams((location.hash || '').slice(1)).get('replay') ||
+        new URLSearchParams(location.search).get('replay');
       if (!replayUrl) {
         showFailure(new Error('Missing required replay URL'));
         return;
