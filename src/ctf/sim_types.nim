@@ -2782,35 +2782,39 @@ type
     ## it into buildCosmeticFxPacket, which serializes it as the channel's
     ## "glory" kind -- never pruned by age like the fading Fx types above.
     ##
-    ## NOTE for whoever ports the real glory system onto this lineage: this
-    ## branch predates GloryFx/awardDeed (no Deed enum, no weighted point
-    ## economy) -- see recordKill/recordCapture (roster.nim), the only mint
-    ## points this lineage has. `word`/`amount` below are deliberately this
-    ## thin: they carry exactly what recordKill/recordCapture already know,
-    ## nothing invented. When the real port lands, it should be able to
-    ## replace this type's population sites with its own awardDeed callers
-    ## while keeping the "glory" wire kind and this shape.
+    ## RE-POINTED (GV48 awardDeed merge): this type originally predated
+    ## GloryFx/awardDeed (no Deed enum, no weighted point economy) and was
+    ## sourced from recordKill/recordCapture (roster.nim), the only mint
+    ## points that swap9-era lineage had. Now that `awardDeed` (sim.nim,
+    ## "THE SINGLE MINT") exists, every field below is populated from the
+    ## real deed at the one place it is minted -- `awardDeed`'s own
+    ## `fxActor` parameter, passed only at the kill-deed site (`killPlayer`)
+    ## and the `dCapture` site (`checkWinCondition`), the same two
+    ## categories the original wire covered, just re-sourced instead of
+    ## synthesized. See `awardDeed`'s own doc comment on `fxActor` for the
+    ## grenade-kill exclusion this preserves.
     tick*: int              ## sim.tickCount at mint (the caller's own tick,
                             ## not delivery time -- see ShotFeedbackFx re:
                             ## why populate-time facts are captured, not
                             ## re-derived at send).
-    word*: string           ## "kill" | "capture" today -- the deed's name,
-                            ## the same vocabulary the achievement ids
-                            ## already use (AchievementRambo etc.), not a
-                            ## ported Deed enum.
-    amount*: int            ## the literal deed count this mint credits
-                            ## (always 1 today: this lineage's recordKill/
-                            ## recordCapture are unweighted counters, so
-                            ## there is no glory-point value to report --
-                            ## see the type doc above).
+    word*: string           ## `deedPopWord(deed)` at mint time (glory.nim)
+                            ## -- e.g. "TAG", "SPRAYED", "POINT-BLANK",
+                            ## "PAYBACK", "CAPTURE", ... the SAME one-word
+                            ## vocabulary the local on-screen score pop
+                            ## already carries (`addGloryPop`'s own `word`
+                            ## arg inside `awardDeed`), not a synthesized
+                            ## stand-in.
+    amount*: int            ## the REAL minted glory (`mintGlory(...)`'s
+                            ## result inside `awardDeed`) -- the same number
+                            ## `sim.teamGlory[team]` was just credited with,
+                            ## not a flat 1.
     actorIndex*: int        ## the crediting seat's sim.players[] index at
                             ## mint time -- SERVER-SIDE ONLY, never
                             ## serialized raw (see buildCosmeticFxPacket's
-                            ## "self" field). A SEAT, not a team:
-                            ## recordKill/recordCapture's callers
-                            ## (applyFire, resolveActiveArcCones, the
-                            ## capture-zone loop) already have the specific
-                            ## shooter/carrier index in hand, cheaply,
+                            ## "self" field). A SEAT, not a team: `awardDeed`'s
+                            ## `fxActor` argument (killPlayer's killerIndex,
+                            ## checkWinCondition's carrierIndex) is already
+                            ## the specific shooter/carrier index, cheaply,
                             ## distinct from its teammate's -- see
                             ## buildCosmeticFxPacket's own doc comment for
                             ## the seat-vs-duo call this answers.
@@ -2825,14 +2829,20 @@ type
                             ## still existing at the same index, by the
                             ## time this drains).
     x*: int
-    y*: int                 ## the deed's mint-site position (the kill/
-                            ## capture location) -- fog-clipped exactly like
+    y*: int                 ## the ACTOR's own live position at mint time
+                            ## (`sim.players[fxActor].x/y`, centered) --
+                            ## mirrors `awardDeed`'s own score-pop `earned`
+                            ## branch (popX/popY), deliberately NEVER
+                            ## `awardDeed`'s `x, y` params (the PRICING
+                            ## site -- see that proc's own doc comment on
+                            ## why those must never double as a draw
+                            ## position). Fog-clipped exactly like
                             ## PaintStain: a single fovVisibleAt point
                             ## check, not a sampled beam like ShotFx, since
                             ## a deed happens at one place, not along a
-                            ## path. A future mint site with no real
-                            ## position must not emit at all (fail closed)
-                            ## rather than guess a point -- see
+                            ## path. A future mint site with no real actor
+                            ## must not emit at all (fail closed) rather
+                            ## than guess a point -- see
                             ## buildCosmeticFxPacket.
 
   SimEventKind* = enum

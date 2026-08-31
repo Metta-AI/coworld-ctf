@@ -1,16 +1,28 @@
 ## The "glory" kind riding the private per-seat cosmetic-effects channel
 ## (GameConfig.allowCosmeticFx): GloryDeedFx's push at the source
-## (recordKill/recordCapture's callers) and buildCosmeticFxPacket's
+## (`awardDeed`'s `fxActor` argument, sim.nim) and buildCosmeticFxPacket's
 ## serialization of it, asserted against the source contract in
 ## sim.nim/server.nim -- not this file's own prose. `include`d rather than
 ## imported, same as test_cosmetic_fx_wire.nim beside it, since
 ## buildCosmeticFxPacket is a private (non-exported) proc.
 ##
-## This lineage predates the real glory/awardDeed system -- see
-## GloryDeedFx's own doc comment (sim_types.nim) for that delta. The only
-## mint points it has are recordKill/recordCapture (roster.nim), called from
-## applyFire, resolveActiveArcCones and the capture-zone loop with a
-## concrete SEAT index already in hand, not just a team -- so this channel
+## RE-POINTED (GV48 awardDeed merge): this lineage originally predated the
+## real glory/awardDeed system and was sourced from recordKill/recordCapture
+## (roster.nim), a swap9-era stand-in that only ever carried a synthesized
+## "kill"/"capture" word and a flat amount of 1. Now that `awardDeed` (sim.nim,
+## "THE SINGLE MINT") exists, this channel is sourced from its own `fxActor`
+## parameter, passed at exactly two call sites -- the kill-deed award inside
+## `killPlayer` and the `dCapture` award inside `checkWinCondition` -- the
+## SAME two categories the original wire covered, now carrying the REAL
+## priced word/amount glory.nim just computed. `fxActor` is -1 (no toast) at
+## every other `awardDeed` call site, and -1 for a grenade-caused kill
+## regardless of which deed `killDeed` resolved to (the swap9-era wire never
+## wired the grenade blast-kill site -- fragile GV24-hash attribution branch
+## -- and this keeps that exact exclusion alive now that gun/spray/grenade
+## kills all funnel through the same `killPlayer` chokepoint). See
+## `awardDeed`'s own doc comment on `fxActor` for the full rationale.
+##
+## `fxActor` is a concrete SEAT index, not just a team -- so this channel
 ## ships seat-grain (the wire's `self` field) even though `color`/`team`
 ## alone would read as duo-grain (a duo's two seats share one color by
 ## default; see buildCosmeticFxPacket's doc comment). The suite below proves
@@ -20,10 +32,10 @@
 ##
 ## Two halves in one file (mirrors test_shot_feedback.nim +
 ## test_shot_feedback_wire.nim's split, collapsed to keep this lane's diff
-## tight): SOURCE (recordKill/recordCapture's callers actually push to
-## sim.gloryDeeds, gated) and WIRE (buildCosmeticFxPacket serializes and
-## fog-clips it, and the byte-identical-policy-stream claim holds with it
-## present).
+## tight): SOURCE (`awardDeed`'s `fxActor` argument actually pushes to
+## sim.gloryDeeds, gated, with the real deed's numbers) and WIRE
+## (buildCosmeticFxPacket serializes and fog-clips it, and the
+## byte-identical-policy-stream claim holds with it present).
 
 import std/[unittest, json]
 
@@ -64,7 +76,27 @@ proc lineUpShot(sim: var SimServer, shooter, target: int, gap: int) =
   sim.players[target].x = sim.gameMap.center.x + gap
   sim.players[target].y = sim.gameMap.center.y
 
-suite "glory-toast source: recordKill/recordCapture's callers push GloryDeedFx only when the gate is on":
+proc noneInputs(sim: SimServer): seq[InputState] =
+  ## Same "all-idle input frame" shape as tests/helpers.nim's `none()` --
+  ## inlined here since this file `include`s server.nim rather than
+  ## importing tests/helpers.nim.
+  newSeq[InputState](sim.players.len)
+
+proc landGrenadeAt(sim: var SimServer, throwerIndex, tx, ty: int) =
+  ## Same helper as test_grenades.nim's landGrenadeAt: bursts one grenade on
+  ## an exact map point, bypassing aim and charge so a test can place the
+  ## blast center to the pixel and drive a grenade kill deterministically.
+  sim.airborneGrenades.add AirborneGrenade(
+    sx: tx, sy: ty, tx: tx, ty: ty,
+    launchTick: sim.tickCount, flightTicks: 1,
+    thrower: throwerIndex,
+    throwerSlot: sim.players[throwerIndex].joinOrder,
+    throwerAccount: -1
+  )
+  let prev = sim.noneInputs()
+  sim.step(sim.noneInputs(), prev)
+
+suite "glory-toast source: awardDeed's fxActor pushes GloryDeedFx only when the gate is on":
   test "gate off: a landed kill pushes nothing to sim.gloryDeeds":
     var sim = gloryFxSim(false)
     sim.lineUpShot(shooter = 0, target = 2, gap = 40)
@@ -73,20 +105,87 @@ suite "glory-toast source: recordKill/recordCapture's callers push GloryDeedFx o
     check not sim.players[2].alive
     check sim.gloryDeeds.len == 0
 
-  test "gate on: a gun kill pushes word=kill, amount=1, actorIndex=shooter, at the victim's position":
+  test "gate on: a gun kill pushes the REAL priced deed -- word/amount sourced from awardDeed, position at the ACTOR's own site":
     var sim = gloryFxSim(true)
+    # gap=40 is well inside pointBlankPxFor(default gunRange)=110px, so
+    # killDeed resolves this to dPointBlankKill, not the plain floor tier --
+    # asserted below rather than assumed, so a future pricing/geometry
+    # change that shifts the resolved deed fails loudly here instead of
+    # silently testing the wrong branch.
     sim.lineUpShot(shooter = 0, target = 2, gap = 40)
     sim.players[2].hp = 1
     sim.tryFire(0)
     check not sim.players[2].alive
+    check sim.deedCounts[dPointBlankKill] == 1
+    # The FIRST kill of the episode ALSO mints dFirstBlood (a real, separate
+    # awardDeed call) -- but only ONE entry reaches the wire, because
+    # `fxActor` is only ever passed at the kill-deed award site, not
+    # dFirstBlood's. See the dedicated test below for that scope claim.
     check sim.gloryDeeds.len == 1
     let deed = sim.gloryDeeds[0]
-    check deed.word == "kill"
-    check deed.amount == 1
+    check deed.word == deedPopWord(dPointBlankKill)
+    check deed.amount == sim.deedGloryMass[dPointBlankKill]
+    check deed.amount > 1  # a REAL priced number, never the swap9-era flat "1"
     check deed.actorIndex == 0
     check deed.team == Red  # captured at MINT time, not re-read later
-    check deed.x == sim.players[2].x + CollisionW div 2
-    check deed.y == sim.players[2].y + CollisionH div 2
+    # The ACTOR's (shooter's) own live position -- mirrors awardDeed's
+    # score-pop `earned` branch, deliberately NOT the victim's death spot the
+    # swap9-era wire used (awardDeed's `x, y` args are the PRICING site only
+    # and must never double as a draw position -- see that proc's own doc
+    # comment).
+    check deed.x == sim.players[0].x + CollisionW div 2
+    check deed.y == sim.players[0].y + CollisionH div 2
+
+  test "gate on: dFirstBlood mints real glory but never doubles the toast (fxActor scope stays kill-deed + capture only)":
+    var sim = gloryFxSim(true)
+    sim.lineUpShot(shooter = 0, target = 2, gap = 40)
+    sim.players[2].hp = 1
+    sim.tryFire(0)
+    check sim.deedCounts[dFirstBlood] == 1  # the real system DID mint it
+    check sim.gloryDeeds.len == 1           # but only the kill-deed toasted
+
+  test "gate on: a grenade kill mints real glory but pushes NOTHING to the toast wire (the swap9-era exclusion, kept)":
+    var sim = gloryFxSim(true)
+    sim.players[2].x = 300
+    sim.players[2].y = 300
+    sim.players[2].hp = 1
+    sim.landGrenadeAt(throwerIndex = 0, tx = 300, ty = 300)
+    check not sim.players[2].alive
+    check sim.deedCounts[dGrenadeKill] == 1  # the real system DID price it
+    check sim.gloryDeeds.len == 0            # but it never reaches the wire
+
+  test "gate on: a grenade kill that ALSO resolves to a higher-precedence deed still pushes nothing -- the exclusion is on the WEAPON, not the dGrenadeKill label":
+    var sim = gloryFxSim(true)
+    sim.players[2].x = 300
+    sim.players[2].y = 300
+    sim.players[2].hp = 1
+    sim.players[2].carryingFlag = true  # outranks the plain kill label in killDeed's precedence
+    sim.landGrenadeAt(throwerIndex = 0, tx = 300, ty = 300)
+    check not sim.players[2].alive
+    check sim.deedCounts[dGrenadeKill] == 0  # confirms killDeed did NOT resolve to the plain label this time
+    check sim.gloryDeeds.len == 0            # still excluded -- weapon-gated, not label-gated
+
+  test "gate on: a capture pushes the REAL dCapture word/amount at the carrier's own site":
+    var sim = gloryFxSim(true)
+    let blueHome = sim.gameMap.flagHome(Blue)
+    sim.players[0].x = blueHome.x - CollisionW div 2
+    sim.players[0].y = blueHome.y - CollisionH div 2
+    sim.tryPickupFlags(0)
+    check sim.flags[Blue].carrier == 0
+    let anchor = sim.gameMap.teamAnchor(Red)
+    sim.players[0].x = anchor.x - CollisionW div 2
+    sim.players[0].y = anchor.y - CollisionH div 2
+    sim.checkWinCondition()
+    check sim.deedCounts[dCapture] == 1
+    check sim.gloryDeeds.len == 1
+    let deed = sim.gloryDeeds[0]
+    check deed.word == deedPopWord(dCapture)
+    check deed.amount == sim.deedGloryMass[dCapture]
+    check deed.amount > 0
+    check deed.actorIndex == 0
+    check deed.team == Red
+    check deed.x == sim.players[0].x + CollisionW div 2
+    check deed.y == sim.players[0].y + CollisionH div 2
 
   test "gameHash is identical whether the gate is on or off, given the same kill":
     var gateOff = gloryFxSim(false)

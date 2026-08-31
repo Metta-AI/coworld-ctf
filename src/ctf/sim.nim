@@ -159,7 +159,7 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
-                times = 1, byIndex = -1) =
+                times = 1, byIndex = -1, fxActor = -1) =
   ## THE SINGLE MINT. Every glory award in the engine goes through here.
   ##
   ## `x, y` is the PRICING site and nothing else -- feeds `deedSitePct`, and
@@ -169,6 +169,23 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   ## exactly the move that puts the ledger in the hash, and this call site
   ## should not need to change when it does. `byIndex` is the EARNER and is
   ## cosmetic only: it moves the score pop, never the money.
+  ##
+  ## `fxActor` is a SEPARATE cosmetic-only actor, for the private glory-toast
+  ## wire (GameConfig.allowCosmeticFx, GloryDeedFx below) -- deliberately its
+  ## OWN parameter rather than a reuse of `byIndex`, so wiring it can never
+  ## perturb the score-pop's existing `earned`/popX/popY/earnerIndex
+  ## behavior a few lines down. Defaults to -1 (every pre-existing call site
+  ## unchanged, no toast) and is only ever passed at the two call sites this
+  ## channel actually covers -- the kill-deed mint in `killPlayer` and
+  ## `dCapture` in `checkWinCondition` -- same scope the swap9-era wire had,
+  ## just re-sourced onto the real deed instead of a hardcoded "kill"/1. A
+  ## kill made with a grenade passes -1 here regardless of which deed it
+  ## resolved to (see the call site's own comment) -- the swap9-era wire
+  ## never wired the grenade blast-kill site at all (fragile GV24-hash
+  ## attribution branch), and this keeps that exact exclusion alive rather
+  ## than narrowing it to the literal `dGrenadeKill` label, which a
+  ## precedence-shadowed grenade kill (an ace tag, a denial, ...) would
+  ## dodge.
   if deed == dNone or times <= 0:
     return
   let sitePct = sim.deedSitePct(team, x, y)
@@ -197,6 +214,24 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
       popY = if earned: sim.players[byIndex].y else: y
     sim.addGloryPop(team, popX, popY, amount, word = deedPopWord(deed),
                     earnerIndex = (if earned: byIndex else: -1))
+  # Glory-toast channel (GameConfig.allowCosmeticFx): the wire counterpart
+  # of the score pop just above, fired from THE SINGLE MINT so its
+  # word/amount are the real deed's -- never a synthesized stand-in. Fail
+  # closed on `fxActor` exactly like the pop's own `earned` check: no valid
+  # actor, no toast (there is no honest `self` to report otherwise). Uses
+  # the ACTOR's own live position (mirroring the pop's `earned` branch,
+  # never `x, y` -- see this proc's own doc comment on why the pricing site
+  # must never double as a draw position).
+  if sim.config.allowCosmeticFx and fxActor >= 0 and fxActor < sim.players.len:
+    sim.gloryDeeds.add GloryDeedFx(
+      tick: sim.tickCount,
+      word: deedPopWord(deed),
+      amount: amount,
+      actorIndex: fxActor,
+      team: team,
+      x: sim.players[fxActor].x + CollisionW div 2,
+      y: sim.players[fxActor].y + CollisionH div 2
+    )
   if paysHeat(deed):
     sim.heatEmbers[team] = min(HeatEmberCap, sim.heatEmbers[team] + times)
     sim.heatLastDeed[team] = sim.tickCount
@@ -1701,8 +1736,16 @@ proc killPlayer*(
         escorted: escortCarrier >= 0
       )
       let deed = killDeed(ctx)
+      # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
+      # is -1 for a grenade-caused kill regardless of which deed `killDeed`
+      # resolved to -- the swap9-era wire never wired the grenade blast-kill
+      # site (fragile GV24-hash attribution branch); this keeps the same
+      # class of kill silent on the toast wire even now that every weapon
+      # funnels through this one chokepoint. See `awardDeed`'s own doc
+      # comment on `fxActor` for the full rationale.
       sim.awardDeed(killer.team, deed, victim.x, victim.y,
-                    byIndex = killerIndex)
+                    byIndex = killerIndex,
+                    fxActor = (if ctx.weaponGrenade: -1 else: killerIndex))
       # The taper only latches once the payback ACTUALLY minted: a kill
       # that also satisfies a higher-precedence descriptor (an ace tag, a
       # denial, ...) resolves to that deed instead, same as `avengesKiller`
@@ -2189,18 +2232,6 @@ proc resolveActiveArcCones*(sim: var SimServer) =
             Kill, source = arcFire.attacker, target = victimIndex,
             weapon = "spray", amount = sprayDamage, x = vx, y = vy
           )
-          # Glory-toast channel source -- see the gun-kill site above
-          # (applyFire) for the full comment; same gate, same shape.
-          if sim.config.allowCosmeticFx:
-            sim.gloryDeeds.add GloryDeedFx(
-              tick: sim.tickCount,
-              word: "kill",
-              amount: 1,
-              actorIndex: arcFire.attacker,
-              team: attacker.team,
-              x: sim.players[victimIndex].x + CollisionW div 2,
-              y: sim.players[victimIndex].y + CollisionH div 2
-            )
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
           # triple; a fourth+ stays inside the already-counted triple.
@@ -2596,20 +2627,6 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         x = float(sim.players[targetIndex].x + CollisionW div 2),
         y = float(sim.players[targetIndex].y + CollisionH div 2)
       )
-      # Glory-toast channel source (GameConfig.allowCosmeticFx): gated at
-      # mint, same as shotFeedback's own push just below this one in the
-      # spray-cone path -- byte-identical to a build without this field when
-      # the gate is off. See GloryDeedFx's doc comment (sim_types.nim).
-      if sim.config.allowCosmeticFx:
-        sim.gloryDeeds.add GloryDeedFx(
-          tick: sim.tickCount,
-          word: "kill",
-          amount: 1,
-          actorIndex: shooterIndex,
-          team: shooter.team,
-          x: sim.players[targetIndex].x + CollisionW div 2,
-          y: sim.players[targetIndex].y + CollisionH div 2
-        )
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -4994,26 +5011,17 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
            sim.tickCount - sim.players[carrierIndex].stealTickThisLife <=
                FastBreakTicks:
           sim.players[carrierIndex].capturedFastBreak = true
-        sim.awardDeed(carrier.team, dCapture, carrier.x, carrier.y)
+        # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
+        # is the carrier -- see `awardDeed`'s own doc comment on `fxActor`.
+        # Dead code under the brMode guard above (BR disarms captures
+        # entirely), kept for the non-BR configs this channel also serves.
+        sim.awardDeed(carrier.team, dCapture, carrier.x, carrier.y,
+                      fxActor = carrierIndex)
         sim.addXp(carrierIndex, XpPerCapture)
         sim.emitEvent(
           Capture, source = carrierIndex,
           x = float(cx), y = float(cy)
         )
-        # Glory-toast channel source -- see the gun-kill site (applyFire)
-        # for the full comment; same gate, same shape. Dead code under the
-        # brMode guard above (BR disarms captures entirely), kept for the
-        # non-BR configs this channel also serves.
-        if sim.config.allowCosmeticFx:
-          sim.gloryDeeds.add GloryDeedFx(
-            tick: sim.tickCount,
-            word: "capture",
-            amount: 1,
-            actorIndex: carrierIndex,
-            team: carrier.team,
-            x: cx,
-            y: cy
-          )
         sim.logGameEvent(
           teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
         )

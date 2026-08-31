@@ -2191,26 +2191,27 @@ proc buildCosmeticFxPacket(
   ## existing colorWordCss() palette lookup (player_client.html) applies
   ## unchanged.
   ##
-  ## The "glory" kind (GloryDeedFx, sourced from recordKill/recordCapture —
-  ## this lineage has no awardDeed/GloryFx of its own; see GloryDeedFx's own
-  ## doc comment for that delta): fog-clipped by a SINGLE fovVisibleAt point
-  ## check at the deed's mint-site position, the same single-point discipline
-  ## `stain` above uses — not the multi-sample beam `tracer` walks, since a
-  ## deed happens at one place, not along a path. A deed whose actorIndex is
-  ## out of range is skipped outright (fail closed): there is no positionless
-  ## fallback here, and there should never need to be one — every current
-  ## mint site (applyFire, resolveActiveArcCones, the capture-zone loop) has
-  ## a real position in hand, and any future one that genuinely lacks one
-  ## should not emit at all rather than guess a point a fog check can't
-  ## honestly clear. `team` below is `deed.team` — captured at MINT time by
-  ## the same populate-time-facts rule every field here follows, never
-  ## re-read from sim.players[deed.actorIndex] at build/send time (that seat
-  ## could in principle no longer mean the same thing by the time this
-  ## drains, even though today's same-tick drain makes it moot in practice —
-  ## see GloryDeedFx.team's own doc comment).
+  ## The "glory" kind (GloryDeedFx, RE-POINTED onto GV48's `awardDeed`
+  ## ("THE SINGLE MINT", sim.nim) via its `fxActor` parameter — see
+  ## GloryDeedFx's own doc comment for the swap9-era delta this replaced):
+  ## fog-clipped by a SINGLE fovVisibleAt point check at the deed's actor
+  ## position, the same single-point discipline `stain` above uses — not
+  ## the multi-sample beam `tracer` walks, since a deed happens at one
+  ## place, not along a path. A deed whose actorIndex is out of range is
+  ## skipped outright (fail closed): there is no positionless fallback
+  ## here, and there should never need to be one — both current mint sites
+  ## (the kill-deed award in `killPlayer`, `dCapture` in
+  ## `checkWinCondition`) have a real actor in hand, and any future one that
+  ## genuinely lacks one should not emit at all rather than guess a point a
+  ## fog check can't honestly clear. `team` below is `deed.team` — captured
+  ## at MINT time by the same populate-time-facts rule every field here
+  ## follows, never re-read from sim.players[deed.actorIndex] at build/send
+  ## time (that seat could in principle no longer mean the same thing by the
+  ## time this drains, even though today's same-tick drain makes it moot in
+  ## practice — see GloryDeedFx.team's own doc comment).
   ##
-  ## `self` answers the seat-vs-duo question AT THE WIRE: recordKill/
-  ## recordCapture's callers already know the specific crediting SEAT (a
+  ## `self` answers the seat-vs-duo question AT THE WIRE: `awardDeed`'s
+  ## `fxActor` caller already knows the specific crediting SEAT (a
   ## sim.players[] index, not a team-level identity — see GloryDeedFx.
   ## actorIndex's own doc comment), so this could have shipped seat-grain.
   ## It ships as a derived boolean instead (`self` = actorIndex == viewerIndex)
@@ -3623,7 +3624,7 @@ proc runServerLoop*(
         sim.shotFeedback.setLen(0)
         # Same drain shape, same reason, for the glory-toast queue
         # (GameConfig.allowCosmeticFx): empty whenever the gate is off,
-        # since recordKill/recordCapture's callers only push to it gated
+        # since awardDeed's `fxActor` callers only push to it gated
         # (see GloryDeedFx's doc comment).
         for deed in sim.gloryDeeds:
           frameGloryDeeds.add deed
