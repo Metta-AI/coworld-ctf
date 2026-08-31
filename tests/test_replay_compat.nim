@@ -270,8 +270,8 @@ suite "CTF replay compatibility frontend":
         ReplayCompatibleGameVersions
       )
 
-  test "format 2 names reserved shell records before the GameVersion bump":
-    expectReplayError("unsupported shell record in pre-bump reader"):
+  test "format 2 opens shell arms while preserving unknown-type rejection":
+    expectReplayError("shell replay record is truncated"):
       discard parseReplayBytes(replayHeader(2) & char(RecPlayCall))
     expectReplayError("Unknown replay record type"):
       discard parseReplayBytes(replayHeader(2) & char(0xff))
