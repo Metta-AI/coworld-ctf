@@ -97,7 +97,7 @@
           "$comment": "number only; finite"
         },
         "of": {
-          "$comment": "enum: the closed set of allowed strings, canonicalized (sorted + deduplicated) like every set-kind field \u2014 parseManifest rejects unsorted spellings. set/list: the element kind \u2014 a kind NAME for scalar elements or a nested spec object.",
+          "$comment": "enum: the closed set of allowed strings, canonicalized (sorted + deduplicated) like every set-kind field \u2014 the production manifest validator (lane C's manifest.nim, landing with the runtime) rejects unsorted spellings; JSON Schema cannot express the rule, so the contracts test pins it on the golden. set/list: the element kind \u2014 a kind NAME for scalar elements or a nested spec object.",
           "oneOf": [
             {
               "type": "array",

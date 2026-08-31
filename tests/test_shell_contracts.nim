@@ -225,6 +225,21 @@ suite "shell canonical encoding":
       for field in ["teams", "seats"]:
         if setOwner.hasKey(field):
           checkSet(setOwner[field])
+    let policy = parseJson(readFile(FixtureDir / "combat_policy.golden.json"))
+    for setOwner in [policy["no_shoot"], policy["protect"]]:
+      for field in ["teams", "seats"]:
+        if setOwner.hasKey(field):
+          checkSet(setOwner[field])
+    # The manifest's SET fields: `modes`, and every enum param's `of` — the
+    # closed option set is canonicalized too (the schema $comment states the
+    # rule; the production validator lands with lane C's runtime, so this
+    # golden check is main's only tripwire until then).
+    let manifest = parseJson(readFile(FixtureDir / "manifest_pact.golden.json"))
+    checkSet(manifest["modes"])
+    for name, spec in manifest["params"]:
+      if spec.kind == JObject and spec.hasKey("kind") and
+          spec["kind"].getStr() == "enum":
+        checkSet(spec["of"])
 
   test "set order is wire text, not numeric: two-digit seats sort before seat:4":
     # Every golden uses single-digit seats, so a producer sorting seat refs
