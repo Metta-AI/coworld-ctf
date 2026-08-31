@@ -119,10 +119,17 @@ suite "shell FIRST LIGHT":
     config.update($merged)
     check config.season2Shell
     check config.brMode
-    check config.teams == 2
-    check config.mapPath == "gen"
+    ## The demo inherits config.practice.json's BR arena rather than pinning
+    ## its own: the overlay carries no map at all. An authored 512x256 map
+    ## used to be pinned here to dodge the body-map atlas density cap; the
+    ## constants freeze retired that workaround, and a 512-wide arena made
+    ## the 32-seat demo look like a scrum.
+    check config.teams == 16
     check config.mapSpec.len > 0
-    check parseJson(config.mapSpec)["name"].getStr() == "first-light-open-br"
+    let mapSpec = parseJson(config.mapSpec)
+    check mapSpec["name"].getStr() == "br-gen-4242"
+    check mapSpec["width"].getInt() == 3211
+    check mapSpec["height"].getInt() == 1713
     check config.minPlayers == 32
     check config.slots.len == 32
     for slot in config.slots:
