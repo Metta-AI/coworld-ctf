@@ -2046,11 +2046,14 @@ proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] 
   none(PartnerSample)
 
 proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
+  let player = sim.players[playerIndex]
   discard sim.refreshPlayerFov(playerIndex)
   result.self = sim.firstLightSelfState(playerIndex)
   result.partner = sim.firstLightPartner(playerIndex)
   for targetIndex, target in sim.players:
     if targetIndex == playerIndex or not target.alive:
+      continue
+    if target.team == player.team:
       continue
     if target.joinOrder < 0 or target.joinOrder >= MaxPlayers:
       continue
@@ -2111,6 +2114,32 @@ proc firstLightFallbacks(sim: SimServer,
     idleAimCenterBrads: 0,
     rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
     coverGoal: none(ValidatedGoal))
+
+type FirstLightControlSet = tuple[
+  controls: seq[SlotControl],
+  hasPlaySeat: bool
+]
+
+proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
+  for slot in config.slots:
+    result.controls.add(slot.control)
+    if slot.control == scPlay:
+      result.hasPlaySeat = true
+
+proc resetFirstLightForSim(episode: var FirstLightEpisode,
+                           replayLoaded: bool,
+                           config: GameConfig,
+                           sim: SimServer,
+                           reason: string) =
+  let controlSet = config.firstLightControlSet()
+  if not replayLoaded and config.season2Shell and controlSet.hasPlaySeat:
+    episode.resetFirstLightEpisode(
+      config.season2Shell, config.brMode, controlSet.controls,
+      newBodyMap(sim.gameMap), config.gunRange)
+    echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
+      " executor=lane-a-fl-b reset=", reason
+  else:
+    episode = FirstLightEpisode()
 
 proc runServerLoop*(
   host = DefaultHost,
@@ -2277,18 +2306,7 @@ proc runServerLoop*(
   # FIRST LIGHT is reachable only under the two-part runtime gate. Gate-on
   # with an all-input roster and every gate-off configuration leave the zero
   # value untouched and never call into the episode owner.
-  var firstLightControls: seq[SlotControl]
-  var hasFirstLightSeat = false
-  for slot in config.slots:
-    firstLightControls.add(slot.control)
-    if slot.control == scPlay:
-      hasFirstLightSeat = true
-  if not replayLoaded and config.season2Shell and hasFirstLightSeat:
-    firstLightEpisode = initFirstLightEpisode(
-      config.season2Shell, config.brMode, firstLightControls,
-      newBodyMap(sim.gameMap), config.gunRange)
-    echo "FIRST_LIGHT enabled play_seats=", firstLightEpisode.seats.len,
-      " executor=lane-a-fl-b"
+  firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup")
 
   while true:
     var
@@ -2370,6 +2388,8 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        firstLightEpisode.resetFirstLightForSim(
+          replayLoaded, config, sim, "replay_switch")
         # The switched-in sim carries a new map, but the board render caches
         # are process-wide — without this, addMapBands keeps splicing the OLD
         # map's cached band bytes into every new viewer's init packet. Rebake
@@ -2926,6 +2946,7 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.collectEvents = eventsPath.len > 0
+      firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "reset")
       # One file describes ONE match. A reset that kept the previous match's
       # events would concatenate two games under a single episode id.
       collectedEvents.setLen(0)
@@ -3302,6 +3323,8 @@ proc runServerLoop*(
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
+      firstLightEpisode.resetFirstLightForSim(
+        replayLoaded, config, sim, "reregister")
       liveOverlays = @[]
       {.gcsafe.}:
         withLock appState.lock:

@@ -3,8 +3,8 @@
 import std/[json, os, options, sequtils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
-import ../src/shell/[body, body_map, default_play, episode,
-  standing_order, types]
+import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
+  episode, standing_order, types]
 
 proc controls(kind: SlotControl, count: int): seq[SlotControl] =
   result = newSeq[SlotControl](count)
@@ -17,6 +17,24 @@ proc testBodyMap(): BodyMap =
   for value in walkable.mitems:
     value = true
   newBodyMap(walkable, Side, Side, 1, @[(10, 10)])
+
+proc openBodyMap(width = 384, height = 160): BodyMap =
+  var walkable = newSeq[bool](width * height)
+  for value in walkable.mitems:
+    value = true
+  newBodyMap(walkable, width, height, 1, @[(32, 80)])
+
+proc dangerChoiceMap(): BodyMap =
+  const
+    Width = 384
+    Height = 160
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      let wall = x in 184 .. 200 and
+        y notin 24 .. 40 and y notin 72 .. 88
+      walkable[y * Width + x] = not wall
+  newBodyMap(walkable, Width, Height, 1, @[(32, 80)])
 
 proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
   BrDefaultFallbacks(
@@ -43,6 +61,23 @@ proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
         pos: (20 + seat, 20), alive: true))),
     defaultFallbacks: fallback(map, seat))
 
+proc rotateFrame(map: BodyMap, seat: int, self, target: BodyPoint,
+                 tick: int, threat = none(BodyPoint)): FirstLightSeatFrame =
+  result = frame(map, seat, self)
+  result.bodyInputs.partner = none(PartnerSample)
+  result.bodyInputs.visibleTracks.setLen(0)
+  if threat.isSome:
+    for seat in 8 .. 15:
+      result.bodyInputs.visibleTracks.add(BodyTrackUpdate(
+        seat: seat,
+        pos: threat.get,
+        team: Blue,
+        aimBrads: 0,
+        hpKnown: some(3),
+        tick: uint32(tick)))
+  result.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks
+  result.defaultFallbacks.rotateTarget = some(target)
+
 proc applyMask(pos: var BodyPoint, input: InputState) =
   let bits = input.encodeInputMask()
   if (bits and ButtonLeft) != 0:
@@ -53,6 +88,11 @@ proc applyMask(pos: var BodyPoint, input: InputState) =
     dec pos.y, 4
   if (bits and ButtonDown) != 0:
     inc pos.y, 4
+
+proc pathDanger(map: BodyMap, danger: BodyDangerField,
+                path: openArray[BodyPoint]): float =
+  for point in path:
+    result += danger.sample(map, point)
 
 proc recordMasks(path: string, masks: openArray[InputState]) =
   var writer = openReplayWriter(path, "{}")
@@ -214,3 +254,62 @@ suite "shell FIRST LIGHT":
     check not inventory.calls
     check not inventory.stores
     check not inventory.ladder
+
+  test "episode rebuilds scheduled danger before cold planning":
+    let map = dangerChoiceMap()
+    let start: BodyPoint = (32, 80)
+    let target: BodyPoint = (352, 80)
+
+    proc run(threats: bool): tuple[path: seq[BodyPoint],
+                                   dangerMaximum: float32,
+                                   pathDanger: float,
+                                   dangerSources: seq[int]] =
+      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+        map, 32)
+      var pos = start
+      for tick in 1 .. 160:
+        let threat =
+          if threats: some((192, 80)) else: none(BodyPoint)
+        let output = episode.step([
+          rotateFrame(map, 0, pos, target, tick, threat)], uint32(tick))
+        for mask in output.masks:
+          pos.applyMask(mask.input)
+      result.path = episode.nav.seats[0].activePath
+      result.dangerMaximum = episode.nav.seats[0].danger.maximum
+      result.pathDanger = pathDanger(map, episode.nav.seats[0].danger,
+        result.path)
+      result.dangerSources = episode.nav.seats[0].selectedDangerSourceSeats
+
+    let baseline = run(false)
+    let threatened = run(true)
+    check baseline.dangerMaximum == 0.0'f32
+    check threatened.dangerMaximum > 0.0'f32
+    check threatened.dangerSources == @[8, 9, 10, 11, 12, 13, 14, 15]
+    check threatened.path.len > 0
+    check baseline.path.len > 0
+    check baseline.pathDanger == 0.0
+    check threatened.pathDanger > baseline.pathDanger
+
+  test "episode reset after sim replacement reruns safe activation boundary":
+    let oldMap = openBodyMap()
+    let newMap = openBodyMap(512, 192)
+    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      oldMap, 331)
+    let oldOutput = episode.step([
+      rotateFrame(oldMap, 0, (32, 80), (300, 80), 1)], 1)
+    let oldStandingBytes = oldOutput.installs[^1].bytes
+
+    episode.resetFirstLightEpisode(true, true, controls(scPlay, 1), newMap, 331)
+    let resetOutput = episode.step([
+      rotateFrame(newMap, 0, (40, 96), (420, 96), 2)], 2)
+
+    check resetOutput.installs.len == 2
+    check resetOutput.annotations[0].kind == akInstallSafeIntent
+    check resetOutput.annotations[0].installReason == "activation"
+    check resetOutput.installs[0].rule == "safe_hold"
+    check resetOutput.installs[0].bytes ==
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
+      "\"kind\":\"hold\",\"reason\":\"first_light:safe_activation\"," &
+      "\"schema\":\"intent\",\"v\":1}"
+    check resetOutput.installs.allIt(it.bytes != oldStandingBytes)
+    check episode.seats[0].body.map == newMap

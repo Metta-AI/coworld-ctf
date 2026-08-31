@@ -5,8 +5,8 @@
 import std/[algorithm, options, strformat, strutils]
 import bitworld/spriteprotocol
 import ../src/ctf/sim_types
-import ../src/shell/[body, body_map, default_play, episode,
-  standing_order]
+import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
+  episode, standing_order]
 
 const
   Seats = 32
@@ -30,6 +30,18 @@ proc movementProbeMap(): BodyMap =
   for value in walkable.mitems:
     value = true
   newBodyMap(walkable, Side, Side, 1, @[(10, 10)])
+
+proc dangerProbeMap(): BodyMap =
+  const
+    Width = 384
+    Height = 160
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      let wall = x in 184 .. 200 and
+        y notin 24 .. 40 and y notin 72 .. 88
+      walkable[y * Width + x] = not wall
+  newBodyMap(walkable, Width, Height, 1, @[(32, 80)])
 
 proc controls(): seq[SlotControl] =
   result = newSeq[SlotControl](Seats)
@@ -106,6 +118,35 @@ proc movementFrames(map: BodyMap,
   for seat in 0 ..< Seats:
     result.add(movementFrame(map, seat, positions))
 
+proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
+                 withThreat: bool): FirstLightSeatFrame =
+  result = FirstLightSeatFrame(
+    seat: 0,
+    playerIndex: 0,
+    present: true,
+    playing: true,
+    alive: true,
+    bodyInputs: BodyTickInputs(
+      self: BodySelfState(pos: self, hpFrac: 1.0,
+        aimBrads: 0, alive: true, carrying: false)),
+    defaultFallbacks: BrDefaultFallbacks(
+      currentZone: MapRect(x: 0, y: 0, w: 384, h: 160),
+      nextZone: MapRect(x: 0, y: 0, w: 384, h: 160),
+      ticksToNextShrink: BrRotateLeadTicks,
+      zoneDps: 1,
+      idleAimCenterBrads: 0,
+      rotateTarget: some(target),
+      coverGoal: none(ValidatedGoal)))
+  if withThreat:
+    for seat in 8 .. 15:
+      result.bodyInputs.visibleTracks.add(BodyTrackUpdate(
+        seat: seat,
+        pos: (192, 80),
+        team: Blue,
+        aimBrads: 0,
+        hpKnown: some(3),
+        tick: uint32(tick)))
+
 proc applyMask(pos: var BodyPoint, input: InputState) =
   let bits = input.encodeInputMask()
   if (bits and ButtonLeft) != 0:
@@ -117,6 +158,11 @@ proc applyMask(pos: var BodyPoint, input: InputState) =
   if (bits and ButtonDown) != 0:
     inc pos.y, 4
 
+proc pathDanger(map: BodyMap, danger: BodyDangerField,
+                path: openArray[BodyPoint]): float =
+  for point in path:
+    result += danger.sample(map, point)
+
 proc movementSummary(tick: int, masks: openArray[FirstLightMask]): string =
   var moving, aiming = 0
   for mask in masks:
@@ -127,6 +173,43 @@ proc movementSummary(tick: int, masks: openArray[FirstLightMask]): string =
       inc aiming
   &"FIRST_LIGHT_MASK_SUMMARY tick={tick} seats={masks.len} " &
     &"moving={moving} aiming={aiming}"
+
+proc dangerProof() =
+  let map = dangerProbeMap()
+  let start: BodyPoint = (32, 80)
+  let target: BodyPoint = (352, 80)
+
+  proc run(withThreat: bool): tuple[path: seq[BodyPoint],
+                                   maximum: float32,
+                                   pathDanger: float,
+                                   sources: seq[int]] =
+    var episode = initFirstLightEpisode(true, true, @[scPlay], map, 32)
+    var pos = start
+    for tick in 1 .. 160:
+      let output = episode.step([
+        dangerFrame(map, pos, target, tick, withThreat)], uint32(tick))
+      for mask in output.masks:
+        pos.applyMask(mask.input)
+    result.path = episode.nav.seats[0].activePath
+    result.maximum = episode.nav.seats[0].danger.maximum
+    result.pathDanger = pathDanger(map, episode.nav.seats[0].danger,
+      result.path)
+    result.sources = episode.nav.seats[0].selectedDangerSourceSeats
+
+  let baseline = run(false)
+  let threatened = run(true)
+  let repriced = baseline.path.len > 0 and threatened.path.len > 0 and
+    baseline.pathDanger == 0.0 and threatened.pathDanger > baseline.pathDanger
+  let sourced = threatened.sources == @[8, 9, 10, 11, 12, 13, 14, 15]
+  let dangerPass = threatened.maximum > 0.0'f32 and sourced and repriced
+  let verdict = if dangerPass: "PASS" else: "FAIL"
+  echo &"FIRST_LIGHT_DANGER tick=160 seat=0 baseline_max={baseline.maximum:.3f} " &
+    &"threat_max={threatened.maximum:.3f} sources={threatened.sources.len} " &
+    &"baseline_path_danger={baseline.pathDanger:.3f} " &
+    &"threat_path_danger={threatened.pathDanger:.3f} " &
+    &"repriced={repriced} verdict={verdict}"
+  if not dangerPass:
+    quit(1)
 
 proc percentile(values: seq[int64], numerator, denominator: int): int64 =
   values[min(values.high,
@@ -168,6 +251,8 @@ proc main() =
       echo summary & " scenario=stable_rotate"
     for mask in output.masks:
       movementPositions[mask.seat.int].applyMask(mask.input)
+
+  dangerProof()
 
   var measured = initFirstLightEpisode(true, true, controls(), moveMap, 331)
   var measuredPositions: array[Seats, BodyPoint]

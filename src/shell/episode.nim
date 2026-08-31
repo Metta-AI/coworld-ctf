@@ -88,6 +88,15 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
       result.enabled = true
       result.seats.add(FirstLightSeatState(seat: uint8(index)))
 
+proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
+    season2Shell, brMode: bool, controls: openArray[SlotControl],
+    map: BodyMap = nil, liveGunRangePx: int = GunRange) =
+  ## Full episode replacement boundary for any server-side sim/config
+  ## replacement. Fresh bodies re-run the activation safe install instead of
+  ## carrying standing orders, nav state, or map-owned goals across matches.
+  episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
+    liveGunRangePx)
+
 proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
   finishDefault(Intent(
     kind: ikHold,
@@ -169,6 +178,18 @@ proc appendStandingChanges(state: var FirstLightSeatState,
         annotation.intentBytes))
   state.standing.annotations.setLen(0)
 
+proc acceptDangerTrack(track: BodyTrack): bool =
+  discard track
+  true
+
+proc dangerInputs(episode: FirstLightEpisode,
+                  tick: uint32): seq[DangerInput] =
+  result = newSeq[DangerInput](episode.nav.seats.len)
+  for state in episode.seats:
+    if state.active and state.body != nil:
+      result[state.seat.int] =
+        state.body.dangerInputFromTracks(tick, acceptDangerTrack)
+
 proc step*(episode: var FirstLightEpisode,
     frames: openArray[FirstLightSeatFrame], tick: uint32): FirstLightTickResult =
   ## Runs configured play seats in configured-seat order. Disabled episodes
@@ -213,6 +234,7 @@ proc step*(episode: var FirstLightEpisode,
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
     result.masks.add(FirstLightMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
+  episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
   discard episode.nav.runPlanningTick(tick.int)
 
 proc observeDeaths*(episode: var FirstLightEpisode,
