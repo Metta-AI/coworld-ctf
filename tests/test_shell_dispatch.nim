@@ -1,6 +1,7 @@
 ## Server-level proof that the play leading-byte switch precedes Sprite parsing.
 
 import std/[atomics, unittest]
+import ../src/ctf/labels
 
 include ../src/ctf/server
 
@@ -49,6 +50,10 @@ proc playConfig(control: SlotControl): GameConfig =
   result = defaultGameConfig()
   result.season2Shell = true
   result.slots = @[PlayerSlotConfig(control: control)]
+
+proc bytes(value: string): seq[uint8] =
+  for byte in value:
+    result.add(uint8(byte))
 
 suite "server play receive arm":
   setup:
@@ -101,6 +106,44 @@ suite "server play receive arm":
     websocketHandler(ws, MessageEvent,
       binaryMessage(blobFromSpriteChat("x")))
     check appState.chatMessages[ws] == "x"
+
+  test "play debug sprites are ignored whether leading or embedded":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](7)
+    check ws.registerPlayerWebSocket("play", 0, "")
+
+    let leading = blobFromSpriteDebugSprites(@[1'u8, 2, 3])
+    check leading.classifyPlaySeatMessage().kind == prIgnoredSpriteDebug
+    websocketHandler(ws, MessageEvent, binaryMessage(leading))
+    check appState.playSpriteDebugIgnored == 1
+    check appState.playerViewers[ws].pendingDebugSprites.len == 0
+
+    let embedded =
+      blobFromSpriteChat("debug-free") &
+      blobFromSpriteDebugSprites(@[4'u8, 5, 6]) &
+      blobFromSpriteDebugSprites(bytes(PolicyPageMagic & "page"))
+    websocketHandler(ws, MessageEvent, binaryMessage(embedded))
+
+    check appState.chatMessages[ws] == "debug-free"
+    check appState.playSpriteDebugIgnored == 2
+    check appState.playerViewers[ws].pendingDebugSprites.len == 0
+    check ws notin appState.policyPageFlashes
+
+  test "input seats retain embedded debug sprite and reflash behavior":
+    appState.config = playConfig(scInput)
+    let ws = cast[WebSocket](8)
+    check ws.registerPlayerWebSocket("input", 0, "")
+    let embedded =
+      blobFromSpriteChat("legacy-debug") &
+      blobFromSpriteDebugSprites(@[4'u8, 5, 6]) &
+      blobFromSpriteDebugSprites(bytes(PolicyPageMagic & "page"))
+
+    websocketHandler(ws, MessageEvent, binaryMessage(embedded))
+
+    check appState.chatMessages[ws] == "legacy-debug"
+    check appState.playerViewers[ws].pendingDebugSprites == @[@[4'u8, 5, 6]]
+    check appState.policyPageFlashes[ws] == "page"
+    check appState.playSpriteDebugIgnored == 0
 
   test "embedded Sprite input is ignored on a play seat while chat lands":
     appState.config = playConfig(scPlay)
@@ -156,3 +199,15 @@ suite "server play receive arm":
     check appState.playerReady[ws]
     check appState.playSpriteInputIgnored == 0
     check appState.playSpriteReadyIgnored == 0
+
+  test "player upgrade selects play limits only for a configured play seat":
+    var config = playConfig(scPlay)
+    check config.playerUpgradeUsesPlaySeatTransport(0)
+    check not config.playerUpgradeUsesPlaySeatTransport(-1)
+    check not config.playerUpgradeUsesPlaySeatTransport(1)
+
+    config.slots[0].control = scInput
+    check not config.playerUpgradeUsesPlaySeatTransport(0)
+    config.slots[0].control = scPlay
+    config.season2Shell = false
+    check not config.playerUpgradeUsesPlaySeatTransport(0)

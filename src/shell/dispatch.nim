@@ -19,6 +19,7 @@ type
     prSprite
     prIgnoredSpriteInput
     prIgnoredSpriteReady
+    prIgnoredSpriteDebug
     prModuleUpload
     prPlayCall
     prStatusAck
@@ -28,7 +29,7 @@ type
     case kind*: PlayReceiveKind
     of prRejected:
       rejection*: PlayReceiveReject
-    of prSprite:
+    of prSprite, prIgnoredSpriteDebug:
       spriteBytes*: string
     of prModuleUpload:
       moduleUpload*: ModuleUploadPacket
@@ -67,9 +68,9 @@ proc classifyPlaySeatMessage*(message: string): PlayReceive =
     PlayReceive(kind: prIgnoredSpriteInput)
   of SpriteClientReady:
     PlayReceive(kind: prIgnoredSpriteReady)
-  of SpriteClientChat, SpriteClientMouseMove, SpriteClientMouseButton,
-      SpriteClientDebugSprite:
+  of SpriteClientChat, SpriteClientMouseMove, SpriteClientMouseButton:
     PlayReceive(kind: prSprite, spriteBytes: message)
+  of SpriteClientDebugSprite:
+    PlayReceive(kind: prIgnoredSpriteDebug, spriteBytes: message)
   else:
     PlayReceive(kind: prRejected, rejection: prrUnknownOpcode)
-

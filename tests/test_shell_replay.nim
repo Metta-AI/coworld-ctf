@@ -229,6 +229,24 @@ suite "shell replay record bytes":
     expect ReplayRecordError:
       discard hostile.decodeLobbyChatRecord(offset)
 
+  test "whole-record decoders reject trailing bytes":
+    let
+      call = everyReflexCall().encodePlayCallRecord()
+      annotation = acceptedAnnotation().encodeAnnotationRecord()
+      lobby = sampleTranscript()[0].encodeLobbyChatRecord()
+      manifest = buildShellReplayManifest(
+        @[@[call], newSeq[string]()],
+        @[@[annotation], newSeq[string]()],
+        @[lobby]).encodeManifestRecord()
+    expect ReplayRecordError:
+      discard (call & "\xff").decodePlayCallRecord()
+    expect ReplayRecordError:
+      discard (annotation & "\xff").decodeAnnotationRecord()
+    expect ReplayRecordError:
+      discard (lobby & "\xff").decodeLobbyChatRecord()
+    expect ReplayRecordError:
+      discard (manifest & "\xff").decodeManifestRecord()
+
 suite "shell replay file verification":
   test "format 2 eagerly verifies and retains every shell stream":
     let detailed = ctfReplayCodec.parseCtfReplayBytes(

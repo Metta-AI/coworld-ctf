@@ -368,6 +368,8 @@ proc encodePlayCallRecord*(record: PlayCallRecord): string =
     result.addCodeIdentity(entry.code)
 
 proc decodePlayCallRecord*(bytes: string, offset: var int): PlayCallRecord =
+  ## Reads one record from a larger stream; trailing bytes belong to the next
+  ## record and are intentionally left unread.
   let start = offset
   if bytes.readU8(offset) != RecPlayCall:
     recordError("wrong play-call record type")
@@ -385,6 +387,13 @@ proc decodePlayCallRecord*(bytes: string, offset: var int): PlayCallRecord =
       entryId: bytes.readString16(offset),
       code: bytes.readCodeIdentity(offset)))
   result.contentSha256 = sha256Hex(bytes[start ..< offset])
+
+proc decodePlayCallRecord*(bytes: string): PlayCallRecord =
+  ## Decodes one complete standalone record.
+  var offset = 0
+  result = bytes.decodePlayCallRecord(offset)
+  if offset != bytes.len:
+    recordError("trailing bytes after play-call record")
 
 proc addProvenance(bytes: var string, provenance: Provenance) =
   bytes.addU8(uint8(provenance.base.kind.ord))
@@ -461,6 +470,8 @@ proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
 
 proc decodeAnnotationRecord*(bytes: string,
                              offset: var int): ShellAnnotation =
+  ## Reads one record from a larger stream; trailing bytes belong to the next
+  ## record and are intentionally left unread.
   if bytes.readU8(offset) != RecBehaviorAnnotation:
     recordError("wrong annotation record type")
   result.tick = bytes.readU32(offset)
@@ -506,6 +517,13 @@ proc decodeAnnotationRecord*(bytes: string,
   else:
     recordError("unknown annotation kind")
 
+proc decodeAnnotationRecord*(bytes: string): ShellAnnotation =
+  ## Decodes one complete standalone record.
+  var offset = 0
+  result = bytes.decodeAnnotationRecord(offset)
+  if offset != bytes.len:
+    recordError("trailing bytes after annotation record")
+
 proc encodeLobbyChatRecord*(record: LobbyChatRecord): string =
   if record.text.len > LobbyChatMaxBytes:
     recordError("lobby transcript message exceeds LobbyChatMaxBytes")
@@ -521,6 +539,8 @@ proc encodeLobbyChatRecord*(record: LobbyChatRecord): string =
 
 proc decodeLobbyChatRecord*(bytes: string,
                             offset: var int): LobbyChatRecord =
+  ## Reads one record from a larger stream; trailing bytes belong to the next
+  ## record and are intentionally left unread.
   if bytes.readU8(offset) != RecLobbyChat:
     recordError("wrong lobby transcript record type")
   result.replayTimeMs = bytes.readU32(offset)
@@ -538,6 +558,13 @@ proc decodeLobbyChatRecord*(bytes: string,
   offset += checkedLength
   if validateUtf8(result.text) != -1:
     recordError("lobby transcript message is not valid UTF-8")
+
+proc decodeLobbyChatRecord*(bytes: string): LobbyChatRecord =
+  ## Decodes one complete standalone record.
+  var offset = 0
+  result = bytes.decodeLobbyChatRecord(offset)
+  if offset != bytes.len:
+    recordError("trailing bytes after lobby transcript record")
 
 proc buildShellReplayManifest*(
   callRecords: openArray[seq[string]],
@@ -579,6 +606,8 @@ proc encodeManifestRecord*(manifest: ShellReplayManifest): string =
 
 proc decodeManifestRecord*(bytes: string,
                            offset: var int): ShellReplayManifest =
+  ## Reads one record from a larger stream; trailing bytes belong to the next
+  ## record and are intentionally left unread.
   if bytes.readU8(offset) != RecManifest:
     recordError("wrong shell manifest record type")
   let seatCount = bytes.readU16(offset)
@@ -597,6 +626,13 @@ proc decodeManifestRecord*(bytes: string,
       annotationChainSha256: bytes.rawHash(offset)))
   result.transcriptCount = bytes.readU32(offset)
   result.transcriptChainSha256 = bytes.rawHash(offset)
+
+proc decodeManifestRecord*(bytes: string): ShellReplayManifest =
+  ## Decodes one complete standalone record.
+  var offset = 0
+  result = bytes.decodeManifestRecord(offset)
+  if offset != bytes.len:
+    recordError("trailing bytes after shell manifest record")
 
 proc moduleHashes*(records: ShellReplayRecords): seq[string] =
   for call in records.calls:

@@ -7,7 +7,7 @@ import
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
   control, directives, baselines, decide, mux,
-  ../shell/[body, body_map, episode, standing_order],
+  ../shell/[body, body_map, episode, standing_order, transport],
   ../shell/dispatch, ../shell/packets, ../shell/seats
 
 when defined(posix):
@@ -152,6 +152,7 @@ type
     playProtocolRejected: int
     playSpriteInputIgnored: int
     playSpriteReadyIgnored: int
+    playSpriteDebugIgnored: int
 
   ServerThreadArgs = object
     server: ptr Server
@@ -498,6 +499,7 @@ proc initAppState() =
   appState.playProtocolRejected = 0
   appState.playSpriteInputIgnored = 0
   appState.playSpriteReadyIgnored = 0
+  appState.playSpriteDebugIgnored = 0
 
 proc comparePendingPlayerJoins(
   a,
@@ -821,14 +823,20 @@ proc applyPlayerSpriteMessage(websocket: WebSocket, data: string) =
     appState.policyPageFlashes[websocket] = policyPage
 
 proc applyPlaySeatSpriteMessage(websocket: WebSocket, data: string) =
-  ## Preserves the shared Sprite parser's chat, debug-sprite, policy-page, and
-  ## mouse behavior, but never lets an input packet embedded later in the same
-  ## WebSocket message cross the play boundary. Leading input packets are
-  ## filtered by dispatch; this catches input behind another legal opcode.
+  ## Preserves the shared Sprite parser's chat and mouse behavior, but never
+  ## lets embedded input or debug-sprite packets cross the play boundary.
+  ## Leading forbidden packets are filtered by dispatch; this catches them
+  ## behind another legal opcode in the same WebSocket message.
   let
     originalMask = appState.inputMasks.getOrDefault(websocket, 0)
     originalPressedMask =
       appState.inputPressedMasks.getOrDefault(websocket, 0)
+    originalDebugCount =
+      appState.playerViewers[websocket].pendingDebugSprites.len
+  var hasDebugSprite = false
+  for item in data.parseSpriteClientMessages():
+    if item.kind == SpriteClientDebugSpriteMessage:
+      hasDebugSprite = true
   var
     discardedMask = originalMask
     discardedPressedMask = originalPressedMask
@@ -844,10 +852,12 @@ proc applyPlaySeatSpriteMessage(websocket: WebSocket, data: string) =
   if discardedMask != originalMask or
       discardedPressedMask != originalPressedMask:
     inc appState.playSpriteInputIgnored
+  if hasDebugSprite:
+    appState.playerViewers[websocket].pendingDebugSprites.setLen(
+      originalDebugCount)
+    inc appState.playSpriteDebugIgnored
   if chatText.len > 0:
     appState.chatMessages[websocket] = chatText
-  if policyPage.len > 0:
-    appState.policyPageFlashes[websocket] = policyPage
 
 proc dispatchPlaySeatMessage(websocket: WebSocket, seat: int, data: string) =
   ## Owns the play socket's leading-byte switch. Shell framing is decoded
@@ -861,6 +871,8 @@ proc dispatchPlaySeatMessage(websocket: WebSocket, seat: int, data: string) =
     inc appState.playSpriteInputIgnored
   of prIgnoredSpriteReady:
     inc appState.playSpriteReadyIgnored
+  of prIgnoredSpriteDebug:
+    inc appState.playSpriteDebugIgnored
   of prModuleUpload:
     if playReceiveConsumers.moduleUpload == nil:
       inc appState.playProtocolRejected
@@ -1025,6 +1037,11 @@ proc playerSlot(request: Request): int =
 proc playerToken(request: Request): string =
   ## Returns the player join token.
   request.queryParams.getOrDefault("token", "").strip()
+
+proc playerUpgradeUsesPlaySeatTransport*(config: GameConfig, slot: int): bool =
+  ## Chooses the larger socket caps only for a configured play seat under the
+  ## conjunctive Season 2 gate. Limits are transport caps, not admission.
+  config.isPlaySeat(slot)
 
 proc controlHeaders(): HttpHeaders =
   ## Returns headers for admin-panel control requests.
@@ -1560,6 +1577,7 @@ proc httpHandler(request: Request) =
       slot = request.playerSlot()
       token = request.playerToken()
       identity = request.playerIdentity(slot, token)
+    var usePlaySeatTransport = false
     {.gcsafe.}:
       withLock appState.lock:
         let joinError = appState.config.configuredPlayerJoinError(
@@ -1570,10 +1588,16 @@ proc httpHandler(request: Request) =
         if joinError.len > 0:
           request.respondForbiddenWebSocket(joinError)
           return
+        usePlaySeatTransport =
+          appState.config.playerUpgradeUsesPlaySeatTransport(slot)
     if identity.identityIsKicked():
       request.respondKicked()
       return
-    let websocket = request.upgradeToWebSocket()
+    let websocket =
+      if usePlaySeatTransport:
+        request.upgradePlaySeatWebSocket()
+      else:
+        request.upgradeToWebSocket()
     var accepted = false
     {.gcsafe.}:
       withLock appState.lock:
