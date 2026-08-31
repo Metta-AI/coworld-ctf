@@ -698,6 +698,67 @@
   // hard floor this spec calls out by name against player_client.html's own
   // .wchip) — hairlines run all the way around or not at all.
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // HUD scale (Maxwell, live 8/30: "no numbers on the scorecard thing in
+  // the top left (barely readable at that size... maybe give the option
+  // to adjust gui size? in settings if possible)"). Checked first: this
+  // client has NO settings surface anywhere -- no #settings, no options
+  // panel, nothing beyond player_client.html's own bare mute button and
+  // this module's click-to-cycle "standings · tab" toggle. Smallest honest
+  // thing, not a settings system built on spec: one more click-to-cycle
+  // control living right next to that toggle, persisted the same way this
+  // codebase's one real persisted preference already is (cameraStorageKey
+  // in player_client.html -- localStorage, wrapped in try/catch, one key
+  // per preference). Mute itself does NOT persist across reload (checked:
+  // `muted` is a bare in-memory flag) so it is not the idiom to copy for
+  // persistence, only for the button's own "label: value" text shape.
+  //
+  // The root readability bug this also fixes: .phud-num/.phud-eyebrow were
+  // fixed CSS px (15px/10px) with zero relationship to viewport size or
+  // display size -- as the window (or a maximised Retina panel) gets
+  // bigger the arena fills more of the eye while this chrome stays exactly
+  // the same absolute size, so it reads smaller in practice even though
+  // DPR-correct crisp rendering was never the problem. --phud-scale is a
+  // single multiplier threaded through every size-bearing rule below
+  // (never the screen-edge INSETS -- left/top/right/bottom of each panel
+  // stay fixed so the corner anchor never drifts, only the chrome pinned
+  // to it grows) and through the minimap's own JS pixel budget below. The
+  // 'M' step is also the new always-on DEFAULT (index 1, no click
+  // required) -- a good default beats a good control; this makes the
+  // control matter only for players who want MORE or less than that.
+  // ---------------------------------------------------------------------
+  const HUD_SCALE_KEY = 'ctfHudScale';
+  const HUD_SCALE_STEPS = [
+    { label: 'S', value: 0.85 },
+    { label: 'M', value: 1 },
+    { label: 'L', value: 1.2 },
+    { label: 'XL', value: 1.45 },
+  ];
+  const HUD_SCALE_DEFAULT_INDEX = 1; // 'M'
+  function loadHudScaleIndex() {
+    let stored = null;
+    try { stored = localStorage.getItem(HUD_SCALE_KEY); } catch (e) { /* private mode etc. -- fall through to default */ }
+    const idx = stored === null ? NaN : parseInt(stored, 10);
+    return (idx >= 0 && idx < HUD_SCALE_STEPS.length) ? idx : HUD_SCALE_DEFAULT_INDEX;
+  }
+  let hudScaleIndex = loadHudScaleIndex();
+  function hudScaleValue() { return HUD_SCALE_STEPS[hudScaleIndex].value; }
+  function hudScaleLabel() { return HUD_SCALE_STEPS[hudScaleIndex].label; }
+  function applyHudScale() {
+    const root = document.getElementById('phud-root');
+    if (root) root.style.setProperty('--phud-scale', String(hudScaleValue()));
+  }
+  function cycleHudScale(nodes) {
+    hudScaleIndex = (hudScaleIndex + 1) % HUD_SCALE_STEPS.length;
+    try { localStorage.setItem(HUD_SCALE_KEY, String(hudScaleIndex)); } catch (e) { /* stays session-only, never fatal */ }
+    applyHudScale();
+    if (nodes && nodes.scaleToggle) nodes.scaleToggle.textContent = 'hud size: ' + hudScaleLabel().toLowerCase();
+  }
+  // Every scaled length in the CSS template below is built through this
+  // instead of a bare `Npx`, so one custom-property write (initial mount,
+  // or a click on the toggle) moves every dependent rule in lockstep.
+  function S(px) { return 'calc(' + px + 'px * var(--phud-scale,1))'; }
+
   const F_WORD = "'rajdhani','Avenir Next Condensed','Arial Narrow',sans-serif";
   const F_NUM = 'ui-monospace,SFMono-Regular,Menlo,monospace';
   const CSS = '\n'
@@ -718,16 +779,21 @@
     // token language but gives real backing contrast regardless of what's
     // painted underneath; verified by screenshot over painted ground, not
     // assumed.
-    + '.phud-panel{background:rgba(10,8,5,.82);border:1px solid rgba(232,163,61,.28);padding:6px 9px;}\n'
-    + '.phud-eyebrow{font-family:' + F_WORD + ';font-size:10px;font-weight:700;letter-spacing:.12em;'
-    + 'text-transform:uppercase;color:#b8ac98;}\n'
-    + '.phud-num{font-family:' + F_NUM + ';font-size:15px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums;}\n'
-    + '.phud-sub{font-size:10px;color:#b8ac98;letter-spacing:.2px;}\n'
-    + '#phud-rail{position:fixed;left:10px;top:9px;display:flex;gap:14px;}\n'
-    + '#phud-rail .phud-stat{display:flex;flex-direction:column;gap:1px;min-width:34px;}\n'
+    + '.phud-panel{background:rgba(10,8,5,.82);border:1px solid rgba(232,163,61,.28);padding:' + S(7) + ' ' + S(10) + ';}\n'
+    + '.phud-eyebrow{font-family:' + F_WORD + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.12em;'
+    + 'text-transform:uppercase;color:#b8ac98;white-space:nowrap;}\n'
+    // 15px -> 19px base (Maxwell, live 8/30: "barely readable at that
+    // size"): this is the number the player scans mid-fight, so it carries
+    // the whole readability fix -- the eyebrow above it stays a label, this
+    // is the thing that has to read at a glance. Scaled like everything
+    // else, but its base is the actual fix, not the control.
+    + '.phud-num{font-family:' + F_NUM + ';font-size:' + S(19) + ';font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums;}\n'
+    + '.phud-sub{font-size:' + S(11) + ';color:#b8ac98;letter-spacing:.2px;}\n'
+    + '#phud-rail{position:fixed;left:10px;top:9px;display:flex;gap:' + S(16) + ';}\n'
+    + '#phud-rail .phud-stat{display:flex;flex-direction:column;gap:1px;min-width:' + S(44) + ';}\n'
     + '#phud-rail .phud-num.tick{animation:phud-tick .42s ease-out;}\n'
     + '@keyframes phud-tick{0%{transform:scale(1);color:#f2e8d8;}30%{transform:scale(1.28);color:#e8a33d;}100%{transform:scale(1);color:#f2e8d8;}}\n'
-    + '#phud-cond{position:fixed;left:10px;bottom:8px;display:flex;gap:12px;align-items:baseline;}\n'
+    + '#phud-cond{position:fixed;left:10px;bottom:8px;display:flex;gap:' + S(13) + ';align-items:baseline;}\n'
     + '#phud-cond .phud-stat{display:flex;flex-direction:column;gap:1px;}\n'
     + '#phud-cond .phud-hp-low{color:#ff6a52;}\n'
     // Weapon-ready pip — REDESIGNED off a live field report (Maxwell, playing
@@ -749,14 +815,20 @@
     // global.nim:8787 — no numeric remaining-time exists, so still no
     // progress idiom), plus the short word (READY/COOLING) next to it so
     // the state reads with zero ambiguity even before the color registers.
-    + '#phud-cooldown{display:inline-block;width:7px;height:7px;margin-right:5px;'
+    + '#phud-cooldown{display:inline-block;width:' + S(8) + ';height:' + S(8) + ';margin-right:' + S(6) + ';'
     + 'vertical-align:middle;border-radius:50%;transition:opacity .12s;}\n'
     + '#phud-cooldown.ready{background:#e8a33d;box-shadow:0 0 3px #e8a33d90;}\n'
     + '#phud-cooldown.cooling{background:transparent;border:1.5px solid #8a7f72;}\n'
     + '#phud-cooldown.pop{animation:phud-pop .22s ease-out;}\n'
     + '@keyframes phud-pop{0%{transform:scale(1.6);}100%{transform:scale(1);}}\n'
-    + '#phud-top{position:fixed;left:50%;top:9px;transform:translateX(-50%);display:flex;gap:16px;align-items:baseline;}\n'
-    + '#phud-top .t{font-family:' + F_NUM + ';font-size:13px;font-weight:700;letter-spacing:.05em;}\n'
+    // left:50% is a fallback only -- positionTopBar() (see render section
+    // below) overwrites this element's `left` inline every frame it's
+    // shown, biased right of dead-center by just enough to clear
+    // #phud-rail's actual measured width so the two panels can never
+    // overlap at any window size or --phud-scale value (the collision a
+    // prior HUD lane flagged and explicitly left alone at small sizes).
+    + '#phud-top{position:fixed;left:50%;top:9px;transform:translateX(-50%);display:flex;gap:' + S(16) + ';align-items:baseline;white-space:nowrap;}\n'
+    + '#phud-top .t{font-family:' + F_NUM + ';font-size:' + S(16) + ';font-weight:700;letter-spacing:.05em;}\n'
     + '#phud-top .phud-eyebrow{align-self:center;}\n'
     // Per-team-color alive chips — Maxwell: "i can't see what colors are
     // still alive in the header." The BR top bar carried teams-alive/zone
@@ -767,10 +839,14 @@
     // than invented fresh (see renderTopBar/teamAliveChips for the wire
     // read this is driven by).
     + '#phud-top .phud-chips{display:inline-flex;gap:3px;align-items:center;align-self:center;}\n'
-    + '#phud-top .phud-chip{width:9px;height:9px;border-radius:2px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
+    + '#phud-top .phud-chip{width:' + S(10) + ';height:' + S(10) + ';border-radius:2px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
     + '#phud-top .phud-chip.wiped{background:transparent;opacity:.5;box-shadow:inset 0 0 0 1px rgba(184,172,152,.6);}\n'
     + '#phud-mini-wrap{position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}\n'
     + '#phud-mini-wrap .phud-eyebrow{padding-right:2px;}\n'
+    // Toolbar row: the "standings · tab" toggle plus the new HUD-size
+    // toggle, side by side -- same corner cluster idiom player_client.html
+    // already uses for its own mute/leave pair, not a second control system.
+    + '#phud-toolbar{display:flex;gap:6px;}\n'
     // The panel chrome (background/border/padding) lives on a dedicated
     // #phud-mini-frame wrapper, NOT on the canvas itself. Found by testing
     // over the real client, not by inspection: a <canvas> is a "replaced
@@ -807,18 +883,21 @@
     // explicitly so this element can never again inherit host-page canvas
     // styling by accident, at any window size.
     + '#phud-mini{display:block;position:static;left:auto;top:auto;image-rendering:pixelated;}\n'
-    + '#phud-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_WORD + ';font-size:10px;font-weight:700;letter-spacing:.1em;'
-    + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:3px 7px;user-select:none;}\n'
-    + '#phud-toggle:hover{color:#f2e8d8;}\n'
+    + '#phud-toggle,#phud-scale-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_WORD + ';font-size:' + S(10) + ';font-weight:700;letter-spacing:.1em;'
+    + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(7) + ';user-select:none;white-space:nowrap;}\n'
+    + '#phud-toggle:hover,#phud-scale-toggle:hover{color:#f2e8d8;}\n'
     + '#phud-toggle.pinned{color:#e8a33d;border-color:rgba(232,163,61,.55);}\n'
-    + '#phud-score{position:fixed;left:50%;top:64px;transform:translateX(-50%);min-width:340px;max-width:min(78vw,620px);'
+    // top offset scales alongside #phud-top above it (S(64) not a bare
+    // 64px) so a bigger --phud-scale, which makes #phud-top taller too,
+    // can never push this panel's header up under it.
+    + '#phud-score{position:fixed;left:50%;top:' + S(64) + ';transform:translateX(-50%);min-width:340px;max-width:min(78vw,620px);'
     + 'max-height:min(60vh,520px);overflow:auto;display:none;}\n'
     + '#phud-score.open{display:block;}\n'
-    + '#phud-score h2{font-family:' + F_WORD + ';font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ac98;margin:0 0 6px;}\n'
-    + '#phud-score table{border-collapse:collapse;width:100%;font-size:12px;}\n'
-    + '#phud-score th{text-align:left;font-family:' + F_WORD + ';font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
-    + 'color:#b8ac98;border-bottom:1px solid rgba(232,163,61,.28);padding:3px 8px 4px 0;}\n'
-    + '#phud-score td{padding:3px 8px 3px 0;border-bottom:1px solid rgba(232,163,61,.14);white-space:nowrap;}\n'
+    + '#phud-score h2{font-family:' + F_WORD + ';font-size:' + S(13) + ';font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ac98;margin:0 0 6px;}\n'
+    + '#phud-score table{border-collapse:collapse;width:100%;font-size:' + S(13) + ';}\n'
+    + '#phud-score th{text-align:left;font-family:' + F_WORD + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
+    + 'color:#b8ac98;border-bottom:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(8) + ' ' + S(4) + ' 0;}\n'
+    + '#phud-score td{padding:' + S(4) + ' ' + S(9) + ' ' + S(4) + ' 0;border-bottom:1px solid rgba(232,163,61,.14);white-space:nowrap;}\n'
     + '#phud-score tr.self td{color:#e8a33d;font-weight:700;}\n'
     + '#phud-score .phud-dim{color:#b8ac98;}\n'
     + '#phud-score .phud-splat{color:#ff6a52;font-weight:700;letter-spacing:.06em;}\n'
@@ -843,12 +922,16 @@
       '<div class="phud-stat" id="phud-buffwrap" style="display:none"><span class="phud-eyebrow">buffs</span><span class="phud-sub" id="phud-buffs"></span></div>' +
       '</div>' +
       '<div id="phud-mini-wrap">' +
+      '<div id="phud-toolbar">' +
       '<div id="phud-toggle">standings · tab</div>' +
+      '<div id="phud-scale-toggle" title="Click to change HUD text size">hud size: ' + hudScaleLabel().toLowerCase() + '</div>' +
+      '</div>' +
       '<div><span class="phud-eyebrow" id="phud-mini-label" style="display:block;text-align:right;margin-bottom:3px;">map</span>' +
       '<div id="phud-mini-frame" class="phud-panel"><canvas id="phud-mini"></canvas></div></div>' +
       '</div>' +
       '<div id="phud-score" class="phud-panel"><div id="phud-score-body"></div></div>';
     document.body.appendChild(root);
+    applyHudScale(); // before first paint -- no flash of the unscaled default
     return {
       top: root.querySelector('#phud-top'),
       rail: root.querySelector('#phud-rail'),
@@ -860,6 +943,7 @@
       mini: root.querySelector('#phud-mini'),
       miniLabel: root.querySelector('#phud-mini-label'),
       toggle: root.querySelector('#phud-toggle'),
+      scaleToggle: root.querySelector('#phud-scale-toggle'),
       score: root.querySelector('#phud-score'),
       scoreBody: root.querySelector('#phud-score-body'),
     };
@@ -893,7 +977,13 @@
   // drawMinimap, on the unmerged maxwell/br-pixelpipe-perf-clean branch.
   // This draws its own, independently, off the client's live canvas.)
   // ---------------------------------------------------------------------
+  // Base budget at --phud-scale 1 ('M'); miniMaxW/H below scale these
+  // alongside every other piece of this module's screen-fixed chrome, so
+  // a player who bumps HUD size gets a bigger minimap too, not just
+  // bigger text next to an unchanged map.
   const MINIMAP_MAX_W = 168, MINIMAP_MAX_H = 100;
+  function miniMaxW() { return MINIMAP_MAX_W * hudScaleValue(); }
+  function miniMaxH() { return MINIMAP_MAX_H * hudScaleValue(); }
   // Defense in depth alongside the #phud-mini position fix above (the
   // actual root cause of the reported crop): clamp the on-screen budget to
   // whatever room the corner ACTUALLY has at the CURRENT viewport size, so
@@ -907,14 +997,16 @@
   // ABOVE the canvas in that same corner — the toggle button, the wrap's
   // gap, the eyebrow label, and the frame's own padding+border.
   const MINI_INSET_PX = 10, MINI_CHROME_W_PX = 20, MINI_CHROME_H_PX = 60;
+  function miniChromeW() { return MINI_CHROME_W_PX * hudScaleValue(); }
+  function miniChromeH() { return MINI_CHROME_H_PX * hudScaleValue(); }
   let lastMiniDrawAt = 0;
   function drawMinimap(miniCanvas, canvasEl, state) {
     if (!canvasEl || state.map.w < 2 || state.map.h < 2) { miniCanvas.width = 0; miniCanvas.height = 0; return; }
     const now = performance.now();
     if (now - lastMiniDrawAt < 90) return; // throttle, matches the cadence of the prior-art minimap
     lastMiniDrawAt = now;
-    const boundW = Math.min(MINIMAP_MAX_W, Math.max(40, innerWidth - MINI_INSET_PX * 2 - MINI_CHROME_W_PX));
-    const boundH = Math.min(MINIMAP_MAX_H, Math.max(40, innerHeight - MINI_INSET_PX * 2 - MINI_CHROME_H_PX));
+    const boundW = Math.min(miniMaxW(), Math.max(40, innerWidth - MINI_INSET_PX * 2 - miniChromeW()));
+    const boundH = Math.min(miniMaxH(), Math.max(40, innerHeight - MINI_INSET_PX * 2 - miniChromeH()));
     const scale = Math.min(boundW / state.map.w, boundH / state.map.h);
     const w = Math.max(1, Math.round(state.map.w * scale)), h = Math.max(1, Math.round(state.map.h * scale));
     if (miniCanvas.width !== w) miniCanvas.width = w;
@@ -1087,7 +1179,16 @@
     if (state.variant === 'unknown') { nodes.top.style.display = 'none'; return; }
     nodes.top.style.display = '';
     if (state.variant === 'ctf') {
-      nodes.top.innerHTML = state.teamScores.slice()
+      // Eyebrow label (coordinator, live 8/30: Maxwell himself couldn't
+      // identify this strip -- guessed team lives, then a hearts perk --
+      // for a bare "BLUE 110/110" pair. It's tags-made/tags-lost
+      // (parseTeamScoreLabel: kills/deaths), same contract as the BR
+      // branch's own "teams alive"/"zone" eyebrows just below, which this
+      // branch was missing entirely. Provisional word ("team tags") --
+      // paintbot-voice owns the eventual paintball-register vocabulary
+      // pass; not designing around this string.
+      nodes.top.innerHTML = '<span class="phud-eyebrow">team tags</span>' +
+        state.teamScores.slice()
         .sort(function (a, b) { return b.kills - a.kills; })
         .map(function (t) {
           return '<span class="t" style="color:' + teamColor(t.team.toLowerCase()) + '">' +
@@ -1103,6 +1204,29 @@
         '<span class="phud-chips">' + chips.html + '</span>' +
         '<span class="phud-eyebrow">zone</span><span class="t">' + zoneWord + '</span>';
     }
+    positionTopBar(nodes);
+  }
+  // Collision fix (coordinator, live 8/30): a prior HUD lane found this bar
+  // (CTF team score / BR teams-alive) can overlap #phud-rail's kills/
+  // deaths/score/rail readout at small window widths and explicitly left
+  // it alone as out of scope then. In scope now, and a bigger --phud-scale
+  // makes both panels wider, so a static CSS breakpoint would need
+  // retuning per scale step -- measure instead. #phud-top's CSS `left:50%`
+  // sets where its un-translated left edge sits; translateX(-50%) then
+  // shifts it left by exactly half of ITS OWN (already-rendered, so
+  // already-scaled) width, so whatever px `left` we compute here IS the
+  // horizontal CENTER the bar ends up at. Centered on the viewport unless
+  // that would land its left edge inside #phud-rail's actual measured
+  // right edge plus a gutter, in which case it's pushed right just far
+  // enough to clear it -- true at every window size and every scale step,
+  // not tuned per breakpoint.
+  function positionTopBar(nodes) {
+    const railRect = nodes.rail.getBoundingClientRect();
+    const gutter = 14 * hudScaleValue();
+    const halfTopWidth = nodes.top.offsetWidth / 2;
+    const naturalCenter = innerWidth / 2;
+    const minCenter = railRect.right + gutter + halfTopWidth;
+    nodes.top.style.left = Math.max(naturalCenter, minCenter) + 'px';
   }
   // Per-team elimination read, keyed lowercase: "team score <NAME> ..." ships
   // NAME upper-ascii'd (addTeamScoreboard, global.nim:4327) while the roster
@@ -1266,6 +1390,7 @@
       scorePinned = !scorePinned;
       nodes.toggle.classList.toggle('pinned', scorePinned);
     });
+    nodes.scaleToggle.addEventListener('click', function () { cycleHudScale(nodes); });
     requestAnimationFrame(frame);
   }
   if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot);
