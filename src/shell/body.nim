@@ -36,6 +36,13 @@ const
   WardThreatScoreBoost* = 0.65
 
 type
+  BodyWeapon* = enum
+    ## Weapon vocabulary mirrored from the sim's player/view contract:
+    ## `"gun" | "spray" | "grenade"` (`src/ctf/sim_types.nim:2210-2226`).
+    bwGun
+    bwSpray
+    bwGrenade
+
   BodyItemKind* = enum
     bikGrenade
     bikMedkit
@@ -49,6 +56,19 @@ type
     hpFrac*: float
     lives*: Option[int]
     aimBrads*: int
+    fireCooldown*: int     ## Self `Player.fireCooldown` (`sim_types.nim:2210-2226`).
+    fireWindup*: int       ## Self `Player.fireWindup` (`sim_types.nim:2210-2226`).
+    windup*: Option[int]
+      ## Aim angle locked at the trigger pull (`sim_types.nim:2210-2226`);
+      ## `none` when no trigger is pulled. Deliberately not the sim's `-1`
+      ## sentinel: 0 is a valid bearing, so an unset sentinel that
+      ## zero-initialises would be indistinguishable from aiming at bearing 0.
+      ## Lane C converts the sim's `-1` at the boundary.
+    hasGrenade*: bool      ## Self grenade inventory (`sim_types.nim:2210-2226`).
+    hasShield*: bool       ## Self shield inventory (`sim_types.nim:2210-2226`).
+    shieldHp*: int         ## Self shield-layer hp (`sim_types.nim:2210-2226`).
+    hasSprayPaint*: bool   ## Self spray-can inventory (`sim_types.nim:2210-2226`).
+    arcTicksLeft*: int     ## Self active spray-cone ticks (`sim_types.nim:2210-2226`).
     alive*: bool
     carrying*: bool
 
@@ -57,6 +77,15 @@ type
     team*: Team
     aimBrads*: Option[int]
     hpKnown*: Option[int]
+    shielded*: bool
+      ## Fog-visible shield carried by target, not shield hp
+      ## (`src/ctf/sim_types.nim:2210-2226`).
+    weapon*: Option[BodyWeapon]
+      ## Weapon mirrored from the sim's player/view contract
+      ## (`src/ctf/sim_types.nim:2210-2226`). Option because an enemy's
+      ## weapon is not always readable through fog.
+      ## Unknown must stay representable: it scores 0 for the spray term rather
+      ## than defaulting to `bwGun`, matching unknown hp and optional aim.
     veteranMarker*: bool
     freshTick*: uint32
 
@@ -66,6 +95,15 @@ type
     team*: Team
     aimBrads*: Option[int]
     hpKnown*: Option[int]
+    shielded*: bool
+      ## Fog-visible shield carried by target, not shield hp
+      ## (`src/ctf/sim_types.nim:2210-2226`).
+    weapon*: Option[BodyWeapon]
+      ## Weapon mirrored from the sim's player/view contract
+      ## (`src/ctf/sim_types.nim:2210-2226`). Option because an enemy's
+      ## weapon is not always readable through fog.
+      ## Unknown must stay representable: it scores 0 for the spray term rather
+      ## than defaulting to `bwGun`, matching unknown hp and optional aim.
     veteranMarker*: bool
     tick*: uint32
 
@@ -427,7 +465,8 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
       let update = updates[seat].get
       body.tracks[seat] = some(BodyTrack(pos: update.pos,
         team: update.team, aimBrads: update.aimBrads,
-        hpKnown: update.hpKnown, veteranMarker: update.veteranMarker,
+        hpKnown: update.hpKnown, shielded: update.shielded,
+        weapon: update.weapon, veteranMarker: update.veteranMarker,
         freshTick: update.tick))
 
   for sighting in inputs.sightedItems:
@@ -875,20 +914,30 @@ proc beliefFingerprint*(body: SeatBody): Hash =
   var value = hash(body.seatIndex) !& hash(body.selfState.pos) !&
     hash(body.selfState.hp) !& hash(body.selfState.hpFrac) !&
     hash(body.selfState.aimBrads) !& hash(body.selfState.alive) !&
-    hash(body.selfState.carrying) !& hash(body.selfState.lives.isSome)
+    hash(body.selfState.fireCooldown) !& hash(body.selfState.fireWindup) !&
+    hash(body.selfState.windup.isSome) !& hash(body.selfState.hasGrenade) !&
+    hash(body.selfState.hasShield) !& hash(body.selfState.shieldHp) !&
+    hash(body.selfState.hasSprayPaint) !&
+    hash(body.selfState.arcTicksLeft) !& hash(body.selfState.carrying) !&
+    hash(body.selfState.lives.isSome)
   if body.selfState.lives.isSome:
     value = value !& hash(body.selfState.lives.get)
+  if body.selfState.windup.isSome:
+    value = value !& hash(body.selfState.windup.get)
   for seat in 0 ..< MaxPlayers:
     value = value !& hash(body.tracks[seat].isSome)
     if body.tracks[seat].isSome:
       let track = body.tracks[seat].get
       value = value !& hash(seat) !& hash(track.pos) !& hash(ord(track.team)) !&
         hash(track.aimBrads.isSome) !& hash(track.hpKnown.isSome) !&
+        hash(track.shielded) !& hash(track.weapon.isSome) !&
         hash(track.veteranMarker) !& hash(track.freshTick)
       if track.aimBrads.isSome:
         value = value !& hash(track.aimBrads.get)
       if track.hpKnown.isSome:
         value = value !& hash(track.hpKnown.get)
+      if track.weapon.isSome:
+        value = value !& hash(ord(track.weapon.get))
   for item in body.items:
     value = value !& hash(item.eventId) !& hash(ord(item.kind)) !&
       hash(item.pos) !& hash(item.present) !& hash(item.freshTick)
