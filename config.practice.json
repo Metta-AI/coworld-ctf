@@ -5,6 +5,7 @@
   "allowAimAssist": true,
   "allowCallouts": true,
   "allowShotFeedback": true,
+  "allowCosmeticFx": true,
   "aimAssistConeBrads": 24,
   "gunRange": 497,
   "lives": 1,
