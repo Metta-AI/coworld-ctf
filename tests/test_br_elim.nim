@@ -297,3 +297,89 @@ suite "BR elimination ruleset":
     check not a.isDraw
     check a.gameHash() == b.gameHash()
     check a.tickCount == b.tickCount
+
+suite "GLORY v11 (BR increment 3): partner-avenge PAYBACK":
+  # BR increment 3: `avengesKiller` (avenging YOUR OWN killer) can never
+  # fire in BR -- a killer who had ever died is already permanently
+  # eliminated, so it can never be the one pulling the trigger on a later
+  # tick. `avengesPartner` is BR's own gate: kill the same enemy that
+  # killed your DEAD DUO PARTNER. `brDuoGame(teams=4)` seats slots
+  # 0,4=Red 1,5=Blue 2,6=Green 3,7=Yellow -- Red's duo is {0, 4}.
+
+  test "killing your dead partner's killer mints PAYBACK":
+    var sim = brDuoGame()
+    # 300px apart: strictly between PointBlankPx (110) and LongshotPx (700)
+    # at this test's stock (reference) gunRange, so neither distance-based
+    # descriptor in `killDeed`'s precedence (both rank ABOVE the avenge
+    # check) preempts the classification this test is actually about.
+    sim.centerOn(0, 500, 500)
+    sim.centerOn(1, 500, 800)
+    sim.killPlayer(0, 1)  # Blue (1) kills Red's p0.
+    check sim.deedCounts[dRevengeKill] == 0
+    sim.centerOn(4, 500, 500)
+    sim.killPlayer(1, 4)  # Red's SURVIVING partner (4) kills Blue (1) back.
+    check sim.deedCounts[dRevengeKill] == 1
+    check sim.players[4].avengedPartner
+
+  test "the taper holds: a second kill by the same avenger never re-mints it":
+    var sim = brDuoGame()
+    sim.centerOn(0, 500, 500)
+    sim.centerOn(1, 500, 800)
+    sim.killPlayer(0, 1)   # Blue kills Red's p0.
+    sim.centerOn(4, 500, 500)
+    sim.killPlayer(1, 4)   # Red's p4 avenges -- mints once.
+    check sim.deedCounts[dRevengeKill] == 1
+    sim.centerOn(5, 800, 800)
+    sim.centerOn(6, 800, 1100)
+    sim.killPlayer(5, 6)   # unrelated kill elsewhere on the board...
+    sim.centerOn(4, 800, 800)
+    sim.killPlayer(6, 4)   # ...p4 lands ANOTHER kill; must not re-mint.
+    check sim.deedCounts[dRevengeKill] == 1
+
+  test "avengesPartner never fires outside brMode (classic, same duo shape)":
+    # Classic (brMode=false): even the identical "dead teammate, surviving
+    # teammate avenges" shape must resolve as an ordinary kill -- the new
+    # gate reads nothing but `sim.config.brMode`.
+    var sim = initCtfForTest(defaultGameConfig())
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("red1")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    sim.players[0].team = Red
+    sim.players[1].team = Red
+    sim.players[2].team = Blue
+    sim.killPlayer(0, 2)  # Blue's p2 kills Red's p0.
+    sim.killPlayer(2, 1)  # Red's SURVIVING p1 kills Blue's p2 back.
+    check sim.deedCounts[dRevengeKill] == 0
+    check not sim.players[1].avengedPartner
+
+  test "a cog with no dead partner never mints payback off an unrelated kill":
+    var sim = brDuoGame()
+    sim.killPlayer(5, 6)  # an unrelated kill: Green kills Blue's p5.
+    check sim.deedCounts[dRevengeKill] == 0
+    check not sim.players[4].avengedPartner
+
+suite "GLORY v11 (BR increment 3): dWipe disabled in brMode":
+  # MEASURED (re-simulating the GV47 episode-s830 reference recording and
+  # its five 31337-seeded siblings, PR #313, 2026-08-30): winner glory
+  # converged to 626-627g across every one of them -- a single `dWipe`
+  # mint (paid to whichever team happens to survive) was 95.8% of the
+  # winner's whole episode glory on s830 alone. Disabled outright in
+  # brMode; CTF is untouched.
+
+  test "the deciding elimination mints no dWipe in brMode":
+    var sim = brGame(2)
+    sim.killPlayer(1, 0)  # Red (0) kills Blue's only player -- Red wins.
+    sim.checkWinCondition()
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check sim.deedCounts[dWipe] == 0
+
+  test "dWipe still mints in classic play (brMode off), same shape, unaffected":
+    var sim = twoTeamGame()
+    sim.players[1].lives = 1  # Blue is on its last life.
+    sim.killPlayer(1, 0)      # Red kills Blue's only life -- a real wipe.
+    sim.checkWinCondition()
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check sim.deedCounts[dWipe] == 1

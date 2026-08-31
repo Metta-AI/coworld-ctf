@@ -671,6 +671,29 @@ proc slotAnchor*(gameMap: CtfMap, slot: Team): MapPoint =
     d = gameMap.homeDepthOf()
   case gameMap.layout
   of layoutSides:
+    if gameMap.spawnPoints.len > 0:
+      ## GLORY v11 (BR increment 3, site-gradient fix): a BR map authors
+      ## its own N-point spawn subsystem (`spawnPoints`/`spawnGroups`,
+      ## BR_MAPGEN.md §6.2) but still reports `layoutSides` (no sides/
+      ## corners concept exists past 2 teams) -- without this branch every
+      ## non-Red team fell through to the SAME `axisHomeHi` point below,
+      ## the 2-team Red/"everyone else" split this layout was built for.
+      ## `groundOwner`'s (sim.nim) nearest-pedestal search over `flagHome`
+      ## -> `teamAnchor` -> here could then only ever answer Red or
+      ## whichever team won the tie on that shared point, so `deedSitePct`
+      ## priced 14 of 16 BR duos' every deed at the flat `SiteMultEnemyPct`
+      ## -- never their own `SiteMultHomePct` -- regardless of where they
+      ## actually fought. Each team gets its own authored point instead,
+      ## the same "spawnPoints replaces every use of the sides/corners
+      ## math" rule `defaultCtfRooms`/`spawnPosition` already hold
+      ## themselves to. Unrotated (unlike `spawnPosition`'s own per-episode
+      ## `spawnGroupOffset` fairness rotation) -- this anchor exists only
+      ## to tell teams' ground apart for pricing, never to seat a player,
+      ## so it stays a pure function of the map alone, matching every
+      ## other `slotAnchor` branch's own "board furniture, does not
+      ## rotate" contract.
+      let perTeam = gameMap.spawnPoints.len div gameMap.teamCount()
+      return gameMap.spawnPoints[ord(slot) * perTeam]
     result =
       case slot
       of Red:

@@ -10,45 +10,100 @@
 ## POSITIONALLY into replay keyframes, so declaration/field order here is
 ## wire format — reorder nothing without a GameVersion bump.
 
+# GLORY PORT (increment 2/3): `glory` is a zero-import, pure module (same
+# "players/baseline compiles with no data/ dir" constraint sim_types itself
+# is written to respect), so importing it here carries no cycle and no
+# asset-cone risk. `Player`/`SimServer` need `Deed`/`Tree`/`AchievementTrees`/
+# `AchievementTiers` for their own new fields below. Exported (not just
+# imported) so every downstream module already getting sim_types
+# transitively (the "import sim_types, ...; export sim_types, ..." pattern
+# every split file uses) also gets glory's Deed/awardDeed-helper symbols,
+# without a re-import per consumer.
 import
   std/[math, random],
   bitworld/pixelfonts,
   bitworld/server,
-  pixie
+  pixie,
+  glory
+export glory
 
 const
   GameName* = "ctf"
-  GameVersion* = "45"  ## GV45 (BR integration): SIXTEEN TEAMS, ELIMINATION,
-    ## A CLOSING ZONE. A replay's version string is supposed to identify the
-    ## rules that produced it, and this build can seat up to 16 teams (`Team`
-    ## widened from 4, BR_MAPGEN.md §6.2), run the no-respawn `brMode`
-    ## elimination ruleset instead of classic capture/wipe scoring, and close
-    ## a shrinking rectangular zone (`zonePhases`) that deals environmental
-    ## damage outside it — none of which any earlier GameVersion's rules
-    ## could produce. Re-scanned every origin branch first: nothing claims 45
-    ## yet (main and every live branch sit on 44).
+  ReplayCompatibleGameVersions* = ["48"]
+    ## The replay-load allowlist (play-calling design §4.3): versions whose
+    ## recorded files still play back correctly under THIS engine. The
+    ## criterion is the GameVersion changelog below, not chronology — a
+    ## version is listed only when nothing since changed the gameHash
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV47 is
+    ## excluded because GV48 added the glory ledger to gameHash itself
+    ## ("every .bitreplay this engine has ever produced ... needs a GV48
+    ## stamp to load again"); GV46 was already excluded because GV47
+    ## relaid RewardAccount on the wire. Widening requires a real archived
+    ## fixture that survives initialization and stepping (PM ruling,
+    ## 2026-08-30), never a header rewrite.
+  GameVersion* = "48"
+    ## GV48 (GLORY PORT increment 3/3, GLORY v11): the ledger is CAUSAL now.
+    ## Every per-player counter and per-team field `glory.nim`'s own
+    ## GLORY PORT increment-2/3 comments marked "will be" hashed (xp,
+    ## level, the achievement-gate counters, `teamGlory`, heat, the
+    ## achievement claim sets, `firstBloodDone`, `squadVolleyDone`) now
+    ## actually enters `gameHash` (see `gameHash`'s own two new blocks,
+    ## sim_state.nim) — the increment-3 move those comments named,
+    ## claimed here as the real GV48 the landing plan (BR_SEASON2_
+    ## LANDING_PLAN.md) reserved for it. Bundled in the SAME wave (GLORY
+    ## v11, `glory.nim`'s own changelog): BR's distance-gated deeds now
+    ## scale with the live map's gunRange, BR's level ladder is rescaled
+    ## for its one-life episodes, `dRevengeKill` gains a BR-only
+    ## partner-avenge gate, `awardWipe` is disabled in `brMode`, and the
+    ## site-gradient anchor (`slotAnchor`) is per-duo honest instead of
+    ## collapsing 14 of 16 BR teams onto one shared point. None of the
+    ## pricing changes touch a single BYTE a classic (non-BR) replay's
+    ## hash trajectory would have produced before this version — every
+    ## gate reads `sim.config.brMode` — but the SCHEMA change (new fields
+    ## entering `gameHash` at all) means every `.bitreplay` this engine
+    ## has ever produced, BR or classic, needs a GV48 stamp to load again;
+    ## all 7 committed fixtures re-recorded this same commit.
     ##
-    ## NOT taken for the reason some BR lanes originally deferred it on
-    ## (BR_MAPGEN.md §6.2's flatty-misalignment worry: `array[Team, X]`
-    ## fields reachable from the flatty-serialized SimServer are fixed-width
-    ## runs with no length prefix, so a 16-wide run read by a 4-wide reader
-    ## was predicted to desync every subsequent keyframe field SILENTLY).
-    ## That prediction never reproduced — every fixture already hashed and
-    ## re-simulated clean with `Team` 16 wide, because keyframes are derived
-    ## in-process and never read back from a replay file (the established
-    ## "puddle contract"), so the widened array runs never cross a file
-    ## boundary. Taken instead because the RULES changed, which is the one
-    ## reason a replay's version string exists at all.
+    ## Previously GV47 (stats rule): DAMAGE IS CREDITED, AND SPLIT.
+    ## `absorbDamage` — the one subtraction point — now mirrors every hit onto
+    ## the attacker's reward account, split by team exactly the way GV45 split
+    ## kills: hp taken off an ENEMY accumulates in `hitDamage`, hp taken off a
+    ## TEAMMATE in `teamHitDamage`, and self-damage counts as neither. Both
+    ## are exported as their own stat lines (`hit_damage` / `team_hit_damage`)
+    ## and results fields (`hitDamage` / `teamHitDamage`). No gameplay rule
+    ## moves: the counters are off-hash bookkeeping for reward shaping (an RL
+    ## policy gets shot-level credit instead of waiting for a kill). The bump
+    ## is for the WIRE: RewardAccount is flatty-serialized into every replay
+    ## keyframe, so two new fields relayout it and a GV45 replay cannot be
+    ## read back. Fixtures re-recorded. (GV46 is claimed by the glory port.)
     ##
-    ## Classic (non-BR) play is UNCHANGED, byte for byte: brMode/zonePhases
-    ## both default off, `Team` widening only adds unused enum values a
-    ## 2-4-team board never reaches, and GV44's home-dealing rotation is
-    ## untouched. But BR play is genuinely new — no earlier GameVersion could
-    ## even boot a 16-team elimination-with-zone episode — so the six pinned
-    ## fixtures (all classic, 2-4 teams) re-record to the SAME content under
-    ## the new stamp: re-recorded on an idle machine (1-minute load ~4-5,
-    ## confirmed stable) via tools/record_all_fixtures.sh, hash-verified from
-    ## disk via tools/extract_events.nim, no beat or asserted winner changed.
+    ## Season 2 / BR integration (16 teams, elimination, a closing zone;
+    ## docs/designs/BR_SEASON2_LANDING_PLAN.md) lands in this same tree via
+    ## the main-merge WITHOUT claiming a GameVersion bump of its own — an
+    ## earlier draft of this lineage briefly claimed GV45 for it, but that
+    ## number belongs to main's team-kills stats rule (below) and the claim
+    ## is retracted. bitworld's codec strict-gates both `formatVersion` and
+    ## `gameVersion` on load (bitworld/replays.nim:363,370), so any bump
+    ## orphans every archived replay regardless of whether it actually
+    ## changed behavior. `brMode`, `zonePhases`, and the widened `Team` (up
+    ## to 16) are all gated off by default, so classic (non-BR) play stays
+    ## byte-identical to GV47 — the darkness criterion this merge exists to
+    ## prove, with the six pinned fixtures (main's re-recorded versions) as
+    ## the evidence. A future landing claims a real GV number only when it
+    ## actually changes gate-off behavior (see the landing plan's GV48/49
+    ## reservations).
+    ##
+    ## Previously GV45 (stats rule): TEAM KILLS ARE NOT KILLS. The
+    ## hashed per-player `kills` counter now counts ENEMY kills only: killing
+    ## a teammate — gun, grenade blast, or spray cone alike — increments only
+    ## `teamKills`, which is newly mirrored onto the reward account and
+    ## exported as its own stat line (`team_kills`) and results field
+    ## (`teamKills` / squad `teamTags`). A backstab therefore no longer
+    ## inflates K, the kill metrics, cluster (multi-kill) honors, or
+    ## kill-spree achievements. The killfeed still attributes backstabs: the
+    ## broadcast tracker diffs TOTAL credited kills (kills + teamKills).
+    ## `kills` is hashed state, so a GV44 replay containing a team kill does
+    ## not re-simulate: fixtures re-recorded.
     ##
     ## Previously GV44 (seating rule): THE HOMES ARE DEALT, NOT OWNED.
     ## On every board with more than two teams, WHICH TEAM OWNS WHICH HOME is
@@ -474,6 +529,22 @@ const
                               ## after a hit (cosmetic only, never in gameHash).
   KillFxTicks* = 44           ## ~1.8s a floating "SPLAT" kill marker rises and fades
                               ## after a death (cosmetic only, never in gameHash).
+  # ── GLORY PORT (increment 2/3) — cosmetic pop tuning, ported verbatim from main's
+  # sim.nim. Pricing itself lives in glory.nim; these are FX-channel-only
+  # (never gameHash) constants that govern how the "+Ng" pops stack/queue.
+  GloryFxTicks* = 40          ## ~1.7s a floating "+Ng" score pop rises and
+                              ## fades at the site of the deed that minted
+                              ## it -- longer than DamageFxTicks because it
+                              ## is the REWARD and should outlive the wound.
+  AchievementFxTicks* = 84    ## ~3.5s an achievement's NAME holds over the
+                              ## cog that earned it -- a named moment, not a
+                              ## tick of income.
+  GloryPopCoalescePx* = 10    ## one tick, one team, this close = ONE pop.
+  GloryPopMaxStack* = 3       ## deepest visible stack at one site.
+  GloryPopStaggerTicks* = 10  ## site-stacked (no single earner) pop stagger.
+  GloryPopUnitQueueCap* = 4   ## most pops one EARNER may have queued at once.
+  GloryPopUnitStaggerTicks* = 36  ## ticks between one queued pop's start and
+                              ## the next FOR THE SAME EARNER.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -820,6 +891,164 @@ const
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
+  # Season 2 play-calling shell config defaults and ranges (§4.3/§9.2 of
+  # docs/designs/strategy-play-calling-shell-2026-08-29.md; the shell's
+  # protocol/runtime constants live in src/shell/types.nim — these sit here
+  # because sim_config validates them and src/ctf never imports src/shell).
+  ViewIntervalTicksDefault* = 6      ## LLM-bound PlayView frame interval
+  ViewIntervalTicksMin* = 1
+  ViewIntervalTicksMax* = 48
+  LobbyChatTicksDefault* = 720       ## 30 s at 24 Hz; 0 disables the phase
+  LobbyChatTicksMax* = 4320
+  PlaySeatBindTicksDefault* = 7200   ## 5 min presence budget
+  PlaySeatBindTicksMax* = 14400
+
+  MaxPolicyPageBytes* = 60000
+    ## Hard ceiling on one flashed one-page policy, in bytes. The reflash
+    ## record rides the replay's existing string-carrying record, whose
+    ## length prefix is a uint16 (65535) — so a page any larger could be
+    ## APPLIED live and then be unwritable to the replay, which is the one
+    ## outcome determinism cannot survive. `applyPolicyPage` refuses past
+    ## this ceiling, before any state moves, so live and playback agree the
+    ## flash never happened. The margin under 65535 covers the record's own
+    ## hash prefix.
+
+  # --- Paintball King of the Hill (docs/plans/2026-08-25-paintball-design.md) ---
+  # Every value below is a DEFAULT for the matching GameConfig field; a
+  # variant may override it. All paintball arithmetic is integer-only so the
+  # native server and the wasm viewer re-derive the identical tick.
+  PaintTile* = 34               ## px side of one floor-paint tile: one cog body.
+  MaxPaintTiles* = 768          ## render-pool ceiling on the paint grid; the
+                                ## 1235x659 arena needs 37 x 20 = 740.
+  DefaultHillRadiusTiles* = 2   ## hill = the (2r+1)^2 tile block at map centre.
+  DefaultHillOwnPermille* = 800 ## >= 80% of the hill's FLOOR tiles owns it.
+                                ## Above 500, so at most one team can qualify.
+  DefaultHillDecisiveTicks* = 720  ## hill-tick margin worth a full 1.0 game score.
+  DefaultPaintSpeedOwnPct* = 125   ## own colour underfoot: x125% speed/accel.
+  DefaultPaintSpeedEnemyPct* = 85  ## enemy colour underfoot: x85% speed/accel.
+  DefaultPaintHealTicks* = 48   ## consecutive ticks on own paint per +1 hp.
+  HillFlipThrottleTicks* = 12   ## min ticks between two `hillflip` beats, so a
+                                ## contested rim cannot flood the feed.
+  DefaultCogsPerTeam* = 4       ## cogs one seat commands (RED-alpha..delta).
+  DefaultSprayDamage* = 1       ## hp per cone touch under the paintball loadout
+                                ## (the starter's SprayPaintDamage is 3): three
+                                ## touches tag a 3 hp cog out, which is what
+                                ## makes the heal half of the buff matter.
+  DefaultTurnTicks* = 108       ## 4.5 s of sim time per decision turn.
+  ## v1.1 timing amendment (2026-08-25). The 0.1.2 deadlines were 4500/2000 ms
+  ## inside a 7000 ms cap, and curly's timeout is CURLOPT_TIMEOUT — whole
+  ## seconds — so attempt 1 really ran with 4 s. Paintball's own sidecar
+  ## measured a 4618 ms median over 85 hosted calls (56 of them past 4 s) and
+  ## every successful LLM directive reported a 3999–4001 ms latency: the
+  ## deadline, not the model, was answering. All three values are now whole
+  ## seconds so the configured number IS the effective one, and attempt 1
+  ## clears that median by ~1.4 s.
+  DefaultTurnBudgetMs* = 10_000 ## hard monotonic cap around one whole turn.
+  DefaultAttempt1Ms* = 6000     ## first parallel batch deadline (6 s exactly).
+  DefaultRetryMs* = 3000        ## single retry batch deadline (6 + 3 <= 10).
+  DefaultTurnSpacingMs* = 5000  ## wall-clock floor between batch STARTS; holds
+                                ## 2 seats under the sidecar's 30 req/min cap.
+  DefaultWallClockBudgetSeconds* = 690
+                                ## engine hard stop, 57.5% of the assumed 1200 s
+                                ## episodeTimeoutSeconds (the 60% pin).
+  DefaultMaxOutputTokens* = 900 ## 400 truncates Haiku mid-object.
+  LoadoutCtf* = "ctf"           ## the starter's loadout: pickups, gun, hearts.
+  LoadoutPaintball* = "paintball"  ## spray can always held, no pickups, no gun.
+  RegimeResidentText* = "resident"
+  RegimeVisitorText* = "visitor"
+  MaxNoteRunes* = 160           ## directive note cap, in RUNES (never bytes).
+  MaxSayRunes* = ShoutMaxChars  ## a cog's shout cap, in RUNES.
+  MaxPolicyLabelRunes* = 48     ## `register.policy` cap, in RUNES.
+  MaxFallbackDetailRunes* = 200 ## `fallback.detail` cap, in RUNES.
+  MaxDirectiveRunes* = 900      ## whole serialized `directive` record cap.
+  MaxPromptRunes* = 4000        ## PLAYER_PROMPT transport cap (truncate, never
+                                ## reject); never written to the replay.
+  MaxCogIdRunes* = 12           ## `cogs[].id` cap, in RUNES.
+  AimUnitScale* = 1024
+    ## Fixed-point scale of the integer aim table below. The paint grid's cone
+    ## test is the one piece of NEW hashed arithmetic in this fork, and Nim's
+    ## `int` is 32-bit under `--cpu:wasm32`, so it is integer-only end to end:
+    ## a compile-time cos/sin would be evaluated by whichever libm the build
+    ## container ships and could differ by an ulp between the amd64 game image
+    ## and the emscripten viewer image. These literals cannot.
+  AimUnitX*: array[256, int] = [
+     1024,  1024,  1023,  1021,  1019,  1016,  1013,  1009,
+     1004,   999,   993,   987,   980,   972,   964,   955,
+      946,   936,   926,   915,   903,   891,   878,   865,
+      851,   837,   822,   807,   792,   775,   759,   742,
+      724,   706,   688,   669,   650,   630,   610,   590,
+      569,   548,   526,   505,   483,   460,   438,   415,
+      392,   369,   345,   321,   297,   273,   249,   224,
+      200,   175,   150,   125,   100,    75,    50,    25,
+        0,   -25,   -50,   -75,  -100,  -125,  -150,  -175,
+     -200,  -224,  -249,  -273,  -297,  -321,  -345,  -369,
+     -392,  -415,  -438,  -460,  -483,  -505,  -526,  -548,
+     -569,  -590,  -610,  -630,  -650,  -669,  -688,  -706,
+     -724,  -742,  -759,  -775,  -792,  -807,  -822,  -837,
+     -851,  -865,  -878,  -891,  -903,  -915,  -926,  -936,
+     -946,  -955,  -964,  -972,  -980,  -987,  -993,  -999,
+    -1004, -1009, -1013, -1016, -1019, -1021, -1023, -1024,
+    -1024, -1024, -1023, -1021, -1019, -1016, -1013, -1009,
+    -1004,  -999,  -993,  -987,  -980,  -972,  -964,  -955,
+     -946,  -936,  -926,  -915,  -903,  -891,  -878,  -865,
+     -851,  -837,  -822,  -807,  -792,  -775,  -759,  -742,
+     -724,  -706,  -688,  -669,  -650,  -630,  -610,  -590,
+     -569,  -548,  -526,  -505,  -483,  -460,  -438,  -415,
+     -392,  -369,  -345,  -321,  -297,  -273,  -249,  -224,
+     -200,  -175,  -150,  -125,  -100,   -75,   -50,   -25,
+        0,    25,    50,    75,   100,   125,   150,   175,
+      200,   224,   249,   273,   297,   321,   345,   369,
+      392,   415,   438,   460,   483,   505,   526,   548,
+      569,   590,   610,   630,   650,   669,   688,   706,
+      724,   742,   759,   775,   792,   807,   822,   837,
+      851,   865,   878,   891,   903,   915,   926,   936,
+      946,   955,   964,   972,   980,   987,   993,   999,
+     1004,  1009,  1013,  1016,  1019,  1021,  1023,  1024
+  ]
+  AimUnitY*: array[256, int] = [
+        0,   -25,   -50,   -75,  -100,  -125,  -150,  -175,
+     -200,  -224,  -249,  -273,  -297,  -321,  -345,  -369,
+     -392,  -415,  -438,  -460,  -483,  -505,  -526,  -548,
+     -569,  -590,  -610,  -630,  -650,  -669,  -688,  -706,
+     -724,  -742,  -759,  -775,  -792,  -807,  -822,  -837,
+     -851,  -865,  -878,  -891,  -903,  -915,  -926,  -936,
+     -946,  -955,  -964,  -972,  -980,  -987,  -993,  -999,
+    -1004, -1009, -1013, -1016, -1019, -1021, -1023, -1024,
+    -1024, -1024, -1023, -1021, -1019, -1016, -1013, -1009,
+    -1004,  -999,  -993,  -987,  -980,  -972,  -964,  -955,
+     -946,  -936,  -926,  -915,  -903,  -891,  -878,  -865,
+     -851,  -837,  -822,  -807,  -792,  -775,  -759,  -742,
+     -724,  -706,  -688,  -669,  -650,  -630,  -610,  -590,
+     -569,  -548,  -526,  -505,  -483,  -460,  -438,  -415,
+     -392,  -369,  -345,  -321,  -297,  -273,  -249,  -224,
+     -200,  -175,  -150,  -125,  -100,   -75,   -50,   -25,
+        0,    25,    50,    75,   100,   125,   150,   175,
+      200,   224,   249,   273,   297,   321,   345,   369,
+      392,   415,   438,   460,   483,   505,   526,   548,
+      569,   590,   610,   630,   650,   669,   688,   706,
+      724,   742,   759,   775,   792,   807,   822,   837,
+      851,   865,   878,   891,   903,   915,   926,   936,
+      946,   955,   964,   972,   980,   987,   993,   999,
+     1004,  1009,  1013,  1016,  1019,  1021,  1023,  1024,
+     1024,  1024,  1023,  1021,  1019,  1016,  1013,  1009,
+     1004,   999,   993,   987,   980,   972,   964,   955,
+      946,   936,   926,   915,   903,   891,   878,   865,
+      851,   837,   822,   807,   792,   775,   759,   742,
+      724,   706,   688,   669,   650,   630,   610,   590,
+      569,   548,   526,   505,   483,   460,   438,   415,
+      392,   369,   345,   321,   297,   273,   249,   224,
+      200,   175,   150,   125,   100,    75,    50,    25
+  ]
+  ReasonComplete* = "complete"
+  ReasonDeadline* = "deadline"
+  ReasonFault* = "fault"
+  EndRuleFullTime* = "full_time"
+  EndRuleMercy* = "mercy"
+  EndRuleWipe* = "wipe"
+  EndRuleWallClock* = "wall_clock"
+  EndRuleSimFault* = "sim_fault"
+  EndRuleHostError* = "host_error"
+
   TextLineHeight* = 7
   MapSpriteId* = 1
   MapObjectId* = 1
@@ -1038,7 +1267,28 @@ type
     luckChance*: int     ## luck: chance a landed gun shot is lucky, permille.
     luckDamage*: int     ## luck: hit points a lucky shot removes.
 
+  PaintUnder* = enum
+    ## What a cog's BODY CENTRE is standing on this tick, sampled once per
+    ## tick by updatePaintBuff and consumed by the next tick's applyInput.
+    puNone                     ## unpainted floor.
+    puOwn                      ## this cog's own team colour.
+    puEnemy                    ## the other team's colour.
+
+  Regime* = enum
+    ## Which cogs of a team its seat drives for one GAME of the episode.
+    ## `resident` = all four; `visitor` = alpha only, the other three run the
+    ## published `holdline` baseline. Ordinals are wire format.
+    regimeResident
+    regimeVisitor
+
   CtfError* = object of ValueError
+
+  SimGuardError* = object of CatchableError
+    ## A sim INVARIANT tripped: a paint index out of range, a cog outside the
+    ## map, hill counts that cannot be true. The design note's end-condition
+    ## table row 5 says what happens next — the episode ends `fault` /
+    ## `sim_fault`, both seats score 0.500, and the partial replay is written
+    ## — and the server's tick loop is the only place that catches it.
 
   GamePhase* = enum
     Lobby
@@ -1399,7 +1649,17 @@ type
     reward*: int
     wins*: array[Team, int]    ## lifetime wins while seated on each team.
     games*: array[Team, int]   ## lifetime games seated on each team.
-    kills*: int
+    kills*: int                ## enemy kills only (GV45); backstabs land in
+                               ## teamKills.
+    teamKills*: int            ## teammates this address killed, kept apart
+                               ## from kills so the metrics and results
+                               ## never conflate the two.
+    hitDamage*: int            ## hp this address took off ENEMIES (GV47),
+                               ## summed over every gun/spray/grenade hit —
+                               ## the shot-level counterpart of `kills`.
+    teamHitDamage*: int        ## hp this address took off TEAMMATES, kept
+                               ## apart from hitDamage for the same reason
+                               ## teamKills is kept apart from kills.
     deaths*: int
     captures*: int
     earnedAchievements*: seq[string]
@@ -1407,6 +1667,16 @@ type
       ## deduplicated (see recordAchievement). Account-level so it survives
       ## per-game Player counter resets under maxGames > 1 and a mid-episode
       ## disconnect; exported per slot in results.json.
+
+  SlotControl* = enum
+    ## §5.1 of the play-calling design: what kind of protocol drives a
+    ## configured seat. Closed enum; the trusted match configuration is the
+    ## only authority (nothing a client sends can change it).
+    scInput   ## the default: the legacy mask protocol, byte-identical to
+              ## a build without this field
+    scPlay    ## a Season 2 play seat (§4.3's server-enforced protocol);
+              ## legal only under `season2Shell` (validation:
+              ## playSeatRequiresShell)
 
   PlayerSlotConfig* = object
     name*: string
@@ -1416,6 +1686,11 @@ type
     skin*: Skin
     hasTeam*: bool
     hasColor*: bool
+    # GVNEXT(shell): appended field, the standard append-safety reasoning
+    # (keyframes are flatty-positional but in-process only; config JSON is
+    # by name). scInput is the zero value, so a parsed legacy config is
+    # bit-identical in memory too.
+    control*: SlotControl     ## "input" (default) or "play" in config JSON
 
   MapGenOverrides* = object
     ## Per-parameter locks for the terrain generator. Zero-value ("" / 0,
@@ -1678,6 +1953,79 @@ type
                                   ## behaves exactly as before — byte-
                                   ## identical to a build without this
                                   ## field.
+    # GVNEXT(reflash): appended field, same append-safety reasoning as
+    # allowCallouts/brMode above — a scalar bool on GameConfig.
+    allowPolicyReflash*: bool      ## Season 2 one-page policy: a seat may be
+                                  ## FLASHED a JSON strategy page at an
+                                  ## arbitrary tick (BR re-strategizes
+                                  ## mid-episode; CTF re-flashes per
+                                  ## respawn). Every accepted flash is
+                                  ## recorded as a replay event and applied
+                                  ## on playback at the identical tick, and
+                                  ## the active page's content hash + flash
+                                  ## count enter gameHash — so a replay that
+                                  ## LOST a reflash fails loudly at that tick
+                                  ## instead of silently re-simulating a
+                                  ## strategy the match never played. false
+                                  ## (the default) = the channel does not
+                                  ## exist: applyPolicyPage refuses every
+                                  ## page, nothing is ever recorded, and
+                                  ## gameHash mixes nothing new, so a league
+                                  ## replay is byte-identical to a build
+                                  ## without this field.
+    # --- paintball gates (all OFF by default: a gate-off config plays the
+    # starter's rules unchanged, which is what keeps the inherited engine
+    # meaningful) ---
+    numAgents*: int               ## seats (websocket connections). 2 here; a
+                                  ## seat commands one four-cog squad.
+    cogsPerTeam*: int             ## cogs a team fields (4).
+    loadout*: string              ## LoadoutCtf (default) or LoadoutPaintball.
+    floorPaint*: bool             ## the paint grid exists and cones repaint it.
+    paintBuff*: bool              ## own/enemy paint changes speed and heals.
+    hill*: bool                   ## KotH replaces the capture win condition.
+    paintTile*: int               ## px side of one paint tile.
+    hillRadiusTiles*: int         ## hill is the (2r+1)^2 tile block at centre.
+    hillOwnPermille*: int         ## coverage permille that OWNS the hill.
+    hillDecisiveTicks*: int       ## hill-tick margin worth a 1.0 game score.
+    paintSpeedOwnPct*: int        ## speed/accel percent on own colour.
+    paintSpeedEnemyPct*: int      ## speed/accel percent on enemy colour.
+    paintHealTicks*: int          ## consecutive own-paint ticks per +1 hp.
+    sprayDamage*: int             ## hp removed by one cone touch.
+    regimes*: seq[Regime]         ## regime per game index (resident/visitor).
+    turnTicks*: int               ## sim ticks per decision turn.
+    turnBudgetMs*: int            ## monotonic cap on one whole turn.
+    attempt1Ms*: int              ## first batch deadline.
+    retryMs*: int                 ## retry batch deadline.
+    turnSpacingMs*: int           ## wall-clock floor between batch starts.
+    wallClockBudgetSeconds*: int  ## engine hard stop -> reason "deadline".
+    model*: string                ## pinned Bedrock/Anthropic model, "" = auto.
+    maxOutputTokens*: int         ## LLM max_tokens.
+    # --- Season 2 play-calling shell (docs/designs/
+    # strategy-play-calling-shell-2026-08-29.md; all OFF/inert by default:
+    # a gate-off config plays byte-identically, the house rule) ---
+    # GVNEXT(shell): appended fields, the standard append-safety reasoning
+    # (scalars on GameConfig, not array[Team, X] runs).
+    season2Shell*: bool           ## the master gate (§3.2): nothing in
+                                  ## src/shell/ is reachable when false. A
+                                  ## `"play"` slot requires it (validation:
+                                  ## playSeatRequiresShell); gate-on with an
+                                  ## all-input roster is legal and plays
+                                  ## byte-identically to gate-off.
+    viewIntervalTicks*: int       ## §4.3: LLM-bound PlayView frame interval,
+                                  ## default 6, range [1, 48]; no effect
+                                  ## without a play seat.
+    lobbyChatTicks*: int          ## §9.2: lobby chat phase length, default
+                                  ## 720 (30 s), range [0, 4320]; 0 disables
+                                  ## the phase (the byte-identical gate-off
+                                  ## shape). Wall-clock paced even under
+                                  ## fastMode (the early advance suspends).
+    playSeatBindTicks*: int       ## §9.2: the presence budget — a cumulative
+                                  ## absence clock over the whole
+                                  ## pre-activation period, default 7200
+                                  ## (5 min), range [1, 14400]. Required
+                                  ## positive in a play-seat episode (where
+                                  ## it REPLACES lobbyJoinTimeoutTicks);
+                                  ## inert without one.
     # GVNEXT(shotfeedback): appended field, same append-safety reasoning as
     # brMode/allowCallouts above — a scalar bool on GameConfig, not an
     # array[Team, X] run inside the flatty-serialized state.
@@ -1883,7 +2231,8 @@ type
     color*: uint8
     skin*: Skin               ## cosmetic only; excluded from gameHash.
     reward*: int
-    kills*: int
+    kills*: int                ## enemy kills only (GV45, hashed); a teammate
+                               ## kill lands in teamKills instead.
     deaths*: int
     captures*: int
     shotsFired*: int           ## shots this player released; analysis-only,
@@ -1896,8 +2245,9 @@ type
     multiKills3*: int          ## grenade blasts / spray bursts that
                                ## killed 3 or more; analysis-only, excluded
                                ## from gameHash.
-    teamKills*: int            ## teammates this player killed (backstabs);
-                               ## analysis-only, excluded from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs),
+                               ## kept apart from kills (GV45); excluded
+                               ## from gameHash.
     arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
@@ -1976,6 +2326,206 @@ type
                                ## object like puddleTicks/hasBarrier before
                                ## it — see the SimServer.zoneCenter note for
                                ## why this needs no GameVersion bump.
+    # GVNEXT(reflash): three appended fields, same append-safety rule as
+    # zoneOutsideTicks above. UNLIKE zoneOutsideTicks these DO reach
+    # gameHash — but only through the `config.allowPolicyReflash` guard in
+    # gameHash (sim_state.nim), so a gate-off game's hash trajectory stays
+    # byte-identical to a build that never had them and no fixture needs
+    # re-recording.
+    policyPage*: string        ## the one-page policy JSON currently flashed
+                               ## to this seat, "" until the first flash.
+                               ## Carried IN sim state, not beside it, so a
+                               ## keyframe scrub restores the strategy that
+                               ## was live at that tick for free and the
+                               ## broadcast/forum surfaces can read "what was
+                               ## this cog playing at tick N" off the same
+                               ## sim every other reader already holds.
+    policyPageHash*: uint64    ## FNV-1a 64 of policyPage, 0 when none.
+                               ## Computed ONCE at flash time and mixed per
+                               ## tick, so a multi-KB page costs the hash
+                               ## loop one word rather than a rescan; it is
+                               ## also the content hash the replay record
+                               ## carries, which makes the recorded page
+                               ## self-verifying.
+    policyPageTick*: int       ## the tick the active page was flashed;
+                               ## meaningful only when policyPageEpoch > 0
+                               ## (zero-valued, like every other appended
+                               ## field, on a seat that was never flashed —
+                               ## no constructor has to learn a sentinel).
+                               ## Not hashed on its own: the epoch below
+                               ## already separates two flashes, and a tick
+                               ## that could only differ if the epoch did
+                               ## would add nothing. It is what a viewer
+                               ## reads to say "this strategy has been
+                               ## running for N seconds".
+    policyPageEpoch*: int      ## how many pages this seat has been flashed,
+                               ## 0 = none. Hashed alongside the content
+                               ## hash SPECIFICALLY so that re-flashing the
+                               ## SAME page is still a distinguishable event:
+                               ## with the content hash alone, a dropped
+                               ## repeat-flash record would replay clean and
+                               ## the determinism check would be blind to
+                               ## exactly the case an LLM produces most —
+                               ## reasserting the current plan.
+
+    # ── GLORY PORT, increment 3/3 DONE (GLORY v11, GameVersion 48) ───────
+    # Ported field-for-field from main's src/ctf/glory.nim-era Player
+    # (verified by diffing the two struct bodies, not eyeballed). Appended
+    # at the END of the object per this file's own flatty-positional rule.
+    #
+    # INCREMENT BOUNDARY, RESOLVED: increment 3 (this version) added the
+    # causal subset below to `gameHash` (`sim_state.nim`'s own two new
+    # blocks) and claimed the real GV48 the landing plan reserved for it.
+    # Every per-field "causal (hashed)"/"in gameHash" comment below is now
+    # simply TRUE, not a forward promise — read it as "is", not "will be".
+    # All 7 committed `.bitreplay` fixtures were re-recorded in the same
+    # commit that flipped this switch.    #
+    # Ten of these (steals/carrierKills/denials/stealTickThisLife/
+    # contestedSteals/carryKills/capturedOutnumbered/capturedFastBreak/
+    # peelTick/escortKills) are flag-keyed and therefore PERMANENTLY AT
+    # THEIR DEFAULT on every real BR map (flagless is unconditional --
+    # `tryPickupFlags` refuses outright, sim.nim). Cut instead (not merely
+    # inert): the four supply-drop-specific fields main also carries
+    # (`supplyDropCredit`/`supplyDropsThisLife`/`supplyShared`/
+    # `supplySaves`, plus analysis-only `lastSupplyDropTick`) — BR ships no
+    # supply-drop mechanic in this pass (see `glory.nim`'s header), so
+    # there is no feature for these fields to describe. Absent feature,
+    # absent fields, not stubbed-and-dead ones.
+    xp*: int                   ## GLORY: experience earned THIS LIFE. Causal
+                               ## (drives buffs via `levelForXp`), so it is
+                               ## in gameHash. On BR, "this life" IS the
+                               ## episode for that seat — `killPlayer` sets
+                               ## `lives = 0` on any brMode death, so the
+                               ## `resetLadder` call at that death is a
+                               ## no-op in every practical sense (see
+                               ## glory.nim's header for the full note).
+    level*: int                ## GLORY: 0..MaxLevel, cached from `xp` so
+                               ## the wire, the hash and the buff sites can
+                               ## never disagree about what a cog currently
+                               ## is.
+    grenadeCharges*: int       ## GLORY: throws left on the carried
+                               ## grenade; a L4+ pickup yields two.
+    gunKills*, sprayKills*, grenadeKills*: int  ## GLORY achievement
+                               ## counters, per game.
+    longshotKills*: int        ## GLORY: kills past `LongshotPx`.
+    soakedHp*: int             ## GLORY: hit points this cog's shield
+                               ## absorbed.
+    clutchHeals*: int          ## GLORY: heals taken at 1 hp. Gates no
+                               ## achievement any more (self-care law), kept
+                               ## as analysis-only telemetry that still
+                               ## rides the hash for replay determinism,
+                               ## same status main gave it.
+    steals*, carrierKills*, denials*: int  ## GLORY objective counters --
+                               ## flag-keyed, PERMANENTLY ZERO on every real
+                               ## (flagless) BR map. See this block's own
+                               ## header note.
+    sprayKillsThisPickup*: int ## GLORY: resets when the can is taken or
+                               ## lost.
+    aceKills*: int             ## GLORY: non-friendly kills on a
+                               ## level>=AceLevel victim (the `Bounty` gate).
+    sprayMultiKills*: int      ## GLORY: spray cone activations that killed
+                               ## 2+ ENEMIES in one activation.
+    grenadeMultiKills*: int    ## GLORY: grenade blasts that killed 2+
+                               ## ENEMIES in one blast.
+    clutchCarryHeals*: int     ## GLORY: analysis-only telemetry, no gate
+                               ## reads it (self-care law); rides the hash
+                               ## for replay determinism, same as main.
+    stealTickThisLife*: int    ## GLORY: tick this life stole a heart, -1 =
+                               ## never. Flag-keyed, permanently -1 on real
+                               ## BR maps.
+    clutchHealTick*: int       ## GLORY: tick of the latest clutch heal, -1
+                               ## = never.
+    peelTick*: int             ## GLORY: tick of the latest carrier kill,
+                               ## -1 = never. Flag-keyed, permanently -1 on
+                               ## real BR maps.
+    contestedSteals*: int      ## GLORY: steals landed while a live enemy
+                               ## stood within `ContestedStealPx` (the
+                               ## `Hands On` gate). Flag-keyed.
+    carryKills*: int           ## GLORY: non-friendly kills landed WHILE
+                               ## THIS COG carried the enemy heart (the
+                               ## `Fighting Carry` gate). Flag-keyed.
+    secondWind*: bool          ## GLORY: true once a non-friendly kill has
+                               ## landed within `SecondWindTicks` of this
+                               ## cog's latest RESCUE (the `Second Wind`
+                               ## gate, treeShield). NOT flag-keyed --
+                               ## reachable on real BR maps.
+    capturedOutnumbered*: bool ## GLORY: true once a capture has landed
+                               ## while this cog's team was strictly behind
+                               ## on live bodies (the `Uphill` gate).
+                               ## Flag-keyed (needs a capture).
+    capturedFastBreak*: bool   ## GLORY: true once a capture has landed
+                               ## within `FastBreakTicks` of this life's own
+                               ## steal (the `Fast Break` gate). Flag-keyed.
+    lastDamagedBy*: int        ## GLORY: index of the last ENEMY whose hit
+                               ## left this cog ALIVE -- set at every
+                               ## enemy-damage application, but never by a
+                               ## finishing hit, so this always names the
+                               ## SET-UP, never the finisher (the `ASSIST`
+                               ## gate's own input). -1 = never. NOT
+                               ## flag-keyed -- reachable on real BR maps,
+                               ## and BR's `absorbDamage` already receives
+                               ## `attackerIndex` at its one chokepoint, so
+                               ## this needs no new plumbing to set.
+    lastDamagedByTick*: int    ## GLORY: tick of that hit, -1 = never.
+    menacingTick*: int         ## GLORY: tick this cog LAST reduced an enemy
+                               ## to at/near clutch hp and left them alive --
+                               ## pinned on the ATTACKER (the RESCUE gate's
+                               ## own input). -1 = never. NOT flag-keyed.
+    menacingVictim*: int       ## GLORY: index of the cog THIS cog was
+                               ## menacing at `menacingTick`. -1 = none.
+    rescuedTick*: int          ## GLORY: tick this cog was LAST rescued --
+                               ## feeds the re-gated `Second Wind`. -1 =
+                               ## never. NOT flag-keyed.
+    assists*: int              ## GLORY: non-friendly kills where THIS cog
+                               ## dealt the victim's `lastDamagedBy` hit
+                               ## (the `Cover Fire` gate). NOT flag-keyed.
+    rescues*: int              ## GLORY: RESCUE kills this cog has landed
+                               ## (the `The Save` gate). NOT flag-keyed.
+    escortKills*: int          ## GLORY: non-friendly kills landed while a
+                               ## TEAMMATE (not this cog) ran the enemy
+                               ## heart (the `Escort Duty` gate). Flag-keyed.
+    avengedPartner*: bool      ## GLORY v11 (BR increment 3): true once this
+                               ## cog has minted `dRevengeKill` ("PAYBACK")
+                               ## by killing its DEAD DUO PARTNER's own
+                               ## killer (`partner.lastKilledBy`) -- BR's
+                               ## own gate onto `dRevengeKill`, since
+                               ## `avengesKiller` (avenging YOUR OWN killer)
+                               ## is structurally unreachable in BR (a
+                               ## killer who had ever died is already
+                               ## permanently eliminated, never fires
+                               ## again). Tapers this BR gate to at most one
+                               ## mint per cog per episode -- see
+                               ## `killPlayer`'s own comment (sim.nim).
+                               ## CAUSAL (gates a deed): in gameHash.
+    # ── GLORY analysis-only (never in gameHash) ─────────────────────────
+    arcEnemyKillsThisFire*: int ## GLORY: non-friendly kills scored by the
+                               ## current spray activation; feeds
+                               ## `sprayMultiKills`. Transient, excluded.
+    lastKilledBy*: int         ## GLORY: player index of this cog's latest
+                               ## killer, -1 = none. Feeds the revenge deed.
+                               ## Excluded from gameHash: `killDeed`'s
+                               ## revenge check reads it, but the RESOLVED
+                               ## deed it feeds into is itself hashed via
+                               ## `teamGlory`/the deed-counting achievement
+                               ## trail, so this raw pointer need not ride
+                               ## along separately -- same status main gave
+                               ## it.
+    lastKilledByTick*: int     ## GLORY: tick of that death, -1 = never.
+    tookMedKit*, tookGrenade*, tookSpray*, tookShield*: bool  ## GLORY:
+                               ## analysis-only pickup-touched flags, same
+                               ## status main gave them.
+    seat*: int                 ## which SEAT (websocket) owns this cog's squad:
+                               ## 0 = RED command, 1 = BLUE command. Set at
+                               ## squad construction from the cog's team, so a
+                               ## broadcast event keyed by slot keeps working.
+                               ## Derived from config, so excluded from gameHash.
+    paintUnder*: PaintUnder    ## what this cog's centre stood on at the END of
+                               ## the previous tick; consumed by applyInput.
+                               ## HASHED (it changes movement).
+    ownPaintTicks*: int        ## consecutive ticks on own colour; at
+                               ## paintHealTicks it heals 1 hp and resets.
+                               ## Reset by stepping off, by damage, by death
+                               ## and at the start of each game. HASHED.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -2110,6 +2660,52 @@ type
     color*: uint8              ## the victim's team color, so it reads as their loss.
     kill*: bool                ## a fatal hit: drawn as a "SPLAT" kill marker that
                                ## lives KillFxTicks instead of the "-N" number.
+
+  GloryFx* = object
+    ## GLORY PORT (increment 2/3), ported from main's SimServer type block. A
+    ## cosmetic floating GLORY score pop -- the FPS hitmarker: not a damage
+    ## number but the "+100" that tells you the deed PAID, at the exact
+    ## pixel it happened. Never enters gameHash (replay-safe); `awardDeed`
+    ## is the single mint and this is its shadow.
+    x*, y*: int                ## the deed site (victim center, pedestal, cog).
+    tick*: int                 ## when it was minted.
+    amount*: int               ## POST-multiplier glory. Negative for a team kill.
+    team*: Team                ## who was paid.
+    label*: string             ## "" for a plain deed pop; the ACHIEVEMENT's
+                               ## name for a claim.
+    word*: string              ## the plain DEED's one-word tag
+                               ## (`glory.deedPopWord`), e.g. "TAG"/"BOUNTY".
+                               ## A real claim always carries `word == ""`
+                               ## and uses `label`; a plain deed pop always
+                               ## carries `label == ""` and uses `word`.
+    first*: bool               ## first team in the episode to take this tier.
+    earnerIndex*: int          ## the cog that earned it, -1 if none (a
+                               ## site-anchored mint, or a team tree with no
+                               ## single earner) -- lets the pop keep
+                               ## tracking a living earner tick over tick
+                               ## instead of freezing at mint-time coordinates.
+    row*: int                  ## site-stack depth (0-based, capped at
+                               ## `GloryPopMaxStack`) for a pop with no single
+                               ## earner -- ported alongside `addGloryPop`.
+    startDelay*: int           ## ticks after `tick` this pop's animation
+                               ## actually begins -- the per-unit/per-site
+                               ## stagger `addGloryPop` computes so several
+                               ## pops on one cog or one site queue instead
+                               ## of overlapping.
+
+  AchievementClaim* = object
+    ## GLORY PORT (increment 2/3). One claimed tier -- the schema half of a claim;
+    ## `logGameEvent` is the herald half. The replay viewer reads this to
+    ## draw the toast (Phase 3).
+    tick*: int
+    team*: Team
+    tree*: Tree
+    tier*: int
+    glory*: int
+    first*: bool               ## first team in the episode to complete it.
+    slot*: int                 ## the join slot of the cog whose counters
+                               ## SATISFIED the tier, or -1 for a team tree
+                               ## (`treeSquad`) which no single cog can own.
 
   ShotFeedbackFx* = object
     ## A PRIVATE, one-shot combat-outcome record: config-gated
@@ -2247,8 +2843,9 @@ type
     Shot        ## a gun shot released (source = shooter).
     Hit         ## a released shot connected with an enemy on its ray.
     Damage      ## hit points removed (gun/spray/grenade), amount = hp lost.
-    Kill        ## a CREDITED kill (mirrors recordKill; self-kills by own
-                ## grenade are a Death without a Kill).
+    Kill        ## a CREDITED kill, enemy and teammate alike (mirrors
+                ## recordKillCredit; self-kills by own grenade are a Death
+                ## without a Kill).
     Death       ## a player died (source = victim, target = killer).
     FlagSteal   ## a flag left its pedestal on an enemy's back.
     FlagReturn  ## a flag went home for any reason other than capture.
@@ -2264,6 +2861,24 @@ type
     SprayUse    ## one active spray-cone tick and the damage it dealt.
     Pickup      ## a player picked up an item; item names the pickup.
     ShoutEvent  ## a player shouted; content is the sanitized text.
+    PaintTiles  ## NEW: one cone repainted `amount` floor tiles this tick,
+                ## `hp` of which were hill tiles.
+    HillFlip    ## NEW: hill ownership changed; weapon = the new owner's team
+                ## name or "none", amount = its coverage percent.
+    HillHold    ## NEW: one more banked SECOND of hill time; weapon = team,
+                ## amount = seconds held.
+    Directive   ## NEW: a seat's directive for a turn; weapon = the source
+                ## ("llm" | "scripted" | "fallback"), amount = the turn index,
+                ## content = the note.
+    # ── GLORY PORT (increment 2/3) ── appended, never inserted, per this enum's own
+    # positional discipline (matches the struct-field rule above). Appended
+    # AFTER main's paintball event kinds (PaintTiles..Directive) so that any
+    # archived replay encoding those ordinals keeps them unchanged; ours are
+    # new tail entries.
+    GloryDeed   ## a deed minted through `awardDeed` (weapon = $deed).
+    Achievement ## an achievement tier claimed through `claimAchievement`.
+    LevelUp     ## a cog's per-life ladder rank climbed (source = cog,
+                ## amount = the rank now reached).
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.
@@ -2536,7 +3151,107 @@ type
                                ## an unconfigured game's hash chain is
                                ## byte-identical to a build without this
                                ## field at all.
+    # --- paintball state (appended at the END of the type: keyframes are
+    # flatty-POSITIONAL, so new fields may only be appended) ---
+    paintOwner*: seq[uint8]    ## gw*gh tiles: 0 unpainted, 1 RED, 2 BLUE.
+                               ## HASHED, eight bytes at a time.
+    paintFloor*: seq[bool]     ## whether a tile is PAINTABLE — its centre
+                               ## pixel is not wall at spin frame 0. Computed
+                               ## ONCE at map install, so the native server
+                               ## and the wasm viewer agree exactly.
+    paintGridW*, paintGridH*: int
+    paintCount*: array[Team, int]   ## painted tiles per team (incremental).
+    hillTiles*: seq[int]       ## flat tile indices inside the hill square.
+    hillFloorTiles*: int       ## how many of those are PAINTABLE (the
+                               ## denominator of the 80% test).
+    hillPaint*: array[Team, int]    ## hill tiles owned per team (incremental).
+    hillTicks*: array[Team, int]    ## banked hill points THIS game. HASHED.
+    hillOwner*: Team           ## meaningful only while hillOwned is true.
+    hillOwned*: bool
+    lastHillFlipTick*: int     ## throttle for the `hillflip` beat.
+    regime*: Regime            ## the regime THIS game is played under.
+    gameIndex*: int            ## 0-based index of the game inside the episode.
+    gameHill*: seq[array[Team, int]]  ## archived hillTicks per finished game.
+    gameRegimes*: seq[Regime]  ## the regime each finished game was played under.
+    endReason*: string         ## ReasonComplete / ReasonDeadline / ReasonFault.
+    endRule*: string           ## EndRuleFullTime / Mercy / Wipe / WallClock / ...
+    llmTurns*: array[2, int]   ## per seat: turns whose directive came from an LLM.
+    fallbackTurns*: array[2, int]  ## per seat: turns that fell back to scripted.
+    seatNames*: array[2, string]   ## real policy names, SPECTATOR SIDE ONLY.
+    seatPolicyKind*: array[2, string]  ## "llm" | "scripted".
+    feedDirectives*: seq[string]   ## the last few `directive` chat records, as
+                               ## JSON text, so the broadcast feed can show the
+                               ## commander lines LIVE and in replay from one
+                               ## source. Non-hashed presentation state (the
+                               ## puddleTicks rule); a keyframe scrub restores
+                               ## it exactly through the flatty snapshot.
 
+    # ── GLORY PORT, increment 3/3 DONE (GLORY v11, GameVersion 48) ───────
+    # The team ledger, its rampage state and its one-shot claim gates --
+    # ported field-for-field from main's SimServer, appended at the END
+    # per this file's own flatty-positional rule. `array[Team, ...]` sizes
+    # to BR's full 16-member `Team` enum automatically; loops over these
+    # must use `sim.teams()` (the active-team prefix), never a raw
+    # `for team in Team`, or they touch inactive teams' slots on any
+    # config seating fewer than 16 -- see `groundOwner` (sim.nim) for the
+    # one place main's own code got this wrong for a 2-team-only game and
+    # the fix this port applies everywhere the equivalent loop appears.
+    #
+    # Same increment boundary as the Player block above, RESOLVED the same
+    # way: `teamGlory`/`heatEmbers`/`heatLastDeed`/`heatLastDecay`/
+    # `claimed`/`claimedFirst`/`firstBloodDone`/`squadVolleyDone` all enter
+    # `gameHash` as of this version (GameVersion 48) -- `teamKillRing`
+    # (scratch bookkeeping) and `deedCounts`/`deedGloryMass`/`gloryPops`/
+    # `achievementFeed` (audit/cosmetic) stay OUT, per each field's own
+    # comment below.    #
+    # No supply-drop fields here (`supplyDropPickups` cut with the feature
+    # -- see glory.nim's header); no `gloryObserver` (main's dev rig exists
+    # to replay PRE-glory recordings with the ledger overlaid as pure
+    # accounting -- there is no pre-glory BR recording to backfill, so the
+    # rig has no BR use case; the golden fixture was re-recorded fresh in
+    # the same commit that landed this increment).
+    teamGlory*: array[Team, int]      ## GLORY: the team ledger.
+    heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
+                                      ## multiplier.
+    heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest
+                                      ## drama deed.
+    heatLastDecay*: array[Team, int]  ## GLORY: tick embers last cooled.
+    claimed*: array[Team, array[AchievementTrees * AchievementTiers, bool]]
+                               ## GLORY: achievement one-shot set, per team
+                               ## per game.
+    claimedFirst*: array[AchievementTrees * AchievementTiers, bool]
+                               ## GLORY: whether ANY team has taken this
+                               ## tier yet; the first claimant gets the x3
+                               ## (law 2). NOT team-indexed -- global.
+    firstBloodDone*: bool      ## GLORY: the episode's first kill has been
+                               ## minted.
+    squadVolleyDone*: array[Team, bool]  ## GLORY: pinned ONCE the team's
+                               ## recent-kill ring shows
+                               ## `SquadVolleyMinDistinct`+ distinct
+                               ## teammates each with a kill inside
+                               ## `SquadVolleyWindowTicks` -- the `Squad
+                               ## Volley` gate. CAUSAL (gates a claim): in
+                               ## gameHash.
+    teamKillRing*: array[Team, seq[tuple[killerIndex: int, tick: int]]]
+                               ## GLORY: a SMALL per-team recent-kill ring,
+                               ## pruned to the live `SquadVolleyWindowTicks`
+                               ## window at every non-friendly kill. Purely
+                               ## SCRATCH bookkeeping whose only causal
+                               ## effect is flipping `squadVolleyDone` from
+                               ## false to true -- EXCLUDED from gameHash,
+                               ## same status main gave it.
+    deedCounts*: array[Deed, int]     ## GLORY AUDIT: times each deed fired.
+                               ## Not in gameHash -- audit telemetry only.
+    deedGloryMass*: array[Deed, int]  ## GLORY AUDIT: glory minted per deed.
+                               ## Not in gameHash -- audit telemetry only.
+    gloryPops*: seq[GloryFx]   ## GLORY: cosmetic floating "+Ng" score pops
+                               ## and achievement claim toasts. Never in
+                               ## gameHash. Feeds the HUD (Phase 3, deferred
+                               ## with broadcast.nim/global.nim); populated
+                               ## now so the engine-side mint sites match
+                               ## main's structure exactly.
+    achievementFeed*: seq[AchievementClaim]  ## GLORY: claims in order, for
+                               ## the replay feed / HUD. Never in gameHash.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

@@ -5,6 +5,8 @@ import
   test_barriers,
   test_blocked_damage,
   test_br_spawn_points,
+  test_dedup_object_placements_perf,
+  test_hit_damage,
   test_debug_overlay,
   test_endzone_shapes,
   test_fast_mode,
@@ -20,5 +22,8 @@ import
   test_replay_scan,
   test_shot_exposure,
   test_sprite_collisions,
+  test_pb_engine,
+  test_pb_replay,
+  test_pb_startup,
   test_zone
 {.warning[UnusedImport]: on.}

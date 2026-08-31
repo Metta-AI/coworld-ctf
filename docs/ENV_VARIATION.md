@@ -101,6 +101,17 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `puddleDamagePct` | int / `20` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
 | `barrierPickups` | int / `0` | `0..2` ([sim_config.nim](../src/ctf/sim_config.nim) validate, cap `MaxBarrierPickupsPerTeam`) | Cardboard-barrier pickups PER TEAM, staged between base anchor and map center ([sim.nim `barrierSpawnPoints`](../src/ctf/sim.nim)); 0 = none (the default — echo omitted, no GV bump). |
 | `brMode` | bool / `false` | none | Battle-royale elimination ruleset: `killPlayer` forces `lives` to 0 on first death (no respawns, regardless of `lives`/`respawnTicks`), `checkWinCondition`'s capture branch is skipped (flags/captures never eliminate a team or end the game), the existing wipe/last-team-standing branch is the sole win path, and a `maxTicks` timeout resolves by tiebreak (most living players, then total `damageDealt`) instead of an automatic draw. Generic over `sim.teams()`/team count. `false` = the default, byte-identical to a build with no BR code ([docs/designs/BR_MAPGEN.md](designs/BR_MAPGEN.md)). |
+| `allowCallouts` | bool / `false` | none | A chat message that parses as `!<id>[ <cell>]` is additionally recognized as a structured CALLOUT (`parseCallout`, [sim.nim](../src/ctf/sim.nim)): the Shout's `isCallout`/`calloutId`/`calloutCell` populate and the player-stream label switches to the callout family (`labelCallout`, [labels.nim](../src/ctf/labels.nim)). `false` = the parser never runs; every shout labels exactly as before (callout-spec.md). |
+| `allowPolicyReflash` | bool / `false` | none | Season 2 one-page policy flash channel: a seat may be flashed a JSON strategy page mid-episode; every accepted flash is a replay record re-applied at the identical tick, and the active page's content hash + flash count enter `gameHash` ONLY under this gate. `false` = the channel does not exist (`applyPolicyPage` refuses; nothing recorded; hash unchanged). |
+| `allowSeatTakeover` | bool / `false` | none | Freeplay only: a human websocket may TAKE OVER an occupied seat, driving that cog's 8-button mask from its next respawn. `false` = every takeover route answers 403; byte-identical to a pre-takeover build. |
+| `allowDirectAim` | bool / `false` | none | Freeplay only: a human-driven (taken-over) seat aims by pointing — the turret takes the cursor's bearing in one tick, recorded as replay aim records ([replays.nim](../src/ctf/replays.nim) `ReplayAimRecordFlag`). Policies can never reach this channel. |
+| `allowAimAssist` | bool / `false` | requires `allowDirectAim` (validate) | Freeplay only: at the fire-press edge a direct-aimed seat's turret snaps to the nearest live enemy's intercept bearing inside the assist cone. |
+| `aimAssistConeBrads` | int / `AimAssistConeBrads` | `0..128` (half turn; validate) | Half-width of the aim-assist cone, in brads. |
+| `season2Shell` | bool / `false` | none | Season 2 play-calling shell master gate ([docs/designs/strategy-play-calling-shell-2026-08-29.md](designs/strategy-play-calling-shell-2026-08-29.md) §3.2): nothing in `src/shell/` is reachable when off; a `slots[].control: "play"` seat requires it (`playSeatRequiresShell`); gate-on with an all-input roster is legal and plays byte-identically to gate-off. |
+| `slots[].control` | enum / `"input"` | `"input"` \| `"play"` | The one trusted per-seat protocol choice (§5.1): `"play"` marks a Season 2 play seat (server-enforced protocol; masks/ready ignored). Echoed only when `"play"`. |
+| `viewIntervalTicks` | int / `6` | `1..48` | LLM-bound `PlayView` frame interval for play seats (§4.3); inert without one. |
+| `lobbyChatTicks` | int / `720` | `0..4320` | Lobby chat phase length in ticks (§9.2), wall-clock paced even under `fastMode`; `0` disables the phase (the byte-identical gate-off shape). |
+| `playSeatBindTicks` | int / `7200` | `0..14400`; must be positive with any play seat | The presence budget (§9.2): a cumulative absence clock over the whole pre-activation period, replacing `lobbyJoinTimeoutTicks` in play-seat episodes; inert without one. |
 
 **Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
 `hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
@@ -216,6 +227,7 @@ games are unaffected).
 | `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
 | `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
 | `zonePhases[].dps` | int / `0` | `dps` | `>=0` | Hit points/second dealt to a player outside the current rect while this phase is active — applied directly on the puddle-hazard per-second cadence (`ZoneDamageRollTicks`=24), no RNG roll. |
+| `zoneCenter` | `[x, y]` / unset (RNG draw) | `zoneCenter` | two ints; the FINAL phase's rect must fit fully on-board around it with an `ArenaBorder` margin (`readConfigZoneCenter` validates at load) | Authored close-on point: when set (`zoneCenterConfigured`, stored as `zoneCenterX`/`zoneCenterY`), `resetZone` closes on this point instead of drawing one from the sim RNG. Never read when `zonePhases` is empty. |
 
 The zone's CENTER is drawn once per game from the sim RNG (`resetZone`,
 [sim.nim](../src/ctf/sim.nim)) — uniform over positions where the FINAL
@@ -237,6 +249,7 @@ the `zone`/`zonenext` stated-marker grammar.
 | `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
 | `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
 | `zonePhases[].dps` | int / `0` | `dps` | `>=0` | Hit points/second dealt to a player outside the current rect while this phase is active — applied directly on the puddle-hazard per-second cadence (`ZoneDamageRollTicks`=24), no RNG roll. |
+| `zoneCenter` | `[x, y]` / unset (RNG draw) | `zoneCenter` | two ints; the FINAL phase's rect must fit fully on-board around it with an `ArenaBorder` margin (`readConfigZoneCenter` validates at load) | Authored close-on point: when set (`zoneCenterConfigured`, stored as `zoneCenterX`/`zoneCenterY`), `resetZone` closes on this point instead of drawing one from the sim RNG. Never read when `zonePhases` is empty. |
 
 The zone's CENTER is drawn once per game from the sim RNG (`resetZone`,
 [sim.nim](../src/ctf/sim.nim)) — uniform over positions where the FINAL
@@ -246,6 +259,47 @@ fixed map-center circle. `zoneRectAtScale`/`zoneRectAndDps`
 `gameMap.width`/`gameMap.height` and that one center, integer math
 throughout. See RULES.md "Battle-royale shrink zone" for the full rule and
 the `zone`/`zonenext` stated-marker grammar.
+
+---
+
+## Paintball King of the Hill mode
+
+Config-gated squad mode (docs/paintball/RULES.md): every gate OFF by default,
+and a gate-off config plays the classic rules byte-identically (no GV bump —
+the trenches/procgen precedent). Seats are squad commanders driven by the
+server-side control layer (`control.nim` / `decide.nim` / `llm.nim`), not
+Sprite v1 input senders.
+
+| Field | Type / default | JSON key | Bounds | Effect |
+|---|---|---|---|---|
+| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` turns squad mode on. 2 in the published `paintball` variant. |
+| `cogsPerTeam` | int / `4` | | `1..8` | Cogs one seat commands (RED-alpha..delta). |
+| `loadout` | string / `"ctf"` | | `"ctf"` or `"paintball"` | `paintball` = spray can always held, no gun, NO pickups, hearts retired. |
+| `floorPaint` | bool / `false` | | | The paint-tile grid exists and cones repaint it. |
+| `paintBuff` | bool / `false` | | needs `floorPaint` | Own colour underfoot = speed + heal; enemy colour = slow. |
+| `hill` | bool / `false` | | needs `floorPaint` | KotH replaces the capture win condition. |
+| `paintTile` | int / `34` | | `>=4` | Px side of one floor-paint tile. |
+| `hillRadiusTiles` | int / `2` | | `>=0` | Hill = the (2r+1)^2 tile block at map centre. |
+| `hillOwnPermille` | int / `800` | | `501..1000` | Coverage permille that OWNS the hill (>500 so at most one owner). |
+| `hillDecisiveTicks` | int / `720` | | `>=1` | Hill-tick margin worth a full 1.0 game score. |
+| `paintSpeedOwnPct` | int / `125` | | `>=1` | Speed/accel percent on own colour. |
+| `paintSpeedEnemyPct` | int / `85` | | `>=1` | Speed/accel percent on enemy colour. |
+| `paintHealTicks` | int / `48` | | `>=1` | Consecutive own-paint ticks per +1 hp. |
+| `sprayDamage` | int / `3` (SprayPaintDamage) | | `>=1` | Hp per cone touch (the paintball variant sets 1). Acts in EVERY mode. |
+| `regimes` | seq / `["resident"]` | | 1..4 entries | Regime per game of the episode: `resident` (whole squad) / `visitor` (alpha only). |
+| `turnTicks` | int / `108` | | `>=1` | Sim ticks per decision turn (4.5 s). |
+| `turnBudgetMs` | int / `10000` | | `>=1` | Hard monotonic cap around one whole turn. |
+| `attempt1Ms` | int / `6000` | | whole seconds; `attempt1Ms+retryMs<=turnBudgetMs` | First LLM batch deadline. |
+| `retryMs` | int / `3000` | | whole seconds | Single retry batch deadline. |
+| `turnSpacingMs` | int / `5000` | | `>=0` | Wall-clock floor between batch starts. |
+| `wallClockBudgetSeconds` | int / `690` | | `>=1` | Engine hard stop -> episode reason `deadline`. |
+| `model` | string / `""` | | | Pinned Bedrock/Anthropic model; "" = auto. |
+| `maxOutputTokens` | int / `900` | | | LLM max_tokens. |
+
+Paintball consts (sim_types.nim): `PaintTile`, `MaxPaintTiles`=768,
+`HillFlipThrottleTicks`=12, `AimUnitX/Y` (integer aim table — the mode's only
+new hashed arithmetic, wasm-exact by construction), the `Default*` fallbacks
+for every field above.
 
 ---
 

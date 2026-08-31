@@ -186,7 +186,9 @@ suite "spray cans":
     game.players[1].team = game.players[0].team
     game.tryFireArc(0)
     check not game.players[1].alive
-    check game.players[0].kills == 1
+    # GV45: a sprayed teammate is a team kill, never a kill.
+    check game.players[0].kills == 0
+    check game.players[0].teamKills == 1
 
   test "spinning after firing never sweeps the cone onto new targets":
     # The exploit this closes: fire, then spin, raking the cone across

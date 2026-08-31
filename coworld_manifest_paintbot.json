@@ -20,7 +20,10 @@
       "run": [
         "/bin/ctf"
       ],
-      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main"
+      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main",
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/paintbot/anthropic_api_key"
+      }
     },
     "config_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -112,7 +115,8 @@
                 ]
               }
             }
-          }
+          },
+          "minItems": 0
         },
         "closedRoster": {
           "description": "Reject players outside the configured token/slot roster.",
@@ -438,6 +442,120 @@
           "type": "integer",
           "minimum": 1,
           "default": 30
+        },
+        "cogsPerTeam": {
+          "type": "integer",
+          "default": 4,
+          "description": "Cogs a squad fields: RED-alpha..RED-delta."
+        },
+        "sprayDamage": {
+          "type": "integer",
+          "default": 1,
+          "description": "Hit points removed by one spray-cone touch."
+        },
+        "turnTicks": {
+          "type": "integer",
+          "default": 108,
+          "description": "Sim ticks per decision turn (4.5 s)."
+        },
+        "turnBudgetMs": {
+          "type": "integer",
+          "default": 10000,
+          "description": "Monotonic cap on one whole decision turn."
+        },
+        "attempt1Ms": {
+          "type": "integer",
+          "default": 6000,
+          "description": "First parallel batch deadline; whole seconds only."
+        },
+        "retryMs": {
+          "type": "integer",
+          "default": 3000,
+          "description": "Single retry batch deadline; whole seconds only."
+        },
+        "turnSpacingMs": {
+          "type": "integer",
+          "default": 5000,
+          "description": "Wall-clock floor between LLM batch starts."
+        },
+        "wallClockBudgetSeconds": {
+          "type": "integer",
+          "default": 690,
+          "description": "Engine hard stop; 57.5% of episodeTimeoutSeconds."
+        },
+        "loadout": {
+          "type": "string",
+          "enum": [
+            "ctf",
+            "paintball"
+          ],
+          "default": "paintball"
+        },
+        "floorPaint": {
+          "type": "boolean",
+          "default": true
+        },
+        "paintBuff": {
+          "type": "boolean",
+          "default": true
+        },
+        "hill": {
+          "type": "boolean",
+          "default": true
+        },
+        "paintTile": {
+          "type": "integer",
+          "default": 34
+        },
+        "hillRadiusTiles": {
+          "type": "integer",
+          "default": 2
+        },
+        "hillOwnPermille": {
+          "type": "integer",
+          "default": 800
+        },
+        "hillDecisiveTicks": {
+          "type": "integer",
+          "default": 720
+        },
+        "paintSpeedOwnPct": {
+          "type": "integer",
+          "default": 125
+        },
+        "paintSpeedEnemyPct": {
+          "type": "integer",
+          "default": 85
+        },
+        "paintHealTicks": {
+          "type": "integer",
+          "default": 48
+        },
+        "model": {
+          "type": "string",
+          "default": "",
+          "description": "Pinned Anthropic model id; empty = the default ladder."
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "default": 900
+        },
+        "regimes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "enum": [
+              "resident",
+              "visitor"
+            ]
+          },
+          "default": [
+            "resident",
+            "visitor"
+          ],
+          "description": "Which cogs a seat drives, per game index."
         }
       }
     },
@@ -486,7 +604,37 @@
           }
         },
         "kills": {
-          "description": "One kill count per player slot.",
+          "description": "One enemy-kill count per player slot; teammate kills are counted separately in teamKills.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "teamKills": {
+          "description": "One teammate-kill (backstab) count per player slot, kept apart from kills.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "hitDamage": {
+          "description": "Hit points this slot removed from ENEMIES across the episode; teammate damage is counted separately in teamHitDamage.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "teamHitDamage": {
+          "description": "Hit points this slot removed from its own TEAMMATES (friendly fire), kept apart from hitDamage.",
           "type": "array",
           "minItems": 1,
           "maxItems": 32,
@@ -527,6 +675,133 @@
               "pattern": "^[a-z0-9_-]+$"
             }
           }
+        },
+        "residentScore": {
+          "description": "One entry per SEAT (roster.nim squadResultsJson: `for seat in 0 ..< seats`, seats = num_agents), not one per team — a 2-team-era assumption. Bounds match scores/win/team: 1..32.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "number"
+          }
+        },
+        "visitorScore": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "number"
+          }
+        },
+        "hillTicks": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "residentHillTicks": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "visitorHillTicks": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "paintTiles": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "tagsDealt": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "teamTags": {
+          "description": "Tags landed on the seat's own teammates (friendly fire), kept apart from tagsDealt. Per-seat, same bounds as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "tagsTaken": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "llmTurns": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "fallbackTurns": {
+          "description": "Per-seat, same as residentScore.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "deadline",
+            "fault"
+          ]
+        },
+        "endRule": {
+          "type": "string",
+          "enum": [
+            "full_time",
+            "mercy",
+            "wipe",
+            "wall_clock",
+            "sim_fault",
+            "host_error"
+          ]
+        },
+        "games": {
+          "type": "integer"
+        },
+        "finalTick": {
+          "type": "integer"
+        },
+        "seed": {
+          "type": "integer"
         }
       }
     },
@@ -1595,6 +1870,55 @@
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
         "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "paintball",
+      "name": "Paintball \u2014 King of the Hill",
+      "description": "The league default: two 90-second games on one hill, the first commanding your whole squad and the second as a lone visitor beside scripted teammates. The two halves are averaged.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Red Command"
+          },
+          {
+            "name": "Blue Command"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "num_agents": 2,
+        "minPlayers": 2,
+        "cogsPerTeam": 4,
+        "seed": 679961,
+        "mapPath": "arena",
+        "loadout": "paintball",
+        "floorPaint": true,
+        "hill": true,
+        "lives": 12,
+        "hitPoints": 3,
+        "sprayDamage": 1,
+        "respawnTicks": 48,
+        "turnTicks": 108,
+        "turnBudgetMs": 10000,
+        "turnSpacingMs": 5000,
+        "wallClockBudgetSeconds": 690,
+        "lobbyJoinTimeoutTicks": 2400,
+        "fastMode": true,
+        "showPlayerLabels": false,
+        "maxGames": 2,
+        "regimes": [
+          "resident",
+          "visitor"
+        ],
+        "maxTicks": 2160,
+        "paintBuff": true
       }
     }
   ],
