@@ -1309,7 +1309,15 @@ function updateCamera(){
      cog and no vision to protect, so there's no fairness reason to hold
      it to the same floor. */
   const followScaleRaw=Math.max(fitScale,fitVisionScale());
-  const targetScale=follow?quantizeFollowScale(killcam?followScaleRaw*KILLCAM_ZOOM:followScaleRaw):fitScale;
+  /* killcam's own target is deliberately NOT passed through
+     quantizeFollowScale -- see the killcam ease branch below for why
+     (measured: on some arenas followRaw*KILLCAM_ZOOM floors right back to
+     the SAME step as ordinary follow, so quantizing it left the "zoom"
+     with nowhere to go and it rendered at a dead-constant scale). Ordinary
+     self-follow (the `else` branch below) is untouched and still
+     quantized -- that's the case the anti-banding fix was actually proven
+     against (sustained held-WASD movement), and it still holds. */
+  const targetScale=follow?(killcam?followScaleRaw*KILLCAM_ZOOM:quantizeFollowScale(followScaleRaw)):fitScale;
   const targetX=killcam?killcam.killerX:follow?selfPos.x:c.width/2;
   const targetY=killcam?killcam.killerY:follow?selfPos.y:c.height/2;
   let easing=false;
@@ -1346,14 +1354,28 @@ function updateCamera(){
       killcamAnimStartScale=camScale;killcamAnimStartX=camX;killcamAnimStartY=camY;
     }
     const e=killcamEaseT(performance.now(),killcamAnimAt);
-    /* Same anti-banding rule as everywhere else in this function: camScale
-       must only ever land on one of quantizeFollowScale's exact
-       integer/reciprocal steps, never an arbitrary fraction (see the
-       COMPOSITOR TEARING FIX comment above). Easing the PRE-quantized raw
-       target and re-quantizing every single frame keeps that guarantee --
-       the value actually written can only ever be a safe step, even
-       though the input driving it is a smooth continuous lerp. */
-    camScale=quantizeFollowScale(killcamAnimStartScale+(followScaleRaw*KILLCAM_ZOOM-killcamAnimStartScale)*e);
+    /* NOT quantized (correction after real-rig measurement): an earlier
+       version of this line re-applied quantizeFollowScale() every frame,
+       reasoning that flooring the PRE-quantized lerp to a safe step each
+       tick would preserve the COMPOSITOR TEARING FIX's invariant "camScale
+       is always one of quantizeFollowScale's exact steps" for free. Live
+       testing showed that reasoning was backwards for this specific case:
+       quantizeFollowScale always rounds DOWN, so on plenty of real window
+       sizes followScaleRaw*KILLCAM_ZOOM floors to the exact SAME step as
+       ordinary followScaleRaw -- the ease then had nowhere to go and the
+       killcam rendered at a dead-constant scale the whole 900ms (measured
+       identical across four sampled timestamps on a real kill). Separately,
+       the tearing investigation itself has since moved on: the artifact is
+       now believed to be display-side (panel local dimming), not this
+       compositor/CSS-scale mechanism, so holding this specific short
+       (<=900ms), one-shot, no-input, spectator-only animation to that
+       invariant was paying a real cost (a killcam that visibly never
+       zooms) for a guard against a bug this isn't actually the cause of.
+       Ordinary self-follow -- sustained, input-driven, the actual scenario
+       the fix was proven against -- is untouched; only killcam's own brief
+       push skips it. Lerps straight at the real (unquantized) target
+       computed above, landing on it exactly at e=1. */
+    camScale=killcamAnimStartScale+(targetScale-killcamAnimStartScale)*e;
     camX=killcamAnimStartX+(targetX-killcamAnimStartX)*e;
     camY=killcamAnimStartY+(targetY-killcamAnimStartY)*e;
     easing=true;
@@ -1927,10 +1949,11 @@ const KILLCAM_HOLD_MS=2400;
    a fairness bug" -- see quantizeFollowScale's own comment) doesn't apply
    here: you're dead, spectating, with no cog and no vision of your own,
    so there's nothing wrong with framing tighter than live play ever
-   would. 1.5x reads as a clear "look here", not a jarring macro zoom --
-   still passed through quantizeFollowScale() below like every other
-   follow scale, so it can only ever land on one of that function's exact
-   integer/reciprocal steps, never an arbitrary fractional multiple.
+   would. 1.5x reads as a clear "look here", not a jarring macro zoom.
+   Deliberately NOT quantized like ordinary follow scale is -- see the
+   killcam ease branch in updateCamera for why: on real windows
+   1.5x*followScaleRaw often floors to the SAME safe step ordinary follow
+   already used, which measured out as literally zero visible zoom.
    KILLCAM_EASE_MS/killcamEaseT: slower and gentler than CAMERA_EASE's
    exponential lerp (which settles in a few hundred ms and reads as a
    quick follow-snap, not a directed push) -- Maxwell asked for the camera
