@@ -72,7 +72,7 @@ proc rotateFrame(map: BodyMap, seat: int, self, target: BodyPoint,
         seat: seat,
         pos: threat.get,
         team: Blue,
-        aimBrads: 0,
+        aimBrads: some(0),
         hpKnown: some(3),
         tick: uint32(tick)))
   result.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks

@@ -7,7 +7,8 @@
 import std/[algorithm, json, options, sequtils, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[body, body_map, canonical, canonical_fast, types, view]
+import ../src/shell/[binary_view, body, body_map, canonical, canonical_fast,
+  types, view]
 
 proc p(x, y: int): PlayPoint = (x, y)
 
@@ -245,6 +246,9 @@ suite "shell play view producer":
     check not omitted.hasKey("intent")
     check not omitted["self"].hasKey("carrying")
     check not omitted["self"].hasKey("lives")
+    # Ruling 2026-08-31: today's visual producer always emits readable aim,
+    # but design line 452 names a proximity fallback for enemies whose aim is
+    # unreadable. Keep this contract path reachable and explicitly labeled.
     check not omitted["tracks"][0].hasKey("aim_brads")
     check not omitted["tracks"][0].hasKey("hp")
     check not omitted["tracks"][0].hasKey("bounty")
@@ -338,19 +342,79 @@ suite "shell play view producer":
     let body = activateSeatBody(map, 0, 331)
     body.updateBelief(BodyTickInputs(
       self: BodySelfState(pos: p(16, 16), hp: 5, hpFrac: 0.5,
-        aimBrads: 32, alive: true),
+        lives: some(2), aimBrads: 32, alive: true),
       visibleTracks: @[BodyTrackUpdate(seat: 1, pos: p(64, 16),
-        team: Blue, aimBrads: 96, hpKnown: some(4), tick: 7'u32)]), 7'u32)
+        team: Blue, aimBrads: some(96), hpKnown: some(4),
+        tick: 7'u32)]), 7'u32)
     setStandingIntent(body, Intent(kind: ikHold, arriveRadius: 0.0,
       reason: "hold"), none(ValidatedGoal), 42'u64)
-    let source = playViewSourceFromBody(body, 7'u32, gmBr, 2,
+    let source = playViewSourceFromBody(body, 7'u32, gmCtf, 2,
       includeStandingIntent = true)
     let node = assertViewConformant(buildPlayView(source))
     check node["epoch"].getStr() == "42"
     check node["self"]["hp"].getInt() == 5
+    check node["self"]["lives"].getInt() == 2
     check node["intent"]["kind"].getStr() == "hold"
     check node["tracks"][0]["seat"].getInt() == 1
     check node["tracks"][0]["hp"].getInt() == 4
+
+  test "SeatBody adapter feeds full belief through both encoders":
+    let map = smallBodyMap()
+    let body = activateSeatBody(map, 0, 331)
+    let hazards = HazardInputs(
+      grenades: @[BodyGrenadeHazard(eventId: 201, coversSelf: true,
+        pos: p(30, 30), predictedBlastPos: p(32, 32), ticksToBlast: 3)],
+      blastCues: @[BodyBlastCue(eventId: 202, coversSelf: false,
+        pos: p(50, 50), tick: 12'u32)],
+      ownThrow: some(BodyOwnThrow(eventId: 203, target: p(60, 60),
+        releaseTick: 13'u32, blastRadius: 96)),
+      sprays: @[BodySprayHazard(kind: bshAnonymousImpact, eventId: 204,
+        coversSelf: true, tick: 12'u32, impactPos: p(18, 18),
+        incomingDirBrads: 192)])
+    body.updateBelief(BodyTickInputs(
+      self: BodySelfState(pos: p(16, 16), hp: 5, hpFrac: 0.5,
+        lives: some(2), aimBrads: 32, alive: true),
+      visibleTracks: @[
+        BodyTrackUpdate(seat: 1, pos: p(64, 16), team: Blue,
+          aimBrads: none(int), hpKnown: some(1), veteranMarker: true,
+          tick: 12'u32)],
+      sightedItems: @[
+        ItemSighting(kind: bikMedkit, pos: p(24, 24), present: false,
+          tick: 12'u32)],
+      aggressorEvents: @[
+        AggressorEvent(eventId: 101, tick: 12'u32, dirBrads: 9,
+          seat: none(int))],
+      killFeed: @[
+        KillEvent(eventId: 102, tick: 12'u32, killerTeam: Red,
+          victimSeat: 7)],
+      shouts: @[
+        ShoutEvent(eventId: 103, team: Blue, slotLetter: "B",
+          text: "hold", pos: p(40, 40), tick: 12'u32)],
+      hazards: hazards), 12'u32)
+
+    let source = playViewSourceFromBody(body, 12'u32, gmCtf, 2,
+      includeStandingIntent = false)
+    let model = selectPlayView(source, MaxViewFrameBytes)
+    check model.self.lives == some(2)
+    check model.tracks[0].seat == 1
+    check model.tracks[0].aimBrads.isNone
+    check model.tracks[0].bounty
+    check model.items[0].eventId == map.itemEventIdForPoint(bikMedkit, p(24, 24))
+    check model.items[0].present == some(false)
+    check model.aggressors[0].eventId == 101
+    check model.aggressors[0].seat.isNone
+    check model.killFeed[0].eventId == 102
+    check model.shouts[0].eventId == 103
+    check model.hazards.grenades[0].eventId == 201
+    check model.hazards.blastCues[0].eventId == 202
+    check model.hazards.ownThrow.isSome
+    check model.hazards.sprays[0].eventId == 204
+
+    let jsonNode = assertViewConformant(buildPlayView(source))
+    check not jsonNode["tracks"][0].hasKey("aim_brads")
+    check jsonNode["tracks"][0]["bounty"].getBool()
+    let binary = buildBinaryPlayView(model)
+    check binary.len <= MaxBinaryViewFrameBytes
 
 suite "shell play context producer":
   test "context emits canonical bytes and omits input controls":
