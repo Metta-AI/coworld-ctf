@@ -3234,8 +3234,13 @@ current design; everything decided, superseded, or answered lives here.
   refusing the 71.9x adversarial shape at its source; §3.3 ruling
   seven (8-source danger-rebuild cap) folded in; sub-allocations of
   the quarter tick fixed at body ≤5.0 ms / runtime ≤4.0 ms / control
-  plane ≤1.4 ms; and a P3 engineering acceptance of ≤15 µs per emit
-  validation. All provisional until the freeze: the native gen-5+ x86
+  plane ≤1.4 ms — with the 32-seat view build+encode COUNTED INSIDE the
+  body's share (it is §5 pipeline work run every tick for the plays;
+  per-seat phasing would break "the view a play reads for tick N is the
+  belief the body executes against at tick N" and is not taken) and,
+  because it measured 5.77 ms alone, P1 carries a ≤2.5 ms/32-seat view
+  build+encode engineering acceptance beside P3's ≤15 µs per emit
+  validation (both are serialization costs, not contracts). All provisional until the freeze: the native gen-5+ x86
   run and the quiet-window body pass, after which the frozen values
   get the full cold review and the measured-values write-back.
 - The atlas constants were P0-adjusted (James, 2026-08-30):
