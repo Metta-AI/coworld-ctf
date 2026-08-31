@@ -1,0 +1,14 @@
+{
+  "paintbot_policy": 1,
+  "name": "broken-unknown-path",
+  "doc": "Deliberately broken fixture: intent.is_flag_carrier is not a legal get path (BR has no flag) -- flash validate must reject it and name the path.",
+  "traits": { "nerve": 0.5, "greed": 0.5, "patience": 0.5 },
+  "rules": [
+    { "when": true,
+      "score": ["+",
+        ["*", 50, ["get", "intent.is_flag_carrier"]],
+        ["*", -10, ["get", "intent.exposure"]]
+      ]
+    }
+  ]
+}

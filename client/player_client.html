@@ -390,6 +390,92 @@ function putPixel(layer,x0,y0,sprite,srcOffset){
   d[offset+2]=Math.round((sprite.pixels[srcOffset+2]*sa+d[offset+2]*dw)/oa);
   d[offset+3]=Math.round(oa*255)
 }
+/* ================= Squad ring: mark the cogs on MY side ==============
+   Battle royale seats SIXTEEN teams of two on one field, so "my team" is
+   me plus exactly one partner among thirty-two cogs, and colour alone
+   cannot find them: sixteen team tints are on screen at once and the floor
+   is already painted in those same sixteen colours.
+
+   The engine already owns the idiom for "this cog is special" -- it paints
+   a rim into the transparent pixels hugging a soldier's silhouette
+   (global.nim `soldierOutlined`): a 2px white rim for YOUR OWN marker on
+   the player view, a fat one for the spectator's selected crew. This
+   widens that same rim onto your PARTNER, and adds a dark keyline on its
+   outer edge so the ring separates from bright wet paint exactly as well
+   as it does from the dark floor. Self keeps a ring of the same family in
+   the engine's own white, thickened here so it survives the half-scale the
+   whole-arena camera actually renders at.
+
+   RENDER ONLY, and deliberately so. Nothing below touches the wire, the
+   sim, or labels.nim: it re-reads the `self <color> <side>` and
+   `player <color> <side>` labels this seat is ALREADY sent and recomposites
+   pixels in the browser. A policy's observation is byte-identical with this
+   code present or deleted -- no new oracle, and the aim fuzz on every other
+   soldier is untouched.  */
+const RING_PAD=7;                 /* px of headroom grown around the sprite */
+const RING_KEY=[12,10,9];         /* near-black keyline, the anti-camouflage */
+/* Per-tone bands, in Chebyshev px out from the silhouette: `core` is the
+   coloured rim, and everything from core+1 to `edge` is the dark keyline.
+   YOUR OWN cog already arrives with the engine's 2px white rim baked into
+   its pixels (global.nim soldierOutlined on the self marker), so self adds
+   NO colour of its own -- only the keyline that lifts that existing white
+   off wet paint. The partner has no rim at all on the wire, so mate draws
+   its own 2px in the HUD's amber and then the same keyline. Equal weight,
+   two hues: white is you, amber is your partner. */
+const RING_TONES={
+  self:{core:2,edge:5,rgb:[255,255,255]},
+  mate:{core:4,edge:7,rgb:[232,163,61]}
+};
+/* Weight is set by the CAMERA, not by taste. The player view is the whole
+   3211x1713 arena scaled to fit the window -- 0.498 on a 1600px screen --
+   so a cog is about twenty screen pixels and one map pixel is HALF a screen
+   pixel. A 2px rim that looks emphatic in a zoomed crop is a hairline in
+   play. These bands land the ring at roughly 3-4 screen px, which is what
+   it takes to find a cog across the arena in a glance. */
+const ringCache=new Map();        /* spriteId+tone -> padded rim sprite */
+/* Builds the rim ONCE per sprite id (16 aim steps x 2 tones is the whole
+   working set) into a canvas grown by RING_PAD on every side, so a cog whose
+   art touches its own sprite edge still gets a complete ring. */
+function ringSprite(spriteId,sprite,tone){
+  const key=spriteId+":"+tone;
+  const hit=ringCache.get(key);
+  if(hit)return hit;
+  const w=sprite.width+RING_PAD*2,h=sprite.height+RING_PAD*2;
+  const px=new Uint8Array(w*h*4);
+  const solid=new Uint8Array(w*h);
+  for(let y=0;y<sprite.height;y++)for(let sx=0;sx<sprite.width;sx++){
+    if(sprite.pixels[(y*sprite.width+sx)*4+3]>=64)solid[(y+RING_PAD)*w+sx+RING_PAD]=1;
+  }
+  const band=RING_TONES[tone];
+  for(let y=0;y<h;y++)for(let sx=0;sx<w;sx++){
+    const i=y*w+sx;
+    if(solid[i])continue;
+    let d=0;
+    for(let r=1;r<=band.edge&&!d;r++){
+      for(let dy=-r;dy<=r&&!d;dy++)for(let dx=-r;dx<=r;dx++){
+        if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;
+        const nx=sx+dx,ny=y+dy;
+        if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        if(solid[ny*w+nx]){d=r;break}
+      }
+    }
+    if(!d)continue;
+    const inCore=d<=band.core,c=inCore?band.rgb:RING_KEY,a=inCore?255:230,o=i*4;
+    px[o]=c[0];px[o+1]=c[1];px[o+2]=c[2];px[o+3]=a;
+  }
+  const built={width:w,height:h,pixels:px};
+  ringCache.set(key,built);
+  return built;
+}
+/* Which sprite label marks a cog on my side. `self ...` is my own body;
+   `player <my colour> ...` is my partner. Corpses carry `corpse ...` and so
+   are never ringed -- a ring means a LIVE teammate. */
+function ringToneFor(label){
+  if(!label)return null;
+  if(label.startsWith("self "))return "self";
+  if(selfTeam&&label.startsWith("player "+selfTeam+" "))return "mate";
+  return null;
+}
 function drawSprite(){
   const nowT=performance.now();
   /* Hitstop: freeze the last composed frame for a handful of ms on landing
@@ -413,6 +499,17 @@ function drawSprite(){
       const sprite=sprites.get(object.spriteId);
       if(!sprite)continue;
       const ox=object.dispX,oy=object.dispY;
+      /* The squad ring goes down IMMEDIATELY under its own cog: over the
+         floor paint and the splatters (which the sim draws beneath players),
+         under the soldier art, and inside the same depth sort -- so a cog
+         standing in front of a teammate still occludes the ring, exactly as
+         it occludes the body. */
+      const tone=ringToneFor(sprite.label);
+      if(tone){
+        const ring=ringSprite(object.spriteId,sprite,tone),rx=ox-RING_PAD,ry=oy-RING_PAD;
+        const rx0=Math.max(0,-rx),ry0=Math.max(0,-ry),rx1=Math.min(ring.width,layer.width-rx),ry1=Math.min(ring.height,layer.height-ry);
+        for(let sy=ry0;sy<ry1;sy++)for(let sx=rx0;sx<rx1;sx++)putPixel(layer,rx+sx,ry+sy,ring,(sy*ring.width+sx)*4)
+      }
       const sx0=Math.max(0,-ox),sy0=Math.max(0,-oy),sx1=Math.min(sprite.width,layer.width-ox),sy1=Math.min(sprite.height,layer.height-oy);
       for(let sy=sy0;sy<sy1;sy++)for(let sx=sx0;sx<sx1;sx++)putPixel(layer,ox+sx,oy+sy,sprite,(sy*sprite.width+sx)*4)
     }
@@ -457,6 +554,10 @@ function parseSprite(bytes){
       const id=readU16(bytes,offset),width=readU16(bytes,offset+2),height=readU16(bytes,offset+4);
       offset+=6;
       const snappy=trySnappySprite(bytes,offset,bytes.length-offset,width,height);
+      /* A redefined sprite id gets new pixels, so any ring cut from the old
+         silhouette is stale. Two ids are rewritten every tick by design (the
+         self marker and the loadout-tagged identity badge). */
+      ringCache.delete(id+":self");ringCache.delete(id+":mate");
       if(!snappy){
         /* Envelope length itself is unrecoverable here (see
            trySnappySprite's own comment) -- bail out of the WHOLE

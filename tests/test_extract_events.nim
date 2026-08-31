@@ -139,6 +139,16 @@ suite "tier-2 event extraction (tools/extract_events)":
         # A phase boundary resets every hp (new game / lobby): restart traces.
         for slot in 0 ..< slotCount:
           lastHp[slot] = -1
+      of Achievement:
+        # GLORY PORT (increment 2/3): `claimAchievement` (sim.nim) repurposes
+        # the generic hp/blocked slots for this kind ONLY -- hp carries the
+        # claimed tier (0 ..< AchievementTiers), blocked carries the
+        # first-claim flag as 0/1 (ord(effectiveFirst)) -- ported byte-for-
+        # byte from main's own event wire. Every other kind (including the
+        # two other new ones, GloryDeed/LevelUp) leaves both at their
+        # emitEvent defaults and still falls into the catch-all below.
+        check event.hp >= 0 and event.hp < AchievementTiers
+        check event.blocked == 0 or event.blocked == 1
       else:
         check event.hp == -1
         # `blocked` is Damage-only; every other kind carries 0.
@@ -151,7 +161,9 @@ suite "tier-2 event extraction (tools/extract_events)":
     check sawGameOverPhase
 
     # The event stream is the counters, itemized: per-slot Kill events sum to
-    # the final results.json kills array. shotsFired/shotsHit stay OUT of
+    # the final results.json kills + teamKills arrays (a Kill event fires for
+    # enemy and teammate kills alike; GV45 splits the counters).
+    # shotsFired/shotsHit stay OUT of
     # results.json (the platform results schema is closed and the certifier
     # rejects unknown fields) — the accuracy counters are checked against the
     # extraction directly instead.
@@ -162,7 +174,8 @@ suite "tier-2 event extraction (tools/extract_events)":
     # results_schema declares the field): one id array per slot.
     check results["achievements"].len == slotCount
     for slot in 0 ..< slotCount:
-      check results["kills"][slot].getInt == killsBySlot[slot]
+      check results["kills"][slot].getInt +
+        results["teamKills"][slot].getInt == killsBySlot[slot]
 
     # The in-sim accuracy counters mirror the event stream exactly.
     for slot in 0 ..< slotCount:
