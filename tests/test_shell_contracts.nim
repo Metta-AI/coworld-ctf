@@ -16,6 +16,8 @@ import ../src/ctf/sim_config
 import ../src/ctf/sim_types
 import ../src/shell/types
 import ../src/shell/canonical
+import ../src/shell/canonical_fast
+import ../src/shell/policy_encoding
 import std/math
 
 const FixtureDir = "tests" / "fixtures" / "shell"
@@ -210,12 +212,28 @@ suite "shell canonical encoding":
     for key in intent.keys:
       check key > last or last.len == 0
       if key > last: last = key
-    var micro: seq[string]
-    for flag in intent["micro"]:
-      micro.add(flag.getStr())
-    var sortedMicro = micro
-    sortedMicro.sort()
-    check micro == sortedMicro
+    # Every SET-kind field is strictly increasing by wire text — which is
+    # sortedness AND deduplication in one check. `prefer` is deliberately
+    # absent: it is an ORDERED priority list, not a set.
+    proc checkSet(node: JsonNode) =
+      var prev = ""
+      for element in node:
+        check element.getStr() > prev
+        prev = element.getStr()
+    checkSet(intent["micro"])
+    for setOwner in [intent["combat"]["no_shoot"], intent["combat"]["protect"]]:
+      for field in ["teams", "seats"]:
+        if setOwner.hasKey(field):
+          checkSet(setOwner[field])
+
+  test "set order is wire text, not numeric: two-digit seats sort before seat:4":
+    # Every golden uses single-digit seats, so a producer sorting seat refs
+    # NUMERICALLY would pass those. The production writer sorts by wire text
+    # ("seat:10" < "seat:4"); this pins that against regression.
+    var w = initCanonicalWriter()
+    w.writeProtectedSet(ProtectedSet(
+      seats: @[SeatRef(4'u8), SeatRef(12'u8), SeatRef(10'u8), SeatRef(4'u8)]))
+    check w.take() == """{"seats":["seat:10","seat:12","seat:4"]}"""
 
   test "uint64 identities round-trip at the 2^53 boundaries and the top":
     for value in [0'u64, 9007199254740991'u64, 9007199254740992'u64,

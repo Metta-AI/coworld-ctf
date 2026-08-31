@@ -97,7 +97,7 @@
           "$comment": "number only; finite"
         },
         "of": {
-          "$comment": "enum: the closed string set. set/list: the element kind \u2014 a kind NAME for scalar elements or a nested spec object.",
+          "$comment": "enum: the closed set of allowed strings, canonicalized (sorted + deduplicated) like every set-kind field \u2014 parseManifest rejects unsorted spellings. set/list: the element kind \u2014 a kind NAME for scalar elements or a nested spec object.",
           "oneOf": [
             {
               "type": "array",
