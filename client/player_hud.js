@@ -553,10 +553,29 @@
       }
     }
 
-    // Map + viewport box, from the canvas's own pixel buffer + rendered transform.
+    // Map + viewport box. Map dims used to be read straight off the host
+    // canvas's OWN pixel buffer (canvasEl.width/height), on the assumption
+    // that it always held the whole map at native resolution -- true before
+    // the viewport-clip lane (client/player_client.html, 2026-08-31), which
+    // shrank that buffer down to just the current camera window (+ margin)
+    // so per-frame draw cost scales with the SCREEN, not the map. Prefer the
+    // host's own `mapW`/`mapH` globals (the TRUE map size it already tracks
+    // for this exact purpose, set from the viewport() wire packet -- same
+    // cross-script-global pattern this module already relies on for
+    // `objects`/`sprites`, see the file header). Falls back to the old
+    // canvas-size read if those aren't defined for some reason (an older
+    // host build without this lane) -- never a hard dependency either way.
     let map = { w: 0, h: 0, viewport: null };
-    if (canvasEl && canvasEl.width > 1 && canvasEl.height > 1) {
-      map.w = canvasEl.width; map.h = canvasEl.height;
+    const trueMapW = (typeof mapW === 'number' && mapW > 1) ? mapW : (canvasEl ? canvasEl.width : 0);
+    const trueMapH = (typeof mapH === 'number' && mapH > 1) ? mapH : (canvasEl ? canvasEl.height : 0);
+    if (canvasEl && trueMapW > 1 && trueMapH > 1) {
+      map.w = trueMapW; map.h = trueMapH;
+      // readCamera() still reads the CSS transform, unchanged -- the
+      // viewport-clip lane keeps that transform expressing the exact same
+      // world-to-screen relationship it always did (it bakes the camera
+      // window's own offset into the translate term precisely so this
+      // stays true), so this inverse-transform math needs no changes at
+      // all beyond map.w/h now being correct.
       const cam = readCamera(canvasEl);
       const vx0 = clamp((0 - cam.tx) / cam.scale, 0, map.w);
       const vy0 = clamp((0 - cam.ty) / cam.scale, 0, map.h);
@@ -1019,7 +1038,18 @@
     const ctx = miniCanvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(canvasEl, 0, 0, canvasEl.width, canvasEl.height, 0, 0, w, h);
+    // Pixel source: used to sample `canvasEl` (the host's own #c) directly,
+    // on the assumption it always held the whole map at native resolution.
+    // The viewport-clip lane broke that assumption (canvasEl is now just the
+    // current camera window) and added a dedicated, already-downsampled
+    // whole-map source for exactly this consumer — `minimapSourceCanvas`,
+    // read the same cross-script-global way `objects`/`sprites`/`mapW` are
+    // (see buildState's own comment on this). Falls back to the old
+    // canvasEl sampling if that global isn't present (an older host build,
+    // or the very first frame before it's been built once) so this module
+    // never hard-depends on the newer host.
+    const miniSrc = (typeof minimapSourceCanvas !== 'undefined' && minimapSourceCanvas && minimapSourceCanvas.width > 1) ? minimapSourceCanvas : canvasEl;
+    ctx.drawImage(miniSrc, 0, 0, miniSrc.width, miniSrc.height, 0, 0, w, h);
     ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(0, 0, w, h); // legibility scrim over busy paint
 
     // BR shrink zone (item B's primary overlay when present — "where is
