@@ -208,6 +208,9 @@ proc wasmtimeModuleValidate*(engine: ptr WasmEngine; bytes: ptr uint8;
 proc wasmtimeModuleNew*(engine: ptr WasmEngine; bytes: ptr uint8;
     size: csize_t; module: ptr ptr WasmtimeModule): ptr WasmtimeError {.
     importc: "wasmtime_module_new", header: WasmtimeHeader.}
+proc wasmtimeModuleSerialize*(module: ptr WasmtimeModule;
+    output: ptr WasmByteVec): ptr WasmtimeError {.
+    importc: "wasmtime_module_serialize", header: WasmtimeHeader.}
 proc wasmtimeModuleDelete*(module: ptr WasmtimeModule) {.
     importc: "wasmtime_module_delete", header: WasmtimeHeader.}
 proc wasmtimeInstanceNew*(context: ptr WasmtimeContext;

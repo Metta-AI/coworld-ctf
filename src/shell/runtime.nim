@@ -211,6 +211,19 @@ proc close*(module: RuntimeModule) =
     wasmtimeModuleDelete(module.raw)
     module.raw = nil
 
+proc serializedModuleBytes*(module: RuntimeModule): int =
+  ## Measures the compiled artifact size Wasmtime would serialize. The compile
+  ## plane uses this only to settle its admission reservation at commit.
+  if module == nil or module.raw == nil:
+    raise newException(ShellRuntimeError, "module is closed")
+  var serialized: WasmByteVec
+  let error = wasmtimeModuleSerialize(module.raw, addr serialized)
+  if error != nil:
+    raise newException(ShellRuntimeError,
+      "module serialization: " & consumeError(error))
+  defer: wasmByteVecDelete(addr serialized)
+  serialized.size.int
+
 proc validateModuleBytes*(runtime: RuntimeEngine; bytes: openArray[byte])
 proc compileValidatedModule*(runtime: RuntimeEngine;
     bytes: openArray[byte]): RuntimeModule

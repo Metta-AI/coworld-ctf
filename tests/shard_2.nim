@@ -35,6 +35,7 @@ import
   test_shell_body_nav,
   test_shell_body_seat,
   test_shell_contracts,
+  test_shell_compile_plane,
   test_shell_default_play,
   test_shell_first_light,
   test_shell_module_validation,
