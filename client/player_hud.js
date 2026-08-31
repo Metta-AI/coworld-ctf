@@ -1179,7 +1179,16 @@
     if (state.variant === 'unknown') { nodes.top.style.display = 'none'; return; }
     nodes.top.style.display = '';
     if (state.variant === 'ctf') {
-      nodes.top.innerHTML = state.teamScores.slice()
+      // Eyebrow label (coordinator, live 8/30: Maxwell himself couldn't
+      // identify this strip -- guessed team lives, then a hearts perk --
+      // for a bare "BLUE 110/110" pair. It's tags-made/tags-lost
+      // (parseTeamScoreLabel: kills/deaths), same contract as the BR
+      // branch's own "teams alive"/"zone" eyebrows just below, which this
+      // branch was missing entirely. Provisional word ("team tags") --
+      // paintbot-voice owns the eventual paintball-register vocabulary
+      // pass; not designing around this string.
+      nodes.top.innerHTML = '<span class="phud-eyebrow">team tags</span>' +
+        state.teamScores.slice()
         .sort(function (a, b) { return b.kills - a.kills; })
         .map(function (t) {
           return '<span class="t" style="color:' + teamColor(t.team.toLowerCase()) + '">' +
