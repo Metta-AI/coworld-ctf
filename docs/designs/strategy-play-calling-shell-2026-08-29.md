@@ -225,7 +225,7 @@ gate, on the same side of the hash boundary: plays run in the server
 process, but their output reaches the record only as masks (hashed) and
 annotations (not hashed).
 
-### 3.3 The seven ported-with-improvement rulings
+### 3.3 The eight ported-with-improvement rulings
 
 **One target-acquisition route.** The ported combat layer routes every
 target choice through the scored selector (`scoreTarget`,
@@ -307,6 +307,19 @@ deterministically (distance, then seat index); the far tail of a
 follows. The differential allowlist covers it, and a golden pins the
 selection at the cap boundary.
 
+**Danger rays capped at weapon range.** An eighth ruling, one level
+down the same arithmetic: even an 8-source rebuild measured ~3.3 ms
+provisional, over the body's everything-else share by itself, because
+stencil's danger rays are effectively map-wide — an artifact of stock
+CTF's 1050 px gun range covering small boards. The port caps danger-ray
+reach at the live `gunRange` (331 px derived on Battle Royale), which
+is §4.2's standing doctrine applied to one more consumer: danger beyond
+the range anyone can shoot from is not danger. Ray cost scales with
+reach, so this is also the per-rebuild cost lever staggering and the
+source cap cannot provide. The differential allowlist covers it, and a
+golden pins field values at the range boundary against a beyond-range
+source.
+
 ### 3.4 Porting verification
 
 The port is verified by a temporary adapter that runs the ported body and
@@ -314,7 +327,7 @@ stencil's original side by side on identical inputs and compares executor
 outputs. The scope of that comparison is stated plainly, because two
 facts bound it. Stencil cannot run Battle Royale at all (its world model
 waits for endzones and lacks the zone percepts), so the differential test
-covers **CTF only**. And the seven rulings of section 3.3 change behavior
+covers **CTF only**. And the eight rulings of section 3.3 change behavior
 on purpose, so blanket output equality is not the expectation: the
 differential test targets the *unchanged* subcomponents (the planner's
 routes, the follower and corridor behavior, the unmodified combat paths)
@@ -3226,6 +3239,13 @@ current design; everything decided, superseded, or answered lives here.
   the measured worst tick (32 synchronized rebuilds ~109 ms; one cold
   giant-field plan ~65 ms) cannot fit the quarter-tick acceptance by
   scheduling alone.
+- Ruling eight (danger rays capped at live `gunRange`) was ratified
+  2026-08-30 by the PM under James's standing P0 authorization, after
+  the sub-allocation arithmetic showed a single capped rebuild
+  (~3.3 ms) still over the body's everything-else share; it is §4.2's
+  live-weapon-range doctrine applied to the danger field, allowlisted
+  and goldened like rulings five through seven, provisional until the
+  quiet-window pass.
 - P0's combined measurement (both halves, 2026-08-30) ratified the
   BUDGET RETUNE (James): `MaxActiveOverlays` 4→2, `StepFuel`
   200k→50k, `MaxEmitsPerStep` 4→2, `MaxSpatialCallsPerStep` 8→4,
