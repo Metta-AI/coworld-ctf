@@ -2728,7 +2728,10 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
         seat: target.joinOrder,
         pos: target.bodyPoint,
         team: target.team,
-        aimBrads: target.aimBrads,
+        # some(): today's sim always exposes a readable aim for any track it
+        # emits (the aimBrads ruling); the omit case is reserved for future
+        # non-visual channels.
+        aimBrads: some(target.aimBrads),
         hpKnown: some(target.hp + target.shieldHp),
         tick: uint32(sim.tickCount + 1)))
 

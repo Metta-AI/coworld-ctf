@@ -40,6 +40,7 @@ import
   test_shell_body_map,
   test_shell_body_nav,
   test_shell_body_seat,
+  test_shell_combat,
   test_shell_contracts,
   test_shell_abi,
   test_shell_compile_plane,
