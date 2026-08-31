@@ -6,7 +6,7 @@
 
 import std/options
 
-import abi, body_map, emit_validator, runtime, types, wasmtime_c
+import abi, body_map, emit_validator, module_cache, runtime, types, wasmtime_c
 
 type
   InvocationKind* = enum
@@ -432,6 +432,8 @@ proc finishResult(instance: ShellInstance, kind: InvocationKind,
     manifestBytes: instance.host.manifestBytes,
     fuelInstalledBeforeAlloc: instance.host.invocation.fuelInstalledBeforeAlloc)
   instance.host.invocation.finish()
+  if result.faulted or (kind == ivRetune and refused):
+    instance.close()
 
 proc invokeManifest*(instance: ShellInstance): ShellInvocationResult =
   instance.prepareInvocation(apManifest, ivManifest, ManifestFuel.uint64)
@@ -490,8 +492,10 @@ proc invokeStep*(instance: ShellInstance, viewBytes: string,
 proc invokeRetune*(instance: ShellInstance, oldParams,
                    newParams: string): ShellInvocationResult =
   if not instance.hasRetune:
-    return ShellInvocationResult(kind: ivRetune, returned: 1, refused: true,
+    result = ShellInvocationResult(kind: ivRetune, returned: 1, refused: true,
       reason: "play_retune export absent", lastAccepted: instance.lastAccepted)
+    instance.close()
+    return
   instance.prepareInvocation(apRetune, ivRetune, InitFuel.uint64)
   let oldBuffer = instance.allocate(oldParams.len)
   let newBuffer = instance.allocate(newParams.len)
@@ -508,3 +512,56 @@ proc invokeRetune*(instance: ShellInstance, oldParams,
     let refused = returned != 0 or instance.host.invocation.faulted
     return instance.finishResult(ivRetune, returned, refused)
   instance.finishResult(ivRetune, -1, refused = true)
+
+proc terminalReason(entry: StatusEntry): string =
+  case entry.kind
+  of skPlayFaulted:
+    entry.faultReason
+  of skRetuneRefused:
+    entry.faultReason
+  else:
+    ""
+
+proc setTerminalReason(entry: var StatusEntry; reason: string) =
+  case entry.kind
+  of skPlayFaulted, skRetuneRefused:
+    entry.faultReason = reason
+  else:
+    discard
+
+proc fitTerminalStatus(entry: var StatusEntry) =
+  while entry.terminalReason.len > 0 and
+      encodeStatusEntry(entry).len > StatusEntryMaxBytes:
+    var reason = entry.terminalReason
+    reason.setLen(reason.len - 1)
+    entry.setTerminalReason(reason)
+
+proc terminalStatus*(invocationResult: ShellInvocationResult; ordinal,
+                     originGeneration, epoch: uint64;
+                     entryId: string): Option[StatusEntry] =
+  ## Maps autonomous runtime terminal results to durable shell status entries.
+  ## Non-terminal success and negative emit rejections are not statuses here:
+  ## ladder call acceptance/rejection is owned by the later guard/call phases.
+  if invocationResult.kind == ivRetune and invocationResult.refused:
+    var entry = StatusEntry(kind: skRetuneRefused, ordinal: ordinal,
+      originGeneration: originGeneration, faultEpoch: epoch,
+      entryId: entryId, faultReason: invocationResult.reason)
+    entry.fitTerminalStatus()
+    return some(entry)
+  if invocationResult.faulted:
+    var entry = StatusEntry(kind: skPlayFaulted, ordinal: ordinal,
+      originGeneration: originGeneration, faultEpoch: epoch,
+      entryId: entryId, faultReason: invocationResult.reason)
+    entry.fitTerminalStatus()
+    return some(entry)
+  none(StatusEntry)
+
+proc terminalStatusBytes*(invocationResult: ShellInvocationResult; ordinal,
+                          originGeneration, epoch: uint64;
+                          entryId: string): string =
+  let status = invocationResult.terminalStatus(ordinal, originGeneration,
+    epoch, entryId)
+  if status.isSome:
+    encodeStatusEntry(status.get)
+  else:
+    ""

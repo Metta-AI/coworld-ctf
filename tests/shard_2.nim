@@ -39,6 +39,7 @@ import
   test_shell_body_map,
   test_shell_body_nav,
   test_shell_compile_plane,
+  test_shell_containment,
   test_shell_default_play,
   test_shell_emit_validator,
   test_shell_first_light,
