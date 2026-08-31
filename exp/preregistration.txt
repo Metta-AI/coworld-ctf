@@ -105,3 +105,50 @@ SUBJECT CAVEAT (recorded before the result, docs/lessons.md #3)
   -d:release: the file named in the task, and the build every prior scrimmage
   battery used as "the baseline bot". The champion define set does compile
   against the repo source (verified), so a confirmation arm is available.
+
+================================ RESULT ================================
+Recorded 2026-08-31 after the battery completed. The bar above is unchanged.
+
+HEAD-TO-HEAD  dyn.out (-d:dynRole) vs stock.out, 160 episodes, sides alternated
+  1 draw, excluded as pre-registered -> N = 159 decisive.
+  dynRole wins  74/159 = 0.4654   exact 95% CI [0.3860, 0.5461]
+  Pre-registered bar at N=159: 92 (0.5786).  MISSED BY 18 WINS.
+  Negative band at N=159: <= 79.  74 is inside it.
+  one-sided P(X>=74 | p=0.5) = 0.829   (no evidence of better)
+  one-sided P(X<=74 | p=0.5) = 0.214   (no evidence of worse either)
+  -> BAND 2: dynamic role assignment does not beat static for this bot.
+
+  The CI's upper bound is 0.546, so this run EXCLUDES a true win rate of
+  0.55, 0.575, 0.58 and 0.60 at 95%. It is not merely underpowered: any
+  effect large enough to justify the design direction is ruled out.
+
+SECONDARY, all paired, all null
+  captures/ep   dyn 0.212 +- 0.064   stock 0.237 +- 0.066   diff -0.025 +- 0.104
+  kills/ep      dyn 20.488 +- 0.444  stock 20.900 +- 0.445  diff -0.412 +- 0.767
+  teamkills/ep  dyn  0.588 +- 0.113  stock  0.719 +- 0.136  diff -0.131 +- 0.181
+  deaths/ep     dyn 21.488 +- 0.416  stock 21.206 +- 0.436  diff +0.281 +- 0.747
+
+VALIDITY
+  0 skipped frames in all 160 episodes; seatings 80 red / 79 blue decisive;
+  frames/ep 2133 +- 61 against the calibration's 2116 +- 93.
+  Side variance in this battery: red 0.438 / blue 0.494, 5.6pp swing,
+  0.3% of estimator variance. Red overall 0.472 [0.392,0.552] here against
+  0.588 [0.472,0.696] in calibration -- overlapping; the side effect is not
+  stable at these n and did not drive this result.
+
+HOW EPISODES ARE DECIDED (the diagnostic that matters most)
+  Only 45.3% of decisive h2h episodes (32.5% of calibration episodes) ended
+  in a capture at all. In the 87 capture-free h2h episodes the winner also
+  out-killed the loser in 85 (97.7%); in calibration, 54/54 (100%).
+  Most games are decided by attrition, which is decide()'s motor layer, not
+  by the flag, which is what the role table allocates against.
+
+UNCONFIRMED, flagged as cross-battery (lessons #7, "different populations")
+  Episodes ending in a capture: 72/159 = 0.453 with dyn on the board against
+  26/80 = 0.325 in stock-vs-stock, +12.8pp, z=1.90, two-sided p=0.058.
+  Both teams' capture rates rose. Consistent with "the variant opens the game
+  up for both sides and the effects cancel", but this compares two batteries
+  run at different times under different background load. NOT a finding. A
+  paired design would be needed to confirm it.
+
+NOT DONE, deliberately: the heuristic was not retuned. One honest attempt.
