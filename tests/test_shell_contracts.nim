@@ -204,6 +204,11 @@ suite "shell canonical encoding":
       # key-order proof; raw newlines additionally can never appear
       # (escapeJson escapes them inside strings).
       check canonicalJson(parseJson(bytes)) == bytes
+      # And every golden must pass the PRODUCTION validating parser —
+      # schema conformance is not validator conformance (the lane C
+      # golden-gap class); the reference re-encode above and the fast
+      # path must agree that these bytes are canonical.
+      validateCanonical(bytes)
       check '\n' notin bytes
 
   test "object keys are sorted and sets are pre-sorted in the goldens":
