@@ -903,6 +903,28 @@ const
   PlaySeatBindTicksDefault* = 7200   ## 5 min presence budget
   PlaySeatBindTicksMax* = 14400
 
+  # §9.2/§9.3 lobby-chat wire and replay constants. src/ctf never imports
+  # src/shell (see above), so these are ctf's OWN copies of the values
+  # src/shell/types.nim also carries (OpLobbyChatSend/OpLobbyChatBroadcast,
+  # LobbyChatMaxBytes/MaxPerSeatPerPhase/MinSpacingTicks) — the two must stay
+  # byte-identical by construction (a `static: doAssert` in each file's own
+  # module would only prove self-consistency, not cross-module agreement, so
+  # the wire goldens in test_lobby_chat.nim are the real contract check).
+  # This lane (huddle-v1) implements the phase on the CURRENT engine, ahead
+  # of the play-seat/WASM shell's own runtime, per the landing plan's "the
+  # engine already runs the lobby phase every play seat needs" (§9.1) — a
+  # play-seat episode is enough to arm the phase; the seat need not be
+  # WASM-driven yet to attend or chat in it.
+  LobbyChatSendOp* = 0xA3'u8         ## client→server, matches shell's
+                                     ## OpLobbyChatSend
+  LobbyChatBroadcastOp* = 0xB2'u8    ## server→client, matches shell's
+                                     ## OpLobbyChatBroadcast
+  LobbyChatWireVersion* = 1'u8
+  LobbyChatMaxBytes* = 512           ## raw UTF-8 payload, measured first
+  LobbyChatMaxMessagesPerSeat* = 16  ## per seat, per phase
+  LobbyChatMinSpacingTicks* = 24     ## no two accepted messages from the
+                                     ## same seat closer than this many ticks
+
   MaxPolicyPageBytes* = 60000
     ## Hard ceiling on one flashed one-page policy, in bytes. The reflash
     ## record rides the replay's existing string-carrying record, whose
@@ -2526,6 +2548,16 @@ type
                                ## paintHealTicks it heals 1 hp and resets.
                                ## Reset by stepping off, by damage, by death
                                ## and at the start of each game. HASHED.
+    lastLobbyChatTick*: int    ## tick of this seat's latest accepted lobby
+                               ## chat message, -1 = never. Lobby-lifecycle
+                               ## only: not hashed, not in gameHash (§9.3).
+                               ## Append-only (GVNEXT): added after every
+                               ## pre-huddle field, per flatty layout
+                               ## convention.
+    lobbyChatSentCount*: int   ## accepted lobby chat messages this seat has
+                               ## sent THIS episode's phase (resets with
+                               ## lobbyChatDone, SimServer); caps at
+                               ## LobbyChatMaxMessagesPerSeat.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -2930,6 +2962,26 @@ type
     content*: string           ## sanitized shout content, "" = n/a.
     damages*: seq[EventDamage] ## victims damaged by this impact/use.
 
+  LobbyChatRejectReason* = enum
+    ## §9.2's admission outcomes for one `LobbyChat` (0xA3) send, in the
+    ## order applyLobbyChat checks them.
+    lcrOk
+    lcrClosed        ## not currently in the `chatting` substate
+    lcrBadSeat       ## seat index is not a joined player
+    lcrTooLong       ## raw payload exceeds LobbyChatMaxBytes
+    lcrInvalidUtf8   ## malformed, overlong, or surrogate-encoded UTF-8
+    lcrControlChar   ## a C0/C1 control scalar (LF excepted) or U+2028/2029
+    lcrEmpty         ## empty, or every scalar is ASCII space or LF
+    lcrRateLimited   ## LobbyChatMaxMessagesPerSeat already sent this phase
+    lcrTooSoon       ## fewer than LobbyChatMinSpacingTicks since the last
+
+  LobbyChatResult* = object
+    ## The outcome of one applyLobbyChat call: `ordinal` is meaningful only
+    ## when `ok`, and is this episode's per-message monotonic stamp (§9.2).
+    ok*: bool
+    ordinal*: uint64
+    reason*: LobbyChatRejectReason
+
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
@@ -3262,6 +3314,26 @@ type
                                ## main's structure exactly.
     achievementFeed*: seq[AchievementClaim]  ## GLORY: claims in order, for
                                ## the replay feed / HUD. Never in gameHash.
+    lobbyChatActive*: bool  ## §9.2: true while the `chatting` substate is
+                            ## running (the countdown is HELD, not
+                            ## decrementing, while this is true). Engages
+                            ## only in a play-seat episode (hasPlaySeat,
+                            ## sim_config.nim) with lobbyChatTicks > 0 — a
+                            ## configuration with no play seat never sets
+                            ## this, which is the byte-identical shape the
+                            ## design requires ("nothing below changes a
+                            ## configuration with no play seat", §9.2).
+                            ## Append-only (GVNEXT): added after every
+                            ## pre-huddle field, per flatty layout convention.
+    lobbyChatTicksLeft*: int  ## ticks remaining in the active chat phase.
+    lobbyChatDone*: bool    ## true once the phase has run to completion (or
+                            ## was skipped, lobbyChatTicks == 0) THIS episode
+                            ## — chat runs at most once per episode (§9.2);
+                            ## a later roster drop during `countdown` resets
+                            ## the countdown timer, never this flag.
+    lobbyChatOrdinal*: uint64  ## next lobby-chat ordinal to assign — per
+                               ## episode, monotonic across every seat
+                               ## (§9.2). Lobby-lifecycle only: not hashed.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

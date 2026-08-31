@@ -5618,6 +5618,10 @@ proc resetToLobby*(sim: var SimServer) =
   sim.gameStartTick = -1
   sim.startWaitTimer = 0
   sim.lobbyWaitTimer = 0
+  sim.lobbyChatActive = false
+  sim.lobbyChatTicksLeft = 0
+  sim.lobbyChatDone = false
+  sim.lobbyChatOrdinal = 0
   sim.timeLimitReached = false
   sim.barrageStartTick = -1
   sim.barrageAccum = 0
@@ -5632,8 +5636,29 @@ proc resetToLobby*(sim: var SimServer) =
     account.won = false
     account.abandoned = false
 
+proc inLobbyChat*(sim: SimServer): bool =
+  ## True while the §9.2 `chatting` substate is actively running: the ONLY
+  ## window a `LobbyChat` (0xA3) send is admitted in (applyLobbyChat below).
+  sim.phase == Lobby and sim.lobbyChatActive
+
 proc stepLobby(sim: var SimServer) {.measure.} =
-  ## Advances the lobby start countdown.
+  ## Advances the lobby: `joining` (roster fill, unchanged) -> `chatting`
+  ## (once, held countdown, §9.2) -> `countdown` (today's startWaitTicks
+  ## logic, unchanged in shape). The chatting substate exists ONLY for a
+  ## play-seat episode (hasPlaySeat, sim_config.nim) with lobbyChatTicks >
+  ## 0 — "nothing below changes a configuration with no play seat" (§9.2)
+  ## is enforced HERE, not by lobbyChatTicks's own default value, so an
+  ## ordinary input-only lobby plays byte-identically to the pre-huddle
+  ## engine regardless of that field's configured value.
+  if sim.lobbyChatActive:
+    # Held: startWaitTimer does not run, and an input seat leaving does not
+    # end chat (§9.2) — so this branch is checked BEFORE, and independent
+    # of, the roster-sufficiency check below.
+    dec sim.lobbyChatTicksLeft
+    if sim.lobbyChatTicksLeft <= 0:
+      sim.lobbyChatActive = false
+      sim.lobbyChatDone = true
+    return
   if sim.players.len < sim.config.minPlayers:
     sim.startWaitTimer = 0
     if sim.config.maxGames > 0 and sim.config.lobbyJoinTimeoutTicks > 0:
@@ -5643,6 +5668,13 @@ proc stepLobby(sim: var SimServer) {.measure.} =
       inc sim.lobbyWaitTimer
     sim.logLobbyWaiting()
     return
+  if not sim.lobbyChatDone:
+    if sim.config.lobbyChatTicks <= 0 or not sim.config.hasPlaySeat():
+      sim.lobbyChatDone = true
+    else:
+      sim.lobbyChatActive = true
+      sim.lobbyChatTicksLeft = sim.config.lobbyChatTicks
+      return
   if sim.config.startWaitTicks <= 0:
     sim.startGame()
     return
@@ -5653,6 +5685,92 @@ proc stepLobby(sim: var SimServer) {.measure.} =
     sim.startGame()
   else:
     sim.logLobbyCountdown()
+
+proc lobbyChatContentReason(text: string): LobbyChatRejectReason =
+  ## Structural + content admission checks for lobby chat text, decoded in
+  ## one pass: well-formed UTF-8 (no overlong encoding, no surrogate
+  ## scalar, no scalar past U+10FFFF), then the C0/C1 control ranges (LF
+  ## excepted) and U+2028/U+2029, then the ASCII-only blank predicate
+  ## ("non-ASCII space is content", §9.2). Assumes the caller already
+  ## checked the LobbyChatMaxBytes length cap.
+  var i = 0
+  let n = text.len
+  var allBlank = true
+  while i < n:
+    let b0 = uint8(text[i])
+    var cp: uint32
+    var width: int
+    if b0 <= 0x7f'u8:
+      cp = uint32(b0)
+      width = 1
+    elif b0 shr 5 == 0b110'u8:
+      if b0 < 0xc2'u8 or i + 1 >= n or uint8(text[i + 1]) shr 6 != 0b10'u8:
+        return lcrInvalidUtf8
+      cp = (uint32(b0 and 0x1f'u8) shl 6) or
+        uint32(uint8(text[i + 1]) and 0x3f'u8)
+      width = 2
+    elif b0 shr 4 == 0b1110'u8:
+      if i + 2 >= n or uint8(text[i + 1]) shr 6 != 0b10'u8 or
+          uint8(text[i + 2]) shr 6 != 0b10'u8:
+        return lcrInvalidUtf8
+      cp = (uint32(b0 and 0x0f'u8) shl 12) or
+        (uint32(uint8(text[i + 1]) and 0x3f'u8) shl 6) or
+        uint32(uint8(text[i + 2]) and 0x3f'u8)
+      if cp < 0x800'u32 or (cp >= 0xd800'u32 and cp <= 0xdfff'u32):
+        return lcrInvalidUtf8
+      width = 3
+    elif b0 shr 3 == 0b11110'u8:
+      if i + 3 >= n or uint8(text[i + 1]) shr 6 != 0b10'u8 or
+          uint8(text[i + 2]) shr 6 != 0b10'u8 or
+          uint8(text[i + 3]) shr 6 != 0b10'u8:
+        return lcrInvalidUtf8
+      cp = (uint32(b0 and 0x07'u8) shl 18) or
+        (uint32(uint8(text[i + 1]) and 0x3f'u8) shl 12) or
+        (uint32(uint8(text[i + 2]) and 0x3f'u8) shl 6) or
+        uint32(uint8(text[i + 3]) and 0x3f'u8)
+      if cp < 0x10000'u32 or cp > 0x10ffff'u32:
+        return lcrInvalidUtf8
+      width = 4
+    else:
+      return lcrInvalidUtf8
+    if cp == 0x0a'u32:
+      discard   # the one allowed line break; counts as blank below.
+    elif cp <= 0x1f'u32 or (cp >= 0x7f'u32 and cp <= 0x9f'u32) or
+        cp == 0x2028'u32 or cp == 0x2029'u32:
+      return lcrControlChar
+    if cp != 0x20'u32 and cp != 0x0a'u32:
+      allBlank = false
+    i += width
+  if allBlank:
+    return lcrEmpty
+  lcrOk
+
+proc applyLobbyChat*(
+  sim: var SimServer,
+  seatIndex: int,
+  text: string
+): LobbyChatResult {.discardable.} =
+  ## Admits one §9.2 lobby chat send. `sim.applyShout` stays Playing-only
+  ## and untouched (this is its own path, not a shout variant, per the
+  ## design's ruling) — this is the whole of the lobby chat one.
+  if not sim.inLobbyChat():
+    return LobbyChatResult(ok: false, reason: lcrClosed)
+  if seatIndex < 0 or seatIndex >= sim.players.len:
+    return LobbyChatResult(ok: false, reason: lcrBadSeat)
+  if text.len > LobbyChatMaxBytes:
+    return LobbyChatResult(ok: false, reason: lcrTooLong)
+  let contentReason = lobbyChatContentReason(text)
+  if contentReason != lcrOk:
+    return LobbyChatResult(ok: false, reason: contentReason)
+  if sim.players[seatIndex].lobbyChatSentCount >= LobbyChatMaxMessagesPerSeat:
+    return LobbyChatResult(ok: false, reason: lcrRateLimited)
+  let last = sim.players[seatIndex].lastLobbyChatTick
+  if last >= 0 and sim.tickCount - last < LobbyChatMinSpacingTicks:
+    return LobbyChatResult(ok: false, reason: lcrTooSoon)
+  inc sim.lobbyChatOrdinal
+  sim.players[seatIndex].lastLobbyChatTick = sim.tickCount
+  inc sim.players[seatIndex].lobbyChatSentCount
+  LobbyChatResult(ok: true, ordinal: sim.lobbyChatOrdinal, reason: lcrOk)
 
 proc packRadiusSq*(sim: SimServer): int =
   ## `pack`: the squared radius of a circle covering PackAreaPct of the map's

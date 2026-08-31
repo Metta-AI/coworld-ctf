@@ -708,6 +708,19 @@ proc readConfigRegimes(node: JsonNode, config: var GameConfig) =
     regimes.add(parseRegime(item.getStr()))
   config.regimes = regimes
 
+proc hasPlaySeat*(config: GameConfig): bool =
+  ## True when at least one configured slot is a Season 2 play seat
+  ## (`control: "play"`). Validation requires `season2Shell` whenever this
+  ## is true (playSeatRequiresShell, below) — an all-input roster under
+  ## season2Shell plays byte-identically to gate-off, so callers that gate
+  ## BEHAVIOR (not just the config surface) on the shell being live should
+  ## check this, not `config.season2Shell` alone (§9.2's "a configuration
+  ## with no play seat" is this predicate, exactly).
+  for slot in config.slots:
+    if slot.control == scPlay:
+      return true
+  false
+
 proc validate(config: GameConfig) =
   ## Raises if a gameplay config has invalid values.
   if config.motionScale <= 0:
@@ -935,10 +948,7 @@ proc validate(config: GameConfig) =
       "Config field playSeatBindTicks must be 0.." & $PlaySeatBindTicksMax &
         " (positive in a play-seat episode)."
     )
-  var hasPlaySeat = false
-  for slot in config.slots:
-    if slot.control == scPlay:
-      hasPlaySeat = true
+  let hasPlaySeat = config.hasPlaySeat()
   if hasPlaySeat and not config.season2Shell:
     # playSeatRequiresShell: the §5.1 one-way coupling — a "play" slot under
     # a gate-off configuration is an error; gate-on with an all-input roster
