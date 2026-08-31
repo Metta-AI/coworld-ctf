@@ -60,6 +60,22 @@ than a lobby-phase vote could reach:
   (Shell:2455). The engine is already building the one true map while the
   lobby it would vote in is still running.
 
+One fact de-risks this considerably. The entrant policies loaded into an
+episode are the **same fixed, already-uploaded set regardless of which of
+A/B/C wins.** The vote changes only runtime parameters — how many
+instances of each policy to instantiate (the seat count the winning
+config needs), which map they run on, how long the episode runs — never
+which policy artifacts get fetched. So there is no ordering deadlock on
+the provisioning side: the policy set is known before the vote runs, and
+the sequence is simply load the known policies, run the vote, instantiate
+the right number of them on the winning map. From the platform side,
+waiting on the vote is waiting on a count and a map choice for artifacts
+already in hand, not a re-provisioning problem. Whether that lands as
+cleanly inside James's own handshake — specifically, whether `PlayContext`
+can carry a placeholder until the tally and only then fill in mode, map,
+and roster — is the mechanical question §9's Q2 asks him, not an
+architectural one.
+
 So the vote is meant to decide the **whole bundle** — mode, map, and
 roster together, since A/B/C can each be a different mode with a
 different roster shape — that `PlayContext` and the episode-layer build
@@ -75,9 +91,10 @@ here:
    — seats register and chat immediately, but mode, map, *and* roster
    (and the section-10 build) all wait for the tally together, as one
    unit, not map alone. Keeps container order untouched; breaks the
-   "once per episode, at registration" framing both currently have; and
-   since A/B/C can differ in seats-per-team, container provisioning
-   itself may also have to wait, not just the payload's content.
+   "once per episode, at registration" framing both currently have.
+   (Instance count also waits on the tally, but per the fact above,
+   that's a wait on a number against known artifacts, not a
+   re-provisioning problem — a footnote, not a risk.)
 3. **Speculative build** — the engine builds all 3 candidates' episode
    layers in parallel and commits to the winner's, discarding the rest.
    Harder than it sounds when A/B/C are heterogeneous (a BR candidate and
@@ -291,13 +308,18 @@ What's left, genuinely his to rule on:
    (lobby-chat precedent)? The answer decides whether wiring this live
    claims a new GameVersion, the way glory-inc3 (GV48) and play-calling
    P2 (GV49) did, with its own fixture re-record.
-2. **Full-bundle deferral timing (§2).** Can `PlayContext`'s mode+map+
-   roster payload and the section-10 episode-layer build defer until the
-   lobby's vote closes (§2 option 2), or must the ballot precede
-   registration entirely (§2 option 1) — or does the engine build A/B/C
-   speculatively (§2 option 3)? Since A/B/C can differ in seats-per-team
-   as well as mode, this also decides whether container provisioning
-   itself, not just `PlayContext`'s content, has to wait on the tally.
+2. **Where the bundle lands in the handshake (§2), not whether it can.**
+   The policy set loaded into an episode is invariant across A/B/C — the
+   vote only decides a map, a mode, and an instance count for artifacts
+   already in hand — so from the platform/provisioning side, deferring
+   that decision past registration is low-risk: waiting on a count and a
+   map choice, not a re-provisioning problem. The ask for James is
+   mechanical: does `PlayContext`'s mode+map+roster payload (and the
+   section-10 build) defer cleanly to the vote's close inside his own
+   handshake (§2 option 2), or does he prefer the ballot precede
+   registration entirely (§2 option 1) or a speculative build (§2 option
+   3)? Confirming it lands cleanly on his side is the open item, not the
+   architecture.
 
 ---
 
