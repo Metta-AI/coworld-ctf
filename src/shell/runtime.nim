@@ -198,6 +198,13 @@ proc close*(runtime: RuntimeEngine) =
 proc isOpen*(runtime: RuntimeEngine): bool =
   runtime != nil and runtime.raw != nil
 
+proc rawEngine*(runtime: RuntimeEngine): ptr WasmEngine =
+  ## Internal shell bridge accessor for modules that own Wasmtime stores/linkers.
+  if runtime == nil:
+    nil
+  else:
+    runtime.raw
+
 proc tickerWasJoined*(runtime: RuntimeEngine): bool =
   runtime != nil and runtime.tickerJoined
 
@@ -469,6 +476,20 @@ proc instantiate*(module: RuntimeModule;
 
 proc isOpen*(module: RuntimeModule): bool =
   module != nil and module.raw != nil
+
+proc ownerEngine*(module: RuntimeModule): RuntimeEngine =
+  ## Internal shell bridge accessor: modules keep their compiling Engine alive.
+  if module == nil:
+    nil
+  else:
+    module.owner
+
+proc rawModule*(module: RuntimeModule): ptr WasmtimeModule =
+  ## Internal shell bridge accessor for linker instantiation.
+  if module == nil:
+    nil
+  else:
+    module.raw
 
 proc isOpen*(instance: RuntimeInstance): bool =
   instance != nil and instance.store != nil
