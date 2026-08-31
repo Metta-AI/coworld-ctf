@@ -79,13 +79,12 @@ jobs:
       # shell landing set WASMTIME_C_API before this step.
       - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
       - name: Compile test shards (release)
+        # WASMTIME_C_API is job-wide, so every shard that reaches episode.nim
+        # imports the wasmtime runtime — not just shard 2. Same flags as
+        # `nim check` above.
         run: |
           for i in 1 2 3 4; do
-            runtime_flags=()
-            if [ "$i" -eq 2 ]; then
-              runtime_flags=(-d:noSignalHandler --threads:on)
-            fi
-            nim c -d:release --hints:off "${runtime_flags[@]}" \
+            nim c -d:release --hints:off -d:noSignalHandler --threads:on \
               -o:shard_$i tests/shard_$i.nim &
             eval "pid_$i=\$!"
           done
