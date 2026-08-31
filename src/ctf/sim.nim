@@ -1271,6 +1271,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
               word: "kill",
               amount: 1,
               actorIndex: arcFire.attacker,
+              team: attacker.team,
               x: sim.players[victimIndex].x + CollisionW div 2,
               y: sim.players[victimIndex].y + CollisionH div 2
             )
@@ -1660,6 +1661,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
           word: "kill",
           amount: 1,
           actorIndex: shooterIndex,
+          team: shooter.team,
           x: sim.players[targetIndex].x + CollisionW div 2,
           y: sim.players[targetIndex].y + CollisionH div 2
         )
@@ -3794,6 +3796,7 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
             word: "capture",
             amount: 1,
             actorIndex: carrierIndex,
+            team: carrier.team,
             x: cx,
             y: cy
           )

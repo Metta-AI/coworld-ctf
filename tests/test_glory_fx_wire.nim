@@ -84,6 +84,7 @@ suite "glory-toast source: recordKill/recordCapture's callers push GloryDeedFx o
     check deed.word == "kill"
     check deed.amount == 1
     check deed.actorIndex == 0
+    check deed.team == Red  # captured at MINT time, not re-read later
     check deed.x == sim.players[2].x + CollisionW div 2
     check deed.y == sim.players[2].y + CollisionH div 2
 
@@ -128,7 +129,7 @@ suite "buildCosmeticFxPacket: the glory kind":
     sim.players[0].y = cy
     discard sim.refreshPlayerFov(0)
     let deeds = @[GloryDeedFx(tick: 7, word: "kill", amount: 1,
-      actorIndex: 0, x: cx, y: cy)]
+      actorIndex: 0, team: Red, x: cx, y: cy)]
     let packet = buildCosmeticFxPacket(sim, 0, deeds)
     check packet.len > 0
     let parsed = parseJson(packet)
@@ -152,7 +153,7 @@ suite "buildCosmeticFxPacket: the glory kind":
     discard sim.refreshPlayerFov(0)
     # actorIndex 1 is red1 -- the viewer's DUO partner, not the viewer.
     let deeds = @[GloryDeedFx(tick: 3, word: "capture", amount: 1,
-      actorIndex: 1, x: cx, y: cy)]
+      actorIndex: 1, team: Red, x: cx, y: cy)]
     let packet = buildCosmeticFxPacket(sim, 0, deeds)
     let parsed = parseJson(packet)
     let entry = parsed["fx"][0]
@@ -168,7 +169,7 @@ suite "buildCosmeticFxPacket: the glory kind":
     sim.players[0].y = cy
     discard sim.refreshPlayerFov(0)
     let deeds = @[GloryDeedFx(tick: 5, word: "kill", amount: 1,
-      actorIndex: 2, x: cx, y: cy)]
+      actorIndex: 2, team: Blue, x: cx, y: cy)]
     let packet = buildCosmeticFxPacket(sim, 0, deeds)
     let parsed = parseJson(packet)
     let entry = parsed["fx"][0]
@@ -199,6 +200,59 @@ suite "buildCosmeticFxPacket: the glory kind":
     let deeds = @[GloryDeedFx(tick: 1, word: "kill", amount: 1,
       actorIndex: 99, x: cx, y: cy)]
     check buildCosmeticFxPacket(sim, 0, deeds) == ""
+
+suite "glory kind: per-recipient properties, two simultaneous takeover viewers, same frame":
+  test "self differs by viewer, and fog differs by viewer, for the SAME gloryDeeds seq":
+    ## The property this channel rests on beyond the single-viewer suite
+    ## above: buildCosmeticFxPacket is called once PER takeover socket, all
+    ## against the identical frame-scoped `frameGloryDeeds` (see server.nim's
+    ## takeover send pass) -- so two simultaneous viewers must each get their
+    ## OWN self/fog read of the SAME underlying deeds, not a shared one.
+    var sim = gloryFxSim(true)
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    # Viewer A (seat 0, Red) and viewer B (seat 1, Red teammate) share one
+    # spot but face opposite ways -- same rig test_fov.nim's cone tests use
+    # (64 = north, 192 = south; aimVector's own doc comment).
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].aimBrads = 64
+    sim.players[1].x = cx
+    sim.players[1].y = cy
+    sim.players[1].aimBrads = 192
+    discard sim.refreshPlayerFov(0)
+    discard sim.refreshPlayerFov(1)
+    # deed1: minted by seat 0 (viewer A itself), sitting on the shared spot --
+    # visible to BOTH viewers regardless of aim (their own square), same
+    # "close cells are visible regardless of aim" contract test_fov.nim
+    # documents. This is the (a) case: same deed, self should differ by who
+    # is asking.
+    let deed1 = GloryDeedFx(tick: 10, word: "kill", amount: 1,
+      actorIndex: 0, team: Red, x: cx, y: cy)
+    # deed2: 150px north of the shared spot -- ahead of north-facing A
+    # (VisionBubble=90 < 150, well inside the ~1050px gun-range cone), but
+    # BEHIND south-facing B and beyond B's bubble, so fogged for B only.
+    # This is the (b) case: one deed, visible to A, invisible to B.
+    let deed2 = GloryDeedFx(tick: 11, word: "capture", amount: 1,
+      actorIndex: 2, team: Blue, x: cx, y: cy - 150)
+    let deeds = @[deed1, deed2]
+
+    let packetA = buildCosmeticFxPacket(sim, 0, deeds)
+    let packetB = buildCosmeticFxPacket(sim, 1, deeds)
+
+    check packetA.len > 0
+    let parsedA = parseJson(packetA)
+    check parsedA["fx"].len == 2  # both deeds visible to A
+    check parsedA["fx"][0]["word"].getStr == "kill"
+    check parsedA["fx"][0]["self"].getBool == true   # (a): A IS the actor
+    check parsedA["fx"][1]["word"].getStr == "capture"
+
+    check packetB.len > 0
+    let parsedB = parseJson(packetB)
+    # (b): deed2 (north, behind B) is dropped -- only deed1 survives B's fog.
+    check parsedB["fx"].len == 1
+    check parsedB["fx"][0]["word"].getStr == "kill"
+    check parsedB["fx"][0]["self"].getBool == false  # (a): B is NOT the actor
 
 suite "glory kind: byte-identical POLICY stream, on vs off (demonstrated, not asserted)":
   test "buildSpriteProtocolPlayerUpdates output is unchanged by the gate, with a real glory deed populated":

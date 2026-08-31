@@ -2154,7 +2154,12 @@ proc buildCosmeticFxPacket(
   ## mint site (applyFire, resolveActiveArcCones, the capture-zone loop) has
   ## a real position in hand, and any future one that genuinely lacks one
   ## should not emit at all rather than guess a point a fog check can't
-  ## honestly clear.
+  ## honestly clear. `team` below is `deed.team` — captured at MINT time by
+  ## the same populate-time-facts rule every field here follows, never
+  ## re-read from sim.players[deed.actorIndex] at build/send time (that seat
+  ## could in principle no longer mean the same thing by the time this
+  ## drains, even though today's same-tick drain makes it moot in practice —
+  ## see GloryDeedFx.team's own doc comment).
   ##
   ## `self` answers the seat-vs-duo question AT THE WIRE: recordKill/
   ## recordCapture's callers already know the specific crediting SEAT (a
@@ -2215,13 +2220,12 @@ proc buildCosmeticFxPacket(
       continue
     if not sim.fovVisibleAt(viewerIndex, deed.x, deed.y):
       continue
-    let actor = sim.players[deed.actorIndex]
     fx.add(%*{
       "kind": "glory",
       "tick": deed.tick,
       "word": deed.word,
       "amount": deed.amount,
-      "team": teamText(actor.team),
+      "team": teamText(deed.team),
       "self": deed.actorIndex == viewerIndex,
       "x": deed.x,
       "y": deed.y

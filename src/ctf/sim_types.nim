@@ -2218,6 +2218,16 @@ type
                             ## distinct from its teammate's -- see
                             ## buildCosmeticFxPacket's own doc comment for
                             ## the seat-vs-duo call this answers.
+    team*: Team              ## the crediting seat's team AT MINT TIME --
+                            ## captured here rather than re-read from
+                            ## sim.players[actorIndex] at build/send time,
+                            ## the same populate-time-facts discipline
+                            ## ShotFeedbackFx's friendlyFire field already
+                            ## documents (a dead seat's team never changes
+                            ## after the fact, but the record should not
+                            ## depend on that being true, or on the actor
+                            ## still existing at the same index, by the
+                            ## time this drains).
     x*: int
     y*: int                 ## the deed's mint-site position (the kill/
                             ## capture location) -- fog-clipped exactly like
