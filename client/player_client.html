@@ -1652,6 +1652,25 @@ function drawSelfTag(){
    the game's real paint would read as more wrong than a plain ring, not
    less. Once real splat rendering lands in this client this marker is the
    thing to swap it onto. */
+/* GVFIX(ringkey): restores the one constant drawKillcamMarker's own keyline
+   stroke below needs (RING_KEY), which this branch never actually received.
+   The retone commit that added this call site (7316db4e, "client: retone
+   the killcam marker and ease the camera zoom") was written against a
+   lineage where RING_MATE/RING_SELF/RING_KEY and the per-cog ring-sprite
+   cache (b3d70a92, "player view: ring the cogs on MY side") already
+   existed -- its own doc comment says so explicitly ("the RING_KEY
+   anti-camouflage keyline cog rings already use"). That prerequisite
+   commit was never part of this deploy line, so the reference was dangling:
+   drawKillcamMarker threw ReferenceError on every single frame of every
+   killcam (confirmed live, real-rig, swap9 verification pass), aborting
+   the draw before the ring/label ever painted and making the zoom fix
+   next to it impossible to observe. Pinning the exact value b3d70a92
+   shipped (near-black, the same anti-camouflage keyline the never-ported
+   cog-ring feature used) rather than inventing a new one, so this restores
+   the ORIGINAL intended look, not a fresh guess. Scoped to this one
+   constant -- the rest of that feature (ringCache, per-cog rim sprites)
+   is out of scope here and not needed by this call site. */
+const RING_KEY=[12,10,9];
 function drawKillcamMarker(){
   const info=killcamInfo();
   if(!info)return;
