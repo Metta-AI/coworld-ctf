@@ -1387,13 +1387,15 @@
       <li>The view names the game mode explicitly. Players extend its vocabulary by pull request to this
       repository.</li>
     </ul>
-    <p>The view is two messages with two lifetimes, and each has two layers: a <strong>gameplay
-    payload</strong>, which is one byte string built once per seat and given unchanged both to
-    <code>play_init</code> or <code>play_step</code> and to the socket packet, and a <strong>control
-    envelope</strong>, which exists only on the socket (<a href="#s4-3">section 4.3</a>'s packet table carries them as two
-    separate slices). The gameplay payload is capped at <code>MaxContextBytes</code> or
-    <code>MaxViewFrameBytes</code>; the control envelope is capped at 20480 bytes on its own
-    (<a href="#s4-3">section 4.3</a> derives that number), and the guest never sees it. Each layer has its own golden.</p>
+    <p>The view is two messages with two lifetimes. Each starts from one selected gameplay model, then
+    has two encodings: a fixed-layout binary copy for <code>play_init</code> or
+    <code>play_step</code>, and canonical JSON for the socket/replay copy. The control envelope exists
+    only on the socket (<a href="#s4-3">section 4.3</a>'s packet table carries it as a separate slice).
+    The play's binary payload is capped at <code>MaxBinaryContextBytes</code> or
+    <code>MaxBinaryViewFrameBytes</code>; the socket/replay JSON payload is capped at
+    <code>MaxContextBytes</code> or <code>MaxViewFrameBytes</code>. The control envelope is capped at
+    20480 bytes on its own (<a href="#s4-3">section 4.3</a> derives that number), and the guest never sees it.
+    Each encoding has its own golden.</p>
     <p><strong>The <code>PlayContext</code>, once per episode</strong> (re-sent on reconnect, and handed to
     every play instance at init). Gameplay payload: the episode-static facts, which are the game mode
     (<a href="#s5-1">section 5.1</a>), the map identity and dimensions, the roster (teams and seat references), the seat's
@@ -1421,20 +1423,27 @@
     that instant), then the play step under the ladder (<a href="#s7-2">section 7.2</a>), then body execution under the
     standing <code>Intent</code>, then the sim step. The view a play reads for tick N is exactly the
     belief the body executes against at tick N, and the gameplay payload the LLM receives for tick N is
-    the same bytes.</p>
-    <p>Encoding for both messages is the same versioned, schema-tagged JSON as the <code>Intent</code>,
-    with a golden byte fixture. One rule applies to every 64-bit identity wherever it appears in JSON
+    the same selected model encoded as the socket/replay JSON copy.</p>
+    <p>Socket/replay encoding for both messages is the same versioned, schema-tagged JSON as the
+    <code>Intent</code>, with a golden byte fixture. Play-facing encoding is the fixed-layout
+    little-endian binary frame specified by <code>BINARY-VIEW-SPEC.md</code>: a 32-byte header, a
+    12-byte section table entry with <code>record_stride</code>, fixed-size records, explicit presence
+    bits for optional fields, and shout text in one tail blob. Engine-to-play is binary, but
+    play-to-engine emissions stay canonical JSON; the asymmetry is deliberate. One rule applies to every 64-bit identity wherever it appears in JSON
     (status entries, recovery state, the call epoch in the gameplay view): it is encoded as a decimal
     string with no leading zeros, never a JSON number, because a JSON number cannot carry the full
     <code>uint64</code> range through common clients while the binary packet headers can; a numeric or
     malformed spelling is a schema rejection, and cross-language goldens cover <code>2^53 - 1</code>,
     <code>2^53</code>, and the largest <code>uint64</code> in a status entry, a recovery state, and a
-    view. Tagged encoding is what makes "adding fields is compatible" true: an older play ignores tags it
-    does not know. The payload maxima of <a href="#s6-1">section 6.1</a> (<code>MaxContextBytes</code>,
-    <code>MaxViewFrameBytes</code>) are backed by element caps, not by cutting bytes: every
-    variable-length field has a numeric cap and a deterministic selection order applied <em>before</em>
-    encoding, so the encoded payload is always valid JSON and the caps make the maximum size a computable
-    constant. The caps: tracked entities, at most the roster (32, so never truncated); item memory, 32
+    view. Tagged JSON encoding and binary section/stride versioning are what make "adding fields is
+    compatible" true: an older reader ignores tags or unknown sections it does not know, and skips grown
+    binary records by the frame-declared stride. The payload maxima of <a href="#s6-1">section 6.1</a>
+    are enforced on the encoded bytes: <code>MaxBinaryContextBytes</code> and
+    <code>MaxBinaryViewFrameBytes</code> for the play-facing binary copies, and
+    <code>MaxContextBytes</code> and <code>MaxViewFrameBytes</code> for the socket/replay JSON copies.
+    Every variable-length field has a numeric cap and a deterministic selection order applied
+    <em>before</em> encoding, so the encoded payload is always complete valid JSON or a complete valid
+    binary frame and within its cap. The caps: tracked entities, at most the roster (32, so never truncated); item memory, 32
     entries, keeping the freshest then the nearest; aggressor events against self, 16, most recent first;
     the public kill feed, 32, most recent first; heard shouts, at most one per live shouter and so at most
     the roster (32), which is the same bound the Sprite path has
@@ -1829,8 +1838,10 @@
         <tr><td><code>MaxRouteFieldsPerSeat</code> / <code>MaxDuckEntriesPerSeat</code> (seat-layer caches, <a href="#s3-1">section 3.1</a>)</td><td>4 / 256</td></tr>
         <tr><td><code>ReflexCandidateSpacingPx</code> / <code>ReflexCandidateRadiusPx</code> / <code>MaxReflexCandidates</code> (<a href="#r-2">Appendix R.2</a>'s planning primitive)</td><td>16 / 256 / 1089</td></tr>
         <tr><td><code>MaxLogCallsPerInvocation</code> / <code>MaxLogBytesPerCall</code></td><td>4 / 256</td></tr>
-        <tr><td><code>MaxViewFrameBytes</code> (the step's input)</td><td>32768</td></tr>
-        <tr><td><code>MaxContextBytes</code> (the init's second input; no atlas, <a href="#s5">section 5</a>)</td><td>65536</td></tr>
+        <tr><td><code>MaxBinaryViewFrameBytes</code> (play-facing fixed-layout binary play-view frame)</td><td>8192</td></tr>
+        <tr><td><code>MaxBinaryContextBytes</code> (play-facing fixed-layout binary play-context frame)</td><td>8192</td></tr>
+        <tr><td><code>MaxViewFrameBytes</code> (JSON socket/replay play-view payload)</td><td>32768</td></tr>
+        <tr><td><code>MaxContextBytes</code> (JSON socket/replay play-context payload; no atlas, <a href="#s5">section 5</a>)</td><td>65536</td></tr>
         <tr><td><code>MaxInitsPerTick</code> (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped)</td><td>4</td></tr>
         <tr><td><code>ValidatorRadiusPx</code> (stencil's <code>32 * NavCell</code>, an <em>engine</em> constant; queries answered from the exact precomputed table)</td><td>256</td></tr>
         <tr><td><code>MaxValidatorTableBytes</code> (play-seat map validator cap on the per-spawn-component distance rasters)</td><td>268435456</td></tr>

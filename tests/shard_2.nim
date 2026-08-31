@@ -31,6 +31,7 @@ import
   test_render_scale,
   test_replay_compat,
   test_shard_wiring,
+  test_shell_binary_view,
   test_shell_body_map,
   test_shell_body_nav,
   test_shell_body_seat,

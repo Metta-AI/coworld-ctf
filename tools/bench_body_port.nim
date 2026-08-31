@@ -29,6 +29,10 @@ type
     smokeWalkable: seq[bool]
     smokeSpawns: seq[BodyPoint]
 
+  BarrierPlanPair = object
+    start, requested, resolved: BodyPoint
+    distancePx: float
+
 proc parseIntList(text: string): seq[int] =
   for item in text.split(','):
     result.add(parseInt(item.strip()))
@@ -208,6 +212,71 @@ proc planningGoals(scenario: Scenario): seq[BodyPoint] =
       result.add((3194 - (seat mod 8) * 16,
                   1696 - (seat div 8) * 16))
 
+proc representativeStarts(scenario: Scenario): seq[BodyPoint] =
+  if scenario.smoke:
+    for seat in 0 ..< 32:
+      result.add((32 + (seat mod 8) * 40, 24 + (seat div 8) * 32))
+  else:
+    result = @[
+      (160, 160), (480, 160), (800, 160), (1280, 160),
+      (1600, 160), (1920, 160), (2240, 160), (2560, 160),
+      (160, 480), (480, 480), (800, 480), (1120, 480),
+      (1600, 480), (1920, 480), (2240, 480), (2560, 480),
+      (160, 800), (800, 800), (1120, 800), (1440, 800),
+      (1760, 800), (2080, 800), (2560, 800), (2880, 800),
+      (160, 1120), (640, 1120), (960, 1120), (1440, 1120),
+      (1760, 1120), (2080, 1120), (2400, 1120), (2720, 1120)]
+
+proc straightLinePx(a, b: BodyPoint): float =
+  sqrt(float((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)))
+
+proc representativePlanPairs(scenario: Scenario): seq[BarrierPlanPair] =
+  for seat, start in scenario.representativeStarts:
+    if not scenario.map.canStand(start):
+      raise newException(ValueError,
+        "representative activation start is not standable for seat " &
+        $seat & ": " & $start)
+    let requested: BodyPoint =
+      if scenario.smoke:
+        (min(start.x + 64, scenario.map.width - 24), start.y)
+      else:
+        (min(start.x + shellTypes.MaxCoverRadiusPx,
+          scenario.map.width - 17), start.y)
+    let goal = scenario.map.validateGoal(requested, start)
+    if goal.isNone:
+      raise newException(ValueError,
+        "representative activation goal cannot resolve for seat " &
+        $seat & ": " & $requested)
+    let resolved = goal.get.goalPoint
+    let distance = straightLinePx(start, resolved)
+    if not scenario.smoke and distance > 400.0:
+      raise newException(ValueError,
+        "representative activation goal exceeds cover-class distance for seat " &
+        $seat & ": " & $distance)
+    result.add(BarrierPlanPair(start: start, requested: requested,
+      resolved: resolved, distancePx: distance))
+
+proc distanceDistribution(pairs: openArray[BarrierPlanPair]): JsonNode =
+  var distances: seq[float]
+  for pair in pairs:
+    distances.add(pair.distancePx)
+  distances.sort()
+  let median =
+    if distances.len mod 2 == 0:
+      (distances[distances.len div 2 - 1] + distances[distances.len div 2]) / 2
+    else:
+      distances[distances.len div 2]
+  %*{"min": distances[0], "median": median, "max": distances[^1]}
+
+proc pairDetails(pairs: openArray[BarrierPlanPair]): JsonNode =
+  result = newJArray()
+  for seat, pair in pairs:
+    result.add(%*{"seat": seat,
+      "start": [pair.start.x, pair.start.y],
+      "requested": [pair.requested.x, pair.requested.y],
+      "resolved": [pair.resolved.x, pair.resolved.y],
+      "straight_line_px": pair.distancePx})
+
 proc hasPendingPlan(system: BodyNavSystem): bool =
   for seat in system.seats:
     if seat.job.planPending:
@@ -358,6 +427,46 @@ proc activationBarrierRow(options: Options, scenario: Scenario): JsonNode =
   details["last_queued_mints"] = %lastQueuedMints
   row("latency.activation_barrier_prewarm32_plans_only", samples, details)
 
+proc representativeActivationBarrierRow(options: Options,
+                                        scenario: Scenario): JsonNode =
+  let sampleCount = min(options.samples, 5)
+  let pairs = scenario.representativePlanPairs
+  var lastPlanVisits = 0
+  var lastQueuedMints = 0
+  let samples = measure(options.warmups, sampleCount,
+    proc() =
+      let system = newBodyNavSystem(scenario.map, 32, 331,
+        DangerCadenceK, 100_000)
+      for seat in 0 ..< pairs.len:
+        let pair = pairs[seat]
+        let goal = scenario.map.validateGoal(pair.requested, pair.start)
+        if goal.isNone or goal.get.goalPoint != pair.resolved:
+          raise newException(ValueError,
+            "representative activation goal changed for seat " & $seat)
+        system.replacePlan(seat, uint64(seat + 1), pair.start, goal.get)
+      system.prewarmColdPlans()
+      lastPlanVisits = system.planningTraceSnapshot.len
+      lastQueuedMints = 0
+      for seat in system.seats:
+        if seat.mintQueuedOrPending:
+          inc lastQueuedMints)
+  let p95Ms = percentile(samples, 0.95).float / 1_000_000.0
+  let details = scenario.freezeBudgetDetails
+  details["seat_count"] = %32
+  details["goal_count"] = %pairs.len
+  details["sample_cap"] = %5
+  details["samples_requested"] = %options.samples
+  details["p95_ms"] = %p95Ms
+  details["scenario"] =
+    %"every seat plans a cover-class goal from its own scattered start"
+  details["includes_plan_drain"] = %true
+  details["includes_route_field_mint_drain"] = %false
+  details["distance_px"] = pairs.distanceDistribution
+  details["pairs"] = pairs.pairDetails
+  details["last_plan_trace_visits"] = %lastPlanVisits
+  details["last_queued_mints"] = %lastQueuedMints
+  row("latency.activation_barrier_prewarm32_representative", samples, details)
+
 proc viewSource(seat: int): PlayViewSource =
   result = PlayViewSource(
     tick: 12345'u32,
@@ -451,7 +560,7 @@ proc viewRows(options: Options): seq[JsonNode] =
     "acceptance_p95_ms": 2.5,
     "acceptance": "32-seat canonical JSON build+encode for socket/replay path",
     "json_guest_reader_fuel_acceptance":
-      "fixed-layout binary play copy uses its own 8192-byte cap in the next package after 28-57 fuel/byte JSON measurement",
+      "fixed-layout binary play copy uses its own 8192-byte cap after 28-57 fuel/byte JSON measurement",
     "selected_rows_sample": selectedRows}
   result.add(row("view.json_batch32_build_encode", samples, details))
 
@@ -664,6 +773,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
     result.addRows(options.planningRows(scenario))
     result.addRows(options.latencyRows(scenario))
     result.add(options.activationBarrierRow(scenario))
+    result.add(options.representativeActivationBarrierRow(scenario))
     result.addRows(options.viewRows())
     result.add(options.episodeRow(scenario))
     result.add(options.duckRow(scenario))
@@ -676,6 +786,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
   of "latency":
     result.addRows(options.latencyRows(scenario))
     result.add(options.activationBarrierRow(scenario))
+    result.add(options.representativeActivationBarrierRow(scenario))
     result.add(scenario.writeBackRow)
     result.add(scenario.realScorerWriteBackRow)
   of "view": result.addRows(options.viewRows())

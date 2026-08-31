@@ -380,6 +380,13 @@ const
   MaxReflexCandidates* = 1089         ## (2·16+1)²
   MaxLogCallsPerInvocation* = 4
   MaxLogBytesPerCall* = 256
+  MaxBinaryViewFrameBytes* = 8192
+    ## PM-ratified binary view split (2026-08-31): the play-readable
+    ## fixed-layout binary frame gets its own fuel-derived cap. The
+    ## socket/replay JSON copy remains governed by MaxViewFrameBytes.
+  MaxBinaryContextBytes* = 8192
+    ## Binary play_init context cap for the fixed-layout context frame. The
+    ## socket/replay JSON copy remains governed by MaxContextBytes.
   MaxViewFrameBytes* = 32768
   MaxContextBytes* = 65536
   ValidatorRadiusPx* = 256            ## stencil's 32 × NavCell; an ENGINE

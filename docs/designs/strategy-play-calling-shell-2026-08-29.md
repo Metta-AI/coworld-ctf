@@ -1170,15 +1170,16 @@ dropped or altered contributor as well as dropped bytes.
 - The view names the game mode explicitly. Players extend its vocabulary
   by pull request to this repository.
 
-The view is two messages with two lifetimes, and each has two layers: a
-**gameplay payload**, which is one byte string built once per seat and
-given unchanged both to `play_init` or `play_step` and to the socket
-packet, and a **control envelope**, which exists only on the socket
-(section 4.3's packet table carries them as two separate slices). The
-gameplay payload is capped at `MaxContextBytes` or `MaxViewFrameBytes`;
-the control envelope is capped at 20480 bytes on its own (section 4.3
-derives that number), and the guest never sees it. Each layer has its
-own golden.
+The view is two messages with two lifetimes. Each starts from one
+selected gameplay model, then has two encodings: a fixed-layout binary
+copy for `play_init` or `play_step`, and canonical JSON for the
+socket/replay copy. The control envelope exists only on the socket
+(section 4.3's packet table carries it as a separate slice). The play's
+binary payload is capped at `MaxBinaryContextBytes` or
+`MaxBinaryViewFrameBytes`; the socket/replay JSON payload is capped at
+`MaxContextBytes` or `MaxViewFrameBytes`. The control envelope is capped
+at 20480 bytes on its own (section 4.3 derives that number), and the
+guest never sees it. Each encoding has its own golden.
 
 **The `PlayContext`, once per episode** (re-sent on reconnect, and handed
 to every play instance at init). Gameplay payload: the episode-static
@@ -1217,25 +1218,40 @@ snapshot (a direct projection of the seat's belief at that instant), then
 the play step under the ladder (section 7.2), then body execution under
 the standing `Intent`, then the sim step. The view a play reads for tick N
 is exactly the belief the body executes against at tick N, and the
-gameplay payload the LLM receives for tick N is the same bytes.
+gameplay payload the LLM receives for tick N is the same selected model
+encoded as the socket/replay JSON copy.
 
-Encoding for both messages is the same versioned, schema-tagged JSON as
-the `Intent`, with a golden byte fixture. One rule applies to every
-64-bit identity wherever it appears in JSON (status entries, recovery
-state, the call epoch in the gameplay view): it is encoded as a decimal
-string with no leading zeros, never a JSON number, because a JSON number
-cannot carry the full `uint64` range through common clients while the
-binary packet headers can; a numeric or malformed spelling is a schema
-rejection, and cross-language goldens cover `2^53 - 1`, `2^53`, and the
-largest `uint64` in a status entry, a recovery state, and a view. Tagged encoding is what makes
-"adding fields is compatible" true: an older play ignores tags it does not
-know. The payload maxima of section 6.1 (`MaxContextBytes`,
-`MaxViewFrameBytes`) are enforced on the encoded bytes. The element caps
-bound the schema and reader buffers; they are not delivery promises.
-Every variable-length field has a deterministic selection order applied
-*before* encoding, and the byte cap governs the trimmed model the
-producer emits, so the encoded payload is always complete valid JSON and
-within the cap. The caps: tracked entities, at most the roster (32);
+Socket/replay encoding for both messages is the same versioned,
+schema-tagged JSON as the `Intent`, with a golden byte fixture.
+Play-facing encoding is the fixed-layout little-endian binary frame
+specified by `BINARY-VIEW-SPEC.md`: a 32-byte header, a 12-byte
+section table entry with `record_stride`, fixed-size records, explicit
+presence bits for optional fields, and shout text in one tail blob.
+Engine-to-play is binary, but play-to-engine emissions stay canonical
+JSON; the asymmetry is deliberate because plays parse large inbound
+views but only write small intents, and the emit validator, replay
+reconstruction, and canonical hash contract already own the outbound
+JSON bytes. One rule applies to every 64-bit identity wherever it
+appears in JSON (status entries, recovery state, the call epoch in the
+gameplay view): it is encoded as a decimal string with no leading zeros,
+never a JSON number, because a JSON number cannot carry the full
+`uint64` range through common clients while the binary packet headers
+can; a numeric or malformed spelling is a schema rejection, and
+cross-language goldens cover `2^53 - 1`, `2^53`, and the largest
+`uint64` in a status entry, a recovery state, and a view. Tagged JSON
+encoding and binary section/stride versioning are what make "adding
+fields is compatible" true: an older reader ignores tags or unknown
+sections it does not know, and skips grown binary records by the
+frame-declared stride. The payload maxima of section 6.1 are enforced
+on the encoded bytes: `MaxBinaryContextBytes` and
+`MaxBinaryViewFrameBytes` for the play-facing binary copies, and
+`MaxContextBytes` and `MaxViewFrameBytes` for the socket/replay JSON
+copies. The element caps bound the schema and reader buffers; they are
+not delivery promises. Every variable-length field has a deterministic
+selection order applied *before* encoding, and the byte cap governs the
+trimmed model the producer emits, so the encoded payload is always
+complete valid JSON or a complete valid binary frame and within its cap.
+The caps: tracked entities, at most the roster (32);
 item memory, 32 entries, keeping the freshest then the nearest;
 aggressor events against self, 16, most recent first; the public kill
 feed, 32, most recent first; heard shouts, at most one per live shouter
@@ -1709,7 +1725,9 @@ not the mechanism.
 | `MaxRouteFieldsPerSeat` / `MaxDuckEntriesPerSeat` (seat-layer caches, section 3.1) | 4 / 256 |
 | `ReflexCandidateSpacingPx` / `ReflexCandidateRadiusPx` / `MaxReflexCandidates` (Appendix R.2's planning primitive) | 16 / 256 / 1089 |
 | `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
-| `MaxViewFrameBytes` (JSON socket/replay play-view payload; retained for the canonical JSON copy while the play's fixed-layout binary view frame gets its own fuel-derived cap, landing with the binary encoder) | 32768 |
+| `MaxBinaryViewFrameBytes` (play-facing fixed-layout binary play-view frame; fuel-derived under the 60%-of-`StepFuel` full-scan rule from `BINARY-VIEW-SPEC.md`) | 8192 |
+| `MaxBinaryContextBytes` (play-facing fixed-layout binary play-context frame; same section-table family as the view) | 8192 |
+| `MaxViewFrameBytes` (JSON socket/replay play-view payload; retained for the canonical JSON copy while the play's fixed-layout binary view frame has its own cap) | 32768 |
 | `MaxContextBytes` (JSON socket/replay play-context payload; no atlas, section 5; retained for the canonical JSON copy under the same socket/replay versus play-binary split) | 65536 |
 | `MaxInitsPerTick` (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped; P0-retuned) | 2 |
 | `ValidatorRadiusPx` (stencil's `32 * NavCell`, an *engine* constant; queries answered from the exact precomputed table) | 256 |
@@ -3305,15 +3323,21 @@ current design; everything decided, superseded, or answered lives here.
   old 434 ms comparison baseline was this lane's episode-build number,
   not a pre-change prewarm measurement.
 - Lane C's optimized JSON reader measured 28-57 fuel per byte on
-  2026-08-31: JSON itself, not bounds checks, makes the previous
-  `MaxViewFrameBytes` structurally unreadable as a play-step input under
-  the 60%-of-`StepFuel` rule. James ratified the boundary split: the
-  socket/replay JSON view keeps `MaxViewFrameBytes` at 32768, and
-  `MaxContextBytes` stays 65536. The play's copy becomes a fixed-layout
-  binary frame under its own fuel-derived 8192-byte cap, landing with
-  the binary encoder. One selection model feeds both encoders: the rows
-  a play reads and the rows on the socket and in the replay are the same
-  rows in the same order; only the encoding differs.
+  2026-08-31, on top of an 11,187-fuel fixed cost; even a loop that
+  merely touched each byte cost 23 instructions per byte with checks on
+  and 7.5 with checks off. JSON itself, not bounds checks, makes the
+  previous `MaxViewFrameBytes` structurally unreadable as a play-step
+  input under the 60%-of-`StepFuel` rule. James ratified the boundary
+  split: the socket/replay JSON view keeps `MaxViewFrameBytes` at 32768,
+  and `MaxContextBytes` stays 65536. The play's copy is a fixed-layout
+  binary frame under its own fuel-derived `MaxBinaryViewFrameBytes =
+  8192` cap; the context has the sibling `MaxBinaryContextBytes = 8192`
+  cap. Engine-to-play is binary, but play-to-engine emissions stay
+  canonical JSON. One selection model feeds both encoders: the rows a
+  play reads and the rows on the socket and in the replay are the same
+  rows in the same order; only the encoding differs. The
+  `test_shell_binary_view` JSON/binary row-equivalence test enforces
+  that invariant.
 - Socket view production staggers by seat across the interval window
   (PM ruling, 2026-08-31): seat `s` is produced on ticks where
   `tick mod viewIntervalTicks == s mod viewIntervalTicks`, the same
