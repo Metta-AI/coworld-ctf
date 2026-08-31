@@ -1,4 +1,9 @@
-# Build Docker.
+# Build Docker. ONE image, TWO entrypoints: /bin/ctf (the game server, which
+# also runs the paintball KOTH mode when the game config gates it on) and
+# /bin/paintball-player (the thin paintball seat registrar). The paintball
+# policy set is env-switched inside this same image (PLAYER_PROMPT vs
+# PLAYER_SCRIPTED), which is what keeps a champion and a scripted filler
+# byte-identical apart from their environment.
 FROM debian:bookworm-slim AS build
 
 RUN apt-get update && \
@@ -37,7 +42,12 @@ RUN nim $NimCommand \
   $NimFlags \
   --nimcache:/tmp/ctf-nimcache \
   --out:ctf \
-  $NimMain
+  $NimMain && \
+  nim c \
+  $NimFlags \
+  --nimcache:/tmp/paintball-player-nimcache \
+  --out:paintball-player \
+  src/paintball_player.nim
 
 # Run Docker.
 FROM debian:bookworm-slim
@@ -48,6 +58,7 @@ RUN apt-get update && \
 
 WORKDIR /workspace/ctf
 COPY --from=build /workspace/ctf/ctf /bin/ctf
+COPY --from=build /workspace/ctf/paintball-player /bin/paintball-player
 COPY --from=build /workspace/ctf/*.json ./
 COPY --from=build /workspace/ctf/data ./data
 
