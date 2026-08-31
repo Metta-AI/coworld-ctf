@@ -677,90 +677,100 @@
           }
         },
         "residentScore": {
+          "description": "One entry per SEAT (roster.nim squadResultsJson: `for seat in 0 ..< seats`, seats = num_agents), not one per team — a 2-team-era assumption. Bounds match scores/win/team: 1..32.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "number"
           }
         },
         "visitorScore": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "number"
           }
         },
         "hillTicks": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "residentHillTicks": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "visitorHillTicks": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "paintTiles": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "tagsDealt": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "teamTags": {
-          "description": "Tags landed on the seat's own teammates (friendly fire), kept apart from tagsDealt.",
+          "description": "Tags landed on the seat's own teammates (friendly fire), kept apart from tagsDealt. Per-seat, same bounds as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "tagsTaken": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "llmTurns": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
         },
         "fallbackTurns": {
+          "description": "Per-seat, same as residentScore.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "integer"
           }
