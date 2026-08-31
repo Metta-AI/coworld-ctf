@@ -1647,14 +1647,14 @@ proc recordTraffic(
     inc offset
     case messageType
     of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
-      let compressedLen = packet.readU32(offset + 6)
+      let compressedLen = packet.packetU32(offset + 6)
       offset += 10 + compressedLen
-      let labelLen = packet.readU16(offset)
+      let labelLen = packet.packetU16(offset)
       offset += 2 + labelLen
       metrics.players[playerIndex].bytesImage += int64(offset - messageStart)
     of 0x02, 0x03, 0x04:
       if messageType != 0x04:
-        let objectId = packet.readU16(offset)
+        let objectId = packet.packetU16(offset)
         metrics.objectPools.mgetOrPut(boardObjectPoolName(objectId), 0) +=
           int64(if messageType == 0x02: 12 else: 3)
       offset += (if messageType == 0x02: 11 elif messageType == 0x03: 2 else: 0)
