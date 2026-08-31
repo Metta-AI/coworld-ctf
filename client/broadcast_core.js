@@ -330,7 +330,18 @@
       ['/client/replay', '/replay'],
       ['/clients/replay', '/replay'],
       ['/client/global', '/global'],
-      ['/clients/global', '/global']
+      ['/clients/global', '/global'],
+      // global_plus_pov: the composited board+POV-inset view. Same live vs.
+      // hosted-replay split as the two pairs above -- this page opens TWO
+      // BroadcastCore connections (see client/global_plus_pov.html), and
+      // BOTH resolve their websocket off THIS SAME function (it reads
+      // window.location.pathname fresh on every connect()), so one mapping
+      // pair covers both the board connection and the POV-inset connection
+      // with no extra wiring.
+      ['/client/global_plus_pov', '/global'],
+      ['/clients/global_plus_pov', '/global'],
+      ['/client/replay_plus_pov', '/replay'],
+      ['/clients/replay_plus_pov', '/replay']
     ];
     for (const [clientPath, websocketPath] of mappings) {
       if (path === clientPath) {
