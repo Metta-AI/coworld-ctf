@@ -163,12 +163,13 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   ## THE SINGLE MINT. Every glory award in the engine goes through here.
   ##
   ## `x, y` is the PRICING site and nothing else -- feeds `deedSitePct`, and
-  ## even though `teamGlory` is NOT (yet) in `gameHash` on this increment
-  ## (see this file's own INCREMENT BOUNDARY note above), these coordinates
-  ## must still never be repurposed as a draw position -- increment 3 is
-  ## exactly the move that puts the ledger in the hash, and this call site
-  ## should not need to change when it does. `byIndex` is the EARNER and is
-  ## cosmetic only: it moves the score pop, never the money.
+  ## (STALE-COMMENT FIX, glory-league-score pass) even now that `teamGlory`
+  ## IS in `gameHash` (GLORY PORT increment 3/3 landed this in sim_state.nim
+  ## well before this comment was corrected -- see that proc's own note),
+  ## these coordinates must still never be repurposed as a draw position:
+  ## this call site should not need to change just because a reader started
+  ## consuming the ledger. `byIndex` is the EARNER and is cosmetic only: it
+  ## moves the score pop, never the money.
   ##
   ## `fxActor` is a SEPARATE cosmetic-only actor, for the private glory-toast
   ## wire (GameConfig.allowCosmeticFx, GloryDeedFx below) -- deliberately its

@@ -863,7 +863,35 @@ proc squadResultsJson*(sim: SimServer): string =
   $results
 
 proc ctfPlayerResultsJson(sim: SimServer): string =
-  ## Returns final player rewards and win states as JSON.
+  ## Returns final player win states and LEAGUE SCORES (glory) as JSON.
+  ##
+  ## GLORY-AS-LEAGUE-SCORE: `scores[slot]` used to carry the RL training
+  ## `reward` (WinReward/LossReward, +-1 scaled by team count) -- that
+  ## signal still exists, untouched, on its own channel (`player.reward`,
+  ## delivered every tick over the separate `buildRewardPacket` websocket
+  ## message; NOT this results document). This field is repurposed to carry
+  ## `sim.teamGlory[team]` (the GV48 GLORY ledger, glory.nim/sim.nim's
+  ## `awardDeed`) instead: "to get the glory you have to win, and if you win
+  ## you get that score" -- a winning slot reports its team's full glory
+  ## total, a losing slot reports exactly 0. A draw (`sim.isDraw`) bank 0 for
+  ## everyone -- nobody won, so nobody banks -- which falls out of the same
+  ## `playerWon` gate already used for `win[]` below, unchanged. `scores` is
+  ## the platform's hardcoded canonical league-score key (its results
+  ## schema is `additionalProperties: false` with no field-selection knob),
+  ## so glory rides the existing key rather than adding a new one.
+  ##
+  ## teamGlory is read, never written, and was already mixed into gameHash
+  ## by GV48 increment 3/3 (sim_state.nim) well before this proc runs at
+  ## episode end -- this is pure reporting, touches no hashed state, and
+  ## needs no GameVersion bump.
+  ##
+  ## Single-game assumption: every classic/CTF manifest variant pins
+  ## maxGames=1 (only Paintball KOTH, a squadResultsJson-only path, runs
+  ## multiple games per episode), so `sim.teamGlory` at match end already
+  ## IS the whole episode's total -- there is nothing to accumulate across
+  ## games here. A classic variant configured with maxGames > 1 in the
+  ## future would need an accumulator (summed before each game's
+  ## `resetGloryLedger`) the way a multi-game path would; today none exists.
   var
     resultSlots: seq[int] = @[]
     names = newJArray()
@@ -897,7 +925,6 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
           slotConfig.name
         else:
           "player-" & $slotIndex
-      reward = 0
       playerTeam = Red
       hasTeam = false
       playerWon = false
@@ -913,7 +940,6 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     if accountIndex >= 0:
       let account = sim.rewardAccounts[accountIndex]
       name = account.address
-      reward = account.reward
       playerTeam = account.team
       hasTeam = account.hasTeam
       playerWon = account.won
@@ -928,8 +954,6 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     if playerIndex >= 0:
       let player = sim.players[playerIndex]
       name = player.address
-      if accountIndex < 0:
-        reward = player.reward
       playerTeam = player.team
       hasTeam = true
       playerWon = not sim.isDraw and player.team == sim.winner
@@ -940,8 +964,29 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     if not hasTeam and slotConfig.hasTeam:
       playerTeam = slotConfig.team
       hasTeam = true
+    # GLORY: banked only on a genuine, CONCLUDED win.
+    #
+    # `playerWon` alone is not a safe gate: `sim.winner` and `sim.isDraw`
+    # only mean something once `finishGame` has actually run (it sets both,
+    # `sim.phase = GameOver`, at the top of that proc). A match that never
+    # reaches a decision -- e.g. the roster empties mid-`Playing` with
+    # `maxGames <= 0`, which sends the sim straight to `resetToLobby`
+    # (`sim.players = @[]`, `sim.phase = Lobby`) without ever calling
+    # `finishGame` -- leaves `sim.winner` at its zero-value default (`Red`)
+    # and `sim.isDraw` at `false`. A still-connected Red-team slot would
+    # then read `playerWon = not false and Red == Red = true` even though
+    # nobody actually won anything. Requiring `sim.phase == GameOver` closes
+    # that: it is true only once `finishGame` has genuinely run (nothing
+    # else sets it on the CTF path), so an aborted/incomplete episode banks
+    # 0 for every slot -- the same "nobody won" shape a draw already gets
+    # for free from `playerWon` being false.
+    let glory =
+      if sim.phase == GameOver and hasTeam and playerWon:
+        sim.teamGlory[playerTeam]
+      else:
+        0
     names.add(%name)
-    scores.add(%reward)
+    scores.add(%glory)
     win.add(%playerWon)
     teamList.add(%(if hasTeam: teamText(playerTeam) else: "unknown"))
     killsList.add(%kills)

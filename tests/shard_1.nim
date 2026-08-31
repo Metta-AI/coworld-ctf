@@ -36,5 +36,6 @@ import
   test_pb_hill,
   test_pb_paint,
   test_pb_scoring,
-  test_scoring_routing
+  test_scoring_routing,
+  test_glory_league_score
 {.warning[UnusedImport]: on.}
