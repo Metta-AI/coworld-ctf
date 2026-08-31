@@ -3607,6 +3607,25 @@ proc invalidateBoardMapCaches*() =
   walkabilitySpriteDef = default(SpriteDefinition)
   walkabilitySpriteCached = false
 
+proc packetU16*(packet: openArray[uint8], offset: int): int {.inline.} =
+  ## Zero-copy little-endian u16 read straight off the packet bytes.
+  ##
+  ## Byte-identical to spriteprotocol's `readU16(openArray[uint8], ...)`
+  ## (flatty writes these fields with a native little-endian copyMem), but
+  ## WITHOUT that overload's `toPacketString` -- which copies the ENTIRE
+  ## packet into a fresh string on EVERY read. On the multi-megabyte player
+  ## init packet the packet walkers below make a length read per message, so
+  ## the copying overload turned each walk quadratic: ~3.2 SECONDS per
+  ## 5.3 MB init (measured), and the serve loop pays it for all 16 policy
+  ## viewers back-to-back at every match start -- a ~55 s wedge during which
+  ## no viewer (including a human's fresh /takeover socket) receives a byte.
+  int(packet[offset]) or (int(packet[offset + 1]) shl 8)
+
+proc packetU32*(packet: openArray[uint8], offset: int): int {.inline.} =
+  ## Zero-copy little-endian u32 read; see packetU16 for why this exists.
+  int(packet[offset]) or (int(packet[offset + 1]) shl 8) or
+    (int(packet[offset + 2]) shl 16) or (int(packet[offset + 3]) shl 24)
+
 proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
   ## Splits one sprite-protocol packet into WS-frame-sized chunks at MESSAGE
   ## boundaries. The client parses each binary WS message independently and
@@ -3628,9 +3647,9 @@ proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
     inc offset
     case messageType
     of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
-      let clen = packet.readU32(offset + 6)
+      let clen = packet.packetU32(offset + 6)
       offset += 10 + clen
-      let llen = packet.readU16(offset)
+      let llen = packet.packetU16(offset)
       offset += 2 + llen
     of 0x02: offset += 11   # object
     of 0x03: offset += 2    # delete object
@@ -3666,9 +3685,9 @@ proc stripSpritePixels*(
     inc offset
     case messageType
     of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
-      let compressedLen = packet.readU32(offset + 6)
+      let compressedLen = packet.packetU32(offset + 6)
       let labelStart = offset + 10 + compressedLen
-      let labelLen = packet.readU16(labelStart)
+      let labelLen = packet.packetU16(labelStart)
       let messageEnd = labelStart + 2 + labelLen
       var label = newString(labelLen)
       for i in 0 ..< labelLen:
@@ -3733,8 +3752,8 @@ proc dedupObjectPlacements*(
     inc offset
     case messageType
     of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
-      offset += 10 + packet.readU32(offset + 6)
-      offset += 2 + packet.readU16(offset)
+      offset += 10 + packet.packetU32(offset + 6)
+      offset += 2 + packet.packetU16(offset)
     of 0x02:  # object: id (2) + x,y,z (6) + layer (1) + sprite (2)
       var payload: array[12, uint8]
       copyMem(addr payload[0], unsafeAddr packet[offset], 11)
@@ -3747,7 +3766,7 @@ proc dedupObjectPlacements*(
       else:
         sentPlacements[objectId] = payload
     of 0x03:  # delete object
-      sentPlacements[packet.readU16(offset)][11] = 0
+      sentPlacements[packet.packetU16(offset)][11] = 0
       offset += 2
     of 0x04:  # clear objects
       zeroMem(addr sentPlacements[0], sentPlacements.len * 12)
