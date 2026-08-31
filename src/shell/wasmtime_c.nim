@@ -196,6 +196,9 @@ proc wasmtimeStoreDelete*(store: ptr WasmtimeStore) {.
 proc wasmtimeContextSetFuel*(context: ptr WasmtimeContext;
     fuel: uint64): ptr WasmtimeError {.importc: "wasmtime_context_set_fuel",
     header: WasmtimeHeader.}
+proc wasmtimeContextGetFuel*(context: ptr WasmtimeContext;
+    fuel: ptr uint64): ptr WasmtimeError {.importc: "wasmtime_context_get_fuel",
+    header: WasmtimeHeader.}
 proc wasmtimeContextSetEpochDeadline*(context: ptr WasmtimeContext;
     ticks: uint64) {.importc: "wasmtime_context_set_epoch_deadline",
     header: WasmtimeHeader.}

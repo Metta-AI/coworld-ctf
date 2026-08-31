@@ -4,7 +4,7 @@
 ## host calls. Server/lane integration is later; this module owns the checked
 ## invocation mechanics and reports deterministic results for tests.
 
-import std/options
+import std/[options, strutils]
 
 import ../ctf/sim_types
 import abi, body_cache, body_map, cover_scorer, emit_validator, module_cache,
@@ -35,6 +35,7 @@ type
     emitCodes*: seq[int32]
     lastAccepted*: Option[ShellEmission]
     manifestBytes*: string
+    fuelRemaining*: uint64
     fuelInstalledBeforeAlloc*: bool
 
   InstanceHostState = object
@@ -75,7 +76,7 @@ proc consumeError(error: ptr WasmtimeError): string =
     return ""
   var message: WasmByteVec
   wasmtimeErrorMessage(error, addr message)
-  result = byteVecString(message)
+  result = byteVecString(message).strip(chars = {'\0', '\n'})
   wasmByteVecDelete(addr message)
   wasmtimeErrorDelete(error)
 
@@ -84,7 +85,7 @@ proc consumeTrap(trap: ptr WasmTrap): string =
     return ""
   var message: WasmByteVec
   wasmTrapMessage(trap, addr message)
-  result = byteVecString(message)
+  result = byteVecString(message).strip(chars = {'\0', '\n'})
   wasmByteVecDelete(addr message)
   wasmTrapDelete(trap)
 
@@ -445,6 +446,10 @@ proc prepareInvocation(instance: ShellInstance, phase: AbiPhase,
 
 proc finishResult(instance: ShellInstance, kind: InvocationKind,
                   returned: int32, refused = false): ShellInvocationResult =
+  var fuelRemaining = 0'u64
+  let fuelError = wasmtimeContextGetFuel(instance.context, addr fuelRemaining)
+  if fuelError != nil:
+    discard consumeError(fuelError)
   result = ShellInvocationResult(
     kind: kind,
     returned: returned,
@@ -455,6 +460,7 @@ proc finishResult(instance: ShellInstance, kind: InvocationKind,
     emitCodes: instance.host.emitCodes,
     lastAccepted: instance.lastAccepted,
     manifestBytes: instance.host.manifestBytes,
+    fuelRemaining: fuelRemaining,
     fuelInstalledBeforeAlloc: instance.host.invocation.fuelInstalledBeforeAlloc)
   instance.host.invocation.finish()
   if result.faulted or (kind == ivRetune and refused):
