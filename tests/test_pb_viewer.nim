@@ -5,7 +5,13 @@
 import std/[os, strutils, unittest]
 
 const
-  ChromeCommonFingerprint = "fbcd687dda368276"
+  ## Bump ONLY for a deliberate edit to the shared chrome, and say what moved.
+  ## Last: SPEED_CMD (the speed -> one-character command map) hoisted beside
+  ## SPEEDS and exported. It had been a private literal inside the speed-chip
+  ## IIFE with a comment noting both pages carry an identical copy; the
+  ## broadcast page's ?speed= opt-in became its second reader, so it is one
+  ## exported table now instead of two literals drifting apart.
+  ChromeCommonFingerprint = "a2d497b1f62074ca"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
     ## instead of silently drifting. Re-pinned during the season2 main
