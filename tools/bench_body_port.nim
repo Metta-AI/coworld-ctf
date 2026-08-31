@@ -318,12 +318,53 @@ proc latencyRows(options: Options, scenario: Scenario): seq[JsonNode] =
   zoneDetails["sample"] = zoneSample
   result.add(latencyRow("latency.zone_shrink_to_waypoint", zoneDetails))
 
+proc activationBarrierRow(options: Options, scenario: Scenario): JsonNode =
+  let sampleCount = min(options.samples, 5)
+  let goals = scenario.planningGoals
+  let start = scenario.anchor
+  var lastPlanVisits = 0
+  var lastMintVisits = 0
+  var lastCompletedMints = 0
+  var lastReadyFields = 0
+  let samples = measure(options.warmups, sampleCount,
+    proc() =
+      let system = newBodyNavSystem(scenario.map, 32, 331,
+        DangerCadenceK, 100_000)
+      for seat, requested in goals:
+        let goal = scenario.map.validateGoal(requested, start)
+        if goal.isNone:
+          raise newException(ValueError,
+            "activation-barrier goal cannot resolve: " & $requested)
+        system.replacePlan(seat, uint64(seat + 1), start, goal.get)
+      system.prewarmColdPlans()
+      lastPlanVisits = system.planningTraceSnapshot.len
+      lastMintVisits = system.mintTraceSnapshot.len
+      lastCompletedMints = 0
+      lastReadyFields = 0
+      for visit in system.mintTraceSnapshot:
+        if visit.completed:
+          inc lastCompletedMints
+      for seat in system.seats:
+        lastReadyFields += seat.cache.readyRouteFieldCount)
+  let p95Ms = percentile(samples, 0.95).float / 1_000_000.0
+  let details = scenario.freezeBudgetDetails
+  details["seat_count"] = %32
+  details["goal_count"] = %goals.len
+  details["sample_cap"] = %5
+  details["samples_requested"] = %options.samples
+  details["pre_change_m4_p95_ms"] = %434.0
+  details["p95_ms"] = %p95Ms
+  details["p95_delta_vs_pre_change_ms"] = %(p95Ms - 434.0)
+  details["includes_plan_drain"] = %true
+  details["includes_route_field_mint_drain"] = %true
+  details["last_plan_trace_visits"] = %lastPlanVisits
+  details["last_mint_trace_visits"] = %lastMintVisits
+  details["last_completed_mints"] = %lastCompletedMints
+  details["last_ready_route_fields"] = %lastReadyFields
+  row("latency.activation_barrier_prewarm32_with_mints", samples, details)
+
 proc stageBucket(stage: PlanStage): string =
   case stage
-  of pjsRouteClear:
-    "clear"
-  of pjsRouteSearch:
-    "dijkstra"
   of pjsAstarSearch:
     "astar"
   else:
@@ -530,6 +571,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
     result.add(options.dangerRow(scenario, 1050))
     result.addRows(options.planningRows(scenario))
     result.addRows(options.latencyRows(scenario))
+    result.add(options.activationBarrierRow(scenario))
     result.add(options.episodeRow(scenario))
     result.add(options.duckRow(scenario))
     result.add(scenario.writeBackRow)
@@ -540,6 +582,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
   of "planning": result.addRows(options.planningRows(scenario))
   of "latency":
     result.addRows(options.latencyRows(scenario))
+    result.add(options.activationBarrierRow(scenario))
     result.add(scenario.writeBackRow)
     result.add(scenario.realScorerWriteBackRow)
   of "episode": result.add(options.episodeRow(scenario))

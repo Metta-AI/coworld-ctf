@@ -1,9 +1,11 @@
-## Resumable route-field Dijkstra and weighted A*.
+## Resumable route-field Dijkstra, field minting, and weighted A*.
 ##
 ## Every potentially map-sized playing-tick operation is a state machine.
 ## One work unit advances one connector candidate, heap pop/expansion,
 ## predecessor reconstruction link, or path-reversal swap. All arrays and
-## fixed heaps are allocated by newBodyPlanner at the activation barrier.
+## fixed heaps are allocated at the activation barrier. BodyPlanner owns the
+## per-seat A* heap; BodyFieldMinter owns the separate server-wide route-field
+## Dijkstra heap.
 
 import std/[hashes, math, options]
 import body_cache, body_map
@@ -70,8 +72,6 @@ type
   PlanStage* = enum
     pjsIdle
     pjsStartResolve
-    pjsRouteClear
-    pjsRouteSearch
     pjsSourceConnector
     pjsTargetConnector
     pjsAstarSearch
@@ -87,9 +87,6 @@ type
     startSnapped*: bool
     profile*: shellTypes.CostProfile
     avoid*: Option[BodyPoint]
-    routeSlot*: int
-    routeKey*: int
-    routeGoalCell: BodyPoint
     endpointScan: EndpointScan
     connector: ConnectorScan
     sourceIndex, targetIndex: int
@@ -98,7 +95,7 @@ type
     reconstructCursor: int
     reconstructSourceHandled: bool
     resultLen, reverseLeft, reverseRight: int
-    workUnits*, routeExpansions*, astarExpansions*: int
+    workUnits*, astarExpansions*: int
     fallbackStep*: int
 
   BodyPlanner* = ref object
@@ -108,6 +105,25 @@ type
     resultPath*: seq[BodyPoint]
     resultLen*: int
     capacity*: int
+
+  BodyMintStage* = enum
+    mjsIdle
+    mjsClear
+    mjsSearch
+    mjsComplete
+
+  BodyMintJob* = object
+    stage*: BodyMintStage
+    routeKey*: int
+    routeSlot*: int
+    goal*: BodyPoint
+    goalCell*: BodyPoint
+    revision*: uint64
+    workUnits*, expansions*: int
+
+  BodyFieldMinter* = ref object
+    map*: BodyMap
+    heap: FixedHeap
 
 proc planCostProfile*(kind: shellTypes.CostProfile): PlanCostProfile =
   case kind
@@ -255,6 +271,16 @@ proc newBodyPlanner*(map: BodyMap): BodyPlanner =
   result.resultPath = newSeq[BodyPoint](result.capacity + 2)
 
 proc workspaceCapacity*(planner: BodyPlanner): int = planner.capacity
+
+proc newBodyFieldMinter*(map: BodyMap): BodyFieldMinter =
+  ## Activation-barrier constructor. The route-field Dijkstra runs on the
+  ## nav-cell grid and owns one server-wide heap, never one heap per seat.
+  new(result)
+  result.map = map
+  let cells = map.gridWidth * map.gridHeight
+  result.heap.nodes = newSeq[HeapNode](cells)
+  result.heap.positions = newSeq[int](cells)
+  result.heap.positionGeneration = newSeq[uint64](cells)
 
 proc distanceSquared(a, b: BodyPoint): int64 =
   let dx = int64(a.x - b.x)
@@ -414,54 +440,108 @@ proc reverseNeighborIndex(dx, dy: int): int =
     if delta[0] == -dx and delta[1] == -dy:
       return index
 
-proc initRouteSearch(planner: BodyPlanner, cache: BodySeatCache,
-                     job: var BodyPlanJob) =
+proc initMintSearch(minter: BodyFieldMinter, cache: BodySeatCache,
+                    job: var BodyMintJob) =
   let slot = job.routeSlot
-  let cell = job.routeGoalCell
-  let index = cell.y * planner.map.gridWidth + cell.x
+  let cell = job.goalCell
+  let index = cell.y * minter.map.gridWidth + cell.x
   cache.setRouteDistance(slot, index, 0.0, 0)
-  planner.heap.begin()
-  planner.heap.pushOrDecrease(HeapNode(priority: 0.0, cost: 0.0,
+  minter.heap.begin()
+  minter.heap.pushOrDecrease(HeapNode(priority: 0.0, cost: 0.0,
     tie1: cell.x, tie2: cell.y, item: index))
-  job.stage = pjsRouteSearch
+  job.stage = mjsSearch
 
-proc advanceRouteSearch(planner: BodyPlanner, cache: BodySeatCache,
-                        job: var BodyPlanJob): bool =
+proc advanceMintSearch(minter: BodyFieldMinter, cache: BodySeatCache,
+                       job: var BodyMintJob): bool =
   ## Returns true only when a heap pop was consumed.
-  if planner.heap.len == 0:
+  if minter.heap.len == 0:
     cache.publishRouteField(job.routeSlot)
-    job.step = PlanStepPx
-    job.latticeW = (planner.map.width - 1) div job.step + 1
-    job.latticeH = (planner.map.height - 1) div job.step + 1
-    initConnector(job.connector, job, job.planStart)
-    job.stage = pjsSourceConnector
+    job.stage = mjsComplete
     return false
-  let current = planner.heap.pop()
+  let current = minter.heap.pop()
   result = true
-  inc job.routeExpansions
+  inc job.expansions
   let currentDistance = cache.routeDistanceAt(job.routeSlot, current.item)
   if current.cost > currentDistance:
     return
-  let x = current.item mod planner.map.gridWidth
-  let y = current.item div planner.map.gridWidth
+  let x = current.item mod minter.map.gridWidth
+  let y = current.item div minter.map.gridWidth
   for _, delta in Neighbors:
     let nx = x + delta[0]
     let ny = y + delta[1]
     let nextCell = (nx, ny)
-    if not planner.map.cellWalkable(nextCell):
+    if not minter.map.cellWalkable(nextCell):
       continue
     if delta[0] != 0 and delta[1] != 0 and
-        (not planner.map.cellWalkable((nx, y)) or
-         not planner.map.cellWalkable((x, ny))):
+        (not minter.map.cellWalkable((nx, y)) or
+         not minter.map.cellWalkable((x, ny))):
       continue
-    let nextIndex = ny * planner.map.gridWidth + nx
+    let nextIndex = ny * minter.map.gridWidth + nx
     let nextDistance = currentDistance +
       (if delta[0] != 0 and delta[1] != 0: Sqrt2 else: 1.0)
     if nextDistance < cache.routeDistanceAt(job.routeSlot, nextIndex):
       cache.setRouteDistance(job.routeSlot, nextIndex, nextDistance,
         uint8(1 + reverseNeighborIndex(delta[0], delta[1])))
-      planner.heap.pushOrDecrease(HeapNode(priority: nextDistance,
+      minter.heap.pushOrDecrease(HeapNode(priority: nextDistance,
         cost: nextDistance, tie1: nx, tie2: ny, item: nextIndex))
+
+proc beginMint*(minter: BodyFieldMinter, cache: BodySeatCache,
+                job: var BodyMintJob, goal: BodyPoint, revision: uint64) =
+  let key = cache.routeKey(goal)
+  if cache.routeSlotReady(key):
+    job = BodyMintJob(stage: mjsComplete, routeKey: key, routeSlot: -1,
+      goal: goal, goalCell: minter.map.cellOf(goal), revision: revision)
+    return
+  let slot = cache.beginRouteField(goal)
+  job = BodyMintJob(stage: mjsClear, routeKey: key, routeSlot: slot,
+    goal: goal, goalCell: minter.map.cellOf(goal), revision: revision)
+
+proc cancelMint*(cache: BodySeatCache, job: var BodyMintJob) =
+  if job.stage in {mjsClear, mjsSearch}:
+    cache.cancelRouteFieldBuild(job.routeSlot)
+  job.stage = mjsIdle
+
+proc mintPending*(job: BodyMintJob): bool =
+  job.stage in {mjsClear, mjsSearch}
+
+proc mintFinished*(job: BodyMintJob): bool =
+  job.stage == mjsComplete
+
+proc stepMint*(minter: BodyFieldMinter, cache: BodySeatCache,
+               job: var BodyMintJob, budget: var int): int =
+  ## Spend at most budget units. This is the former route-field clear/search
+  ## state machine lifted out of the plan path unchanged.
+  let initial = budget
+  block processing:
+    while job.mintPending:
+      case job.stage
+      of mjsClear:
+        if budget == 0: break processing
+        let cleared = cache.clearRouteCell(job.routeSlot)
+        dec budget
+        inc job.workUnits
+        if cleared:
+          minter.initMintSearch(cache, job)
+      of mjsSearch:
+        if minter.heap.len > 0 and budget == 0: break processing
+        if minter.advanceMintSearch(cache, job):
+          dec budget
+          inc job.workUnits
+      of mjsIdle, mjsComplete:
+        break processing
+  initial - budget
+
+proc mintFingerprint*(minter: BodyFieldMinter, cache: BodySeatCache,
+                      job: BodyMintJob): Hash =
+  var value: Hash = hash(ord(job.stage)) !& hash(job.revision) !&
+    hash(job.routeKey) !& hash(job.routeSlot) !& hash(job.goal) !&
+    hash(job.goalCell) !& hash(job.workUnits) !& hash(job.expansions) !&
+    hash(minter.heap.len) !& cache.routeStateFingerprint
+  for index in 0 ..< minter.heap.len:
+    let node = minter.heap.nodes[index]
+    value = value !& hash(node.priority) !& hash(node.cost) !&
+      hash(node.tie1) !& hash(node.tie2) !& hash(node.item)
+  !$value
 
 proc heuristic(planner: BodyPlanner, cache: BodySeatCache,
                point, target, goal: BodyPoint): float =
@@ -607,12 +687,7 @@ proc beginResolvedPlan(planner: BodyPlanner, cache: BodySeatCache,
     job.resultLen = 1
     job.stage = pjsComplete
     return
-  job.routeKey = cache.routeKey(job.goal)
-  job.routeSlot = cache.beginRouteField(job.goal)
-  if cache.routeSlotReady(job.routeKey):
-    planner.beginSearchAtStep(job, PlanStepPx)
-  else:
-    job.stage = pjsRouteClear
+  planner.beginSearchAtStep(job, PlanStepPx)
 
 proc startPlan*(planner: BodyPlanner, cache: BodySeatCache,
                 job: var BodyPlanJob, revision: uint64, start: BodyPoint,
@@ -634,8 +709,7 @@ proc startPlan*(planner: BodyPlanner, cache: BodySeatCache,
   planner.beginResolvedPlan(cache, job)
 
 proc cancelPlan*(cache: BodySeatCache, job: var BodyPlanJob) =
-  if job.stage in {pjsRouteClear, pjsRouteSearch}:
-    cache.cancelRouteFieldBuild(job.routeSlot)
+  discard cache
   job.stage = pjsIdle
 
 proc planPending*(job: BodyPlanJob): bool =
@@ -666,19 +740,6 @@ proc stepPlan*(planner: BodyPlanner, cache: BodySeatCache,
         else:
           if budget == 0: break processing
           discard job.endpointScan.advanceEndpointScan(planner.map)
-          dec budget
-          inc job.workUnits
-      of pjsRouteClear:
-        if budget == 0: break processing
-        let cleared = cache.clearRouteCell(job.routeSlot)
-        dec budget
-        inc job.workUnits
-        if cleared:
-          job.routeGoalCell = planner.map.cellOf(job.goal)
-          planner.initRouteSearch(cache, job)
-      of pjsRouteSearch:
-        if planner.heap.len > 0 and budget == 0: break processing
-        if planner.advanceRouteSearch(cache, job):
           dec budget
           inc job.workUnits
       of pjsSourceConnector:
@@ -742,8 +803,7 @@ proc jobFingerprint*(planner: BodyPlanner, cache: BodySeatCache,
   ## Test-only deterministic suspension fingerprint, including frontier and
   ## predecessor state rather than merely counters.
   var value: Hash = hash(ord(job.stage)) !& hash(job.revision) !&
-    hash(job.workUnits) !& hash(job.routeExpansions) !&
-    hash(job.astarExpansions) !& hash(planner.heap.len) !&
+    hash(job.workUnits) !& hash(job.astarExpansions) !& hash(planner.heap.len) !&
     hash(planner.search.count) !& hash(job.planStart) !&
     hash(job.startSnapped) !& hash(job.endpointScan.done) !&
     hash(job.endpointScan.found) !& hash(job.endpointScan.ring) !&

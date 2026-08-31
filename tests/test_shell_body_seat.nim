@@ -159,6 +159,9 @@ suite "shell body seat belief-lite seam":
         tickSpend += visit.units
         sawFirst = sawFirst or visit.seat == first.seatIndex
         sawSecond = sawSecond or visit.seat == second.seatIndex
+    for visit in nav.mintTraceSnapshot:
+      if visit.tick == 2:
+        tickSpend += visit.units
     check tickSpend == spent
     check sawFirst
     check sawSecond

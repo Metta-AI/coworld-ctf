@@ -196,7 +196,7 @@ proc peekRouteDistance*(cache: BodySeatCache, point, goal: BodyPoint): Option[fl
   let slotIndex = cache.findRouteSlot(key)
   if slotIndex < 0 or not cache.routeSlots[slotIndex].valid:
     return none(float)
-  let cell = cache.map.cellOf(point)
+  let cell = cache.map.nearestWalkable(cache.map.cellOf(point))
   if not cache.map.cellWalkable(cell):
     return none(float)
   let index = cell.y * cache.map.gridWidth + cell.x

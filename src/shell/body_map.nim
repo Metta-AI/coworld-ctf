@@ -348,7 +348,7 @@ proc goalPoint*(goal: ValidatedGoal): BodyPoint = goal.point
 proc goalComponent*(goal: ValidatedGoal): int = goal.component.int
 proc belongsTo*(goal: ValidatedGoal, map: BodyMap): bool = goal.owner == map
 
-proc nearestWalkable(map: BodyMap, cell: BodyPoint): BodyPoint =
+proc nearestWalkable*(map: BodyMap, cell: BodyPoint): BodyPoint =
   if map.cellWalkable(cell):
     return cell
   for ring in 1 ..< max(map.navWidth, map.navHeight):
