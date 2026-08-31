@@ -6,7 +6,7 @@
 
 import
   std/json,
-  sim_types, sim_state
+  sim_types, sim_state, paint
 
 proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
   ## The perk group for a seat about to join `team` as `address`. NAMED
@@ -437,17 +437,6 @@ proc playerIndexForSlot*(sim: SimServer, slotIndex: int): int =
       return i
   -1
 
-proc legacyGrenadeThrowerIndex*(
-  sim: SimServer,
-  grenade: AirborneGrenade
-): int {.inline.} =
-  ## Retains GV24's mutable-index kill counter solely because player.kills is
-  ## hashed. Attribution and results use throwerSlot/throwerAccount instead.
-  if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
-    grenade.thrower
-  else:
-    -1
-
 proc playerResultSlotCount(sim: SimServer): int =
   ## Returns the number of player slots represented in final results.
   result = sim.config.slots.len
@@ -542,6 +531,11 @@ proc addPlayer*(
     hp: sim.config.maxHpFor(team, perks),
     perks: perks,
     joinOrder: order,
+    seat:
+      # Which SEAT commands this cog. Cogs are dealt round-robin across the
+      # teams, so cog index parity IS the team ordinal and therefore the
+      # seat: 0/2/4/6 are RED-alpha..delta, 1/3/5/7 BLUE-alpha..delta.
+      (if sim.config.numAgents > 0: order mod sim.config.numAgents else: 0),
     address: address,
     color: color,
     skin: slot.skin,
@@ -623,25 +617,58 @@ proc noteLifeHeal*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].bestHealsInLife,
     sim.players[playerIndex].healsThisLife)
 
-proc recordKill*(sim: var SimServer, playerIndex: int) =
-  ## Increments the kill counter for one player.
-  let index = sim.rewardAccountForPlayer(playerIndex)
-  if index >= 0:
-    inc sim.rewardAccounts[index].kills
-  inc sim.players[playerIndex].kills
-  sim.noteLifeKill(playerIndex)
-
-proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
-  ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
-  ## bullets, grenade blasts, and spray cones all land here.
+proc recordKillCredit*(sim: var SimServer, killerIndex, victimIndex: int) =
+  ## Credits one kill to its killer. GV45: an ENEMY kill increments `kills`
+  ## (and feeds the kill-spree note); a TEAMMATE kill increments only
+  ## `teamKills` — the two stats never mix. Weapon-agnostic: bullets, grenade
+  ## blasts, and spray cones all land here.
   if killerIndex < 0 or killerIndex >= sim.players.len:
     return
   if victimIndex < 0 or victimIndex >= sim.players.len:
     return
   if killerIndex == victimIndex:
     return
+  let index = sim.rewardAccountForPlayer(killerIndex)
   if sim.players[killerIndex].team == sim.players[victimIndex].team:
+    if index >= 0:
+      inc sim.rewardAccounts[index].teamKills
     inc sim.players[killerIndex].teamKills
+  else:
+    if index >= 0:
+      inc sim.rewardAccounts[index].kills
+    inc sim.players[killerIndex].kills
+    sim.noteLifeKill(killerIndex)
+
+proc recordHitDamage*(
+  sim: var SimServer,
+  attackerIndex, victimIndex, amount: int
+) =
+  ## Credits hp removed to the attacker's reward account, split by team the
+  ## way recordKillCredit splits kills (GV47): damage to an ENEMY lands in
+  ## `hitDamage`, damage to a TEAMMATE in `teamHitDamage`. Self-damage
+  ## counts as neither, and environmental damage (puddles, barrage shells)
+  ## never reaches here because it names no attacker.
+  ##
+  ## `amount` is the hp the hit removed BEFORE the shield layer soaked its
+  ## share — the same figure the per-player `damageDealt` counters carry, so
+  ## the account and the endscreen never disagree about what a hit was worth.
+  ##
+  ## Account-only: unlike kills there is no hashed per-player mirror, so a
+  ## grenade thrown by a cog that has since left the game credits nobody
+  ## (its live index is -1 by then), exactly as `damageDealt` already does.
+  if attackerIndex < 0 or attackerIndex >= sim.players.len:
+    return
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  if attackerIndex == victimIndex or amount <= 0:
+    return
+  let index = sim.rewardAccountForPlayer(attackerIndex)
+  if index < 0:
+    return
+  if sim.players[attackerIndex].team == sim.players[victimIndex].team:
+    inc sim.rewardAccounts[index].teamHitDamage, amount
+  else:
+    inc sim.rewardAccounts[index].hitDamage, amount
 
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
@@ -652,6 +679,13 @@ proc recordDeath*(sim: var SimServer, playerIndex: int) =
 
 proc recordCapture*(sim: var SimServer, playerIndex: int) =
   ## Increments the capture counter for one player.
+  ##
+  ## GLORY PORT (increment 2/3): the deed/xp mint and the "Uphill"/"Fast Break"
+  ## achievement pins live at the CALL SITE (`checkWinCondition`, sim.nim),
+  ## not here -- `roster.nim` only imports `sim_types`/`sim_state`, so it
+  ## cannot see `awardDeed`/`addXp`/`teamAliveCount` (all in sim.nim, which
+  ## imports `roster`, not the reverse). Splitting the mint out of this
+  ## proc rather than restructuring the import graph for one call site.
   let index = sim.rewardAccountForPlayer(playerIndex)
   if index >= 0:
     inc sim.rewardAccounts[index].captures
@@ -667,7 +701,138 @@ proc recordAchievement*(sim: var SimServer, playerIndex: int, id: string) =
   if id notin sim.rewardAccounts[index].earnedAchievements:
     sim.rewardAccounts[index].earnedAchievements.add(id)
 
-proc playerResultsJson*(sim: SimServer): string =
+proc squadResultsJson*(sim: SimServer): string =
+  ## The paintball results document: ONE entry per SEAT, never per cog.
+  ##
+  ## It must equal the manifest's `results_schema` key for key — that schema
+  ## is `additionalProperties: false` and the certifier rejects any unknown
+  ## field, so adding or removing a key here means editing
+  ## coworld_manifest_paintbot.json in the same commit.
+  ##
+  ## `names` are the REAL policy names (spectator side); `team` carries the
+  ## in-game aliases. Scores are the mean of the two halves, so
+  ## scores[0] + scores[1] == 1.0 exactly for every legal outcome.
+  let seats = max(1, sim.config.numAgents)
+  var
+    names = newJArray()
+    scores = newJArray()
+    win = newJArray()
+    teamList = newJArray()
+    residentScore = newJArray()
+    visitorScore = newJArray()
+    hillTicksList = newJArray()
+    residentHill = newJArray()
+    visitorHill = newJArray()
+    paintTiles = newJArray()
+    tagsDealt = newJArray()
+    teamTags = newJArray()
+    tagsTaken = newJArray()
+    llmTurns = newJArray()
+    fallbackTurns = newJArray()
+  # Every game the episode actually played, plus the one in progress when a
+  # deadline or a fault stopped it — the halves already banked keep their
+  # scores either way.
+  var games: seq[tuple[regime: Regime, ticks: array[Team, int]]]
+  for i in 0 ..< sim.gameHill.len:
+    games.add((
+      (if i < sim.gameRegimes.len: sim.gameRegimes[i] else: regimeResident),
+      sim.gameHill[i]))
+  if sim.gameHill.len < max(1, sim.config.maxGames) and
+      (sim.hillTicks[Red] > 0 or sim.hillTicks[Blue] > 0):
+    games.add((sim.regime, sim.hillTicks))
+  let faulted = sim.endReason == ReasonFault
+  for seat in 0 ..< seats:
+    let
+      team = Team(seat mod max(1, sim.gameMap.teamCount()))
+      other = if team == Red: Blue else: Red
+    var
+      resident = -1
+      visitor = -1
+      residentTicks = 0
+      visitorTicks = 0
+      totalTicks = 0
+      halves = 0
+      sum = 0
+    for game in games:
+      let permille = gameScorePermille(
+        game.ticks[team] - game.ticks[other], sim.config.hillDecisiveTicks)
+      totalTicks += game.ticks[team]
+      ## Average the DEVIATION from 500, never the permille itself: integer
+      ## division truncates toward zero, so (1000 + 999) div 2 = 999 while the
+      ## opponent's (0 + 1) div 2 = 0 — a pair summing to 999 instead of 1000.
+      ## Deviations are antisymmetric and `-x div n == -(x div n)` in Nim, so
+      ## this keeps score[0] + score[1] EXACTLY 1.0 for every legal outcome.
+      sum += permille - 500
+      inc halves
+      case game.regime
+      of regimeResident:
+        resident = permille
+        residentTicks += game.ticks[team]
+      of regimeVisitor:
+        visitor = permille
+        visitorTicks += game.ticks[team]
+    # A `fault` episode is 0.5 / 0.5 — an infra fault is nobody's loss.
+    let score =
+      if faulted or halves == 0: 500
+      else: 500 + sum div halves
+    var
+      tiles = 0
+      dealt = 0
+      friendly = 0
+      taken = 0
+    for i in 0 ..< sim.players.len:
+      if sim.players[i].team != team:
+        continue
+      dealt += sim.players[i].kills
+      friendly += sim.players[i].teamKills
+      taken += sim.players[i].deaths
+    tiles = sim.paintCount[team]
+    names.add(%(
+      if seat < sim.seatNames.len and sim.seatNames[seat].len > 0:
+        sim.seatNames[seat]
+      else:
+        "player-" & $seat))
+    scores.add(%(score.float / 1000.0))
+    win.add(%(not faulted and score > 500))
+    teamList.add(%teamText(team))
+    residentScore.add(%((if resident < 0: 500 else: resident).float / 1000.0))
+    visitorScore.add(%((if visitor < 0: 500 else: visitor).float / 1000.0))
+    hillTicksList.add(%totalTicks)
+    residentHill.add(%residentTicks)
+    visitorHill.add(%visitorTicks)
+    paintTiles.add(%tiles)
+    tagsDealt.add(%dealt)
+    teamTags.add(%friendly)
+    tagsTaken.add(%taken)
+    llmTurns.add(%(if seat < sim.llmTurns.len: sim.llmTurns[seat] else: 0))
+    fallbackTurns.add(
+      %(if seat < sim.fallbackTurns.len: sim.fallbackTurns[seat] else: 0))
+  var results = newJObject()
+  results["names"] = names
+  results["scores"] = scores
+  results["win"] = win
+  results["team"] = teamList
+  results["residentScore"] = residentScore
+  results["visitorScore"] = visitorScore
+  results["hillTicks"] = hillTicksList
+  results["residentHillTicks"] = residentHill
+  results["visitorHillTicks"] = visitorHill
+  results["paintTiles"] = paintTiles
+  results["tagsDealt"] = tagsDealt
+  results["teamTags"] = teamTags
+  results["tagsTaken"] = tagsTaken
+  results["llmTurns"] = llmTurns
+  results["fallbackTurns"] = fallbackTurns
+  results["reason"] = %(
+    if sim.endReason.len > 0: sim.endReason else: ReasonComplete)
+  results["endRule"] = %(
+    if sim.endRule.len > 0: sim.endRule else: EndRuleFullTime)
+  results["games"] = %games.len
+  results["finalTick"] = %sim.tickCount
+  results["seed"] = %sim.config.seed
+  $results
+
+proc ctfPlayerResultsJson(sim: SimServer): string =
   ## Returns final player rewards and win states as JSON.
   var
     resultSlots: seq[int] = @[]
@@ -676,6 +841,9 @@ proc playerResultsJson*(sim: SimServer): string =
     win = newJArray()
     teamList = newJArray()
     killsList = newJArray()
+    teamKillsList = newJArray()
+    hitDamageList = newJArray()
+    teamHitDamageList = newJArray()
     deathsList = newJArray()
     capturesList = newJArray()
     shotsFiredList = newJArray()
@@ -704,6 +872,9 @@ proc playerResultsJson*(sim: SimServer): string =
       hasTeam = false
       playerWon = false
       kills = 0
+      teamKills = 0
+      hitDamage = 0
+      teamHitDamage = 0
       deaths = 0
       captures = 0
       shotsFired = 0
@@ -717,6 +888,9 @@ proc playerResultsJson*(sim: SimServer): string =
       hasTeam = account.hasTeam
       playerWon = account.won
       kills = account.kills
+      teamKills = account.teamKills
+      hitDamage = account.hitDamage
+      teamHitDamage = account.teamHitDamage
       deaths = account.deaths
       captures = account.captures
       for id in account.earnedAchievements:
@@ -741,6 +915,9 @@ proc playerResultsJson*(sim: SimServer): string =
     win.add(%playerWon)
     teamList.add(%(if hasTeam: teamText(playerTeam) else: "unknown"))
     killsList.add(%kills)
+    teamKillsList.add(%teamKills)
+    hitDamageList.add(%hitDamage)
+    teamHitDamageList.add(%teamHitDamage)
     deathsList.add(%deaths)
     capturesList.add(%captures)
     shotsFiredList.add(%shotsFired)
@@ -751,6 +928,9 @@ proc playerResultsJson*(sim: SimServer): string =
   results["win"] = win
   results["team"] = teamList
   results["kills"] = killsList
+  results["teamKills"] = teamKillsList
+  results["hitDamage"] = hitDamageList
+  results["teamHitDamage"] = teamHitDamageList
   results["deaths"] = deathsList
   results["captures"] = capturesList
   results["achievements"] = achievementsList
@@ -760,4 +940,13 @@ proc playerResultsJson*(sim: SimServer): string =
   # counters remain on the players for replay-side analysis; re-add here
   # only after the platform schema learns the fields.
   $results
+
+proc playerResultsJson*(sim: SimServer): string =
+  ## The episode results document. A squad game (num_agents > 0) reports one
+  ## entry per SEAT through squadResultsJson; the inherited per-slot document
+  ## is kept for a gate-off config, which still plays the starter's rules.
+  if sim.config.numAgents > 0:
+    sim.squadResultsJson()
+  else:
+    sim.ctfPlayerResultsJson()
 

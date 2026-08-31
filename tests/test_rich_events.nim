@@ -184,7 +184,10 @@ suite "rich analysis events":
     let deaths = game.eventsOf(Death)
     check deaths.anyIt(it.source == 2 and it.target == 1)
     let results = parseJson(game.playerResultsJson())
-    check results["kills"][1].getInt == 1
+    # Slot 1 blasted its own teammate (both Blue): GV45 books that as a
+    # team kill on the departed thrower's account, never as a kill.
+    check results["kills"][1].getInt == 0
+    check results["teamKills"][1].getInt == 1
     check results["kills"][2].getInt == 0
 
   test "action ids remain unique after the lobby resets its tick and slots":

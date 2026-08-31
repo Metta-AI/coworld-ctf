@@ -1,0 +1,21 @@
+# The `build-image` tool (caos SPEC, "Tools"): assemble the submittable policy
+# image around a binary `build-player` already compiled.
+#
+# The docs are a HERE-STRING, so editing them re-keys this tool's arg tree and
+# NOTHING it builds.
+HELP=<<END
+Assemble the submittable policy image from the binary `build-player` produces,
+and return its ref. This is the payoff of both stages of
+players/baseline/Dockerfile sitting on one nixpkgs pin: the ccache-backed caos
+build and the shipped image are the same compile, so this tool adds ONE ~1 MB
+layer to the published runtime base rather than compiling anything.
+
+The result is a git-docker delta — a `base` ref plus the policy layer — which
+the caos server converts into an image digest. The 68 MB base is named, never
+copied: it does not pass through the CAS, and a policy rebuild re-keys only its
+own layer.
+@param [player] Which policy under players/ to build. Default: baseline.
+@param [defines] Extra defines, passed through to build-player, e.g. "-d:taunt".
+@param [runtime] Runtime base to layer onto. Default: the tag players/baseline/Dockerfile names, which is the nixpkgs pin both it and caos/nim share.
+END
+curry --base:@=DEEP-DEPS/imgtools --worker1:@=worker.sh --nim:@=DEEP-DEPS/nim --help=$HELP
