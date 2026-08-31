@@ -191,11 +191,21 @@ not treated as a stable result.
 The saturated row creates exactly 32 distinct, validated 262,144-byte modules
 (8 MiB total) before timing, then drains them through two real host compiler
 threads. It proves both workers overlap, all 32 compiles enter and complete,
-and no compile fails. Each worker publishes one uninterrupted busy interval
-while it drains its 16-module share. A tick sample is retained only when both
-workers have the same busy interval at tick start and end; any idle transition
-or queue drain during the tick discards it. The queue summary prints retained
-and discarded sample counts.
+and no compile fails. Each worker publishes its active queue-processing-loop
+interval while it drains its 16-module share. That loop alternates
+`wasmtime_module_new` with result bookkeeping and never sleeps. A tick sample
+is retained only when both workers remain inside those loops for the entire
+tick; a loop exit or queue drain during the tick discards it. This deliberately
+does not claim that one `wasmtime_module_new` call spans the whole tick: a tick
+is longer than one compile, so a per-compilation generation criterion would
+retain approximately zero samples at higher CPU quotas. The queue summary
+prints retained and discarded sample counts.
+
+The queue is never replenished because 32 modules / 8 MiB is the contractual
+admitted episode maximum. A timing over 10.4 ms remains a conservative valid
+FAIL even if fewer than the requested samples were retained. A timing at or
+below 10.4 ms can report PASS only with the full requested population;
+otherwise it exits nonzero as `INCONCLUSIVE-INSUFFICIENT-SAMPLES`.
 
 Run the quota matrix sequentially so concurrent containers do not contaminate
 one another. On an Apple Silicon host, the arm64 rows are native Linux and the

@@ -80,6 +80,11 @@ on Linux arm64, and
 `47e2e26554f2893d2ac414361a87c2c4f2b13dbabcda9f14a2d079f03a1f5b89`
 on Linux amd64.
 
+Cold-review pass 2 did not rerun the matrix. It narrows the queue-loop claim,
+adds post-measurement insufficient-sample verdict handling, and repairs C API
+failure-path ownership; none changes a retained tick's measured work. The
+hashes above therefore remain the provenance for every timing row.
+
 Representative commands, all run from the repository root:
 
 ```sh
@@ -310,10 +315,20 @@ Each isolated row has 30 warm complete samples. Each saturated row starts two
 real host compiler threads draining exactly 32 distinct validated 262,144-byte
 modules—8,388,608 raw bytes—while complete ticks run. All rows prove both
 workers overlapped, all 32 modules entered and completed, and zero failed. A
-saturated sample is retained only when both worker threads are in the same
-uninterrupted busy interval at the start and end of the complete tick. This
-proves continuous two-worker overlap; a sample with an idle transition or a
-queue drain during the tick is discarded. The table prints both counts.
+saturated sample is retained only when both worker threads stay inside their
+active queue-processing loops for the entire complete tick. Each loop
+alternates `wasmtime_module_new` with result bookkeeping and never sleeps; this
+does not prove one compilation call spans the tick. A per-compilation
+generation counter was consciously declined because a tick is longer than one
+compile and that filter would retain approximately zero samples at higher CPU
+quotas. A loop exit or queue drain during the tick discards the sample. The
+table prints both counts.
+
+The queue is not replenished: 32 modules / 8 MiB is the contractual admitted
+episode maximum. An over-budget result remains a conservative valid FAIL with
+fewer than the requested samples. An otherwise passing saturated result needs
+the full requested population; with fewer samples it exits nonzero as
+`INCONCLUSIVE-INSUFFICIENT-SAMPLES`, never PASS.
 
 These verdicts are for the runtime half only, not lane A's body/map/view work.
 The fixed verdict uses the unrounded maximum and passes only at `<= 10.400 ms`.
@@ -363,9 +378,9 @@ Old-cap and new-cap worst-tick maxima show the direct contract sensitivity:
 | Linux amd64 emulated, 6 CPU | saturated | 77.453 | 96.732 |
 
 The retained old-cap saturated rows used the earlier queue-nonempty criterion;
-the new-cap saturated rows use continuous two-worker overlap. They remain
-labeled sensitivity evidence, not a controlled before/after comparison of the
-saturation filter.
+the new-cap saturated rows require both workers to remain inside their active
+queue-processing loops. They remain labeled sensitivity evidence, not a
+controlled before/after comparison of the saturation filter.
 
 Native arm64 queue throughput was 12.786, 24.568, 40.836, and 35.039
 modules/s at 1, 2, 4, and 6 CPU. Four CPUs are the clear compile-throughput
@@ -482,12 +497,14 @@ The post-report validation sweep passed its structural checks:
   native Linux arm64, and emulated Linux amd64 smokes each passed all five
   containment rows, library resolution, import restriction, and clean
   post-trap calls. Native macOS and both Linux images passed smoke again after
-  the cold-review ownership and saturation fixes.
+  the first cold-review ownership and saturation fixes, and again after the
+  second pass's verdict and C-object error-path fixes.
 - The complete macOS `all` rerun and every Linux arm64 and emulated-amd64
   `all` cell at 1/2/4/6 CPU preserved every exact ledger/queue invariant and
   both expected FAIL verdicts. These phase-8 raw files are the source of the
-  timing table. Every saturated sample retained by them proves continuous
-  two-worker overlap; discarded counts are explicit in each queue summary.
+  timing table. Every saturated sample retained by them proves both workers
+  remained inside their active queue-processing loops; discarded counts are
+  explicit in each queue summary.
 - The full `nix develop` shell remains blocked by the independently confirmed
   pre-existing `caos-tools` dependency failure. The Nix smoke instead used Nim
   2.2.4 from locked nixpkgs revision

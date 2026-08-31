@@ -84,6 +84,9 @@ type
     engine: ptr WasmEngine
     modules: ptr seq[seq[byte]]
     ready, started, active, completed, failures: Atomic[int]
+    # An odd value proves the worker remains inside its active queue-processing
+    # loop, which alternates wasmtime_module_new with bookkeeping and never
+    # sleeps. It does not prove one module_new call spans the whole tick.
     workerBusyInterval: array[2, Atomic[int]]
     sawTwoBusy, go: Atomic[bool]
 
@@ -383,8 +386,12 @@ proc newMemoryInstance(rig: MemoryRig): MemoryInstance =
       outcome.message)
   var memoryItem: WasmtimeExtern
   if not wasmtimeInstanceExportGet(result.context, addr instance, "memory", 6,
-      addr memoryItem) or
-      runtimeSpikeExternKind(addr memoryItem) != WasmtimeExternMemory:
+      addr memoryItem):
+    wasmtimeStoreDelete(result.store)
+    result.store = nil
+    raise newException(ValueError, "memory instance has no memory export")
+  if runtimeSpikeExternKind(addr memoryItem) != WasmtimeExternMemory:
+    wasmtimeExternDelete(addr memoryItem)
     wasmtimeStoreDelete(result.store)
     result.store = nil
     raise newException(ValueError, "memory instance has no memory export")
@@ -869,10 +876,11 @@ proc callerBytes(caller: pointer; offset, length: int32): string =
   if caller == nil or offset < 0 or length < 0:
     raise newException(ValueError, "invalid callback byte range")
   var memoryItem: WasmtimeExtern
-  if not wasmtimeCallerExportGet(caller, "memory", 6, addr memoryItem) or
-      runtimeSpikeExternKind(addr memoryItem) != WasmtimeExternMemory:
+  if not wasmtimeCallerExportGet(caller, "memory", 6, addr memoryItem):
     raise newException(ValueError, "callback caller has no memory export")
   defer: wasmtimeExternDelete(addr memoryItem)
+  if runtimeSpikeExternKind(addr memoryItem) != WasmtimeExternMemory:
+    raise newException(ValueError, "callback caller has no memory export")
   let context = wasmtimeCallerContext(caller)
   let memory = runtimeSpikeExternMemory(addr memoryItem)
   let memorySize = wasmtimeMemoryDataSize(context, memory)
@@ -937,26 +945,35 @@ proc tickLogCallback(env, caller: pointer; args: ptr WasmtimeVal;
 
 proc initTickRig(useValidIntent: bool): TickRig =
   result.engine = newEngine()
-  result.module = compileModule(result.engine, hostileTickFixture(),
-    "hostile tick fixture")
-  result.linker = wasmtimeLinkerNew(result.engine)
-  result.emitType = runtimeSpikeEmitFuncType()
-  result.coverType = runtimeSpikeCoverFuncType()
-  result.logType = runtimeSpikeLogFuncType()
-  if result.linker == nil or result.emitType == nil or result.coverType == nil or
-      result.logType == nil:
-    raise newException(ValueError, "tick rig C-API allocation failed")
-  result.host.validIntent = if useValidIntent: validIntentBytes() else: ""
-  requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
-    "nearest_cover", 13, result.coverType,
-    cast[pointer](tickCoverCallback), addr result.host),
-    "define play.nearest_cover")
-  requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
-    "emit", 4, result.emitType, cast[pointer](tickEmitCallback),
-    addr result.host), "define tick play.emit")
-  requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
-    "log", 3, result.logType, cast[pointer](tickLogCallback),
-    addr result.host), "define play.log")
+  try:
+    result.module = compileModule(result.engine, hostileTickFixture(),
+      "hostile tick fixture")
+    result.linker = wasmtimeLinkerNew(result.engine)
+    result.emitType = runtimeSpikeEmitFuncType()
+    result.coverType = runtimeSpikeCoverFuncType()
+    result.logType = runtimeSpikeLogFuncType()
+    if result.linker == nil or result.emitType == nil or
+        result.coverType == nil or result.logType == nil:
+      raise newException(ValueError, "tick rig C-API allocation failed")
+    result.host.validIntent = if useValidIntent: validIntentBytes() else: ""
+    requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
+      "nearest_cover", 13, result.coverType,
+      cast[pointer](tickCoverCallback), addr result.host),
+      "define play.nearest_cover")
+    requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
+      "emit", 4, result.emitType, cast[pointer](tickEmitCallback),
+      addr result.host), "define tick play.emit")
+    requireNoError(runtimeSpikeLinkerDefineFunc(result.linker, "play", 4,
+      "log", 3, result.logType, cast[pointer](tickLogCallback),
+      addr result.host), "define play.log")
+  except:
+    if result.logType != nil: wasmFuncTypeDelete(result.logType)
+    if result.coverType != nil: wasmFuncTypeDelete(result.coverType)
+    if result.emitType != nil: wasmFuncTypeDelete(result.emitType)
+    if result.linker != nil: wasmtimeLinkerDelete(result.linker)
+    if result.module != nil: wasmtimeModuleDelete(result.module)
+    wasmEngineDelete(result.engine)
+    raise
 
 proc destroyTickRig(rig: var TickRig) =
   if rig.logType != nil: wasmFuncTypeDelete(rig.logType)
@@ -1353,16 +1370,16 @@ proc saturatedTickSamples(rig: var TickRig;
     let completedAfter = queue.completed.load(moAcquire)
     let bothBusyAtStart = (worker0AtStart and 1) == 1 and
       (worker1AtStart and 1) == 1
-    let continuousTwoWorkerOverlap = bothBusyAtStart and
+    let bothWorkersStayedInQueueLoops = bothBusyAtStart and
       worker0AtEnd == worker0AtStart and worker1AtEnd == worker1AtStart
-    if completedAfter < 32 and continuousTwoWorkerOverlap:
+    if completedAfter < 32 and bothWorkersStayedInQueueLoops:
       inc retainedSamples
       result.samples.add elapsed
       result.finalState = state
       echo &"TICK_SAMPLE mode=saturated sample={retainedSamples} elapsed_ms=" &
         &"{elapsed.float / 1_000_000.0:.6f} " &
         &"queue_completed_after={completedAfter} queue_drained=false " &
-        &"continuous_two_worker_overlap=true " &
+        &"both_workers_in_queue_loops=true " &
         &"checksum={state.checksum}"
     else:
       inc discardedSamples
@@ -1532,6 +1549,12 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
   elapsedSamples.sort()
   let maxNanoseconds = elapsedSamples[^1]
   let passed = maxNanoseconds.float <= 10_400_000.0
+  let insufficientSaturatedSamples = passed and compileWorkers == 2 and
+    elapsedSamples.len < samples
+  let verdict =
+    if insufficientSaturatedSamples: "INCONCLUSIVE-INSUFFICIENT-SAMPLES"
+    elif passed: "PASS"
+    else: "FAIL"
   echo &"TICK_COUNTS resident=512 steps={finalState.steps} " &
     &"step_traps={finalState.stepTraps} step_fuel={finalState.stepFuelConsumed} " &
     &"allocs={finalState.allocations} allocation_bytes=" &
@@ -1558,7 +1581,10 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
     &"{elapsedSamples.percentile(95).float / 1_000_000.0:.6f} p99_ms=" &
     &"{elapsedSamples.percentile(99).float / 1_000_000.0:.6f} max_ms=" &
     &"{maxNanoseconds.float / 1_000_000.0:.6f} gate_ms=10.400 verdict=" &
-    (if passed: "PASS" else: "FAIL")
+    verdict
+  if insufficientSaturatedSamples:
+    quit(&"saturated runtime-half worst tick retained " &
+      &"{elapsedSamples.len}/{samples} requested samples", 1)
   if not passed:
     quit(mode & " runtime-half worst tick exceeded 10.4 ms", 1)
 
@@ -1626,7 +1652,7 @@ proc printEnvironmentManifest() =
     &"pool_slots={PoolSlots} memory_reservation={MaxMemoryBytes} " &
     &"memory_guard={MemoryGuardBytes}"
 
-proc matrixTickChild(mode: string; samples: int): bool =
+proc matrixTickChild(mode: string; samples: int): string =
   let workers = if mode == "isolated": "0" else: "2"
   let process = startProcess(getAppFilename(), options = {poStdErrToStdOut},
     args = ["tick-internal", mode, $samples])
@@ -1651,19 +1677,26 @@ proc matrixTickChild(mode: string; samples: int): bool =
   let label = getEnv("RUNTIME_SPIKE_ENV_LABEL", hostOS & "-" & hostCPU)
   echo &"MATRIX_ROW environment={label} cpu_max={cpuMaxText()} " &
     &"compile_workers={workers} " & resultLine
-  result = resultLine.endsWith("verdict=PASS")
+  if resultLine.endsWith("verdict=PASS"):
+    result = "PASS"
+  elif resultLine.endsWith("verdict=FAIL"):
+    result = "FAIL"
+  elif resultLine.endsWith("verdict=INCONCLUSIVE-INSUFFICIENT-SAMPLES"):
+    result = "INCONCLUSIVE-INSUFFICIENT-SAMPLES"
+  else:
+    raise newException(ValueError,
+      "matrix child returned an unknown verdict: " & resultLine)
 
 proc allMode() =
   printEnvironmentManifest()
   runtimeOverheadRows()
-  let isolatedPassed = matrixTickChild("isolated", 30)
-  let saturatedPassed = matrixTickChild("saturated", 30)
+  let isolatedVerdict = matrixTickChild("isolated", 30)
+  let saturatedVerdict = matrixTickChild("saturated", 30)
   echo &"MATRIX_RESULT environment=" &
     getEnv("RUNTIME_SPIKE_ENV_LABEL", hostOS & "-" & hostCPU) &
-    &" cpu_max={cpuMaxText()} isolated_verdict=" &
-    (if isolatedPassed: "PASS" else: "FAIL") &
-    " saturated_verdict=" & (if saturatedPassed: "PASS" else: "FAIL")
-  if not isolatedPassed or not saturatedPassed:
+    &" cpu_max={cpuMaxText()} isolated_verdict={isolatedVerdict} " &
+    &"saturated_verdict={saturatedVerdict}"
+  if isolatedVerdict != "PASS" or saturatedVerdict != "PASS":
     quit("one or more runtime-half quarter-tick gates failed", 1)
 
 proc smoke(helloPath: string) =
