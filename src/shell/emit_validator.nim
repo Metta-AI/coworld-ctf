@@ -144,11 +144,16 @@ proc parseCombatPolicy(r: var CanonicalReader): CombatPolicy =
     of "no_shoot":
       result.noShoot = r.parseProtectedSet()
     of "prefer":
+      var seen: set[PreferTag]
       r.enterArray()
       while r.nextElement():
         if result.prefer.len >= ord(high(PreferTag)) + 1:
           rangeViolation("too many preference tags")
-        result.prefer.add(parsePreferTag(r.readRequiredString()))
+        let tag = parsePreferTag(r.readRequiredString())
+        if tag in seen:
+          schema("duplicate preference tag")
+        seen.incl(tag)
+        result.prefer.add(tag)
     of "protect":
       result.protect = r.parseProtectedSet()
     of "schema":

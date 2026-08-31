@@ -185,6 +185,40 @@ suite "shell compile plane":
     check plane.boundHash(0, "pact") == hex('d')
     check plane.boundHash(1, "pact") == hex('d')
 
+  test "duplicate charge owner is stable under reverse worker completion":
+    proc run(reverse: bool): tuple[commits: seq[CompileCommit],
+        chargedBytes: seq[int]] =
+      let plane = newCompilePlane(nil, 2)
+      defer: plane.close()
+      discard plane.admitOne(0, 7, 80)
+      discard plane.admitOne(1, 3, 80)
+      let work = plane.dispatchAvailable()
+      check work.len == 2
+      let first = if reverse: 1 else: 0
+      let second = if reverse: 0 else: 1
+      let leader = plane.completeHash(work[first], hex('9'))
+      check leader.isSome
+      check plane.completeHash(work[second], hex('9')).isNone
+      plane.completeContent(leader.get(), okContent("pact", 128))
+      result.commits = plane.commitCompileResults()
+      result.chargedBytes = plane.snapshot().perSeatChargedBytes
+
+    let forward = run(false)
+    let reversed = run(true)
+    for commits in [forward.commits, reversed.commits]:
+      check commits.len == 2
+      check commits[0].seat == 0
+      check commits[0].uploadId == 7
+      check commits[0].terminal == tkReady
+      check not commits[0].duplicateRefunded
+      check commits[1].seat == 1
+      check commits[1].uploadId == 3
+      check commits[1].terminal == tkReady
+      check commits[1].duplicateRefunded
+      check commits[1].rawBudgetRefunded == 80
+    check forward.chargedBytes == @[80, 0]
+    check reversed.chargedBytes == forward.chargedBytes
+
   test "thirty-two seats may bind the same local name to different hashes":
     let plane = newCompilePlane(nil, 32)
     defer: plane.close()

@@ -76,9 +76,16 @@ suite "shell emit validator":
     check validateEmit(intentBytes(kind = ikHold, point = none(MapPoint)),
       map.overlayContext).code == AbiClassMismatch
     check validateEmit("{\"hold_fire\":true,\"prefer\":[\"weakened\"," &
-      "\"isolated\",\"revenge\",\"bounty\",\"weakened\"]," &
+      "\"isolated\",\"weakened\"]," &
       "\"schema\":\"combat_policy\",\"v\":1}", map.overlayContext).code ==
-      AbiRangeViolation
+      AbiSchemaViolation
+    let fourDistinct = validateEmit("{\"hold_fire\":true,\"prefer\":[" &
+      "\"weakened\",\"isolated\",\"revenge\",\"bounty\"]," &
+      "\"schema\":\"combat_policy\",\"v\":1}", map.overlayContext)
+    check fourDistinct.code == AbiOk
+    check fourDistinct.accepted
+    check fourDistinct.policy.prefer == @[ptWeakened, ptIsolated, ptRevenge,
+      ptBounty]
     check validateEmit("{\"no_shoot\":{\"teams\":[\"bogus\"]}," &
       "\"schema\":\"combat_policy\",\"v\":1}", map.overlayContext).code ==
       AbiUnknownReference

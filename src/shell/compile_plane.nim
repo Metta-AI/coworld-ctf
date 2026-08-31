@@ -530,10 +530,30 @@ proc terminalForUpload(plane: CompilePlane; uploadIndex: int):
   seat[].names[name] = upload[].hash
   (tkReady, "", name, upload[].hash)
 
+proc sameAccountingContent(a, b: UploadState): bool =
+  if a.hash.len > 0 and b.hash.len > 0:
+    return a.hash == b.hash
+  a.bytes == b.bytes
+
+proc earlierAccountingHolder(a, b: UploadState): bool =
+  a.seat < b.seat or (a.seat == b.seat and a.uploadId < b.uploadId)
+
+proc duplicateChargeRefunded(plane: CompilePlane; uploadIndex: int): bool =
+  ## Compile leadership is allowed to follow worker arrival order; quota
+  ## ownership is not. The earliest admitted holder of identical content by
+  ## `(seat, uploadId)` keeps the charge, and every later holder refunds at
+  ## commit.
+  let upload = plane.uploads[uploadIndex]
+  for otherIndex, other in plane.uploads:
+    if otherIndex != uploadIndex and other.sameAccountingContent(upload) and
+        other.earlierAccountingHolder(upload):
+      return true
+
 proc commitUpload(plane: CompilePlane; uploadIndex: int): CompileCommit =
   var upload = addr plane.uploads[uploadIndex]
   var seat = addr plane.seats[upload[].seat]
   let terminal = plane.terminalForUpload(uploadIndex)
+  let refundDuplicateCharge = plane.duplicateChargeRefunded(uploadIndex)
 
   result.seat = upload[].seat
   result.uploadId = upload[].uploadId
@@ -544,7 +564,7 @@ proc commitUpload(plane: CompilePlane; uploadIndex: int): CompileCommit =
   plane.pendingBytes -= upload[].rawBytes
   plane.compiledReservedBytes -= upload[].reservationBytes
 
-  if upload[].duplicate:
+  if refundDuplicateCharge:
     result.duplicateRefunded = true
     result.rawBudgetRefunded = upload[].rawBytes
     dec seat[].chargedModules
