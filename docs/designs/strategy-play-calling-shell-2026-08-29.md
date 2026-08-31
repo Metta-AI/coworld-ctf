@@ -1666,9 +1666,9 @@ not the mechanism.
 | `MaxEmitsPerStep` | 4 |
 | `MaxEmitBytes` | 4096 |
 | `MaxSpatialCallsPerStep` (`nearest_reachable` and `nearest_cover` together) | 8 |
-| `MaxCoverRadiusPx` (`nearest_cover` search radius clamp; bounds posts examined per call) | 600 |
+| `MaxCoverRadiusPx` (`nearest_cover` search radius clamp; bounds posts examined per call; P0-adjusted 600→331, the BR derived weapon range, after the BR golden map measured 2,564 posts in a 600px disc — stencil-identical — with no radius ≥256 fitting the old cap) | 331 |
 | `MaxCoverThreats` (threat positions per `nearest_cover` call) | 8 |
-| `MaxCoverPostsExamined` (atlas posts any `MaxCoverRadiusPx` disc may contain; asserted for every map at load in play-seat configurations, which reject a denser map; provisional until P0 fixes it, see section 10) | 512 |
+| `MaxCoverPostsExamined` (atlas posts any `MaxCoverRadiusPx` disc may contain; asserted for every map at load in play-seat configurations, which reject a denser map; P0-adjusted 512→1536 with the radius above — the BR golden map's densest 331px disc holds 1,248; giant-field atlas thinning is the named reserve if worst-tick pricing cannot afford it; provisional until the launch-map census, see section 10) | 1536 |
 | `MaxRouteFieldsPerSeat` / `MaxDuckEntriesPerSeat` (seat-layer caches, section 3.1) | 4 / 256 |
 | `ReflexCandidateSpacingPx` / `ReflexCandidateRadiusPx` / `MaxReflexCandidates` (Appendix R.2's planning primitive) | 16 / 256 / 1089 |
 | `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
@@ -2617,8 +2617,8 @@ dark since it landed).
   hold before ABI version 1 is declared: compatibility, meaning P0
   inventories the launch-supported map set (the default arena, every
   curated pool entry, the generator's envelopes, and any hosted
-  authored-map path) and asserts the maximum 600-pixel-disc post count
-  over all of it, since nothing in the atlas construction proves 512
+  authored-map path) and asserts the maximum `MaxCoverRadiusPx`-disc post count
+  over all of it, since nothing in the atlas construction proves the cap
   (navigation cells are 8 pixels, `LAB:config.nim:66`, and every
   walkable cell with a wall ray within `CoverRayPx` becomes a post,
   `LAB:config.nim:272-280`, `LAB:worldmap.nim:604-635,716-740`, so a
@@ -3211,6 +3211,12 @@ current design; everything decided, superseded, or answered lives here.
   the measured worst tick (32 synchronized rebuilds ~109 ms; one cold
   giant-field plan ~65 ms) cannot fit the quarter-tick acceptance by
   scheduling alone.
+- The atlas constants were P0-adjusted (James, 2026-08-30):
+  `MaxCoverRadiusPx` 600→331 (the BR derived weapon range) and
+  `MaxCoverPostsExamined` 512→1536, after lane A measured the BR golden
+  map at 2,564 posts in a 600px disc (stencil-identical; no radius ≥256
+  fit the old cap). Giant-field atlas thinning is the named reserve if
+  the combined worst-tick verdict cannot afford the new cap's pricing.
 - Cross-play shared memory: not added; world knowledge persists in
   game-side belief, and play state stays per instance ("keep it simple").
   The `retune` flag covers same-play parameter updates without a state

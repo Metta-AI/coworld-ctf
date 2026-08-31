@@ -331,13 +331,22 @@ const
   MaxEmitsPerStep* = 4
   MaxEmitBytes* = 4096
   MaxSpatialCallsPerStep* = 8         ## nearest_reachable + nearest_cover
-  MaxCoverRadiusPx* = 600
-    ## P0: provisional — may come down if the density assertion cannot hold
-    ## on the launch map set (§10).
+  MaxCoverRadiusPx* = 331
+    ## P0-adjusted (James, 2026-08-30): Battle Royale's derived weapon range
+    ## (§4.2's equal-share formula) — cover beyond the range anyone can
+    ## shoot from is tactically marginal, and the original 600 was
+    ## impossible on the real BR map (2,564 posts in a 600px disc vs the
+    ## old 512 cap, verified identical against stencil's own atlas; no
+    ## radius ≥ 256 fits 512 there). Still provisional until the full
+    ## launch-map census freezes it (§10).
   MaxCoverThreats* = 8
-  MaxCoverPostsExamined* = 512
-    ## P0: provisional until frozen against the launch map inventory (§10);
-    ## asserted per map at load in play-seat configurations.
+  MaxCoverPostsExamined* = 1536
+    ## P0-adjusted with the radius above: the BR golden map holds 1,248
+    ## posts in a 331px disc at its densest point; 1536 gives margin.
+    ## Asserted per map at load in play-seat configurations; provisional
+    ## until the launch-map census (§10). Thinning the atlas on giant
+    ## fields (a behavioral ruling) is the named reserve if the combined
+    ## worst-tick verdict cannot afford this cap's host-call pricing.
   MaxRouteFieldsPerSeat* = 4          ## §3.1 seat layer
   MaxDuckEntriesPerSeat* = 256
   ReflexCandidateSpacingPx* = 16      ## Appendix R.2 planEscape lattice
