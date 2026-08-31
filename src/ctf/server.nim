@@ -1,11 +1,13 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, json, locks, monotimes, nativesockets, options, os,
+    strutils, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
-  control, directives, baselines, decide, mux
+  control, directives, baselines, decide, mux,
+  ../shell/[body, body_map, episode, standing_order]
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -2018,6 +2020,127 @@ proc squadAlias(sim: SimServer, order: int): string =
   toUpperAscii(teamText(sim.teamForSlot(order))) & "-" &
     IdentityNames[sim.slotIdentityIndex(order)]
 
+proc bodyPoint(player: Player): BodyPoint =
+  (player.x + CollisionW div 2, player.y + CollisionH div 2)
+
+proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
+  let player = sim.players[playerIndex]
+  let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
+  BodySelfState(
+    pos: player.bodyPoint,
+    hpFrac: float(player.hp + player.shieldHp) / float(maxHp + ShieldLayerHp),
+    aimBrads: player.aimBrads,
+    alive: player.alive,
+    carrying: player.carryingFlag)
+
+proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] =
+  let player = sim.players[playerIndex]
+  for otherIndex, other in sim.players:
+    if otherIndex != playerIndex and other.team == player.team and
+        other.joinOrder >= 0 and other.joinOrder < MaxPlayers:
+      return some(PartnerSample(
+        seat: uint8(other.joinOrder),
+        pos: other.bodyPoint,
+        aimBrads: other.aimBrads,
+        alive: other.alive))
+  none(PartnerSample)
+
+proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
+  let player = sim.players[playerIndex]
+  discard sim.refreshPlayerFov(playerIndex)
+  result.self = sim.firstLightSelfState(playerIndex)
+  result.partner = sim.firstLightPartner(playerIndex)
+  for targetIndex, target in sim.players:
+    if targetIndex == playerIndex or not target.alive:
+      continue
+    if target.team == player.team:
+      continue
+    if target.joinOrder < 0 or target.joinOrder >= MaxPlayers:
+      continue
+    if sim.playerVisibleTo(playerIndex, targetIndex):
+      result.visibleTracks.add(BodyTrackUpdate(
+        seat: target.joinOrder,
+        pos: target.bodyPoint,
+        team: target.team,
+        aimBrads: target.aimBrads,
+        hpKnown: some(target.hp + target.shieldHp),
+        tick: uint32(sim.tickCount + 1)))
+
+proc ticksToNextZoneShrink(sim: SimServer, elapsedTicks: int): int =
+  if sim.config.zonePhases.len == 0:
+    return high(int) div 4
+  var remaining = max(0, elapsedTicks)
+  for phase in sim.config.zonePhases:
+    if remaining < phase.waitTicks:
+      return phase.waitTicks - remaining
+    remaining -= phase.waitTicks
+    if remaining < phase.shrinkTicks:
+      return 0
+    remaining -= phase.shrinkTicks
+  high(int) div 4
+
+proc rectCenter(rect: MapRect): BodyPoint =
+  (rect.x + rect.w div 2, rect.y + rect.h div 2)
+
+proc firstLightRotateTarget(selfPos: BodyPoint, zone: MapRect): BodyPoint =
+  ## FIRST LIGHT fallback fact: pick a short validated goal in the direction of
+  ## the next zone. Lane A still owns path planning and the final movement mask.
+  const MaxRotateStepPx = 192
+  let target = zone.rectCenter
+  let dx = target.x - selfPos.x
+  let dy = target.y - selfPos.y
+  let distance = max(abs(dx), abs(dy))
+  if distance <= MaxRotateStepPx:
+    target
+  else:
+    (selfPos.x + dx * MaxRotateStepPx div distance,
+     selfPos.y + dy * MaxRotateStepPx div distance)
+
+proc firstLightFallbacks(sim: SimServer,
+                         selfPos: BodyPoint): BrDefaultFallbacks =
+  let elapsed = sim.tickCount - sim.gameStartTick
+  let zone =
+    if sim.config.zonePhases.len == 0:
+      (cur: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
+       next: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
+       dps: 0)
+    else:
+      sim.zoneRectAndDps(elapsed)
+  BrDefaultFallbacks(
+    currentZone: zone.cur,
+    nextZone: zone.next,
+    ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
+    zoneDps: zone.dps,
+    idleAimCenterBrads: 0,
+    rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
+    coverGoal: none(ValidatedGoal))
+
+type FirstLightControlSet = tuple[
+  controls: seq[SlotControl],
+  hasPlaySeat: bool
+]
+
+proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
+  for slot in config.slots:
+    result.controls.add(slot.control)
+    if slot.control == scPlay:
+      result.hasPlaySeat = true
+
+proc resetFirstLightForSim(episode: var FirstLightEpisode,
+                           replayLoaded: bool,
+                           config: GameConfig,
+                           sim: SimServer,
+                           reason: string) =
+  let controlSet = config.firstLightControlSet()
+  if not replayLoaded and config.season2Shell and controlSet.hasPlaySeat:
+    episode.resetFirstLightEpisode(
+      config.season2Shell, config.brMode, controlSet.controls,
+      newBodyMap(sim.gameMap), config.gunRange)
+    echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
+      " executor=lane-a-fl-b reset=", reason
+  else:
+    episode = FirstLightEpisode()
+
 proc runServerLoop*(
   host = DefaultHost,
   port = DefaultPort,
@@ -2178,6 +2301,12 @@ proc runServerLoop*(
     broadcastTracker =
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
+    firstLightEpisode: FirstLightEpisode
+
+  # FIRST LIGHT is reachable only under the two-part runtime gate. Gate-on
+  # with an all-input roster and every gate-off configuration leave the zero
+  # value untouched and never call into the episode owner.
+  firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup")
 
   while true:
     var
@@ -2259,6 +2388,8 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        firstLightEpisode.resetFirstLightForSim(
+          replayLoaded, config, sim, "replay_switch")
         # The switched-in sim carries a new map, but the board render caches
         # are process-wide — without this, addMapBands keeps splicing the OLD
         # map's cached band bytes into every new viewer's init packet. Rebake
@@ -2615,6 +2746,17 @@ proc runServerLoop*(
             # would write a second, conflicting mask record per tick.
             appState.inputPressedMasks[websocket] = 0
             continue
+          if firstLightEpisode.enabled and playerIndex >= 0 and
+              playerIndex < sim.players.len:
+            let slot = sim.players[playerIndex].joinOrder
+            if slot >= 0 and slot < config.slots.len and
+                config.slots[slot].control == scPlay:
+              # A play socket supplies presence and receives its view; it can
+              # never supply an actuator mask. FIRST LIGHT's lane-A seatTick
+              # handoff below is the sole source for this configured seat.
+              appState.inputMasks[websocket] = 0
+              appState.inputPressedMasks[websocket] = 0
+              continue
           # THE SWAP, and the whole of it: while a human drives this cog the
           # seat's mask is read off the human's socket instead of the policy's.
           # Same cog, same team, same eight buttons, same replay record under
@@ -2671,6 +2813,12 @@ proc runServerLoop*(
               let playerIndex = muxState.seats[slot].playerIndex
               if playerIndex < 0 or playerIndex >= inputs.len:
                 continue
+              if firstLightEpisode.enabled and
+                  playerIndex < sim.players.len:
+                let playerSlot = sim.players[playerIndex].joinOrder
+                if playerSlot >= 0 and playerSlot < config.slots.len and
+                    config.slots[playerSlot].control == scPlay:
+                  continue
               let pressedMask = muxState.seats[slot].pressedMask
               muxState.seats[slot].pressedMask = 0
               let currentMask = muxState.seats[slot].inputMask
@@ -2798,6 +2946,7 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.collectEvents = eventsPath.len > 0
+      firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "reset")
       # One file describes ONE match. A reset that kept the previous match's
       # events would concatenate two games under a single episode id.
       collectedEvents.setLen(0)
@@ -3010,6 +3159,48 @@ proc runServerLoop*(
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
+        if firstLightEpisode.enabled:
+          var frames: seq[FirstLightSeatFrame]
+          for playerIndex, player in sim.players:
+            let slot = player.joinOrder
+            if slot < 0 or slot >= config.slots.len or
+                config.slots[slot].control != scPlay:
+              continue
+            let bodyInputs = sim.firstLightBodyInputs(playerIndex)
+            frames.add(FirstLightSeatFrame(
+              seat: uint8(slot),
+              playerIndex: playerIndex,
+              present: true,
+              playing: sim.phase == Playing,
+              alive: player.alive,
+              bodyInputs: bodyInputs,
+              defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
+          let firstLight = firstLightEpisode.step(
+            frames, uint32(sim.tickCount + 1))
+          var firstLightMoving, firstLightAiming = 0
+          for mask in firstLight.masks:
+            let encoded = mask.input.encodeInputMask()
+            if (encoded and (ButtonUp or ButtonDown or
+                ButtonLeft or ButtonRight)) != 0:
+              inc firstLightMoving
+            if (encoded and (ButtonB or ButtonSelect)) != 0:
+              inc firstLightAiming
+            if mask.playerIndex < 0 or mask.playerIndex >= stepInputs.len:
+              continue
+            stepInputs[mask.playerIndex] = mask.input
+            if mask.playerIndex < downInputs.len:
+              downInputs[mask.playerIndex] = mask.input
+            replayWriter.writeInputMaskChange(
+              tickTime(sim.tickCount), mask.playerIndex,
+              encoded)
+          if firstLight.masks.len > 0 and (firstLightMoving > 0 or
+              firstLightAiming > 0 or (sim.tickCount mod 24) == 0):
+            echo "FIRST_LIGHT_MOVEMENT tick=", sim.tickCount + 1,
+              " seats=", firstLight.masks.len,
+              " moving=", firstLightMoving,
+              " aiming=", firstLightAiming
+          for install in firstLight.installs:
+            echo install.formatInstall()
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
@@ -3064,6 +3255,29 @@ proc runServerLoop*(
           sim.phase = GameOver
           quitAfterFrame = true
           break
+        if firstLightEpisode.enabled:
+          # Death is observed immediately after the sim step that caused it,
+          # so clear-on-death carries that completed tick rather than waiting
+          # for the next actuator pass. This hook performs no second default,
+          # body call, or mask handoff.
+          var lifecycleFrames: seq[FirstLightSeatFrame]
+          for playerIndex, player in sim.players:
+            let slot = player.joinOrder
+            if slot < 0 or slot >= config.slots.len or
+                config.slots[slot].control != scPlay:
+              continue
+            let selfState = sim.firstLightSelfState(playerIndex)
+            lifecycleFrames.add(FirstLightSeatFrame(
+              seat: uint8(slot),
+              playerIndex: playerIndex,
+              present: true,
+              playing: false,
+              alive: player.alive,
+              bodyInputs: BodyTickInputs(self: selfState),
+              defaultFallbacks: sim.firstLightFallbacks(selfState.pos)))
+          for annotation in firstLightEpisode.observeDeaths(
+              lifecycleFrames, uint32(sim.tickCount)):
+            echo annotation.formatLifecycleAnnotation()
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.
@@ -3109,6 +3323,8 @@ proc runServerLoop*(
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
+      firstLightEpisode.resetFirstLightForSim(
+        replayLoaded, config, sim, "reregister")
       liveOverlays = @[]
       {.gcsafe.}:
         withLock appState.lock:
