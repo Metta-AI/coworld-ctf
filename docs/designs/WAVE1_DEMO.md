@@ -2,7 +2,7 @@
 
 Watches `rt_episode/episode-s830.bitreplay`, the wave-1 launch candidate:
 seed 20260830, BR_FIRST_WAIT=1500, 16 duos, map
-`br-match-showmatch-4242.json`, roster `rt_episode/roster_v2.json`.
+`tests/fixtures/br-match-showmatch-4242.json`, roster `rt_episode/roster_v2.json`.
 Winner: PEACH (TIGHT-TRADE play), 626 glory, GameOver at tick 4433.
 
 Recorded fresh against GameVersion 47 (main @ 0cc60bf2) — the prior take

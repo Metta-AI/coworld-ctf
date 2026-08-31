@@ -83,7 +83,11 @@ proc defaultGameConfig*(): GameConfig =
     turnSpacingMs: DefaultTurnSpacingMs,
     wallClockBudgetSeconds: DefaultWallClockBudgetSeconds,
     model: "",
-    maxOutputTokens: DefaultMaxOutputTokens
+    maxOutputTokens: DefaultMaxOutputTokens,
+    season2Shell: false,
+    viewIntervalTicks: ViewIntervalTicksDefault,
+    lobbyChatTicks: LobbyChatTicksDefault,
+    playSeatBindTicks: PlaySeatBindTicksDefault
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -246,6 +250,20 @@ proc readConfigSlots(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
       slot.hasColor = true
     if item.hasKey("skin"):
       slot.skin = readSlotSkin(item["skin"], i)
+    if item.hasKey("control"):
+      # §5.1 of the play-calling design: the one trusted per-seat choice the
+      # whole play-seat protocol boundary hangs on. Closed enum, rejected by
+      # name on anything else.
+      let control = item["control"]
+      if control.kind != JString or
+          control.getStr() notin ["input", "play"]:
+        raise newException(
+          CtfError,
+          "Config field slots[" & $i & "].control must be \"input\" or " &
+            "\"play\"."
+        )
+      slot.control =
+        if control.getStr() == "play": scPlay else: scInput
     slots.add(slot)
 
 proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
@@ -891,6 +909,49 @@ proc validate(config: GameConfig) =
       CtfError, "Config field hill requires floorPaint.")
   if config.numAgents < 0:
     raise newException(CtfError, "Config field num_agents must not be negative.")
+  # Season 2 play-calling shell (§5.1/§9.2 of
+  # docs/designs/strategy-play-calling-shell-2026-08-29.md): field ranges
+  # and the gate/slot coupling. The deeper play-seat roster-shape rules
+  # (closed roster, the BR 16x2 duo shape) are P2 work and land with the
+  # protocol, not here.
+  if config.viewIntervalTicks < ViewIntervalTicksMin or
+      config.viewIntervalTicks > ViewIntervalTicksMax:
+    raise newException(
+      CtfError,
+      "Config field viewIntervalTicks must be " & $ViewIntervalTicksMin &
+        ".." & $ViewIntervalTicksMax & "."
+    )
+  if config.lobbyChatTicks < 0 or config.lobbyChatTicks > LobbyChatTicksMax:
+    raise newException(
+      CtfError,
+      "Config field lobbyChatTicks must be 0.." & $LobbyChatTicksMax & "."
+    )
+  if config.playSeatBindTicks < 0 or
+      config.playSeatBindTicks > PlaySeatBindTicksMax:
+    raise newException(
+      CtfError,
+      "Config field playSeatBindTicks must be 0.." & $PlaySeatBindTicksMax &
+        " (positive in a play-seat episode)."
+    )
+  var hasPlaySeat = false
+  for slot in config.slots:
+    if slot.control == scPlay:
+      hasPlaySeat = true
+  if hasPlaySeat and not config.season2Shell:
+    # playSeatRequiresShell: the §5.1 one-way coupling — a "play" slot under
+    # a gate-off configuration is an error; gate-on with an all-input roster
+    # is legal and plays byte-identically to gate-off.
+    raise newException(
+      CtfError,
+      "Config field slots[].control \"play\" requires season2Shell " &
+        "(playSeatRequiresShell)."
+    )
+  if hasPlaySeat and config.playSeatBindTicks < 1:
+    raise newException(
+      CtfError,
+      "Config field playSeatBindTicks must be positive in a play-seat " &
+        "episode."
+    )
   if config.slots.len > MaxPlayers:
     raise newException(CtfError, "Config field slots cannot have more than 8 entries.")
   if config.closedRoster and config.slots.len < config.minPlayers:
@@ -1044,6 +1105,12 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
   node.readConfigBool("brMode", config.brMode)
+  # GVNEXT(shell): appended reads for the play-calling shell's four root
+  # fields (sim_types.nim); all default off/inert, echo omitted at default.
+  node.readConfigBool("season2Shell", config.season2Shell)
+  node.readConfigInt("viewIntervalTicks", config.viewIntervalTicks)
+  node.readConfigInt("lobbyChatTicks", config.lobbyChatTicks)
+  node.readConfigInt("playSeatBindTicks", config.playSeatBindTicks)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1278,6 +1345,24 @@ proc echoPolicyReflashKeys(config: GameConfig, node: JsonNode) =
   if config.allowPolicyReflash:
     node["allowPolicyReflash"] = %config.allowPolicyReflash
 
+proc echoShellKeys(config: GameConfig, node: JsonNode) =
+  ## Echo the play-calling shell keys: all four whenever the gate is on, so
+  ## a play-seat replay header pins the whole shell contract; otherwise only
+  ## a field that departs from its default (the sprayDamage rule). A
+  ## gate-off default config's replay JSON therefore gains no byte.
+  if config.season2Shell:
+    node["season2Shell"] = %true
+    node["viewIntervalTicks"] = %config.viewIntervalTicks
+    node["lobbyChatTicks"] = %config.lobbyChatTicks
+    node["playSeatBindTicks"] = %config.playSeatBindTicks
+    return
+  if config.viewIntervalTicks != ViewIntervalTicksDefault:
+    node["viewIntervalTicks"] = %config.viewIntervalTicks
+  if config.lobbyChatTicks != LobbyChatTicksDefault:
+    node["lobbyChatTicks"] = %config.lobbyChatTicks
+  if config.playSeatBindTicks != PlaySeatBindTicksDefault:
+    node["playSeatBindTicks"] = %config.playSeatBindTicks
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1304,6 +1389,8 @@ proc configJson*(config: GameConfig): string =
       item["color"] = %slot.slotColorText()
     if slot.skin != DefaultSkin:
       item["skin"] = %slot.skin.skinText()
+    if slot.control == scPlay:
+      item["control"] = %"play"
     slots.add(item)
   var node = %*{
     "motionScale": config.motionScale,
@@ -1371,5 +1458,6 @@ proc configJson*(config: GameConfig): string =
   echoAimKeys(config, node)
   echoCalloutKeys(config, node)
   echoPolicyReflashKeys(config, node)
+  echoShellKeys(config, node)
   result = $node
 

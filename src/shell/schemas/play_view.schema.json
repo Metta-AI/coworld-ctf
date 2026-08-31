@@ -1,0 +1,588 @@
+{
+  "$comment": "\u00a75/\u00a75.2/Appendix R \u2014 the per-tick GAMEPLAY payload: the seat's current fogged knowledge, one byte string handed unchanged to play_step and (at view cadence) to the socket. Cap: MaxViewFrameBytes (32768), backed by the element caps below with deterministic selection BEFORE encoding, so the encoded payload is always valid JSON. Fog provenance per field: the \u00a75.2 observation matrix is normative; nothing here is ever sourced from the omniscient SimEvent stream. Guard paths (world.alive_teams, self.hp_frac, \u2026) read this payload through the shared evaluator registry (\u00a75.1). DIRECTION RULE (review finding): this is an ENGINE\u2192PLAY payload \u2014 every object in this tree is additionalProperties:true because built plays must ignore unknown fields so view additions stay compatible (\u00a75); strict unknown-field rejection applies only to client\u2192engine inputs (intent emissions, calls, manifests).",
+  "title": "play_view",
+  "type": "object",
+  "required": [
+    "schema",
+    "v",
+    "tick",
+    "self",
+    "world",
+    "epoch"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "play_view"
+    },
+    "v": {
+      "const": 1
+    },
+    "tick": {
+      "type": "integer"
+    },
+    "epoch": {
+      "$ref": "uint64.schema.json",
+      "$comment": "u64: the seat's ACTIVE call epoch (\"0\" = no declaration)"
+    },
+    "self": {
+      "type": "object",
+      "required": [
+        "pos",
+        "hp",
+        "hp_frac",
+        "aim_brads",
+        "alive"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "pos": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "hp": {
+          "type": "integer"
+        },
+        "hp_frac": {
+          "type": "number",
+          "$comment": "hp over max hp for this seat's team (handicaps and perks applied)"
+        },
+        "aim_brads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "alive": {
+          "type": "boolean"
+        },
+        "lives": {
+          "type": "integer",
+          "$comment": "omit in br (elimination: alive is the fact)"
+        },
+        "carrying": {
+          "type": "boolean",
+          "$comment": "ctf only; omit when false"
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": true,
+      "$comment": "the seat's own STANDING order, in the canonical intent encoding \u2014 intent.schema.json defines the fields and remains the STRICT schema for a play's emissions; here (engine-outbound) the object is permissive per the direction rule, so a field the engine adds to the standing intent never breaks an older play's view decoding (\u00a75). Omit before the first standing order."
+    },
+    "world": {
+      "type": "object",
+      "required": [
+        "alive_teams"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "alive_teams": {
+          "type": "integer",
+          "$comment": "public by design (\u00a75.2)"
+        },
+        "zone": {
+          "$comment": "mode br only (schema tests pin per-mode presence, \u00a75.1): public zone facts, already on every frame",
+          "type": "object",
+          "required": [
+            "phase",
+            "current",
+            "ticks_to_shrink"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "phase": {
+              "type": "integer"
+            },
+            "current": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 4,
+              "maxItems": 4,
+              "$comment": "[x, y, w, h] map pixels"
+            },
+            "next": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 4,
+              "maxItems": 4,
+              "$comment": "the announced next rectangle; omit between announcements"
+            },
+            "ticks_to_shrink": {
+              "type": "integer"
+            },
+            "dps": {
+              "type": "integer",
+              "$comment": "the ACTIVE phase's outside-rect damage per second; 0 while no damage phase is live"
+            }
+          }
+        },
+        "objectives": {
+          "$comment": "mode ctf only: capture objectives (flag state per team)",
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "team",
+              "state"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "team": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "home",
+                  "taken",
+                  "captured"
+                ]
+              },
+              "pos": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "$comment": "omit when unknown under fog"
+              }
+            }
+          }
+        },
+        "hill": {
+          "$comment": "mode koth only: hill facts",
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "tracks": {
+      "$comment": "tracked allies and enemies under the seat's own fog; \u2264 32 (the roster, never truncated). The duo partner's row is a DELIBERATE GRANT (\u00a75.2): live position+aim, always fresh while both live \u2014 and it ends exactly at the partner's death (stale-track handling thereafter).",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "seat",
+          "team",
+          "pos",
+          "fresh_tick"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "seat": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 31
+          },
+          "team": {
+            "type": "string"
+          },
+          "pos": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "$comment": "last known"
+          },
+          "aim_brads": {
+            "type": "integer",
+            "$comment": "omit when aim is not readable"
+          },
+          "hp": {
+            "type": "integer",
+            "$comment": "omit when unknown (unknown hp scores 0 for ptWeakened, \u00a75.2)"
+          },
+          "fresh_tick": {
+            "type": "integer",
+            "$comment": "the tick this track was last confirmed"
+          },
+          "bounty": {
+            "type": "boolean",
+            "$comment": "fog-derived from the visible veteran marker with track freshness; omit when false/unseen/stale (\u00a75.2)"
+          }
+        }
+      }
+    },
+    "items": {
+      "$comment": "item memory, \u2264 32 entries keeping the freshest then the nearest",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "pos",
+          "fresh_tick"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "enum": [
+              "grenade",
+              "medkit",
+              "shield",
+              "spray",
+              "barrier"
+            ]
+          },
+          "pos": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "fresh_tick": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "aggressors": {
+      "$comment": "victim-private hit feedback against SELF, window 120 ticks, \u2264 16 most recent first: shooter identity only if visible at that moment, else anonymous-with-direction (\u00a75.2)",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "tick",
+          "dir_brads"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "tick": {
+            "type": "integer"
+          },
+          "dir_brads": {
+            "type": "integer"
+          },
+          "seat": {
+            "type": "integer",
+            "$comment": "omit when anonymous"
+          }
+        }
+      }
+    },
+    "kill_feed": {
+      "$comment": "public by design (deliberate grant, \u00a75.2): killer TEAM and victim seat, tick-stamped, window 240 ticks, \u2264 32 most recent first; carries no killer seat and no location",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "tick",
+          "killer_team",
+          "victim_seat"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "tick": {
+            "type": "integer"
+          },
+          "killer_team": {
+            "type": "string"
+          },
+          "victim_seat": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "shouts": {
+      "$comment": "heard shouts, the same fogged, jittered, anonymous-slot-letter facts a Sprite client reads (\u00a74.3/\u00a75.2): one per live shouter, \u2264 32",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "team",
+          "slot_letter",
+          "text",
+          "pos",
+          "tick"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "slot_letter": {
+            "type": "string",
+            "$comment": "anonymous slot letter; a departed shouter reads ?"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "pos": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "$comment": "jittered by the same helper as the bubble"
+          },
+          "tick": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "hazards": {
+      "$comment": "Appendix R.1, normatively: every capped list truncates by the shared urgency predicate (covering hazards first, then ticks-to-blast ascending / recency descending, then distance, then stable event id)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "grenades": {
+          "$comment": "visible airborne grenades, \u2264 8: predicted blast center + ticks to blast are the safety inputs; pos is display metadata",
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": [
+              "pos",
+              "predicted_blast_pos",
+              "ticks_to_blast"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "pos": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "predicted_blast_pos": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "ticks_to_blast": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "blast_cues": {
+          "$comment": "anonymous POST-BLAST evidence (history for plays, never an evasion input, R.1), \u2264 4 retained, 24-tick lifetime",
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": [
+              "pos",
+              "tick"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "pos": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "tick": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "own_throw": {
+          "$comment": "the thrower's own private target; \u2264 1",
+          "type": "object",
+          "required": [
+            "target",
+            "release_tick",
+            "blast_radius"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "target": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "release_tick": {
+              "type": "integer"
+            },
+            "blast_radius": {
+              "type": "integer",
+              "$comment": "ENGINE constant of the ABI contract (Appendix R.1): the blast radius this throw resolves with, in pixels \u2014 what lets the thrower judge its own footprint"
+            }
+          }
+        },
+        "sprays": {
+          "$comment": "tagged union rows, \u2264 8 retained: visible_cone (attacker fog-visible; covers_self is the ENGINE's complete predicate, walls and barriers included \u2014 never a geometry reconstruction) | anonymous_impact (victim-known jittered trace, 48-tick window)",
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "tick"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "visible_cone",
+                  "anonymous_impact"
+                ]
+              },
+              "tick": {
+                "type": "integer"
+              },
+              "attacker_seat": {
+                "type": "integer"
+              },
+              "origin": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "aim_brads": {
+                "type": "integer"
+              },
+              "reach_px": {
+                "type": "integer"
+              },
+              "max_width_px": {
+                "type": "integer"
+              },
+              "covers_self": {
+                "type": "boolean"
+              },
+              "impact_pos": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "incoming_dir_brads": {
+                "type": "integer"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "visible_cone"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "attacker_seat",
+                    "origin",
+                    "aim_brads",
+                    "reach_px",
+                    "max_width_px",
+                    "covers_self"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "impact_pos"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "incoming_dir_brads"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "anonymous_impact"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "impact_pos",
+                    "incoming_dir_brads"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "attacker_seat"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "origin"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "aim_brads"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "reach_px"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "max_width_px"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "covers_self"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "$comment": " Arm fields are enforced by the allOf rules; the anonymous arm never carries identity or cone origin (R.1)."
+          }
+        }
+      }
+    }
+  }
+}

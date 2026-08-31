@@ -774,7 +774,7 @@ budgets (instance memory, fuel, emission caps) are in section 6.1's table.
   specified here and named as P2 work. Today a closed player socket is
   recorded as a leave and handed to `sim.removePlayer`, which deletes the
   live player and its index-keyed state
-  (`origin/maxwell/br-season2-complete:src/ctf/server.nim:2038-2056`,
+  (`src/ctf/server.nim:2306-2339`,
   `roster.nim:462-470`); the admission path treats an already-present
   identity as an error (`roster.nim:462-467`); and main's admission loop
   admits unresolved player sockets only during `Lobby`
@@ -968,7 +968,7 @@ The **call records** keep the semantics Maxwell's flash channel
 established: an accepted call is written into sim bookkeeping fields, its
 content hash and the seat's epoch counter are mixed into the game hash,
 and playback re-applies the record deterministically
-(`origin/maxwell/br-season2-complete:src/ctf/sim_state.nim:288-306,347-385`,
+(`src/ctf/sim_state.nim:303-315,382-425`,
 `replays.nim:579-605`). Those semantics are kept on purpose: the apply
 function drives no gameplay, and the hash coupling is what makes a
 dropped or shifted record detectable, which is the negative-control
@@ -984,7 +984,7 @@ bytes to archive. A byte golden and a replay negative control cover a
 call naming every reflex. Module bytes
 themselves are not in the replay: the existing string-carrying records
 have a 16-bit length prefix (the reason `MaxPolicyPageBytes` is 60000,
-`origin/maxwell/br-season2-complete:src/ctf/sim_types.nim:851-858`), a
+`src/ctf/sim_types.nim:871-879`), a
 module is up to 256 KiB, and playback never executes one. Uploaded
 modules are archived beside the replay as a per-episode **playbook
 archive** keyed by hash, so broadcast and analysis surfaces can show a
@@ -996,7 +996,7 @@ and its physical format is decided here rather than deferred, because the
 replay codec rejects unknown versions and unknown record bytes by design
 (the reflash lane spent a player-byte flag inside the chat record
 specifically to avoid a version bump,
-`origin/maxwell/br-season2-complete:src/ctf/replays.nim:253-270`). This
+`src/ctf/replays.nim:286-304`). This
 design takes the other path deliberately: **Season 2 replays bump the
 replay format version.** The new version adds the call record as its own
 record type (`0x10`; no more chat-record flag), the per-seat behavior annotation
@@ -1268,9 +1268,9 @@ are rejected by name (`noDuosInMode`) in `gmCtf` and `gmKoth`, where
 `seat:` references remain available (this is why `target_law` and
 `supply_run` can declare CTF). That definition is only true under a
 roster-shape invariant the engine does not enforce today (the
-integration branch checks that `teams` is 2, 4, or 16 and that a slot's
+engine checks that `teams` is 2, 4, or 16 and that a slot's
 team index is below it, nothing more,
-`origin/maxwell/br-season2-complete:src/ctf/sim_config.nim:633-650`),
+`src/ctf/sim_config.nim:717-729`),
 so play-seat validation in `gmBr` **requires the launch shape
 exactly**: 32 configured slots, all 16 teams present, each with
 exactly two slots. Rejections are named for a missing team, a singleton
@@ -1328,7 +1328,7 @@ impacts near a visible ward, and the ward's own track state.
 | both-weakened: min known hp of clustered fighters | query | fog-visible hp only (unknown hp excluded) | `jackal` |
 | contested item: enemy track within pickup radius of a known item | query | seat's own fog | `supply_run` (`contested`) |
 | partner's live position and aim | view (duo telemetry) | **deliberate grant**: a duo shares live position+aim telemetry, always fresh while both live, documented and tested as a grant rather than fog-derived; no access to the partner's orders or targeting | `crossfire`, `bodyguard` |
-| bounty mark on a tracked enemy | view (track attribute) | fog-derived from the visible veteran marker (the ember plume, `origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867`), with track freshness; never the hidden level itself; an unseen or stale marker, or a mode without one, reads false | `target_law` (`ptBounty`) |
+| bounty mark on a tracked enemy | view (track attribute) | fog-derived from the visible veteran marker (the ember plume, `src/ctf/glory.nim:861-868`), with track freshness; never the hidden level itself; an unseen or stale marker, or a mode without one, reads false | `target_law` (`ptBounty`) |
 | cover: best atlas post against given threat positions | host query `nearest_cover` over the engine-side atlas (section 6.1); the play supplies threat positions from its own fog-visible tracks | map-static, public (the query reveals only map facts) | `edge_ride`, `bodyguard`, default |
 | own standing `Intent`, call epoch | view | seat-private | all |
 | heard shouts: team color, anonymous slot letter, text, jittered position, tick | view (event list) | the game's existing shout audibility, sampled by the same code path the Sprite frame uses: every live shout the seat can hear (`shoutAudibleTo`, within `ShoutRange`, a fifth of the map width, through walls and fog; `src/ctf/sim.nim:2278`, `src/ctf/global.nim:6000-6022`), one per shouter because a re-shout replaces the old one (`src/ctf/sim.nim:2255-2268`), the position jittered with the same helper as the bubble, the identity resolved at frame build with the same resolver so a departed shouter reads `?` (`src/ctf/roster.nim:82-105`), expiring when the bubble does; a 32-audible-shout golden compares the field to the Sprite frame (`docs/RULES.md:477-492`) | the policy's LLM (in-match negotiation), any play |
@@ -1877,7 +1877,7 @@ validator, a play that passes the harness is a play the server accepts.
 ### 6.4 The reference playbook
 
 The engine repository ships a public reference playbook implementing the
-seven plays of `origin/maxwell/br-season2-complete:docs/designs/BR_PLAYS.md`,
+seven plays of `docs/designs/BR_PLAYS.md`,
 each evidence-backed by Season 1 measurement, each as an SDK-built module:
 
 | Play | Class | What it does | Key parameters (full schemas: Appendix P) |
@@ -2024,7 +2024,7 @@ is a stale safety policy. A four-overlay golden at every cap pins the
 fold.
 
 Guards use the closed operator set of the engine's page-expression
-language (`origin/maxwell/br-season2-complete:src/ctf/policy_page.nim`) in
+language (`src/ctf/policy_page.nim`) in
 its native JSON s-expression form, over the same view paths plays read.
 The module today parses only whole pages and keeps its expression type
 private (`policy_page.nim:73-94,260-308`), so P3 includes the scoped work
@@ -2324,7 +2324,7 @@ Acceptance gates, in order:
    view, and the replay viewer displaying the lobby transcript and the
    executed plays: the
    shape of Maxwell's verified 32-seat episodes
-   (`origin/maxwell/br-season2-complete:rt_episode/`), upgraded to the
+   (`rt_episode/`), upgraded to the
    play boundary.
 5. **End to end, hosted.** A skeleton-image policy on the platform's
    default resource envelope receives its context, talks in the lobby

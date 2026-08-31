@@ -856,6 +856,18 @@ const
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
+  # Season 2 play-calling shell config defaults and ranges (§4.3/§9.2 of
+  # docs/designs/strategy-play-calling-shell-2026-08-29.md; the shell's
+  # protocol/runtime constants live in src/shell/types.nim — these sit here
+  # because sim_config validates them and src/ctf never imports src/shell).
+  ViewIntervalTicksDefault* = 6      ## LLM-bound PlayView frame interval
+  ViewIntervalTicksMin* = 1
+  ViewIntervalTicksMax* = 48
+  LobbyChatTicksDefault* = 720       ## 30 s at 24 Hz; 0 disables the phase
+  LobbyChatTicksMax* = 4320
+  PlaySeatBindTicksDefault* = 7200   ## 5 min presence budget
+  PlaySeatBindTicksMax* = 14400
+
   MaxPolicyPageBytes* = 60000
     ## Hard ceiling on one flashed one-page policy, in bytes. The reflash
     ## record rides the replay's existing string-carrying record, whose
@@ -1621,6 +1633,16 @@ type
       ## per-game Player counter resets under maxGames > 1 and a mid-episode
       ## disconnect; exported per slot in results.json.
 
+  SlotControl* = enum
+    ## §5.1 of the play-calling design: what kind of protocol drives a
+    ## configured seat. Closed enum; the trusted match configuration is the
+    ## only authority (nothing a client sends can change it).
+    scInput   ## the default: the legacy mask protocol, byte-identical to
+              ## a build without this field
+    scPlay    ## a Season 2 play seat (§4.3's server-enforced protocol);
+              ## legal only under `season2Shell` (validation:
+              ## playSeatRequiresShell)
+
   PlayerSlotConfig* = object
     name*: string
     token*: string
@@ -1629,6 +1651,11 @@ type
     skin*: Skin
     hasTeam*: bool
     hasColor*: bool
+    # GVNEXT(shell): appended field, the standard append-safety reasoning
+    # (keyframes are flatty-positional but in-process only; config JSON is
+    # by name). scInput is the zero value, so a parsed legacy config is
+    # bit-identical in memory too.
+    control*: SlotControl     ## "input" (default) or "play" in config JSON
 
   MapGenOverrides* = object
     ## Per-parameter locks for the terrain generator. Zero-value ("" / 0,
@@ -1938,6 +1965,32 @@ type
     wallClockBudgetSeconds*: int  ## engine hard stop -> reason "deadline".
     model*: string                ## pinned Bedrock/Anthropic model, "" = auto.
     maxOutputTokens*: int         ## LLM max_tokens.
+    # --- Season 2 play-calling shell (docs/designs/
+    # strategy-play-calling-shell-2026-08-29.md; all OFF/inert by default:
+    # a gate-off config plays byte-identically, the house rule) ---
+    # GVNEXT(shell): appended fields, the standard append-safety reasoning
+    # (scalars on GameConfig, not array[Team, X] runs).
+    season2Shell*: bool           ## the master gate (§3.2): nothing in
+                                  ## src/shell/ is reachable when false. A
+                                  ## `"play"` slot requires it (validation:
+                                  ## playSeatRequiresShell); gate-on with an
+                                  ## all-input roster is legal and plays
+                                  ## byte-identically to gate-off.
+    viewIntervalTicks*: int       ## §4.3: LLM-bound PlayView frame interval,
+                                  ## default 6, range [1, 48]; no effect
+                                  ## without a play seat.
+    lobbyChatTicks*: int          ## §9.2: lobby chat phase length, default
+                                  ## 720 (30 s), range [0, 4320]; 0 disables
+                                  ## the phase (the byte-identical gate-off
+                                  ## shape). Wall-clock paced even under
+                                  ## fastMode (the early advance suspends).
+    playSeatBindTicks*: int       ## §9.2: the presence budget — a cumulative
+                                  ## absence clock over the whole
+                                  ## pre-activation period, default 7200
+                                  ## (5 min), range [1, 14400]. Required
+                                  ## positive in a play-seat episode (where
+                                  ## it REPLACES lobbyJoinTimeoutTicks);
+                                  ## inert without one.
 
   Player* = object
     x*, y*: int

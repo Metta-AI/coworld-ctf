@@ -1,0 +1,123 @@
+{
+  "$comment": "\u00a74.3 \u2014 the PlayContext packet's control envelope: the seat's FULL recovery state, sent at registration and on every (re)bind, before the transcript replay and the first view frame (\u00a79.2). Carries NO status list (retained statuses ride the first PlayView that follows). Cap: MaxControlEnvelopeBytes (20480), proven by a maximum-recovery golden. This inventory is normative: a field the protocol needs at reconnect lives here or nowhere. DIRECTION RULE: engine\u2192client \u2014 every object additionalProperties:true; conforming clients ignore unknown fields.",
+  "title": "control_context",
+  "type": "object",
+  "required": [
+    "schema",
+    "v",
+    "gen",
+    "epoch",
+    "floors",
+    "budgets",
+    "ack_mark",
+    "lobby_transcript_mark"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "control_context"
+    },
+    "v": {
+      "const": 1
+    },
+    "gen": {
+      "$ref": "uint64.schema.json",
+      "$comment": "u64 current control generation"
+    },
+    "epoch": {
+      "$ref": "uint64.schema.json",
+      "$comment": "u64 current call epoch; \"0\" is reserved and means no declaration (\u00a74.3)"
+    },
+    "call": {
+      "$comment": "the accepted call itself; omit at epoch 0",
+      "type": "object",
+      "required": [
+        "proposal_id",
+        "bytes"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "proposal_id": {
+          "$ref": "uint64.schema.json"
+        },
+        "bytes": {
+          "type": "string",
+          "$comment": "the accepted call's canonical ladder JSON, verbatim, as a JSON string (\u2264 MaxCallBytes raw)"
+        }
+      }
+    },
+    "playbook": {
+      "$comment": "every bound name with its hash and state; \u2264 16 entries, each \u2264 128 canonical bytes (2048 in all); omit when empty",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "sha256",
+          "state"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "pending",
+              "rejected"
+            ]
+          }
+        }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "required": [
+        "modules_left",
+        "upload_bytes_left"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "modules_left": {
+          "type": "integer",
+          "$comment": "of MaxModulesPerSeatPerEpisode (16)"
+        },
+        "upload_bytes_left": {
+          "type": "integer",
+          "$comment": "of MaxUploadBytesPerSeatPerEpisode (2097152)"
+        }
+      }
+    },
+    "floors": {
+      "$comment": "the next expected id floors: ids at or below a floor are stale rejections (\u00a74.3 idempotency window)",
+      "type": "object",
+      "required": [
+        "upload_id",
+        "proposal_id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "upload_id": {
+          "$ref": "uint64.schema.json"
+        },
+        "proposal_id": {
+          "$ref": "uint64.schema.json"
+        }
+      }
+    },
+    "ack_mark": {
+      "$ref": "uint64.schema.json",
+      "$comment": "u64 status-ordinal high-water mark the server holds for this seat"
+    },
+    "lobby_transcript_mark": {
+      "$ref": "uint64.schema.json",
+      "$comment": "u64 H: the transcript high-water mark snapshotted atomically at bind; ordinals 1..H replay as 0xB2 packets before the live stream opens (\u00a79.2)"
+    }
+  }
+}
