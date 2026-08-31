@@ -8,7 +8,7 @@ import std/[monotimes, options, strutils, times]
 import bitworld/spriteprotocol
 
 import ../ctf/sim_types
-import body_map, compile_plane, emit_validator, instance, module_cache,
+import body_map, body_nav, compile_plane, emit_validator, instance, module_cache,
   module_validation, runtime, standing_order, types
 
 type
@@ -85,19 +85,29 @@ proc testMap*(): BodyMap =
   newBodyMap(walkable, Width, Height, 32, @[(30, 30)])
 
 proc cleanDefaultBodyTick(map: BodyMap, seatCount: int, tick: uint32): bool =
+  let nav = newBodyNavSystem(map, seatCount, GunRange)
   for seat in 0 ..< seatCount:
-    var body = activateSeatBody(map, uint8(seat))
-    body.brSnapshot = LaneABrSnapshot(
-      selfPos: MapPoint(x: 30, y: 30),
-      currentZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
-      nextZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
-      ticksToNextShrink: BrRotateLeadTicks + 1,
-      idleAimCenterBrads: seat and 0xff)
+    let body = activateSeatBody(nav, seat)
+    let idleAimCenterBrads = seat and 0xff
+    let inputs = BodyTickInputs(
+      self: BodySelfState(
+        pos: (30, 30),
+        hpFrac: 1.0,
+        aimBrads: idleAimCenterBrads,
+        alive: true,
+        carrying: false),
+      partner: none(PartnerSample))
+    body.updateBelief(inputs, tick)
+    let fallback = BrDefaultFallbacks(
+        currentZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
+        nextZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
+        ticksToNextShrink: BrRotateLeadTicks + 1,
+        idleAimCenterBrads: idleAimCenterBrads)
     var state: StandingOrderState
-    state.stepFirstLightDefault(body, tick)
-    let mask = body.seatTick(BodyTickInputs(input: InputState()), tick)
-    if mask != InputState() or not body.hasInstalledIntent or
-        body.installedIntent.kind != ikHold:
+    state.stepFirstLightDefault(body, tick, fallback)
+    let mask = body.seatTick(inputs, tick)
+    if mask != InputState() or not state.hasStanding or
+        body.standingIntent.kind != ikHold or body.standingGoal.isSome:
       return false
   true
 
