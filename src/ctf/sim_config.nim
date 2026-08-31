@@ -544,8 +544,8 @@ proc readConfigPerkMods(node: JsonNode, config: var GameConfig) =
 proc readConfigHandicaps(node: JsonNode, config: var GameConfig) =
   ## Reads the optional per-team handicap map, e.g. {"red": 0.0, "blue": 0.6}.
   ## Omitted teams stay at 0 (no handicap). A handicap named for an inactive
-  ## team is accepted and simply never applies, so a caller (e.g. Campaign)
-  ## can set all four teams without knowing the active count.
+  ## team is accepted and simply never applies, so a caller (e.g. a league
+  ## commissioner) can set all four teams without knowing the active count.
   if not node.hasKey("handicaps"):
     return
   let handicaps = node["handicaps"]

@@ -2254,7 +2254,7 @@ proc placePuddles(gameMap: var CtfMap, count: int, rng: var MapRng) =
 
 proc placePuddles*(gameMap: var CtfMap, count: int, seed: int) =
   ## Tool entry (mapkit): place `count` paint puddles on an ALREADY-BUILT
-  ## map — e.g. a pinned campaign cell spec — replacing any puddles it
+  ## map — e.g. a pinned board-cell spec — replacing any puddles it
   ## carries, deterministically from `seed`. Same rules as generation:
   ## 2-team maps only, best-effort fill against the final terrain.
   if count > MaxPuddles:

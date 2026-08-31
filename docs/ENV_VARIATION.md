@@ -121,7 +121,7 @@ integer-only (native/wasm agree). At `0` a team plays normally (byte-identical t
 no handicap — no extra RNG, existing replays re-simulate unchanged); at `1` it
 gets 50% of would-be gun hits dropped, 1 life, 1 hit point, and half max speed;
 values between interpolate linearly from the base config toward that floor.
-Omitted/inactive teams stay at 0. Intended for a league (Campaign) to weaken a
+Omitted/inactive teams stay at 0. Intended for a league to weaken a
 dominating team. Handicaps are OBSERVABLE to policies: the init snapshot
 carries one `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`
 marker per team (every team, permille 0 included) stating the fraction and the

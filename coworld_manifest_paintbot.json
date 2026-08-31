@@ -291,7 +291,7 @@
           ]
         },
         "handicaps": {
-          "description": "Per-team handicap that weakens a team, keyed by team name. Each value is 0..1: 0 = normal, 1 = 50% of shots miss, 1 life, 1 hit point, half max speed; values in between interpolate linearly. Omitted teams are unhandicapped. Intended for a league (e.g. Campaign) to level a dominating team.",
+          "description": "Per-team handicap that weakens a team, keyed by team name. Each value is 0..1: 0 = normal, 1 = 50% of shots miss, 1 life, 1 hit point, half max speed; values in between interpolate linearly. Omitted teams are unhandicapped. Intended for a league to level a dominating team.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -318,7 +318,7 @@
           }
         },
         "mapSpec": {
-          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map \u2014 e.g. a campaign cell's custom organic terrain \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
+          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map \u2014 e.g. a league board cell's custom organic terrain \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
           "type": "object"
         },
         "perks": {
@@ -1568,7 +1568,7 @@
     {
       "id": "1v1",
       "name": "1v1 (8 per team)",
-      "description": "Two-policy Paintbot team battle for custom lobbies and campaign cells: one policy fields the full Red team of 8 versus the other fielding the full Blue team of 8 on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "description": "Two-policy Paintbot team battle for custom lobbies and league board cells: one policy fields the full Red team of 8 versus the other fielding the full Blue team of 8 on random generated terrain with Paintbot's standard pot scoring and tuning.",
       "game_config": {
         "players": [
           {

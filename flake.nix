@@ -87,8 +87,6 @@
             fastapi
             uvicorn
             websockets
-            # scripts/campaign_puddles.py (optional import)
-            pyyaml
             # tools/ci/test_next_coworld_version.py
             pytest
           ]);
