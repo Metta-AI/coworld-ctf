@@ -11,6 +11,7 @@ import
   test_achievements,
   test_board_click_select,
   test_callout_perception,
+  test_canonical_fast,
   test_four_team,
   test_fov,
   test_fx_pools,
