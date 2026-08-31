@@ -191,8 +191,11 @@ not treated as a stable result.
 The saturated row creates exactly 32 distinct, validated 262,144-byte modules
 (8 MiB total) before timing, then drains them through two real host compiler
 threads. It proves both workers overlap, all 32 compiles enter and complete,
-and no compile fails. Tick samples are retained only while the queue still has
-work; the sample that crosses the drain boundary is discarded.
+and no compile fails. Each worker publishes one uninterrupted busy interval
+while it drains its 16-module share. A tick sample is retained only when both
+workers have the same busy interval at tick start and end; any idle transition
+or queue drain during the tick discards it. The queue summary prints retained
+and discarded sample counts.
 
 Run the quota matrix sequentially so concurrent containers do not contaminate
 one another. On an Apple Silicon host, the arm64 rows are native Linux and the

@@ -2,7 +2,9 @@
 
 Date: 2026-08-30
 
-Source commit: `ac080b8fb06c6b529cac762f53137446436dd112`
+Contract base: `ac080b8fb06c6b529cac762f53137446436dd112`
+
+Artifact branch: `james/s2-runtime`
 
 ## Decision
 
@@ -40,11 +42,13 @@ verdict.
 
 ## Provenance and method
 
-The measured branch is `james/s2-runtime` at `ac080b8f`. That commit changes
-`MaxCoverRadiusPx` from 600 to 331 and `MaxCoverPostsExamined` from 512 to
-1536. The spike imports those constants from `src/shell/types.nim`; all
-cap-sensitive rows in this report were rebuilt and rerun after that commit.
-The retained 512-post rows are labeled as old-cap sensitivity data.
+The contract base is `ac080b8f`, which changes `MaxCoverRadiusPx` from 600 to
+331 and `MaxCoverPostsExamined` from 512 to 1536. The rig and this report ship
+together in the same commit on `james/s2-runtime`, so no unknowable self-hash
+is claimed for them. The spike imports the contract constants from
+`src/shell/types.nim`; all cap-sensitive rows were rebuilt and rerun against
+that base. The retained 512-post rows are labeled as old-cap sensitivity data,
+and the raw binary SHA-256 values below identify the measured executables.
 
 The host was an Apple M4 Pro with 14 logical processors. Native development
 rows used macOS arm64 and Nim 2.2.6. Linux rows ran sequentially under
@@ -68,12 +72,12 @@ Pinned release assets:
 | wasi-sdk 33 arm64 Linux | `4f98ee738c7abb45c81a94d1461fc53cc569d1cd01498951c8184d841a027844` |
 | wasi-sdk 33 amd64 Linux | `0ba8b5bfaeb2adf3f29bab5841d76cf5318ab8e1642ea195f88baba1abd47bce` |
 
-The new-cap benchmark binary SHA-256 values were
-`57059001f47d0a1277174d86e05257ec35114049035e25041ab2ff99c4019a7a`
+The cold-review benchmark binary SHA-256 values were
+`245e5b1bdc7ab80e32c8a79c1824d9fbae34ed2d2e16bbd64fccb2e3171d1a13`
 on macOS,
-`ad9b0ed1efc474fd744b0b6863fac0f0f0843150f7d16378cbd1799d132041d0`
+`56f4482e5c05b8ba86f347bab45c473ff907d8cf0c0ab7f8f99a69727c251674`
 on Linux arm64, and
-`de26757073cecbf5719a994be43a0388b0abe735fd15f5fd89a04c98d242990b`
+`47e2e26554f2893d2ac414361a87c2c4f2b13dbabcda9f14a2d079f03a1f5b89`
 on Linux amd64.
 
 Representative commands, all run from the repository root:
@@ -306,57 +310,64 @@ Each isolated row has 30 warm complete samples. Each saturated row starts two
 real host compiler threads draining exactly 32 distinct validated 262,144-byte
 modules—8,388,608 raw bytes—while complete ticks run. All rows prove both
 workers overlapped, all 32 modules entered and completed, and zero failed. A
-sample is eligible only if the queue remains nonempty after that tick; the
-sample crossing the drain boundary is discarded.
+saturated sample is retained only when both worker threads are in the same
+uninterrupted busy interval at the start and end of the complete tick. This
+proves continuous two-worker overlap; a sample with an idle transition or a
+queue drain during the tick is discarded. The table prints both counts.
 
 These verdicts are for the runtime half only, not lane A's body/map/view work.
 The fixed verdict uses the unrounded maximum and passes only at `<= 10.400 ms`.
 
-| Environment | `cpu.max` | Mode | n | Median | p95 | p99 | Max ms | Verdict |
-|---|---|---|---:|---:|---:|---:|---:|---|
-| macOS arm64 | unavailable | isolated | 30 | 84.277 | 86.809 | 89.265 | 89.265 | FAIL |
-| macOS arm64 | unavailable | saturated | 9 | 89.400 | 95.339 | 95.339 | 95.339 | FAIL |
-| Linux arm64, 1 CPU | 100000/100000 | isolated | 30 | 123.978 | 130.833 | 134.271 | 134.271 | FAIL |
-| Linux arm64, 1 CPU | 100000/100000 | saturated | 6 | 400.835 | 419.962 | 419.962 | 419.962 | FAIL |
-| Linux arm64, 2 CPU | 200000/100000 | isolated | 30 | 120.286 | 135.435 | 138.111 | 138.111 | FAIL |
-| Linux arm64, 2 CPU | 200000/100000 | saturated | 6 | 187.326 | 192.362 | 192.362 | 192.362 | FAIL |
-| Linux arm64, 4 CPU | 400000/100000 | isolated | 30 | 122.298 | 127.670 | 127.712 | 127.712 | FAIL |
-| Linux arm64, 4 CPU | 400000/100000 | saturated | 6 | 127.550 | 130.677 | 130.677 | 130.677 | FAIL |
-| Linux arm64, 6 CPU | 600000/100000 | isolated | 30 | 122.011 | 127.503 | 127.785 | 127.785 | FAIL |
-| Linux arm64, 6 CPU | 600000/100000 | saturated | 6 | 125.911 | 127.821 | 127.821 | 127.821 | FAIL |
-| Linux amd64 emulated, 1 CPU | 100000/100000 | isolated | 30 | 79.133 | 82.889 | 83.837 | 83.837 | FAIL |
-| Linux amd64 emulated, 1 CPU | 100000/100000 | saturated | 16 | 289.083 | 304.164 | 304.164 | 304.164 | FAIL |
-| Linux amd64 emulated, 2 CPU | 200000/100000 | isolated | 30 | 79.943 | 84.728 | 85.271 | 85.271 | FAIL |
-| Linux amd64 emulated, 2 CPU | 200000/100000 | saturated | 16 | 116.004 | 152.800 | 152.800 | 152.800 | FAIL |
-| Linux amd64 emulated, 4 CPU | 400000/100000 | isolated | 30 | 80.339 | 82.370 | 83.319 | 83.319 | FAIL |
-| Linux amd64 emulated, 4 CPU | 400000/100000 | saturated | 16 | 81.581 | 84.847 | 84.847 | 84.847 | FAIL |
-| Linux amd64 emulated, 6 CPU | 600000/100000 | isolated | 30 | 79.289 | 82.837 | 83.382 | 83.382 | FAIL |
-| Linux amd64 emulated, 6 CPU | 600000/100000 | saturated | 16 | 81.336 | 86.106 | 86.106 | 86.106 | FAIL |
+| Environment | `cpu.max` | Mode | Retained | Discarded | Median | p95 | p99 | Max ms | Verdict |
+|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| macOS arm64 | unavailable | isolated | 30 | — | 89.322 | 92.604 | 92.661 | 92.661 | FAIL |
+| macOS arm64 | unavailable | saturated | 9 | 1 | 91.945 | 93.407 | 93.407 | 93.407 | FAIL |
+| Linux arm64, 1 CPU | 100000/100000 | isolated | 30 | — | 127.810 | 135.893 | 136.524 | 136.524 | FAIL |
+| Linux arm64, 1 CPU | 100000/100000 | saturated | 6 | 1 | 391.510 | 403.510 | 403.510 | 403.510 | FAIL |
+| Linux arm64, 2 CPU | 200000/100000 | isolated | 30 | — | 124.747 | 132.856 | 132.976 | 132.976 | FAIL |
+| Linux arm64, 2 CPU | 200000/100000 | saturated | 5 | 2 | 196.399 | 205.008 | 205.008 | 205.008 | FAIL |
+| Linux arm64, 4 CPU | 400000/100000 | isolated | 30 | — | 123.099 | 130.643 | 134.594 | 134.594 | FAIL |
+| Linux arm64, 4 CPU | 400000/100000 | saturated | 5 | 1 | 130.425 | 134.381 | 134.381 | 134.381 | FAIL |
+| Linux arm64, 6 CPU | 600000/100000 | isolated | 30 | — | 123.886 | 128.218 | 129.401 | 129.401 | FAIL |
+| Linux arm64, 6 CPU | 600000/100000 | saturated | 5 | 2 | 129.072 | 130.925 | 130.925 | 130.925 | FAIL |
+| Linux amd64 emulated, 1 CPU | 100000/100000 | isolated | 30 | — | 80.526 | 84.340 | 94.834 | 94.834 | FAIL |
+| Linux amd64 emulated, 1 CPU | 100000/100000 | saturated | 16 | 1 | 221.168 | 294.744 | 294.744 | 294.744 | FAIL |
+| Linux amd64 emulated, 2 CPU | 200000/100000 | isolated | 30 | — | 83.305 | 85.771 | 86.482 | 86.482 | FAIL |
+| Linux amd64 emulated, 2 CPU | 200000/100000 | saturated | 15 | 1 | 122.171 | 147.719 | 147.719 | 147.719 | FAIL |
+| Linux amd64 emulated, 4 CPU | 400000/100000 | isolated | 30 | — | 81.742 | 85.946 | 86.056 | 86.056 | FAIL |
+| Linux amd64 emulated, 4 CPU | 400000/100000 | saturated | 16 | 1 | 81.511 | 86.081 | 86.081 | 86.081 | FAIL |
+| Linux amd64 emulated, 6 CPU | 600000/100000 | isolated | 30 | — | 84.627 | 86.552 | 87.565 | 87.565 | FAIL |
+| Linux amd64 emulated, 6 CPU | 600000/100000 | saturated | 14 | 1 | 91.010 | 96.732 | 96.732 | 96.732 | FAIL |
 
 Old-cap and new-cap worst-tick maxima show the direct contract sensitivity:
 
 | Environment | Mode | 512-post max ms | 1,536-post max ms |
 |---|---|---:|---:|
-| macOS arm64 | isolated | 81.216 | 89.265 |
-| macOS arm64 | saturated | 79.832 | 95.339 |
-| Linux arm64, 1 CPU | isolated | 80.984 | 134.271 |
-| Linux arm64, 1 CPU | saturated | 299.071 | 419.962 |
-| Linux arm64, 2 CPU | isolated | 86.427 | 138.111 |
-| Linux arm64, 2 CPU | saturated | 149.972 | 192.362 |
-| Linux arm64, 4 CPU | isolated | 82.408 | 127.712 |
-| Linux arm64, 4 CPU | saturated | 88.737 | 130.677 |
-| Linux arm64, 6 CPU | isolated | 79.481 | 127.785 |
-| Linux arm64, 6 CPU | saturated | 84.861 | 127.821 |
-| Linux amd64 emulated, 1 CPU | isolated | 80.208 | 83.837 |
-| Linux amd64 emulated, 1 CPU | saturated | 298.747 | 304.164 |
-| Linux amd64 emulated, 2 CPU | isolated | 78.945 | 85.271 |
-| Linux amd64 emulated, 2 CPU | saturated | 142.587 | 152.800 |
-| Linux amd64 emulated, 4 CPU | isolated | 77.972 | 83.319 |
-| Linux amd64 emulated, 4 CPU | saturated | 77.825 | 84.847 |
-| Linux amd64 emulated, 6 CPU | isolated | 73.511 | 83.382 |
-| Linux amd64 emulated, 6 CPU | saturated | 77.453 | 86.106 |
+| macOS arm64 | isolated | 81.216 | 92.661 |
+| macOS arm64 | saturated | 79.832 | 93.407 |
+| Linux arm64, 1 CPU | isolated | 80.984 | 136.524 |
+| Linux arm64, 1 CPU | saturated | 299.071 | 403.510 |
+| Linux arm64, 2 CPU | isolated | 86.427 | 132.976 |
+| Linux arm64, 2 CPU | saturated | 149.972 | 205.008 |
+| Linux arm64, 4 CPU | isolated | 82.408 | 134.594 |
+| Linux arm64, 4 CPU | saturated | 88.737 | 134.381 |
+| Linux arm64, 6 CPU | isolated | 79.481 | 129.401 |
+| Linux arm64, 6 CPU | saturated | 84.861 | 130.925 |
+| Linux amd64 emulated, 1 CPU | isolated | 80.208 | 94.834 |
+| Linux amd64 emulated, 1 CPU | saturated | 298.747 | 294.744 |
+| Linux amd64 emulated, 2 CPU | isolated | 78.945 | 86.482 |
+| Linux amd64 emulated, 2 CPU | saturated | 142.587 | 147.719 |
+| Linux amd64 emulated, 4 CPU | isolated | 77.972 | 86.056 |
+| Linux amd64 emulated, 4 CPU | saturated | 77.825 | 86.081 |
+| Linux amd64 emulated, 6 CPU | isolated | 73.511 | 87.565 |
+| Linux amd64 emulated, 6 CPU | saturated | 77.453 | 96.732 |
 
-Native arm64 queue throughput was 12.193, 25.793, 35.441, and 35.977
+The retained old-cap saturated rows used the earlier queue-nonempty criterion;
+the new-cap saturated rows use continuous two-worker overlap. They remain
+labeled sensitivity evidence, not a controlled before/after comparison of the
+saturation filter.
+
+Native arm64 queue throughput was 12.786, 24.568, 40.836, and 35.039
 modules/s at 1, 2, 4, and 6 CPU. Four CPUs are the clear compile-throughput
 knee; six adds no meaningful throughput or saturated-tick improvement. That is
 the evidence for the conditional resource shape below, not evidence that four
@@ -392,7 +403,7 @@ on that upstream support as well as the timing condition below.
 The CPU value is **conditional**. It becomes supportable only after budget
 reductions make the native 4-CPU compile-saturated maximum `<= 8.32 ms`, which
 provides 20% operating headroom inside the 10.4 ms hard gate. Today that row is
-130.677 ms, so this manifest must not ship against the current caps. Four CPUs
+134.381 ms, so this manifest must not ship against the current caps. Four CPUs
 are selected over six because compilation reaches its measured knee at four;
 if retuned budgets still miss 8.32 ms there, no tested native quota qualifies
 and increasing the limit to six is not an evidence-backed repair for serial
@@ -448,9 +459,8 @@ saturated maximum `<= 8.32 ms`.
 
 Cap-sensitive raw logs are outside the source tree:
 
-- `/tmp/coworld-ctf-runtime-spike-p7-tick-native.log`
-- `/tmp/coworld-ctf-runtime-spike-p7-all-macos.log`
-- `/tmp/coworld-ctf-runtime-spike-p7-{arm64,amd64}-cpu{1,2,4,6}.log`
+- `/tmp/coworld-ctf-runtime-spike-p8-all-macos.log`
+- `/tmp/coworld-ctf-runtime-spike-p8-{arm64,amd64}-cpu{1,2,4,6}.log`
 
 Cap-independent memory and compile evidence is retained in
 `/tmp/coworld-ctf-runtime-spike-memory-500-*.log` and
@@ -466,15 +476,18 @@ The post-report validation sweep passed its structural checks:
   reconciled all eight pinned checksum entries against the official release
   digests; the unused amd64-macOS pair is therefore digest-checked but was not
   downloaded by this arm64 host sweep.
-- Both Docker images rebuilt from scratch with `--no-cache`; their binary
-  SHA-256 values exactly match the manifests above.
-- Native macOS, independently realized locked-Nix-package macOS, native Linux
-  arm64, and emulated Linux amd64 smokes each passed all five containment rows,
-  library resolution, import restriction, and clean post-trap calls.
-- The complete macOS `all` rerun, Linux arm64 `all` at 1/2/4/6 CPU, and the
-  amd64-emulated 1-CPU floor rerun preserved every exact ledger/queue invariant
-  and both expected FAIL verdicts. The original cap-sensitive raw files, not
-  these validation repeats, remain the source of the timing table.
+- Both Docker images rebuilt after the cold-review fixes; their binary SHA-256
+  values exactly match the manifests above.
+- The phase-7 native macOS, independently realized locked-Nix-package macOS,
+  native Linux arm64, and emulated Linux amd64 smokes each passed all five
+  containment rows, library resolution, import restriction, and clean
+  post-trap calls. Native macOS and both Linux images passed smoke again after
+  the cold-review ownership and saturation fixes.
+- The complete macOS `all` rerun and every Linux arm64 and emulated-amd64
+  `all` cell at 1/2/4/6 CPU preserved every exact ledger/queue invariant and
+  both expected FAIL verdicts. These phase-8 raw files are the source of the
+  timing table. Every saturated sample retained by them proves continuous
+  two-worker overlap; discarded counts are explicit in each queue summary.
 - The full `nix develop` shell remains blocked by the independently confirmed
   pre-existing `caos-tools` dependency failure. The Nix smoke instead used Nim
   2.2.4 from locked nixpkgs revision

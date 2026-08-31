@@ -84,6 +84,7 @@ type
     engine: ptr WasmEngine
     modules: ptr seq[seq[byte]]
     ready, started, active, completed, failures: Atomic[int]
+    workerBusyInterval: array[2, Atomic[int]]
     sawTwoBusy, go: Atomic[bool]
 
   CompileWorker = object
@@ -965,30 +966,6 @@ proc destroyTickRig(rig: var TickRig) =
   if rig.module != nil: wasmtimeModuleDelete(rig.module)
   if rig.engine != nil: wasmEngineDelete(rig.engine)
 
-proc newTickInstance(rig: var TickRig): TickInstance =
-  result.store = newStore(rig.engine)
-  result.context = wasmtimeStoreContext(result.store)
-  var trap: ptr WasmTrap
-  let error = wasmtimeLinkerInstantiate(rig.linker, result.context, rig.module,
-    addr result.instance, addr trap)
-  if error != nil:
-    raise newException(ValueError, "tick instantiation: " & consumeError(error))
-  if trap != nil:
-    raise newException(ValueError, "tick instantiation trapped: " &
-      consumeTrap(trap).message)
-  var memoryItem: WasmtimeExtern
-  if not wasmtimeInstanceExportGet(result.context, addr result.instance,
-      "memory", 6, addr memoryItem):
-    raise newException(ValueError, "tick fixture missing memory")
-  runtimeSpikeExternMemoryCopy(addr result.memory, addr memoryItem)
-  wasmtimeExternDelete(addr memoryItem)
-  discard exportedFunction(result.context, addr result.instance, "play_alloc",
-    result.allocItem)
-  discard exportedFunction(result.context, addr result.instance, "play_init",
-    result.initItem)
-  discard exportedFunction(result.context, addr result.instance, "play_step",
-    result.stepItem)
-
 proc deleteTickInstance(instance: var TickInstance) =
   if instance.store == nil:
     return
@@ -997,6 +974,35 @@ proc deleteTickInstance(instance: var TickInstance) =
   wasmtimeExternDelete(addr instance.allocItem)
   wasmtimeStoreDelete(instance.store)
   instance.store = nil
+
+proc newTickInstance(rig: var TickRig): TickInstance =
+  result.store = newStore(rig.engine)
+  try:
+    result.context = wasmtimeStoreContext(result.store)
+    var trap: ptr WasmTrap
+    let error = wasmtimeLinkerInstantiate(rig.linker, result.context, rig.module,
+      addr result.instance, addr trap)
+    if error != nil:
+      raise newException(ValueError,
+        "tick instantiation: " & consumeError(error))
+    if trap != nil:
+      raise newException(ValueError, "tick instantiation trapped: " &
+        consumeTrap(trap).message)
+    var memoryItem: WasmtimeExtern
+    if not wasmtimeInstanceExportGet(result.context, addr result.instance,
+        "memory", 6, addr memoryItem):
+      raise newException(ValueError, "tick fixture missing memory")
+    runtimeSpikeExternMemoryCopy(addr result.memory, addr memoryItem)
+    wasmtimeExternDelete(addr memoryItem)
+    discard exportedFunction(result.context, addr result.instance, "play_alloc",
+      result.allocItem)
+    discard exportedFunction(result.context, addr result.instance, "play_init",
+      result.initItem)
+    discard exportedFunction(result.context, addr result.instance, "play_step",
+      result.stepItem)
+  except:
+    result.deleteTickInstance()
+    raise
 
 proc writeAllocation(instance: var TickInstance; length: int;
     state: var TickCounters): int32 =
@@ -1264,6 +1270,7 @@ proc compileWorkerMain(worker: ptr CompileWorker) {.thread.} =
   while not queue.go.load(moAcquire):
     sleep(1)
   var moduleIndex = worker.workerId
+  queue.workerBusyInterval[worker.workerId].store(1, moRelease)
   while moduleIndex < queue.modules[].len:
     discard queue.started.fetchAdd(1, moAcquireRelease)
     let activeNow = queue.active.fetchAdd(1, moAcquireRelease) + 1
@@ -1283,6 +1290,7 @@ proc compileWorkerMain(worker: ptr CompileWorker) {.thread.} =
     discard queue.active.fetchSub(1, moAcquireRelease)
     discard queue.completed.fetchAdd(1, moAcquireRelease)
     moduleIndex += 2
+  queue.workerBusyInterval[worker.workerId].store(2, moRelease)
 
 proc saturatedTickSamples(rig: var TickRig;
     instances: var seq[TickInstance]; ladder: string; maxSamples: int):
@@ -1315,6 +1323,13 @@ proc saturatedTickSamples(rig: var TickRig;
   for workerIndex in 0 ..< 2:
     createThread(threads[workerIndex], compileWorkerMain,
       addr workers[workerIndex])
+  var workersJoined = false
+  template joinWorkers() =
+    if not workersJoined:
+      for workerIndex in 0 ..< 2:
+        joinThread(threads[workerIndex])
+      workersJoined = true
+  defer: joinWorkers()
   while queue.ready.load(moAcquire) != 2:
     sleep(1)
   let compileStarted = getMonoTime()
@@ -1325,25 +1340,41 @@ proc saturatedTickSamples(rig: var TickRig;
   if not queue.sawTwoBusy.load(moAcquire):
     raise newException(ValueError, "two compile workers were never busy")
 
-  var sampleNumber = 0
-  while sampleNumber < maxSamples and queue.completed.load(moAcquire) < 32:
+  var retainedSamples = 0
+  var discardedSamples = 0
+  while retainedSamples < maxSamples and queue.completed.load(moAcquire) < 32:
+    let worker0AtStart = queue.workerBusyInterval[0].load(moAcquire)
+    let worker1AtStart = queue.workerBusyInterval[1].load(moAcquire)
     let tickStarted = getMonoTime()
     let state = completeWorstTick(rig, instances, ladder)
     let elapsed = elapsedNanoseconds(tickStarted)
+    let worker0AtEnd = queue.workerBusyInterval[0].load(moAcquire)
+    let worker1AtEnd = queue.workerBusyInterval[1].load(moAcquire)
     let completedAfter = queue.completed.load(moAcquire)
-    if completedAfter < 32:
-      inc sampleNumber
+    let bothBusyAtStart = (worker0AtStart and 1) == 1 and
+      (worker1AtStart and 1) == 1
+    let continuousTwoWorkerOverlap = bothBusyAtStart and
+      worker0AtEnd == worker0AtStart and worker1AtEnd == worker1AtStart
+    if completedAfter < 32 and continuousTwoWorkerOverlap:
+      inc retainedSamples
       result.samples.add elapsed
       result.finalState = state
-      echo &"TICK_SAMPLE mode=saturated sample={sampleNumber} elapsed_ms=" &
+      echo &"TICK_SAMPLE mode=saturated sample={retainedSamples} elapsed_ms=" &
         &"{elapsed.float / 1_000_000.0:.6f} " &
         &"queue_completed_after={completedAfter} queue_drained=false " &
+        &"continuous_two_worker_overlap=true " &
         &"checksum={state.checksum}"
     else:
-      echo &"TICK_DISCARDED mode=saturated reason=queue-drained-during-sample " &
-        &"elapsed_ms={elapsed.float / 1_000_000.0:.6f}"
-  for workerIndex in 0 ..< 2:
-    joinThread(threads[workerIndex])
+      inc discardedSamples
+      let reason =
+        if completedAfter >= 32: "queue-drained-during-sample"
+        elif not bothBusyAtStart: "two-workers-not-busy-at-start"
+        else: "worker-transition-during-sample"
+      echo &"TICK_DISCARDED mode=saturated reason={reason} " &
+        &"elapsed_ms={elapsed.float / 1_000_000.0:.6f} " &
+        &"worker_intervals_start={worker0AtStart},{worker1AtStart} " &
+        &"worker_intervals_end={worker0AtEnd},{worker1AtEnd}"
+  joinWorkers()
   let compileElapsed = elapsedNanoseconds(compileStarted)
   let started = queue.started.load(moAcquire)
   let completed = queue.completed.load(moAcquire)
@@ -1358,8 +1389,8 @@ proc saturatedTickSamples(rig: var TickRig;
     &"failures={failures} elapsed_ms=" &
     &"{compileElapsed.float / 1_000_000.0:.3f} modules_per_second=" &
     &"{completed.float / (compileElapsed.float / 1_000_000_000.0):.3f} " &
-    &"uniqueness_checksum={uniqueness} samples_before_drain=" &
-    &"{result.samples.len}"
+    &"uniqueness_checksum={uniqueness} samples_retained=" &
+    &"{result.samples.len} samples_discarded={discardedSamples}"
 
 proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
   var compileWorkers = -1
@@ -1431,11 +1462,11 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
   var rig = initTickRig(useValidIntent)
   defer: rig.destroyTickRig()
   var instances = newSeqOfCap[TickInstance](512)
-  for _ in 0 ..< 512:
-    instances.add newTickInstance(rig)
   defer:
     for instance in mitems(instances):
       instance.deleteTickInstance()
+  for _ in 0 ..< 512:
+    instances.add newTickInstance(rig)
   echo &"TICK_SETUP resident_instances={instances.len} executed_steps=" &
     &"{ExpectedSteps} init_instances={ExpectedInits} " &
     &"compile_workers={compileWorkers} " &
