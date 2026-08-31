@@ -1,0 +1,76 @@
+PRE-REGISTRATION -- dynamic vs static role assignment, coworld-ctf baseline
+Written 2026-08-31, AFTER the A/A calibration below and BEFORE any dynRole
+episode was run. Nothing here is edited after the fact; corrections are
+appended as SUPERSEDED blocks (docs/lessons.md #10).
+
+SUBJECT
+  players/baseline/baseline.nim @ origin/main 6017e252, built
+    stock:   nim c -d:release --opt:speed
+    variant: nim c -d:release -d:dynRole --opt:speed
+  The two builds differ by one define. Proof of isolation: with the define
+  off, the generated C for the patched source is identical to the generated C
+  for the pre-patch source -- same 14,191 lines, same per-symbol counters,
+  the only textual differences being the module-rename mangling of the
+  control build. With the define on the C grows by 62 lines and gains a
+  roleForSeat call inside decide().
+
+HARNESS
+  exp/battery.py: one ctf_server_bin + 16 bot processes per episode, repo
+  config.json (8v8, arena map, maxTicks 7200), server seed randomized per
+  episode, sides ALTERNATED (variant red on even episodes, blue on odd), 6
+  episodes in flight, one exclusive port each.
+
+STEP 1 -- CALIBRATION AGAINST THE KNOWN ANSWER (stock vs stock, n=80)
+  A wins 37/80 = 0.463, exact 95% CI [0.350, 0.578]; one-sided P(X>=37)=0.783.
+    -> consistent with 0.500. The harness is not biased toward either arm.
+  Draws: 0/80.
+  Skipped frames: 0 across all 80 episodes (server "Frame pacing" line), so
+    no bot ever lost a decision to CPU contention at this parallelism.
+  Side split, same binary both sides: red 47/80 = 0.588, 95% CI [0.472,0.696];
+    A scored 0.550 seated red and 0.375 seated blue -- a 17.5pp swing between
+    arms of the SAME binary. The historical red bias (28-12, p=0.0166) is
+    still present in direction. Alternation is mandatory; a pinned side is not
+    interpretable.
+
+STEP 2 -- CRITERION (derived from step 1's measured variance)
+  N = 160 decisive episodes, 80 seatings per side. Draws are excluded from
+  the denominator and reported separately (0/80 in calibration).
+  Step 1 establishes the outcome is binomial with p ~ 0.5, so SE = 0.5/sqrt(N).
+  N=160 gives SE = 3.95pp and 85% power against a true 0.60 at one-sided
+  alpha=0.05. 0.60 is the smallest win rate that would justify a generation of
+  work on a learned controller; at the calibration's own n=80 the same test
+  has only 57% power, which is why the head-to-head is doubled.
+
+  "THE HEADROOM IS REAL" requires BOTH:
+    C1  exact one-sided binomial vs p=0.5 at alpha=0.05
+          -> k >= 91 of 160 (0.5687); P(X>=91)=0.0483.
+    C2  win rate >= 0.578, the exact upper 95% bound of the A/A calibration's
+        OWN win rate. A rate the reference case could itself have produced is
+        not headroom.
+          -> k >= 93 of 160 (0.5813).
+  Binding threshold: 93 wins of 160.
+
+  VALIDATION OF THE CRITERION AGAINST THE REFERENCE (lessons #10):
+  applying the identical rule to the calibration battery requires 48/80 (C1)
+  and 47/80 (C2); the reference scored 37/80. The reference FAILS the bar,
+  by 10 wins, and its 95% upper bound sits at C2 rather than above it. The
+  bar is not one the reference case would pass.
+
+  Anything below 93 is reported as "not met". A result at or below 0.5 is
+  reported as a negative result and the heuristic is NOT retuned to chase a
+  win -- the first honest attempt is the answer.
+
+SECONDARY METRICS (reported with 95% intervals, not gating)
+  captures/ep, kills/ep, teamkills/ep, deaths/ep, per arm and paired A-B.
+
+VARIANT UNDER TEST (-d:dynRole), one rule, both directions
+  Recomputed every frame inside decide(), from `ownStolen` -- our own pedestal
+  is never fogged, so it is the ONE piece of team state all eight seats read
+  identically on the same frame:
+    heart on its pedestal -> the HomeDefender seat is guarding nothing:
+                             it plays MidBottom (7 attackers, 1 sniper).
+    heart off its pedestal -> Overwatch and MidGuard drop to HomeDefender
+                             (3 guards) until the heart is home.
+  Overwatch is only ever removed, never created: its post is scanned once at
+  nav-build, so a seat promoted into it mid-game would hold a post that was
+  never picked for it.

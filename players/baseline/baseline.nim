@@ -2154,6 +2154,35 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         bot.carrierVel = t.vel
         break
     bot.carrierSeen = bot.tick
+
+  when defined(dynRole):
+    # ---- DYNAMIC ROLE ARBITRATION ---------------------------------------
+    # The static table fixes 6 attackers / 1 sniper / 1 defender at spawn and
+    # never revisits it. This reallocates the back line every frame against
+    # the ONE piece of team state all eight seats observe IDENTICALLY: our own
+    # pedestal is never fogged, so `ownStolen` is the same boolean for every
+    # seat on the same frame. Every other candidate signal — where our mates
+    # are, how many of us are alive, which flank has gone quiet — is per-seat
+    # under fog and with no team radio, so seats would silently disagree about
+    # the allocation, which is the one thing a role table must never do.
+    #
+    #   heart home   -> the defender is guarding nothing. Send it to the wave
+    #                   (7 attackers); it is recalled the frame the heart moves.
+    #   heart stolen -> the back line is one seat against a live carry. Drop
+    #                   the lane sniper and the third mid onto guard duty
+    #                   (3 guards) until the heart is back on its pedestal.
+    #
+    # Overwatch is only ever REMOVED, never created: its post is picked once
+    # at nav-build (`pickPost`), so a seat promoted into it mid-game would
+    # hold a post it never scanned for.
+    block dynamicRole:
+      let base = roleForSeat(clamp(bot.slot div GameTeams, 0, 7), bot.team)
+      bot.role =
+        if ownStolen:
+          (if base in {Overwatch, MidGuard}: HomeDefender else: base)
+        else:
+          (if base == HomeDefender: MidBottom else: base)
+
   when defined(stolenOverwatchGuards):
     let stolenGuard = bot.role == HomeDefender or bot.role == Overwatch
   else:
