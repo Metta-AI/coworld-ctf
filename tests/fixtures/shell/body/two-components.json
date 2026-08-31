@@ -1,0 +1,27 @@
+{
+  "width": 96,
+  "height": 64,
+  "barrier": {"x0": 45, "x1": 50, "gap_y0": 28, "gap_y1": 35},
+  "spawn_points": [[12, 32], [83, 32]],
+  "homes": [[0, 7, 31], [1, 87, 31]],
+  "provenance": {
+    "source": "pinned Stencil implementation, not src/shell/body_map.nim",
+    "lab": "/Users/jamesboggs/coding/personal_labs/personal_paintbot/paintbot_lab/paintbot/stencil_nim",
+    "stencil_commit": "480120c2f5d2a13bc84917b6470b64e67372a752",
+    "method": "At the pinned lab commit, a one-off Nim harness imported worldmap and types; built the 96x64 walkability raster and barrier above; supplied Red and Blue box endzone markers spanning x=0..15 and x=80..95; called newWorldMap(walkable, 96, 64, 2, markers, Red); then recorded the component, room, choke, atlas, validator, home-field, and route-distance results. It computed the uint64 FNV-1a hashes by traversing Stencil clearance, component, roomLabel, coverDirs, and postAtlas in native sequence order, mixing each integer as uint32. The expected block was copied from that output without running the port."
+  },
+  "expected": {
+    "components": 2,
+    "rooms": [[22, 22, 22, 1600, 1], [72, 22, 22, 1600, 2]],
+    "chokes": 0,
+    "atlas_posts": 45,
+    "validator_tables": 2,
+    "home_fields": 2,
+    "home_distance_red_from_red": 16.0,
+    "clearance_hash": "13055935288312551493",
+    "component_hash": "14602988831594414309",
+    "room_hash": "14602988831594414309",
+    "cover_hash": "15731255792288539961",
+    "atlas_hash": "7129712112836789442"
+  }
+}
