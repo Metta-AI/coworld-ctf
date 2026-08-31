@@ -5722,55 +5722,6 @@ proc applyLobbyChat*(
   inc sim.players[seatIndex].lobbyChatSentCount
   LobbyChatResult(ok: true, ordinal: sim.lobbyChatOrdinal, reason: lcrOk)
 
-proc parseLobbyChatSendPacket*(
-  message: string
-): tuple[ok: bool, text: string] =
-  ## Parses a raw client `LobbyChat` packet (0xA3): `u8 op, u8 ver, u32 len,
-  ## u8[len] UTF-8 text`. Bytes travel as a `string`, matching every other
-  ## raw websocket packet in server.nim (isPlayerReadyPacket,
-  ## isSpritesOffPacket). Structural only (op/version/length-prefix
-  ## agreement) — content legality is applyLobbyChat's job, not the wire
-  ## parser's.
-  result = (false, "")
-  if message.len < 6 or uint8(message[0]) != LobbyChatSendOp or
-      uint8(message[1]) != LobbyChatWireVersion:
-    return
-  let len = uint32(uint8(message[2])) or
-    (uint32(uint8(message[3])) shl 8) or
-    (uint32(uint8(message[4])) shl 16) or
-    (uint32(uint8(message[5])) shl 24)
-  if uint64(message.len) != 6'u64 + uint64(len):
-    return
-  result = (true, message[6 ..< 6 + int(len)])
-
-proc buildLobbyChatBroadcastPacket*(
-  ordinal: uint64,
-  tick: uint32,
-  seat: uint8,
-  team: uint8,
-  text: string
-): string =
-  ## Builds the server→client `LobbyChat` broadcast (0xB2): `u8 op, u8 ver,
-  ## u64 ordinal, u32 tick, u8 seat, u8 team, u32 len, u8[len] text`. One
-  ## packet per accepted message; the caller sends it to every play seat,
-  ## never coalesced (§9.2).
-  result = newString(20 + text.len)
-  result[0] = char(LobbyChatBroadcastOp)
-  result[1] = char(LobbyChatWireVersion)
-  for shift in 0 ..< 8:
-    result[2 + shift] = char(uint8((ordinal shr (shift * 8)) and 0xff'u64))
-  for shift in 0 ..< 4:
-    result[10 + shift] =
-      char(uint8((tick shr (uint32(shift) * 8'u32)) and 0xff'u32))
-  result[14] = char(seat)
-  result[15] = char(team)
-  let textLen = uint32(text.len)
-  for shift in 0 ..< 4:
-    result[16 + shift] =
-      char(uint8((textLen shr (uint32(shift) * 8'u32)) and 0xff'u32))
-  for i in 0 ..< text.len:
-    result[20 + i] = text[i]
-
 proc packRadiusSq*(sim: SimServer): int =
   ## `pack`: the squared radius of a circle covering PackAreaPct of the map's
   ## area (r² = area / π, integer: area * 100 / 314).

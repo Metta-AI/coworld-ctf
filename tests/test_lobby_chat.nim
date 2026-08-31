@@ -4,18 +4,23 @@
 ## `import`, matching test_lobby_join_timeout.nim — nothing here needs a
 ## real or fake WebSocket.
 ##
-## OWNERSHIP SPLIT (James, ratified against main, 2026-08-30): this lane
-## owns stepLobby's substates and the 0xA3 (client→server) / 0xB2
-## (server→client) HANDLING logic, and it EMITS replay record `0x13`
-## (RecLobbyChat, src/shell/types.nim:267-270) — it does NOT own the
-## play-seat receive-arm SOCKET WIRING. James's decode dispatch
-## (`decodeClientPacket`, src/shell/packets.nim) already covers 0xA0-0xA3
-## including OpLobbyChatSend, fixture-tested (tests/test_shell_packets.nim)
-## — it is simply unwired to any live socket yet (confirmed: zero
-## references outside src/shell/ and tests/). Our applyLobbyChat plugs in
-## as the OpLobbyChatSend handler once that wiring lands. Also not ours:
-## the socket lifecycle, records 0x14-0x16, or the format-v2 codec that
-## would read record 0x13 back and roll it into the manifest's
+## OWNERSHIP SPLIT (James, ratified against main, 2026-08-30; conformance
+## review conditional-go 2026-08-31): this lane owns stepLobby's substates
+## and the 0xA3 (client→server) / 0xB2 (server→client) HANDLING logic, and
+## it EMITS replay record `0x13` (RecLobbyChat, src/shell/types.nim:267-270)
+## — it does NOT own the play-seat receive-arm SOCKET WIRING, the
+## classifier/dispatch switch (`classifyPlaySeatMessage`,
+## src/shell/dispatch.nim), the wire codecs (`encodePacket`/
+## `decodeClientPacket`, src/shell/packets.nim), or the replay-record codec
+## (`encodeLobbyChatRecord`/`decodeLobbyChatRecord`, src/shell/
+## replay_records.nim) — this lane calls all four directly rather than
+## keeping parallel private implementations. classifyPlaySeatMessage is
+## simply unwired to any live socket yet (confirmed: zero references
+## outside src/shell/, src/ctf/replay_codec.nim, and tests/) — that's
+## server.nim's job, not this lane's or the shell lane's. Our
+## applyLobbyChat plugs in as the OpLobbyChatSend handler (the
+## classifier's `prLobbyChat` arm) once that wiring lands. Also not ours:
+## the socket lifecycle, records 0x14-0x16, or the manifest's
 ## ordered-chain arm. Nothing here drives a live socket or a live
 ## .bitreplay file for that reason — see the "record 0x13" suite below
 ## for exactly what IS proven.
@@ -32,7 +37,8 @@ import
   helpers,
   std/[strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[replays, sim]
+  ctf/[replays, sim],
+  shell/[dispatch, packets, replay_records]
 
 proc playSeatConfig(
   lobbyChatTicks: int,
@@ -287,30 +293,39 @@ suite "lobby chat: applyShout stays untouched":
     check sim.applyLobbyChat(0, "this is a lobby chat").ok
 
 suite "lobby chat: the 0xA3/0xB2 wire codec, byte for byte":
-  ## OURS per the ownership split: the pure parse/build functions
-  ## (sim.nim). James's decodeClientPacket (src/shell/packets.nim) already
-  ## dispatches OpLobbyChatSend among 0xA0-0xA3 — it is unwired to any live
-  ## socket yet, and our applyLobbyChat is the handler it will call once
-  ## that wiring lands. Nothing here drives a socket for that reason;
-  ## these are pure byte-level round trips only.
+  ## NOT ours per the ownership split: James's classifyPlaySeatMessage
+  ## (src/shell/dispatch.nim) is the real classifier/dispatch switch for
+  ## OpLobbyChatSend among 0xA0-0xA3, and encodePacket(LobbyChatBroadcastPacket)
+  ## (src/shell/packets.nim) is the real 0xB2 builder — this lane calls
+  ## THOSE directly rather than keeping its own parallel parse/build
+  ## procs. It is unwired to any live socket yet (that's server.nim's
+  ## job, not this lane's or the shell lane's); our applyLobbyChat is the
+  ## handler that plugs into the seam (classifyPlaySeatMessage's
+  ## `prLobbyChat` arm) once that wiring lands. Nothing here drives a
+  ## socket for that reason; these are pure byte-level round trips
+  ## proving OUR construction of the bytes is what THEIR codec expects.
   test "a 0xA3 send packet parses back to its exact text":
     var bytes = newString(6 + 5)
     bytes[0] = char(LobbyChatSendOp)
     bytes[1] = char(LobbyChatWireVersion)
     bytes[2] = char(5'u8)   # u32 len, little-endian: 5, 0, 0, 0
     bytes[6 ..< 11] = "hello"
-    check bytes.parseLobbyChatSendPacket() == (true, "hello")
+    let received = bytes.classifyPlaySeatMessage()
+    check received.kind == prLobbyChat
+    check received.lobbyChat.text == "hello"
 
   test "a length-prefix mismatch is refused structurally":
     var bytes = newString(6 + 2)
     bytes[0] = char(LobbyChatSendOp)
     bytes[1] = char(LobbyChatWireVersion)
     bytes[2] = char(99'u8)   # claims 99 bytes, carries 2
-    check not bytes.parseLobbyChatSendPacket().ok
+    let received = bytes.classifyPlaySeatMessage()
+    check received.kind == prRejected
+    check received.rejection == prrMalformedShellPacket
 
   test "the 0xB2 broadcast packet's every field lands at its documented offset":
-    let packet = buildLobbyChatBroadcastPacket(
-      ordinal = 42'u64, tick = 1000'u32, seat = 3'u8, team = 1'u8, text = "gg")
+    let packet = encodePacket(LobbyChatBroadcastPacket(
+      ordinal: 42'u64, tick: 1000'u32, seat: 3'u8, team: 1'u8, text: "gg"))
     check packet.len == 20 + 2
     check uint8(packet[0]) == LobbyChatBroadcastOp
     check uint8(packet[1]) == LobbyChatWireVersion
@@ -321,20 +336,23 @@ suite "lobby chat: the 0xA3/0xB2 wire codec, byte for byte":
 suite "lobby chat: record 0x13 (RecLobbyChat), EMIT side only":
   ## Ownership split (James, ratified against main): this lane owns
   ## stepLobby's substates and the 0xA3/0xB2 HANDLING logic, and it EMITS
-  ## record 0x13 — it does NOT own reading it back, the manifest's
-  ## ordered-chain arm, or the format-v2 codec that would append these
-  ## bytes to a live .bitreplay stream (that codec does not exist on main:
-  ## bitworld/replays.nim exposes no raw-record-type append, and every
-  ## writeXXX proc there hardcodes its own leading byte, 0x01..0x06). So
-  ## this suite proves the EMITTED BYTES conform to the landed layout,
-  ## src/shell/types.nim:267-270, and nothing about a replay FILE.
+  ## record 0x13 — it does NOT own reading it back or the manifest's
+  ## ordered-chain arm. The format-v2 codec that appends this record to a
+  ## live .bitreplay stream landed on main after this lane's branch cut
+  ## (src/shell/replay_records.nim: LobbyChatRecord, encodeLobbyChatRecord,
+  ## decodeLobbyChatRecord; src/ctf/replay_codec.nim: writeLobbyChat) — this
+  ## lane calls THAT exported codec directly rather than keeping its own
+  ## parallel encoder/decoder. So this suite proves applyLobbyChat's output
+  ## round-trips through the real codec conforming to the landed layout,
+  ## src/shell/types.nim:267-270, and nothing about a replay FILE (writing
+  ## one is still the format-v2 writer's job, not this lane's).
   test "the encoded record starts with the landed byte 0x13 and matches its layout":
-    let bytes = encodeLobbyChatTranscriptRecord(
-      replayTimeMs = 1234'u32, ordinal = 7'u64, seat = 3'u8, team = 1'u8,
-      text = "gg")
+    let bytes = encodeLobbyChatRecord(LobbyChatRecord(
+      replayTimeMs: 1234'u32, ordinal: 7'u64, seat: 3'u8, team: 1'u8,
+      text: "gg"))
     check uint8(bytes[0]) == 0x13'u8
     check bytes.len == 17 + 2   # header + "gg"
-    let decoded = bytes.decodeLobbyChatTranscriptRecord()
+    let decoded = bytes.decodeLobbyChatRecord()
     check decoded.replayTimeMs == 1234'u32
     check decoded.ordinal == 7'u64
     check decoded.seat == 3'u8
@@ -348,18 +366,19 @@ suite "lobby chat: record 0x13 (RecLobbyChat), EMIT side only":
     let outcome = sim.applyLobbyChat(0, "gg wp")
     check outcome.ok
     let team = sim.teamForSlot(0)
-    let record = encodeLobbyChatTranscriptRecord(
-      tickTime(sim.tickCount), outcome.ordinal, uint8(0), uint8(ord(team)),
-      "gg wp")
-    let decoded = record.decodeLobbyChatTranscriptRecord()
+    let record = encodeLobbyChatRecord(LobbyChatRecord(
+      replayTimeMs: tickTime(sim.tickCount), ordinal: outcome.ordinal,
+      seat: uint8(0), team: uint8(ord(team)), text: "gg wp"))
+    let decoded = record.decodeLobbyChatRecord()
     check decoded.ordinal == outcome.ordinal
     check decoded.text == "gg wp"
 
   test "a 512-byte text (the max) round-trips; the header is exactly 17 bytes":
     let text = "z".repeat(LobbyChatMaxBytes)
-    let bytes = encodeLobbyChatTranscriptRecord(0, 1, 0, 0, text)
+    let bytes = encodeLobbyChatRecord(LobbyChatRecord(
+      replayTimeMs: 0, ordinal: 1, seat: 0, team: 0, text: text))
     check bytes.len == 17 + LobbyChatMaxBytes
-    check bytes.decodeLobbyChatTranscriptRecord().text == text
+    check bytes.decodeLobbyChatRecord().text == text
 
 suite "lobby chat: gameHash independence":
   test "chat content never enters gameHash: sent vs. silent, identical chain":

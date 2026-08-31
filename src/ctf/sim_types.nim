@@ -2243,13 +2243,6 @@ type
                                ## scrub still restores it exactly via the
                                ## flatty sim snapshot).
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
-    lastLobbyChatTick*: int    ## tick of this seat's latest accepted lobby
-                               ## chat message, -1 = never. Lobby-lifecycle
-                               ## only: not hashed, not in gameHash (§9.3).
-    lobbyChatSentCount*: int   ## accepted lobby chat messages this seat has
-                               ## sent THIS episode's phase (resets with
-                               ## lobbyChatDone below); caps at
-                               ## LobbyChatMaxMessagesPerSeat.
     paintHitTick*: int         ## tick of the latest PAINT hit taken. Every
                                ## weapon throws paint — gun, grenade, and the
                                ## spray can — so all three stamp it. Cosmetic:
@@ -2555,6 +2548,16 @@ type
                                ## paintHealTicks it heals 1 hp and resets.
                                ## Reset by stepping off, by damage, by death
                                ## and at the start of each game. HASHED.
+    lastLobbyChatTick*: int    ## tick of this seat's latest accepted lobby
+                               ## chat message, -1 = never. Lobby-lifecycle
+                               ## only: not hashed, not in gameHash (§9.3).
+                               ## Append-only (GVNEXT): added after every
+                               ## pre-huddle field, per flatty layout
+                               ## convention.
+    lobbyChatSentCount*: int   ## accepted lobby chat messages this seat has
+                               ## sent THIS episode's phase (resets with
+                               ## lobbyChatDone, SimServer); caps at
+                               ## LobbyChatMaxMessagesPerSeat.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3061,24 +3064,6 @@ type
     startWaitTimer*: int
     lobbyWaitTimer*: int  ## lobby ticks spent short of minPlayers (live-server
                           ## lobby lifecycle only: not hashed, not in replays).
-    lobbyChatActive*: bool  ## §9.2: true while the `chatting` substate is
-                            ## running (the countdown is HELD, not
-                            ## decrementing, while this is true). Engages
-                            ## only in a play-seat episode (hasPlaySeat,
-                            ## sim_config.nim) with lobbyChatTicks > 0 — a
-                            ## configuration with no play seat never sets
-                            ## this, which is the byte-identical shape the
-                            ## design requires ("nothing below changes a
-                            ## configuration with no play seat", §9.2).
-    lobbyChatTicksLeft*: int  ## ticks remaining in the active chat phase.
-    lobbyChatDone*: bool    ## true once the phase has run to completion (or
-                            ## was skipped, lobbyChatTicks == 0) THIS episode
-                            ## — chat runs at most once per episode (§9.2);
-                            ## a later roster drop during `countdown` resets
-                            ## the countdown timer, never this flag.
-    lobbyChatOrdinal*: uint64  ## next lobby-chat ordinal to assign — per
-                               ## episode, monotonic across every seat
-                               ## (§9.2). Lobby-lifecycle only: not hashed.
     phase*: GamePhase
     asciiSprites*: PixelFont
     shoutFont*: PixelFont  ## chunky 9px grid font used only for shout bubbles.
@@ -3252,6 +3237,26 @@ type
                                ## main's structure exactly.
     achievementFeed*: seq[AchievementClaim]  ## GLORY: claims in order, for
                                ## the replay feed / HUD. Never in gameHash.
+    lobbyChatActive*: bool  ## §9.2: true while the `chatting` substate is
+                            ## running (the countdown is HELD, not
+                            ## decrementing, while this is true). Engages
+                            ## only in a play-seat episode (hasPlaySeat,
+                            ## sim_config.nim) with lobbyChatTicks > 0 — a
+                            ## configuration with no play seat never sets
+                            ## this, which is the byte-identical shape the
+                            ## design requires ("nothing below changes a
+                            ## configuration with no play seat", §9.2).
+                            ## Append-only (GVNEXT): added after every
+                            ## pre-huddle field, per flatty layout convention.
+    lobbyChatTicksLeft*: int  ## ticks remaining in the active chat phase.
+    lobbyChatDone*: bool    ## true once the phase has run to completion (or
+                            ## was skipped, lobbyChatTicks == 0) THIS episode
+                            ## — chat runs at most once per episode (§9.2);
+                            ## a later roster drop during `countdown` resets
+                            ## the countdown timer, never this flag.
+    lobbyChatOrdinal*: uint64  ## next lobby-chat ordinal to assign — per
+                               ## episode, monotonic across every seat
+                               ## (§9.2). Lobby-lifecycle only: not hashed.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const
