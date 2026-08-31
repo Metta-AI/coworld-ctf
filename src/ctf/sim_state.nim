@@ -313,6 +313,48 @@ proc gameHash*(sim: SimServer): uint64 =
     if sim.config.allowPolicyReflash:
       result.mixHash(player.policyPageHash)
       result.mixHashInt(player.policyPageEpoch)
+    # GLORY PORT increment 3/3 (GLORY v11, GameVersion 48): the per-life
+    # ladder and every counter that gates an achievement or a deed's
+    # classification enters the hash for the first time — see each
+    # field's own "CAUSAL (hashed)"/"in gameHash" comment on the `Player`
+    # type (sim_types.nim) for why THIS subset and not the rest (the
+    # analysis-only counters just below it on that type, `lastKilledBy`
+    # through `tookShield`, stay OUT, same as `deedCounts`/`deedGloryMass`/
+    # `gloryPops`/`achievementFeed`/`teamKillRing` do on `SimServer` below).
+    result.mixHashInt(player.xp)
+    result.mixHashInt(player.level)
+    result.mixHashInt(player.grenadeCharges)
+    result.mixHashInt(player.gunKills)
+    result.mixHashInt(player.sprayKills)
+    result.mixHashInt(player.grenadeKills)
+    result.mixHashInt(player.longshotKills)
+    result.mixHashInt(player.soakedHp)
+    result.mixHashInt(player.clutchHeals)
+    result.mixHashInt(player.steals)
+    result.mixHashInt(player.carrierKills)
+    result.mixHashInt(player.denials)
+    result.mixHashInt(player.sprayKillsThisPickup)
+    result.mixHashInt(player.aceKills)
+    result.mixHashInt(player.sprayMultiKills)
+    result.mixHashInt(player.grenadeMultiKills)
+    result.mixHashInt(player.clutchCarryHeals)
+    result.mixHashInt(player.stealTickThisLife)
+    result.mixHashInt(player.clutchHealTick)
+    result.mixHashInt(player.peelTick)
+    result.mixHashInt(player.contestedSteals)
+    result.mixHashInt(player.carryKills)
+    result.mixHashBool(player.secondWind)
+    result.mixHashBool(player.capturedOutnumbered)
+    result.mixHashBool(player.capturedFastBreak)
+    result.mixHashInt(player.lastDamagedBy)
+    result.mixHashInt(player.lastDamagedByTick)
+    result.mixHashInt(player.menacingTick)
+    result.mixHashInt(player.menacingVictim)
+    result.mixHashInt(player.rescuedTick)
+    result.mixHashInt(player.assists)
+    result.mixHashInt(player.rescues)
+    result.mixHashInt(player.escortKills)
+    result.mixHashBool(player.avengedPartner)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -378,6 +420,23 @@ proc gameHash*(sim: SimServer): uint64 =
       result.mixHashInt(shout.calloutId)
       for c in shout.calloutCell:
         result.mixHashInt(ord(c))
+  # GLORY PORT increment 3/3 (GLORY v11, GameVersion 48) — the TEAM/GAME
+  # ledger. See each field's own comment on `SimServer` (sim_types.nim) for
+  # why this subset and not the rest: `teamKillRing` (scratch bookkeeping),
+  # `deedCounts`/`deedGloryMass` (audit telemetry) and `gloryPops`/
+  # `achievementFeed` (cosmetic/feed data) all stay OUT, same as before.
+  for team in sim.teams():
+    result.mixHashInt(sim.teamGlory[team])
+    result.mixHashInt(sim.heatEmbers[team])
+    result.mixHashInt(sim.heatLastDeed[team])
+    result.mixHashInt(sim.heatLastDecay[team])
+    for tier in sim.claimed[team]:
+      result.mixHashBool(tier)
+  for tier in sim.claimedFirst:
+    result.mixHashBool(tier)
+  result.mixHashBool(sim.firstBloodDone)
+  for team in sim.teams():
+    result.mixHashBool(sim.squadVolleyDone[team])
 
 proc applyPolicyPage*(
   sim: var SimServer,
