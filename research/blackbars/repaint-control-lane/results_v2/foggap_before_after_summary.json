@@ -1,0 +1,12 @@
+{
+  "before_fix": {
+    "total_ticks": 2351,
+    "ticks_with_gap": 1506,
+    "rate": 0.6405784772437261
+  },
+  "after_fix": {
+    "total_ticks": 1787,
+    "ticks_with_gap": 0,
+    "rate": 0.0
+  }
+}
