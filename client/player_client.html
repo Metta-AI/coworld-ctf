@@ -540,14 +540,88 @@ function ensureLayer(id){
   if(!layer.ctx){layer.ctx=layer.canvas.getContext("2d");layer.ctx.imageSmoothingEnabled=false}
   return layer
 }
+/* ---- Viewport clip (perf lane, 2026-08-31): windowed world-layer buffers ----
+   Measured baseline: BR (3211x1713 map) rendered at 13.5fps median 74ms/frame
+   vs classic's 72.8fps/16ms, with ONE bot on the field -- so entity count was
+   never the driver. Root cause: c.width/c.height (the canvas backing store +
+   every per-layer ImageData) were sized to the whole MAP, and drawSprite()
+   .fill(0)'d + putImageData'd + drawImage'd that full buffer every rAF tick
+   regardless of how much of it the screen could actually show, because the
+   "camera" was only ever a CSS transform panning an oversized canvas under a
+   clipping <div> (#viewport in the CSS above) -- the pixels underneath were
+   never smaller than the map itself.
+
+   ZOOMABLE_LAYER_FLAG (sim_types.nim: ZoomableLayerFlag=1) is the wire's own
+   signal for which layers are actually world-space and pan/zoom with the
+   camera -- MapLayerId(0) and FogLayerId(4) on every config this client
+   connects to, both viewport()'d to the full map size (global.nim
+   addViewport(MapLayerId,...)/addViewport(FogLayerId,...), confirmed
+   identical). Everything else (UiLayerFlag=2: the fire-ready icon, lives
+   counter, interstitial text, team-score row) is small, screen-anchored HUD
+   content the SAME shared canvas happens to also carry -- see the Ui-layer
+   composite-offset comment on the drawImage call in drawSprite() below for
+   why those are left otherwise untouched (measured live, pre-fix: already
+   panned off-screen in BR's default follow camera, since they render at raw
+   layer-local pixel positions near the map's own (0,0) corner, nowhere near
+   wherever the follow camera happens to be looking).
+
+   Only the two ZOOMABLE layers get resized down here, to a window sized to
+   the current screen (+VIEWPORT_MARGIN_PX slack) at NATIVE map resolution --
+   the "SCALE UP, never reveal more world" invariant is unchanged, this only
+   shrinks how much of that native-resolution world gets a buffer at all.
+   camWorldOriginX/Y (module state, set in updateCamera() once camScale/camX/
+   camY are final for the frame -- see that function's own header) is the
+   window's world-space top-left corner; every object drawn into a zoomable
+   layer subtracts it before the EXISTING putPixel clipping math runs, so an
+   object entirely outside the window costs a bounds-check, not a pixel loop
+   -- no separate object-filtering pass was needed. */
+const ZOOMABLE_LAYER_FLAG=1; // sim_types.nim ZoomableLayerFlag -- UiLayerFlag=2 is everything else, left alone.
+const VIEWPORT_MARGIN_PX=160; // world px of slack beyond the visible screen on every edge -- covers glide/interpolation overshoot (SNAP_DISTANCE=48) and the sub-frame lag a throttled camera-window commit (see updateCamera) can introduce, without ever reallocating on ordinary sub-pixel drift.
 function resizeMainCanvas(){
+  const {width,height}=computeSharedCanvasSize();
+  sizeCanvas(width,height)
+}
+function computeSharedCanvasSize(){
   let width=1,height=1;
   for(const layer of layers.values()){width=Math.max(width,layer.width);height=Math.max(height,layer.height)}
-  sizeCanvas(width,height)
+  return {width,height}
+}
+/* Resizes the #c backing store WITHOUT sizeCanvas()'s camera-reset side
+   effects (camInited=false/cameraTransformDirty=true) -- those are correct
+   for a genuine map-size-defining viewport() packet (rare, real "the map
+   itself changed" event) but would be wrong here: updateWorldWindow() below
+   calls this every time the camera-window's OWN required size changes,
+   which happens routinely (a window resize, a camera-mode toggle, a killcam
+   zooming in over its own 900ms ease) and must never re-snap the follow
+   camera's easing state. */
+function sizeSharedCanvasBuffer(width,height){
+  if(c.width===width&&c.height===height)return;
+  c.width=width;c.height=height;x.imageSmoothingEnabled=false;fit();
+}
+/* Resizes the two ZOOMABLE layers' own buffers to cover a window of
+   `bufW x bufH` world px, world-space origin unrelated (objects supply their
+   own world position at draw time -- see drawSprite's per-object loop).
+   camWorldOriginX/Y and the shared canvas are updated by the caller
+   (updateWorldWindow). */
+function sizeWorldLayers(bufW,bufH){
+  for(const layer of layers.values()){
+    if(layer.flags!==ZOOMABLE_LAYER_FLAG)continue;
+    if(layer.width!==bufW||layer.height!==bufH){
+      layer.width=bufW;layer.height=bufH;
+      layer.canvas.width=bufW;layer.canvas.height=bufH;
+      layer.image=layer.ctx.createImageData(bufW,bufH);
+    }
+  }
 }
 function viewport(layerId,width,height){
   if(layerId===0){mapW=width;mapH=height}
   const layer=ensureLayer(layerId);
+  /* Safe initial/fallback allocation only: for a ZOOMABLE layer this is the
+     full server-reported map size, exactly like before this lane -- harmless
+     because updateWorldWindow() (called from updateCamera(), itself moved to
+     the TOP of drawSprite() -- see that function) shrinks it down to the
+     real camera window before the very first composite ever runs on it. Ui
+     layers keep this as their real, permanent size (unchanged). */
   layer.width=width;layer.height=height;layer.canvas.width=width;layer.canvas.height=height;layer.image=layer.ctx.createImageData(width,height);
   resizeMainCanvas()
 }
@@ -563,6 +637,75 @@ function putPixel(layer,x0,y0,sprite,srcOffset){
   d[offset+2]=Math.round((sprite.pixels[srcOffset+2]*sa+d[offset+2]*dw)/oa);
   d[offset+3]=Math.round(oa*255)
 }
+/* ---- Minimap source (viewport-clip lane) --------------------------------
+   player_hud.js's drawMinimap used to sample the #c canvas directly
+   (ctx.drawImage(canvasEl,...)) on the assumption that its pixel buffer
+   always held the WHOLE map (true before this lane -- see the big
+   ZOOMABLE_LAYER_FLAG comment above). Once the main canvas only covers the
+   current camera window, that assumption breaks: the minimap would only
+   ever show whatever sliver the player is currently looking at, scaled up,
+   instead of the whole board.
+   Rather than keep a second full-map-resolution buffer around just for this
+   (reintroducing the exact cost this lane removes, just off the hot path
+   instead of on it), this builds a DEDICATED, heavily downsampled source: a
+   `mapW/MINIMAP_STRIDE`-ish canvas -- for BR's 3211x1713 map, MINIMAP_STRIDE
+   works out to 7 (a ~459x245 source, ~1/49th the pixels the old per-FRAME
+   buffer held) -- decimating every source sprite pixel at write time rather
+   than drawing at full resolution and shrinking after. Same z/dispY paint
+   order as the main composite, same two ZOOMABLE layers (map + fog, so the
+   minimap keeps showing current fog-of-war dimming, matching what it always
+   showed); UI layers are irrelevant to a map thumbnail and are skipped.
+   Uses raw object.x/y, not the interpolated dispX/dispY the main composite
+   uses -- this is a coarse, throttled (MINIMAP_REBUILD_MS) snapshot for a
+   ~170x100px HUD corner, not a per-frame animated view; nothing here is
+   worth the extra bookkeeping motion interpolation exists for.
+   Exposed as the bare top-level `minimapSourceCanvas`, read by
+   player_hud.js's drawMinimap the same cross-script-global way it already
+   reads `objects`/`sprites`/`mapW`/`mapH`. */
+const MINIMAP_SOURCE_TARGET_PX=480; // rough long-edge budget for the downsampled source -- comfortably above the ~170px minimap HUD corner even at 1.5x hud-scale, so the final drawImage downscale still has real detail to work with.
+const MINIMAP_REBUILD_MS=90; // matches player_hud.js's own lastMiniDrawAt throttle -- no reason to rebuild this more often than the one consumer ever looks at it.
+let minimapSourceCanvas=null,minimapSourceCtx=null,minimapSourceImage=null,lastMinimapBuildAt=0;
+function ensureMinimapSource(){
+  if(!mapW||!mapH)return null;
+  const stride=Math.max(1,Math.ceil(Math.max(mapW,mapH)/MINIMAP_SOURCE_TARGET_PX));
+  const w=Math.max(1,Math.ceil(mapW/stride)),h=Math.max(1,Math.ceil(mapH/stride));
+  if(!minimapSourceCanvas){minimapSourceCanvas=document.createElement("canvas");minimapSourceCtx=minimapSourceCanvas.getContext("2d");minimapSourceCtx.imageSmoothingEnabled=false}
+  if(minimapSourceCanvas.width!==w||minimapSourceCanvas.height!==h){
+    minimapSourceCanvas.width=w;minimapSourceCanvas.height=h;
+    minimapSourceImage=minimapSourceCtx.createImageData(w,h);
+  }
+  return {w,h,stride};
+}
+function buildMinimapSource(nowT){
+  if(nowT-lastMinimapBuildAt<MINIMAP_REBUILD_MS)return;
+  const dims=ensureMinimapSource();
+  if(!dims)return;
+  lastMinimapBuildAt=nowT;
+  const {w,h,stride}=dims,data=minimapSourceImage.data;
+  data.fill(0);
+  for(const layer of layers.values()){
+    if(layer.flags!==ZOOMABLE_LAYER_FLAG)continue;
+    const ordered=[...objects.values()].filter(o=>o.layer===layer.id).sort((a,b)=>a.z-b.z||a.y-b.y||a.id-b.id);
+    for(const object of ordered){
+      const sprite=sprites.get(object.spriteId);
+      if(!sprite)continue;
+      const ox=object.x,oy=object.y;
+      for(let sy=0;sy<sprite.height;sy+=stride){
+        const wy=oy+sy;if(wy<0)continue;
+        const ty=Math.floor(wy/stride);if(ty>=h)break;
+        for(let sx=0;sx<sprite.width;sx+=stride){
+          const wx=ox+sx;if(wx<0)continue;
+          const tx=Math.floor(wx/stride);if(tx>=w)break;
+          const srcOff=(sy*sprite.width+sx)*4;
+          if(sprite.pixels[srcOff+3]===0)continue;
+          const dstOff=(ty*w+tx)*4;
+          data[dstOff]=sprite.pixels[srcOff];data[dstOff+1]=sprite.pixels[srcOff+1];data[dstOff+2]=sprite.pixels[srcOff+2];data[dstOff+3]=255;
+        }
+      }
+    }
+  }
+  minimapSourceCtx.putImageData(minimapSourceImage,0,0);
+}
 function drawSprite(){
   const nowT=performance.now();
   /* Hitstop: freeze the last composed frame for a handful of ms on landing
@@ -570,6 +713,19 @@ function drawSprite(){
      the sim keeps ticking underneath; we simply stop repainting the canvas
      for a beat, which is the whole "impact" of a hitstop. */
   if(nowT<hitstopUntil)return;
+  /* MOVED to the top of this function (viewport-clip lane): updateCamera()
+     used to run AFTER the composite loop below, which was fine when the
+     canvas buffer always held the whole map regardless of camera state --
+     the composite loop never READ camera state, only the CSS transform
+     written at the end did. Now the composite loop itself needs to know
+     THIS frame's camera window (camWorldOriginX/Y, and the zoomable layers'
+     own buffer size) before it draws a single pixel, so updateCamera() (which
+     owns computing and committing that window -- see its own header) has to
+     run first. Still exactly one call, still only ever from this rAF-gated
+     tick (frameTick -> drawSprite), so the "never off the vsync beat"
+     invariant on the actual c.style.transform DOM write is unchanged. */
+  updateCamera();
+  buildMinimapSource(nowT);
   x.save();
   if(nowT<shakeEndAt){
     const remain=(shakeEndAt-nowT)/SHAKE_MS,amt=shakeMag*remain;
@@ -581,24 +737,59 @@ function drawSprite(){
   for(const layer of orderedLayers){
     if(!layer.image)continue;
     layer.image.data.fill(0);
+    const zoomable=layer.flags===ZOOMABLE_LAYER_FLAG;
     const ordered=[...objects.values()].filter(o=>o.layer===layer.id).sort((a,b)=>a.z-b.z||a.dispY-b.dispY||a.id-b.id);
     for(const object of ordered){
       const sprite=sprites.get(object.spriteId);
       if(!sprite)continue;
-      const ox=object.dispX,oy=object.dispY;
+      /* Zoomable layers (map/fog): dispX/dispY are world coords, but this
+         layer's OWN buffer only covers the current camera window (see
+         updateWorldWindow) -- subtract its world-space origin before the
+         unchanged clip/putPixel math below, so an object entirely outside
+         the window costs one bounds check per axis, never a pixel loop.
+         Ui layers: unchanged, raw layer-local position, exactly as before
+         this lane (see the composite-destination comment a few lines down
+         for where THEIR offset is applied instead). */
+      const ox=zoomable?object.dispX-camWorldOriginX:object.dispX,oy=zoomable?object.dispY-camWorldOriginY:object.dispY;
       const sx0=Math.max(0,-ox),sy0=Math.max(0,-oy),sx1=Math.min(sprite.width,layer.width-ox),sy1=Math.min(sprite.height,layer.height-oy);
       for(let sy=sy0;sy<sy1;sy++)for(let sx=sx0;sx<sx1;sx++)putPixel(layer,ox+sx,oy+sy,sprite,(sy*sprite.width+sx)*4)
     }
     layer.ctx.putImageData(layer.image,0,0);
-    x.drawImage(layer.canvas,0,0)
+    /* Composite destination: zoomable layers already have the window's
+       world-origin baked into every object's draw position above, so their
+       own buffer's pixel (0,0) IS the shared canvas's pixel (0,0) -- draw at
+       (0,0), unchanged from before this lane. Ui layers were NEVER window-
+       relative (raw layer-local positions, e.g. a fire-icon sprite at local
+       (2,2)) -- composited at (0,0) onto a full-map-sized shared canvas
+       before this lane, their content only ever landed on-screen when the
+       camera happened to be looking near world (0,0) (confirmed live,
+       pre-fix: BR's default follow camera panned them off-screen entirely,
+       since it looks at the player, nowhere near the map corner). Drawing
+       them at (-camWorldOriginX,-camWorldOriginY) here reproduces that exact
+       same coincidental on-screen position under the new (smaller, windowed)
+       shared canvas -- bug-for-bug identical, not a new behavior. */
+    if(zoomable)x.drawImage(layer.canvas,0,0);
+    else x.drawImage(layer.canvas,-camWorldOriginX,-camWorldOriginY);
   }
+  /* World-space HUD draws (reticle, hitmarker, self-tag, killcam marker,
+     cosmetic fx tracers/stains): every one of them already draws at raw
+     WORLD coordinates (selfPos.x, info.killerX, stain.x, ...) via canvas API
+     calls (arc/moveTo/fillText/...), never raw ImageData writes -- so unlike
+     the putPixel path above, a single context-level translate here converts
+     all of them at once, with zero changes to any of those five functions'
+     own math. This is the "one worldToScreen(), used everywhere" pair for
+     the canvas-API half of this file; the numeric ox/oy subtraction above is
+     the other half, for the raw-pixel-array half that a ctx transform can't
+     reach. */
+  x.save();
+  x.translate(-camWorldOriginX,-camWorldOriginY);
   renderCosmeticFx();
   drawReticle();
   drawHitmarker(nowT);
   drawSelfTag();
   drawKillcamMarker();
   x.restore();
-  updateCamera();
+  x.restore();
   /* Frames are flowing (we got here at all), so any connecting/reconnecting
      text is stale -- but "flowing" no longer unconditionally means "clear
      the overlay": a mid-life death now shows through the same plumbing. */
@@ -1157,6 +1348,15 @@ function cycleCameraMode(dir){
   scheduleDraw();
 }
 let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true,wasFollow=false,wasKillcam=false;
+/* Camera WINDOW state (viewport-clip lane): the world-space top-left corner
+   of the region the two ZOOMABLE layers currently have a buffer for -- see
+   updateWorldWindow() below. Distinct from camX/camY (the point the camera
+   is centered ON, i.e. the follow/killcam/whole-map TARGET) -- the window is
+   derived from camX/camY plus the current screen size and scale, with
+   VIEWPORT_MARGIN_PX of slack. Starts at (0,0), same as the old unwindowed
+   buffer's implicit origin, so the very first frame (before any camera
+   state has ever been computed) degrades to exactly the old behavior. */
+let camWorldOriginX=0,camWorldOriginY=0,worldWinW=0,worldWinH=0;
 /* Killcam entry animation state (Job 2, Maxwell "zooming in on them slowly
    would help focus"): tracked separately from the ordinary camScale/camX/
    camY lerp below so the killcam's own slower ease-in can neither slow down
@@ -1280,7 +1480,13 @@ function updateCamera(){
      schedule-then-let-the-rAF-tick-paint pattern triggerHitstop/
      triggerShake/triggerHitmarker already use below. */
   ensureCameraContext();
-  const fitScale=Math.max(.1,Math.min(innerWidth/c.width,innerHeight/c.height));
+  /* mapW/mapH (the TRUE, full map size), not c.width/c.height: before the
+     viewport-clip lane those were the same thing (the canvas buffer WAS the
+     whole map) -- now c.width/c.height is only the current camera WINDOW,
+     which is exactly the thing fitScale needs to be independent of (it means
+     "the scale that fits the ENTIRE map on screen", used both for whole-map
+     mode and as follow mode's never-zoom-out-further-than-this floor). */
+  const fitScale=Math.max(.1,Math.min(innerWidth/Math.max(1,mapW),innerHeight/Math.max(1,mapH)));
   const seated=!!selfPos;
   const mode=CAMERA_MODES[cameraModeIndex];
   /* Killcam (GVNEXT): a real fatal hitsTaken record with killer coords
@@ -1318,8 +1524,12 @@ function updateCamera(){
      quantized -- that's the case the anti-banding fix was actually proven
      against (sustained held-WASD movement), and it still holds. */
   const targetScale=follow?(killcam?followScaleRaw*KILLCAM_ZOOM:quantizeFollowScale(followScaleRaw)):fitScale;
-  const targetX=killcam?killcam.killerX:follow?selfPos.x:c.width/2;
-  const targetY=killcam?killcam.killerY:follow?selfPos.y:c.height/2;
+  /* mapW/2,mapH/2 (map CENTER in world coords), not c.width/2,c.height/2:
+     same reasoning as fitScale just above -- whole-map mode wants the
+     camera centered on the actual map, and c.width/2 stopped meaning that
+     the moment the buffer became a window instead of the whole map. */
+  const targetX=killcam?killcam.killerX:follow?selfPos.x:mapW/2;
+  const targetY=killcam?killcam.killerY:follow?selfPos.y:mapH/2;
   let easing=false;
   if(!follow){
     /* WHOLE-MAP is a STATIC frame: unlike follow modes it never chases a
@@ -1424,11 +1634,24 @@ function updateCamera(){
      whole-map, both of which should land immediately) and only skips the
      DOM WRITE below -- the lerp above still advanced this tick regardless,
      so next tick's camX/camY are already correct; this just spaces out
-     how often that state actually reaches the element. */
+     how often that state actually reaches the element.
+     viewport-clip lane: this now ALSO gates whether the camera WINDOW
+     (camWorldOriginX/Y + the zoomable layers' buffer size) refreshes this
+     tick -- see updateWorldWindow() below for why they must move in
+     lockstep with the DOM write rather than update independently every
+     frame (a buffer redrawn at a fresher window than the currently-visible
+     CSS transform accounts for would show the wrong slice of the map for
+     up to FOLLOW_WRITE_EVERY_N-1 frames). commitWindow can still force an
+     update through the throttle -- see its own comment -- so correctness
+     never depends on the throttle's timing, only on how often a genuinely
+     unnecessary recompute gets skipped. */
+  let commit=true;
   if(easing){
     followWriteCounter=(followWriteCounter+1)%FOLLOW_WRITE_EVERY_N;
-    if(followWriteCounter!==0)return;
+    commit=followWriteCounter===0;
   }
+  commit=updateWorldWindow(commit);
+  if(!commit)return;
   /* qScale is camScale itself now, UNROUNDED -- quantizeFollowScale()
      already snapped the follow-mode target (and thus camScale, which only
      ever SNAPS to it, never eases through it -- see the !camInited branch
@@ -1439,17 +1662,79 @@ function updateCamera(){
      (translate) are still rounded to whole device pixels and deduped
      against the last write -- that part was never the bug (see the big
      comment above), just a harmless, still-worthwhile cut on redundant
-     writes. */
+     writes.
+     viewport-clip lane: qX/qY now subtract camWorldOriginX/Y from camX/camY
+     before scaling -- the shared canvas's own pixel (0,0) is world position
+     (camWorldOriginX,camWorldOriginY) now, not world (0,0), so the point
+     that must land screen-centered (camX,camY) is (camX-camWorldOriginX)
+     buffer px in, not camX buffer px in. Everything else about this formula
+     (and everything that reads its OUTPUT, e.g. player_hud.js's readCamera)
+     is unchanged: the resulting CSS matrix still expresses the exact same
+     world-to-screen relationship it always did. */
   const qScale=camScale;
-  const qX=Math.round(innerWidth/2-camX*qScale),qY=Math.round(innerHeight/2-camY*qScale);
+  const qX=Math.round(innerWidth/2-(camX-camWorldOriginX)*qScale),qY=Math.round(innerHeight/2-(camY-camWorldOriginY)*qScale);
   if(qX===lastTransformX&&qY===lastTransformY&&qScale===lastTransformScale)return;
   lastTransformX=qX;lastTransformY=qY;lastTransformScale=qScale;
   c.style.transform="translate("+qX+"px,"+qY+"px) scale("+qScale+")";
 }
+/* Recomputes the camera WINDOW (camWorldOriginX/Y + the zoomable layers'
+   buffer size) from THIS frame's just-finalized camScale/camX/camY, and
+   resizes the shared canvas + zoomable layer buffers to match. Called once
+   per updateCamera() tick, gated the same way the DOM transform write is
+   (see that call site) -- `wantCommit` is the throttle's own decision;
+   returns whether the caller should actually treat this as a committed
+   frame (write the transform, let the composite loop use the new window).
+   That return can be TRUE even when wantCommit was false: if the window a
+   throttled tick would still be using is no longer big enough to safely
+   cover the screen at the CURRENT camX/camY/scale (a large camera jump --
+   e.g. the wasFollow respawn-resume branch above easing 12% of a
+   possibly-huge distance in one tick, or a killcam zooming continuously
+   every frame), this forces an update anyway rather than ever compositing a
+   frame with visibly missing content. Ordinary smooth motion never trips
+   this (VIEWPORT_MARGIN_PX is generous relative to per-frame drift), so the
+   throttle's actual benefit (fewer redundant buffer resizes/DOM writes
+   during sustained held-WASD movement, the case the anti-tearing fix was
+   proven against) is preserved. */
+function updateWorldWindow(wantCommit){
+  const scale=camScale>0&&isFinite(camScale)?camScale:1;
+  let halfW=Math.ceil(innerWidth/(2*scale))+VIEWPORT_MARGIN_PX;
+  let halfH=Math.ceil(innerHeight/(2*scale))+VIEWPORT_MARGIN_PX;
+  // Never buffer more than the map itself actually is (a very zoomed-out
+  // whole-map view on a small map, or a huge monitor): mapW/mapH are 0
+  // before the first viewport() packet, in which case there is nothing to
+  // clamp against yet and the raw screen-derived half-extents stand.
+  if(mapW)halfW=Math.min(halfW,Math.max(1,Math.ceil(mapW/2)));
+  if(mapH)halfH=Math.min(halfH,Math.max(1,Math.ceil(mapH/2)));
+  const neededOriginX=Math.floor(camX-halfW),neededOriginY=Math.floor(camY-halfH);
+  const neededW=Math.max(1,halfW*2),neededH=Math.max(1,halfH*2);
+  const WINDOW_SLACK_PX=VIEWPORT_MARGIN_PX/2; // smaller than the margin itself, so this only fires once the safety slack is actually being eaten into.
+  const stale=neededW!==worldWinW||neededH!==worldWinH||
+    Math.abs(neededOriginX-camWorldOriginX)>WINDOW_SLACK_PX||
+    Math.abs(neededOriginY-camWorldOriginY)>WINDOW_SLACK_PX;
+  const commit=wantCommit||stale;
+  if(!commit)return false;
+  camWorldOriginX=neededOriginX;camWorldOriginY=neededOriginY;
+  worldWinW=neededW;worldWinH=neededH;
+  sizeWorldLayers(neededW,neededH);
+  const {width,height}=computeSharedCanvasSize();
+  sizeSharedCanvasBuffer(width,height);
+  return true;
+}
+/* screenToWorld -- the direct-aim path ("your cursor IS the turret", see the
+   big comment block above) and the ping wheel both depend on this returning
+   real WORLD coordinates. getBoundingClientRect()/buffer-size ratio math is
+   unchanged and still correct on its own terms (it reads the ELEMENT'S
+   actual rendered box vs its buffer pixel count, so it's already agnostic to
+   whatever the CSS transform's scale happens to be) -- it lands you in
+   BUFFER-LOCAL space, which used to BE world space (buffer==map, viewport-
+   clip lane's whole point is that it no longer is). +camWorldOriginX/Y
+   converts that buffer-local point back to world space, same offset every
+   other world-space consumer in this file uses (see drawSprite's
+   ox=...-camWorldOriginX and its own x.translate(-camWorldOriginX,...)). */
 function toMap(ev){
   const r=c.getBoundingClientRect();
-  return {x:(ev.clientX-r.left)*(c.width/Math.max(1,r.width)),
-          y:(ev.clientY-r.top)*(c.height/Math.max(1,r.height))};
+  return {x:(ev.clientX-r.left)*(c.width/Math.max(1,r.width))+camWorldOriginX,
+          y:(ev.clientY-r.top)*(c.height/Math.max(1,r.height))+camWorldOriginY};
 }
 function cellUnderCursor(){
   return (haveMouse&&mapW&&mapH)?CC.chessCell(mouseX,mouseY,mapW,mapH):null;
@@ -2233,7 +2518,14 @@ function renderDeathOverlay(){
 function drawHitmarker(nowT){
   if(nowT>=hitmarkerUntil)return;
   const remain=(hitmarkerUntil-nowT)/HITMARKER_MS;
-  const mx=haveMouse?mouseX:c.width/2,my=haveMouse?mouseY:c.height/2;
+  /* Fallback (no mouse yet): center of the CURRENT camera window in world
+     coords, not raw buffer-center -- this function draws under the
+     world-translate drawSprite() wraps it in (see that call site), so
+     everything here must be a world coordinate. Before the viewport-clip
+     lane, c.width/2 WAS the world-ish center (buffer==map, camera only ever
+     panned it via CSS); now the buffer only covers the current window, so
+     the equivalent point is the window's own center. */
+  const mx=haveMouse?mouseX:camWorldOriginX+c.width/2,my=haveMouse?mouseY:camWorldOriginY+c.height/2;
   x.save();
   x.globalAlpha=Math.max(0,Math.min(1,remain));
   x.strokeStyle=hitmarkerIsKill?"rgba(255,60,40,.95)":"rgba(255,255,255,.9)";
