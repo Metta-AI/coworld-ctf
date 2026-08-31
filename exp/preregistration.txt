@@ -152,3 +152,52 @@ UNCONFIRMED, flagged as cross-battery (lessons #7, "different populations")
   paired design would be needed to confirm it.
 
 NOT DONE, deliberately: the heuristic was not retuned. One honest attempt.
+
+======================= CORRECTION, 2026-08-31 =======================
+RETRACTED from the result section above: "in the 87 capture-free episodes the
+winner also out-killed the loser in 85 (97.7%)" as EVIDENCE that attrition
+decides games. It is an accounting identity, not a finding.
+
+Checked across all 141 capture-free decisive episodes in both batteries:
+  loser team deaths      = 24 in 141/141   (3 lives x 8 seats: a full wipe)
+  winner team deaths     = 13..23
+  loser_deaths - (winner_kills + loser_teamkills) = 0 in 141/141
+Losing by elimination IS having 24 deaths, and every death is attributed to a
+killer with no hazard deaths, so the winner's kill count is 24 minus the
+loser's own teamkills BY CONSTRUCTION. The 97.7% measured the definition of
+elimination. The two exceptions are episodes where the WINNER's own teamkills
+were large enough to flip the raw comparison. This is docs/lessons.md #3: a
+proxy definitionally tied to the outcome it is used to explain.
+
+WHAT SURVIVES, and it is stronger (n=239 decisive, both batteries pooled):
+  capture-ending      98 (41.0%)   loser deaths mean 22.3/24, median 23, min 15
+  elimination-ending 141 (59.0%)   loser deaths 24/24 by definition
+  captures landing with the loser already at >= 22/24 deaths: 83/98 = 84.7%
+                                              >= 23/24 deaths: 60/98 = 61.2%
+  episodes where the loser ended below 15/24 deaths: 0/239
+  winner deaths are the SAME in both modes (19.7 capture / 19.2 elimination),
+  so capture episodes are not "the winner cruised".
+
+  Not one decisive episode was resolved before the loser had spent >= 62% of
+  its life pool. The capture is not an alternative win condition reached
+  early; it is the finisher on an attrition race that is ~93% complete. So
+  "captures rarely fire" and "attrition decides games" are the SAME fact.
+
+  This is a statement about how games TERMINATE, which is observed, not about
+  a correlation between two derived statistics, which was the retracted claim.
+
+WHAT I STILL CANNOT SHOW: that an EARLY kill lead causes the win. results.json
+carries end-of-episode team totals only. For elimination endings the question
+is close to ill-posed (elimination is 24 kills against you). The answerable
+version -- does a kill lead at tick T predict the win, controlling for seats
+alive -- needs tick-stamped events, which baseline/artlog.nim's events.jsonl
+carries. One 40-episode battery with --artlog (~15 min) would answer it.
+
+INDEPENDENT REPLICATION on the maps the league actually runs (mapPath "gen",
+3211x1713, vs this battery's fixed 1235x659 arena), from
+paintbot-rl/docs/play-analysis-rl11.md, 100 champion self-play episodes
+measured by a different agent with different code:
+  champion self-play  kills 21.4  deaths 21.6/24  captures 0.11 per team-game
+  Mean deaths of 21.6 of 24 reproduces the near-exhaustion picture exactly
+  (this battery: loser 24, winner 19.2, mean 21.6). The finding is not an
+  artifact of the arena map.
