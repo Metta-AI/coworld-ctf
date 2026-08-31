@@ -1233,8 +1233,20 @@ proc echoPaintballKeys(config: GameConfig, node: JsonNode) =
   ## the mode IS on, echo every key: the wasm viewer re-derives the paint grid
   ## and the hill from this config, so a missing key would re-simulate a
   ## different game.
+  ##
+  ## NOT `numAgents > 0`: every flagship classic variant now sets num_agents
+  ## to a nonzero seat count for an unrelated squad/seat-broadcast reason
+  ## (see playerResultsJson's comment in roster.nim), so that term went from
+  ## "paintball is on" to "any classic squad game" and started echoing the
+  ## whole paintball key set into byte-identical-by-design classic replay
+  ## configs. `loadout != LoadoutCtf` already covers every real paintball
+  ## config (loadout is only ever LoadoutCtf or LoadoutPaintball), so the
+  ## numAgents disjunct was always redundant for a genuine paintball game
+  ## and only ever fired spuriously for a classic one — dropping it changes
+  ## nothing for paintball and restores the byte-identical guarantee for
+  ## classic squad games.
   let paintballOn = config.loadout != LoadoutCtf or config.floorPaint or
-    config.hill or config.numAgents > 0
+    config.hill
   if paintballOn:
     node["num_agents"] = %config.numAgents
     node["cogsPerTeam"] = %config.cogsPerTeam

@@ -972,10 +972,23 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   $results
 
 proc playerResultsJson*(sim: SimServer): string =
-  ## The episode results document. A squad game (num_agents > 0) reports one
-  ## entry per SEAT through squadResultsJson; the inherited per-slot document
-  ## is kept for a gate-off config, which still plays the starter's rules.
-  if sim.config.numAgents > 0:
+  ## The episode results document. A paintball game (loadout ==
+  ## LoadoutPaintball) reports one entry per SEAT through squadResultsJson;
+  ## every classic game (the default LoadoutCtf) plays the starter's rules
+  ## through ctfPlayerResultsJson.
+  ##
+  ## THIS MUST NOT KEY ON numAgents: every flagship classic variant (2v2,
+  ## 4ffa, 4ffa8, 1v1, ctf-default, ctf-1v1) sets num_agents to a nonzero
+  ## seat count for an unrelated commissioner requirement (squad/seat
+  ## broadcast plumbing — see the many OTHER numAgents>0 gates in
+  ## server.nim/broadcast.nim, which are legitimately about seat topology,
+  ## not scoring). numAgents>0 is true for those games too, so keying the
+  ## scoring schema on it silently routes every classic match into the
+  ## hill-only squad scorer, whose halves never populate without hill=true —
+  ## every seat falls through to the literal 500/500 fault tie, discarding
+  ## real kills/captures. loadout is the only field that actually means
+  ## "paintball vs classic".
+  if sim.config.loadout == LoadoutPaintball:
     sim.squadResultsJson()
   else:
     sim.ctfPlayerResultsJson()
