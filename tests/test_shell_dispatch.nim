@@ -130,6 +130,10 @@ suite "server play receive arm":
     check replacedSocket == oldSocket
     check appState.playerIndices[newSocket] == 4
     check appState.playIngress[0].binding.generation == 2
+    # The rebind consumes the old socket's tick allowance. The next real
+    # tick drain resets it; only then does the replacement get fresh service.
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == 0
     websocketHandler(newSocket, MessageEvent, binaryMessage(
       ModuleUploadPacket(uploadId: 2, wasm: "new").encodePacket()))
 
@@ -143,6 +147,59 @@ suite "server play receive arm":
     websocketHandler(newSocket, CloseEvent, Message())
     check appState.playIngress[0].binding.state == pssLost
     check appState.playerIndices[newSocket] == 4
+
+  test "rebind does not refresh the per-tick classification byte budget":
+    appState.config = playConfig(scPlay)
+    let
+      oldSocket = cast[WebSocket](25)
+      newSocket = cast[WebSocket](26)
+      maximumUpload = ModuleUploadPacket(
+        uploadId: 1, wasm: newString(MaxModuleBytes)).encodePacket()
+    check oldSocket.registerPlayerWebSocket("play", 0, "token")
+    websocketHandler(oldSocket, MessageEvent, binaryMessage(maximumUpload))
+
+    var
+      replaced = false
+      replacedSocket: WebSocket
+    check newSocket.registerPlayerWebSocket(
+      "play", 0, "token", replaced, replacedSocket)
+    check replaced
+    websocketHandler(newSocket, MessageEvent, binaryMessage(maximumUpload))
+
+    # Two maximum uploads exceed the one-tick classification byte cap even
+    # though the authenticated socket changed between them.
+    check appState.playIngress[0].binding.state == pssLost
+    check appState.playIngress[0].pendingCount == 0
+
+  test "rebind does not refresh the per-tick upload queue slot":
+    appState.config = playConfig(scPlay)
+    let
+      oldSocket = cast[WebSocket](27)
+      newSocket = cast[WebSocket](28)
+    check oldSocket.registerPlayerWebSocket("play", 0, "token")
+    websocketHandler(oldSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "old").encodePacket()))
+
+    var
+      replaced = false
+      replacedSocket: WebSocket
+    check newSocket.registerPlayerWebSocket(
+      "play", 0, "token", replaced, replacedSocket)
+    check replaced
+    check appState.playIngress[0].pendingCount == 0
+    websocketHandler(newSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "same-tick").encodePacket()))
+    check appState.playIngress[0].pendingCount == 0
+    check appState.playIngress[0].counters.droppedUploads == 1
+
+    # The tick drain resets the spent allowance even though stale eviction
+    # left no pending payload to admit.
+    drainPlayIngressAtTickBoundary()
+    websocketHandler(newSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "next-tick").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check uploadDeliveries.load == 1
+    check seenUpload.load == 2
 
   test "per-tick upload and call caps drop deterministically":
     appState.config = playConfig(scPlay)

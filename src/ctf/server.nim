@@ -644,11 +644,11 @@ proc registerPlayerWebSocket(
   let ingressSeat = slot.playIngressSeat()
   if ingressSeat != nil:
     let bound = ingressSeat[].binding.bindSocket(websocket)
-    # The generation bump precedes this stale-only drain. `admits` therefore
-    # rejects every predecessor item without admitting new work off-tick, and
-    # releases the bounded per-tick queue slots for the replacement.
+    # The generation bump precedes stale eviction. The old payloads cannot
+    # cross the seam, while every per-tick counter remains charged until the
+    # actual tick drain resets it.
     discard ingressSeat[].takeStatusAck()
-    discard ingressSeat[].drainPlayIngress()
+    ingressSeat[].evictStalePending()
     if bound.replaced:
       replacedPlaySocket = true
       oldPlaySocket = bound.oldSocket

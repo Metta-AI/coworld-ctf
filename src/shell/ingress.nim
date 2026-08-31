@@ -169,6 +169,11 @@ proc takeStatusAck*[Socket](
       not seat.binding.admits(result.socket, result.generation):
     result.present = false
 
+proc evictStalePending*[Socket](seat: var PlayIngressSeat[Socket]) =
+  ## Rebind invalidates predecessor payloads but does not create a new tick.
+  ## Keep every per-tick counter charged; the real tick drain resets them.
+  seat.pending.setLen(0)
+
 proc applyPlayIngressFeedbackStrict*[Socket](
   seat: var PlayIngressSeat[Socket],
   feedback: PlayIngressFeedback,
