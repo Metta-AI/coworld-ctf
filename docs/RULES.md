@@ -1069,6 +1069,34 @@ open-loop from its rotate inputs; the marker caps that drift at one frame
 gap (integrate held rotation between frames, resync on each frame — see
 docs/PROTOCOL.md).
 
+**Your own kill/death count is on the wire too — but only for a human.** The
+player stream carries `kd <kills>/<deaths>`, your own `Player.kills`/
+`Player.deaths` (real attribution, already mixed into the deterministic
+gameHash) restated as a HUD label, the same "/" convention the per-team
+`team score` chip below uses. Unlike every other marker in this section,
+`kd ` is **not** sent to a Sprites Off (0x87) viewer — the wire condition
+every scripted/policy connection opts into — so a policy reads no such
+label today and its byte stream is unaffected by this marker's existence;
+only a human `/client/player` connection receives it. The per-player
+scoreboard picker on the global/spectator stream (`score <name> <lives>
+<kills>/<deaths> color <n>`, the clickable top-left pick-list) carries the
+same two numbers per roster row, at every team count including BR's 16
+teams / 32 seats — that suppression above 4 teams was a deliberate
+legibility choice, now lifted so BR gets live per-player rows too.
+
+**The WHOLE roster's lives/kills/deaths are on the player stream too, not
+just your own.** A human `/client/player` connection never sees the
+global/spectator stream above, so it cannot read that stream's `score `
+rows — a second socket just to read a scoreboard would double the client's
+heaviest stream, so instead every connected player's own stream restates
+the whole roster: one marker per seat, `roster <team> <name> <lives>
+<kills>/<deaths>`. `<name>` here is the anonymous per-team slot identity (`alpha`, `beta`, ...
+— the same `IdentityNames` a shout or an `identity` badge uses, see
+"Shouts" above), never the raw connection address `score`'s row carries —
+a player frame is read by that policy's rivals, and this codebase's test
+suite polices exactly that leak (`tests/test_identity_privacy.nim`). Same
+human-only gating as `kd `.
+
 The full wire
 contract, including the CTF input-protocol extensions, is in
 [`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are

@@ -1,11 +1,13 @@
 import
-  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, json, locks, monotimes, nativesockets, options, os,
+    strutils, tables, times],
   supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
   sim, global, replays, broadcast, replay_runtime, events, wire_constants,
-  control, directives, baselines, decide, mux
+  control, directives, baselines, decide, mux,
+  ../shell/[body, body_map, episode, standing_order]
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -216,10 +218,18 @@ const
   # replay routes above already make. player_controls.js carries the
   # keyboard/mouse -> action-space translation and is inlined so the page
   # stays a single self-contained file. player_hud.js (maxwell/player-hud) gets
-  # the same treatment: the compiled server has no generic static-file route,
-  # so a bare <script src=...> tag resolves to nothing and silently never
-  # loads -- baking it inline at the same marker delivers it by the exact
-  # path the page already uses, with no new route and no new failure mode.
+  # the same treatment: the inlined <script> block IS what /client/player
+  # serves, at compile time (staticRead reads this file's CURRENT bytes into
+  # the binary), so the page never depends on a separate runtime fetch for
+  # either file, and any branch that edits client/player_hud.js and merges
+  # its changes here picks them up automatically on the next build -- no
+  # extra wiring needed. Do NOT also add a real <script src="player_hud.js">
+  # tag or a server route that serves this file's CONTENT at that URL: the
+  # HUD is already loaded via the inline block above, so either one would
+  # execute the whole script a second time. `/client/player_hud.js` as a
+  # bare URL is intentionally never given real content; the unmatched-path
+  # fallback below (see the /client/* 404 branch) is what keeps a stray
+  # direct request to it from lying with a 200 instead of failing loud.
   # DO NOT move this HTML to a different serving route or base path. Its
   # OTHER bare <script src=...> tag (snappyjs.min.js) resolves relative to
   # wherever this page is served from -- currently /client/player, which
@@ -1308,7 +1318,15 @@ proc takeoverStatusJson(): string =
   })
 
 proc httpHandler(request: Request) =
-  if request.path == HealthPath and request.httpMethod == "GET":
+  # "/health" (no z) is not a route this server ever defined, but it is the
+  # path tooling reaches for by reflex -- and until this fix it fell through
+  # to the "CTF server" catch-all below, which answers 200 for literally any
+  # unmatched path. That made a monitor curling /health indistinguishable
+  # from one curling the real health check: both saw 200. Answered as a real
+  # alias of HealthPath (same "healthy" body) rather than 404'd, because
+  # something IS already polling it expecting 200 -- this makes that 200
+  # true instead of refusing it outright.
+  if request.path in [HealthPath, "/health"] and request.httpMethod == "GET":
     var headers: HttpHeaders
     headers["Content-Type"] = "text/plain; charset=utf-8"
     headers["Cache-Control"] = "no-cache"
@@ -1598,11 +1616,75 @@ proc httpHandler(request: Request) =
     playerHeaders["Content-Type"] = "text/html; charset=utf-8"
     playerHeaders["Cache-Control"] = "no-cache"
     request.respond(200, playerHeaders, EmbeddedPlayerClientHtml)
+  elif request.path in [
+      bitworldClient.GlobalClientRoute,
+      bitworldClient.CoworldGlobalClientRoute
+    ] and request.httpMethod == "GET":
+    # LIVE spectator chrome (proof stakes #7/#9): this used to fall straight
+    # through to bitworld's bare "Global Viewer" below — a canvas with no
+    # teams-alive strip, no endcard, no BR identity, while /client/replay's
+    # rich broadcast chrome sat unreachable until AFTER a match was recorded
+    # and reloaded as a file. That rich chrome is driven entirely by the
+    # global-viewer sprite-protocol stream (ensured by /replay ALSO calling
+    # registerGlobalWebSocket() when this process is not a dedicated replay
+    # server — see the ReplayWebSocketPath branch below), so a live match and
+    # a loaded replay already speak the identical wire protocol to this same
+    # HTML; the only thing missing was the route. broadcast_core.js's
+    # websocketPathForClientPage() points THIS path's socket at plain /global
+    # (GlobalWebSocketPath) rather than /replay, on purpose: the live route
+    # must never carry replay-server uri-load semantics, even if this process
+    # happens to be configured as one.
+    var globalHeaders: HttpHeaders
+    globalHeaders["Content-Type"] = "text/html; charset=utf-8"
+    globalHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, globalHeaders, EmbeddedBroadcastReplayHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute
   ):
     discard
+  elif request.path.startsWith("/client/"):
+    # An unmatched /client/* path is, by construction, a missing static
+    # asset -- e.g. a direct GET to /client/player_hud.js, which names a
+    # real file in this repo's client/ dir but is never served at that URL
+    # (its content only ever reaches the browser inlined into /client/player
+    # -- see the long comment on EmbeddedPlayerClientHtml above). The blanket
+    # "CTF server" fallback below returns 200 for that case, which is
+    # precisely the failure class that hid this project's worst client bug
+    # twice: a status/byte-count check sees a healthy-looking 200 while the
+    # body is either ten bytes of plain text a <script> tag would try to
+    # execute and die on, or (the prior, worse case) a fully-formed HTML
+    # page for the WRONG route. Scoped to the /client/ namespace only --
+    # nothing here changes the response for any other unmatched path (root,
+    # health probes, etc.), since this lane has no visibility into what
+    # external tooling may depend on that behaviour.
+    var notFoundHeaders: HttpHeaders
+    notFoundHeaders["Content-Type"] = "text/plain"
+    request.respond(404, notFoundHeaders, "not found\n")
+  elif request.path notin [
+      HealthPath, "/health", AdminWebSocketPath, TakeoverWebSocketPath,
+      TakeoverStatusPath, TakeoverSeatPath, CapabilitiesPath,
+      ControlRestartPath, ControlKickPath, WebSocketPath, GlobalWebSocketPath,
+      ReplayWebSocketPath, RewardWebSocketPath
+    ]:
+    # Same failure class as the /client/* branch above, extended to the rest
+    # of the surface: a path outside /client/ that is not one of this
+    # server's own top-level routes is, by construction, not a route at all
+    # -- e.g. /status or a typo'd /health (before the alias above), both
+    # measured live returning 200 "CTF server" and indistinguishable from a
+    # real check without reading the body. Investigated before narrowing
+    # this: neither the pbnf tooling (pbnf-swap/-route/-deploy all assert on
+    # /_app/health, /capabilities, or /api/field content -- never a bare
+    # unmatched path) nor the Node proxy in front of this process (app.mjs's
+    # own routes own everything under /api/ /lobby/ /match/ /assets/ /_app/
+    # and the exact page set; matchd.mjs's readiness probe is a raw TCP
+    # connect, no path at all) depends on an unrecognized top-level path
+    # answering 200. A path that IS one of ours but got the wrong method or
+    # missing upgrade headers still falls to the 200 branch below, unchanged
+    # -- this only narrows the "not a route we have at all" case.
+    var topLevelNotFoundHeaders: HttpHeaders
+    topLevelNotFoundHeaders["Content-Type"] = "text/plain"
+    request.respond(404, topLevelNotFoundHeaders, "not found\n")
   else:
     var headers: HttpHeaders
     headers["Content-Type"] = "text/plain"
@@ -1974,6 +2056,168 @@ proc buildRewardPacket(sim: SimServer): string {.measure.} =
       result.addStatLine("deaths", identity, account.deaths)
       result.addStatLine("captures", identity, account.captures)
 
+proc buildShotFeedbackPacket(
+  sim: SimServer,
+  feedback: seq[ShotFeedbackFx],
+  cog: int
+): string {.measure.} =
+  ## Builds the PRIVATE combat-outcome JSON for one takeover socket's cog
+  ## this tick (GameConfig.allowShotFeedback), from whichever entries in
+  ## `feedback` name `cog` as shooter or victim — the caller (this proc's one
+  ## call site, the takeover send pass below) has already filtered `feedback`
+  ## down to entries touching this cog at all, so every entry here matches at
+  ## least one of the two branches below.
+  ##
+  ## Deliberately built here as a plain JSON string, sent as its own
+  ## TextMessage — NOT folded into global.nim's sprite/label wire, which is
+  ## shared with every policy socket. Returns "" when neither array would
+  ## have anything in it, so the caller can skip the send outright.
+  ##
+  ## Delivered UNFOGGED: no fovVisibleAt check gates victimTeam/victimColor/
+  ## killerTeam/killerColor here. See ShotFeedbackFx's doc comment for why —
+  ## a direct participant in a combat event is entitled to its outcome
+  ## regardless of their own fog at the moment it resolved. This proc never
+  ## runs for any other seat, so that exception stays exactly as narrow as
+  ## the two participants of each individual event.
+  var shotsLanded = newJArray()
+  var hitsTaken = newJArray()
+  for fx in feedback:
+    if fx.shooterIndex == cog and fx.targetIndex >= 0 and
+        fx.targetIndex < sim.players.len:
+      let victim = sim.players[fx.targetIndex]
+      shotsLanded.add(%*{
+        "kill": fx.kill,
+        "friendlyFire": fx.friendlyFire,
+        "weapon": fx.weapon,
+        "distance": fx.distance,
+        "victimTeam": teamText(victim.team),
+        "victimColor": playerColorText(victim.color)
+      })
+    if fx.targetIndex == cog and fx.shooterIndex >= 0 and
+        fx.shooterIndex < sim.players.len:
+      let killer = sim.players[fx.shooterIndex]
+      var taken = %*{
+        "kill": fx.kill,
+        "friendlyFire": fx.friendlyFire,
+        "weapon": fx.weapon,
+        "distance": fx.distance,
+        "killerTeam": teamText(killer.team),
+        "killerColor": playerColorText(killer.color)
+      }
+      if fx.kill:
+        # Killcam: the killer's position, on the FATAL record ONLY — so the
+        # victim's client can point a camera at who got them. A per-hit
+        # shooter position would be a live wallhack for a still-standing
+        # victim; a dead one cannot move or shoot, so revealing where their
+        # killer stood at the death moment is the same narrow, principled
+        # fog exception as the unfogged identity fields above and the
+        # own-death pop (ShotFeedbackFx's doc comment) — scoped to the one
+        # participant the round is already over for. shooterX/shooterY are
+        # the impact-moment center captured at the populate site
+        # (sim_types.nim); killerAlive is read HERE, at delivery on the
+        # death tick, so a mutual trade correctly points the camera at a
+        # corpse. Non-fatal entries are byte-identical to before this field
+        # existed (nothing is appended), and the gate-off wire is untouched
+        # (no record is ever populated).
+        taken["killerX"] = %fx.shooterX
+        taken["killerY"] = %fx.shooterY
+        taken["killerAlive"] = %killer.alive
+      hitsTaken.add(taken)
+  if shotsLanded.len == 0 and hitsTaken.len == 0:
+    return ""
+  $(%*{"shotsLanded": shotsLanded, "hitsTaken": hitsTaken})
+
+const CosmeticFxShotSamples = 14
+  ## Points sampled along one in-flight shot's beam for the cosmetic-fx
+  ## channel below — the same count broadcast.nim's firstPersonJson uses for
+  ## the PiP's tracer polyline, kept in step even though this channel draws
+  ## top-down (raw world xy) instead of the PiP's projected bearing/range.
+
+proc buildCosmeticFxPacket(
+  sim: SimServer,
+  viewerIndex: int
+): string {.measure.} =
+  ## Builds the fog-clipped cosmetic-effects JSON for one takeover socket's
+  ## cog this tick (GameConfig.allowCosmeticFx): the two effects
+  ## global.nim's addShotTracers/addPaintStains draw for the spectator/
+  ## broadcast board only — paint tracers and permanent ground stains —
+  ## rebuilt here straight from sim.recentShots/sim.paintStains and
+  ## fog-clipped to `viewerIndex` with the same sim.fovVisibleAt check those
+  ## two procs (and addSplatters' player path) already use.
+  ##
+  ## Deliberately a SEPARATE JSON TextMessage, like buildShotFeedbackPacket
+  ## beside it — NOT folded into global.nim's sprite/label wire, which is
+  ## shared with every policy/mux socket. That is what makes this channel
+  ## safe BY CONSTRUCTION rather than by filtering: this proc has exactly
+  ## one caller (the takeover send pass below), so a policy's own connection
+  ## for this exact seat is simply never a target of the call, regardless of
+  ## the gate — see GameConfig.allowCosmeticFx's own doc comment. Returns ""
+  ## when nothing survives the fog clip, so the caller can skip the send.
+  ##
+  ## Wire shape — one effect FAMILY, `kind`-tagged so a future member (a
+  ## glory toast, a killstreak) is an additive new object in the same array,
+  ## never a new message type:
+  ##   {"fx": [
+  ##     {"kind":"tracer", "pts":[[x,y]|null, ...], "age":int,
+  ##      "color":string, "hit":bool},
+  ##     {"kind":"stain", "x":int, "y":int, "color":string, "onWall":bool},
+  ##     ...
+  ##   ]}
+  ## A tracer's `pts` walks muzzle -> impact; a sample this seat's fog does
+  ## not currently cover is `null` rather than omitted, so the client BREAKS
+  ## the line there instead of drawing a straight shot through fog — the
+  ## same contract broadcast.nim's firstPersonJson already uses for the PiP
+  ## inset. `color` is the same word playerColorText already gives
+  ## buildShotFeedbackPacket's victimColor/killerColor, so the client's
+  ## existing colorWordCss() palette lookup (player_client.html) applies
+  ## unchanged.
+  if not sim.config.allowCosmeticFx:
+    return ""
+  if viewerIndex < 0 or viewerIndex >= sim.players.len:
+    return ""
+  var fx = newJArray()
+  for shot in sim.recentShots:
+    let
+      sx0 = float(shot.x0)
+      sy0 = float(shot.y0)
+      sx1 = float(shot.x1)
+      sy1 = float(shot.y1)
+    var
+      pts = newJArray()
+      anyVisible = false
+    for s in 0 ..< CosmeticFxShotSamples:
+      let
+        f = float(s) / float(CosmeticFxShotSamples - 1)
+        wx = sx0 + (sx1 - sx0) * f
+        wy = sy0 + (sy1 - sy0) * f
+      if sim.fovVisibleAt(viewerIndex, int(wx), int(wy)):
+        anyVisible = true
+        pts.add(%*[int(wx), int(wy)])
+      else:
+        pts.add(newJNull())
+    if not anyVisible:
+      continue
+    fx.add(%*{
+      "kind": "tracer",
+      "pts": pts,
+      "age": sim.tickCount - shot.firedTick,
+      "color": playerColorText(shot.color),
+      "hit": shot.hit
+    })
+  for stain in sim.paintStains:
+    if not sim.fovVisibleAt(viewerIndex, stain.x, stain.y):
+      continue
+    fx.add(%*{
+      "kind": "stain",
+      "x": stain.x,
+      "y": stain.y,
+      "color": playerColorText(stain.color),
+      "onWall": stain.onWall
+    })
+  if fx.len == 0:
+    return ""
+  $(%*{"fx": fx})
+
 proc declarePlayerFailure(slot: int, message: string) =
   ## Publishes the game-declared terminal player failure the platform runner
   ## polls for (COGAME_PLAYER_FAILURE_URI -> player_failure.json), so a lobby
@@ -2017,6 +2261,127 @@ proc squadAlias(sim: SimServer, order: int): string =
   ## resolved from the config alone so it is identical on every replay.
   toUpperAscii(teamText(sim.teamForSlot(order))) & "-" &
     IdentityNames[sim.slotIdentityIndex(order)]
+
+proc bodyPoint(player: Player): BodyPoint =
+  (player.x + CollisionW div 2, player.y + CollisionH div 2)
+
+proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
+  let player = sim.players[playerIndex]
+  let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
+  BodySelfState(
+    pos: player.bodyPoint,
+    hpFrac: float(player.hp + player.shieldHp) / float(maxHp + ShieldLayerHp),
+    aimBrads: player.aimBrads,
+    alive: player.alive,
+    carrying: player.carryingFlag)
+
+proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] =
+  let player = sim.players[playerIndex]
+  for otherIndex, other in sim.players:
+    if otherIndex != playerIndex and other.team == player.team and
+        other.joinOrder >= 0 and other.joinOrder < MaxPlayers:
+      return some(PartnerSample(
+        seat: uint8(other.joinOrder),
+        pos: other.bodyPoint,
+        aimBrads: other.aimBrads,
+        alive: other.alive))
+  none(PartnerSample)
+
+proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
+  let player = sim.players[playerIndex]
+  discard sim.refreshPlayerFov(playerIndex)
+  result.self = sim.firstLightSelfState(playerIndex)
+  result.partner = sim.firstLightPartner(playerIndex)
+  for targetIndex, target in sim.players:
+    if targetIndex == playerIndex or not target.alive:
+      continue
+    if target.team == player.team:
+      continue
+    if target.joinOrder < 0 or target.joinOrder >= MaxPlayers:
+      continue
+    if sim.playerVisibleTo(playerIndex, targetIndex):
+      result.visibleTracks.add(BodyTrackUpdate(
+        seat: target.joinOrder,
+        pos: target.bodyPoint,
+        team: target.team,
+        aimBrads: target.aimBrads,
+        hpKnown: some(target.hp + target.shieldHp),
+        tick: uint32(sim.tickCount + 1)))
+
+proc ticksToNextZoneShrink(sim: SimServer, elapsedTicks: int): int =
+  if sim.config.zonePhases.len == 0:
+    return high(int) div 4
+  var remaining = max(0, elapsedTicks)
+  for phase in sim.config.zonePhases:
+    if remaining < phase.waitTicks:
+      return phase.waitTicks - remaining
+    remaining -= phase.waitTicks
+    if remaining < phase.shrinkTicks:
+      return 0
+    remaining -= phase.shrinkTicks
+  high(int) div 4
+
+proc rectCenter(rect: MapRect): BodyPoint =
+  (rect.x + rect.w div 2, rect.y + rect.h div 2)
+
+proc firstLightRotateTarget(selfPos: BodyPoint, zone: MapRect): BodyPoint =
+  ## FIRST LIGHT fallback fact: pick a short validated goal in the direction of
+  ## the next zone. Lane A still owns path planning and the final movement mask.
+  const MaxRotateStepPx = 192
+  let target = zone.rectCenter
+  let dx = target.x - selfPos.x
+  let dy = target.y - selfPos.y
+  let distance = max(abs(dx), abs(dy))
+  if distance <= MaxRotateStepPx:
+    target
+  else:
+    (selfPos.x + dx * MaxRotateStepPx div distance,
+     selfPos.y + dy * MaxRotateStepPx div distance)
+
+proc firstLightFallbacks(sim: SimServer,
+                         selfPos: BodyPoint): BrDefaultFallbacks =
+  let elapsed = sim.tickCount - sim.gameStartTick
+  let zone =
+    if sim.config.zonePhases.len == 0:
+      (cur: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
+       next: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
+       dps: 0)
+    else:
+      sim.zoneRectAndDps(elapsed)
+  BrDefaultFallbacks(
+    currentZone: zone.cur,
+    nextZone: zone.next,
+    ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
+    zoneDps: zone.dps,
+    idleAimCenterBrads: 0,
+    rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
+    coverGoal: none(ValidatedGoal))
+
+type FirstLightControlSet = tuple[
+  controls: seq[SlotControl],
+  hasPlaySeat: bool
+]
+
+proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
+  for slot in config.slots:
+    result.controls.add(slot.control)
+    if slot.control == scPlay:
+      result.hasPlaySeat = true
+
+proc resetFirstLightForSim(episode: var FirstLightEpisode,
+                           replayLoaded: bool,
+                           config: GameConfig,
+                           sim: SimServer,
+                           reason: string) =
+  let controlSet = config.firstLightControlSet()
+  if not replayLoaded and config.season2Shell and controlSet.hasPlaySeat:
+    episode.resetFirstLightEpisode(
+      config.season2Shell, config.brMode, controlSet.controls,
+      newBodyMap(sim.gameMap), config.gunRange)
+    echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
+      " executor=lane-a-fl-b reset=", reason
+  else:
+    episode = FirstLightEpisode()
 
 proc runServerLoop*(
   host = DefaultHost,
@@ -2178,6 +2543,12 @@ proc runServerLoop*(
     broadcastTracker =
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
+    firstLightEpisode: FirstLightEpisode
+
+  # FIRST LIGHT is reachable only under the two-part runtime gate. Gate-on
+  # with an all-input roster and every gate-off configuration leave the zero
+  # value untouched and never call into the episode owner.
+  firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup")
 
   while true:
     var
@@ -2259,6 +2630,8 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        firstLightEpisode.resetFirstLightForSim(
+          replayLoaded, config, sim, "replay_switch")
         # The switched-in sim carries a new map, but the board render caches
         # are process-wide — without this, addMapBands keeps splicing the OLD
         # map's cached band bytes into every new viewer's init packet. Rebake
@@ -2615,6 +2988,17 @@ proc runServerLoop*(
             # would write a second, conflicting mask record per tick.
             appState.inputPressedMasks[websocket] = 0
             continue
+          if firstLightEpisode.enabled and playerIndex >= 0 and
+              playerIndex < sim.players.len:
+            let slot = sim.players[playerIndex].joinOrder
+            if slot >= 0 and slot < config.slots.len and
+                config.slots[slot].control == scPlay:
+              # A play socket supplies presence and receives its view; it can
+              # never supply an actuator mask. FIRST LIGHT's lane-A seatTick
+              # handoff below is the sole source for this configured seat.
+              appState.inputMasks[websocket] = 0
+              appState.inputPressedMasks[websocket] = 0
+              continue
           # THE SWAP, and the whole of it: while a human drives this cog the
           # seat's mask is read off the human's socket instead of the policy's.
           # Same cog, same team, same eight buttons, same replay record under
@@ -2671,6 +3055,12 @@ proc runServerLoop*(
               let playerIndex = muxState.seats[slot].playerIndex
               if playerIndex < 0 or playerIndex >= inputs.len:
                 continue
+              if firstLightEpisode.enabled and
+                  playerIndex < sim.players.len:
+                let playerSlot = sim.players[playerIndex].joinOrder
+                if playerSlot >= 0 and playerSlot < config.slots.len and
+                    config.slots[playerSlot].control == scPlay:
+                  continue
               let pressedMask = muxState.seats[slot].pressedMask
               muxState.seats[slot].pressedMask = 0
               let currentMask = muxState.seats[slot].inputMask
@@ -2798,9 +3188,17 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.collectEvents = eventsPath.len > 0
+      firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "reset")
       # One file describes ONE match. A reset that kept the previous match's
       # events would concatenate two games under a single episode id.
       collectedEvents.setLen(0)
+      # The live chrome tracker (stakes #7/#9) is a brand-new-match object too:
+      # a fresh SimServer means a fresh roster (possibly a different player
+      # count), and the OLD tracker's per-index kills/deaths/alive arrays are
+      # sized for the match that just ended. The replay path never needs this
+      # reset -- one replay file is one match, so its tracker's lifetime never
+      # crosses a reset -- this is the live-only case that owns it.
+      broadcastTracker = initBroadcastTracker()
       liveOverlays = @[]
       sim.rewardAccounts = rewardAccounts
       prevInputs = @[]
@@ -2992,6 +3390,15 @@ proc runServerLoop*(
         replayWriter.writeInputMaskChange(tickTime(sim.tickCount), cogIndex, 0)
 
     var frameEvents = newJArray()
+    # Drained once per frame below (same "drain, then setLen(0)" shape as
+    # collectedEvents/sim.events just under this), and consumed ONLY by the
+    # takeover send pass further down — the ordinary per-seat (policy) send
+    # pass never reads it. Declared out here (not inside the `else:` step
+    # loop) so it survives to that later pass; stays empty for a replay
+    # frame, which is fine, since replay playback never has a takeover
+    # socket to deliver it to (takeoverSockets is only ever populated on the
+    # `not replayLoaded` path above).
+    var frameShotFeedback: seq[ShotFeedbackFx] = @[]
     if replayLoaded:
       frameEvents = replayPlayer.advanceReplayFrame(
         sim,
@@ -3010,6 +3417,48 @@ proc runServerLoop*(
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
+        if firstLightEpisode.enabled:
+          var frames: seq[FirstLightSeatFrame]
+          for playerIndex, player in sim.players:
+            let slot = player.joinOrder
+            if slot < 0 or slot >= config.slots.len or
+                config.slots[slot].control != scPlay:
+              continue
+            let bodyInputs = sim.firstLightBodyInputs(playerIndex)
+            frames.add(FirstLightSeatFrame(
+              seat: uint8(slot),
+              playerIndex: playerIndex,
+              present: true,
+              playing: sim.phase == Playing,
+              alive: player.alive,
+              bodyInputs: bodyInputs,
+              defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
+          let firstLight = firstLightEpisode.step(
+            frames, uint32(sim.tickCount + 1))
+          var firstLightMoving, firstLightAiming = 0
+          for mask in firstLight.masks:
+            let encoded = mask.input.encodeInputMask()
+            if (encoded and (ButtonUp or ButtonDown or
+                ButtonLeft or ButtonRight)) != 0:
+              inc firstLightMoving
+            if (encoded and (ButtonB or ButtonSelect)) != 0:
+              inc firstLightAiming
+            if mask.playerIndex < 0 or mask.playerIndex >= stepInputs.len:
+              continue
+            stepInputs[mask.playerIndex] = mask.input
+            if mask.playerIndex < downInputs.len:
+              downInputs[mask.playerIndex] = mask.input
+            replayWriter.writeInputMaskChange(
+              tickTime(sim.tickCount), mask.playerIndex,
+              encoded)
+          if firstLight.masks.len > 0 and (firstLightMoving > 0 or
+              firstLightAiming > 0 or (sim.tickCount mod 24) == 0):
+            echo "FIRST_LIGHT_MOVEMENT tick=", sim.tickCount + 1,
+              " seats=", firstLight.masks.len,
+              " moving=", firstLightMoving,
+              " aiming=", firstLightAiming
+          for install in firstLight.installs:
+            echo install.formatInstall()
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
@@ -3064,12 +3513,53 @@ proc runServerLoop*(
           sim.phase = GameOver
           quitAfterFrame = true
           break
+        if firstLightEpisode.enabled:
+          # Death is observed immediately after the sim step that caused it,
+          # so clear-on-death carries that completed tick rather than waiting
+          # for the next actuator pass. This hook performs no second default,
+          # body call, or mask handoff.
+          var lifecycleFrames: seq[FirstLightSeatFrame]
+          for playerIndex, player in sim.players:
+            let slot = player.joinOrder
+            if slot < 0 or slot >= config.slots.len or
+                config.slots[slot].control != scPlay:
+              continue
+            let selfState = sim.firstLightSelfState(playerIndex)
+            lifecycleFrames.add(FirstLightSeatFrame(
+              seat: uint8(slot),
+              playerIndex: playerIndex,
+              present: true,
+              playing: false,
+              alive: player.alive,
+              bodyInputs: BodyTickInputs(self: selfState),
+              defaultFallbacks: sim.firstLightFallbacks(selfState.pos)))
+          for annotation in firstLightEpisode.observeDeaths(
+              lifecycleFrames, uint32(sim.tickCount)):
+            echo annotation.formatLifecycleAnnotation()
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.
           for event in sim.events:
             collectedEvents.add(event)
           sim.events.setLen(0)
+        # Same drain shape as sim.events just above, for the private
+        # shot-feedback channel (GameConfig.allowShotFeedback): empty on
+        # every config that leaves the gate off, since applyFire/
+        # resolveActiveArcCones/explodeGrenade only ever push to it when the
+        # gate is on. Accumulated across every step this frame (playbackSpeed
+        # can run several steps per frame), consumed once below by the
+        # takeover send pass only.
+        for fx in sim.shotFeedback:
+          frameShotFeedback.add fx
+        sim.shotFeedback.setLen(0)
+        # Broadcast chrome's kill-feed/phase/gameover beats (stakes #7/#9):
+        # the SAME diff-the-tracker-against-this-tick call the replay path
+        # makes once per stepped tick via advanceReplayPlayback's callback,
+        # so a >1x live speed still attributes every kill in the frame
+        # instead of collapsing several ticks into one ambiguous marker.
+        # Read-only against sim (see stepEvents/killerThisStep signatures) --
+        # cannot touch gameHash, which is hashed just below on the same tick.
+        sim.stepEvents(broadcastTracker, frameEvents)
         lastStepInputs = stepInputs
         stepPrevInputs = stepInputs
         stepPressedInputMasks.resetInputMasks()
@@ -3109,7 +3599,15 @@ proc runServerLoop*(
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
+      firstLightEpisode.resetFirstLightForSim(
+        replayLoaded, config, sim, "reregister")
       liveOverlays = @[]
+      # A round transition WITHIN the same match (roster/tick count both
+      # carry forward, unlike the full shouldReset above) -- resync rather
+      # than reinit, the same "state jumped, don't diff across the jump"
+      # move the replay path makes on its own seek/command jumps
+      # (advanceReplayFrame's `if didSeek: tracker.resync(sim)`).
+      broadcastTracker.resync(sim)
       {.gcsafe.}:
         withLock appState.lock:
           for websocket in appState.playerIndices.keys:
@@ -3205,6 +3703,45 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             discard markSocketClosed(takeoverSockets[i])
+      # Private combat-outcome channel (GameConfig.allowShotFeedback): a
+      # SEPARATE TextMessage, never folded into the binary sprite/label wire
+      # above, so it can never reach the seat's underlying policy socket —
+      # only this takeover pass ever calls buildShotFeedbackPacket. Empty
+      # frameShotFeedback (the gate is off, or nothing landed this tick) is
+      # the overwhelmingly common case, so this filters and builds only when
+      # there is anything to say at all.
+      if frameShotFeedback.len > 0:
+        var cogShotFeedback: seq[ShotFeedbackFx] = @[]
+        for fx in frameShotFeedback:
+          if fx.shooterIndex == takeoverCogs[i] or fx.targetIndex == takeoverCogs[i]:
+            cogShotFeedback.add fx
+        if cogShotFeedback.len > 0:
+          let shotFeedbackPacket =
+            sim.buildShotFeedbackPacket(cogShotFeedback, takeoverCogs[i])
+          if shotFeedbackPacket.len > 0:
+            try:
+              takeoverSockets[i].send(shotFeedbackPacket, TextMessage)
+            except:
+              {.gcsafe.}:
+                withLock appState.lock:
+                  discard markSocketClosed(takeoverSockets[i])
+      # Cosmetic-effects channel (GameConfig.allowCosmeticFx): same shape as
+      # the shot-feedback block just above — a SEPARATE TextMessage that only
+      # this takeover pass ever builds or sends, so it can never reach the
+      # seat's underlying policy/mux socket regardless of the gate. Rebuilt
+      # fresh from live sim state every tick (sim.recentShots/sim.paintStains
+      # are already fog-clipped inside the builder), not drained from a
+      # per-frame buffer like shot feedback — there is nothing to accumulate
+      # across steps here.
+      let cosmeticFxPacket = sim.buildCosmeticFxPacket(takeoverCogs[i])
+      if cosmeticFxPacket.len > 0:
+        try:
+          takeoverSockets[i].send(cosmeticFxPacket, TextMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(takeoverSockets[i])
+
     if muxConnected():
       # Mux seat frames: the exact wire bytes the websocket path would send
       # (same builder, dedup, and chunking; one record per would-be message,
@@ -3257,30 +3794,36 @@ proc runServerLoop*(
             frameEvents
           )
         else:
-          sim.buildSpriteProtocolUpdates(
+          sim.buildLiveViewerPacket(
             globalStates[i],
             nextState,
             liveOverlays,
             sim.tickCount,
-            replayPlayer.playing,
-            playbackSpeed(liveSpeedIndex),
             liveProgressMaxTick(config),
+            playbackSpeed(liveSpeedIndex),
+            replayPlayer.playing,
             replayPlayer.looping,
-            false,
-            -1
+            frameEvents
           )
       if packet.len == 0:
         continue
       try:
-        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
-        # channel as the board — as the label of a reserved never-drawn 1×1
-        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
-        # that survives a hosted replay. The legacy opt-in `TextMessage` path
-        # never routes the client→server `hud:on` through the recorded stream,
-        # so hosted the HUD froze at its DOM defaults while the board played.
+        # The JSON chrome channel rides the SAME binary sprite channel as the
+        # board — as the label of a reserved never-drawn 1×1 sprite
+        # (BroadcastChromeSpriteId) — because that is the ONLY channel that
+        # survives a hosted replay. The legacy opt-in `TextMessage` path never
+        # routes the client→server `hud:on` through the recorded stream, so
+        # hosted the HUD froze at its DOM defaults while the board played.
         # Piggybacking on the binary channel makes the chrome survive every
         # playback path (live serve, generic client, hosted replay), with no
-        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
+        # opt-in. The generic bitworld client simply ignores an unknown sprite
+        # id. (stakes #7/#9: this channel used to be built ONLY on the
+        # `replayLoaded` branch above via buildReplayViewerPacket -- a live
+        # match's global viewers got the bare board with no chrome sprite at
+        # all, which is why /client/global rendering the rich broadcast HTML
+        # was not by itself enough to show the teams-alive bar/end-card;
+        # buildLiveViewerPacket now appends the same sprite from live sim
+        # state instead of a ReplayPlayer.)
         # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
         # viewer closes any frame over 1 MiB (1009 "message too big"). The client
         # accumulates sprite/object state across binary messages, so N chunks are

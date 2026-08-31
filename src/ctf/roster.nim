@@ -678,6 +678,35 @@ proc recordDeath*(sim: var SimServer, playerIndex: int) =
     inc sim.rewardAccounts[index].deaths
   inc sim.players[playerIndex].deaths
 
+proc matchKillsDeaths*(sim: SimServer, playerIndex: int): tuple[kills, deaths: int] =
+  ## The MATCH-scoped kill/death tally for one seat: the address-keyed
+  ## RewardAccount counters recordKillCredit/recordDeath maintain alongside the
+  ## per-round Player.kills/Player.deaths above. The Player fields are
+  ## zeroed every startGame — i.e. every ROUND, including a BR match's
+  ## resetToLobby-then-rejoin cycle between rounds — while the
+  ## RewardAccount for an address survives that: resetToLobby empties
+  ## `players` but never touches `rewardAccounts`, and ensureRewardAccount
+  ## looks an existing account up by address before creating a new one, so
+  ## the same seat's running total carries forward round to round for as
+  ## long as this address has stayed part of the match. This is what the
+  ## own-kd HUD label and the roster scoreboard should read (see labels.nim
+  ## LabelPrefixKd/LabelPrefixRoster) so a death — or the round boundary
+  ## right after it — never wipes what a player watches accumulate.
+  ##
+  ## Read-only and non-mutating on purpose (unlike rewardAccountForPlayer):
+  ## this runs from the per-tick HUD-build path for every seated viewer, so
+  ## it must not perturb rewardAccounts bookkeeping just to render a label.
+  ## Falls back to 0/0 on a lookup miss (should not happen: addPlayer always
+  ## calls ensureRewardAccount for every seated player) rather than crash a
+  ## frame build.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return (0, 0)
+  let address = sim.players[playerIndex].address
+  for account in sim.rewardAccounts:
+    if account.address == address:
+      return (account.kills, account.deaths)
+  (0, 0)
+
 proc recordCapture*(sim: var SimServer, playerIndex: int) =
   ## Increments the capture counter for one player.
   ##

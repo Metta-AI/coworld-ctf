@@ -80,6 +80,59 @@ proc advanceReplayFrame*(
   )
   result = events
 
+proc buildLiveViewerPacket*(
+  sim: var SimServer,
+  state: GlobalViewerState,
+  nextState: var GlobalViewerState,
+  overlays: openArray[DebugOverlay],
+  tick, maxTick, speed: int,
+  playing, looping: bool,
+  events: JsonNode
+): seq[uint8] =
+  ## Builds the live board + chrome packet for one global-viewer socket.
+  ##
+  ## stakes #7/#9: the broadcast chrome sprite (teams-alive bar, roster,
+  ## kill-feed events, end-card) used to ride ONLY buildReplayViewerPacket
+  ## above -- a live match's global viewers got the bare board via
+  ## buildSpriteProtocolUpdates and nothing else, because every field
+  ## buildStateJson needed past "board state" (playing/speed/maxTick/
+  ## looping/POV) was read off a ReplayPlayer that only exists once a match
+  ## is recorded and reloaded as a file. Every one of THOSE fields is also
+  ## already computed for the live board packet at this same call site
+  ## (server.nim's live send loop) -- this mirrors buildReplayViewerPacket's
+  ## chrome-sprite append using those same live values, not new ones.
+  ##
+  ## What is deliberately NOT here, and why: the lead/momentum series, lull
+  ## spans, beat markers and achievement badges are all products of a
+  ## FULL-MATCH precompute scan (initReplayScan) that only makes sense once
+  ## the whole match is already recorded -- a live match cannot know its own
+  ## future. Passing empty/nil for those is an honest omission (the client
+  ## already treats them as "absent this frame, cached from an earlier one"),
+  ## not a fabricated value. Likewise transportEnabled=false and
+  ## mismatchTick=-1: a live stream has no scrubber to seek and no replay
+  ## hash to mismatch.
+  result = sim.buildSpriteProtocolUpdates(
+    state, nextState, overlays, tick, playing, speed, maxTick, looping,
+    false, -1
+  )
+  if result.len == 0:
+    return
+  let sendFpMap = not state.fpMapSent
+  result.addSprite(
+    BroadcastChromeSpriteId,
+    1,
+    1,
+    [0'u8, 0, 0, 0],
+    sim.buildStateJson(
+      events, playing, speed, maxTick, looping, false, -1,
+      nextState.selectedJoinOrder,
+      startTick = sim.gameStartTick,
+      includeFpMap = sendFpMap
+    )
+  )
+  if sendFpMap:
+    nextState.fpMapSent = true
+
 proc buildReplayViewerPacket*(
   sim: var SimServer,
   replay: ReplayPlayer,

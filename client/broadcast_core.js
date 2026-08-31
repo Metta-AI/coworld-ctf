@@ -319,11 +319,18 @@
   }
 
   function websocketPathForClientPage(path) {
-    // This core is only ever loaded by the replay pages; the other client
-    // routes use bitworld's generic client with its own socket wiring.
+    // This core is loaded by the replay pages AND (stakes #7/#9) the live
+    // spectator route -- /client/global used to fall through to bitworld's
+    // bare generic client; it now serves this same rich BR-aware chrome, and
+    // points its socket at plain /global (GlobalWebSocketPath) rather than
+    // /replay: the live route never carries a `uri` and must never trip the
+    // replay-server uri-load path (server.nim's ReplayWebSocketPath branch),
+    // even on a process that happens to be configured as a replay server.
     const mappings = [
       ['/client/replay', '/replay'],
-      ['/clients/replay', '/replay']
+      ['/clients/replay', '/replay'],
+      ['/client/global', '/global'],
+      ['/clients/global', '/global']
     ];
     for (const [clientPath, websocketPath] of mappings) {
       if (path === clientPath) {

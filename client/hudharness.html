@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>hud harness</title>
+<style>
+html,body{margin:0;padding:0;background:#111;overflow:hidden;height:100%;width:100%}
+#viewport{position:fixed;inset:0;overflow:hidden}
+canvas{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated}
+</style>
+</head>
+<body>
+<div id="viewport"><canvas id="c" width="128" height="128"></canvas></div>
+<script>
+// ---- Fake world canvas: a big BR map painted with bright team splats ----
+const MAP_W = 3200, MAP_H = 2000;
+const c = document.getElementById('c');
+c.width = MAP_W; c.height = MAP_H;
+c.style.width = MAP_W + 'px'; c.style.height = MAP_H + 'px';
+const cx = c.getContext('2d');
+cx.fillStyle = '#2a2a2a'; cx.fillRect(0, 0, MAP_W, MAP_H);
+const splatColors = ['#e0523a','#3f7cc4','#45a85e','#ddc531','#ff77a8','#ffa300','#00e436','#29adff'];
+for (let i = 0; i < 220; i++) {
+  cx.fillStyle = splatColors[i % splatColors.length];
+  const w = 60 + Math.random() * 220, h = 60 + Math.random() * 220;
+  cx.globalAlpha = 0.85;
+  cx.fillRect(Math.random() * MAP_W, Math.random() * MAP_H, w, h);
+}
+cx.globalAlpha = 1;
+// Simulate the camera: centered/zoomed roughly on self position, via CSS transform
+// (mirrors player_client.html's own c.style.transform usage read by readCamera()).
+function applyCamera() {
+  const selfX = MAP_W * 0.42, selfY = MAP_H * 0.55;
+  const scale = 0.55;
+  const qX = Math.round(innerWidth / 2 - selfX * scale);
+  const qY = Math.round(innerHeight / 2 - selfY * scale);
+  c.style.transform = 'translate(' + qX + 'px,' + qY + 'px) scale(' + scale + ')';
+}
+applyCamera();
+addEventListener('resize', applyCamera);
+
+// ---- Fake wire: objects/sprites Maps, top-level `let` (classic script,
+// shared global lexical env with player_hud.js — same coupling documented
+// at the top of that file). ----
+let objects = new Map();
+let sprites = new Map();
+let nextId = 1, nextSprite = 1;
+function addLabelObj(x, y, w, h, label) {
+  const sid = nextSprite++;
+  sprites.set(sid, { width: w, height: h, pixels: null, label: label });
+  objects.set(nextId++, { id: nextId, x: x, y: y, z: 0, layer: 0, spriteId: sid, dispX: x, dispY: y });
+}
+
+const TEAMS = ['red','blue','green','yellow','black','silver','ivory','pink','umber','rust','orange','plum','lime','navy','azure','peach'];
+const NAMES = ['alpha','beta','gamma','delta','epsilon','zeta','eta','theta'];
+
+function buildWire(opts) {
+  objects = new Map(); sprites = new Map(); nextId = 1; nextSprite = 1;
+  const selfX = MAP_W * 0.42, selfY = MAP_H * 0.55;
+  // self cog
+  addLabelObj(selfX, selfY, 16, 16, 'self red north');
+  // own status labels
+  addLabelObj(0, 0, 0, 0, opts.fireReady ? 'fire icon' : 'fire icon cooldown');
+  addLabelObj(0, 0, 0, 0, 'lives 62hp x1');
+  addLabelObj(0, 0, 0, 0, 'kd 4/2');
+  // a handful of nearby enemy/ally cogs
+  for (let i = 0; i < 10; i++) {
+    const team = TEAMS[(i + 1) % opts.teamCount];
+    const alive = Math.random() > 0.3;
+    addLabelObj(selfX + (Math.random() - 0.5) * 900, selfY + (Math.random() - 0.5) * 900, 16, 16,
+      (alive ? 'player ' : 'corpse ') + team + ' north');
+  }
+  // BR roster markers: one per seat, some teams fully wiped (all deaths>0 style
+  // handled at row-level; here just vary lives/kills/deaths per team).
+  for (let t = 0; t < opts.teamCount; t++) {
+    const team = TEAMS[t];
+    const wiped = opts.wipedTeams.indexOf(team) !== -1;
+    const lives = wiped ? 0 : 1;
+    const kills = Math.floor(Math.random() * 6);
+    const deaths = wiped ? 1 : 0;
+    addLabelObj(0, 0, 0, 0, 'roster ' + team + ' ' + NAMES[t % NAMES.length] + ' ' + lives + ' ' + kills + '/' + deaths);
+    addLabelObj(0, 0, 0, 0, 'team score ' + team.toUpperCase() + ' ' + kills + '/' + deaths);
+  }
+  // BR shrink zone, current + next (shrinking)
+  const z0x0 = Math.round(MAP_W * 0.1), z0y0 = Math.round(MAP_H * 0.1);
+  const z0x1 = Math.round(MAP_W * 0.9), z0y1 = Math.round(MAP_H * 0.9);
+  const z1x0 = Math.round(MAP_W * 0.25), z1y0 = Math.round(MAP_H * 0.25);
+  const z1x1 = Math.round(MAP_W * 0.75), z1y1 = Math.round(MAP_H * 0.75);
+  addLabelObj(0, 0, 0, 0, 'zone ' + z0x0 + ',' + z0y0 + ' ' + z0x1 + ',' + z0y1);
+  addLabelObj(0, 0, 0, 0, 'zonenext ' + z1x0 + ',' + z1y0 + ' ' + z1x1 + ',' + z1y1);
+}
+window.rebuildWire = buildWire;
+buildWire({ teamCount: 12, wipedTeams: ['blue', 'yellow', 'pink'], fireReady: true });
+</script>
+<script src="player_hud.js"></script>
+</body>
+</html>

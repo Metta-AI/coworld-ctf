@@ -3,7 +3,8 @@ import
   flatty,
   bitworld/spriteprotocol,
   bitworld/replays as replayCodec,
-  broadcast, sim, global
+  broadcast, sim, global,
+  replay_codec as ctfReplayCodec
 
 type
   ReplayKeyframe* = object
@@ -148,9 +149,9 @@ const
     ## Per-frame cap on the re-simulation a SEEK may do (10 s of sim time).
     ## A seek past the keyframed prefix converges over this many ticks per
     ## presentation frame instead of blocking one frame for the whole gap.
-  CtfReplayMagic = "COWLDCTF"
+  CtfReplayMagic* = "COWLDCTF"
   CtfReplayFormatVersion = 1'u16
-  CtfReplaySpec = ReplaySpec(
+  CtfReplaySpec* = ReplaySpec(
     magic: CtfReplayMagic,
     formatVersion: CtfReplayFormatVersion,
     gameName: GameName,
@@ -443,11 +444,19 @@ proc openReplayWriter*(path: string, configJson: string): ReplayWriter =
 
 proc parseReplayBytes*(bytes: string): ReplayData =
   ## Parses one replay file buffer into memory.
-  replayCodec.parseReplayBytes(bytes, CtfReplaySpec)
+  ctfReplayCodec.parseReplayBytes(
+    bytes,
+    CtfReplaySpec,
+    ReplayCompatibleGameVersions
+  )
 
 proc loadReplay*(path: string): ReplayData =
   ## Loads a replay file into memory.
-  replayCodec.loadReplay(path, CtfReplaySpec)
+  ctfReplayCodec.loadReplay(
+    path,
+    CtfReplaySpec,
+    ReplayCompatibleGameVersions
+  )
 
 type ReplayStaticBakes = object
   ## The per-map render/collision bakes inside SimServer that never change
