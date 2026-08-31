@@ -1049,7 +1049,19 @@ function cycleCameraMode(dir){
   try{localStorage.setItem(cameraStorageKey(cameraContext),String(cameraModeIndex))}catch(e){}
   scheduleDraw();
 }
-let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true,wasFollow=false;
+let camScale=1,camX=0,camY=0,camInited=false,cameraTransformDirty=true,wasFollow=false,wasKillcam=false;
+/* Killcam entry animation state (Job 2, Maxwell "zooming in on them slowly
+   would help focus"): tracked separately from the ordinary camScale/camX/
+   camY lerp below so the killcam's own slower ease-in can neither slow down
+   nor speed up ordinary self-follow, and so ending a killcam (hold timeout
+   OR a mid-hold respawn) can still hard-snap the scale the exact way every
+   other follow-regime change already does -- see the black-bar comment
+   just below for why that snap is load-bearing, not stylistic. Keyed on
+   killcamInfo().at (the same field deathCardKey already keys on) rather
+   than mere truthiness, so a second fatal hit landing before the first
+   killcam's hold elapses restarts the push from wherever the camera
+   actually is, not a stale start point. */
+let killcamAnimAt=0,killcamAnimKey=null,killcamAnimStartScale=1,killcamAnimStartX=0,killcamAnimStartY=0;
 /* COMPOSITOR TEARING FIX (blackbars lane, live 8/29 -- root-caused via a
    discriminating experiment: at the same instant during held WASD + mouse
    sweep, the canvas backing store via toDataURL() was clean AND an
@@ -1165,12 +1177,14 @@ function updateCamera(){
   const seated=!!selfPos;
   const mode=CAMERA_MODES[cameraModeIndex];
   /* Killcam (GVNEXT): a real fatal hitsTaken record with killer coords
-     turns the ordinary "dead -> whole-map" cut into a brief pan onto
-     wherever the shot came from instead -- checked first, before `seated`
-     even matters below, since killcamInfo() itself already requires
-     !selfPos. The moment selfPos comes back (a respawn), killcamInfo()
-     returns null unconditionally regardless of the hold timer, so a fast
-     respawn can never fight this camera for the self-follow target. */
+     turns the ordinary "dead -> whole-map" cut into a brief eased push
+     onto wherever the shot came from instead -- checked first, before
+     `seated` even matters below, since killcamInfo() itself already
+     requires !selfPos. The moment selfPos comes back (a respawn),
+     killcamInfo() returns null unconditionally regardless of the hold
+     timer, so a fast respawn can never fight this camera for the
+     self-follow target (see the wasKillcam branch further down for how
+     that handoff stays snap-safe even mid-push). */
   const killcam=killcamInfo();
   const follow=(seated&&mode.follow)||!!killcam;
   /* max(): never zoom OUT past whole-map-fit even if the vision circle is
@@ -1180,11 +1194,15 @@ function updateCamera(){
      see is off screen" (there is nothing beyond the map's edge to hide a
      threat), so clamping to fitScale keeps that case from zooming out into
      empty void chasing an unreachable circle. On BR (496px vision radius on
-     a 3211x1713 board) fitVisionScale() is the larger, binding term. Reused
-     unchanged for killcam -- it depends only on window/map size, never on
-     WHO is being followed, so the scale never has to jump between
-     following ourselves and following the killer. */
-  const targetScale=follow?quantizeFollowScale(Math.max(fitScale,fitVisionScale())):fitScale;
+     a 3211x1713 board) fitVisionScale() is the larger, binding term. This
+     raw value (followScaleRaw, below) is the base BOTH self-follow and
+     killcam build from -- but killcam then pushes in tighter still
+     (KILLCAM_ZOOM, see its own comment): the vision-fairness reasoning
+     above is about a LIVE cog's own screen, and a killcam viewer has no
+     cog and no vision to protect, so there's no fairness reason to hold
+     it to the same floor. */
+  const followScaleRaw=Math.max(fitScale,fitVisionScale());
+  const targetScale=follow?quantizeFollowScale(killcam?followScaleRaw*KILLCAM_ZOOM:followScaleRaw):fitScale;
   const targetX=killcam?killcam.killerX:follow?selfPos.x:c.width/2;
   const targetY=killcam?killcam.killerY:follow?selfPos.y:c.height/2;
   let easing=false;
@@ -1199,11 +1217,40 @@ function updateCamera(){
        c.style.transform is never touched mid-scene here, so if the
        flashing bars Maxwell sees still show up in this mode, they cannot
        be this camera's own per-frame CSS churn. */
-    if(!cameraTransformDirty&&targetScale===camScale&&targetX===camX&&targetY===camY){wasFollow=follow;return}
+    if(!cameraTransformDirty&&targetScale===camScale&&targetX===camX&&targetY===camY){wasFollow=follow;wasKillcam=false;killcamAnimAt=0;return}
     camScale=targetScale;camX=targetX;camY=targetY;camInited=true;
+    killcamAnimAt=0; // not in a killcam -- the next one starts its own push fresh, never mid-ease
   }else if(!camInited){
     camScale=targetScale;camX=targetX;camY=targetY;camInited=true;
-  }else if(!wasFollow){
+  }else if(killcam){
+    /* Killcam's own dedicated ease (Job 2, "zooming in on them slowly
+       would help focus"): deliberately NOT the CAMERA_EASE lerp below --
+       see KILLCAM_ZOOM/KILLCAM_EASE_MS's own comment for why a fast
+       exponential settle doesn't give a player's eye time to actually
+       land on the killer. Restarts (killcamAnimAt/killcamAnimKey, keyed
+       on killcam.at like deathCardKey already keys on info.at) whenever
+       this is a fresh fatal hit, capturing wherever the camera actually
+       is right now as the push's start point -- covers both "just died"
+       (starting from whole-map) and the rare "died again before the
+       previous killcam's hold cleared" (starting mid-push, never from a
+       stale snapshot). */
+    if(killcamAnimAt===0||killcamAnimKey!==killcam.at){
+      killcamAnimAt=performance.now();killcamAnimKey=killcam.at;
+      killcamAnimStartScale=camScale;killcamAnimStartX=camX;killcamAnimStartY=camY;
+    }
+    const e=killcamEaseT(performance.now(),killcamAnimAt);
+    /* Same anti-banding rule as everywhere else in this function: camScale
+       must only ever land on one of quantizeFollowScale's exact
+       integer/reciprocal steps, never an arbitrary fraction (see the
+       COMPOSITOR TEARING FIX comment above). Easing the PRE-quantized raw
+       target and re-quantizing every single frame keeps that guarantee --
+       the value actually written can only ever be a safe step, even
+       though the input driving it is a smooth continuous lerp. */
+    camScale=quantizeFollowScale(killcamAnimStartScale+(followScaleRaw*KILLCAM_ZOOM-killcamAnimStartScale)*e);
+    camX=killcamAnimStartX+(targetX-killcamAnimStartX)*e;
+    camY=killcamAnimStartY+(targetY-killcamAnimStartY)*e;
+    easing=true;
+  }else if(!wasFollow||wasKillcam){
     /* wasFollow catches a gap camInited alone doesn't: camInited is a
        SHARED flag also set true, every tick, by the non-follow branch
        above -- which is exactly what runs while this seat is dead/
@@ -1217,11 +1264,23 @@ function updateCamera(){
        snap here: it's the one value that must never be caught fractional
        mid-transition; camX/camY keep easing in exactly as before so a
        respawn still pans into view the same way it always did, not a hard
-       cut. */
+       cut.
+       wasKillcam extends the same rule to a SECOND regime change this file
+       didn't need to handle before KILLCAM_ZOOM existed: killcamInfo()
+       already went null this tick (a mid-hold respawn -- see its own
+       comment on why that's unconditional), landing us in ordinary
+       self-follow. Before KILLCAM_ZOOM, killcam's scale and the
+       post-respawn follow scale were numerically identical, so this
+       transition was a no-op; now that killcam deliberately zooms in
+       tighter, a respawn mid-killcam has real ground to cover, and it
+       must cover it in one frame -- never a lingering ease that would
+       leave a player stranded zoomed in while they're already fighting
+       again. */
     camScale=targetScale;
     camX+=(targetX-camX)*CAMERA_EASE;
     camY+=(targetY-camY)*CAMERA_EASE;
     easing=true;
+    killcamAnimAt=0;
   }else{
     camScale+=(targetScale-camScale)*CAMERA_EASE;
     camX+=(targetX-camX)*CAMERA_EASE;
@@ -1229,6 +1288,7 @@ function updateCamera(){
     easing=true;
   }
   wasFollow=follow;
+  wasKillcam=!!killcam;
   cameraTransformDirty=false;
   /* Write-frequency throttle (see FOLLOW_WRITE_EVERY_N's own comment
      above): only while ONGOING-eased (not the initial snap, not
@@ -1404,30 +1464,57 @@ function drawSelfTag(){
   x.fillText("YOU",selfPos.x,ty);
   x.restore();
 }
-/* Killcam marker (GVNEXT): drawn at the killer's position AT THE MOMENT OF
-   THE KILL (a snapshot, like the camera pan above -- not a live tracking
-   reticle onto wherever they've since moved). Same world-space canvas draw
-   as drawSelfTag, so it reads correctly at whatever scale updateCamera has
-   the killcam pan sitting at.
+/* Killcam marker (GVNEXT, re-toned -- Maxwell: "the death message says
+   'KILLER' and a circle. that isn't in the tone or spirit of paintbot!"):
+   drawn at the killer's position AT THE MOMENT OF THE KILL (a snapshot,
+   like the camera push above -- not a live tracking reticle onto wherever
+   they've since moved). Same world-space canvas draw as drawSelfTag, so it
+   reads correctly at whatever scale updateCamera has the killcam push
+   sitting at.
+   Vocabulary is pulled from what this file and the engine ALREADY say,
+   not invented: the death card sitting right beside this marker already
+   reads "splatted by BLUE" (renderDeathOverlay's `who` element, same
+   info.team||info.color||"unknown" the label below reuses verbatim) --
+   "KILLER" restated the same fact in a different, off-register word right
+   next to the card that got it right, which was the inconsistency Maxwell
+   flagged. drawSelfTag's own "YOU" is the house pattern for a canvas
+   identity tag (short, plain, no role noun) -- this just extends that
+   pattern to the other cog.
    The killerAlive===false branch is the one this exists for: a mutual
    trade means the killer is ALSO dead, so the normal sprite pipeline draws
    nothing at all at this spot (a dead cog has no sprite, same as our own
    self marker disappearing) -- panning the camera here and rendering
    NOTHING would read as a broken/empty killcam, not an intentional "you
-   traded" moment. The label (and the card's own "traded" chip above) are
-   what make that legible instead. */
+   traded" moment. Labeled CORPSE instead of the old "KILLER · TRADED":
+   not a new word, but the engine's own noun for exactly this state
+   (labels.nim LabelPrefixCorpse, "corpse <color> <side>" -- "deliberately
+   NOT the player prefix so a scanner never counts a corpse as a live
+   threat", which is precisely the distinction this marker has to carry).
+   The color ring reuses colorWordRgba (the same palette lookup the death
+   card's own chip already uses, sim_types.nim PlayerColors) instead of a
+   fixed red/grey, plus the cog-ring keyline (RING_KEY, ringSprite's own
+   "anti-camouflage" pairing above) behind it for contrast -- deliberately
+   NOT a hand-drawn splat shape: no splat art was confirmed available to
+   this client at the time of this change, and a shape that doesn't match
+   the game's real paint would read as more wrong than a plain ring, not
+   less. Once real splat rendering lands in this client this marker is the
+   thing to swap it onto. */
 function drawKillcamMarker(){
   const info=killcamInfo();
   if(!info)return;
   const traded=info.killerAlive===false;
+  const ring=traded?"rgba(185,179,169,.85)":(colorWordRgba(info.color,.95)||"rgba(255,60,40,.95)");
+  const fill=traded?"#b9b3a9":(colorWordCss(info.color)||"#ff6a52");
   x.save();
   x.beginPath();x.arc(info.killerX,info.killerY,13,0,Math.PI*2);
-  x.strokeStyle=traded?"rgba(185,179,169,.85)":"rgba(255,60,40,.95)";
-  x.lineWidth=1.5;x.stroke();
+  x.strokeStyle="rgb("+RING_KEY[0]+","+RING_KEY[1]+","+RING_KEY[2]+")"; // keyline first, same anti-camouflage pairing as the cog rings above
+  x.lineWidth=3.5;x.stroke();
+  x.beginPath();x.arc(info.killerX,info.killerY,13,0,Math.PI*2);
+  x.strokeStyle=ring;x.lineWidth=1.5;x.stroke();
   x.font="10px ui-monospace,SFMono-Regular,Menlo,monospace";
   x.textAlign="center";x.lineWidth=2.5;
-  x.strokeStyle="rgba(0,0,0,.85)";x.fillStyle=traded?"#b9b3a9":"#ff6a52";
-  const label=traded?"KILLER · TRADED":"KILLER";
+  x.strokeStyle="rgba(0,0,0,.85)";x.fillStyle=fill;
+  const label=traded?"CORPSE":(info.team||info.color||"unknown").toUpperCase();
   const ty=info.killerY-22;
   x.strokeText(label,info.killerX,ty);
   x.fillText(label,info.killerX,ty);
@@ -1672,6 +1759,33 @@ function attributedDeathInfo(){
    Comfortably inside DEATH_ATTRIB_MS so the attribution gate never lapses
    mid-pan -- the killcam window is always the tighter of the two. */
 const KILLCAM_HOLD_MS=2400;
+/* KILLCAM_ZOOM: a deliberate push-in beyond the ordinary follow scale
+   (updateCamera's own Math.max(fitScale,fitVisionScale())), not just a
+   pan at whatever scale self-follow already used. The vision-fairness
+   floor that scale exists for ("an off-screen shooter who can see you is
+   a fairness bug" -- see quantizeFollowScale's own comment) doesn't apply
+   here: you're dead, spectating, with no cog and no vision of your own,
+   so there's nothing wrong with framing tighter than live play ever
+   would. 1.5x reads as a clear "look here", not a jarring macro zoom --
+   still passed through quantizeFollowScale() below like every other
+   follow scale, so it can only ever land on one of that function's exact
+   integer/reciprocal steps, never an arbitrary fractional multiple.
+   KILLCAM_EASE_MS/killcamEaseT: slower and gentler than CAMERA_EASE's
+   exponential lerp (which settles in a few hundred ms and reads as a
+   quick follow-snap, not a directed push) -- Maxwell asked for the camera
+   to "ease in... slowly" specifically because a fast pan doesn't have
+   time to actually direct the eye. 900ms is long enough to read as
+   deliberate against the 2400ms total hold (leaving >1.5s to actually
+   look at the result, not just watch it arrive) and short enough that a
+   player who dies again a moment later never feels like the camera is
+   holding them hostage -- see updateCamera for the ease-out cubic that
+   turns this duration into a per-frame progress fraction. */
+const KILLCAM_ZOOM=1.5;
+const KILLCAM_EASE_MS=900;
+function killcamEaseT(now,startedAt){
+  const t=Math.max(0,Math.min(1,(now-startedAt)/KILLCAM_EASE_MS));
+  return 1-Math.pow(1-t,3); // ease-out cubic: quick to start, gentle to settle -- a push, not a mechanical linear pan
+}
 function killcamInfo(){
   if(selfPos)return null; // only while actually dead -- see updateCamera's own seated-first check
   const info=attributedDeathInfo();
@@ -1682,8 +1796,9 @@ function killcamInfo(){
 /* PlayerColorNames -> retro palette index (sim_types.nim PlayerColors /
    PlayerColorNames, the same 16-entry palette as `p` at the top of this
    file): turns the color WORD the wire carries (colors are words, never
-   RGB) into the killer's real on-field hue for the death-card chip. An
-   unknown word simply gets no chip -- never a guessed color. */
+   RGB) into the killer's real on-field hue for the death-card chip, and
+   (colorWordRgba below) the killcam marker's ring. An unknown word simply
+   gets no color -- never a guessed one. */
 const PLAYER_COLOR_INDEX={red:3,orange:7,yellow:8,"light blue":14,pink:4,
   lime:11,blue:13,"pale blue":15,gray:1,white:2,"dark brown":5,brown:6,
   "dark teal":9,green:10,"dark navy":12,black:0};
@@ -1692,6 +1807,12 @@ function colorWordCss(word){
   if(idx===undefined)return null;
   const o=idx*4;
   return "rgb("+p[o]+","+p[o+1]+","+p[o+2]+")";
+}
+function colorWordRgba(word,alpha){
+  const idx=PLAYER_COLOR_INDEX[String(word||"").toLowerCase()];
+  if(idx===undefined)return null;
+  const o=idx*4;
+  return "rgba("+p[o]+","+p[o+1]+","+p[o+2]+","+alpha+")";
 }
 function handleTextFrame(text){
   /* Defense in depth on top of the frame-type guard: the channel's payload
