@@ -232,6 +232,17 @@ const
   # only the server knows which cog is lying down right now.
   TakeoverSeatPath = "/takeover/seat"
   TakeoverClientPath = "/client/takeover"
+  # global_plus_pov: the god's-eye board with a selectable seat's POV
+  # composited as a corner inset (viability PRD's fourth render view). Two
+  # routes for parity with the existing global_observer/agent_pov pages,
+  # which are ALSO reachable both live and against a loaded replay: the live
+  # spectator route and the hosted-replay route. Both serve the identical
+  # embedded HTML (see EmbeddedGlobalPlusPovHtml below) -- the page itself
+  # self-detects live vs. replay off its own URL, exactly like
+  # EmbeddedBroadcastReplayHtml already does for /client/global vs.
+  # /client/replay.
+  GlobalPlusPovClientPath = "/client/global_plus_pov"
+  ReplayPlusPovClientPath = "/client/replay_plus_pov"
   # What a human connection may be GRANTED here. Polled by the client before
   # it connects, so one bundle serves both a league server and a play server.
   CapabilitiesPath = "/capabilities"
@@ -246,6 +257,20 @@ const
   # Final in-page script order: wire constants, shared chrome, core, page IIFE
   # (marker positions in the HTML fix that; the replace order here is free).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).replace(
+    "<!-- BROADCAST_CORE -->",
+    "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
+  ).spliceWireConstants()
+  # global_plus_pov: forked from the broadcast replay client above (same
+  # splice contract) rather than sharing its markup/script -- the fork adds
+  # a second BroadcastCore connection (the POV inset) and redirects the `v:`
+  # command to drive it instead of swapping this page's own board away. See
+  # the long comment at the top of client/global_plus_pov.html's script for
+  # the full design; server-side this is pure additive routing, nothing here
+  # touches sim state or gameHash.
+  EmbeddedGlobalPlusPovHtml = staticRead("../../client/global_plus_pov.html").replace(
     "<!-- CHROME_COMMON -->",
     "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
   ).replace(
@@ -1814,6 +1839,38 @@ proc httpHandler(request: Request) =
     globalHeaders["Content-Type"] = "text/html; charset=utf-8"
     globalHeaders["Cache-Control"] = "no-cache"
     request.respond(200, globalHeaders, EmbeddedBroadcastReplayHtml)
+  elif request.path == ReplayPlusPovClientPath and request.httpMethod == "GET":
+    # Hosted-replay half of global_plus_pov: the same uri-load contract as
+    # the plain /client/replay branch above (queueReplayUri / 400-missing /
+    # 404-unreadable), because broadcast_core.js's websocketPathForClientPage
+    # points THIS route's sockets at /replay too — both the board connection
+    # and the POV-inset connection the page opens need the replay actually
+    # queued before either can answer.
+    if replayServerModeEnabled():
+      let replayRequest = request.replayRequestUriOrPending()
+      if replayRequest.uri.len == 0 and not replayRequest.loaded:
+        request.respondReplayRequestError(400, "missing replay uri\n")
+        return
+      if replayRequest.uri.len > 0 and
+          not replayRequest.uri.replayUriKnown() and
+          not replayRequest.uri.readableReplayUri():
+        request.respondReplayRequestError(404, "replay uri is not readable\n")
+        return
+      if replayRequest.uri.len > 0:
+        replayRequest.uri.queueReplayUri()
+    var replayPlusPovHeaders: HttpHeaders
+    replayPlusPovHeaders["Content-Type"] = "text/html; charset=utf-8"
+    replayPlusPovHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, replayPlusPovHeaders, EmbeddedGlobalPlusPovHtml)
+  elif request.path == GlobalPlusPovClientPath and request.httpMethod == "GET":
+    # Live half of global_plus_pov: same treatment as the /client/global
+    # branch above — no uri handling, socket points at plain /global
+    # (GlobalWebSocketPath), never the replay-uri-load path, even on a
+    # process configured as a replay server.
+    var globalPlusPovHeaders: HttpHeaders
+    globalPlusPovHeaders["Content-Type"] = "text/html; charset=utf-8"
+    globalPlusPovHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, globalPlusPovHeaders, EmbeddedGlobalPlusPovHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute

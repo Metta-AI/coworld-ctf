@@ -11,6 +11,7 @@ import
   test_endzone_shapes,
   test_fast_mode,
   test_first_person_pip,
+  test_global_plus_pov,
   test_gv44_br_rotation,
   test_home_rotation,
   test_lull_spans,
