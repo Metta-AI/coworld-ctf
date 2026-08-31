@@ -320,6 +320,17 @@ source cap cannot provide. The differential allowlist covers it, and a
 golden pins field values at the range boundary against a beyond-range
 source.
 
+**Atlas candidate thinning.** A ninth ruling, ratified in the freeze
+package (2026-08-31): the port mints cover posts only from even nav-cell
+coordinates, i.e. a 16 px candidate grid, while leaving the cover-bearing
+test, sector rays, reach calculation, bucket order, and duck scoring
+unchanged. This is the named reserve from P0 made concrete: it reduces
+the worst-case `nearest_cover` host-call scan without changing the
+meaning of any retained post. The differential allowlist covers the
+membership change by comparing the port's thinned atlas against
+stencil's full atlas filtered to the same 16 px grid, and a golden pins
+post positions, reach values, and order.
+
 ### 3.4 Porting verification
 
 The port is verified by a temporary adapter that runs the ported body and
@@ -327,7 +338,7 @@ stencil's original side by side on identical inputs and compares executor
 outputs. The scope of that comparison is stated plainly, because two
 facts bound it. Stencil cannot run Battle Royale at all (its world model
 waits for endzones and lacks the zone percepts), so the differential test
-covers **CTF only**. And the eight rulings of section 3.3 change behavior
+covers **CTF only**. And the nine rulings of section 3.3 change behavior
 on purpose, so blanket output equality is not the expectation: the
 differential test targets the *unchanged* subcomponents (the planner's
 routes, the follower and corridor behavior, the unmodified combat paths)
@@ -1506,7 +1517,7 @@ not give it, and no engine internals.
 | `emit` | `(ptr: i32, len: i32) -> i32` | hands bytes to the engine. During `play_manifest`: the manifest. During `play_step`: an `Intent` (controller) or `CombatPolicy` (overlay) in canonical JSON. Validated synchronously; returns a fixed ABI code (table below): `0` accepted, `1` accepted with the goal normalized, or a negative rejection. Within one step the **last accepted** emission stands. Calls outside those two exports fault the instance. |
 | `log` | `(level: i32, ptr: i32, len: i32) -> ()` | telemetry to the seat's play log, `MaxLogBytesPerCall` per call, `MaxLogCallsPerInvocation` per guest invocation, dropped silently past the caps |
 | `nearest_reachable` | `(x: i32, y: i32) -> i64` | the engine's goal validator (section 3.3), legal only during `play_step`: the packed `(x << 32) \| y` of the nearest reachable point for this seat (both coordinates are non-negative and below 2³¹, so the packed value is never negative), −1 if the validator's definition yields no point, −2 once the step has used its `MaxSpatialCallsPerStep`, or −3 for an invalid argument (below) |
-| `nearest_cover` | `(x: i32, y: i32, radius: i32, bearingBrads: i32, threatsPtr: i32, threatsLen: i32) -> i64` | the engine's cover query over the complete static atlas (section 5.2): the packed point of the best cover post within `radius` pixels of `(x, y)`, ranked by the ported atlas scorer exactly as the lab defines it, with `bearingBrads` as its optional bearing (−1 means none, which selects each post's maximum-reach sector as the lab's `none` does; 0..255 selects the sector the lab's `some(bearing)` would) and the threat positions as its threat list for the facing term, then phase-one truncation, the duck-contrast phase, and the lab's tie order (`LAB:worldmap.nim:766-839`), so lab parity is testable in both bearing forms; −1 if none, −2 past the shared `MaxSpatialCallsPerStep`, −3 for an invalid argument; `radius` is clamped to `MaxCoverRadiusPx`, and every supported map is validated at load so that no disc of that radius contains more than `MaxCoverPostsExamined` posts (below), which is what makes "best over the complete atlas within the radius" and "bounded work per call" the same statement |
+| `nearest_cover` | `(x: i32, y: i32, radius: i32, bearingBrads: i32, threatsPtr: i32, threatsLen: i32) -> i64` | the engine's cover query over the thinned static atlas (section 5.2 and ruling nine): the packed point of the best retained cover post within `radius` pixels of `(x, y)`, ranked by the ported atlas scorer exactly as the lab defines it, with `bearingBrads` as its optional bearing (−1 means none, which selects each post's maximum-reach sector as the lab's `none` does; 0..255 selects the sector the lab's `some(bearing)` would) and the threat positions as its threat list for the facing term, then phase-one truncation, the duck-contrast phase, and the lab's tie order (`LAB:worldmap.nim:766-839`), so lab parity is testable in both bearing forms after filtering stencil's atlas to the same 16 px candidate grid; −1 if none, −2 past the shared `MaxSpatialCallsPerStep`, −3 for an invalid argument; `radius` is clamped to `MaxCoverRadiusPx`, and every supported map is validated at load so that no disc of that radius contains more than `MaxCoverPostsExamined` posts (below), which is what makes "best over the retained atlas within the radius" and "bounded work per call" the same statement |
 
 The threat buffer is byte-level ABI like every other `ptr, len` pair,
 with one difference stated explicitly: `threatsLen` counts **points**,
@@ -1689,10 +1700,10 @@ not the mechanism.
 | `MaxStepsPerSeatPerTick` (implied: `MaxActiveOverlays` overlays plus one controller) | 3 |
 | `MaxEmitsPerStep` (P0-retuned; P3 additionally carries a ≤15 µs per-emit validation acceptance — the spike measured ~62 µs, a parse cost, not a contract) | 2 |
 | `MaxEmitBytes` | 4096 |
-| `MaxSpatialCallsPerStep` (`nearest_reachable` and `nearest_cover` together; P0-retuned) | 4 |
+| `MaxSpatialCallsPerStep` (`nearest_reachable` and `nearest_cover` together; PM freeze ruling 2026-08-31 after lane C measured the real scorer at 19.9-20.2 µs/call at the 1536-post cap — linear in the cap, ≈13.3 µs extrapolated at the frozen 1024; de-provisioned from P0's 8→4 retune to fit the runtime share) | 2 |
 | `MaxCoverRadiusPx` (`nearest_cover` search radius clamp; bounds posts examined per call; P0-adjusted 600→331, the BR derived weapon range, after the BR golden map measured 2,564 posts in a 600px disc — stencil-identical — with no radius ≥256 fitting the old cap) | 331 |
 | `MaxCoverThreats` (threat positions per `nearest_cover` call) | 8 |
-| `MaxCoverPostsExamined` (atlas posts any `MaxCoverRadiusPx` disc may contain; asserted for every map at load in play-seat configurations, which reject a denser map; P0-adjusted 512→1536 with the radius above — the BR golden map's densest 331px disc holds 1,248; giant-field atlas thinning is the named reserve if worst-tick pricing cannot afford it; provisional until the launch-map census, see section 10) | 1536 |
+| `MaxCoverPostsExamined` (retained atlas posts any `MaxCoverRadiusPx` disc may contain after ruling-nine 16 px atlas thinning; asserted for every map at load in play-seat configurations, which reject a denser map; frozen from 1536→1024 by the 2026-08-31 generator census under thinning, see section 10) | 1024 |
 | `MaxRouteFieldsPerSeat` / `MaxDuckEntriesPerSeat` (seat-layer caches, section 3.1) | 4 / 256 |
 | `ReflexCandidateSpacingPx` / `ReflexCandidateRadiusPx` / `MaxReflexCandidates` (Appendix R.2's planning primitive) | 16 / 256 / 1089 |
 | `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
@@ -1723,8 +1734,7 @@ plus a bounded tie scan (above); `nearest_cover` examines
 at most `MaxCoverPostsExamined` posts (a value the map validator
 asserts for every disc of the clamped radius on every map a play-seat
 configuration loads, rejecting a denser map, with a one-past-density
-fixture; provisional until P0 freezes it against the launch map set,
-section 10) and
+fixture; frozen by the 2026-08-31 thinned-atlas census, section 10) and
 scores each against at most `MaxCoverThreats` threats, with the
 seat-layer duck cache cold in the worst case; and each is capped in
 calls per invocation. The worst-case host work per seat per tick is the product of
@@ -2631,17 +2641,17 @@ dark since it landed).
   **play execution at tick rate**, measured in the embedded runtime on
   the hosted server's CPU class as the worst tick the protocol allows:
   32 seats each stepping
-  `MaxStepsPerSeatPerTick` instances (four overlays and a controller, 160
-  guest steps) with every step burning a full `StepFuel`, its two
+  `MaxStepsPerSeatPerTick` instances (two overlays and a controller under
+  the retuned caps, 96 guest steps) with every step burning a full `StepFuel`, its two
   allocations, and every host call at its cost-maximizing bound: all
-  eight spatial calls spent on `nearest_cover` at `MaxCoverRadiusPx`
+  two spatial calls spent on `nearest_cover` at `MaxCoverRadiusPx`
   with `MaxCoverThreats` threats on the densest supported atlas with the
   seat's duck cache cold (the most expensive mix the ABI admits; P0 must
   show any other mix is cheaper, or measure that one instead), `emit`
   and `log` at their byte caps, plus the engine's own `MaxEmitsPerStep`
   goal-validation lookups per step, measured cold and warm at the
-  `MaxCoverPostsExamined` density. That bound is provisional in this
-  document and **frozen by P0**, with two constraints that must both
+  frozen `MaxCoverPostsExamined` density. That bound is fixed by P0's
+  2026-08-31 freeze package, with two constraints that must both
   hold before ABI version 1 is declared: compatibility, meaning P0
   inventories the launch-supported map set (the default arena, every
   curated pool entry, the generator's envelopes, and any hosted
@@ -3269,6 +3279,16 @@ current design; everything decided, superseded, or answered lives here.
   map at 2,564 posts in a 600px disc (stencil-identical; no radius ≥256
   fit the old cap). Giant-field atlas thinning is the named reserve if
   the combined worst-tick verdict cannot afford the new cap's pricing.
+- The freeze package (2026-08-31) ratified atlas candidate thinning and
+  froze `MaxCoverPostsExamined` 1536→1024: retained cover posts are
+  minted only on the 16 px candidate grid, the fixed-map golden compares
+  against stencil's full atlas filtered to that same grid, and the
+  generator census under thinning provides the cap headroom. Reflex
+  worst-case (lane C measured, 32-seat max reflex plan): 10.8 ms-class
+  (9.9-11.1 observed) vs the 4.0 ms runtime share — over budget at
+  freeze. Lever: the §6.1 fully-resolved validator answer table (QUEUED,
+  lane A, next after this package) replacing per-candidate tie-scan
+  resolution with O(1) lookup; fallback lever: reflex plan caps.
 - Cross-play shared memory: not added; world knowledge persists in
   game-side belief, and play state stays per instance ("keep it simple").
   The `retune` flag covers same-play parameter updates without a state
