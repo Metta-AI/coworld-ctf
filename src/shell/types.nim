@@ -331,6 +331,15 @@ const
   # ── §6.1: runtime budgets (constants of ABI version 1) ────────────────
   ShellAbiVersion* = 1
   MaxInstancePages* = 16              ## 64 KiB pages: 1 MiB linear memory
+  MaxFunctionsPerModule* = 4096
+    ## P0 (new, James 2026-08-30): §6.2 interface-check cap on defined
+    ## functions per module, the lever that keeps the 8x reservation
+    ## honest. Generous for real plays (reference plays are dozens of
+    ## functions); provisional until the freeze.
+  MaxInstanceTableElements* = MaxFunctionsPerModule
+    ## P0 provisional (James, 2026-08-31): a play has no legitimate funcref
+    ## table larger than its maximum defined function count, and 4096 table
+    ## elements bound table memory trivially.
   MaxInstancesPerSeat* = 16           ## one per ladder entry
   StepFuel* = 50_000
     ## P0-retuned (James, 2026-08-30) from the measured spike: 200k fuel x
@@ -403,13 +412,8 @@ const
   CompiledBytesPerRawByte* = 8
     ## Held at 8 (James, 2026-08-30): the adversarial 65,529-function
     ## 256 KiB module measured 71.9x, so the bound is enforced at its
-    ## source instead — MaxFunctionsPerModule below refuses the shape at
+    ## source instead — MaxFunctionsPerModule refuses the shape at
     ## validation. Provisional until the freeze re-measures capped shapes.
-  MaxFunctionsPerModule* = 4096
-    ## P0 (new, James 2026-08-30): §6.2 interface-check cap on defined
-    ## functions per module, the lever that keeps the 8x reservation
-    ## honest. Generous for real plays (reference plays are dozens of
-    ## functions); provisional until the freeze.
   EpochTickerMs* = 5                  ## wall-clock backstop on GUEST code
   EpochDeadlineTicks* = 4             ## deadline, in ticker epochs
   GuestStackBytes* = 262144           ## max_wasm_stack; overflow traps

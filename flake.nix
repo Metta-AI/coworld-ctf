@@ -82,6 +82,37 @@
         let
           inherit (pkgs) lib stdenv;
 
+          wasmtimeCapiAssets = {
+            x86_64-linux = {
+              url = "https://github.com/bytecodealliance/wasmtime/releases/download/v48.0.1/wasmtime-v48.0.1-x86_64-linux-c-api.tar.xz";
+              hash = "sha256-Z2g9BLQWqLkfDmB+e0wivTLxj5R8ELU3LrjCd647iDo=";
+            };
+            aarch64-linux = {
+              url = "https://github.com/bytecodealliance/wasmtime/releases/download/v48.0.1/wasmtime-v48.0.1-aarch64-linux-c-api.tar.xz";
+              hash = "sha256-HFIam+ZhZEVBFYs2Dfj3x+xbwtiNI/9Nu8EvY5JHwmY=";
+            };
+            x86_64-darwin = {
+              url = "https://github.com/bytecodealliance/wasmtime/releases/download/v48.0.1/wasmtime-v48.0.1-x86_64-macos-c-api.tar.xz";
+              hash = "sha256-pdkhcHGNQeS9CBcwSQGfDO2zGNAVY2WlJmfUo16jymk=";
+            };
+            aarch64-darwin = {
+              url = "https://github.com/bytecodealliance/wasmtime/releases/download/v48.0.1/wasmtime-v48.0.1-aarch64-macos-c-api.tar.xz";
+              hash = "sha256-njxjbtSHpBAm/3Y4jF+m86SOoJaECNAz7UtegILCDWk=";
+            };
+          };
+          wasmtimeCapiAsset = wasmtimeCapiAssets.${system};
+          wasmtimeCapi = pkgs.stdenvNoCC.mkDerivation {
+            pname = "wasmtime-c-api";
+            version = "48.0.1";
+            src = pkgs.fetchurl wasmtimeCapiAsset;
+            dontUnpack = true;
+            nativeBuildInputs = [ pkgs.gnutar pkgs.xz ];
+            installPhase = ''
+              mkdir -p "$out"
+              tar -xJf "$src" --strip-components=1 -C "$out"
+            '';
+          };
+
           python = pkgs.python3.withPackages (ps: with ps; [
             # tools/proxy_harness_binary.py, tools/jitter_harness.py
             fastapi
@@ -165,7 +196,13 @@
 
             env = {
               # curly resolves libcurl.so.4 at runtime, not link time.
-              LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
+              LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs
+                + lib.optionalString stdenv.hostPlatform.isLinux ":${wasmtimeCapi}/lib";
+              WASMTIME_C_API = "${wasmtimeCapi}";
+              C_INCLUDE_PATH = "${wasmtimeCapi}/include";
+              LIBRARY_PATH = "${wasmtimeCapi}/lib";
+            } // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+              DYLD_LIBRARY_PATH = "${wasmtimeCapi}/lib";
             };
 
             # Quiet under direnv / `nix develop --command` — only greet a

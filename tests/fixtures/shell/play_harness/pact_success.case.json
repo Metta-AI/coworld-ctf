@@ -1,0 +1,12 @@
+{
+  "emit_class": "overlay",
+  "mode": "br",
+  "module": "../../../../play_sdk/.build/pact.wasm",
+  "self": [30, 30],
+  "frames": [
+    {"op": "manifest"},
+    {"op": "init", "params": {"holdFire": {"tick": 9999}, "partners": ["seat:7"], "protect": true}, "context": {}},
+    {"op": "step", "view": {"aggressors": [], "schema": "play_view", "tick": 1441, "tracks": [], "v": 1, "world": {"alive_teams": 9, "zone": {"phase": 2}}}, "tick": 1441},
+    {"op": "step", "view": {"aggressors": [], "schema": "play_view", "tick": 1442, "tracks": [], "v": 1, "world": {"alive_teams": 9, "zone": {"phase": 2}}}, "tick": 1442}
+  ]
+}

@@ -33,6 +33,22 @@ type
     rotateTarget*: Option[BodyPoint]
     coverGoal*: Option[ValidatedGoal]
 
+  ReconstructedStandingOrder* = object
+    tick*: uint32
+    seat*: uint8
+    effectiveEpoch*: uint64
+    provenance*: Provenance
+    intentBytes*: string
+
+  ResolvedStandingOrder* = object
+    ## Minimal §7.4 handoff from the ladder/reflex/default selection pipeline
+    ## into the standing-order installer. Keeping this value type here avoids
+    ## importing the runtime-backed ladder into FIRST LIGHT's zero-entry path.
+    intent*: Intent
+    goal*: Option[ValidatedGoal]
+    provenance*: Provenance
+    contributingEpoch*: uint64
+
 proc center(rect: MapRect): BodyPoint =
   (rect.x + rect.w div 2, rect.y + rect.h div 2)
 
@@ -102,3 +118,72 @@ proc stepFirstLightDefault*(state: var StandingOrderState,
       effectiveEpoch: effectiveEpoch,
       provenance: finished.provenance,
       intentBytes: bytes))
+
+proc installFinishedOrder(state: var StandingOrderState; body: SeatBody;
+                          tick: uint32; finished: FinishedOrder;
+                          effectiveEpoch: uint64;
+                          goal: Option[ValidatedGoal]) =
+  let bytes = canonicalIntent(finished.intent)
+  let changed = not state.hasStanding or state.intentBytes != bytes or
+    not sameProvenance(state.provenance, finished.provenance) or
+    state.installedEffectiveEpoch != effectiveEpoch
+
+  if changed:
+    setStandingIntent(body, finished.intent, goal, effectiveEpoch)
+    state.hasStanding = true
+    state.intent = finished.intent
+    state.intentBytes = bytes
+    state.provenance = finished.provenance
+    state.installedEffectiveEpoch = effectiveEpoch
+    state.annotations.add(ShellAnnotation(
+      tick: tick,
+      seat: uint8(body.seatIndex),
+      kind: akAcceptedIntentChange,
+      effectiveEpoch: effectiveEpoch,
+      provenance: finished.provenance,
+      intentBytes: bytes))
+
+proc finishResolvedOrder(intent: Intent; provenance: Provenance;
+                         idleAimCenterBrads: int): FinishedOrder =
+  ## Applies the same native final shaping as the zero-guest default path after
+  ## the full §7.4 fold has already selected a base and merged active overlays.
+  assert idleAimCenterBrads in 0 .. 255
+  result.intent = intent
+  if result.intent.idleAimCenterBrads.isNone:
+    result.intent.idleAimCenterBrads = some(idleAimCenterBrads)
+  result.provenance = provenance
+
+proc stepResolvedOrder*(state: var StandingOrderState; body: SeatBody;
+                        tick: uint32; resolved: ResolvedStandingOrder;
+                        idleAimCenterBrads: int) =
+  ## Installs the full §7.4 resolved standing order. The ladder output has
+  ## already selected the base, stepped active guests, removed inactive /
+  ## pending / faulted overlays, and folded active policies from scratch.
+  ##
+  ## Effective order epoch advances only when a call entry contributes on this
+  ## tick. Default-only ticks keep the prior effective epoch, preserving epoch
+  ## zero while FIRST LIGHT or an uninitialized/silent call is standing.
+  let effectiveEpoch =
+    if resolved.contributingEpoch != 0:
+      resolved.contributingEpoch
+    else:
+      state.effectiveEpoch
+  if resolved.contributingEpoch != 0:
+    state.effectiveEpoch = resolved.contributingEpoch
+  let finished = finishResolvedOrder(resolved.intent, resolved.provenance,
+    idleAimCenterBrads)
+  state.installFinishedOrder(body, tick, finished, effectiveEpoch,
+    resolved.goal)
+
+proc reconstructStandingOrders*(annotations: openArray[ShellAnnotation]):
+    seq[ReconstructedStandingOrder] =
+  ## Replay-side helper for the annotation truth model: accepted intent changes
+  ## alone reconstruct which standing order stood at each transition. Lifecycle
+  ## annotations clear/install outside this accepted-order sequence.
+  for annotation in annotations:
+    if annotation.kind == akAcceptedIntentChange:
+      result.add ReconstructedStandingOrder(tick: annotation.tick,
+        seat: annotation.seat,
+        effectiveEpoch: annotation.effectiveEpoch,
+        provenance: annotation.provenance,
+        intentBytes: annotation.intentBytes)

@@ -15,6 +15,7 @@ SERVER_BIN="$RUN_DIR/ctf-first-light"
 PRESENCE_BIN="$RUN_DIR/first-light-presence"
 PROBE_BIN="$RUN_DIR/first-light-probe"
 SERVER_LOG="$RUN_DIR/server.log"
+FETCH_LOG="$RUN_DIR/fetch_deps.log"
 mkdir -p "$RUN_DIR"
 
 PIDS=()
@@ -45,14 +46,29 @@ with open(sys.argv[3], "w") as destination:
     json.dump(config, destination, separators=(",", ":"))
 PY
 
-nim c -d:release --hints:off --path:src -o:"$PROBE_BIN" \
-  tools/first_light_probe.nim
-"$PROBE_BIN"
+tools/runtime_spike/fetch_deps.sh >"$FETCH_LOG"
+WASMTIME_C_API="$(awk -F= '$1=="WASMTIME_C_API"{print substr($0, index($0, "=") + 1)}' "$FETCH_LOG")"
+WASI_SDK_PATH="$(awk -F= '$1=="WASI_SDK_PATH"{print substr($0, index($0, "=") + 1)}' "$FETCH_LOG")"
+if [ -z "$WASMTIME_C_API" ] || [ -z "$WASI_SDK_PATH" ]; then
+  cat "$FETCH_LOG" >&2
+  echo "FIRST LIGHT dependency discovery failed" >&2
+  exit 1
+fi
+
+WASI_SDK_PATH="$WASI_SDK_PATH" nim c -f --hints:off \
+  play_sdk/reference/edge_ride.nim
+
+WASMTIME_C_API="$WASMTIME_C_API" nim c --threads:on -d:release \
+  -d:noSignalHandler \
+  --hints:off --path:src -o:"$PROBE_BIN" tools/first_light_probe.nim
+FIRST_LIGHT_CONFIG_PATH="$CONFIG_PATH" "$PROBE_BIN"
 if [ "$MEASURE_ONLY" = "1" ]; then
   exit 0
 fi
 
-nim c -d:release --hints:off --path:src -o:"$SERVER_BIN" src/ctf.nim
+WASMTIME_C_API="$WASMTIME_C_API" nim c --threads:on -d:release \
+  -d:noSignalHandler \
+  --hints:off --path:src -o:"$SERVER_BIN" src/ctf.nim
 nim c -d:release --hints:off --path:src -o:"$PRESENCE_BIN" \
   tools/first_light_presence.nim
 

@@ -1,0 +1,10 @@
+{
+  "module": "../../../../play_sdk/.build/hello_play.wasm",
+  "self": [30, 30],
+  "frames": [
+    {"op": "manifest"},
+    {"op": "init", "params": {}, "context": {}},
+    {"op": "step", "view": {}, "tick": 1},
+    {"op": "retune", "old_params": {}, "new_params": {"level": 1}}
+  ]
+}

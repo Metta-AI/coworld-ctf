@@ -2796,7 +2796,8 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
                            replayLoaded: bool,
                            config: GameConfig,
                            sim: SimServer,
-                           reason: string) =
+                           reason: string,
+                           configJson = "") =
   let controlSet = config.firstLightControlSet()
   if not replayLoaded and config.season2Shell and controlSet.hasPlaySeat:
     episode.resetFirstLightEpisode(
@@ -2804,7 +2805,10 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
       newBodyMap(sim.gameMap), config.gunRange)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
+    for line in episode.configureFirstLightDemoPlayFromJson(configJson):
+      echo line
   else:
+    episode.closeFirstLightEpisode()
     episode = FirstLightEpisode()
 
 proc runServerLoop*(
@@ -2978,7 +2982,10 @@ proc runServerLoop*(
   # FIRST LIGHT is reachable only under the two-part runtime gate. Gate-on
   # with an all-input roster and every gate-off configuration leave the zero
   # value untouched and never call into the episode owner.
-  firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup")
+  firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup",
+    runtimeConfig.config)
+  defer:
+    firstLightEpisode.closeFirstLightEpisode()
 
   while true:
     var
@@ -3636,7 +3643,8 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.collectEvents = eventsPath.len > 0
-      firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "reset")
+      firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "reset",
+        runtimeConfig.config)
       # One file describes ONE match. A reset that kept the previous match's
       # events would concatenate two games under a single episode id.
       collectedEvents.setLen(0)
@@ -4062,7 +4070,7 @@ proc runServerLoop*(
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
       firstLightEpisode.resetFirstLightForSim(
-        replayLoaded, config, sim, "reregister")
+        replayLoaded, config, sim, "reregister", runtimeConfig.config)
       liveOverlays = @[]
       # A round transition WITHIN the same match (roster/tick count both
       # carry forward, unlike the full shouldReset above) -- resync rather
