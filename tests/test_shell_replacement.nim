@@ -2,8 +2,8 @@
 
 import std/[json, options, sequtils, strutils, tables, unittest]
 
-import ../src/shell/[call_validation, canonical, emit_validator, finisher,
-  guards, ladder, manifest, module_cache, replacement, types]
+import ../src/shell/[body_map, call_validation, canonical, emit_validator,
+  finisher, guards, ladder, manifest, module_cache, replacement, types]
 
 type
   RetuneMode = enum
@@ -64,7 +64,7 @@ proc fakeGuest(book: FakeBook; entry: ValidatedCallEntry;
     discard contextBytes
     params = paramsBytes
     book.initCounts.incKey(entry.entryId)
-  result.runStep = proc(viewBytes: string; tick: uint32): LadderInvocationResult =
+  result.runStep = proc(viewBytes: string; tick: uint32; selfPos: BodyPoint): LadderInvocationResult =
     discard viewBytes
     discard tick
     book.stepCounts.incKey(entry.entryId)

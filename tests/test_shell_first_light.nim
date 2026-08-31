@@ -1,6 +1,6 @@
 ## Phase P3-2/P3-FL: FIRST LIGHT lifecycle, gate, annotation, and mask handoff.
 
-import std/[json, os, options, sequtils, unittest]
+import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
 import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
@@ -127,6 +127,19 @@ suite "shell FIRST LIGHT":
     check config.slots.len == 32
     for slot in config.slots:
       check slot.control == scPlay
+
+  test "configured play seats parse strictly instead of inventing seat zero":
+    let map = testBodyMap()
+    for seats in ["[\"oops\"]", "[-1]", "[32]", "[1]", "[0,0]"]:
+      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+        map, 331)
+      let lines = episode.configureFirstLightDemoPlayFromJson(
+        "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
+        "\"playName\":\"missing\",\"params\":{},\"seats\":" & seats & "}}")
+      check lines.len == 1
+      check lines[0].startsWith(
+        "FIRST_LIGHT_PLAY configured=false reason=parse_error")
+      check "seat=0" notin lines[0]
 
   test "activation installs safe hold then the epoch-zero default same tick":
     let map = testBodyMap()

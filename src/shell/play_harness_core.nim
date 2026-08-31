@@ -257,7 +257,7 @@ proc runHarnessCase*(caseData: HarnessCase): HarnessTrace =
       of hfInit:
         shell.invokeInit(frame.paramsBytes, frame.contextBytes)
       of hfStep:
-        shell.invokeStep(frame.viewBytes, frame.tick)
+        shell.invokeStep(frame.viewBytes, frame.tick, caseData.selfPos)
       of hfRetune:
         shell.invokeRetune(frame.oldParamsBytes, frame.newParamsBytes)
     result.frames.add(frame.kind.toTrace(invocation))

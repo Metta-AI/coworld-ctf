@@ -3,8 +3,8 @@
 import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[call_validation, canonical, emit_validator, finisher,
-  guards, ladder, manifest, types]
+import ../src/shell/[body_map, call_validation, canonical, emit_validator,
+  finisher, guards, ladder, manifest, types]
 
 type
   FakeBook = ref object
@@ -65,7 +65,7 @@ proc fakeGuest(book: FakeBook; entryName: string;
     discard paramsBytes
     discard contextBytes
     book.initCounts.incKey(entryName)
-  result.runStep = proc(viewBytes: string; tick: uint32): LadderInvocationResult =
+  result.runStep = proc(viewBytes: string; tick: uint32; selfPos: BodyPoint): LadderInvocationResult =
     discard viewBytes
     discard tick
     book.stepCounts.incKey(entryName)

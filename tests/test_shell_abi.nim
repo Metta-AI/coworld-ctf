@@ -150,7 +150,7 @@ suite "shell ABI":
     check initResult.fuelInstalledBeforeAlloc
     check initResult.counters.allocations == 2
     check initResult.returned == 0
-    let stepResult = first.instance.invokeStep("{}", 1)
+    let stepResult = first.instance.invokeStep("{}", 1, (30, 30))
     check stepResult.fuelInstalledBeforeAlloc
     check stepResult.emitCodes == @[AbiOk]
     check stepResult.lastAccepted.isSome
@@ -188,8 +188,8 @@ suite "shell ABI":
       "    i32.const 0)\n" &
       "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) i32.const 0))")
     defer: second.close()
-    discard second.instance.invokeStep("{}", 1)
-    let faulted = second.instance.invokeStep("{}", 2)
+    discard second.instance.invokeStep("{}", 1, (30, 30))
+    let faulted = second.instance.invokeStep("{}", 2, (30, 30))
     check faulted.faulted
     check faulted.lastAccepted.isSome
 
@@ -197,13 +197,13 @@ suite "shell ABI":
     var accepted = compileFixture(shellWat("i32.const 512 i32.const " &
       $intentBytes().len & " call $emit drop i32.const 0"))
     defer: accepted.close()
-    check accepted.instance.invokeStep("{}", 1).emitCodes == @[AbiOk]
+    check accepted.instance.invokeStep("{}", 1, (30, 30)).emitCodes == @[AbiOk]
 
     var normalized = compileFixture(shellWat("i32.const 1024 i32.const " &
       $intentBytes(point = some(MapPoint(x: 0, y: 0))).len &
       " call $emit drop i32.const 0"))
     defer: normalized.close()
-    let normalizedResult = normalized.instance.invokeStep("{}", 1)
+    let normalizedResult = normalized.instance.invokeStep("{}", 1, (30, 30))
     check normalizedResult.emitCodes == @[AbiNormalized]
     check normalizedResult.lastAccepted.get.normalized
 
@@ -211,7 +211,7 @@ suite "shell ABI":
       $canonicalCombatPolicy(CombatPolicy(holdFire: true)).len &
       " call $emit drop i32.const 0"))
     defer: mismatch.close()
-    let mismatchResult = mismatch.instance.invokeStep("{}", 1)
+    let mismatchResult = mismatch.instance.invokeStep("{}", 1, (30, 30))
     check mismatchResult.emitCodes == @[AbiClassMismatch]
     check mismatchResult.lastAccepted.isNone
 
@@ -219,7 +219,7 @@ suite "shell ABI":
     for allocBody in ["i32.const 0", "i32.const 70000"]:
       var bad = compileFixture(shellWat("i32.const 0", allocBody = allocBody))
       defer: bad.close()
-      let result = bad.instance.invokeStep("{}", 1)
+      let result = bad.instance.invokeStep("{}", 1, (30, 30))
       check result.faulted
       check result.counters.allocations == 1
 
@@ -234,7 +234,7 @@ suite "shell ABI":
       allocBody = "i32.const 512 i32.const " & $intentBytes().len &
         " call $emit drop i32.const 4096"))
     defer: illegal.close()
-    check illegal.instance.invokeStep("{}", 1).faulted
+    check illegal.instance.invokeStep("{}", 1, (30, 30)).faulted
 
   test "spatial imports validate quota before hostile pointers and scalar domains":
     var scalarBeforePointer = compileFixture(shellWat(
@@ -242,7 +242,7 @@ suite "shell ABI":
         "i32.const 2147483647 i32.const 8 call $nearest_cover drop " &
       "i32.const 0"))
     defer: scalarBeforePointer.close()
-    let scalarResult = scalarBeforePointer.instance.invokeStep("{}", 1)
+    let scalarResult = scalarBeforePointer.instance.invokeStep("{}", 1, (30, 30))
     check not scalarResult.faulted
     check scalarResult.counters.spatialCalls == 1
 
@@ -255,7 +255,7 @@ suite "shell ABI":
         "i32.const 2147483647 i32.const 8 call $nearest_cover drop " &
       "i32.const 0"))
     defer: quotaBeforePointer.close()
-    let quotaResult = quotaBeforePointer.instance.invokeStep("{}", 1)
+    let quotaResult = quotaBeforePointer.instance.invokeStep("{}", 1, (30, 30))
     check not quotaResult.faulted
     check quotaResult.counters.spatialCalls == MaxSpatialCallsPerStep
 
@@ -264,14 +264,14 @@ suite "shell ABI":
         "i32.const 2147483647 i32.const 8 call $nearest_cover drop " &
       "i32.const 0"))
     defer: badPointerBeforeQuota.close()
-    check badPointerBeforeQuota.instance.invokeStep("{}", 1).faulted
+    check badPointerBeforeQuota.instance.invokeStep("{}", 1, (30, 30)).faulted
 
     var validCover = compileFixture(shellWat(
       "i32.const 30 i32.const 30 i32.const 64 i32.const 255 " &
         "i32.const 512 i32.const 0 call $nearest_cover drop " &
       "i32.const 0"))
     defer: validCover.close()
-    let coverResult = validCover.instance.invokeStep("{}", 1)
+    let coverResult = validCover.instance.invokeStep("{}", 1, (30, 30))
     check not coverResult.faulted
     check coverResult.counters.spatialCalls == 1
 

@@ -163,7 +163,7 @@ proc runAttack(instance: ShellInstance, attack: ContainmentAttack):
   of caInit:
     instance.invokeInit("{}", "")
   of caStep:
-    instance.invokeStep("{}", 1)
+    instance.invokeStep("{}", 1, (30, 30))
   of caRetune:
     instance.invokeRetune("", "")
 

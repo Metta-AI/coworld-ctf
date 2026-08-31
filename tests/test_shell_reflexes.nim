@@ -68,7 +68,7 @@ proc fakeBinding(): LadderBinding =
     result.runInit = proc(paramsBytes, contextBytes: string): LadderInvocationResult =
       discard paramsBytes
       discard contextBytes
-    result.runStep = proc(viewBytes: string; tick: uint32): LadderInvocationResult =
+    result.runStep = proc(viewBytes: string; tick: uint32; selfPos: BodyPoint): LadderInvocationResult =
       discard viewBytes
       result.emission.intent = some(holdIntent("controller@" & $tick))
       result.emission.canonicalBytes = canonicalIntent(result.emission.intent.get)

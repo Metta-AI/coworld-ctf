@@ -76,7 +76,7 @@ suite "play SDK":
     check not init.faulted
     check init.returned == 0
 
-    let step = instance.invokeStep("{}", 1)
+    let step = instance.invokeStep("{}", 1, (30, 30))
     check not step.faulted
     check step.returned == 0
     check step.emitCodes == @[AbiOk]

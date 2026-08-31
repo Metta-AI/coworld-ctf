@@ -497,8 +497,9 @@ proc invokeInit*(instance: ShellInstance, paramsBytes,
   instance.finishResult(ivInit, -1)
 
 proc invokeStep*(instance: ShellInstance, viewBytes: string,
-                 tick: uint32): ShellInvocationResult =
+                 tick: uint32, selfPos: BodyPoint): ShellInvocationResult =
   discard tick
+  instance.host.selfPos = selfPos
   let previous = instance.lastAccepted
   instance.prepareInvocation(apStep, ivStep, StepFuel.uint64)
   let view = instance.allocate(viewBytes.len)

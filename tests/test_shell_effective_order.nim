@@ -44,7 +44,7 @@ proc fakeGuest(book: FakeBook; entry: ValidatedCallEntry;
   result.runInit = proc(paramsBytes, contextBytes: string): LadderInvocationResult =
     discard contextBytes
     book.paramsByEntry[entry.entryId] = paramsBytes
-  result.runStep = proc(viewBytes: string; tick: uint32): LadderInvocationResult =
+  result.runStep = proc(viewBytes: string; tick: uint32; selfPos: BodyPoint): LadderInvocationResult =
     discard viewBytes
     if book.faultAt.hasKey(entry.entryId) and book.faultAt[entry.entryId] == tick:
       return LadderInvocationResult(faulted: true, reason: "fault:" & entry.entryId)

@@ -200,7 +200,8 @@ suite "edge_ride reference play":
     defer: defaults.close()
     defaults.initOk("{}")
     let defaultStep = defaults.invokeStep(
-      viewFor(1, (550, 300), current, 240, includeNext = false), 1)
+      viewFor(1, (550, 300), current, 240, includeNext = false), 1,
+      (550, 300))
     check not defaultStep.faulted
     check defaultStep.returned == 0
     check defaultStep.counters.spatialCalls == 2
@@ -233,7 +234,7 @@ suite "edge_ride reference play":
       defer: instance.close()
       instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":100}")
       let step = instance.invokeStep(viewFor(1, (300, 300), current, 240,
-        next), 1)
+        next), 1, (300, 300))
       check not step.faulted
       check step.reasonOf == "edge_ride:inside"
       check current.rectContains(step.pointOf)
@@ -243,7 +244,7 @@ suite "edge_ride reference play":
       defer: instance.close()
       instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":80}")
       let step = instance.invokeStep(viewFor(1, (700, 500), current, 120,
-        next), 1)
+        next), 1, (700, 500))
       check not step.faulted
       check step.reasonOf == "edge_ride:enter"
       check next.rectContains(step.pointOf)
@@ -253,7 +254,7 @@ suite "edge_ride reference play":
       defer: instance.close()
       instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":100}")
       let step = instance.invokeStep(viewFor(1, (450, 500), current, 240,
-        next), 1)
+        next), 1, (450, 500))
       check not step.faulted
       check step.reasonOf == "edge_ride:margin"
       check step.pointOf.x >= current[0] + 100
@@ -263,7 +264,7 @@ suite "edge_ride reference play":
       defer: instance.close()
       instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":100}")
       let step = instance.invokeStep(viewFor(1, (500, 500), current, 240,
-        next), 1)
+        next), 1, (500, 500))
       check not step.faulted
       check step.reasonOf == "edge_ride:hold"
 
@@ -279,7 +280,7 @@ suite "edge_ride reference play":
     defer: plain.close()
     plain.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":220}")
     let plainStep = plain.invokeStep(viewFor(1, (550, 300), current, 240,
-      includeNext = false), 1)
+      includeNext = false), 1, (550, 300))
     check not plainStep.faulted
     check plainStep.counters.spatialCalls == 1
 
@@ -287,7 +288,7 @@ suite "edge_ride reference play":
     defer: covered.close()
     covered.initOk("{\"coverBias\":0.8,\"enterLead\":120,\"margin\":220}")
     let coveredStep = covered.invokeStep(viewFor(1, (550, 300), current, 240,
-      includeNext = false), 1)
+      includeNext = false), 1, (550, 300))
     check not coveredStep.faulted
     check coveredStep.counters.spatialCalls == MaxSpatialCallsPerStep
     check coveredStep.reasonOf == "edge_ride:cover"
@@ -305,8 +306,8 @@ suite "edge_ride reference play":
     let view = viewFor(1, (550, 300), [400, 200, 1200, 700], 240,
       includeNext = false)
 
-    let first = instance.invokeStep(view, 1)
-    let second = instance.invokeStep(view, 2)
+    let first = instance.invokeStep(view, 1, (550, 300))
+    let second = instance.invokeStep(view, 2, (550, 300))
     check first.emitCodes == @[AbiOk]
     check second.emitCodes.len == 0
     check second.lastAccepted == first.lastAccepted
@@ -338,7 +339,7 @@ suite "edge_ride reference play":
       var instance = engine.newEdgeInstance(module, map, (550, 300))
       defer: instance.close()
       instance.initOk("{}")
-      let step = instance.invokeStep(badView, 1441)
+      let step = instance.invokeStep(badView, 1441, (550, 300))
       check step.faulted
       check step.reason == "play_step returned nonzero"
 
@@ -346,7 +347,7 @@ suite "edge_ride reference play":
     defer: good.close()
     good.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":220}")
     let goodStep = good.invokeStep(fullViewFor(1441, (550, 300),
-      [400, 200, 1200, 700], 240, tracks = 1), 1441)
+      [400, 200, 1200, 700], 240, tracks = 1), 1441, (550, 300))
     check not goodStep.faulted
     check goodStep.returned == 0
 
@@ -366,7 +367,7 @@ suite "edge_ride reference play":
       instance.initOk("{\"coverBias\":0.0,\"enterLead\":0,\"margin\":40}")
       let view = viewFor(1441, (1700, 850), goldenCurrent, 240,
         includeNext = false)
-      let step = instance.invokeStep(view, 1441)
+      let step = instance.invokeStep(view, 1441, (1700, 850))
       check not step.faulted
       check step.returned == 0
       check step.reasonOf == "edge_ride:hold"
@@ -377,7 +378,7 @@ suite "edge_ride reference play":
       instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":40}")
       let view = viewFor(1441, (1000, 600), goldenCurrent, 120,
         goldenNext)
-      let step = instance.invokeStep(view, 1441)
+      let step = instance.invokeStep(view, 1441, (1000, 600))
       check not step.faulted
       check step.returned == 0
       check step.reasonOf == "edge_ride:enter"
@@ -396,7 +397,7 @@ suite "edge_ride reference play":
       instance.initOk("{}")
       let view = viewFor(1441, (550, 300), [400, 200, 1200, 700], 240,
         includeNext = false)
-      let step = instance.invokeStep(view, 1441)
+      let step = instance.invokeStep(view, 1441, (550, 300))
       let consumed = step.fuelConsumed
       echo "EDGE_RIDE_VIEW_FUEL kind=lean view_len=", view.len,
         " tracks=0 consumed=", consumed,
@@ -413,7 +414,7 @@ suite "edge_ride reference play":
       instance.initOk("{}")
       let view = fullViewFor(1441, (550, 300), [400, 200, 1200, 700], 240,
         tracks = 32)
-      let step = instance.invokeStep(view, 1441)
+      let step = instance.invokeStep(view, 1441, (550, 300))
       echo "EDGE_RIDE_VIEW_FUEL kind=large view_len=", view.len,
         " tracks=32 consumed=", step.fuelConsumed,
         " completed=", (not step.faulted and step.returned == 0),
@@ -443,7 +444,7 @@ suite "edge_ride reference play":
 
     for ticksToShrink in [240, 200, 160, 120, 80, 40, 0]:
       let edgeStep = edge.invokeStep(viewFor(240 - ticksToShrink, edgePos,
-        current, ticksToShrink, next), uint32(240 - ticksToShrink))
+        current, ticksToShrink, next), uint32(240 - ticksToShrink), edgePos)
       check not edgeStep.faulted
       check edgeStep.returned == 0
       let defaultStep = defaultDecision(map, defaultPos, ticksToShrink,

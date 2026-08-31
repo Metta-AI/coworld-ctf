@@ -106,7 +106,7 @@ proc viewStep(engine: RuntimeEngine; module: RuntimeModule; viewBytes: string):
   let init = instance.invokeInit("{\"holdFire\":{\"tick\":999999}," &
     "\"partners\":[\"seat:7\"]}", "{}")
   doAssert not init.faulted and init.returned == 0
-  instance.invokeStep(viewBytes, 1)
+  instance.invokeStep(viewBytes, 1, (30, 30))
 
 proc readerStep(engine: RuntimeEngine; module: RuntimeModule; viewBytes: string):
     ShellInvocationResult =
@@ -115,7 +115,7 @@ proc readerStep(engine: RuntimeEngine; module: RuntimeModule; viewBytes: string)
   defer: instance.close()
   let init = instance.invokeInit("{}", "{}")
   doAssert not init.faulted and init.returned == 0
-  instance.invokeStep(viewBytes, 1)
+  instance.invokeStep(viewBytes, 1, (30, 30))
 
 proc trackRow(index: int): string =
   "{\"aim_brads\":" & $(index mod 256) & ",\"bounty\":" &
@@ -218,7 +218,7 @@ proc initOk(instance: ShellInstance; params: string) =
 
 proc step(instance: ShellInstance; view: string; tick = 1'u32):
     ShellInvocationResult =
-  instance.invokeStep(view, tick)
+  instance.invokeStep(view, tick, (30, 30))
 
 suite "pact reference play":
   test "manifest bytes match the PM-ratified golden and parse in production":

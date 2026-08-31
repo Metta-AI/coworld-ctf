@@ -275,7 +275,14 @@ proc playConfigFromNode(node: JsonNode; repoRoot: string):
   if seats == nil or seats.kind != JArray:
     raise newException(ValueError, "firstLightPlay.seats must be an array")
   for item in seats:
-    result.seats.add item.getInt()
+    if item.kind != JInt:
+      raise newException(ValueError, "firstLightPlay.seats entries must be integers")
+    let seat = item.getInt()
+    if seat < 0 or seat >= MaxPlayers:
+      raise newException(ValueError, "firstLightPlay.seats entry out of range")
+    if seat in result.seats:
+      raise newException(ValueError, "firstLightPlay.seats entry duplicated")
+    result.seats.add seat
 
 proc firstLightPlayNode(configJson: string): JsonNode =
   if configJson.len == 0:
@@ -342,6 +349,10 @@ when ShellRuntimeAvailable:
       return @["FIRST_LIGHT_PLAY configured=false reason=episode_disabled"]
     if config.seats.len == 0:
       return @["FIRST_LIGHT_PLAY configured=false reason=no_seats"]
+    for seat in config.seats:
+      if seat < 0 or seat >= episode.runtimeState.frames.len:
+        raise newException(ValueError,
+          "firstLightPlay.seats entry outside roster")
     if not fileExists(config.modulePath):
       return @["FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
         config.modulePath]
@@ -554,6 +565,7 @@ proc step*(episode: var FirstLightEpisode,
           facts.idleAimCenterBrads)
         inputs[seat] = LadderSeatInput(
           alive: true,
+          selfPos: slot.frame.bodyInputs.self.pos,
           contextBytes: "{}",
           viewBytes: (if episode.viewSource == nil:
             slot.frame.provisionalFirstLightView(tick)

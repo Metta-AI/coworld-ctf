@@ -29,7 +29,8 @@ type
 
   LadderGuest* = ref object
     runInit*: proc(paramsBytes, contextBytes: string): LadderInvocationResult {.closure.}
-    runStep*: proc(viewBytes: string; tick: uint32): LadderInvocationResult {.closure.}
+    runStep*: proc(viewBytes: string; tick: uint32;
+      selfPos: BodyPoint): LadderInvocationResult {.closure.}
     runRetune*: proc(oldParamsBytes, newParamsBytes: string): LadderInvocationResult {.closure.}
     close*: proc() {.closure.}
 
@@ -53,6 +54,7 @@ type
 
   LadderSeatInput* = object
     alive*: bool
+    selfPos*: BodyPoint
     contextBytes*: string
     viewBytes*: string
     guardContext*: IntentContext
@@ -154,8 +156,9 @@ proc shellGuest*(instance: ShellInstance,
   new(result)
   result.runInit = proc(paramsBytes, contextBytes: string): LadderInvocationResult =
     instance.invokeInit(paramsBytes, contextBytes).toLadder(emitClass)
-  result.runStep = proc(viewBytes: string; tick: uint32): LadderInvocationResult =
-    instance.invokeStep(viewBytes, tick).toLadder(emitClass)
+  result.runStep = proc(viewBytes: string; tick: uint32;
+      selfPos: BodyPoint): LadderInvocationResult =
+    instance.invokeStep(viewBytes, tick, selfPos).toLadder(emitClass)
   result.runRetune = proc(oldParamsBytes, newParamsBytes: string): LadderInvocationResult =
     instance.invokeRetune(oldParamsBytes, newParamsBytes).toLadder(emitClass)
   result.close = proc() =
@@ -517,7 +520,7 @@ proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   var entry = addr seat[].entries[entryIndex]
   if entry[].guest == nil or entry[].state != pisLive:
     return
-  let stepResult = entry[].guest.runStep(input.viewBytes, tick)
+  let stepResult = entry[].guest.runStep(input.viewBytes, tick, input.selfPos)
   inc output.stepCount
   output.stepped.add entry[].call.entryId
   if stepResult.faulted:
