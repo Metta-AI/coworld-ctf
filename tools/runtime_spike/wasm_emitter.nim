@@ -1,5 +1,7 @@
 ## Exact-size core-Wasm adversarial shapes for phase-4 compiler measurements.
 
+import ../../src/shell/types
+
 const
   ExactModuleBytes* = 262_144
   # wasmparser 0.244.0, used by Wasmtime 48.0.1, rejects a function above
@@ -12,7 +14,8 @@ type
     enormousFunction
     maximalLocals
     deepestNesting
-    maximalFunctions
+    contractMaximalFunctions
+    refusedMaximalFunctions
 
   EmittedModule* = object
     bytes*: seq[byte]
@@ -24,7 +27,8 @@ proc shapeName*(shape: CompileShape): string =
   of enormousFunction: "enormous-function"
   of maximalLocals: "maximal-locals"
   of deepestNesting: "deepest-nesting"
-  of maximalFunctions: "maximal-functions"
+  of contractMaximalFunctions: "contract-maximal-functions"
+  of refusedMaximalFunctions: "refused-maximal-functions"
 
 proc parseShape*(value: string): CompileShape =
   for shape in CompileShape:
@@ -173,11 +177,15 @@ proc emitModule*(shape: CompileShape): EmittedModule =
     result.bytes = maximized.module
     result.objective = "nested empty block depth in one function"
     result.achieved = maximized.metric
-  of maximalFunctions:
+  of contractMaximalFunctions:
+    result.bytes = functionsModule(MaxFunctionsPerModule).exactWithPadding()
+    result.objective = "contract-admitted defined empty function count"
+    result.achieved = MaxFunctionsPerModule
+  of refusedMaximalFunctions:
     let maximized = maximize(proc(metric: int): seq[byte] =
       functionsModule(metric))
     result.bytes = maximized.module
-    result.objective = "defined empty function count"
+    result.objective = "contract-refused defined empty function count"
     result.achieved = maximized.metric
   if result.bytes.len != ExactModuleBytes:
     raise newException(ValueError, "emitter did not reach exact byte cap")

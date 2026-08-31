@@ -3,6 +3,8 @@
 
 import std/strutils
 
+import ../../src/shell/types
+
 proc uleb(result: var seq[byte]; value: uint32) =
   var remaining = value
   while true:
@@ -235,19 +237,19 @@ proc hostileTickFixture*(): seq[byte] =
   var step: seq[byte]
   step.i32Const(65_536)
   step.add @[byte 0x24, 0x00] # reset bump for the next invocation
-  for callIndex in 0 ..< 8:
+  for callIndex in 0 ..< MaxSpatialCallsPerStep:
     step.i32Const((100 + callIndex).uint32)
     step.i32Const((200 + callIndex).uint32)
     step.i32Const(600)
     step.i32Const(255)
     step.i32Const(4_096)
-    step.i32Const(64)
+    step.i32Const((MaxCoverThreats * 8).uint32)
     step.add @[byte 0x10, 0x00, 0x1a]
-  for _ in 0 ..< 4:
+  for _ in 0 ..< MaxEmitsPerStep:
     step.i32Const(0)
     step.i32Const(4_096)
     step.add @[byte 0x10, 0x01, 0x1a]
-  for level in 0 ..< 4:
+  for level in 0 ..< MaxLogCallsPerInvocation:
     step.i32Const(level.uint32)
     step.i32Const(0)
     step.i32Const(256)

@@ -113,18 +113,23 @@ RSS is sampled every 5 ms until four samples fit within a 64 KiB band (up to
 `max(8 MiB, 5% of the stable zero-live-instance baseline)`; a miss remains a
 reported failure even when all pool slots were reclaimed exactly.
 
-The compile mode is implemented in phase 4:
+The compile mode is implemented in phase 4 and extended by the retuned P0
+remeasurement:
 
 ```sh
 tools/runtime_spike/run.sh compile
 ```
 
-It emits four distinct valid core-Wasm modules of exactly 262,144 bytes in
+It emits five distinct valid core-Wasm modules of exactly 262,144 bytes in
 memory: one enormous function, the wasmparser 0.244.0 maximum of 50,000 locals
-in one function, the deepest structured nesting that fits the byte cap, and
-the maximum number of empty functions that fits the byte cap. Custom sections
-pad shapes whose objective reaches a validator limit before the byte limit;
-no generated module is written into Git.
+in one function, the deepest structured nesting that fits the byte cap, exactly
+4,096 empty functions at the contract's `MaxFunctionsPerModule` cap, and the
+65,529-function byte-maximal control. The last shape is valid core Wasm but is
+contractually refused by the section 6.2 interface check; the spike rig does
+not implement that future P3 `tooManyFunctions` refusal and retains the row to
+show why the cap exists. Custom sections pad shapes whose objective reaches a
+validator or contract limit before the byte limit; no generated module is
+written into Git.
 
 Every measured row runs in a fresh child process with Wasmtime parallel
 compilation disabled. A cold child measures immediately; a warm child performs
@@ -148,14 +153,16 @@ tools/runtime_spike/run.sh tick --compile-workers 0
 ```
 
 It requires at least 30 warm samples and keeps all 512 gameplay instances
-resident while timing the fixed contract maximum: 160 distinct full-fuel step
-faults, four full-fuel init faults, the exact allocation/callback byte caps,
+resident while timing the fixed retuned contract maximum: 96 distinct
+full-fuel step faults, two full-fuel init faults, the exact allocation/callback byte caps,
 32 defaults, 32 complete 1089-by-8 fallback reflex plans, 64 exact-cap ladder
 walks, 32 upload admissions, eight compile-result commits, 104 maximum-size
 status entries, and 32 high-water acknowledgments. Reset and the one complete
-warm-up tick are outside the samples. Count or fuel drift is fatal. The final
-line prints median, p95, p99, unrounded maximum, and the fixed
-`max <= 10.400 ms` verdict.
+warm-up tick are outside the samples. Count or fuel drift is fatal. Every sample
+times the ladder/admission/commit/status/ack control-plane block separately.
+The final line prints total, control-plane, and total-minus-control-plane
+maxima with three verdicts: total `<= 5.400 ms`, control plane `<= 1.400 ms`,
+and runtime `<= 4.000 ms`.
 
 The hostile module and fuel traps, exported allocations, callback crossings,
 range checks, and byte copies are real Wasmtime work. Atlas scoring,
@@ -209,10 +216,11 @@ retain approximately zero samples at higher CPU quotas. The queue summary
 prints retained and discarded sample counts.
 
 The queue is never replenished because 32 modules / 8 MiB is the contractual
-admitted episode maximum. A timing over 10.4 ms remains a conservative valid
-FAIL even if fewer than the requested samples were retained. A timing at or
-below 10.4 ms can report PASS only with the full requested population;
-otherwise it exits nonzero as `INCONCLUSIVE-INSUFFICIENT-SAMPLES`.
+admitted episode maximum. A timing over any applicable sub-allocation remains
+a conservative valid FAIL even if fewer than the requested samples were
+retained. A timing at or below all three gates can report PASS only with the
+full requested population; otherwise it exits nonzero as
+`INCONCLUSIVE-INSUFFICIENT-SAMPLES`.
 
 Run the quota matrix sequentially so concurrent containers do not contaminate
 one another. On an Apple Silicon host, the arm64 rows are native Linux and the
@@ -240,7 +248,8 @@ done
 ```
 
 Each environment row prints the observed cgroup `cpu.max`, toolchain and
-platform identity, both fixed `max <= 10.400 ms` verdicts, and the queue proof.
+platform identity, all three fixed sub-allocation verdicts for both isolated
+and saturated modes, and the queue proof.
 Every row continues to identify real Wasmtime work versus a synthetic host
 model; no synthetic number is evidence that the future host implementation has
 that cost.

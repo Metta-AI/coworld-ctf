@@ -17,6 +17,10 @@ const
   PoolSlots = 514
   EpochPeriodMs = 5
   EpochDeadlineTicks = 4
+  # Ratified quarter-tick sub-allocation; design lines 3230-3241.
+  AggregateGateNanoseconds = 5_400_000'i64
+  RuntimeGateNanoseconds = 4_000_000'i64
+  ControlPlaneGateNanoseconds = 1_400_000'i64
 
 type
   EmitState = object
@@ -798,6 +802,10 @@ proc compileChild(shape: CompileShape; temperature: string;
   row["cpu"] = %hostCPU
   row["nim"] = %NimVersion
   row["wasmtime_sha256"] = %expectedDigest()
+  row["contract_admissible"] = %(shape != refusedMaximalFunctions)
+  row["interface_check_implemented"] = %false
+  row["interface_decision"] = %(if shape == refusedMaximalFunctions:
+    "P3-tooManyFunctions" else: "admitted-by-function-count")
   row["valid"] = %valid
   row["compile_gate_2000ms"] = %compileGate
   row["ratio_gate_8x"] = %ratioGate
@@ -1083,27 +1091,29 @@ proc runHostileInit(instance: var TickInstance; state: var TickCounters) =
   state.initFuelConsumed += InitFuel
 
 proc completeWorstTick(rig: var TickRig; instances: var seq[TickInstance];
-    ladder: string): TickCounters =
-  rig.host.counters = addr result
+    ladder: string): tuple[counters: TickCounters, controlNanoseconds: int64] =
+  rig.host.counters = addr result.counters
   rig.host.callbackError.setLen(0)
   for instanceIndex in 0 ..< ExpectedSteps:
-    instances[instanceIndex].runHostileStep(result)
+    instances[instanceIndex].runHostileStep(result.counters)
   for instanceIndex in ExpectedSteps ..< ExpectedSteps + ExpectedInits:
-    instances[instanceIndex].runHostileInit(result)
+    instances[instanceIndex].runHostileInit(result.counters)
   for _ in 0 ..< ExpectedDefaults:
-    result.defaultPlay()
+    result.counters.defaultPlay()
   for _ in 0 ..< ExpectedReflexPlans:
-    result.reflexPlanEscape()
+    result.counters.reflexPlanEscape()
+  let controlStarted = getMonoTime()
   for _ in 0 ..< ExpectedLadders:
-    result.validateLadder(ladder)
+    result.counters.validateLadder(ladder)
   for seat in 0 ..< ExpectedAdmissions:
-    result.admitUpload(seat)
+    result.counters.admitUpload(seat)
   for commitIndex in 0 ..< ExpectedCommits:
-    result.commitCompile(commitIndex)
-  result.statusAndAcks()
+    result.counters.commitCompile(commitIndex)
+  result.counters.statusAndAcks()
+  result.controlNanoseconds = elapsedNanoseconds(controlStarted)
   if rig.host.callbackError.len > 0:
     raise newException(ValueError, "tick callback: " & rig.host.callbackError)
-  result.requireExactCounts()
+  result.counters.requireExactCounts()
   rig.host.counters = nil
 
 proc microRow(name, classification: string; iterations: int;
@@ -1337,7 +1347,8 @@ proc compileWorkerMain(worker: ptr CompileWorker) {.thread.} =
 
 proc saturatedTickSamples(rig: var TickRig;
     instances: var seq[TickInstance]; ladder: string; maxSamples: int):
-    tuple[samples: seq[int64], finalState: TickCounters] =
+    tuple[totalSamples, controlSamples, runtimeSamples: seq[int64],
+      finalState: TickCounters] =
   var modules = newSeqOfCap[seq[byte]](32)
   var uniqueness = 0'u64
   for moduleIndex in 0 ..< 32:
@@ -1389,7 +1400,7 @@ proc saturatedTickSamples(rig: var TickRig;
     let worker0AtStart = queue.workerBusyInterval[0].load(moAcquire)
     let worker1AtStart = queue.workerBusyInterval[1].load(moAcquire)
     let tickStarted = getMonoTime()
-    let state = completeWorstTick(rig, instances, ladder)
+    let measurement = completeWorstTick(rig, instances, ladder)
     let elapsed = elapsedNanoseconds(tickStarted)
     let worker0AtEnd = queue.workerBusyInterval[0].load(moAcquire)
     let worker1AtEnd = queue.workerBusyInterval[1].load(moAcquire)
@@ -1400,13 +1411,17 @@ proc saturatedTickSamples(rig: var TickRig;
       worker0AtEnd == worker0AtStart and worker1AtEnd == worker1AtStart
     if completedAfter < 32 and bothWorkersStayedInQueueLoops:
       inc retainedSamples
-      result.samples.add elapsed
-      result.finalState = state
+      result.totalSamples.add elapsed
+      result.controlSamples.add measurement.controlNanoseconds
+      result.runtimeSamples.add elapsed - measurement.controlNanoseconds
+      result.finalState = measurement.counters
       echo &"TICK_SAMPLE mode=saturated sample={retainedSamples} elapsed_ms=" &
         &"{elapsed.float / 1_000_000.0:.6f} " &
+        &"control_ms={measurement.controlNanoseconds.float / 1_000_000.0:.6f} " &
+        &"runtime_ms={(elapsed - measurement.controlNanoseconds).float / 1_000_000.0:.6f} " &
         &"queue_completed_after={completedAfter} queue_drained=false " &
         &"both_workers_in_queue_loops=true " &
-        &"checksum={state.checksum}"
+        &"checksum={measurement.counters.checksum}"
     else:
       inc discardedSamples
       let reason =
@@ -1423,9 +1438,9 @@ proc saturatedTickSamples(rig: var TickRig;
   let completed = queue.completed.load(moAcquire)
   let failures = queue.failures.load(moAcquire)
   if started != 32 or completed != 32 or failures != 0 or
-      result.samples.len == 0:
+      result.totalSamples.len == 0:
     raise newException(ValueError, &"compile queue failed started={started} " &
-      &"completed={completed} failures={failures} samples={result.samples.len}")
+      &"completed={completed} failures={failures} samples={result.totalSamples.len}")
   echo &"COMPILE_QUEUE modules_entered={started} modules_distinct=32 " &
     &"raw_bytes={modules.len * ExactModuleBytes} workers=2 " &
     &"saw_two_busy={queue.sawTwoBusy.load(moAcquire)} completed={completed} " &
@@ -1433,7 +1448,7 @@ proc saturatedTickSamples(rig: var TickRig;
     &"{compileElapsed.float / 1_000_000.0:.3f} modules_per_second=" &
     &"{completed.float / (compileElapsed.float / 1_000_000_000.0):.3f} " &
     &"uniqueness_checksum={uniqueness} samples_retained=" &
-    &"{result.samples.len} samples_discarded={discardedSamples}"
+    &"{result.totalSamples.len} samples_discarded={discardedSamples}"
 
 proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
   var compileWorkers = -1
@@ -1556,29 +1571,48 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
 
   discard completeWorstTick(rig, instances, exactLadder) # warm-up, not sampled
   var elapsedSamples = newSeqOfCap[int64](samples)
+  var controlSamples = newSeqOfCap[int64](samples)
+  var runtimeSamples = newSeqOfCap[int64](samples)
   var finalState: TickCounters
   let mode = if compileWorkers == 0: "isolated" else: "saturated"
   if compileWorkers == 0:
     for sample in 1 .. samples:
       let started = getMonoTime()
-      finalState = completeWorstTick(rig, instances, exactLadder)
+      let measurement = completeWorstTick(rig, instances, exactLadder)
+      finalState = measurement.counters
       let elapsed = elapsedNanoseconds(started)
       elapsedSamples.add elapsed
+      controlSamples.add measurement.controlNanoseconds
+      runtimeSamples.add elapsed - measurement.controlNanoseconds
       echo &"TICK_SAMPLE mode=isolated sample={sample} elapsed_ms=" &
-        &"{elapsed.float / 1_000_000.0:.6f} checksum={finalState.checksum}"
+        &"{elapsed.float / 1_000_000.0:.6f} " &
+        &"control_ms={measurement.controlNanoseconds.float / 1_000_000.0:.6f} " &
+        &"runtime_ms={(elapsed - measurement.controlNanoseconds).float / 1_000_000.0:.6f} " &
+        &"checksum={finalState.checksum}"
   else:
     let saturated = saturatedTickSamples(rig, instances, exactLadder, samples)
-    elapsedSamples = saturated.samples
+    elapsedSamples = saturated.totalSamples
+    controlSamples = saturated.controlSamples
+    runtimeSamples = saturated.runtimeSamples
     finalState = saturated.finalState
   elapsedSamples.sort()
+  controlSamples.sort()
+  runtimeSamples.sort()
   let maxNanoseconds = elapsedSamples[^1]
-  let passed = maxNanoseconds.float <= 10_400_000.0
-  let insufficientSaturatedSamples = passed and compileWorkers == 2 and
+  let maxControlNanoseconds = controlSamples[^1]
+  let maxRuntimeNanoseconds = runtimeSamples[^1]
+  let insufficientSaturatedSamples = compileWorkers == 2 and
     elapsedSamples.len < samples
-  let verdict =
-    if insufficientSaturatedSamples: "INCONCLUSIVE-INSUFFICIENT-SAMPLES"
-    elif passed: "PASS"
-    else: "FAIL"
+  proc verdict(maximum, gate: int64): string =
+    if maximum > gate: "FAIL"
+    elif insufficientSaturatedSamples: "INCONCLUSIVE-INSUFFICIENT-SAMPLES"
+    else: "PASS"
+  let totalVerdict = verdict(maxNanoseconds, AggregateGateNanoseconds)
+  let controlVerdict = verdict(maxControlNanoseconds,
+    ControlPlaneGateNanoseconds)
+  let runtimeVerdict = verdict(maxRuntimeNanoseconds, RuntimeGateNanoseconds)
+  let passed = totalVerdict == "PASS" and controlVerdict == "PASS" and
+    runtimeVerdict == "PASS"
   echo &"TICK_COUNTS resident=512 steps={finalState.steps} " &
     &"step_traps={finalState.stepTraps} step_fuel={finalState.stepFuelConsumed} " &
     &"allocs={finalState.allocations} allocation_bytes=" &
@@ -1604,13 +1638,21 @@ proc tickMode(arguments: seq[string]; includeDiagnostics = true) =
     &"{elapsedSamples.percentile(50).float / 1_000_000.0:.6f} p95_ms=" &
     &"{elapsedSamples.percentile(95).float / 1_000_000.0:.6f} p99_ms=" &
     &"{elapsedSamples.percentile(99).float / 1_000_000.0:.6f} max_ms=" &
-    &"{maxNanoseconds.float / 1_000_000.0:.6f} gate_ms=10.400 verdict=" &
-    verdict
+    &"{maxNanoseconds.float / 1_000_000.0:.6f} total_gate_ms=5.400 " &
+    &"total_verdict={totalVerdict} control_max_ms=" &
+    &"{maxControlNanoseconds.float / 1_000_000.0:.6f} " &
+    &"control_gate_ms=1.400 control_verdict={controlVerdict} runtime_max_ms=" &
+    &"{maxRuntimeNanoseconds.float / 1_000_000.0:.6f} " &
+    &"runtime_gate_ms=4.000 runtime_verdict={runtimeVerdict} " &
+    &"overall_verdict=" & (if passed: "PASS" elif insufficientSaturatedSamples and
+      totalVerdict != "FAIL" and controlVerdict != "FAIL" and
+      runtimeVerdict != "FAIL": "INCONCLUSIVE-INSUFFICIENT-SAMPLES" else: "FAIL")
   if insufficientSaturatedSamples:
     quit(&"saturated runtime-half worst tick retained " &
       &"{elapsedSamples.len}/{samples} requested samples", 1)
   if not passed:
-    quit(mode & " runtime-half worst tick exceeded 10.4 ms", 1)
+    quit(mode & " runtime/control-plane worst tick missed a sub-allocation gate",
+      1)
 
 proc cpuMaxText(): string =
   when defined(linux):

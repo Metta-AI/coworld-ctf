@@ -539,3 +539,231 @@ The post-report validation sweep passed its structural checks:
   `git diff -- src tests Dockerfile` is empty. No native shard was added or run
   because gameplay code is untouched and the spike's executable acceptance is
   `run.sh smoke`.
+
+## Addendum (2026-08-30): retuned budgets and native x86 validation
+
+This addendum remeasures the PM- and James-ratified P0 retune at main
+`0f443dc3`. It supersedes the report's 10.400 ms aggregate gate for the retuned
+workload; it does not rewrite the earlier measurements. The quarter tick now
+allocates 5.0 ms to the body, 4.0 ms to the runtime, and 1.4 ms to the control
+plane. This rig measures runtime plus control plane, so each sample has three
+independent acceptance checks: total at 5.400 ms, the timed control-plane
+sub-region at 1.400 ms, and total minus that sub-region at 4.000 ms.
+
+### Retuned workload ledger
+
+All counts below are derived from `src/shell/types.nim`. The hostile Wasm
+fixture now uses the same constants for its callback loops; the first fail-closed
+probe caught and removed the fixture's stale old-cap loop counts before any
+timing row was accepted.
+
+| Component | Retuned count | Exact evidence |
+|---|---:|---|
+| resident instances | 512 | unchanged |
+| full-fuel steps | 96 | 32 seats × 3 steps |
+| step fuel | 4,800,000 | 96 × 50,000 |
+| emits | 192 | 96 × 2 |
+| cover calls | 384 | 96 × 4 |
+| cover post/threat scores | 4,718,592 | 384 × 1,536 × 8 |
+| full-fuel inits | 2 | server-wide cap |
+| init fuel | 1,000,000 | 2 × 500,000 |
+| ladders / admissions / commits | 64 / 32 / 8 | control-plane sub-region |
+| statuses / acknowledgments | 104 / 32 | control-plane sub-region |
+
+Every accepted row reproduced checksum `12273981320451928546` and the exact
+ledger, including 196 allocations, 6,430,720 allocation bytes, 192 emits,
+786,432 emit bytes, 64 ladders, 104 statuses, and 32 acknowledgments.
+
+### Retuned tick sub-allocation results
+
+The control-plane timer encloses exactly the 64 ladder validations, 32 upload
+admissions, eight compile-result commits, and status/ack construction. Runtime
+is the pairwise `total - control` value for each sample, not a subtraction of
+independently selected percentiles. `I` means isolated and `S` means two real
+compiler workers draining the fixed 32-module/8 MiB queue. A saturated FAIL is
+conclusive with fewer than 30 retained samples; the existing 30-sample floor is
+still required before any saturated PASS may be claimed.
+
+| Environment | `cpu.max` | Mode | n | Total median / max ms (≤5.400) | Control max ms (≤1.400) | Runtime max ms (≤4.000) |
+|---|---|---:|---:|---|---|---|
+| macOS arm64 | unavailable | I | 30 | 27.772 / 28.770 **FAIL** | 5.081 **FAIL** | 23.973 **FAIL** |
+| Linux arm64, 1 CPU | 100000/100000 | I | 30 | 38.722 / 42.223 **FAIL** | 4.075 **FAIL** | 38.325 **FAIL** |
+| Linux arm64, 1 CPU | 100000/100000 | S | 18 | 119.776 / 186.085 **FAIL** | 75.333 **FAIL** | 180.787 **FAIL** |
+| Linux arm64, 2 CPU | 200000/100000 | I | 30 | 38.005 / 43.112 **FAIL** | 3.847 **FAIL** | 39.492 **FAIL** |
+| Linux arm64, 2 CPU | 200000/100000 | S | 18 | 44.908 / 80.208 **FAIL** | 36.355 **FAIL** | 76.014 **FAIL** |
+| Linux arm64, 4 CPU | 400000/100000 | I | 30 | 40.196 / 43.200 **FAIL** | 4.003 **FAIL** | 39.428 **FAIL** |
+| Linux arm64, 4 CPU | 400000/100000 | S | 18 | 42.062 / 46.039 **FAIL** | 4.375 **FAIL** | 41.664 **FAIL** |
+| Linux arm64, 6 CPU | 600000/100000 | I | 30 | 39.356 / 47.168 **FAIL** | 3.841 **FAIL** | 43.384 **FAIL** |
+| Linux arm64, 6 CPU | 600000/100000 | S | 18 | 40.648 / 47.287 **FAIL** | 5.202 **FAIL** | 43.023 **FAIL** |
+| Linux amd64 emulated, 1 CPU | 100000/100000 | I | 30 | 27.044 / 29.767 **FAIL** | 6.245 **FAIL** | 24.657 **FAIL** |
+| Linux amd64 emulated, 1 CPU | 100000/100000 | S | 30 | 99.279 / 107.462 **FAIL** | 68.216 **FAIL** | 100.974 **FAIL** |
+| Linux amd64 emulated, 2 CPU | 200000/100000 | I | 30 | 27.231 / 27.861 **FAIL** | 5.132 **FAIL** | 22.850 **FAIL** |
+| Linux amd64 emulated, 2 CPU | 200000/100000 | S | 30 | 29.658 / 66.426 **FAIL** | 41.524 **FAIL** | 60.821 **FAIL** |
+| Linux amd64 emulated, 4 CPU | 400000/100000 | I | 30 | 27.224 / 31.902 **FAIL** | 6.194 **FAIL** | 25.709 **FAIL** |
+| Linux amd64 emulated, 4 CPU | 400000/100000 | S | 30 | 28.389 / 30.699 **FAIL** | 6.158 **FAIL** | 25.267 **FAIL** |
+| Linux amd64 emulated, 6 CPU | 600000/100000 | I | 30 | 27.402 / 29.060 **FAIL** | 5.373 **FAIL** | 23.888 **FAIL** |
+| Linux amd64 emulated, 6 CPU | 600000/100000 | S | 30 | 28.526 / 31.178 **FAIL** | 6.059 **FAIL** | 26.033 **FAIL** |
+
+The native Linux arm64 image used binary SHA-256
+`5977f266efdcf6430eba9926a8d5795c471534cfdced1339a7ad9ce0dc30079f`;
+the emulated Linux amd64 image used
+`d29b1855e8340bbe13134af0d06a1554c196d22c0b8543b98d6af27f033fbbfc`.
+Both report Nim 2.2.4 and Wasmtime 48.0.1. All saturated rows entered and
+completed 32 distinct modules with zero failures and observed both workers
+busy. The arm64 rows retained 18 samples; the amd64 rows retained 30.
+
+### Emit acceptance normalization
+
+The emit stand-in is a conservative parse/canonicalize/schema/goal-lookup cost
+model, not the P3 contract. On this native macOS run its explicit micro row was
+58.401 µs per adversarial emission (3.89× the P3 engineering acceptance of
+15 µs). The target-local 20-repeat probe used to choose the aggregate path
+measured the same adversarial path at 95.910 µs per emission (6.39×) versus
+64.658 µs for the valid-Intent path, so the aggregate selected adversarial
+late rejection. These are measured stand-in costs; neither number weakens the
+P3 `≤15 µs` acceptance.
+
+| Row | Arithmetic | Result | Classification |
+|---|---|---:|---|
+| Native isolated maximum with 192 emits normalized to 15 µs | 28.770417 ms − 192 × (95.9104 − 15) µs | 13.235620 ms | arithmetic only; not a measurement |
+
+Even this normalization remains above the 5.400 ms combined gate. It isolates
+the amount attributable to the deliberately expensive selected emit stand-in;
+it does not predict P3's eventual validator or redistribute the control-plane
+sub-allocation.
+
+### Compile-shape update
+
+Compile mode now has five exact-262,144-byte valid core-Wasm shapes. The new
+4,096-function row is the worst admissible function-count shape under
+`MaxFunctionsPerModule`; its 1,204,336-byte serialized artifact is 4.594× raw
+and passes the held 8× reservation. The 65,529-function row remains as a
+control explaining the cap: section 6.2 contractually refuses it and P3 will
+return `tooManyFunctions`. This measurement rig deliberately does **not**
+implement that interface check, so Wasmtime still validates and compiles the
+control before its 71.661× ratio fails.
+
+| Shape | Temp | Validate median / max ms | `module_new` median / max ms | Serialized ratio max | Peak delta RSS max KiB | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| enormous function | cold | 0.803 / 0.835 | 3.595 / 3.921 | 0.193× | 4,192 | PASS |
+| enormous function | warm | 0.640 / 0.669 | 2.822 / 2.875 | 0.193× | 368 | PASS |
+| 50,000 local groups | cold | 0.405 / 0.409 | 4.853 / 5.751 | 0.193× | 13,488 | PASS |
+| 50,000 local groups | warm | 0.359 / 0.366 | 4.476 / 4.726 | 0.193× | 7,376 | PASS |
+| deepest nesting (87,372) | cold | 1.573 / 1.613 | 57.072 / 57.306 | 0.193× | 88,480 | PASS |
+| deepest nesting (87,372) | warm | 1.431 / 1.513 | 50.902 / 51.016 | 0.193× | 50,000 | PASS |
+| **contract maximum functions (4,096)** | cold | 0.468 / 0.477 | 112.889 / 115.159 | **4.594×** | 32,960 | **PASS** |
+| **contract maximum functions (4,096)** | warm | 0.395 / 0.424 | 109.460 / 110.517 | **4.594×** | 19,984 | **PASS** |
+| contract-refused functions (65,529) | cold | 5.837 / 5.848 | 1,798.023 / 1,808.541 | **71.661×** | 443,024 | **FAIL ratio; refused by P3** |
+| contract-refused functions (65,529) | warm | 5.630 / 5.662 | 1,812.150 / 1,846.522 | **71.661×** | 323,728 | **FAIL ratio; refused by P3** |
+
+Fresh phase-11 evidence is in
+`/tmp/coworld-ctf-runtime-spike-p11-native-tick.log`,
+`/tmp/coworld-ctf-runtime-spike-p11-{arm64,amd64}-cpu{1,2,4,6}.log`,
+`/tmp/coworld-ctf-runtime-spike-p11-compile.log`, and the two matching
+`p11-build` logs. The native x86 compiler peaks and resulting S2 memory
+recomputation are recorded below.
+
+### Native gen-5+ x86 rows
+
+These are measurements from James's native Linux amd64 devbox, an AWS
+`m6i.8xlarge` with an Intel Xeon Platinum 8375C (Ice Lake, 2.90 GHz). Docker
+reported 32 logical processors and applied `cpu.max` quotas of
+`100000/100000`, `200000/100000`, `400000/100000`, and `600000/100000`.
+The image used Nim 2.2.4, Wasmtime 48.0.1, Wasmtime archive SHA-256
+`67683d04b416a8b91f0e607e7b4c22bd32f18f947c10b5372eb8c277ae3b883a`,
+and benchmark binary SHA-256
+`d29b1855e8340bbe13134af0d06a1554c196d22c0b8543b98d6af27f033fbbfc`.
+The independent native smoke passed all five containment rows and every clean
+post-trap call.
+
+#### Retuned tick matrix
+
+Each isolated row retained 30 samples. Each saturated row retained 30 samples
+while two real workers drained all 32 distinct 256 KiB modules in the 8 MiB
+queue; every row observed both workers in their queue-processing loops and
+completed all modules with zero failures. The values below are the measured
+rows, without cross-target normalization.
+
+| Environment | `cpu.max` | Mode | n | Total median / max ms (<=5.400) | Control max ms (<=1.400) | Runtime max ms (<=4.000) |
+|---|---|---:|---:|---|---|---|
+| Native Linux amd64, 1 CPU | 100000/100000 | I | 30 | 36.050 / 37.204 **FAIL** | 7.036 **FAIL** | 30.686 **FAIL** |
+| Native Linux amd64, 1 CPU | 100000/100000 | S | 30 | 103.959 / 172.946 **FAIL** | 74.348 **FAIL** | 100.093 **FAIL** |
+| Native Linux amd64, 2 CPU | 200000/100000 | I | 30 | 36.036 / 36.670 **FAIL** | 6.838 **FAIL** | 29.991 **FAIL** |
+| Native Linux amd64, 2 CPU | 200000/100000 | S | 30 | 67.860 / 71.096 **FAIL** | 41.279 **FAIL** | 63.905 **FAIL** |
+| Native Linux amd64, 4 CPU | 400000/100000 | I | 30 | 36.094 / 36.396 **FAIL** | 6.588 **FAIL** | 29.852 **FAIL** |
+| Native Linux amd64, 4 CPU | 400000/100000 | S | 30 | 37.292 / 44.940 **FAIL** | 11.721 **FAIL** | 33.219 **FAIL** |
+| Native Linux amd64, 6 CPU | 600000/100000 | I | 30 | 36.034 / 36.788 **FAIL** | 6.647 **FAIL** | 30.173 **FAIL** |
+| Native Linux amd64, 6 CPU | 600000/100000 | S | 30 | 36.974 / 45.175 **FAIL** | 11.658 **FAIL** | 33.517 **FAIL** |
+
+The native x86 isolated rows therefore miss at roughly 36 ms total and 7 ms
+control-plane maximum at every quota. It is an **inference**, not a measured
+attribution, that much of these misses is `std/json`-class parsing and
+canonicalization cost in the stand-ins. `canonical_fast` is the required P3
+emit and control-plane parser/encoder, so the budget freeze now waits for its
+benchmarks on the real paths as well as lane A's quiet-window result. These x86
+rows do not support another constant-cut proposal, and none is made here.
+
+At the 1-vCPU floor, five fresh child processes per configuration measured the
+both-enabled fuel-plus-epoch ratio at 2.1157x / 2.4480x / 2.4692x
+min/median/max: a **2.12-2.47x measured range**, not a claim that the options
+triple runtime.
+
+#### Native 1-vCPU compile table
+
+Each cold and warm cell is three fresh child processes with internal parallel
+compilation disabled. All modules are valid core Wasm and exactly 262,144 raw
+bytes. The 4,096-function shape is admissible; the 65,529-function control is
+contractually refused by P3 before compilation even though the rig compiles it
+to show why the cap exists.
+
+| Shape | Temp | Validate median / max ms | `module_new` median / max ms | Serialized ratio max | Peak delta RSS max KiB | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| enormous function | cold | 0.906 / 0.910 | 5.789 / 6.002 | 0.052x | 7,892 | PASS |
+| enormous function | warm | 0.818 / 0.821 | 5.195 / 5.315 | 0.052x | 300 | PASS |
+| 50,000 local groups | cold | 1.153 / 1.179 | 13.144 / 13.502 | 0.052x | 15,136 | PASS |
+| 50,000 local groups | warm | 0.872 / 0.880 | 10.641 / 10.751 | 0.052x | 2,628 | PASS |
+| deepest nesting (87,372) | cold | 3.429 / 3.479 | 149.148 / 149.262 | 0.068x | **87,560** | PASS |
+| deepest nesting (87,372) | warm | 2.875 / 3.152 | 119.567 / 119.709 | 0.068x | 19,936 | PASS |
+| **contract maximum functions (4,096)** | cold | 0.867 / 0.872 | 297.380 / **300.636** | **4.469x** | 32,000 | **PASS** |
+| **contract maximum functions (4,096)** | warm | 0.709 / 0.714 | 283.995 / 286.998 | **4.469x** | 4,132 | **PASS** |
+| contract-refused functions (65,529) | cold | 12.356 / 12.382 | 4,842.705 / **4,895.765** | **71.582x** | 401,808 | **FAIL; refused by P3** |
+| contract-refused functions (65,529) | warm | 11.109 / 12.420 | 4,609.677 / 4,621.800 | **71.582x** | 71,704 | **FAIL; refused by P3** |
+
+Thus the worst admissible function-count shape compiles in at most 300.636 ms
+at the 1-vCPU floor, while the contract-refused control takes as much as
+4.896 s. Every admissible shape stays below the 2.000 s compile acceptance and
+the 8x serialized reservation. The worst admissible worker RSS delta is 87,560
+KiB (85.508 MiB, approximately 88 MiB at the planning precision), from the
+cold deepest-nesting shape.
+
+#### S2 memory recomputation
+
+The native admissible worker peak replaces the earlier refused-shape macOS
+worker figure. The validator-table reserve and compiled-module cache are
+separate because both can be resident at their contract caps. Arithmetic is in
+KiB:
+
+| Row | KiB | Basis |
+|---|---:|---|
+| pool and 512 full instances | 551,808 | retained Linux baseline 27,520 + measured 524,288 full-memory delta |
+| measured native worst-admissible worker peak | 87,560 | cold deepest-nesting peak RSS delta |
+| compiler worker count | 2 | fixed compile pool width; dimensionless multiplier |
+| compiler-worker reserve | 175,120 | 87,560 x 2 |
+| validator-table reservation | 262,144 | full `MaxValidatorTableBytes` |
+| compiled-module cache reservation | 262,144 | full `MaxCompiledCacheBytes` |
+| current game allowance | 524,288 | separately labeled 512 MiB allowance pending lane A's landed RSS |
+| subtotal before margin | 1,775,504 | pool + workers + validator + cache + current game |
+| operating margin | 443,876 | 25% of subtotal |
+| total with margin | 2,219,380 | 2,167.363 MiB / 2.117 GiB |
+| declarable recommendation | 3,145,728 | rounded upward to 3 GiB |
+
+The native worker measurement lowers compile working-set reserve materially,
+but the explicit compiled-cache reservation keeps the total above 2 GiB after
+the 25% margin. The provisional **3 GiB recommendation therefore remains
+3 GiB**. Its freeze still waits for lane A's landed RSS, and the manifest-schema
+limitation described above still prevents declaring an enforced game memory
+limit today.
+
+Native x86 evidence is retained outside the source tree in
+`/tmp/devbox-x86/all-cpu{1,2,4,6}.log`, `compile-cpu1.log`, `smoke.log`, and
+`build.log`.
