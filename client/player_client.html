@@ -1485,11 +1485,15 @@ function drawSelfTag(){
    nothing at all at this spot (a dead cog has no sprite, same as our own
    self marker disappearing) -- panning the camera here and rendering
    NOTHING would read as a broken/empty killcam, not an intentional "you
-   traded" moment. Labeled CORPSE instead of the old "KILLER · TRADED":
-   not a new word, but the engine's own noun for exactly this state
-   (labels.nim LabelPrefixCorpse, "corpse <color> <side>" -- "deliberately
-   NOT the player prefix so a scanner never counts a corpse as a live
-   threat", which is precisely the distinction this marker has to carry).
+   traded" moment. Labeled TAGGED instead of the old "KILLER · TRADED"
+   (Maxwell, ruling on an earlier CORPSE draft: "corpse also sounds
+   morbid... they didn't DIE" -- then, rhetorically, "what does paintball
+   use?"). Paintball's own answer is exactly this word: nobody dies, you
+   get tagged/marked, you're out, you walk to the deadbox -- so TAGGED
+   carries the same "not a live threat" distinction this marker has to
+   make (see the ring/fill split below) without CORPSE's morbidity or
+   KILLER's off-register jargon, and it's the sport's real word, not a
+   coinage.
    The color ring reuses colorWordRgba (the same palette lookup the death
    card's own chip already uses, sim_types.nim PlayerColors) instead of a
    fixed red/grey, plus the cog-ring keyline (RING_KEY, ringSprite's own
@@ -1514,7 +1518,7 @@ function drawKillcamMarker(){
   x.font="10px ui-monospace,SFMono-Regular,Menlo,monospace";
   x.textAlign="center";x.lineWidth=2.5;
   x.strokeStyle="rgba(0,0,0,.85)";x.fillStyle=fill;
-  const label=traded?"CORPSE":(info.team||info.color||"unknown").toUpperCase();
+  const label=traded?"TAGGED":(info.team||info.color||"unknown").toUpperCase();
   const ty=info.killerY-22;
   x.strokeText(label,info.killerX,ty);
   x.fillText(label,info.killerX,ty);
