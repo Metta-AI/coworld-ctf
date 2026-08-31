@@ -18,6 +18,7 @@ import
   test_policy_reflash,
   test_puddles,
   test_replay_controls,
+  test_shell_replay,
   test_shell_transport,
   test_trenches,
   test_weapon_observability,
