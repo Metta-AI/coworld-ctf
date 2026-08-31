@@ -211,6 +211,30 @@ let k={},l=255,w,z=0,t=0,sawFrame=false,pixelImage=x.createImageData(128,128),sp
    glide can never perturb what gets sent to the server. */
 let movingObjects=new Set(),packetInterval=1000/24,lastMotionAt=0,rafHandle=0;
 const SNAP_DISTANCE=48;
+/* FOG_LAYER_ID (src/ctf/global.nim: FogLayerId=4) is excluded from motion
+   interpolation below (blackbars lane, confirmed 8/30/8/31): fog-of-war
+   ships as many independent per-row "run" rectangle objects
+   (addFogRuns), rebuilt from scratch every tick from the live vision
+   cone -- NOT tracked, continuous entities the way a player/bot sprite
+   is. Gliding them through the same Math.round(lerp(from,to,t)) path as
+   real moving objects was never semantically meaningful (there is no
+   real motion between one tick's mask and the next, recomputed one), and
+   in practice it actively hurts: two runs that are pixel-adjacent in the
+   authoritative (server-sent) data can round to DIFFERENT integer
+   positions mid-glide, momentarily exposing a gap of the lit map layer
+   underneath through the ~37%-opacity fog (FogAlpha=160) -- confirmed by
+   direct instrumentation of dispX/dispY during a live aim sweep: 1506 of
+   2351 sampled interpolation ticks (64%) showed at least one such gap
+   between two rows that were exactly touching in their target rects,
+   with magnitudes up to a full FovCellSize (8px) and occasionally a full
+   run-width (up to SNAP_DISTANCE) when a reused run-object index briefly
+   points at an unrelated region. This is Maxwell's "negative space lines
+   in the shadows" report. Fog runs now SNAP straight to their target
+   position every time the server sends one, same as any object whose
+   glide test already fails today (a layer change, or a jump past
+   SNAP_DISTANCE) -- this is not a new code path, just a new way into the
+   existing snap branch. */
+const FOG_LAYER_ID=4;
 /* Object-pool id range for the floating "-N"/"SPLAT" damage pops the server
    already streams (src/ctf/global.nim: DamagePopObjectBase=38000, one slot
    per concurrent pop, documented range 38000..38031). Hit feedback below
@@ -566,7 +590,7 @@ function parseSprite(bytes){
       }else{
         const spriteChanged=existing.spriteId!==spriteId;
         if(existing.x!==ox||existing.y!==oy){
-          const glide=existing.layer===layer&&Math.abs(ox-existing.x)<=SNAP_DISTANCE&&Math.abs(oy-existing.y)<=SNAP_DISTANCE;
+          const glide=existing.layer===layer&&layer!==FOG_LAYER_ID&&Math.abs(ox-existing.x)<=SNAP_DISTANCE&&Math.abs(oy-existing.y)<=SNAP_DISTANCE;
           if(glide){
             existing.fromX=existing.dispX;existing.fromY=existing.dispY;existing.moveAt=packetTime;
             movingObjects.add(existing);motionSeen=true;
