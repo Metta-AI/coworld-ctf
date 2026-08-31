@@ -1,25 +1,35 @@
 # The Pre-Match Vote Wire: 0xA4 Ballot, 0xB3 Vote State, Record 0x17
 
-**Status:** DESIGN, final layouts for reservation · **Date:** 2026-08-31 ·
-**Author:** Maxwell's coding agent · **Reviewers:** James (owns the opcode
-and record space, the manifest, and the shell handshake this rides on),
-Maxwell (ballot content, scheduling) · **Canonical home:** this file, in
-`coworld-ctf`. **Builds on:**
+**Status:** DESIGN, final layouts — numbers reserved on `main`, three
+corrections folded in after the spec-holder's byte-exact verification ·
+**Date:** 2026-08-31 · **Author:** Maxwell's coding agent · **Reviewers:**
+James (owns the opcode and record space, the manifest, and the shell
+handshake this rides on), Maxwell (ballot content, scheduling) ·
+**Canonical home:** this file, in `coworld-ctf`. **Builds on:**
 `docs/designs/prematch-vote-phase-2026-08-31.md` (PR #319, merged — the
 ballot's product design: four options A-D, A/B/C are complete certified
-episode configs, D is "random," section 5's tally and tie rules) and
+episode configs, D is "random," section 5's tally and tie rules),
 `docs/designs/strategy-play-calling-shell-2026-08-29.md` (the shell this
-extends; cited below as **Shell:line**).
+extends; cited below as **Shell:line**), and commit `2c2f905c` ("shell:
+reserve vote-phase numbers — opcodes 0xA4/0xB3, record 0x17 (#319/#322)",
+on `main`), which reserves `OpBallotCastReserved* = 0xA4'u8`,
+`OpVoteStateReserved* = 0xB3'u8` (`src/shell/types.nim:261-262`), and
+`RecVoteReserved* = 0x17'u8` (`src/shell/types.nim:288`) so nothing else
+can claim them before this document's layouts land in their place.
 
 This document does one thing: it turns PR #319 §4(b)'s sketch — "a
 dedicated packet pair... modeled on the `PlayCall` transaction" — into
 byte-exact layouts, in the exact documentation style of the landed
-`0xA3`/`0xB2`/`0x13` triple (Shell:489-490, 2467-2492, 267-270), using the
-opcodes and record number already pencilled for this purpose: **`0xA4`**
-(ballot, client→server), **`0xB3`** (vote state, server→client), and
-replay record **`0x17`**. Two structural questions PR #319 left open for
-James (§9, Q1 and Q2) are answered here as proposals, not decisions —
-flagged in section 6.
+`0xA3`/`0xB2`/`0x13` triple (Shell:489-490, 2467-2492, 267-270), using
+**`0xA4`** (ballot, client→server), **`0xB3`** (vote state, server→client),
+and replay record **`0x17`** — the numbers James reserved in `2c2f905c`.
+Two structural questions PR #319 left open for James (§9, Q1 and Q2) are
+now **ruled**, not proposed: `2c2f905c`'s commit message settles Q1 —
+"0x17 ruled hash-coupled like 0x14-0x16, no manifest arm (settled:
+in-chain under the vote gate, no GV claim)" — restated in section 4. Q2
+(does the mechanism fit his real handshake) stays open, narrowed by a
+correction the spec-holder's verification pass surfaced: this document's
+first draft had the `PlayContext` deferral shape wrong (section 1, F2).
 
 ---
 
@@ -29,14 +39,15 @@ PR #319 §2 sketched three shapes and left the choice to James; this
 document assumes shape 2, **"defer `PlayContext`'s full gameplay payload
 until the vote closes"** (prematch-vote-phase-2026-08-31.md:90-97),
 because it is the one that changes nothing about container-start order or
-the section-10 map barrier — only the timing of one already-deferrable
-send. Concretely, this extends Shell §9.2's three-substate table
+the section-10 map barrier — only the content and resend timing of the
+already-existing `PlayContext` send/rebind path (refined below, F2).
+Concretely, this extends Shell §9.2's three-substate table
 (Shell:2451-2455) with a fourth substate, **`voting`**, entered after
 `joining` and exited before `chatting` begins:
 
 | Substate | Entry | While in it | Exit |
 |---|---|---|---|
-| `voting` | once per episode, when `joining` exits and any play seat is configured | ballot casts (below) are admitted; the `startWaitTicks` countdown is held, exactly as `chatting` holds it (Shell:2454); `PlayContext`'s gameplay payload send is **deferred** for every play seat until this substate exits — until then a play seat that registers receives the existing pre-activation **control-only `PlayView`** frames (`viewLen = 0`, Shell:522-526) as if it had not yet been sent `PlayContext` at all, which is a direct generalization of the existing pre-activation rule rather than a new mechanism: today `PlayContext` sends "at registration ... its gameplay payload depends only on the mode, map, and the configured closed roster of section 5.1, all known at registration" (Shell:521-522); in a vote-enabled episode that precondition is false until resolution, so the send point moves from registration to resolution and the control-only interim is unchanged. Uploads, calls, and acknowledgments flow exactly as in the existing pre-activation state (Shell:527-528) — nothing about them depends on knowing the map or mode. | `voteTicks` elapses, **or** every configured play seat has cast a valid ballot (early resolution — see judgment call J1) |
+| `voting` | once per episode, when `joining` exits and any play seat is configured | ballot casts (below) are admitted; the `startWaitTicks` countdown is held, exactly as `chatting` holds it (Shell:2454). **`PlayContext`'s gameplay content, not the packet itself, is what's deferred** (correction, F2): at registration, and on every rebind while `voting` is still open, the server sends `0xB0` with its **full control envelope already populated** (the recovery state of Shell:650-654 — accepted call, playbook inventory, budgets, floors, generation, epoch, high-water mark — none of which depends on mode, map, or roster) and **`ctxLen = 0`**, a wire-legal `PlayContext` today (`ctxLen` is an ordinary length-prefixed field with no nonzero requirement, Shell:491) rather than a new packet shape. This keeps "the context packet is sent first" on every bind (Shell:655-657) true without exception, so a mid-voting rebind still gets its recovery state immediately — the gap the first draft of this document had, by proposing to withhold `PlayContext` entirely until resolution. When `voting` resolves, the server sends `0xB0` again to every play seat, this time with `ctxLen` populated with the real gameplay context (mode, map, roster) alongside the then-current control envelope; **latest-wins** — the client adopts whichever `0xB0` it received most recently, the same supersession rule `PlayView` coalescing already uses (Shell:2551-2554), so the empty-context send is superseded, never patched. Uploads, calls, and acknowledgments flow exactly as in the existing pre-activation state (Shell:527-528) throughout — nothing about them depends on knowing the map or mode. | `voteTicks` elapses, **or** every *configured* play seat has cast a valid ballot (early resolution — J1, section 6) — **never** while a configured seat that has not yet cast currently holds a reconnectable tombstone (`pssLost`, `src/shell/types.nim:97-103`): that seat is absent, not resolved, exactly as "a play seat `lost` counts as absent just like one never bound" already holds for the `playSeatBindTicks` presence budget (Shell:2453). `voteTicks` bounds the total wait either way — a seat that never reconnects simply never casts, and its abstention resolves as implicit D at the timer, the same outcome as if it had sat silently bound the whole phase. |
 | `chatting` | `voting` exits | unchanged from Shell:2454 | unchanged |
 
 `voting` precedes `chatting` (not the reverse) so that lobby chat, once it
@@ -109,6 +120,16 @@ kind 1 (resolved): u8 op (0xB3), u8 ver, u8 kind (1), u64 ordinal,
 `kind` outside `{0, 1}` rejects the packet at the decoder (same "any other
 value rejects the packet" discipline as the version byte, Shell:479).
 
+**F3 — `0xB3`'s ordinal is its own sequence, not `0xB2`'s.** The two
+opcodes do not share one counter: each has an independent per-episode
+monotonic sequence starting at 1. This is the reading consistent with
+`0xB2`'s landed behavior, where the engine "stamps each accepted
+[LobbyChat] message with a **lobby** ordinal" (Shell:2489, emphasis
+added) — a name and a definition scoped to the lobby-chat stream, with
+nothing in the landed design describing a value shared across opcodes.
+A `0xB3` ordinal of `7` and a `0xB2` ordinal of `7` in the same episode
+are two unrelated facts; a client must never compare them.
+
 - **Kind 0** broadcasts an accepted `0xA4`, one message per packet,
   **broadcast to every play seat, sender included, in ordinal order,
   never coalesced** — byte-for-byte the same delivery contract `LobbyChat`
@@ -157,24 +178,27 @@ kind 1 (resolved): u8 type (0x17), u32 replayTimeMs, u8 kind (1),
                    u8 finalOption
 ```
 
-**Hash-coupled, not excluded.** `LobbyChat` (`0x13`) is explicitly
-excluded from the game hash because "it drives no gameplay" (Shell:2579).
-A ballot is the opposite: its resolution selects the map, mode, and
-roster the rest of the episode simulates under (prematch-vote-phase-
-2026-08-31.md:214-216), so record `0x17` is proposed to ride the gameplay
-hash chain **the same way the lifecycle records `0x14`-`0x16` already do**
-— "covered by the gameplay hash chain like [joins and leaves], not by a
+**Hash-coupled, not excluded — ruled, not proposed.** `LobbyChat` (`0x13`)
+is explicitly excluded from the game hash because "it drives no gameplay"
+(Shell:2579). A ballot is the opposite: its resolution selects the map,
+mode, and roster the rest of the episode simulates under (prematch-vote-
+phase-2026-08-31.md:214-216), so record `0x17` rides the gameplay hash
+chain **the same way the lifecycle records `0x14`-`0x16` already do** —
+"covered by the gameplay hash chain like [joins and leaves], not by a
 manifest arm" (prematch-vote-phase-2026-08-31.md:210-212, citing
 Shell:876-878) — rather than getting its own excluded-but-integrity-
-checked global manifest arm the way `0x13` does. Concretely: **no change
-to `RecManifest` (`0x12`) is proposed**, because hash-coupled records need
-no separate arm, the same reason `0x14`-`0x16` need none today. This is
-the single largest judgment call in this document (J4, section 6) and is
-explicitly flagged for James — it resolves PR #319 §9 Q1 by choosing the
-"lifecycle record" precedent over the "lobby chat" precedent, which PR
-#319 itself already flagged as "very likely its own GV claim" (prematch-
-vote-phase-2026-08-31.md:216-223); this document does not name that
-GameVersion, only the record shape it would cover.
+checked global manifest arm the way `0x13` does. This was this document's
+first draft's largest judgment call (formerly J4); it is now **settled**
+by James in commit `2c2f905c`'s reservation message: "0x17 ruled
+hash-coupled like 0x14-0x16, no manifest arm (settled: in-chain under the
+vote gate, no GV claim)." That resolves PR #319 §9 Q1 in favor of the
+"lifecycle record" precedent over the "lobby chat" precedent, and rules
+out the GameVersion claim PR #319 flagged as "very likely" (prematch-
+vote-phase-2026-08-31.md:216-223) — the ruling is explicit that this
+lands "under the vote gate," i.e., inside the existing `season2Shell` gate
+rather than a new GV. Concretely: **no change to `RecManifest` (`0x12`)
+is needed**, because hash-coupled records need no separate arm, the same
+reason `0x14`-`0x16` need none today.
 
 **What a replaying client reconstructs from `0x17` alone,** given the
 episode's already-launch-known roster of configured play seats and
@@ -192,11 +216,11 @@ deterministic seed (no new entropy source enters the wire — section 5):
    `tieBreakDrawn`/`finalOption`. A mismatch is corruption, caught by the
    same per-seat/per-tick hash-chain verification that already catches a
    tampered `0x14`-`0x16` record, with no new negative-control test class
-   needed (a direct consequence of J4).
+   needed (a direct consequence of the hash-coupled ruling above).
 4. Which of the launch config's A/B/C bundles (map, mode, roster) the
    rest of the recorded episode plays out under — the same fact the live
-   client learns from its deferred `PlayContext` (section 1) — before the
-   first playing tick.
+   client learns from the resolution-time `0xB0` resend (section 1, F2)
+   — before the first playing tick.
 
 ## 5. Tally, re-vote, and the two-stage random draw
 
@@ -236,54 +260,76 @@ document adds to make it wire-exact:
 
 ## 6. Judgment calls and open questions
 
+**Ruled by James, on `main` (`2c2f905c`):** two items this document's
+first draft carried as open are settled. (1) The number reservation
+itself — `OpBallotCastReserved* = 0xA4'u8`, `OpVoteStateReserved* =
+0xB3'u8` (`src/shell/types.nim:261-262`), `RecVoteReserved* = 0x17'u8`
+(`src/shell/types.nim:288`) — landed, and the commit records byte-exact
+verification of all three layouts against this document. (2) Record
+`0x17`'s hash-chain treatment (section 4, formerly "J4") — ruled
+hash-coupled, no manifest arm, in-chain under the vote gate, no
+GameVersion claim. Neither is open anymore.
+
 **Judgment calls made here** (documented, not blocking — flagged so
 James can overrule any of them without this document being wrong about
 anything else):
 
-- **J1 — early resolution.** `voting` exits at `voteTicks` **or** when
-  every configured play seat has cast, whichever is first, rather than
-  always running the full timer the way `chatting` does. Chat is
+- **J1 — early resolution, bounded by presence.** `voting` exits at
+  `voteTicks` **or** when every *configured* play seat has cast,
+  whichever is first — but a configured seat that has not cast and
+  currently holds a reconnectable tombstone (`pssLost`) blocks the early
+  path (section 1's Exit cell, F4), exactly as `pssLost` already blocks
+  `playSeatBindTicks`'s presence budget (Shell:2453). `voteTicks` is the
+  only clock that can still close the phase around such a seat. Chat is
   open-ended prose with no natural completion signal; a ballot is a
-  closed four-way choice that has one the instant every seat has spoken.
+  closed four-way choice that has one the instant every seat has either
+  spoken or is confirmed gone for good (kicked, not merely lost).
 - **J2 — acknowledgment model.** `0xA4` follows `LobbyChat`'s
   broadcast-is-the-ack model rather than the durable `StatusEntry`/
   `StatusAck` model uploads and calls use (section 2).
 - **J3 — open ballot, not secret.** Votes broadcast live to every play
   seat as they're cast (section 3), matching the lobby's existing
   "no fog" stance rather than revealing only the final tally.
+- **F3 — `0xB3` has its own ordinal sequence, not `0xB2`'s** (section 3):
+  stated explicitly so no implementation assumes a shared counter.
 - **Proposed limits and defaults** in section 7 (`voteTicks`,
   `BallotCastMaxPerSeatPerPhase`, `BallotCastMinSpacingTicks`) are sized
   by analogy to `lobbyChatTicks` and `LobbyChatMaxPerSeatPerPhase`, not
   measured; P0-style retuning is expected once real casts are run.
 
-**Genuinely open, his surface** (per the standing rule that most
-"questions for James" collapse into decisions we can make inside his
-format contract — these three do not, because they touch the number
-space, the manifest, or the handshake directly):
+**Genuinely open, his surface** (the one item left that touches the
+handshake directly — the number reservation and the manifest-arm
+question above are no longer open):
 
-1. **The number reservation itself.** `0xA4`, `0xB3`, and `0x17` are
-   used throughout this document as already pencilled; this document is
-   the "proposed layout" his reservation commit was waiting on
-   (prematch-vote-phase-2026-08-31.md, task framing). Formal ask: land
-   them as shown in Appendix A.
-2. **J4 — hash-coupled `0x17`, no new manifest arm (section 4).** This is
-   the one ruling PR #319 explicitly left as "flagged, not decided"
-   (§9 Q1). If James prefers the excluded/manifest-arm shape instead (to
-   keep the ballot out of the game-hash-chain GameVersion bump, matching
-   `0x13` rather than `0x14`-`0x16`), `RecManifest` (`0x12`) would need a
-   new global arm — record count + ordered-chain hash of the `0x17`
-   array, the same shape `0x13`'s transcript arm already has (Shell §9.3)
-   — and this document's section 4 reconstruction guarantee would rest on
-   that arm's integrity check instead of the hash chain. Either shape is
-   fully specified by this document; only the choice is his.
-3. **Whether the `voting` substate and the `PlayContext`-defer mechanism
-   (section 1) land cleanly inside his actual handshake code as
-   described**, or need a hook the description above doesn't anticipate.
-   The mechanism is proposed as a pure generalization of the existing
-   pre-activation control-only-frame rule (Shell:521-526) with no new
-   state — but confirming that's true of the real implementation, not
-   just the spec prose, is his call, the same way PR #319 §9 Q2 framed it
-   ("mechanical... not architectural").
+1. **Whether the corrected `PlayContext` mechanism (section 1, F2 — send
+   with `ctxLen = 0` at registration and on every rebind while `voting`
+   is open, re-send with the real context at resolution, latest-wins)
+   lands cleanly inside his actual handshake code as described**, or
+   needs a hook this document doesn't anticipate. This document's first
+   draft proposed withholding the `PlayContext` send itself until
+   resolution, framed as "a direct generalization of the existing
+   pre-activation rule" — that framing was wrong: it does not compose
+   with mid-voting rebind recovery, because the recovery state
+   (generation, epoch, budgets, high-water mark, playbook inventory,
+   Shell:650-654) a rebinding client needs would have had nowhere to
+   travel until resolution. The corrected shape keeps every existing
+   invariant about *when* `PlayContext` is sent intact and changes only
+   what `ctxLen` is at each send, which the spec-holder has verified is
+   wire-legal today with no schema change. Confirming that composes with
+   the real implementation, not just this prose, is still his call, the
+   same way PR #319 §9 Q2 framed it ("mechanical... not architectural").
+
+**Implementation ownership (coordinated, not built here):** `0xA4` is
+rejected by the landed classifier today — both `dispatch.nim:49` and
+`packets.nim:135` enumerate the admitted client-opcode set and do not
+include it. Wiring this layout up is sequenced work on the shell's side,
+after the ruling above: a `packets.nim` decode/encode arm for `0xA4` and
+the `0xB3` encoder, mirroring the existing `OpLobbyChatSend`/
+`OpLobbyChatBroadcast` arms (`packets.nim:190-199,238-252`); a
+ballot-consumer seam in `dispatch.nim` mirroring `cpkLobbyChatSend`
+(`dispatch.nim:49,60`); and an `0x17` reader/writer arm in the replay
+codec (`src/shell/replay_records.nim`, landed by lane B gate 2). This
+document specifies the bytes; it does not implement the arms.
 
 ## 7. Additions to the §4.3 limits table
 
@@ -308,10 +354,17 @@ outbound queue and replay-on-bind cursor unchanged (section 3).
 
 ---
 
-## Appendix A: proposed constant block, for the reservation commit
+## Appendix A: proposed constant block, superseding the reserved placeholders
 
-In the exact style of `src/shell/types.nim`'s existing opcode and record
-blocks (lines 226-278), for James to drop in with the reservation:
+`2c2f905c` already landed `OpBallotCastReserved* = 0xA4'u8`,
+`OpVoteStateReserved* = 0xB3'u8` (`src/shell/types.nim:261-262`), and
+`RecVoteReserved* = 0x17'u8` (`src/shell/types.nim:288`) as do-not-reuse
+placeholders, "reservation only... byte layouts land with the vote-phase
+implementation." This is that follow-up block, in the exact style of
+`src/shell/types.nim`'s existing opcode and record definitions (the full
+block now spans lines 226-291), for James to drop in — renaming or
+replacing the three `*Reserved` constants — once the implementation lane
+in section 6 is sequenced:
 
 ```nim
   OpBallotCast* = 0xA4'u8
@@ -323,13 +376,14 @@ blocks (lines 226-278), for James to drop in with the reservation:
     ## kind 0 (cast): u8 seat, u8 team, u8 option; kind 1 (resolved):
     ## u8 category, u8 tieBreakDrawn, u8 finalOption. Total = 18, fixed,
     ## both kinds. One message per packet, broadcast to every play seat,
-    ## never coalesced.
+    ## never coalesced. Own ordinal sequence, independent of 0xB2's.
 
   RecBallot* = 0x17'u8
     ## u8 type, u32 replayTimeMs, u8 kind, u64 ordinal, then kind 0:
     ## u8 seat, u8 team, u8 option; kind 1: u8 category, u8 tieBreakDrawn,
     ## u8 finalOption. Total = 17, fixed, both kinds. Global transcript
-    ## array, ordinal order, hash-coupled (proposed — §6 open item 2).
+    ## array, ordinal order, hash-coupled like 0x14-0x16, no manifest arm
+    ## (ruled, 2c2f905c).
 
   BallotCastPacketBytes* = 16
   VoteStatePacketBytes* = 18
@@ -341,5 +395,5 @@ blocks (lines 226-278), for James to drop in with the reservation:
 ---
 
 🤖 Drafted for review; nothing here ships without James's ruling on
-section 6's three open items, and without Maxwell's go per the standing
-see-and-test rule.
+section 6's remaining open item, and without Maxwell's go per the
+standing see-and-test rule.
