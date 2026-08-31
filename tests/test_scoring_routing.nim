@@ -94,3 +94,77 @@ suite "scoring schema routing":
     check not results.hasKey("kills")
     check results["scores"][0].getFloat() > 0.5
     check results["scores"][1].getFloat() < 0.5
+
+suite "results seat arity (the coworld hosted-certification regression)":
+  ## #327 fixed the SCORING (real kills/captures instead of a 500/500 tie)
+  ## but exposed a pre-existing arity bug in the classic path it now routes
+  ## to: `ctfPlayerResultsJson` reported one row per joined SLOT (== per
+  ## cog), which equals `numAgents` only when every seat fields exactly one
+  ## cog. server.nim's `squadMode` (gated on `numAgents > 0 and
+  ## cogsPerTeam > 1` -- true for every classic variant, since
+  ## `cogsPerTeam` defaults to 4 and none of them override it) auto-fills
+  ## trusted cogs past the real seats toward `sim.totalCogs()`, capped by
+  ## `MaxPlayers` (32) rather than by the seat count. A 16-seat classic
+  ## match's squad-fill therefore silently parks 32 total cogs in
+  ## `sim.players`, and the pre-fix proc reported 32 rows: hosted
+  ## certification rejected it outright --
+  ## `error=game returned 32 scores for 16 seats`
+  ## (cow_c546b854-2f58-4499-9c51-bed924333a51, run 33443353700).
+  ##
+  ## The fix folds every extra cog's stats onto its OWNING seat
+  ## (`cogSeat`'s own rule, sim.nim: `joinOrder mod numAgents` -- seat k's
+  ## squadmates are cogs k, k+numAgents, k+2*numAgents, ... -- this
+  ## project's own "k, k+16" duo-seat spacing, not adjacent indices)
+  ## instead of emitting a separate row. Reverting the fold (restore the
+  ## old one-row-per-slot loop) fails both tests below for the right
+  ## reason: `scores.len` back at the raw joined-cog count (32 / 8) instead
+  ## of the seat count (16 / 4).
+  test "certification shape: 16 seats squad-filled to 32 cogs folds back to 16 scores":
+    var sim = initCtfForTest(defaultGameConfig())
+    sim.config.numAgents = 16
+    check sim.config.loadout == LoadoutCtf
+    for i in 0 ..< 16:
+      discard sim.addPlayer("policy" & $i, i, "", trusted = true)
+    sim.startGame()
+    # A real kill by seat 0's own (primary) cog.
+    sim.recordKillCredit(0, 1)
+    # Squad-fill exactly the way server.nim's squadMode does: cogs 16..31
+    # join at their own joinOrder. Cog 16 lands on SEAT 0 (`cogSeat` =
+    # joinOrder mod numAgents = 16 mod 16 = 0) as its squadmate.
+    for i in 16 ..< 32:
+      discard sim.addPlayer("squad-alias-" & $i, i, "", trusted = true)
+    let squadmateIndex = sim.playerIndexForSlot(16)
+    check squadmateIndex >= 0
+    # A real kill by seat 0's SQUADMATE too -- must fold onto seat 0's row,
+    # not spawn a 17th.
+    sim.recordKillCredit(squadmateIndex, 1)
+    sim.finishGame(Red)
+
+    let results = parseJson(sim.playerResultsJson())
+    check results["scores"].len == 16
+    check results["names"].len == 16
+    check results["kills"].len == 16
+    # Both the primary cog's kill AND its squadmate's kill land on seat 0.
+    check results["kills"][0].getInt() == 2
+    check results["win"][0].getBool()
+
+  test "a differently-sized agents-vs-seats shape (4 seats, 2 cogs each) folds the same way":
+    ## Not a special case pinned to 16/32: the same `joinOrder mod
+    ## numAgents` fold at a different seat count.
+    var sim = initCtfForTest(defaultGameConfig())
+    sim.config.numAgents = 4
+    for i in 0 ..< 4:
+      discard sim.addPlayer("policy" & $i, i, "", trusted = true)
+    sim.startGame()
+    for i in 4 ..< 8:
+      discard sim.addPlayer("squad-alias-" & $i, i, "", trusted = true)
+    # Seat 1's squadmate is cog 5 (1 + numAgents).
+    let squadmateIndex = sim.playerIndexForSlot(5)
+    check squadmateIndex >= 0
+    # cog 5 is Blue (odd slot); cog 0 is Red -- an enemy kill.
+    sim.recordKillCredit(squadmateIndex, 0)
+    sim.finishGame(Blue)
+
+    let results = parseJson(sim.playerResultsJson())
+    check results["scores"].len == 4
+    check results["kills"][1].getInt() == 1
