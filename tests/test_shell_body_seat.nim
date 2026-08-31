@@ -120,11 +120,11 @@ suite "shell body seat belief-lite seam":
     first.updateBelief(BodyTickInputs(self: selfState((16, 24)),
       visibleTracks: @[
         BodyTrackUpdate(seat: 1, pos: (32, 24), team: Blue,
-          aimBrads: 0, hpKnown: none(int), tick: 0)]), 0)
+          aimBrads: some(0), hpKnown: none(int), tick: 0)]), 0)
     second.updateBelief(BodyTickInputs(self: selfState((48, 24)),
       visibleTracks: @[
         BodyTrackUpdate(seat: 0, pos: (32, 24), team: Red,
-          aimBrads: 0, hpKnown: none(int), tick: 0)]), 0)
+          aimBrads: some(0), hpKnown: none(int), tick: 0)]), 0)
     nav.rebuildScheduledDanger(0, @[
       first.dangerInputFromTracks(0, proc(track: BodyTrack): bool = true),
       second.dangerInputFromTracks(0, proc(track: BodyTrack): bool = true)])
@@ -136,7 +136,7 @@ suite "shell body seat belief-lite seam":
     second.updateBelief(BodyTickInputs(self: selfState((48, 24)),
       visibleTracks: @[
         BodyTrackUpdate(seat: 0, pos: (32, 24), team: Red,
-          aimBrads: 0, hpKnown: none(int), tick: 1)]), 1)
+          aimBrads: some(0), hpKnown: none(int), tick: 1)]), 1)
     nav.rebuildScheduledDanger(1, @[
       first.dangerInputFromTracks(1, proc(track: BodyTrack): bool = true),
       second.dangerInputFromTracks(1, proc(track: BodyTrack): bool = true)])
@@ -222,7 +222,7 @@ suite "shell body seat belief-lite seam":
       check track.isNone
     body.updateBelief(BodyTickInputs(self: selfState(), visibleTracks: @[
       BodyTrackUpdate(seat: 4, pos: (80, 40), team: Blue,
-        aimBrads: 64, hpKnown: none(int), tick: 10)]), 10)
+        aimBrads: some(64), hpKnown: none(int), tick: 10)]), 10)
     check body.tracks[4].isSome
     check body.tracks[4].get.hpKnown.isNone
     check body.tracks[5].isNone
@@ -234,7 +234,7 @@ suite "shell body seat belief-lite seam":
 
     body.updateBelief(BodyTickInputs(self: selfState(), visibleTracks: @[
       BodyTrackUpdate(seat: 4, pos: (82, 40), team: Blue,
-        aimBrads: 65, hpKnown: some(2), tick: 12)]), 12)
+        aimBrads: some(65), hpKnown: some(2), tick: 12)]), 12)
     check body.tracks[4].get.hpKnown == some(2)
 
   test "duo telemetry is live sim truth and ends exactly at death":
@@ -248,7 +248,7 @@ suite "shell body seat belief-lite seam":
 
     body.updateBelief(BodyTickInputs(self: selfState(), visibleTracks: @[
       BodyTrackUpdate(seat: 1, pos: (60, 30), team: Red,
-        aimBrads: 8, hpKnown: none(int), tick: 3)], partner:
+        aimBrads: some(8), hpKnown: none(int), tick: 3)], partner:
       some(PartnerSample(seat: 1, pos: (74, 31), aimBrads: 14,
         alive: true))), 4)
     check body.tracks[1].get.pos == (60, 30)
@@ -269,9 +269,9 @@ suite "shell body seat belief-lite seam":
     let first = activateSeatBody(map, 0, 331)
     let second = activateSeatBody(map, 0, 331)
     let a = BodyTrackUpdate(seat: 7, pos: (100, 40), team: Blue,
-      aimBrads: 80, hpKnown: some(1), tick: 20)
+      aimBrads: some(80), hpKnown: some(1), tick: 20)
     let b = BodyTrackUpdate(seat: 3, pos: (60, 50), team: Red,
-      aimBrads: 16, hpKnown: none(int), tick: 20)
+      aimBrads: some(16), hpKnown: none(int), tick: 20)
     let partner = some(PartnerSample(seat: 1, pos: (48, 48),
       aimBrads: 30, alive: true))
     first.updateBelief(BodyTickInputs(self: selfState(),
@@ -284,17 +284,184 @@ suite "shell body seat belief-lite seam":
     let body = activateSeatBody(openMap(), 0, 331)
     body.updateBelief(BodyTickInputs(self: selfState(), visibleTracks: @[
       BodyTrackUpdate(seat: 1, pos: (50, 40), team: Red,
-        aimBrads: 0, hpKnown: none(int), tick: 8),
+        aimBrads: some(0), hpKnown: none(int), tick: 8),
       BodyTrackUpdate(seat: 2, pos: (70, 40), team: Blue,
-        aimBrads: 0, hpKnown: none(int), tick: 9),
+        aimBrads: some(0), hpKnown: none(int), tick: 9),
       BodyTrackUpdate(seat: 3, pos: (90, 40), team: Blue,
-        aimBrads: 0, hpKnown: none(int), tick: 8)]), 9)
+        aimBrads: some(0), hpKnown: none(int), tick: 8)]), 9)
     let input = body.dangerInputFromTracks(9,
       proc(track: BodyTrack): bool = track.team != Red)
     check input.selfXy == body.selfState.pos
     check input.candidates.len == 1
     check input.candidates[0].seatIndex == 2
     check input.candidates[0].pos == (70, 40)
+
+  test "belief event windows expire exactly on their first outside tick":
+    let body = activateSeatBody(openMap(), 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      aggressorEvents: @[
+        AggressorEvent(eventId: 1, tick: 10, dirBrads: 64,
+          seat: some(3))]), 10)
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      killFeed: @[KillEvent(eventId: 2, tick: 20, killerTeam: Blue,
+        victimSeat: 4)]), 20)
+
+    body.updateBelief(BodyTickInputs(self: selfState()), 129)
+    check body.aggressorEvents.len == 1
+    body.updateBelief(BodyTickInputs(self: selfState()), 130)
+    check body.aggressorEvents.len == 0
+
+    body.updateBelief(BodyTickInputs(self: selfState()), 259)
+    check body.killFeed.len == 1
+    body.updateBelief(BodyTickInputs(self: selfState()), 260)
+    check body.killFeed.len == 0
+
+  test "item memory updates by kind and cell and evicts oldest then farthest":
+    let body = activateSeatBody(openMap(), 0, 331)
+    var sightings: seq[ItemSighting]
+    for index in 0 ..< 32:
+      sightings.add(ItemSighting(kind: bikMedkit,
+        pos: (16 + (index mod 16) * 8, 24 + (index div 16) * 8),
+        present: true, tick: 10))
+    sightings.add(ItemSighting(kind: bikGrenade,
+      pos: (180, 80), present: true, tick: 10))
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      sightedItems: sightings), 10)
+    check body.items.len == 32
+    check body.items.allIt(not (it.kind == bikGrenade and it.pos == (180, 80)))
+
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      sightedItems: @[ItemSighting(kind: bikMedkit, pos: (18, 26),
+        present: false, tick: 11)]), 11)
+    check body.items.len == 32
+    let id = body.map.itemEventIdForPoint(bikMedkit, (18, 26))
+    check body.items.countIt(it.eventId == id) == 1
+    let updated = body.items.filterIt(it.eventId == id)[0]
+    check updated.pos == (18, 26)
+    check updated.present == false
+    check updated.freshTick == 11
+
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      sightedItems: @[
+        ItemSighting(kind: bikShield, pos: (24, 40), present: true, tick: 20),
+        ItemSighting(kind: bikSpray, pos: (180, 80), present: true,
+          tick: 20)]), 20)
+    check body.items.len == 32
+    check body.items.anyIt(it.kind == bikShield and it.pos == (24, 40))
+    check body.items.anyIt(it.kind == bikSpray and it.pos == (180, 80))
+
+  test "fog discipline keeps unseen facts absent and stale bounty false":
+    let body = activateSeatBody(openMap(), 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      visibleTracks: @[
+        BodyTrackUpdate(seat: 6, pos: (90, 40), team: Blue,
+          aimBrads: none(int), hpKnown: none(int), veteranMarker: true,
+          tick: 40)],
+      killFeed: @[KillEvent(eventId: 44, tick: 40, killerTeam: Red,
+        victimSeat: 7)],
+      aggressorEvents: @[AggressorEvent(eventId: 45, tick: 40,
+        dirBrads: 12, seat: none(int))]), 40)
+    check body.items.len == 0
+    check body.killFeed[0].killerTeam == Red
+    static:
+      doAssert not compiles(KillEvent(eventId: 1, tick: 1,
+        killerTeam: Red, killerSeat: 2, victimSeat: 3))
+      doAssert not compiles(KillEvent(eventId: 1, tick: 1,
+        killerTeam: Red, victimSeat: 3, pos: (1, 1)))
+    check body.aggressorEvents[0].seat.isNone
+    check body.tracks[6].get.veteranMarker
+    check body.preferenceScores(6, 41, 331, 3).bounty == 0.0
+
+  test "shouts are current live-shouter facts, not retained memory":
+    let body = activateSeatBody(openMap(), 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      shouts: @[ShoutEvent(eventId: 50, team: Red, slotLetter: "A",
+        text: "go", pos: (30, 30), tick: 40)]), 40)
+    check body.shouts.len == 1
+    body.updateBelief(BodyTickInputs(self: selfState()), 41)
+    check body.shouts.len == 0
+
+  test "prefer scoring uses unknown hp zero and aggressor-only revenge":
+    let body = activateSeatBody(openMap(), 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      visibleTracks: @[
+        BodyTrackUpdate(seat: 1, pos: (80, 40), team: Blue,
+          aimBrads: some(0), hpKnown: none(int), tick: 50),
+        BodyTrackUpdate(seat: 2, pos: (96, 40), team: Blue,
+          aimBrads: some(0), hpKnown: some(1), veteranMarker: true,
+          tick: 50),
+        BodyTrackUpdate(seat: 3, pos: (184, 40), team: Green,
+          aimBrads: some(0), hpKnown: some(3), tick: 50)],
+      killFeed: @[KillEvent(eventId: 60, tick: 50, killerTeam: Blue,
+        victimSeat: 4)]), 50)
+    check body.preferenceScores(1, 50, 331, 3).weakened == 0.0
+    check body.preferenceScores(2, 50, 331, 3).weakened > 0.66
+    check body.preferenceScores(2, 50, 331, 3).bounty == 1.0
+    check body.preferenceScores(2, 50, 331, 3).revenge == 0.0
+
+    body.updateBelief(BodyTickInputs(self: selfState(),
+      aggressorEvents: @[AggressorEvent(eventId: 61, tick: 51,
+        dirBrads: 8, seat: some(3))]), 51)
+    check body.preferenceScores(3, 51, 331, 3).revenge == 1.0
+    check body.compareByPreference(3, 2, @[ptRevenge, ptWeakened],
+      51, 331, 3) < 0
+    check body.compareByPreference(2, 3, @[ptWeakened, ptRevenge],
+      51, 331, 3) < 0
+
+  test "full belief is deterministic across input permutations":
+    proc filled(order: seq[int]): SeatBody =
+      result = activateSeatBody(openMap(), 0, 331)
+      let tracks = [
+        BodyTrackUpdate(seat: 4, pos: (80, 40), team: Blue,
+          aimBrads: none(int), hpKnown: none(int), tick: 70),
+        BodyTrackUpdate(seat: 2, pos: (60, 40), team: Red,
+          aimBrads: some(12), hpKnown: some(2), veteranMarker: true,
+          tick: 70)]
+      let items = [
+        ItemSighting(kind: bikMedkit, pos: (16, 16), present: true,
+          tick: 70),
+        ItemSighting(kind: bikGrenade, pos: (48, 16), present: false,
+          tick: 70)]
+      let aggressors = [
+        AggressorEvent(eventId: 91, tick: 70, dirBrads: 64,
+          seat: some(2)),
+        AggressorEvent(eventId: 90, tick: 70, dirBrads: 32,
+          seat: none(int))]
+      let kills = [
+        KillEvent(eventId: 101, tick: 69, killerTeam: Blue, victimSeat: 5),
+        KillEvent(eventId: 100, tick: 70, killerTeam: Red, victimSeat: 6)]
+      let shouts = [
+        ShoutEvent(eventId: 111, team: Blue, slotLetter: "B",
+          text: "hold", pos: (40, 40), tick: 70),
+        ShoutEvent(eventId: 110, team: Red, slotLetter: "A",
+          text: "go", pos: (30, 40), tick: 70)]
+      var inputs = BodyTickInputs(self: selfState())
+      for index in order:
+        inputs.visibleTracks.add(tracks[index])
+        inputs.sightedItems.add(items[index])
+        inputs.aggressorEvents.add(aggressors[index])
+        inputs.killFeed.add(kills[index])
+        inputs.shouts.add(shouts[index])
+      inputs.hazards.grenades = @[
+        BodyGrenadeHazard(eventId: 201, coversSelf: false,
+          pos: (70, 70), predictedBlastPos: (90, 90), ticksToBlast: 4),
+        BodyGrenadeHazard(eventId: 200, coversSelf: true,
+          pos: (70, 70), predictedBlastPos: (90, 90), ticksToBlast: 4)]
+      inputs.hazards.sprays = @[
+        BodySprayHazard(kind: bshAnonymousImpact, eventId: 301,
+          coversSelf: true, tick: 70, impactPos: (20, 20),
+          incomingDirBrads: 9),
+        BodySprayHazard(kind: bshAnonymousImpact, eventId: 300,
+          coversSelf: true, tick: 70, impactPos: (20, 20),
+          incomingDirBrads: 9)]
+      result.updateBelief(inputs, 70)
+
+    let first = filled(@[0, 1])
+    let second = filled(@[1, 0])
+    check first.beliefFingerprint == second.beliefFingerprint
+    check first.hazards.grenades.len == 2
+    check first.hazards.grenades[0].eventId == 200
+    check first.hazards.sprays.len == 2
 
   test "seatTick follows externally-budgeted navigation to a standing goal":
     let map = openMap()
@@ -388,7 +555,7 @@ suite "shell body seat belief-lite seam":
     let input = body.seatTick(BodyTickInputs(self: selfState(start,
       alive = false), visibleTracks: @[
         BodyTrackUpdate(seat: 5, pos: (80, 48), team: Blue,
-          aimBrads: 64, hpKnown: some(2), tick: 7)]), 7)
+          aimBrads: some(64), hpKnown: some(2), tick: 7)]), 7)
     check input.mask == 0
     check body.tracks[5].isSome
     check body.tracks[5].get.pos == (80, 48)

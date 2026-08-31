@@ -900,20 +900,43 @@ proc selectPlayView*(source: PlayViewSource,
                      byteCap: int = MaxViewFrameBytes): PlayViewModel =
   source.selectPlayViewWithSize(byteCap).model
 
+proc toPlayItemKind(kind: BodyItemKind): PlayItemKind =
+  case kind
+  of bikGrenade: pikGrenade
+  of bikMedkit: pikMedkit
+  of bikShield: pikShield
+  of bikSpray: pikSpray
+  of bikBarrier: pikBarrier
+
+proc toPlaySprayHazard(hazard: BodySprayHazard): PlaySprayHazard =
+  case hazard.kind
+  of bshVisibleCone:
+    PlaySprayHazard(kind: pshVisibleCone, eventId: hazard.eventId,
+      coversSelf: hazard.coversSelf, tick: hazard.tick,
+      attackerSeat: hazard.attackerSeat, origin: hazard.origin,
+      aimBrads: hazard.aimBrads, reachPx: hazard.reachPx,
+      maxWidthPx: hazard.maxWidthPx)
+  of bshAnonymousImpact:
+    PlaySprayHazard(kind: pshAnonymousImpact, eventId: hazard.eventId,
+      coversSelf: hazard.coversSelf, tick: hazard.tick,
+      impactPos: hazard.impactPos,
+      incomingDirBrads: hazard.incomingDirBrads)
+
 proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
                              aliveTeams: int, zone = none(PlayZone),
                              objectives: openArray[PlayObjective] = [],
                              includeStandingIntent = true): PlayViewSource =
-  ## Convenience adapter for the fields available before phase 3 belief fills
-  ## item memory, kill feed, shouts, and hazards. Callers decide whether the
-  ## standing order has been installed; before the first standing order, pass
-  ## `includeStandingIntent = false` so `intent` is omitted.
+  ## Convenience adapter from body-retained belief to the frozen view row
+  ## shapes. Callers decide whether the standing order has been installed;
+  ## before the first standing order, pass `includeStandingIntent = false` so
+  ## `intent` is omitted.
   result.tick = tick
   result.mode = mode
   result.epoch = body.effectiveEpoch
   result.self = PlaySelf(pos: body.selfState.pos, hp: body.selfState.hp,
     hpFrac: body.selfState.hpFrac, aimBrads: body.selfState.aimBrads,
-    alive: body.selfState.alive, carrying: body.selfState.carrying)
+    alive: body.selfState.alive, carrying: body.selfState.carrying,
+    lives: body.selfState.lives)
   result.aliveTeams = aliveTeams
   result.zone = zone
   result.objectives = @objectives
@@ -923,8 +946,38 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
     if body.tracks[seat].isSome:
       let track = body.tracks[seat].get
       result.tracks.add(PlayTrack(seat: seat, team: track.team,
-        pos: track.pos, aimBrads: some(track.aimBrads),
-        hp: track.hpKnown, freshTick: track.freshTick))
+        pos: track.pos, aimBrads: track.aimBrads,
+        hp: track.hpKnown, freshTick: track.freshTick,
+        bounty: track.freshTick == tick and track.veteranMarker))
+  for item in body.items:
+    result.items.add(PlayItem(eventId: item.eventId,
+      kind: item.kind.toPlayItemKind, pos: item.pos,
+      present: some(item.present), freshTick: item.freshTick))
+  for event in body.aggressorEvents:
+    result.aggressors.add(PlayAggressor(eventId: event.eventId,
+      tick: event.tick, dirBrads: event.dirBrads, seat: event.seat))
+  for event in body.killFeed:
+    result.killFeed.add(PlayKillFeedRow(eventId: event.eventId,
+      tick: event.tick, killerTeam: event.killerTeam,
+      victimSeat: event.victimSeat))
+  for event in body.shouts:
+    result.shouts.add(PlayShout(eventId: event.eventId, team: event.team,
+      slotLetter: event.slotLetter, text: event.text, pos: event.pos,
+      tick: event.tick))
+  for hazard in body.hazards.grenades:
+    result.hazards.grenades.add(PlayGrenadeHazard(
+      eventId: hazard.eventId, coversSelf: hazard.coversSelf,
+      pos: hazard.pos, predictedBlastPos: hazard.predictedBlastPos,
+      ticksToBlast: hazard.ticksToBlast))
+  for hazard in body.hazards.blastCues:
+    result.hazards.blastCues.add(PlayBlastCue(eventId: hazard.eventId,
+      coversSelf: hazard.coversSelf, pos: hazard.pos, tick: hazard.tick))
+  if body.hazards.ownThrow.isSome:
+    let ownThrow = body.hazards.ownThrow.get
+    result.hazards.ownThrow = some(PlayOwnThrow(target: ownThrow.target,
+      releaseTick: ownThrow.releaseTick, blastRadius: ownThrow.blastRadius))
+  for hazard in body.hazards.sprays:
+    result.hazards.sprays.add(hazard.toPlaySprayHazard)
 
 proc buildPlayView*(producer: PlayViewProducer, source: PlayViewSource,
                     byteCap: int = MaxViewFrameBytes): string =

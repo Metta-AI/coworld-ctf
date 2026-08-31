@@ -73,7 +73,7 @@ proc frame(tick, seat: int, map: BodyMap,
       alive: true))
   elif tick <= 200:
     input.visibleTracks = @[BodyTrackUpdate(seat: 31 - seat,
-      pos: (500, 500), team: Blue, aimBrads: 0, hpKnown: some(3),
+      pos: (500, 500), team: Blue, aimBrads: some(0), hpKnown: some(3),
       tick: uint32(tick))]
     fallback.coverGoal = some(map.validateGoal((200 + seat, 250), self).get)
   else:
@@ -146,7 +146,7 @@ proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
         seat: seat,
         pos: (192, 80),
         team: Blue,
-        aimBrads: 0,
+        aimBrads: some(0),
         hpKnown: some(3),
         tick: uint32(tick)))
 

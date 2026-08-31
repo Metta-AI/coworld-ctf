@@ -24,7 +24,8 @@ proc inputs(self = (10, 10), partner = (20, 20), tick = 1'u32,
     aimBrads: 32, alive: true))
   for index, threat in threats:
     result.visibleTracks.add(BodyTrackUpdate(seat: index + 10,
-      pos: threat, team: Blue, aimBrads: 0, hpKnown: some(3), tick: tick))
+      pos: threat, team: Blue, aimBrads: some(0), hpKnown: some(3),
+      tick: tick))
 
 proc fallback(map: BodyMap): BrDefaultFallbacks =
   BrDefaultFallbacks(
