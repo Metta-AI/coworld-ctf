@@ -39,6 +39,24 @@ The project dependency setup remains mandatory before native compilation:
 nimby --global sync nimby.lock
 ```
 
+## Production shell runtime tests
+
+The production binding reads one explicit toolchain root,
+`WASMTIME_C_API`, at compile time. Fetch the checksummed host archive and run
+the shard-wired focused suite with this single command from the repository
+root:
+
+```sh
+WASMTIME_C_API="$(tools/runtime_spike/fetch_deps.sh |
+  sed -n 's/^WASMTIME_C_API=//p')" \
+  nim c -r -d:release -d:noSignalHandler --threads:on \
+  tests/test_shell_runtime.nim
+```
+
+The binding derives its C include path, library path, and runtime rpath only
+from that variable. If it is absent, compilation stops with the fetch command
+instead of falling through to a compiler-specific missing-header error.
+
 ## Nix
 
 The flake fetches the same Wasmtime v48.0.1 C-API archive as the other

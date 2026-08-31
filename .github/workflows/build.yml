@@ -57,11 +57,31 @@ jobs:
           key: nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-${{ github.sha }}
           restore-keys: |
             nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-
+      - name: Cache runtime toolchain archives
+        uses: actions/cache@v4
+        with:
+          path: tools/runtime_spike/.deps/archives
+          key: runtime-toolchain-${{ runner.os }}-${{ hashFiles('tools/runtime_spike/checksums.txt') }}
+      - name: Provision pinned Wasmtime C API
+        run: |
+          wasmtime_root="$(
+            tools/runtime_spike/fetch_deps.sh |
+              sed -n 's/^WASMTIME_C_API=//p'
+          )"
+          test -f "$wasmtime_root/include/wasmtime.h"
+          test -f "$wasmtime_root/lib/libwasmtime.so"
+          echo "WASMTIME_C_API=$wasmtime_root" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$wasmtime_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
       - run: nim check src/ctf.nim
       - name: Compile test shards (release)
         run: |
           for i in 1 2 3 4; do
-            nim c -d:release --hints:off -o:shard_$i tests/shard_$i.nim &
+            runtime_flags=()
+            if [ "$i" -eq 2 ]; then
+              runtime_flags=(-d:noSignalHandler --threads:on)
+            fi
+            nim c -d:release --hints:off "${runtime_flags[@]}" \
+              -o:shard_$i tests/shard_$i.nim &
             eval "pid_$i=\$!"
           done
           fail=0
