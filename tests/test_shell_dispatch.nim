@@ -10,6 +10,8 @@ include ../src/ctf/server
 var
   seenUpload, seenCall, seenAck, seenLobby: Atomic[uint64]
   uploadDeliveries, callDeliveries, seenUploadBytes: Atomic[int]
+  ackDeliveries, ackRetiredSlots: Atomic[int]
+  ackRetiredProposal: Atomic[uint64]
 
 proc consumeUpload(
   websocket: WebSocket,
@@ -34,9 +36,14 @@ proc consumeAck(
   websocket: WebSocket,
   seat: int,
   packet: StatusAckPacket,
-) {.gcsafe.} =
+): PlayIngressFeedback {.gcsafe.} =
   doAssert seat == 0
   seenAck.store(packet.mark)
+  discard ackDeliveries.fetchAdd(1)
+  result.statusSlotsRetired = ackRetiredSlots.load
+  let proposalId = ackRetiredProposal.load
+  if proposalId != 0:
+    result.retiredProposalIds = @[proposalId]
 
 proc consumeLobby(
   websocket: WebSocket,
@@ -73,6 +80,9 @@ suite "server play receive arm":
     uploadDeliveries.store(0)
     callDeliveries.store(0)
     seenUploadBytes.store(0)
+    ackDeliveries.store(0)
+    ackRetiredSlots.store(0)
+    ackRetiredProposal.store(0)
 
   test "play packets reach registered seams and malformed bytes reject":
     appState.config = playConfig(scPlay)
@@ -89,11 +99,12 @@ suite "server play receive arm":
       LobbyChatSendPacket(text: "hello").encodePacket()))
     check seenUpload.load == 0
     check seenCall.load == 0
-    check seenAck.load == 9
+    check seenAck.load == 0
     check seenLobby.load == 1
     drainPlayIngressAtTickBoundary()
     check seenUpload.load == 7
     check seenCall.load == 8
+    check seenAck.load == 9
 
     let rejectedBefore = appState.playProtocolRejected
     websocketHandler(ws, MessageEvent, binaryMessage("\xA0\x02"))
@@ -244,6 +255,122 @@ suite "server play receive arm":
     check callDeliveries.load == 2
     check appState.playIngress[0].counters.backpressure == 1
     check appState.playIngress[0].proposalIdFloor == 2
+
+  test "ack feedback releases upload capacity before same-tick call admission":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](19)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots == 2
+
+    ackRetiredSlots.store(2)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 1, callBytes: "{}").encodePacket()))
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 1).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+
+    check ackDeliveries.load == 1
+    check callDeliveries.load == 1
+    check appState.playIngress[0].reservedStatusSlots ==
+      1 + MaxLadderEntries
+
+  test "a full upload budget can call after its reservations retire":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](20)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for uploadId in 1'u64 .. uint64(MaxModulesPerSeatPerEpisode):
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: uploadId, wasm: "").encodePacket()))
+      drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots == 32
+
+    ackRetiredSlots.store(32)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 32).encodePacket()))
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 1, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check callDeliveries.load == 1
+    check appState.playIngress[0].reservedStatusSlots ==
+      1 + MaxLadderEntries
+
+  test "call payload eviction waits for explicit complete retirement feedback":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](21)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 7, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].hasCallPayload(7)
+
+    ackRetiredSlots.store(1)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 1).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].hasCallPayload(7)
+
+    ackRetiredSlots.store(MaxLadderEntries)
+    ackRetiredProposal.store(7)
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 2).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check not appState.playIngress[0].hasCallPayload(7)
+    check appState.playIngress[0].reservedStatusSlots == 0
+
+  test "over-retirement clamps and counts instead of raising in production":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](23)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "x").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].reservedStatusSlots == 2
+
+    applyPlayIngressFeedback(0, PlayIngressFeedback(statusSlotsRetired: 99))
+    check appState.playIngress[0].reservedStatusSlots == 0
+    check appState.playIngress[0].counters.feedbackErrors == 1
+    check appState.playIngressFeedbackErrors == 1
+
+    applyPlayIngressFeedback(99, PlayIngressFeedback(statusSlotsRetired: 1))
+    check appState.playIngressFeedbackErrors == 2
+
+    expect ValueError:
+      appState.playIngress[0].applyPlayIngressFeedbackStrict(
+        PlayIngressFeedback(statusSlotsRetired: 1))
+
+  test "unknown retired proposal is ignored and counted":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](24)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 7, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playIngress[0].hasCallPayload(7)
+
+    applyPlayIngressFeedback(0, PlayIngressFeedback(
+      retiredProposalIds: @[999'u64]))
+    check appState.playIngress[0].hasCallPayload(7)
+    check appState.playIngress[0].counters.feedbackErrors == 1
+    check appState.playIngressFeedbackErrors == 1
+
+    expect ValueError:
+      appState.playIngress[0].applyPlayIngressFeedbackStrict(
+        PlayIngressFeedback(retiredProposalIds: @[999'u64]))
+
+  test "StatusAck coalesces to the greatest mark and runs once on the tick":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](22)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    for mark in [5'u64, 3'u64, 8'u64]:
+      websocketHandler(ws, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: mark).encodePacket()))
+    check seenAck.load == 0
+    drainPlayIngressAtTickBoundary()
+    check seenAck.load == 8
+    check ackDeliveries.load == 1
 
   test "an absent lane-C consumer rejects only after tick admission":
     appState.config = playConfig(scPlay)

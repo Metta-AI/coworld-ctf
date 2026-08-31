@@ -13,6 +13,7 @@ type
     droppedUploads*: uint32
     droppedCalls*: uint32
     backpressure*: uint32
+    feedbackErrors*: uint32
 
   PlayIngressMessageKind* = enum
     pimUpload
@@ -36,6 +37,19 @@ type
     piqQueued
     piqDropped
 
+  PlayIngressFeedback* = object
+    ## Lane C reports only outcomes whose retained status entries have been
+    ## retired. Proposal ids name calls whose complete outcome set is gone;
+    ## still-in-flight calls must not appear here.
+    statusSlotsRetired*: int
+    retiredProposalIds*: seq[uint64]
+
+  PlayIngressAck*[Socket] = object
+    present*: bool
+    socket*: Socket
+    generation*: uint64
+    packet*: StatusAckPacket
+
   PlayIngressSeat*[Socket] = object
     binding*: PlaySeatBinding[Socket]
     playerIndex*: int
@@ -52,6 +66,7 @@ type
     queuedCalls: int
     classifiedMessages: int
     classifiedBytes: uint64
+    pendingAck: PlayIngressAck[Socket]
     uploadPayloads: Table[uint64, string]
     callPayloads: Table[uint64, string]
 
@@ -128,6 +143,75 @@ proc queueCall*[Socket](
     generation: generation,
     call: move(packet)))
   piqQueued
+
+proc queueStatusAck*[Socket](
+  seat: var PlayIngressSeat[Socket],
+  socket: Socket,
+  generation: uint64,
+  packet: StatusAckPacket,
+) =
+  ## StatusAck owns one coalescing slot inside the total classification
+  ## budget. The greatest well-formed mark is sufficient because marks are
+  ## cumulative high-water acknowledgements.
+  if not seat.pendingAck.present or packet.mark > seat.pendingAck.packet.mark:
+    seat.pendingAck = PlayIngressAck[Socket](
+      present: true,
+      socket: socket,
+      generation: generation,
+      packet: packet)
+
+proc takeStatusAck*[Socket](
+  seat: var PlayIngressSeat[Socket],
+): PlayIngressAck[Socket] =
+  result = seat.pendingAck
+  seat.pendingAck.present = false
+  if result.present and
+      not seat.binding.admits(result.socket, result.generation):
+    result.present = false
+
+proc applyPlayIngressFeedbackStrict*[Socket](
+  seat: var PlayIngressSeat[Socket],
+  feedback: PlayIngressFeedback,
+) =
+  if feedback.statusSlotsRetired < 0 or
+      feedback.statusSlotsRetired > seat.reservedStatusSlots:
+    raise newException(ValueError,
+      "play ingress feedback retires unreserved status capacity")
+  for proposalId in feedback.retiredProposalIds:
+    if proposalId notin seat.callPayloads:
+      raise newException(ValueError,
+        "play ingress feedback retires an unknown proposal")
+  seat.reservedStatusSlots -= feedback.statusSlotsRetired
+  for proposalId in feedback.retiredProposalIds:
+    seat.callPayloads.del(proposalId)
+
+proc applyPlayIngressFeedback*[Socket](
+  seat: var PlayIngressSeat[Socket],
+  feedback: PlayIngressFeedback,
+): int =
+  ## Production feedback is fail-safe: bad retirement accounting must reduce
+  ## capacity to honest backpressure, never terminate the tick/runtime thread.
+  var retired = feedback.statusSlotsRetired
+  if retired < 0:
+    retired = 0
+    inc result
+  elif retired > seat.reservedStatusSlots:
+    retired = seat.reservedStatusSlots
+    inc result
+  seat.reservedStatusSlots -= retired
+  for proposalId in feedback.retiredProposalIds:
+    if proposalId in seat.callPayloads:
+      seat.callPayloads.del(proposalId)
+    else:
+      inc result
+  for _ in 0 ..< result:
+    seat.counters.feedbackErrors.saturatingInc()
+
+proc hasCallPayload*[Socket](
+  seat: PlayIngressSeat[Socket],
+  proposalId: uint64,
+): bool =
+  proposalId in seat.callPayloads
 
 proc reserve[Socket](seat: var PlayIngressSeat[Socket], count: int): bool =
   if count > RegularStatusCapacity - seat.reservedStatusSlots:

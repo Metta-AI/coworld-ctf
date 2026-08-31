@@ -30,7 +30,7 @@ type
     websocket: WebSocket,
     seat: int,
     packet: StatusAckPacket,
-  ) {.gcsafe.}
+  ): PlayIngressFeedback {.gcsafe.}
 
   PlayLobbyChatConsumer* = proc(
     websocket: WebSocket,
@@ -153,6 +153,7 @@ type
     playSpriteInputIgnored: int
     playSpriteReadyIgnored: int
     playSpriteDebugIgnored: int
+    playIngressFeedbackErrors: uint32
     playIngress: seq[PlayIngressSeat[WebSocket]]
     playIngressConfigured: bool
 
@@ -169,6 +170,12 @@ type
     slotIndex: int
 
 var playReceiveConsumers: PlayReceiveConsumers
+
+proc saturatingAdd(value: var uint32, amount: int) =
+  if amount <= 0:
+    return
+  let room = uint64(high(uint32) - value)
+  value += uint32(min(uint64(amount), room))
 
 proc registerPlayModuleUploadConsumer*(consumer: PlayModuleUploadConsumer) =
   ## Startup-only registration seam consumed by the play-runtime lane.
@@ -535,6 +542,7 @@ proc initAppState() =
   appState.playSpriteInputIgnored = 0
   appState.playSpriteReadyIgnored = 0
   appState.playSpriteDebugIgnored = 0
+  appState.playIngressFeedbackErrors = 0
   appState.playIngress = @[]
   appState.playIngressConfigured = false
 
@@ -639,6 +647,7 @@ proc registerPlayerWebSocket(
     # The generation bump precedes this stale-only drain. `admits` therefore
     # rejects every predecessor item without admitting new work off-tick, and
     # releases the bounded per-tick queue slots for the replacement.
+    discard ingressSeat[].takeStatusAck()
     discard ingressSeat[].drainPlayIngress()
     if bound.replaced:
       replacedPlaySocket = true
@@ -979,10 +988,8 @@ proc dispatchPlaySeatMessage(
   of prPlayCall:
     discard ingressSeat[].queueCall(websocket, generation, received.playCall)
   of prStatusAck:
-    if playReceiveConsumers.statusAck == nil:
-      inc appState.playProtocolRejected
-    else:
-      playReceiveConsumers.statusAck(websocket, seat, received.statusAck)
+    ingressSeat[].queueStatusAck(
+      websocket, generation, received.statusAck)
   of prLobbyChat:
     if playReceiveConsumers.lobbyChat == nil:
       inc appState.playProtocolRejected
@@ -996,11 +1003,30 @@ proc drainPlayIngressAtTickBoundary*() =
   ## happen inside the drain, so a replaced socket can never hand work across
   ## the lane-C seam even if its message was queued first.
   var
+    acknowledgements: seq[tuple[seat: int, ack: PlayIngressAck[WebSocket]]]
     admitted: seq[tuple[seat: int, message: PlayIngressMessage[WebSocket]]]
     rejected = 0
   {.gcsafe.}:
     withLock appState.lock:
       ensurePlayIngressConfigured()
+      for seat in 0 ..< appState.playIngress.len:
+        let ack = appState.playIngress[seat].takeStatusAck()
+        if ack.present:
+          acknowledgements.add((seat, ack))
+  for item in acknowledgements:
+    if playReceiveConsumers.statusAck == nil:
+      inc rejected
+    else:
+      let feedback = playReceiveConsumers.statusAck(
+        item.ack.socket, item.seat, item.ack.packet)
+      {.gcsafe.}:
+        withLock appState.lock:
+          if item.seat >= 0 and item.seat < appState.playIngress.len:
+            let errors =
+              appState.playIngress[item.seat].applyPlayIngressFeedback(feedback)
+            appState.playIngressFeedbackErrors.saturatingAdd(errors)
+  {.gcsafe.}:
+    withLock appState.lock:
       for seat in 0 ..< appState.playIngress.len:
         var drained = appState.playIngress[seat].drainPlayIngress()
         rejected += drained.rejected
@@ -1024,6 +1050,19 @@ proc drainPlayIngressAtTickBoundary*() =
     {.gcsafe.}:
       withLock appState.lock:
         appState.playProtocolRejected += rejected
+
+proc applyPlayIngressFeedback*(seat: int, feedback: PlayIngressFeedback) =
+  ## Reverse half of the registered lane-B/lane-C seam. Async compile/runtime
+  ## work may retire capacity after the receive callback has returned; it
+  ## reports that fact here without importing either lane into the other.
+  {.gcsafe.}:
+    withLock appState.lock:
+      let ingressSeat = seat.playIngressSeat()
+      if ingressSeat == nil:
+        appState.playIngressFeedbackErrors.saturatingAdd(1)
+        return
+      let errors = ingressSeat[].applyPlayIngressFeedback(feedback)
+      appState.playIngressFeedbackErrors.saturatingAdd(errors)
 
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
@@ -3057,7 +3096,7 @@ proc runServerLoop*(
             let ingressSeat = closedSlot.playIngressSeat()
             if ingressSeat != nil:
               let playerIndex = appState.playerIndices.getOrDefault(
-                websocket, -1)
+                websocket, ingressSeat[].playerIndex)
               if playerIndex >= 0 and playerIndex < UnresolvedPlayerIndex:
                 ingressSeat[].playerIndex = playerIndex
             discard removeWebSocketState(websocket)
