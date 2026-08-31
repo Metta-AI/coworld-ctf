@@ -1,6 +1,16 @@
-{"rows":{
-  "ROTATE_TO_RING":{"bias":6.0,"weights":{"world.zone_dist":3.0,"world.in_zone":-4.0}},
-  "HOLD_RING_SAFE":{"bias":2.0,"weights":{"world.in_zone":2.0}},
-  "ENGAGE":{"bias":0.1},
-  "THIRD_PARTY":{"bias":1.2,"weights":{"world.third_party_dist":-0.6}}
-}}
+{
+  "paintbot_policy": 1,
+  "name": "ring-hugger",
+  "doc": "Rotates into the safe paint early and hugs whatever cover it finds along the way -- never the last one moving, never caught in the open.",
+  "traits": { "nerve": 0.3, "greed": 0.3, "patience": 0.3 },
+  "rules": [
+    { "when": true,
+      "score": ["+",
+        ["*", 25, ["get", "intent.is_ring_safe"]],
+        ["*", 15, ["get", "intent.is_cover"]],
+        ["*", -20, ["get", "intent.exposure"]],
+        ["*", 10, ["get", "intent.is_enemy"]]
+      ]
+    }
+  ]
+}
