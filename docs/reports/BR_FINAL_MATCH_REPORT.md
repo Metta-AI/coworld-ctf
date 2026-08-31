@@ -3,7 +3,7 @@
 Recording: `br-final-match.bitreplay` (root of this worktree, also mirrored into
 `static-replay-viewer/` for the hosted viewer). Recorded via
 `tools/record_br_match.sh` against the round-9 multi-room-interiors map
-(`br-match-map-r9-301.json`, generator seed 53017), on top of the integration
+(`tests/fixtures/br-match-map-r9-301.json`, generator seed 53017), on top of the integration
 branch as it stood after `1b18cfc` (BR endgame: alive-team readback +
 close-on-nearest hunt override) and `e8ab343` (round-9 map draw), before the
 zone-art and zone-paint-perf commits that landed later on this branch. This is
