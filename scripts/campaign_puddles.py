@@ -1,148 +1,172 @@
 #!/usr/bin/env python3
-"""Patch a paint-puddle GRADIENT into the Paintbot campaign's pinned cell maps.
+"""Patch a paint-puddle GRADIENT into the Paintbot campaign's cell maps — HEX.
 
-Puddles only place on 2-team maps (the sim refuses 4-team symmetries), so the
-gradient lives in the two 2-team zones of the 10x10 board (see
-gen_campaign_maps.py for the zone scheme): one origin cell per zone gets the
-densest splat set and the count falls off by Chebyshev ring —
+Puddles only place on 2-team maps: the sim raises
+`puddles never place on 4-team maps` (src/ctf/arena.nim) rather than placing
+them. And they cannot be a per-cell game_config knob either — `mapPuddles` and
+`puddleDamagePct` are NOT declared in the coworld manifest's config_schema,
+which sets `additionalProperties: false`, so the cell-config endpoint refuses
+them. Both facts force the same route daveey used: patch the SPLATS into each
+arena's map_spec with `mapkit puddles` and pin the patched spec.
 
-    origin (1,1) and (8,1):  12 puddles
-    ring 1:                   8
-    ring 2:                   4
-    everywhere else:          0
+THE GRADIENT
+    origin arenas:        12 puddles
+    then -STEP per HEX ring, floored at 0
+    4-team (ffa4) arenas:  0, always
 
-which puddles exactly 32 of the 100 cells. Counts are even on purpose: an odd
-request anchors a splat dead center, and the gradient reads better as scattered
-pairs. Placement is deterministic per cell (seeded from the cell key), patched
-into the EXISTING prod map_spec — base terrain stays byte-identical.
+Origins are the hexagon's NW and NE vertices — the same two upper landmarks
+the square used, one per 2-team zone. Counts stay EVEN on purpose: an odd
+request anchors a splat dead centre, and the gradient reads better as
+scattered pairs.
 
-Usage (each step is idempotent; OUT holds the working specs):
+WHY STEP HALVED (2, not the square's 4). The square walked CHEBYSHEV rings
+across two SOLID 2-team zones and puddled 32 of its 52 two-team cells (62%)
+with 176 splats. The live hex board has no 2-team zone at all: it is a
+tic-tac-toe layout whose 1v1 corridors thread the whole hexagon, so a 2-ring
+reach touches only 7 arenas (12%). STEP=2 keeps the design's shape — a peak at
+each origin, falling by ring, always even — and restores its reach: 23 arenas,
+40%, 146 splats. `--step 4` reproduces the square's literal constant.
+
+Placement is deterministic per arena (seeded from the arena's coordinates) and
+patched into a COPY of the base spec, so base terrain stays byte-identical.
+
+Usage (each step is idempotent):
     nim c -d:release -o:/tmp/mapkit tools/mapkit.nim
-    export MAPKIT=/tmp/mapkit CAMPAIGN_PUDDLES_OUT=/tmp/campaign_puddles
+    export MAPKIT=/tmp/mapkit CAMPAIGN_MAPS_OUT=/tmp/campaign_maps \
+           CAMPAIGN_PUDDLES_OUT=/tmp/campaign_puddles
+
     python3 scripts/campaign_puddles.py plan     # print the gradient board
-    python3 scripts/campaign_puddles.py fetch    # pull prod cell map_specs
-    python3 scripts/campaign_puddles.py patch    # place puddles + validate + render
-    python3 scripts/campaign_puddles.py upload   # POST cell-map (spec + preview)
+    python3 scripts/campaign_puddles.py patch    # place + validate + render (DRY)
+    python3 scripts/campaign_puddles.py upload --apply   # the only write
     python3 scripts/campaign_puddles.py verify   # count puddled cells on prod
 
-fetch/upload/verify hit prod (softmax.com) and need the team token in
-~/.softmax/credentials.yaml plus elevated-privileges team auth; a custom
-User-Agent dodges Cloudflare's urllib block.
+`patch` reads the specs `gen_campaign_maps.py generate` produced. Use
+`--from-prod` to patch the specs already pinned on the live league instead
+(the original workflow — it needs the league to be pinned already).
 """
 
-import base64
+from __future__ import annotations
+
+import argparse
+import collections
 import json
-import math
 import os
+import shutil
 import subprocess
 import sys
-import urllib.request
-import zlib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import hexboard as hb  # noqa: E402
+
 MAPKIT = Path(os.environ.get("MAPKIT", "mapkit"))
+MAPS = Path(os.environ.get("CAMPAIGN_MAPS_OUT", "campaign_maps"))
 OUT = Path(os.environ.get("CAMPAIGN_PUDDLES_OUT", "campaign_puddles"))
-LEAGUE = "b8fa9b35-ac22-48cf-a03f-07b397aff1c7"
-API = "https://softmax.com/api/observatory"
-
-ANCHORS = {"1v1": (0.0, 0.0), "2v2": (9.0, 0.0), "ffa4": (4.5, 9.0)}
-ORIGINS = [(1, 1), (8, 1)]  # one per 2-team zone
-PEAK = 12
-STEP = 4  # per Chebyshev ring
+SNAPSHOT = Path(os.environ.get("CAMPAIGN_BOARD_SNAPSHOT", str(MAPS / "board.json")))
 
 
-def mode_for(x: int, y: int) -> str:
-    return min(ANCHORS, key=lambda m: math.dist((x, y), ANCHORS[m]))
+def load_board(args) -> hb.Board:
+    """The board being restored — 12x12 / 91 cells by default. A snapshot is
+    only consulted when its geometry matches (the live league is still the
+    retired 16x16 board until the operator migrates it down)."""
+    target = hb.Board(width=args.width, height=args.height, shape="hex")
+    if not SNAPSHOT.exists():
+        if args.zones == "board":
+            sys.exit(f"--zones board needs a snapshot at {SNAPSHOT}")
+        return target
+    raw = json.loads(SNAPSHOT.read_text())
+    if (raw["width"], raw["height"]) != (target.width, target.height):
+        if args.zones == "board":
+            sys.exit("--zones board needs a snapshot matching the target board")
+        return target
+    return hb.Board(width=target.width, height=target.height, shape="hex",
+                    cells=raw.get("cells", {}))
 
 
-def puddle_count(x: int, y: int) -> int:
-    """The gradient: PEAK at an origin, minus STEP per Chebyshev ring, floored
-    at 0 — and always 0 in the 4-team zone, whatever the distance says."""
-    if mode_for(x, y) == "ffa4":
-        return 0
-    d = min(max(abs(x - ox), abs(y - oy)) for ox, oy in ORIGINS)
-    return max(0, PEAK - STEP * d)
+def targets(board: hb.Board, args) -> list[tuple[str, int]]:
+    """(arena anchor, puddle count) for every arena the gradient reaches."""
+    out = []
+    for cid in board.anchors():
+        x, y = hb.parse_cell(cid)
+        mode = board.mode_for(cid, args.zones)
+        n = hb.puddle_count(board, x, y, mode, peak=args.peak, step=args.step)
+        if n > 0:
+            out.append((cid, n))
+    return out
 
 
-def puddle_seed(x: int, y: int) -> int:
-    return zlib.crc32(f"paintbot-puddles:{x},{y}".encode()) % 100_000
+# --- commands ---------------------------------------------------------------
 
 
-def targets() -> list[tuple[int, int, int]]:
-    return [
-        (x, y, puddle_count(x, y))
-        for y in range(10)
-        for x in range(10)
-        if puddle_count(x, y) > 0
-    ]
+def cmd_plan(args) -> None:
+    board = load_board(args)
+    origins = hb.puddle_origins(board)
+    print(f"origins: {origins}   PEAK={args.peak} STEP={args.step} "
+          f"(per hex ring)   zones={args.zones}")
+    for o in origins:
+        cid = hb.cell_id(*o)
+        m = board.mode_for(cid, args.zones) if args.zones == "voronoi" \
+            else board.board_mode(cid)
+        warn = ("   <-- WARNING: 4-team, its peak will be dropped"
+                if m in hb.FOUR_TEAM_MODES else "")
+        print(f"  origin {o}: {args.zones} mode {m or 'unknown'}{warn}")
+
+    def glyph(x, y):
+        cid = hb.cell_id(x, y)
+        anchor = board.anchor_of(cid)
+        ax, ay = hb.parse_cell(anchor)
+        n = hb.puddle_count(board, ax, ay, board.mode_for(anchor, args.zones),
+                            peak=args.peak, step=args.step)
+        return str(n) if n else ""
+
+    print("\npuddle gradient (per cell; blank = none, . = off-board):")
+    print(hb.render_board(board, glyph, width=2))
+
+    tg = targets(board, args)
+    cells = sum(len(board.members_of(c)) for c, _ in tg)
+    two = [c for c in board.anchors()
+           if board.mode_for(c, args.zones) not in hb.FOUR_TEAM_MODES]
+    hist = collections.Counter(n for _, n in tg)
+    print(f"\n{len(tg)} of {len(board.anchors())} arenas get puddles "
+          f"({len(tg)}/{len(two)} = {len(tg)/max(len(two),1):.0%} of 2-team arenas)")
+    print(f"{cells} of {len(board.coords())} cells covered, "
+          f"{sum(n for _, n in tg)} puddles requested in total")
+    print("counts -> arenas: " + ", ".join(
+        f"{n}:{k}" for n, k in sorted(hist.items(), reverse=True)))
 
 
-def token() -> str:
-    import yaml
+def cmd_patch(args) -> None:
+    board = load_board(args)
+    OUT.mkdir(parents=True, exist_ok=True)
+    tg = targets(board, args)
+    if args.from_prod:
+        import campaign_api
+        specs = campaign_api.fetch_pinned_specs([c for c, _ in tg])
+        for cid, _ in tg:
+            if cid not in specs:
+                sys.exit(f"arena {cid} has no pinned map_spec on prod — "
+                         "generate and upload the base maps first")
+            x, y = hb.parse_cell(cid)
+            (OUT / f"cell_{x}_{y}.json").write_text(json.dumps(specs[cid]))
+        print(f"fetched {len(specs)} pinned specs from prod")
+    else:
+        for cid, _ in tg:
+            x, y = hb.parse_cell(cid)
+            src = MAPS / f"cell_{x}_{y}.json"
+            if not src.exists():
+                sys.exit(f"missing {src} — run `gen_campaign_maps.py generate all`")
+            # Copy, never patch in place: base terrain must stay byte-identical.
+            shutil.copyfile(src, OUT / f"cell_{x}_{y}.json")
 
-    creds = yaml.safe_load(open(Path.home() / ".softmax/credentials.yaml"))
-    return creds["tokens"]["https://softmax.com/api"]
-
-
-def api_call(path: str, payload: dict) -> dict:
-    req = urllib.request.Request(
-        f"{API}{path}",
-        data=json.dumps(payload).encode(),
-        headers={
-            "Authorization": f"Bearer {token()}",
-            "X-Use-Elevated-Privileges": "true",
-            "Content-Type": "application/json",
-            # Cloudflare 403s urllib's default UA.
-            "User-Agent": "coworld-ctf-campaign-puddles",
-        },
-    )
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
-
-
-def sql(query: str) -> list[list]:
-    return api_call("/sql/query", {"query": query})["rows"]
-
-
-def cmd_plan() -> None:
-    print("puddle gradient (x right, y down; . = none):")
-    for y in range(10):
-        print("  " + " ".join(
-            f"{puddle_count(x, y):2d}" if puddle_count(x, y) else " ."
-            for x in range(10)
-        ))
-    cells = targets()
-    print(f"{len(cells)} cells get puddles, "
-          f"{sum(c for _, _, c in cells)} puddles requested in total")
-
-
-def cmd_fetch() -> None:
-    OUT.mkdir(exist_ok=True)
-    keys = ", ".join(f"'{x},{y}'" for x, y, _ in targets())
-    rows = sql(
-        "SELECT key, value->>'map_ref', value->'map_spec' "
-        "FROM leagues, jsonb_each(commissioner_state->'cells') AS c(key, value) "
-        f"WHERE id = '{LEAGUE}' AND key IN ({keys})"
-    )
-    assert len(rows) == len(targets()), f"expected {len(targets())} cells, got {len(rows)}"
-    for key, map_ref, spec in rows:
-        # Every gradient cell must be a 2-team variant, or the patch would
-        # refuse (and the gradient scheme drifted from the prod board).
-        assert map_ref in ("1v1", "2v2"), f"cell {key} is {map_ref}, not 2-team"
-        assert spec, f"cell {key} has no pinned map_spec"
-        x, y = key.split(",")
-        path = OUT / f"cell_{x}_{y}.json"
-        path.write_text(spec if isinstance(spec, str) else json.dumps(spec))
-        print(f"{key}: fetched map_spec ({map_ref})", flush=True)
-
-
-def cmd_patch() -> None:
-    for x, y, count in targets():
+    for cid, count in tg:
+        x, y = hb.parse_cell(cid)
+        mode = board.mode_for(cid, args.zones)
+        assert mode not in hb.FOUR_TEAM_MODES, (
+            f"arena {cid} is {mode}: the sim refuses puddles on 4-team maps")
         spec = OUT / f"cell_{x}_{y}.json"
-        if not spec.exists():
-            sys.exit(f"missing {spec} — run fetch first")
-        seed = puddle_seed(x, y)
-        place = subprocess.run(
+        seed = hb.puddle_seed(x, y)
+        subprocess.run(
             [str(MAPKIT), "puddles", str(spec),
              "--count", str(count), "--seed", str(seed)],
             check=True, capture_output=True, text=True,
@@ -150,50 +174,86 @@ def cmd_patch() -> None:
         subprocess.run([str(MAPKIT), "validate", str(spec)],
                        check=True, capture_output=True)
         subprocess.run(
-            [str(MAPKIT), "render", str(spec),
-             "-o", str(OUT / f"cell_{x}_{y}.png")],
+            [str(MAPKIT), "render", str(spec), "-o", str(OUT / f"cell_{x}_{y}.png")],
             check=True, capture_output=True,
         )
         placed = len(json.loads(spec.read_text()).get("puddles", []))
         note = "" if placed == count else f"  (WANTED {count})"
-        print(f"{x},{y}: {placed} puddles seed={seed}{note}", flush=True)
+        print(f"{cid}: {placed} puddles seed={seed} "
+              f"members={len(board.members_of(cid))}{note}", flush=True)
+    print(f"\npatched {len(tg)} arenas into {OUT} — nothing sent to production")
 
 
-def cmd_upload() -> None:
-    for x, y, count in targets():
-        spec = OUT / f"cell_{x}_{y}.json"
-        png = OUT / f"cell_{x}_{y}.png"
-        loaded = json.loads(spec.read_text())
-        assert loaded.get("puddles"), f"{spec} has no puddles — run patch first"
-        resp = api_call(
-            f"/v2/leagues/league_{LEAGUE}/campaign/cell-map",
-            {
-                "cell": f"{x},{y}",
-                "map_spec": loaded,
-                "preview_png_base64": base64.b64encode(png.read_bytes()).decode(),
-            },
-        )
-        print(f"{x},{y}: uploaded, preview={resp.get('preview_url')}", flush=True)
+def cmd_upload(args) -> None:
+    import campaign_api
+
+    board = load_board(args)
+    tg = targets(board, args)
+    uploads = []
+    for cid, count in tg:
+        x, y = hb.parse_cell(cid)
+        spec_path = OUT / f"cell_{x}_{y}.json"
+        if not spec_path.exists():
+            sys.exit(f"missing {spec_path} — run patch first")
+        loaded = json.loads(spec_path.read_text())
+        if not loaded.get("puddles"):
+            sys.exit(f"{spec_path} has no puddles — run patch first")
+        png = (OUT / f"cell_{x}_{y}.png").read_bytes()
+        uploads.append((cid, cid, loaded, png))
+    print(f"{len(tg)} puddled arenas -> {len(uploads)} cell pins")
+    if not args.apply:
+        print("DRY RUN — nothing was sent. Re-run with --apply to write to "
+              f"league {campaign_api.LEAGUE}.")
+        return
+    for member, anchor, spec, png in uploads:
+        resp = campaign_api.upload_cell_map(member, spec, png)
+        print(f"{member}: uploaded from arena {anchor}, "
+              f"preview={resp.get('preview_url')}", flush=True)
 
 
-def cmd_verify() -> None:
-    rows = sql(
+def cmd_verify(args) -> None:
+    import campaign_api
+
+    board = load_board(args)
+    want = {c: n for c, n in targets(board, args)}
+    rows = campaign_api.sql(
         "SELECT key, jsonb_array_length(value->'map_spec'->'puddles') "
         "FROM leagues, jsonb_each(commissioner_state->'cells') AS c(key, value) "
-        f"WHERE id = '{LEAGUE}' AND value->'map_spec' ? 'puddles' ORDER BY key"
+        f"WHERE id = '{campaign_api.LEAGUE}' AND value->'map_spec' ? 'puddles' "
+        "ORDER BY key"
     )
     print(f"{len(rows)} cells carry puddles on prod:")
     for key, n in rows:
-        x, y = map(int, key.split(","))
-        want = puddle_count(x, y)
-        note = "" if n <= want and want > 0 else "  UNEXPECTED"
-        print(f"  {key}: {n} (gradient wants {want}){note}")
+        anchor = board.anchor_of(key)
+        w = want.get(anchor, 0)
+        note = "" if n <= w and w > 0 else "  UNEXPECTED"
+        print(f"  {key}: {n} (arena {anchor} wants {w}){note}")
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--zones", choices=["voronoi", "board"], default="voronoi",
+                   help="DEFAULT 'voronoi' is daveey's design and the "
+                        "restoration target")
+    p.add_argument("--width", type=int, default=12)
+    p.add_argument("--height", type=int, default=12)
+    p.add_argument("--peak", type=int, default=hb.PUDDLE_PEAK)
+    p.add_argument("--step", type=int, default=hb.PUDDLE_STEP,
+                   help="puddles removed per hex ring (4 = the square's constant)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("plan").set_defaults(fn=cmd_plan)
+    pa = sub.add_parser("patch")
+    pa.add_argument("--from-prod", action="store_true",
+                    help="patch the specs already pinned on the live league")
+    pa.set_defaults(fn=cmd_patch)
+    u = sub.add_parser("upload")
+    u.add_argument("--apply", action="store_true",
+                   help="actually write to the live league")
+    u.set_defaults(fn=cmd_upload)
+    sub.add_parser("verify").set_defaults(fn=cmd_verify)
+    args = p.parse_args()
+    args.fn(args)
 
 
 if __name__ == "__main__":
-    cmds = {"plan": cmd_plan, "fetch": cmd_fetch, "patch": cmd_patch,
-            "upload": cmd_upload, "verify": cmd_verify}
-    if sys.argv[1:2] and sys.argv[1] in cmds:
-        cmds[sys.argv[1]]()
-    else:
-        sys.exit(f"usage: {sys.argv[0]} {'|'.join(cmds)}")
+    main()
