@@ -1,0 +1,1 @@
+{"counters":{"backpressure":17,"dropped_calls":4294967295,"dropped_chat":2,"dropped_uploads":0,"faults_dropped":0},"gen":"2","schema":"control_view","statuses":[{"gen":"1","kind":"module_accepted","ordinal":"1","upload_id":"1"},{"gen":"2","kind":"call_rejected","ordinal":"5","proposal_id":"6","reason":"unknownParam:plays[2].params.margin"}],"v":1}

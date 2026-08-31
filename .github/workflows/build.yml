@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev libpcre3
       - uses: treeform/setup-nim-action@v6
       - name: Pin nimby 0.1.26
         # The setup action's nim tarball bundles whatever nimby was current when

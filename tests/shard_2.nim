@@ -25,6 +25,7 @@ import
   test_policy_page,
   test_render_scale,
   test_shard_wiring,
+  test_shell_contracts,
   test_shield_bubble,
   test_shields,
   test_shot_accuracy,

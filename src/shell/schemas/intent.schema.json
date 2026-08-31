@@ -1,0 +1,33 @@
+{
+  "$comment": "§4.1 — the Intent a play emits (controller class) and the standing order the body executes. Canonical rules: schemas/README.md. Caps: reason ≤ 64 bytes; whole encoding well under MaxEmitBytes (4096).",
+  "title": "intent",
+  "type": "object",
+  "required": ["schema", "v", "kind", "arrive_radius"],
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "navigate_to"}}}, "then": {"required": ["point"]}},
+    {"if": {"properties": {"kind": {"const": "hold"}}}, "then": {"not": {"required": ["point"]}}}
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "intent"},
+    "v": {"const": 1},
+    "kind": {"enum": ["navigate_to", "hold"]},
+    "point": {
+      "$comment": "REQUIRED iff kind is navigate_to; forbidden for hold (schema rejection either way, §6.1). Map pixels, inside map bounds; the engine validates and may NORMALIZE it via nearestReachable at emit (§6.1), and the accepted canonical bytes carry the returned point.",
+      "type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2
+    },
+    "arrive_radius": {"type": "number", "minimum": 0, "$comment": "pixels, ≤ map diagonal"},
+    "moving_goal": {"type": "boolean", "$comment": "omit when false"},
+    "profile": {"enum": ["default", "carrier", "hunter"], "$comment": "omit when default"},
+    "micro": {
+      "$comment": "SET kind: sorted, deduplicated; omit when empty. Stencil's permission set minus the deleted pursuit flag (§3.3).",
+      "type": "array",
+      "items": {"enum": ["formation_bias", "peek_duck", "separation", "steal_rush_exempt"]}
+    },
+    "idle_aim_center_brads": {"type": "integer", "minimum": 0, "maximum": 255, "$comment": "omit when unset; the finisher stamps it if absent (§7.3)"},
+    "clamp_to_endzone": {"type": "boolean", "$comment": "omit when false; meaningful in ctf only, ignored elsewhere"},
+    "suppress_fire_freeze": {"type": "boolean", "$comment": "omit when false"},
+    "reason": {"type": "string", "x_max_utf8_bytes": 64, "$comment": "telemetry only; omit when empty; the cap is UTF-8 BYTES, engine-enforced (maxLength counts code points and is deliberately not used)"},
+    "combat": {"$ref": "combat_policy.schema.json", "$comment": "omit when neutral (everything empty/false). On the standing order this is the FOLDED policy (§7.1); on a controller emission it is the play's own."}
+  }
+}

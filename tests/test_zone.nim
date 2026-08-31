@@ -31,7 +31,7 @@ proc zoneGameOnRealMap(zonePhasesJson: string): SimServer =
   ## per resolveCtfMapMetadata) and the zone schedule are configured beyond
   ## the map spec itself — no full 32-seat BR roster, since these checks
   ## only touch the paint-arrival field, never combat/spawns.
-  let mapSpecJson = readFile(GameDir / "br-match-showmatch-4242.json")
+  let mapSpecJson = readFile(GameDir / "tests" / "fixtures" / "br-match-showmatch-4242.json")
   var config = defaultGameConfig()
   config.update("{\"mapSpec\": " & mapSpecJson & ", \"teams\": 16, " &
     "\"zonePhases\": " & zonePhasesJson & "}")

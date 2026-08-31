@@ -1,0 +1,29 @@
+{
+  "$comment": "§4.1/§4.2 — the alliance semantics: never-shoot, wards, preferences, hold-fire. Emitted alone by overlay-class plays; folded across active overlays in ladder order (union of bans and wards, preferences concatenated then deduplicated keeping first occurrence, hold_fire disjunction, §7.1). Caps are roster sizes, so any fold fits by construction.",
+  "title": "combat_policy",
+  "type": "object",
+  "required": ["schema", "v"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "combat_policy"},
+    "v": {"const": 1},
+    "no_shoot": {"$ref": "#/$defs/protected_set", "$comment": "omit when empty"},
+    "protect": {"$ref": "#/$defs/protected_set", "$comment": "omit when empty"},
+    "prefer": {
+      "$comment": "ORDERED list, priority order, duplicates rejected by name; at most the four distinct tags; omit when empty. Deterministic semantics: §5.2.",
+      "type": "array", "maxItems": 4,
+      "items": {"enum": ["weakened", "isolated", "revenge", "bounty"]}
+    },
+    "hold_fire": {"type": "boolean", "$comment": "omit when false; do not initiate — return fire at identified aggressors inside the 120-tick window only (§5.2)"}
+  },
+  "$defs": {
+    "protected_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "teams": {"$comment": "SET: sorted, deduplicated team names; ≤ 16; omit when empty", "type": "array", "maxItems": 16, "items": {"type": "string"}},
+        "seats": {"$comment": "SET: sorted, deduplicated SeatOrDuoRef strings (seat:N, duo:<team>); ≤ 32; omit when empty; duo: refs valid only in mode br (noDuosInMode)", "type": "array", "maxItems": 32, "items": {"type": "string", "pattern": "^(seat:(3[01]|[12]?[0-9])|duo:[a-z]+)$"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$comment": "§7.1/Appendix P — the PlayCall payload: Maxwell's ladder of plays. Canonical bytes ≤ MaxCallBytes (4096); ≤ 16 entries, ≤ 4 overlay entries (MaxActiveOverlays). Validation is loud and total before anything takes effect (§7.1). Included here for completeness of the wire contract; its validator is P3 (lane C) work.",
+  "title": "ladder_call",
+  "type": "object",
+  "required": ["plays"],
+  "additionalProperties": false,
+  "properties": {
+    "plays": {
+      "type": "array", "minItems": 1, "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": ["play"],
+        "additionalProperties": false,
+        "properties": {
+          "play": {"type": "string", "$comment": "a seat-bound module name, or a reserved engine-native reflex name (reflex_clear_grenade / reflex_clear_spray / reflex_zone_escape, parameterless)"},
+          "entry_id": {"type": "string", "$comment": "stable id, unique within the call; defaulted from play name and position when omitted"},
+          "when": {"$comment": "guard: the engine's closed JSON s-expression form over registered view/context paths; depth ≤ 4, nodes ≤ 64, no non-finite literals; a guardless controller always passes", "type": "array"},
+          "params": {"type": "object", "$comment": "validated against the play's manifest ParamSpec schema; unknown keys rejected by name with the parameter path"},
+          "retune": {"type": "boolean", "$comment": "omit when false; §7.2's adoption table governs matching against the outgoing ladder"}
+        }
+      }
+    }
+  }
+}

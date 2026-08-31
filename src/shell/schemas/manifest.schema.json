@@ -1,0 +1,826 @@
+{
+  "$comment": "\u00a76.2 \u2014 the manifest a module's play_manifest export emits exactly once at the upload probe. Field names are the design's own. Names are scoped per seat; a reserved name (default, reflex_*) or a wrong abi rejects the module. `params` is the COMPLETE Appendix P.1 ParamSpec language, normatively encoded here (review finding: an unconstrained object let lanes diverge): at most 16 parameters, nesting depth \u2264 4, list caps \u2264 32, string caps \u2264 64 bytes.",
+  "title": "play_manifest",
+  "type": "object",
+  "required": [
+    "abi",
+    "name",
+    "class",
+    "modes",
+    "retune",
+    "params"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "abi": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$",
+      "$comment": "not default, not reflex_*"
+    },
+    "class": {
+      "enum": [
+        "controller",
+        "overlay"
+      ]
+    },
+    "doc": {
+      "type": "string",
+      "x_max_utf8_bytes": 256,
+      "$comment": "cap is UTF-8 BYTES, engine-enforced (JSON Schema maxLength counts code points and is deliberately not used); omit when empty"
+    },
+    "modes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "enum": [
+          "ctf",
+          "koth",
+          "br"
+        ]
+      },
+      "$comment": "SET: sorted, deduplicated, nonempty"
+    },
+    "retune": {
+      "type": "boolean",
+      "$comment": "must equal whether play_retune is exported (probe-verified)"
+    },
+    "params": {
+      "$comment": "parameter name -> ParamSpec; {} for a parameterless play; \u2264 16 parameters (MaxParamsPerSchema)",
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,31}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/param_spec"
+      }
+    }
+  },
+  "$defs": {
+    "param_spec": {
+      "$comment": "One P.1 kind. Depth of nested specs (tuple items, union arms, set/list element specs) \u2264 ParamNestingMax (4). Per-kind branches below are mutually exclusive: each kind's branch bans every other kind's fields, and `required: true` forbids `default`. The depth cap (ParamNestingMax, 4) cannot be expressed through a recursive $ref and is a SEMANTIC check (engine-enforced; the contracts test enforces it on the goldens). `required: true` marks a parameter with no default; `default` must itself validate against the spec.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "number",
+            "bool",
+            "enum",
+            "point",
+            "team_list",
+            "set",
+            "list",
+            "seat_or_duo_ref",
+            "tuple",
+            "union",
+            "condition"
+          ]
+        },
+        "integer": {
+          "type": "boolean",
+          "$comment": "number only; every count, tick, hit point, seat, zone phase, and brad is integral (P.1)"
+        },
+        "min": {
+          "type": "number",
+          "$comment": "number only; finite"
+        },
+        "max": {
+          "type": "number",
+          "$comment": "number only; finite"
+        },
+        "of": {
+          "$comment": "enum: the closed string set. set/list: the element kind \u2014 a kind NAME for scalar elements or a nested spec object.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "x_max_utf8_bytes": 64
+              }
+            },
+            {
+              "enum": [
+                "number",
+                "bool",
+                "enum",
+                "point",
+                "team_list",
+                "seat_or_duo_ref"
+              ]
+            },
+            {
+              "$ref": "#/$defs/param_spec"
+            }
+          ]
+        },
+        "min_items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "$comment": "set/list only"
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "$comment": "set/list only; P.1 list cap"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/param_spec"
+          },
+          "$comment": "tuple only: fixed arity, per-position kinds"
+        },
+        "arms": {
+          "type": "object",
+          "maxProperties": 8,
+          "additionalProperties": {
+            "$ref": "#/$defs/param_spec"
+          },
+          "$comment": "union only: exactly one key of these arms appears in a value"
+        },
+        "default": {
+          "$comment": "the literal default, absent for a required parameter; must validate against this spec"
+        },
+        "required": {
+          "type": "boolean",
+          "$comment": "omit when false; true forbids `default`"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "number"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "bool"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "enum"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "of"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "of": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "string",
+                  "x_max_utf8_bytes": 64
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "point"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "team_list"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "seat_or_duo_ref"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "condition"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "set"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "of"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "of": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "number",
+                      "bool",
+                      "enum",
+                      "point",
+                      "team_list",
+                      "seat_or_duo_ref"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/param_spec"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "list"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "of"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "of": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "number",
+                      "bool",
+                      "enum",
+                      "point",
+                      "team_list",
+                      "seat_or_duo_ref"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/param_spec"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "tuple"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "items"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "arms"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "union"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "arms"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "integer"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "of"
+                  ]
+                },
+                {
+                  "required": [
+                    "min_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "max_items"
+                  ]
+                },
+                {
+                  "required": [
+                    "items"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "required": {
+                "const": true
+              }
+            },
+            "required": [
+              "required"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "default"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

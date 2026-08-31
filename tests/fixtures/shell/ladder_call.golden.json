@@ -1,0 +1,1 @@
+{"plays":[{"params":{"holdTrigger":["<",["get","world.alive_teams"],9],"never":["duo:navy"]},"play":"target_law"},{"params":{"holdFire":{"aliveTeams":2},"partners":["duo:navy"],"protect":true},"play":"pact"},{"params":{"detourMax":500},"play":"supply_run","when":["<",["get","self.hp_frac"],0.4]},{"params":{"coverBias":0.8,"margin":220},"play":"edge_ride"}]}

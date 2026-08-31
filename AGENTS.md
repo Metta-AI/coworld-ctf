@@ -169,13 +169,25 @@ names (`src/shell/`, play seats, the replay format bump, the Mummy patch,
 the new config fields), read it and build to it; when the code and the
 design disagree during implementation, the design's Appendix H records why
 each decision was made, and a change to a ratified decision goes through
-James, not around the doc. Supporting material: the runtime comparison that
+James, not around the doc. The CONTRACTS-FIRST commit is landed: the
+shared types and limits (`src/shell/types.nim`), the canonical encoding
+(`src/shell/canonical.nim`), the wire schemas (`src/shell/schemas/`), the
+byte goldens (`tests/fixtures/shell/`, pinned by
+`tests/test_shell_contracts.nim` in shard 2), and the five config fields
+behind the `season2Shell` gate — build lane work against those, and a
+contract change goes through the integration branch (`james/s2-shell`),
+never a lane's own copy. Supporting material: the runtime comparison that
 picked wasmtime (`docs/reports/wasm-runtime-embedding-2026-08-30.md`), the
 research report on Maxwell's Season 2 substrate
 (`docs/reports/maxwell-s2-paradigms-2026-08-29.md`), and the branch
 inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). The
-integration base for this work is Maxwell's `br-season2-complete` branch,
-not main; the design's P0 names the landing plan as the first job.
+BR season-2 substrate landed dark on main via the wave-1 reconciliation
+merge (PR #312, 2026-08-30; a convergence audit against the parallel
+independent merge is in
+`docs/reports/br-season2-landing-notes-2026-08-30.md`), so **main is the
+integration base** for the shell work now. The dark landing claimed no
+GameVersion (GV47 stands); GV48 is reserved for Maxwell's glory
+increment 3.
 
 ## Interaction radii must be derived from the art (learned 3x on the heart)
 

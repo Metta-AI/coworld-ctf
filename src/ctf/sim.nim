@@ -2139,10 +2139,13 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         amount: sprayDamage, color: sim.players[victimIndex].color
       )
       # GLORY: damage is the DENSE half of the ladder -- identical block to
-      # the gun's own damage site, see its comment there.
+      # the gun's own damage site, see its comment there. Priced from the
+      # CONFIGURED sprayDamage (the hp the victim actually lost), not the
+      # classic constant: paintball configures 1, and crediting 3 there
+      # would advance the ladder three times too fast.
       if arcFire.attacker >= 0 and arcFire.attacker < sim.players.len and
           sim.players[arcFire.attacker].team != sim.players[victimIndex].team:
-        sim.addXp(arcFire.attacker, XpPerDamage * SprayPaintDamage)
+        sim.addXp(arcFire.attacker, XpPerDamage * sprayDamage)
         if sim.players[victimIndex].hp > 0:
           sim.players[victimIndex].lastDamagedBy = arcFire.attacker
           sim.players[victimIndex].lastDamagedByTick = sim.tickCount
