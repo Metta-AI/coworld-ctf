@@ -16,6 +16,7 @@ import
   test_glory_lockstep,
   test_gv44_br_rotation,
   test_home_rotation,
+  test_loot_rework,
   test_lull_spans,
   test_mapgen,
   test_player_collision,
