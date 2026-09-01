@@ -8,32 +8,60 @@ import ../src/shell/[transport, types]
 
 privateAccess(ServerObj)
 
-proc waitFor(startedAt: float64, timeoutSeconds = 120.0) =
-  ## Every waitUntil call site below polls an atomic mutated by a
-  ## background callback on serveProc's thread -- eventual consistency,
-  ## not a latency SLA. A wall-clock/fixed-budget audit of this suite
-  ## empirically reproduced the failure mode this default used to invite:
-  ## under 90 synthetic CPU-bound processes (14 physical cores, load avg
-  ## ~50), this exact file failed 2 of 3 runs at 10.59s/10.94s -- just
-  ## past the old 10.0s default -- purely because serveProc's thread lost
-  ## the race for CPU time against the ceiling, not because the adapter
-  ## stopped making progress (0/3 failures unloaded, 0/3 at moderate
-  ## 24-process load). 120s is "will the machine eventually schedule this
-  ## thread," not a performance budget: the internal refusal/flood loops
-  ## this guards (e.g. consecutiveRefusals < 50) already self-terminate
-  ## on an event count, so a real stall still fails this, just not on a
-  ## scheduler coin flip. Was 10.0s, with two call sites hand-bumped to
-  ## 30.0s for the flood scenarios specifically; both are folded into
-  ## this one default now instead of leaving the hand-bumped sites as the
-  ## tightest (and therefore weakest) link.
-  doAssert epochTime() - startedAt < timeoutSeconds, "timed out waiting"
+var heartbeat: Atomic[int]
+  ## Bumped by markProgress() from every server-thread callback below
+  ## (websocketHandler's open/message/error/close branches,
+  ## outboundCompletion, and the per-iteration admit/refuse steps inside
+  ## the outbound flood loops) -- every place the callbacks actually
+  ## mutate the atomics a waitUntil call site polls. This is the generic
+  ## "is the adapter alive and doing real work" signal, independent of
+  ## which specific condition a given wait cares about.
+
+template markProgress() = discard heartbeat.fetchAdd(1)
+
+proc waitFor(startedAt: var float64, lastSeen: var int,
+             noProgressSeconds = 180.0) =
+  ## HEARTBEAT-RESET, not a flat wall-clock ceiling: startedAt only
+  ## advances (via lastSeen catching up to heartbeat) when real progress
+  ## has happened since the last check, so this only ever times out on
+  ## noProgressSeconds of genuine STALL, never on cumulative slowness.
+  ## Was a flat 120.0s ceiling before this (raised from 10.0s after a
+  ## wall-clock audit caught this file failing 2/3 runs at ~10.6-10.9s
+  ## under heavy synthetic CPU load) -- a bigger flat constant just moves
+  ## the same race further out, which is why this converted to
+  ## heartbeat-reset instead of another flat bump.
+  ##
+  ## 45.0s (the first heartbeat-reset value) still timed out once on real
+  ## CI (run 33501567167, "no progress for 45.0s", ~4 min into the run --
+  ## checked directly: James's shard compile/run pipelining, 16f031e8,
+  ## was NOT active for that run; it had already been reverted by
+  ## d8691771 hours earlier). The real, simpler, always-true mechanism:
+  ## this file's own `Run test shards in parallel` step starts all 4
+  ## shard binaries concurrently on a 2-core `ubuntu-latest` runner --
+  ## 2x+ oversubscription for the FULL duration of every test run,
+  ## independent of whether compile and run are pipelined. A
+  ## markProgress()-covered path can still go quiet for tens of seconds
+  ## at a time if this test's own thread simply isn't scheduled while
+  ## three sibling shards' threads are. 180s rides out a worse scheduling
+  ## drought without weakening what's being proven: a genuine deadlock
+  ## still fails this, just in 3 minutes instead of 45s, which costs
+  ## nothing -- the property under test was never "finishes fast," it's
+  ## "keeps making progress," and heartbeat-reset already guarantees that
+  ## regardless of the ceiling's exact size.
+  let current = heartbeat.load
+  if current != lastSeen:
+    lastSeen = current
+    startedAt = epochTime()
+  doAssert epochTime() - startedAt < noProgressSeconds,
+    "timed out waiting: no progress for " & $noProgressSeconds & "s"
   sleep(5)
 
-template waitUntil(condition: untyped, timeoutSeconds = 120.0) =
+template waitUntil(condition: untyped, noProgressSeconds = 180.0) =
   block:
-    let startedAt = epochTime()
+    var startedAt = epochTime()
+    var lastSeen = heartbeat.load
     while not (condition):
-      waitFor(startedAt, timeoutSeconds)
+      waitFor(startedAt, lastSeen, noProgressSeconds)
 
 proc serveProc(args: tuple[server: Server, port: int]) {.thread.} =
   try:
@@ -95,6 +123,7 @@ block: # Per-route receive limits on one server.
     event: WebSocketEvent,
     message: mummy.Message,
   ) =
+    markProgress()
     case event:
     of MessageEvent:
       if message.kind in {mummy.TextMessage, mummy.BinaryMessage}:
@@ -164,6 +193,7 @@ block: # Pending-event and pending-byte breaches.
     event: WebSocketEvent,
     message: mummy.Message,
   ) =
+    markProgress()
     case event:
     of OpenEvent:
       while not pendingGate.load:
@@ -203,13 +233,16 @@ block: # Pending-event and pending-byte breaches.
       doAssert pendingErrors.load == errorsBefore + 1
       doAssert pendingCleanups.load == cleanupsBefore + 1
       doAssert pendingMessages.load == messagesBefore
-      # Poll a short deadline to prove the purged queue cannot dispatch later.
+      # Poll a short deadline to prove the purged queue cannot dispatch
+      # later. This proves STASIS over a fixed short window, the opposite
+      # of what the heartbeat-reset waitFor is for -- a plain sleep is all
+      # this ever needed from it.
       let stableUntil = epochTime() + 0.1
       while epochTime() < stableUntil:
         doAssert pendingMessages.load == messagesBefore
         doAssert pendingErrors.load == errorsBefore + 1
         doAssert pendingCloses.load == closesBefore + 1
-        waitFor(stableUntil - 0.1, 0.2)
+        sleep(5)
 
   breachEventCap(whisky.Ping)
   breachEventCap(whisky.Pong)
@@ -300,6 +333,7 @@ proc outboundCompletion(
   websocket: mummy.WebSocket,
   completion: SendCompletion,
 ) {.gcsafe.} =
+  markProgress()
   case completion:
   of SendSent:
     discard outboundSent.fetchAdd(1)
@@ -329,6 +363,7 @@ block: # Outbound refusal and completion-driven capacity.
     event: WebSocketEvent,
     message: mummy.Message,
   ) =
+    markProgress()
     case event:
     of OpenEvent:
       case outboundScenario.load
@@ -345,6 +380,7 @@ block: # Outbound refusal and completion-driven capacity.
           onCompletion = outboundCompletion,
         ):
           inc admitted
+          markProgress()
         doAssert admitted >= 7, "fewer than the 7 frames guaranteed to fit " &
           "under the 2 MiB cap were admitted"
         doAssert admitted < 16, "outbound cap never refused within a bounded burst"
@@ -365,6 +401,7 @@ block: # Outbound refusal and completion-driven capacity.
       of 2:
         var consecutiveRefusals = 0
         while consecutiveRefusals < 50:
+          markProgress()
           if websocket.trySendPlaySocket(
             newString(FloodMessageLen),
             onCompletion = outboundCompletion,
@@ -385,6 +422,7 @@ block: # Outbound refusal and completion-driven capacity.
       of 3:
         var consecutiveRefusals = 0
         while consecutiveRefusals < 50:
+          markProgress()
           if websocket.trySendPlaySocket(
             newString(EventFloodMessageLen),
             onCompletion = outboundCompletion,
