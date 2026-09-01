@@ -711,7 +711,8 @@ proc recordCapture*(sim: var SimServer, playerIndex: int) =
   ## Increments the capture counter for one player.
   ##
   ## GLORY PORT (increment 2/3): the deed/xp mint and the "Uphill"/"Fast Break"
-  ## achievement pins live at the CALL SITE (`checkWinCondition`, sim.nim),
+  ## pins (v12: endcard distinctions now, not ladder gates -- same pin
+  ## sites) live at the CALL SITE (`checkWinCondition`, sim.nim),
   ## not here -- `roster.nim` only imports `sim_types`/`sim_state`, so it
   ## cannot see `awardDeed`/`addXp`/`teamAliveCount` (all in sim.nim, which
   ## imports `roster`, not the reverse). Splitting the mint out of this

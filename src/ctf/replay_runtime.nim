@@ -155,7 +155,9 @@ proc buildReplayViewerPacket*(
   replay: ReplayPlayer,
   state: GlobalViewerState,
   nextState: var GlobalViewerState,
-  events: JsonNode
+  events: JsonNode,
+  lobbyChat: JsonNode = nil,
+  ballots: JsonNode = nil
 ): seq[uint8] =
   ## Builds the shared replay board and chrome packet for one viewer.
   result = sim.buildSpriteProtocolUpdates(
@@ -203,7 +205,17 @@ proc buildReplayViewerPacket*(
         replay.isLullTick(sim.tickCount),
       if sendLead: replay.lullSpans else: @[],
       if sendLead: replay.beatEvents else: nil,
-      if sendLead: replay.achievementBadges else: nil
+      if sendLead: replay.achievementBadges else: nil,
+      # SEASON 2: huddle transcript + ballot, decoded once by the host from
+      # the replay's `.shell` metadata (see `ctf_replay.nim`) and forwarded
+      # here as plain params -- `ReplayPlayer` itself carries no shell
+      # fields, unlike `achievementBadges` above, so there is nothing to
+      # thread through `initReplayRuntime`/the native server's own replay
+      # path. `nil` on a host that never decoded shell records (the
+      # zero-arg default), same "absent means never sent" contract as every
+      # other lead-frame field.
+      if sendLead: lobbyChat else: nil,
+      if sendLead: ballots else: nil
     )
   )
   if sendLead:

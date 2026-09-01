@@ -425,6 +425,27 @@ suite "shell episode ladder":
     check sawEntryInstall
     check sawDifferentMask
 
+  test "one-seat truthful roster degrades to empty context and still runs":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331,
+        [Navy], "one-seat-context-floor", 6)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let configLines = episode.configureFirstLightPlay(playConfig(@[0]))
+      check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+        it.contains("accepted=true"))
+
+      var oneSeatFrame = frame(0, (20, 128), 1)
+      oneSeatFrame.bodyInputs.partner = some(PartnerSample(seat: 0'u8,
+        pos: (20, 128), aimBrads: 32, alive: true))
+      let output = episode.step([oneSeatFrame], 1)
+      check output.masks.len == 1
+      check output.installs.anyIt(it.provenance == "entry:edge_ride" and
+        it.bytes.contains("edge_ride:margin"))
+
   test "live admission seam drives upload, commit, call, and body install":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
