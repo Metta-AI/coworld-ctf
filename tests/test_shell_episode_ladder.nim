@@ -1,13 +1,13 @@
 ## Phase P3-19: FIRST LIGHT episode owns the optional ladder path.
 
-import std/[algorithm, options, os, osproc, sequtils, strformat,
+import std/[algorithm, json, options, os, osproc, sequtils, strformat,
   strutils, unittest]
 
 import bitworld/spriteprotocol
 
 import ../src/ctf/sim_types
-import ../src/shell/[body, body_map, default_play, episode, standing_order,
-  reflexes, wasmtime_c]
+import ../src/shell/[body, body_map, canonical, default_play, episode,
+  standing_order, reflexes, types, wasmtime_c]
 
 const
   Seats = 32
@@ -98,6 +98,16 @@ proc playConfig(seats: seq[int]; coverBias = "0.0"): FirstLightPlayConfig =
     uploadIdBase: 70_000,
     proposalIdBase: 80_000,
     originGeneration: 1)
+
+proc edgeRideCallBytes(): string =
+  canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"edge_ride\"," &
+    "\"params\":{\"coverBias\":0.0,\"enterLead\":120,\"margin\":100}," &
+    "\"play\":\"edge_ride\"}]}"))
+
+proc bytesOf(text: string): seq[byte] =
+  result = newSeq[byte](text.len)
+  if text.len > 0:
+    copyMem(addr result[0], unsafeAddr text[0], text.len)
 
 proc probeConfig(modulePath: string): FirstLightPlayConfig =
   FirstLightPlayConfig(
@@ -270,6 +280,81 @@ suite "shell episode ladder":
       playPos.applyMask(playOutput.masks[0].input)
     check sawEntryInstall
     check sawDifferentMask
+
+  test "live admission seam drives upload, commit, call, and body install":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let admitted = episode.admitPlayModule(0, 120_000, 1,
+        readFile(EdgeRideWasm).bytesOf)
+      check admitted.accepted
+      check admitted.reason == ""
+      check admitted.status.kind == skModuleAccepted
+      check admitted.statusBytes.len > 0
+
+      var
+        tick = 1
+        pos: BodyPoint = (20, 128)
+        sawReady = false
+      while tick <= 5000 and not sawReady:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.masks.len == 1
+        pos.applyMask(output.masks[0].input)
+        for status in output.moduleStatuses:
+          if status.seat == 0 and status.uploadId == 120_000:
+            check status.terminal == "tkReady"
+            check status.status.kind == skModuleReady
+            check status.status.name == "edge_ride"
+            check status.statusBytes.len > 0
+            sawReady = true
+        if not sawReady:
+          sleep(1)
+        inc tick
+      check sawReady
+
+      let accepted = episode.acceptPlayCall(0, 121_000, 1, uint32(tick),
+        edgeRideCallBytes())
+      check accepted.accepted
+      check accepted.reason == ""
+      check accepted.epoch == 1
+      check accepted.status.kind == skCallAccepted
+      check accepted.statusBytes.len > 0
+
+      var sawEntryInstall = false
+      for offset in 0 .. 20:
+        let output = episode.step([frame(0, pos, tick + offset)],
+          uint32(tick + offset))
+        check output.masks.len == 1
+        sawEntryInstall = sawEntryInstall or
+          output.installs.anyIt(it.provenance == "entry:edge_ride")
+        pos.applyMask(output.masks[0].input)
+      check sawEntryInstall
+
+  test "live admission upload quota resets on the episode tick":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let wasmBytes = readFile(EdgeRideWasm).bytesOf
+      let first = episode.admitPlayModule(0, 130_000, 1, wasmBytes)
+      check first.accepted
+      check first.status.kind == skModuleAccepted
+      let sameTick = episode.admitPlayModule(0, 130_001, 1, wasmBytes)
+      check not sameTick.accepted
+      check sameTick.reason == "tickUploadLimit"
+
+      let output = episode.step([frame(0, (20, 128), 1)], 1)
+      check output.masks.len == 1
+      let nextTick = episode.admitPlayModule(0, 130_001, 1, wasmBytes)
+      check nextTick.accepted
+      check nextTick.status.kind == skModuleAccepted
 
   test "32 configured play seats stay inside the runtime sub-allocation":
     buildEdgeRideWasm()
