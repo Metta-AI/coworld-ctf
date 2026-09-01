@@ -124,6 +124,11 @@ type
     generation: uint64
     packet: LobbyChatSendPacket
 
+  OutstandingPlayCall = object
+    proposalId: uint64
+    acceptAcked: bool
+    pendingRetunes: seq[FirstLightEntryIdentity]
+
   WebSocketAppState = object
     lock: Lock
     replayServerMode: bool
@@ -177,6 +182,7 @@ type
     playIngressFeedbackErrors: uint32
     playIngress: seq[PlayIngressSeat[WebSocket]]
     playOutbound: seq[PlayOutboundSeat[WebSocket]]
+    outstandingPlayCalls: seq[seq[OutstandingPlayCall]]
     playIngressConfigured: bool
     seatTombstones: seq[SeatTombstone]
     seatPlayerIndices: seq[int]
@@ -587,6 +593,7 @@ proc initAppState() =
   appState.playIngressFeedbackErrors = 0
   appState.playIngress = @[]
   appState.playOutbound = @[]
+  appState.outstandingPlayCalls = @[]
   appState.playIngressConfigured = false
   appState.seatTombstones = @[]
   appState.seatPlayerIndices = @[]
@@ -664,6 +671,8 @@ proc addressIsKicked(address: string): bool =
 proc configurePlayIngress(config: GameConfig) =
   appState.playIngress = newSeq[PlayIngressSeat[WebSocket]](config.slots.len)
   appState.playOutbound = newSeq[PlayOutboundSeat[WebSocket]](config.slots.len)
+  appState.outstandingPlayCalls =
+    newSeq[seq[OutstandingPlayCall]](config.slots.len)
   appState.seatTombstones = newSeq[SeatTombstone](config.slots.len)
   appState.seatPlayerIndices = newSeq[int](config.slots.len)
   for seat in 0 ..< appState.playIngress.len:
@@ -781,9 +790,7 @@ proc handleProductionPlayCall(
       if accepted.status.kind in {skCallAccepted, skCallRejected}:
         discard appState.playOutbound[seat].retainStatus(
           accepted.status, reservationSlots = 1,
-          proposalId =
-            if accepted.accepted: none(uint64)
-            else: some(packet.proposalId))
+          proposalId = some(packet.proposalId))
       else:
         discard appState.playOutbound[seat].retainCallRefusal(
           generation, packet.proposalId,
@@ -796,13 +803,18 @@ proc handleProductionPlayCall(
       applyPlayIngressFeedback(seat, PlayIngressFeedback(
         statusSlotsRetired: MaxLadderEntries))
   else:
-    # INTERIM: retain all MaxLadderEntries retune slots and the call payload.
-    # Lane A must expose (1) the accepted call's pending retune identities and
-    # (2) every successful/refused retune completion from episode.step. Then
-    # lane B can release successful/unused slots immediately, attach refused
-    # slots to their durable statuses, and evict the payload only after the
-    # complete outcome set is acknowledged. Releasing now would over-admit.
-    discard
+    {.gcsafe.}:
+      withLock appState.lock:
+        if seat < 0 or seat >= appState.outstandingPlayCalls.len:
+          appState.playIngressFeedbackErrors.saturatingAdd(1)
+          return
+        appState.outstandingPlayCalls[seat].add(OutstandingPlayCall(
+          proposalId: packet.proposalId,
+          pendingRetunes: accepted.pendingRetunes))
+    {.cast(gcsafe).}:
+      applyPlayIngressFeedback(seat, PlayIngressFeedback(
+        statusSlotsRetired:
+          MaxLadderEntries - accepted.pendingRetunes.len))
 
 proc retainProductionModuleStatuses(
     statuses: openArray[FirstLightModuleStatus]) =
@@ -816,6 +828,78 @@ proc retainProductionModuleStatuses(
           continue
         discard appState.playOutbound[terminal.seat].retainStatus(
           terminal.status, reservationSlots = 1)
+
+proc countPlayOutcomeFeedbackError(seat: int) =
+  appState.playIngressFeedbackErrors.saturatingAdd(1)
+  if seat >= 0 and seat < appState.playIngress.len:
+    appState.playIngress[seat].notePlayIngressFeedbackError()
+
+proc findOutstandingRetune(seat: int; entryId: string;
+                           play = ""): tuple[callIndex, entryIndex: int] =
+  result = (-1, -1)
+  if seat < 0 or seat >= appState.outstandingPlayCalls.len:
+    return
+  for callIndex, call in appState.outstandingPlayCalls[seat]:
+    for entryIndex, identity in call.pendingRetunes:
+      if identity.entryId == entryId and
+          (play.len == 0 or identity.play == play):
+        return (callIndex, entryIndex)
+
+proc completeOutstandingRetune(seat, callIndex, entryIndex: int;
+    feedback: var PlayIngressFeedback) =
+  var call = addr appState.outstandingPlayCalls[seat][callIndex]
+  call[].pendingRetunes.delete(entryIndex)
+  if call[].pendingRetunes.len == 0 and call[].acceptAcked:
+    feedback.retiredProposalIds.add(call[].proposalId)
+    appState.outstandingPlayCalls[seat].delete(callIndex)
+
+proc retainProductionLadderOutcomes(
+    ladderStatuses: openArray[FirstLightLadderStatus];
+    retuned: openArray[FirstLightEntryIdentity]) =
+  ## Converts lane C's exactly-once completion channel into reservation
+  ## retirement. Calls are kept in admission order, so repeated entry
+  ## identities across successive proposals retire the oldest outstanding
+  ## occurrence first.
+  var feedback = newSeq[PlayIngressFeedback](appState.playIngress.len)
+  {.gcsafe.}:
+    withLock appState.lock:
+      for identity in retuned:
+        if identity.seat < 0 or identity.seat >= appState.playIngress.len:
+          countPlayOutcomeFeedbackError(identity.seat)
+          continue
+        let found = findOutstandingRetune(
+          identity.seat, identity.entryId, identity.play)
+        if found.callIndex < 0:
+          countPlayOutcomeFeedbackError(identity.seat)
+          continue
+        feedback[identity.seat].statusSlotsRetired += 1
+        completeOutstandingRetune(
+          identity.seat, found.callIndex, found.entryIndex,
+          feedback[identity.seat])
+
+      for row in ladderStatuses:
+        if row.seat < 0 or row.seat >= appState.playIngress.len:
+          countPlayOutcomeFeedbackError(row.seat)
+          continue
+        let found = findOutstandingRetune(row.seat, row.entryId)
+        if found.callIndex >= 0:
+          # The durable list owns the wire ordinal. The standard path stamps
+          # that one field, fits the landed value, and encodes it; lane C's
+          # pre-encoded ladder-local statusBytes are intentionally not a wire
+          # input here.
+          discard appState.playOutbound[row.seat].retainStatus(
+            row.status, reservationSlots = 1)
+          completeOutstandingRetune(
+            row.seat, found.callIndex, found.entryIndex, feedback[row.seat])
+        elif row.status.kind == skPlayFaulted:
+          discard appState.playOutbound[row.seat].retainStatus(
+            row.status, reservationSlots = 0, spontaneous = true)
+        else:
+          countPlayOutcomeFeedbackError(row.seat)
+
+  for seat, outcome in feedback:
+    if outcome.statusSlotsRetired > 0 or outcome.retiredProposalIds.len > 0:
+      applyPlayIngressFeedback(seat, outcome)
 
 proc handleProductionStatusAck(
   websocket: WebSocket,
@@ -834,7 +918,20 @@ proc handleProductionStatusAck(
           generation, 0, "status_ack_out_of_range")
         return
       result.statusSlotsRetired = retired.statusSlotsRetired
-      result.retiredProposalIds = retired.retiredProposalIds
+      for proposalId in retired.retiredProposalIds:
+        var callIndex = -1
+        for index, call in appState.outstandingPlayCalls[seat]:
+          if call.proposalId == proposalId:
+            callIndex = index
+            break
+        if callIndex < 0:
+          # Rejected calls never create outstanding completion state.
+          result.retiredProposalIds.add(proposalId)
+        elif appState.outstandingPlayCalls[seat][callIndex].pendingRetunes.len == 0:
+          result.retiredProposalIds.add(proposalId)
+          appState.outstandingPlayCalls[seat].delete(callIndex)
+        else:
+          appState.outstandingPlayCalls[seat][callIndex].acceptAcked = true
 
 proc handleProductionLobbyChat(
   websocket: WebSocket,
@@ -4664,6 +4761,8 @@ proc runServerLoop*(
           let firstLight = firstLightEpisode.step(
             frames, uint32(sim.tickCount + 1))
           retainProductionModuleStatuses(firstLight.moduleStatuses)
+          retainProductionLadderOutcomes(
+            firstLight.ladderStatuses, firstLight.retuned)
           var firstLightMoving, firstLightAiming = 0
           for mask in firstLight.masks:
             let encoded = mask.input.encodeInputMask()
