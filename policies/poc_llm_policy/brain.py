@@ -1,17 +1,25 @@
 """The LLM half of the PoC: turn a short match summary into a chat line and a
 ladder call.
 
-Two interchangeable backends, both returning the same dict shape::
+Three interchangeable backends, all returning the same dict shape::
 
     {"chat": "<one lobby line>",
      "call": {"entries": [{"play": ..., "entry_id": ..., "params": {...}}, ...]}}
 
-* :class:`OpenRouterBrain` -- one JSON-mode chat completion against OpenRouter
-  with a cheap open-weights instruct model. Uses ``urllib`` from the standard
-  library, so the image needs no HTTP dependency.
-* :class:`CannedBrain` -- a fixed response so the image is testable offline and
-  in CI. Selected by ``--canned``, and used automatically when no API key is
-  present.
+Selected in this order, which is deliberate — see the README:
+
+1. :class:`BedrockSidecarBrain` -- **the production path.** A hosted policy pod
+   gets no model credentials of its own; the platform runs a per-pod "Bedrock
+   sidecar" on loopback that holds the real identity and signs calls for it.
+   Selected when ``AWS_ENDPOINT_URL_BEDROCK_RUNTIME`` is present.
+2. :class:`OpenRouterBrain` -- **dev/local only.** One JSON-mode chat completion
+   against OpenRouter with a cheap open-weights instruct model. Selected when
+   ``OPENROUTER_API_KEY`` is set.
+3. :class:`CannedBrain` -- a fixed response so the image is testable offline and
+   in CI. Forced by ``--canned``, and used when neither of the above is present.
+
+Everything uses ``urllib`` from the standard library, so the image needs no
+HTTP or cloud SDK dependency.
 
 The model is never trusted: :mod:`poc_policy` re-validates and repairs whatever
 comes back before any of it reaches the wire, and the server's call validator
@@ -22,10 +30,28 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# ── The hosted-platform contract ──────────────────────────────────────────
+# Verified against the metta checkout at commit 9e780b9ff7. The authoritative
+# player-facing document is
+# packages/coworld/src/coworld/docs/BEDROCK.md; the pod wiring that sets these
+# is packages/coworld/src/coworld/runner/bedrock_sidecar_wiring.py:267-282.
+SIDECAR_ENDPOINT_ENV = "AWS_ENDPOINT_URL_BEDROCK_RUNTIME"
+"""Presence of this is THE signal that hosted Bedrock is available.
+
+BEDROCK.md is explicit that you gate on this and not on ``USE_BEDROCK``, which
+is also set for direct local AWS access with no sidecar in front of it.
+"""
+
+SIDECAR_MODEL_ENV = "BEDROCK_MODEL"
+"""Set from the ``--bedrock-model`` upload flag. Must be read, never hardcoded."""
+
+ANTHROPIC_BEDROCK_VERSION = "bedrock-2023-05-31"
 
 DEFAULT_MODEL = "qwen/qwen3-30b-a3b-instruct-2507"
 """A cheap, capable open-weights instruct model with reliable JSON mode.
@@ -190,11 +216,151 @@ class OpenRouterBrain:
             raise BrainError(f"model did not return JSON: {content[:400]}") from error
 
 
+class BedrockSidecarBrain:
+    """The production path: Bedrock Runtime `InvokeModel` through the sidecar.
+
+    The platform injects a loopback endpoint plus deliberately fake AWS
+    credentials; the sidecar strips whatever auth the client sends and re-signs
+    with the real pod identity, so this sends **no** ``Authorization`` header
+    and needs no AWS SDK.
+
+    Two things differ from the OpenRouter path and are worth knowing:
+
+    * **There is no ``response_format``.** The Anthropic Messages body has no
+      JSON mode, so JSON is forced by prefilling the assistant turn with ``{``
+      and prepending it back onto the reply. That is the standard technique and
+      it is reliable, but it is not the same mechanism.
+    * **Requests are rate limited** (30/minute per player slot by default). A
+      429 comes back as a Bedrock ``ThrottlingException`` with ``Retry-After``,
+      which this honours once rather than failing the turn.
+
+    Deliberately not set: ``requestMetadata``. The sidecar overwrites it with
+    trusted attribution, so sending it is at best ignored.
+    """
+
+    def __init__(self, endpoint: str, model: str, timeout: float = 30.0) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.model = model
+        self.name = f"bedrock-sidecar {model}"
+        # BEDROCK.md warns that a slow call times the whole episode out, which
+        # scores as a loss, so the bound is short and deliberate.
+        self.timeout = timeout
+        self.calls = 0
+
+    @property
+    def url(self) -> str:
+        # The model id is placed in the path raw, matching the documented curl
+        # example in BEDROCK.md ("How to make the call").
+        return f"{self.endpoint}/model/{self.model}/invoke"
+
+    def _post(self, body: bytes) -> dict:
+        request = urllib.request.Request(
+            self.url,
+            data=body,
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def decide(self, summary: str) -> dict:
+        body = json.dumps({
+            "anthropic_version": ANTHROPIC_BEDROCK_VERSION,
+            "max_tokens": 600,
+            "temperature": 0.4,
+            "system": SYSTEM_PROMPT,
+            "messages": [
+                {"role": "user", "content": summary},
+                # Prefill: forces the reply to open as a JSON object.
+                {"role": "assistant", "content": "{"},
+            ],
+        }).encode("utf-8")
+
+        for attempt in (0, 1):
+            try:
+                payload = self._post(body)
+                break
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", "replace")[:400]
+                # BEDROCK.md: log the RESPONSE BODY, not just the status -- the
+                # body names whether it was the route, the auth, or the model.
+                if error.code == 429 and attempt == 0:
+                    delay = _retry_delay(error.headers)
+                    print(f"[poc] sidecar throttled; retrying in {delay:.1f}s "
+                          f"({detail})", flush=True)
+                    time.sleep(delay)
+                    continue
+                raise BrainError(
+                    f"Bedrock sidecar HTTP {error.code} at {self.url}: {detail}"
+                ) from error
+            except urllib.error.URLError as error:
+                raise BrainError(
+                    f"Bedrock sidecar unreachable at {self.url}: {error.reason}"
+                ) from error
+        else:
+            raise BrainError("Bedrock sidecar stayed throttled")
+
+        self.calls += 1
+        try:
+            text = "".join(block.get("text", "")
+                           for block in payload["content"]
+                           if block.get("type") == "text")
+        except (KeyError, TypeError) as error:
+            raise BrainError(f"unexpected Bedrock response: {payload}") from error
+        # Put back the prefilled brace the model was not asked to repeat.
+        text = "{" + text
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as error:
+            raise BrainError(f"model did not return JSON: {text[:400]}") from error
+
+
+def _retry_delay(headers, default: float = 2.0) -> float:
+    """Honour the sidecar's throttling hint. `Retry-After-Ms` wins if present."""
+    milliseconds = headers.get("Retry-After-Ms")
+    if milliseconds:
+        try:
+            return max(0.0, float(milliseconds) / 1000.0)
+        except ValueError:
+            pass
+    seconds = headers.get("Retry-After")
+    if seconds:
+        try:
+            return max(0.0, float(seconds))
+        except ValueError:
+            pass
+    return default
+
+
 def build_brain(canned: bool, model: str) -> tuple[object, str]:
-    """Pick a backend and report why, so the run log is unambiguous."""
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    """Pick a backend and report why, so the run log is unambiguous.
+
+    Order is production-first: the hosted sidecar, then a developer's own
+    OpenRouter key, then canned. `--canned` overrides everything so an offline
+    or CI run is never at the mercy of ambient environment.
+    """
     if canned:
         return CannedBrain(), "canned mode requested"
-    if not key:
-        return CannedBrain(), "OPENROUTER_API_KEY is not set; falling back to canned"
-    return OpenRouterBrain(key, model), f"OpenRouter model {model}"
+
+    endpoint = os.environ.get(SIDECAR_ENDPOINT_ENV, "").strip()
+    if endpoint:
+        sidecar_model = os.environ.get(SIDECAR_MODEL_ENV, "").strip()
+        if not sidecar_model:
+            # Falling back silently here is the documented way to score zero
+            # completed episodes without noticing, so refuse loudly instead.
+            raise BrainError(
+                f"{SIDECAR_ENDPOINT_ENV} is set but {SIDECAR_MODEL_ENV} is not. "
+                "Upload the policy with --bedrock-model, and read the model "
+                "from that variable rather than hardcoding one.")
+        return (BedrockSidecarBrain(endpoint, sidecar_model),
+                f"hosted Bedrock sidecar at {endpoint} ({SIDECAR_MODEL_ENV}="
+                f"{sidecar_model})")
+
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if key:
+        return OpenRouterBrain(key, model), f"OpenRouter model {model} (dev path)"
+
+    return CannedBrain(), (
+        f"neither {SIDECAR_ENDPOINT_ENV} nor OPENROUTER_API_KEY is set; "
+        "falling back to canned")
