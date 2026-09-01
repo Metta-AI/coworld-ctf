@@ -29,12 +29,16 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["49"]
+  ReplayCompatibleGameVersions* = ["50"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV48 is
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV49 stays
+    ## out of the launch allowlist because GV50 is the first shipped shell
+    ## replay surface: play-seat episodes can now carry the 0x10-0x16 shell
+    ## records and call/replay attribution channel, so the committed fixtures
+    ## are recut rather than header-upgraded. GV48 is
     ## excluded because GV49 moved the hash TRAJECTORY, not the schema: the
     ## achievement claim set and per-player xp (hashed since GV48) now
     ## evolve on different rules (the recut gates, the conclusion sweep,
@@ -44,9 +48,13 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "49"
-    ## GV49 (GLORY v12: HEART RECUT + STRUCTURAL CONCLUSION SWEEP): the
-    ## curriculum's terminal-tick hole is closed. `finishGame` now runs one
+  GameVersion* = "50"
+    ## GV50 (SEASON 2 FLIP): the play-calling shell's first shipped version:
+    ## play seats, wasm playbooks, the seven-play reference menu, lobby chat,
+    ## and the call/replay attribution channel (0x10-0x16 shell records).
+    ##
+    ## Previously GV49 (GLORY v12: HEART RECUT + STRUCTURAL CONCLUSION SWEEP):
+    ## the curriculum's terminal-tick hole is closed. `finishGame` now runs one
     ## full conclusion sweep (`evalAchievementsAtConclusion`, sim.nim) over
     ## every team and every tree as part of the game-over transition —
     ## every end path, draws included — replacing the Clean Sheet special

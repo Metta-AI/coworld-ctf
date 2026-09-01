@@ -111,6 +111,10 @@ const SampleJson = """{
   "model": {"model": "claude-haiku-4-5"},
   "maxOutputTokens": {"maxOutputTokens": 800},
   "brMode": {"brMode": true},
+  "season2Shell": {"season2Shell": true},
+  "viewIntervalTicks": {"viewIntervalTicks": 7},
+  "lobbyChatTicks": {"lobbyChatTicks": 600},
+  "playSeatBindTicks": {"playSeatBindTicks": 7201},
   "zonePhases": {"zonePhases": [{"z": 0.5}]},
   "zoneCenter": {"zoneCenter": [500, 500]},
   "allowSeatTakeover": {"allowSeatTakeover": true},
@@ -197,7 +201,8 @@ suite "league manifest config_schema vs GameConfig":
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
     check variantIds == @["2v2", "4ffa", "4ffa8", "default", "1v1",
-      "ctf-default", "ctf-1v1", "paintball", "battle-royale"]
+      "ctf-default", "ctf-1v1", "paintball", "battle-royale",
+      "battle-royale-s2"]
 
   test "ctf publishes namespaced default and two-seat custom-lobby variants":
     let
