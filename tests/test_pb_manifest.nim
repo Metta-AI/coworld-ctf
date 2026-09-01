@@ -1,7 +1,7 @@
-## The manifest contract for the paintball variant. The certifier validates
-## every variant and the certification fixture against config_schema
+## The manifest contract for the deprecated paintball variant. The certifier
+## validates every variant and the certification fixture against config_schema
 ## (additionalProperties: false) and rejects any results key the schema does
-## not name, so these are the assertions that stop an upload-time surprise.
+## not name, so these assertions still pin the archived variant's shape.
 import std/[json, strutils, unittest]
 import pb_helpers
 

@@ -234,10 +234,10 @@ type
     weakened*, isolated*, revenge*, bounty*: float
 
   CombatCandidateInput* = object
-    ## Phase-4 target-acquisition input from the future weapon geometry pass.
+    ## Target-acquisition input from the weapon geometry pass.
     ## `baseScore` is the already-computed Stencil-like score term for facts
-    ## this phase does not yet own (aim cost, corridor clearance, weapon/item
-    ## state). This selector owns policy filtering, preference order,
+    ## owned outside the selector (aim cost, corridor clearance, weapon/item
+    ## state). The selector owns policy filtering, preference order,
     ## ward-threat bias, and target stickiness.
     seat*: int
     shootable*: bool
@@ -1276,7 +1276,7 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,
                             predicate: TrackPredicate): DangerInput =
   ## Only tracks confirmed on this tick are candidates. The predicate is the
-  ## caller's filtering seam until Phase 4 owns team/noShoot/protect policy.
+  ## caller's filtering seam for team/noShoot/protect policy.
   result.selfXy = body.selfState.pos
   for seat in 0 ..< MaxPlayers:
     if seat == body.seatIndex or body.tracks[seat].isNone:

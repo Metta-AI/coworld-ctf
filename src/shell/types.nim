@@ -6,9 +6,10 @@
 ## against, landed before any lane starts so the seams are never negotiated
 ## in flight. Sections cited below are that design's.
 ##
-## Nothing here is reachable from a non-Season-2 configuration: the whole
-## subsystem sits behind the `season2Shell` config gate (default on), and a
-## gate-off build plays byte-identically (§3.2, AGENTS.md's house rule).
+## `season2Shell` defaults on, but runtime shell behavior remains conjunctive:
+## it is reachable only with at least one `control: "play"` seat. An all-input
+## roster uses the direct-input path byte-identically; explicit false selects
+## a deprecated live mode (§3.2).
 ##
 ## Constants whose values the design marks provisional carry a `## P0` note:
 ## P0's measurement (worst tick vs the quarter-tick acceptance, §10) may

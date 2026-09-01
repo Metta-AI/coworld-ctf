@@ -1,4 +1,4 @@
-## FIRST LIGHT's gate-on episode owner: lifecycle, standing-order handoff,
+## FIRST LIGHT's play-seat episode owner: lifecycle, standing-order handoff,
 ## ordinary InputState masks, annotations, and split body/runtime timings.
 ##
 ## Lane A supplies the concrete body, belief-lite, navigation, and seatTick

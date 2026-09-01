@@ -186,10 +186,10 @@ suite "scoring schema routing":
     check results["scores"][0].getFloat() > 0.5
 
   test "a genuine paintball match still scores through the squad/hill path, unchanged":
-    ## newPaintballSim's config is exactly what a live paintball round
-    ## sends: loadout="paintball", hill=true, num_agents=2. This must stay
-    ## on squadResultsJson exactly as it did before the fix -- this is a
-    ## pure routing change, not a scoring change.
+    ## newPaintballSim's config is exactly the deprecated paintball config
+    ## shape: loadout="paintball", hill=true, num_agents=2. This must stay on
+    ## squadResultsJson exactly as it did before the fix -- this is a pure
+    ## routing change, not a scoring change.
     var sim = newPaintballSim()
     check sim.config.loadout == LoadoutPaintball
     sim.hillTicks[Red] = 900

@@ -1804,8 +1804,8 @@ type
     ## §5.1 of the play-calling design: what kind of protocol drives a
     ## configured seat. Closed enum; the trusted match configuration is the
     ## only authority (nothing a client sends can change it).
-    scInput   ## the default: the legacy mask protocol, byte-identical to
-              ## a build without this field
+    scInput   ## the default direct-mask protocol; an all-input roster stays
+              ## on the direct-input path even when season2Shell defaults on
     scPlay    ## a Season 2 play seat (§4.3's server-enforced protocol);
               ## legal only under `season2Shell` (validation:
               ## playSeatRequiresShell)
@@ -2105,9 +2105,8 @@ type
                                   ## gameHash mixes nothing new, so a league
                                   ## replay is byte-identical to a build
                                   ## without this field.
-    # --- paintball gates (all OFF by default: a gate-off config plays the
-    # starter's rules unchanged, which is what keeps the inherited engine
-    # meaningful) ---
+    # --- deprecated paintball gates (mechanics OFF by default; live use since
+    # 0.7.253 also requires allowDeprecatedModes) ---
     numAgents*: int               ## seats (websocket connections). Paintball
                                   ## uses 2; classic variants may use 16/32.
     cogsPerTeam*: int             ## cogs a seat commands; classic default 1.
@@ -2139,12 +2138,13 @@ type
     # allowDeprecatedModes. ---
     # GVNEXT(shell): appended fields, the standard append-safety reasoning
     # (scalars on GameConfig, not array[Team, X] runs).
-    season2Shell*: bool           ## the master gate (§3.2): nothing in
-                                  ## src/shell/ is reachable when false. A
-                                  ## `"play"` slot requires it (validation:
-                                  ## playSeatRequiresShell); gate-on with an
-                                  ## all-input roster is legal and plays
-                                  ## byte-identically to gate-off.
+    season2Shell*: bool           ## defaults true; explicit false selects a
+                                  ## deprecated live mode. Nothing in
+                                  ## src/shell/ is reachable when false
+                                  ## (§3.2). A `"play"` slot requires it
+                                  ## (validation: playSeatRequiresShell); an
+                                  ## all-input roster stays on the direct
+                                  ## input path.
     allowDeprecatedModes*: bool   ## live-boot override for deprecated mode
                                   ## configs. false (default) refuses classic,
                                   ## explicit season1 shell, paintball, and

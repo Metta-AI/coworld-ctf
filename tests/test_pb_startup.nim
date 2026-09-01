@@ -93,8 +93,8 @@ suite "startup":
     check sim.players[0].hasSprayPaint
 
   test "the ctf loadout still places the starter's pickups":
-    ## The gate composes: a gate-off config plays the starter's rules, which is
-    ## what keeps the inherited engine meaningful.
+    ## The paintball gates compose: a ctf-loadout config plays the starter's
+    ## rules, which is what keeps the inherited engine meaningful.
     var sim = newPaintballSim(paintballConfigJson(
       paintBuff = false, hill = false, floorPaint = false, loadout = "ctf"))
     check not sim.paintballLoadout()
@@ -141,9 +141,9 @@ suite "startup":
     check player.strip().endsWith("quit(0)")
 
   test "both entrypoints are declared in the Dockerfile and the manifest":
-    ## ONE image, TWO entrypoints: /bin/ctf (which serves the paintball mode
-    ## when the config gates it on) and /bin/paintball-player (the thin seat
-    ## registrar the paintball policies run).
+    ## ONE image, TWO entrypoints: /bin/ctf (the game server; legacy-override
+    ## configs may still select paintball mode) and /bin/paintball-player (the
+    ## thin seat registrar the paintball policies run).
     let dockerfile = readFile("Dockerfile")
     check "src/paintball_player.nim" in dockerfile
     check "/bin/ctf" in dockerfile

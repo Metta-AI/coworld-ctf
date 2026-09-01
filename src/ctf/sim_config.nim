@@ -764,13 +764,11 @@ proc readConfigRegimes(node: JsonNode, config: var GameConfig) =
   config.regimes = regimes
 
 proc hasPlaySeat*(config: GameConfig): bool =
-  ## True when at least one configured slot is a Season 2 play seat
-  ## (`control: "play"`). Validation requires `season2Shell` whenever this
-  ## is true (playSeatRequiresShell, below) — an all-input roster under
-  ## season2Shell plays byte-identically to gate-off, so callers that gate
-  ## BEHAVIOR (not just the config surface) on the shell being live should
-  ## check this, not `config.season2Shell` alone (§9.2's "a configuration
-  ## with no play seat" is this predicate, exactly).
+  ## Gate-blind roster predicate: true when any configured slot has
+  ## `control: "play"`. Validation pairs it with season2Shell below. Runtime
+  ## code should use the episode-level `isPlaySeatEpisode` predicate where
+  ## available; season2Shell now defaults true, while an all-input roster must
+  ## remain on the direct-input path.
   for slot in config.slots:
     if slot.control == scPlay:
       return true
@@ -1010,9 +1008,8 @@ proc validate(config: GameConfig) =
     )
   let hasPlaySeat = config.hasPlaySeat()
   if hasPlaySeat and not config.season2Shell:
-    # playSeatRequiresShell: the §5.1 one-way coupling — a "play" slot under
-    # a gate-off configuration is an error; gate-on with an all-input roster
-    # is legal and plays byte-identically to gate-off.
+    # playSeatRequiresShell: a "play" slot with explicit season2Shell false is
+    # invalid. The default-true all-input roster remains a direct-input episode.
     raise newException(
       CtfError,
       "Config field slots[].control \"play\" requires season2Shell " &
