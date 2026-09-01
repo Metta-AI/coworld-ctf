@@ -1038,7 +1038,12 @@ proc deriveMultiFrame(bot: Bot) =
     let
       c = vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
       dx = abs(c.x - home.x)
-    if dx > bestDx:
+    ## Ties are the norm here, not an edge case: on a corners board two enemy
+    ## zones sit at an IDENTICAL horizontal offset from ours and the third at
+    ## zero. Of the tied pair the farther one is the diagonal twin, so break
+    ## toward it. Each team then raids its diagonal twin and is raided by
+    ## exactly one other.
+    if dx > bestDx or (dx == bestDx and dist(c, home) > dist(target, home)):
       bestDx = dx
       target = c
       targetColor = z.color
@@ -1883,9 +1888,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         let planted = client.spriteObjectsWithLabel(labelFlagPlanted(c))
         if planted.len == 0:
           continue
-        let p = client.mapPos(planted[0])
-        if abs(p.x - MultiHome.x) > bestDx:
-          bestDx = abs(p.x - MultiHome.x)
+        let
+          p = client.mapPos(planted[0])
+          dx = abs(p.x - MultiHome.x)
+        # Tie-break matches deriveMultiFrame: the farther of two tied homes is
+        # the diagonal twin.
+        if dx > bestDx or
+           (dx == bestDx and dist(p, MultiHome) > dist(MultiTarget, MultiHome)):
+          bestDx = dx
           bot.targetColor = c
           MultiTarget = p
       if bestDx >= 0.0:
