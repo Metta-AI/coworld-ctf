@@ -7,7 +7,7 @@ import bitworld/spriteprotocol
 
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, canonical, default_play, episode,
-  standing_order, reflexes, types, wasmtime_c]
+  replay_records, standing_order, reflexes, types, wasmtime_c]
 
 const
   Seats = 32
@@ -133,6 +133,29 @@ proc writeRetuneRefuseWasm(path: string) =
       "i32.const 1))"
   writeFile(path, wat.watBytes)
 
+proc writeNamedNoopWasm(path, playName, salt: string) =
+  let manifest =
+    "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
+    "\"name\":\"" & playName & "\",\"params\":{},\"retune\":true}"
+  let wat = "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
+    "  (data (i32.const 1024) \"" & salt.watEscape & "\")\n" &
+    "  (global $heap (mut i32) (i32.const 4096))\n" &
+    "  (func (export \"play_alloc\") (param $len i32) (result i32) " &
+      "global.get $heap global.get $heap local.get $len i32.add " &
+      "global.set $heap)\n" &
+    "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+      $manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0)\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " &
+      "i32.const 0)\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0))"
+  writeFile(path, wat.watBytes)
+
 proc playConfig(seats: seq[int]; coverBias = "0.0"): FirstLightPlayConfig =
   FirstLightPlayConfig(
     modulePath: EdgeRideWasm,
@@ -161,6 +184,10 @@ proc retuneRefuseCallBytes(bias: int; retune = false): string =
     "\"params\":{\"bias\":" & $bias & "},\"play\":\"retune_refuse\"" &
     retuneField & "}]}"))
 
+proc namedNoopCallBytes(playName: string): string =
+  canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" & playName &
+    "\",\"params\":{},\"play\":\"" & playName & "\"}]}"))
+
 proc bytesOf(text: string): seq[byte] =
   result = newSeq[byte](text.len)
   if text.len > 0:
@@ -184,6 +211,17 @@ proc retuneRefuseConfig(modulePath: string): FirstLightPlayConfig =
     seats: @[0],
     uploadIdBase: 160_000,
     proposalIdBase: 161_000,
+    originGeneration: 1)
+
+proc namedNoopConfig(modulePath, playName: string; seats: seq[int]):
+    FirstLightPlayConfig =
+  FirstLightPlayConfig(
+    modulePath: modulePath,
+    playName: playName,
+    paramsBytes: "{}",
+    seats: seats,
+    uploadIdBase: 170_000,
+    proposalIdBase: 171_000,
     originGeneration: 1)
 
 proc controls(count: int): seq[SlotControl] =
@@ -252,6 +290,50 @@ proc applyMask(pos: var BodyPoint; input: InputState) =
 proc percentile(values: seq[int64], numerator, denominator: int): int64 =
   values[min(values.high,
     (values.len * numerator + denominator - 1) div denominator - 1)]
+
+proc waitReady(episode: var FirstLightEpisode; seat: int; uploadId: uint64;
+               startTick: var int; pos: var BodyPoint): StatusEntry =
+  while startTick <= 5000:
+    let output = episode.step([frame(seat, pos, startTick)], uint32(startTick))
+    check output.masks.len == 1
+    pos.applyMask(output.masks[0].input)
+    for status in output.moduleStatuses:
+      if status.seat == seat and status.uploadId == uploadId and
+          status.status.kind == skModuleReady:
+        result = status.status
+        inc startTick
+        return
+    sleep(1)
+    inc startTick
+  fail()
+
+proc waitReadyMany(episode: var FirstLightEpisode;
+                   expected: openArray[tuple[seat: int, uploadId: uint64]];
+                   startTick: var int;
+                   positions: var seq[BodyPoint]): seq[StatusEntry] =
+  var seen = newSeq[bool](expected.len)
+  result = newSeq[StatusEntry](expected.len)
+  while startTick <= 5000:
+    var batch: seq[FirstLightSeatFrame]
+    for seat in 0 ..< positions.len:
+      batch.add frame(seat, positions[seat], startTick)
+    let output = episode.step(batch, uint32(startTick))
+    check output.masks.len == positions.len
+    for mask in output.masks:
+      positions[mask.seat.int].applyMask(mask.input)
+    for status in output.moduleStatuses:
+      for index, item in expected:
+        if not seen[index] and status.seat == item.seat and
+            status.uploadId == item.uploadId and
+            status.status.kind == skModuleReady:
+          seen[index] = true
+          result[index] = status.status
+    if seen.allIt(it):
+      inc startTick
+      return
+    sleep(1)
+    inc startTick
+  fail()
 
 suite "shell episode ladder":
   test "final zone phase sentinel is representable in episode binary view":
@@ -422,6 +504,168 @@ suite "shell episode ladder":
       let nextTick = episode.admitPlayModule(0, 130_001, 1, wasmBytes)
       check nextTick.accepted
       check nextTick.status.kind == skModuleAccepted
+
+  test "accepted call replay identity builds the landed play-call record":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let admitted = episode.admitPlayModule(0, 180_000, 1,
+        readFile(EdgeRideWasm).bytesOf)
+      check admitted.accepted
+      var
+        tick = 1
+        pos: BodyPoint = (20, 128)
+      let ready = episode.waitReady(0, 180_000, tick, pos)
+
+      let accepted = episode.acceptPlayCall(0, 180_100, 1, uint32(tick),
+        edgeRideCallBytes())
+      check accepted.accepted
+      check accepted.replayIdentity.isSome
+      let identity = accepted.replayIdentity.get
+      check identity.seat == 0
+      check identity.epoch == accepted.epoch
+      check identity.ladderBytes == edgeRideCallBytes()
+      check identity.entries.len == 1
+      check identity.entries[0].entryId == "edge_ride"
+      check identity.entries[0].code.kind == cikModule
+      check identity.entries[0].code.moduleSha256 == ready.sha256
+
+      let record = identity.toPlayCallRecord(12_345)
+      let encoded = record.encodePlayCallRecord()
+      let decoded = encoded.decodePlayCallRecord()
+      check encoded[0].uint8 == readFile(
+        "tests" / "fixtures" / "shell" / "replay" / "play-call.bin")[0].uint8
+      check decoded.seat == identity.seat
+      check decoded.epoch == identity.epoch
+      check decoded.ladderBytes == identity.ladderBytes
+      check decoded.entries == identity.entries
+      check decoded.contentSha256 == sha256Hex(encoded)
+      check identity.contentSha256 == identity.toPlayCallRecord(0).contentSha256
+
+  test "config and wire accept paths surface identical replay identity":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var configEpisode = initFirstLightEpisode(true, true, controls(1),
+        map, 331)
+      var wireEpisode = initFirstLightEpisode(true, true, controls(1),
+        map, 331)
+      defer:
+        configEpisode.closeFirstLightEpisode()
+        wireEpisode.closeFirstLightEpisode()
+
+      let config = playConfig(@[0])
+      let legacyLines = configEpisode.configureFirstLightPlay(config)
+      var richEpisode = initFirstLightEpisode(true, true, controls(1),
+        map, 331)
+      defer:
+        richEpisode.closeFirstLightEpisode()
+      let rich = richEpisode.configureFirstLightPlayWithReplayIdentities(config)
+      check rich.lines == legacyLines
+      check rich.callIdentities.len == 1
+
+      let admitted = wireEpisode.admitPlayModule(0, 181_000, 1,
+        readFile(EdgeRideWasm).bytesOf)
+      check admitted.accepted
+      var
+        tick = 1
+        pos: BodyPoint = (20, 128)
+      discard wireEpisode.waitReady(0, 181_000, tick, pos)
+      let accepted = wireEpisode.acceptPlayCall(0, 181_100, 1, 0,
+        edgeRideCallBytes())
+      check accepted.accepted
+      check accepted.replayIdentity.isSome
+      check accepted.replayIdentity.get == rich.callIdentities[0]
+
+  test "same play name on two seats reports each bound module hash":
+    when ShellRuntimeAvailable:
+      let
+        playName = "collision_play"
+        moduleA = getTempDir() / "collision-a-" &
+          $getCurrentProcessId() & ".wasm"
+        moduleB = getTempDir() / "collision-b-" &
+          $getCurrentProcessId() & ".wasm"
+      writeNamedNoopWasm(moduleA, playName, "module-a")
+      writeNamedNoopWasm(moduleB, playName, "module-b")
+      defer:
+        if fileExists(moduleA):
+          removeFile(moduleA)
+        if fileExists(moduleB):
+          removeFile(moduleB)
+
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(2), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+      check episode.admitPlayModule(0, 182_000, 1,
+        readFile(moduleA).bytesOf).accepted
+      check episode.admitPlayModule(1, 182_001, 1,
+        readFile(moduleB).bytesOf).accepted
+
+      var
+        tick = 1
+        positions = @[(20, 128), (480, 128)]
+      let ready = episode.waitReadyMany(
+        [(seat: 0, uploadId: 182_000'u64),
+         (seat: 1, uploadId: 182_001'u64)],
+        tick, positions)
+      check ready[0].sha256.len == 64
+      check ready[1].sha256.len == 64
+      check ready[0].sha256 != ready[1].sha256
+
+      let call = namedNoopCallBytes(playName)
+      let seat0 = episode.acceptPlayCall(0, 182_100, 1, uint32(tick), call)
+      let seat1 = episode.acceptPlayCall(1, 182_101, 1, uint32(tick), call)
+      check seat0.accepted
+      check seat1.accepted
+      check seat0.replayIdentity.isSome
+      check seat1.replayIdentity.isSome
+      check seat0.replayIdentity.get.entries[0].code.moduleSha256 ==
+        ready[0].sha256
+      check seat1.replayIdentity.get.entries[0].code.moduleSha256 ==
+        ready[1].sha256
+
+  test "rejected call surfaces no replay identity":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+      let rich = episode.configureFirstLightPlayWithReplayIdentities(
+        playConfig(@[0]))
+      check rich.callIdentities.len == 1
+      let rejected = episode.acceptPlayCall(0, 183_000, 1, 0,
+        canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"missing\"," &
+          "\"params\":{},\"play\":\"missing\"}]}")))
+      check not rejected.accepted
+      check rejected.replayIdentity.isNone
+
+  test "config path surfaces one replay identity per configured play seat":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(2), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let config = playConfig(@[0, 1])
+      let rich = episode.configureFirstLightPlayWithReplayIdentities(config)
+      check rich.lines.countIt(it.contains("FIRST_LIGHT_PLAY_UPLOAD")) == 2
+      check rich.lines.countIt(it.contains("FIRST_LIGHT_PLAY_COMMIT")) == 2
+      check rich.lines.countIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+        it.contains("accepted=true")) == 2
+      check rich.callIdentities.len == 2
+      check rich.callIdentities[0].seat == 0
+      check rich.callIdentities[1].seat == 1
+      check rich.callIdentities.allIt(it.entries.len == 1 and
+        it.entries[0].entryId == "edge_ride" and
+        it.entries[0].code.kind == cikModule and
+        it.contentSha256.len == 64)
 
   test "playFaulted status survives the episode standing-order filter":
     when ShellRuntimeAvailable:
