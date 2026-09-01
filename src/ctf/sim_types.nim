@@ -1047,8 +1047,9 @@ const
   DefaultPaintHealTicks* = 48   ## consecutive ticks on own paint per +1 hp.
   HillFlipThrottleTicks* = 12   ## min ticks between two `hillflip` beats, so a
                                 ## contested rim cannot flood the feed.
-  DefaultCogsPerTeam* = 4       ## cogs one seat commands (RED-alpha..delta).
-  DefaultSprayDamage* = 1       ## hp per cone touch under the paintball loadout
+  PaintballCogsPerTeam* = 4     ## cogs one paintball seat commands
+                                ## (RED-alpha..delta).
+  PaintballSprayDamage* = 1     ## hp per cone touch under the paintball loadout
                                 ## (the starter's SprayPaintDamage is 3): three
                                 ## touches tag a 3 hp cog out, which is what
                                 ## makes the heal half of the buff matter.
@@ -2107,9 +2108,9 @@ type
     # --- paintball gates (all OFF by default: a gate-off config plays the
     # starter's rules unchanged, which is what keeps the inherited engine
     # meaningful) ---
-    numAgents*: int               ## seats (websocket connections). 2 here; a
-                                  ## seat commands one four-cog squad.
-    cogsPerTeam*: int             ## cogs a team fields (4).
+    numAgents*: int               ## seats (websocket connections). Paintball
+                                  ## uses 2; classic variants may use 16/32.
+    cogsPerTeam*: int             ## cogs a seat commands; classic default 1.
     loadout*: string              ## LoadoutCtf (default) or LoadoutPaintball.
     floorPaint*: bool             ## the paint grid exists and cones repaint it.
     paintBuff*: bool              ## own/enemy paint changes speed and heals.

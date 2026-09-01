@@ -136,7 +136,7 @@ def summarise(path: str) -> dict:
     for team in ("RED", "BLUE"):
         for identity in ("alpha", "beta", "gamma", "delta"):
             aliases.append(f"{team}-{identity}")
-    aliases = aliases[: 2 * int(config.get("cogsPerTeam") or 4)]
+    aliases = aliases[: 2 * int(config.get("cogsPerTeam") or 1)]
 
     return {
         "protocol": protocol,

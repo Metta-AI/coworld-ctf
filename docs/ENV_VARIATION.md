@@ -275,8 +275,8 @@ Sprite v1 input senders.
 
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
-| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` turns squad mode on. 2 in the published `paintball` variant. |
-| `cogsPerTeam` | int / `4` | | `1..8` | Cogs one seat commands (RED-alpha..delta). |
+| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); squad mode requires `numAgents > 0 && cogsPerTeam > 1`. 2 in the published `paintball` variant. |
+| `cogsPerTeam` | int / `1` | | `1..8` | Cogs one seat commands; classic variants keep one cog per seat, and paintball sets 4 (RED-alpha..delta). |
 | `loadout` | string / `"ctf"` | | `"ctf"` or `"paintball"` | `paintball` = spray can always held, no gun, NO pickups, hearts retired. |
 | `floorPaint` | bool / `false` | | | The paint-tile grid exists and cones repaint it. |
 | `paintBuff` | bool / `false` | | needs `floorPaint` | Own colour underfoot = speed + heal; enemy colour = slow. |

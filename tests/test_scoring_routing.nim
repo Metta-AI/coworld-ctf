@@ -28,10 +28,59 @@
 ## paintball-untouched MD5 proof.
 
 import
-  std/[json, unittest],
+  std/[json, os, unittest],
   helpers, pb_helpers
 
+proc paintbotSchemaDefaults(): JsonNode =
+  let props = parseFile(GameDir / "coworld_manifest_paintbot.json")[
+    "game"]["config_schema"]["properties"]
+  result = newJObject()
+  for key, prop in props:
+    if prop.hasKey("default"):
+      result[key] = prop["default"]
+
+proc effectivePaintbotVariantConfig(variantId: string): JsonNode =
+  let manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
+  result = paintbotSchemaDefaults()
+  for variant in manifest["variants"]:
+    if variant["id"].getStr() == variantId:
+      for key, value in variant["game_config"]:
+        result[key] = value
+      return
+  doAssert false, "missing paintbot variant " & variantId
+
 suite "scoring schema routing":
+  test "squad mode requires an explicit multi-cog config":
+    var classic16 = defaultGameConfig()
+    classic16.numAgents = 16
+    check classic16.cogsPerTeam == 1
+    check not classic16.squadModeConfigured()
+
+    var classic32 = defaultGameConfig()
+    classic32.numAgents = 32
+    check classic32.cogsPerTeam == 1
+    check not classic32.squadModeConfigured()
+
+    var paintball = defaultGameConfig()
+    paintball.update(paintballConfigJson())
+    check paintball.numAgents == 2
+    check paintball.cogsPerTeam == 4
+    check paintball.squadModeConfigured()
+
+    # Landed-manifest anchor: the platform materializes config_schema
+    # defaults before overlaying a variant's game_config.
+    var manifestClassic = defaultGameConfig()
+    manifestClassic.update($effectivePaintbotVariantConfig("2v2"))
+    check manifestClassic.numAgents == 16
+    check manifestClassic.cogsPerTeam == 1
+    check not manifestClassic.squadModeConfigured()
+
+    var manifestBr = defaultGameConfig()
+    manifestBr.update($effectivePaintbotVariantConfig("battle-royale"))
+    check manifestBr.numAgents == 32
+    check manifestBr.cogsPerTeam == 1
+    check not manifestBr.squadModeConfigured()
+
   test "a classic match keeps num_agents > 0 (the manifest collision) and still scores through the CTF path":
     ## Reproduces the live collision directly: num_agents set the way every
     ## flagship classic variant sets it (16 seats), loadout left at its
@@ -41,6 +90,7 @@ suite "scoring schema routing":
     sim.config.numAgents = 16
     check sim.config.loadout == LoadoutCtf
     check not sim.config.hill
+    check sim.totalCogs() == 16
 
     # A real kill through the real credit path, then a real decisive finish
     # -- not a fabricated results field.
@@ -79,6 +129,32 @@ suite "scoring schema routing":
     # cannot have perturbed it.
     check sim.players[0].reward == WinReward
     check sim.players[1].reward == LossReward
+
+  test "a full 16-seat classic config fields one cog per seat and reports decisive per-seat results":
+    var sim = initCtfForTest(defaultGameConfig())
+    sim.config.numAgents = 16
+    check sim.config.cogsPerTeam == 1
+    check sim.totalCogs() == 16
+    for i in 0 ..< 16:
+      discard sim.addPlayer("policy" & $i, i, "", trusted = true)
+    sim.startGame()
+    check sim.players.len == 16
+
+    sim.recordKillCredit(0, 1)
+    sim.awardDeed(Red, dHonorableKill, 10, 10)
+    sim.finishGame(Red)
+
+    let results = parseJson(sim.playerResultsJson())
+    check results.hasKey("kills")
+    check not results.hasKey("hillTicks")
+    check results["scores"].len == 16
+    check results["names"].len == 16
+    check results["kills"].len == 16
+    check results["kills"][0].getInt() == 1
+    check results["win"][0].getBool()
+    check not results["win"][1].getBool()
+    check results["scores"][0].getInt() > 0
+    check results["scores"][1].getInt() == 0
 
   test "a paintball config with num_agents == 0 still routes on loadout, not the seat count":
     ## The discriminating edge in the OTHER direction: a hypothetical
@@ -122,16 +198,15 @@ suite "scoring schema routing":
 
 suite "results seat arity (the coworld hosted-certification regression)":
   ## #327 fixed the SCORING (real kills/captures instead of a 500/500 tie)
-  ## but exposed a pre-existing arity bug in the classic path it now routes
-  ## to: `ctfPlayerResultsJson` reported one row per joined SLOT (== per
-  ## cog), which equals `numAgents` only when every seat fields exactly one
-  ## cog. server.nim's `squadMode` (gated on `numAgents > 0 and
-  ## cogsPerTeam > 1` -- true for every classic variant, since
-  ## `cogsPerTeam` defaults to 4 and none of them override it) auto-fills
-  ## trusted cogs past the real seats toward `sim.totalCogs()`, capped by
-  ## `MaxPlayers` (32) rather than by the seat count. A 16-seat classic
-  ## match's squad-fill therefore silently parks 32 total cogs in
-  ## `sim.players`, and the pre-fix proc reported 32 rows: hosted
+  ## but exposed a pre-existing arity bug in the classic path it now routes to:
+  ## `ctfPlayerResultsJson` reported one row per joined SLOT (== per cog),
+  ## which equals `numAgents` only when every seat fields exactly one cog.
+  ## Historically, `cogsPerTeam` defaulted to 4, so classic variants with
+  ## `numAgents > 0` accidentally entered server.nim's squad mode and
+  ## auto-filled trusted cogs past the real seats toward `sim.totalCogs()`,
+  ## capped by `MaxPlayers` (32) rather than by the seat count. A 16-seat
+  ## classic match's accidental squad-fill therefore silently parked 32 total
+  ## cogs in `sim.players`, and the pre-fix proc reported 32 rows: hosted
   ## certification rejected it outright --
   ## `error=game returned 32 scores for 16 seats`
   ## (cow_c546b854-2f58-4499-9c51-bed924333a51, run 33443353700).
@@ -144,9 +219,10 @@ suite "results seat arity (the coworld hosted-certification regression)":
   ## old one-row-per-slot loop) fails both tests below for the right
   ## reason: `scores.len` back at the raw joined-cog count (32 / 8) instead
   ## of the seat count (16 / 4).
-  test "certification shape: 16 seats squad-filled to 32 cogs folds back to 16 scores":
+  test "explicit squad shape: 16 seats squad-filled to 32 cogs folds back to 16 scores":
     var sim = initCtfForTest(defaultGameConfig())
     sim.config.numAgents = 16
+    sim.config.cogsPerTeam = 2
     check sim.config.loadout == LoadoutCtf
     for i in 0 ..< 16:
       discard sim.addPlayer("policy" & $i, i, "", trusted = true)
@@ -178,6 +254,7 @@ suite "results seat arity (the coworld hosted-certification regression)":
     ## numAgents` fold at a different seat count.
     var sim = initCtfForTest(defaultGameConfig())
     sim.config.numAgents = 4
+    sim.config.cogsPerTeam = 2
     for i in 0 ..< 4:
       discard sim.addPlayer("policy" & $i, i, "", trusted = true)
     sim.startGame()
@@ -196,16 +273,12 @@ suite "results seat arity (the coworld hosted-certification regression)":
 
   test "BR shape: 32 seats with one cog each is already correct arity (the fold is a no-op)":
     ## The other real production shape sharing this code path (PR #331, the
-    ## BR variant): `num_agents=32`, `cogsPerTeam` left at its default (4,
-    ## same as the 16-seat classic cert config that broke), but BR seats
-    ## exactly 32 REAL players -- one cog per seat, no squad multiplier.
-    ## `squadMode`'s auto-fill (server.nim) would try to top up toward
-    ## `sim.totalCogs()` = 32*4 = 128, but `MaxPlayers` (32) is already
-    ## exhausted by the 32 real joins alone, so it adds ZERO extra cogs:
-    ## `sim.players.len` stays exactly 32. This is NOT the certification bug
-    ## shape (`namesArr.len == seatCount`, so the fold/pad block above is a
-    ## no-op) -- 32 scores for 32 seats is the CORRECT answer here, a
-    ## different shape from the 16-seat classic config that broke
+    ## BR variant): `num_agents=32`, `cogsPerTeam` left at its restored
+    ## classic default, so BR seats exactly 32 REAL players -- one cog per
+    ## seat, no squad multiplier and no auto-fill. This is NOT the historical
+    ## certification bug shape (`namesArr.len == seatCount`, so the fold/pad
+    ## block above is a no-op) -- 32 scores for 32 seats is the CORRECT answer
+    ## here, a different shape from the 16-seat classic config that broke
     ## certification, and must stay 32, not collapse further.
     var sim = initCtfForTest(defaultGameConfig())
     sim.config.numAgents = 32
@@ -234,6 +307,7 @@ suite "results seat arity (the coworld hosted-certification regression)":
     ## doubled.
     var sim = initCtfForTest(defaultGameConfig())
     sim.config.numAgents = 16
+    sim.config.cogsPerTeam = 2
     for i in 0 ..< 16:
       discard sim.addPlayer("policy" & $i, i, "", trusted = true)
     sim.startGame()

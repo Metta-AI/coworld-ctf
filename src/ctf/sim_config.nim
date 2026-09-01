@@ -62,7 +62,11 @@ proc defaultGameConfig*(): GameConfig =
     allowCallouts: false,
     allowPolicyReflash: false,
     numAgents: 0,
-    cogsPerTeam: DefaultCogsPerTeam,
+    # Classic games field one cog per seat. Squad mode is opt-in:
+    # cogsPerTeam defaulted to 4 from Coworld 0.7.243 until the production
+    # incident restore, which made every num_agents classic variant run through
+    # paintball's squad/runtime/scoring path.
+    cogsPerTeam: 1,
     loadout: LoadoutCtf,
     floorPaint: false,
     paintBuff: false,
@@ -106,6 +110,12 @@ proc defaultGameConfig*(): GameConfig =
     downedReviveTicks: DownedReviveTicksDefault,
     downedEscalation: true
   )
+
+proc squadModeConfigured*(config: GameConfig): bool =
+  ## True only when a live config explicitly asks each seat to command a squad.
+  ## `numAgents` alone is not a paintball signal: classic hosted variants also
+  ## carry it so the platform can seat policies.
+  config.numAgents > 0 and config.cogsPerTeam > 1
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
   ## Reads one optional integer config field.
@@ -1597,4 +1607,3 @@ proc configJson*(config: GameConfig): string =
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
   result = $node
-

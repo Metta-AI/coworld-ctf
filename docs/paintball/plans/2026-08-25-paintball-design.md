@@ -1110,13 +1110,15 @@ both rules are present.
     `["tokens","players"]`, **every array bounded**: `tokens` (`minItems` 2, `maxItems` 2),
     `players` (2, 2), `slots` (2, 2), `regimes` (`minItems` 1, `maxItems` 4, items enum
     `["resident","visitor"]`). Scalars: `seed`, **`num_agents`**, `minPlayers`, `cogsPerTeam`
-    (default 4), `lives` (12), `hitPoints` (3), `sprayDamage` (1), `respawnTicks` (48),
+    (schema default 1; paintball variants set 4), `lives` (12), `hitPoints` (3),
+    `sprayDamage` (schema default 3; paintball variants set 1), `respawnTicks` (48),
     `aimTurnRate` (5), `visionConeDeg` (60), `visionBubble` (90), `maxTicks` (2160),
     `maxGames` (2), `turnTicks` (108), `turnBudgetMs` (7000), `attempt1Ms` (4500),
     `retryMs` (2000), `turnSpacingMs` (5000), `wallClockBudgetSeconds` (690),
     `lobbyJoinTimeoutTicks` (2400), `startWaitTicks` (120), `gameOverTicks` (72),
-    `mapPath` (`"arena"`), `loadout` (`"paintball"`), `floorPaint` (true), `paintBuff` (true),
-    `hill` (true), `paintTile` (34), `hillRadiusTiles` (2), `hillOwnPermille` (800),
+    `mapPath` (`"arena"`), `loadout` (schema default `"ctf"`; paintball variants set
+    `"paintball"`), `floorPaint`/`paintBuff`/`hill` (schema defaults false; paintball
+    variants set true), `paintTile` (34), `hillRadiusTiles` (2), `hillOwnPermille` (800),
     `hillDecisiveTicks` (720), `paintSpeedOwnPct` (125), `paintSpeedEnemyPct` (85),
     `paintHealTicks` (48), `fastMode` (true), `showPlayerLabels` (false), `model`,
     `maxOutputTokens` (900).
