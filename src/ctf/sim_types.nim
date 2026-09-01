@@ -780,6 +780,24 @@ const
 
   MedKitPickupRange* = 12     ## touch radius to pick a med kit up.
   MedKitRespawnTicks* = 30 * ReplayFps  ## a taken kit refills after 30s.
+
+  # ── S2 LOOT REWORK tunables ── read ONLY while their GameConfig gate is
+  # armed (medKitCount / bandagePickups / lootStart / downedMode below), so
+  # none of these can move a dark game.
+  BandageCarryCap* = 3        ## carried bandages cap (a pocket, not a crate).
+  BandageApplyTicks* = 3 * ReplayFps ## calm ticks (no damage taken) before a
+                              ## carried bandage self-applies +1 hp.
+  BandagePickupRange* = MedKitPickupRange ## same touch radius as med kits.
+  WeaponPickupRange* = MedKitPickupRange  ## marker/hopper crate touch radius.
+  DownedTagRange* = 40        ## px center-to-center: teammate adjacency that
+                              ## counts as the revive tag. Deliberately looser
+                              ## than the 12px item touch — a tag is a hug,
+                              ## not a pixel hunt — and inside gun range, so
+                              ## the reviver is exposed for the whole channel.
+  DownedBleedOutTicksDefault* = 15 * ReplayFps ## base bleed-out window.
+  DownedReviveTicksDefault* = 2 * ReplayFps    ## revive channel length.
+  DownedMinBleedOutTicks* = 2 * ReplayFps      ## escalation floor: however
+                              ## many downs, a ghost always gets this long.
   SprayPaintSpawnInset* = GrenadeSpawnInset
   SprayPaintPickupRange* = 12  ## touch radius to pick a spray can up.
   SprayPaintRespawnTicks* = 30 * ReplayFps
@@ -1726,6 +1744,19 @@ type
                                ## enforced in validateMap; the config's
                                ## `teams` must equal this value, enforced by
                                ## resolveCtfMapMetadata's existing check.
+    # ── S2 LOOT REWORK ── appended (flatty append-only rule). Spec keys are
+    # OPTIONAL and echoed only when non-empty (mapSpecJson), so every
+    # existing pinned spec round-trips byte-identically.
+    weaponSpawns*: seq[MapPoint] ## LOOT(s2): authored marker (gun) crate
+                               ## points; empty = the sim derives crates
+                               ## from grenadeSpawns when lootStart arms.
+                               ## Spec key "weaponSpawns".
+    hopperSpawns*: seq[MapPoint] ## LOOT(s2): authored hopper crate points;
+                               ## empty = derive from the med-kit points
+                               ## when lootStart arms (never the spray-can
+                               ## points — a co-located can would disarm
+                               ## the looter's gun). Spec key
+                               ## "hopperSpawns".
 
   CrewSprite* = ref object
     width*, height*: int
@@ -2273,6 +2304,42 @@ type
                       ## Runs, when nonzero and hasPlaySeat, BEFORE the
                       ## chatting substate (voting precedes chatting,
                       ## prematch-vote-wire-2026-08-31.md §1).
+    # ── S2 LOOT REWORK ── appended fields, same append-safety reasoning as
+    # voteTicks above. Every default means "feature off", every echo is
+    # gated on departure from default (echoHealingKeys / echoLootStartKeys /
+    # echoDownedKeys, sim_config.nim), so a dark game's replay config stays
+    # byte-identical to a build without these fields. lootStart/downedMode
+    # additionally require brMode (validate) — CTF configs cannot arm them.
+    medKitCount*: int   ## LOOT(s2): cap on placed med kits. -1 = the map's
+                        ## own full set (default — the pre-existing path,
+                        ## byte-identical), 0 = none (the bandage-vs-medkit
+                        ## test arm), N = the first N of the map's points.
+    bandagePickups*: int ## LOOT(s2): bandage pickups placed at the map's
+                        ## med-kit points (first N, cycling). 0 = dark. A
+                        ## bandage is CARRIED (up to BandageCarryCap) and
+                        ## self-applies +1 hp after BandageApplyTicks
+                        ## without taking damage.
+    lootStart*: bool    ## LOOT(s2): spawn unarmed — the marker (gun) and
+                        ## the hopper (its ammo) are separate lootable
+                        ## crates and a cog needs BOTH to fire the gun.
+                        ## brMode only. Dark = false.
+    downedMode*: bool   ## LOOT(s2): a lethal hit downs instead of kills —
+                        ## the victim becomes a frozen, non-colliding ghost
+                        ## of itself; a teammate standing within
+                        ## DownedTagRange for downedReviveTicks tags it
+                        ## back to life at 1 hp; an enemy gun hit splats
+                        ## (finalizes) it; an un-revived ghost bleeds out.
+                        ## brMode only. Dark = false.
+    downedBleedOutTicks*: int ## LOOT(s2): base bleed-out window in ticks
+                        ## (DownedBleedOutTicksDefault). Read only while
+                        ## downedMode is on.
+    downedReviveTicks*: int ## LOOT(s2): adjacent-teammate ticks to complete
+                        ## a revive tag (DownedReviveTicksDefault). Read
+                        ## only while downedMode is on.
+    downedEscalation*: bool ## LOOT(s2): halve the bleed-out window per
+                        ## successive down of the same cog, floored at
+                        ## DownedMinBleedOutTicks. Read only while
+                        ## downedMode is on.
 
   Player* = object
     x*, y*: int
@@ -2645,6 +2712,34 @@ type
                                ## sent THIS episode's phase (resets with
                                ## lobbyChatDone, SimServer); caps at
                                ## LobbyChatMaxMessagesPerSeat.
+    # ── S2 LOOT REWORK ── appended per the flatty append-only rule. NONE of
+    # these enter gameHash (the puddleTicks/hasBarrier rule): on a dark game
+    # every one of them sits at its zero value for the whole episode, and on
+    # an armed game the flatty keyframe snapshot restores them exactly, while
+    # the behavior they drive already moves hashed state (x/y, hp, alive,
+    # lives, fireCooldown).
+    hasGun*: bool       ## LOOT(s2): holds the marker. Read only while
+                        ## config.lootStart is on (seats spawn without it
+                        ## there and loot it back from a weapon crate).
+    hasHopper*: bool    ## LOOT(s2): holds the hopper (the ammo half of the
+                        ## marker+hopper pair). lootStart only.
+    bandages*: int      ## LOOT(s2): carried bandages, 0..BandageCarryCap.
+                        ## bandagePickups only.
+    lastDamageTick*: int ## LOOT(s2): tick this cog last took ANY damage —
+                        ## the bandage self-apply calm clock. Stamped only
+                        ## while bandagePickups is armed. 0 = never hit
+                        ## this episode.
+    downed*: bool       ## LOOT(s2): this cog is a ghost — downed, frozen,
+                        ## non-colliding, awaiting revive / splat /
+                        ## bleed-out. Never true unless config.downedMode.
+    downedTick*: int    ## LOOT(s2): tick of the down that made this ghost.
+    downedCount*: int   ## LOOT(s2): downs this episode (bleed-out
+                        ## escalation reads it).
+    downedBy*: int      ## LOOT(s2): player index that downed this ghost
+                        ## (bleed-out Death attribution), -1 = n/a.
+    reviveProgress*: int ## LOOT(s2): consecutive adjacent-teammate ticks
+                        ## toward downedReviveTicks; resets to 0 the tick
+                        ## the tag breaks.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3008,6 +3103,18 @@ type
     Achievement ## an achievement tier claimed through `claimAchievement`.
     LevelUp     ## a cog's per-life ladder rank climbed (source = cog,
                 ## amount = the rank now reached).
+    # ── S2 LOOT REWORK ── appended, never inserted, per this enum's own
+    # positional discipline: archived replays encoding the ordinals above
+    # keep them unchanged; these are new tail entries.
+    Downed      ## LOOT(s2): a lethal hit downed this cog into a ghost
+                ## instead of killing it (config.downedMode). source =
+                ## victim, target = downer, amount = the victim's
+                ## downedCount after this down. The eventual permanent
+                ## death is a separate Death event (weapon = "bleed_out" |
+                ## "splat" | "team_wiped").
+    Revived     ## LOOT(s2): a teammate's tag brought a ghost back at 1 hp.
+                ## source = the reviving teammate, target = the revived
+                ## cog, amount = the completed channel length in ticks.
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.
@@ -3517,6 +3624,17 @@ type
                             ## meaningful only when voteResolved.
     voteResolutionTick*: int ## the tick `voting` exited; stamps the kind-1
                             ## VoteState/0x17 record's `tick`/`replayTimeMs`.
+    # ── S2 LOOT REWORK ── appended (flatty append-only rule). All three are
+    # empty on a dark game (their reset procs empty them unless the gate is
+    # armed), so nothing downstream — broadcast item lists included — can
+    # see them there.
+    weaponSpawns*: seq[PickupSpawn]  ## LOOT(s2): marker (gun) crates,
+                            ## lootStart only. One-shot: taken crates are
+                            ## never refilled (no updateX refill call).
+    hopperSpawns*: seq[PickupSpawn]  ## LOOT(s2): hopper crates, lootStart
+                            ## only. One-shot like weaponSpawns.
+    bandageSpawns*: seq[PickupSpawn] ## LOOT(s2): bandage pickups,
+                            ## bandagePickups only. Refills like med kits.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

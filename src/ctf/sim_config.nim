@@ -92,7 +92,19 @@ proc defaultGameConfig*(): GameConfig =
     allowCosmeticFx: false,
     # voteTicks deliberately 0, not VoteTicksDefault — see that const's own
     # comment (sim_types.nim) for why.
-    voteTicks: 0
+    voteTicks: 0,
+    # LOOT(s2): all five loot-rework mechanisms dark by default. The two
+    # downed timing knobs default to their real values (not 0) so arming
+    # downedMode alone plays the ruled shape; they are read ONLY while
+    # downedMode is on and echoed ONLY then (echoDownedKeys), so the dark
+    # config echo carries none of them.
+    medKitCount: -1,
+    bandagePickups: 0,
+    lootStart: false,
+    downedMode: false,
+    downedBleedOutTicks: DownedBleedOutTicksDefault,
+    downedReviveTicks: DownedReviveTicksDefault,
+    downedEscalation: true
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -1005,6 +1017,26 @@ proc validate(config: GameConfig) =
           CtfError,
           "Config field slots has duplicate token."
         )
+  # LOOT(s2): the loot-rework gates. lootStart/downedMode are BR mechanisms
+  # only — refusing them outside brMode is what keeps every CTF config
+  # provably untouchable by this lane (the ruling: CTF stays 3-shot, BR
+  # experiments), rather than relying on every CTF call site staying dark.
+  if config.medKitCount < -1:
+    raise newException(CtfError,
+      "Config field medKitCount must be -1 (map default) or >= 0.")
+  if config.bandagePickups < 0:
+    raise newException(CtfError,
+      "Config field bandagePickups must not be negative.")
+  if config.lootStart and not config.brMode:
+    raise newException(CtfError, "Config field lootStart requires brMode.")
+  if config.downedMode and not config.brMode:
+    raise newException(CtfError, "Config field downedMode requires brMode.")
+  if config.downedMode and config.downedBleedOutTicks < 1:
+    raise newException(CtfError,
+      "Config field downedBleedOutTicks must be at least 1 under downedMode.")
+  if config.downedMode and config.downedReviveTicks < 1:
+    raise newException(CtfError,
+      "Config field downedReviveTicks must be at least 1 under downedMode.")
 
 proc update*(config: var GameConfig, jsonText: string) =
   ## Updates a gameplay config from a JSON object.
@@ -1140,6 +1172,16 @@ proc update*(config: var GameConfig, jsonText: string) =
   # GVNEXT(vote): appended read for the appended voteTicks field
   # (sim_types.nim) — same tail-append rule as allowCosmeticFx above.
   node.readConfigInt("voteTicks", config.voteTicks)
+  # LOOT(s2): appended reads for the loot-rework fields (sim_types.nim) —
+  # same tail-append rule as everything above. Absent keys leave the
+  # dark defaults, so an existing config JSON parses to an unchanged config.
+  node.readConfigInt("medKitCount", config.medKitCount)
+  node.readConfigInt("bandagePickups", config.bandagePickups)
+  node.readConfigBool("lootStart", config.lootStart)
+  node.readConfigBool("downedMode", config.downedMode)
+  node.readConfigInt("downedBleedOutTicks", config.downedBleedOutTicks)
+  node.readConfigInt("downedReviveTicks", config.downedReviveTicks)
+  node.readConfigBool("downedEscalation", config.downedEscalation)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1429,6 +1471,30 @@ proc echoCosmeticFxKeys(config: GameConfig, node: JsonNode) =
   if config.allowCosmeticFx:
     node["allowCosmeticFx"] = %config.allowCosmeticFx
 
+proc echoHealingKeys(config: GameConfig, node: JsonNode) =
+  ## LOOT(s2): the healing-item knobs, echoed only when they depart from
+  ## their dark defaults — same byte-identity rule as every echo above.
+  if config.medKitCount != -1:
+    node["medKitCount"] = %config.medKitCount
+  if config.bandagePickups > 0:
+    node["bandagePickups"] = %config.bandagePickups
+
+proc echoLootStartKeys(config: GameConfig, node: JsonNode) =
+  ## LOOT(s2): the unarmed-spawn gate, echoed only when on.
+  if config.lootStart:
+    node["lootStart"] = %config.lootStart
+
+proc echoDownedKeys(config: GameConfig, node: JsonNode) =
+  ## LOOT(s2): the downed-state gate and its timing knobs. The knobs ride
+  ## the gate: a downedMode-off game echoes none of them (they are also only
+  ## READ under the gate), so the dark echo stays byte-identical while an
+  ## armed replay pins the exact windows it played under.
+  if config.downedMode:
+    node["downedMode"] = %config.downedMode
+    node["downedBleedOutTicks"] = %config.downedBleedOutTicks
+    node["downedReviveTicks"] = %config.downedReviveTicks
+    node["downedEscalation"] = %config.downedEscalation
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1527,5 +1593,8 @@ proc configJson*(config: GameConfig): string =
   echoShellKeys(config, node)
   echoShotFeedbackKeys(config, node)
   echoCosmeticFxKeys(config, node)
+  echoHealingKeys(config, node)
+  echoLootStartKeys(config, node)
+  echoDownedKeys(config, node)
   result = $node
 
