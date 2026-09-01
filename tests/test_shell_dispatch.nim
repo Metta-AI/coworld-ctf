@@ -3,8 +3,21 @@
 import std/[atomics, os, unittest]
 import ../src/ctf/labels
 import ../src/ctf/sim_types as ctfTypes
+import ../src/shell/episode
 import ../src/shell/types
 import ../src/shell/types as shellTypes
+const DispatchRuntimeAvailable =
+  compileOption("threads") and static(getEnv("WASMTIME_C_API")).len > 0
+when DispatchRuntimeAvailable:
+  type TestWasmByteVec {.bycopy.} = object
+    size: csize_t
+    data: ptr byte
+
+  proc testWat2Wasm(wat: cstring; watLen: csize_t;
+                    output: ptr TestWasmByteVec): pointer
+      {.importc: "wasmtime_wat2wasm".}
+  proc testWasmBytesDelete(output: ptr TestWasmByteVec)
+      {.importc: "wasm_byte_vec_delete".}
 import ./raw_websocket_client
 
 include ../src/ctf/server
@@ -77,6 +90,19 @@ proc playConfig(control: SlotControl): GameConfig =
 proc bytes(value: string): seq[uint8] =
   for byte in value:
     result.add(uint8(byte))
+
+when DispatchRuntimeAvailable:
+  proc validPlayModuleBytes(): string =
+    let wat = readFile("tests/fixtures/shell/wasm/valid.wat")
+      .replace("[\\22br\\22]", "[\\22ctf\\22]")
+      .replace("i32.const 87 call", "i32.const 88 call")
+    var output: TestWasmByteVec
+    let error = testWat2Wasm(wat.cstring, wat.len.csize_t, addr output)
+    doAssert error == nil
+    defer: testWasmBytesDelete(addr output)
+    result = newString(output.size.int)
+    if output.size > 0:
+      copyMem(addr result[0], output.data, output.size)
 
 suite "server play receive arm":
   setup:
@@ -762,33 +788,146 @@ suite "server play outbound arm":
     check playReceiveConsumers.statusAck != nil
     check playReceiveConsumers.lobbyChat != nil
 
-  test "blocked runtime consumers return honest durable statuses and ack capacity":
-    let config = playConfig(scPlay)
-    appState.config = config
-    configurePlayIngress(config)
-    installProductionPlayConsumers(config)
-    let websocket = cast[WebSocket](801)
-    check websocket.registerPlayerWebSocket("play", 0, "")
-    websocketHandler(websocket, MessageEvent, binaryMessage(
-      ModuleUploadPacket(uploadId: 7, wasm: "wasm").encodePacket()))
-    websocketHandler(websocket, MessageEvent, binaryMessage(
-      PlayCallPacket(proposalId: 8, callBytes: "{}").encodePacket()))
-    drainPlayIngressAtTickBoundary()
+  test "live episode consumers retain admission, completion, and call outcomes":
+    when DispatchRuntimeAvailable:
+      let config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](801)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "test")
+      defer:
+        episode.closeFirstLightEpisode()
 
-    check appState.playOutbound[0].retainedStatusCount == 3
-    let statuses = appState.playOutbound[0].statusBytes.join("\n")
-    check "module_accepted" in statuses
-    check "episode_upload_seam_unavailable" in statuses
-    check "episode_call_seam_unavailable" in statuses
-    check appState.playIngress[0].snapshot.reservedStatusSlots == 3
-    check appState.playIngress[0].hasCallPayload(8)
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(
+          uploadId: 7, wasm: validPlayModuleBytes()).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1)
+      check appState.playOutbound[0].retainedStatusCount == 1
+      check "module_accepted" in appState.playOutbound[0].statusBytes[0]
+      check "\"gen\":\"1\"" in appState.playOutbound[0].statusBytes[0]
 
-    websocketHandler(websocket, MessageEvent, binaryMessage(
-      StatusAckPacket(mark: 3).encodePacket()))
-    drainPlayIngressAtTickBoundary()
-    check appState.playOutbound[0].retainedStatusCount == 0
-    check appState.playIngress[0].snapshot.reservedStatusSlots == 0
-    check not appState.playIngress[0].hasCallPayload(8)
+      var tick = 1'u32
+      while appState.playOutbound[0].retainedStatusCount < 2 and tick < 5000:
+        let output = episode.step([], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        if output.moduleStatuses.len == 0:
+          sleep(1)
+        inc tick
+      check appState.playOutbound[0].retainedStatusCount == 2
+      let moduleStatuses = appState.playOutbound[0].statusBytes.join("\n")
+      check "module_ready" in moduleStatuses
+      check "\"name\":\"alpha\"" in moduleStatuses
+      check "\"sha256\":" in moduleStatuses
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(
+          proposalId: 8,
+          callBytes: "{\"plays\":[{\"entry_id\":\"alpha\"," &
+            "\"params\":{},\"play\":\"alpha\"}]}"
+        ).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick)
+      let statuses = appState.playOutbound[0].statusBytes.join("\n")
+      check appState.playOutbound[0].retainedStatusCount == 3
+      check "call_accepted" in statuses
+      check "\"proposal_id\":\"8\"" in statuses
+      check appState.playIngress[0].snapshot.reservedStatusSlots ==
+        2 + 1 + MaxLadderEntries
+      check appState.playIngress[0].hasCallPayload(8)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: 3).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 1)
+      check appState.playOutbound[0].retainedStatusCount == 0
+      check appState.playIngress[0].snapshot.reservedStatusSlots ==
+        MaxLadderEntries
+      check appState.playIngress[0].hasCallPayload(8)
+
+      # INTERIM boundary awaiting lane A's retune-completion channel. Even
+      # after the immediate call statuses are acked, two retained 16-slot
+      # retune sets leave 32 slots occupied; a third 17-slot admission would
+      # require 49 of the 48 regular slots and must visibly backpressure.
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(
+          proposalId: 9,
+          callBytes: "{\"plays\":[{\"entry_id\":\"alpha\"," &
+            "\"params\":{},\"play\":\"alpha\"}]}"
+        ).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 2)
+      check "call_accepted" in appState.playOutbound[0].statusBytes.join("\n")
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: 4).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 3)
+      check appState.playIngress[0].snapshot.reservedStatusSlots ==
+        2 * MaxLadderEntries
+      check appState.playIngress[0].hasCallPayload(8)
+      check appState.playIngress[0].hasCallPayload(9)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(
+          proposalId: 10,
+          callBytes: "{\"plays\":[{\"entry_id\":\"alpha\"," &
+            "\"params\":{},\"play\":\"alpha\"}]}"
+        ).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 4)
+      check "status_backpressure" in
+        appState.playOutbound[0].statusBytes.join("\n")
+      check not appState.playIngress[0].hasCallPayload(10)
+
+  test "ten thousand cross-tick uploads stay bounded after episode quota":
+    when DispatchRuntimeAvailable:
+      let config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](804)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "load-test")
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let started = epochTime()
+      for uploadId in 1'u64 .. 10_000'u64:
+        websocketHandler(websocket, MessageEvent, binaryMessage(
+          ModuleUploadPacket(uploadId: uploadId, wasm: "bad").encodePacket()))
+        drainPlayIngressAtTickBoundary(episode, uint32(uploadId))
+        let output = episode.step([], uint32(uploadId))
+        retainProductionModuleStatuses(output.moduleStatuses)
+      let elapsedMs = (epochTime() - started) * 1000.0
+      echo "PLAY_UPLOAD_LOAD iterations=10000 elapsed_ms=", elapsedMs
+
+      let snapshot = appState.playIngress[0].snapshot
+      let statuses = appState.playOutbound[0].statusBytes.join("\n")
+      check snapshot.admittedModules == MaxModulesPerSeatPerEpisode
+      check snapshot.admittedUploadBytes ==
+        uint64(MaxModulesPerSeatPerEpisode * 3)
+      check statuses.count("module_accepted") == MaxModulesPerSeatPerEpisode
+      check appState.playOutbound[0].retainedStatusCount <=
+        2 * MaxModulesPerSeatPerEpisode + StatusFaultReserve
+      check appState.playOutbound[0].counters.faultsDropped ==
+        uint32(10_000 - 2 * MaxModulesPerSeatPerEpisode)
+
+  test "non-runtime episode verdicts remain visible terminal refusals":
+    when not DispatchRuntimeAvailable:
+      let config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](805)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var episode = FirstLightEpisode(enabled: true, rosterSize: 1)
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: 7, wasm: "wasm").encodePacket()))
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 8, callBytes: "{}").encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1)
+      let statuses = appState.playOutbound[0].statusBytes.join("\n")
+      check statuses.count("runtimeUnavailable") == 2
 
   test "every deterministic ingress refusal mints a visible status":
     let config = playConfig(scPlay)

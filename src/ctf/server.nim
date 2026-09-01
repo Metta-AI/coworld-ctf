@@ -201,7 +201,10 @@ type
     requestedSlot: int
     slotIndex: int
 
-var playReceiveConsumers: PlayReceiveConsumers
+var
+  playReceiveConsumers: PlayReceiveConsumers
+  activeFirstLightEpisode {.threadvar.}: ptr FirstLightEpisode
+  activeFirstLightTick {.threadvar.}: uint32
 
 proc saturatingAdd(value: var uint32, amount: int) =
   if amount <= 0:
@@ -711,47 +714,108 @@ proc packetIdIfPresent(data: string): uint64 =
 
 proc applyPlayIngressFeedback*(seat: int; feedback: PlayIngressFeedback)
 
-proc handleProductionModuleUploadAwaitingEpisodeSeam(
+proc packetModuleBytes(packet: ModuleUploadPacket): seq[byte] =
+  result = newSeq[byte](packet.wasm.len)
+  if packet.wasm.len > 0:
+    copyMem(addr result[0], unsafeAddr packet.wasm[0], packet.wasm.len)
+
+proc handleProductionModuleUpload(
   websocket: WebSocket,
   seat: int,
   generation: uint64,
   packet: ModuleUploadPacket,
 ) {.gcsafe.} =
-  ## SINGLE LANE-A INSERTION POINT: replace this terminal stub with admission
-  ## into FirstLightEpisode's own compile plane once episode.nim exports it.
+  ## Runs synchronously on the game thread while the tick drain scopes the
+  ## live episode. Compilation itself remains non-blocking in lane A's plane.
   discard websocket
+  let episode = activeFirstLightEpisode
+  var admitted: FirstLightAdmissionResult
+  if episode == nil:
+    admitted.reason = "runtimeUnavailable"
+  else:
+    let moduleBytes = packet.packetModuleBytes()
+    {.cast(gcsafe).}:
+      admitted = episode[].admitPlayModule(
+        seat, packet.uploadId, generation, moduleBytes)
+  var releaseUnusedAdmissionSlot = false
   {.gcsafe.}:
     withLock appState.lock:
       if seat < 0 or seat >= appState.playOutbound.len:
         return
-      discard appState.playOutbound[seat].retainStatus(StatusEntry(
-        kind: skModuleAccepted, originGeneration: generation,
-        acceptedUploadId: packet.uploadId), reservationSlots = 1)
-      discard appState.playOutbound[seat].retainModuleRefusal(
-        generation, packet.uploadId, "episode_upload_seam_unavailable",
-        spontaneous = false, reservationSlots = 1)
+      if admitted.accepted:
+        discard appState.playOutbound[seat].retainStatus(
+          admitted.status, reservationSlots = 1)
+      else:
+        discard appState.playOutbound[seat].retainModuleRefusal(
+          generation, packet.uploadId, admitted.reason,
+          spontaneous = false, reservationSlots = 1)
+        releaseUnusedAdmissionSlot = true
+  if releaseUnusedAdmissionSlot:
+    {.cast(gcsafe).}:
+      applyPlayIngressFeedback(seat, PlayIngressFeedback(
+        statusSlotsRetired: 1))
 
-proc handleProductionPlayCallAwaitingEpisodeSeam(
+proc handleProductionPlayCall(
   websocket: WebSocket,
   seat: int,
   generation: uint64,
   packet: PlayCallPacket,
 ) {.gcsafe.} =
-  ## SINGLE LANE-A INSERTION POINT: replace this terminal stub with the real
-  ## FirstLightEpisode ladder acceptance once episode.nim exports that seam.
+  ## The episode resolves bindings and owns the ladder. This adapter only
+  ## retains its immediate verdict and releases unused retune reservations.
   discard websocket
+  let episode = activeFirstLightEpisode
+  var accepted: FirstLightCallResult
+  if episode == nil:
+    accepted.reason = "runtimeUnavailable"
+    accepted.path = "runtime"
+  else:
+    {.cast(gcsafe).}:
+      accepted = episode[].acceptPlayCall(
+        seat, packet.proposalId, generation, activeFirstLightTick,
+        packet.callBytes)
   {.gcsafe.}:
     withLock appState.lock:
       if seat < 0 or seat >= appState.playOutbound.len:
         return
-      discard appState.playOutbound[seat].retainCallRefusal(
-        generation, packet.proposalId, "episode_call_seam_unavailable",
-        spontaneous = false, reservationSlots = 1)
-  # Ingress reserved one call outcome plus the maximum 16 retune outcomes.
-  # This terminal stub schedules none, so release the unused retune slots now.
-  {.cast(gcsafe).}:
-    applyPlayIngressFeedback(seat, PlayIngressFeedback(
-      statusSlotsRetired: MaxLadderEntries))
+      if accepted.status.kind in {skCallAccepted, skCallRejected}:
+        discard appState.playOutbound[seat].retainStatus(
+          accepted.status, reservationSlots = 1,
+          proposalId =
+            if accepted.accepted: none(uint64)
+            else: some(packet.proposalId))
+      else:
+        discard appState.playOutbound[seat].retainCallRefusal(
+          generation, packet.proposalId,
+          accepted.reason & ":" & accepted.path,
+          spontaneous = false, reservationSlots = 1)
+  if not accepted.accepted:
+    # A rejected call schedules no retunes. Its one delivered status remains
+    # reserved until StatusAck, which also evicts the proposal payload.
+    {.cast(gcsafe).}:
+      applyPlayIngressFeedback(seat, PlayIngressFeedback(
+        statusSlotsRetired: MaxLadderEntries))
+  else:
+    # INTERIM: retain all MaxLadderEntries retune slots and the call payload.
+    # Lane A must expose (1) the accepted call's pending retune identities and
+    # (2) every successful/refused retune completion from episode.step. Then
+    # lane B can release successful/unused slots immediately, attach refused
+    # slots to their durable statuses, and evict the payload only after the
+    # complete outcome set is acknowledged. Releasing now would over-admit.
+    discard
+
+proc retainProductionModuleStatuses(
+    statuses: openArray[FirstLightModuleStatus]) =
+  ## Async compile terminals consume the second slot reserved at upload
+  ## admission. Client acknowledgment later retires that delivered slot.
+  {.gcsafe.}:
+    withLock appState.lock:
+      for terminal in statuses:
+        if terminal.seat < 0 or terminal.seat >= appState.playOutbound.len:
+          appState.playIngressFeedbackErrors.saturatingAdd(1)
+          continue
+        discard appState.playOutbound[terminal.seat].retainStatus(
+          terminal.status, reservationSlots = 1)
 
 proc handleProductionStatusAck(
   websocket: WebSocket,
@@ -791,8 +855,8 @@ proc installProductionPlayConsumers(config: GameConfig) =
   ## The four registrations are live only for the conjunctive play-seat gate.
   if config.isPlaySeatEpisode():
     registerPlayModuleUploadConsumer(
-      handleProductionModuleUploadAwaitingEpisodeSeam)
-    registerPlayCallConsumer(handleProductionPlayCallAwaitingEpisodeSeam)
+      handleProductionModuleUpload)
+    registerPlayCallConsumer(handleProductionPlayCall)
     registerPlayStatusAckConsumer(handleProductionStatusAck)
     registerPlayLobbyChatConsumer(handleProductionLobbyChat)
   else:
@@ -1267,6 +1331,20 @@ proc drainPlayIngressAtTickBoundary*() =
     {.gcsafe.}:
       withLock appState.lock:
         appState.playProtocolRejected += rejected
+
+proc drainPlayIngressAtTickBoundary*(episode: var FirstLightEpisode;
+                                     tick: uint32) =
+  ## Production-only scoped ownership bridge. Registered consumers run
+  ## synchronously inside this drain; the pointer is never visible to the
+  ## socket threads and never survives the call.
+  doAssert activeFirstLightEpisode == nil
+  activeFirstLightEpisode = episode.addr
+  activeFirstLightTick = tick
+  try:
+    drainPlayIngressAtTickBoundary()
+  finally:
+    activeFirstLightEpisode = nil
+    activeFirstLightTick = 0
 
 proc applyPlayIngressFeedback*(seat: int, feedback: PlayIngressFeedback) =
   ## Reverse half of the registered lane-B/lane-C seam. Async compile/runtime
@@ -4512,7 +4590,8 @@ proc runServerLoop*(
         lastStepInputs = prevInputs
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         if config.isPlaySeatEpisode():
-          drainPlayIngressAtTickBoundary()
+          drainPlayIngressAtTickBoundary(
+            firstLightEpisode, uint32(sim.tickCount + 1))
           sim.drainProductionLobbyChats()
           replayWriter.drainShellReplayRecords(
             sim, tickTime(sim.tickCount))
@@ -4542,6 +4621,7 @@ proc runServerLoop*(
               defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
           let firstLight = firstLightEpisode.step(
             frames, uint32(sim.tickCount + 1))
+          retainProductionModuleStatuses(firstLight.moduleStatuses)
           var firstLightMoving, firstLightAiming = 0
           for mask in firstLight.masks:
             let encoded = mask.input.encodeInputMask()
