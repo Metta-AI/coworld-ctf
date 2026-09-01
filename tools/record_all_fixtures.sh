@@ -48,7 +48,40 @@ tools/record_fixture.sh tests/fixtures/wipe-lives1.bitreplay 3 10000 \
   '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
 tools/record_fixture.sh tests/fixtures/draw-nokill.bitreplay 7 1500 \
   '{"hitPoints":1000,"carrierSpeedPct":1,"barrageMaxPerSec":0}'
-tools/record_fixture.sh tests/replays/ctf.bitreplay 907 10000 '{"lives":9}'
+
+echo "== compiling the event-substrate acceptance check =="
+EVENT_CHECK=/tmp/record-extract-events-check
+nim c -d:release --hints:off --threads:on -o:"$EVENT_CHECK" \
+  tests/test_extract_events.nim \
+  > /tmp/record-extract-events-check-build.log 2>&1 \
+  || { echo "event-substrate acceptance check build FAILED — see /tmp/record-extract-events-check-build.log" >&2; exit 1; }
+
+echo "== recording event-substrate fixture: tests/replays/ctf.bitreplay =="
+# GV50 shipped a grenade-kill-less take because this fixture was only
+# re-simulated, not checked for the event content test_extract_events requires.
+# Keep the fixture identity fixed; the live bot timing is the allowed dice roll.
+EVENT_OK=0
+for TAKE in 1 2 3; do
+  echo "--- tests/replays/ctf.bitreplay take $TAKE/3 ---"
+  uptime || true
+  tools/record_fixture.sh tests/replays/ctf.bitreplay 907 10000 '{"lives":9}'
+  if "$EVENT_CHECK" > "/tmp/record-extract-events-take-$TAKE.log" 2>&1; then
+    echo "event-substrate fixture accepted on take $TAKE"
+    EVENT_OK=1
+    break
+  fi
+  echo "event-substrate fixture take $TAKE FAILED — see /tmp/record-extract-events-take-$TAKE.log" >&2
+  grep -E "sawGunKill|sawSprayKill|sawGrenadeKill|sawPlayingPhase|sawGameOverPhase|named >= 2|Check failed|\\[FAILED\\]" \
+    "/tmp/record-extract-events-take-$TAKE.log" >&2 || true
+done
+if [ "$EVENT_OK" -ne 1 ]; then
+  echo "event-substrate fixture exhausted 3 takes without satisfying:" >&2
+  echo "  sawGunKill && sawSprayKill && sawGrenadeKill" >&2
+  echo "  sawPlayingPhase && sawGameOverPhase" >&2
+  echo "  named >= 2" >&2
+  echo "  extraction.finished with winner-in-teams or honest draw" >&2
+  exit 1
+fi
 tools/record_fixture.sh tests/fixtures/gen-small-pits.bitreplay 4242 1500 \
   '{"mapPath":"gen","mapSeed":4242,"mapSize":"small"}'
 tools/record_colossal_demo.sh tests/fixtures/gen-colossal-4team.bitreplay 4242 1500 16
