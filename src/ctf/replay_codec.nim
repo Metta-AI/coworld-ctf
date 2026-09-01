@@ -8,6 +8,7 @@ import
   std/[algorithm, json, strutils, times],
   zippy,
   bitworld/replays as replayCodec,
+  build_stamp,
   ../shell/[replay_records, types]
 
 type
@@ -98,6 +99,33 @@ proc ensureSeatBucket(writer: var CtfReplayWriter, seat: uint8) =
   if int(seat) >= writer.callRecords.len:
     raise newException(ReplayError, "shell replay seat is out of range")
 
+proc stampedConfigJson(configJson: string): string =
+  ## The header configJson this writer will record, with the engine build
+  ## stamp ("engineStamp": tools/sim_sources_stamp.sh hash) added when this
+  ## binary carries one. This is the RECORDING side of the mismatch-banner
+  ## tiering (see build_stamp.nim): playback compares the recorded stamp to
+  ## its own to tell an expected cross-build hash mismatch from a true
+  ## same-build determinism break.
+  ##
+  ## Safe for every reader, old and new: sim_config.nim's `update` reads
+  ## keys selectively off the parsed object, so an unknown "engineStamp" is
+  ## ignored and the re-simulated config is unchanged. Unstamped builds
+  ## (ctfSimSourcesStamp == "", i.e. tests and ad-hoc dev builds) write the
+  ## configJson byte-for-byte as before.
+  if ctfSimSourcesStamp.len == 0:
+    return configJson
+  var node: JsonNode
+  try:
+    node = parseJson(if configJson.len == 0: "{}" else: configJson)
+  except CatchableError:
+    # A header configJson this writer cannot parse is not this proc's
+    # problem to diagnose — record it untouched, exactly as before.
+    return configJson
+  if node.kind != JObject:
+    return configJson
+  node["engineStamp"] = %ctfSimSourcesStamp
+  $node
+
 proc openReplayWriter*(
   path: string,
   configJson: string,
@@ -109,6 +137,7 @@ proc openReplayWriter*(
   ## Opens the CTF-owned replay writer. The caller makes the gate decision;
   ## P5a deliberately does not wire this into the live server. Non-shell
   ## output delegates wholly to bitworld's format-1 writer.
+  let configJson = stampedConfigJson(configJson)
   result.shellEpisode = shellEpisode
   if not shellEpisode:
     result.legacyWriter = replayCodec.openReplayWriter(path, configJson, spec)

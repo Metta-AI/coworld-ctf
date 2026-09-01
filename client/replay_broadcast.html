@@ -1376,6 +1376,19 @@ html, body {
   z-index: 20;
 }
 #mmwarn.on { display: block; }
+/* DRIFT tier: the mismatch is the EXPECTED kind — the recording and this
+   viewer were built from different engine sources (or neither side can
+   prove otherwise), so playback falls back to the recorded inputs by
+   design. Reads as a quiet chip in the #povBadge idiom rather than an
+   alarm. The red default above is reserved for a SAME-build mismatch: the
+   engine failing to reproduce its own recording, a true determinism
+   break. */
+#mmwarn.drift {
+  background: var(--ink-soft);
+  color: var(--paper-dim);
+  letter-spacing: 0.12em;
+  font-size: calc(7 * var(--u));
+}
 
 /* ---------- 6. END-CARD ---------- */
 #endcard {
@@ -4280,7 +4293,25 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   }
 
   function renderMismatch(s) {
-    $('mmwarn').classList.toggle('on', s.mm >= 0);
+    // Two tiers, decided server/wasm-side and carried as s.mmsb (present
+    // only while s.mm >= 0): a SAME-build mismatch (mmsb true) is a true
+    // determinism break and keeps the loud red banner; anything else is the
+    // expected drift of replaying a recording across engine builds and
+    // shows as the quiet #mmwarn.drift chip instead.
+    var el = $('mmwarn');
+    var on = s.mm >= 0;
+    el.classList.toggle('on', on);
+    if (!on) return;
+    var tier = s.mmsb ? 'break' : 'drift';
+    if (el.dataset.mmTier !== tier) {
+      el.dataset.mmTier = tier;
+      el.classList.toggle('drift', tier === 'drift');
+      el.textContent = tier === 'drift'
+        ? 'older engine recording — showing recorded inputs'
+        : 'Replay hash mismatch — showing recorded inputs';
+      document.documentElement.setAttribute(
+        'data-replay-mismatch-tier', tier);
+    }
   }
 
   // ============================================================

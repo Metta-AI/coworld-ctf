@@ -3,7 +3,7 @@ import
   flatty,
   bitworld/spriteprotocol,
   bitworld/replays as replayCodec,
-  broadcast, sim, global,
+  broadcast, build_stamp, sim, global,
   replay_codec as ctfReplayCodec,
   ../shell/[replay_records, seats]
 
@@ -59,6 +59,16 @@ type
     mismatchQuit*: bool
     hashValidationFailed*: bool
     hashMismatchTick*: int
+    sameEngineBuild*: bool
+      ## True only when BOTH this binary and the recording carry an engine
+      ## build stamp (build_stamp.nim) and they are EQUAL — i.e. a hash
+      ## mismatch here is a genuine same-build determinism break, not the
+      ## expected drift of replaying a recording across engine builds. The
+      ## viewer chrome keys its banner tier off this: loud red for a
+      ## same-build break, a quiet chip for cross-build drift. Any absent
+      ## stamp (old recordings, unstamped builds) reads as NOT same-build:
+      ## nothing can be proven, and the loud banner's whole meaning is
+      ## "this exact engine failed to reproduce its own recording".
     keyframes*: seq[ReplayKeyframe]
     startTick*: int
       ## First tick the match is actually being PLAYED (the Lobby "WAITING FOR
@@ -485,6 +495,27 @@ proc deserializeReplaySim*(bytes: string, donor: var SimServer): SimServer =
   ## frame over the diamond-free base the keyframe carried.
   result.restampDiamondGeometry()
 
+proc isSameEngineBuild*(recordedStamp, ownStamp: string): bool =
+  ## The banner-tier decision (see ReplayPlayer.sameEngineBuild): a
+  ## mismatch counts as same-build ONLY when both sides carry a stamp and
+  ## they agree. Two empty stamps are NOT "the same build" — they are two
+  ## unknowns, and the loud banner's claim ("this exact engine failed to
+  ## reproduce its own recording") must never rest on an absence.
+  ownStamp.len > 0 and recordedStamp == ownStamp
+
+proc recordedEngineStamp*(configJson: string): string =
+  ## The engine build stamp the RECORDING side wrote into the replay
+  ## header's configJson (replay_codec.nim's stampedConfigJson), or "" for
+  ## the many replays that predate stamping or came from unstamped builds.
+  if configJson.len == 0:
+    return ""
+  try:
+    let node = parseJson(configJson)
+    if node.kind == JObject and node.hasKey("engineStamp"):
+      result = node["engineStamp"].getStr("")
+  except CatchableError:
+    result = ""
+
 proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   ## Builds replay playback state.
   result.data = data
@@ -499,6 +530,8 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.skipLulls = true
   result.hashMismatchTick = -1
   result.pendingSeekTick = -1
+  result.sameEngineBuild = isSameEngineBuild(
+    recordedEngineStamp(data.configJson), ctfSimSourcesStamp)
 
 proc configuredPlaySeats(configJson: string): seq[bool] =
   var config = defaultGameConfig()

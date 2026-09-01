@@ -20,7 +20,13 @@ COPY nimby.lock .
 RUN nimby --global sync nimby.lock
 
 COPY . .
-RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
+# Computed by tools/build_replay_viewer.sh (or CI) on the HOST — the build
+# context has no .git to derive it from. Empty means "unstamped": the
+# qa_module_eval.cjs staleness check treats an unstamped committed bundle
+# as stale, so the served bundle can only ever come through the script.
+ARG SIM_SOURCES_STAMP=""
+RUN nim c -d:emscripten -d:ctfSimSourcesStamp="${SIM_SOURCES_STAMP}" \
+    replay-viewer/ctf_replay.nim && \
   nim c -r --hints:off -o:/tmp/gen_wire_constants tools/gen_wire_constants.nim \
     > replay-viewer/dist/wire_constants.js && \
   cp client/broadcast_core.js replay-viewer/dist/broadcast_core.js && \
