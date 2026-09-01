@@ -557,16 +557,49 @@ def run(persona: Persona, args) -> int:
     return 0
 
 
+def _hosted_ws_defaults() -> dict:
+    """The platform's connection contract: the runner starts every policy pod
+    with COWORLD_PLAYER_WS_URL (ws://host:port/player?slot=N&token=T). Parse it
+    when present so hosted pods connect to the real server instead of the
+    POC_* localhost defaults — the exact miss that made v1 filler pods exit 1
+    on the tournament cluster."""
+    url = os.environ.get("COWORLD_PLAYER_WS_URL", "")
+    if not url:
+        return {}
+    from urllib.parse import urlsplit, parse_qs
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    out = {}
+    if parts.hostname:
+        out["host"] = parts.hostname
+    if parts.port:
+        out["port"] = parts.port
+    if query.get("slot"):
+        out["slot"] = int(query["slot"][0])
+    if query.get("token"):
+        out["token"] = query["token"][0]
+    return out
+
+
 def main(persona: Persona, argv=None) -> int:
+    hosted = _hosted_ws_defaults()
     parser = argparse.ArgumentParser(
         description=f"starter policy: {persona.name}")
     parser.add_argument("--host",
-                        default=os.environ.get("POC_HOST", "127.0.0.1"))
+                        default=hosted.get("host",
+                                           os.environ.get("POC_HOST",
+                                                          "127.0.0.1")))
     parser.add_argument("--port", type=int,
-                        default=int(os.environ.get("POC_PORT", "21815")))
+                        default=hosted.get("port",
+                                           int(os.environ.get("POC_PORT",
+                                                              "21815"))))
     parser.add_argument("--slot", type=int,
-                        default=int(os.environ.get("POC_SLOT", "0")))
-    parser.add_argument("--token", default=os.environ.get("POC_TOKEN", ""))
+                        default=hosted.get("slot",
+                                           int(os.environ.get("POC_SLOT",
+                                                              "0"))))
+    parser.add_argument("--token",
+                        default=hosted.get("token",
+                                           os.environ.get("POC_TOKEN", "")))
     parser.add_argument("--playbook",
                         default=os.environ.get("POC_PLAYBOOK", "playbook"))
     parser.add_argument("--model",
