@@ -6,3 +6,5 @@ include action
 proc benchmarkTargetCandidates*(belief: Belief): seq[TargetCandidate] =
   targetCandidates(belief)
 
+proc benchmarkIdleSweepAim*(belief: Belief, center: int): int =
+  idleSweepAim(belief, center)

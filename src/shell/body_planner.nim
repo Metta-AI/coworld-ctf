@@ -435,6 +435,40 @@ proc advanceConnector(scan: var ConnectorScan, planner: BodyPlanner,
     scan.y = scan.minY
   true
 
+proc resolveEndpointForDifferential*(planner: BodyPlanner,
+                                     endpoint: BodyPoint): Option[BodyPoint] =
+  ## Diagnostic snapshot for the local stencil differential. This is the same
+  ## start-endpoint resolver used by `startPlan`, drained in one call so the
+  ## optional harness can compare it to the pinned lab without copying lab code.
+  if planner.map.canStand(endpoint):
+    return some(endpoint)
+  var scan: EndpointScan
+  initEndpointScan(scan, planner.map, endpoint)
+  while not scan.done:
+    discard scan.advanceEndpointScan(planner.map)
+  if scan.found:
+    some(scan.best)
+  else:
+    none(BodyPoint)
+
+proc nearestConnectorForDifferential*(planner: BodyPlanner,
+                                      endpoint: BodyPoint,
+                                      step = PlanStepPx): Option[BodyPoint] =
+  ## Diagnostic snapshot of the connector scan used before A*. The playing
+  ## path still owns all budgeting; this helper only exposes the completed
+  ## deterministic choice for the local gate-1 differential.
+  var job = BodyPlanJob(step: step,
+    latticeW: (planner.map.width - 1) div step + 1,
+    latticeH: (planner.map.height - 1) div step + 1)
+  var scan: ConnectorScan
+  initConnector(scan, job, endpoint)
+  while not scan.done:
+    discard scan.advanceConnector(planner, job)
+  if scan.bestIndex >= 0:
+    some(job.latticePoint(scan.bestIndex))
+  else:
+    none(BodyPoint)
+
 proc reverseNeighborIndex(dx, dy: int): int =
   for index, delta in Neighbors:
     if delta[0] == -dx and delta[1] == -dy:

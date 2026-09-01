@@ -33,4 +33,17 @@ the optional binary for the real generated-map/stencil measurements. JSON and
 binaries must remain under `/tmp` or the collaboration scratchpad, never in the
 repository.
 
+The phase-7 gate-1 differential is also local-only and lab-backed, but it is a
+separate tool rather than a shard test:
+
+```bash
+STENCIL_LAB_DIR=/path/to/stencil_nim \
+  nim c -d:release --path:"$STENCIL_LAB_DIR" -o:/tmp/body_differential \
+  tools/body_differential.nim
+/tmp/body_differential --case all --seeds 4242,14005,23011
+```
+
+It refuses missing or mismatched stencil commits, never copies lab source, and
+reports exact-match rows separately from named allowlist characterizations.
+
 The local adapters and every lab reference must be deleted after Gate 1 passes.

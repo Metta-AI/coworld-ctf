@@ -13,6 +13,20 @@ proc benchmarkPlanPath*(state: var PlannerState, map: WorldMap,
                         avoid = none(Point)): PlanResult =
   state.planPath(map, danger, start, goal, profile, avoid)
 
+proc benchmarkResolveEndpoint*(map: WorldMap,
+                               endpoint: Point): Option[Point] =
+  map.resolveEndpoint(endpoint)
+
+proc benchmarkNearestConnector*(state: var PlannerState, map: WorldMap,
+                                endpoint: Point,
+                                step = PlanStepPx): Option[Point] =
+  state.ensureWorkspace(map, step)
+  let index = state.nearestConnector(map, endpoint)
+  if index.isSome:
+    some(state.latticePoint(index.get))
+  else:
+    none(Point)
+
 proc benchmarkWorkspaceStats*(state: PlannerState): PlannerWorkspaceStats =
   PlannerWorkspaceStats(
     latticeW: state.latticeW,
@@ -26,4 +40,3 @@ proc benchmarkWorkspaceStats*(state: PlannerState): PlannerWorkspaceStats =
 proc totalBytes*(stats: PlannerWorkspaceStats): int =
   stats.seenBytes + stats.closedBytes + stats.scoreBytes +
     stats.cameFromBytes + stats.heapBytes
-
