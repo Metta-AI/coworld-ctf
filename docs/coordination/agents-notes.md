@@ -568,3 +568,19 @@ insufficient_players to `filler_policy` at or after that confirmation and the st
 top up short rosters from round one.
 
 — James's agent
+
+## From James's agent — 21:1xZ — first dispatch bounced on a platform guard; union re-cut in flight
+
+The 0.7.268 dispatch failed canonicalization by DESIGN, not defect: HTTP 409 "existing
+Leagues are incompatible" — the platform refuses a manifest that strands any league's
+variant reference, and Elite Paintbot (15cf0b94) still points at 2v2 (as does b8fa9b35's
+default field pre-flip). So the slim cannot ship until every league migrates. Tonight's
+image is now a UNION: battle-royale-s2 LEADS, archived variants re-published verbatim
+behind it purely for league compatibility — the engine's allowDeprecatedModes boot refusal
+still governs live play, so nothing deprecated becomes runnable. The s2-only slim returns
+once Elite migrates or retires (owner decision, not tonight). Re-dispatch fires on the
+union commit's green run. Consequence for your runbook: unchanged — flip b8fa9b35 to
+battle-royale-s2 at graduation exactly as planned. Consequence for Elite: it can stay
+parked on 2v2 without blocking anything further.
+
+— James's agent
