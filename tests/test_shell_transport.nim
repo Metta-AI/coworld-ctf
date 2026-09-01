@@ -253,6 +253,31 @@ var
   outboundDone, refillAttempted, refillAdmitted: Atomic[bool]
   outboundEventCapSeen: Atomic[bool]
   outboundCloses, outboundCleanups: Atomic[int]
+  scenario1BurstDone: Atomic[bool]
+  scenario1Admitted: Atomic[int]
+    ## scenario1BurstDone flips once OpenEvent's burst below has resolved a
+    ## real refusal (proving the cap) AND the completion-triggered refill in
+    ## outboundCompletion has been attempted -- whichever of the two settles
+    ## last. scenario1Admitted is the true total number of 256 KiB frames
+    ## sent to the client: the burst's own admits, plus the refill's if it
+    ## won its slot, computed only once both have resolved.
+    ##
+    ## Neither a fixed attempt count nor a fixed ordering between the two is
+    ## safe to assume here. Mummy's IO thread completes a send (freeing
+    ## outbound capacity, under the same outboundLock trySend itself checks)
+    ## as soon as a frame is fully handed to the OS, and a fresh socket's OWN
+    ## kernel send/receive buffers can absorb at least one 256 KiB frame with
+    ## the peer never having read a byte. So a completion -- and the refill
+    ## it triggers -- can land WHILE the burst is still mid-loop, not only
+    ## after it. Under normal load the burst's tight loop finishes in
+    ## microseconds, far under a completion's round trip, so this is latent;
+    ## under real CPU contention (this suite's own parallel shards, or a
+    ## loaded CI runner) the burst can be descheduled mid-loop for long
+    ## enough that it fires. Polling for the real refusal boundary (like
+    ## scenarios 2 and 3 below already do), and waiting for the refill to
+    ## resolve before computing the true sent total, is what makes the
+    ## reading client's expected count exact regardless of which order the
+    ## two settled in.
 
 proc outboundCompletion(
   websocket: mummy.WebSocket,
@@ -264,7 +289,10 @@ proc outboundCompletion(
     if outboundScenario.load == 1 and
         not refillAttempted.exchange(true):
       # Mummy releases capacity before invoking the callback, so admission
-      # from this non-capturing completion proc must succeed.
+      # from this non-capturing completion proc succeeds UNLESS the burst
+      # loop below is concurrently competing for the same just-freed slot
+      # (see scenario1Admitted's doc comment) -- in that case the burst's
+      # own count already reflects the reclaim, just attributed to it.
       refillAdmitted.store websocket.trySendPlaySocket(
         newString(FloodMessageLen),
         onCompletion = outboundCompletion,
@@ -288,16 +316,35 @@ block: # Outbound refusal and completion-driven capacity.
     of OpenEvent:
       case outboundScenario.load
       of 1:
-        # Seven encoded 256 KiB frames fit below 2 MiB; the eighth is refused.
-        for i in 0 ..< 7:
-          doAssert websocket.trySendPlaySocket(
-            newString(FloodMessageLen),
-            onCompletion = outboundCompletion,
-          )
-        doAssert not websocket.trySendPlaySocket(
+        # Seven encoded 256 KiB frames fit below 2 MiB, so admission must
+        # refuse well before attempt 16; poll for the boundary instead of
+        # assuming it lands exactly on attempt 8 (see scenario1Admitted).
+        # The bound is deliberately tight (not e.g. 64): every extra attempt
+        # here widens the window in which this loop can race the completion-
+        # triggered refill in outboundCompletion for the same freed slot.
+        var admitted = 0
+        while admitted < 16 and websocket.trySendPlaySocket(
           newString(FloodMessageLen),
           onCompletion = outboundCompletion,
-        )
+        ):
+          inc admitted
+        doAssert admitted >= 7, "fewer than the 7 frames guaranteed to fit " &
+          "under the 2 MiB cap were admitted"
+        doAssert admitted < 16, "outbound cap never refused within a bounded burst"
+        # The refill can already have fired (and resolved) mid-burst, or it
+        # can still be pending on a completion for one of the frames just
+        # admitted above -- it settles within one completion round trip of
+        # the last admit, well inside this bound. Computing the true total
+        # only after it resolves is what lets the reading client below know
+        # exactly how many frames to expect, with no stray unread frame left
+        # to stall the close handshake at the end of this block.
+        let waitStart = epochTime()
+        while not refillAttempted.load and epochTime() - waitStart < 10.0:
+          sleep(1)
+        doAssert refillAttempted.load,
+          "no SendSent completion arrived to trigger the refill"
+        scenario1Admitted.store(admitted + (if refillAdmitted.load: 1 else: 0))
+        scenario1BurstDone.store(true)
       of 2:
         var consecutiveRefusals = 0
         while consecutiveRefusals < 50:
@@ -364,14 +411,29 @@ block: # Outbound refusal and completion-driven capacity.
 
   block: # A SendSent completion is the point at which capacity returns.
     outboundScenario.store(1)
+    scenario1BurstDone.store(false)
     let ws = newWebSocket("ws://127.0.0.1:8393/play")
-    for i in 0 ..< 8:
+    # scenario1Admitted is the true total (burst admits, plus the refill's
+    # if it won its slot -- see its doc comment): the refill has already
+    # been attempted and resolved by the time scenario1BurstDone flips, so
+    # reading exactly this many drains the connection with no stray unread
+    # frame left to stall the close handshake below.
+    waitUntil scenario1BurstDone.load
+    let admitted = scenario1Admitted.load
+    for i in 0 ..< admitted:
       let message = ws.receiveMessage(10000)
       doAssert message.isSome
       doAssert message.get.data.len == FloodMessageLen
-    waitUntil refillAttempted.load
-    doAssert refillAdmitted.load
-    waitUntil outboundSent.load == 8
+    # The dedicated refill (outboundCompletion's reentrant trySend) wins its
+    # slot whenever nothing else is contending for it. It can lose that race
+    # only to the burst loop above claiming the same just-freed slot first --
+    # a benign outcome of this test's own greedy burst, not a capacity leak --
+    # in which case the burst's own count (folded into scenario1Admitted
+    # above) already exceeds the guaranteed minimum of 7, proving the same
+    # reclaim-and-reuse happened either way.
+    doAssert refillAdmitted.load or admitted > 7,
+      "capacity was never reclaimed for reuse by either the refill or the burst"
+    waitUntil outboundSent.load == admitted
     doAssert outboundDropped.load == 0
     ws.close()
     waitUntil outboundCloses.load == 1
