@@ -182,6 +182,27 @@ type
     seat*: int32
     team*: SdkTeam
 
+  TargetLawPreferTag* = enum
+    tlWeakened
+    tlIsolated
+    tlRevenge
+    tlBounty
+
+  TargetLawHoldKind* = enum
+    thNone
+    thAliveTeams
+    thTick
+    thZonePhase
+
+  TargetLawParams* = object
+    valid*: bool
+    neverCount*: int32
+    never*: array[MaxPactRefs, PactRef]
+    preferCount*: int32
+    prefer*: array[4, TargetLawPreferTag]
+    holdKind*: TargetLawHoldKind
+    holdValue*: int32
+
   PactParams* = object
     valid*: bool
     partnersPresent*: bool
@@ -278,6 +299,12 @@ type
     zone*: SdkZone
     trackCount*: int32
     tracks*: array[MaxViewTracks, SdkTrack]
+
+  TargetLawView* = object
+    valid*: bool
+    tickPresent*: bool
+    tick*: int32
+    world*: SdkWorld
 
   EdgeRideView* = object
     valid*: bool
@@ -1303,6 +1330,25 @@ proc readCrossfireBinaryViewInto*(view: PlayView;
   outView.valid = frame.ok and outView.self.pos.present
   outView.valid
 
+proc readTargetLawBinaryViewInto*(view: PlayView;
+                                  outView: var TargetLawView): bool =
+  outView = default(TargetLawView)
+  var frame = initBinaryFrame(view)
+  if not frame.ok:
+    return false
+  outView.tickPresent = true
+  outView.tick = frame.tick
+  let worldSection = frame.findSection(BvWorld)
+  if not frame.ok or worldSection.count != 1:
+    return false
+  outView.world = frame.readWorld(worldSection)
+  let zoneSection = frame.findSection(BvZone)
+  if frame.ok and zoneSection.present and zoneSection.count == 1:
+    outView.world.zone = frame.readZone(zoneSection)
+  outView.valid = frame.ok and outView.tickPresent and
+    outView.world.aliveTeamsPresent
+  outView.valid
+
 proc readEdgeRideBinaryViewInto*(view: PlayView;
                                  outView: var EdgeRideView): bool =
   outView = default(EdgeRideView)
@@ -1505,6 +1551,96 @@ proc readBodyguardParams*(ctx: PlayContext): BodyguardParams =
       result.valid = false
   result.valid = result.valid and r.ok and r.pos == r.len
 
+proc readTargetLawParams*(ctx: PlayContext): TargetLawParams =
+  result.valid = true
+  result.holdKind = thNone
+  var r = initJsonReader(ctx.data, ctx.len)
+  if not r.beginObject():
+    result.valid = false
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "never"):
+      if not r.beginArray():
+        result.valid = false
+        return
+      var index = 0'i32
+      while r.nextArrayElement(index):
+        let value = r.readJsonString()
+        if result.neverCount >= MaxPactRefs or not value.present:
+          result.valid = false
+        else:
+          var seat = 0'i32
+          var team = stUnknown
+          if r.parseSeatRef(value, seat):
+            result.never[result.neverCount] = PactRef(kind: prSeat, seat: seat)
+            inc result.neverCount
+          elif r.parseDuoRef(value, team):
+            result.never[result.neverCount] = PactRef(kind: prDuo, team: team)
+            inc result.neverCount
+          else:
+            result.valid = false
+    elif r.stringEquals(key, "prefer"):
+      if not r.beginArray():
+        result.valid = false
+        return
+      var
+        index = 0'i32
+        seen: array[4, bool]
+      while r.nextArrayElement(index):
+        let value = r.readJsonString()
+        var tag = tlWeakened
+        if r.stringEquals(value, "weakened"):
+          tag = tlWeakened
+        elif r.stringEquals(value, "isolated"):
+          tag = tlIsolated
+        elif r.stringEquals(value, "revenge"):
+          tag = tlRevenge
+        elif r.stringEquals(value, "bounty"):
+          tag = tlBounty
+        else:
+          result.valid = false
+        if result.valid:
+          let ordinal = ord(tag)
+          if seen[ordinal] or result.preferCount >= 4:
+            result.valid = false
+          else:
+            seen[ordinal] = true
+            result.prefer[result.preferCount] = tag
+            inc result.preferCount
+    elif r.stringEquals(key, "holdTrigger"):
+      if not r.beginObject():
+        result.valid = false
+        return
+      var armCount = 0'i32
+      var arm: JsonString
+      while r.nextObjectKey(arm):
+        inc armCount
+        if r.stringEquals(arm, "aliveTeams"):
+          result.holdKind = thAliveTeams
+          result.valid = result.valid and r.readIntValue(result.holdValue)
+          if result.holdValue < 2 or result.holdValue > 16:
+            result.valid = false
+        elif r.stringEquals(arm, "tick"):
+          result.holdKind = thTick
+          result.valid = result.valid and r.readIntValue(result.holdValue)
+          if result.holdValue < 0:
+            result.valid = false
+        elif r.stringEquals(arm, "zonePhase"):
+          result.holdKind = thZonePhase
+          result.valid = result.valid and r.readIntValue(result.holdValue)
+          if result.holdValue < 1 or result.holdValue > 8:
+            result.valid = false
+        else:
+          discard r.skipParamValue()
+          result.valid = false
+      if armCount != 1:
+        result.valid = false
+    else:
+      discard r.skipParamValue()
+      result.valid = false
+  result.valid = result.valid and r.ok and r.pos == r.len
+
 proc readJackalParams*(ctx: PlayContext): JackalParams =
   result.valid = true
   result.earshot = 500
@@ -1693,6 +1829,13 @@ proc appendPactRef(value: PactRef) =
     appendLiteral("duo:")
     appendTeamText(value.team)
 
+proc appendTargetLawPrefer(value: TargetLawPreferTag) =
+  case value
+  of tlWeakened: appendLiteral("weakened")
+  of tlIsolated: appendLiteral("isolated")
+  of tlRevenge: appendLiteral("revenge")
+  of tlBounty: appendLiteral("bounty")
+
 proc seatTextLess(a, b: int32): bool =
   ## Host policy_encoding sorts resolved protected-set spellings as strings.
   if a == b:
@@ -1789,6 +1932,45 @@ proc emitCombatPolicyRefs*(noShoot: var array[MaxPactRefs, PactRef];
       appendPactRef(protect[index])
       appendByte(byte(ord('"')))
     appendLiteral("]}")
+    needComma = true
+  if needComma:
+    appendByte(byte(ord(',')))
+  appendLiteral("\"schema\":\"combat_policy\",\"v\":1}")
+  playEmit(cast[int32](addr emitBuffer[0]), emitLen)
+
+proc emitTargetLawPolicy*(noShoot: var array[MaxPactRefs, PactRef];
+                          noShootCount: int32;
+                          prefer: var array[4, TargetLawPreferTag];
+                          preferCount: int32; holdFire: bool): int32 =
+  clearEmitBuffer()
+  appendLiteral("{")
+  var needComma = false
+  if holdFire:
+    appendLiteral("\"hold_fire\":true")
+    needComma = true
+  if noShootCount > 0:
+    if needComma:
+      appendByte(byte(ord(',')))
+    appendLiteral("\"no_shoot\":{\"seats\":[")
+    for index in 0 ..< noShootCount:
+      if index > 0:
+        appendByte(byte(ord(',')))
+      appendByte(byte(ord('"')))
+      appendPactRef(noShoot[index])
+      appendByte(byte(ord('"')))
+    appendLiteral("]}")
+    needComma = true
+  if preferCount > 0:
+    if needComma:
+      appendByte(byte(ord(',')))
+    appendLiteral("\"prefer\":[")
+    for index in 0 ..< preferCount:
+      if index > 0:
+        appendByte(byte(ord(',')))
+      appendByte(byte(ord('"')))
+      appendTargetLawPrefer(prefer[index])
+      appendByte(byte(ord('"')))
+    appendLiteral("]")
     needComma = true
   if needComma:
     appendByte(byte(ord(',')))
