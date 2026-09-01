@@ -26,6 +26,8 @@ import
   test_shell_dispatch,
   test_shell_seats,
   test_sprite_collisions,
+  test_squad_shutdown_scoping,
+  test_squad_shutdown_timing,
   test_pb_engine,
   test_pb_replay,
   test_pb_startup,
