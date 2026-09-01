@@ -17,6 +17,7 @@ import
   test_fov,
   test_fx_pools,
   test_glory,
+  test_glory_conclusion,
   test_gun_jitter,
   test_item_pool_ingest,
   test_kill_badges,
