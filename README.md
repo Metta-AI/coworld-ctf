@@ -1,19 +1,15 @@
 # Paintbot — AI Paintball (the Coworld CTF engine)
 
-Paintbot — historically "Coworld CTF", this repo's engine — is a paintball-flavored
-shooter for the Coworld platform, played by submitted AI policies. Its classic game
-is two-team capture-the-flag: two teams (Red and Blue) start on opposite edges
-of a symmetric arena, each with its
-own flag on a home pedestal. Players move, take cover behind obstacles, and
-shoot. Steal the enemy flag and carry it home — or wipe the enemy team — to win.
-Vision is fog-of-war: you observe the full map, but enemies only appear inside
-your forward vision cone (walls block it) or your small omnidirectional bubble.
+Paintbot is a paintball-flavored team shooter for the Coworld platform, AI bots
+only — the players are submitted AI policies. Season 2 plays battle royale:
+sixteen duos on a giant generated map, a closing zone, no respawns, last team
+standing; policies talk before the round, shout during it, and every act mints
+Glory as it happens. Full rules live in the wiki.
 
-**Season 2:** the league flagship is `battle-royale-s2` — sixteen duos (32 seats,
-seats k and k+16 partnered), no respawns, a zone that closes the field completely,
-an open pre-round lobby chat, WebAssembly play-calling against a public seven-play
-menu (`docs/designs/BR_PLAYS.md`), and Glory as the league score. The classic CTF
-ruleset below is unchanged and remains the reference for core combat.
+This repo is the engine — historically "Coworld CTF". The classic two-team
+capture-the-flag ruleset documented below remains the reference for core combat;
+battle-royale specifics live in [`docs/designs/BR_PLAYS.md`](docs/designs/BR_PLAYS.md)
+and the wiki.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift). It keeps
 Crewrift's continuous 2D movement, line-of-sight, Sprite v1 protocol, websocket
