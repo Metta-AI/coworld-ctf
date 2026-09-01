@@ -8,11 +8,28 @@ import ../src/shell/[transport, types]
 
 privateAccess(ServerObj)
 
-proc waitFor(startedAt: float64, timeoutSeconds = 10.0) =
+proc waitFor(startedAt: float64, timeoutSeconds = 120.0) =
+  ## Every waitUntil call site below polls an atomic mutated by a
+  ## background callback on serveProc's thread -- eventual consistency,
+  ## not a latency SLA. A wall-clock/fixed-budget audit of this suite
+  ## empirically reproduced the failure mode this default used to invite:
+  ## under 90 synthetic CPU-bound processes (14 physical cores, load avg
+  ## ~50), this exact file failed 2 of 3 runs at 10.59s/10.94s -- just
+  ## past the old 10.0s default -- purely because serveProc's thread lost
+  ## the race for CPU time against the ceiling, not because the adapter
+  ## stopped making progress (0/3 failures unloaded, 0/3 at moderate
+  ## 24-process load). 120s is "will the machine eventually schedule this
+  ## thread," not a performance budget: the internal refusal/flood loops
+  ## this guards (e.g. consecutiveRefusals < 50) already self-terminate
+  ## on an event count, so a real stall still fails this, just not on a
+  ## scheduler coin flip. Was 10.0s, with two call sites hand-bumped to
+  ## 30.0s for the flood scenarios specifically; both are folded into
+  ## this one default now instead of leaving the hand-bumped sites as the
+  ## tightest (and therefore weakest) link.
   doAssert epochTime() - startedAt < timeoutSeconds, "timed out waiting"
   sleep(5)
 
-template waitUntil(condition: untyped, timeoutSeconds = 10.0) =
+template waitUntil(condition: untyped, timeoutSeconds = 120.0) =
   block:
     let startedAt = epochTime()
     while not (condition):
@@ -442,7 +459,7 @@ block: # Outbound refusal and completion-driven capacity.
     outboundScenario.store(2)
     let sentBefore = outboundSent.load
     let raw = rawWebSocketConnect(8393, "/play")
-    waitUntil outboundDone.load, 30.0
+    waitUntil outboundDone.load
     doAssert outboundRefused.load >= 50
     let admitted = outboundAdmitted.load
     doAssert admitted >= 1
@@ -463,7 +480,7 @@ block: # Outbound refusal and completion-driven capacity.
     outboundEventCapSeen.store(false)
     outboundScenario.store(3)
     let raw = rawWebSocketConnect(8393, "/play")
-    waitUntil outboundDone.load, 30.0
+    waitUntil outboundDone.load
     doAssert outboundRefused.load >= 50
     doAssert outboundEventCapSeen.load
     let admitted = outboundAdmitted.load
