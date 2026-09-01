@@ -7,7 +7,7 @@ import bitworld/spriteprotocol
 
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, default_play, episode, standing_order,
-  wasmtime_c]
+  reflexes, wasmtime_c]
 
 const
   Seats = 32
@@ -146,12 +146,20 @@ proc frame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
       self: BodySelfState(pos: pos, hp: 4, hpFrac: 1.0, aimBrads: 32,
         alive: true, carrying: false)),
     defaultFallbacks: BrDefaultFallbacks(
-      currentZone: MapRect(x: 0, y: 0, w: 512, h: 256),
+      currentZone: MapRect(x: 0, y: 0, w: 4096, h: 4096),
       nextZone: MapRect(x: 100, y: 50, w: 200, h: 100),
       ticksToNextShrink: BrRotateLeadTicks + 1,
       zoneDps: 1,
       idleAimCenterBrads: 32,
       coverGoal: none(ValidatedGoal)))
+
+proc floodFrame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
+  result = frame(seat, pos, tick)
+  result.defaultFallbacks.currentZone = MapRect(x: 100, y: 50, w: 200, h: 100)
+  result.defaultFallbacks.nextZone = MapRect(x: 160, y: 70, w: 120, h: 80)
+  result.defaultFallbacks.ticksToNextShrink = ReflexZoneTriggerTicks
+  result.motionScale = MotionScale
+  result.velocity = MaxSpeed
 
 proc applyMask(pos: var BodyPoint; input: InputState) =
   let bits = input.encodeInputMask()
@@ -169,6 +177,39 @@ proc percentile(values: seq[int64], numerator, denominator: int): int64 =
     (values.len * numerator + denominator - 1) div denominator - 1)]
 
 suite "shell episode ladder":
+  test "final zone phase sentinel is representable in episode binary view":
+    when ShellRuntimeAvailable:
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      var row = frame(0, (128, 128), 3361)
+      row.defaultFallbacks.zonePhase = 5
+      row.defaultFallbacks.currentZone = MapRect(x: 280, y: 28, w: 87, h: 43)
+      row.defaultFallbacks.nextZone = row.defaultFallbacks.currentZone
+      row.defaultFallbacks.zoneDps = 12
+      row.defaultFallbacks.ticksToNextShrink = high(int) div 4
+
+      let output = episode.step([row], 3361)
+      check output.masks.len == 1
+      let bytes = episode.firstLightViewBytes(0, 3361)
+      check bytes.len > 0
+      check bytes != "{}"
+
+  test "live episode arms zone reflex above the default":
+    let map = testMap()
+    var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+    defer:
+      episode.closeFirstLightEpisode()
+
+    let output = episode.step([floodFrame(0, (20, 128), 1)], 1)
+    check output.masks.len == 1
+    check output.installs.anyIt(it.provenance == "reflex:zone_escape" and
+      it.rule == ReflexZoneEscapeName and
+      it.bytes.contains("\"reason\":\"reflex_zone_escape\"") and
+      it.bytes.contains("\"kind\":\"navigate_to\""))
+
   test "runtime host calls validate against current frame self position":
     let modulePath = getTempDir() / "current-self-probe-" &
       $getCurrentProcessId() & ".wasm"
@@ -273,4 +314,49 @@ suite "shell episode ladder":
       &"p95_us={runtimeSamples.percentile(95, 100).float / 1000.0:.3f} " &
       &"max_us={runtimeSamples[^1].float / 1000.0:.3f} " &
       "gate_us=4000.000 " & (if pass: "verdict=PASS" else: "verdict=FAIL")
+    check pass
+
+  test "32 flood-zone seats with reflexes armed stay inside runtime share":
+    let map = testMap()
+    var episode = initFirstLightEpisode(true, true, controls(Seats), map, 331)
+    defer:
+      episode.closeFirstLightEpisode()
+
+    var positions: array[Seats, BodyPoint]
+    for seat in 0 ..< Seats:
+      positions[seat] = (20 + seat, 128)
+    var sawReflexInstall = false
+    for tick in 1 .. WarmTicks:
+      var batch: seq[FirstLightSeatFrame]
+      for seat in 0 ..< Seats:
+        batch.add floodFrame(seat, positions[seat], tick)
+      let output = episode.step(batch, uint32(tick))
+      check output.masks.len == Seats
+      sawReflexInstall = sawReflexInstall or
+        output.installs.anyIt(it.provenance == "reflex:zone_escape")
+      for mask in output.masks:
+        positions[mask.seat.int].applyMask(mask.input)
+
+    var runtimeSamples: seq[int64]
+    for tick in WarmTicks + 1 .. WarmTicks + Samples:
+      var batch: seq[FirstLightSeatFrame]
+      for seat in 0 ..< Seats:
+        batch.add floodFrame(seat, positions[seat], tick)
+      let output = episode.step(batch, uint32(tick))
+      check output.masks.len == Seats
+      sawReflexInstall = sawReflexInstall or
+        output.installs.anyIt(it.provenance == "reflex:zone_escape")
+      for mask in output.masks:
+        positions[mask.seat.int].applyMask(mask.input)
+      runtimeSamples.add output.runtimeNanoseconds
+    runtimeSamples.sort()
+
+    let pass = runtimeSamples[^1] <= RuntimeGateNs
+    echo &"EPISODE_REFLEX_RUNTIME seats={Seats} warm_ticks={WarmTicks} " &
+      &"samples={Samples} median_us=" &
+      &"{runtimeSamples.percentile(50, 100).float / 1000.0:.3f} " &
+      &"p95_us={runtimeSamples.percentile(95, 100).float / 1000.0:.3f} " &
+      &"max_us={runtimeSamples[^1].float / 1000.0:.3f} " &
+      "gate_us=4000.000 " & (if pass: "verdict=PASS" else: "verdict=FAIL")
+    check sawReflexInstall
     check pass

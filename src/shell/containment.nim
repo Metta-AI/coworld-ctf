@@ -107,7 +107,10 @@ proc cleanDefaultBodyTick(map: BodyMap, seatCount: int, tick: uint32): bool =
     var state: StandingOrderState
     state.stepFirstLightDefault(body, tick, fallback)
     let mask = body.seatTick(inputs, tick)
-    if mask != InputState() or not state.hasStanding or
+    let unsafeBits = mask.encodeInputMask() and
+      (ButtonUp or ButtonDown or ButtonLeft or ButtonRight or ButtonA or
+        ButtonC)
+    if unsafeBits != 0 or not state.hasStanding or
         body.standingIntent.kind != ikHold or body.standingGoal.isSome:
       return false
   true

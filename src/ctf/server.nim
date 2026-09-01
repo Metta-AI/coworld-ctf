@@ -2769,6 +2769,12 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
         veteranMarker: target.bodyVeteranMarker,
         tick: uint32(sim.tickCount + 1)))
 
+proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
+  let player = sim.players[playerIndex]
+  let speedScale = if player.carryingFlag: sim.config.carrierSpeedPct else: 100
+  (sim.config.maxSpeedFor(player.team, player.perks) * speedScale div 100) *
+    sim.paintSpeedPct(playerIndex) div 100
+
 proc ticksToNextZoneShrink(sim: SimServer, elapsedTicks: int): int =
   if sim.config.zonePhases.len == 0:
     return high(int) div 4
@@ -2838,6 +2844,30 @@ proc firstLightFallbacks(sim: SimServer,
     idleAimCenterBrads: 0,
     rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
     coverGoal: none(ValidatedGoal))
+
+proc firstLightZoneLogLine(sim: SimServer): string =
+  let
+    elapsed = sim.tickCount - sim.gameStartTick
+    zone = if sim.config.zonePhases.len == 0:
+      (cur: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
+       next: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
+       dps: 0)
+    else:
+      sim.zoneRectAndDps(elapsed)
+    field = zoneArrivalFieldDebugState()
+  "FIRST_LIGHT_ZONE tick=" & $(sim.tickCount + 1) &
+    " elapsed=" & $elapsed &
+    " phases=" & $sim.config.zonePhases.len &
+    " phase=" & $sim.firstLightZonePhase(elapsed) &
+    " current=[" & $zone.cur.x & "," & $zone.cur.y & "," &
+      $zone.cur.w & "," & $zone.cur.h & "]" &
+    " next=[" & $zone.next.x & "," & $zone.next.y & "," &
+      $zone.next.w & "," & $zone.next.h & "]" &
+    " dps=" & $zone.dps &
+    " arrival_built=" & $field.built &
+    " arrival_grid=" & $field.gridW & "x" & $field.gridH &
+    " arrival_cells=" & $field.cells &
+    " edge_band_shipped=" & $field.shipped
 
 type FirstLightControlSet = tuple[
   controls: seq[SlotControl],
@@ -3953,6 +3983,8 @@ proc runServerLoop*(
               playing: sim.phase == Playing,
               alive: player.alive,
               aliveTeams: sim.firstLightAliveTeams(),
+              motionScale: sim.config.motionScale,
+              velocity: sim.firstLightVelocity(playerIndex),
               bodyInputs: bodyInputs,
               defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
           let firstLight = firstLightEpisode.step(
@@ -3979,6 +4011,9 @@ proc runServerLoop*(
               " seats=", firstLight.masks.len,
               " moving=", firstLightMoving,
               " aiming=", firstLightAiming
+          if getEnv("FIRST_LIGHT_ZONE_LOG") == "1" and
+              (sim.tickCount < 5 or (sim.tickCount mod 60) == 0):
+            echo sim.firstLightZoneLogLine()
           for install in firstLight.installs:
             echo install.formatInstall()
         # ---- direct aim: point the turret, THEN run the tick ------------
@@ -4054,6 +4089,8 @@ proc runServerLoop*(
               playing: false,
               alive: player.alive,
               aliveTeams: sim.firstLightAliveTeams(),
+              motionScale: sim.config.motionScale,
+              velocity: sim.firstLightVelocity(playerIndex),
               bodyInputs: BodyTickInputs(self: selfState),
               defaultFallbacks: sim.firstLightFallbacks(selfState.pos)))
           for annotation in firstLightEpisode.observeDeaths(
