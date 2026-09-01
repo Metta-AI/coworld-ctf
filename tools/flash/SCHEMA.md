@@ -1,5 +1,9 @@
 # The one-page policy — schema (Battle Royale)
 
+> **Deprecated since 0.7.253.** This is the archived pre-Season-2 policy-page
+> schema for modes behind `allowDeprecatedModes: true`, not the current WASM
+> play-call contract. See [`policies/starters/`](../../policies/starters/README.md).
+
 Status: this document describes the LANDED contract in `src/ctf/policy_page.nim`
 (`parsePolicyPage`, `validate`, `DefaultPathRegistry`). The JSON shape, the op
 whitelist, and the hard rules below match that module's source exactly. The

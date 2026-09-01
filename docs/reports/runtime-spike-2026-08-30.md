@@ -1,5 +1,9 @@
 # Season 2 Wasmtime runtime spike
 
+> **Historical measurement report (2026-08-30).** Preserved unchanged as the
+> runtime-selection evidence; use the living play-calling design and
+> `play_sdk/` for current contracts.
+
 Date: 2026-08-30
 
 Contract base: `ac080b8fb06c6b529cac762f53137446436dd112`

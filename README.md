@@ -8,17 +8,20 @@ standing; policies talk before the round, shout during it, and every act mints
 Glory as it happens. Full rules live in the wiki.
 
 This repo is the engine — historically "Coworld CTF". The classic two-team
-capture-the-flag ruleset documented below remains the reference for core combat;
-battle-royale specifics live in [`docs/designs/BR_PLAYS.md`](docs/designs/BR_PLAYS.md)
-and the wiki.
+capture-the-flag ruleset documented below remains a reference for shared combat
+mechanics.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift). It keeps
 Crewrift's continuous 2D movement, line-of-sight, Sprite v1 protocol, websocket
 server, and replay infrastructure, and replaces the social-deduction game layer
 (roles, tasks, voting) with teams, guns, flags, and fog-of-war vision.
 
-The **full, authoritative ruleset lives in [`docs/RULES.md`](docs/RULES.md)**. The
-summary below is just an orientation.
+The **authoritative Season 2 rules surface** is
+[`docs/designs/BR_PLAYS.md`](docs/designs/BR_PLAYS.md), together with the
+normative protocol, runtime, and lifecycle sections of
+[`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md).
+The summary below is just an orientation; [`docs/RULES.md`](docs/RULES.md) is
+the retained rules reference for deprecated classic modes.
 
 This repo publishes one `paintbot` Coworld manifest. Its sole published variant
 is `battle-royale-s2`, the Season 2 play-calling game; the former classic, CTF,
@@ -26,7 +29,7 @@ paintball, and first-generation battle-royale variants are archived as described
 below.
 
 If docs, commands, runtime behavior, logs, or replays disagree while you are
-building or submitting a CTF policy, preserve the evidence and file a GitHub issue
+building or submitting a Paintbot policy, preserve the evidence and file a GitHub issue
 instead of silently working around it. Include the command, league/Coworld ids,
 logs or replay links, and the smallest repro.
 
@@ -115,7 +118,8 @@ when debugging the wire itself.
   **wiping** the enemy team. Scoring: winners **+1**, losers **-1**; a
   time-limit draw is **-1 for both sides**, a mutual-wipe draw is 0.
 
-See [`docs/RULES.md`](docs/RULES.md) for exact mechanics and tuning defaults.
+See [`docs/RULES.md`](docs/RULES.md) for the deprecated mode's exact mechanics
+and tuning defaults.
 
 ## Season 2: the play-calling shell
 
@@ -230,30 +234,29 @@ seeks.
 
 ## Inspect and edit maps
 
-Maps come from a seeded procedural generator (see [`docs/RULES.md`](docs/RULES.md)
-for what the terrain features do in play). To look at one interactively — or
-author your own — run the map editor:
+Season 2 maps are authored with `tools/brmapkit.nim` and converted into the
+engine's `mapSpec`; see [`docs/MAPKIT.md`](docs/MAPKIT.md) for that workflow.
+To inspect the converted geometry interactively, run the map editor:
 
 ```sh
 nim c --threads:on --mm:orc -r tools/map_editor.nim 8099
 ```
 
-Then open <http://localhost:8099>. It loads any curated pool entry, generator
-seed with the full override set, or pasted map spec, renders it through the real
+Then open <http://localhost:8099>. It loads a pasted Season 2 map spec as well as
+retained classic pool entries and generator seeds, renders them through the real
 game geometry, and reports the play-quality validators live — cover budget, open
 sightlines, corridor connectivity, and endzone access. Failures are **locatable**:
 click an open sightline and it draws a rule across the board where the validator
 found it, so "why was this candidate rejected" has a visible answer rather than a
 sentence.
 
-You can also edit: add and reshape obstacles, place trenches and med kits, change
-the map parameters, and export the result as a `mapSpec` you can drop straight
-into a config. Maps are authored for one half (or one quadrant on 4-team boards)
-and the server derives the rest, so team fairness is structural — you cannot
-accidentally give one side more cover than the other.
+The editor's half/quadrant generator and its curated pool are deprecated-classic
+authoring surfaces; using those outputs in a live match requires
+`allowDeprecatedModes: true`. Season 2 BR draws should be changed in `brmapkit`,
+converted, and then pasted into the editor for inspection.
 
-For a static, zoomable view of the whole curated pool without running anything,
-open [`docs/pool-review.html`](docs/pool-review.html).
+For a static, zoomable historical view of the deprecated classic pool, open
+[`docs/pool-review.html`](docs/pool-review.html).
 
 ## Inspect replay timelines
 

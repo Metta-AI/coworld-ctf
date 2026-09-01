@@ -136,11 +136,11 @@ instead of blending in.
   `sim.nim` — the gameplay core and step loop.
 - `src/ctf/map_pool.nim` — GENERATED curated terrain-pool seeds; rewrite it
   only via `tools/gen_map_pool.nim`, never by hand.
-- Paintball King of the Hill — a config-gated squad mode merged back from
-  Metta-AI/cogame-paintball (docs/paintball/: RULES, PROTOCOL, COMMANDING,
-  the design note). Every gate defaults OFF and a gate-off config plays the
-  classic rules byte-identically; the `paintball` manifest variant turns it
-  on. Mode modules in `src/ctf/`: `paint.nim` (paint grid + hill),
+- Paintball King of the Hill — a deprecated config-gated squad mode merged
+  back from Metta-AI/cogame-paintball (docs/paintball/: RULES, PROTOCOL,
+  COMMANDING, the design note). Since 0.7.253 live boot requires
+  `allowDeprecatedModes: true`, and the published manifest no longer offers a
+  paintball variant. Mode modules remain in `src/ctf/`: `paint.nim` (paint grid + hill),
   `control.nim` (directive -> actuator masks), `directives.nim` (the reply
   schema), `baselines.nim` (holdline/sprayer), `llm.nim` (Bedrock/Anthropic
   transport), `decide.nim` (the per-turn batch); `src/paintball_player.nim`

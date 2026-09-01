@@ -1,5 +1,9 @@
 # Body benchmark scaffolding
 
+> **Historical P0 measurement rig.** The commands remain useful for reproducing
+> the cited body measurements, but this is not current Season 2 policy or
+> runtime guidance; the body port has since landed.
+
 This directory contains measurement-only code for the Season 2 body P0 gate.
 It is not production body code and is not imported by the test shards.
 

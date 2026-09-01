@@ -1,5 +1,8 @@
 # Compact endzones: deep bases, disc/square zones, wilderness all around (2026-07-30)
 
+> **Historical plan.** Preserved unchanged as a deprecated classic-mode design
+> record; it is not current Season 2 game or policy guidance.
+
 Confirmed with daveey. Adds a second terrain archetype to the generator: the
 base sits well off the home edge, the endzone is a **disc or square around the
 base** instead of a full-height border column, and the freed border strip

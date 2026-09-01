@@ -54,7 +54,8 @@ plays (`target_law`, `bodyguard`, `jackal`, `supply_run`, `crossfire`):
 
 ## Run one locally
 
-Against a gate-on stock server (see `../poc_llm_policy/README.md` for the
+Against a stock server configured with play seats (see
+`../poc_llm_policy/README.md` for the
 server-side rig; unfilled slots need presence connections and the lobby-chat
 window must be open):
 

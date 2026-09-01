@@ -1,5 +1,9 @@
 # Wave 1 demo — watch the BR episode in one step
 
+> **Historical demo record.** This documents a pinned wave-1 replay and its
+> then-current GameVersion, not the active Season 2 configuration or policy
+> workflow. The recipe and measurements below are preserved unchanged.
+
 Watches `rt_episode/episode-s830.bitreplay`, the wave-1 launch candidate:
 seed 20260830, BR_FIRST_WAIT=1500, 16 duos, map
 `tests/fixtures/br-match-showmatch-4242.json`, roster `rt_episode/roster_v2.json`.

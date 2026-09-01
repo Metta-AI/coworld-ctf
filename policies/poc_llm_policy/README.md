@@ -143,7 +143,7 @@ poc_llm_policy/
   brain.py             the model backends: hosted sidecar, OpenRouter, canned
   poc_policy.py        the harness: connect, upload, chat, call, re-call
   build_playbook.sh    compiles edge_ride.wasm and pact.wasm from play_sdk
-  poc_shell_server.nim the gate-on server plus the unregistered wire consumers
+  poc_shell_server.nim the provisional play-seat server used by this local rig
   run_poc.sh           the end-to-end local proof (server + harness)
   Dockerfile           the image, playbook baked in
 ```
@@ -159,9 +159,11 @@ policies/poc_llm_policy/run_poc.sh          # canned model response
 policies/poc_llm_policy/run_poc.sh --live   # one real OpenRouter call per decision
 ```
 
-This fetches the wasm/wasi toolchain, builds the playbook, builds the gate-on
+This fetches the wasm/wasi toolchain, builds the playbook, builds the local
+play-seat
 server, starts it on `POC_PORT` (default 21815) with a config derived from
-`config.practice.json` (`season2Shell: true`, every slot switched to
+`config.practice.json` (`season2Shell: true` explicitly restates the engine
+default; every slot is switched to
 `control: "play"`), and runs the harness against slot 0. It prints the harness
 log and then the server's own `POC_WIRE_*` lines.
 
@@ -467,7 +469,7 @@ like" question, once you know they are there.
 
 ### Live, against a real model (OpenRouter dev path)
 
-`qwen/qwen3-30b-a3b-instruct-2507`, two real completions, local gate-on server,
+`qwen/qwen3-30b-a3b-instruct-2507`, two real completions, local play-seat server,
 slot 0. The model picked the partner seat out of the `play_context` it was
 given, and the mid-match turn revised the standing ladder rather than repeating
 it — `edge_ride` `margin` 240 → 200 as the zone closes, `pact` left alone:

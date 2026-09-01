@@ -1,5 +1,9 @@
 # cogame-paintball — design note (2026-08-25, paintbot lineage)
 
+> **Historical design record.** Paintball is deprecated since 0.7.253 and live
+> boot requires `allowDeprecatedModes: true`. The proposed fork, codec, routes,
+> and packaging below are preserved unchanged and are not current guidance.
+
 `Metta-AI/cogame-paintball` is a two-squad paintball **King of the Hill** coworld, forked from
 **`Metta-AI/coworld-ctf`** (paintbot), read at its read-only mount `/workspace/starters/coworld-ctf`.
 **Every convention there holds here unless this note says otherwise** — the 24 Hz tick loop, the

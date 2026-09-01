@@ -1,5 +1,10 @@
 # flash — the paintbot Battle Royale one-page-policy authoring loop
 
+> **Deprecated since 0.7.253.** This authors the pre-Season-2 one-page policy
+> surface retained for deprecated modes behind `allowDeprecatedModes: true`.
+> Current policies upload and call WASM plays; start in
+> [`policies/starters/`](../../policies/starters/README.md).
+
 Turns an LLM into a policy AUTHOR, not a policy writer-of-Nim. A "policy
 page" is a small JSON scoring sheet (spec: `SCHEMA.md`) that ranks a fixed,
 named menu of INTENTS the engine offers a cog each tick — it never touches

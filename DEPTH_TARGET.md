@@ -1,5 +1,9 @@
 # DEPTH TARGET — Ctf replay broadcast (Phase 0r artifact)
 
+> **Historical design artifact.** This records the deprecated classic replay
+> broadcast target at that phase; it is not current Season 2 game or policy
+> guidance. The artifact body is preserved unchanged.
+
 > The written read-first gate (PD1). This is the bar the Phase-4 audit grades against.
 > Reference implementation studied: **Agricogla** (`metta/packages/cogweb/games/agricogla/src/client/animation/`
 > — `TownTable.tsx` / `replayTiming.ts` / `assets.ts` / `living.css`), extracted by a dedicated reader agent.

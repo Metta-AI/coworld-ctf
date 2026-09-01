@@ -93,7 +93,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `teams` | int / `2` | must be `2`, `4`, or `16` | Active team count: 2 (classic sides), 4 (corners/plus FFA), or 16 (BR, [BR_MAPGEN.md §6.2](designs/BR_MAPGEN.md)). 16 passes config validation and `Team` dispatch today, but `generateMapAttempt`/`mapFromSpecJson` have no 16-team SHAPE yet — a 16-team config fails cleanly at map resolution ("map X seats N") until the map-generator/spawn lane lands. |
+| `teams` | int / `2` | must be `2`, `4`, or `16` | Active team count: 16 for the published Season 2 BR variant; 2 and 4 are retained classic layouts. A 16-team game uses an authored full-board BR `mapSpec`; see [MAPKIT.md](MAPKIT.md). |
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
@@ -102,9 +102,9 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `perkMods` | `PerkMods` struct / `DefaultPerkMods` | `armorHp` `0..100`, `luckDamage` `1..100`, fractions authored `0.0..1.0` (permille-stored) | Perk magnitudes: `armorHp` (1) extra hp, `scopeAim` (0.5) aim-sigma cut, `grenadeRange` (0.25) extra throw range, `thrusterSpeed` (0.1) extra speed, `luckChance` (0.1) lucky-shot odds, `luckDamage` (2) lucky-shot hp. |
 | `puddleDamagePct` | int / `20` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
 | `barrierPickups` | int / `0` | `0..2` ([sim_config.nim](../src/ctf/sim_config.nim) validate, cap `MaxBarrierPickupsPerTeam`) | Cardboard-barrier pickups PER TEAM, staged between base anchor and map center ([sim.nim `barrierSpawnPoints`](../src/ctf/sim.nim)); 0 = none (the default — echo omitted, no GV bump). |
-| `brMode` | bool / `false` | none | Battle-royale elimination ruleset: `killPlayer` forces `lives` to 0 on first death (no respawns, regardless of `lives`/`respawnTicks`), `checkWinCondition`'s capture branch is skipped (flags/captures never eliminate a team or end the game), the existing wipe/last-team-standing branch is the sole win path, and a `maxTicks` timeout resolves by tiebreak (most living players, then total `damageDealt`) instead of an automatic draw. Generic over `sim.teams()`/team count. `false` = the default, byte-identical to a build with no BR code ([docs/designs/BR_MAPGEN.md](designs/BR_MAPGEN.md)). |
+| `brMode` | bool / `false` | none | Battle-royale elimination ruleset: a death is permanent, flags do not score, last team standing wins, and timeout uses living-player/damage tiebreaks. The published Season 2 variant sets this `true`; `false` is the neutral engine fallback used by deprecated direct-input configurations. |
 | `allowCallouts` | bool / `false` | none | A chat message that parses as `!<id>[ <cell>]` is additionally recognized as a structured CALLOUT (`parseCallout`, [sim.nim](../src/ctf/sim.nim)): the Shout's `isCallout`/`calloutId`/`calloutCell` populate and the player-stream label switches to the callout family (`labelCallout`, [labels.nim](../src/ctf/labels.nim)). `false` = the parser never runs; every shout labels exactly as before (callout-spec.md). |
-| `allowPolicyReflash` | bool / `false` | none | Season 2 one-page policy flash channel: a seat may be flashed a JSON strategy page mid-episode; every accepted flash is a replay record re-applied at the identical tick, and the active page's content hash + flash count enter `gameHash` ONLY under this gate. `false` = the channel does not exist (`applyPolicyPage` refuses; nothing recorded; hash unchanged). |
+| `allowPolicyReflash` | bool / `false` | none | Deprecated pre-Season-2 one-page policy flash channel: a direct-input seat may be flashed a JSON strategy page mid-episode; every accepted flash is replayed at the identical tick, and the page hash + flash count enter `gameHash` only under this gate. It is not the current WASM play-call path. |
 | `allowSeatTakeover` | bool / `false` | none | Freeplay only: a human websocket may TAKE OVER an occupied seat, driving that cog's 8-button mask from its next respawn. `false` = every takeover route answers 403; byte-identical to a pre-takeover build. |
 | `allowDirectAim` | bool / `false` | none | Freeplay only: a human-driven (taken-over) seat aims by pointing — the turret takes the cursor's bearing in one tick, recorded as replay aim records ([replays.nim](../src/ctf/replays.nim) `ReplayAimRecordFlag`). Policies can never reach this channel. |
 | `allowAimAssist` | bool / `false` | requires `allowDirectAim` (validate) | Freeplay only: at the fire-press edge a direct-aimed seat's turret snaps to the nearest live enemy's intercept bearing inside the assist cone. |
@@ -113,7 +113,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `allowDeprecatedModes` | bool / `false` | none | Migration escape hatch for retired live modes since 0.7.253. It permits an explicit `season2Shell: false` and the archived paintball/classic variants; replay loading remains available without enabling deprecated live play. |
 | `slots[].control` | enum / `"input"` | `"input"` \| `"play"` | The one trusted per-seat protocol choice (§5.1): `"play"` marks a Season 2 play seat (server-enforced protocol; masks/ready ignored). Echoed only when `"play"`. |
 | `viewIntervalTicks` | int / `6` | `1..48` | LLM-bound `PlayView` frame interval for play seats (§4.3); inert without one. |
-| `lobbyChatTicks` | int / `720` | `0..4320` | Lobby chat phase length in ticks (§9.2), wall-clock paced even under `fastMode`; `0` disables the phase (the byte-identical gate-off shape). |
+| `lobbyChatTicks` | int / `720` | `0..4320` | Lobby chat phase length in ticks (§9.2), wall-clock paced even under `fastMode`; `0` skips chat while retaining the rest of the play-seat episode. |
 | `playSeatBindTicks` | int / `7200` | `0..14400`; must be positive with any play seat | The presence budget (§9.2): a cumulative absence clock over the whole pre-activation period, replacing `lobbyJoinTimeoutTicks` in play-seat episodes; inert without one. |
 | `voteTicks` | int / `0` | `0..2400` | Pre-match vote phase length in ticks ([docs/designs/prematch-vote-phase-2026-08-31.md](designs/prematch-vote-phase-2026-08-31.md), [prematch-vote-wire-2026-08-31.md](designs/prematch-vote-wire-2026-08-31.md) §7); `0` disables the phase. Runs, when armed, BEFORE `lobbyChatTicks`'s substate. Default `0` — DELIBERATELY not gated on `hasPlaySeat` alone like `lobbyChatTicks`: the 0xA4/0xB3 socket classifier is not wired yet (v1 scope), so this stays off by construction until that lane lands. |
 
@@ -222,11 +222,11 @@ games are unaffected).
 
 ---
 
-## Battle-royale shrink zone (config-gated)
+## Season 2 battle-royale shrink zone
 
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
-| `zonePhases` | `seq[ZonePhase]` / `@[]` (off) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for the battle-royale mode (docs/designs/BR_MAPGEN.md §4.3); empty = the mechanic never runs — no center draw, no rect, no damage, no markers, byte-identical to a build without the field. |
+| `zonePhases` | `seq[ZonePhase]` / `@[]` (empty engine fallback) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for battle royale. The published Season 2 variant supplies six phases; empty means no center draw, rectangle, damage, or markers. |
 | `zonePhases[].z` | float, required | `z` | `(0, 1]`, and STRICTLY less than the previous phase's (implicit `1.0` for phase 0) | Target scale of the aspect-matched rect for this phase; stored internally as a permille like the handicap/perk fractions. |
 | `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
 | `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
@@ -239,29 +239,7 @@ phase's rect fits fully on-board with an `ArenaBorder` margin — never a
 fixed map-center circle. `zoneRectAtScale`/`zoneRectAndDps`
 ([sim.nim](../src/ctf/sim.nim)) derive every phase's rect from
 `gameMap.width`/`gameMap.height` and that one center, integer math
-throughout. See RULES.md "Battle-royale shrink zone" for the full rule and
-the `zone`/`zonenext` stated-marker grammar.
-
----
-
-## Battle-royale shrink zone (config-gated)
-
-| Field | Type / default | JSON key | Bounds | Effect |
-|---|---|---|---|---|
-| `zonePhases` | `seq[ZonePhase]` / `@[]` (off) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for the battle-royale mode (docs/designs/BR_MAPGEN.md §4.3); empty = the mechanic never runs — no center draw, no rect, no damage, no markers, byte-identical to a build without the field. |
-| `zonePhases[].z` | float, required | `z` | `(0, 1]`, and STRICTLY less than the previous phase's (implicit `1.0` for phase 0) | Target scale of the aspect-matched rect for this phase; stored internally as a permille like the handicap/perk fractions. |
-| `zonePhases[].waitTicks` | int / `0` | `waitTicks` | `>=0` | Ticks the rect holds its previous size before this phase's shrink begins. |
-| `zonePhases[].shrinkTicks` | int / `0` | `shrinkTicks` | `>=0` | Ticks to linearly interpolate into this phase's target rect; `0` snaps instantly once the wait ends. |
-| `zonePhases[].dps` | int / `0` | `dps` | `>=0` | Hit points/second dealt to a player outside the current rect while this phase is active — applied directly on the puddle-hazard per-second cadence (`ZoneDamageRollTicks`=24), no RNG roll. |
-| `zoneCenter` | `[x, y]` / unset (RNG draw) | `zoneCenter` | two ints; the FINAL phase's rect must fit fully on-board around it with an `ArenaBorder` margin (`readConfigZoneCenter` validates at load) | Authored close-on point: when set (`zoneCenterConfigured`, stored as `zoneCenterX`/`zoneCenterY`), `resetZone` closes on this point instead of drawing one from the sim RNG. Never read when `zonePhases` is empty. |
-
-The zone's CENTER is drawn once per game from the sim RNG (`resetZone`,
-[sim.nim](../src/ctf/sim.nim)) — uniform over positions where the FINAL
-phase's rect fits fully on-board with an `ArenaBorder` margin — never a
-fixed map-center circle. `zoneRectAtScale`/`zoneRectAndDps`
-([sim.nim](../src/ctf/sim.nim)) derive every phase's rect from
-`gameMap.width`/`gameMap.height` and that one center, integer math
-throughout. See RULES.md "Battle-royale shrink zone" for the full rule and
+throughout. See RULES.md "Season 2 battle-royale shrink zone" for the full rule and
 the `zone`/`zonenext` stated-marker grammar.
 
 ---
@@ -275,7 +253,7 @@ off; seats are squad commanders driven by the server-side control layer
 
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
-| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` turns squad mode on. 2 in the published `paintball` variant. |
+| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` turns squad mode on. 2 in the archived `paintball` variant. |
 | `cogsPerTeam` | int / `1` | | `1..8` | Cogs one seat commands; the archived paintball variant overrides this to 4 (RED-alpha..delta). |
 | `loadout` | string / `"ctf"` | | `"ctf"` or `"paintball"` | `paintball` = spray can always held, no gun, NO pickups, hearts retired. |
 | `floorPaint` | bool / `false` | | | The paint-tile grid exists and cones repaint it. |

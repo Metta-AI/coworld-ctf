@@ -1,5 +1,11 @@
 # Paintbot Classic (Coworld CTF) — Game Rules
 
+> **Deprecated since 0.7.253.** This remains the accurate rules reference for
+> classic modes, which boot only with `allowDeprecatedModes: true`; it is not
+> the active Season 2 ruleset. See [`designs/BR_PLAYS.md`](designs/BR_PLAYS.md)
+> and the normative sections of the
+> [`Season 2 play-calling design`](designs/strategy-play-calling-shell-2026-08-29.md).
+
 Paintbot's classic mode ("Coworld CTF") is a two-team capture-the-heart tag game
 for the Coworld platform. Two
 teams start on opposite edges of a symmetric arena, each with its own heart on a
@@ -93,7 +99,7 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   closed to movement and fire, but both teams can watch the center corridor
   through the glass.
 - **Trenches** — walkable dug-pit squares — are a **config-gated terrain
-  feature**: the default arena has none; generated maps (below) place them
+  feature**: the classic arena has none; classic generated maps (below) place them
   procedurally, steered by `mapPits` / `mapPitDensity`. See the Trenches
   section for their rules.
 - **Paint puddles** — damage-over-time floor hazards — are a **config-gated
@@ -114,9 +120,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   a 2-team board; obstacle sizes never scale, bigger fields draw more
   cover columns instead), obstacle columns, glass placements, center
   feature, endzone archetype, and med-kit pair per map. The exact geometry
-  is pinned into the match config/replay as `mapSpec`. The default league
-  map remains the hand-tuned arena described above; leagues opt in through
-  their own config.
+  is pinned into the match config/replay as `mapSpec`. These generators and
+  the hand-tuned arena are retained for explicitly enabled deprecated modes;
+  Season 2 uses the authored 16-team BR `mapSpec` described in
+  [`MAPKIT.md`](MAPKIT.md).
 - **Compact endzones** are one of those draws. Half of generated 2-team maps
   keep the classic home column; the rest pull the base **well off its home
   edge** and wrap it in a **disc or square endzone** (`mapEndzone`:
@@ -158,10 +165,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   **random spot inside their own endzone** (GameVersion 25) — the respawn
   point cannot be camped.
 
-## Four-team mode (config-gated)
+## Deprecated four-team mode
 
-The default game is the classic 2-team arena above; nothing changes unless a
-config opts in. With `"teams": 4` (and `"mapPath": "gen"`), the game seats
+This is a deprecated classic variant, not the published game. With
+`allowDeprecatedModes: true`, `"teams": 4`, and `"mapPath": "gen"`, it seats
 FOUR teams — **Red, Blue, Green, Yellow** — in a free-for-all on a generated
 square map:
 
@@ -760,13 +767,11 @@ limit).
   until the barrage latches). Shells only land within `depth` map pixels of
   some edge.
 
-## Battle-royale elimination ruleset (config-gated)
+## Season 2 battle-royale elimination ruleset
 
-The elimination mode for battle-royale play (`docs/designs/BR_MAPGEN.md`
-§1): no respawns, last team standing wins. Off by default; a league turns it
-on with `brMode: true`. Unconfigured (the default), nothing about death,
-win-condition, or timeout resolution changes — byte-identical to a build
-with no BR code at all.
+The published `battle-royale-s2` configuration sets `brMode: true`: no
+respawns, last team standing wins. The engine-level `false` fallback preserves
+the deprecated direct-input simulation and is not the published mode.
 
 - **No respawns.** A death is permanent — `lives`/`respawnTicks` are never
   consulted for a re-entry: whatever they're set to, one death is out for
@@ -794,13 +799,11 @@ with no BR code at all.
   shrink-zone hazard, the grenade barrage — goes through the same
   no-respawn path; the mode doesn't care how a team lost its last player.
 
-## Battle-royale shrink zone (config-gated)
+## Season 2 battle-royale shrink zone
 
-A closing rectangular boundary for the battle-royale mode
-(`docs/designs/BR_MAPGEN.md` §4.3). Off by default; a league turns it on by
-setting `zonePhases` to a non-empty schedule. Unconfigured (the default), the
-mode draws nothing, deals no damage, and emits no markers — byte-identical to
-an engine without the field.
+The published `battle-royale-s2` configuration supplies a six-phase closing
+rectangle. The engine accepts an empty `zonePhases` list for mechanics tests
+and custom configurations; empty means no rectangle, damage, or markers.
 
 - **The zone is a rectangle of the map's own aspect ratio**, scaled by a
   scalar `z` about a CENTER drawn once per game from the deterministic sim
@@ -840,23 +843,18 @@ an engine without the field.
   implicit phase-0 value of 1.0); `waitTicks`/`shrinkTicks`/`dps` must not be
   negative; at most 8 phases.
 
-## Loot rework (S2, config-gated, all dark by default)
+## Season 2 battle-royale loot options
 
-Five independent BR mechanisms, each behind its own config flag and OFF by
-default. Unconfigured, a game is byte-identical to a build without any of
-this code: every new config key echoes only when armed, every new pickup
-family is an empty list when dark, and none of the new per-player fields
-enter `gameHash` (the `puddleTicks`/`hasBarrier` appended-field rule). No
-GameVersion bump: everything is appended, nothing reorders, and the
-committed replay fixtures re-simulate hash-identically. `lootStart` and
-`downedMode` additionally REQUIRE `brMode: true` — a CTF config that tries
-to arm them is refused at validation, so classic play is untouchable by
-construction.
+Five independent BR mechanisms remain available as explicit configuration
+options. Their neutral engine values preserve replay compatibility: omitted
+keys add no pickup family or hash input. `lootStart` and `downedMode` require
+`brMode: true`; the published `battle-royale-s2` configuration currently leaves
+both disabled.
 
 - **Hit points per BR variant** — no new flag: the existing `hitPoints`
   config is live under `brMode` (proved end-to-end by
   `tests/test_loot_rework.nim`). A 4-hp or 5-hp BR variant is a one-key
-  manifest edit; CTF's default 3 is untouched.
+  manifest edit; the published Season 2 variant pins 3.
 - **`medKitCount`** (int, default `-1`): caps the placed med kits. `-1` =
   the map's own full set (the pre-existing path bit-for-bit), `0` = none —
   the bandages-instead-of-kits test arm — `N` = the map's first N points.
@@ -910,15 +908,19 @@ construction.
   full spec it certifies. `gunRange` re-derives from the scaled field; the
   duo spawn pocket deliberately does not scale.
 
-## Scoring
+## Engine reward scoring
 
-Scoring is **sparse and win-only**:
+The published Season 2 variant uses `scoring: "classic"`, with the BR placement
+bonus and engagement gate described in [`ENV_VARIATION.md`](ENV_VARIATION.md).
+That end-of-game reward is separate from the live Glory deed ledger. The
+deprecated classic modes use the following sparse, win-only base rule:
 
 - **Decisive round** (capture or wipe): every winner scores **+1**, every
   loser scores **-1**. (Four-team free-for-all generalizes this zero-sum:
   the winning team scores +1 per losing team — see "Four-team mode".)
-- **`scoring: "pot"`** (config-gated; the default `"classic"` is the rule
-  above) replaces the payout with an ante: **every team contributes one
+- **`scoring: "pot"`** (an archived-mode option; `"classic"` is the engine
+  default and the published Season 2 choice) replaces the payout with an ante:
+  **every team contributes one
   point and the winning team takes the whole pot**, the losing teams
   splitting the forfeit evenly. Two teams pay **+2 / -2**; four teams pay
   **+4** to the winner and **-1** to each of the three losers. Draws are
@@ -947,9 +949,10 @@ objective tied purely to winning.
 
 ---
 
-## Tuning defaults (configurable)
+## Deprecated classic tuning defaults
 
-These are starting values, exposed in the game config and tuned in self-play.
+These are the retained classic engine defaults, exposed in game config. They
+are not the published `battle-royale-s2` values.
 
 | Parameter | Proposed default | Notes |
 | --- | --- | --- |
@@ -996,7 +999,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Barrage start rate (`barrageStartPerSec`) | 4/s | Launch rate at the latch, along the map edges |
 | Barrage start (`barrageStartSec`) | 30s | Clock seconds remaining that latch the barrage (4:30 elapsed on the 5:00 clock); it only escalates once latched |
 | Barrage saturation (`barrageSaturateSec`) | 30s | Seconds from latch to full saturation — whole board at max rate, landing exactly at 5:00 with the defaults |
-| Shrink zone schedule (`zonePhases`) | [] (off) | Battle-royale closing rectangle: a list of `{z, waitTicks, shrinkTicks, dps}` phases; see "Battle-royale shrink zone" |
+| Shrink zone schedule (`zonePhases`) | [] (engine fallback) | Battle-royale closing rectangle: a list of `{z, waitTicks, shrinkTicks, dps}` phases; the published Season 2 variant supplies six phases |
 | Shrink zone damage cadence | 24 ticks (1s) | Same per-second cadence as a paint puddle's roll, but deterministic — `dps` applies directly, no chance |
 | Shrink zone phase cap | 8 | Hard ceiling on `zonePhases` entries |
 | Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
@@ -1129,8 +1132,9 @@ interpolating toward), same INCLUSIVE-corner tail contract as the trench and
 puddle markers. Corners may legitimately sit outside the map's own
 `[0, width) x [0, height)` range during an early (large) phase — compare your
 own position against them directly rather than assuming they are on-board.
-Config-gated (`zonePhases`, empty by default): a game without the mode emits
-neither marker. See "Battle-royale shrink zone" above for the full rule.
+When `zonePhases` is empty, a game emits neither marker. The published Season 2
+variant supplies a non-empty schedule; see "Season 2 battle-royale shrink
+zone" above for the full rule.
 
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,

@@ -1,5 +1,11 @@
 # The Battle Royale rung ladder for `stencil`
 
+> **Historical design record (2026-08-29).** This predates the completed body
+> port and uploaded-WASM ladder; claims about what stencil “cannot” do or what
+> is “not expressible today” describe that snapshot, not Season 2 now. Current
+> behavior is specified by [`BR_PLAYS.md`](BR_PLAYS.md) and the living
+> [`play-calling design`](strategy-play-calling-shell-2026-08-29.md).
+
 **Status: DESIGN, 2026-08-29.** Written for James Boggs, who owns the stencil
 rework and the scoring hook. This lane owns the **BR rung vocabulary** and the
 **determinism/replay** side; this document is the thing to react to, not an

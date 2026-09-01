@@ -1,5 +1,9 @@
 # Season 2 body P0 measurement
 
+> **Historical measurement report (2026-08-30).** Preserved unchanged as P0
+> evidence; its provisional numbers and then-current implementation state are
+> not current operational guidance.
+
 Status: **PROVISIONAL (contended machine)**. These measurements are suitable for
 finding obvious budget failures, but they are not the authoritative constant-
 setting pass. A quiet-window pass is required after the other lane sessions go

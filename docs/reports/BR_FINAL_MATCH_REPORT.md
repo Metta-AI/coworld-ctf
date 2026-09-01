@@ -1,5 +1,9 @@
 # BR final match report — first true 16-duo battle royale
 
+> **Historical match report.** Recording, rule, policy, and “current” claims
+> below describe this pinned pre-Season-2 match, not the active game or current
+> policy-author workflow. The evidence is preserved unchanged.
+
 Recording: `br-final-match.bitreplay` (root of this worktree, also mirrored into
 `static-replay-viewer/` for the hosted viewer). Recorded via
 `tools/record_br_match.sh` against the round-9 multi-room-interiors map

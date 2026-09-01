@@ -1,5 +1,9 @@
 # Picasso:v28 (medEcon) — field verdict, 2026-07-29
 
+> **Historical field report.** “Live”, champion, round, and policy-version
+> claims below are point-in-time evidence for the deprecated classic league,
+> not current Season 2 state or policy guidance.
+
 VERDICT: **KEEP v28.** Do not revert to v26.
 
 ## Tenure

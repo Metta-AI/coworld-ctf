@@ -1,10 +1,11 @@
-# First light — watch the play-calling shell's first live episode
+# First light — retained Season 2 integration demo
 
-First light is the play-calling shell's first runnable milestone: a 32-seat
-(16 duos × 2) BR episode driven by the shell's body layer. Movement, zone
-awareness, cover holds, and partner cohesion are real; **weapons are
-deliberately not compiled into this build** — eliminations come from zone
-damage only.
+First light is the retained end-to-end smoke for a 32-seat (16 duos × 2) BR
+episode driven by the shell's body layer. It predates the complete Season 2
+surface, but the script still exercises the production upload, compile, call,
+ladder, body, and mask path. The full body weapon path is compiled; this demo
+installs only `edge_ride` controllers and no combat-policy overlay, so its seats
+do not choose weapon targets and eliminations normally come from zone damage.
 
 **The demo now runs mixed seats**: seats 0–7 are driven by `edge_ride`, a
 real uploaded WASM play that travels the full production path (upload →
@@ -43,7 +44,8 @@ Knobs (environment variables):
   `provenance=entry:edge_ride`); the other 24 stay on the default.
 - `FIRST_LIGHT_MOVEMENT tick=... moving=N aiming=M` telemetry windows.
 - Zone-damage eliminations ("caught outside the zone") and a normal BR
-  ending. Zero combat lines — there is no fire path in this build.
+  ending. This scenario should emit no policy-selected fire because it installs
+  no combat-policy overlay; that is a scenario choice, not a missing body path.
 
 ## Gating
 
@@ -58,10 +60,14 @@ retired that workaround, and the small arena made 32 seats look like a scrum.)
 The archived replay fixtures re-simulating hash-exact remain the compatibility
 proof (`tests/test_shell_first_light.nim` and the replay compat suite).
 
-## Current limits (deliberate, tracked)
+## Demo limits
 
-- The idle-aim converge is a placeholder; stencil's oscillating `idleSweepAim`
-  arrives with the full action port.
-- `BrDefaultFallbacks` in `src/shell/standing_order.nim` documents the facts
-  the body's belief surface doesn't expose yet (zone rect/timing, cover
-  goal); each retires as the belief port grows.
+- The 32 helper processes are presence clients, not policy containers; only
+  the fixture's seats 0–7 receive the scripted `edge_ride` upload/call.
+- The fixture deliberately compresses zone timings and disables lobby chat so
+  movement and installation evidence appear quickly. It is an integration
+  smoke, not the published `battle-royale-s2` match configuration or a policy
+  starter.
+- Use `policies/starters/` for policy authoring and the published manifest for
+  current game defaults. This script remains useful for the narrow shell/body
+  wiring proof above.

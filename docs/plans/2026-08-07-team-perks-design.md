@@ -1,5 +1,8 @@
 # Team perks
 
+> **Historical plan.** Preserved unchanged as a deprecated classic team-mode
+> design; it is not current Season 2 game or policy guidance.
+
 ## Goal
 
 Let a team (or, in CTF-Doubles, each policy on a team) carry a small set of

@@ -1,5 +1,9 @@
 # REPLAY BRIEF — Ctf (Phase 0 artifact)
 
+> **Historical design artifact.** This traces deprecated classic CTF at its
+> cited commits and GameVersions; it is not current Season 2 rules or policy
+> guidance. The artifact body is preserved unchanged.
+
 > ⚠️ **STALE-RULES CORRECTION (2026-07-28, GameVersion 22).** This brief was traced at HEAD 5994eb0
 > (GameVersion 1). The **timeout tiebreak described below NO LONGER EXISTS**: the lives-then-flag-progress
 > tiebreak was removed at GV2 (commit fac8704, 2026-07-14). On the current sim, `checkMaxTicks`

@@ -1,5 +1,10 @@
 # Arena Wasm components
 
+> **Deprecated-mode tooling since 0.7.253.** These components exercise the
+> classic Sprite v1 simulation and baseline policy, not Season 2 play seats.
+> Live classic modes require `allowDeprecatedModes: true`; current policy work
+> starts in [`policies/starters/`](../policies/starters/README.md).
+
 This directory builds the CTF simulation and baseline player as the
 `softmax:game@0.2.0` and `softmax:player@0.1.0` WebAssembly components. The
 game component drives the deterministic simulation one tick per `step`, emits

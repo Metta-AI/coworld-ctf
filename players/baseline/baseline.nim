@@ -1,5 +1,7 @@
-## Baseline capture-the-flag bot for Coworld CTF (8v8, classic two-flag,
-## dense-cover arena, FOG-OF-WAR full-map vision).
+## Deprecated-mode capture-the-flag bot for Coworld CTF (8v8, classic two-flag,
+## dense-cover arena, FOG-OF-WAR full-map vision). Deprecated since 0.7.253;
+## live use requires `allowDeprecatedModes: true`. This Sprite v1 bot cannot
+## drive a Season 2 play seat; start with `policies/starters/` instead.
 ##
 ## Speaks the Bitworld Sprite v1 protocol over a websocket. The observation is
 ## the FULL map in map coordinates, but entities are fogged: an enemy (and an

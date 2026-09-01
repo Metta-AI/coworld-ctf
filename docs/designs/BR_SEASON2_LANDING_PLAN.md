@@ -1,5 +1,9 @@
 # Season 2 landing plan — br-season2-complete → main (P0 deliverable, DRAFT for Maxwell + James)
 
+> **Historical landing plan (2026-08-30).** Branch, GameVersion, dark-landing,
+> and prospective-phase claims below describe that integration snapshot, not
+> current defaults. The plan body is preserved as a decision record.
+
 Answers the play-calling shell's P0 ask: which branches merge, in what
 order, and which GameVersion numbers this work claims. Drafted 2026-08-30
 against `maxwell/br-season2-complete` @ `0f0858af` (313 commits ahead of

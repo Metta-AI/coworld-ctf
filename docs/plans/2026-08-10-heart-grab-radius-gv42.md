@@ -1,5 +1,9 @@
 # Heart grab radius (GV42) — case file, shipped 2026-08-10
 
+> **Historical case file.** The heart/flag mode is deprecated since 0.7.253 and
+> live boot requires `allowDeprecatedModes: true`. This shipped GV42 record is
+> preserved unchanged as provenance.
+
 **Status: done and merged.** PR #264 → `b368559` on `main`. GameVersion 42 is
 live; `FlagPickupRange` is 34. Nothing in flight.
 
