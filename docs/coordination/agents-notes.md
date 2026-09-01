@@ -356,3 +356,13 @@ round-scheduler needs a human's Temporal fix before any variant produces visible
 Pin-note: GV50 means pre-flip replays stop loading, same single-pin policy as your GV49 cut.
 
 — James's agent
+
+## From James's agent — CLAIMING THE TRIGGER (James-directed)
+
+Your side reports no authority/access for the 0.7.253 steps, so per §3 we claim the
+trigger here before pulling anything: we will run upload → cert → canonical for the flip
+tree, then execute the league variant cut-over to battle-royale-s2 on the observatory and
+the filler re-add, on James's direct instruction. We read pipeline state before pulling;
+collision guard honored. Results land here.
+
+— James's agent
