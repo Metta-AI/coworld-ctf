@@ -155,6 +155,10 @@ type
     bodyActivations: int
     viewSource*: ViewSource
     when ShellRuntimeAvailable:
+      mapName: string
+      gunRange: int
+      viewInterval: int
+      contextRoster: seq[PlayContextRosterRow]
       runtimeState: FirstLightRuntimeState
       engine: RuntimeEngine
       compilePlane: CompilePlane
@@ -234,7 +238,13 @@ proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
 proc initFirstLightEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
     map: BodyMap = nil,
-    liveGunRangePx: int = GunRange): FirstLightEpisode =
+    liveGunRangePx: int = GunRange,
+    teams: openArray[Team] = [],
+    mapName = "",
+    viewInterval = ViewIntervalTicksDefault): FirstLightEpisode =
+  if teams.len > 0 and teams.len != controls.len:
+    raise newException(ValueError,
+      "FIRST LIGHT team/control facts must have the same length")
   result.brMode = brMode
   result.rosterSize = controls.len
   result.map = map
@@ -244,6 +254,15 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx)
   when ShellRuntimeAvailable:
+    result.mapName = mapName
+    result.gunRange = liveGunRangePx
+    result.viewInterval = viewInterval
+    if teams.len > 0:
+      for index, control in controls:
+        result.contextRoster.add(PlayContextRosterRow(
+          seat: index,
+          team: teams[index],
+          control: if control == scPlay: pccPlay else: pccInput))
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
       selfPositions: newSeq[BodyPoint](controls.len),
@@ -285,13 +304,17 @@ proc closeFirstLightEpisode*(episode: var FirstLightEpisode) =
 
 proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
     season2Shell, brMode: bool, controls: openArray[SlotControl],
-    map: BodyMap = nil, liveGunRangePx: int = GunRange) =
+    map: BodyMap = nil,
+    liveGunRangePx: int = GunRange,
+    teams: openArray[Team] = [],
+    mapName = "",
+    viewInterval = ViewIntervalTicksDefault) =
   ## Full episode replacement boundary for any server-side sim/config
   ## replacement. Fresh bodies re-run the activation safe install instead of
   ## carrying standing orders, nav state, or map-owned goals across matches.
   episode.closeFirstLightEpisode()
   episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
-    liveGunRangePx)
+    liveGunRangePx, teams, mapName, viewInterval)
 
 proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
   finishDefault(Intent(
@@ -419,6 +442,32 @@ when ShellRuntimeAvailable:
       resolveBool: proc(path: string): bool =
         discard path
         false)
+
+  proc firstLightContextBytes(episode: FirstLightEpisode; seatIndex: int;
+                              frame: FirstLightSeatFrame): string =
+    if seatIndex < 0 or seatIndex >= episode.contextRoster.len:
+      return "{}"
+    # The binary play_context contract carries duo_partner exactly in BR.
+    # If the body has not observed a real partner yet, omit the context rather
+    # than fabricating one.
+    if episode.brMode and frame.bodyInputs.partner.isNone:
+      return "{}"
+    var source = PlayContextSource(
+      mode: if episode.brMode: gmBr else: gmCtf,
+      mapName: episode.mapName,
+      mapWidth: if episode.map == nil: 0 else: episode.map.width,
+      mapHeight: if episode.map == nil: 0 else: episode.map.height,
+      selfSeat: seatIndex,
+      selfTeam: episode.contextRoster[seatIndex].team,
+      duoPartner:
+        if episode.brMode:
+          some(frame.bodyInputs.partner.get.seat.int)
+        else:
+          none(int),
+      gunRange: episode.gunRange,
+      viewInterval: episode.viewInterval)
+    source.roster = episode.contextRoster
+    buildBinaryPlayContext(source)
 
   proc ensureLadder(episode: var FirstLightEpisode) =
     if episode.ladder == nil:
@@ -928,7 +977,7 @@ proc step*(episode: var FirstLightEpisode,
         inputs[seat] = LadderSeatInput(
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,
-          contextBytes: "{}",
+          contextBytes: episode.firstLightContextBytes(seat, slot.frame),
           viewBytes: (if episode.viewSource == nil:
             episode.firstLightViewBytes(seat, tick)
           else:
