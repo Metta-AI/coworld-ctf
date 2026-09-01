@@ -71,6 +71,19 @@ turns exercise its character, so the three differ even offline). With
 the platform's LLM sidecar is used automatically. Backend selection is the
 PoC's, unchanged.
 
+## Traps a policy author will hit
+
+Beyond the list in `../poc_llm_policy/README.md` ("Where the docs and schemas
+were not enough"), one more found while building these:
+
+- **Lobby chat is rate limited per seat.** A second 0xA3 from the same seat
+  within `LobbyChatMinSpacingTicks` (24 ticks, ~1s — `src/ctf/sim_types.nim`)
+  is refused with `lobby_chat:lcrTooSoon`, delivered as a status entry, and
+  the line is dropped. A policy that sends two lines back to back (the
+  collaborative starter's model chat + coordination line) loses the second
+  silently unless it spaces them; `common/starter_harness.py`
+  (`_send_coordination`) holds ~1.5s and confirms the 0xB2 echo.
+
 ## Build the images
 
 From the repository root:
