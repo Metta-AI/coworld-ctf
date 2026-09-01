@@ -24,8 +24,15 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_dir}"
 
-git ls-files -z -- 'src/*.nim' 'replay-viewer/*.nim' nimby.lock \
-  | LC_ALL=C sort -z \
+# --cached PLUS --others/--exclude-standard: an UNTRACKED-but-unignored
+# source still gets COMPILED into a local build, so it must move the stamp
+# too — otherwise a bundle built beside a not-yet-committed sim source
+# carries a hash CI can never reproduce (this bit during this script's own
+# birth: build_stamp.nim was untracked at bundle-build time, and the stamp
+# silently excluded it).
+git ls-files -z --cached --others --exclude-standard \
+    -- 'src/*.nim' 'replay-viewer/*.nim' nimby.lock \
+  | LC_ALL=C sort -zu \
   | {
       while IFS= read -r -d '' file; do
         printf '%s\0' "${file}"
