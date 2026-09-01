@@ -85,6 +85,11 @@ window.ChromeCommon = function (ctx) {
   var WIRE = window.CTF_WIRE || {};
   var SPEEDS = WIRE.speeds || [1, 2, 3, 4, 8, 16];
   var FPS = WIRE.fps || 24;
+  // Speed -> the one-character command that selects it. Lives here, beside
+  // SPEEDS, because it is now read twice: the chip row below builds its
+  // buttons from it, and replay_broadcast's ?speed= opt-in resolves against
+  // it. 16 maps to '6' because the command channel is one character wide.
+  var SPEED_CMD = { 1: '1', 2: '2', 3: '3', 4: '4', 8: '8', 16: '6' };
 
   // ---- UI toggles (externally configurable) --------------------------------
   // Chrome-level UI toggles read their initial value from the page URL, so
@@ -447,7 +452,7 @@ window.ChromeCommon = function (ctx) {
   // speed→command map); clicks go down the page's own command channel.
   var speedChipEls = {};
   (function () {
-    var host = $('speedchips'), map = { 1: '1', 2: '2', 3: '3', 4: '4', 8: '8', 16: '6' };
+    var host = $('speedchips'), map = SPEED_CMD;
     SPEEDS.forEach(function (v) {
       var b = document.createElement('button');
       b.className = 'chip';
@@ -830,7 +835,7 @@ window.ChromeCommon = function (ctx) {
     $: $,
     RED: RED, BLUE: BLUE, AMBER: AMBER, PAPER: PAPER, GREEN: GREEN, YELLOW: YELLOW,
     TEAM_ORDER: TEAM_ORDER, TEAM_COLOR: TEAM_COLOR,
-    WIRE: WIRE, SPEEDS: SPEEDS, FPS: FPS,
+    WIRE: WIRE, SPEEDS: SPEEDS, FPS: FPS, SPEED_CMD: SPEED_CMD,
     // shared chrome
     teamCol: teamCol, activeTeams: activeTeams, teamOf: teamOf, otherTeam: otherTeam,
     stripSeatSuffix: stripSeatSuffix, teamPolicies: teamPolicies, teamName: teamName,
