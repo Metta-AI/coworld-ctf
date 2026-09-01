@@ -10,8 +10,13 @@
 #   docker run --rm --network host \
 #     -e POC_HOST=127.0.0.1 -e POC_PORT=21815 \
 #     -e POC_SLOT=0 -e POC_TOKEN=0xBADA55_0 \
-#     -e OPENROUTER_API_KEY=... \
-#     poc-llm-policy
+#     poc-llm-policy --canned
+#
+# NO MODEL CREDENTIALS ARE BAKED IN, and none should be. In a hosted
+# tournament the platform injects AWS_ENDPOINT_URL_BEDROCK_RUNTIME and
+# BEDROCK_MODEL into the pod and the harness takes the Bedrock sidecar path on
+# its own; upload with `--use-bedrock --bedrock-model <id>`. For local
+# development only, pass your own `-e OPENROUTER_API_KEY=...`.
 
 # ── Stage 1: compile the playbook ─────────────────────────────────────────
 # Pinned to linux/amd64 because the official Nim image publishes no arm64
