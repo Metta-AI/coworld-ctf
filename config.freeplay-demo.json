@@ -1,4 +1,6 @@
 {
+  "_comment": "DEPRECATED MODE: this freeplay config runs paintball, a deprecated mode, via the explicit allowDeprecatedModes override (SEAM-DEPRECATION.md). Season 2 battle royale is the product; this exists for development only.",
+  "allowDeprecatedModes": true,
   "maxGames": 0,
   "minPlayers": 8,
   "lives": 30,

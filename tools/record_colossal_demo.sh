@@ -11,6 +11,7 @@ CFG=$(mktemp /tmp/ctf-colossal-demo-cfg-$$-XXXXXX)
 python3 - "$CFG" "$SEED" "$MAXTICKS" "$SPEED" <<'PY'
 import json, sys
 cfg = json.load(open("config.json"))
+cfg["allowDeprecatedModes"] = True  # classic recorder: legacy-mode boot override (SEAM-DEPRECATION.md)
 cfg["seed"] = int(sys.argv[2])
 cfg["maxTicks"] = int(sys.argv[3])
 cfg["speed"] = int(sys.argv[4])
