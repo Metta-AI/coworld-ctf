@@ -334,7 +334,9 @@ suite "shell FIRST LIGHT":
     recordMasks(path, [InputState(up: true)],
       "{\"season2Shell\":true,\"brMode\":true}")
     let replay = parseReplayBytes(readFile(path))
-    check parseJson(replay.configJson)["season2Shell"].getBool()
+    var replayConfig = defaultGameConfig()
+    replayConfig.update(replay.configJson)
+    check replayConfig.season2Shell
 
     let map = testBodyMap()
     var playback = initFirstLightPlaybackEpisode(true, true,

@@ -1320,8 +1320,8 @@ mask protocol, byte-identical to today) or `"play"`. It is parsed by
 replay header's configuration like every other slot field (so playback
 and viewers know each seat's kind), and added to the hosted manifest's
 slot schema, with `slots[]` required whenever any slot is `"play"`. It
-composes with the global Season 2 gate (`season2Shell`, default off,
-section 3.2) in one direction: a `"play"` slot under a gate-off
+composes with the global Season 2 gate (`season2Shell`, default on since the
+P36 core inversion; section 3.2) in one direction: a `"play"` slot under a gate-off
 configuration is a validation error (`playSeatRequiresShell`), and a
 gate-on configuration with no `"play"` slot is legal and plays
 byte-identically to gate-off, which is the house rule. Goldens cover

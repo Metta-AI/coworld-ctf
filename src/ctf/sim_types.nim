@@ -2133,8 +2133,10 @@ type
     model*: string                ## pinned Bedrock/Anthropic model, "" = auto.
     maxOutputTokens*: int         ## LLM max_tokens.
     # --- Season 2 play-calling shell (docs/designs/
-    # strategy-play-calling-shell-2026-08-29.md; all OFF/inert by default:
-    # a gate-off config plays byte-identically, the house rule) ---
+    # strategy-play-calling-shell-2026-08-29.md). Season 2 is the default
+    # supported live mode; with an all-input roster it remains byte-identical
+    # to an explicit gate-off config. Deprecated live modes require
+    # allowDeprecatedModes. ---
     # GVNEXT(shell): appended fields, the standard append-safety reasoning
     # (scalars on GameConfig, not array[Team, X] runs).
     season2Shell*: bool           ## the master gate (§3.2): nothing in
@@ -2143,6 +2145,11 @@ type
                                   ## playSeatRequiresShell); gate-on with an
                                   ## all-input roster is legal and plays
                                   ## byte-identically to gate-off.
+    allowDeprecatedModes*: bool   ## live-boot override for deprecated mode
+                                  ## configs. false (default) refuses classic,
+                                  ## explicit season1 shell, paintball, and
+                                  ## squad-mode live boots at the boot seam;
+                                  ## replay playback is always exempt.
     viewIntervalTicks*: int       ## §4.3: LLM-bound PlayView frame interval,
                                   ## default 6, range [1, 48]; no effect
                                   ## without a play seat.

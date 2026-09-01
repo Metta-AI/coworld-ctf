@@ -7,7 +7,7 @@
 ## in flight. Sections cited below are that design's.
 ##
 ## Nothing here is reachable from a non-Season-2 configuration: the whole
-## subsystem sits behind the `season2Shell` config gate (default off), and a
+## subsystem sits behind the `season2Shell` config gate (default on), and a
 ## gate-off build plays byte-identically (§3.2, AGENTS.md's house rule).
 ##
 ## Constants whose values the design marks provisional carry a `## P0` note:

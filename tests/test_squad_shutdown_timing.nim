@@ -27,7 +27,7 @@
 ## development: with the call site removed, this test's player-close
 ## checks time out and fail exactly as expected.
 
-import std/[os, osproc, times, unittest]
+import std/[os, osproc, strutils, times, unittest]
 import whisky
 
 const
@@ -107,6 +107,37 @@ proc drainUntilClosed(
       return
 
 suite "squad-mode final shutdown closes player sockets promptly (real server)":
+  test "live classic boot without deprecated-mode override refuses before serving":
+    ensureServerBinary()
+    let
+      configPath =
+        getTempDir() / "test_deprecated_boot_config_" & $TestPort & ".json"
+      resultsPath =
+        getTempDir() / "test_deprecated_boot_results_" & $TestPort & ".json"
+      configJson = """{
+        "seed": 1, "brMode": false, "num_agents": 16,
+        "maxTicks": 1, "maxGames": 1
+      }"""
+    writeFile(configPath, configJson)
+    defer:
+      discard tryRemoveFile(configPath)
+      discard tryRemoveFile(resultsPath)
+
+    putEnv("COGAME_HOST", "127.0.0.1")
+    putEnv("COGAME_PORT", $TestPort)
+    putEnv("COGAME_CONFIG_URI", "file://" & configPath)
+    putEnv("COGAME_RESULTS_URI", "file://" & resultsPath)
+    let (output, exitCode) = execCmdEx(ServerBinaryPath)
+    delEnv("COGAME_HOST")
+    delEnv("COGAME_PORT")
+    delEnv("COGAME_CONFIG_URI")
+    delEnv("COGAME_RESULTS_URI")
+
+    check exitCode != 0
+    check "deprecated since 0.7.253" in output
+    check "allowDeprecatedModes" in output
+    check "starting ctf" notin output
+
   test "players close within seconds of results; spectator is untouched at that checkpoint":
     ensureServerBinary()
 
@@ -128,6 +159,7 @@ suite "squad-mode final shutdown closes player sockets promptly (real server)":
       "turnSpacingMs": 0, "startWaitTicks": 0, "gameOverTicks": 4,
       "lobbyJoinTimeoutTicks": 0, "fastMode": true,
       "showPlayerLabels": false, "speed": 16,
+      "allowDeprecatedModes": true,
       "tokens": ["t0", "t1"],
       "players": [{"name": "daveey"}, {"name": "daveey-1"}],
       "slots": [{"team": "red"}, {"team": "blue"}]
