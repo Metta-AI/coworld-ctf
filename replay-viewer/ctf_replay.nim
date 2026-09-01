@@ -228,6 +228,41 @@ proc ctfStagePointer(): ptr uint8 {.exportc: "ctf_stage_ptr", cdecl.} =
 proc ctfStageLength(): cint {.exportc: "ctf_stage_len", cdecl.} =
   cint(stageNoteLen)
 
+var gameVersionCopy: string
+  ## A runtime binding of the compile-time `GameVersion` const, populated on
+  ## first use below. A `const` string literal has no stable runtime address
+  ## to export a pointer to (emscripten build fails: "expression has no
+  ## address"), so this copies it into module-global storage, exactly like
+  ## `lastError`/`stageNote` above -- lazily, at CALL time, rather than as a
+  ## top-level `let` (which measured empty at runtime: module-level
+  ## initializers here do not reliably run before an exported proc can be
+  ## invoked from JS, since nothing in this bundle's own control flow ever
+  ## calls Nim's `main`/`NimMain` on this path -- only `ctf_load_replay` and
+  ## its siblings are ever called).
+
+proc ctfGameVersionPointer(): ptr uint8
+    {.exportc: "ctf_game_version_ptr", cdecl.} =
+  ## The GameVersion this wasm bundle was compiled with, so a CI check can
+  ## load the COMMITTED static-replay-viewer/ctf_replay.wasm and compare it
+  ## against src/ctf/sim_types.nim at HEAD -- the same drift class that let
+  ## THE FLIP (GameVersion 48 -> 50) ship without a bundle rebuild:
+  ## qa_module_eval.cjs's "served bundle is not stale" check only byte-diffs
+  ## hand-written JS against source and has no way to see into a compiled
+  ## wasm binary, so it stayed green while every GV50 replay failed to load
+  ## in the browser. See tools/build_replay_viewer.sh for the remedy.
+  if gameVersionCopy.len == 0:
+    gameVersionCopy = GameVersion
+  if gameVersionCopy.len == 0:
+    nil
+  else:
+    cast[ptr uint8](gameVersionCopy[0].unsafeAddr)
+
+proc ctfGameVersionLength(): cint
+    {.exportc: "ctf_game_version_len", cdecl.} =
+  if gameVersionCopy.len == 0:
+    gameVersionCopy = GameVersion
+  cint(gameVersionCopy.len)
+
 when defined(emscripten):
   proc emscriptenExitWithLiveRuntime() {.
     importc: "emscripten_exit_with_live_runtime", cdecl.}

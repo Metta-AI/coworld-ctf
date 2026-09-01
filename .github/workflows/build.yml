@@ -188,7 +188,13 @@ jobs:
       # Every hand-written viewer module must EVALUATE, not merely parse: a
       # temporal-dead-zone reference is valid syntax and killed the served
       # viewer outright on 2026-08-25. Also asserts the checked-in
-      # static-replay-viewer/ bundle is not stale against its sources.
+      # static-replay-viewer/ bundle is not stale against its sources --
+      # including, as of 2026-09-01, the COMPILED ctf_replay.wasm's own
+      # reported GameVersion against src/ctf/sim_types.nim: THE FLIP
+      # (GameVersion 48 -> 50) shipped with this whole file green because
+      # the byte-diff checks above only cover hand-written JS and cannot see
+      # into a compiled binary, so a two-version-stale wasm went unnoticed
+      # until every hosted replay failed to load.
       - name: Viewer module-evaluation + bundle-staleness check
         run: node tools/qa_module_eval.cjs
       - name: Smoke-run fixture replays in the wasm bundle
