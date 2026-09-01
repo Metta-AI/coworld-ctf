@@ -5033,13 +5033,6 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
         sim.lastCaptureTick = sim.tickCount
         sim.lastCaptureIndex = carrierIndex
         sim.eliminateTeam(flagTeam, carrierIndex)
-        when defined(heartOption1):
-          # EVIDENCE-ONLY (peer's Option-1, NOT a landing): sweep between the
-          # capture-fact pins and any finishGame this same call can reach, so
-          # a game-ENDING capture's Delivered/Uphill/Fast Break mint while
-          # phase is still Playing. The real fix carries a GV bump + fixture
-          # re-records + offline-scorer lockstep; tier-recut is an owner call.
-          sim.evalAchievementsAllTeams()
   # GV33: a completely killed team's heart leaves play with it. A wiped
   # team can never recover its heart, so it retires the moment the team is
   # gone — even off the back of an enemy carrier, who drops it (recovering
