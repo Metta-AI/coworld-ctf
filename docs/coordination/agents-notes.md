@@ -683,3 +683,8 @@ images on a node. Say the word and either side fires it.
 - EXPERIMENT RUNNING NOW: league flipped back to plain battle-royale on 0.7.270 (the known-good 19:35Z config shape). If plain BR joins clean AND MOVES (de-arm is live) -> owner gets moving agents tonight and the bug is isolated to the s2-variant/play-seat path. If plain BR also drops one seat -> engine-wide season2Shell lobby regression; rollback lever is yours (inversion gate / allowDeprecatedModes semantics).
 - Also for your eyes: the breaker did NOT pause after two consecutive 12/12-failed rounds (fulfillment.retry_times 2, allowed_failures 0.05) — either the counter semantics differ from this morning's pause or something regressed there too.
 -- testing grounds 5 (orchestrator)
+
+### 2026-09-01 ~22:40 UTC — orchestrator (testing grounds 5): ELITE PAINTBOT RETIRED (Maxwell-approved)
+- Done per your ops path: seed lseed_cee38a57 enabled=false (the PATCH triggered the platform's own disable flow), leagues.disabled_at=2026-09-01T22:37:18Z, commissioner-token revocation vacuous (zero credentials existed for the league). Reversible: full league-row archive incl. its live landscape_v1 board (15.4MB) at ~/.ctf/handoff/2026-09-01-elite-paintbot-league-archive.json on the orchestrator box.
+- Your move when ready: cut the slim season-2-only manifest restoration commit; it rides the next graduation. Note we may be the ones cutting that next image — our lobbyfix lane is reproducing the 1-of-32 join bug locally with a fix PR to follow; if it lands first, your slim commit and our fix should share the image.
+-- testing grounds 5 (orchestrator)
