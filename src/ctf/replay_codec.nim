@@ -5,12 +5,17 @@
 ## shell records can be added without changing bitworld's generic codec.
 
 import
-  std/[json, strutils, times],
+  std/[algorithm, json, strutils, times],
   zippy,
   bitworld/replays as replayCodec,
   ../shell/[replay_records, types]
 
 type
+  PendingTimedRecord = object
+    phase: uint8
+    ordinal: int
+    bytes: string
+
   CtfReplayData* = object
     replay*: ReplayData
     shell*: ShellReplayRecords
@@ -18,12 +23,17 @@ type
   CtfReplayWriter* = object
     enabled*: bool
     shellEpisode*: bool
+    lastMasks*: seq[uint8]
     legacyWriter: replayCodec.ReplayWriter
     file: File
     callRecords: seq[seq[string]]
     annotationRecords: seq[seq[string]]
     transcriptRecords: seq[string]
     manifestWritten: bool
+    hasPendingTime: bool
+    pendingTime: uint32
+    pendingOrdinal: int
+    pendingTimedRecords: seq[PendingTimedRecord]
 
 const
   ShellReplayFormatVersion* = 2'u16
@@ -39,9 +49,6 @@ proc writeU32(file: File, value: uint32) =
   for shift in countup(0, 24, 8):
     file.writeU8(uint8((value shr shift) and 0xff'u32))
 
-proc writeI16(file: File, value: int) =
-  file.writeU16(cast[uint16](int16(value)))
-
 proc writeU64(file: File, value: uint64) =
   for shift in countup(0, 56, 8):
     file.writeU8(uint8((value shr shift) and 0xff'u64))
@@ -52,19 +59,40 @@ proc writeReplayString(file: File, value: string) =
   file.writeU16(uint16(value.len))
   file.write(value)
 
-proc writeReplayBytes(file: File, value: openArray[uint8]) =
-  if uint64(value.len) > uint64(high(uint32)):
-    raise newException(ReplayError, "Replay byte array is too long")
-  file.writeU32(uint32(value.len))
-  for item in value:
-    file.writeU8(item)
-
 proc writeRaw(writer: var CtfReplayWriter, bytes: string) =
   if writer.enabled and writer.shellEpisode:
     if writer.manifestWritten:
       raise newException(ReplayError,
         "shell replay manifest is already final")
     writer.file.write(bytes)
+
+proc flushTimedRecords(writer: var CtfReplayWriter) =
+  if not writer.enabled or not writer.shellEpisode or
+      not writer.hasPendingTime:
+    return
+  writer.pendingTimedRecords.sort(proc(a, b: PendingTimedRecord): int =
+    result = cmp(a.phase, b.phase)
+    if result == 0:
+      result = cmp(a.ordinal, b.ordinal))
+  for record in writer.pendingTimedRecords:
+    writer.file.write(record.bytes)
+  writer.pendingTimedRecords.setLen(0)
+  writer.hasPendingTime = false
+
+proc writeTimed(writer: var CtfReplayWriter, time: uint32, phase: uint8,
+    bytes: sink string) =
+  if writer.manifestWritten:
+    raise newException(ReplayError, "shell replay manifest is already final")
+  if writer.hasPendingTime and time < writer.pendingTime:
+    raise newException(ReplayError, "shell replay timestamps move backward")
+  if writer.hasPendingTime and time > writer.pendingTime:
+    writer.flushTimedRecords()
+  if not writer.hasPendingTime:
+    writer.hasPendingTime = true
+    writer.pendingTime = time
+  writer.pendingTimedRecords.add(PendingTimedRecord(
+    phase: phase, ordinal: writer.pendingOrdinal, bytes: move(bytes)))
+  inc writer.pendingOrdinal
 
 proc ensureSeatBucket(writer: var CtfReplayWriter, seat: uint8) =
   if int(seat) >= writer.callRecords.len:
@@ -85,6 +113,7 @@ proc openReplayWriter*(
   if not shellEpisode:
     result.legacyWriter = replayCodec.openReplayWriter(path, configJson, spec)
     result.enabled = result.legacyWriter.enabled
+    result.lastMasks = result.legacyWriter.lastMasks
     return
   if shellSeatCount < 0 or shellSeatCount > 256:
     raise newException(ReplayError, "shell replay seat count is out of range")
@@ -114,14 +143,23 @@ proc writeJoin*(writer: var CtfReplayWriter, time: uint32, player: int,
   if not writer.shellEpisode:
     replayCodec.writeJoin(writer.legacyWriter, time, player, name, slot, token)
     return
-  if writer.manifestWritten:
-    raise newException(ReplayError, "shell replay manifest is already final")
-  writer.file.writeU8(ReplayJoinRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
-  writer.file.writeReplayString(name)
-  writer.file.writeI16(slot)
-  writer.file.writeReplayString(token)
+  if name.len > high(uint16).int or token.len > high(uint16).int:
+    raise newException(ReplayError, "Replay string is too long")
+  var bytes = ""
+  bytes.add(char(ReplayJoinRecord))
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((time shr shift) and 0xff'u32)))
+  bytes.add(char(uint8(player)))
+  bytes.add(char(uint8(name.len and 0xff)))
+  bytes.add(char(uint8(name.len shr 8)))
+  bytes.add(name)
+  let wireSlot = cast[uint16](int16(slot))
+  bytes.add(char(uint8(wireSlot and 0xff)))
+  bytes.add(char(uint8(wireSlot shr 8)))
+  bytes.add(char(uint8(token.len and 0xff)))
+  bytes.add(char(uint8(token.len shr 8)))
+  bytes.add(token)
+  writer.writeTimed(time, 0, move(bytes))
 
 proc writeJoin*(writer: var CtfReplayWriter, time: uint32, player: int,
                 address: string) =
@@ -130,12 +168,17 @@ proc writeJoin*(writer: var CtfReplayWriter, time: uint32, player: int,
   if not writer.shellEpisode:
     replayCodec.writeJoin(writer.legacyWriter, time, player, address)
     return
-  if writer.manifestWritten:
-    raise newException(ReplayError, "shell replay manifest is already final")
-  writer.file.writeU8(ReplayJoinRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
-  writer.file.writeReplayString(address)
+  if address.len > high(uint16).int:
+    raise newException(ReplayError, "Replay string is too long")
+  var bytes = ""
+  bytes.add(char(ReplayJoinRecord))
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((time shr shift) and 0xff'u32)))
+  bytes.add(char(uint8(player)))
+  bytes.add(char(uint8(address.len and 0xff)))
+  bytes.add(char(uint8(address.len shr 8)))
+  bytes.add(address)
+  writer.writeTimed(time, 0, move(bytes))
 
 proc writeLeave*(writer: var CtfReplayWriter, time: uint32, player: int) =
   if not writer.enabled:
@@ -143,11 +186,12 @@ proc writeLeave*(writer: var CtfReplayWriter, time: uint32, player: int) =
   if not writer.shellEpisode:
     replayCodec.writeLeave(writer.legacyWriter, time, player)
     return
-  if writer.manifestWritten:
-    raise newException(ReplayError, "shell replay manifest is already final")
-  writer.file.writeU8(ReplayLeaveRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
+  var bytes = ""
+  bytes.add(char(ReplayLeaveRecord))
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((time shr shift) and 0xff'u32)))
+  bytes.add(char(uint8(player)))
+  writer.writeTimed(time, 0, move(bytes))
 
 proc writeInput*(writer: var CtfReplayWriter, input: ReplayInput) =
   if not writer.enabled:
@@ -155,12 +199,13 @@ proc writeInput*(writer: var CtfReplayWriter, input: ReplayInput) =
   if not writer.shellEpisode:
     replayCodec.writeInput(writer.legacyWriter, input)
     return
-  if writer.manifestWritten:
-    raise newException(ReplayError, "shell replay manifest is already final")
-  writer.file.writeU8(ReplayInputRecord)
-  writer.file.writeU32(input.time)
-  writer.file.writeU8(input.player)
-  writer.file.writeU8(input.keys)
+  var bytes = ""
+  bytes.add(char(ReplayInputRecord))
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((input.time shr shift) and 0xff'u32)))
+  bytes.add(char(input.player))
+  bytes.add(char(input.keys))
+  writer.writeTimed(input.time, 2, move(bytes))
 
 proc writeChat*(writer: var CtfReplayWriter, time: uint32, player: int,
                 message: string) =
@@ -169,12 +214,17 @@ proc writeChat*(writer: var CtfReplayWriter, time: uint32, player: int,
   if not writer.shellEpisode:
     replayCodec.writeChat(writer.legacyWriter, time, player, message)
     return
-  if writer.manifestWritten:
-    raise newException(ReplayError, "shell replay manifest is already final")
-  writer.file.writeU8(ReplayChatRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
-  writer.file.writeReplayString(message)
+  if message.len > high(uint16).int:
+    raise newException(ReplayError, "Replay string is too long")
+  var bytes = ""
+  bytes.add(char(ReplayChatRecord))
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((time shr shift) and 0xff'u32)))
+  bytes.add(char(uint8(player)))
+  bytes.add(char(uint8(message.len and 0xff)))
+  bytes.add(char(uint8(message.len shr 8)))
+  bytes.add(message)
+  writer.writeTimed(time, 2, move(bytes))
 
 proc writeDebugSprite*(writer: var CtfReplayWriter, time: uint32,
                        player: int, packet: openArray[uint8]) =
@@ -183,12 +233,19 @@ proc writeDebugSprite*(writer: var CtfReplayWriter, time: uint32,
   if not writer.shellEpisode:
     replayCodec.writeDebugSprite(writer.legacyWriter, time, player, packet)
     return
-  if writer.manifestWritten:
-    raise newException(ReplayError, "shell replay manifest is already final")
-  writer.file.writeU8(ReplayDebugSpriteRecord)
-  writer.file.writeU32(time)
-  writer.file.writeU8(uint8(player))
-  writer.file.writeReplayBytes(packet)
+  if uint64(packet.len) > uint64(high(uint32)):
+    raise newException(ReplayError, "Replay byte array is too long")
+  var bytes = ""
+  bytes.add(char(ReplayDebugSpriteRecord))
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((time shr shift) and 0xff'u32)))
+  bytes.add(char(uint8(player)))
+  let length = uint32(packet.len)
+  for shift in countup(0, 24, 8):
+    bytes.add(char(uint8((length shr shift) and 0xff'u32)))
+  for value in packet:
+    bytes.add(char(value))
+  writer.writeTimed(time, 2, move(bytes))
 
 proc writeHash*(writer: var CtfReplayWriter, tick: uint32, hash: uint64) =
   if not writer.enabled:
@@ -198,6 +255,7 @@ proc writeHash*(writer: var CtfReplayWriter, tick: uint32, hash: uint64) =
     return
   if writer.manifestWritten:
     raise newException(ReplayError, "shell replay manifest is already final")
+  writer.flushTimedRecords()
   writer.file.writeU8(ReplayTickHashRecord)
   writer.file.writeU32(tick)
   writer.file.writeU64(hash)
@@ -211,7 +269,7 @@ proc writePlayCall*(writer: var CtfReplayWriter, record: PlayCallRecord) =
   writer.ensureSeatBucket(record.seat)
   let bytes = record.encodePlayCallRecord()
   writer.callRecords[int(record.seat)].add(bytes)
-  writer.writeRaw(bytes)
+  writer.writeTimed(record.replayTimeMs, 4, bytes)
 
 proc writeAnnotation*(writer: var CtfReplayWriter,
                       annotation: ShellAnnotation) =
@@ -231,7 +289,7 @@ proc writeLobbyChat*(writer: var CtfReplayWriter, record: LobbyChatRecord) =
     raise newException(ReplayError, "shell record requires format 2")
   let bytes = record.encodeLobbyChatRecord()
   writer.transcriptRecords.add(bytes)
-  writer.writeRaw(bytes)
+  writer.writeTimed(record.replayTimeMs, 3, bytes)
 
 proc writeBallot*(writer: var CtfReplayWriter, record: BallotRecord) =
   ## `0x17` is hash-coupled, not manifest-arm'd (settled 2c2f905c) -- unlike
@@ -252,11 +310,12 @@ proc writeLifecycle*(writer: var CtfReplayWriter, record: LifecycleRecord) =
   if not writer.shellEpisode:
     raise newException(ReplayError, "shell record requires format 2")
   writer.ensureSeatBucket(record.seat)
-  writer.writeRaw(record.encodeLifecycleRecord())
+  writer.writeTimed(record.replayTimeMs, 1, record.encodeLifecycleRecord())
 
 proc writeManifest*(writer: var CtfReplayWriter) =
   if not writer.enabled or not writer.shellEpisode or writer.manifestWritten:
     return
+  writer.flushTimedRecords()
   let manifest = buildShellReplayManifest(
     writer.callRecords, writer.annotationRecords, writer.transcriptRecords)
   writer.writeRaw(manifest.encodeManifestRecord())
@@ -266,6 +325,7 @@ proc flushReplayWriter*(writer: var CtfReplayWriter) =
   if not writer.enabled:
     return
   if writer.shellEpisode:
+    writer.flushTimedRecords()
     writer.file.flushFile()
   else:
     replayCodec.flushReplayWriter(writer.legacyWriter)

@@ -4,7 +4,10 @@ import
   bitworld/spriteprotocol,
   bitworld/replays as replayCodec,
   broadcast, sim, global,
-  replay_codec as ctfReplayCodec
+  replay_codec as ctfReplayCodec,
+  ../shell/[replay_records, seats]
+
+export ctfReplayCodec
 
 type
   ReplayKeyframe* = object
@@ -16,6 +19,7 @@ type
     inputIndex*: int
     debugSpriteIndex*: int
     hashIndex*: int
+    lifecycleIndex*: int
     ## Player leaves shift overlay indices, so keyframes snapshot overlay state.
     overlaysBytes*: string
     masks*: seq[uint8]
@@ -26,6 +30,7 @@ type
     directAim*: seq[int]
     hashValidationFailed*: bool
     hashMismatchTick*: int
+    lifecyclePlayback*: LifecyclePlayback
 
   ReplayPlayer* = object
     data*: ReplayData
@@ -35,6 +40,10 @@ type
     inputIndex*: int
     debugSpriteIndex*: int
     hashIndex*: int
+    lifecycleIndex*: int
+    lifecycle*: seq[LifecycleRecord]
+    playSeats*: seq[bool]
+    lifecyclePlayback*: LifecyclePlayback
     overlays*: seq[DebugOverlay]
     masks*: seq[uint8]
     pressedMasks*: seq[uint8]
@@ -169,7 +178,7 @@ proc tickTime*(tick: int): uint32 =
   replayCodec.tickTime(tick, ReplayFps)
 
 proc writeInputMaskChange*(
-  replayWriter: var ReplayWriter,
+  replayWriter: var CtfReplayWriter,
   time: uint32,
   playerIndex: int,
   mask: uint8
@@ -225,7 +234,7 @@ proc directAimRecordBrads*(input: ReplayInput): int =
     int(input.keys)
 
 proc writeDirectAimChange*(
-  replayWriter: var ReplayWriter,
+  replayWriter: var CtfReplayWriter,
   lastAim: var seq[int],
   time: uint32,
   playerIndex: int,
@@ -344,7 +353,7 @@ proc decodePolicyPageRecord*(chat: ReplayChat): string =
     )
 
 proc writePolicyPageFlash*(
-  replayWriter: var ReplayWriter,
+  replayWriter: var CtfReplayWriter,
   time: uint32,
   playerIndex: int,
   page: string
@@ -374,9 +383,23 @@ proc writePolicyPageFlash*(
     encodePolicyPageRecord(page)
   )
 
-proc openReplayWriter*(path: string, configJson: string): ReplayWriter =
-  ## Opens a replay file and writes the header.
-  replayCodec.openReplayWriter(path, configJson, CtfReplaySpec)
+proc openReplayWriter*(
+  path: string,
+  configJson: string,
+  openedAtMs = 0'u64,
+): CtfReplayWriter =
+  ## Selects format 2 only for the conjunctive play-seat episode gate. Every
+  ## other configuration delegates the complete file to bitworld format 1.
+  var config = defaultGameConfig()
+  config.update(configJson)
+  let shellEpisode = config.isPlaySeatEpisode()
+  ctfReplayCodec.openReplayWriter(
+    path,
+    configJson,
+    CtfReplaySpec,
+    shellEpisode = shellEpisode,
+    shellSeatCount = (if shellEpisode: config.slots.len else: 0),
+    openedAtMs = openedAtMs)
 
 proc parseReplayBytes*(bytes: string): ReplayData =
   ## Parses one replay file buffer into memory.
@@ -402,6 +425,14 @@ proc parseCtfReplayBytesFull*(bytes: string): ctfReplayCodec.CtfReplayData =
 proc loadReplay*(path: string): ReplayData =
   ## Loads a replay file into memory.
   ctfReplayCodec.loadReplay(
+    path,
+    CtfReplaySpec,
+    ReplayCompatibleGameVersions
+  )
+
+proc loadCtfReplay*(path: string): CtfReplayData =
+  ## Loads gameplay plus verified format-2 shell metadata.
+  ctfReplayCodec.loadCtfReplay(
     path,
     CtfReplaySpec,
     ReplayCompatibleGameVersions
@@ -469,6 +500,20 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.hashMismatchTick = -1
   result.pendingSeekTick = -1
 
+proc configuredPlaySeats(configJson: string): seq[bool] =
+  var config = defaultGameConfig()
+  config.update(configJson)
+  result = newSeq[bool](config.slots.len)
+  for seat in 0 ..< config.slots.len:
+    result[seat] = config.isPlaySeat(seat)
+
+proc initReplayPlayer*(data: CtfReplayData): ReplayPlayer =
+  ## Builds playback with the verified lifecycle stream retained.
+  result = initReplayPlayer(data.replay)
+  result.lifecycle = data.shell.lifecycle
+  result.playSeats = configuredPlaySeats(data.replay.configJson)
+  result.lifecyclePlayback = initLifecyclePlayback(result.playSeats)
+
 proc replaySpeed*(replay: ReplayPlayer): int =
   ## Returns the current integer replay speed.
   PlaybackSpeeds[clamp(replay.speedIndex, 0, PlaybackSpeeds.high)]
@@ -492,6 +537,8 @@ proc resetReplay*(replay: var ReplayPlayer) =
   replay.inputIndex = 0
   replay.debugSpriteIndex = 0
   replay.hashIndex = 0
+  replay.lifecycleIndex = 0
+  replay.lifecyclePlayback = initLifecyclePlayback(replay.playSeats)
   replay.hashValidationFailed = false
   replay.hashMismatchTick = -1
   replay.masks = @[]
@@ -514,12 +561,14 @@ proc saveReplayKeyframe(
     inputIndex: replay.inputIndex,
     debugSpriteIndex: replay.debugSpriteIndex,
     hashIndex: replay.hashIndex,
+    lifecycleIndex: replay.lifecycleIndex,
     overlaysBytes: replay.overlays.toFlatty(),
     masks: replay.masks,
     lastAppliedMasks: replay.lastAppliedMasks,
     directAim: replay.directAim,
     hashValidationFailed: replay.hashValidationFailed,
-    hashMismatchTick: replay.hashMismatchTick
+    hashMismatchTick: replay.hashMismatchTick,
+    lifecyclePlayback: replay.lifecyclePlayback
   )
 
 proc restoreReplayKeyframe(
@@ -540,6 +589,8 @@ proc restoreReplayKeyframe(
   replay.inputIndex = keyframe.inputIndex
   replay.debugSpriteIndex = keyframe.debugSpriteIndex
   replay.hashIndex = keyframe.hashIndex
+  replay.lifecycleIndex = keyframe.lifecycleIndex
+  replay.lifecyclePlayback = keyframe.lifecyclePlayback
   replay.overlays = keyframe.overlaysBytes.fromFlatty(seq[DebugOverlay])
   replay.masks = keyframe.masks
   replay.pressedMasks = newSeq[uint8](replay.masks.len)
@@ -567,6 +618,13 @@ proc clearReplayPressedMasks(replay: var ReplayPlayer) =
   ## Clears per-step replay press events.
   for mask in replay.pressedMasks.mitems:
     mask = 0
+
+proc clearReplayAbandon(sim: var SimServer, playerIndex: int) =
+  ## Priority 1 restores playback presence without taking Priority 2's roster
+  ## accounting API. Rebinding clears only the existing per-game flag.
+  let accountIndex = sim.rewardAccountForPlayer(playerIndex)
+  if accountIndex >= 0:
+    sim.rewardAccounts[accountIndex].abandoned = false
 
 proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
   ## Applies replay joins and inputs for the current tick.
@@ -606,6 +664,36 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
     discard sim.addPlayer(join.name, join.slot, join.token, trusted = true)
     replay.ensureReplayPlayer(int(join.player))
     inc replay.joinIndex
+
+  # Lifecycle is the no-compaction equivalent of a legacy leave. Both legacy
+  # leaves and joins are phase 0 in format 2, so apply lifecycle only after
+  # both have completed at this timestamp and before input/chat (phase 2).
+  while replay.lifecycleIndex < replay.lifecycle.len and
+      replay.lifecycle[replay.lifecycleIndex].replayTimeMs <= time:
+    let record = replay.lifecycle[replay.lifecycleIndex]
+    replay.lifecyclePlayback.applyLifecycleRecord(record)
+    let seat = int(record.seat)
+    var playerIndex = -1
+    for index, player in sim.players:
+      if player.joinOrder == seat:
+        playerIndex = index
+        break
+    if playerIndex < 0:
+      raise newException(ReplayError,
+        "Replay lifecycle seat has no retained player row")
+    replay.ensureReplayPlayer(playerIndex)
+    case record.kind
+    of lrDisconnect, lrKick:
+      sim.recordGameAbandon(playerIndex)
+      replay.masks[playerIndex] = 0
+      replay.pressedMasks[playerIndex] = 0
+      replay.lastAppliedMasks[playerIndex] = 0
+    of lrRebind:
+      if sim.phase != Lobby:
+        raise newException(ReplayError,
+          "Replay input-seat rebind occurs outside the lobby")
+      sim.clearReplayAbandon(playerIndex)
+    inc replay.lifecycleIndex
 
   while replay.inputIndex < replay.data.inputs.len and
       replay.data.inputs[replay.inputIndex].time <= time:
@@ -854,6 +942,9 @@ proc initReplayScan*(
   scan.sim = initialSim
   scan.sim.gameEventLoggingEnabled = false
   scan.builder = initReplayPlayer(replay.data)
+  scan.builder.lifecycle = replay.lifecycle
+  scan.builder.playSeats = replay.playSeats
+  scan.builder.lifecyclePlayback = initLifecyclePlayback(replay.playSeats)
   scan.builder.looping = false
   scan.builder.mismatchQuit = replay.mismatchQuit
   scan.maxTick = scan.builder.replayMaxTick()

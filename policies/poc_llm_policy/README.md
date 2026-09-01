@@ -3,8 +3,14 @@
 A self-contained container that plays one Season 2 play seat end to end: it
 carries a **playbook** of wasm play modules, connects to the game server over
 the real play-seat WebSocket protocol, uploads the playbook over the wire, asks
-a small open-weights model for a lobby line and a ladder call, and sends both —
-then asks the model again mid-match and re-calls.
+an LLM for a lobby line and a ladder call, and sends both — then asks again
+mid-match and re-calls.
+
+The LLM is reached the way a deployed policy actually reaches one: through the
+platform's per-pod **LLM sidecar** — OpenAI-compatible chat completions, served
+by OpenRouter — with no model credentials in the image. A direct OpenRouter
+path and a canned path stand behind it for local development and CI, and the
+first two are the same client with a different URL and auth header.
 
 This is explicitly a **proof of concept**, not a competitor. It plays badly. Its
 value is that it proves an outsider-shaped client, written against the byte
@@ -19,21 +25,30 @@ layouts alone, can drive the protocol.
 | A wasm playbook baked into the image | `build_playbook.sh` compiles `edge_ride` and `pact` from `play_sdk/reference/` with wasi-sdk 33 during the Docker build |
 | Connect as a play seat over the real protocol | `ws://host:port/player?slot=N&token=T`, upgraded by the server's play-seat transport |
 | Upload the playbook over the wire | 0xA0 ModuleUpload → `module_accepted` → `module_ready` with the server's own sha256 |
-| An LLM chooses the chat line and the play call | one JSON-mode OpenRouter completion per decision, two decisions per run |
-| A mid-match re-call driven by a later model call | a second 0xA1 at a higher proposal id, accepted at epoch 2 |
+| An LLM chooses the chat line and the play call | one model call per decision, two decisions per run, over whichever backend the environment selects |
+| It works on the hosted platform's LLM path | the sidecar's OpenAI-compatible `/v1/chat/completions` is the primary backend, gated on `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` |
+| A mid-match re-call driven by a later model call | a second 0xA1 at a higher proposal id, accepted at epoch 2, with the standing ladder fed back to the model so the re-call is a revision |
 | The production validator is the oracle | a deliberately bad call comes back `call_rejected` with `reason` and the offending JSON path |
 
 ## What it punts on
 
-- **It does not play well.** The model sees a seven-line text summary, not the
-  game. There is no evaluation loop, no reaction to the 0xB1 view stream, and no
+- **It does not play well.** The model sees a short text summary, not the game.
+  There is no evaluation loop, no reaction to the 0xB1 view stream, and no
   attempt to win.
+- **The sidecar path is unproven against a real pod.** It is written to the
+  contract read out of the sidecar's own source and exercised against a stub
+  built to that contract, which cannot catch a code-versus-behaviour mismatch.
+  Nothing here has run in a hosted tournament.
 - **One seat.** A real policy image would drive all 32.
 - **No reconnect handling.** The protocol's rebind, transcript replay, and
   generation-stamping rules (§4.3/§9.2) are read but not exercised.
-- **The status-ack mark is used as a tick pump**, not as an honest
-  acknowledgement high-water mark. It monotonically increases, which is legal,
-  but a real client would ack the ordinals it has actually consumed.
+- ~~**The status-ack mark is used as a tick pump.**~~ Fixed: the harness now
+  acks the highest status ordinal it has actually received, and only when it
+  advances. The production server settled this — it refuses a mark beyond what
+  it has delivered (`call_rejected` with reason `status_ack_out_of_range`, from
+  `handleProductionStatusAck` in `src/ctf/server.nim`) and simply redelivers an
+  unacked backlog, so the old blind-increment trick that the PoC glue server
+  tolerated is a protocol violation against the real thing.
 - **`poc_shell_server.nim` is scaffolding, not product** — see the next section.
 
 ---
@@ -65,13 +80,58 @@ file. That is a real exercise of the compile and call path, but it is not the
 protocol.
 
 `poc_shell_server.nim` supplies exactly the missing glue and nothing else: it
-registers the four consumers over the **production** compile plane, module
-cache, ladder, and call validator, encodes the replies with the **production**
+registers the four consumers, encodes the replies with the **production**
 `packets.nim` codec, and then hands off to the stock `runServerLoop`. It is a
 PoC stand-in for a lane that has not landed, deliberately kept inside this
-directory. Its own limits are listed in its file header — most importantly, an
-accepted call is validated and epoch-advanced but is **not** stepped into the
-seat's body.
+directory. Its own limits are listed in its file header.
+
+### Update, after `78e05b06` ("a live admission seam on the episode")
+
+Main has since added the seam this PoC should eventually sit on:
+`admitPlayModule` and `acceptPlayCall` (`src/shell/episode.nim:468,491`) plus
+`FirstLightTickResult.moduleStatuses` (`:85`) give a consumer the episode's
+*own* compile plane and ladder, non-blocking, with accepted calls actually
+stepped into seat bodies. That commit's message calls out standing up parallel
+plane and ladder instances as the shortcut lane B declined to copy — and
+standing up parallel instances is exactly what this PoC does.
+
+Two things are still true, so the PoC's shape has not changed yet:
+
+* **The consumers remain unregistered in production.** After the merge the only
+  callers of `registerPlay*Consumer` in the tree are in
+  `tests/test_shell_dispatch.nim:72-75`. `trySendPlaySocket` still has no
+  production caller.
+* **The new seam is not reachable from where a consumer runs.** The live
+  episode is a local `var` inside `runServerLoop` (`src/ctf/server.nim:3068`)
+  with no exported accessor, and a registered consumer is a module-level
+  `gcsafe` proc. Lane B can wire this because it is working *inside*
+  `server.nim`, where the episode is in scope; an out-of-tree PoC cannot reach
+  it at all.
+
+So the PoC keeps its parallel plane and ladder, and its calls still do not
+drive seat bodies — but that is now a consequence of a missing accessor, not of
+a missing seam. **Migrating `poc_shell_server.nim` onto `admitPlayModule` /
+`acceptPlayCall` is the right follow-up the moment `server.nim` exposes the
+live episode** (or the moment lane B's own registration lands, at which point
+this file should simply be deleted).
+
+### Update, after the production wiring merge (2026-08-31)
+
+Lane B's registration has landed: the production server registers all four
+consumers over the live episode seam and sends 0xB0/0xB1/0xB2 itself. The
+blocker above is **closed**, verified end to end against the stock
+`src/ctf.nim` binary (no glue server) with a live OpenRouter model: playbook
+uploaded over the wire (`module_ready` with the server's own hashes), opening
+call and a model-revised mid-match re-call both `call_accepted`, chat lines
+broadcast on 0xB2, and — the part the glue server never did — the seat body
+actually executing the called play (the server's install telemetry flips seat
+0 from `provenance=default` to `provenance=entry:ride`, carrying pact's
+combat policy for the exact partner seat the model named). Two rig notes for
+anyone repeating that run: the lobby-chat window must be open
+(`lobbyChatTicks > 0`) or 0xA3 is refused with `lobby_chat:lcrClosed`, and
+unfilled slots need presence connections (see `tools/run_first_light.sh`) or
+the match never starts / ends instantly. Deleting `poc_shell_server.nim` and
+pointing `run_poc.sh` at the stock server is now the standing follow-up.
 
 ---
 
@@ -80,7 +140,7 @@ seat's body.
 ```
 poc_llm_policy/
   wire.py              packet codec + canonical JSON, from the byte layouts alone
-  brain.py             OpenRouter (JSON mode) and canned model backends
+  brain.py             the model backends: hosted sidecar, OpenRouter, canned
   poc_policy.py        the harness: connect, upload, chat, call, re-call
   build_playbook.sh    compiles edge_ride.wasm and pact.wasm from play_sdk
   poc_shell_server.nim the gate-on server plus the unregistered wire consumers
@@ -120,6 +180,14 @@ during the build:
 
 ```bash
 docker build -f policies/poc_llm_policy/Dockerfile -t poc-llm-policy .
+
+# Offline / CI: no model credentials of any kind.
+docker run --rm \
+  -e POC_HOST=host.docker.internal -e POC_PORT=21815 \
+  -e POC_SLOT=0 -e POC_TOKEN=0xBADA55_0 \
+  poc-llm-policy --canned
+
+# Local dev against a real model, with your own key.
 docker run --rm \
   -e POC_HOST=host.docker.internal -e POC_PORT=21815 \
   -e POC_SLOT=0 -e POC_TOKEN=0xBADA55_0 \
@@ -127,7 +195,12 @@ docker run --rm \
   poc-llm-policy
 ```
 
-Add `--canned` after the image name (or `-e POC_CANNED=1`) to run without a key.
+**In a hosted tournament you pass no key at all.** The platform injects the
+sidecar environment into the pod, the harness detects
+`AWS_ENDPOINT_URL_BEDROCK_RUNTIME` and takes the Bedrock path automatically, and
+the image itself carries no credentials. That is the whole point of the backend
+order — see "The model backends" below. Upload with
+`--use-bedrock --bedrock-model <id>`.
 
 The server has to be reachable from inside the container: start it with
 `COGAME_HOST=0.0.0.0` and use `host.docker.internal` (Docker Desktop) or
@@ -136,27 +209,127 @@ server to loopback, so for a container run start the server yourself.
 
 ### Environment
 
-| Variable | Default | Meaning |
+| Variable | Set by | Meaning |
 | --- | --- | --- |
-| `POC_HOST` / `POC_PORT` | `127.0.0.1` / `21815` | the game server |
-| `POC_SLOT` / `POC_TOKEN` | `0` / empty | the play seat and its configured token |
-| `POC_PLAYBOOK` | `playbook` | directory of `.wasm` modules to upload |
-| `POC_MODEL` | `qwen/qwen3-30b-a3b-instruct-2507` | any OpenRouter model id |
-| `POC_CANNED` | unset | `1` substitutes a fixed model response |
-| `POC_RECALL_SECONDS` | `6` | how long to hold before the mid-match re-call |
-| `OPENROUTER_API_KEY` | unset | absent ⇒ the harness falls back to canned |
+| `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` | the platform, in a hosted pod | **presence selects the production backend.** Never hardcode it |
+| `BEDROCK_MODEL` | `--bedrock-model` at upload | the model id the sidecar backend calls; required when the endpoint is set. A legacy Bedrock id or a canonical `vendor/model` slug both work — the sidecar resolves aliases |
+| `POC_LLM_PROTOCOL` | you, rarely | `bedrock` switches the sidecar call to the legacy `InvokeModel` shape. Opt-in escape hatch only |
+| `OPENROUTER_API_KEY` | you, for local dev | selects the OpenRouter backend when no sidecar is present |
+| `POC_MODEL` | you | OpenRouter model id (default `qwen/qwen3-30b-a3b-instruct-2507`); ignored on the sidecar path |
+| `POC_CANNED` | you | `1` (or `--canned`) forces the fixed response, overriding both |
+| `POC_HOST` / `POC_PORT` | you | the game server (default `127.0.0.1` / `21815`) |
+| `POC_SLOT` / `POC_TOKEN` | you | the play seat and its configured token |
+| `POC_PLAYBOOK` | the image | directory of `.wasm` modules to upload |
+| `POC_RECALL_SECONDS` | you | how long to hold before the mid-match re-call (default 6) |
 
-### The model
+The platform also injects `AWS_REGION`, `AWS_DEFAULT_REGION`, and deliberately
+fake `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_BEARER_TOKEN_BEDROCK`
+placeholders. This harness ignores all of them — it sends no `Authorization`
+header at all, because the sidecar strips whatever the client sends and
+re-signs with the real pod identity. All six are reserved: the platform strips
+them from an uploaded secret-env and re-applies its own.
 
-`qwen/qwen3-30b-a3b-instruct-2507`, chosen for being open weights, cheap
-(~$0.05 per million prompt tokens), and reliable under
-`response_format: {"type": "json_object"}`. It gets a system prompt describing
-the two plays and their parameter ranges — transcribed from the reference
-manifests — plus a seven-line match summary, and returns
-`{"chat": ..., "call": {"entries": [...]}}`.
+### The model backends
 
-The model is never trusted. `build_call` in `poc_policy.py` drops unknown
-plays and parameters, clamps numbers into their manifest ranges, coerces
+Selected in this order, production first (`brain.py`, `build_brain`):
+
+**1. The hosted LLM sidecar — the production path.** A deployed policy image
+does **not** carry model credentials. The platform runs a per-pod proxy on
+loopback that holds the real identity and bills the call to this pod's player
+slot. It speaks **OpenAI-compatible chat completions, served by OpenRouter**.
+
+- `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` (e.g. `http://127.0.0.1:9100`) is the
+  signal that the hosted proxy is available. **The name is historical** — the
+  sidecar began as a Bedrock proxy and kept the variable when OpenRouter
+  routing became the serving path — so do not read it as "Bedrock only". Gate on
+  it rather than `USE_BEDROCK`, which is also set for direct local AWS access
+  with no sidecar in front of it.
+- `POST {endpoint}/v1/chat/completions`, an ordinary OpenAI chat-completions
+  body, `response_format: {"type": "json_object"}` supported.
+- **No `Authorization` header.** The sidecar supplies the real credential.
+- **Do not send `X-Coworld-Player-Slot`.** On a player pod the sidecar defaults
+  attribution to that pod's own slot, and a value disagreeing with it is
+  rejected outright (`_resolve_request_attribution`,
+  `app_backend/.../job_runner/bedrock_sidecar.py:1387-1404`). Sending nothing is
+  correct and safer. The header is stripped before the upstream call anyway.
+- `BEDROCK_MODEL` carries the model id from `--bedrock-model` at upload. It must
+  be read, never hardcoded. Whatever string arrives is resolved through the
+  sidecar's legacy-id alias table to a canonical OpenRouter slug and then checked
+  against the model allowlist (`resolve_model`,
+  `app_backend/.../job_runner/llm_sidecar.py:260-268`), so a legacy Bedrock id
+  *and* a canonical `vendor/model` slug both work. If the endpoint is set and
+  this is not, the harness **refuses loudly** — a silent fallback here is the
+  documented way to score zero completed episodes without noticing.
+- Rate limited per player slot; a 429 carries `Retry-After` / `Retry-After-Ms`,
+  honoured once. Every call is timeout-bounded, because a slow call times the
+  episode out and scores as a loss.
+
+To deploy: `coworld upload-policy ... --use-bedrock --bedrock-model <id>`.
+Without `--use-bedrock` the pod gets no sidecar and this backend never engages.
+
+**2. Direct OpenRouter — local development only.** Selected when
+`OPENROUTER_API_KEY` is set and no sidecar endpoint is present. Default model
+`qwen/qwen3-30b-a3b-instruct-2507` (open weights, ~$0.05 per million prompt
+tokens).
+
+Because the hosted proxy and OpenRouter speak the same protocol, **(1) and (2)
+are the same class** — `OpenAiChatBrain`, differing only in URL and whether an
+`Authorization` header is attached. That is most of why `brain.py` is small.
+
+**3. Canned.** A fixed response, so the image is testable offline and in CI.
+Forced by `--canned`, and the fallback when neither of the above is configured.
+
+**Opt-in fallback: the legacy Bedrock `InvokeModel` path.** The sidecar still
+accepts the Bedrock shapes, so `POC_LLM_PROTOCOL=bedrock` switches the hosted
+call to `POST {endpoint}/model/{model}/invoke` with an Anthropic Messages body.
+It is never auto-selected and is **not** load-bearing: James states OpenRouter
+routing is the production truth. It exists only as an escape hatch if the
+OpenAI-compatible route ever misbehaves for a particular model. Note it has no
+`response_format`, so it forces JSON by prefilling the assistant turn with `{`.
+
+#### How routing actually works, and the one gap worth flagging
+
+Routing is a **global backend setting, not per-league**.
+`devops/app-manifests/values.yaml` sets `coworldOpenRouterRouting.enabled: true`
+with `episodePercent: 100` — a James-authorized ramp to 100% on
+2026-08-29 01:08Z, with the whole ramp history in that file's comments.
+Assignment is a deterministic per-episode hash (`assignmentSalt`) gated by that
+percent, so at 100% every new episode routes to OpenRouter.
+
+Confirmed against production on 2026-08-31 (`coworld leagues --json`, 125
+leagues): `LeagueSettings`
+(`app_backend/src/metta/app_backend/v2/league_settings_schema.py:158`) has **no
+routing field at all**. The only per-league LLM knob is
+`settings.llm.player_model_allowlist` (`:139-146`), which restricts models — it
+does not switch providers. The one per-request override,
+`llm_routing_override`, is team-only and requires `num_episodes=1`
+(`v2/routes/experience_requests.py:845-851`), i.e. a canary knob, not a league
+setting.
+
+> **The gap:** the chart's own default is the opposite of production. 
+> `devops/charts/observatory-backend/values.yaml:204-206` ships
+> `enabled: false, episodePercent: 0` ("Keep disabled with zero percent until a
+> separately reviewed rollout"), and the backend config default is likewise
+> `COWORLD_OPENROUTER_ROUTING_ENABLED: bool = False`
+> (`job_runner/config.py:189`). Production is correct only because the
+> app-manifest overrides both. So the primary path here depends on a
+> deployment-level override rather than a code default: any environment
+> installed from the chart without that override serves 503
+> `"OpenRouter is not configured"` on `/v1/chat/completions`
+> (`bedrock_sidecar.py:1211-1213`) and only the Bedrock shapes work. Flagged,
+> not resolved — that is a platform call, not this PoC's.
+
+### What the model is asked, and how far it is trusted
+
+Each backend gets the same system prompt — the two plays and their parameter
+ranges, transcribed from the reference manifests — plus a short match summary,
+and returns `{"chat": ..., "call": {"entries": [...]}}`. The mid-match summary
+also carries **the ladder currently in force**, so the second call is a revision
+rather than a fresh decision. Without that, a model handed the same map facts
+twice simply repeats itself, which is exactly what the first live run did.
+
+The model is never trusted. `build_call` in `poc_policy.py` drops unknown plays
+and parameters, clamps numbers into their manifest ranges, coerces
 integer-typed parameters to JSON integers, rewrites `partners` into sorted
 unique `seat:N` references, enforces `MaxActiveOverlays`, and falls back to a
 bare `edge_ride` entry if nothing survives. Whatever it produces still has to
@@ -261,6 +434,28 @@ a gap between what the spec says and what the validator checks.
     counter, not a status or a close, so from the client side it is
     indistinguishable from a bug in your own bytes.
 
+### On the platform side, by contrast
+
+The hosted-LLM path is documented *well* for the Bedrock shapes.
+`packages/coworld/src/coworld/docs/BEDROCK.md` in metta is close to what a
+client-facing protocol reference should look like: one rule in a callout at the
+top, a table of every env var with what you do with it, working snippets for
+three SDKs plus hand-rolled HTTP, and a troubleshooting table keyed by symptom.
+
+The gap is that **it documents the Bedrock shapes, and production serves
+OpenRouter through an OpenAI-compatible route the player docs never mention.**
+Working only from `BEDROCK.md`, this PoC first shipped an `InvokeModel` client
+and a README asserting that `/v1/chat/completions` was a 503 trap to avoid — a
+conclusion drawn from the chart's unconfigured default rather than the
+deployment. The primary production path is exactly the one the player-facing
+documentation tells you not to use. Both routes work today, so nothing is
+broken; but a policy author reading the docs will not find the live path, and an
+author who finds the route by inspection has no documentation for it.
+
+One smaller inconsistency: `PLAYER.md` says to use `InvokeModel` "not
+`Converse`", while `BEDROCK.md` and the sidecar's own route table both list
+`Converse` and `ConverseStream` as supported.
+
 What was more than sufficient: `src/shell/packets.nim` reads as a
 specification — the length equations and the four rejection kinds are
 unambiguous, and the Python codec was a direct transcription with no guessing.
@@ -268,15 +463,97 @@ unambiguous, and the Python codec was a direct transcription with no guessing.
 `tests/fixtures/shell/` answer nearly every "what do the bytes actually look
 like" question, once you know they are there.
 
-## Recorded run
+## Recorded runs
 
-Canned mode, against the local gate-on server, slot 0:
+### Live, against a real model (OpenRouter dev path)
+
+`qwen/qwen3-30b-a3b-instruct-2507`, two real completions, local gate-on server,
+slot 0. The model picked the partner seat out of the `play_context` it was
+given, and the mid-match turn revised the standing ladder rather than repeating
+it — `edge_ride` `margin` 240 → 200 as the zone closes, `pact` left alone:
+
+```
+model backend: qwen/qwen3-30b-a3b-instruct-2507 (OpenRouter model ... (dev path))
+
+turn 1 -> {"call": {"entries": [
+             {"entry_id": "ride", "params": {"margin": 240}, "play": "edge_ride"},
+             {"entry_id": "ally", "params": {"onBetrayal": "disengage",
+                "partners": ["seat:1"], "protect": true}, "play": "pact"}]},
+           "chat": "Edge ride with my bro seat 1 - don't get greedy, we're
+                    riding the zone together."}
+0xB2 chat: seat=0 ordinal=1  (em dash and curly apostrophe round-trip intact)
+0xA1 opening call ACCEPTED: epoch=1 proposal_id=1 tick=7
+
+turn 2 -> {"call": {"entries": [
+             {"entry_id": "ride", "params": {"margin": 200}, "play": "edge_ride"},
+             {"entry_id": "ally", "params": {"onBetrayal": "disengage",
+                "partners": ["seat:1"], "protect": true}, "play": "pact"}]},
+           "chat": "Edge tight, cover close-stay sharp with seat 1."}
+0xB2 chat: seat=0 ordinal=2
+0xA1 mid-match re-call ACCEPTED: epoch=2 proposal_id=2 tick=20
+
+real model calls: 2 | statuses received: 6 | chat broadcasts received: 2
+all PoC steps passed
+```
+
+The chat lines are worth noting on their own: the model emits em dashes and
+curly apostrophes, and they survive the 0xA3 → 0xB2 round trip byte-exactly,
+which exercises the UTF-8 measured-in-bytes cap on that packet.
+
+### The hosted sidecar backend (primary path)
+
+Exercised against a local stub implementing the sidecar's routes
+(`GET /healthz/core-v1`, `POST /v1/chat/completions`, and the legacy
+`POST /model/{id}/invoke`), forwarding upstream the way the real sidecar does:
+
+```
+model backend: sidecar-openai us.anthropic.claude-haiku-4-5-20251001-v1:0
+               (hosted sidecar at http://127.0.0.1:9141,
+                OpenAI-compatible chat completions)
+
+[stub] openai_chat model='us.anthropic.claude-haiku-4-5-20251001-v1:0'
+                -> 'anthropic/claude-haiku-4.5'
+       client_auth=False  slot_header=None  json_mode=True
+
+turn 1 -> edge_ride{margin:240}
+          chat: "Edge ride or die, partner — you stay close, I'll handle the zone."
+          opening call ACCEPTED: epoch=1 proposal_id=1 tick=7
+turn 2 -> edge_ride{margin:240} + pact{partners:["seat:1"],protect:true,
+                                       onBetrayal:"disengage"}
+          chat: "Edge's tight, but we're rolling with cover—stay sharp, seat 1."
+          mid-match re-call ACCEPTED: epoch=2 proposal_id=2 tick=20
+real model calls: 2 | all PoC steps passed
+```
+
+Three contract details visible in one line of stub log: `client_auth=False`
+(the harness sends no `Authorization`, the sidecar supplies it),
+`slot_header=None` (attribution is left to the pod's own slot), and the legacy
+model id resolving through the alias table to a canonical OpenRouter slug.
+
+**This has not been run against a real hosted sidecar** — only against a stub
+built to the contract read out of the sidecar's source. The remaining risk is a
+code-versus-behaviour difference the stub reproduces faithfully by construction.
+
+Backend selection, all seven branches:
+
+```
+sidecar                          -> sidecar-openai   {endpoint}/v1/chat/completions
+sidecar + OPENROUTER_API_KEY     -> sidecar-openai   (hosted wins)
+sidecar + POC_LLM_PROTOCOL=bedrock -> bedrock-invoke {endpoint}/model/{id}/invoke
+sidecar, no BEDROCK_MODEL        -> BrainError, refuses loudly
+OPENROUTER_API_KEY only          -> qwen/...         openrouter.ai/api/v1/chat/completions
+neither                          -> canned
+--canned                         -> canned (overrides everything)
+```
+
+### Canned, offline
+
+The same sequence with a fixed response, which is what CI runs:
 
 ```
 0xB0 play_context: {"gun_range":497,"map":{"height":1713,"name":"br-gen-4242","width":3211},
                     "mode":"br","roster":[...32 rows...],"schema":"play_context",
                     "self":{"duo_partner":1,"seat":0,"team":"red"},"v":1,"view_interval":6}
-0xB2 chat: seat=0 ordinal=1 text='edge_ride from the off. See you at the last circle.'
 0xB1 status: {"gen":"1","kind":"module_accepted","ordinal":"1","upload_id":"1"}
 0xB1 status: {"gen":"1","kind":"module_ready","name":"edge_ride","ordinal":"2",
               "sha256":"399962bc1aa1e2c5b9e218e72d61b5154b502244e473c55a50a1710aa49d9c38",
@@ -284,15 +561,8 @@ Canned mode, against the local gate-on server, slot 0:
 0xB1 status: {"gen":"1","kind":"module_ready","name":"pact","ordinal":"4",
               "sha256":"cf092e1af573da829bc9805fcdfeaef662f40fa5bd35e5b45b6793ab1addf3ec",
               "upload_id":"2"}
-0xA1 opening call: {"plays":[{"entry_id":"ride","params":{"coverBias":0.8,"margin":240},
-                              "play":"edge_ride"}]}
 0xB1 status: {"epoch":"1","gen":"1","kind":"call_accepted","ordinal":"1",
               "proposal_id":"1","tick":7}
-0xB2 chat: seat=0 ordinal=2 text='Zone is tightening -- pulling in and taking a partner.'
-0xA1 mid-match re-call: {"plays":[{"entry_id":"truce","params":{"partners":["seat:3"],
-                                    "protect":true},"play":"pact"},
-                                  {"entry_id":"ride","params":{"coverBias":0.95,
-                                    "enterLead":200,"margin":140},"play":"edge_ride"}]}
 0xB1 status: {"epoch":"2","gen":"1","kind":"call_accepted","ordinal":"2",
               "proposal_id":"2","tick":20}
 ```
@@ -309,7 +579,7 @@ STATUS   {"gen":"1","kind":"call_rejected","ordinal":"1","proposal_id":"1",
 unbound — the validator refuses the name before it ever reaches the out-of-range
 `margin`.)
 
-The same run out of the container, against the same server on slot 5, reaches
-`call_accepted` at epoch 2 with the image-built playbook — whose `pact` hash
-(`7a4d2772…`) differs from a host build's, since the wasm carries build-path
-detail. `edge_ride` happens to match (`399962bc…`).
+The same canned run out of the container, against the same server on slot 5,
+also reaches `call_accepted` at epoch 2 with the image-built playbook — whose
+`pact` hash (`7a4d2772…`) differs from a host build's, since the wasm carries
+build-path detail. `edge_ride` happens to match (`399962bc…`).

@@ -1,44 +1,97 @@
 """The LLM half of the PoC: turn a short match summary into a chat line and a
 ladder call.
 
-Two interchangeable backends, both returning the same dict shape::
+Backends, all returning the same dict shape::
 
     {"chat": "<one lobby line>",
      "call": {"entries": [{"play": ..., "entry_id": ..., "params": {...}}, ...]}}
 
-* :class:`OpenRouterBrain` -- one JSON-mode chat completion against OpenRouter
-  with a cheap open-weights instruct model. Uses ``urllib`` from the standard
-  library, so the image needs no HTTP dependency.
-* :class:`CannedBrain` -- a fixed response so the image is testable offline and
-  in CI. Selected by ``--canned``, and used automatically when no API key is
-  present.
+Selected in this order:
+
+1. **The hosted sidecar (production).** A deployed policy pod gets no model
+   credentials of its own. The platform runs a per-pod proxy on loopback that
+   holds the real identity, and it speaks **OpenAI-compatible chat
+   completions**, served by OpenRouter. Selected when
+   ``AWS_ENDPOINT_URL_BEDROCK_RUNTIME`` is present.
+2. **Direct OpenRouter (dev/local).** Selected when ``OPENROUTER_API_KEY`` is
+   set and no sidecar endpoint is present.
+3. **Canned.** A fixed response, so the image is testable offline and in CI.
+   Forced by ``--canned``.
+
+The happy consequence of (1) and (2) speaking the same protocol: they are the
+*same client class* with a different URL and a different auth header. Only the
+opt-in Bedrock fallback below needs its own code path.
+
+Everything uses ``urllib`` from the standard library, so the image needs no HTTP
+or cloud SDK dependency.
 
 The model is never trusted: :mod:`poc_policy` re-validates and repairs whatever
-comes back before any of it reaches the wire, and the server's call validator
-is the final oracle.
+comes back before any of it reaches the wire, and the server's call validator is
+the final oracle.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+# ── The hosted-platform contract ──────────────────────────────────────────
+# Verified against the metta checkout at commit 9e780b9ff7, plus a read of
+# production (`coworld leagues`) on 2026-08-31.
+#
+# ROUTING IS OPENROUTER, GLOBALLY. devops/app-manifests/values.yaml sets
+# `coworldOpenRouterRouting.enabled: true` with `episodePercent: 100` (a
+# James-authorized ramp to 100% on 2026-08-29 01:08Z, with the full ramp log in
+# that file's comments). Assignment is a deterministic per-episode hash gated by
+# that percent, so at 100% every new episode is routed to OpenRouter. It is NOT
+# a per-league setting: `LeagueSettings`
+# (app_backend/src/metta/app_backend/v2/league_settings_schema.py:158) has no
+# routing field, and the only per-league LLM knob is
+# `settings.llm.player_model_allowlist` (:139-146).
+#
+# The chart default in devops/charts/observatory-backend/values.yaml says
+# `enabled: false, episodePercent: 0`. That is the UNCONFIGURED default, marked
+# "Keep disabled with zero percent until a separately reviewed rollout" — it is
+# not what production runs. Reading it as production is a mistake this file
+# previously made.
+SIDECAR_ENDPOINT_ENV = "AWS_ENDPOINT_URL_BEDROCK_RUNTIME"
+"""Presence of this is THE signal that the hosted LLM proxy is available.
 
-DEFAULT_MODEL = "qwen/qwen3-30b-a3b-instruct-2507"
-"""A cheap, capable open-weights instruct model with reliable JSON mode.
-
-Any OpenRouter model id works via ``--model``; this one is the PoC default
-because it is inexpensive (well under $0.10 per million prompt tokens), open
-weights, and follows ``response_format: json_object`` consistently.
+The name is historical -- the sidecar began as a Bedrock proxy and kept the env
+var when OpenRouter routing became the serving path -- so do not read it as
+"Bedrock only". Gate on this rather than ``USE_BEDROCK``, which is also set for
+direct local AWS access with no sidecar in front of it.
 """
 
-# The playbook the harness carries. Params are described to the model exactly
-# as the reference manifests declare them
-# (tests/fixtures/shell/manifest_edge_ride.golden.json and manifest_pact.golden.json)
-# so the model has the same contract the server validates against.
+SIDECAR_MODEL_ENV = "BEDROCK_MODEL"
+"""Set from the ``--bedrock-model`` upload flag. Must be read, never hardcoded.
+
+The sidecar resolves whatever string arrives through its legacy-id alias table
+to a canonical OpenRouter slug, then checks it against the model allowlist
+(``resolve_model``,
+app_backend/src/metta/app_backend/job_runner/llm_sidecar.py:260-268), so both a
+legacy Bedrock id and a canonical ``vendor/model`` slug are accepted.
+"""
+
+SIDECAR_PROTOCOL_ENV = "POC_LLM_PROTOCOL"
+"""Escape hatch: set to ``bedrock`` to use the legacy InvokeModel path instead."""
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+ANTHROPIC_BEDROCK_VERSION = "bedrock-2023-05-31"
+
+DEFAULT_MODEL = "qwen/qwen3-30b-a3b-instruct-2507"
+"""The dev-path default: a cheap, capable open-weights model with JSON mode.
+
+Only used on the direct-OpenRouter path. On the sidecar path the model comes
+from ``BEDROCK_MODEL`` and must be on the platform's allowlist (which carries
+`anthropic/claude-haiku-4.5` and `anthropic/claude-sonnet-4.5`, among others).
+"""
+
+
 PLAYBOOK_BRIEF = """\
 Your playbook has exactly two plays, both already uploaded to the server.
 
@@ -138,16 +191,46 @@ class CannedBrain:
         }
 
 
-class OpenRouterBrain:
-    """One JSON-mode chat completion per decision."""
+class OpenAiChatBrain:
+    """One JSON-mode chat completion, OpenAI-compatible.
 
-    def __init__(self, api_key: str, model: str = DEFAULT_MODEL,
-                 timeout: float = 60.0) -> None:
-        self.api_key = api_key
+    This single class serves BOTH the production and dev paths, because they
+    speak the same protocol:
+
+    * hosted -- ``POST $AWS_ENDPOINT_URL_BEDROCK_RUNTIME/v1/chat/completions``
+      with **no** ``Authorization`` header. The sidecar holds the real
+      credential and attributes the call to this pod's own player slot.
+    * dev    -- ``POST https://openrouter.ai/api/v1/chat/completions`` with your
+      own bearer key.
+
+    Notes on the hosted path specifically:
+
+    * ``X-Coworld-Player-Slot`` is deliberately NOT sent. On a player pod the
+      sidecar defaults attribution to that pod's own slot, and a value that
+      disagrees with it is rejected outright
+      (``_resolve_request_attribution``, bedrock_sidecar.py:1387-1404). Sending
+      nothing is both correct and safer.
+    * Calls are rate limited per player slot. A 429 carries
+      ``Retry-After`` / ``Retry-After-Ms``, which this honours once.
+    * Every call is timeout-bounded: a slow call times the whole episode out,
+      which scores as a loss.
+    """
+
+    def __init__(self, url: str, model: str, api_key: str | None = None,
+                 label: str | None = None, timeout: float = 30.0) -> None:
+        self.url = url
         self.model = model
-        self.name = model
+        self.api_key = api_key
+        self.name = label or model
         self.timeout = timeout
         self.calls = 0
+
+    def _headers(self) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["X-Title"] = "coworld-ctf poc_llm_policy"
+        return headers
 
     def decide(self, summary: str) -> dict:
         body = json.dumps({
@@ -160,41 +243,169 @@ class OpenRouterBrain:
                 {"role": "user", "content": summary},
             ],
         }).encode("utf-8")
-        request = urllib.request.Request(
-            OPENROUTER_URL,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                # OpenRouter attribution headers; harmless if unset upstream.
-                "X-Title": "coworld-ctf poc_llm_policy",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", "replace")[:400]
-            raise BrainError(f"OpenRouter HTTP {error.code}: {detail}") from error
-        except urllib.error.URLError as error:
-            raise BrainError(f"OpenRouter unreachable: {error.reason}") from error
+
+        for attempt in (0, 1):
+            request = urllib.request.Request(
+                self.url, data=body, headers=self._headers(), method="POST")
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                # Log the RESPONSE BODY, not just the status: it names whether
+                # the failure was the route, the auth, the model allowlist, or
+                # the spend cap. A bot that logs only "HTTP 4xx" hides which.
+                detail = error.read().decode("utf-8", "replace")[:400]
+                if error.code == 429 and attempt == 0:
+                    delay = _retry_delay(error.headers)
+                    print(f"[poc] rate limited; retrying in {delay:.1f}s ({detail})",
+                          flush=True)
+                    time.sleep(delay)
+                    continue
+                raise BrainError(
+                    f"chat completions HTTP {error.code} at {self.url}: {detail}"
+                ) from error
+            except urllib.error.URLError as error:
+                raise BrainError(
+                    f"chat completions unreachable at {self.url}: {error.reason}"
+                ) from error
+        else:
+            raise BrainError("stayed rate limited")
+
         self.calls += 1
         try:
             content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as error:
-            raise BrainError(f"unexpected OpenRouter response: {payload}") from error
+            raise BrainError(f"unexpected completion response: {payload}") from error
         try:
             return json.loads(content)
         except json.JSONDecodeError as error:
             raise BrainError(f"model did not return JSON: {content[:400]}") from error
 
 
+class BedrockInvokeBrain:
+    """OPT-IN FALLBACK ONLY -- the legacy Bedrock Runtime `InvokeModel` path.
+
+    James states that OpenRouter routing is the production truth: the sidecar's
+    OpenAI-compatible route is the live path, and production runs
+    `episodePercent: 100`. This class is kept only because the sidecar still
+    accepts the Bedrock shapes, so it is a usable escape hatch if the
+    OpenAI-compatible route ever misbehaves for a specific model.
+
+    It is NOT load-bearing and is never auto-selected. Turn it on deliberately
+    with ``POC_LLM_PROTOCOL=bedrock``.
+
+    Shape: ``POST {endpoint}/model/{model}/invoke`` with an Anthropic Messages
+    body and no ``Authorization`` header. There is no ``response_format`` here,
+    so JSON is forced by prefilling the assistant turn with ``{``.
+    ``requestMetadata`` is deliberately never set -- the sidecar overwrites it
+    with trusted attribution.
+    """
+
+    def __init__(self, endpoint: str, model: str, timeout: float = 30.0) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.model = model
+        self.name = f"bedrock-invoke {model}"
+        self.timeout = timeout
+        self.calls = 0
+
+    @property
+    def url(self) -> str:
+        return f"{self.endpoint}/model/{self.model}/invoke"
+
+    def decide(self, summary: str) -> dict:
+        body = json.dumps({
+            "anthropic_version": ANTHROPIC_BEDROCK_VERSION,
+            "max_tokens": 600,
+            "temperature": 0.4,
+            "system": SYSTEM_PROMPT,
+            "messages": [
+                {"role": "user", "content": summary},
+                {"role": "assistant", "content": "{"},
+            ],
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            self.url, data=body,
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:400]
+            raise BrainError(
+                f"InvokeModel HTTP {error.code} at {self.url}: {detail}") from error
+        except urllib.error.URLError as error:
+            raise BrainError(
+                f"InvokeModel unreachable at {self.url}: {error.reason}") from error
+        self.calls += 1
+        try:
+            text = "".join(block.get("text", "") for block in payload["content"]
+                           if block.get("type") == "text")
+        except (KeyError, TypeError) as error:
+            raise BrainError(f"unexpected InvokeModel response: {payload}") from error
+        text = "{" + text
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as error:
+            raise BrainError(f"model did not return JSON: {text[:400]}") from error
+
+
+def _retry_delay(headers, default: float = 2.0) -> float:
+    """Honour the proxy's throttling hint. `Retry-After-Ms` wins if present."""
+    milliseconds = headers.get("Retry-After-Ms")
+    if milliseconds:
+        try:
+            return max(0.0, float(milliseconds) / 1000.0)
+        except ValueError:
+            pass
+    seconds = headers.get("Retry-After")
+    if seconds:
+        try:
+            return max(0.0, float(seconds))
+        except ValueError:
+            pass
+    return default
+
+
 def build_brain(canned: bool, model: str) -> tuple[object, str]:
-    """Pick a backend and report why, so the run log is unambiguous."""
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    """Pick a backend and report why, so the run log is unambiguous.
+
+    Order is production-first: the hosted sidecar, then a developer's own
+    OpenRouter key, then canned. `--canned` overrides everything so an offline
+    or CI run is never at the mercy of ambient environment.
+    """
     if canned:
         return CannedBrain(), "canned mode requested"
-    if not key:
-        return CannedBrain(), "OPENROUTER_API_KEY is not set; falling back to canned"
-    return OpenRouterBrain(key, model), f"OpenRouter model {model}"
+
+    endpoint = os.environ.get(SIDECAR_ENDPOINT_ENV, "").strip()
+    if endpoint:
+        sidecar_model = os.environ.get(SIDECAR_MODEL_ENV, "").strip()
+        if not sidecar_model:
+            # Falling back silently here is the documented way to score zero
+            # completed episodes without noticing, so refuse loudly instead.
+            raise BrainError(
+                f"{SIDECAR_ENDPOINT_ENV} is set but {SIDECAR_MODEL_ENV} is not. "
+                "Upload the policy with --bedrock-model, and read the model "
+                "from that variable rather than hardcoding one.")
+        if os.environ.get(SIDECAR_PROTOCOL_ENV, "").strip().lower() == "bedrock":
+            return (BedrockInvokeBrain(endpoint, sidecar_model),
+                    f"hosted sidecar at {endpoint}, legacy InvokeModel path "
+                    f"({SIDECAR_PROTOCOL_ENV}=bedrock)")
+        return (OpenAiChatBrain(
+                    f"{endpoint.rstrip('/')}/v1/chat/completions",
+                    sidecar_model,
+                    label=f"sidecar-openai {sidecar_model}"),
+                f"hosted sidecar at {endpoint}, OpenAI-compatible chat "
+                f"completions ({SIDECAR_MODEL_ENV}={sidecar_model})")
+
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if key:
+        return (OpenAiChatBrain(OPENROUTER_URL, model, api_key=key,
+                                label=model),
+                f"direct OpenRouter, model {model} (dev path)")
+
+    return CannedBrain(), (
+        f"neither {SIDECAR_ENDPOINT_ENV} nor OPENROUTER_API_KEY is set; "
+        "falling back to canned")

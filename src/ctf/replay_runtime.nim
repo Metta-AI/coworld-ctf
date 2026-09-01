@@ -11,8 +11,9 @@ type
     player*: ReplayPlayer
     tracker*: BroadcastTracker
 
-proc initReplayRuntime*(
+proc initReplayRuntimeWithPlayer(
   data: ReplayData,
+  replayPlayer: sink ReplayPlayer,
   mismatchQuit: bool,
   gameEventLoggingEnabled = true
 ): InitializedReplay =
@@ -21,7 +22,7 @@ proc initReplayRuntime*(
   result.config.update(data.configJson)
   result.sim = initSimServer(result.config)
   result.sim.gameEventLoggingEnabled = gameEventLoggingEnabled
-  result.player = initReplayPlayer(data)
+  result.player = move(replayPlayer)
   result.player.mismatchQuit = mismatchQuit
   # The whole-match precompute walk (seek keyframes, momentum series, story
   # beats, lull spans) used to run synchronously HERE — seconds of black
@@ -47,6 +48,22 @@ proc initReplayRuntime*(
   result.player.seekReplay(result.sim, result.player.replayStartTick())
   result.player.playing = true
   result.tracker = initBroadcastTracker()
+
+proc initReplayRuntime*(
+  data: ReplayData,
+  mismatchQuit: bool,
+  gameEventLoggingEnabled = true
+): InitializedReplay =
+  initReplayRuntimeWithPlayer(
+    data, initReplayPlayer(data), mismatchQuit, gameEventLoggingEnabled)
+
+proc initReplayRuntime*(
+  data: CtfReplayData,
+  mismatchQuit: bool,
+  gameEventLoggingEnabled = true
+): InitializedReplay =
+  initReplayRuntimeWithPlayer(
+    data.replay, initReplayPlayer(data), mismatchQuit, gameEventLoggingEnabled)
 
 proc advanceReplayFrame*(
   replay: var ReplayPlayer,

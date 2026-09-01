@@ -294,6 +294,8 @@ proc dangerProof() =
                                    pathDanger: float,
                                    sources: seq[int]] =
     var episode = initFirstLightEpisode(true, true, @[scPlay], map, 32)
+    defer:
+      episode.closeFirstLightEpisode()
     var pos = start
     for tick in 1 .. 160:
       let output = episode.step([
@@ -324,6 +326,8 @@ proc dangerProof() =
 proc reflexProofAndTiming() =
   let map = firstLightFixedMap()
   var episode = initFirstLightEpisode(true, true, controls(), map, 331)
+  defer:
+    episode.closeFirstLightEpisode()
   episode.configureAllSeatEdgeRide()
   var positions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
@@ -374,6 +378,8 @@ proc main() =
   let moduleSizePass = moduleSizeProof()
 
   var telemetry = initFirstLightEpisode(true, true, controls(), map, 331)
+  defer:
+    telemetry.closeFirstLightEpisode()
   telemetry.configureDemoPlay()
   var telemetryPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
@@ -391,6 +397,8 @@ proc main() =
 
   let moveMap = movementProbeMap()
   var movement = initFirstLightEpisode(true, true, controls(), moveMap, 331)
+  defer:
+    movement.closeFirstLightEpisode()
   var movementPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
     movementPositions[seat] = (10 + seat, 10)
@@ -407,6 +415,8 @@ proc main() =
   reflexProofAndTiming()
 
   var measured = initFirstLightEpisode(true, true, controls(), moveMap, 331)
+  defer:
+    measured.closeFirstLightEpisode()
   measured.configureAllSeatEdgeRide()
   var measuredPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:

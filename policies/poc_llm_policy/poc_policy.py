@@ -218,6 +218,7 @@ class PlaySeat:
         self.next_upload_id = 1
         self.next_proposal_id = 1
         self.ack_mark = 0
+        self.highest_ordinal = 0
         self.context = None
         self.control_context = None
         self.statuses: list[dict] = []
@@ -228,14 +229,18 @@ class PlaySeat:
         self.connection.send(payload)
 
     def pump(self) -> None:
-        """Advance the server's per-tick window for this seat.
+        """Acknowledge the highest status ordinal actually received.
 
-        The StatusAck mark is a nondecreasing high-water acknowledgement, so a
-        bumped mark each time is both a legal ack and the PoC server's tick
-        pump.
+        The StatusAck mark is a nondecreasing high-water acknowledgement of
+        consumed statuses. The production server refuses a mark beyond what it
+        has delivered (``status_ack_out_of_range``), so acking ordinals we have
+        not seen — the old "tick pump" trick that worked against the PoC glue
+        server — is a protocol violation, and an unacked backlog is simply
+        redelivered. Ack exactly what we have consumed, only when it advances.
         """
-        self.ack_mark += 1
-        self.send(wire.encode_status_ack(self.ack_mark))
+        if self.highest_ordinal > self.ack_mark:
+            self.ack_mark = self.highest_ordinal
+            self.send(wire.encode_status_ack(self.ack_mark))
 
     def drain(self, seconds: float) -> None:
         """Read for `seconds`, filing every shell packet the server sends."""
@@ -266,6 +271,11 @@ class PlaySeat:
             control = json.loads(packet["control"])
             for status in control.get("statuses", []):
                 self.statuses.append(status)
+                try:
+                    ordinal = int(status.get("ordinal", "0"))
+                except ValueError:
+                    ordinal = 0
+                self.highest_ordinal = max(self.highest_ordinal, ordinal)
                 log(f"0xB1 status: {json.dumps(status, sort_keys=True)}")
         elif kind == "lobby_chat":
             self.chat.append(packet)
@@ -341,8 +351,14 @@ class PlaySeat:
         return outcome
 
 
-def summarize(seat: PlaySeat, phase: str) -> str:
-    """The tiny text summary the model reasons over."""
+def summarize(seat: PlaySeat, phase: str, standing: bytes | None = None) -> str:
+    """The tiny text summary the model reasons over.
+
+    `standing` is the ladder currently in force. Without it the second turn is
+    a fresh decision rather than a revision, and a model handed the same map
+    facts twice will simply repeat itself -- which is exactly what the first
+    live run did.
+    """
     context = seat.context or {}
     game_map = context.get("map", {})
     roster = context.get("roster", [])
@@ -360,6 +376,12 @@ def summarize(seat: PlaySeat, phase: str) -> str:
     partner = context.get("self", {}).get("duo_partner")
     if partner is not None:
         lines.append(f"Your duo partner is seat {partner}.")
+    if standing is not None:
+        lines.append("")
+        lines.append("The ladder you already have in force is:")
+        lines.append(standing.decode("utf-8"))
+        lines.append("Re-call only what you would actually change, and say in "
+                     "one line what changed and why.")
     return "\n".join(lines)
 
 
@@ -430,7 +452,7 @@ def run(args) -> int:
             seat.drain(0.3)
 
         # (5) The opening call.
-        payload, entries = build_call(decision)
+        payload, _ = build_call(decision)
         opening = seat.call(payload, "opening call")
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("opening call was not accepted")
@@ -442,7 +464,8 @@ def run(args) -> int:
             seat.pump()
             seat.drain(0.5)
 
-        summary = summarize(seat, "mid-match, the zone is closing")
+        summary = summarize(seat, "mid-match, the zone is closing",
+                            standing=payload)
         log("model input:\n" + summary)
         decision = engine.decide(summary)
         log(f"model output: {json.dumps(decision, sort_keys=True)}")
@@ -450,7 +473,7 @@ def run(args) -> int:
         recall_text = str(decision.get("chat", "")).strip()
         if recall_text:
             seat.send(wire.encode_lobby_chat(recall_text))
-        payload, entries = build_call(decision)
+        payload, _ = build_call(decision)
         recall = seat.call(payload, "mid-match re-call")
         if recall is None or recall["kind"] != "call_accepted":
             failures.append("mid-match re-call was not accepted")
