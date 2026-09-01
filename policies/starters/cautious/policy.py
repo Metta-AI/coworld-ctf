@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""The CAUTIOUS starter policy: survives, rides wide margins, calls rarely.
+
+Harness deltas (the code that makes this seat behave unlike the other two):
+
+* ONE re-call, held long -- fewest model turns of the three; between calls
+  the seat simply rides its standing ladder,
+* ``adjust_entries`` clamps every edge_ride toward the safe end (margin
+  floored at 280, early enterLead, high coverBias) and fills any parameter
+  the model omitted with a conservative default instead of the play's own --
+  whatever the model asked for, this seat plays it safe,
+* any pact is softened to ``onBetrayal: disengage`` -- never trade shots.
+"""
+
+from __future__ import annotations
+
+import pathlib
+import sys
+
+_HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE.parent / "common"))
+
+import starter_harness  # noqa: E402
+from starter_harness import Persona  # noqa: E402
+
+# The safe-end clamps and defaults. build_call has already range-checked the
+# values, so these only ever NARROW toward the cautious corner of each range.
+MIN_MARGIN = 280
+MIN_ENTER_LEAD = 220
+MIN_COVER_BIAS = 0.8
+SAFE_DEFAULTS = {"margin": 340, "enterLead": 280, "coverBias": 0.9}
+
+
+def adjust_entries(entries, context, view):
+    for entry in entries:
+        params = entry.setdefault("params", {})
+        if entry.get("play") == "edge_ride":
+            for key, value in SAFE_DEFAULTS.items():
+                params.setdefault(key, value)
+            params["margin"] = max(int(params["margin"]), MIN_MARGIN)
+            params["enterLead"] = max(int(params["enterLead"]),
+                                      MIN_ENTER_LEAD)
+            params["coverBias"] = max(float(params["coverBias"]),
+                                      MIN_COVER_BIAS)
+        elif entry.get("play") == "pact":
+            # Never trade shots, not even with a betrayer.
+            params["onBetrayal"] = "disengage"
+    return entries
+
+
+PERSONA = Persona(
+    name="cautious",
+    prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
+    play_notes={
+        "edge_ride": ("edge_ride is your whole game: margin 280 or wider, "
+                      "enterLead 220 or more, coverBias 0.8+. Rotate early, "
+                      "arrive first, sit in cover."),
+        "pact": ("accept a pact when it reduces threats; onBetrayal is "
+                 "always disengage."),
+        # Notes for plays lane C has not landed yet; each activates
+        # automatically once its module is baked and plays.py knows it.
+        "supply_run": ("supply_run the moment your hp is below 60: wide "
+                       "detourMax, and always avoid contested items."),
+        "bodyguard": ("bodyguard only for a partner already in a pact, and "
+                      "only from cover -- never interpose."),
+        "target_law": ("target_law: a long never-list and a hold trigger; "
+                       "the first shot is a commitment you rarely want."),
+    },
+    canned_turns=[
+        {
+            "chat": "No heroes over here. Riding the wide line, "
+                    "cover to cover. Good luck all.",
+            "call": {"entries": [
+                {"play": "edge_ride", "entry_id": "shelter",
+                 "params": {"margin": 420, "enterLead": 320,
+                            "coverBias": 1.0}},
+            ]},
+        },
+        {
+            "chat": "Holding my corridor. Moving only when the zone "
+                    "says so.",
+            "call": {"entries": [
+                {"play": "edge_ride", "entry_id": "shelter",
+                 "params": {"margin": 340, "enterLead": 300,
+                            "coverBias": 1.0}},
+            ]},
+        },
+    ],
+    recall_count=1,
+    recall_seconds=14.0,
+    adjust_entries=adjust_entries,
+)
+
+if __name__ == "__main__":
+    sys.exit(starter_harness.main(PERSONA))
