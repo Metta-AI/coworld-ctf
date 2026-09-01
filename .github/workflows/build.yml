@@ -124,6 +124,9 @@ jobs:
       # this only makes the test build match production instead of
       # exercising a riskier allocator config production never ships.
       - name: Compile test shards (release)
+        # WASMTIME_C_API is job-wide, so every shard that reaches episode.nim
+        # imports the wasmtime runtime — not just shard 2. Same flags as
+        # `nim check` above.
         run: |
           for i in 1 2 3 4; do
             nim c -d:release --hints:off -d:noSignalHandler --threads:on \
