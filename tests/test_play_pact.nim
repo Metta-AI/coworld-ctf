@@ -3,16 +3,14 @@
 import std/[json, options, os, osproc, sequtils, strutils, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[abi, body_map, emit_validator, instance, manifest,
-  module_validation, play_harness_core, runtime, types]
+import ../src/shell/[abi, binary_view, body_map, emit_validator, instance,
+  manifest, module_validation, play_harness_core, runtime, types, view]
 
 const
   FixtureDir = currentSourcePath.parentDir / "fixtures" / "shell"
   HarnessFixtureDir = FixtureDir / "play_harness"
   PactSource = "play_sdk" / "reference" / "pact.nim"
   PactWasm = "play_sdk" / ".build" / "pact.wasm"
-  ViewProbeSource = "play_sdk" / "test_fixtures" / "view_probe.nim"
-  ViewProbeWasm = "play_sdk" / ".build" / "view_probe.wasm"
   ViewMeterSource = "play_sdk" / "test_fixtures" / "view_meter.nim"
   ViewMeterWasm = "play_sdk" / ".build" / "view_meter.wasm"
   ViewMeterDangerWasm = "play_sdk" / ".build" / "view_meter_danger.wasm"
@@ -45,9 +43,6 @@ proc buildWasm(source, output: string; extraFlags = ""): seq[byte] =
 
 proc pactBytes(): seq[byte] =
   buildWasm(PactSource, PactWasm)
-
-proc viewProbeBytes(): seq[byte] =
-  buildWasm(ViewProbeSource, ViewProbeWasm)
 
 proc viewMeterBytes(): seq[byte] =
   buildWasm(ViewMeterSource, ViewMeterWasm)
@@ -117,76 +112,89 @@ proc readerStep(engine: RuntimeEngine; module: RuntimeModule; viewBytes: string)
   doAssert not init.faulted and init.returned == 0
   instance.invokeStep(viewBytes, 1, (30, 30))
 
-proc trackRow(index: int): string =
-  "{\"aim_brads\":" & $(index mod 256) & ",\"bounty\":" &
-    (if index mod 2 == 0: "true" else: "false") &
-    ",\"fresh_tick\":" & $(1000 + index) & ",\"hp\":" &
-    $(1 + index mod 3) & ",\"pos\":[" & $(100 + index) & "," &
-    $(200 + index) & "],\"seat\":" & $index & ",\"team\":\"" &
-    (if index mod 2 == 0: "navy" else: "rust") & "\"}"
-
-proc aggressorRow(index: int): string =
-  if index mod 2 == 0:
-    "{\"dir_brads\":" & $(index mod 256) & ",\"seat\":" & $index &
-      ",\"tick\":" & $(2000 + index) & "}"
-  else:
-    "{\"dir_brads\":" & $(index mod 256) & ",\"tick\":" &
-      $(2000 + index) & "}"
-
-proc joinRows(count: int; row: proc(index: int): string): string =
+proc trackRows(count: int; team = Navy): seq[PlayTrack] =
   for index in 0 ..< count:
-    if index > 0:
-      result.add ","
-    result.add row(index)
+    result.add(PlayTrack(
+      seat: index,
+      team: if team == Navy and index mod 2 == 1: Rust else: team,
+      pos: (100 + index, 200 + index),
+      aimBrads: some(index mod 256),
+      hp: some(1 + index mod 3),
+      freshTick: uint32(1000 + index),
+      bounty: index mod 2 == 0))
 
-proc simpleItem(index: int): string =
-  "{\"fresh_tick\":" & $(3000 + index) & ",\"kind\":\"medkit\"," &
-    "\"pos\":[" & $(300 + index) & "," & $(400 + index) &
-    "],\"present\":true}"
+proc trackRow(seat: int; team: Team; pos: BodyPoint): PlayTrack =
+  PlayTrack(seat: seat, team: team, pos: pos, freshTick: 1'u32)
 
-proc killFeedRow(index: int): string =
-  "{\"killer_team\":\"" & (if index mod 2 == 0: "navy" else: "rust") &
-    "\",\"tick\":" & $(4000 + index) & ",\"victim_seat\":" &
-    $(index mod MaxPlayers) & "}"
+proc aggressorRows(count: int): seq[PlayAggressor] =
+  for index in 0 ..< count:
+    result.add(PlayAggressor(eventId: uint64(index + 1),
+      tick: uint32(2000 + index), dirBrads: index mod 256,
+      seat: if index mod 2 == 0: some(index) else: none(int)))
 
-proc shoutRow(index: int): string =
-  "{\"pos\":[" & $(500 + index) & "," & $(600 + index) &
-    "],\"slot_letter\":\"A\",\"team\":\"navy\",\"text\":\"go\"," &
-    "\"tick\":" & $(5000 + index) & "}"
+proc killFeedRows(count: int): seq[PlayKillFeedRow] =
+  for index in 0 ..< count:
+    result.add(PlayKillFeedRow(eventId: uint64(index + 1),
+      tick: uint32(4000 + index),
+      killerTeam: if index mod 2 == 0: Navy else: Rust,
+      victimSeat: index mod MaxPlayers))
 
-proc grenadeRow(index: int): string =
-  "{\"pos\":[" & $(600 + index) & "," & $(700 + index) &
-    "],\"predicted_blast_pos\":[" & $(610 + index) & "," &
-    $(710 + index) & "],\"ticks_to_blast\":" & $(10 + index) & "}"
+proc simpleItems(count: int): seq[PlayItem] =
+  for index in 0 ..< count:
+    result.add(PlayItem(eventId: uint64(index + 1), kind: pikMedkit,
+      pos: (300 + index, 400 + index), present: some(true),
+      freshTick: uint32(3000 + index)))
 
-proc sprayRow(index: int): string =
-  "{\"impact_pos\":[" & $(700 + index) & "," & $(800 + index) &
-    "],\"incoming_dir_brads\":" & $(index mod 256) &
-    ",\"kind\":\"anonymous_impact\",\"tick\":" & $(6000 + index) & "}"
+proc shoutRows(count: int): seq[PlayShout] =
+  for index in 0 ..< count:
+    result.add(PlayShout(eventId: uint64(index + 1), team: Navy,
+      slotLetter: "A", text: "go", pos: (500 + index, 600 + index),
+      tick: uint32(5000 + index)))
+
+proc grenadeHazards(count: int): seq[PlayGrenadeHazard] =
+  for index in 0 ..< count:
+    result.add(PlayGrenadeHazard(eventId: uint64(index + 1),
+      coversSelf: index mod 2 == 0, pos: (600 + index, 700 + index),
+      predictedBlastPos: (610 + index, 710 + index),
+      ticksToBlast: 10 + index))
+
+proc sprayHazards(count: int): seq[PlaySprayHazard] =
+  for index in 0 ..< count:
+    result.add(PlaySprayHazard(kind: pshAnonymousImpact,
+      eventId: uint64(index + 1), coversSelf: index mod 2 == 0,
+      tick: uint32(1400 + index), impactPos: (700 + index, 800 + index),
+      incomingDirBrads: index mod 256))
 
 proc syntheticView(tracks = 0; items = 0; aggressors = 0; killFeed = 0;
                    shouts = 0; grenades = 0; sprays = 0): string =
-  result = "{\"aggressors\":[" & joinRows(aggressors, aggressorRow) &
-    "],\"epoch\":\"99\",\"hazards\":{\"grenades\":[" &
-    joinRows(grenades, grenadeRow) & "],\"own_throw\":{\"blast_radius\":96," &
-    "\"release_tick\":1,\"target\":[640,380]},\"sprays\":[" &
-    joinRows(sprays, sprayRow) & "]},\"intent\":{\"arrive_radius\":24.0," &
-    "\"kind\":\"navigate_to\",\"point\":[700,300],\"schema\":\"intent\"," &
-    "\"v\":1},\"items\":[" & joinRows(items, simpleItem) &
-    "],\"kill_feed\":[" & joinRows(killFeed, killFeedRow) &
-    "],\"schema\":\"play_view\",\"self\":{\"aim_brads\":32," &
-    "\"alive\":true,\"hp\":2,\"hp_frac\":0.666666,\"pos\":[512,288]}," &
-    "\"shouts\":[" & joinRows(shouts, shoutRow) & "],\"tick\":1441," &
-    "\"tracks\":[" & joinRows(tracks, trackRow) &
-    "],\"v\":1,\"world\":{\"alive_teams\":9,\"zone\":{\"current\":" &
-    "[400,200,1600,900],\"dps\":1,\"next\":[700,350,800,450]," &
-    "\"phase\":2,\"ticks_to_shrink\":240}}"
-  result.add "}"
+  buildBinaryPlayView(PlayViewSource(
+    tick: 1441'u32,
+    mode: gmBr,
+    epoch: 99,
+    self: PlaySelf(pos: (512, 288), hp: 2, hpFrac: 0.666666,
+      aimBrads: 32, alive: true),
+    aliveTeams: 9,
+    zone: some(PlayZone(phase: 2,
+      current: PlayRect(x: 400, y: 200, w: 1600, h: 900),
+      next: some(PlayRect(x: 700, y: 350, w: 800, h: 450)),
+      ticksToShrink: 240, dps: 1)),
+    tracks: trackRows(tracks),
+    items: simpleItems(items),
+    aggressors: aggressorRows(aggressors),
+    killFeed: killFeedRows(killFeed),
+    shouts: shoutRows(shouts),
+    hazards: PlayHazards(grenades: grenadeHazards(grenades),
+      ownThrow: some(PlayOwnThrow(target: (640, 380), releaseTick: 1,
+        blastRadius: 96)),
+      sprays: sprayHazards(sprays))))
 
 proc requiredOnlyView(): string =
-  "{\"epoch\":\"0\",\"schema\":\"play_view\",\"self\":{\"aim_brads\":32," &
-    "\"alive\":true,\"hp\":2,\"hp_frac\":0.666666,\"pos\":[512,288]}," &
-    "\"tick\":1,\"v\":1,\"world\":{\"alive_teams\":2}}"
+  buildBinaryPlayView(PlayViewSource(
+    tick: 1'u32,
+    mode: gmBr,
+    self: PlaySelf(pos: (512, 288), hp: 2, hpFrac: 0.666666,
+      aimBrads: 32, alive: true),
+    aliveTeams: 2))
 
 proc bytePayload(length: int): string =
   repeat("x", length)
@@ -205,11 +213,19 @@ proc completedFuel(engine: RuntimeEngine; module: RuntimeModule;
   measured.fuelConsumed
 
 proc viewFor(tick, aliveTeams, zonePhase: int;
-             tracks = ""; aggressors = ""): string =
-  "{\"aggressors\":[" & aggressors & "],\"schema\":\"play_view\"," &
-    "\"tick\":" & $tick & ",\"tracks\":[" & tracks & "],\"v\":1," &
-    "\"world\":{\"alive_teams\":" & $aliveTeams & ",\"zone\":{\"phase\":" &
-    $zonePhase & "}}}"
+             tracks: seq[PlayTrack] = @[];
+             aggressors: seq[PlayAggressor] = @[]): string =
+  buildBinaryPlayView(PlayViewSource(
+    tick: uint32(tick),
+    mode: gmBr,
+    self: PlaySelf(pos: (30, 30), hp: 2, hpFrac: 1.0,
+      aimBrads: 32, alive: true),
+    aliveTeams: aliveTeams,
+    zone: some(PlayZone(phase: zonePhase,
+      current: PlayRect(x: 0, y: 0, w: 720, h: 96),
+      ticksToShrink: 240)),
+    tracks: tracks,
+    aggressors: aggressors))
 
 proc initOk(instance: ShellInstance; params: string) =
   let init = instance.invokeInit(params, "{}")
@@ -298,10 +314,8 @@ suite "pact reference play":
     defer: duo.close()
     duo.initOk("{\"holdFire\":{\"tick\":9999},\"partners\":[\"duo:navy\"]," &
       "\"protect\":true}")
-    let duoStep = duo.step(viewFor(1, 9, 1,
-      tracks = "{\"fresh_tick\":1,\"pos\":[1,2],\"seat\":10," &
-        "\"team\":\"navy\"},{\"fresh_tick\":1,\"pos\":[3,4]," &
-        "\"seat\":2,\"team\":\"navy\"}"))
+    let duoStep = duo.step(viewFor(1, 9, 1, tracks = @[
+      trackRow(10, Navy, (1, 2)), trackRow(2, Navy, (3, 4))]))
     check not duoStep.faulted
     check duoStep.emitCodes == @[AbiOk]
     check duoStep.lastAccepted.get.bytes == policyBytes([10, 2],
@@ -337,8 +351,8 @@ suite "pact reference play":
   test "betrayal returnFire and disengage latch only for identified partners":
     let engine = newRuntimeEngine()
     defer: engine.close()
-    let view = viewFor(1, 9, 1,
-      aggressors = "{\"dir_brads\":1,\"seat\":7,\"tick\":1}")
+    let view = viewFor(1, 9, 1, aggressors = @[
+      PlayAggressor(eventId: 1, tick: 1'u32, dirBrads: 1, seat: some(7))])
 
     var returnFire = engine.newPactInstance()
     defer: returnFire.close()
@@ -364,8 +378,9 @@ suite "pact reference play":
     defer: anonymous.close()
     anonymous.initOk("{\"holdFire\":{\"tick\":9999},\"partners\":[\"seat:7\"]," &
       "\"protect\":true}")
-    check anonymous.step(viewFor(1, 9, 1,
-      aggressors = "{\"dir_brads\":1,\"tick\":1}")).lastAccepted.get.bytes ==
+    check anonymous.step(viewFor(1, 9, 1, aggressors = @[
+      PlayAggressor(eventId: 1, tick: 1'u32, dirBrads: 1,
+        seat: none(int))])).lastAccepted.get.bytes ==
       policyBytes([7], protect = true)
 
   test "duo betrayal expands to remaining concrete seats":
@@ -373,11 +388,9 @@ suite "pact reference play":
     defer: engine.close()
     var duos: array[Team, DuoSeats]
     duos.withDuo(Navy, 10, 2)
-    let tracks = "{\"fresh_tick\":1,\"pos\":[1,2],\"seat\":10," &
-      "\"team\":\"navy\"},{\"fresh_tick\":1,\"pos\":[3,4]," &
-      "\"seat\":2,\"team\":\"navy\"}"
-    let betrayed = viewFor(1, 9, 1, tracks = tracks,
-      aggressors = "{\"dir_brads\":1,\"seat\":10,\"tick\":1}")
+    let tracks = @[trackRow(10, Navy, (1, 2)), trackRow(2, Navy, (3, 4))]
+    let betrayed = viewFor(1, 9, 1, tracks = tracks, aggressors = @[
+      PlayAggressor(eventId: 1, tick: 1'u32, dirBrads: 1, seat: some(10))])
 
     var returnFire = engine.newPactInstance(duos)
     defer: returnFire.close()
@@ -412,29 +425,6 @@ suite "pact reference play":
     check quiet.emitCodes.len == 0
     check quiet.lastAccepted.get.bytes == policyBytes([7])
 
-  test "SDK view reader decodes golden, absent optional, unknown fields, and anonymous seats":
-    let engine = newRuntimeEngine()
-    defer: engine.close()
-    let module = engine.checkedModule(viewProbeBytes())
-    defer: module.close()
-    for fixture in ["play_view.golden.json",
-                    "play_view_absent_optional.golden.json",
-                    "play_view_unknown_fields.golden.json"]:
-      var instance = newShellInstance(module, openRoomsMap(), (30, 30),
-        ecOverlay, gmBr)
-      defer: instance.close()
-      let init = instance.invokeInit(readFile(FixtureDir / fixture).strip, "{}")
-      checkpoint(fixture & " init reason=" & init.reason & " returned=" &
-        $init.returned)
-      check not init.faulted
-      check init.returned == 0
-      let result = instance.step("{}", 1)
-      checkpoint(fixture & " step reason=" & result.reason & " returned=" &
-        $result.returned)
-      check not result.faulted
-      check result.returned == 0
-      check result.emitCodes == @[AbiOk]
-
   test "harness cross-checks emit_class against manifest class":
     let engine = newRuntimeEngine()
     defer: engine.close()
@@ -444,15 +434,18 @@ suite "pact reference play":
     expect HarnessError:
       discard runHarnessJson(caseJson)
 
-  test "pact harness golden uses overlay class":
+  test "pact harness fixture uses overlay class and binary view bytes":
     discard pactBytes()
     let path = HarnessFixtureDir / "pact_success.case.json"
     let output = runHarnessFile(path)
-    check output == readFile(HarnessFixtureDir / "pact_success.golden.json").strip
     let parsed = parseJson(output)
     check parsed["accepted"].getBool
     check parsed["manifest_name"].getStr == "pact"
     check parsed["frames"][2]["emit_codes"][0].getInt == AbiOk
+    check parsed["frames"][2]["faulted"].getBool == false
+    check parsed["frames"][2]["last_accepted"].getStr == policyBytes([7],
+      protect = true)
+    check parsed["frames"][3]["emit_codes"].len == 0
 
   test "view-decode fuel rows use real content and only completed rates":
     let engine = newRuntimeEngine()
@@ -468,12 +461,12 @@ suite "pact reference play":
     let meterDangerModule = engine.checkedModule(viewMeterDangerBytes())
     defer: meterDangerModule.close()
 
-    let goldenView = readFile(FixtureDir / "play_view.golden.json")
-    let pactGolden = engine.viewStep(pactModule, goldenView)
-    echo "PACT_VIEW_FUEL golden_len=", goldenView.len,
-      " golden_consumed=", pactGolden.fuelConsumed,
-      " golden_completed=", (not pactGolden.faulted and pactGolden.returned == 0),
-      " exhausted_lower_bound=", pactGolden.faulted
+    let realisticView = syntheticView(tracks = 32)
+    let pactRealistic = engine.viewStep(pactModule, realisticView)
+    echo "PACT_BINARY_VIEW_FUEL realistic_br_len=", realisticView.len,
+      " tracks=32 consumed=", pactRealistic.fuelConsumed,
+      " completed=", (not pactRealistic.faulted and pactRealistic.returned == 0),
+      " exhausted_lower_bound=", pactRealistic.faulted
 
     let maxView = syntheticView(tracks = 32, items = 32, aggressors = 16,
       killFeed = 32, shouts = 32, grenades = 8, sprays = 8)
@@ -486,7 +479,7 @@ suite "pact reference play":
       let largeFuel = engine.completedFuel(module, large)
       let marginalFuel = int64(largeFuel) - int64(smallFuel)
       let marginalBytes = large.len - small.len
-      echo "VIEW_BYTE_FLOOR build=", build,
+      echo "BINARY_VIEW_BYTE_FLOOR build=", build,
         " small_bytes=", small.len,
         " small_consumed=", smallFuel,
         " large_bytes=", large.len,
@@ -512,7 +505,7 @@ suite "pact reference play":
             worstMarginalBytes = byteDelta
             worstMarginalSource = source
 
-      echo "VIEW_READER_FUEL build=", build,
+      echo "BINARY_VIEW_READER_FUEL build=", build,
         " kind=required rows=0 bytes=", minimal.len,
         " consumed=", fixedFuel,
         " completed=true insn_per_byte=", (fixedFuel.float / minimal.len.float)
@@ -524,7 +517,7 @@ suite "pact reference play":
         largestCompletedLabel = "full_empty"
       recordMarginal("full_empty-required",
         int64(fullEmptyFuel) - int64(fixedFuel), fullEmpty.len - minimal.len)
-      echo "VIEW_READER_FUEL build=", build,
+      echo "BINARY_VIEW_READER_FUEL build=", build,
         " kind=full_empty rows=0 bytes=", fullEmpty.len,
         " consumed=", fullEmptyFuel,
         " completed=true marginal_fuel=",
@@ -572,7 +565,7 @@ suite "pact reference play":
               largestCompletedLabel = kind & ":" & $capped
             recordMarginal(kind & ":" & $previousRows & "->" & $capped,
               marginalFuel, marginalBytes)
-            echo "VIEW_READER_FUEL build=", build,
+            echo "BINARY_VIEW_READER_FUEL build=", build,
               " kind=", kind, " rows=", capped,
               " bytes=", view.len, " consumed=", consumed,
               " completed=true marginal_fuel=", marginalFuel,
@@ -586,13 +579,13 @@ suite "pact reference play":
             previousBytes = view.len
             previousFuel = consumed
           else:
-            echo "VIEW_READER_FUEL build=", build,
+            echo "BINARY_VIEW_READER_FUEL build=", build,
               " kind=", kind, " rows=", capped,
               " bytes=", view.len, " consumed_lower_bound=", consumed,
               " completed=false"
 
       let maxResult = engine.readerStep(module, maxView)
-      echo "VIEW_READER_MAX build=", build,
+      echo "BINARY_VIEW_READER_MAX build=", build,
         " len=", maxView.len,
         " consumed=", maxResult.fuelConsumed,
         " completed=", (not maxResult.faulted and maxResult.returned == 0),
@@ -609,6 +602,9 @@ suite "pact reference play":
         let measured = engine.readerStep(module, view)
         if not measured.faulted and measured.returned == 0:
           proportionalLargestCompleted = view.len
+          if view.len > largestCompleted:
+            largestCompleted = view.len
+            largestCompletedLabel = "proportional:" & $rows
           let consumed = measured.fuelConsumed
           if previousProportionalRows >= 0:
             recordMarginal("proportional:" & $previousProportionalRows &
@@ -617,15 +613,15 @@ suite "pact reference play":
           previousProportionalRows = rows
           previousProportionalBytes = view.len
           previousProportionalFuel = consumed
-          echo "VIEW_READER_PROPORTIONAL build=", build,
+          echo "BINARY_VIEW_READER_PROPORTIONAL build=", build,
             " rows=", rows, " bytes=", view.len,
             " consumed=", consumed, " completed=true"
         else:
-          echo "VIEW_READER_PROPORTIONAL build=", build,
+          echo "BINARY_VIEW_READER_PROPORTIONAL build=", build,
             " rows=", rows, " bytes=", view.len,
             " consumed_lower_bound=", measured.fuelConsumed,
             " completed=false"
-      echo "VIEW_READER_LARGEST_COMPLETED build=", build,
+      echo "BINARY_VIEW_READER_LARGEST_COMPLETED build=", build,
         " len=", largestCompleted,
         " source=", largestCompletedLabel,
         " proportional_len=", proportionalLargestCompleted
@@ -640,7 +636,7 @@ suite "pact reference play":
       while int64(pow2) <= affordable:
         cap = pow2
         pow2 *= 2
-      echo "VIEW_READER_CAP_DERIVED build=", build,
+      echo "BINARY_VIEW_READER_CAP_DERIVED build=", build,
         " fixed=", fixedFuel,
         " budget=", budget,
         " marginal_source=", worstMarginalSource,

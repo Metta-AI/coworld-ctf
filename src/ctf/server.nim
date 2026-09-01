@@ -2782,6 +2782,26 @@ proc ticksToNextZoneShrink(sim: SimServer, elapsedTicks: int): int =
     remaining -= phase.shrinkTicks
   high(int) div 4
 
+proc firstLightZonePhase(sim: SimServer, elapsedTicks: int): int =
+  if sim.config.zonePhases.len == 0:
+    return 0
+  var remaining = max(0, elapsedTicks)
+  for index, phase in sim.config.zonePhases:
+    if remaining < phase.waitTicks:
+      return index + 1
+    remaining -= phase.waitTicks
+    if remaining < phase.shrinkTicks or phase.shrinkTicks <= 0:
+      return index + 1
+    remaining -= phase.shrinkTicks
+  sim.config.zonePhases.len
+
+proc firstLightAliveTeams(sim: SimServer): int =
+  var seen: set[Team]
+  for player in sim.players:
+    if player.alive and player.team notin seen:
+      seen.incl(player.team)
+      inc result
+
 proc rectCenter(rect: MapRect): BodyPoint =
   (rect.x + rect.w div 2, rect.y + rect.h div 2)
 
@@ -2813,6 +2833,7 @@ proc firstLightFallbacks(sim: SimServer,
     currentZone: zone.cur,
     nextZone: zone.next,
     ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
+    zonePhase: sim.firstLightZonePhase(elapsed),
     zoneDps: zone.dps,
     idleAimCenterBrads: 0,
     rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
@@ -3931,6 +3952,7 @@ proc runServerLoop*(
               present: true,
               playing: sim.phase == Playing,
               alive: player.alive,
+              aliveTeams: sim.firstLightAliveTeams(),
               bodyInputs: bodyInputs,
               defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
           let firstLight = firstLightEpisode.step(
@@ -4031,6 +4053,7 @@ proc runServerLoop*(
               present: true,
               playing: false,
               alive: player.alive,
+              aliveTeams: sim.firstLightAliveTeams(),
               bodyInputs: BodyTickInputs(self: selfState),
               defaultFallbacks: sim.firstLightFallbacks(selfState.pos)))
           for annotation in firstLightEpisode.observeDeaths(

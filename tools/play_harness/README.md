@@ -13,7 +13,10 @@ tools/play_harness/play_harness tests/fixtures/shell/play_harness/hello_success.
 
 Case files are JSON objects with a `module` path and a `frames` list. Payload
 fields may be either strings containing exact bytes or JSON values, which the
-harness canonicalizes before invoking the guest.
+harness canonicalizes before invoking the guest. The exception is an object-form
+`view`: that is an authoring convenience, and the harness encodes it to the
+same fixed-layout binary `play_view` frame the server passes to `play_step`.
+String-form `view` values remain exact bytes.
 
 ```json
 {

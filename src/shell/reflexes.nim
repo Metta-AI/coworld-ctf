@@ -307,6 +307,20 @@ proc planFor(input: ReflexTickInput; kind: ReflexKind): PlanEscapeResult =
   of rkZoneEscape:
     input.planInput.planEscape(zoneScorer(input))
 
+proc profilePlanFor*(input: ReflexTickInput; kind: ReflexKind;
+                     stage: PlanEscapeProfileStage): PlanEscapeResult =
+  ## Measurement-only entry point used by the reflex budget tests. Production
+  ## callers stay on `planFor`/`selectReflex` so profiling timers do not affect
+  ## the runtime row.
+  case kind
+  of rkClearGrenade:
+    input.planInput.planEscapeThroughStage(grenadeScorer(input.triggeringGrenades),
+      stage)
+  of rkClearSpray:
+    input.planInput.planEscapeThroughStage(sprayScorer(input), stage)
+  of rkZoneEscape:
+    input.planInput.planEscapeThroughStage(zoneScorer(input), stage)
+
 proc selectReflex*(state: var ReflexSeatState; input: ReflexTickInput;
                    subscriptions: openArray[ReflexSubscription]):
     ReflexDecision =
