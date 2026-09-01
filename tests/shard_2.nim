@@ -24,6 +24,7 @@ import
   test_map_los,
   test_mapgen_styles,
   test_medkits,
+  test_pb_br_variant,
   test_pb_control,
   test_pb_directives,
   test_pb_manifest,
