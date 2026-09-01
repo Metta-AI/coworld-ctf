@@ -1047,7 +1047,20 @@ const
   DefaultPaintHealTicks* = 48   ## consecutive ticks on own paint per +1 hp.
   HillFlipThrottleTicks* = 12   ## min ticks between two `hillflip` beats, so a
                                 ## contested rim cannot flood the feed.
-  DefaultCogsPerTeam* = 4       ## cogs one seat commands (RED-alpha..delta).
+  DefaultCogsPerTeam* = 1       ## cogs one seat commands. Classic/BR variants
+                                ## never pin this field, so this default arms
+                                ## server.nim's `squadMode` for EVERY episode
+                                ## when it isn't 1 (`numAgents > 0 and
+                                ## cogsPerTeam > 1`); squadMode's socket loop
+                                ## then drives masks from the KOTH
+                                ## DecisionEngine and discards real seat
+                                ## input. Was 4 (b25ee144, 2026-08-25, landed
+                                ## with Paintball KOTH) -- every classic/BR
+                                ## episode since froze silently. Paintball
+                                ## KOTH pins `"cogsPerTeam": 4` explicitly in
+                                ## its own game_config (coworld_manifest_
+                                ## paintbot.json's "paintball" variant), so
+                                ## this default never reaches it.
   DefaultSprayDamage* = 1       ## hp per cone touch under the paintball loadout
                                 ## (the starter's SprayPaintDamage is 3): three
                                 ## touches tag a 3 hp cog out, which is what

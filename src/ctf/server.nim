@@ -3851,8 +3851,7 @@ proc runServerLoop*(
   # once they are all in, the server fills the rest of the squads with trusted
   # joins carrying only the cogs' ANONYMOUS aliases, and from then on every
   # actuator mask comes from the control layer rather than from a socket.
-  let squadMode = not replayLoaded and config.numAgents > 0 and
-    config.cogsPerTeam > 1
+  let squadMode = squadModeArmed(config, replayLoaded)
   var
     engine =
       if squadMode: initDecisionEngine(sim) else: DecisionEngine()

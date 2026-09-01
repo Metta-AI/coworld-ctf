@@ -736,6 +736,19 @@ proc hasPlaySeat*(config: GameConfig): bool =
       return true
   false
 
+proc squadModeArmed*(config: GameConfig, replayLoaded: bool): bool =
+  ## True exactly when server.nim arms paintball squad mode: the socket
+  ## loop stops reading real seat input and drives every mask from the
+  ## KOTH DecisionEngine instead. Only Paintball KOTH wants this (it pins
+  ## `cogsPerTeam: 4` explicitly in coworld_manifest_paintbot.json's
+  ## "paintball" variant); every classic/BR variant leaves `cogsPerTeam`
+  ## unset and must get `false` here, which is why the field's default
+  ## (`DefaultCogsPerTeam`, sim_types.nim) matters as much as any per-
+  ## variant override -- b25ee144 (2026-08-25) shipped Paintball KOTH with
+  ## that default at 4, silently arming this for every classic/BR episode
+  ## since (0 kills/0 captures, verified against real round-3543 replays).
+  not replayLoaded and config.numAgents > 0 and config.cogsPerTeam > 1
+
 proc validate(config: GameConfig) =
   ## Raises if a gameplay config has invalid values.
   if config.motionScale <= 0:

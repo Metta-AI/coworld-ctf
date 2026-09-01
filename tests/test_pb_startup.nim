@@ -3,6 +3,36 @@
 import std/[json, os, strutils, unittest]
 import pb_helpers
 
+suite "squad mode arming (server.nim's socket-input-discard gate)":
+  ## Regression for b25ee144 (2026-08-25): `DefaultCogsPerTeam` shipped at
+  ## 4 alongside Paintball KOTH, so every variant that leaves `cogsPerTeam`
+  ## unset -- every classic and BR variant in coworld_manifest_paintbot.json
+  ## and coworld_manifest_br.json -- silently armed `squadModeArmed`
+  ## (sim_config.nim), whose true branch is server.nim's `squadMode`: masks
+  ## come from the KOTH DecisionEngine instead of real seat sockets, so
+  ## every one of those episodes played with zero real input (verified
+  ## against real round-3543 replays: 0 kills/0 captures across all 16
+  ## seats). This asserts the exact predicate server.nim calls, not a
+  ## restatement of it, so a future edit to squadModeArmed itself still
+  ## trips this test.
+  test "a default classic config (cogsPerTeam unset) does not arm squad mode":
+    var config = defaultGameConfig()
+    config.numAgents = 16
+    check config.cogsPerTeam == 1
+    check not squadModeArmed(config, replayLoaded = false)
+
+  test "a KOTH-style config (cogsPerTeam=4, matching the paintball variant's pin) arms squad mode":
+    var config = defaultGameConfig()
+    config.update(paintballConfigJson())
+    check config.numAgents > 0
+    check config.cogsPerTeam == 4
+    check squadModeArmed(config, replayLoaded = false)
+
+  test "squad mode never arms over a loaded replay, regardless of cogsPerTeam":
+    var config = defaultGameConfig()
+    config.update(paintballConfigJson())
+    check not squadModeArmed(config, replayLoaded = true)
+
 suite "startup":
   test "an unparseable config raises a clean CtfError, not a traceback":
     var config = defaultGameConfig()
