@@ -2676,9 +2676,17 @@ proc caveFillPatches(
 
 proc generateBrMap(
   seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily,
-  terrain: TerrainSwitch = tMixed, theme: ThemeSwitch = iExterior
+  terrain: TerrainSwitch = tMixed, theme: ThemeSwitch = iExterior,
+  scale: float = GiantScale
 ): BrMap =
-  let (w, h) = fieldSize(GiantScale)
+  ## LOOT(s2) map-scale variants: `scale` multiplies the CTF standard field
+  ## into this draw's dimensions (2.6 = the doctrine giant, unchanged
+  ## default — a scale-less call is bit-identical to before). gunRange
+  ## re-derives from the scaled field and the spawn grid re-draws inside
+  ## it, so a +/-10% size variant is a one-flag re-generate; everything
+  ## downstream of (w, h) is already dimension-driven. The duo spawn
+  ## pocket deliberately does NOT scale (spawnClearance's own rule).
+  let (w, h) = fieldSize(scale)
   result.name = "br-gen-" & $seed
   result.genSeed = seed
   result.style = style
@@ -2691,7 +2699,7 @@ proc generateBrMap(
   result.terrain = terrain
   result.theme = theme
   result.gunRange = deriveGunRange(w, h, Groups)
-  let (cw, ch) = spawnClearance(GiantScale)
+  let (cw, ch) = spawnClearance(scale)
   result.spawnClearW = cw
   result.spawnClearH = ch
   var spawnRng = initRand(seed xor 0x1A2B_3C4D)
@@ -6889,11 +6897,18 @@ proc cmdGenerate(a: Args) =
     keystone = if keystoneFlag.len > 0: keystoneFromStr(keystoneFlag) else: keystoneFromSeed(seed)
     terrain = terrainFromStr(a.flag("terrain", "mixed"))
     theme = themeFromStr(a.flag("theme", "exterior"))
+    # LOOT(s2) map-scale variants: --scale N.N (default GiantScale 2.6 —
+    # omitting the flag draws bit-identically to before). The doctrine
+    # gates (validateBr) still judge the result, so an implausible scale
+    # fails loudly instead of certifying a broken board.
+    scale = a.floatFlag("scale", GiantScale)
+  if scale <= 0.0:
+    fail("--scale must be positive, got: " & $scale)
   var params = brDefaultParams(style)
   applyParams(params, a.params)
   when defined(brDebugBurrow):
     let genT0 = epochTime()
-  var m = generateBrMap(seed, style, params, keystone, terrain, theme)
+  var m = generateBrMap(seed, style, params, keystone, terrain, theme, scale)
   when defined(brDebugBurrow):
     stderr.writeLine(&"TIMING generateBrMap={(epochTime()-genT0)*1000:.0f}ms")
   let rawCount = m.obstacles.len
@@ -7615,7 +7630,11 @@ const usage = """
 brmapkit — author battle-royale maps (fork of tools/mapkit.nim; see
 docs/designs/BR_MAPGEN.md)
 
-  brmapkit generate [--style caves] [--seed N] [--param k=v ...] [-o spec.json]
+  brmapkit generate [--style caves] [--seed N] [--scale N.N] [--param k=v ...]
+                    [-o spec.json]
+                    (--scale multiplies the CTF standard field; default 2.6,
+                    the doctrine giant — the S2 map-size variants are e.g.
+                    --scale 2.3 / 2.9 draws through the same gates)
                     (caves is the only doctrine-validated style; bsp/maze/
                     scatter are wired for experimentation but unproven at
                     giant scale)

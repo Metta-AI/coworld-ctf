@@ -900,7 +900,87 @@ proc resetMedKits*(sim: var SimServer) =
       (MapWidth div 2, MapHeight div 3),
       (MapWidth div 2, 2 * MapHeight div 3),
     ]
+  # LOOT(s2): medKitCount caps the placed kits — -1 (default) is the
+  # pre-existing full-set path bit-for-bit, 0 places none (the
+  # bandage-instead-of-medkit test arm), N keeps the map's first N points.
+  if sim.config.medKitCount >= 0 and targets.len > sim.config.medKitCount:
+    targets.setLen(sim.config.medKitCount)
   sim.placeWalkablePickups(medKitSpawns, targets)
+
+proc resetBandages*(sim: var SimServer) =
+  ## LOOT(s2): places `config.bandagePickups` bandage pickups at the map's
+  ## med-kit points (active spawns first, then the drawn candidates,
+  ## cycling when the knob exceeds the points), nudged to walkable floor
+  ## like every pickup family. Reuses the med-kit geometry on purpose: those
+  ## points already passed the map's item-fairness reasoning, and the
+  ## intended test arm swaps kits OUT for bandages (medKitCount: 0), so the
+  ## bandages inherit exactly the fairness the kits vacated. Empties the
+  ## family outright when the knob is 0 — the dark default — so no dark
+  ## surface (broadcast lists included) ever sees one.
+  if sim.config.bandagePickups <= 0 or sim.paintballLoadout():
+    sim.bandageSpawns.setLen(0)
+    return
+  var base: seq[tuple[x, y: int]]
+  for point in sim.gameMap.medKitSpawns:
+    base.add((point.x, point.y))
+  for point in sim.gameMap.medKitCandidates:
+    base.add((point.x, point.y))
+  if base.len == 0:
+    base = @[
+      (MapWidth div 2, MapHeight div 3),
+      (MapWidth div 2, 2 * MapHeight div 3),
+    ]
+  var targets: seq[tuple[x, y: int]]
+  for k in 0 ..< sim.config.bandagePickups:
+    targets.add(base[k mod base.len])
+  sim.placeWalkablePickups(bandageSpawns, targets)
+
+proc resetLootCrates*(sim: var SimServer) =
+  ## LOOT(s2): places the loot-start crates — the marker (gun) and the
+  ## hopper (its ammo), the two halves a cog must BOTH loot to fire. The
+  ## map's authored weaponSpawns/hopperSpawns pools win when present;
+  ## otherwise marker crates land on the RESOLVED grenade pickup points
+  ## (sim.grenadeSpawns — already placed, already walkable, fairness-gated
+  ## on certified BR maps and formula-derived on classic maps) and hopper
+  ## crates on the map's med-kit points, so every existing map hosts a
+  ## loot-start game with no respec. MUST run after resetGrenades for the
+  ## marker fallback points.
+  ## Both families empty when lootStart is dark (the default), so no dark
+  ## surface ever sees a crate. One-shot by construction: no code path
+  ## calls refillElapsedPickups on these families, so a taken crate stays
+  ## taken for the whole game (the respawn timer written at pickup is
+  ## inert).
+  if not sim.config.lootStart or sim.paintballLoadout():
+    sim.weaponSpawns.setLen(0)
+    sim.hopperSpawns.setLen(0)
+    return
+  var weaponTargets: seq[tuple[x, y: int]]
+  if sim.gameMap.weaponSpawns.len > 0:
+    for point in sim.gameMap.weaponSpawns:
+      weaponTargets.add((point.x, point.y))
+  else:
+    for spawn in sim.grenadeSpawns:
+      weaponTargets.add((spawn.x, spawn.y))
+  var hopperTargets: seq[tuple[x, y: int]]
+  if sim.gameMap.hopperSpawns.len > 0:
+    for point in sim.gameMap.hopperSpawns:
+      hopperTargets.add((point.x, point.y))
+  else:
+    # NOT the spray-can points: a co-located can pickup would put a can in
+    # the looter's hands, and a can carrier cannot fire the gun — the crate
+    # would disarm the very cog it just armed. The med-kit points are the
+    # harmless fair set (a co-located kit merely heals a hurt looter).
+    for point in sim.gameMap.medKitSpawns:
+      hopperTargets.add((point.x, point.y))
+    for point in sim.gameMap.medKitCandidates:
+      hopperTargets.add((point.x, point.y))
+    if hopperTargets.len == 0:
+      hopperTargets = @[
+        (MapWidth div 2, MapHeight div 3),
+        (MapWidth div 2, 2 * MapHeight div 3),
+      ]
+  sim.placeWalkablePickups(weaponSpawns, weaponTargets)
+  sim.placeWalkablePickups(hopperSpawns, hopperTargets)
 
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
@@ -1186,6 +1266,19 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].assassinKills = 0
     sim.players[i].blastsSurvived = 0
     sim.players[i].zoneOutsideTicks = 0
+    # LOOT(s2): per-game loot-rework state. The unarmed spawn IS the
+    # loot-start mechanic: hasGun/hasHopper start OFF exactly when
+    # lootStart arms and ON otherwise (dark values are never read — the
+    # canFire gate short-circuits on the config first).
+    sim.players[i].hasGun = not sim.config.lootStart
+    sim.players[i].hasHopper = not sim.config.lootStart
+    sim.players[i].bandages = 0
+    sim.players[i].lastDamageTick = 0
+    sim.players[i].downed = false
+    sim.players[i].downedTick = 0
+    sim.players[i].downedCount = 0
+    sim.players[i].downedBy = -1
+    sim.players[i].reviveProgress = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
@@ -1195,6 +1288,11 @@ proc startGame*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
+  # LOOT(s2): fresh bandages and loot crates per game — both no-ops (empty
+  # families) on a dark config. resetLootCrates MUST follow resetGrenades/
+  # resetSprayPaints: its fallback crates land on their resolved points.
+  sim.resetBandages()
+  sim.resetLootCrates()
   sim.resetZone()
   # Paintball: the can is issued for good, the hearts leave play, and the
   # floor starts clean. Each GAME of the episode is an independent board.
@@ -1254,7 +1352,8 @@ proc blockingPlayerAt(
   ## increasing the separation — moving apart is always allowed, so bodies
   ## that start overlapped (a respawn onto an occupied home) can escape.
   for i in 0 ..< sim.players.len:
-    if i == movingIndex or not sim.players[i].alive:
+    # LOOT(s2): a ghost (downed) has no body — upright cogs walk through it.
+    if i == movingIndex or not sim.players[i].alive or sim.players[i].downed:
       continue
     let toDist =
       max(abs(toX - sim.players[i].x), abs(toY - sim.players[i].y))
@@ -1709,6 +1808,51 @@ proc barrageRatePermille*(sim: SimServer): int =
     (sim.config.barrageMaxPerSec - sim.config.barrageStartPerSec) *
       sim.barrageProgressPermille()
 
+proc downPlayer(
+  sim: var SimServer,
+  targetIndex, killerIndex: int,
+  killerSlot = -1
+) =
+  ## LOOT(s2): turns a lethally-hit cog into a GHOST of itself (downedMode):
+  ## frozen in place, non-colliding, unable to act or loot, still holding
+  ## its carried items — except a heart, which goes home exactly as a death
+  ## sends it home (a ghost cannot score and must not freeze the objective
+  ## under its body). The team keeps its chance: an upright teammate tag
+  ## revives (updateDowned), an enemy paintball splats (applyFire), and an
+  ## untagged ghost bleeds out. Called ONLY from killPlayer's interception,
+  ## so every lethal-hit chokepoint funnels here without new call sites.
+  template victim: untyped = sim.players[targetIndex]
+  for team in sim.teams():
+    if sim.flags[team].carrier == targetIndex:
+      sim.logGameEvent(teamText(team) & " heart returned home")
+      sim.resetFlag(team)
+  victim.carryingFlag = false
+  victim.hp = 0
+  victim.velX = 0
+  victim.velY = 0
+  victim.carryX = 0
+  victim.carryY = 0
+  victim.fireWindup = 0
+  victim.windupBrads = -1
+  victim.arcTicksLeft = 0
+  victim.arcAimBrads = -1
+  victim.throwCharge = 0
+  victim.puddleTicks = 0
+  victim.zoneOutsideTicks = 0
+  victim.downed = true
+  victim.downedTick = sim.tickCount
+  inc victim.downedCount
+  victim.downedBy = killerIndex
+  victim.reviveProgress = 0
+  sim.emitEvent(
+    Downed, source = targetIndex, target = killerIndex,
+    amount = victim.downedCount, hp = 0,
+    x = float(victim.x + CollisionW div 2),
+    y = float(victim.y + CollisionH div 2),
+    targetSlot = killerSlot
+  )
+  sim.logGameEvent(playerColorText(victim.color) & " is down")
+
 proc killPlayer*(
   sim: var SimServer,
   targetIndex,
@@ -1738,6 +1882,19 @@ proc killPlayer*(
   if targetIndex < 0 or targetIndex >= sim.players.len:
     return
   if not sim.players[targetIndex].alive:
+    return
+  # LOOT(s2): under downedMode a lethal hit DOWNS instead of kills. The
+  # whole kill flow below (pricing, Death event, deaths stat, lives,
+  # respawn) is deferred to the ghost's finalization — finalizeDowned
+  # re-enters here with the victim still flagged `downed`, which is what
+  # lets it past this check. An `elimination` fold is never downed: the
+  # team is gone, nobody is left to tag anyone back. The weapon site's own
+  # Kill credit/event (outside this proc) still lands at the DOWN — the
+  # down IS the combat achievement; the eventual Death is bookkeeping.
+  # Dark-inert: downedMode is false on every existing config.
+  if sim.config.downedMode and not elimination and
+      not sim.players[targetIndex].downed:
+    sim.downPlayer(targetIndex, killerIndex, killerSlot)
     return
   if not elimination:
     # GLORY: read the kill CONTEXT before anything below mutates it -- the
@@ -2005,6 +2162,29 @@ proc killPlayer*(
       max(1, sim.config.respawnTicks)
     else:
       0
+  # LOOT(s2): a real death always clears ghosthood — both finalization and
+  # the eliminateTeam fold land here. A no-op on every dark game (both
+  # fields already 0/false).
+  sim.players[targetIndex].downed = false
+  sim.players[targetIndex].reviveProgress = 0
+
+proc finalizeDowned(
+  sim: var SimServer,
+  targetIndex, killerIndex: int,
+  cause: string
+) =
+  ## LOOT(s2): a ghost's PERMANENT death — splat (applyFire), bleed-out or
+  ## team-wipe (updateDowned). Routes through killPlayer with the victim
+  ## still flagged `downed`, which is exactly what carries it past the
+  ## downedMode interception at the top of killPlayer: a ghost dying is the
+  ## deferred real death, not a new down. `cause` is the log-line text
+  ## (killPlayer's own environmental-death convention); the event stream
+  ## reads the cause from the Downed→Death pairing instead.
+  if targetIndex < 0 or targetIndex >= sim.players.len:
+    return
+  if not sim.players[targetIndex].downed:
+    return
+  sim.killPlayer(targetIndex, killerIndex, cause = cause)
 
 proc absorbDamage*(
   sim: var SimServer,
@@ -2032,6 +2212,12 @@ proc absorbDamage*(
   ## shot. Spray never qualifies, and neither does a teammate.
   let hpBefore = sim.players[targetIndex].hp
   inc sim.players[targetIndex].damageTaken, amount
+  # LOOT(s2): the bandage calm clock — a bandage self-applies only after
+  # BandageApplyTicks without taking damage (updateBandageApplies). Stamped
+  # only while the bandage mechanism is armed, so a dark game's field never
+  # leaves 0.
+  if sim.config.bandagePickups > 0 and amount > 0:
+    sim.players[targetIndex].lastDamageTick = sim.tickCount
   var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
     if attackerIndex < 32:
@@ -2082,17 +2268,27 @@ proc absorbDamage*(
 
 proc canFire*(sim: SimServer, shooterIndex: int): bool =
   ## Returns whether one player is able to fire a shot right now.
+  ## LOOT(s2): under lootStart the gun additionally needs BOTH looted
+  ## halves — the marker (hasGun) and the hopper (hasHopper, the ammo).
+  ## The config gate short-circuits first, so a dark game's verdict is the
+  ## pre-existing expression bit-for-bit; a ghost (downed) can never fire.
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasSprayPaint
+  shooter.alive and not shooter.downed and
+    shooter.fireCooldown <= 0 and not shooter.hasSprayPaint and
+    (not sim.config.lootStart or (shooter.hasGun and shooter.hasHopper))
 
 proc canFireArc*(sim: SimServer, attackerIndex: int): bool =
   ## Returns whether one player can fire an immediate spray burst.
+  ## LOOT(s2): a ghost (downed) can never spray; the spray can is its own
+  ## lootable weapon, so the marker+hopper gate deliberately does not
+  ## apply to it.
   if attackerIndex < 0 or attackerIndex >= sim.players.len:
     return false
   let attacker = sim.players[attackerIndex]
-  attacker.alive and attacker.hasSprayPaint and attacker.fireCooldown <= 0
+  attacker.alive and not attacker.downed and
+    attacker.hasSprayPaint and attacker.fireCooldown <= 0
 
 proc selectArcVictims(
   sim: SimServer,
@@ -2120,7 +2316,11 @@ proc selectArcVictims(
     # SprayPaintMaxWidth / 2 exactly at the reach cap.
     halfWidthSlope = float(SprayPaintMaxWidth) / (2.0 * reach)
   for i in 0 ..< sim.players.len:
-    if i == attackerIndex or not sim.players[i].alive:
+    # LOOT(s2): a ghost (downed) is not a spray victim — the gun is the one
+    # splat-confirm channel (applyFire); dark-inert, downed is never true
+    # without downedMode.
+    if i == attackerIndex or not sim.players[i].alive or
+        sim.players[i].downed:
       continue
     let
       vx = float(sim.players[i].x + CollisionW div 2 - ax)
@@ -2602,7 +2802,16 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     hit: targetIndex >= 0
   )
   var impactReported = false
-  if targetIndex >= 0 and sim.players[targetIndex].alive:
+  if targetIndex >= 0 and sim.players[targetIndex].downed:
+    # LOOT(s2): the splat confirm (downedMode; dark-inert — downed is never
+    # true otherwise). An ENEMY paintball landing on a ghost finalizes the
+    # elimination on the spot: no damage accounting, no second Kill credit
+    # (the weapon site credited the kill at the DOWN), just the deferred
+    # real death. A teammate's stray paint never confirms — the ghost soaks
+    # it without effect.
+    if shooter.team != sim.players[targetIndex].team:
+      sim.finalizeDowned(targetIndex, shooterIndex, "was splatted out")
+  elif targetIndex >= 0 and sim.players[targetIndex].alive:
     # A carrier whose shield layer is still up at impact absorbs the hit
     # VISUALS on the bubble: it blinks and dents toward the shooter instead of
     # showing the inner struck-target ring and body paint spark. The "-1" pop
@@ -2976,6 +3185,7 @@ proc applyBarrierInput(
   ## charge. C is the grenade button too, but a cog never holds both
   ## (pickups are mutually exclusive), so the press is unambiguous.
   if not sim.players[playerIndex].alive or
+      sim.players[playerIndex].downed or
       not sim.players[playerIndex].hasBarrier:
     return
   if input.c and not prev.c:
@@ -2988,6 +3198,7 @@ proc applyGrenadeInput(
 ) =
   ## Hold C to charge a throw, release to let it fly.
   if not sim.players[playerIndex].alive or
+      sim.players[playerIndex].downed or
       not sim.players[playerIndex].hasGrenade:
     sim.players[playerIndex].throwCharge = 0
     return
@@ -3050,7 +3261,9 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     blastKills = 0
     damages: seq[EventDamage]
   for i in 0 ..< sim.players.len:
-    if not sim.players[i].alive:
+    # LOOT(s2): a ghost (downed) is not a blast victim — the gun is the one
+    # splat-confirm channel (applyFire). Dark-inert.
+    if not sim.players[i].alive or sim.players[i].downed:
       continue
     let
       px = sim.players[i].x + CollisionW div 2
@@ -3273,6 +3486,7 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
   ## a cardboard barrier walks over the pickup untouched — grenade and
   ## barrier share button C, so a cog holds one or the other, never both.
   if not sim.players[playerIndex].alive or
+      sim.players[playerIndex].downed or
       sim.players[playerIndex].hasGrenade or
       sim.players[playerIndex].hasBarrier:
     return
@@ -3297,7 +3511,8 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## Lets a hurt living player pick up a center med kit by touch, restoring
   ## hit points back to full. A healthy player walks over it untouched, so a
   ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
-  if not sim.players[playerIndex].alive:
+  ## LOOT(s2): a ghost parked on the spawn must not drink it (downed guard).
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
     return
   let maxHp = sim.config.maxHpFor(
     sim.players[playerIndex].team, sim.players[playerIndex].perks)
@@ -3335,6 +3550,104 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
         " picked up a med kit"
     )
 
+proc updateBandages*(sim: var SimServer) =
+  ## LOOT(s2): refills taken bandage pickups whose respawn timer elapsed —
+  ## the med-kit cadence. A no-op on a dark game (empty family).
+  sim.refillElapsedPickups(bandageSpawns)
+
+proc tryPickupBandages*(sim: var SimServer, playerIndex: int) =
+  ## LOOT(s2): lets a living cog pocket a bandage by touch, up to
+  ## BandageCarryCap. A full pocket walks over the spawn untouched (the
+  ## med-kit "never wasted" rule); a taken bandage refills after
+  ## MedKitRespawnTicks. The pocket is the inventory: the heal itself is
+  ## deferred to updateBandageApplies' calm-window rule.
+  if sim.config.bandagePickups <= 0:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  if sim.players[playerIndex].bandages >= BandageCarryCap:
+    return
+  sim.pickupByTouch(playerIndex, bandageSpawns, BandagePickupRange,
+      MedKitRespawnTicks):
+    inc sim.players[playerIndex].bandages
+    sim.emitPickup(playerIndex, "bandage", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " pocketed a bandage"
+    )
+
+proc updateBandageApplies*(sim: var SimServer) =
+  ## LOOT(s2): one tick of bandage self-application: a hurt, upright cog
+  ## carrying a bandage that has gone BandageApplyTicks without taking any
+  ## damage applies one (+1 hp, capped at the seat's max) — and the calm
+  ## clock restarts, so a stack applies one bandage per calm window, never
+  ## all at once. Tick-based and RNG-free; a no-op unless bandagePickups
+  ## armed.
+  if sim.config.bandagePickups <= 0 or sim.phase != Playing:
+    return
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive or sim.players[i].downed:
+      continue
+    if sim.players[i].bandages <= 0:
+      continue
+    let maxHp = sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+    if sim.players[i].hp >= maxHp:
+      continue
+    if sim.tickCount - sim.players[i].lastDamageTick < BandageApplyTicks:
+      continue
+    dec sim.players[i].bandages
+    inc sim.players[i].hp
+    # Restart the calm window: the NEXT bandage needs its own quiet spell.
+    sim.players[i].lastDamageTick = sim.tickCount
+    sim.emitEvent(
+      Heal, source = i, weapon = "bandage", amount = 1,
+      hp = sim.players[i].hp,
+      x = float(sim.players[i].x + CollisionW div 2),
+      y = float(sim.players[i].y + CollisionH div 2)
+    )
+    sim.logGameEvent(
+      playerColorText(sim.players[i].color) & " applied a bandage"
+    )
+
+proc tryPickupWeapons*(sim: var SimServer, playerIndex: int) =
+  ## LOOT(s2): lets an unarmed living cog loot a marker (gun) crate by
+  ## touch. A cog already holding the marker walks over the crate untouched
+  ## — a crate arms exactly one cog per game (the family is never
+  ## refilled; see resetLootCrates).
+  if not sim.config.lootStart:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  if sim.players[playerIndex].hasGun:
+    return
+  # respawnTicks 0 is inert: no refill call exists for this family.
+  sim.pickupByTouch(playerIndex, weaponSpawns, WeaponPickupRange, 0):
+    sim.players[playerIndex].hasGun = true
+    sim.emitPickup(playerIndex, "gun", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " looted a marker"
+    )
+
+proc tryPickupHoppers*(sim: var SimServer, playerIndex: int) =
+  ## LOOT(s2): lets a living cog loot a hopper (the marker's ammo) crate by
+  ## touch — the other half of the BOTH-to-shoot gate (canFire). Same
+  ## one-crate-one-cog rule as tryPickupWeapons.
+  if not sim.config.lootStart:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  if sim.players[playerIndex].hasHopper:
+    return
+  # respawnTicks 0 is inert: no refill call exists for this family.
+  sim.pickupByTouch(playerIndex, hopperSpawns, WeaponPickupRange, 0):
+    sim.players[playerIndex].hasHopper = true
+    sim.emitPickup(playerIndex, "hopper", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " looted a hopper"
+    )
+
 proc updateShields*(sim: var SimServer) =
   ## Refills endzone shields whose respawn timer elapsed.
   sim.refillElapsedPickups(shieldSpawns)
@@ -3348,7 +3661,7 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## is intact leaves the spawn untouched for a teammate. Carrying a shield
   ## slows fire ShieldFireSlowdown times; a taken shield refills after
   ## ShieldRespawnTicks.
-  if not sim.players[playerIndex].alive:
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
     return
   if sim.players[playerIndex].shieldHp >= ShieldLayerHp:
     return
@@ -3364,7 +3677,8 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
 
 proc tryPickupSprayPaints*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up one side-center spray can by touch.
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasSprayPaint:
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed or
+      sim.players[playerIndex].hasSprayPaint:
     return
   sim.pickupByTouch(playerIndex, sprayPaintSpawns, SprayPaintPickupRange,
       SprayPaintRespawnTicks):
@@ -3382,6 +3696,7 @@ proc tryPickupBarriers*(sim: var SimServer, playerIndex: int) =
   ## grenade shares button C, so carrying either blocks picking up the other
   ## (the grenade side of the gate lives in tryPickupGrenades).
   if not sim.players[playerIndex].alive or
+      sim.players[playerIndex].downed or
       sim.players[playerIndex].hasBarrier or
       sim.players[playerIndex].hasGrenade:
     return
@@ -3461,7 +3776,7 @@ proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.dis
     return false
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return false
-  if not sim.players[playerIndex].alive:
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
     return false
   let shoutText = sanitizeShout(text)
   if shoutText.len == 0:
@@ -3545,7 +3860,8 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## can never fire and needs no separate flagless check of its own.
   if sim.gameMap.flagless:
     return
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].carryingFlag:
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed or
+      sim.players[playerIndex].carryingFlag:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -3625,7 +3941,8 @@ proc applyDirectAim*(sim: var SimServer, playerIndex: int, brads: int) =
   ## client's re-seed on the self-marker edge.
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return
-  if not sim.players[playerIndex].alive:
+  # LOOT(s2): a ghost's aim is frozen with the rest of it (downed guard).
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
     return
   sim.players[playerIndex].aimBrads =
     ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
@@ -3660,7 +3977,9 @@ proc applyInput*(
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return
   template player: untyped = sim.players[playerIndex]
-  if not player.alive:
+  # LOOT(s2): a ghost (downed) is frozen — no locomotion, no aim traverse.
+  # Dark-inert: downed is never true without downedMode.
+  if not player.alive or player.downed:
     return
 
   var
@@ -4120,7 +4439,9 @@ proc brRankedTeams(sim: SimServer): seq[Team] =
     lastDeath[team] = -1
     seat[team] = int.high
   for i, p in sim.players:
-    if p.alive:
+    # LOOT(s2): a ghost (downed) is not LIVING for the BR ranking — it is
+    # a pending elimination, not a standing cog. Dark-inert.
+    if p.alive and not p.downed:
       inc living[p.team]
     kills[p.team] += p.kills
     damage[p.team] += p.damageDealt
@@ -4561,7 +4882,10 @@ proc updatePuddles*(sim: var SimServer) =
   if ArenaPuddles.len == 0 or sim.phase != Playing:
     return
   for i in 0 ..< sim.players.len:
-    if not sim.players[i].alive:
+    # LOOT(s2): a ghost (downed) is past hurting — environmental damage
+    # never confirms an elimination; only an enemy paintball (splat) or the
+    # bleed-out clock does. Dark-inert.
+    if not sim.players[i].alive or sim.players[i].downed:
       sim.players[i].puddleTicks = 0
       continue
     if sim.playerPuddle(i) < 0:
@@ -4788,7 +5112,9 @@ proc updateZone*(sim: var SimServer) =
     return
   let (rect, _, dps) = sim.zoneRectAndDps(sim.tickCount - sim.gameStartTick)
   for i in 0 ..< sim.players.len:
-    if not sim.players[i].alive:
+    # LOOT(s2): ghosts are zone-immune — the bleed-out clock is already
+    # running; see updatePuddles' same guard. Dark-inert.
+    if not sim.players[i].alive or sim.players[i].downed:
       sim.players[i].zoneOutsideTicks = 0
       continue
     let
@@ -5664,6 +5990,10 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetShields()
   result.resetSprayPaints()
   result.resetBarriers()
+  # LOOT(s2): no-ops (empty families) on a dark config; after grenades/
+  # sprays for the crate-fallback points.
+  result.resetBandages()
+  result.resetLootCrates()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -5699,6 +6029,10 @@ proc resetToLobby*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
+  # LOOT(s2): no-ops (empty families) on a dark config; after grenades/
+  # sprays for the crate-fallback points.
+  sim.resetBandages()
+  sim.resetLootCrates()
   sim.recentBlasts = @[]
   sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
@@ -6139,6 +6473,86 @@ proc respawnPlayers(sim: var SimServer) =
           y = float(sim.players[i].y + CollisionH div 2)
         )
 
+proc downedBleedOutWindow(sim: SimServer, downedCount: int): int =
+  ## LOOT(s2): the bleed-out window for a ghost's Nth down: the configured
+  ## base, halved per successive down when downedEscalation is on (the
+  ## ruled shape — pressure escalates, no hard down-cap), floored at
+  ## DownedMinBleedOutTicks so a many-times-downed cog still gets a real
+  ## rescue window.
+  result = sim.config.downedBleedOutTicks
+  if sim.config.downedEscalation:
+    for _ in 1 ..< max(1, downedCount):
+      result = result div 2
+  result = max(result, DownedMinBleedOutTicks)
+
+proc updateDowned(sim: var SimServer) =
+  ## LOOT(s2): one tick of the downed-state machine, per ghost and in this
+  ## order:
+  ##   1. TEAM-WIPE finalize — a team with no upright cog left has nobody
+  ##      who could ever tag anyone back, so its ghosts fade at once and
+  ##      the same tick's checkWinCondition sees a real elimination (this
+  ##      is also what keeps teamHasLivePlayers honest without touching it:
+  ##      ghosts only ever exist on teams that still stand).
+  ##   2. BLEED-OUT expiry (downedBleedOutWindow).
+  ##   3. REVIVE progress — any upright teammate inside DownedTagRange
+  ##      advances the channel one tick (the first such teammate by index
+  ##      is the tagger, a deterministic pick); the channel resets the tick
+  ##      the tag breaks; at downedReviveTicks the ghost stands back up at
+  ##      1 hp. The reviver's vulnerability IS the adjacency: DownedTagRange
+  ##      sits far inside gun range and the channel costs real ticks.
+  ## Tick-based throughout, RNG-free; a no-op unless downedMode armed.
+  if not sim.config.downedMode or sim.phase != Playing:
+    return
+  # Upright census per team, taken BEFORE any finalization this tick
+  # mutates it — a duo downed on the same tick reads the same census.
+  var upright: array[Team, int]
+  for p in sim.players:
+    if p.alive and not p.downed:
+      inc upright[p.team]
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].downed:
+      continue
+    if upright[sim.players[i].team] == 0:
+      sim.finalizeDowned(i, sim.players[i].downedBy,
+        "faded out with their team")
+      continue
+    if sim.tickCount - sim.players[i].downedTick >=
+        sim.downedBleedOutWindow(sim.players[i].downedCount):
+      sim.finalizeDowned(i, sim.players[i].downedBy, "bled out")
+      continue
+    var tagger = -1
+    let
+      gx = sim.players[i].x + CollisionW div 2
+      gy = sim.players[i].y + CollisionH div 2
+    for j in 0 ..< sim.players.len:
+      if j == i or sim.players[j].team != sim.players[i].team:
+        continue
+      if not sim.players[j].alive or sim.players[j].downed:
+        continue
+      let
+        tx = sim.players[j].x + CollisionW div 2
+        ty = sim.players[j].y + CollisionH div 2
+      if distSq(gx, gy, tx, ty) <= DownedTagRange * DownedTagRange:
+        tagger = j
+        break
+    if tagger < 0:
+      sim.players[i].reviveProgress = 0
+      continue
+    inc sim.players[i].reviveProgress
+    if sim.players[i].reviveProgress >= sim.config.downedReviveTicks:
+      sim.players[i].downed = false
+      sim.players[i].reviveProgress = 0
+      sim.players[i].hp = 1
+      sim.emitEvent(
+        Revived, source = tagger, target = i,
+        amount = sim.config.downedReviveTicks, hp = 1,
+        x = float(gx), y = float(gy)
+      )
+      sim.logGameEvent(
+        playerColorText(sim.players[i].color) & " tagged back in by " &
+          sim.playerText(tagger)
+      )
+
 template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
     life: untyped) =
   ## Keeps the entries of one aged FX/state seq that are younger than `life`
@@ -6223,7 +6637,11 @@ proc step*(
     # clear it so it can never leak into next tick's decision.
     let assistEligible = sim.players[playerIndex].directAimActive
     sim.players[playerIndex].directAimActive = false
-    if input.attack and not prev.attack:
+    # LOOT(s2): a ghost's trigger is frozen with the rest of it — without
+    # this guard the windup branch below would arm a shot canFire only
+    # rejects at release. Dark-inert.
+    if input.attack and not prev.attack and
+        not sim.players[playerIndex].downed:
       if sim.players[playerIndex].hasSprayPaint:
         if sim.canFireArc(playerIndex):
           arcFiring.add(playerIndex)
@@ -6249,6 +6667,8 @@ proc step*(
     sim.updateShields()
     sim.updateSprayPaints()
     sim.updateBarriers()
+    # LOOT(s2): bandage refill — a no-op (empty family) on a dark config.
+    sim.updateBandages()
 
     for playerIndex in 0 ..< sim.players.len:
       sim.tryPickupFlags(playerIndex)
@@ -6257,8 +6677,22 @@ proc step*(
       sim.tryPickupShields(playerIndex)
       sim.tryPickupSprayPaints(playerIndex)
       sim.tryPickupBarriers(playerIndex)
+      # LOOT(s2): config-gated at each proc's own head; no-ops when dark.
+      sim.tryPickupBandages(playerIndex)
+      sim.tryPickupWeapons(playerIndex)
+      sim.tryPickupHoppers(playerIndex)
     sim.updateFlags()
+    # LOOT(s2): bandage self-application, after pickups so a bandage
+    # pocketed this tick still waits out its own calm window. Config-gated
+    # at the proc head; a no-op when dark.
+    sim.updateBandageApplies()
   sim.respawnPlayers()
+  # LOOT(s2): the downed-state machine — revive tags, bleed-outs and
+  # team-wipe finalizations — resolves BEFORE the hazards and the win
+  # check, so a ghost finalized this tick feeds the same tick's wipe
+  # resolution exactly as a direct kill would. Config-gated at the proc
+  # head; a no-op when dark.
+  sim.updateDowned()
   sim.armSprayCans()          ## a respawned cog comes back holding its can.
   sim.updatePackTicks()
   # Puddle damage resolves after movement and pickups, before the win check,
