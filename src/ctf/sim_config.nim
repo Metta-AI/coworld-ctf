@@ -89,7 +89,10 @@ proc defaultGameConfig*(): GameConfig =
     lobbyChatTicks: LobbyChatTicksDefault,
     playSeatBindTicks: PlaySeatBindTicksDefault,
     allowShotFeedback: false,
-    allowCosmeticFx: false
+    allowCosmeticFx: false,
+    # voteTicks deliberately 0, not VoteTicksDefault — see that const's own
+    # comment (sim_types.nim) for why.
+    voteTicks: 0
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -941,6 +944,11 @@ proc validate(config: GameConfig) =
       CtfError,
       "Config field lobbyChatTicks must be 0.." & $LobbyChatTicksMax & "."
     )
+  if config.voteTicks < 0 or config.voteTicks > VoteTicksMax:
+    raise newException(
+      CtfError,
+      "Config field voteTicks must be 0.." & $VoteTicksMax & "."
+    )
   if config.playSeatBindTicks < 0 or
       config.playSeatBindTicks > PlaySeatBindTicksMax:
     raise newException(
@@ -1129,6 +1137,9 @@ proc update*(config: var GameConfig, jsonText: string) =
   # GVNEXT(cosmeticfx): appended read for the appended allowCosmeticFx field
   # (sim_types.nim) — same tail-append rule as allowShotFeedback above.
   node.readConfigBool("allowCosmeticFx", config.allowCosmeticFx)
+  # GVNEXT(vote): appended read for the appended voteTicks field
+  # (sim_types.nim) — same tail-append rule as allowCosmeticFx above.
+  node.readConfigInt("voteTicks", config.voteTicks)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1376,15 +1387,21 @@ proc echoPolicyReflashKeys(config: GameConfig, node: JsonNode) =
     node["allowPolicyReflash"] = %config.allowPolicyReflash
 
 proc echoShellKeys(config: GameConfig, node: JsonNode) =
-  ## Echo the play-calling shell keys: all four whenever the gate is on, so
+  ## Echo the play-calling shell keys: all five whenever the gate is on, so
   ## a play-seat replay header pins the whole shell contract; otherwise only
   ## a field that departs from its default (the sprayDamage rule). A
   ## gate-off default config's replay JSON therefore gains no byte.
+  ## `voteTicks`'s OWN default is 0 (unlike the other three, whose shipped
+  ## defaults are nonzero) — see VoteTicksDefault's comment (sim_types.nim)
+  ## for why the vote phase does not mirror lobbyChatTicks's always-on
+  ## default; the `!= 0` comparison below is therefore comparing against
+  ## this field's true zero value in both branches, not a shipped constant.
   if config.season2Shell:
     node["season2Shell"] = %true
     node["viewIntervalTicks"] = %config.viewIntervalTicks
     node["lobbyChatTicks"] = %config.lobbyChatTicks
     node["playSeatBindTicks"] = %config.playSeatBindTicks
+    node["voteTicks"] = %config.voteTicks
     return
   if config.viewIntervalTicks != ViewIntervalTicksDefault:
     node["viewIntervalTicks"] = %config.viewIntervalTicks
@@ -1392,6 +1409,8 @@ proc echoShellKeys(config: GameConfig, node: JsonNode) =
     node["lobbyChatTicks"] = %config.lobbyChatTicks
   if config.playSeatBindTicks != PlaySeatBindTicksDefault:
     node["playSeatBindTicks"] = %config.playSeatBindTicks
+  if config.voteTicks != 0:
+    node["voteTicks"] = %config.voteTicks
 
 proc echoShotFeedbackKeys(config: GameConfig, node: JsonNode) =
   ## Echo the shot-feedback gate only when it is on, so an

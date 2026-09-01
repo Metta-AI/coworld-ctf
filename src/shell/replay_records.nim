@@ -65,6 +65,32 @@ type
     team*: uint8
     text*: string
 
+  BallotRecordKind* = enum
+    ## docs/designs/prematch-vote-wire-2026-08-31.md §4's record `0x17`
+    ## (RecVoteReserved, src/shell/types.nim): the same two kinds as the
+    ## wire's `0xB3` VoteState.
+    brkCast
+    brkResolved
+
+  BallotRecord* = object
+    ## §4: one byte shorter than the wire packet per kind (`type` +
+    ## `replayTimeMs` replaces `op` + `ver`, no `tick` field) — the same
+    ## trim `0x13` already makes relative to `0xB2`. Hash-coupled like
+    ## `0x14`-`0x16` (ruled, 2c2f905c): NO manifest arm, so unlike
+    ## `LobbyChatRecord` above this type carries no ordered-chain
+    ## integrity field and `buildShellReplayManifest` below is unchanged.
+    replayTimeMs*: uint32
+    ordinal*: uint64
+    case kind*: BallotRecordKind
+    of brkCast:
+      seat*: uint8
+      team*: uint8
+      option*: uint8
+    of brkResolved:
+      category*: uint8
+      tieBreakDrawn*: uint8
+      finalOption*: uint8
+
   ShellManifestSeat* = object
     seat*: uint8
     callCount*: uint32
@@ -565,6 +591,57 @@ proc decodeLobbyChatRecord*(bytes: string): LobbyChatRecord =
   result = bytes.decodeLobbyChatRecord(offset)
   if offset != bytes.len:
     recordError("trailing bytes after lobby transcript record")
+
+proc encodeBallotRecord*(record: BallotRecord): string =
+  ## docs/designs/prematch-vote-wire-2026-08-31.md §4, record `0x17`
+  ## (RecVoteReserved): both kinds are 17 bytes, fixed.
+  result.addU8(RecVoteReserved)
+  result.addU32(record.replayTimeMs)
+  case record.kind
+  of brkCast:
+    result.addU8(0)
+    result.addU64(record.ordinal)
+    result.addU8(record.seat)
+    result.addU8(record.team)
+    result.addU8(record.option)
+  of brkResolved:
+    result.addU8(1)
+    result.addU64(record.ordinal)
+    result.addU8(record.category)
+    result.addU8(record.tieBreakDrawn)
+    result.addU8(record.finalOption)
+
+proc decodeBallotRecord*(bytes: string, offset: var int): BallotRecord =
+  ## Reads one record from a larger stream; trailing bytes belong to the
+  ## next record and are intentionally left unread.
+  if bytes.readU8(offset) != RecVoteReserved:
+    recordError("wrong ballot record type")
+  let replayTimeMs = bytes.readU32(offset)
+  let kind = bytes.readU8(offset)
+  let ordinal = bytes.readU64(offset)
+  case kind
+  of 0'u8:
+    let seat = bytes.readU8(offset)
+    let team = bytes.readU8(offset)
+    let option = bytes.readU8(offset)
+    result = BallotRecord(kind: brkCast, replayTimeMs: replayTimeMs,
+      ordinal: ordinal, seat: seat, team: team, option: option)
+  of 1'u8:
+    let category = bytes.readU8(offset)
+    let tieBreakDrawn = bytes.readU8(offset)
+    let finalOption = bytes.readU8(offset)
+    result = BallotRecord(kind: brkResolved, replayTimeMs: replayTimeMs,
+      ordinal: ordinal, category: category, tieBreakDrawn: tieBreakDrawn,
+      finalOption: finalOption)
+  else:
+    recordError("unknown ballot record kind")
+
+proc decodeBallotRecord*(bytes: string): BallotRecord =
+  ## Decodes one complete standalone record.
+  var offset = 0
+  result = bytes.decodeBallotRecord(offset)
+  if offset != bytes.len:
+    recordError("trailing bytes after ballot record")
 
 proc buildShellReplayManifest*(
   callRecords: openArray[seq[string]],

@@ -112,6 +112,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `viewIntervalTicks` | int / `6` | `1..48` | LLM-bound `PlayView` frame interval for play seats (§4.3); inert without one. |
 | `lobbyChatTicks` | int / `720` | `0..4320` | Lobby chat phase length in ticks (§9.2), wall-clock paced even under `fastMode`; `0` disables the phase (the byte-identical gate-off shape). |
 | `playSeatBindTicks` | int / `7200` | `0..14400`; must be positive with any play seat | The presence budget (§9.2): a cumulative absence clock over the whole pre-activation period, replacing `lobbyJoinTimeoutTicks` in play-seat episodes; inert without one. |
+| `voteTicks` | int / `0` | `0..2400` | Pre-match vote phase length in ticks ([docs/designs/prematch-vote-phase-2026-08-31.md](designs/prematch-vote-phase-2026-08-31.md), [prematch-vote-wire-2026-08-31.md](designs/prematch-vote-wire-2026-08-31.md) §7); `0` disables the phase. Runs, when armed, BEFORE `lobbyChatTicks`'s substate. Default `0` — DELIBERATELY not gated on `hasPlaySeat` alone like `lobbyChatTicks`: the 0xA4/0xB3 socket classifier is not wired yet (v1 scope), so this stays off by construction until that lane lands. |
 
 **Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
 `hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
