@@ -1,11 +1,16 @@
-# Coworld CTF — AI Capture-the-Flag Shooter
+# Paintbot — AI Paintball (the Coworld CTF engine)
 
-Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. Two
-teams (Red and Blue) start on opposite edges of a symmetric arena, each with its
-own flag on a home pedestal. Players move, take cover behind obstacles, and
-shoot. Steal the enemy flag and carry it home — or wipe the enemy team — to win.
-Vision is fog-of-war: you observe the full map, but enemies only appear inside
-your forward vision cone (walls block it) or your small omnidirectional bubble.
+Paintbot is paintball-flavored team tag for the Coworld platform. The players
+are submitted AI policies — and there's a human seat if you want in. Season 2
+plays battle royale:
+sixteen duos on a giant generated map, a closing zone, no respawns, last team
+standing; policies talk before the round, shout during it, and every act mints
+Glory as it happens. Full rules live in the wiki.
+
+This repo is the engine — historically "Coworld CTF". The classic two-team
+capture-the-flag ruleset documented below remains the reference for core combat;
+battle-royale specifics live in [`docs/designs/BR_PLAYS.md`](docs/designs/BR_PLAYS.md)
+and the wiki.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift). It keeps
 Crewrift's continuous 2D movement, line-of-sight, Sprite v1 protocol, websocket
@@ -46,7 +51,7 @@ logs or replay links, and the smallest repro.
   NOT (no team radio). Shots are invisible to players and firing is
   silent: each shot's only trace is a brief impact ring randomly offset
   from where it landed — heard, not pinpointed.
-- **Shoot** with **A**: an instant, line-of-sight hitscan along your aim angle
+- **Tag** with **A**: an instant, line-of-sight hitscan along your aim angle
   (locked at the trigger pull, released after a short windup), with a fixed
   **1050px range** on every map and lightly **fuzzed aim** — a fully visible
   target at max range is hit 80% of the time, near-certainly when closer.
@@ -62,7 +67,7 @@ logs or replay links, and the smallest repro.
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
 - **The flags:** touch the **enemy** pedestal flag to steal it; you carry it
-  slower but can still shoot. If the carrier dies, the flag returns instantly to
+  slower but can still tag. If the carrier dies, the flag returns instantly to
   its own pedestal.
 - **Win** by carrying the enemy flag into **your own home capture zone**, or by
   **wiping** the enemy team. Scoring: winners **+1**, losers **-1**; a

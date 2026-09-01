@@ -1,8 +1,9 @@
-# Coworld CTF — Game Rules
+# Paintbot Classic (Coworld CTF) — Game Rules
 
-Coworld CTF is a two-team capture-the-heart shooter for the Coworld platform. Two
+Paintbot's classic mode ("Coworld CTF") is a two-team capture-the-heart tag game
+for the Coworld platform. Two
 teams start on opposite edges of a symmetric arena, each with its own heart on a
-home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
+home pedestal. Players move, take cover behind obstacles, and tag each other out. Steal the
 enemy heart and carry it home — or eliminate the enemy team — to win. Vision is
 fog-of-war: the map is always visible, but enemies only appear inside your
 forward vision cone or your small omnidirectional bubble.
@@ -236,7 +237,7 @@ square map:
   Blue → west).
 - A player's **facing** is shown by the soldier sprite itself: the held gun
   sweeps to the aim angle (the sprite reports a coarse `right`/`left` side in
-  its label), and — for anyone you can see — the direction they can shoot is
+  its label), and — for anyone you can see — the direction they can tag is
   exactly the lane their body faces. There is no longer a separate floating
   aim-dot indicator; the vision cone and the swept gun convey aim.
 
@@ -275,7 +276,7 @@ always drawn — but moving entities are fogged:
   Every shot leaves every living player one brief hollow **impact ring**
   (label `shot impact`) near where it landed, for ~0.5s, regardless of line
   of sight. **Firing itself is silent**: the muzzle emits no signal, so
-  pulling the trigger never reveals the shooter's neighborhood — only where
+  pulling the trigger never reveals the tagger's neighborhood — only where
   the paint lands. The ring is randomly (but deterministically, per shot)
   offset by up to ~20px, so it tells you something was hit *roughly there*
   — never the exact spot, the shot's line, or which team.
@@ -323,7 +324,7 @@ always drawn — but moving entities are fogged:
   target at long range is doubly hard.
 - **Cover is partial, not binary.** A target's body is sampled across its
   silhouette: only the part of the body that is both inside the bullet
-  corridor AND visible from the shooter can be hit. A corner-hugger showing
+  corridor AND visible from the tagger can be hit. A corner-hugger showing
   a sliver is exactly as hittable as that sliver — no more (fully hidden
   body parts cannot be tagged through the wall), and no less (the poking
   shoulder is fair game even when the body's center is safely covered).
@@ -338,7 +339,7 @@ always drawn — but moving entities are fogged:
   counts as neither.
 - **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
   tick picks its target against the same snapshot before any kill applies: a
-  mutual face-off duel kills both shooters, and neither team gains an
+  mutual face-off duel kills both taggers, and neither team gains an
   input-processing-order advantage.
 
 ### Shot micro (frame data)
@@ -374,7 +375,7 @@ What that means in practice:
   corridor sampled against the target's ~12px-wide silhouette — near-misses
   connect; precision beyond the corridor width buys nothing.
 - **Respawners are live immediately.** There is no spawn protection: a
-  freshly respawned player can shoot and be shot (and blocks bullets) from
+  freshly respawned player can tag and be tagged (and blocks bullets) from
   their first tick.
 
 ## Grenades
@@ -544,7 +545,7 @@ What that means in practice:
   slowdown by taking the maximum, never the product.
 - **70% of gun shots that would hit an occupant fly straight over
   instead**: the occupant is below grade, so the bullet misses, deals no
-  damage, counts as a miss for the shooter, and **carries on down the ray**
+  damage, counts as a miss for the tagger, and **carries on down the ray**
   — it can land on an exposed body behind the trench, or on the far wall.
   The duck is rolled per crossed occupant on the deterministic sim RNG.
 - **Shots fired from inside the same trench are never ducked** — the
@@ -701,7 +702,7 @@ What that means in practice:
   The touch radius (`FlagPickupRange` = 34px) covers the **drawn heart**, which is
   60px across on a 96px pedestal disc, so any spot where heart pixels are under
   your feet takes it. Your own heart cannot be interacted with by your own team.
-  While carrying you move **slower** but can **still shoot**.
+  While carrying you move **slower** but can **still tag**.
 - If the carrier is killed (or disconnects), the heart **returns instantly to its
   own pedestal**. A heart is never left loose on the ground: it is either carried
   or sitting on its pedestal.

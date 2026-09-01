@@ -1,4 +1,4 @@
-# CTF wire protocol — Sprite v1 plus CTF extensions
+# Paintbot wire protocol — Sprite v1 plus CTF extensions
 
 Both the player endpoints (`/player`, POV observation streams) and the
 global/spectator endpoint speak
@@ -18,7 +18,7 @@ Sprite v1 reserves player-input bit `7` ("must be sent as 0"). CTF assigns it:
 
 Send it in the standard `0x84` Player Input bitmask alongside the Sprite v1
 bits (d-pad, Select, A, B). A player that never sets bit 7 can still move,
-shoot, and win — but cannot throw a carried grenade. See `RULES.md`, section
+tag, and win — but cannot throw a carried grenade. See `RULES.md`, section
 *Grenades*, for the charge/release mechanics. (The spray can is not thrown:
 carrying one turns the normal trigger into the paint cone; C keeps throwing a
 carried grenade.)
