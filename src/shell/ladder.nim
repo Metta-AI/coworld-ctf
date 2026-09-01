@@ -68,11 +68,15 @@ type
     status*: StatusEntry
     statusBytes*: string
 
+  LadderEntryIdentity* = object
+    entryId*: string
+    play*: string
+
   LadderSeatTick* = object
     seat*: int
     epoch*: uint64
     initialized*: seq[string]
-    retuned*: seq[string]
+    retuned*: seq[LadderEntryIdentity]
     stepped*: seq[string]
     statuses*: seq[LadderStatus]
     selectedEntryId*: string
@@ -95,6 +99,7 @@ type
     epoch*: uint64
     status*: StatusEntry
     statusBytes*: string
+    pendingRetunes*: seq[LadderEntryIdentity]
 
   LadderEntrySnapshot* = object
     entryId*: string
@@ -336,6 +341,8 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
         entry.oldParamsBytes = replacement.oldParamsBytes
         entry.callEpoch = nextEpoch
         old[].guest = nil
+        result.pendingRetunes.add LadderEntryIdentity(entryId: call.entryId,
+          play: call.play)
       of raStartAbsent:
         discard
     newEntries.add entry
@@ -437,7 +444,8 @@ proc retuneEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     return false
   entry[].state = pisLive
   entry[].oldParamsBytes.setLen(0)
-  output.retuned.add entry[].call.entryId
+  output.retuned.add LadderEntryIdentity(entryId: entry[].call.entryId,
+    play: entry[].call.play)
   true
 
 proc firstInitializationCandidate(seat: LadderSeat,

@@ -274,8 +274,10 @@ suite "shell ladder":
       bindings, ctx()).accepted
     let retuned = driver.tick(newSeqWith(2, input()), 2, bindings)
     check retuned.initCount == MaxInitsPerTick
-    check retuned.seats[0].retuned == @["base"]
-    check retuned.seats[1].retuned == @["base"]
+    check retuned.seats[0].retuned == @[
+      LadderEntryIdentity(entryId: "base", play: "base")]
+    check retuned.seats[1].retuned == @[
+      LadderEntryIdentity(entryId: "base", play: "base")]
     check retuned.seats[0].usedDefault
     check retuned.seats[0].intent.reason == "default"
     check retuned.seats[1].usedDefault

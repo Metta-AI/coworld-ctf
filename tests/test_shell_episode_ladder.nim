@@ -88,6 +88,51 @@ proc writeCurrentSelfProbeWasm(path: string) =
       "i32.const 0))"
   writeFile(path, wat.watBytes)
 
+proc writeStepTrapWasm(path: string) =
+  let manifest =
+    "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
+    "\"name\":\"step_trap\",\"params\":{},\"retune\":true}"
+  let wat = "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
+    "  (global $heap (mut i32) (i32.const 4096))\n" &
+    "  (func (export \"play_alloc\") (param $len i32) (result i32) " &
+      "global.get $heap global.get $heap local.get $len i32.add " &
+      "global.set $heap)\n" &
+    "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+      $manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0)\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " &
+      "unreachable)\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0))"
+  writeFile(path, wat.watBytes)
+
+proc writeRetuneRefuseWasm(path: string) =
+  let manifest =
+    "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
+    "\"name\":\"retune_refuse\",\"params\":{\"bias\":{\"default\":0," &
+    "\"kind\":\"number\",\"max\":10,\"min\":0}},\"retune\":true}"
+  let wat = "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
+    "  (global $heap (mut i32) (i32.const 4096))\n" &
+    "  (func (export \"play_alloc\") (param $len i32) (result i32) " &
+      "global.get $heap global.get $heap local.get $len i32.add " &
+      "global.set $heap)\n" &
+    "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+      $manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0)\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " &
+      "i32.const 0)\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 1))"
+  writeFile(path, wat.watBytes)
+
 proc playConfig(seats: seq[int]; coverBias = "0.0"): FirstLightPlayConfig =
   FirstLightPlayConfig(
     modulePath: EdgeRideWasm,
@@ -99,10 +144,22 @@ proc playConfig(seats: seq[int]; coverBias = "0.0"): FirstLightPlayConfig =
     proposalIdBase: 80_000,
     originGeneration: 1)
 
-proc edgeRideCallBytes(): string =
+proc edgeRideCallBytes(coverBias = "0.0"; retune = false): string =
+  let retuneField = if retune: ",\"retune\":true" else: ""
   canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"edge_ride\"," &
-    "\"params\":{\"coverBias\":0.0,\"enterLead\":120,\"margin\":100}," &
-    "\"play\":\"edge_ride\"}]}"))
+    "\"params\":{\"coverBias\":" & coverBias &
+    ",\"enterLead\":120,\"margin\":100},\"play\":\"edge_ride\"" &
+    retuneField & "}]}"))
+
+proc trapCallBytes(): string =
+  canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"step_trap\"," &
+    "\"params\":{},\"play\":\"step_trap\"}]}"))
+
+proc retuneRefuseCallBytes(bias: int; retune = false): string =
+  let retuneField = if retune: ",\"retune\":true" else: ""
+  canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"retune_refuse\"," &
+    "\"params\":{\"bias\":" & $bias & "},\"play\":\"retune_refuse\"" &
+    retuneField & "}]}"))
 
 proc bytesOf(text: string): seq[byte] =
   result = newSeq[byte](text.len)
@@ -117,6 +174,16 @@ proc probeConfig(modulePath: string): FirstLightPlayConfig =
     seats: @[0],
     uploadIdBase: 90_000,
     proposalIdBase: 91_000,
+    originGeneration: 1)
+
+proc retuneRefuseConfig(modulePath: string): FirstLightPlayConfig =
+  FirstLightPlayConfig(
+    modulePath: modulePath,
+    playName: "retune_refuse",
+    paramsBytes: "{\"bias\":0}",
+    seats: @[0],
+    uploadIdBase: 160_000,
+    proposalIdBase: 161_000,
     originGeneration: 1)
 
 proc controls(count: int): seq[SlotControl] =
@@ -355,6 +422,132 @@ suite "shell episode ladder":
       let nextTick = episode.admitPlayModule(0, 130_001, 1, wasmBytes)
       check nextTick.accepted
       check nextTick.status.kind == skModuleAccepted
+
+  test "playFaulted status survives the episode standing-order filter":
+    when ShellRuntimeAvailable:
+      let modulePath = getTempDir() / "step-trap-" &
+        $getCurrentProcessId() & ".wasm"
+      writeStepTrapWasm(modulePath)
+      defer:
+        if fileExists(modulePath):
+          removeFile(modulePath)
+
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let admitted = episode.admitPlayModule(0, 140_000, 1,
+        readFile(modulePath).bytesOf)
+      check admitted.accepted
+
+      var
+        tick = 1
+        pos: BodyPoint = (20, 128)
+        sawReady = false
+      while tick <= 5000 and not sawReady:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.masks.len == 1
+        pos.applyMask(output.masks[0].input)
+        sawReady = output.moduleStatuses.anyIt(it.seat == 0 and
+          it.uploadId == 140_000 and it.status.kind == skModuleReady)
+        if not sawReady:
+          sleep(1)
+        inc tick
+      check sawReady
+
+      let accepted = episode.acceptPlayCall(0, 140_100, 1, uint32(tick),
+        trapCallBytes())
+      check accepted.accepted
+      let fault = episode.step([frame(0, pos, tick)], uint32(tick))
+      check fault.ladderStatuses.anyIt(it.seat == 0 and
+        it.entryId == "step_trap" and
+        it.status.kind == skPlayFaulted and
+        it.status.entryId == "step_trap" and
+        it.statusBytes.len > 0)
+
+  test "pending retunes report identities and complete exactly once":
+    when ShellRuntimeAvailable:
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let configLines = episode.configureFirstLightPlay(playConfig(@[0]))
+      check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+        it.contains("accepted=true"))
+
+      var pos: BodyPoint = (20, 128)
+      let initialized = episode.step([frame(0, pos, 1)], 1)
+      check initialized.masks.len == 1
+      pos.applyMask(initialized.masks[0].input)
+
+      let changed = episode.acceptPlayCall(0, 150_000, 2, 2,
+        edgeRideCallBytes("0.5", retune = true))
+      check changed.accepted
+      check changed.pendingRetunes == @[
+        FirstLightEntryIdentity(seat: 0, entryId: "edge_ride",
+          play: "edge_ride")]
+
+      var completions: seq[FirstLightEntryIdentity]
+      for tick in 2 .. 10:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.ladderStatuses.allIt(it.status.kind != skRetuneRefused)
+        completions.add output.retuned
+        if output.masks.len == 1:
+          pos.applyMask(output.masks[0].input)
+      check completions == changed.pendingRetunes
+
+  test "retune refusal completes pending retune once and is not doubled":
+    when ShellRuntimeAvailable:
+      let modulePath = getTempDir() / "retune-refuse-" &
+        $getCurrentProcessId() & ".wasm"
+      writeRetuneRefuseWasm(modulePath)
+      defer:
+        if fileExists(modulePath):
+          removeFile(modulePath)
+
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let configLines = episode.configureFirstLightPlay(
+        retuneRefuseConfig(modulePath))
+      check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+        it.contains("accepted=true"))
+
+      var pos: BodyPoint = (20, 128)
+      let initialized = episode.step([frame(0, pos, 1)], 1)
+      check initialized.masks.len == 1
+      pos.applyMask(initialized.masks[0].input)
+
+      let changed = episode.acceptPlayCall(0, 162_000, 2, 2,
+        retuneRefuseCallBytes(1, retune = true))
+      check changed.accepted
+      check changed.pendingRetunes == @[
+        FirstLightEntryIdentity(seat: 0, entryId: "retune_refuse",
+          play: "retune_refuse")]
+
+      var
+        refusals: seq[FirstLightLadderStatus]
+        successes: seq[FirstLightEntryIdentity]
+      for tick in 2 .. 10:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        for status in output.ladderStatuses:
+          if status.status.kind == skRetuneRefused:
+            refusals.add status
+        successes.add output.retuned
+        if output.masks.len == 1:
+          pos.applyMask(output.masks[0].input)
+
+      check successes.len == 0
+      check refusals.len == 1
+      check refusals[0].seat == 0
+      check refusals[0].entryId == "retune_refuse"
+      check refusals[0].status.entryId == "retune_refuse"
+      check refusals[0].statusBytes.len > 0
 
   test "32 configured play seats stay inside the runtime sub-allocation":
     buildEdgeRideWasm()
