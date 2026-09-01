@@ -331,6 +331,37 @@ html, body {
   color: var(--paper-dim);
   flex: none;
 }
+/* SEASON 2 GLORY: a second, smaller baseline row under .lives-line — same
+   name-innermost/label/numeral rhythm, at ~60% the lives numeral's size so
+   it reads as the SECONDARY score (lives is still the primal "are you
+   alive" number; glory is the season's scoring layer riding beside it).
+   Absent entirely (no row at all) until the first frame carries a `glory`
+   field, via JS toggling `.has-glory` on the plate — a pre-GLORY-port
+   replay's topbar is therefore byte-for-byte the old one. */
+.plate .glory-line {
+  display: none;
+  align-items: baseline;
+  gap: calc(5 * var(--u));
+  margin-top: calc(1 * var(--u));
+}
+.plate.has-glory .glory-line { display: flex; }
+.plate.side-l .glory-line { flex-direction: row-reverse; }
+.glory-num {
+  font-family: var(--pixfont);
+  font-size: calc(13 * var(--u));
+  line-height: 1;
+  color: var(--amber);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.glory-label {
+  font-family: var(--finefont);
+  font-size: calc(7 * var(--u));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  flex: none;
+}
 /* Team-perk badges, riding the squad-pip strip (the pip strip IS the life
    meter — see renderSquad). Each policy's pips form one .squad-pol block
    with that policy's badges beside them; the center-adjacent pips with
@@ -554,6 +585,129 @@ html, body {
 .banner-chip.leaving { animation: chipfade 260ms ease-in forwards; }
 @keyframes chippop { from { transform: translateY(calc(-8 * var(--u))) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes chipfade { to { opacity: 0; transform: translateY(calc(-4 * var(--u))); } }
+
+/* ---------- 1b. GLORY POPS ---------- */
+/* SEASON 2: world-anchored floating "+Ng"/named-claim pops, one per entry in
+   the frame's s.pops (sim.gloryPops, see broadcast.nim gloryPopsJson). #gloryPops
+   itself is a full-#chrome-sized positioning root (children placed with JS-
+   computed left/top from core.getTransform(), see renderGloryPops); it never
+   captures pointer events so it can't shadow board clicks. Rise/fade is driven
+   PER FRAME from the pop's own tick age (not a wall-clock CSS animation) so it
+   never desyncs from replay speed, pause, or a seek. */
+#gloryPops { position: absolute; inset: 0; pointer-events: none; z-index: 11; }
+.glory-pop {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-family: var(--pixfont);
+  font-weight: 600;
+  font-size: calc(12 * var(--u));
+  color: var(--amber);
+  text-shadow: 0 calc(1.5 * var(--u)) 0 var(--ink), 0 0 calc(6 * var(--u)) rgba(0,0,0,.65);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+.glory-pop.claim {
+  /* a named achievement claim outranks a bare deed pop (L: `label.len > 0`
+     picks the longer AchievementFxTicks life engine-side too) — paper, not
+     amber, so it doesn't read as "just a bigger number". */
+  font-size: calc(10.5 * var(--u));
+  color: var(--paper);
+  letter-spacing: 0.02em;
+}
+.glory-pop.neg { color: var(--red); }
+
+/* ---------- 1c. SEASON 2 LOBBY: huddle transcript + pre-match ballot ------
+   Both panels are built once (from the shell-record chrome the host decoded
+   from the replay's .shell metadata — see ctf_replay.nim), then simply
+   TOGGLED by phase: visible only while s.ph === 'lobby', gone the instant
+   play starts, so they never compete with the board for attention once the
+   match is actually running. Absent (display:none forever) on a replay
+   whose .shell carried neither record type — the degrade-to-nothing path
+   both docs/designs/prematch-vote-wire-2026-08-31.md §4 and the huddle lane
+   call for. */
+#huddlePanel, #votePanel {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  background: rgba(20, 14, 9, 0.84);
+  border: 1px solid rgba(242, 232, 216, 0.14);
+  border-radius: calc(3 * var(--u));
+  padding: calc(8 * var(--u)) calc(10 * var(--u));
+  font-family: var(--finefont);
+  z-index: 20;
+  animation: cardfade 220ms ease-out;
+}
+#huddlePanel.show, #votePanel.show { display: flex; }
+.lobby-panel-title {
+  font-family: var(--pixfont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  margin-bottom: calc(6 * var(--u));
+}
+#huddlePanel {
+  left: calc(12 * var(--u));
+  bottom: calc(76 * var(--u));
+  width: calc(248 * var(--u));
+  max-height: 46%;
+}
+#huddleLines {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--u));
+}
+.huddle-line { font-size: calc(9.5 * var(--u)); color: var(--paper); line-height: 1.4; }
+.huddle-seat {
+  font-weight: 600;
+  color: var(--tc, var(--paper-dim));
+  margin-right: calc(4 * var(--u));
+}
+.huddle-empty, .vote-empty {
+  color: var(--paper-dim);
+  font-style: italic;
+  font-size: calc(9 * var(--u));
+}
+#votePanel {
+  right: calc(12 * var(--u));
+  bottom: calc(76 * var(--u));
+  width: calc(208 * var(--u));
+}
+.vote-opt {
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--u));
+  padding: calc(3 * var(--u)) 0;
+  font-family: var(--pixfont);
+  font-size: calc(10 * var(--u));
+  color: var(--paper);
+  border-top: 1px solid rgba(242, 232, 216, 0.08);
+}
+.vote-opt:first-child { border-top: none; }
+.vote-opt.winner { color: var(--amber); }
+.vote-opt .vo-letter { color: var(--paper-dim); width: calc(12 * var(--u)); flex: none; }
+.vote-opt.winner .vo-letter { color: var(--amber); }
+.vote-opt .vo-dots { display: flex; flex-wrap: wrap; gap: calc(2 * var(--u)); flex: 1; min-width: 0; }
+.vote-dot {
+  width: calc(6 * var(--u));
+  height: calc(6 * var(--u));
+  border-radius: 50%;
+  background: var(--tc, var(--paper-dim));
+  flex: none;
+}
+.vote-opt .vo-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--paper-dim);
+  flex: none;
+}
+.vote-opt .vo-crown {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  flex: none;
+}
 
 /* ---------- 2. KILL FEED ---------- */
 #killfeed {
@@ -1335,6 +1489,25 @@ html, body {
 #endcard .ec-tname { color: var(--tc, var(--paper)); }
 #endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
 #endcard .fl-num { font-size: calc(22 * var(--u)); color: var(--tc, var(--paper)); }
+/* SEASON 2: per-team GLORY total + the achievements ledger line, riding
+   directly under .ec-lives with the same numeral/caption rhythm at a
+   smaller scale (glory is the season's secondary score, same relationship
+   as the topbar's .glory-line to .lives-line). Both start hidden and only
+   appear once JS confirms the frame actually carries the field — an
+   endcard from a pre-GLORY-port replay renders byte-for-byte unchanged. */
+#endcard .ec-glory { display: none; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); margin-top: calc(2 * var(--u)); }
+#endcard .ec-team.has-glory .ec-glory { display: flex; }
+#endcard .ec-glory .fl-num { font-size: calc(15 * var(--u)); color: var(--amber); }
+#endcard .ec-ach {
+  display: none;
+  font-family: var(--finefont);
+  font-size: calc(8.5 * var(--u));
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+  margin-top: calc(2 * var(--u));
+}
+#endcard .ec-team.has-ach .ec-ach { display: block; }
+#endcard .ec-ach .ec-ach-bonus { color: var(--amber); }
 /* mixed-team policy subheader: groups a team panel's rows by policy when a
    team seats more than one (CTF-Doubles: two policies per side) */
 #endcard .ec-pol {
@@ -1770,6 +1943,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     </div>
     <div id="bannerlane"></div>
     <div id="killfeed"></div>
+    <div id="gloryPops"></div>
+    <!-- SEASON 2: lobby-phase huddle transcript + pre-match ballot. Both stay
+         display:none until renderLobbyPanels() sees the corresponding shell
+         record chrome AND the current phase is 'lobby' — see the CSS block's
+         own comment for the degrade-to-nothing contract. -->
+    <div id="huddlePanel">
+      <div class="lobby-panel-title">Huddle</div>
+      <div id="huddleLines"></div>
+    </div>
+    <div id="votePanel">
+      <div class="lobby-panel-title">Vote</div>
+      <div id="voteBody"></div>
+    </div>
 
     <div id="transport">
       <!-- Buttons on top, scrubber/timeline below (the transport sits in its own
@@ -1923,6 +2109,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // Engine-authoritative wire constants (read via the shared chrome; the
   // fallback literals for raw file:// opens live in chrome_common.js).
   var WIRE = C.WIRE, SPEEDS = C.SPEEDS, FPS = C.FPS, SPEED_CMD = C.SPEED_CMD;
+  // SEASON 2: glory pop lifetimes + the achievement curriculum size, all
+  // engine-derived (wire_constants.nim) so the endcard's "N/40" and the pop
+  // fade timing can never drift from sim.nim's own GloryFxTicks/
+  // AchievementFxTicks/Tree*AchievementTiers. Literal fallbacks match what
+  // the engine emits today, same convention as WIRE/SPEEDS/FPS above.
+  var GLORY_FX_TICKS = WIRE.gloryFxTicks || 40;
+  var ACHIEVEMENT_FX_TICKS = WIRE.achievementFxTicks || 84;
+  var ACH_TOTAL = WIRE.achievementTotal || 40;
 
   // Two independent tempo levers (§11, L20):
   //  (1) ANIM_MAX_FACTOR — chrome beat animations never play faster than this
@@ -2346,7 +2540,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // the boost as a seek.
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
-    if (jumped) { clearFeed(); clearBanners(); }
+    if (jumped) { clearFeed(); clearBanners(); clearGloryPops(); }
     lastFf = !!s.ff;
 
     renderScorebug(s);
@@ -2354,6 +2548,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     renderTransport(s);
     renderPov(s);
     renderMismatch(s);
+    renderGloryPops(s);
+    renderLobbyPanels(s);
 
     if (s.events && s.events.length && !jumped) {
       for (var i = 0; i < s.events.length; i++) applyEvent(s.events[i], s);
@@ -2576,6 +2772,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           '<span class="lives-label pb-lbl">Hill</span>' +
           '<span class="lives-num" id="lives-' + team + '">—</span>' +
           '</div>' +
+          '<div class="glory-line">' +
+          '<span class="glory-label">Glory</span>' +
+          '<span class="glory-num" id="glory-' + team + '">0</span>' +
+          '</div>' +
           '<div class="pb-sub">' +
           '<span class="pb-tags pb-lbl" id="tags-' + team + '"></span>' +
           '<span class="squad" id="squad-' + team + '"></span>' +
@@ -2595,6 +2795,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
         '<span class="lives-label">' + (elim ? 'Alive' : 'Lives') + '</span>' +
         '<span class="lives-num" id="lives-' + team + '">—</span>' +
+        '</div>' +
+        '<div class="glory-line">' +
+        '<span class="glory-label">Glory</span>' +
+        '<span class="glory-num" id="glory-' + team + '">0</span>' +
         '</div>' +
         '<div class="squad" id="squad-' + team + '"></div>' +
         '</div>';
@@ -2641,6 +2845,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     teams.forEach(function (team) {
       setName('name-' + team, teamName(s, team, team.toUpperCase()));
       setHandicap('hcap-' + team, s, team);
+      // SEASON 2 GLORY: the team's running ledger total (sim.teamGlory,
+      // broadcast.nim teamStateJson's unconditional "glory" key — present
+      // on every replay from the glory port onward, absent on anything
+      // recorded before it). The plate only grows the second row once the
+      // field is actually a number, so an older replay's topbar is
+      // unchanged pixel-for-pixel.
+      var gv = tr[team] && tr[team].glory;
+      var platePre = document.querySelector('.plate[data-team="' + team + '"]');
+      if (platePre) platePre.classList.toggle('has-glory', typeof gv === 'number');
+      var gloryEl = $('glory-' + team);
+      if (gloryEl && typeof gv === 'number') gloryEl.textContent = gv;
       if (PB_MODE) {
         var t = tr[team] || {};
         // PAINTBALL: the big numeral is HILL TIME HELD (M:SS), the chip is
@@ -3986,6 +4201,157 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     bannerBusy = false;
   }
 
+  // ---------- SEASON 2 glory pops (world-anchored, tick-driven) ----------
+  // `s.pops` is the FULL current queue every frame (see gloryPopsJson's own
+  // doc comment) — not a diff — so this reconciles a DOM element per pop
+  // keyed on its (team, mint tick, site, word/label) identity: create on
+  // first sight, restyle in place every frame after, drop the element the
+  // instant its key stops appearing (the sim already pruned it). Age/fade
+  // is computed from `s.t` vs the pop's own tick every frame, NOT a
+  // wall-clock CSS animation, so pause/seek/speed can never desync it.
+  var gloryPopsEl = $('gloryPops');
+  var gloryPopEls = {};
+  function gloryPopKey(p) {
+    return p.team + '|' + p.t + '|' + p.x + '|' + p.y + '|' + p.word + '|' + p.lbl;
+  }
+  function renderGloryPops(s) {
+    if (!gloryPopsEl || !core || !core.getTransform) return;
+    var t = core.getTransform();
+    if (!t || !t.scale) return;
+    var root = document.documentElement;
+    var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
+    var seen = {};
+    (s.pops || []).forEach(function (p) {
+      var key = gloryPopKey(p);
+      var startTick = p.t + (p.delay || 0);
+      var age = s.t - startTick;
+      if (age < 0) return; // still queued behind an earlier pop at this site
+      var life = p.lbl ? ACHIEVEMENT_FX_TICKS : GLORY_FX_TICKS;
+      var frac = age / life;
+      if (frac >= 1) return; // the sim already aged this one out
+      seen[key] = true;
+      var el = gloryPopEls[key];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '');
+        el.textContent = p.lbl
+          ? p.lbl
+          : (p.amt >= 0 ? '+' : '') + p.amt + 'g' + (p.word ? ' ' + p.word : '');
+        gloryPopsEl.appendChild(el);
+        gloryPopEls[key] = el;
+      }
+      var cssX = t.offsetX + p.x * t.scale;
+      var cssY = topBand + t.offsetY + p.y * t.scale;
+      // `row` is the sim's own site-collision stack depth (addGloryPop,
+      // sim.nim — 0..GloryPopMaxStack), computed for exactly this reason:
+      // two legitimately-simultaneous pops at one site (e.g. a rank-up
+      // beside an unrelated deed at the same spawn point) must not draw on
+      // top of each other. A fixed per-row lift, scaled with zoom like
+      // every other board-space distance here, stacks them instead of
+      // stacking their TEXT.
+      var rowLift = (p.row || 0) * 15 * t.scale;
+      var rise = 22 * t.scale * frac + rowLift;
+      // fade in over the first 12% of its life, hold, fade out over the last
+      // 30% — the same shape the kill-feed/banner lanes use (pop, hold, go).
+      var opacity = frac < 0.12 ? frac / 0.12 : Math.min(1, (1 - frac) / 0.3);
+      el.style.left = cssX + 'px';
+      el.style.top = cssY + 'px';
+      el.style.opacity = String(Math.max(0, opacity));
+      el.style.transform = 'translate(-50%, calc(-100% - ' + rise + 'px))';
+    });
+    Object.keys(gloryPopEls).forEach(function (key) {
+      if (!seen[key]) {
+        var stale = gloryPopEls[key];
+        if (stale.parentNode) stale.parentNode.removeChild(stale);
+        delete gloryPopEls[key];
+      }
+    });
+  }
+  function clearGloryPops() {
+    Object.keys(gloryPopEls).forEach(function (key) {
+      var el = gloryPopEls[key];
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+    gloryPopEls = {};
+  }
+
+  // ---------- SEASON 2 lobby panels: huddle transcript + ballot ----------
+  // Both `s.huddle`/`s.vote` are shell-record chrome the host decoded ONCE
+  // from the replay's verified `.shell` metadata and ships on a single lead
+  // frame (broadcast.nim buildStateJson, the same "send once" contract as
+  // `ach`/`beats`/`lead`) — cache the payload the first time it's seen and
+  // render its DOM once; every later frame only toggles visibility by phase.
+  var huddleCache = null, voteCache = null;
+  var huddlePanelEl = $('huddlePanel'), huddleLinesEl = $('huddleLines');
+  var votePanelEl = $('votePanel'), voteBodyEl = $('voteBody');
+
+  function renderHuddleLines(lines) {
+    if (!lines || !lines.length) {
+      return '<div class="huddle-empty">No huddle chatter recorded.</div>';
+    }
+    return lines.map(function (m) {
+      return '<div class="huddle-line"><span class="huddle-seat" style="--tc:' +
+        (teamCol(m.team) || 'var(--paper-dim)') + '">Seat ' + m.seat + '</span>' +
+        esc(m.text) + '</div>';
+    }).join('');
+  }
+
+  var VOTE_LETTERS = ['A', 'B', 'C', 'D'];
+
+  function renderVoteBody(votes) {
+    if (!votes || !votes.length) {
+      return '<div class="vote-empty">No ballot recorded.</div>';
+    }
+    // Fold each seat's LATEST cast before the resolution's own ordinal into
+    // one of four buckets — the same rule
+    // docs/designs/prematch-vote-wire-2026-08-31.md §4 defines for a
+    // replaying client to reconstruct the tally. (Abstaining seats with no
+    // cast at all are simply absent from every bucket here — this renders
+    // what was cast, not a reconstructed full-roster tally.)
+    var latestBySeat = {};
+    var resolved = null;
+    votes.forEach(function (v) {
+      if (v.k === 'cast') {
+        var prev = latestBySeat[v.seat];
+        if (!prev || v.ord > prev.ord) latestBySeat[v.seat] = v;
+      } else if (v.k === 'resolved') {
+        if (!resolved || v.ord > resolved.ord) resolved = v;
+      }
+    });
+    var casts = Object.keys(latestBySeat).map(function (seat) { return latestBySeat[seat]; })
+      .sort(function (a, b) { return a.seat - b.seat; });
+    var html = '';
+    VOTE_LETTERS.forEach(function (letter, i) {
+      var isWinner = !!(resolved && resolved.final === i);
+      var here = casts.filter(function (v) { return v.opt === i; });
+      var dots = here.map(function (v) {
+        return '<span class="vote-dot" style="--tc:' + (teamCol(v.team) || 'var(--paper-dim)') +
+          '" title="Seat ' + v.seat + ' (' + v.team + ')"></span>';
+      }).join('');
+      html += '<div class="vote-opt' + (isWinner ? ' winner' : '') + '">' +
+        '<span class="vo-letter">' + letter + '</span>' +
+        '<span class="vo-dots">' + dots + '</span>' +
+        '<span class="vo-count">' + here.length + '</span>' +
+        (isWinner ? '<span class="vo-crown">WINNER</span>' : '') +
+        '</div>';
+    });
+    return html;
+  }
+
+  function renderLobbyPanels(s) {
+    if (s.huddle && !huddleCache) {
+      huddleCache = s.huddle;
+      if (huddleLinesEl) huddleLinesEl.innerHTML = renderHuddleLines(huddleCache);
+    }
+    if (s.vote && !voteCache) {
+      voteCache = s.vote;
+      if (voteBodyEl) voteBodyEl.innerHTML = renderVoteBody(voteCache);
+    }
+    var showLobby = s.ph === 'lobby';
+    if (huddlePanelEl) huddlePanelEl.classList.toggle('show', showLobby && !!huddleCache);
+    if (votePanelEl) votePanelEl.classList.toggle('show', showLobby && !!voteCache);
+  }
+
   // (scrubber beat markers — markBeat / killMarkerTeam / renderBeatMarkers —
   // live in the shared chrome — chrome_common.js)
 
@@ -4180,12 +4546,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var el = document.createElement('div');
       el.className = 'ec-team';
       el.id = 'ec-team-' + team;
+      var gloryRow = '<div class="ec-glory" id="ec-glory-row-' + team + '">' +
+        '<span class="fl-num ' + team + '" id="ec-glory-' + team + '">0</span>' +
+        '<span class="fl-cap">Glory</span>' +
+        '</div>' +
+        '<div class="ec-ach" id="ec-ach-' + team + '"></div>';
       el.innerHTML = PB_MODE
         ? '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
           '<div class="ec-lives">' +
           '<span class="fl-num ' + team + '" id="ec-' + team + '">0:00</span>' +
           '<span class="fl-cap">Hill time</span>' +
           '</div>' +
+          gloryRow +
           '<div class="ec-thead"><span>Cog</span><span>Tags</span><span>Out</span><span>Paint</span></div>' +
           '<div id="ec-rows-' + team + '"></div>'
         : '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
@@ -4193,6 +4565,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           '<span class="fl-num ' + team + '" id="ec-' + team + '">0</span>' +
           '<span class="fl-cap">Lives left</span>' +
           '</div>' +
+          gloryRow +
           '<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>TK</span><span>Clstr</span><span>Cap</span></div>' +
           '<div id="ec-rows-' + team + '"></div>';
       wrap.appendChild(el);
@@ -4247,9 +4620,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
       var heroKills = teamKillTotal(s, winner);
-      heroLine.textContent = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
+      var heroLineText = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
         ' — ' + heroAlive + ' of ' + heroSeats + (heroSeats === 1 ? ' cog' : ' cogs') +
         ' standing · ' + heroKills + (heroKills === 1 ? ' kill' : ' kills');
+      // SEASON 2: fold the winner's MATCH GLORY total + claimed-tier count
+      // onto the same summary line, rather than growing a 16-team field grid
+      // with a glory column no one but the winner needs to compare — the
+      // per-team breakdown belongs on the CTF/PB panel above, not here.
+      var heroGlory = o.teams && o.teams[winner] && o.teams[winner].glory;
+      if (typeof heroGlory === 'number') {
+        heroLineText += ' · ' + heroGlory + ' glory';
+        var heroClaims = (o.achievements || []).filter(function (c) { return c.team === winner; });
+        if (heroClaims.length) heroLineText += ' (' + heroClaims.length + '/' + ACH_TOTAL + ' achievements)';
+      }
+      heroLine.textContent = heroLineText;
     } else {
       heroName.style.removeProperty('--tc');
       heroName.textContent = 'NO SURVIVORS';
@@ -4263,12 +4647,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     shown.forEach(function (team, i) {
       var place = (o.teams[team] && o.teams[team].place) || (i + (winner ? 2 : 1));
       var lv = overLives(o, team);
+      var fg = o.teams[team] && o.teams[team].glory;
+      // SEASON 2: glory folds into the existing lives cell (a "N lives ·
+      // Mg" combined readout) rather than adding a 5th grid column — the
+      // BR field grid's `.ec-frow` template is a fixed 4-track grid
+      // (rank/name/kills/lives) shared by every row including the
+      // compressed "+N more" row, so widening it would need a second,
+      // parallel template just for this one extra figure.
       html += '<div class="ec-frow">' +
         '<span class="ec-frank">' + ordinal(place) + '</span>' +
         '<span class="ec-fname" style="--tc:' + (teamCol(team) || AMBER) + '">' +
         esc(teamName(s, team, team.toUpperCase())) + '</span>' +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
-        '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
+        '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') +
+        (typeof fg === 'number' ? ' · ' + fg + 'g' : '') + '</span>' +
         '</div>';
     });
     if (hidden.length) {
@@ -4278,6 +4670,23 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '</div>';
     }
     $('ec-field').innerHTML = html;
+  }
+
+  // SEASON 2: this team's claimed-tier line for the endcard — "N/40 · +180"
+  // (N/ACH_TOTAL claimed, the SUM of their glory payout) — or '' when the
+  // match minted no achievements for this team at all (a short/aborted
+  // match, or a replay recorded before the achievement curriculum). Reads
+  // o.achievements, the claim-order feed broadcast.nim's GameOver frame
+  // already carries (team/tree/tier/name/glory/first/slot); this filters
+  // and sums it client-side rather than asking the engine for a second,
+  // pre-aggregated total.
+  function teamAchievementsHtml(o, team) {
+    var claims = (o.achievements || []).filter(function (c) { return c.team === team; });
+    if (!claims.length) return '';
+    var paid = 0;
+    claims.forEach(function (c) { paid += (c.glory || 0); });
+    return claims.length + '/' + ACH_TOTAL + ' achievements' +
+      (paid ? ' &middot; <span class="ec-ach-bonus">+' + paid + '</span>' : '');
   }
 
   function renderEndcard(s) {
@@ -4320,7 +4729,21 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ? fmt(team === 'red' ? (o.hillRed || 0) : (o.hillBlue || 0))
           : overLives(o, team);
         $('ec-tname-' + team).textContent = teamName(s, team, team.toUpperCase());
-        $('ec-team-' + team).classList.toggle('win', !o.draw && o.winner === team);
+        var ecTeamEl = $('ec-team-' + team);
+        ecTeamEl.classList.toggle('win', !o.draw && o.winner === team);
+        // SEASON 2: MATCH GLORY total + the achievements ledger, both
+        // omitted (row hidden by the .has-glory/.has-ach CSS gate above)
+        // when the field genuinely isn't there — a replay recorded before
+        // the glory port renders this panel exactly as it always did.
+        var teamGlory = o.teams && o.teams[team] && o.teams[team].glory;
+        ecTeamEl.classList.toggle('has-glory', typeof teamGlory === 'number');
+        if (typeof teamGlory === 'number') {
+          var ecGloryEl = $('ec-glory-' + team);
+          if (ecGloryEl) ecGloryEl.textContent = teamGlory;
+        }
+        var achHtml = teamAchievementsHtml(o, team);
+        ecTeamEl.classList.toggle('has-ach', !!achHtml);
+        if (achHtml) $('ec-ach-' + team).innerHTML = achHtml;
         renderEndcardRows(s, team, $('ec-rows-' + team), mvpSlot);
       });
     }
