@@ -71,10 +71,9 @@ PERSONA = Persona(
         "crossfire": ("crossfire: tight spacing band, wide angles -- "
                       "concentrate the opening volley. Your partner is only "
                       "where your own tracks last saw them."),
-        # Notes for plays lane C has not landed yet; each activates
-        # automatically once its module is baked and plays.py knows it.
         "target_law": ("target_law: prefer weakened and isolated targets; "
-                       "keep the never-list empty unless a pact demands it."),
+                       "keep the never-list empty unless a pact demands it, "
+                       "and NEVER set a holdTrigger -- you fire at will."),
     },
     canned_turns=[
         {
@@ -87,11 +86,16 @@ PERSONA = Persona(
             ]},
         },
         {
-            "chat": "Feed is ticking. Pushing the next fight.",
+            "chat": "Feed is ticking. Pushing the next fight -- the "
+                    "wounded first.",
             "call": {"entries": [
                 {"play": "edge_ride", "entry_id": "hunt",
                  "params": {"margin": 50, "enterLead": 20,
                             "coverBias": 0.2}},
+                # The hunter's standing law: bias toward the easy kills,
+                # no never-list, no hold -- fire at will.
+                {"play": "target_law", "entry_id": "law",
+                 "params": {"prefer": ["weakened", "isolated"]}},
             ]},
         },
         {

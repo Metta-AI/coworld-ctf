@@ -31,7 +31,10 @@ import pathlib
 #                emitted (needs a server-configured duo; see PoC README #7,
 #                and bodyguard rejects it outright)
 #   union     -- an object with exactly ONE key from "arms", each arm an
-#                integer range (jackal's exitAfter)
+#                integer range; "max" may be absent for an unbounded arm
+#                (jackal's exitAfter, target_law's holdTrigger)
+#   enum_list -- an ORDERED list of enum tags, deduplicated, capped at
+#                "max_items" (target_law's prefer)
 # "required": True marks a param whose absence drops the whole entry.
 PLAYS = {
     "edge_ride": {
@@ -181,6 +184,39 @@ PLAYS = {
             '     - exitAfter: an object with EXACTLY ONE of "kills" '
             '(integer 1..4) or "hpFloor" (integer 0..3 absolute hp units), '
             'default {"kills": 1}. When to leave with the profit.'
+        ),
+    },
+    # Wave C (landed 2026-09-01, main d682b6d2) -- the menu is complete.
+    # Specs from the landed golden manifest; semantics from lane C's ledger:
+    # prefer is LIVE (engine-side scoring through the combat-policy prefer
+    # channel), and a released hold LATCHES -- state both truthfully.
+    "target_law": {
+        "class": "overlay",
+        "params": {
+            "never": {"kind": "seat_set", "min_items": 0, "max_items": 8},
+            "prefer": {"kind": "enum_list", "max_items": 4,
+                       "of": ["bounty", "isolated", "revenge", "weakened"]},
+            "holdTrigger": {"kind": "union",
+                            "arms": {"aliveTeams": {"min": 2, "max": 16},
+                                     "zonePhase": {"min": 1, "max": 8},
+                                     "tick": {"min": 0}}},
+        },
+        "brief": (
+            '"target_law" (class: overlay). The standing targeting filter '
+            "under every other play: who never to shoot, who to prefer, and "
+            "when to hold first fire. Params:\n"
+            '     - never: list of 0..8 seat references ("seat:<N>"), '
+            "default []. Do-not-shoot list.\n"
+            '     - prefer: ordered list of up to 4 of "weakened", '
+            '"isolated", "revenge", "bounty", default []. LIVE target '
+            "scoring bias, applied engine-side.\n"
+            '     - holdTrigger: optional object with EXACTLY ONE of '
+            '"aliveTeams" (integer 2..16), "zonePhase" (integer 1..8), or '
+            '"tick" (integer >= 0). Hold ALL fire until the condition; '
+            "omit it to fire at will. THE HOLD IS A COMMITMENT: once "
+            "released it stays released for the rest of your life -- a "
+            "later re-call can change never/prefer but can never re-arm a "
+            "released hold."
         ),
     },
 }

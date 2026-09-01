@@ -284,10 +284,24 @@ def _clean_union(value, spec):
     if arm_spec is None:
         return None
     cleaned = poc_policy._clamp_number(
-        raw, {"kind": "int", "min": arm_spec["min"], "max": arm_spec["max"]})
+        raw, {"kind": "int", "min": arm_spec["min"],
+              "max": arm_spec.get("max", 2**31 - 1)})
     if cleaned is None:
         return None
     return {arm: cleaned}
+
+
+def _clean_enum_list(value, spec):
+    """An ordered list of enum tags: unknowns dropped, duplicates removed
+    (first occurrence wins), capped at max_items. Empty -> None, so the
+    param is omitted and the play default applies."""
+    if not isinstance(value, list):
+        return None
+    seen: list = []
+    for item in value:
+        if item in spec["of"] and item not in seen:
+            seen.append(item)
+    return seen[:spec["max_items"]] or None
 
 
 def _clean_params(play: str, params) -> dict | None:
@@ -315,6 +329,8 @@ def _clean_params(play: str, params) -> dict | None:
                 value = _clean_int_pair(value, spec)
             elif kind == "union":
                 value = _clean_union(value, spec)
+            elif kind == "enum_list":
+                value = _clean_enum_list(value, spec)
             else:
                 value = None
             if value is not None:

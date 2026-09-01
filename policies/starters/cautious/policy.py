@@ -68,21 +68,26 @@ PERSONA = Persona(
                        "once you have taken ANY damage: whenHpBelow 4+ (hp "
                        "is a small absolute number -- a full seat is only a "
                        "few units), wide detourMax, contested always avoid."),
-        # Notes for plays lane C has not landed yet; each activates
-        # automatically once its module is baked and plays.py knows it.
         "bodyguard": ("bodyguard only for a partner already in a pact, and "
                       "with a wide leash -- never interpose."),
-        "target_law": ("target_law: a long never-list and a hold trigger; "
-                       "the first shot is a commitment you rarely want."),
+        "target_law": ("target_law: always carry a holdTrigger -- the first "
+                       "shot is a commitment you rarely want, and remember "
+                       "a released hold NEVER re-arms, so choose the "
+                       "trigger for the endgame you actually intend."),
     },
     canned_turns=[
         {
-            "chat": "No heroes over here. Riding the wide line, "
-                    "cover to cover. Good luck all.",
+            "chat": "No heroes over here. Riding the wide line, holding "
+                    "fire until the field thins. Good luck all.",
             "call": {"entries": [
                 {"play": "edge_ride", "entry_id": "shelter",
                  "params": {"margin": 420, "enterLead": 320,
                             "coverBias": 1.0}},
+                # Hold-fire discipline: not a shot until the field thins
+                # to six teams. A released hold never re-arms, so the
+                # trigger is chosen for the endgame, not the skirmish.
+                {"play": "target_law", "entry_id": "discipline",
+                 "params": {"holdTrigger": {"aliveTeams": 6}}},
             ]},
         },
         {

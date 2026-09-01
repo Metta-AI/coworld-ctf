@@ -49,6 +49,14 @@ def adjust_entries(entries, context, view):
             guard["interpose"] = True
             if partner is not None:
                 guard["ward"] = f"seat:{partner}"
+        elif entry.get("play") == "target_law":
+            # The partner is on the never-list, whatever the model said.
+            law = entry.setdefault("params", {})
+            never = [p for p in law.get("never", []) if isinstance(p, str)]
+            if partner is not None and f"seat:{partner}" not in never:
+                never.append(f"seat:{partner}")
+            if never:
+                law["never"] = never
 
     if not any(e.get("play") in ("edge_ride", "bodyguard")
                for e in entries):
@@ -91,16 +99,22 @@ PERSONA = Persona(
                       "so stay where you can see each other."),
         "supply_run": ("supply_run for your PARTNER's health as much as "
                        "yours; race the medkit they cannot reach."),
+        "target_law": ("target_law's never-list always carries your "
+                       "partner (the harness guarantees it); prefer "
+                       '"revenge" so their attacker becomes your target.'),
     },
     canned_turns=[
         {
             "chat": "Partner, on me -- pact up, protect on. We rotate "
                     "as one.",
             "call": {"entries": [
-                # No partners named here on purpose: adjust_entries injects
-                # the actual duo partner from the seat's own play_context.
+                # No partners/never named here on purpose: adjust_entries
+                # injects the actual duo partner from the seat's own
+                # play_context into both the pact and the law.
                 {"play": "pact", "entry_id": "duo_pact",
                  "params": {"protect": True, "onBetrayal": "disengage"}},
+                {"play": "target_law", "entry_id": "law",
+                 "params": {"prefer": ["revenge"]}},
                 {"play": "edge_ride", "entry_id": "together",
                  "params": {"margin": 260, "enterLead": 180,
                             "coverBias": 0.85}},
