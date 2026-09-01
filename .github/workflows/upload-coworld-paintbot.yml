@@ -3,7 +3,8 @@ name: Upload Coworld
 # Builds the game/player images and uploads one paintbot Coworld version after
 # the test workflow ("Github Actions") passes on main. That Coworld serves both
 # the Paintbot and CTF leagues: existing Paintbot variant ids stay unchanged,
-# while CTF uses the ctf-default and ctf-1v1 variants.
+# The published manifest now exposes only battle-royale-s2; deprecated CTF
+# variants are preserved in deprecated_variants_paintbot.json, not uploaded.
 #
 # Auth: the SOFTMAX_TOKEN repo secret for the coworld-ctf-ci user credential.
 

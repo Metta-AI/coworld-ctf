@@ -8,7 +8,7 @@ import
 # The spectator render draws every combat-FX family from a fixed object pool
 # and clamps with `min(list.len, cap)` — an over-cap effect is not an error,
 # it just silently never reaches the wire. The pools were sized for the old
-# 16-player maximum, so a full 32-seat episode (paintbot 4ffa8 seats 32)
+# 16-player maximum, so a full 32-seat episode (archived paintbot 4ffa8 seats 32)
 # dropped half its tracers/flashes/shouts in the worst tick. These tests
 # drive every family the roster can saturate to exactly MaxPlayers live
 # effects at once and count the objects that actually land in the packet:

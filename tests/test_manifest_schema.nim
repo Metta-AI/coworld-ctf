@@ -10,6 +10,7 @@ import helpers, std/[json, os, strutils, unittest], ctf/sim
 
 const
   ManifestName = "coworld_manifest_paintbot.json"
+  ArchiveName = "deprecated_variants_paintbot.json"
   PlatformOnlyKeys = ["num_agents"]
   ## Schema keys the game deliberately never reads: documented as consumed by
   ## the platform (ladder seating) in the schema description itself, which
@@ -36,11 +37,12 @@ proc manifestSchema(name: string): JsonNode =
   doAssert result != nil, name & " has no config_schema"
 
 proc manifestVariant(variantId: string): JsonNode =
-  let manifest = parseFile(GameDir / ManifestName)
-  for variant in manifest["variants"]:
-    if variant["id"].getStr() == variantId:
-      return variant
-  doAssert false, ManifestName & " has no " & variantId & " variant"
+  for name in [ManifestName, ArchiveName]:
+    let manifest = parseFile(GameDir / name)
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == variantId:
+        return variant
+  doAssert false, "published or archived manifests have no " & variantId & " variant"
 
 # One payload per schema property, each carrying a NON-DEFAULT value for its
 # key (plus companion keys where update()'s cross-field validation demands
@@ -112,6 +114,7 @@ const SampleJson = """{
   "maxOutputTokens": {"maxOutputTokens": 800},
   "brMode": {"brMode": true},
   "season2Shell": {"season2Shell": true},
+  "allowDeprecatedModes": {"allowDeprecatedModes": true},
   "viewIntervalTicks": {"viewIntervalTicks": 7},
   "lobbyChatTicks": {"lobbyChatTicks": 600},
   "playSeatBindTicks": {"playSeatBindTicks": 7201},
@@ -134,12 +137,19 @@ suite "league manifest config_schema vs GameConfig":
       let spec = mapSpecJson(generateMapAttempt(
         1, MapGenOverrides(size: "small", windows: -1, pits: -1, pitDensity: -1)))
       s["mapSpec"] = %*{"mapSpec": parseJson(spec)}
+      # Train coupling: permanent negation keeps this non-default across the inversion.
+      s["season2Shell"] = %*{"season2Shell": not defaultGameConfig().season2Shell}
       s
 
   test "every schema property is consumed by config.update":
     for key, _ in schema["properties"]:
       if key in PlatformOnlyKeys:
         continue
+      if key == "allowDeprecatedModes":
+        # Train coupling: lane C owns the GameConfig field. Once that commit
+        # lands, this compile-time exemption disappears and proves consumption.
+        when not compiles(defaultGameConfig().allowDeprecatedModes):
+          continue
       check samples.hasKey(key)  # every schema key needs a payload below
       if not samples.hasKey(key):
         continue
@@ -196,15 +206,28 @@ suite "league manifest config_schema vs GameConfig":
       if variant["game_config"].hasKey("aimTurnRate"):
         check variant["game_config"]["aimTurnRate"].getInt == expected
 
-  test "one manifest preserves Paintbot ids and namespaces CTF ids":
+  test "published manifest is Season 2 only and archive preserves nine ids":
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
+    check variantIds == @["battle-royale-s2"]
+    variantIds.setLen(0)
+    for variant in parseFile(GameDir / ArchiveName)["variants"]:
+      variantIds.add variant["id"].getStr()
     check variantIds == @["2v2", "4ffa", "4ffa8", "default", "1v1",
-      "ctf-default", "ctf-1v1", "paintball", "battle-royale",
-      "battle-royale-s2"]
+      "ctf-default", "ctf-1v1", "paintball", "battle-royale"]
 
-  test "ctf publishes namespaced default and two-seat custom-lobby variants":
+  test "legacy predicate schema defaults describe the post-train engine":
+    let props = schema["properties"]
+    check not props["brMode"]["default"].getBool()
+    check props["season2Shell"]["default"].getBool()
+    check not props["allowDeprecatedModes"]["default"].getBool()
+    check props["cogsPerTeam"]["default"].getInt() == 1
+    check props["loadout"]["default"].getStr() == "ctf"
+    for key in ["floorPaint", "paintBuff", "hill"]:
+      check not props[key]["default"].getBool()
+
+  test "archive preserves namespaced default and two-seat custom-lobby variants":
     let
       variant = manifestVariant("ctf-1v1")
       defaultVariant = manifestVariant("ctf-default")
@@ -253,15 +276,17 @@ suite "league manifest config_schema vs GameConfig":
       check sim.phase == GameOver
       check sim.winner == Red
 
-  test "paintbot publishes a full-teams 1v1 variant without changing league defaults":
+  test "archive preserves a full-teams 1v1 variant without changing league defaults":
     let
-      manifest = parseFile(GameDir / ManifestName)
       variant = manifestVariant("1v1")
       leagueVariant = manifestVariant("2v2")
-    check manifest["variants"][0]["id"].getStr() == "2v2"
+      manifest = parseFile(GameDir / ManifestName)
     check manifest["certification"]["players"].len == 16
     check manifest["certification"]["game_config"]["players"].len == 16
     check manifest["certification"]["game_config"]["minPlayers"].getInt() == 16
+    check manifest["certification"]["game_config"]["brMode"].getBool()
+    check manifest["certification"]["game_config"]["season2Shell"].getBool()
+    check manifest["certification"]["game_config"]["cogsPerTeam"].getInt() == 1
     block:
       let gameConfig = variant["game_config"]
       check schema["properties"]["tokens"]["minItems"].getInt() == 2
