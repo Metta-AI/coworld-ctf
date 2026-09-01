@@ -3812,6 +3812,15 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   ## classic grenadeSpawnPoints() 4-corner/orbit formula unchanged.
   if gameMap.grenadeSpawns.len > 0:
     spec["grenadeSpawns"] = pointsNode(gameMap.grenadeSpawns)
+  ## LOOT(s2): authored marker/hopper crate pools pin only when present,
+  ## same idiom as every optional pool above. Empty on every existing map
+  ## (only a loot-start-aware generator authors them), in which case
+  ## resetLootCrates (sim.nim) derives crates from the grenade/spray pools
+  ## while config.lootStart is armed — and places nothing when it is not.
+  if gameMap.weaponSpawns.len > 0:
+    spec["weaponSpawns"] = pointsNode(gameMap.weaponSpawns)
+  if gameMap.hopperSpawns.len > 0:
+    spec["hopperSpawns"] = pointsNode(gameMap.hopperSpawns)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3923,6 +3932,12 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## shieldSpawns/spraySpawns — resetGrenades falls back to the classic
   ## formula when empty.
   result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
+  ## LOOT(s2): optional authored marker/hopper crate pools. Absent -> empty
+  ## (every existing pinned spec), same byte-identity rule as the pools
+  ## above — resetLootCrates (sim.nim) derives from grenade/spray pools
+  ## while lootStart is armed.
+  result.weaponSpawns = pointsFromNode(node{"weaponSpawns"})
+  result.hopperSpawns = pointsFromNode(node{"hopperSpawns"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)

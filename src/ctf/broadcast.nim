@@ -736,6 +736,11 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     for sp in sim.shieldSpawns: addPickup("shield", sp)
     for sp in sim.sprayPaintSpawns: addPickup("spray", sp)
     for sp in sim.barrierSpawns: addPickup("barrier", sp)
+    # LOOT(s2): the three loot-rework families — empty seqs (zero entries,
+    # zero bytes) on every dark game, see resetLootCrates/resetBandages.
+    for sp in sim.weaponSpawns: addPickup("gun", sp)
+    for sp in sim.hopperSpawns: addPickup("hopper", sp)
+    for sp in sim.bandageSpawns: addPickup("bandage", sp)
 
     # --- paintball beams in flight (sim.recentShots; cosmetic, never hashed) ---
     # A hitscan shot has no travelling body, so the board draws it as a COMET: a
@@ -825,7 +830,15 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   if self.hasShield: carriedItems.add(%"shield")
   if self.hasSprayPaint: carriedItems.add(%"spray")
   if self.hasBarrier: carriedItems.add(%"barrier")
-  let selfJson = %*{
+  # LOOT(s2): the looted marker/hopper halves ride the same carried-items
+  # list; keyed on the config gate so a dark game's bytes are untouched
+  # (the fields also read true there, which is exactly not the story).
+  if sim.config.lootStart:
+    if self.hasGun: carriedItems.add(%"gun")
+    if self.hasHopper: carriedItems.add(%"hopper")
+  # bandages > 0 only ever happens under bandagePickups — one entry each.
+  for _ in 0 ..< self.bandages: carriedItems.add(%"bandage")
+  var selfJson = %*{
     "hp": self.hp,
     "lives": self.lives,
     "alive": selfAlive,
@@ -837,6 +850,11 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # the visor paint splat when this advances.
     "paintTick": self.paintHitTick
   }
+  # LOOT(s2): the ghost flag, keyed on the gate so a dark game's HUD JSON
+  # is byte-identical (a downedMode seat's HUD needs to render "you are
+  # down" distinctly from dead — hp is 0 either way).
+  if sim.config.downedMode:
+    selfJson["downed"] = %self.downed
 
   # Un-fogged tactical map: EVERY player, both hearts, and all present pickups in
   # world coordinates, plus this seat's position + aim + cone geometry. This is
@@ -848,13 +866,19 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     let p = sim.players[j]
     if not p.alive:
       continue
-    mapPlayers.add(%*{
+    var mapEntry = %*{
       "x": p.x + CollisionW div 2,
       "y": p.y + CollisionH div 2,
       "team": teamText(p.team),
       "self": j == playerIndex,
       "carry": p.carryingFlag
-    })
+    }
+    # LOOT(s2): ghosts are alive on the wire (that is what makes them
+    # revivable) — the flag is what lets the map draw them faded. Keyed on
+    # the gate: dark bytes untouched.
+    if sim.config.downedMode:
+      mapEntry["downed"] = %p.downed
+    mapPlayers.add(mapEntry)
   var mapHearts = newJArray()
   # BR N-point spawn subsystem: a flagless map arms no flag — the omniscient
   # map view carries zero heart entries (already a variable-length JSON
@@ -877,6 +901,10 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   for sp in sim.shieldSpawns: addMapItem("shield", sp)
   for sp in sim.sprayPaintSpawns: addMapItem("spray", sp)
   for sp in sim.barrierSpawns: addMapItem("barrier", sp)
+  # LOOT(s2): empty families on a dark game — zero entries, zero bytes.
+  for sp in sim.weaponSpawns: addMapItem("gun", sp)
+  for sp in sim.hopperSpawns: addMapItem("hopper", sp)
+  for sp in sim.bandageSpawns: addMapItem("bandage", sp)
 
   let mapJson = %*{
     "w": MapWidth,

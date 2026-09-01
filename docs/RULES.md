@@ -839,6 +839,76 @@ an engine without the field.
   implicit phase-0 value of 1.0); `waitTicks`/`shrinkTicks`/`dps` must not be
   negative; at most 8 phases.
 
+## Loot rework (S2, config-gated, all dark by default)
+
+Five independent BR mechanisms, each behind its own config flag and OFF by
+default. Unconfigured, a game is byte-identical to a build without any of
+this code: every new config key echoes only when armed, every new pickup
+family is an empty list when dark, and none of the new per-player fields
+enter `gameHash` (the `puddleTicks`/`hasBarrier` appended-field rule). No
+GameVersion bump: everything is appended, nothing reorders, and the
+committed replay fixtures re-simulate hash-identically. `lootStart` and
+`downedMode` additionally REQUIRE `brMode: true` — a CTF config that tries
+to arm them is refused at validation, so classic play is untouchable by
+construction.
+
+- **Hit points per BR variant** — no new flag: the existing `hitPoints`
+  config is live under `brMode` (proved end-to-end by
+  `tests/test_loot_rework.nim`). A 4-hp or 5-hp BR variant is a one-key
+  manifest edit; CTF's default 3 is untouched.
+- **`medKitCount`** (int, default `-1`): caps the placed med kits. `-1` =
+  the map's own full set (the pre-existing path bit-for-bit), `0` = none —
+  the bandages-instead-of-kits test arm — `N` = the map's first N points.
+- **`bandagePickups`** (int, default `0`): places N bandage pickups at the
+  map's med-kit points (actives then candidates, cycling). A bandage is
+  CARRIED (up to 3, `BandageCarryCap`) and self-applies +1 hp after 3
+  calm seconds (`BandageApplyTicks` without taking damage); the calm clock
+  restarts per application, so a stack heals one point per quiet spell.
+  Taken bandage spawns refill on the med-kit cadence. Analysis stream:
+  `item_pickup` with item `bandage`; `heal` with weapon `bandage`,
+  amount 1.
+- **`lootStart`** (bool, default off, brMode only): everyone spawns
+  UNARMED. The gun is two lootable halves — the **marker** (`hasGun`) and
+  the **hopper**, its ammo (`hasHopper`) — placed as one-shot crates (a
+  crate arms exactly one cog and never refills). A cog needs BOTH to fire;
+  the spray can stays its own weapon with its own pickup. Crate points: a
+  map may author `weaponSpawns`/`hopperSpawns` in its spec (optional keys,
+  pinned only when present); otherwise markers land on the map's grenade
+  pickup points and hoppers on its med-kit points (never the spray-can
+  points — a co-located can would disable the looter's gun). Analysis
+  stream: `item_pickup` with items `gun` / `hopper`. Broadcast item lists
+  and the first-person carried-items HUD carry `gun`/`hopper` tokens while
+  armed.
+- **`downedMode`** (bool, default off, brMode only) — the ruled
+  ghost-tag-revive shape: a lethal hit DOWNS instead of kills. The victim
+  becomes a **ghost of itself** — frozen in place, non-colliding (upright
+  cogs walk through it), unable to fire, loot, shout, or be hurt by
+  hazards — and stays `alive` on the wire (that is what makes it
+  revivable). An upright teammate standing within `DownedTagRange` (40 px)
+  for `downedReviveTicks` (default 48 = 2 s) **tags it back in at 1 hp**;
+  the channel resets the tick the tag breaks, and the reviver's exposure
+  IS the cost. An enemy **gun** hit splats the ghost — immediate confirmed
+  elimination (spray, grenades, puddles, the zone and the barrage never
+  confirm). An untagged ghost **bleeds out** after
+  `downedBleedOutTicks` (default 360 = 15 s), halved per successive down
+  while `downedEscalation` (default on when armed) holds, floored at 2 s —
+  **no hard down-cap**, per the genre ruling. A team with no upright cog
+  left fades out at once (nobody could ever tag them back), which is what
+  ends the round. Kill credit lands at the DOWN (the weapon site's
+  existing credit — the down is the combat achievement); the permanent
+  death is a separate, later `death` row. Analysis stream: `downed`
+  (source = victim, target = downer, amount = the victim's down count) and
+  `revived` (source = tagger, target = revived, amount = channel ticks) —
+  two appended event kinds, tail ordinals, archived replays unaffected.
+  Broadcast: the first-person self HUD and the omniscient map players
+  carry a `downed` flag while the mode is armed.
+- **Map-size variants** — not an engine mechanism: `tools/brmapkit
+  generate --scale N.N` (default 2.6, the doctrine giant — omitting the
+  flag draws bit-identically to before) generates the field at another
+  scale through the same doctrine gates, and the BR variant pins whichever
+  full spec it certifies. `gunRange` re-derives from the scaled field; the
+  duo spawn pocket deliberately does not scale.
+
 ## Scoring
 
 Scoring is **sparse and win-only**:
