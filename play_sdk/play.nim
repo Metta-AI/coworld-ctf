@@ -217,6 +217,28 @@ type
     interpose*: bool
     peelHp*: int32
 
+  JackalJoinWhen* = enum
+    jwAfterKill
+    jwBothWeakened
+
+  JackalExitKind* = enum
+    jeKills
+    jeHpFloor
+
+  JackalParams* = object
+    valid*: bool
+    earshot*: int32
+    joinWhen*: JackalJoinWhen
+    exitKind*: JackalExitKind
+    exitKills*: int32
+    exitHpFloor*: int32
+
+  CrossfireParams* = object
+    valid*: bool
+    spacingMin*: int32
+    spacingMax*: int32
+    minAngle*: int32
+
   SupplyRunView* = object
     valid*: bool
     self*: SdkSelf
@@ -228,6 +250,32 @@ type
   BodyguardView* = object
     valid*: bool
     self*: SdkSelf
+    trackCount*: int32
+    tracks*: array[MaxViewTracks, SdkTrack]
+
+  JackalView* = object
+    valid*: bool
+    tickPresent*: bool
+    tick*: int32
+    self*: SdkSelf
+    zone*: SdkZone
+    candidateFound*: bool
+    candidate*: SdkTrack
+    candidateDistSq*: int64
+    knownHpCount*: int32
+    weakCount*: int32
+    freshKill*: bool
+    newestOwnKillTick*: int32
+    newOwnKillRows*: int32
+    trackCount*: int32
+    tracks*: array[MaxViewTracks, SdkTrack]
+    killFeedCount*: int32
+    killFeed*: array[MaxViewKillFeed, SdkKillFeed]
+
+  CrossfireView* = object
+    valid*: bool
+    self*: SdkSelf
+    zone*: SdkZone
     trackCount*: int32
     tracks*: array[MaxViewTracks, SdkTrack]
 
@@ -1135,6 +1183,126 @@ proc readBodyguardBinaryViewInto*(view: PlayView;
   outView.valid = frame.ok and outView.self.pos.present
   outView.valid
 
+proc readJackalBinaryViewInto*(view: PlayView;
+                               outView: var JackalView; selfTeam: SdkTeam;
+                               earshot, lastOwnKillTick: int32;
+                               engaged: bool): bool =
+  outView = default(JackalView)
+  outView.newestOwnKillTick = -1
+  var frame = initBinaryFrame(view)
+  if not frame.ok:
+    return false
+  outView.tickPresent = true
+  outView.tick = frame.tick
+  let selfSection = frame.findSection(BvSelf)
+  if not frame.ok or selfSection.count != 1:
+    return false
+  outView.self = frame.readSelf(selfSection)
+  let zoneSection = frame.findSection(BvZone)
+  if frame.ok and zoneSection.present and zoneSection.count == 1:
+    outView.zone = frame.readZone(zoneSection)
+  let tracks = frame.findSection(BvTracks)
+  if frame.ok and tracks.present:
+    let count = min(tracks.count, MaxViewTracks)
+    let earshotSq = int64(earshot) * int64(earshot)
+    for index in 0 ..< count:
+      let offset = frame.recordOffset(tracks, index, TrackRecordNeed)
+      if offset < 0:
+        return false
+      var flags, teamRaw, tickRaw = 0'u32
+      var track = SdkTrack()
+      discard frame.u32At(offset, flags)
+      if frame.u32At(offset + 8, teamRaw) and teamRaw <= uint32(high(int32)):
+        track.team = teamFromId(int32(teamRaw))
+        track.teamPresent = track.team != stUnknown
+      track.pos.present =
+        frame.i32At(offset + 12, track.pos.x) and
+        frame.i32At(offset + 16, track.pos.y)
+      if not track.pos.present:
+        return false
+      if frame.u32At(offset + 20, tickRaw) and tickRaw <= uint32(high(int32)):
+        track.freshTickPresent = true
+        track.freshTick = int32(tickRaw)
+      if (flags and TrackHpPresentFlag) != 0:
+        track.hpPresent = frame.i32At(offset + 28, track.hp)
+        if not track.hpPresent:
+          return false
+      if not track.pos.present:
+        continue
+      var enemy = true
+      if track.teamPresent and selfTeam != stUnknown:
+        enemy = track.team != selfTeam
+      if not enemy:
+        continue
+      let
+        dx = track.pos.x - outView.self.pos.x
+        dy = track.pos.y - outView.self.pos.y
+        d = int64(dx) * int64(dx) + int64(dy) * int64(dy)
+      if d > earshotSq:
+        continue
+      inc outView.trackCount
+      if not outView.candidateFound or
+          (track.freshTickPresent and
+            (not outView.candidate.freshTickPresent or
+              track.freshTick > outView.candidate.freshTick)) or
+          (track.freshTickPresent == outView.candidate.freshTickPresent and
+            track.freshTick == outView.candidate.freshTick and
+            d < outView.candidateDistSq):
+        outView.candidateFound = true
+        outView.candidate = track
+        outView.candidateDistSq = d
+      if track.hpPresent:
+        inc outView.knownHpCount
+        if track.hp * 2 < 4:
+          inc outView.weakCount
+  let killFeed = frame.findSection(BvKillFeed)
+  if frame.ok and killFeed.present:
+    let count = min(killFeed.count, MaxViewKillFeed)
+    for index in 0 ..< count:
+      let offset = frame.recordOffset(killFeed, index, KillFeedRecordNeed)
+      if offset < 0:
+        return false
+      var tickRaw, teamRaw = 0'u32
+      if not frame.u32At(offset, tickRaw) or tickRaw > uint32(high(int32)):
+        return false
+      let rowTick = int32(tickRaw)
+      if rowTick <= outView.tick and outView.tick - rowTick <= 240:
+        outView.freshKill = true
+      if frame.u32At(offset + 4, teamRaw) and teamRaw <= uint32(high(int32)) and
+          teamFromId(int32(teamRaw)) == selfTeam:
+        outView.newestOwnKillTick = max(outView.newestOwnKillTick, rowTick)
+        if engaged and rowTick > lastOwnKillTick:
+          inc outView.newOwnKillRows
+      inc outView.killFeedCount
+  outView.valid = frame.ok and outView.self.pos.present and outView.tickPresent
+  outView.valid
+
+proc readJackalBinaryViewInto*(view: PlayView;
+                               outView: var JackalView): bool =
+  readJackalBinaryViewInto(view, outView, stUnknown, 500, -1, false)
+
+proc readCrossfireBinaryViewInto*(view: PlayView;
+                                  outView: var CrossfireView): bool =
+  outView = default(CrossfireView)
+  var frame = initBinaryFrame(view)
+  if not frame.ok:
+    return false
+  let selfSection = frame.findSection(BvSelf)
+  if not frame.ok or selfSection.count != 1:
+    return false
+  outView.self = frame.readSelf(selfSection)
+  let zoneSection = frame.findSection(BvZone)
+  if frame.ok and zoneSection.present and zoneSection.count == 1:
+    outView.zone = frame.readZone(zoneSection)
+  let tracks = frame.findSection(BvTracks)
+  if frame.ok and tracks.present:
+    let count = min(tracks.count, MaxViewTracks)
+    for index in 0 ..< count:
+      outView.tracks[index] = frame.readTrack(tracks, index)
+    outView.trackCount = count
+  outView.valid = frame.ok and outView.self.pos.present
+  outView.valid
+
 proc readEdgeRideBinaryViewInto*(view: PlayView;
                                  outView: var EdgeRideView): bool =
   outView = default(EdgeRideView)
@@ -1331,6 +1499,97 @@ proc readBodyguardParams*(ctx: PlayContext): BodyguardParams =
     elif r.stringEquals(key, "peelHp"):
       result.valid = result.valid and r.readIntValue(result.peelHp)
       if result.peelHp < 0 or result.peelHp > 64:
+        result.valid = false
+    else:
+      discard r.skipParamValue()
+      result.valid = false
+  result.valid = result.valid and r.ok and r.pos == r.len
+
+proc readJackalParams*(ctx: PlayContext): JackalParams =
+  result.valid = true
+  result.earshot = 500
+  result.joinWhen = jwAfterKill
+  result.exitKind = jeKills
+  result.exitKills = 1
+  var r = initJsonReader(ctx.data, ctx.len)
+  if not r.beginObject():
+    result.valid = false
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "earshot"):
+      result.valid = result.valid and r.readIntValue(result.earshot)
+      if result.earshot < 100 or result.earshot > 1200:
+        result.valid = false
+    elif r.stringEquals(key, "joinWhen"):
+      let value = r.readJsonString()
+      if r.stringEquals(value, "afterKill"):
+        result.joinWhen = jwAfterKill
+      elif r.stringEquals(value, "bothWeakened"):
+        result.joinWhen = jwBothWeakened
+      else:
+        result.valid = false
+    elif r.stringEquals(key, "exitAfter"):
+      if not r.beginObject():
+        result.valid = false
+        return
+      var armCount = 0'i32
+      var arm: JsonString
+      while r.nextObjectKey(arm):
+        inc armCount
+        if r.stringEquals(arm, "kills"):
+          result.exitKind = jeKills
+          result.valid = result.valid and r.readIntValue(result.exitKills)
+          if result.exitKills < 1 or result.exitKills > 4:
+            result.valid = false
+        elif r.stringEquals(arm, "hpFloor"):
+          result.exitKind = jeHpFloor
+          result.valid = result.valid and r.readIntValue(result.exitHpFloor)
+          if result.exitHpFloor < 0 or result.exitHpFloor > 3:
+            result.valid = false
+        else:
+          discard r.skipParamValue()
+          result.valid = false
+      if armCount != 1:
+        result.valid = false
+    else:
+      discard r.skipParamValue()
+      result.valid = false
+  result.valid = result.valid and r.ok and r.pos == r.len
+
+proc readCrossfireParams*(ctx: PlayContext): CrossfireParams =
+  result.valid = true
+  result.spacingMin = 120
+  result.spacingMax = 320
+  result.minAngle = 32
+  var r = initJsonReader(ctx.data, ctx.len)
+  if not r.beginObject():
+    result.valid = false
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "spacing"):
+      if not r.beginArray():
+        result.valid = false
+        return
+      var index = 0'i32
+      var values: array[2, int32]
+      while r.nextArrayElement(index):
+        if index <= 2:
+          result.valid = result.valid and r.readIntValue(values[int(index - 1)])
+        else:
+          discard r.skipParamValue()
+          result.valid = false
+      if index != 2:
+        result.valid = false
+      result.spacingMin = values[0]
+      result.spacingMax = values[1]
+      if result.spacingMin < 0 or result.spacingMax < result.spacingMin or
+          result.spacingMax > 600:
+        result.valid = false
+    elif r.stringEquals(key, "minAngle"):
+      result.valid = result.valid and r.readIntValue(result.minAngle)
+      if result.minAngle < 0 or result.minAngle > 128:
         result.valid = false
     else:
       discard r.skipParamValue()
