@@ -284,7 +284,8 @@ suite "shell replacement":
       for seatIndex, seat in output.seats:
         if seat.retuned.len > 0:
           retunedSeats.add seatIndex
-          check seat.retuned == @["base"]
+          check seat.retuned == @[
+            LadderEntryIdentity(entryId: "base", play: "base")]
           check driver.first(seatIndex).state == pisLive
           check not driver.first(seatIndex).hasCachedIntent
           check seat.epoch == 2
@@ -307,7 +308,8 @@ suite "shell replacement":
     book.silentEntries.add "base"
 
     let dead = driver.tick([input(alive = false)], 2, bindings)
-    check dead.seats[0].retuned == @["base"]
+    check dead.seats[0].retuned == @[
+      LadderEntryIdentity(entryId: "base", play: "base")]
     check dead.seats[0].usedDefault
     check dead.seats[0].provenance.base.kind == pbDefault
     check driver.first().state == pisParked

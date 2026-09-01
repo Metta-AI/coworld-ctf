@@ -62,6 +62,9 @@ Route along the inside margin of the safe rect, biased through cover;
 enter the next ring as late as safety allows.
 - `margin: px` inside the safe edge · `coverBias: 0..1` ·
   `enterLead: ticks` before zone dps arrives
+- The margin is clamped to a quarter of each span, so a late rectangle too
+  narrow to carry it degrades to "hold the middle of the band" — every seat
+  keeps its own place along the band instead of stacking on the centre.
 - Needs: zone rect + phase perception (EXISTS), cover-aware routing
   (EXISTS in nav layers). ring-hugger page is this play, promoted.
 

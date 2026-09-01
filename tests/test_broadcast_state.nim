@@ -184,6 +184,77 @@ suite "broadcast state channel":
       for seat in state["roster"]:
         check seat.hasKey("pol")
         check seat["pol"].getStr == policyName(seat["name"].getStr)
+      # SEASON 2: the glory cosmetic-pop queue rides every frame, unlike the
+      # send-once "ach"/"huddle"/"vote" chrome below — an empty match-end
+      # queue still ships an (empty) array, never an absent key.
+      check state.hasKey("pops")
+      check state["pops"].kind == JArray
+      # A replay with no shell records (this fixture predates the huddle/vote
+      # lanes) never sees these keys at all -- the degrade-to-nothing this
+      # panel is built against.
+      check not state.hasKey("huddle")
+      check not state.hasKey("vote")
+    finally:
+      setCurrentDir(previousDir)
+
+  test "SEASON 2: glory pops, huddle transcript and ballot ride the chrome frame when present":
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var sim = initFixtureSim(data)
+      # White-box: gloryPops is cosmetic-only (excluded from gameHash, see its
+      # own doc comment), so pushing a fixture entry directly is the same
+      # kind of test setup as `over.achievements`' unconditional endcard
+      # check above -- no real deed needs to fire to prove the WIRE shape.
+      sim.gloryPops.add GloryFx(
+        x: 12, y: 34, tick: 5, amount: 18, team: Red, label: "",
+        word: "TAG", first: false, earnerIndex: -1, startDelay: 0, row: 0)
+      # row: 1 -- a second, site-stacked pop (addGloryPop's own collision
+      # search, sim.nim) at nearly the same site as the one above. A viewer
+      # missing this field draws it directly on top of a neighbour instead
+      # of stacked above it (visually confirmed 2026-08-31: a rank-up pop
+      # overlapping an unrelated deed pop at one spawn point read as
+      # illegible mashed text).
+      sim.gloryPops.add GloryFx(
+        x: 56, y: 78, tick: 5, amount: 240, team: Blue, label: "Marksman",
+        word: "", first: true, earnerIndex: 2, startDelay: 3, row: 1)
+      let lobbyChat = %*[{"seat": 0, "team": "red", "text": "ready?"}]
+      let ballots = %*[{"k": "cast", "seat": 0, "team": "red", "opt": 0}]
+      let state = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, 100, false, true, -1, -1,
+        lobbyChat = lobbyChat, ballots = ballots
+      ))
+      check state["pops"].len == 2
+      let deedPop = state["pops"][0]
+      check deedPop["x"].getInt == 12
+      check deedPop["y"].getInt == 34
+      check deedPop["t"].getInt == 5
+      check deedPop["amt"].getInt == 18
+      check deedPop["team"].getStr == "red"
+      check deedPop["word"].getStr == "TAG"
+      check deedPop["lbl"].getStr == ""
+      check deedPop["row"].getInt == 0
+      let claimPop = state["pops"][1]
+      check claimPop["lbl"].getStr == "Marksman"
+      check claimPop["first"].getBool == true
+      check claimPop["earner"].getInt == 2
+      check claimPop["delay"].getInt == 3
+      # the site-stack depth the sim already computes (addGloryPop's
+      # collision search) so a renderer can stack same-site pops instead of
+      # drawing them on top of each other.
+      check claimPop["row"].getInt == 1
+      # send-once chrome: present and equal to what was passed, when given.
+      check state["huddle"] == lobbyChat
+      check state["vote"] == ballots
+      # ...and absent again when the caller has nothing to send (an empty
+      # array is treated the same as nil — no shell records for this frame).
+      let bare = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, 100, false, true, -1, -1,
+        lobbyChat = newJArray(), ballots = newJArray()
+      ))
+      check not bare.hasKey("huddle")
+      check not bare.hasKey("vote")
     finally:
       setCurrentDir(previousDir)
 

@@ -39,6 +39,8 @@ Knobs (environment variables):
   shrinks, partner leash keeping duos together (`FIRST_LIGHT_INSTALL` lines
   name the rule per seat: `safe_hold`, `brPartnerLeash`, `brRotate`,
   `brCoverHold`, `brHold`).
+- Seats 0-7 additionally run the `edge_ride` reference play (`rule=edge_ride`,
+  `provenance=entry:edge_ride`); the other 24 stay on the default.
 - `FIRST_LIGHT_MOVEMENT tick=... moving=N aiming=M` telemetry windows.
 - Zone-damage eliminations ("caught outside the zone") and a normal BR
   ending. Zero combat lines — there is no fire path in this build.
@@ -48,16 +50,18 @@ Knobs (environment variables):
 Everything is behind the `season2Shell` config flag — **absent from every
 shipped config, defaulting off**. The flag comes on only via the demo's own
 generated config (the script overlays
-`tests/fixtures/shell/first_light_config.json` onto `config.practice.json`). With the gate off the sim is byte-identical to
+`tests/fixtures/shell/first_light_config.json` onto `config.practice.json`).
+The overlay carries no map of its own, so the demo runs the practice config's
+BR arena — the generated `br-gen-4242`, 3211x1713. (It used to pin an authored
+512x256 map to dodge the body-map atlas density cap; the constants freeze
+retired that workaround, and the small arena made 32 seats look like a scrum.)
+With the gate off the sim is byte-identical to
 pre-shell main; the archived replay fixtures re-simulating hash-exact is the
 enforced proof (`tests/test_shell_first_light.nim` and the replay compat
 suite).
 
 ## Current limits (deliberate, tracked)
 
-- The demo uses an authored fixture map: generated giant maps currently trip
-  the body-map atlas density cap (`MaxCoverPostsExamined`), whose raise is
-  queued for the constants freeze with a 33-seed census behind it.
 - The idle-aim converge is a placeholder; stencil's oscillating `idleSweepAim`
   arrives with the full action port.
 - `BrDefaultFallbacks` in `src/shell/standing_order.nim` documents the facts

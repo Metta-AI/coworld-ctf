@@ -8,7 +8,7 @@
 ## re-exports this module, so existing consumers are unchanged.
 
 import
-  std/[json, math, strutils],
+  std/[deques, json, math, strutils],
   jsony, pixie,
   sim_types
 
@@ -1606,7 +1606,31 @@ proc buildAnimatedDiamonds*(
 const
   GenMapName* = "gen"
   PoolMapName* = "pool"
-  MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
+  MinPassableWidth = 26
+    ## PHYSICS, not design. The narrowest floor the 13px solid footprint
+    ## (`PlayerHalf` = 6) can occupy, and the width every erosion below is
+    ## calibrated to: the connectivity flood, the endzone-gate reach, the
+    ## stub-end border clamp. Below it the board stops being a board; at it,
+    ## a map is merely traversable, which is a crash guard, not a quality bar.
+    ##
+    ## Was named `MinCorridorWidth` and did double duty as the design corridor
+    ## target too, which is a different question ("can two cogs share this
+    ## route?") that this number cannot answer — see `MinCorridorWidth` below.
+  MinCorridorWidth = 2 * SoldierBodyPx
+    ## DESIGN, not physics. 68px -- two DRAWN cog bodies (`SoldierBodyPx` =
+    ## 34) abreast, so two cogs can share a corridor without their silhouettes
+    ## overlapping. `MinPassableWidth` = 26 clears the solid collision
+    ## footprint and nothing else, which is why this is a separate, larger
+    ## number rather than a bigger value of that one.
+    ##
+    ## NOT a flat minimum: as a global floor it would reject every deliberate
+    ## 30-45px chokepoint outright (a doorway is exactly one cog wide, never
+    ## two), which is a legal, load-bearing map feature. It is enforced
+    ## LENGTH-AWARE instead, by `corridorPinchFailures` below (wired into
+    ## `collectMapDiagnostics`): a sub-68px stretch is legal as long as its
+    ## unbroken sightline exposure stays under `MaxPinchRunPx` (see its own
+    ## doc — a fixed 66px, not graded by width). A short gate passes; a
+    ## tunnel does not.
   MapGenMaxAttempts = 100
   MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
@@ -2545,10 +2569,10 @@ proc generateMapAttempt*(
         ## anyway and reads as a wart.
         var top = sy - 30
         var bottom = sy + 30
-        if i == 0 and top - ArenaBorder < MinCorridorWidth:
+        if i == 0 and top - ArenaBorder < MinPassableWidth:
           top = ArenaBorder
         if i == slotYs.len - 1 and result.layout == layoutSides and
-            result.height - ArenaBorder - bottom < MinCorridorWidth:
+            result.height - ArenaBorder - bottom < MinPassableWidth:
           bottom = result.height - ArenaBorder
         result.leftObstacles.add ArenaShape(kind: shapeRect,
           rect: MapRect(x: colX - 9, y: top, w: 18, h: bottom - top))
@@ -3029,6 +3053,252 @@ type
     reachable*: seq[bool]
       ## Eroded floor reachable from Red; retained by diagnosticReachable.
 
+# ---------------------------------------------------------------------------
+# The length-aware corridor pinch gate.
+#
+# `MinCorridorWidth` (68px, two drawn cog bodies abreast) cannot be enforced
+# as a flat erosion floor the way `MinPassableWidth` is: a deliberate 30-45px
+# chokepoint is a legal, load-bearing feature (a doorway you fight over), and
+# a 68px erosion would sever every route through one, rejecting exactly what
+# a good layout needs. The distinguishing variable is LENGTH, not width: a
+# short pinch is a doorway, a long one is a kill box nobody can cross alive.
+# ---------------------------------------------------------------------------
+
+const
+  PinchAccuracyPct = 80
+    ## The hit rate a pre-aimed shooter gets against a target with no room to
+    ## dodge. Not a tuned figure: it is the SAME 80% `sim.aimJitterSigma` is
+    ## calibrated to (a fully visible, stationary body at max range), which
+    ## is exactly the situation inside a pinch narrower than a body's own
+    ## strafe room.
+
+func lethalRunPx(accuracyPct: int): int {.inline.} =
+  ## How far a player travels while a pre-aimed shooter at `accuracyPct`
+  ## kills them: the reload windows spent landing every shot but the last,
+  ## at the sim's own tick speed. Same three constants `FireCooldownTicks`,
+  ## `MaxSpeed` and `MotionScale` price everywhere else in this file.
+  let shotsToKill = HitPoints * 100 div max(1, accuracyPct)
+  max(0, shotsToKill - 1) * FireCooldownTicks * MaxSpeed div MotionScale
+
+const MaxPinchRunPx = lethalRunPx(PinchAccuracyPct)
+  ## 66px at HitPoints=3, FireCooldownTicks=12, MaxSpeed=704, MotionScale=256.
+  ## The longest a player may be confined to sub-`MinCorridorWidth` floor
+  ## before it stops being a chokepoint and becomes a kill box.
+  ##
+  ## The reference lane (`maxwell/mapgen-corridor68`, never landed) graded
+  ## this up to 132px as width climbed from 30 to 62px+, interpolating toward
+  ## a separately MEASURED "field accuracy under dodge" figure that has no
+  ## verified equivalent on this tree. Using the flat no-dodge figure
+  ## everywhere under `MinCorridorWidth` is the conservative simplification:
+  ## it can only reject MORE maps than the graded version would, never fewer,
+  ## so "the gate only ever tightens" still holds.
+
+proc chamferDistanceToWall*(wall: seq[bool], w, h: int): seq[int32] =
+  ## Two-pass chamfer 3-4 distance transform: `result[i]` is ~3x the
+  ## Euclidean px distance from cell i to the nearest `wall` cell (0 if i
+  ## itself is wall). Shared by the connectivity erosion below and the pinch
+  ## gate, so both read the same geometry.
+  result = newSeq[int32](w * h)
+  for i in 0 ..< w * h:
+    result[i] = if wall[i]: 0'i32 else: int32.high div 2
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      let i = y * w + x
+      if result[i] == 0:
+        continue
+      var d = result[i]
+      if x > 0: d = min(d, result[i - 1] + 3)
+      if y > 0: d = min(d, result[i - w] + 3)
+      if x > 0 and y > 0: d = min(d, result[i - w - 1] + 4)
+      if x < w - 1 and y > 0: d = min(d, result[i - w + 1] + 4)
+      result[i] = d
+  for y in countdown(h - 1, 0):
+    for x in countdown(w - 1, 0):
+      let i = y * w + x
+      if result[i] == 0:
+        continue
+      var d = result[i]
+      if x < w - 1: d = min(d, result[i + 1] + 3)
+      if y < h - 1: d = min(d, result[i + w] + 3)
+      if x < w - 1 and y < h - 1: d = min(d, result[i + w + 1] + 4)
+      if x > 0 and y < h - 1: d = min(d, result[i + w - 1] + 4)
+      result[i] = d
+
+proc losClear(wall: seq[bool], w, h, x0, y0, x1, y1: int): bool =
+  ## Whether a straight sightline between two map points crosses no `wall`
+  ## cell, sampled every ~3px (finer than the thinnest wall feature). Shared
+  ## shape with the exposure windowing below: a defender holding a doorway
+  ## only keeps killing you while they can still SEE you, not for every step
+  ## you spend on narrow floor -- a passage that bends breaks the sightline
+  ## and resets the clock even though the floor under it stays narrow.
+  let
+    dx = float(x1 - x0)
+    dy = float(y1 - y0)
+    span = sqrt(dx * dx + dy * dy)
+  if span < 1.0: return true
+  let steps = max(1, int(span / 3.0))
+  for s in 0 .. steps:
+    let t = float(s) / float(steps)
+    let
+      x = int(round(float(x0) + dx * t))
+      y = int(round(float(y0) + dy * t))
+    if x < 0 or x >= w or y < 0 or y >= h: return false
+    if wall[y * w + x]: return false
+  true
+
+proc longestExposedRunPx(
+  wall: seq[bool], w, h: int, path: openArray[int32]
+): int =
+  ## The longest sub-stretch of an ORDERED run whose two ends still see each
+  ## other -- the pinch rule bounds EXPOSURE, which is line of sight, not
+  ## distance walked. Windows are short (a pinch is a local feature) so the
+  ## quadratic scan is cheap.
+  if path.len == 0: return 0
+  result = 1
+  var i = 0
+  while i < path.len:
+    var j = i + result
+    while j < path.len:
+      let
+        a = int(path[i])
+        b = int(path[j])
+      if not losClear(wall, w, h, a mod w, a div w, b mod w, b div w): break
+      result = max(result, j - i + 1)
+      inc j
+    inc i
+
+proc corridorPinchFailures*(
+  wall: seq[bool], w, h: int, dist: seq[int32], open: seq[bool],
+  anchors: openArray[int],
+  passableWidthPx = MinPassableWidth, corridorWidthPx = MinCorridorWidth,
+): seq[string] =
+  ## THE length-aware corridor rule. `open` is floor already eroded to
+  ## `passableWidthPx` (what a body can physically stand on); `dist` is the
+  ## chamfer distance behind it. `anchors` are pixel indices (already
+  ## confirmed reachable from `anchors[0]` by the caller) — this only
+  ## MEASURES, it never re-derives reachability.
+  ##
+  ## Being ON sub-`corridorWidthPx` floor is not the hazard; being UNABLE TO
+  ## AVOID IT is. A picket in an open field wears a thin skirt of narrow
+  ## floor along its own edge, and that skirt can 4-connect into a web that
+  ## spans the whole board — but a player standing anywhere on it can step
+  ## sideways into the open field beside it, so the web is not a chokepoint.
+  ## Flagging "any narrow floor on the cheapest-total-cost route" makes the
+  ## same mistake at one remove (a route threads a doorway for free and the
+  ## rest of the web goes unused, but the web's SIZE still isn't the
+  ## question). The actual question is ROUTING: over the route that avoids
+  ## narrow floor as much as possible, how much of it is left unavoidably,
+  ## and in how long a single unbroken run?
+  ##
+  ## So this runs a 0-1 shortest path (BFS with a deque, Dial's algorithm at
+  ## two buckets) from `anchors[0]`, charging 1 to step onto narrow floor and
+  ## 0 to step onto wide floor, and reconstructs the CHEAPEST route to every
+  ## other anchor. That route is the one a player actually has available:
+  ## free everywhere the map allows it, and threading the minimum unavoidable
+  ## narrow floor everywhere it does not. The rule is then just a scan along
+  ## that one route for the longest unbroken narrow run.
+  ##
+  ## Anchor-adjacent narrow floor (the spawn tile itself, or the pocket
+  ## touching it) is excluded outright — treated as free like wide floor —
+  ## because it is the engine's own geometry, not a map author's choice, on
+  ## every board that has it.
+  if anchors.len < 2: return
+  let minChamferCorridor = int32((corridorWidthPx div 2) * 3)
+  var narrow = newSeq[bool](w * h)
+  for i in 0 ..< w * h:
+    narrow[i] = open[i] and dist[i] < minChamferCorridor
+
+  # Connected components of narrow floor, so an anchor sitting on narrow
+  # floor exempts its WHOLE local pocket, not just its own pixel.
+  var compId = newSeq[int32](w * h)
+  for i in 0 ..< w * h: compId[i] = -1
+  var componentCount = 0
+  for start in 0 ..< w * h:
+    if not narrow[start] or compId[start] >= 0: continue
+    let id = int32(componentCount)
+    inc componentCount
+    var stack = @[int32(start)]
+    compId[start] = id
+    while stack.len > 0:
+      let i = stack.pop()
+      let x = int(i) mod w
+      for step in [-1'i32, 1'i32, -int32(w), int32(w)]:
+        if (step == -1 and x == 0) or (step == 1 and x == w - 1): continue
+        let j = i + step
+        if j < 0 or j >= int32(w * h): continue
+        if narrow[j] and compId[j] < 0:
+          compId[j] = id
+          stack.add j
+  var exemptComponent = newSeq[bool](componentCount)
+  for a in anchors:
+    if a >= 0 and a < w * h and compId[a] >= 0:
+      exemptComponent[compId[a]] = true
+  var chargeable = newSeq[bool](w * h)
+  for i in 0 ..< w * h:
+    chargeable[i] = narrow[i] and not exemptComponent[max(0, compId[i])]
+
+  # 0-1 BFS: a deque where a free (wide/exempt) step pushes to the front and
+  # a charged (narrow) step pushes to the back, so the deque stays sorted by
+  # cost the way Dial's bucket queue is at two buckets. `settled` gives O(1)
+  # stale-pop rejection (a node can be pushed more than once before its
+  # cheapest cost is popped).
+  const Unvisited = int32.high
+  var cost = newSeq[int32](w * h)
+  var prev = newSeq[int32](w * h)
+  var settled = newSeq[bool](w * h)
+  for i in 0 ..< w * h:
+    cost[i] = Unvisited
+    prev[i] = -1
+  var frontier: Deque[int32]
+  cost[anchors[0]] = 0
+  frontier.addLast int32(anchors[0])
+  while frontier.len > 0:
+    let i = frontier.popFirst()
+    if settled[i]: continue
+    settled[i] = true
+    let here = cost[i]
+    let x = int(i) mod w
+    for step in [-1, 1, -w, w]:
+      if (step == -1 and x == 0) or (step == 1 and x == w - 1): continue
+      let j = i + int32(step)
+      if j < 0 or j >= int32(w * h) or not open[j] or settled[j]: continue
+      let stepCost = if chargeable[j]: 1'i32 else: 0'i32
+      let nd = here + stepCost
+      if nd < cost[j]:
+        cost[j] = nd
+        prev[j] = i
+        if stepCost == 0: frontier.addFirst j
+        else: frontier.addLast j
+
+  for k in 1 ..< anchors.len:
+    let target = anchors[k]
+    if target < 0 or target >= w * h or cost[target] == Unvisited or
+        cost[target] == 0:
+      continue    # unreached (caller already guarantees reachable) or free
+    # Reconstruct the cheapest route (anchor -> ... -> target, so walked in
+    # REVERSE below) and cut it into maximal unbroken sub-paths of
+    # chargeable floor. Each one is a candidate pinch; its EXPOSURE, not its
+    # walked length, is what a defender actually gets, so it is measured by
+    # `longestExposedRunPx` rather than by pixel count -- a passage that
+    # bends breaks a defender's sightline partway through even though the
+    # floor under it stays narrow the whole way.
+    var run: seq[int32]
+    var worstRun = 0
+    var node = target
+    while node >= 0:
+      if chargeable[node]:
+        run.add int32(node)
+      elif run.len > 0:
+        worstRun = max(worstRun, longestExposedRunPx(wall, w, h, run))
+        run.setLen(0)
+      node = prev[node]
+    if run.len > 0:
+      worstRun = max(worstRun, longestExposedRunPx(wall, w, h, run))
+    if worstRun > MaxPinchRunPx:
+      result.add "kill-box: " & $worstRun &
+        "px unavoidable exposure under " & $corridorWidthPx &
+        "px (clears alive in " & $MaxPinchRunPx & "px)"
+
 proc collectMapDiagnostics(
   gameMap: CtfMap,
   artifacts: set[MapDiagnosticArtifact],
@@ -3167,43 +3437,25 @@ proc collectMapDiagnostics(
     minWall.setLen(0)
 
   ## Corridor + connectivity: chamfer 3-4 distance to the nearest wall,
-  ## eroded by half the corridor minimum, then a flood fill — both flags and
-  ## the center must connect through corridors the player footprint can
+  ## eroded by half the PASSABILITY minimum, then a flood fill — both flags
+  ## and the center must connect through floor the player footprint can
   ## actually use.
-  var dist = newSeq[int32](w * h)
-  for i in 0 ..< w * h:
-    dist[i] = if maxWall[i]: 0'i32 else: int32.high div 2
-  for y in 0 ..< h:
-    for x in 0 ..< w:
-      let i = y * w + x
-      if dist[i] == 0:
-        continue
-      var d = dist[i]
-      if x > 0: d = min(d, dist[i - 1] + 3)
-      if y > 0: d = min(d, dist[i - w] + 3)
-      if x > 0 and y > 0: d = min(d, dist[i - w - 1] + 4)
-      if x < w - 1 and y > 0: d = min(d, dist[i - w + 1] + 4)
-      dist[i] = d
-  for y in countdown(h - 1, 0):
-    for x in countdown(w - 1, 0):
-      let i = y * w + x
-      if dist[i] == 0:
-        continue
-      var d = dist[i]
-      if x < w - 1: d = min(d, dist[i + 1] + 3)
-      if y < h - 1: d = min(d, dist[i + w] + 3)
-      if x < w - 1 and y < h - 1: d = min(d, dist[i + w + 1] + 4)
-      if x > 0 and y < h - 1: d = min(d, dist[i + w - 1] + 4)
-      dist[i] = d
-  let minChamfer = int32((MinCorridorWidth div 2) * 3)
+  ##
+  ## THIS EROSION IS `MinPassableWidth` AND MUST STAY THERE. The design
+  ## corridor floor is `MinCorridorWidth` (68px), but a flood eroded to that
+  ## would sever every route through a 30-45px chokepoint and report the
+  ## board disconnected — rejecting exactly the feature a good layout needs.
+  ## The 68px rule is a statement about SUSTAINED width and is enforced
+  ## separately and length-awarely, by the pinch gate at the end of this
+  ## proc.
+  var dist = chamferDistanceToWall(maxWall, w, h)
+  let minChamfer = int32((MinPassableWidth div 2) * 3)
   var open = newSeq[bool](w * h)
   for i in 0 ..< w * h:
     open[i] = dist[i] >= minChamfer
-  dist.setLen(0)
-  if diagnosticWallMasks in artifacts:
-    result.maxWall = maxWall
-  else:
-    maxWall.setLen(0)
+  ## `maxWall` retention/free is deferred to after the pinch gate below,
+  ## which needs the raw wall mask for its own line-of-sight checks — unlike
+  ## every check above, which only needs the derived `dist`/`open` masks.
 
   let
     redHome = gameMap.flagHome(Red)
@@ -3236,14 +3488,14 @@ proc collectMapDiagnostics(
       result.unreachableTeams.add team
       let message =
         if gameMap.teamCount() == 2:
-          "no " & $MinCorridorWidth & "px route between the flags"
+          "no " & $MinPassableWidth & "px route between the flags"
         else:
-          "no " & $MinCorridorWidth & "px route to the " &
+          "no " & $MinPassableWidth & "px route to the " &
             teamText(team) & " flag"
       recordFailure(message)
   result.centerReachable = reached[gameMap.center.y * w + gameMap.center.x]
   if not result.centerReachable:
-    recordFailure("no " & $MinCorridorWidth & "px route to the center")
+    recordFailure("no " & $MinPassableWidth & "px route to the center")
 
   ## Compact endzones must stay OPEN-FLANKED: a base you can only be reached
   ## from the field side is just a column endzone with extra steps. Checked
@@ -3251,7 +3503,7 @@ proc collectMapDiagnostics(
   if gameMap.endzone != ezColumn:
     let
       anchor = gameMap.teamAnchor(Red)
-      gate = gameMap.endzoneRadius + MinCorridorWidth div 2 + 4
+      gate = gameMap.endzoneRadius + MinPassableWidth div 2 + 4
       gates = [
         (name: "behind", point: MapPoint(x: anchor.x - gate, y: anchor.y)),
         (name: "above", point: MapPoint(x: anchor.x, y: anchor.y - gate)),
@@ -3299,6 +3551,31 @@ proc collectMapDiagnostics(
         around[gameMap.center.y * w + gameMap.center.x]
       if not result.rearGateReachesCenterWithoutEndzone:
         recordFailure("no route around the endzone from behind the base")
+
+  ## THE CORRIDOR FLOOR, and the only place in this file that enforces
+  ## `MinCorridorWidth` (68px). Everything above is calibrated to
+  ## `MinPassableWidth` (26px), which asks only whether a body fits;
+  ## `MinCorridorWidth` asks whether TWO fit, sustained, and that cannot be
+  ## asked with an erosion — see `corridorPinchFailures`'s own doc.
+  ##
+  ## Run LAST and only once nothing above has already failed: it is the most
+  ## expensive check in this proc, and the fast validator re-rolls up to
+  ## `MapGenMaxAttempts` candidates, so only a candidate that cleared every
+  ## cheaper gate should pay for it. It also presumes the connected board the
+  ## checks above establish (`anchors` reuses `reached`'s own home list).
+  if result.reason.len == 0:
+    var anchors = @[startIndex]
+    for team in gameMap.teams():
+      if team == Red: continue
+      let home = gameMap.flagHome(team)
+      anchors.add home.y * w + home.x
+    for r in corridorPinchFailures(maxWall, w, h, dist, open, anchors):
+      recordFailure(r)
+  dist.setLen(0)
+  if diagnosticWallMasks in artifacts:
+    result.maxWall = maxWall
+  else:
+    maxWall.setLen(0)
 
   if diagnosticCorridorOpen in artifacts:
     result.corridorOpen = open
@@ -3535,6 +3812,15 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   ## classic grenadeSpawnPoints() 4-corner/orbit formula unchanged.
   if gameMap.grenadeSpawns.len > 0:
     spec["grenadeSpawns"] = pointsNode(gameMap.grenadeSpawns)
+  ## LOOT(s2): authored marker/hopper crate pools pin only when present,
+  ## same idiom as every optional pool above. Empty on every existing map
+  ## (only a loot-start-aware generator authors them), in which case
+  ## resetLootCrates (sim.nim) derives crates from the grenade/spray pools
+  ## while config.lootStart is armed — and places nothing when it is not.
+  if gameMap.weaponSpawns.len > 0:
+    spec["weaponSpawns"] = pointsNode(gameMap.weaponSpawns)
+  if gameMap.hopperSpawns.len > 0:
+    spec["hopperSpawns"] = pointsNode(gameMap.hopperSpawns)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3646,6 +3932,12 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## shieldSpawns/spraySpawns — resetGrenades falls back to the classic
   ## formula when empty.
   result.grenadeSpawns = pointsFromNode(node{"grenadeSpawns"})
+  ## LOOT(s2): optional authored marker/hopper crate pools. Absent -> empty
+  ## (every existing pinned spec), same byte-identity rule as the pools
+  ## above — resetLootCrates (sim.nim) derives from grenade/spray pools
+  ## while lootStart is armed.
+  result.weaponSpawns = pointsFromNode(node{"weaponSpawns"})
+  result.hopperSpawns = pointsFromNode(node{"hopperSpawns"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)

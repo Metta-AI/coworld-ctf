@@ -1,42 +1,6 @@
 {
+  "_comment": "FIRST LIGHT demo timings: zonePhases deliberately compress practice's match-length BR schedule so the flood is visible during a watched demo.",
   "season2Shell": true,
-  "teams": 2,
-  "mapPath": "gen",
-  "mapSpec": {
-    "name": "first-light-open-br",
-    "genSeed": 0,
-    "width": 512,
-    "height": 256,
-    "flagRing": 40,
-    "captureClear": 80,
-    "spawnClearW": 4,
-    "spawnClearH": 4,
-    "gunRange": 331,
-    "symmetry": "none",
-    "layout": "sides",
-    "endzone": "column",
-    "endzoneRadius": 0,
-    "homeDepth": 0,
-    "medKitSpawns": [[256, 128]],
-    "medKitCandidates": [[256, 128]],
-    "trenches": [],
-    "leftObstacles": [],
-    "spawnPoints": [
-      [80, 32], [80, 44], [80, 56], [80, 68],
-      [80, 80], [80, 92], [80, 104], [80, 116],
-      [80, 128], [80, 140], [80, 152], [80, 164],
-      [80, 176], [80, 188], [80, 200], [80, 212],
-      [432, 32], [432, 44], [432, 56], [432, 68],
-      [432, 80], [432, 92], [432, 104], [432, 116],
-      [432, 128], [432, 140], [432, 152], [432, 164],
-      [432, 176], [432, 188], [432, 200], [432, 212]
-    ],
-    "spawnGroups": 2,
-    "flagless": true,
-    "shieldSpawns": [[256, 96]],
-    "spraySpawns": [[256, 160]],
-    "grenadeSpawns": [[256, 64]]
-  },
   "viewIntervalTicks": 6,
   "lobbyChatTicks": 0,
   "playSeatBindTicks": 7200,
@@ -71,5 +35,37 @@
     {"control": "play"}, {"control": "play"},
     {"control": "play"}, {"control": "play"},
     {"control": "play"}, {"control": "play"}
+  ],
+  "zonePhases": [
+    {
+      "z": 0.75,
+      "waitTicks": 480,
+      "shrinkTicks": 360,
+      "dps": 0
+    },
+    {
+      "z": 0.55,
+      "waitTicks": 360,
+      "shrinkTicks": 360,
+      "dps": 2
+    },
+    {
+      "z": 0.4,
+      "waitTicks": 300,
+      "shrinkTicks": 300,
+      "dps": 4
+    },
+    {
+      "z": 0.28,
+      "waitTicks": 240,
+      "shrinkTicks": 240,
+      "dps": 8
+    },
+    {
+      "z": 0.17,
+      "waitTicks": 180,
+      "shrinkTicks": 180,
+      "dps": 12
+    }
   ]
 }

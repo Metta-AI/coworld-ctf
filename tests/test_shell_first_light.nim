@@ -3,8 +3,8 @@
 import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
-import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
-  episode, standing_order, types]
+import ../src/shell/[binary_view, body, body_map, body_nav, body_planner,
+  default_play, episode, standing_order, types]
 
 proc controls(kind: SlotControl, count: int): seq[SlotControl] =
   result = newSeq[SlotControl](count)
@@ -41,6 +41,7 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
     currentZone: MapRect(x: 0, y: 0, w: 400, h: 400),
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
+    zonePhase: 2,
     zoneDps: 1,
     idleAimCenterBrads: seat mod 256,
     coverGoal: none(ValidatedGoal))
@@ -48,15 +49,21 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
 proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
            playing = true): FirstLightSeatFrame =
   let selfPos = if pos == (0, 0): (10 + seat, 10) else: pos
+  let hp = if alive: 4 else: 0
+  let hpFrac = if alive: 1.0 else: 0.0
   FirstLightSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
     present: true,
     playing: playing,
     alive: alive,
+    aliveTeams: 2,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: selfPos, hpFrac: 1.0,
-        aimBrads: seat mod 256, alive: alive, carrying: false),
+      self: BodySelfState(pos: selfPos, hp: hp, hpFrac: hpFrac,
+        lives: some(1), aimBrads: seat mod 256, fireCooldown: 0,
+        fireWindup: 0, windup: none(int), hasGrenade: false,
+        hasShield: false, shieldHp: 0, hasSprayPaint: false,
+        arcTicksLeft: 0, alive: alive, carrying: false),
       partner: some(PartnerSample(seat: uint8(seat xor 1),
         pos: (20 + seat, 20), alive: true))),
     defaultFallbacks: fallback(map, seat))
@@ -72,8 +79,11 @@ proc rotateFrame(map: BodyMap, seat: int, self, target: BodyPoint,
         seat: seat,
         pos: threat.get,
         team: Blue,
-        aimBrads: 0,
+        aimBrads: some(0),
         hpKnown: some(3),
+        shielded: false,
+        weapon: some(bwGun),
+        veteranMarker: false,
         tick: uint32(tick)))
   result.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks
   result.defaultFallbacks.rotateTarget = some(target)
@@ -119,10 +129,17 @@ suite "shell FIRST LIGHT":
     config.update($merged)
     check config.season2Shell
     check config.brMode
-    check config.teams == 2
-    check config.mapPath == "gen"
+    ## The demo inherits config.practice.json's BR arena rather than pinning
+    ## its own: the overlay carries no map at all. An authored 512x256 map
+    ## used to be pinned here to dodge the body-map atlas density cap; the
+    ## constants freeze retired that workaround, and a 512-wide arena made
+    ## the 32-seat demo look like a scrum.
+    check config.teams == 16
     check config.mapSpec.len > 0
-    check parseJson(config.mapSpec)["name"].getStr() == "first-light-open-br"
+    let mapSpec = parseJson(config.mapSpec)
+    check mapSpec["name"].getStr() == "br-gen-4242"
+    check mapSpec["width"].getInt() == 3211
+    check mapSpec["height"].getInt() == 1713
     check config.minPlayers == 32
     check config.slots.len == 32
     for slot in config.slots:
@@ -130,16 +147,66 @@ suite "shell FIRST LIGHT":
 
   test "configured play seats parse strictly instead of inventing seat zero":
     let map = testBodyMap()
-    for seats in ["[\"oops\"]", "[-1]", "[32]", "[1]", "[0,0]"]:
+    for spec in [
+        ("[\"oops\"]", "parse_error",
+          "firstLightPlay.seats entries must be integers"),
+        ("[-1]", "parse_error", "firstLightPlay.seats entry out of range"),
+        ("[32]", "parse_error", "firstLightPlay.seats entry out of range"),
+        ("[1]", "parse_error", "firstLightPlay.seats entry outside roster"),
+        ("[0,0]", "parse_error", "firstLightPlay.seats entry duplicated")]:
       var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
         map, 331)
       let lines = episode.configureFirstLightDemoPlayFromJson(
         "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
-        "\"playName\":\"missing\",\"params\":{},\"seats\":" & seats & "}}")
+        "\"playName\":\"missing\",\"params\":{},\"seats\":" & spec[0] & "}}")
       check lines.len == 1
-      check lines[0].startsWith(
-        "FIRST_LIGHT_PLAY configured=false reason=parse_error")
+      check ("reason=" & spec[1]) in lines[0]
+      check ("detail=" & spec[2]) in lines[0]
       check "seat=0" notin lines[0]
+
+  test "valid configured play reaches runtime gate after config validation":
+    let map = testBodyMap()
+    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      map, 331)
+    let lines = episode.configureFirstLightDemoPlayFromJson(
+      "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
+      "\"playName\":\"missing\",\"params\":{},\"seats\":[0]}}")
+    check lines.len == 1
+    when ShellRuntimeAvailable:
+      check "reason=module_missing" in lines[0]
+    else:
+      check "reason=runtime_unavailable" in lines[0]
+
+  test "first-light binary view carries truthful hp count and fraction":
+    let map = testBodyMap()
+    let liveFrame = frame(map, 0, alive = true)
+    let deadFrame = frame(map, 0, alive = false)
+    check (liveFrame.bodyInputs.self.hp > 0) ==
+      (liveFrame.bodyInputs.self.hpFrac > 0.0)
+    check (deadFrame.bodyInputs.self.hp > 0) ==
+      (deadFrame.bodyInputs.self.hpFrac > 0.0)
+    when ShellRuntimeAvailable:
+      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+        map, 331)
+      discard episode.step([liveFrame], 12)
+      let bytes = episode.firstLightViewBytes(0, 12)
+      check bytes[0 .. 3] == "PV1\0"
+      let sectionCount = ord(bytes[7])
+      var selfOffset = -1
+      for index in 0 ..< sectionCount:
+        let entry = BinaryFrameHeaderBytes + index * BinarySectionEntryBytes
+        let kind = ord(bytes[entry]) or (ord(bytes[entry + 1]) shl 8)
+        if kind == int(BvSelf):
+          selfOffset = ord(bytes[entry + 8]) or
+            (ord(bytes[entry + 9]) shl 8) or
+            (ord(bytes[entry + 10]) shl 16) or
+            (ord(bytes[entry + 11]) shl 24)
+      check selfOffset >= 0
+      let hpOffset = selfOffset + 12
+      let hp = ord(bytes[hpOffset]) or (ord(bytes[hpOffset + 1]) shl 8) or
+        (ord(bytes[hpOffset + 2]) shl 16) or
+        (ord(bytes[hpOffset + 3]) shl 24)
+      check hp == liveFrame.bodyInputs.self.hp
 
   test "activation installs safe hold then the epoch-zero default same tick":
     let map = testBodyMap()
@@ -212,6 +279,8 @@ suite "shell FIRST LIGHT":
       positions[seat] = (10 + seat, 10)
     var output: FirstLightTickResult
     var sawMovement = false
+    var weaponBitProjection = ""
+    var movementBitProjection = ""
     for tick in 1 .. 400:
       var frames: seq[FirstLightSeatFrame]
       for seat in 0 ..< 32:
@@ -224,9 +293,25 @@ suite "shell FIRST LIGHT":
           (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0):
         sawMovement = true
       for mask in output.masks:
+        let encoded = mask.input.encodeInputMask()
+        # Phase 5 replaces the idle-aim placeholder with Stencil's sweep, so
+        # aim bytes may move. The first-light invariant is byte preservation
+        # for actuator weapon bits: attack and C stay zero for every seat/tick
+        # under the default demo config.
+        weaponBitProjection.add(char(encoded and (ButtonA or ButtonC)))
+        # Phase 5 also inserted a fire-freeze branch AHEAD of the movement
+        # path in seatTick. It cannot trigger under the demo config, because
+        # fireHoldTicks is assigned only on the same branch that emits
+        # ButtonA and weapon bits are zero above — but that is a coupling
+        # between two facts, so pin the movement bits directly rather than
+        # leaving the demo's visible behaviour resting on an inference.
+        movementBitProjection.add(char(encoded and
+          (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)))
         positions[mask.seat.int].applyMask(mask.input)
     check output.masks.len == 32
     check sawMovement
+    check weaponBitProjection == newString(32 * 400)
+    check movementBitProjection != newString(32 * 400)
 
     let path = getTempDir() / "shell-first-light-masks.bitreplay"
     defer:

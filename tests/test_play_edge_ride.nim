@@ -3,8 +3,8 @@
 import std/[json, math, options, os, osproc, sequtils, strutils, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[abi, body, body_map, default_play, emit_validator,
-  instance, manifest, module_validation, runtime, types]
+import ../src/shell/[abi, binary_view, body, body_map, default_play,
+  emit_validator, instance, manifest, module_validation, runtime, types, view]
 
 const
   FixtureDir = currentSourcePath.parentDir / "fixtures" / "shell"
@@ -73,47 +73,39 @@ proc fuelConsumed(invocation: ShellInvocationResult): uint64 =
   else:
     StepFuel.uint64 - invocation.fuelRemaining
 
-proc trackRow(index: int): string =
-  "{\"aim_brads\":" & $(index mod 256) & ",\"bounty\":" &
-    (if index mod 2 == 0: "true" else: "false") &
-    ",\"fresh_tick\":" & $(1000 + index) & ",\"hp\":" &
-    $(1 + index mod 3) & ",\"pos\":[" & $(100 + index) & "," &
-    $(200 + index) & "],\"seat\":" & $index & ",\"team\":\"" &
-    (if index mod 2 == 0: "navy" else: "rust") & "\"}"
+proc playRect(rect: array[4, int]): PlayRect =
+  PlayRect(x: rect[0], y: rect[1], w: rect[2], h: rect[3])
 
-proc joinTracks(count: int): string =
+proc trackRows(count: int): seq[PlayTrack] =
   for index in 0 ..< count:
-    if index > 0:
-      result.add ","
-    result.add trackRow(index)
+    result.add(PlayTrack(
+      seat: index,
+      team: if index mod 2 == 0: Navy else: Rust,
+      pos: (100 + index, 200 + index),
+      aimBrads: some(index mod 256),
+      hp: some(1 + index mod 3),
+      freshTick: uint32(1000 + index),
+      bounty: index mod 2 == 0))
 
 proc viewFor(tick: int; self: BodyPoint; current: array[4, int];
              ticksToShrink: int; next: array[4, int] = [0, 0, 0, 0];
              includeNext = true; tracks = 0): string =
-  result = "{\"schema\":\"play_view\",\"self\":{\"aim_brads\":32," &
-    "\"alive\":true,\"hp\":2,\"hp_frac\":1.0," &
-    "\"pos\":[" & $self.x & "," & $self.y & "]},\"tick\":" & $tick
-  if tracks > 0:
-    result.add ",\"tracks\":[" & joinTracks(tracks) & "]"
-  result.add ",\"v\":1,\"world\":{\"alive_teams\":9,\"zone\":{\"current\":[" &
-    $current[0] & "," & $current[1] & "," & $current[2] & "," &
-    $current[3] & "],\"dps\":1"
-  if includeNext:
-    result.add ",\"next\":[" & $next[0] & "," & $next[1] & "," &
-      $next[2] & "," & $next[3] & "]"
-  result.add ",\"phase\":2,\"ticks_to_shrink\":" & $ticksToShrink & "}}}"
+  buildBinaryPlayView(PlayViewSource(
+    tick: uint32(tick),
+    mode: gmBr,
+    epoch: 0,
+    self: PlaySelf(pos: self, hp: 2, hpFrac: 1.0, aimBrads: 32,
+      alive: true),
+    aliveTeams: 9,
+    zone: some(PlayZone(phase: 2, current: current.playRect,
+      next: if includeNext: some(next.playRect) else: none(PlayRect),
+      ticksToShrink: ticksToShrink, dps: 1)),
+    tracks: trackRows(tracks)))
 
 proc fullViewFor(tick: int; self: BodyPoint; current: array[4, int];
                  ticksToShrink: int; tracks = 0): string =
-  "{\"aggressors\":[],\"epoch\":\"0\",\"hazards\":{\"grenades\":[]," &
-    "\"sprays\":[]},\"items\":[],\"kill_feed\":[],\"schema\":\"play_view\"," &
-    "\"self\":{\"aim_brads\":32,\"alive\":true,\"hp\":2,\"hp_frac\":1.0," &
-    "\"pos\":[" & $self.x & "," & $self.y & "]},\"shouts\":[]," &
-    "\"tick\":" & $tick & ",\"tracks\":[" & joinTracks(tracks) &
-    "],\"v\":1," &
-    "\"world\":{\"alive_teams\":9,\"zone\":{\"current\":[" & $current[0] &
-    "," & $current[1] & "," & $current[2] & "," & $current[3] &
-    "],\"dps\":1,\"phase\":2,\"ticks_to_shrink\":" & $ticksToShrink & "}}}"
+  viewFor(tick, self, current, ticksToShrink, tracks = tracks,
+    includeNext = false)
 
 proc rectArray(node: JsonNode): array[4, int] =
   require node.kind == JArray
@@ -268,6 +260,45 @@ suite "edge_ride reference play":
       check not step.faulted
       check step.reasonOf == "edge_ride:hold"
 
+  test "a rectangle narrower than twice the margin still spreads the seats":
+    ## The endgame regression: the standoff band used to collapse to the
+    ## rectangle's midpoint on any span shorter than `2 * margin`, so every
+    ## seat was answered with the same pixel and the squad piled up and
+    ## jittered on one spot. Distinct seats in a narrow rectangle must keep
+    ## distinct destinations.
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    let module = engine.edgeModule()
+    defer: module.close()
+    let map = testMap()
+    let
+      narrow = [400, 200, 400, 300]  # x 400..800, y 200..500
+      margin = 220                   # 2 * margin = 440 > either span
+      seats: array[3, BodyPoint] = [(420, 220), (600, 350), (780, 480)]
+    var targets: seq[BodyPoint]
+
+    for seat in seats:
+      var instance = engine.newEdgeInstance(module, map, seat)
+      defer: instance.close()
+      instance.initOk("{\"coverBias\":0.0,\"enterLead\":120,\"margin\":" &
+        $margin & "}")
+      let step = instance.invokeStep(
+        viewFor(1, seat, narrow, 240, includeNext = false), 1, seat)
+      check not step.faulted
+      check step.returned == 0
+      check step.reasonOf == "edge_ride:margin"
+      let target = step.pointOf
+      check narrow.rectContains(target)
+      targets.add target
+
+    check targets.deduplicate.len == seats.len
+    ## The band is centred, so the ordering of the seats survives the inset
+    ## rather than every seat being clamped onto the midpoint.
+    check targets[0].x < targets[1].x
+    check targets[1].x < targets[2].x
+    check targets[0].y < targets[1].y
+    check targets[1].y < targets[2].y
+
   test "spatial-call accounting stays inside the two-call envelope":
     let engine = newRuntimeEngine()
     defer: engine.close()
@@ -399,7 +430,7 @@ suite "edge_ride reference play":
         includeNext = false)
       let step = instance.invokeStep(view, 1441, (550, 300))
       let consumed = step.fuelConsumed
-      echo "EDGE_RIDE_VIEW_FUEL kind=lean view_len=", view.len,
+      echo "EDGE_RIDE_BINARY_VIEW_FUEL kind=lean view_len=", view.len,
         " tracks=0 consumed=", consumed,
         " completed=", (not step.faulted and step.returned == 0),
         " fuel_remaining=", step.fuelRemaining,
@@ -415,7 +446,7 @@ suite "edge_ride reference play":
       let view = fullViewFor(1441, (550, 300), [400, 200, 1200, 700], 240,
         tracks = 32)
       let step = instance.invokeStep(view, 1441, (550, 300))
-      echo "EDGE_RIDE_VIEW_FUEL kind=large view_len=", view.len,
+      echo "EDGE_RIDE_BINARY_VIEW_FUEL kind=large view_len=", view.len,
         " tracks=32 consumed=", step.fuelConsumed,
         " completed=", (not step.faulted and step.returned == 0),
         " fuel_remaining=", step.fuelRemaining,

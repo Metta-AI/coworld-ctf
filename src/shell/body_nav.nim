@@ -201,6 +201,13 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
 
 proc seatCount*(system: BodyNavSystem): int = system.seats.len
 
+proc liveWeaponRangePx*(system: BodyNavSystem, seatIndex: int): int =
+  ## The live gun range captured at activation. Body weapon scoring uses the
+  ## same range as the episode danger fields instead of a hard-coded constant.
+  if system == nil or seatIndex < 0 or seatIndex >= system.seats.len:
+    raise newException(ValueError, "body navigation seat index is out of range")
+  system.seats[seatIndex].dangerRangePx
+
 proc recordDanger(system: BodyNavSystem, value: DangerRebuild) {.inline.} =
   if system.dangerTraceLen < system.dangerTrace.len:
     system.dangerTrace[system.dangerTraceLen] = value

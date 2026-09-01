@@ -11,7 +11,8 @@ RUN apt-get update && \
     build-essential \
     ca-certificates \
     curl \
-    git && \
+    git \
+    xz-utils && \
   rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -35,19 +36,43 @@ COPY nimby.lock .
 RUN nimby --global sync nimby.lock
 
 COPY . .
-ARG NimFlags="-d:release -d:useMalloc --opt:speed --stackTrace:on"
+ARG NimFlags="-d:release -d:useMalloc --threads:on --opt:speed --stackTrace:on"
+ARG CtfRuntimeFlags="-d:noSignalHandler -d:shellStaticWasmtime"
 ARG NimCommand="c"
 ARG NimMain="src/ctf.nim"
-RUN nim $NimCommand \
-  $NimFlags \
-  --nimcache:/tmp/ctf-nimcache \
-  --out:ctf \
-  $NimMain && \
+RUN tools/runtime_spike/fetch_deps.sh > /tmp/runtime_deps.env && \
+  wasmtime_root="$(sed -n 's/^WASMTIME_C_API=//p' /tmp/runtime_deps.env)" && \
+  test -f "$wasmtime_root/include/wasmtime.h" && \
+  test -f "$wasmtime_root/lib/libwasmtime.a" && \
+  WASMTIME_C_API="$wasmtime_root" nim $NimCommand \
+    $NimFlags \
+    $CtfRuntimeFlags \
+    --nimcache:/tmp/ctf-nimcache \
+    --out:ctf \
+    $NimMain && \
   nim c \
-  $NimFlags \
-  --nimcache:/tmp/paintball-player-nimcache \
-  --out:paintball-player \
-  src/paintball_player.nim
+    $NimFlags \
+    --nimcache:/tmp/paintball-player-nimcache \
+    --out:paintball-player \
+    src/paintball_player.nim
+
+FROM build AS runtime-proof
+
+RUN wasmtime_root="$(sed -n 's/^WASMTIME_C_API=//p' /tmp/runtime_deps.env)" && \
+  wasi_root="$(sed -n 's/^WASI_SDK_PATH=//p' /tmp/runtime_deps.env)" && \
+  test -f "$wasmtime_root/include/wasmtime.h" && \
+  test -x "$wasi_root/bin/clang" && \
+  WASI_SDK_PATH="$wasi_root" nim c -f --hints:off \
+    play_sdk/examples/hello_play.nim && \
+  WASI_SDK_PATH="$wasi_root" nim c -f --hints:off \
+    play_sdk/reference/edge_ride.nim && \
+  WASMTIME_C_API="$wasmtime_root" nim c --threads:on -d:release \
+    -d:noSignalHandler -d:shellStaticWasmtime \
+    --hints:off --path:src --nimcache:/tmp/first-light-probe-nimcache \
+    --out:first-light-probe \
+    tools/first_light_probe.nim
+
+CMD ["./first-light-probe"]
 
 # Run Docker.
 FROM debian:bookworm-slim

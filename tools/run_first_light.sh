@@ -18,6 +18,11 @@ SERVER_LOG="$RUN_DIR/server.log"
 FETCH_LOG="$RUN_DIR/fetch_deps.log"
 mkdir -p "$RUN_DIR"
 
+if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+  echo "port $PORT in use — another first-light server is running; kill it or set FIRST_LIGHT_PORT" >&2
+  exit 1
+fi
+
 PIDS=()
 cleanup() {
   if [ "${#PIDS[@]}" -gt 0 ]; then
@@ -56,6 +61,8 @@ if [ -z "$WASMTIME_C_API" ] || [ -z "$WASI_SDK_PATH" ]; then
 fi
 
 WASI_SDK_PATH="$WASI_SDK_PATH" nim c -f --hints:off \
+  play_sdk/examples/hello_play.nim
+WASI_SDK_PATH="$WASI_SDK_PATH" nim c -f --hints:off \
   play_sdk/reference/edge_ride.nim
 
 WASMTIME_C_API="$WASMTIME_C_API" nim c --threads:on -d:release \
@@ -74,6 +81,7 @@ nim c -d:release --hints:off --path:src -o:"$PRESENCE_BIN" \
 
 COGAME_HOST=0.0.0.0 \
 COGAME_PORT="$PORT" \
+FIRST_LIGHT_ZONE_LOG=1 \
 COGAME_CONFIG_URI="file://$CONFIG_PATH" \
   "$SERVER_BIN" >"$SERVER_LOG" 2>&1 &
 PIDS+=("$!")

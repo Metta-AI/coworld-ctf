@@ -74,16 +74,62 @@ jobs:
           test -f "$wasmtime_root/lib/libwasmtime.so"
           echo "WASMTIME_C_API=$wasmtime_root" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$wasmtime_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-      - run: nim check src/ctf.nim
+      # src/shell/runtime.nim {.error.}s at compile time without these two
+      # flags (the epoch ticker needs --threads:on; the crash-diagnosing
+      # noSignalHandler mode is a hard production requirement, not a CI
+      # nicety -- see runtime.nim's own comment). That used to be reachable
+      # only from the handful of test files that import the runtime
+      # directly, so only shard 2 carried the flags below. Since
+      # af8158f5 (2026-08-31 21:16:54Z, "the episode runs the ladder")
+      # server.nim -> shell/episode -> shell/module_cache -> shell/runtime,
+      # and server.nim is part of src/ctf.nim's own import graph -- every
+      # shard, and `nim check` itself, now needs both flags to compile at
+      # all. Verified by bisect: `nim check` (no flags) is clean at
+      # 1485e5fe, the commit immediately before af8158f5's ancestry; the
+      # {.error.} only fires from af8158f5 onward.
+      #
+      # af8158f5 is the compile break, and ONLY the compile break -- it is
+      # NOT why CI first went red. Bisected against the actual run logs:
+      # CI was last green at f752d325 (2026-08-31 14:19Z) and first red at
+      # 1485e5fe (2026-08-31 15:53Z, PR #320 "land-field-to-main"), five and
+      # a half hours before af8158f5 landed. That first break was
+      # `wasm-replay-viewer` bundle staleness (a stale served
+      # broadcast_core.js) -- the `build` job itself was still green at
+      # that commit. Separately, two tests this PR still carries as failing
+      # -- test_play_harness.nim and test_play_pact.nim -- are BRAND NEW
+      # (added ~19:49Z, after #320, before af8158f5) and have never once
+      # run green in CI: their goldens were evidently recorded on a
+      # non-Linux dev box, and the one wasi-sdk/Nim-compiled fixture in
+      # each (as opposed to the WAT-literal ones, which are unaffected)
+      # drifts by a few fuel units / faults on tight margin when rebuilt on
+      # ubuntu-latest -- see those files' own comments. af8158f5's compile
+      # break landed on top of both and MASKED them (job died at `nim
+      # check` before either test could run), which is why this PR's own
+      # CI run surfaced all three at once.
+      - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
+      # -d:useMalloc routes Nim's own allocator through the system allocator
+      # instead of Nim's thread-local free-list allocator. This is not a
+      # style choice: guzba/mummy (the pinned WebSocket server both the
+      # production binary and test_shell_transport.nim's real-socket tests
+      # run) segfaults on Linux -- confirmed against vanilla upstream mummy
+      # 0.4.7 with zero of our code involved -- when a server that has
+      # cycled enough real WebSocket connections is cleanly torn down
+      # (server.close(), which joins its threads and frees its Nim-GC'd
+      # state): the crash is inside Nim's OWN allocator
+      # (alloc.nim -> rawDealloc -> addToSharedFreeList), consistent with
+      # its shared, non-atomic free-list bookkeeping being corrupted by
+      # concurrent alloc/dealloc across mummy's worker threads and its
+      # event-loop thread. -d:useMalloc reliably avoided it across 60+
+      # stress runs in a Linux container built from this same repo's own
+      # Dockerfile. The Dockerfile ALREADY builds the production ctf/
+      # paintball-player binaries with -d:useMalloc (see its NimFlags ARG);
+      # this only makes the test build match production instead of
+      # exercising a riskier allocator config production never ships.
       - name: Compile test shards (release)
         run: |
           for i in 1 2 3 4; do
-            runtime_flags=()
-            if [ "$i" -eq 2 ]; then
-              runtime_flags=(-d:noSignalHandler --threads:on)
-            fi
-            nim c -d:release --hints:off "${runtime_flags[@]}" \
-              -o:shard_$i tests/shard_$i.nim &
+            nim c -d:release --hints:off -d:noSignalHandler --threads:on \
+              -d:useMalloc -o:shard_$i tests/shard_$i.nim &
             eval "pid_$i=\$!"
           done
           fail=0
