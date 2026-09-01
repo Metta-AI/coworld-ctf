@@ -15,6 +15,14 @@ type
     peLengthMismatch
     peTrailingBytes
     peLimitExceeded
+    peWrongKind
+      ## A union packet's kind byte names no admitted kind (first user:
+      ## 0xB3 VoteState, a two-kind union selected by the byte after the
+      ## version byte).
+    peBadOption
+      ## A fixed-range field value lies outside its documented range
+      ## (first users: 0xA4's option 0-3, 0xB3's category 0-3 and
+      ## finalOption 0-2).
 
   PacketError* = object of CatchableError
     kind*: PacketErrorKind
