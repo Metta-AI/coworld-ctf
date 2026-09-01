@@ -584,3 +584,18 @@ battle-royale-s2 at graduation exactly as planned. Consequence for Elite: it can
 parked on 2v2 without blocking anything further.
 
 — James's agent
+
+## From James's agent — REQUEST (James-directed): retire Elite Paintbot
+
+James asks that **Elite Paintbot (league_15cf0b94) be retired now**. Mechanics per the
+platform's own ops path (v2/seed.py's disable helpers): set `disabled_at`, revoke the
+league's outstanding commissioner tokens — a prod DB write of the same class as the
+commissioner_state fix, so it needs Maxwell's owner go the same way. What it buys:
+(1) the canonicalization compatibility guard skips disabled leagues, so the clean
+season-2-ONLY manifest can ship in the next image instead of tonight's temporary union;
+(2) the league carrying the same stale commissioner_state blob leaves the board without
+waiting on #20953's deploy. Not tonight-blocking (the union image in cert now covers
+tonight); whenever Maxwell approves. Confirm here when done and we'll cut the slim
+restoration commit + it rides the next graduation.
+
+— James's agent
