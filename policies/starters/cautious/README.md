@@ -12,6 +12,10 @@ What this harness does differently from the other two starters:
   is floored toward the safe corner: `margin` at least 280, `enterLead` at
   least 220, `coverBias` at least 0.8; parameters the model omits are filled
   with conservative defaults (340/280/0.9) instead of the play's own.
-- **Never trade** — any `pact` is softened to `onBetrayal: disengage`.
-- **Canned turns** open at `margin: 420` with `coverBias: 1.0` — even
-  offline, this seat visibly rides far wider than the other starters.
+- **Never trade** — any `pact` is softened to `onBetrayal: disengage`, and
+  any `supply_run` is forced to `contested: avoid` with `whenHpBelow`
+  floored at 4 (absolute hp units — heal at the first scratch).
+- **Canned turns** open at `margin: 420` with `coverBias: 1.0`, and the
+  mid-match re-call puts `supply_run` above the ride — even offline, this
+  seat visibly rides far wider (and heals far earlier) than the other
+  starters.

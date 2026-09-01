@@ -42,6 +42,9 @@ def adjust_entries(entries, context, view):
             # An aggressive pact is a tool: any betrayal is answered.
             params["onBetrayal"] = "returnFire"
             params["protect"] = False
+        elif entry.get("play") == "supply_run":
+            # A contested medkit is a fight worth taking.
+            params["contested"] = "race"
     return entries
 
 
@@ -54,6 +57,12 @@ PERSONA = Persona(
                       "rotations funnel -- meet them there."),
         "pact": ("pact only when it buys you a fight you would lose alone; "
                  "never protect, always returnFire on betrayal."),
+        "supply_run": ("supply_run only when a kit is on your path or "
+                       "contested -- and a contested kit you RACE, never "
+                       "avoid. Keep whenHpBelow low; healing is for after "
+                       "the fight."),
+        "bodyguard": ("bodyguard is not your play -- you are nobody's "
+                      "shield. Skip it."),
         # Notes for plays lane C has not landed yet; each activates
         # automatically once its module is baked and plays.py knows it.
         "jackal": ("jackal is your signature: loiter at earshot of a fight, "

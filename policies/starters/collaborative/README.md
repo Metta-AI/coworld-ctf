@@ -14,7 +14,10 @@ What this harness does differently from the other two starters:
 - **The pact is guaranteed** (`adjust_entries` in `policy.py`) — every call
   gets a `pact` entry naming the actual duo partner (read from the seat's
   own `play_context`, never hardcoded), with `protect: true` forced and
-  disengage on betrayal; a steady `edge_ride` controller is appended if the
-  model forgot one.
-- **Canned turns** carry the pact + edge_ride pair — even offline, this is
-  the only starter whose ladder contains a pact from the opening call.
+  disengage on betrayal; a steady controller (`edge_ride` or `bodyguard`)
+  is appended if the model forgot one, and any `bodyguard` is forced to
+  ward the partner with `interpose: true`.
+- **Canned turns** open with pact + edge_ride and switch the mid-match
+  controller to `bodyguard` (leash [60, 180], peel early) — even offline,
+  this is the only starter whose ladder contains a pact from the opening
+  call and a guard on its partner mid-match.

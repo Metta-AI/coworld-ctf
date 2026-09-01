@@ -3,8 +3,8 @@ policy can bake and speak about.
 
 Three things derive from this table, so prompt and playbook cannot drift:
 
-* the validator specs the harness repairs model output against
-  (:func:`validator_specs`, fed to ``poc_policy.build_call``),
+* the param specs the harness repairs model output against
+  (``starter_harness.build_call`` reads :data:`PLAYS` directly),
 * the playbook brief inside the system prompt (:func:`playbook_brief`),
   generated ONLY for plays actually present in the baked playbook,
 * the startup check (:func:`scan_playbook`) that refuses to run if a baked
@@ -24,6 +24,13 @@ from __future__ import annotations
 
 import pathlib
 
+# Param spec kinds the harness repair understands:
+#   int, float, bool, enum, seat_set  -- the PoC's vocabulary
+#   int_pair  -- [lo, hi] JSON integers, lo <= hi enforced (bodyguard leash)
+#   seat_ref  -- one "seat:<N>" reference; "duo:<team>" is deliberately never
+#                emitted (needs a server-configured duo; see PoC README #7,
+#                and bodyguard rejects it outright)
+# "required": True marks a param whose absence drops the whole entry.
 PLAYS = {
     "edge_ride": {
         "class": "controller",
@@ -49,7 +56,8 @@ PLAYS = {
     "pact": {
         "class": "overlay",
         "params": {
-            "partners": {"kind": "seat_set", "min_items": 1, "max_items": 8},
+            "partners": {"kind": "seat_set", "min_items": 1, "max_items": 8,
+                         "required": True},
             "protect": {"kind": "bool", "default": False},
             "onBetrayal": {"kind": "enum", "of": ["disengage", "returnFire"],
                            "default": "returnFire"},
@@ -66,24 +74,64 @@ PLAYS = {
             '"returnFire". What to do if a partner shoots us first.'
         ),
     },
+    # Wave A (landed 2026-09-01). Specs transcribed from the landed manifests
+    # (tests/fixtures/shell/manifest_supply_run.golden.json,
+    # manifest_bodyguard.golden.json) and lane C's ledger notes -- NOT from
+    # BR_PLAYS.md, which differs on whenHpBelow semantics and ward defaulting.
+    "supply_run": {
+        "class": "controller",
+        "params": {
+            "whenHpBelow": {"kind": "int", "min": 0, "max": 64, "default": 3},
+            "detourMax": {"kind": "int", "min": 0, "max": 4096,
+                          "default": 500},
+            "contested": {"kind": "enum", "of": ["avoid", "race"],
+                          "default": "avoid"},
+        },
+        "brief": (
+            '"supply_run" (class: controller). Detours to reachable medkits '
+            "when wounded; avoids or races contested pickups. It only knows "
+            "items currently in view (no memory). Params:\n"
+            "     - whenHpBelow: integer 0..64, default 3. ABSOLUTE hp units "
+            "(hp values are small integers, NOT a percentage or fraction): "
+            "run for a medkit when your hp drops below this.\n"
+            "     - detourMax: integer 0..4096, default 500. Maximum detour "
+            "in px to reach an item.\n"
+            '     - contested: one of "avoid" or "race", default "avoid". '
+            "What to do when someone else is also heading for the item."
+        ),
+    },
+    "bodyguard": {
+        "class": "controller",
+        "params": {
+            "ward": {"kind": "seat_ref"},
+            "leash": {"kind": "int_pair", "min": 0, "max": 4096,
+                      "default": [80, 220]},
+            "interpose": {"kind": "bool", "default": True},
+            "peelHp": {"kind": "int", "min": 0, "max": 64, "default": 2},
+        },
+        "brief": (
+            '"bodyguard" (class: controller). Ward-relative movement: hold a '
+            "leash to the ward, interpose between ward and nearest threat, "
+            "peel attackers off a wounded ward. Ward knowledge comes from "
+            "fog tracks; if the ward's track is stale it holds at the last "
+            "known position. Params:\n"
+            '     - ward: one seat reference of the exact form "seat:<N>". '
+            "Optional -- when omitted it defaults to your duo partner. "
+            'No "duo:<team>" form.\n'
+            "     - leash: [min, max] integers 0..4096 px with min <= max, "
+            "default [80, 220]. The distance band to hold around the ward.\n"
+            "     - interpose: boolean, default true. Step between the ward "
+            "and the nearest threat.\n"
+            "     - peelHp: integer 0..64, default 2. ABSOLUTE hp units: "
+            "when the ward's hp is below this, engage their attacker."
+        ),
+    },
 }
 
 LADDER_RULES = """\
 A ladder is an ordered list of entries; the first non-overlay entry is the
 controller that drives the seat, and overlays modify it. At most 2 overlays.
 """
-
-
-def validator_specs() -> dict:
-    """The manifest reduced to the shape ``poc_policy.build_call`` repairs
-    against: class plus the kind/range fields, briefs and defaults stripped."""
-    specs = {}
-    for name, play in PLAYS.items():
-        params = {}
-        for key, spec in play["params"].items():
-            params[key] = {k: v for k, v in spec.items() if k != "default"}
-        specs[name] = {"class": play["class"], "params": params}
-    return specs
 
 
 def scan_playbook(directory: pathlib.Path) -> list[str]:

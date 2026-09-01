@@ -45,6 +45,13 @@ def adjust_entries(entries, context, view):
         elif entry.get("play") == "pact":
             # Never trade shots, not even with a betrayer.
             params["onBetrayal"] = "disengage"
+        elif entry.get("play") == "supply_run":
+            # Heal early and never fight over an item. whenHpBelow is
+            # ABSOLUTE hp units (a full seat is only a few), so the floor
+            # of 4 means "any wound sends you to a medkit".
+            params.setdefault("detourMax", 900)
+            params["whenHpBelow"] = max(int(params.get("whenHpBelow", 4)), 4)
+            params["contested"] = "avoid"
     return entries
 
 
@@ -57,12 +64,14 @@ PERSONA = Persona(
                       "arrive first, sit in cover."),
         "pact": ("accept a pact when it reduces threats; onBetrayal is "
                  "always disengage."),
+        "supply_run": ("supply_run rides above your edge_ride in every call "
+                       "once you have taken ANY damage: whenHpBelow 4+ (hp "
+                       "is a small absolute number -- a full seat is only a "
+                       "few units), wide detourMax, contested always avoid."),
         # Notes for plays lane C has not landed yet; each activates
         # automatically once its module is baked and plays.py knows it.
-        "supply_run": ("supply_run the moment your hp is below 60: wide "
-                       "detourMax, and always avoid contested items."),
         "bodyguard": ("bodyguard only for a partner already in a pact, and "
-                      "only from cover -- never interpose."),
+                      "with a wide leash -- never interpose."),
         "target_law": ("target_law: a long never-list and a hold trigger; "
                        "the first shot is a commitment you rarely want."),
     },
@@ -77,9 +86,12 @@ PERSONA = Persona(
             ]},
         },
         {
-            "chat": "Holding my corridor. Moving only when the zone "
-                    "says so.",
+            "chat": "Holding my corridor. If I take a scratch I am "
+                    "going straight for a medkit.",
             "call": {"entries": [
+                {"play": "supply_run", "entry_id": "medkit",
+                 "params": {"whenHpBelow": 5, "detourMax": 900,
+                            "contested": "avoid"}},
                 {"play": "edge_ride", "entry_id": "shelter",
                  "params": {"margin": 340, "enterLead": 300,
                             "coverBias": 1.0}},

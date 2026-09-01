@@ -4,7 +4,7 @@ persona seam.
 This module does not re-implement the protocol layer. It imports the PoC's
 ``wire`` (packet codec + canonical JSON), ``brain`` (model backends: hosted
 sidecar, OpenRouter, canned) and ``poc_policy`` (the ``PlaySeat`` protocol
-bookkeeping and the ``build_call`` output repair) directly from
+bookkeeping and the scalar/seat-set param cleaners) directly from
 ``policies/poc_llm_policy/`` and adds only what makes three starter policies
 behave differently:
 
@@ -240,19 +240,137 @@ def summarize(seat: StarterSeat, phase: str, persona: Persona,
     return "\n".join(lines)
 
 
-# ── Repair: generic clamp, then the persona hook, then the clamp again ────
+# ── Repair: the PoC's cleaning, extended with the wave-A param kinds ──────
+# poc_policy.build_call hardcodes its two-play world (and pact's required
+# partners), so the starters carry their own manifest-driven copy of the same
+# flow. The scalar/seat-set cleaning is still the PoC's -- only the two kinds
+# its vocabulary lacks (bodyguard's `seat_ref` ward and `int_pair` leash) and
+# the generic required-param rule are new.
 
 
-def repair_call(decision: dict, persona: Persona,
-                seat: StarterSeat) -> tuple[bytes, list]:
-    payload, entries = poc_policy.build_call(decision)
+def _clean_seat_ref(value):
+    """One "seat:<N>" reference. `duo:<team>` is never emitted (it needs a
+    server-configured duo, and bodyguard rejects it outright)."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = f"seat:{value}"
+    if not isinstance(value, str) or not value.startswith("seat:"):
+        return None
+    digits = value[len("seat:"):]
+    if not digits.isdigit() or int(digits) > poc_policy.MAX_SEAT:
+        return None
+    return f"seat:{int(digits)}"
+
+
+def _clean_int_pair(value, spec):
+    """[lo, hi] JSON integers within the spec range, lo <= hi enforced."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    item_spec = {"kind": "int", "min": spec["min"], "max": spec["max"]}
+    cleaned = [poc_policy._clamp_number(item, item_spec) for item in value]
+    if any(item is None for item in cleaned):
+        return None
+    lo, hi = cleaned
+    return [min(lo, hi), max(lo, hi)]
+
+
+def _clean_params(play: str, params) -> dict | None:
+    """Clean one entry's params against the manifest; None drops the entry
+    (a required param did not survive)."""
+    specs = plays.PLAYS[play]["params"]
+    cleaned = {}
+    if isinstance(params, dict):
+        for key, value in params.items():
+            spec = specs.get(key)
+            if spec is None:
+                continue  # unknown params are rejected by name; drop here
+            kind = spec["kind"]
+            if kind in ("int", "float"):
+                value = poc_policy._clamp_number(value, spec)
+            elif kind == "bool":
+                value = value if isinstance(value, bool) else None
+            elif kind == "enum":
+                value = value if value in spec["of"] else None
+            elif kind == "seat_set":
+                value = poc_policy._clean_partners(value)
+            elif kind == "seat_ref":
+                value = _clean_seat_ref(value)
+            elif kind == "int_pair":
+                value = _clean_int_pair(value, spec)
+            else:
+                value = None
+            if value is not None:
+                cleaned[key] = value
+    for key, spec in specs.items():
+        if spec.get("required") and key not in cleaned:
+            return None
+    return cleaned
+
+
+def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
+    """Repair a model reply into a canonical ladder call over the BAKED plays.
+
+    The same contract as ``poc_policy.build_call``: unusable entries are
+    dropped rather than sent, and if nothing survives, a bare controller
+    stands in so the seat still declares something.
+    """
+    raw_entries = []
+    call = decision.get("call")
+    if isinstance(call, dict):
+        candidate = call.get("entries") or call.get("plays")
+        if isinstance(candidate, list):
+            raw_entries = candidate
+
+    entries = []
+    seen_ids: set = set()
+    overlays = 0
+    for index, raw in enumerate(raw_entries):
+        if not isinstance(raw, dict):
+            continue
+        play = raw.get("play")
+        if play not in available:
+            continue
+        is_overlay = plays.PLAYS[play]["class"] == "overlay"
+        if is_overlay and overlays >= wire.MAX_ACTIVE_OVERLAYS:
+            continue
+        params = _clean_params(play, raw.get("params"))
+        if params is None:
+            continue
+        if is_overlay:
+            overlays += 1
+        entry = {
+            "play": play,
+            "entry_id": poc_policy._clean_entry_id(
+                raw.get("entry_id"), play, index, seen_ids),
+        }
+        if params:
+            entry["params"] = params
+        entries.append(entry)
+        if len(entries) >= wire.MAX_LADDER_ENTRIES:
+            break
+
+    if not entries:
+        fallback = next(
+            (n for n in available if plays.PLAYS[n]["class"] == "controller"),
+            available[0])
+        entries = [{"play": fallback, "entry_id": "ride"}]
+
+    payload = wire.canonical_json({"plays": entries}).encode("utf-8")
+    if len(payload) > wire.MAX_CALL_BYTES:
+        raise wire.WireError(f"call is {len(payload)} bytes; cap is "
+                             f"{wire.MAX_CALL_BYTES}")
+    return payload, entries
+
+
+def repair_call(decision: dict, persona: Persona, seat: StarterSeat,
+                available: list[str]) -> tuple[bytes, list]:
+    payload, entries = build_call(decision, available)
     if persona.adjust_entries is None:
         return payload, entries
     adjusted = persona.adjust_entries(
         json.loads(json.dumps(entries)), seat.context or {}, seat.view or {})
     # Re-run the generic repair over the hook's output: whatever a persona
     # does, the result is still clamped, sorted, deduplicated and capped.
-    return poc_policy.build_call({"call": {"entries": adjusted}})
+    return build_call({"call": {"entries": adjusted}}, available)
 
 
 # ── The run ───────────────────────────────────────────────────────────────
@@ -289,15 +407,21 @@ def _send_coordination(persona: Persona, seat: StarterSeat, turn: int,
             _log(persona, f"coordination echoed at ordinal {echo['ordinal']}")
 
 
+def _load_playbook(directory: pathlib.Path,
+                   available: list[str]) -> list[tuple[str, bytes]]:
+    """Read the baked wasm blobs, controllers first (uploads are one per seat
+    per tick, so a truncated run still has a usable ladder driver)."""
+    modules = [(name, (directory / f"{name}.wasm").read_bytes())
+               for name in available]
+    modules.sort(key=lambda item: (plays.PLAYS[item[0]]["class"] != "controller",
+                                   item[0]))
+    return modules
+
+
 def run(persona: Persona, args) -> int:
     playbook_dir = pathlib.Path(args.playbook)
     available = plays.scan_playbook(playbook_dir)
-    # Repair against exactly the baked plays: a manifest play that is not in
-    # this playbook is dropped by build_call rather than sent and refused.
-    poc_policy.PLAY_SPECS = {
-        name: spec for name, spec in plays.validator_specs().items()
-        if name in available}
-    playbook = poc_policy.load_playbook(playbook_dir)
+    playbook = _load_playbook(playbook_dir, available)
     _log(persona, "playbook: "
          + ", ".join(f"{n} ({len(b)}B)" for n, b in playbook))
 
@@ -348,7 +472,7 @@ def run(persona: Persona, args) -> int:
             seat.pump()
             seat.drain(0.3)
 
-        payload, _ = repair_call(decision, persona, seat)
+        payload, _ = repair_call(decision, persona, seat, available)
         opening = seat.call(payload, "opening call")
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("opening call was not accepted")
@@ -377,7 +501,7 @@ def run(persona: Persona, args) -> int:
                 seat.send(wire.encode_lobby_chat(recall_text))
             _send_coordination(persona, seat, turn=turn, await_echo=False)
 
-            payload, _ = repair_call(decision, persona, seat)
+            payload, _ = repair_call(decision, persona, seat, available)
             recall = seat.call(payload, f"re-call {turn - 1}")
             if recall is None or recall["kind"] != "call_accepted":
                 failures.append(f"re-call {turn - 1} was not accepted")

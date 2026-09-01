@@ -42,7 +42,16 @@ def adjust_entries(entries, context, view):
     params["protect"] = True                  # the non-negotiable
     params.setdefault("onBetrayal", "disengage")
 
-    if not any(e.get("play") == "edge_ride" for e in entries):
+    for entry in entries:
+        if entry.get("play") == "bodyguard":
+            # Guarding is always for the duo partner, and always interposing.
+            guard = entry.setdefault("params", {})
+            guard["interpose"] = True
+            if partner is not None:
+                guard["ward"] = f"seat:{partner}"
+
+    if not any(e.get("play") in ("edge_ride", "bodyguard")
+               for e in entries):
         entries.append({"play": "edge_ride", "entry_id": "together",
                         "params": dict(TOGETHER_DEFAULTS)})
     return entries
@@ -69,10 +78,13 @@ PERSONA = Persona(
                  "in partners, protect true, disengage on betrayal."),
         "edge_ride": ("edge_ride steady and readable (margin ~260) so your "
                       "partner can hold formation on you."),
+        "bodyguard": ("bodyguard is how you carry the pact mid-match: ward "
+                      "your partner (it defaults to them), tight leash like "
+                      "[60, 180], interpose true, peelHp 3 so you peel "
+                      "attackers off them early (hp is a small absolute "
+                      "number)."),
         # Notes for plays lane C has not landed yet; each activates
         # automatically once its module is baked and plays.py knows it.
-        "bodyguard": ("bodyguard your partner the moment they are wounded: "
-                      "tight leash, interpose on, peel early."),
         "crossfire": ("crossfire is the duo's teeth: keep the spacing band "
                       "so both guns bear without friendly-fire geometry."),
         "supply_run": ("supply_run for your PARTNER's health as much as "
@@ -97,9 +109,11 @@ PERSONA = Persona(
             "call": {"entries": [
                 {"play": "pact", "entry_id": "duo_pact",
                  "params": {"protect": True, "onBetrayal": "disengage"}},
-                {"play": "edge_ride", "entry_id": "together",
-                 "params": {"margin": 200, "enterLead": 220,
-                            "coverBias": 0.9}},
+                # Mid-match the controller switches to guarding the partner
+                # (ward is injected by adjust_entries).
+                {"play": "bodyguard", "entry_id": "guard",
+                 "params": {"leash": [60, 180], "interpose": True,
+                            "peelHp": 3}},
             ]},
         },
     ],
