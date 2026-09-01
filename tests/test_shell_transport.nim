@@ -464,8 +464,11 @@ block: # Outbound refusal and completion-driven capacity.
     let admitted = outboundAdmitted.load
     doAssert admitted >= 1
     raw.close()
-    waitUntil outboundSent.load + outboundDropped.load == 8 + admitted
-    doAssert outboundSent.load + outboundDropped.load == 8 + admitted
+    # Scenario 1's total is dynamic: the burst may claim a freed slot and the
+    # refill may also land, so 7 is only the guaranteed minimum. Hard-coding 8
+    # made equality impossible when it completed 9 (the 2026-09-01 CI hang).
+    waitUntil outboundSent.load + outboundDropped.load == sentBefore + admitted
+    doAssert outboundSent.load + outboundDropped.load == sentBefore + admitted
     doAssert outboundDropped.load >= 1
     doAssert outboundSent.load >= sentBefore
     waitUntil outboundCloses.load == 2
