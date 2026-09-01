@@ -42,9 +42,13 @@ layouts alone, can drive the protocol.
 - **One seat.** A real policy image would drive all 32.
 - **No reconnect handling.** The protocol's rebind, transcript replay, and
   generation-stamping rules (§4.3/§9.2) are read but not exercised.
-- **The status-ack mark is used as a tick pump**, not as an honest
-  acknowledgement high-water mark. It monotonically increases, which is legal,
-  but a real client would ack the ordinals it has actually consumed.
+- ~~**The status-ack mark is used as a tick pump.**~~ Fixed: the harness now
+  acks the highest status ordinal it has actually received, and only when it
+  advances. The production server settled this — it refuses a mark beyond what
+  it has delivered (`call_rejected` with reason `status_ack_out_of_range`, from
+  `handleProductionStatusAck` in `src/ctf/server.nim`) and simply redelivers an
+  unacked backlog, so the old blind-increment trick that the PoC glue server
+  tolerated is a protocol violation against the real thing.
 - **`poc_shell_server.nim` is scaffolding, not product** — see the next section.
 
 ---
@@ -110,6 +114,24 @@ a missing seam. **Migrating `poc_shell_server.nim` onto `admitPlayModule` /
 `acceptPlayCall` is the right follow-up the moment `server.nim` exposes the
 live episode** (or the moment lane B's own registration lands, at which point
 this file should simply be deleted).
+
+### Update, after the production wiring merge (2026-08-31)
+
+Lane B's registration has landed: the production server registers all four
+consumers over the live episode seam and sends 0xB0/0xB1/0xB2 itself. The
+blocker above is **closed**, verified end to end against the stock
+`src/ctf.nim` binary (no glue server) with a live OpenRouter model: playbook
+uploaded over the wire (`module_ready` with the server's own hashes), opening
+call and a model-revised mid-match re-call both `call_accepted`, chat lines
+broadcast on 0xB2, and — the part the glue server never did — the seat body
+actually executing the called play (the server's install telemetry flips seat
+0 from `provenance=default` to `provenance=entry:ride`, carrying pact's
+combat policy for the exact partner seat the model named). Two rig notes for
+anyone repeating that run: the lobby-chat window must be open
+(`lobbyChatTicks > 0`) or 0xA3 is refused with `lobby_chat:lcrClosed`, and
+unfilled slots need presence connections (see `tools/run_first_light.sh`) or
+the match never starts / ends instantly. Deleting `poc_shell_server.nim` and
+pointing `run_poc.sh` at the stock server is now the standing follow-up.
 
 ---
 
