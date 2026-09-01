@@ -1,6 +1,7 @@
 ## CI shard 3 of 4. See shard_1.nim for the sharding rules.
 {.warning[UnusedImport]: off.}
 import
+  test_defect_probe,
   test_artlog,
   test_barriers,
   test_blocked_damage,
