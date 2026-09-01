@@ -333,7 +333,7 @@ const
   MaxInstancePages* = 16              ## 64 KiB pages: 1 MiB linear memory
   MaxFunctionsPerModule* = 4096
     ## P0 (new, James 2026-08-30): §6.2 interface-check cap on defined
-    ## functions per module, the lever that keeps the 8x reservation
+    ## functions per module, one lever that keeps compiled-cache reservation
     ## honest. Generous for real plays (reference plays are dozens of
     ## functions); provisional until the freeze.
   MaxInstanceTableElements* = MaxFunctionsPerModule
@@ -409,11 +409,39 @@ const
   MaxCompileCommitsPerTick* = 8
   MaxCompiledCacheBytes* = 268435456
     ## P0: provisional until compile-expansion measurement.
-  CompiledBytesPerRawByte* = 8
-    ## Held at 8 (James, 2026-08-30): the adversarial 65,529-function
-    ## 256 KiB module measured 71.9x, so the bound is enforced at its
-    ## source instead — MaxFunctionsPerModule refuses the shape at
-    ## validation. Provisional until the freeze re-measures capped shapes.
+  MinCompiledReservationBytes* = 524288
+    ## P0: provisional floor for compiled-cache admission reservation.
+  CompiledBytesPerRawByte* = 16
+    ## P0: provisional multiplier for compiled-cache admission reservation.
+    ## James ruling (2026-08-31): reserve max(raw_bytes * 16, 512 KiB).
+    ##
+    ## Measured serialized artifacts:
+    ## - x86_64-linux hello_play: raw 6,055, serialized 37,376, ratio 6.17x.
+    ## - x86_64-linux edge_ride: raw 28,147, serialized 109,200, ratio 3.88x.
+    ## - aarch64-linux hello_play: raw 6,065, serialized 266,752, ratio 43.98x.
+    ## - aarch64-linux edge_ride: raw 28,147, serialized 334,480, ratio 11.88x.
+    ## - aarch64-macos hello_play: raw 6,065, serialized 86,536, ratio 14.27x.
+    ## - aarch64-macos edge_ride: raw 28,226, serialized 154,264, ratio 5.47x.
+    ##
+    ## The floor is the load-bearing half: small-play artifact overhead is
+    ## fixed, not proportional. hello_play is about 6 KiB raw, clears its old
+    ## 48 KiB x86 reservation by only 22%, and fails the old reservation
+    ## elsewhere. Without a floor, legitimately small plays become a coin flip.
+    ##
+    ## Admission must not differ by architecture: "works in prod but rejected on
+    ## your laptop" and the reverse are both corrosive. Developers, demos, and
+    ## CI run on arm64 too, so 16x plus the 512 KiB floor covers the worst arm64
+    ## observations rather than only the comfortable x86 numbers.
+    ##
+    ## Floor sizing evidence: the first-draft 256 KiB floor was contradicted by
+    ## aarch64-linux hello_play at 266,752 serialized bytes against a 262,144
+    ## byte reservation, a 4,608-byte / 1.76% miss. That is exactly the
+    ## small-play coin flip the floor exists to abolish: one compiler bump
+    ## should not change whether the reference hello play admits.
+    ##
+    ## Cost: a maximum-size 256 KiB module now reserves 4 MiB, still hundreds of
+    ## modules in a 256 MiB store. Raising the store cap later is cheaper than
+    ## debugging split-brain admission semantics.
   EpochTickerMs* = 5                  ## wall-clock backstop on GUEST code
   EpochDeadlineTicks* = 4             ## deadline, in ticker epochs
   GuestStackBytes* = 262144           ## max_wasm_stack; overflow traps
@@ -434,6 +462,9 @@ const
 
 proc `==`*(a, b: SeatRef): bool {.borrow.}
 proc `$`*(s: SeatRef): string = "seat:" & $int(uint8(s))
+
+proc compiledReservationBytes*(rawBytes: int): int {.inline.} =
+  max(rawBytes * CompiledBytesPerRawByte, MinCompiledReservationBytes)
 
 static:
   # The packet block and the record block must never collide with the

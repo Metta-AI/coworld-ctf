@@ -55,29 +55,6 @@ proc watBytes(text: string): string =
   if output.size > 0:
     copyMem(addr result[0], output.data, output.size)
 
-proc leb(value: int): string =
-  var remaining = value
-  while true:
-    var byte = remaining and 0x7f
-    remaining = remaining shr 7
-    if remaining != 0:
-      byte = byte or 0x80
-    result.add char(byte)
-    if remaining == 0:
-      break
-
-proc padded(wasm: string): string =
-  ## Avoids the known raw-bytes x8/no-floor cacheFull behavior so this test
-  ## isolates live self-position propagation, not admission accounting.
-  result = wasm
-  if result.len >= 64 * 1024:
-    return
-  let name = "p21_cache_padding"
-  let payload = char(name.len) & name & repeat('\0', 64 * 1024 - result.len)
-  result.add '\0'
-  result.add payload.len.leb
-  result.add payload
-
 proc writeCurrentSelfProbeWasm(path: string) =
   let manifest =
     "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
@@ -109,7 +86,7 @@ proc writeCurrentSelfProbeWasm(path: string) =
       "i32.const 0)\n" &
     "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
       "i32.const 0))"
-  writeFile(path, wat.watBytes.padded)
+  writeFile(path, wat.watBytes)
 
 proc playConfig(seats: seq[int]; coverBias = "0.0"): FirstLightPlayConfig =
   FirstLightPlayConfig(
