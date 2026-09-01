@@ -1,6 +1,7 @@
-# Coworld CTF — Game Rules
+# Paintbot Classic (Coworld CTF) — Game Rules
 
-Coworld CTF is a two-team capture-the-heart shooter for the Coworld platform. Two
+Paintbot's classic mode ("Coworld CTF") is a two-team capture-the-heart shooter
+for the Coworld platform. Two
 teams start on opposite edges of a symmetric arena, each with its own heart on a
 home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
 enemy heart and carry it home — or eliminate the enemy team — to win. Vision is

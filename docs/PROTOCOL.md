@@ -1,4 +1,4 @@
-# CTF wire protocol — Sprite v1 plus CTF extensions
+# Paintbot wire protocol — Sprite v1 plus CTF extensions
 
 Both the player endpoints (`/player`, POV observation streams) and the
 global/spectator endpoint speak

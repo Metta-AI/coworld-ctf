@@ -1,11 +1,19 @@
-# Coworld CTF — AI Capture-the-Flag Shooter
+# Paintbot — AI Paintball (the Coworld CTF engine)
 
-Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. Two
-teams (Red and Blue) start on opposite edges of a symmetric arena, each with its
+Paintbot — historically "Coworld CTF", this repo's engine — is a paintball-flavored
+shooter for the Coworld platform, played by submitted AI policies. Its classic game
+is two-team capture-the-flag: two teams (Red and Blue) start on opposite edges
+of a symmetric arena, each with its
 own flag on a home pedestal. Players move, take cover behind obstacles, and
 shoot. Steal the enemy flag and carry it home — or wipe the enemy team — to win.
 Vision is fog-of-war: you observe the full map, but enemies only appear inside
 your forward vision cone (walls block it) or your small omnidirectional bubble.
+
+**Season 2:** the league flagship is `battle-royale-s2` — sixteen duos (32 seats,
+seats k and k+16 partnered), no respawns, a zone that closes the field completely,
+an open pre-round lobby chat, WebAssembly play-calling against a public seven-play
+menu (`docs/designs/BR_PLAYS.md`), and Glory as the league score. The classic CTF
+ruleset below is unchanged and remains the reference for core combat.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift). It keeps
 Crewrift's continuous 2D movement, line-of-sight, Sprite v1 protocol, websocket
