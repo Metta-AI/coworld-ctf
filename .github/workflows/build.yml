@@ -32,6 +32,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      # A GameVersion is claimed across BRANCHES, and nothing else in the build
+      # enforces that: two branches can each be current with main and still
+      # pick the same next number. Same number + different rule headline on
+      # the base = a collision; the script (tools/ci/check_gameversion.sh)
+      # fails that and stays quiet on the usual no-bump PR. See AGENTS.md,
+      # "A GameVersion number is claimed across BRANCHES" (#268).
+      - name: GameVersion is not a number the base already spent
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin '${{ github.base_ref }}'
+          tools/ci/check_gameversion.sh FETCH_HEAD
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev libpcre3
       - uses: treeform/setup-nim-action@v6
