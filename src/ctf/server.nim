@@ -722,6 +722,9 @@ proc packetIdIfPresent(data: string): uint64 =
     result = result or (uint64(uint8(data[2 + index])) shl (index * 8))
 
 proc applyPlayIngressFeedback*(seat: int; feedback: PlayIngressFeedback)
+proc queueAcceptedPlayCallIdentity(expectedSeat: int;
+    identity: Option[FirstLightCallReplayIdentity];
+    replayTimeMs: uint32): bool {.gcsafe.}
 
 proc packetModuleBytes(packet: ModuleUploadPacket): seq[byte] =
   result = newSeq[byte](packet.wasm.len)
@@ -770,8 +773,9 @@ proc handleProductionPlayCall(
   generation: uint64,
   packet: PlayCallPacket,
 ) {.gcsafe.} =
-  ## The episode resolves bindings and owns the ladder. This adapter only
-  ## retains its immediate verdict and releases unused retune reservations.
+  ## The episode resolves bindings and owns the ladder. This adapter retains
+  ## its verdict, releases unused reservations, and queues only the surfaced
+  ## accepted-call replay identity.
   discard websocket
   let episode = activeFirstLightEpisode
   var accepted: FirstLightCallResult
@@ -815,6 +819,13 @@ proc handleProductionPlayCall(
       applyPlayIngressFeedback(seat, PlayIngressFeedback(
         statusSlotsRetired:
           MaxLadderEntries - accepted.pendingRetunes.len))
+    # Production drains calls for sim.tickCount + 1 before stepping that tick.
+    # Subtracting one therefore stamps the same tickTime(sim.tickCount) used
+    # by the replay batch and lobby-chat records from this drain.
+    let replayTick =
+      if activeFirstLightTick > 0: activeFirstLightTick - 1 else: 0'u32
+    discard queueAcceptedPlayCallIdentity(
+      seat, accepted.replayIdentity, tickTime(replayTick.int))
 
 proc retainProductionModuleStatuses(
     statuses: openArray[FirstLightModuleStatus]) =
@@ -1456,12 +1467,41 @@ proc applyPlayIngressFeedback*(seat: int, feedback: PlayIngressFeedback) =
       let errors = ingressSeat[].applyPlayIngressFeedback(feedback)
       appState.playIngressFeedbackErrors.saturatingAdd(errors)
 
-proc queuePlayCallRecord*(record: PlayCallRecord) =
+proc queuePlayCallRecord*(record: PlayCallRecord) {.gcsafe.} =
   ## Lane C reports one accepted, fully identified call. The game thread owns
   ## file order and drains this queue only at a tick boundary.
   {.gcsafe.}:
     withLock appState.lock:
       appState.pendingPlayCallRecords.add(record)
+
+proc notePlayCallReplayIdentityError(seat: int) {.gcsafe.} =
+  {.gcsafe.}:
+    withLock appState.lock:
+      appState.playIngressFeedbackErrors.saturatingAdd(1)
+      if seat >= 0 and seat < appState.playIngress.len:
+        appState.playIngress[seat].notePlayIngressFeedbackError()
+
+proc queueAcceptedPlayCallIdentity(expectedSeat: int;
+    identity: Option[FirstLightCallReplayIdentity];
+    replayTimeMs: uint32): bool {.gcsafe.} =
+  ## Lane C owns accepted-call identity; lane B owns time and file order.
+  ## Never reconstruct canonical bytes, hashes, or entry identities here.
+  {.cast(gcsafe).}:
+    if identity.isNone:
+      notePlayCallReplayIdentityError(expectedSeat)
+      return false
+    let accepted = identity.get
+    var validSeat = false
+    withLock appState.lock:
+      validSeat = expectedSeat >= 0 and
+        expectedSeat < appState.playIngress.len and
+        int(accepted.seat) == expectedSeat and
+        appState.config.isPlaySeat(expectedSeat)
+    if not validSeat:
+      notePlayCallReplayIdentityError(expectedSeat)
+      return false
+    queuePlayCallRecord(accepted.toPlayCallRecord(replayTimeMs))
+    true
 
 proc queueShellAnnotation*(annotation: ShellAnnotation) =
   ## Async runtime annotations cross the same narrow game-thread seam.
@@ -3640,8 +3680,13 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
       newBodyMap(sim.gameMap), config.gunRange)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
-    for line in episode.configureFirstLightDemoPlayFromJson(configJson):
+    let configured =
+      episode.configureFirstLightDemoPlayFromJsonWithReplayIdentities(configJson)
+    for line in configured.lines:
       echo line
+    for identity in configured.callIdentities:
+      discard queueAcceptedPlayCallIdentity(
+        int(identity.seat), some(identity), tickTime(sim.tickCount))
   else:
     episode.closeFirstLightEpisode()
     episode = FirstLightEpisode()
