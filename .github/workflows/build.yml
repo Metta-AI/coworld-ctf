@@ -78,10 +78,32 @@ jobs:
       # nicety -- see runtime.nim's own comment). That used to be reachable
       # only from the handful of test files that import the runtime
       # directly, so only shard 2 carried the flags below. Since
-      # af8158f5 (2026-08-31, "the episode runs the ladder") server.nim ->
-      # shell/episode -> shell/module_cache -> shell/runtime, and server.nim
-      # is part of src/ctf.nim's own import graph -- every shard, and
-      # `nim check` itself, now needs both flags to compile at all.
+      # af8158f5 (2026-08-31 21:16:54Z, "the episode runs the ladder")
+      # server.nim -> shell/episode -> shell/module_cache -> shell/runtime,
+      # and server.nim is part of src/ctf.nim's own import graph -- every
+      # shard, and `nim check` itself, now needs both flags to compile at
+      # all. Verified by bisect: `nim check` (no flags) is clean at
+      # 1485e5fe, the commit immediately before af8158f5's ancestry; the
+      # {.error.} only fires from af8158f5 onward.
+      #
+      # af8158f5 is the compile break, and ONLY the compile break -- it is
+      # NOT why CI first went red. Bisected against the actual run logs:
+      # CI was last green at f752d325 (2026-08-31 14:19Z) and first red at
+      # 1485e5fe (2026-08-31 15:53Z, PR #320 "land-field-to-main"), five and
+      # a half hours before af8158f5 landed. That first break was
+      # `wasm-replay-viewer` bundle staleness (a stale served
+      # broadcast_core.js) -- the `build` job itself was still green at
+      # that commit. Separately, two tests this PR still carries as failing
+      # -- test_play_harness.nim and test_play_pact.nim -- are BRAND NEW
+      # (added ~19:49Z, after #320, before af8158f5) and have never once
+      # run green in CI: their goldens were evidently recorded on a
+      # non-Linux dev box, and the one wasi-sdk/Nim-compiled fixture in
+      # each (as opposed to the WAT-literal ones, which are unaffected)
+      # drifts by a few fuel units / faults on tight margin when rebuilt on
+      # ubuntu-latest -- see those files' own comments. af8158f5's compile
+      # break landed on top of both and MASKED them (job died at `nim
+      # check` before either test could run), which is why this PR's own
+      # CI run surfaced all three at once.
       - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
       # -d:useMalloc routes Nim's own allocator through the system allocator
       # instead of Nim's thread-local free-list allocator. This is not a
