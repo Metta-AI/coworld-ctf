@@ -109,7 +109,8 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `allowDirectAim` | bool / `false` | none | Freeplay only: a human-driven (taken-over) seat aims by pointing — the turret takes the cursor's bearing in one tick, recorded as replay aim records ([replays.nim](../src/ctf/replays.nim) `ReplayAimRecordFlag`). Policies can never reach this channel. |
 | `allowAimAssist` | bool / `false` | requires `allowDirectAim` (validate) | Freeplay only: at the fire-press edge a direct-aimed seat's turret snaps to the nearest live enemy's intercept bearing inside the assist cone. |
 | `aimAssistConeBrads` | int / `AimAssistConeBrads` | `0..128` (half turn; validate) | Half-width of the aim-assist cone, in brads. |
-| `season2Shell` | bool / `false` | none | Season 2 play-calling shell master gate ([docs/designs/strategy-play-calling-shell-2026-08-29.md](designs/strategy-play-calling-shell-2026-08-29.md) §3.2): nothing in `src/shell/` is reachable when off; a `slots[].control: "play"` seat requires it (`playSeatRequiresShell`); gate-on with an all-input roster is legal and plays byte-identically to gate-off. |
+| `season2Shell` | bool / `true` | none | Season 2 play-calling shell master gate ([docs/designs/strategy-play-calling-shell-2026-08-29.md](designs/strategy-play-calling-shell-2026-08-29.md) §3.2): nothing in `src/shell/` is reachable when off; a `slots[].control: "play"` seat requires it (`playSeatRequiresShell`); default-on with an all-input roster is legal and plays byte-identically to explicit gate-off, while `season2Shell: false` is a deprecated live mode unless `allowDeprecatedModes` is true. |
+| `allowDeprecatedModes` | bool / `false` | none | Live-boot override for deprecated modes: classic (`brMode: false`), explicit season-1 shell (`season2Shell: false`), paintball gates/loadout, or squad mode (`num_agents > 0 && cogsPerTeam > 1`). Replay playback is exempt. |
 | `slots[].control` | enum / `"input"` | `"input"` \| `"play"` | The one trusted per-seat protocol choice (§5.1): `"play"` marks a Season 2 play seat (server-enforced protocol; masks/ready ignored). Echoed only when `"play"`. |
 | `viewIntervalTicks` | int / `6` | `1..48` | LLM-bound `PlayView` frame interval for play seats (§4.3); inert without one. |
 | `lobbyChatTicks` | int / `720` | `0..4320` | Lobby chat phase length in ticks (§9.2), wall-clock paced even under `fastMode`; `0` disables the phase (the byte-identical gate-off shape). |
@@ -275,8 +276,8 @@ Sprite v1 input senders.
 
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
-| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` turns squad mode on. 2 in the published `paintball` variant. |
-| `cogsPerTeam` | int / `4` | | `1..8` | Cogs one seat commands (RED-alpha..delta). |
+| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); squad mode requires `numAgents > 0 && cogsPerTeam > 1`. 2 in the published `paintball` variant. |
+| `cogsPerTeam` | int / `1` | | `1..8` | Cogs one seat commands; classic variants keep one cog per seat, and paintball sets 4 (RED-alpha..delta). |
 | `loadout` | string / `"ctf"` | | `"ctf"` or `"paintball"` | `paintball` = spray can always held, no gun, NO pickups, hearts retired. |
 | `floorPaint` | bool / `false` | | | The paint-tile grid exists and cones repaint it. |
 | `paintBuff` | bool / `false` | | needs `floorPaint` | Own colour underfoot = speed + heal; enemy colour = slow. |

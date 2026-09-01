@@ -62,7 +62,11 @@ proc defaultGameConfig*(): GameConfig =
     allowCallouts: false,
     allowPolicyReflash: false,
     numAgents: 0,
-    cogsPerTeam: DefaultCogsPerTeam,
+    # Classic games field one cog per seat. Squad mode is opt-in:
+    # cogsPerTeam defaulted to 4 from Coworld 0.7.243 until the production
+    # incident restore, which made every num_agents classic variant run through
+    # paintball's squad/runtime/scoring path.
+    cogsPerTeam: 1,
     loadout: LoadoutCtf,
     floorPaint: false,
     paintBuff: false,
@@ -84,7 +88,8 @@ proc defaultGameConfig*(): GameConfig =
     wallClockBudgetSeconds: DefaultWallClockBudgetSeconds,
     model: "",
     maxOutputTokens: DefaultMaxOutputTokens,
-    season2Shell: false,
+    season2Shell: true,
+    allowDeprecatedModes: false,
     viewIntervalTicks: ViewIntervalTicksDefault,
     lobbyChatTicks: LobbyChatTicksDefault,
     playSeatBindTicks: PlaySeatBindTicksDefault,
@@ -105,6 +110,41 @@ proc defaultGameConfig*(): GameConfig =
     downedBleedOutTicks: DownedBleedOutTicksDefault,
     downedReviveTicks: DownedReviveTicksDefault,
     downedEscalation: true
+  )
+
+proc squadModeConfigured*(config: GameConfig): bool =
+  ## True only when a live config explicitly asks each seat to command a squad.
+  ## `numAgents` alone is not a paintball signal: classic hosted variants also
+  ## carry it so the platform can seat policies.
+  config.numAgents > 0 and config.cogsPerTeam > 1
+
+proc deprecatedModeTriggers(config: GameConfig): seq[string] =
+  ## Returns every live-boot legacy-mode trigger in the published seam order.
+  if not config.brMode:
+    result.add("classic")
+  if not config.season2Shell:
+    result.add("season1Shell")
+  if config.loadout != LoadoutCtf or config.floorPaint or config.paintBuff or
+      config.hill:
+    result.add("paintball")
+  if config.squadModeConfigured():
+    result.add("squadMode")
+
+proc checkDeprecatedMode*(config: GameConfig) =
+  ## Refuses deprecated live modes at the boot seam. Parsing, validation, and
+  ## replay playback stay exempt; callers choose that placement.
+  if config.allowDeprecatedModes:
+    return
+  let triggers = config.deprecatedModeTriggers()
+  if triggers.len == 0:
+    return
+  raise newException(
+    CtfError,
+    "Config selects deprecated mode(s) [" & triggers.join(", ") & "]:\n" &
+      "deprecated since 0.7.253 — season 2 battle royale (brMode + " &
+      "season2Shell)\n" &
+      "is the only supported mode. Set allowDeprecatedModes: true to run " &
+      "this\nconfig anyway."
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -1157,9 +1197,11 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
   node.readConfigBool("brMode", config.brMode)
-  # GVNEXT(shell): appended reads for the play-calling shell's four root
-  # fields (sim_types.nim); all default off/inert, echo omitted at default.
+  # GVNEXT(shell): appended reads for the play-calling shell's root fields
+  # (sim_types.nim). Season 2 defaults on; allowDeprecatedModes is the live
+  # legacy-mode boot override.
   node.readConfigBool("season2Shell", config.season2Shell)
+  node.readConfigBool("allowDeprecatedModes", config.allowDeprecatedModes)
   node.readConfigInt("viewIntervalTicks", config.viewIntervalTicks)
   node.readConfigInt("lobbyChatTicks", config.lobbyChatTicks)
   node.readConfigInt("playSeatBindTicks", config.playSeatBindTicks)
@@ -1429,22 +1471,19 @@ proc echoPolicyReflashKeys(config: GameConfig, node: JsonNode) =
     node["allowPolicyReflash"] = %config.allowPolicyReflash
 
 proc echoShellKeys(config: GameConfig, node: JsonNode) =
-  ## Echo the play-calling shell keys: all five whenever the gate is on, so
-  ## a play-seat replay header pins the whole shell contract; otherwise only
-  ## a field that departs from its default (the sprayDamage rule). A
-  ## gate-off default config's replay JSON therefore gains no byte.
+  ## Echo the play-calling shell keys only when they depart from their defaults.
+  ## `season2Shell` is now default-on and echoes only when explicitly false;
+  ## `allowDeprecatedModes` echoes only when true. This keeps existing replay
+  ## headers byte-identical until a live legacy recorder intentionally opts in.
   ## `voteTicks`'s OWN default is 0 (unlike the other three, whose shipped
   ## defaults are nonzero) — see VoteTicksDefault's comment (sim_types.nim)
   ## for why the vote phase does not mirror lobbyChatTicks's always-on
   ## default; the `!= 0` comparison below is therefore comparing against
   ## this field's true zero value in both branches, not a shipped constant.
-  if config.season2Shell:
-    node["season2Shell"] = %true
-    node["viewIntervalTicks"] = %config.viewIntervalTicks
-    node["lobbyChatTicks"] = %config.lobbyChatTicks
-    node["playSeatBindTicks"] = %config.playSeatBindTicks
-    node["voteTicks"] = %config.voteTicks
-    return
+  if not config.season2Shell:
+    node["season2Shell"] = %false
+  if config.allowDeprecatedModes:
+    node["allowDeprecatedModes"] = %true
   if config.viewIntervalTicks != ViewIntervalTicksDefault:
     node["viewIntervalTicks"] = %config.viewIntervalTicks
   if config.lobbyChatTicks != LobbyChatTicksDefault:
@@ -1597,4 +1636,3 @@ proc configJson*(config: GameConfig): string =
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
   result = $node
-

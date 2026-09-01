@@ -873,19 +873,19 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   ## cogs k, k+numAgents, k+2*numAgents, ... (this project's own "k, k+16"
   ## duo-seat spacing, not adjacent indices). This proc used to emit one row
   ## per joined SLOT (== per cog), which equals `numAgents` only when every
-  ## seat fields exactly one cog. server.nim's `squadMode` (gated on
-  ## `numAgents > 0 and cogsPerTeam > 1` -- true for every classic variant
-  ## too, since `cogsPerTeam` defaults to 4 and none of them override it)
-  ## auto-fills trusted cogs past the real seats up toward `sim.totalCogs()`,
+  ## seat fields exactly one cog. In the historical hosted-certification
+  ## incident, `cogsPerTeam` still defaulted to 4, so classic variants with
+  ## `numAgents > 0` accidentally entered server.nim's squad mode and
+  ## auto-filled trusted cogs past the real seats up toward `sim.totalCogs()`,
   ## capped by `MaxPlayers` (32) rather than by the seat count -- a 16-seat
-  ## classic match's squad-fill silently parked 16 EXTRA anonymous cogs
-  ## (32 total, the `MaxPlayers` ceiling) in `sim.players`, and the pre-fix
-  ## version of this proc reported one row per cog: the platform's hosted
-  ## certification rejected it outright ("game returned 32 scores for 16
-  ## seats"). Every extra cog's stats now fold into its OWNING seat's single
+  ## classic match's accidental squad-fill silently parked 16 EXTRA anonymous
+  ## cogs (32 total, the `MaxPlayers` ceiling) in `sim.players`, and the
+  ## pre-fix version of this proc reported one row per cog: the platform's
+  ## hosted certification rejected it outright ("game returned 32 scores for
+  ## 16 seats"). Every extra cog's stats now fold into its OWNING seat's single
   ## row instead of emitting a separate one, so `scores` always has exactly
-  ## `numAgents` entries (`squadResultsJson`'s own per-seat contract, kept
-  ## consistent here). Identity fields (name/team/win/score) come only from
+  ## `numAgents` entries when a real squad config exists. Identity fields
+  ## (name/team/win/score) come only from
   ## the seat's OWN slot -- summing across squadmates would inflate a win/
   ## loss or duplicate a team-scalar score -- while the analysis counters
   ## (kills/deaths/etc.) and achievements are summed/unioned across every
@@ -1164,4 +1164,3 @@ proc playerResultsJson*(sim: SimServer): string =
     sim.squadResultsJson()
   else:
     sim.ctfPlayerResultsJson()
-

@@ -62,7 +62,7 @@ suite "startup":
     round.update(config.configJson())
     check round.configJson() == config.configJson()
 
-  test "the gate-off default is the starter's game, untouched":
+  test "paintball gates default off: the starter's game is untouched":
     let config = defaultGameConfig()
     check config.loadout == LoadoutCtf
     check not config.floorPaint

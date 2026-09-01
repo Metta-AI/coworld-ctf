@@ -1083,8 +1083,8 @@ proc resetZone*(sim: var SimServer) =
       sim.gameMap.center
 
 proc seatCount*(sim: SimServer): int {.inline.} =
-  ## How many SEATS (websocket connections) this game has. Two here: one seat
-  ## commands one four-cog squad.
+  ## How many SEATS (websocket connections) this game has. Classic configs
+  ## field one cog per seat; explicit squad configs can field more.
   max(1, sim.config.numAgents)
 
 proc cogSeat*(sim: SimServer, cogIndex: int): int {.inline.} =
@@ -4365,7 +4365,7 @@ proc refreshSeatFov*(sim: var SimServer, viewerIndex: int) =
   ## consumer (the frame builder, the first-person inset, entity culling)
   ## picks the union up with no further change.
   discard sim.refreshPlayerFov(viewerIndex)
-  if sim.config.numAgents <= 0 or sim.config.cogsPerTeam <= 1:
+  if not sim.config.squadModeConfigured():
     return
   let seat = sim.cogSeat(viewerIndex)
   if not sim.seatCommands(seat, viewerIndex):

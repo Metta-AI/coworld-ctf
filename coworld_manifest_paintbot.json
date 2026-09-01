@@ -571,12 +571,12 @@
         },
         "cogsPerTeam": {
           "type": "integer",
-          "default": 4,
-          "description": "Cogs a squad fields: RED-alpha..RED-delta."
+          "default": 1,
+          "description": "Cogs one seat commands. Classic variants field one; paintball sets 4 (RED-alpha..RED-delta)."
         },
         "sprayDamage": {
           "type": "integer",
-          "default": 1,
+          "default": 3,
           "description": "Hit points removed by one spray-cone touch."
         },
         "turnTicks": {
@@ -615,19 +615,19 @@
             "ctf",
             "paintball"
           ],
-          "default": "paintball"
+          "default": "ctf"
         },
         "floorPaint": {
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "paintBuff": {
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "hill": {
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "paintTile": {
           "type": "integer",
@@ -678,8 +678,7 @@
             ]
           },
           "default": [
-            "resident",
-            "visitor"
+            "resident"
           ],
           "description": "Which cogs a seat drives, per game index."
         }

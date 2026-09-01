@@ -27,8 +27,11 @@
 ## development: with the call site removed, this test's player-close
 ## checks time out and fail exactly as expected.
 
-import std/[os, osproc, times, unittest]
-import whisky
+import
+  std/[options, os, osproc, strutils, times, unittest],
+  bitworld/spriteprotocol,
+  ctf/[global, replays, sim_types],
+  whisky
 
 const
   TestPort = 21778
@@ -42,6 +45,13 @@ const
     ## binary also has to compile bin/ctf-server (see ensureServerBinary)
     ## -- so this is generously long.
   ServerBinaryPath = "bin" / "ctf-server"
+
+proc clearServerEnv() =
+  delEnv("COGAME_HOST")
+  delEnv("COGAME_PORT")
+  delEnv("COGAME_CONFIG_URI")
+  delEnv("COGAME_RESULTS_URI")
+  delEnv("COGAME_SAVE_REPLAY_URI")
 
 proc ensureServerBinary() =
   ## CI's "build" job never compiles bin/ctf-server (only the four test
@@ -106,7 +116,183 @@ proc drainUntilClosed(
       result.closedAt = epochTime()
       return
 
+proc sendInputMask(ws: whisky.WebSocket, mask: uint8) =
+  ## Player clients send SpriteProtocol's two-byte input packet:
+  ## SpriteClientInput, then the held eight-button mask.
+  ws.send(blobFromSpriteMask(mask), BinaryMessage)
+
+proc notePlayer0Object(
+  blob: string,
+  saw: var bool,
+  firstX, firstY, lastX, lastY: var int
+) =
+  var bytes: seq[uint8]
+  blobToBytes(blob, bytes)
+  try:
+    for obj in bytes.spritePacketObjects():
+      if obj.id == PlayerObjectBase or obj.id == RigHeadObjectBase:
+        if not saw:
+          firstX = obj.x
+          firstY = obj.y
+          saw = true
+        lastX = obj.x
+        lastY = obj.y
+  except SpriteProtocolError:
+    discard
+
+proc waitForExit(process: Process, budgetSeconds: float): int =
+  let deadlineAt = epochTime() + budgetSeconds
+  while process.running:
+    doAssert epochTime() < deadlineAt, "timed out waiting for server exit"
+    sleep(50)
+  process.waitForExit()
+
 suite "squad-mode final shutdown closes player sockets promptly (real server)":
+  test "live classic boot without deprecated-mode override refuses before serving":
+    ensureServerBinary()
+    let
+      configPath =
+        getTempDir() / "test_deprecated_boot_config_" & $TestPort & ".json"
+      resultsPath =
+        getTempDir() / "test_deprecated_boot_results_" & $TestPort & ".json"
+      configJson = """{
+        "seed": 1, "brMode": false, "num_agents": 16,
+        "maxTicks": 1, "maxGames": 1
+      }"""
+    writeFile(configPath, configJson)
+    defer:
+      discard tryRemoveFile(configPath)
+      discard tryRemoveFile(resultsPath)
+
+    putEnv("COGAME_HOST", "127.0.0.1")
+    putEnv("COGAME_PORT", $TestPort)
+    putEnv("COGAME_CONFIG_URI", "file://" & configPath)
+    putEnv("COGAME_RESULTS_URI", "file://" & resultsPath)
+    let (output, exitCode) = execCmdEx(ServerBinaryPath)
+    delEnv("COGAME_HOST")
+    delEnv("COGAME_PORT")
+    delEnv("COGAME_CONFIG_URI")
+    delEnv("COGAME_RESULTS_URI")
+
+    check exitCode != 0
+    check "deprecated since 0.7.253" in output
+    check "allowDeprecatedModes" in output
+    check "starting ctf" notin output
+
+  test "classic-shaped num_agents socket input reaches replayed sim":
+    ensureServerBinary()
+    const InputPathPort = TestPort + 1
+    let
+      configPath =
+        getTempDir() / "test_classic_input_path_config_" & $InputPathPort & ".json"
+      resultsPath =
+        getTempDir() / "test_classic_input_path_results_" & $InputPathPort & ".json"
+      replayPath =
+        getTempDir() / "test_classic_input_path_replay_" & $InputPathPort &
+          ".bitreplay"
+      configJson = """{
+        "seed": 37, "brMode": false, "num_agents": 16,
+        "minPlayers": 2, "maxTicks": 72, "maxGames": 1,
+        "startWaitTicks": 0, "lobbyJoinTimeoutTicks": 0,
+        "gameOverTicks": 1, "fastMode": true, "speed": 16,
+        "allowDeprecatedModes": true, "closedRoster": true,
+        "tokens": ["t0", "t1"],
+        "players": [{"name": "classic-seat-0"}, {"name": "classic-seat-1"}],
+        "slots": [{"team": "red"}, {"team": "blue"}]
+      }"""
+    writeFile(configPath, configJson)
+    discard tryRemoveFile(resultsPath)
+    discard tryRemoveFile(replayPath)
+
+    putEnv("COGAME_HOST", "127.0.0.1")
+    putEnv("COGAME_PORT", $InputPathPort)
+    putEnv("COGAME_CONFIG_URI", "file://" & configPath)
+    putEnv("COGAME_RESULTS_URI", "file://" & resultsPath)
+    putEnv("COGAME_SAVE_REPLAY_URI", "file://" & replayPath)
+
+    var serverProcess = startProcess(
+      ServerBinaryPath,
+      workingDir = getCurrentDir(),
+      options = {poParentStreams}
+    )
+    clearServerEnv()
+
+    try:
+      let player0 = connectWithRetry(
+        "ws://127.0.0.1:" & $InputPathPort & "/player?slot=0&token=t0",
+        serverProcess
+      )
+      let player1 = connectWithRetry(
+        "ws://127.0.0.1:" & $InputPathPort & "/player?slot=1&token=t1",
+        serverProcess
+      )
+      var
+        sawPlayer0 = false
+        firstX = 0
+        firstY = 0
+        lastX = 0
+        lastY = 0
+      try:
+        let deadlineAt = epochTime() + ConnectDeadlineSeconds
+        while not fileExists(replayPath):
+          doAssert serverProcess.running,
+            "server process exited before writing " & replayPath
+          doAssert epochTime() < deadlineAt,
+            "timed out waiting for replay after sending real seat input"
+          player0.sendInputMask(ButtonRight)
+          for _ in 0 ..< 16:
+            try:
+              let message = player0.receiveMessage(5)
+              if message.isSome and message.get.kind == BinaryMessage:
+                notePlayer0Object(
+                  message.get.data, sawPlayer0, firstX, firstY, lastX, lastY)
+              else:
+                break
+            except CatchableError:
+              break
+          try:
+            discard player1.receiveMessage(25)
+          except CatchableError:
+            discard
+          sleep(5)
+
+        let exitCode = serverProcess.waitForExit(ConnectDeadlineSeconds)
+        check exitCode == 0
+      finally:
+        try:
+          player0.close()
+        except CatchableError:
+          discard
+        try:
+          player1.close()
+        except CatchableError:
+          discard
+
+      let data = parseReplayBytes(readFile(replayPath))
+      var sawRightInput = false
+      for input in data.inputs:
+        if input.player == 0'u8 and (input.keys and ButtonRight) != 0:
+          sawRightInput = true
+      check sawRightInput
+      check sawPlayer0
+      check firstX != lastX or firstY != lastY
+      echo "classic input replay records=", data.inputs.len,
+        " rightInput=", sawRightInput,
+        " liveObjectStart=(", firstX, ",", firstY, ")",
+        " liveObjectEnd=(", lastX, ",", lastY, ")"
+    finally:
+      try:
+        if serverProcess.running:
+          serverProcess.kill()
+        discard serverProcess.waitForExit()
+      except CatchableError:
+        discard
+      serverProcess.close()
+      clearServerEnv()
+      discard tryRemoveFile(configPath)
+      discard tryRemoveFile(resultsPath)
+      discard tryRemoveFile(replayPath)
+
   test "players close within seconds of results; spectator is untouched at that checkpoint":
     ensureServerBinary()
 
@@ -128,6 +314,7 @@ suite "squad-mode final shutdown closes player sockets promptly (real server)":
       "turnSpacingMs": 0, "startWaitTicks": 0, "gameOverTicks": 4,
       "lobbyJoinTimeoutTicks": 0, "fastMode": true,
       "showPlayerLabels": false, "speed": 16,
+      "allowDeprecatedModes": true,
       "tokens": ["t0", "t1"],
       "players": [{"name": "daveey"}, {"name": "daveey-1"}],
       "slots": [{"team": "red"}, {"team": "blue"}]

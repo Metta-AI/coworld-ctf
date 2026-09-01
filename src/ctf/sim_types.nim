@@ -1047,8 +1047,9 @@ const
   DefaultPaintHealTicks* = 48   ## consecutive ticks on own paint per +1 hp.
   HillFlipThrottleTicks* = 12   ## min ticks between two `hillflip` beats, so a
                                 ## contested rim cannot flood the feed.
-  DefaultCogsPerTeam* = 4       ## cogs one seat commands (RED-alpha..delta).
-  DefaultSprayDamage* = 1       ## hp per cone touch under the paintball loadout
+  PaintballCogsPerTeam* = 4     ## cogs one paintball seat commands
+                                ## (RED-alpha..delta).
+  PaintballSprayDamage* = 1     ## hp per cone touch under the paintball loadout
                                 ## (the starter's SprayPaintDamage is 3): three
                                 ## touches tag a 3 hp cog out, which is what
                                 ## makes the heal half of the buff matter.
@@ -2107,9 +2108,9 @@ type
     # --- paintball gates (all OFF by default: a gate-off config plays the
     # starter's rules unchanged, which is what keeps the inherited engine
     # meaningful) ---
-    numAgents*: int               ## seats (websocket connections). 2 here; a
-                                  ## seat commands one four-cog squad.
-    cogsPerTeam*: int             ## cogs a team fields (4).
+    numAgents*: int               ## seats (websocket connections). Paintball
+                                  ## uses 2; classic variants may use 16/32.
+    cogsPerTeam*: int             ## cogs a seat commands; classic default 1.
     loadout*: string              ## LoadoutCtf (default) or LoadoutPaintball.
     floorPaint*: bool             ## the paint grid exists and cones repaint it.
     paintBuff*: bool              ## own/enemy paint changes speed and heals.
@@ -2132,8 +2133,10 @@ type
     model*: string                ## pinned Bedrock/Anthropic model, "" = auto.
     maxOutputTokens*: int         ## LLM max_tokens.
     # --- Season 2 play-calling shell (docs/designs/
-    # strategy-play-calling-shell-2026-08-29.md; all OFF/inert by default:
-    # a gate-off config plays byte-identically, the house rule) ---
+    # strategy-play-calling-shell-2026-08-29.md). Season 2 is the default
+    # supported live mode; with an all-input roster it remains byte-identical
+    # to an explicit gate-off config. Deprecated live modes require
+    # allowDeprecatedModes. ---
     # GVNEXT(shell): appended fields, the standard append-safety reasoning
     # (scalars on GameConfig, not array[Team, X] runs).
     season2Shell*: bool           ## the master gate (§3.2): nothing in
@@ -2142,6 +2145,11 @@ type
                                   ## playSeatRequiresShell); gate-on with an
                                   ## all-input roster is legal and plays
                                   ## byte-identically to gate-off.
+    allowDeprecatedModes*: bool   ## live-boot override for deprecated mode
+                                  ## configs. false (default) refuses classic,
+                                  ## explicit season1 shell, paintball, and
+                                  ## squad-mode live boots at the boot seam;
+                                  ## replay playback is always exempt.
     viewIntervalTicks*: int       ## §4.3: LLM-bound PlayView frame interval,
                                   ## default 6, range [1, 48]; no effect
                                   ## without a play seat.

@@ -35,6 +35,12 @@ proc manifestSchema(name: string): JsonNode =
   result = findConfigSchema(parseFile(GameDir / name))
   doAssert result != nil, name & " has no config_schema"
 
+proc schemaDefaults(schema: JsonNode): JsonNode =
+  result = newJObject()
+  for key, prop in schema["properties"]:
+    if prop.hasKey("default"):
+      result[key] = prop["default"]
+
 proc manifestVariant(variantId: string): JsonNode =
   let manifest = parseFile(GameDir / ManifestName)
   for variant in manifest["variants"]:
@@ -180,6 +186,20 @@ suite "league manifest config_schema vs GameConfig":
     for key in PlatformOnlyKeys:
       let description = schema["properties"][key]["description"].getStr
       check "platform" in description
+
+  test "config_schema defaults materialize to engine-classic paintball gate values":
+    let defaults = schemaDefaults(schema)
+    var config = defaultGameConfig()
+    config.update($defaults)
+    check config.cogsPerTeam == defaultGameConfig().cogsPerTeam
+    check config.cogsPerTeam == 1
+    check config.loadout == LoadoutCtf
+    check not config.floorPaint
+    check not config.paintBuff
+    check not config.hill
+    check config.sprayDamage == SprayPaintDamage
+    check config.regimes == @[regimeResident]
+    check not config.squadModeConfigured()
 
   test "the repo's local config.json loads and validates":
     # update() runs the full field validation internally and raises on any

@@ -6,10 +6,10 @@
 ## - 64-bit identities are decimal strings, full uint64 range, malformed
 ##   spellings rejected (§5's cross-language rule, 2^53 boundaries included);
 ## - the packet opcodes and bumped-format record types collide with nothing;
-## - the five new config fields (season2Shell, slots[].control,
+## - the config fields (season2Shell, allowDeprecatedModes, slots[].control,
 ##   viewIntervalTicks, lobbyChatTicks, playSeatBindTicks) parse, validate,
-##   and echo per §5.1/§9.2/P2 — and a gate-off default config's replay JSON
-##   gains no byte, the house rule this whole subsystem sits behind.
+##   and echo per §5.1/§9.2/P2/P36 — and a default config's replay JSON keeps
+##   the shell defaults implicit.
 
 import std/[algorithm, json, os, re, strutils, tables, unittest]
 import ../src/ctf/sim_config
@@ -399,22 +399,23 @@ suite "shell opcode and record blocks":
     check MaxStepsPerSeatPerTick == MaxActiveOverlays + 1
 
 suite "shell config gate":
-  test "gate-off default: the replay config JSON gains no byte":
-    ## The house rule (§3.2): a gate-off configuration's serialized config
-    ## — which is the replay header — must not mention the shell at all.
+  test "default config: the replay config JSON keeps shell defaults implicit":
+    ## P36: season2Shell defaults on, but its replay-header echo is still
+    ## silent at default. The new override key is silent unless it is true.
     let echoed = defaultGameConfig().configJson()
     for key in ["season2Shell", "viewIntervalTicks", "lobbyChatTicks",
-                "playSeatBindTicks", "control"]:
+                "playSeatBindTicks", "allowDeprecatedModes", "control"]:
       check key notin echoed
 
   test "defaults are the design's":
     let config = defaultGameConfig()
-    check not config.season2Shell
+    check config.season2Shell
+    check not config.allowDeprecatedModes
     check config.viewIntervalTicks == ViewIntervalTicksDefault
     check config.lobbyChatTicks == LobbyChatTicksDefault
     check config.playSeatBindTicks == PlaySeatBindTicksDefault
 
-  test "gate-on play-seat config parses, validates, and echoes every key":
+  test "play-seat config parses, validates, and echoes non-default keys":
     var config = defaultGameConfig()
     config.update($ %*{
       "season2Shell": true, "viewIntervalTicks": 12, "lobbyChatTicks": 480,
@@ -435,7 +436,8 @@ suite "shell config gate":
     check config.slots[1].control == scInput
     let echoed = config.configJson()
     let node = parseJson(echoed)
-    check node["season2Shell"].getBool()
+    check not node.hasKey("season2Shell")
+    check not node.hasKey("allowDeprecatedModes")
     check node["viewIntervalTicks"].getInt() == 12
     check node["lobbyChatTicks"].getInt() == 480
     check node["playSeatBindTicks"].getInt() == 9600
@@ -458,6 +460,7 @@ suite "shell config gate":
     var config = defaultGameConfig()
     expect CtfError:
       config.update($ %*{
+        "season2Shell": false,
         "minPlayers": 2, "closedRoster": true,
         "players": [{"name": "alpha"}, {"name": "beta"}],
         "tokens": ["t-alpha", "t-beta"],
@@ -515,7 +518,7 @@ suite "shell config gate":
         expect CtfError:
           config.update($ %*{"playSeatBindTicks": value})
 
-  test "non-default shell fields echo even under gate-off (provenance)":
+  test "non-default shell fields echo even when season2Shell is implicit":
     ## The sprayDamage rule: an authored departure is pinned in the header
     ## so the replay identifies its config, while pure defaults stay silent.
     var config = defaultGameConfig()
@@ -523,3 +526,17 @@ suite "shell config gate":
     let echoed = config.configJson()
     check "lobbyChatTicks" in echoed
     check "season2Shell" notin echoed
+
+  test "explicit season2Shell off and deprecated-mode override echo":
+    block:
+      var config = defaultGameConfig()
+      config.update($ %*{"season2Shell": false})
+      let node = parseJson(config.configJson())
+      check node["season2Shell"].getBool() == false
+      check not node.hasKey("allowDeprecatedModes")
+    block:
+      var config = defaultGameConfig()
+      config.update($ %*{"allowDeprecatedModes": true})
+      let node = parseJson(config.configJson())
+      check not node.hasKey("season2Shell")
+      check node["allowDeprecatedModes"].getBool()
