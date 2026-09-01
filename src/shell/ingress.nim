@@ -231,6 +231,11 @@ proc applyPlayIngressFeedback*[Socket](
   for _ in 0 ..< result:
     seat.counters.feedbackErrors.saturatingInc()
 
+proc notePlayIngressFeedbackError*[Socket](seat: var PlayIngressSeat[Socket]) =
+  ## Completion identities are another production feedback boundary. Unknown
+  ## or duplicate outcomes must be counted without manufacturing a retirement.
+  seat.counters.feedbackErrors.saturatingInc()
+
 proc hasCallPayload*[Socket](
   seat: PlayIngressSeat[Socket],
   proposalId: uint64,

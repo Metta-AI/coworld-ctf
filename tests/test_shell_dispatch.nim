@@ -4,6 +4,7 @@ import std/[atomics, os, unittest]
 import ../src/ctf/labels
 import ../src/ctf/sim_types as ctfTypes
 import ../src/shell/episode
+import ../src/shell/module_cache
 import ../src/shell/types
 import ../src/shell/types as shellTypes
 const DispatchRuntimeAvailable =
@@ -92,10 +93,7 @@ proc bytes(value: string): seq[uint8] =
     result.add(uint8(byte))
 
 when DispatchRuntimeAvailable:
-  proc validPlayModuleBytes(): string =
-    let wat = readFile("tests/fixtures/shell/wasm/valid.wat")
-      .replace("[\\22br\\22]", "[\\22ctf\\22]")
-      .replace("i32.const 87 call", "i32.const 88 call")
+  proc compileWat(wat: string): string =
     var output: TestWasmByteVec
     let error = testWat2Wasm(wat.cstring, wat.len.csize_t, addr output)
     doAssert error == nil
@@ -103,6 +101,67 @@ when DispatchRuntimeAvailable:
     result = newString(output.size.int)
     if output.size > 0:
       copyMem(addr result[0], output.data, output.size)
+
+  proc watEscape(value: string): string =
+    const Hex = "0123456789abcdef"
+    for ch in value:
+      let byte = ord(ch)
+      result.add('\\')
+      result.add(Hex[(byte shr 4) and 0xf])
+      result.add(Hex[byte and 0xf])
+
+  proc validPlayModuleBytes(): string =
+    let wat = readFile("tests/fixtures/shell/wasm/valid.wat")
+      .replace("[\\22br\\22]", "[\\22ctf\\22]")
+      .replace("i32.const 87 call", "i32.const 88 call")
+    result = compileWat(wat)
+
+  proc retunePlayModuleBytes(name: string; refuses: bool): string =
+    let
+      manifest =
+        "{\"abi\":1,\"class\":\"controller\"," &
+        "\"modes\":[\"ctf\"],\"name\":\"" & name &
+        "\",\"params\":{\"bias\":{\"default\":0," &
+        "\"kind\":\"number\",\"max\":10000," &
+        "\"min\":0}},\"retune\":true}"
+      retuneResult = if refuses: 1 else: 0
+      wat = "(module\n" &
+        "  (import \"play\" \"emit\" " &
+          "(func $emit (param i32 i32) (result i32)))\n" &
+        "  (memory (export \"memory\") 1 16)\n" &
+        "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
+        "  (global $heap (mut i32) (i32.const 4096))\n" &
+        "  (func (export \"play_alloc\") (param $len i32) (result i32) " &
+          "global.get $heap global.get $heap local.get $len i32.add " &
+          "global.set $heap)\n" &
+        "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+          $manifest.len & " call $emit drop)\n" &
+        "  (func (export \"play_init\") " &
+          "(param i32 i32 i32 i32) (result i32) i32.const 0)\n" &
+        "  (func (export \"play_step\") " &
+          "(param i32 i32) (result i32) i32.const 0)\n" &
+        "  (func (export \"play_retune\") " &
+          "(param i32 i32 i32 i32) (result i32) i32.const " &
+          $retuneResult & "))"
+    result = compileWat(wat)
+
+  proc retuneCallBytes(name: string; bias: int; retune = false): string =
+    let retuneField = if retune: ",\"retune\":true" else: ""
+    "{\"plays\":[{\"entry_id\":\"" & name &
+      "\",\"params\":{\"bias\":" & $bias &
+      "},\"play\":\"" & name & "\"" & retuneField & "}]}"
+
+  proc liveSeatFrame(tick: int): FirstLightSeatFrame =
+    FirstLightSeatFrame(
+      seat: 0, playerIndex: 0, present: true, playing: true, alive: true,
+      bodyInputs: BodyTickInputs(
+        self: BodySelfState(pos: (20, 128), hp: 4, hpFrac: 1.0,
+          aimBrads: 32, alive: true, carrying: false)),
+      defaultFallbacks: BrDefaultFallbacks(
+        currentZone: MapRect(x: 0, y: 0, w: 4096, h: 4096),
+        nextZone: MapRect(x: 100, y: 50, w: 200, h: 100),
+        ticksToNextShrink: BrRotateLeadTicks + 1, zoneDps: 1,
+        idleAimCenterBrads: 32, coverGoal: none(ValidatedGoal)))
 
 suite "server play receive arm":
   setup:
@@ -835,21 +894,20 @@ suite "server play outbound arm":
       check "call_accepted" in statuses
       check "\"proposal_id\":\"8\"" in statuses
       check appState.playIngress[0].snapshot.reservedStatusSlots ==
-        2 + 1 + MaxLadderEntries
+        2 + (1 + MaxLadderEntries) - MaxLadderEntries
       check appState.playIngress[0].hasCallPayload(8)
 
       websocketHandler(websocket, MessageEvent, binaryMessage(
         StatusAckPacket(mark: 3).encodePacket()))
       drainPlayIngressAtTickBoundary(episode, tick + 1)
       check appState.playOutbound[0].retainedStatusCount == 0
-      check appState.playIngress[0].snapshot.reservedStatusSlots ==
-        MaxLadderEntries
-      check appState.playIngress[0].hasCallPayload(8)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+      check not appState.playIngress[0].hasCallPayload(8)
 
-      # INTERIM boundary awaiting lane A's retune-completion channel. Even
-      # after the immediate call statuses are acked, two retained 16-slot
-      # retune sets leave 32 slots occupied; a third 17-slot admission would
-      # require 49 of the 48 regular slots and must visibly backpressure.
+      # This is the old interim tripwire rewritten to fail loudly on any
+      # regression: zero-pending calls release MaxLadderEntries immediately,
+      # so only the one call-status slot remains until each ack and a third
+      # call must admit instead of hitting the former 2-call ceiling.
       websocketHandler(websocket, MessageEvent, binaryMessage(
         PlayCallPacket(
           proposalId: 9,
@@ -861,10 +919,8 @@ suite "server play outbound arm":
       websocketHandler(websocket, MessageEvent, binaryMessage(
         StatusAckPacket(mark: 4).encodePacket()))
       drainPlayIngressAtTickBoundary(episode, tick + 3)
-      check appState.playIngress[0].snapshot.reservedStatusSlots ==
-        2 * MaxLadderEntries
-      check appState.playIngress[0].hasCallPayload(8)
-      check appState.playIngress[0].hasCallPayload(9)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+      check not appState.playIngress[0].hasCallPayload(9)
 
       websocketHandler(websocket, MessageEvent, binaryMessage(
         PlayCallPacket(
@@ -873,9 +929,373 @@ suite "server play outbound arm":
             "\"params\":{},\"play\":\"alpha\"}]}"
         ).encodePacket()))
       drainPlayIngressAtTickBoundary(episode, tick + 4)
-      check "status_backpressure" in
+      check "call_accepted" in
         appState.playOutbound[0].statusBytes.join("\n")
-      check not appState.playIngress[0].hasCallPayload(10)
+      check appState.playIngress[0].snapshot.reservedStatusSlots ==
+        (1 + MaxLadderEntries) - MaxLadderEntries
+      check appState.playIngress[0].hasCallPayload(10)
+
+  test "wire accepted calls reach a verified replay exactly once":
+    when DispatchRuntimeAvailable:
+      let
+        path = getTempDir() / ("shell-wire-call-replay-" &
+          $getCurrentProcessId() & ".bitreplay")
+        playName = "replay_wire"
+        moduleBytes = retunePlayModuleBytes(playName, false)
+        moduleSha256 = sha256Hex(moduleBytes)
+        initialCall = retuneCallBytes(playName, 0)
+        retuneCall = retuneCallBytes(playName, 1, true)
+      var config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](811)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "wire-replay")
+      defer:
+        episode.closeFirstLightEpisode()
+        if fileExists(path):
+          removeFile(path)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: 30, wasm: moduleBytes).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1)
+      var tick = 1'u32
+      while appState.playOutbound[0].retainedStatusCount < 2 and tick < 5000:
+        let output = episode.step([liveSeatFrame(tick.int)], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        if output.moduleStatuses.len == 0:
+          sleep(1)
+        inc tick
+      check appState.playOutbound[0].retainedStatusCount == 2
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 31, callBytes: initialCall).encodePacket()))
+      simServer.tickCount = tick.int - 1
+      drainPlayIngressAtTickBoundary(episode, tick)
+      check appState.pendingPlayCallRecords.len == 1
+      let initialized = episode.step(
+        [liveSeatFrame(tick.int)], tick)
+      retainProductionLadderOutcomes(
+        initialized.ladderStatuses, initialized.retuned)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 32, callBytes: retuneCall).encodePacket()))
+      simServer.tickCount = tick.int
+      drainPlayIngressAtTickBoundary(episode, tick + 1)
+      check appState.pendingPlayCallRecords.len == 2
+      let completed = episode.step(
+        [liveSeatFrame((tick + 1).int)], tick + 1)
+      check completed.retuned.len == 1
+      retainProductionLadderOutcomes(completed.ladderStatuses, completed.retuned)
+      check appState.pendingPlayCallRecords.len == 2
+      let queued = appState.pendingPlayCallRecords
+
+      var writer = ctfReplayCodec.openReplayWriter(
+        path, config.configJson(), CtfReplaySpec,
+        shellEpisode = true, shellSeatCount = config.slots.len,
+        openedAtMs = 1_735_689_600_000'u64)
+      writer.drainShellReplayRecords(simServer, tickTime(simServer.tickCount))
+      writer.closeReplayWriter()
+
+      let detailed = loadCtfReplay(path)
+      check detailed.shell.calls.len == 2
+      check detailed.shell.calls[0].replayTimeMs == tickTime(tick.int - 1)
+      check detailed.shell.calls[1].replayTimeMs == tickTime(tick.int)
+      check detailed.shell.calls[0].ladderBytes == initialCall
+      check detailed.shell.calls[1].ladderBytes == retuneCall
+      for call in detailed.shell.calls:
+        check call.entries.len == 1
+        check call.entries[0].entryId == playName
+        check call.entries[0].code.kind == cikModule
+        check call.entries[0].code.moduleSha256 == moduleSha256
+      check detailed.shell.calls[0].contentSha256 == queued[0].contentSha256
+      check detailed.shell.calls[1].contentSha256 == queued[1].contentSha256
+      check detailed.shell.manifest.seats[0].callCount == 2
+      check detailed.shell.manifest.seats[0].callCount >= 1
+      check detailed.shell.manifestVerified
+
+  test "config accepted call reaches a verified replay":
+    when DispatchRuntimeAvailable:
+      let
+        path = getTempDir() / ("shell-config-call-replay-" &
+          $getCurrentProcessId() & ".bitreplay")
+        modulePath = getTempDir() / ("shell-config-call-" &
+          $getCurrentProcessId() & ".wasm")
+        playName = "replay_config"
+        moduleBytes = retunePlayModuleBytes(playName, false)
+        expectedCall = retuneCallBytes(playName, 0)
+        configJson = $(%*{
+          "firstLightPlay": {
+            "modulePath": modulePath,
+            "playName": playName,
+            "params": {"bias": 0},
+            "seats": [0]
+          }
+        })
+      writeFile(modulePath, moduleBytes)
+      var config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      defer:
+        episode.closeFirstLightEpisode()
+        if fileExists(path):
+          removeFile(path)
+        if fileExists(modulePath):
+          removeFile(modulePath)
+
+      episode.resetFirstLightForSim(
+        false, config, simServer, "config-replay", configJson)
+      check appState.pendingPlayCallRecords.len == 1
+      let queued = appState.pendingPlayCallRecords[0]
+      var writer = ctfReplayCodec.openReplayWriter(
+        path, config.configJson(), CtfReplaySpec,
+        shellEpisode = true, shellSeatCount = config.slots.len,
+        openedAtMs = 1_735_689_600_000'u64)
+      writer.drainShellReplayRecords(simServer, tickTime(simServer.tickCount))
+      writer.closeReplayWriter()
+
+      let detailed = loadCtfReplay(path)
+      check detailed.shell.calls.len == 1
+      check detailed.shell.calls[0].replayTimeMs == tickTime(simServer.tickCount)
+      check detailed.shell.calls[0].ladderBytes == expectedCall
+      check detailed.shell.calls[0].entries.len == 1
+      check detailed.shell.calls[0].entries[0].entryId == playName
+      check detailed.shell.calls[0].entries[0].code.kind == cikModule
+      check detailed.shell.calls[0].entries[0].code.moduleSha256 ==
+        sha256Hex(moduleBytes)
+      check detailed.shell.calls[0].contentSha256 == queued.contentSha256
+      check detailed.shell.manifest.seats[0].callCount == 1
+      check detailed.shell.manifest.seats[0].callCount >= 1
+      check detailed.shell.manifestVerified
+
+  test "missing or mismatched accepted-call replay identity fails safe":
+    let config = playConfig(scPlay)
+    appState.config = config
+    configurePlayIngress(config)
+    check not queueAcceptedPlayCallIdentity(
+      0, none(FirstLightCallReplayIdentity), 0)
+    check not queueAcceptedPlayCallIdentity(
+      0, some(FirstLightCallReplayIdentity(seat: 9)), 0)
+    check appState.pendingPlayCallRecords.len == 0
+    check appState.playIngressFeedbackErrors == 2
+    check appState.playIngress[0].counters.feedbackErrors == 2
+
+  test "real retune success releases capacity and evicts in both ack orders":
+    when DispatchRuntimeAvailable:
+      let config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](806)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "retune-success")
+      defer: episode.closeFirstLightEpisode()
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: 1,
+          wasm: retunePlayModuleBytes("retune_ok", false)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1)
+      var tick = 1'u32
+      while appState.playOutbound[0].retainedStatusCount < 2 and tick < 5000:
+        let output = episode.step([liveSeatFrame(tick.int)], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        retainProductionLadderOutcomes(output.ladderStatuses, output.retuned)
+        if output.moduleStatuses.len == 0:
+          sleep(1)
+        inc tick
+      check appState.playOutbound[0].retainedStatusCount == 2
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 10,
+          callBytes: retuneCallBytes("retune_ok", 0)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 1)
+      check appState.outstandingPlayCalls[0][0].pendingRetunes.len == 0
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 2)
+      let initialized = episode.step(
+        [liveSeatFrame((tick + 2).int)], tick + 2)
+      retainProductionLadderOutcomes(
+        initialized.ladderStatuses, initialized.retuned)
+
+      # Completion first, acknowledgment second.
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 11,
+          callBytes: retuneCallBytes("retune_ok", 1, true)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 3)
+      check appState.playIngress[0].snapshot.reservedStatusSlots ==
+        (1 + MaxLadderEntries) - (MaxLadderEntries - 1)
+      check appState.outstandingPlayCalls[0][0].pendingRetunes.len == 1
+      let completedFirst = episode.step(
+        [liveSeatFrame((tick + 4).int)], tick + 4)
+      check completedFirst.retuned.len == 1
+      retainProductionLadderOutcomes(
+        completedFirst.ladderStatuses, completedFirst.retuned)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 1
+      check appState.playIngress[0].hasCallPayload(11)
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 5)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+      check not appState.playIngress[0].hasCallPayload(11)
+
+      # Acknowledgment first, cross-tick completion second.
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 12,
+          callBytes: retuneCallBytes("retune_ok", 2, true)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 6)
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 7)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 1
+      check appState.playIngress[0].hasCallPayload(12)
+      let completedAfterAck = episode.step(
+        [liveSeatFrame((tick + 8).int)], tick + 8)
+      check completedAfterAck.retuned.len == 1
+      retainProductionLadderOutcomes(
+        completedAfterAck.ladderStatuses, completedAfterAck.retuned)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+      check not appState.playIngress[0].hasCallPayload(12)
+
+      let errorsBefore = appState.playIngressFeedbackErrors
+      retainProductionLadderOutcomes(
+        completedAfterAck.ladderStatuses, completedAfterAck.retuned)
+      check appState.playIngressFeedbackErrors == errorsBefore + 1
+      check appState.playIngress[0].counters.feedbackErrors == 1
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+
+  test "real retune refusal converts its reservation into durable status":
+    when DispatchRuntimeAvailable:
+      let config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](807)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "retune-refusal")
+      defer: episode.closeFirstLightEpisode()
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: 1,
+          wasm: retunePlayModuleBytes("retune_no", true)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1)
+      var tick = 1'u32
+      while appState.playOutbound[0].retainedStatusCount < 2 and tick < 5000:
+        let output = episode.step([liveSeatFrame(tick.int)], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        if output.moduleStatuses.len == 0:
+          sleep(1)
+        inc tick
+      check "\"ordinal\":\"1\"" in appState.playOutbound[0].statusBytes[0]
+      check "\"ordinal\":\"2\"" in appState.playOutbound[0].statusBytes[1]
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 20,
+          callBytes: retuneCallBytes("retune_no", 0)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 1)
+      check "\"ordinal\":\"3\"" in appState.playOutbound[0].statusBytes[^1]
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 2)
+      discard episode.step([liveSeatFrame((tick + 2).int)], tick + 2)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(proposalId: 21,
+          callBytes: retuneCallBytes("retune_no", 1, true)).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 3)
+      check "\"ordinal\":\"4\"" in appState.playOutbound[0].statusBytes[^1]
+      let refused = episode.step(
+        [liveSeatFrame((tick + 4).int)], tick + 4)
+      check refused.ladderStatuses.len == 1
+      check refused.ladderStatuses[0].status.kind == skRetuneRefused
+      check refused.ladderStatuses[0].statusBytes ==
+        encodeStatusEntry(refused.ladderStatuses[0].status)
+      retainProductionLadderOutcomes(refused.ladderStatuses, refused.retuned)
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 2
+      check appState.playIngress[0].hasCallPayload(21)
+      let durable = appState.playOutbound[0].statusBytes[^1]
+      check "\"ordinal\":\"5\"" in durable
+      check "\"kind\":\"retune_refused\"" in durable
+      check "\"entry_id\":\"retune_no\"" in durable
+      let durableNode = parseJson(durable)
+      let seamStatus = refused.ladderStatuses[0].status
+      check durableNode["gen"].getStr == $seamStatus.originGeneration
+      check durableNode["epoch"].getStr == $seamStatus.faultEpoch
+      check durableNode["entry_id"].getStr == seamStatus.entryId
+      check durableNode["kind"].getStr == "retune_refused"
+      check durableNode["reason"].getStr == seamStatus.faultReason
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: 5).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 5)
+      check appState.playOutbound[0].ackMark == 5
+      check appState.playOutbound[0].retainedStatusCount == 0
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+      check not appState.playIngress[0].hasCallPayload(21)
+
+  test "spontaneous faults do not retire calls and bad outcomes count":
+    let config = playConfig(scPlay)
+    appState.config = config
+    configurePlayIngress(config)
+    let spontaneous = FirstLightLadderStatus(
+      seat: 0, entryId: "spontaneous",
+      status: StatusEntry(kind: skPlayFaulted, ordinal: 1,
+        originGeneration: 1, faultEpoch: 1, entryId: "spontaneous",
+        faultReason: "trap"))
+    var canonical = spontaneous
+    canonical.statusBytes = encodeStatusEntry(canonical.status)
+    retainProductionLadderOutcomes([canonical], [])
+    check appState.playOutbound[0].retainedStatusCount == 1
+    check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+    check appState.playIngressFeedbackErrors == 0
+
+    retainProductionLadderOutcomes([], [FirstLightEntryIdentity(
+      seat: 0, entryId: "unknown", play: "unknown")])
+    retainProductionLadderOutcomes([], [FirstLightEntryIdentity(
+      seat: 99, entryId: "bad-seat", play: "bad-seat")])
+    check appState.playIngressFeedbackErrors == 2
+    check appState.playIngress[0].counters.feedbackErrors == 1
+    check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+
+  test "outstanding call outcomes survive rebind and clear on config reset":
+    let config = playConfig(scPlay)
+    appState.config = config
+    configurePlayIngress(config)
+    let oldSocket = cast[WebSocket](809)
+    let newSocket = cast[WebSocket](810)
+    check oldSocket.registerPlayerWebSocket("play", 0, "token")
+    appState.outstandingPlayCalls[0].add(OutstandingPlayCall(
+      proposalId: 7,
+      pendingRetunes: @[FirstLightEntryIdentity(
+        seat: 0, entryId: "held", play: "held")]))
+    check newSocket.registerPlayerWebSocket("play", 0, "token")
+    check appState.outstandingPlayCalls[0].len == 1
+    check appState.outstandingPlayCalls[0][0].proposalId == 7
+
+    configurePlayIngress(config)
+    check appState.outstandingPlayCalls.len == 1
+    check appState.outstandingPlayCalls[0].len == 0
 
   test "ten thousand cross-tick uploads stay bounded after episode quota":
     when DispatchRuntimeAvailable:
@@ -911,6 +1331,91 @@ suite "server play outbound arm":
         2 * MaxModulesPerSeatPerEpisode + StatusFaultReserve
       check appState.playOutbound[0].counters.faultsDropped ==
         uint32(10_000 - 2 * MaxModulesPerSeatPerEpisode)
+
+  test "ten thousand completed calls keep outcome bookkeeping bounded":
+    when DispatchRuntimeAvailable:
+      let
+        config = playConfig(scPlay)
+        path = getTempDir() / ("shell-call-load-replay-" &
+          $getCurrentProcessId() & ".bitreplay")
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](808)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "call-load")
+      defer:
+        episode.closeFirstLightEpisode()
+        if fileExists(path):
+          removeFile(path)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(
+          uploadId: 1, wasm: validPlayModuleBytes()).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1)
+      var tick = 1'u32
+      while appState.playOutbound[0].retainedStatusCount < 2 and tick < 5000:
+        let output = episode.step([], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        if output.moduleStatuses.len == 0:
+          sleep(1)
+        inc tick
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick)
+
+      var writer = ctfReplayCodec.openReplayWriter(
+        path, config.configJson(), CtfReplaySpec,
+        shellEpisode = true, shellSeatCount = config.slots.len,
+        openedAtMs = 1_735_689_600_000'u64)
+      var maxOutstanding, maxPendingRecords = 0
+      let started = epochTime()
+      for index in 1 .. 10_000:
+        if index > 1:
+          websocketHandler(websocket, MessageEvent, binaryMessage(
+            StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+              .encodePacket()))
+        websocketHandler(websocket, MessageEvent, binaryMessage(
+          PlayCallPacket(proposalId: uint64(index),
+            callBytes: "{\"plays\":[{\"entry_id\":\"alpha\"," &
+              "\"params\":{},\"play\":\"alpha\"}]}"
+          ).encodePacket()))
+        drainPlayIngressAtTickBoundary(episode, tick + uint32(index))
+        maxOutstanding = max(maxOutstanding,
+          appState.outstandingPlayCalls[0].len)
+        maxPendingRecords = max(
+          maxPendingRecords, appState.pendingPlayCallRecords.len)
+        simServer.tickCount = tick.int + index - 1
+        writer.drainShellReplayRecords(
+          simServer, tickTime(simServer.tickCount))
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        StatusAckPacket(mark: appState.playOutbound[0].nextStatusOrdinal)
+          .encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 10_001)
+      simServer.tickCount = tick.int + 10_000
+      writer.drainShellReplayRecords(simServer, tickTime(simServer.tickCount))
+      let elapsedMs = (epochTime() - started) * 1000.0
+      writer.closeReplayWriter()
+      echo "PLAY_CALL_OUTCOME_LOAD iterations=10000 elapsed_ms=", elapsedMs,
+        " max_outstanding=", maxOutstanding,
+        " max_pending_records=", maxPendingRecords
+
+      check maxOutstanding == 1
+      check maxPendingRecords == 1
+      check appState.pendingPlayCallRecords.len == 0
+      check appState.outstandingPlayCalls[0].len == 0
+      check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+      check not appState.playIngress[0].hasCallPayload(1)
+      check not appState.playIngress[0].hasCallPayload(5_000)
+      check not appState.playIngress[0].hasCallPayload(10_000)
+      check appState.playIngress[0].proposalIdFloor == 10_000
+      let detailed = loadCtfReplay(path)
+      check detailed.shell.calls.len == 10_000
+      check detailed.shell.manifest.seats[0].callCount == 10_000
+      check detailed.shell.manifestVerified
 
   test "non-runtime episode verdicts remain visible terminal refusals":
     when not DispatchRuntimeAvailable:

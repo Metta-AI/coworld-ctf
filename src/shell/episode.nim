@@ -11,6 +11,7 @@ import ../ctf/sim_types
 import body_map
 import body_nav
 import reflexes
+import replay_records
 import types
 import standing_order
 
@@ -75,6 +76,16 @@ type
     status*: StatusEntry
     statusBytes*: string
 
+  FirstLightCallReplayIdentity* = object
+    seat*: uint8
+    epoch*: uint64
+    ladderBytes*: string
+    entries*: seq[PlayCallEntryIdentity]
+    contentSha256*: string
+      ## Codec-derived identity hash with replayTimeMs=0. Lane B owns real
+      ## replay time and must call toPlayCallRecord(identity, replayTimeMs)
+      ## for the queued record's time-stamped content hash.
+
   FirstLightAdmissionResult* = object
     accepted*: bool
     reason*: string
@@ -89,6 +100,11 @@ type
     status*: StatusEntry
     statusBytes*: string
     pendingRetunes*: seq[FirstLightEntryIdentity]
+    replayIdentity*: Option[FirstLightCallReplayIdentity]
+
+  FirstLightPlayConfigResult* = object
+    lines*: seq[string]
+    callIdentities*: seq[FirstLightCallReplayIdentity]
 
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
@@ -371,6 +387,24 @@ proc firstLightPlayConfigRefusal(episode: FirstLightEpisode;
         "firstLightPlay.seats entry outside roster")
   none(string)
 
+proc toPlayCallRecord*(identity: FirstLightCallReplayIdentity;
+    replayTimeMs: uint32): PlayCallRecord =
+  ## Builds the landed replay record shape from the lane-C accepted-call
+  ## identity. The decoder owns `contentSha256`; keep this helper on the codec
+  ## path instead of maintaining a parallel hash definition.
+  let bytes = PlayCallRecord(
+    replayTimeMs: replayTimeMs,
+    seat: identity.seat,
+    epoch: identity.epoch,
+    ladderBytes: identity.ladderBytes,
+    entries: identity.entries).encodePlayCallRecord()
+  bytes.decodePlayCallRecord()
+
+proc withContentSha(identity: FirstLightCallReplayIdentity):
+    FirstLightCallReplayIdentity =
+  result = identity
+  result.contentSha256 = identity.toPlayCallRecord(0).contentSha256
+
 when ShellRuntimeAvailable:
   const NativeReflexSubscriptions = [
     ReflexSubscription(kind: rkClearGrenade, epoch: 0),
@@ -444,6 +478,14 @@ when ShellRuntimeAvailable:
   proc ladderStatus(status: LadderStatus): FirstLightLadderStatus =
     FirstLightLadderStatus(seat: status.seat, entryId: status.entryId,
       status: status.status, statusBytes: status.statusBytes)
+
+  proc callReplayIdentity(seatIndex: int; accepted: LadderCallResult):
+      FirstLightCallReplayIdentity =
+    FirstLightCallReplayIdentity(
+      seat: uint8(seatIndex),
+      epoch: accepted.epoch,
+      ladderBytes: accepted.ladderBytes,
+      entries: accepted.entries).withContentSha()
 
   proc commitReadyModules(episode: var FirstLightEpisode;
       maxCommits = MaxCompileCommitsPerTick): seq[FirstLightModuleStatus] =
@@ -538,22 +580,27 @@ when ShellRuntimeAvailable:
     result.statusBytes = accepted.statusBytes
     for identity in accepted.pendingRetunes:
       result.pendingRetunes.add entryIdentity(seatIndex, identity)
+    if accepted.accepted:
+      result.replayIdentity = some(callReplayIdentity(seatIndex, accepted))
 
   proc callBytes(config: FirstLightPlayConfig): string =
     canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" &
       config.playName & "\",\"params\":" & config.paramsBytes &
       ",\"play\":\"" & config.playName & "\"}]}"))
 
-  proc configureFirstLightPlay*(episode: var FirstLightEpisode;
-      config: FirstLightPlayConfig): seq[string] =
+  proc configureFirstLightPlayWithReplayIdentities*(
+      episode: var FirstLightEpisode;
+      config: FirstLightPlayConfig): FirstLightPlayConfigResult =
     ## Binds a configured first-light play through the production admission,
     ## compile, cache, instance, and call-validation seams.
     let refusal = episode.firstLightPlayConfigRefusal(config)
     if refusal.isSome:
-      return @[refusal.get]
+      result.lines.add refusal.get
+      return
     if not fileExists(config.modulePath):
-      return @["FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
-        config.modulePath]
+      result.lines.add "FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
+        config.modulePath
+      return
 
     episode.ensureRuntime()
     let moduleBytes = readFile(config.modulePath)
@@ -561,10 +608,10 @@ when ShellRuntimeAvailable:
       let uploadId = config.uploadIdBase + uint64(index)
       let admitted = episode.admitPlayModule(seat, uploadId,
         config.originGeneration, moduleBytes.rawBytes)
-      result.add(&"FIRST_LIGHT_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
+      result.lines.add(&"FIRST_LIGHT_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
         &"accepted={admitted.accepted} status={admitted.statusBytes}")
     if not episode.compilePlane.drainCompileWorkers():
-      result.add("FIRST_LIGHT_PLAY_COMPILE drained=false")
+      result.lines.add("FIRST_LIGHT_PLAY_COMPILE drained=false")
       return
     var commits = 0
     while commits < config.seats.len:
@@ -573,7 +620,7 @@ when ShellRuntimeAvailable:
         break
       for commit in batch:
         inc commits
-        result.add(&"FIRST_LIGHT_PLAY_COMMIT seat={commit.seat} " &
+        result.lines.add(&"FIRST_LIGHT_PLAY_COMMIT seat={commit.seat} " &
           &"upload_id={commit.uploadId} terminal={commit.terminal} " &
           &"status={commit.statusBytes}")
 
@@ -581,9 +628,15 @@ when ShellRuntimeAvailable:
       let accepted = episode.acceptPlayCall(seat,
         config.proposalIdBase + uint64(seat), config.originGeneration, 0,
         config.callBytes)
-      result.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
+      result.lines.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
         &"epoch={accepted.epoch} reason={accepted.reason} " &
         &"status={accepted.statusBytes}")
+      if accepted.replayIdentity.isSome:
+        result.callIdentities.add accepted.replayIdentity.get
+
+  proc configureFirstLightPlay*(episode: var FirstLightEpisode;
+      config: FirstLightPlayConfig): seq[string] =
+    episode.configureFirstLightPlayWithReplayIdentities(config).lines
 
 else:
   proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
@@ -621,16 +674,28 @@ else:
     @["FIRST_LIGHT_PLAY configured=false reason=runtime_unavailable " &
       "hint=compile with --threads:on and WASMTIME_C_API"]
 
-proc configureFirstLightDemoPlayFromJson*(episode: var FirstLightEpisode;
-    configJson: string; repoRoot = getCurrentDir()): seq[string] =
+  proc configureFirstLightPlayWithReplayIdentities*(
+      episode: var FirstLightEpisode;
+      config: FirstLightPlayConfig): FirstLightPlayConfigResult =
+    result.lines = episode.configureFirstLightPlay(config)
+
+proc configureFirstLightDemoPlayFromJsonWithReplayIdentities*(
+    episode: var FirstLightEpisode; configJson: string;
+    repoRoot = getCurrentDir()): FirstLightPlayConfigResult =
   let node = firstLightPlayNode(configJson)
   if node == nil:
     return
   try:
-    result = episode.configureFirstLightPlay(node.playConfigFromNode(repoRoot))
+    result = episode.configureFirstLightPlayWithReplayIdentities(
+      node.playConfigFromNode(repoRoot))
   except CatchableError as error:
-    result = @["FIRST_LIGHT_PLAY configured=false reason=parse_error detail=" &
+    result.lines = @["FIRST_LIGHT_PLAY configured=false reason=parse_error detail=" &
       error.msg]
+
+proc configureFirstLightDemoPlayFromJson*(episode: var FirstLightEpisode;
+    configJson: string; repoRoot = getCurrentDir()): seq[string] =
+  episode.configureFirstLightDemoPlayFromJsonWithReplayIdentities(
+    configJson, repoRoot).lines
 
 when ShellRuntimeAvailable:
   proc eventIdInt(value: uint64): int =
