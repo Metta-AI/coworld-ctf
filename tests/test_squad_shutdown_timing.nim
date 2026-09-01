@@ -70,8 +70,18 @@ proc ensureServerBinary() =
   )
   doAssert exitCode == 0, "failed to build " & ServerBinaryPath & ":\n" & output
 
-proc connectWithRetry(url: string, deadlineAt: float): whisky.WebSocket =
+proc connectWithRetry(url: string, process: Process,
+                      budgetSeconds = ConnectDeadlineSeconds): whisky.WebSocket =
+  ## Own fresh `budgetSeconds` window per call, not a deadline shared
+  ## across sequential connects (player0/player1/spectator used to split
+  ## one ConnectDeadlineSeconds three ways -- under load, a slow player0
+  ## connect could starve spectator's share to nearly nothing). Fails
+  ## fast if the server process has already exited instead of waiting
+  ## out the full window for a connection that can now never succeed.
+  let deadlineAt = epochTime() + budgetSeconds
   while true:
+    if not process.running:
+      doAssert false, "server process exited before " & url & " could connect"
     try:
       return whisky.newWebSocket(url)
     except CatchableError:
@@ -143,29 +153,52 @@ suite "squad-mode final shutdown closes player sockets promptly (real server)":
     delEnv("COGAME_RESULTS_URI")
 
     try:
-      let connectDeadline = epochTime() + ConnectDeadlineSeconds
       # Two roster seats (matches the config's 2-seat/2-team squad) plus
       # one spectator on the live-broadcast path -- exactly the two
-      # connection classes the fix must treat differently.
+      # connection classes the fix must treat differently. Each gets its
+      # own fresh ConnectDeadlineSeconds budget (see connectWithRetry).
       let player0 = connectWithRetry(
         "ws://127.0.0.1:" & $TestPort & "/player?slot=0&token=t0",
-        connectDeadline
+        serverProcess
       )
       let player1 = connectWithRetry(
         "ws://127.0.0.1:" & $TestPort & "/player?slot=1&token=t1",
-        connectDeadline
+        serverProcess
       )
       let spectator = connectWithRetry(
         "ws://127.0.0.1:" & $TestPort & "/global",
-        connectDeadline
+        serverProcess
       )
 
       # "Results written" proxy: the same file runServerLoop's shutdown
       # path writes synchronously (via COGAME_RESULTS_URI) before the
-      # squadMode grace/close sequence runs.
-      let resultsDeadline = epochTime() + ConnectDeadlineSeconds
-      while not fileExists(resultsPath) and epochTime() < resultsDeadline:
-        sleep(50)
+      # squadMode grace/close sequence runs. HEARTBEAT-RESET, not a flat
+      # deadline: the spectator is already connected to the live-broadcast
+      # path and otherwise idle until Property 3's check far below, so
+      # every frame it receives here is a real, observable progress event
+      # from the same game simulation this loop is waiting on to finish --
+      # reset the no-progress deadline on each one, exactly like #344's
+      # markProgress(), just observed over the wire instead of a shared
+      # atomic (this is a real child process, no shared memory). Also
+      # fails fast if the server process exits before writing results,
+      # instead of waiting out the full window for a file that can now
+      # never appear. Was a flat ConnectDeadlineSeconds (60s) shared with
+      # nothing else timing-sensitive about it; this is the setup/polling
+      # scaffolding, not the certified property (that stays exactly
+      # PromptBoundSeconds, event-anchored, below -- unchanged).
+      var lastProgressAt = epochTime()
+      let stallBudget = ConnectDeadlineSeconds
+      while not fileExists(resultsPath):
+        doAssert serverProcess.running,
+          "server process exited before writing " & resultsPath
+        doAssert epochTime() - lastProgressAt < stallBudget,
+          "no progress for " & $stallBudget &
+          "s waiting for results (server alive, no spectator frames, no file)"
+        try:
+          if spectator.receiveMessage(50).isSome:
+            lastProgressAt = epochTime()
+        except CatchableError:
+          doAssert false, "spectator socket closed before results were written"
       check fileExists(resultsPath)
       let resultsAt = epochTime()
 
