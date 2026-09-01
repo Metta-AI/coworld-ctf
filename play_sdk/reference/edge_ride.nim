@@ -54,11 +54,22 @@ proc inside(rect: SdkRect; x, y: int32): bool =
     y >= rect.rectMinY and y <= rect.rectMaxY
 
 proc insetBounds(lo, hi, margin: int32): tuple[lo, hi: int32] =
-  if hi - lo >= margin * 2:
-    (lo + margin, hi - margin)
-  else:
-    let center = lo + (hi - lo) div 2
-    (center, center)
+  ## The standoff band for one axis: `margin` in from each edge, with the
+  ## margin clamped to a quarter of the span so the band never collapses.
+  ##
+  ## `marginTarget` clamps each seat's own position INTO this band, so a
+  ## zero-width band answers every seat with the same pixel: the squad piles
+  ## onto the rectangle's midpoint, bumps, and jitters. A span shorter than
+  ## `2 * margin` used to collapse outright, and a span just over it collapsed
+  ## in all but name. Late BR rectangles cross both.
+  ##
+  ## Clamping to `span div 4` keeps the band at least half the span wide, so
+  ## seats at distinct positions keep distinct answers and the play degrades
+  ## from "ride the margin" to "hold the middle of the band". Spans with room
+  ## to spare (`span >= margin * 4` — the whole early and mid game) are inset
+  ## by exactly `margin`, as before.
+  let effective = minI(margin, (hi - lo) div 4)
+  (lo + effective, hi - effective)
 
 proc marginTarget(rect: SdkRect; self: SdkPoint; margin: int32):
     tuple[x, y: int32] =
