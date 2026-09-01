@@ -447,6 +447,11 @@ when ShellRuntimeAvailable:
                               frame: FirstLightSeatFrame): string =
     if seatIndex < 0 or seatIndex >= episode.contextRoster.len:
       return "{}"
+    # binary_view.validateContextSource enforces the binary play_context
+    # roster floor of 2..32 rows. One-seat harness episodes cannot encode
+    # that context legally, so give guests the empty context instead.
+    if episode.contextRoster.len < 2:
+      return "{}"
     # The binary play_context contract carries duo_partner exactly in BR.
     # If the body has not observed a real partner yet, omit the context rather
     # than fabricating one.
