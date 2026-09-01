@@ -5,7 +5,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime, events, wire_constants,
+  sim, global, glory, replays, broadcast, replay_runtime, events, wire_constants,
   control, directives, baselines, decide, mux,
   ../shell/[body, body_map, episode, ingress, standing_order, transport],
   ../shell/dispatch, ../shell/packets, ../shell/seats
@@ -2689,6 +2689,26 @@ proc squadAlias(sim: SimServer, order: int): string =
 proc bodyPoint(player: Player): BodyPoint =
   (player.x + CollisionW div 2, player.y + CollisionH div 2)
 
+proc bodyWindup(player: Player): Option[int] =
+  if player.windupBrads >= 0:
+    some(player.windupBrads)
+  else:
+    none(int)
+
+proc bodyVeteranMarker(player: Player): bool =
+  player.level >= AceLevel
+
+proc bodyVisibleWeapon(player: Player): Option[BodyWeapon] =
+  ## Visible player tracks have sim truth. Unknown remains representable as
+  ## `none(BodyWeapon)` for future fog channels; this live visual channel must
+  ## not collapse unknown to gun.
+  if player.arcTicksLeft > 0 or player.hasSprayPaint:
+    some(bwSpray)
+  elif player.hasGrenade:
+    some(bwGrenade)
+  else:
+    some(bwGun)
+
 proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
   let player = sim.players[playerIndex]
   let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
@@ -2697,7 +2717,16 @@ proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
     pos: player.bodyPoint,
     hp: hp,
     hpFrac: float(hp) / float(maxHp + ShieldLayerHp),
+    lives: (if sim.config.brMode: none(int) else: some(player.lives)),
     aimBrads: player.aimBrads,
+    fireCooldown: player.fireCooldown,
+    fireWindup: player.fireWindup,
+    windup: player.bodyWindup,
+    hasGrenade: player.hasGrenade,
+    hasShield: player.hasShield,
+    shieldHp: player.shieldHp,
+    hasSprayPaint: player.hasSprayPaint,
+    arcTicksLeft: player.arcTicksLeft,
     alive: player.alive,
     carrying: player.carryingFlag)
 
@@ -2735,6 +2764,9 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
         # non-visual channels.
         aimBrads: some(target.aimBrads),
         hpKnown: some(target.hp + target.shieldHp),
+        shielded: target.hasShield,
+        weapon: target.bodyVisibleWeapon,
+        veteranMarker: target.bodyVeteranMarker,
         tick: uint32(sim.tickCount + 1)))
 
 proc ticksToNextZoneShrink(sim: SimServer, elapsedTicks: int): int =

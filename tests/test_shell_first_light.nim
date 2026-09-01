@@ -58,7 +58,10 @@ proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
     alive: alive,
     bodyInputs: BodyTickInputs(
       self: BodySelfState(pos: selfPos, hp: hp, hpFrac: hpFrac,
-        aimBrads: seat mod 256, alive: alive, carrying: false),
+        lives: some(1), aimBrads: seat mod 256, fireCooldown: 0,
+        fireWindup: 0, windup: none(int), hasGrenade: false,
+        hasShield: false, shieldHp: 0, hasSprayPaint: false,
+        arcTicksLeft: 0, alive: alive, carrying: false),
       partner: some(PartnerSample(seat: uint8(seat xor 1),
         pos: (20 + seat, 20), alive: true))),
     defaultFallbacks: fallback(map, seat))
@@ -76,6 +79,9 @@ proc rotateFrame(map: BodyMap, seat: int, self, target: BodyPoint,
         team: Blue,
         aimBrads: some(0),
         hpKnown: some(3),
+        shielded: false,
+        weapon: some(bwGun),
+        veteranMarker: false,
         tick: uint32(tick)))
   result.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks
   result.defaultFallbacks.rotateTarget = some(target)
