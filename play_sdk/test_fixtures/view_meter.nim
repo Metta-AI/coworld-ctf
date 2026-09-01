@@ -22,10 +22,13 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
   0
 
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
-  var decoded: SdkView
-  if not readViewInto(view(viewPtr, viewLen), decoded):
+  let checksum = checksumBinaryViewFrame(view(viewPtr, viewLen))
+  if checksum < 0:
     return 1
-  sink += decoded.tick + decoded.epoch + decoded.trackCount +
+  var decoded: SdkView
+  if not readBinaryViewInto(view(viewPtr, viewLen), decoded):
+    return 1
+  sink += checksum + decoded.tick + decoded.epoch + decoded.trackCount +
     decoded.aggressorCount + decoded.killFeedCount
   sink += decoded.self.hp + decoded.self.aimBrads
   sink += decoded.world.aliveTeams + decoded.world.zone.phase +

@@ -6,7 +6,7 @@
 ## manifest probing are worker work.
 
 import core/locks
-import std/[deques, monotimes, options, os, times, tables]
+import std/[algorithm, deques, monotimes, options, os, times, tables]
 import crunchy/[common, sha256]
 
 import manifest, module_cache, module_validation, runtime, types
@@ -283,7 +283,7 @@ proc admitModule*(plane: CompilePlane; seatIndex: int; uploadId: uint64;
   if plane.pendingBytes + bytes.len > MaxPendingCompileBytes:
     inc seat[].uploadsThisTick
     return AdmissionResult(refusal: arPendingBytes)
-  let reservation = bytes.len * CompiledBytesPerRawByte
+  let reservation = compiledReservationBytes(bytes.len)
   if plane.cacheUsed + reservation > MaxCompiledCacheBytes:
     inc seat[].uploadsThisTick
     return AdmissionResult(refusal: arCompiledCache)
@@ -622,6 +622,18 @@ proc commitCompileResults*(plane: CompilePlane;
     inc seat[].nextCommit
     idleScans = 0
 
+proc progressCompileWorkers*(plane: CompilePlane): seq[CompileCommit] =
+  ## Non-blocking live-tick progress: start workers if needed, enqueue
+  ## available work, harvest completed worker results, then perform the
+  ## tick-boundary commit cap. Unlike `drainCompileWorkers`, this never sleeps
+  ## or waits for outstanding work.
+  if plane == nil:
+    return
+  plane.startCompileWorkers()
+  plane.enqueueHashTasks()
+  plane.pollCompileWorkers()
+  plane.commitCompileResults()
+
 proc stageOf*(plane: CompilePlane; uploadIndex: int): UploadStage =
   plane.uploads[uploadIndex].stage
 
@@ -646,3 +658,16 @@ proc boundModule*(plane: CompilePlane; seatIndex: int;
   let content = outcome.get
   some(BoundModule(name: name, hash: hash, manifest: content.manifest,
     module: content.module))
+
+proc boundModules*(plane: CompilePlane; seatIndex: int): seq[BoundModule] =
+  ## Seat-local ready bindings, sorted by name for deterministic callers.
+  if plane == nil or seatIndex < 0 or seatIndex >= plane.seats.len:
+    return
+  var names: seq[string]
+  for name in plane.seats[seatIndex].names.keys:
+    names.add name
+  names.sort()
+  for name in names:
+    let bound = plane.boundModule(seatIndex, name)
+    if bound.isSome:
+      result.add bound.get

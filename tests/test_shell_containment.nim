@@ -130,6 +130,15 @@ proc retuneWaveCount(hostiles: openArray[HostileModule]): int =
       inc result
 
 suite "shell runtime containment":
+  test "calibration probe and scale math are deterministic gate inputs":
+    let probeUs = containmentCalibrationProbeUs()
+    check probeUs > 0.0
+    check probeUs == probeUs
+    check probeUs < 1_000_000.0
+    check containmentCalibrationScale(CalibrationBaselineUs / 2.0) == 1.0
+    check containmentCalibrationScale(CalibrationBaselineUs * 2.5) == 2.5
+    check scaledGateUs(BodyGateUs, 2.5) == BodyGateUs * 2.5
+
   test "terminal status mapping is capped and canonical":
     let longReason = repeat("x", StatusEntryMaxBytes * 2)
     let fault = ShellInvocationResult(kind: ivStep, faulted: true,
@@ -177,6 +186,11 @@ suite "shell runtime containment":
         " control_commits=", wave.controlCommits,
         " control_acks=", wave.controlAcks,
         " call_validation_budget=", wave.callValidationBudget,
+        " calibration_probe_us=", wave.calibrationProbeUs,
+        " calibration_scale=", wave.calibrationScale,
+        " scaled_runtime_gate_us=", wave.scaledRuntimeGateUs,
+        " scaled_body_gate_us=", wave.scaledBodyGateUs,
+        " scaled_control_gate_us=", wave.scaledControlGateUs,
         " max_runtime_us=", wave.maxRuntimeUs,
         " max_body_us=", wave.maxBodyUs,
         " max_control_us=", wave.maxControlUs
@@ -191,10 +205,15 @@ suite "shell runtime containment":
       check wave.controlStatusBytes > 0
       check wave.controlAcks == ControlAckBudget
       check wave.callValidationBudget == ControlCallValidationBudget
+      check wave.calibrationProbeUs == verdict.calibrationProbeUs
+      check wave.calibrationScale == verdict.calibrationScale
+      check wave.scaledRuntimeGateUs == verdict.scaledRuntimeGateUs
+      check wave.scaledBodyGateUs == verdict.scaledBodyGateUs
+      check wave.scaledControlGateUs == verdict.scaledControlGateUs
       when defined(release):
-        check wave.maxRuntimeUs <= RuntimeGateUs
-        check wave.maxBodyUs <= BodyGateUs
-        check wave.maxControlUs <= ControlGateUs
+        check wave.maxRuntimeUs <= wave.scaledRuntimeGateUs
+        check wave.maxBodyUs <= wave.scaledBodyGateUs
+        check wave.maxControlUs <= wave.scaledControlGateUs
 
     let expectedRetuneStatuses = hostiles.retuneWaveCount * MaxPlayers
     echo "SHELL_CONTAINMENT_VERDICT seats=", verdict.seatCount,
@@ -203,6 +222,11 @@ suite "shell runtime containment":
       " play_faulted=", verdict.playFaultedStatuses,
       " retune_refused=", verdict.retuneRefusedStatuses,
       " leaks=", verdict.leakedStores,
+      " calibration_probe_us=", verdict.calibrationProbeUs,
+      " calibration_scale=", verdict.calibrationScale,
+      " scaled_runtime_gate_us=", verdict.scaledRuntimeGateUs,
+      " scaled_body_gate_us=", verdict.scaledBodyGateUs,
+      " scaled_control_gate_us=", verdict.scaledControlGateUs,
       " host_survived=", verdict.hostSurvived,
       " pool_reusable=", verdict.poolReusable,
       " max_runtime_us=", verdict.maxRuntimeUs,
@@ -219,6 +243,11 @@ suite "shell runtime containment":
     check verdict.playFaultedStatuses ==
       verdict.terminalStatuses - expectedRetuneStatuses
     check verdict.leakedStores == 0
+    check verdict.calibrationProbeUs > 0.0
+    check verdict.calibrationScale >= 1.0
+    check verdict.scaledRuntimeGateUs >= RuntimeGateUs
+    check verdict.scaledBodyGateUs >= BodyGateUs
+    check verdict.scaledControlGateUs >= ControlGateUs
     check verdict.hostSurvived
     check verdict.poolReusable
     when defined(release):

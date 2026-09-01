@@ -14,6 +14,17 @@ The build uses the arena recipe minus WASI: imports must live only in the
 `play` namespace. The SDK stubs expose `emit`, `log`, `nearest_reachable`, and
 `nearest_cover`.
 
+`play_step` receives `play_view` as a fixed-layout binary frame. Use the SDK's
+typed binary accessors (`readBinaryViewInto` or the narrower
+`readEdgeRideBinaryViewInto`) instead of parsing JSON. `play_init` and
+`play_retune` params are still canonical JSON today; the SDK keeps a small
+params-only reader for that path until a binary params encoding exists.
+
+Read the sections your play actually needs. A full typed decode of every
+section measures roughly 17-22 fuel per byte, and the all-section reader
+exhausts `StepFuel` near a 4.5 KiB frame. The binary frame makes section access
+cheap; it does not make "decode the whole world every step" cheap.
+
 ## Testing decoders
 
 Decoder tests must anchor on a landed contract artifact: checked-in golden

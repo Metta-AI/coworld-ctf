@@ -1,9 +1,11 @@
 ## CI shard 3 of 4. See shard_1.nim for the sharding rules.
 {.warning[UnusedImport]: off.}
 import
+  test_defect_probe,
   test_artlog,
   test_barriers,
   test_blocked_damage,
+  test_br_map_pool,
   test_br_spawn_points,
   test_dedup_object_placements_perf,
   test_hit_damage,
@@ -12,8 +14,10 @@ import
   test_fast_mode,
   test_first_person_pip,
   test_global_plus_pov,
+  test_glory_lockstep,
   test_gv44_br_rotation,
   test_home_rotation,
+  test_loot_rework,
   test_lull_spans,
   test_mapgen,
   test_player_collision,
@@ -25,8 +29,11 @@ import
   test_shell_dispatch,
   test_shell_seats,
   test_sprite_collisions,
+  test_squad_shutdown_scoping,
+  test_squad_shutdown_timing,
   test_pb_engine,
   test_pb_replay,
   test_pb_startup,
+  test_vote_phase,
   test_zone
 {.warning[UnusedImport]: on.}

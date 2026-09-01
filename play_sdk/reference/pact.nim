@@ -176,7 +176,7 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
 
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var decoded: SdkView
-  if not readViewInto(view(viewPtr, viewLen), decoded):
+  if not readBinaryViewInto(view(viewPtr, viewLen), decoded):
     return 1
 
   if not ended and endConditionReached(decoded):

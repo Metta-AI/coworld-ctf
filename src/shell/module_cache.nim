@@ -6,7 +6,20 @@
 
 import std/[options, tables]
 
-import canonical_fast, manifest, runtime, types
+import std/os
+
+import canonical_fast, manifest, types
+
+const ModuleCacheRuntimeAvailable =
+  compileOption("threads") and static(getEnv("WASMTIME_C_API")).len > 0
+
+when ModuleCacheRuntimeAvailable:
+  import runtime
+else:
+  type RuntimeModule* = ref object
+
+  proc close*(module: RuntimeModule) =
+    discard module
 
 type
   CachedContentState* = enum

@@ -10,11 +10,15 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  0xff7ea386'u32, 0xe7a608d6'u32, 0xcfbc5c15'u32, 0xbc4bbdba'u32,
-  0xb0e53440'u32, 0x64365320'u32, 0x9eef99a4'u32, 0x8e7237dc'u32,
-  0x56d6b747'u32, 0x23906590'u32, 0xb04e9473'u32, 0x81eaef9f'u32,
-  0xa1d457d4'u32, 0x8a5b61a2'u32, 0x4522b04c'u32, 0x8fa035f7'u32,
-  0xee524a7e'u32, 0x65501d0f'u32, 0xe736475e'u32, 0xae0849b1'u32,
+  ## Re-pinned for the corridor68 length-aware pinch gate: 6 of the pool's
+  ## 20 seeds (1004, 1008, 1010, 1015, 1034, 1045) no longer validate on
+  ## their first attempt under it, so `tools/gen_map_pool.nim` re-curated —
+  ## see the PR description for the exact before/after seed lists.
+  0xff7ea386'u32, 0xe7a608d6'u32, 0xbc4bbdba'u32, 0xb0e53440'u32,
+  0x64365320'u32, 0x96a46973'u32, 0x56d6b747'u32, 0x23906590'u32,
+  0x81eaef9f'u32, 0xa1d457d4'u32, 0x8a5b61a2'u32, 0x4522b04c'u32,
+  0x5df535d4'u32, 0x8fa035f7'u32, 0x45d374c2'u32, 0xee524a7e'u32,
+  0xe736475e'u32, 0x019a31ea'u32, 0xa91efd8c'u32, 0x3ff92a02'u32,
 ]
 
 type BaselineRow = object

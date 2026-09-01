@@ -7310,8 +7310,8 @@ const
                              ## meniscus/room-lag split Maxwell ruled on is
                              ## untouched.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
-                             ## arena.nim's MinCorridorWidth (the narrowest
-                             ## built corridor): local flow speed throttles
+                             ## arena.nim's MinPassableWidth (the narrowest
+                             ## passable floor): local flow speed throttles
                              ## toward its floor as clearance shrinks toward
                              ## this, a genuine bottleneck at a real doorway.
   ZoneApertureMinMult = 0.15   ## flow-speed floor at a fully-choked cell —
@@ -7715,25 +7715,16 @@ var
                                       ## same sealed room, marginally less
                                       ## dead" apart).
 
-proc ensureZoneFloorGrid(sim: SimServer) =
-  ## Static per-map coarse floor grid, the D4a fix's foundation: walkability
-  ## comes from sim.walkMask (TRUE collision), never from rendered wall art.
-  ## Cached the same way ensureZoneWallArtMask is (keyed on map dims/center,
-  ## a no-op past the first call for a given map).
-  ensureZoneWallArtMask(sim)
-  let
-    w = sim.gameMap.width
-    h = sim.gameMap.height
-    cx = sim.gameMap.center.x
-    cy = sim.gameMap.center.y
-    key = (w: w, h: h, cx: cx, cy: cy)
-    gw = (w + ZoneFieldCellPx - 1) div ZoneFieldCellPx
-    gh = (h + ZoneFieldCellPx - 1) div ZoneFieldCellPx
-  if key == ZoneFloorGridKey and ZoneFloorWalkable.len == gw * gh:
-    return
-  ZoneFloorGridKey = key
-  ZoneFloorGridW = gw
-  ZoneFloorGridH = gh
+proc buildZoneFloorGrid(sim: SimServer, w, h, gw, gh: int) =
+  ## The rebuild body of ensureZoneFloorGrid, split out so the CACHE-HIT
+  ## path never touches it. This proc contains a nested proc that captures
+  ## `sim`, and Nim populates a nested proc's closure environment at the
+  ## ENCLOSING proc's entry — copying the whole SimServer value object
+  ## (mapRgba, walkMask, fonts: tens of MB on the giant showmatch map, ~30ms
+  ## per call) before any early return could run. Keeping the cache check in
+  ## a proc with no captures (ensureZoneFloorGrid below) makes the hit path
+  ## the O(1) lookup it always claimed to be; this build path pays the copy
+  ## once per map, where it is noise.
   let
     haveWalk = sim.walkMask.len == w * h
     haveWall = sim.wallMask.len == w * h
@@ -8026,6 +8017,30 @@ proc ensureZoneFloorGrid(sim: SimServer) =
       before.writeFile("/tmp/d4-before.png")
       after.writeFile("/tmp/d4-after.png")
       stderr.writeLine("D4 dump: wrote /tmp/d4-before.png and /tmp/d4-after.png")
+
+proc ensureZoneFloorGrid(sim: SimServer) =
+  ## Static per-map coarse floor grid, the D4a fix's foundation: walkability
+  ## comes from sim.walkMask (TRUE collision), never from rendered wall art.
+  ## Cached the same way ensureZoneWallArtMask is (keyed on map dims/center,
+  ## a no-op past the first call for a given map). The rebuild lives in
+  ## buildZoneFloorGrid, and MUST stay there: see its doc for why hoisting
+  ## it back inline would silently turn every cache hit into a full
+  ## SimServer copy.
+  ensureZoneWallArtMask(sim)
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy)
+    gw = (w + ZoneFieldCellPx - 1) div ZoneFieldCellPx
+    gh = (h + ZoneFieldCellPx - 1) div ZoneFieldCellPx
+  if key == ZoneFloorGridKey and ZoneFloorWalkable.len == gw * gh:
+    return
+  ZoneFloorGridKey = key
+  ZoneFloorGridW = gw
+  ZoneFloorGridH = gh
+  buildZoneFloorGrid(sim, w, h, gw, gh)
 
 proc zoneScheduleTotalTicks(sim: SimServer): int =
   ## Sum of every configured phase's wait+shrink — the tick past which the
@@ -8566,6 +8581,23 @@ var
                                  ## the key changes (a fresh episode/map),
                                  ## which is the only time it gets resent.
 
+type ZoneArrivalFieldDebugState* = object
+  built*: bool
+  shipped*: bool
+  gridW*, gridH*: int
+  cells*: int
+
+proc zoneArrivalFieldDebugState*(): ZoneArrivalFieldDebugState =
+  ## Read-only live diagnostic for first-light launcher traces. It reports the
+  ## exact cached field/shipping state owned by addZoneEdgeBand without causing
+  ## the field to build.
+  ZoneArrivalFieldDebugState(
+    built: ZoneArrivalFieldValue.arrival.len > 0,
+    shipped: ZoneArrivalFieldShipped,
+    gridW: ZoneArrivalFieldValue.gridW,
+    gridH: ZoneArrivalFieldValue.gridH,
+    cells: ZoneArrivalFieldValue.arrival.len)
+
 proc ensureZoneArrivalField*(sim: SimServer): bool {.discardable, measure.} =
   ## Builds paintArrivalTick ONCE per episode (the key folds map dims/center,
   ## the drawn zone center, and the zonePhases schedule — any of those
@@ -8856,6 +8888,10 @@ proc addZoneEdgeBand(
       zoneArrivalFieldBytes(ZoneArrivalFieldValue),
       ZoneArrivalFieldLabel, changed = true)
     ZoneArrivalFieldShipped = true
+    if getEnv("FIRST_LIGHT_ZONE_LOG") == "1":
+      stderr.writeLine("FIRST_LIGHT_ZONE_PAINT shipped=true grid=" &
+        $ZoneArrivalFieldValue.gridW & "x" & $ZoneArrivalFieldValue.gridH &
+        " cells=" & $ZoneArrivalFieldValue.arrival.len)
   packet.addSpriteChanged(
     spriteDefs, ZoneClockSpriteId, 1, 1, newRgbaPixels(1, 1),
     ZoneEdgeFxLabelTag & " clock")

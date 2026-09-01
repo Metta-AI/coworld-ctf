@@ -1725,7 +1725,7 @@ not the mechanism.
 | `MaxRouteFieldsPerSeat` / `MaxDuckEntriesPerSeat` (seat-layer caches, section 3.1) | 4 / 256 |
 | `ReflexCandidateSpacingPx` / `ReflexCandidateRadiusPx` / `MaxReflexCandidates` (Appendix R.2's planning primitive) | 16 / 256 / 1089 |
 | `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
-| `MaxBinaryViewFrameBytes` (play-facing fixed-layout binary play-view frame; fuel-derived under the 60%-of-`StepFuel` full-scan rule from `BINARY-VIEW-SPEC.md`) | 8192 |
+| `MaxBinaryViewFrameBytes` (play-facing fixed-layout binary play-view frame; ruled at 8192 after measurement corrected the original full-scan assumption: reference plays must read only needed sections and retain at least 50% of `StepFuel` on populated maximum frames; `edge_ride` measured 3,508 fuel and `pact` 20,117) | 8192 |
 | `MaxBinaryContextBytes` (play-facing fixed-layout binary play-context frame; the 60% rule would allow ~150 KB, the actual context frame is ~140 B, and 8192 is chosen for symmetry with the view cap and bounded-allocation hygiene, not derived) | 8192 |
 | `MaxViewFrameBytes` (JSON socket/replay play-view payload; retained for the canonical JSON copy while the play's fixed-layout binary view frame has its own cap) | 32768 |
 | `MaxContextBytes` (JSON socket/replay play-context payload; no atlas, section 5; retained for the canonical JSON copy under the same socket/replay versus play-binary split) | 65536 |
@@ -1735,8 +1735,9 @@ not the mechanism.
 | `MaxPendingCompileBytes` (server-wide raw bytes admitted but not yet finished; admission backpressures past it) | 8388608 |
 | `MaxCompileCommitsPerTick` (finished results committed per tick boundary, round-robin by seat) | 8 |
 | `MaxCompiledCacheBytes` (server-wide resident compiled-module cache, reserved at admission; provisional until P0 measures expansion) | 268435456 |
-| `CompiledBytesPerRawByte` (reservation bound; held at 8 — the adversarial 65,529-function shape measured 71.9x, so `MaxFunctionsPerModule` below refuses it at validation instead) | 8 |
-| `MaxFunctionsPerModule` (P0, new: §6.2 interface-check cap on defined functions; the lever that keeps the 8x reservation honest) | 4096 |
+| `MinCompiledReservationBytes` (P0 floor for compiled-cache admission reservation) | 524288 |
+| `CompiledBytesPerRawByte` (P0 multiplier for compiled-cache admission reservation; reservation is `max(raw_bytes * 16, 512 KiB)`) | 16 |
+| `MaxFunctionsPerModule` (P0, new: §6.2 interface-check cap on defined functions; one lever that keeps compiled-cache reservation honest) | 4096 |
 | Epoch ticker period / step deadline (guest-code wall-clock backstop only) | 5 ms / 4 epochs |
 | Guest stack (`max_wasm_stack`) | 256 KiB, overflow traps |
 
@@ -1833,12 +1834,12 @@ its reason in `moduleRejected` and nothing later runs.
 5. **Compile** on the compile worker, never on the tick thread. Compiled
    modules are cached per episode by hash, and the cache is accounted
    **by reservation**: admission charges `MaxCompiledCacheBytes` with the
-   module's raw size times `CompiledBytesPerRawByte`, a bound P0
-   establishes from adversarial shapes (provisionally 8); the finished
-   artifact, and the queue slot it waits in before commit, live inside
-   that reservation, which is settled to the measured size at commit and
-   the excess released. An artifact that exceeds its reservation, which
-   the bound is meant to make impossible, is discarded with
+   larger of the module's raw size times `CompiledBytesPerRawByte` and
+   `MinCompiledReservationBytes`; the finished artifact, and the queue slot it
+   waits in before commit, live inside that reservation, which is settled to
+   the measured size at commit and the excess released. An artifact that
+   exceeds its reservation, which the bound is meant to make impossible, is
+   discarded with
    `moduleRejected(cacheFull)` rather than admitted over the cap;
    `MaxPendingCompileBytes` releases at the same commit; a duplicate
    hash refunds both. Because commits happen in `uploadId` order per
@@ -3279,18 +3280,19 @@ current design; everything decided, superseded, or answered lives here.
 - P0's combined measurement (both halves, 2026-08-30) ratified the
   BUDGET RETUNE (James): `MaxActiveOverlays` 4→2, `StepFuel`
   200k→50k, `MaxEmitsPerStep` 4→2, `MaxSpatialCallsPerStep` 8→4,
-  `MaxInitsPerTick` 4→2, `InitFuel` 1M→500k; `CompiledBytesPerRawByte`
-  held at 8 with the new `MaxFunctionsPerModule` (4096) interface cap
-  refusing the 71.9x adversarial shape at its source; §3.3 ruling
-  seven (8-source danger-rebuild cap) folded in; sub-allocations of
+  `MaxInitsPerTick` 4→2, `InitFuel` 1M→500k; the later reservation ruling
+  set compiled-cache admission to `max(raw_bytes * 16, 512 KiB)` with
+  `MaxFunctionsPerModule` (4096) still refusing the 71.9x adversarial shape at
+  its source; §3.3 ruling seven (8-source danger-rebuild cap) folded in;
+  sub-allocations of
   the quarter tick fixed at body ≤5.0 ms / runtime ≤4.0 ms / control
-  plane ≤1.4 ms — with the 32-seat view build+encode COUNTED INSIDE the
-  body's share (it is §5 pipeline work run every tick for the plays;
-  per-seat phasing would break "the view a play reads for tick N is the
-  belief the body executes against at tick N" and is not taken) and,
-  because it measured 5.77 ms alone, P1 carries a ≤2.5 ms/32-seat view
-  build+encode engineering acceptance beside P3's ≤15 µs per emit
-  validation (both are serialization costs, not contracts). All provisional until the freeze: the native gen-5+ x86
+  plane ≤1.4 ms. The view build+encode row charges to the runtime share,
+  because the ladder/guest-invocation caller now invokes it immediately
+  before `play_step`; budgets must mirror the call graph. The measured
+  32-seat binary view encode row is 217 µs/tick, so it fits comfortably
+  inside runtime's 4.0 ms share. Body's 5.0 ms share keeps only genuine
+  body work. P3 still carries the ≤15 µs per-emit validation acceptance
+  beside this row. All provisional until the freeze: the native gen-5+ x86
   run and the quiet-window body pass, after which the frozen values
   get the full cold review and the measured-values write-back.
 - The atlas constants were P0-adjusted (James, 2026-08-30):
@@ -3304,11 +3306,19 @@ current design; everything decided, superseded, or answered lives here.
   minted only on the 16 px candidate grid, the fixed-map golden compares
   against stencil's full atlas filtered to that same grid, and the
   generator census under thinning provides the cap headroom. Reflex
-  worst-case (lane C measured, 32-seat max reflex plan): 10.8 ms-class
-  (9.9-11.1 observed) vs the 4.0 ms runtime share — over budget at
-  freeze. Lever: the §6.1 fully-resolved validator answer table (landed
-  in lane A) replacing per-candidate tie-scan
-  resolution with O(1) lookup; fallback lever: reflex plan caps.
+  worst-case (lane C measured, 32-seat max reflex plan): 10.6-10.8 ms-class
+  vs the 4.0 ms runtime share — over budget at freeze. The earlier
+  hypothesis that this was dominated by per-candidate validator tie-scan
+  resolution is falsified: the §6.1 fully-resolved validator answer table
+  landed, `validateGoal` uses the O(1) lookup, and the row stayed at
+  10,587-10,664 µs. Stage profiling attributes the 34,848-candidate
+  grenade row mainly to scorer-specific grenade fallback work
+  (~5.9 ms / 170 ns per candidate) and option/dedup/resolved-key handling
+  (~2.9 ms / 82 ns per candidate); validation itself is ~0.37 ms /
+  11 ns per candidate. A profiled zone row measured ~6.1 ms total, with
+  `ticksUntilOutside`/zone scorer work ~0.77 ms / 22 ns per candidate.
+  The next lever is therefore scorer/reflex plan caps or the non-validator
+  per-candidate work, not the already-landed validator table.
 - Ruling ten (2026-08-31, lane A) decoupled route-field minting from the
   plan path: plans spend the persisted 256-unit per-tick budget first,
   and a server-wide field minter uses only the leftover budget. The
