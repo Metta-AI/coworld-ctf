@@ -221,6 +221,18 @@ suite "glory: the achievement curriculum":
     # curriculum must be worth less than winning the game outright. That is
     # exactly what "too small to win on" means, and every term comes from the
     # table itself.
+    #
+    # v12 (contract §6, corrected against the port): this NOMINAL form
+    # (every tree, every tier: 8 * 75 = 600) is the design-table CEILING,
+    # not the attainable sweep -- `satisfiedAchievements` (sim.nim) never
+    # reports the five treeMedKit tiers (no `supplyShared` on this port)
+    # nor the tombstoned "Full Kit" (Amendment 1), so the sweep a team can
+    # actually bank is 511. The truthful hard check -- attainable < capture
+    # + wipe, derived from `UnattainableAchievementTiers` at its sim.nim
+    # source -- lives in test_glory_conclusion.nim ("law 3 against the
+    # ATTAINABLE curriculum"), because this module deliberately imports
+    # only the pure pricing table. The ceiling stays asserted here: if even
+    # the ceiling fits under the win, every attainable subset does too.
     var sweep = 0
     for tier in 0 ..< AchievementTiers:
       sweep += tierGlory(tier) * AchievementTrees
@@ -263,7 +275,11 @@ suite "glory: the per-life ladder":
     # life peaks at p50=9 / p90=21 / p99=45 xp.
     check levelForXp(XpPerPickup) == 0             # one pickup is not a star
     check levelForXp(XpPerSteal) >= 1              # a steal is
-    check levelForXp(XpPerCapture + XpPerSteal + XpPerDamage * 3) >= MaxLevel - 2
+    # v12 (contract §5): a capture pays NO xp any more -- the tombstoned
+    # constant must stay exactly zero so the ladder reads it as no progress
+    # at all (the old check here asserted the opposite: 30xp, instant L3).
+    check XpPerCapture == 0
+    check levelForXp(XpPerCapture) == 0            # a capture is the win, not xp
     check levelForXp(60) == MaxLevel               # a legendary life is
 
   test "friendly fire de-levels a cog":

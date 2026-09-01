@@ -321,18 +321,30 @@ const
   Unsatisfied = -2
   NoCog = -1
 
-proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
+proc satisfiedAchievements(sim: SimServer, team: Team,
+                           atConclusion = false): SatisfiedBy =
   ## Pure satisfaction read over engine-truth counters. See glory.nim /
   ## main's own copy of this proc for the full per-tier design rationale;
   ## comments here are trimmed to what changed in the port.
   ##
+  ## `atConclusion` (v12): the conclusion sweep's read. The one tier whose
+  ## requirement is scoped to the WHOLE game -- Clean Sheet, "FULL-GAME zero
+  ## team kills" -- is reported only under this flag: while the game is
+  ## still Playing the fact cannot exist yet, so the per-tick read keeps it
+  ## Unsatisfied BY DESIGN (the same semantics the retired
+  ## `evalCleanSheetAtConclusion` special case enforced by being a separate
+  ## mint site).
+  ##
   ## GLORY-PORT-TODO: `treeMedKit` (all 5 tiers) is OMITTED below, not
   ## faked false -- see `teamConvertedKits`'s comment. Every other tree
   ## ported clean: none of Gun/Spray/Grenade/Shield/Carrier/Defender/Squad
-  ## depend on anything this lineage lacks.
+  ## depend on anything this lineage lacks. (Keep
+  ## `UnattainableAchievementTiers` below in sync with this read: it is the
+  ## budget test's source of truth for which tiers CANNOT mint here.)
   var
     best: SatisfiedBy
     anyCapture = false
+    anyTeamKill = false
     kits = sim.teamConvertedKits(team)
   for tree in Tree:
     for tier in 0 ..< AchievementTiers:
@@ -343,6 +355,7 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     template earn(tr: Tree, ti: int) =
       if best[tr][ti] == Unsatisfied: best[tr][ti] = idx
     if player.captures > 0: anyCapture = true
+    if player.teamKills > 0: anyTeamKill = true
 
     if player.gunKills >= 1:          earn(treeGun, 0)
     if player.gunKills >= 3:          earn(treeGun, 1)
@@ -367,11 +380,19 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
     if player.rescues >= 1:           earn(treeShield, 2)
     if player.secondWind:             earn(treeShield, 3)
 
+    # v12 HEART RECUT (the 2026-08-31 contract table, verbatim): one
+    # terminal capture tier instead of three, a ladder that accumulates
+    # mid-game below it. `capturedOutnumbered`/`capturedFastBreak` are still
+    # PINNED at the capture site (checkWinCondition) but no longer gate any
+    # tier -- they ship as endcard distinctions (`CaptureDistinction`,
+    # glory.nim; `over.distinctions`, broadcast.nim). Delivered (V) on a
+    # game-ENDING capture mints via `evalAchievementsAtConclusion` below.
     if player.contestedSteals >= 1:   earn(treeCarrier, 0)
-    if player.captures >= 1:          earn(treeCarrier, 1)
-    if player.carryKills >= 1:        earn(treeCarrier, 2)
-    if player.capturedOutnumbered:    earn(treeCarrier, 3)
-    if player.capturedFastBreak:      earn(treeCarrier, 4)
+    if player.carryKills >= 1:        earn(treeCarrier, 1)
+    if player.contestedSteals >= 2:   earn(treeCarrier, 2)
+    if player.contestedSteals >= 2 and
+       player.carryKills >= 1:        earn(treeCarrier, 3)
+    if player.captures >= 1:          earn(treeCarrier, 4)
 
     if player.carrierKills >= 1:      earn(treeDefender, 0)
     if player.denials >= 1:           earn(treeDefender, 1)
@@ -383,15 +404,40 @@ proc satisfiedAchievements(sim: SimServer, team: Team): SatisfiedBy =
 
   if kits >= 2:                       best[treeSquad][0] = NoCog
   if kits >= 3:                       best[treeSquad][1] = NoCog
-  # best[treeSquad][2]/[4] (>=4 kits) are UNREACHABLE here -- GLORY-PORT-TODO,
-  # see teamConvertedKits: `kits` tops out at 3 without the medkit leg.
-  # best[treeSquad][3] (Clean Sheet) stays Unsatisfied here BY DESIGN -- see
-  # the proc comment and `evalCleanSheetAtConclusion`.
-  if kits >= 4 and anyCapture:        best[treeSquad][4] = NoCog
+  # best[treeSquad][2] ("Full Kit", 4 of 4 kits) -- v12 TOMBSTONE
+  # (Amendment 1): deliberately zero-claim, no gate line at all. `kits`
+  # hard-caps at KitLegsImplemented (3) without the med leg, and a 3-value
+  # counter cannot carry three thresholds, so I/II keep their gates and III
+  # waits for the med-leg landing (see `KitLegsImplemented`, glory.nim).
+  # best[treeSquad][3] (Clean Sheet) is CONCLUSION-ONLY: a full-game
+  # requirement cannot be satisfied while the game is still running, so the
+  # per-tick read reports it Unsatisfied BY DESIGN and only the
+  # `atConclusion` read below can earn it (v12: the general mechanism that
+  # replaced the `evalCleanSheetAtConclusion` special case).
+  if atConclusion and not anyTeamKill: best[treeSquad][3] = NoCog
+  # Victory Lap -- v12 (Amendment 1): every kit leg this port implements,
+  # converted, plus a capture. Was `kits >= 4`, structurally dead (the cap
+  # above); restore by setting KitLegsImplemented back to 4 when the med
+  # leg lands. On a game-ending capture `anyCapture` pins at the terminal
+  # tick, so this tier's main mint path is the conclusion sweep.
+  if kits >= KitLegsImplemented and anyCapture:
+                                      best[treeSquad][4] = NoCog
 
   if sim.squadVolleyDone[team]:       best[treeShield][4] = NoCog
 
   result = best
+
+const
+  UnattainableAchievementTiers* = [
+    ## v12: the (tree, tier) pairs `satisfiedAchievements` can NEVER report
+    ## on this port, kept adjacent to the proc that makes them true so the
+    ## budget test (test_glory.nim, law 3) asserts against the SOURCE
+    ## instead of restating a number. Two causes, both named above:
+    ## `treeMedKit` is omitted wholesale (no `supplyShared` on this port)
+    ## and "Full Kit" is tombstoned by the same missing leg (Amendment 1).
+    (treeMedKit, 0), (treeMedKit, 1), (treeMedKit, 2), (treeMedKit, 3),
+    (treeMedKit, 4), (treeSquad, 2),
+  ]
 
 proc evalAchievements*(sim: var SimServer, team: Team) =
   ## Poll one team and claim anything newly satisfied, sequential-first.
@@ -424,21 +470,47 @@ proc evalAchievementsAllTeams*(sim: var SimServer) =
             isFirst = untakenAtTickStart[achievementKey(tree, tier)],
             byIndex = sat[team][tree][tier])
 
-proc evalCleanSheetAtConclusion*(sim: var SimServer) =
-  ## Clean Sheet (`treeSquad` tier IV): zero team kills across the WHOLE
-  ## roster for the ENTIRE game, claimable only once the game has actually
-  ## concluded. `satisfiedAchievements` never reports this tier, so this is
-  ## its one and only mint site, called once from `finishGame`.
-  let key = achievementKey(treeSquad, 3)
-  let wasUntaken = not sim.claimedFirst[key]
+proc evalAchievementsAtConclusion*(sim: var SimServer) =
+  ## v12: THE STRUCTURAL CONCLUSION SWEEP (contract §4). One full
+  ## achievement pass -- every team, every tree -- as part of the game-over
+  ## transition, called once from `finishGame` before its draw early-return,
+  ## so it fires on EVERY conclusion (capture, wipe, mutual-wipe draw, time
+  ## limit / BR tiebreak) and never on an aborted game (an abort goes
+  ## through `resetToLobby`, which does not conclude anything -- the same
+  ## scope the retired `evalCleanSheetAtConclusion` had).
+  ##
+  ## Why it exists: the per-tick sweep at the top of `step` runs BEFORE the
+  ## win check, and both Playing-gated eval procs are dead the moment
+  ## `finishGame` flips phase -- so a fact created by the act that ENDS the
+  ## game (the capture's `captures`/`anyCapture`, the final kill's
+  ## counters) could never mint. In Season 2's modes every episode ends on
+  ## a terminal tick (each 2-team capture, BR's last-team-standing), so
+  ## conclusion-time evaluation is the MAIN mint path there, not an edge --
+  ## the decisive claimability experiment (branch
+  ## maxwell/heart-claimability-test) proved the hole; this closes it.
+  ##
+  ## Laws preserved: the first-claim tie is read-every-team-before-any-mint,
+  ## exactly as `evalAchievementsAllTeams` applies it per-tick. A tier the
+  ## last Playing sweep already minted cannot mint again --
+  ## `claimAchievement`'s `claimed[]` early-return dedupes (pinned by
+  ## test_glory_conclusion's double-mint proof). Clean Sheet folds in via
+  ## `satisfiedAchievements`' `atConclusion` read: still never reported
+  ## while Playing, still minted here and only here.
+  if sim.phase != GameOver:
+    return
+  var sat: array[Team, SatisfiedBy]
   for team in sim.teams():
-    var clean = true
-    for player in sim.players:
-      if player.team == team and player.teamKills > 0:
-        clean = false
-        break
-    if clean:
-      sim.claimAchievement(team, treeSquad, 3, isFirst = wasUntaken)
+    sat[team] = sim.satisfiedAchievements(team, atConclusion = true)
+  var untakenAtSweepStart: array[AchievementTrees * AchievementTiers, bool]
+  for key in 0 ..< untakenAtSweepStart.len:
+    untakenAtSweepStart[key] = not sim.claimedFirst[key]
+  for team in sim.teams():
+    for tree in Tree:
+      for tier in 0 ..< AchievementTiers:
+        if sat[team][tree][tier] != Unsatisfied:
+          sim.claimAchievement(team, tree, tier,
+            isFirst = untakenAtSweepStart[achievementKey(tree, tier)],
+            byIndex = sat[team][tree][tier])
 
 proc recordTeamKillRing(sim: var SimServer, team: Team, killerIndex: int) =
   ## v9 (GLORY LAW E3): appends one non-friendly kill to `team`'s small
@@ -1788,6 +1860,14 @@ proc killPlayer*(
            victim.lastDamagedByTick >= 0 and
            sim.tickCount - victim.lastDamagedByTick <= AssistWindowTicks:
           inc sim.players[victimDamager].assists
+          # GLORY v12 FOLD (Amendment 3 Option C): the assist is a PRICED
+          # deed in CTF now -- same facts, same single-slot/window predicate
+          # as the counter line above, credited to the assister (never the
+          # killer, who just banked the kill deed at this same site). The
+          # BR overlay rides increment 2, hence the mode gate.
+          if not sim.config.brMode:
+            sim.awardDeed(killer.team, dAssist, victim.x, victim.y,
+                          byIndex = victimDamager)
         if victim.menacingTick >= 0 and
            sim.tickCount - victim.menacingTick <= RescueWindowTicks:
           let menaced = victim.menacingVictim
@@ -1796,6 +1876,16 @@ proc killPlayer*(
              sim.players[menaced].team == killer.team:
             inc sim.players[killerIndex].rescues
             sim.players[menaced].rescuedTick = sim.tickCount
+            # GLORY v12 FOLD (Amendment 3 Option C): the rescue is a PRICED
+            # deed in CTF now, with ONE deliberate predicate difference
+            # from the counter above: the menaced teammate must be ALIVE at
+            # mint time -- "the whole point is the partner survived" (spec
+            # Part 1). A rescue whose partner already died still counts as
+            # engine telemetry, but it is not the celebrated act. BR rides
+            # increment 2, hence the mode gate.
+            if not sim.config.brMode and sim.players[menaced].alive:
+              sim.awardDeed(killer.team, dRescue, victim.x, victim.y,
+                            byIndex = killerIndex)
         if killer.rescuedTick >= 0 and
            sim.tickCount - killer.rescuedTick <= SecondWindTicks:
           sim.players[killerIndex].secondWind = true
@@ -4102,12 +4192,16 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.isDraw = isDraw
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
-  # GLORY: Clean Sheet (treeSquad tier IV) is a FULL-GAME requirement --
-  # `satisfiedAchievements` never reports it, so this is its one and only
-  # mint site, placed before the `isDraw` early return so it fires on every
-  # conclusion (draw or decisive), matching the achievement's own "the
-  # whole game, however it ended" scope.
-  sim.evalCleanSheetAtConclusion()
+  # GLORY v12: the structural conclusion sweep (contract §4) -- one full
+  # achievement pass over the exact state the game ended on, before any of
+  # the reward/placement bookkeeping below and before the `isDraw` early
+  # return, so it fires on every conclusion (draw or decisive, capture or
+  # wipe or time limit). This is where a game-ENDING act's tiers mint
+  # (Delivered, Victory Lap, the final kill's thresholds) and where Clean
+  # Sheet -- a full-game requirement no Playing-phase read can satisfy --
+  # keeps its "the whole game, however it ended" scope, now via
+  # `satisfiedAchievements`' `atConclusion` read instead of a special case.
+  sim.evalAchievementsAtConclusion()
   if isDraw:
     if timeLimitReached:
       # A time-limit draw is a lose-lose: every player on both teams takes
@@ -4995,8 +5089,10 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
         cy = carrier.y + CollisionH div 2
       if zone.inCaptureZone(cx, cy):
         sim.recordCapture(carrierIndex)
-        # GLORY: capture deed/xp + the "Uphill"/"Fast Break" achievement
-        # pins -- kept at this call site (not inside `recordCapture`
+        # GLORY: capture deed/xp + the "Uphill"/"Fast Break" pins (v12:
+        # endcard DISTINCTIONS now, not ladder gates -- contract §3 keeps
+        # this pin path unchanged; `over.distinctions` in broadcast.nim
+        # reads them at conclusion) -- kept at this call site (not inside `recordCapture`
         # itself) because `roster.nim` cannot see `awardDeed`/`addXp`/
         # `teamAliveCount` (import direction; see `recordCapture`'s own
         # comment). Read/pinned BEFORE the flag-reset mutations a few

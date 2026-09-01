@@ -49,10 +49,11 @@ suite "scoring schema routing":
     # has something nonzero from the ledger to report.
     sim.awardDeed(Red, dHonorableKill, 10, 10)
     sim.finishGame(Red)
-    # Read the ledger AFTER finishGame: finishGame's own conclusion-only
-    # mints (e.g. Clean Sheet, evalCleanSheetAtConclusion) can still add to
-    # it, so the total the results doc must report is whatever the ledger
-    # holds once the match has fully wrapped up, not a snapshot mid-way.
+    # Read the ledger AFTER finishGame: finishGame's own conclusion sweep
+    # (v12, evalAchievementsAtConclusion -- Clean Sheet, Delivered, any
+    # terminal-tick fact) can still add to it, so the total the results doc
+    # must report is whatever the ledger holds once the match has fully
+    # wrapped up, not a snapshot mid-way.
     let redGlory = sim.teamGlory[Red]
     check redGlory > 0  # sanity: this scenario actually minted something.
 

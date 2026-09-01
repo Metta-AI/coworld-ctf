@@ -1100,6 +1100,32 @@ proc buildStateJson*(
           "slot": claim.slot
         })
       state["over"]["achievements"] = feed
+    # GLORY v12 (contract §3): capture DISTINCTIONS -- "Uphill" and "Fast
+    # Break" moved off the Heart ladder and onto the match record. The
+    # engine still pins `capturedOutnumbered`/`capturedFastBreak` at the
+    # capture site (checkWinCondition); this block just ships the pins so
+    # the endcard can render the distinction line(s). Display only: no
+    # glory, no claim, no heat -- which is why these ride their own key and
+    # not the achievements feed above. Omit-when-absent, like every other
+    # conditional key on this frame. Shape per entry:
+    #   { team, slot (joinOrder, same seat space as the feed's "slot"),
+    #     name, desc }
+    var distinctions = newJArray()
+    for i in 0 ..< sim.players.len:
+      for distinction in CaptureDistinction:
+        let pinned =
+          case distinction
+          of cdUphill: sim.players[i].capturedOutnumbered
+          of cdFastBreak: sim.players[i].capturedFastBreak
+        if pinned:
+          distinctions.add(%*{
+            "team": teamText(sim.players[i].team),
+            "slot": sim.players[i].joinOrder,
+            "name": captureDistinctionName(distinction),
+            "desc": captureDistinctionDescription(distinction)
+          })
+    if distinctions.len > 0:
+      state["over"]["distinctions"] = distinctions
     if not sim.gameMap.flagless:
       state["over"]["redProg"] = %sim.teamFlagProgress(Red)
       state["over"]["blueProg"] = %sim.teamFlagProgress(Blue)

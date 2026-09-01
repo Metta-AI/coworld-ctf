@@ -2473,11 +2473,14 @@ type
                                ## reachable on real BR maps.
     capturedOutnumbered*: bool ## GLORY: true once a capture has landed
                                ## while this cog's team was strictly behind
-                               ## on live bodies (the `Uphill` gate).
-                               ## Flag-keyed (needs a capture).
+                               ## on live bodies (v12: the `Uphill` ENDCARD
+                               ## DISTINCTION, `cdUphill` -- no longer a
+                               ## ladder gate). Flag-keyed (needs a capture).
     capturedFastBreak*: bool   ## GLORY: true once a capture has landed
                                ## within `FastBreakTicks` of this life's own
-                               ## steal (the `Fast Break` gate). Flag-keyed.
+                               ## steal (v12: the `Fast Break` ENDCARD
+                               ## DISTINCTION, `cdFastBreak` -- no longer a
+                               ## ladder gate). Flag-keyed.
     lastDamagedBy*: int        ## GLORY: index of the last ENEMY whose hit
                                ## left this cog ALIVE -- set at every
                                ## enemy-damage application, but never by a
