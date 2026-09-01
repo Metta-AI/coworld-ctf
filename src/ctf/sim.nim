@@ -900,7 +900,40 @@ proc resetMedKits*(sim: var SimServer) =
       (MapWidth div 2, MapHeight div 3),
       (MapWidth div 2, 2 * MapHeight div 3),
     ]
+  # LOOT(s2): medKitCount caps the placed kits — -1 (default) is the
+  # pre-existing full-set path bit-for-bit, 0 places none (the
+  # bandage-instead-of-medkit test arm), N keeps the map's first N points.
+  if sim.config.medKitCount >= 0 and targets.len > sim.config.medKitCount:
+    targets.setLen(sim.config.medKitCount)
   sim.placeWalkablePickups(medKitSpawns, targets)
+
+proc resetBandages*(sim: var SimServer) =
+  ## LOOT(s2): places `config.bandagePickups` bandage pickups at the map's
+  ## med-kit points (active spawns first, then the drawn candidates,
+  ## cycling when the knob exceeds the points), nudged to walkable floor
+  ## like every pickup family. Reuses the med-kit geometry on purpose: those
+  ## points already passed the map's item-fairness reasoning, and the
+  ## intended test arm swaps kits OUT for bandages (medKitCount: 0), so the
+  ## bandages inherit exactly the fairness the kits vacated. Empties the
+  ## family outright when the knob is 0 — the dark default — so no dark
+  ## surface (broadcast lists included) ever sees one.
+  if sim.config.bandagePickups <= 0 or sim.paintballLoadout():
+    sim.bandageSpawns.setLen(0)
+    return
+  var base: seq[tuple[x, y: int]]
+  for point in sim.gameMap.medKitSpawns:
+    base.add((point.x, point.y))
+  for point in sim.gameMap.medKitCandidates:
+    base.add((point.x, point.y))
+  if base.len == 0:
+    base = @[
+      (MapWidth div 2, MapHeight div 3),
+      (MapWidth div 2, 2 * MapHeight div 3),
+    ]
+  var targets: seq[tuple[x, y: int]]
+  for k in 0 ..< sim.config.bandagePickups:
+    targets.add(base[k mod base.len])
+  sim.placeWalkablePickups(bandageSpawns, targets)
 
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
@@ -1186,6 +1219,9 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].assassinKills = 0
     sim.players[i].blastsSurvived = 0
     sim.players[i].zoneOutsideTicks = 0
+    # LOOT(s2): per-game bandage state (dark games never read either).
+    sim.players[i].bandages = 0
+    sim.players[i].lastDamageTick = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
@@ -1195,6 +1231,9 @@ proc startGame*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
+  # LOOT(s2): fresh bandages per game — a no-op (empty family) on a dark
+  # config.
+  sim.resetBandages()
   sim.resetZone()
   # Paintball: the can is issued for good, the hearts leave play, and the
   # floor starts clean. Each GAME of the episode is an independent board.
@@ -2032,6 +2071,12 @@ proc absorbDamage*(
   ## shot. Spray never qualifies, and neither does a teammate.
   let hpBefore = sim.players[targetIndex].hp
   inc sim.players[targetIndex].damageTaken, amount
+  # LOOT(s2): the bandage calm clock — a bandage self-applies only after
+  # BandageApplyTicks without taking damage (updateBandageApplies). Stamped
+  # only while the bandage mechanism is armed, so a dark game's field never
+  # leaves 0.
+  if sim.config.bandagePickups > 0 and amount > 0:
+    sim.players[targetIndex].lastDamageTick = sim.tickCount
   var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
     if attackerIndex < 32:
@@ -3333,6 +3378,65 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
     sim.logGameEvent(
       playerColorText(sim.players[playerIndex].color) &
         " picked up a med kit"
+    )
+
+proc updateBandages*(sim: var SimServer) =
+  ## LOOT(s2): refills taken bandage pickups whose respawn timer elapsed —
+  ## the med-kit cadence. A no-op on a dark game (empty family).
+  sim.refillElapsedPickups(bandageSpawns)
+
+proc tryPickupBandages*(sim: var SimServer, playerIndex: int) =
+  ## LOOT(s2): lets a living cog pocket a bandage by touch, up to
+  ## BandageCarryCap. A full pocket walks over the spawn untouched (the
+  ## med-kit "never wasted" rule); a taken bandage refills after
+  ## MedKitRespawnTicks. The pocket is the inventory: the heal itself is
+  ## deferred to updateBandageApplies' calm-window rule.
+  if sim.config.bandagePickups <= 0:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  if sim.players[playerIndex].bandages >= BandageCarryCap:
+    return
+  sim.pickupByTouch(playerIndex, bandageSpawns, BandagePickupRange,
+      MedKitRespawnTicks):
+    inc sim.players[playerIndex].bandages
+    sim.emitPickup(playerIndex, "bandage", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " pocketed a bandage"
+    )
+
+proc updateBandageApplies*(sim: var SimServer) =
+  ## LOOT(s2): one tick of bandage self-application: a hurt, upright cog
+  ## carrying a bandage that has gone BandageApplyTicks without taking any
+  ## damage applies one (+1 hp, capped at the seat's max) — and the calm
+  ## clock restarts, so a stack applies one bandage per calm window, never
+  ## all at once. Tick-based and RNG-free; a no-op unless bandagePickups
+  ## armed.
+  if sim.config.bandagePickups <= 0 or sim.phase != Playing:
+    return
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive or sim.players[i].downed:
+      continue
+    if sim.players[i].bandages <= 0:
+      continue
+    let maxHp = sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+    if sim.players[i].hp >= maxHp:
+      continue
+    if sim.tickCount - sim.players[i].lastDamageTick < BandageApplyTicks:
+      continue
+    dec sim.players[i].bandages
+    inc sim.players[i].hp
+    # Restart the calm window: the NEXT bandage needs its own quiet spell.
+    sim.players[i].lastDamageTick = sim.tickCount
+    sim.emitEvent(
+      Heal, source = i, weapon = "bandage", amount = 1,
+      hp = sim.players[i].hp,
+      x = float(sim.players[i].x + CollisionW div 2),
+      y = float(sim.players[i].y + CollisionH div 2)
+    )
+    sim.logGameEvent(
+      playerColorText(sim.players[i].color) & " applied a bandage"
     )
 
 proc updateShields*(sim: var SimServer) =
@@ -5664,6 +5768,8 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetShields()
   result.resetSprayPaints()
   result.resetBarriers()
+  # LOOT(s2): a no-op (empty family) on a dark config.
+  result.resetBandages()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -5699,6 +5805,8 @@ proc resetToLobby*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
+  # LOOT(s2): a no-op (empty family) on a dark config.
+  sim.resetBandages()
   sim.recentBlasts = @[]
   sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
@@ -6249,6 +6357,8 @@ proc step*(
     sim.updateShields()
     sim.updateSprayPaints()
     sim.updateBarriers()
+    # LOOT(s2): bandage refill — a no-op (empty family) on a dark config.
+    sim.updateBandages()
 
     for playerIndex in 0 ..< sim.players.len:
       sim.tryPickupFlags(playerIndex)
@@ -6257,7 +6367,13 @@ proc step*(
       sim.tryPickupShields(playerIndex)
       sim.tryPickupSprayPaints(playerIndex)
       sim.tryPickupBarriers(playerIndex)
+      # LOOT(s2): config-gated at the proc head; a no-op when dark.
+      sim.tryPickupBandages(playerIndex)
     sim.updateFlags()
+    # LOOT(s2): bandage self-application, after pickups so a bandage
+    # pocketed this tick still waits out its own calm window. Config-gated
+    # at the proc head; a no-op when dark.
+    sim.updateBandageApplies()
   sim.respawnPlayers()
   sim.armSprayCans()          ## a respawned cog comes back holding its can.
   sim.updatePackTicks()

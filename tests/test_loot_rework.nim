@@ -155,3 +155,74 @@ suite "row 1 — hitPoints is a LIVE lever under brMode":
     check defaultGameConfig().hitPoints == 3
     let sim = startedGame(defaultGameConfig(), 2)
     check sim.players[0].hp == 3
+
+suite "row 2 — med-kit cap and carryable bandages":
+  test "medKitCount 0 empties the kit family; -1 keeps the map's own set":
+    var config = brConfig()
+    config.medKitCount = 0
+    let sim = startedGame(config, 2)
+    check sim.medKitSpawns.len == 0
+    let dark = startedGame(brConfig(), 2)
+    check dark.medKitSpawns.len > 0
+
+  test "bandage spawns place only when armed and are picked up by touch":
+    let dark = startedGame(brConfig(), 2)
+    check dark.bandageSpawns.len == 0
+    var config = brConfig()
+    config.medKitCount = 0       # the ruled test arm: bandages INSTEAD of kits
+    config.bandagePickups = 3
+    var sim = startedGame(config, 2)
+    check sim.bandageSpawns.len == 3
+    sim.centerOn(0, sim.bandageSpawns[0].x, sim.bandageSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.players[0].bandages == 1
+    check not sim.bandageSpawns[0].present
+    let picks = sim.eventsOf(Pickup)
+    check picks.len >= 1
+    check picks[^1].item == "bandage"
+
+  test "the pocket caps at BandageCarryCap":
+    var config = brConfig()
+    config.medKitCount = 0
+    config.bandagePickups = 3
+    var sim = startedGame(config, 2)
+    sim.players[0].bandages = BandageCarryCap
+    sim.centerOn(0, sim.bandageSpawns[0].x, sim.bandageSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.players[0].bandages == BandageCarryCap
+    check sim.bandageSpawns[0].present
+
+  test "a bandage self-applies +1 hp after the calm window, one per window":
+    var config = brConfig()
+    config.medKitCount = 0
+    config.bandagePickups = 3
+    var sim = startedGame(config, 2)
+    sim.players[0].hp = 1
+    sim.players[0].bandages = 2
+    # Mid-combat (fresh damage stamp): no heal yet.
+    sim.players[0].lastDamageTick = sim.tickCount
+    sim.stepIdle(1)
+    check sim.players[0].hp == 1
+    # Calm window elapsed: exactly ONE bandage applies.
+    sim.players[0].lastDamageTick = sim.tickCount - BandageApplyTicks
+    sim.stepIdle(1)
+    check sim.players[0].hp == 2
+    check sim.players[0].bandages == 1
+    # The clock restarted: the second bandage waits its own window out.
+    sim.stepIdle(1)
+    check sim.players[0].hp == 2
+    let heals = sim.eventsOf(Heal)
+    check heals.len == 1
+    check heals[0].weapon == "bandage"
+    check heals[0].amount == 1
+
+  test "a bandage never lifts hp above the seat's max":
+    var config = brConfig()
+    config.medKitCount = 0
+    config.bandagePickups = 1
+    var sim = startedGame(config, 2)
+    sim.players[0].bandages = 1
+    sim.players[0].lastDamageTick = sim.tickCount - BandageApplyTicks
+    sim.stepIdle(1)
+    check sim.players[0].hp == 3          # untouched: already at max
+    check sim.players[0].bandages == 1    # not consumed
