@@ -189,6 +189,43 @@ integration base** for the shell work now. The dark landing claimed no
 GameVersion (GV47 stands); GV48 is reserved for Maxwell's glory
 increment 3.
 
+## Build shapes
+
+Two compile shapes are supported, and the toolchain alone selects between
+them:
+
+- **Runtime-linked:** build with `--threads:on` and `WASMTIME_C_API` set. This
+  is the production shape used by CI shards and shipped images; it links the
+  WebAssembly runtime.
+- **Runtime-stub:** build with `WASMTIME_C_API` absent. The full server,
+  including `src/ctf.nim`, must still compile. Play-seat machinery remains
+  present but returns visible `runtimeUnavailable` refusals through the
+  episode's non-runtime overloads and module cache's stub `RuntimeModule`.
+
+The runtime-stub shape keeps tools and development machines without the
+Wasmtime toolchain buildable. It also protects a load-bearing conditional
+import boundary: the P5B4 regression passed locally wherever the runtime
+environment was already present, while the stub shape had silently stopped
+compiling. `season2Shell` is runtime configuration and is orthogonal to these
+compile shapes; do not call them gate-on or gate-off builds.
+
+Any change to the `src/shell` import graph must check both shapes against the
+server entrypoint:
+
+```sh
+# Runtime-linked: set WASMTIME_C_API (and the platform's SDK paths) first.
+nim check -d:noSignalHandler --threads:on src/ctf.nim
+
+# Runtime-stub: explicitly remove WASMTIME_C_API.
+env -u WASMTIME_C_API nim check -d:noSignalHandler --threads:on src/ctf.nim
+```
+
+Open question, routed to the PM rather than for local implementation: should a
+live play-seat config on a runtime-stub binary refuse at boot, like the
+deprecated-mode gate, instead of serving default-fallback episodes? Today a
+production pod missing the baked runtime degrades visibly per seat but does not
+refuse the game.
+
 ## Interaction radii must be derived from the art (learned 3x on the heart)
 
 An interactable's SIM radius and its DRAWN size are two numbers in two

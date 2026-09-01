@@ -107,6 +107,11 @@ jobs:
       # check` before either test could run), which is why this PR's own
       # CI run surfaced all three at once.
       - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
+      # See AGENTS.md "Build shapes": the full server must compile without Wasmtime.
+      - name: nim check (runtime-stub shape)
+        env:
+          WASMTIME_C_API: ""
+        run: nim check -d:noSignalHandler --threads:on src/ctf.nim
       # -d:useMalloc routes Nim's own allocator through the system allocator
       # instead of Nim's thread-local free-list allocator. This is not a
       # style choice: guzba/mummy (the pinned WebSocket server both the
