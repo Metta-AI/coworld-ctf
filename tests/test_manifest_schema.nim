@@ -226,11 +226,20 @@ suite "league manifest config_schema vs GameConfig":
       if variant["game_config"].hasKey("aimTurnRate"):
         check variant["game_config"]["aimTurnRate"].getInt == expected
 
-  test "published manifest is Season 2 only and archive preserves nine ids":
+  test "published manifest leads with Season 2 and archive preserves nine ids":
+    ## TEMPORARY UNION: canonicalization refuses a manifest that strands a
+    ## league (HTTP 409, "existing Leagues are incompatible"), and the Elite
+    ## Paintbot league still references classic variants. The archived
+    ## variants therefore stay re-published BEHIND battle-royale-s2 until
+    ## every league migrates; the engine's allowDeprecatedModes boot refusal
+    ## still governs what can actually run live. Restore the s2-only pin
+    ## when the last legacy league reference is gone.
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
-    check variantIds == @["battle-royale-s2"]
+    check variantIds == @["battle-royale-s2", "2v2", "4ffa", "4ffa8",
+      "default", "1v1", "ctf-default", "ctf-1v1", "paintball",
+      "battle-royale"]
     variantIds.setLen(0)
     for variant in parseFile(GameDir / ArchiveName)["variants"]:
       variantIds.add variant["id"].getStr()
