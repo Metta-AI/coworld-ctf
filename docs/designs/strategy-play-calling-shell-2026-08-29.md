@@ -1735,8 +1735,9 @@ not the mechanism.
 | `MaxPendingCompileBytes` (server-wide raw bytes admitted but not yet finished; admission backpressures past it) | 8388608 |
 | `MaxCompileCommitsPerTick` (finished results committed per tick boundary, round-robin by seat) | 8 |
 | `MaxCompiledCacheBytes` (server-wide resident compiled-module cache, reserved at admission; provisional until P0 measures expansion) | 268435456 |
-| `CompiledBytesPerRawByte` (reservation bound; held at 8 — the adversarial 65,529-function shape measured 71.9x, so `MaxFunctionsPerModule` below refuses it at validation instead) | 8 |
-| `MaxFunctionsPerModule` (P0, new: §6.2 interface-check cap on defined functions; the lever that keeps the 8x reservation honest) | 4096 |
+| `MinCompiledReservationBytes` (P0 floor for compiled-cache admission reservation) | 524288 |
+| `CompiledBytesPerRawByte` (P0 multiplier for compiled-cache admission reservation; reservation is `max(raw_bytes * 16, 512 KiB)`) | 16 |
+| `MaxFunctionsPerModule` (P0, new: §6.2 interface-check cap on defined functions; one lever that keeps compiled-cache reservation honest) | 4096 |
 | Epoch ticker period / step deadline (guest-code wall-clock backstop only) | 5 ms / 4 epochs |
 | Guest stack (`max_wasm_stack`) | 256 KiB, overflow traps |
 
@@ -1833,12 +1834,12 @@ its reason in `moduleRejected` and nothing later runs.
 5. **Compile** on the compile worker, never on the tick thread. Compiled
    modules are cached per episode by hash, and the cache is accounted
    **by reservation**: admission charges `MaxCompiledCacheBytes` with the
-   module's raw size times `CompiledBytesPerRawByte`, a bound P0
-   establishes from adversarial shapes (provisionally 8); the finished
-   artifact, and the queue slot it waits in before commit, live inside
-   that reservation, which is settled to the measured size at commit and
-   the excess released. An artifact that exceeds its reservation, which
-   the bound is meant to make impossible, is discarded with
+   larger of the module's raw size times `CompiledBytesPerRawByte` and
+   `MinCompiledReservationBytes`; the finished artifact, and the queue slot it
+   waits in before commit, live inside that reservation, which is settled to
+   the measured size at commit and the excess released. An artifact that
+   exceeds its reservation, which the bound is meant to make impossible, is
+   discarded with
    `moduleRejected(cacheFull)` rather than admitted over the cap;
    `MaxPendingCompileBytes` releases at the same commit; a duplicate
    hash refunds both. Because commits happen in `uploadId` order per
@@ -3279,10 +3280,11 @@ current design; everything decided, superseded, or answered lives here.
 - P0's combined measurement (both halves, 2026-08-30) ratified the
   BUDGET RETUNE (James): `MaxActiveOverlays` 4→2, `StepFuel`
   200k→50k, `MaxEmitsPerStep` 4→2, `MaxSpatialCallsPerStep` 8→4,
-  `MaxInitsPerTick` 4→2, `InitFuel` 1M→500k; `CompiledBytesPerRawByte`
-  held at 8 with the new `MaxFunctionsPerModule` (4096) interface cap
-  refusing the 71.9x adversarial shape at its source; §3.3 ruling
-  seven (8-source danger-rebuild cap) folded in; sub-allocations of
+  `MaxInitsPerTick` 4→2, `InitFuel` 1M→500k; the later reservation ruling
+  set compiled-cache admission to `max(raw_bytes * 16, 512 KiB)` with
+  `MaxFunctionsPerModule` (4096) still refusing the 71.9x adversarial shape at
+  its source; §3.3 ruling seven (8-source danger-rebuild cap) folded in;
+  sub-allocations of
   the quarter tick fixed at body ≤5.0 ms / runtime ≤4.0 ms / control
   plane ≤1.4 ms — with the 32-seat view build+encode COUNTED INSIDE the
   body's share (it is §5 pipeline work run every tick for the plays;

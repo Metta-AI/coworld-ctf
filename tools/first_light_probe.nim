@@ -8,6 +8,9 @@ import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
   episode, standing_order]
 
+when ShellRuntimeAvailable:
+  import ../src/shell/[module_validation, runtime, types]
+
 const
   Seats = 32
   WarmTicks = 30
@@ -55,8 +58,11 @@ proc frame(tick, seat: int, map: BodyMap,
            positions: array[Seats, BodyPoint]): FirstLightSeatFrame =
   let self = positions[seat]
   var input = BodyTickInputs(
-    self: BodySelfState(pos: self, hpFrac: 1.0,
-      aimBrads: seat * 7 mod 256, alive: true, carrying: false),
+    self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
+      lives: some(1), aimBrads: seat * 7 mod 256, fireCooldown: 0,
+      fireWindup: 0, windup: none(int), hasGrenade: false,
+      hasShield: false, shieldHp: 0, hasSprayPaint: false,
+      arcTicksLeft: 0, alive: true, carrying: false),
     partner: some(PartnerSample(seat: uint8(seat xor 1),
       pos: (120 + seat, 120), aimBrads: seat * 11 mod 256,
       alive: true)))
@@ -74,6 +80,7 @@ proc frame(tick, seat: int, map: BodyMap,
   elif tick <= 200:
     input.visibleTracks = @[BodyTrackUpdate(seat: 31 - seat,
       pos: (500, 500), team: Blue, aimBrads: some(0), hpKnown: some(3),
+      shielded: false, weapon: some(bwGun), veteranMarker: false,
       tick: uint32(tick))]
     fallback.coverGoal = some(map.validateGoal((200 + seat, 250), self).get)
   else:
@@ -103,8 +110,11 @@ proc movementFrame(map: BodyMap, seat: int,
     playing: true,
     alive: true,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: self, hpFrac: 1.0,
-        aimBrads: seat mod 256, alive: true, carrying: false),
+      self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
+        lives: some(1), aimBrads: seat mod 256, fireCooldown: 0,
+        fireWindup: 0, windup: none(int), hasGrenade: false,
+        hasShield: false, shieldHp: 0, hasSprayPaint: false,
+        arcTicksLeft: 0, alive: true, carrying: false),
       partner: some(PartnerSample(seat: uint8(seat xor 1),
         pos: (20 + seat, 20), alive: true))),
     defaultFallbacks: BrDefaultFallbacks(
@@ -130,8 +140,11 @@ proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
     playing: true,
     alive: true,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: self, hpFrac: 1.0,
-        aimBrads: 0, alive: true, carrying: false)),
+      self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
+        lives: some(1), aimBrads: 0, fireCooldown: 0, fireWindup: 0,
+        windup: none(int), hasGrenade: false, hasShield: false,
+        shieldHp: 0, hasSprayPaint: false, arcTicksLeft: 0,
+        alive: true, carrying: false)),
     defaultFallbacks: BrDefaultFallbacks(
       currentZone: MapRect(x: 0, y: 0, w: 384, h: 160),
       nextZone: MapRect(x: 0, y: 0, w: 384, h: 160),
@@ -148,6 +161,9 @@ proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
         team: Blue,
         aimBrads: some(0),
         hpKnown: some(3),
+        shielded: false,
+        weapon: some(bwGun),
+        veteranMarker: false,
         tick: uint32(tick)))
 
 proc applyMask(pos: var BodyPoint, input: InputState) =
@@ -199,6 +215,48 @@ proc configureAllSeatEdgeRide(episode: var FirstLightEpisode) =
       originGeneration: 1)):
     echo line
 
+when ShellRuntimeAvailable:
+  proc readBytes(path: string): seq[byte] =
+    let text = readFile(path)
+    result = newSeq[byte](text.len)
+    if text.len > 0:
+      copyMem(addr result[0], unsafeAddr text[0], text.len)
+
+  proc printModuleSize(engine: RuntimeEngine; label, path: string): bool =
+    if not fileExists(path):
+      echo &"SHELL_MODULE_SIZE target={runtimeTarget()} play={label} " &
+        &"path={path} available=false"
+      return
+    let bytes = readBytes(path)
+    var outcome = engine.validateUploadedModule(bytes)
+    defer: outcome.close()
+    let reservation = compiledReservationBytes(bytes.len)
+    if not outcome.accepted:
+      echo &"SHELL_MODULE_SIZE target={runtimeTarget()} play={label} " &
+        &"raw_bytes={bytes.len} reservation_bytes={reservation} " &
+        &"accepted=false reason={outcome.reason} detail={outcome.detail}"
+      return
+    let serialized = outcome.module.serializedModuleBytes()
+    let ratio = serialized.float / bytes.len.float
+    result = serialized <= reservation
+    echo &"SHELL_MODULE_SIZE target={runtimeTarget()} play={label} " &
+      &"raw_bytes={bytes.len} serialized_bytes={serialized} " &
+      &"reservation_bytes={reservation} ratio={ratio:.6f} accepted=true " &
+      &"over_reservation={serialized > reservation}"
+
+  proc moduleSizeProof(): bool =
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    echo "SHELL_RUNTIME_MANIFEST ", runtimeManifest()
+    result = true
+    result = engine.printModuleSize("hello_play",
+      repoRoot() / "play_sdk" / ".build" / "hello_play.wasm") and result
+    result = engine.printModuleSize("edge_ride",
+      repoRoot() / "play_sdk" / ".build" / "edge_ride.wasm") and result
+
+else:
+  proc moduleSizeProof(): bool = true
+
 proc dangerProof() =
   let map = dangerProbeMap()
   let start: BodyPoint = (32, 80)
@@ -247,6 +305,7 @@ proc main() =
     &"uploads={inventory.uploads} calls={inventory.calls} " &
     &"stores={inventory.stores} ladder={inventory.ladder} " &
     "executor=lane-a-fl-b"
+  let moduleSizePass = moduleSizeProof()
 
   var telemetry = initFirstLightEpisode(true, true, controls(), map, 331)
   telemetry.configureDemoPlay()
@@ -315,7 +374,7 @@ proc main() =
     &"p95_us={runtime.percentile(95, 100).float / 1000.0:.3f} " &
     &"max_us={runtime[^1].float / 1000.0:.3f} gate_us=4000.000 " &
     (if runtimePass: "verdict=PASS" else: "verdict=FAIL")
-  if not bodyPass or not runtimePass:
+  if not moduleSizePass or not bodyPass or not runtimePass:
     quit(1)
 
 main()

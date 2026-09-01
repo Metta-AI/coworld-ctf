@@ -100,7 +100,10 @@ suite "shell compile plane":
       "{\"gen\":\"7\",\"kind\":\"module_accepted\",\"ordinal\":\"1\",\"upload_id\":\"1\"}"
     let snap = plane.snapshot()
     check snap.pendingBytes == 4
-    check snap.compiledReservedBytes == 4 * CompiledBytesPerRawByte
+    check snap.compiledReservedBytes == MinCompiledReservationBytes
+    check compiledReservationBytes(4) == MinCompiledReservationBytes
+    check compiledReservationBytes(MaxModuleBytes) ==
+      MaxModuleBytes * CompiledBytesPerRawByte
     check snap.perSeatChargedModules[0] == 1
     check snap.perSeatChargedBytes[0] == 4
     check plane.admitModule(0, 2, 7, @[byte 9]).refusal == arTickUploadLimit
@@ -301,14 +304,16 @@ suite "shell compile plane":
     for seat in 0 ..< 3:
       discard plane.admitOne(seat, 1, 10)
     let work = plane.dispatchAvailable()
-    plane.finishFake(work[0], hex('1'), "minus", 79)
-    plane.finishFake(work[1], hex('2'), "at", 80)
+    plane.finishFake(work[0], hex('1'), "minus",
+      MinCompiledReservationBytes - 1)
+    plane.finishFake(work[1], hex('2'), "at", MinCompiledReservationBytes)
     let commits = plane.commitCompileResults()
     check commits.len == 2
     check commits[0].terminal == tkReady
     check commits[1].terminal == tkReady
     let more = plane.dispatchAvailable()
-    plane.finishFake(more[0], hex('3'), "over", 81)
+    plane.finishFake(more[0], hex('3'), "over",
+      MinCompiledReservationBytes + 1)
     let over = plane.commitCompileResults()
     check over.len == 1
     check over[0].terminal == tkRejected

@@ -48,6 +48,8 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
 proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
            playing = true): FirstLightSeatFrame =
   let selfPos = if pos == (0, 0): (10 + seat, 10) else: pos
+  let hp = if alive: 4 else: 0
+  let hpFrac = if alive: 1.0 else: 0.0
   FirstLightSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
@@ -55,8 +57,11 @@ proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
     playing: playing,
     alive: alive,
     bodyInputs: BodyTickInputs(
-      self: BodySelfState(pos: selfPos, hpFrac: 1.0,
-        aimBrads: seat mod 256, alive: alive, carrying: false),
+      self: BodySelfState(pos: selfPos, hp: hp, hpFrac: hpFrac,
+        lives: some(1), aimBrads: seat mod 256, fireCooldown: 0,
+        fireWindup: 0, windup: none(int), hasGrenade: false,
+        hasShield: false, shieldHp: 0, hasSprayPaint: false,
+        arcTicksLeft: 0, alive: alive, carrying: false),
       partner: some(PartnerSample(seat: uint8(seat xor 1),
         pos: (20 + seat, 20), alive: true))),
     defaultFallbacks: fallback(map, seat))
@@ -74,6 +79,9 @@ proc rotateFrame(map: BodyMap, seat: int, self, target: BodyPoint,
         team: Blue,
         aimBrads: some(0),
         hpKnown: some(3),
+        shielded: false,
+        weapon: some(bwGun),
+        veteranMarker: false,
         tick: uint32(tick)))
   result.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks
   result.defaultFallbacks.rotateTarget = some(target)
@@ -119,10 +127,17 @@ suite "shell FIRST LIGHT":
     config.update($merged)
     check config.season2Shell
     check config.brMode
-    check config.teams == 2
-    check config.mapPath == "gen"
+    ## The demo inherits config.practice.json's BR arena rather than pinning
+    ## its own: the overlay carries no map at all. An authored 512x256 map
+    ## used to be pinned here to dodge the body-map atlas density cap; the
+    ## constants freeze retired that workaround, and a 512-wide arena made
+    ## the 32-seat demo look like a scrum.
+    check config.teams == 16
     check config.mapSpec.len > 0
-    check parseJson(config.mapSpec)["name"].getStr() == "first-light-open-br"
+    let mapSpec = parseJson(config.mapSpec)
+    check mapSpec["name"].getStr() == "br-gen-4242"
+    check mapSpec["width"].getInt() == 3211
+    check mapSpec["height"].getInt() == 1713
     check config.minPlayers == 32
     check config.slots.len == 32
     for slot in config.slots:
@@ -130,16 +145,48 @@ suite "shell FIRST LIGHT":
 
   test "configured play seats parse strictly instead of inventing seat zero":
     let map = testBodyMap()
-    for seats in ["[\"oops\"]", "[-1]", "[32]", "[1]", "[0,0]"]:
+    for spec in [
+        ("[\"oops\"]", "parse_error",
+          "firstLightPlay.seats entries must be integers"),
+        ("[-1]", "parse_error", "firstLightPlay.seats entry out of range"),
+        ("[32]", "parse_error", "firstLightPlay.seats entry out of range"),
+        ("[1]", "parse_error", "firstLightPlay.seats entry outside roster"),
+        ("[0,0]", "parse_error", "firstLightPlay.seats entry duplicated")]:
       var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
         map, 331)
       let lines = episode.configureFirstLightDemoPlayFromJson(
         "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
-        "\"playName\":\"missing\",\"params\":{},\"seats\":" & seats & "}}")
+        "\"playName\":\"missing\",\"params\":{},\"seats\":" & spec[0] & "}}")
       check lines.len == 1
-      check lines[0].startsWith(
-        "FIRST_LIGHT_PLAY configured=false reason=parse_error")
+      check ("reason=" & spec[1]) in lines[0]
+      check ("detail=" & spec[2]) in lines[0]
       check "seat=0" notin lines[0]
+
+  test "valid configured play reaches runtime gate after config validation":
+    let map = testBodyMap()
+    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      map, 331)
+    let lines = episode.configureFirstLightDemoPlayFromJson(
+      "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
+      "\"playName\":\"missing\",\"params\":{},\"seats\":[0]}}")
+    check lines.len == 1
+    when ShellRuntimeAvailable:
+      check "reason=module_missing" in lines[0]
+    else:
+      check "reason=runtime_unavailable" in lines[0]
+
+  test "first-light view carries truthful hp count and fraction":
+    let map = testBodyMap()
+    let liveFrame = frame(map, 0, alive = true)
+    let deadFrame = frame(map, 0, alive = false)
+    check (liveFrame.bodyInputs.self.hp > 0) ==
+      (liveFrame.bodyInputs.self.hpFrac > 0.0)
+    check (deadFrame.bodyInputs.self.hp > 0) ==
+      (deadFrame.bodyInputs.self.hpFrac > 0.0)
+    let view = parseJson(provisionalFirstLightView(liveFrame, 12))
+    check view["self"]["hp"].getInt() == liveFrame.bodyInputs.self.hp
+    check view["self"]["hp_frac"].getFloat() ==
+      liveFrame.bodyInputs.self.hpFrac
 
   test "activation installs safe hold then the epoch-zero default same tick":
     let map = testBodyMap()

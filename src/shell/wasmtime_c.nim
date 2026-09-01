@@ -18,9 +18,12 @@ when WasmtimeCapiRoot.len == 0:
 
 {.passC: "-I" & ShellIncludeDir.}
 {.passC: "-I" & WasmtimeCapiRoot / "include".}
-{.passL: "-L" & WasmtimeCapiRoot / "lib".}
-{.passL: "-lwasmtime".}
-{.passL: "-Wl,-rpath," & WasmtimeCapiRoot / "lib".}
+when defined(shellStaticWasmtime):
+  {.passL: WasmtimeCapiRoot / "lib" / "libwasmtime.a".}
+else:
+  {.passL: "-L" & WasmtimeCapiRoot / "lib".}
+  {.passL: "-lwasmtime".}
+  {.passL: "-Wl,-rpath," & WasmtimeCapiRoot / "lib".}
 
 type
   WasmConfig* {.importc: "wasm_config_t", header: WasmtimeHeader.} = object
