@@ -72,16 +72,40 @@ jobs:
           test -f "$wasmtime_root/lib/libwasmtime.so"
           echo "WASMTIME_C_API=$wasmtime_root" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$wasmtime_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-      - run: nim check src/ctf.nim
+      # src/shell/runtime.nim {.error.}s at compile time without these two
+      # flags (the epoch ticker needs --threads:on; the crash-diagnosing
+      # noSignalHandler mode is a hard production requirement, not a CI
+      # nicety -- see runtime.nim's own comment). That used to be reachable
+      # only from the handful of test files that import the runtime
+      # directly, so only shard 2 carried the flags below. Since
+      # af8158f5 (2026-08-31, "the episode runs the ladder") server.nim ->
+      # shell/episode -> shell/module_cache -> shell/runtime, and server.nim
+      # is part of src/ctf.nim's own import graph -- every shard, and
+      # `nim check` itself, now needs both flags to compile at all.
+      - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
+      # -d:useMalloc routes Nim's own allocator through the system allocator
+      # instead of Nim's thread-local free-list allocator. This is not a
+      # style choice: guzba/mummy (the pinned WebSocket server both the
+      # production binary and test_shell_transport.nim's real-socket tests
+      # run) segfaults on Linux -- confirmed against vanilla upstream mummy
+      # 0.4.7 with zero of our code involved -- when a server that has
+      # cycled enough real WebSocket connections is cleanly torn down
+      # (server.close(), which joins its threads and frees its Nim-GC'd
+      # state): the crash is inside Nim's OWN allocator
+      # (alloc.nim -> rawDealloc -> addToSharedFreeList), consistent with
+      # its shared, non-atomic free-list bookkeeping being corrupted by
+      # concurrent alloc/dealloc across mummy's worker threads and its
+      # event-loop thread. -d:useMalloc reliably avoided it across 60+
+      # stress runs in a Linux container built from this same repo's own
+      # Dockerfile. The Dockerfile ALREADY builds the production ctf/
+      # paintball-player binaries with -d:useMalloc (see its NimFlags ARG);
+      # this only makes the test build match production instead of
+      # exercising a riskier allocator config production never ships.
       - name: Compile test shards (release)
         run: |
           for i in 1 2 3 4; do
-            runtime_flags=()
-            if [ "$i" -eq 2 ]; then
-              runtime_flags=(-d:noSignalHandler --threads:on)
-            fi
-            nim c -d:release --hints:off "${runtime_flags[@]}" \
-              -o:shard_$i tests/shard_$i.nim &
+            nim c -d:release --hints:off -d:noSignalHandler --threads:on \
+              -d:useMalloc -o:shard_$i tests/shard_$i.nim &
             eval "pid_$i=\$!"
           done
           fail=0
