@@ -38,6 +38,7 @@ import
   test_play_pact,
   test_play_sdk,
   test_play_supply_run,
+  test_play_target_law,
   test_policy_page,
   test_render_scale,
   test_replay_compat,
