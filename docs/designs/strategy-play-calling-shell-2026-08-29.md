@@ -3220,6 +3220,20 @@ target dropped across 7.2 and 7.3). wazero is Go-only and irrelevant.
 This appendix is the design's memory. The body above describes only the
 current design; everything decided, superseded, or answered lives here.
 
+### H.0 Season 2 becomes the only supported live mode (James, 2026-09-01)
+
+**Ruling.** `season2Shell` defaults to `true`. Live boot refuses every
+pre-Season-2 mode — classic CTF, the first-generation battle-royale variants,
+and paintball — unless the configuration explicitly sets
+`allowDeprecatedModes: true`. The published paintbot manifest offers only
+`battle-royale-s2`; the nine removed variant configurations remain preserved
+verbatim in-repo for archaeology, replay work, and deliberate migration use.
+The override is one seam for the retained classic test surface, not a second
+supported product mode. Existing replay fixtures stay byte-stable by the
+inversion's echo rules (verified at train end), and GV50 names the rule
+boundary. This makes the product truth unambiguous while preserving the
+evidence needed to maintain and verify historical replays.
+
 ### H.1 Ratified decisions (James, 2026-08-29 and 2026-08-30)
 
 - Plays are WebAssembly modules sent over the websocket and executed
