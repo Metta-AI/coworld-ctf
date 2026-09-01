@@ -63,14 +63,18 @@ PERSONA = Persona(
                        "the fight."),
         "bodyguard": ("bodyguard is not your play -- you are nobody's "
                       "shield. Skip it."),
+        "jackal": ("jackal is your signature: wide earshot, join after the "
+                   "first kill, exit with one or two kills banked. Be "
+                   "honest with yourself: the kill feed only tells you a "
+                   "fight HAPPENED -- you can only move on fights your own "
+                   "fog tracks can see."),
+        "crossfire": ("crossfire: tight spacing band, wide angles -- "
+                      "concentrate the opening volley. Your partner is only "
+                      "where your own tracks last saw them."),
         # Notes for plays lane C has not landed yet; each activates
         # automatically once its module is baked and plays.py knows it.
-        "jackal": ("jackal is your signature: loiter at earshot of a fight, "
-                   "join after the first kill, leave with the profit."),
         "target_law": ("target_law: prefer weakened and isolated targets; "
                        "keep the never-list empty unless a pact demands it."),
-        "crossfire": ("crossfire: tight spacing band, wide angles -- "
-                      "concentrate the opening volley."),
     },
     canned_turns=[
         {
@@ -91,8 +95,13 @@ PERSONA = Persona(
             ]},
         },
         {
-            "chat": "Zone funnel is mine. Camping the choke.",
+            "chat": "Somebody just died out there. Going shopping.",
             "call": {"entries": [
+                # The jackal takes over as the driving controller; the tight
+                # edge ride stays behind it as the fallback rung.
+                {"play": "jackal", "entry_id": "scavenge",
+                 "params": {"earshot": 900, "joinWhen": "afterKill",
+                            "exitAfter": {"kills": 2}}},
                 {"play": "edge_ride", "entry_id": "hunt",
                  "params": {"margin": 40, "enterLead": 0,
                             "coverBias": 0.15}},

@@ -30,6 +30,8 @@ import pathlib
 #   seat_ref  -- one "seat:<N>" reference; "duo:<team>" is deliberately never
 #                emitted (needs a server-configured duo; see PoC README #7,
 #                and bodyguard rejects it outright)
+#   union     -- an object with exactly ONE key from "arms", each arm an
+#                integer range (jackal's exitAfter)
 # "required": True marks a param whose absence drops the whole entry.
 PLAYS = {
     "edge_ride": {
@@ -124,6 +126,61 @@ PLAYS = {
             "and the nearest threat.\n"
             "     - peelHp: integer 0..64, default 2. ABSOLUTE hp units: "
             "when the ward's hp is below this, engage their attacker."
+        ),
+    },
+    # Wave B (landed 2026-09-01, main 65d8f64b). Specs from the landed
+    # manifests; degradations from lane C's ledger. Both plays are
+    # fog-honest: the briefs must not promise information the play cannot
+    # see, or the model will reason from omniscience it does not have.
+    "crossfire": {
+        "class": "controller",
+        "params": {
+            "spacing": {"kind": "int_pair", "min": 0, "max": 600,
+                        "default": [120, 320]},
+            "minAngle": {"kind": "int", "min": 0, "max": 128, "default": 32},
+        },
+        "brief": (
+            '"crossfire" (class: controller). Keeps you and your duo partner '
+            "inside a spacing band and off a shared firing axis, so both "
+            "guns bear without friendly-fire geometry. It knows the partner "
+            "only through YOUR OWN fog tracks (no live duo telemetry; a "
+            "stale track means last-known position, never-seen means hold), "
+            "and the shared target is the nearest enemy visible to YOU. "
+            "Params:\n"
+            "     - spacing: [min, max] integers 0..600 px, default "
+            "[120, 320]. The distance band to hold around the partner.\n"
+            "     - minAngle: integer 0..128 brads, default 32. Minimum "
+            "angular separation of the two guns on the shared target."
+        ),
+    },
+    "jackal": {
+        "class": "controller",
+        "params": {
+            "earshot": {"kind": "int", "min": 100, "max": 1200,
+                        "default": 500},
+            "joinWhen": {"kind": "enum", "of": ["afterKill", "bothWeakened"],
+                         "default": "afterKill"},
+            "exitAfter": {"kind": "union",
+                          "arms": {"kills": {"min": 1, "max": 4},
+                                   "hpFloor": {"min": 0, "max": 3}},
+                          "default": {"kills": 1}},
+        },
+        "brief": (
+            '"jackal" (class: controller). Loiters at earshot of an active '
+            "fight, joins only when it is cheap, and leaves with the "
+            "profit. BE HONEST ABOUT WHAT IT SEES: the public kill feed "
+            "only SIGNALS that a fight happened -- it carries no location, "
+            "so the play navigates purely by your own fog tracks; "
+            '"bothWeakened" fires only when 2+ enemies with known hp inside '
+            "earshot are ALL weak; exit-kill counting uses your own team's "
+            "kill-feed rows while engaged. Params:\n"
+            "     - earshot: integer 100..1200 px, default 500. Loiter "
+            "distance from the fight.\n"
+            '     - joinWhen: "afterKill" or "bothWeakened", default '
+            '"afterKill". When it is cheap enough to join.\n'
+            '     - exitAfter: an object with EXACTLY ONE of "kills" '
+            '(integer 1..4) or "hpFloor" (integer 0..3 absolute hp units), '
+            'default {"kills": 1}. When to leave with the profit.'
         ),
     },
 }

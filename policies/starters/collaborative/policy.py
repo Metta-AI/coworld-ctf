@@ -86,7 +86,9 @@ PERSONA = Persona(
         # Notes for plays lane C has not landed yet; each activates
         # automatically once its module is baked and plays.py knows it.
         "crossfire": ("crossfire is the duo's teeth: keep the spacing band "
-                      "so both guns bear without friendly-fire geometry."),
+                      "so both guns bear without friendly-fire geometry. It "
+                      "sees your partner only through your own fog tracks, "
+                      "so stay where you can see each other."),
         "supply_run": ("supply_run for your PARTNER's health as much as "
                        "yours; race the medkit they cannot reach."),
     },
@@ -114,6 +116,10 @@ PERSONA = Persona(
                 {"play": "bodyguard", "entry_id": "guard",
                  "params": {"leash": [60, 180], "interpose": True,
                             "peelHp": 3}},
+                # A dormant crossfire rung under the guard: if the guard
+                # yields, the duo fights in a spaced formation.
+                {"play": "crossfire", "entry_id": "cross",
+                 "params": {"spacing": [100, 260], "minAngle": 40}},
             ]},
         },
     ],

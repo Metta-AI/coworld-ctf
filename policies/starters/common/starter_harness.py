@@ -273,6 +273,23 @@ def _clean_int_pair(value, spec):
     return [min(lo, hi), max(lo, hi)]
 
 
+def _clean_union(value, spec):
+    """An object carrying exactly ONE of the spec's integer arms (jackal's
+    exitAfter). Anything else -- extra keys, unknown arm, bad value -- drops
+    the param so the play's own default applies."""
+    if not isinstance(value, dict) or len(value) != 1:
+        return None
+    (arm, raw), = value.items()
+    arm_spec = spec["arms"].get(arm)
+    if arm_spec is None:
+        return None
+    cleaned = poc_policy._clamp_number(
+        raw, {"kind": "int", "min": arm_spec["min"], "max": arm_spec["max"]})
+    if cleaned is None:
+        return None
+    return {arm: cleaned}
+
+
 def _clean_params(play: str, params) -> dict | None:
     """Clean one entry's params against the manifest; None drops the entry
     (a required param did not survive)."""
@@ -296,6 +313,8 @@ def _clean_params(play: str, params) -> dict | None:
                 value = _clean_seat_ref(value)
             elif kind == "int_pair":
                 value = _clean_int_pair(value, spec)
+            elif kind == "union":
+                value = _clean_union(value, spec)
             else:
                 value = None
             if value is not None:

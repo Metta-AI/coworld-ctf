@@ -14,5 +14,8 @@ What this harness does differently from the other two starters:
   is clamped toward the aggressive corner: `margin` capped at 160,
   `enterLead` at 120, `coverBias` at 0.5. Any `pact` is forced to
   `onBetrayal: returnFire` with `protect: false`.
-- **Canned turns** open at `margin: 60` and tighten to 40 — even offline,
-  this seat visibly plays the edge closer than the other starters.
+- **Race, never avoid** — any `supply_run` is forced to `contested: race`.
+- **Canned turns** open at `margin: 60`, tighten to 50, and the final
+  re-call hands the seat to `jackal` (earshot 900, join after a kill, exit
+  two kills up) with the tight ride as the fallback rung — even offline,
+  this seat visibly plays closer and greedier than the other starters.
