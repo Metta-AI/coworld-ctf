@@ -5,10 +5,12 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, glory, replays, broadcast, replay_runtime, events, wire_constants,
+  sim, global, glory, replays, replay_codec as ctfReplayCodec, broadcast,
+  replay_runtime, events, wire_constants,
   control, directives, baselines, decide, mux,
   ../shell/[body, body_map, episode, ingress, standing_order, transport],
-  ../shell/dispatch, ../shell/packets, ../shell/seats
+  ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
+  ../shell/types
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -38,11 +40,16 @@ type
     packet: LobbyChatSendPacket,
   ) {.gcsafe.}
 
+  PlaySeatKickConsumer* = proc(
+    seat: int,
+  ): seq[ShellAnnotation] {.gcsafe.}
+
   PlayReceiveConsumers = object
     moduleUpload: PlayModuleUploadConsumer
     playCall: PlayCallConsumer
     statusAck: PlayStatusAckConsumer
     lobbyChat: PlayLobbyChatConsumer
+    kick: PlaySeatKickConsumer
 
   WebSocketSocketFields = object
     server: Server
@@ -103,6 +110,11 @@ type
     alive: bool
     respawnTimer: int  ## ticks until this cog is back on its feet, 0 if up.
 
+  PendingLifecycleRecord = object
+    kind: LifecycleRecordKind
+    seat: int
+    playerIndex: int
+
   WebSocketAppState = object
     lock: Lock
     replayServerMode: bool
@@ -156,6 +168,13 @@ type
     playIngressFeedbackErrors: uint32
     playIngress: seq[PlayIngressSeat[WebSocket]]
     playIngressConfigured: bool
+    seatTombstones: seq[SeatTombstone]
+    seatPlayerIndices: seq[int]
+    shellEpisodeInLobby: bool
+    pendingLifecycleRecords: seq[PendingLifecycleRecord]
+    pendingPlayCallRecords: seq[PlayCallRecord]
+    pendingShellAnnotations: seq[ShellAnnotation]
+    pendingLobbyChatRecords: seq[LobbyChatRecord]
 
   ServerThreadArgs = object
     server: ptr Server
@@ -192,6 +211,10 @@ proc registerPlayStatusAckConsumer*(consumer: PlayStatusAckConsumer) =
 proc registerPlayLobbyChatConsumer*(consumer: PlayLobbyChatConsumer) =
   ## Startup-only registration seam consumed by Maxwell's lobby implementation.
   playReceiveConsumers.lobbyChat = consumer
+
+proc registerPlaySeatKickConsumer*(consumer: PlaySeatKickConsumer) =
+  ## Lane C drops the ladder/body and returns the safe-hold annotation.
+  playReceiveConsumers.kick = consumer
 
 func defuseScriptClose(src: string): string =
   ## Splicing a staticRead'd JS file inline as `<script>` + content +
@@ -482,9 +505,12 @@ proc replayFilePath(uri: string): string =
 
 let replayDownloadPool = newCurlPool(1)
 
-proc loadReplayUri(uri: string): ReplayData =
+proc loadReplayUri(uri: string): CtfReplayData =
   ## Loads a replay from a local file URI or HTTP(S) URL.
-  parseReplayBytes(readCogameUri(uri, CogameLoadReplayUriEnv))
+  ctfReplayCodec.parseCtfReplayBytes(
+    readCogameUri(uri, CogameLoadReplayUriEnv),
+    CtfReplaySpec,
+    ReplayCompatibleGameVersions)
 
 proc readableReplayUri(uri: string): bool =
   ## Returns true when a replay URI can be opened by this server.
@@ -545,6 +571,13 @@ proc initAppState() =
   appState.playIngressFeedbackErrors = 0
   appState.playIngress = @[]
   appState.playIngressConfigured = false
+  appState.seatTombstones = @[]
+  appState.seatPlayerIndices = @[]
+  appState.shellEpisodeInLobby = true
+  appState.pendingLifecycleRecords = @[]
+  appState.pendingPlayCallRecords = @[]
+  appState.pendingShellAnnotations = @[]
+  appState.pendingLobbyChatRecords = @[]
 
 proc comparePendingPlayerJoins(
   a,
@@ -610,8 +643,16 @@ proc addressIsKicked(address: string): bool =
 
 proc configurePlayIngress(config: GameConfig) =
   appState.playIngress = newSeq[PlayIngressSeat[WebSocket]](config.slots.len)
+  appState.seatTombstones = newSeq[SeatTombstone](config.slots.len)
+  appState.seatPlayerIndices = newSeq[int](config.slots.len)
   for seat in 0 ..< appState.playIngress.len:
     appState.playIngress[seat] = initPlayIngressSeat[WebSocket]()
+    appState.seatTombstones[seat] = initSeatTombstone()
+    appState.seatPlayerIndices[seat] = -1
+  appState.pendingLifecycleRecords = @[]
+  appState.pendingPlayCallRecords = @[]
+  appState.pendingShellAnnotations = @[]
+  appState.pendingLobbyChatRecords = @[]
   appState.playIngressConfigured = true
 
 proc ensurePlayIngressConfigured() =
@@ -641,6 +682,18 @@ proc registerPlayerWebSocket(
     return false
   var restoredPlayerIndex =
     if appState.replayLoaded: -1 else: UnresolvedPlayerIndex
+  if appState.config.isPlaySeatEpisode() and
+      slot >= 0 and slot < appState.seatTombstones.len:
+    if appState.seatTombstones[slot].presence == spTerminal:
+      return false
+    if appState.config.slots[slot].control == scInput and
+        appState.seatTombstones[slot].presence == spReconnectable:
+      if not appState.shellEpisodeInLobby or
+          not appState.seatTombstones[slot].rebind(inLobby = true):
+        return false
+      restoredPlayerIndex = appState.seatPlayerIndices[slot]
+      appState.pendingLifecycleRecords.add(PendingLifecycleRecord(
+        kind: lrRebind, seat: slot, playerIndex: restoredPlayerIndex))
   let ingressSeat = slot.playIngressSeat()
   if ingressSeat != nil:
     let bound = ingressSeat[].binding.bindSocket(websocket)
@@ -659,6 +712,10 @@ proc registerPlayerWebSocket(
       discard removePlayerWebSocketState(oldPlaySocket)
     elif ingressSeat[].playerIndex >= 0:
       restoredPlayerIndex = ingressSeat[].playerIndex
+  elif appState.config.isPlaySeatEpisode() and
+      slot >= 0 and slot < appState.seatPlayerIndices.len and
+      appState.seatPlayerIndices[slot] >= 0:
+    restoredPlayerIndex = appState.seatPlayerIndices[slot]
   appState.playerViewers[websocket] = initPlayerViewerState()
   appState.playerAddresses[websocket] = identity
   appState.playerSlots[websocket] = slot
@@ -1064,6 +1121,69 @@ proc applyPlayIngressFeedback*(seat: int, feedback: PlayIngressFeedback) =
       let errors = ingressSeat[].applyPlayIngressFeedback(feedback)
       appState.playIngressFeedbackErrors.saturatingAdd(errors)
 
+proc queuePlayCallRecord*(record: PlayCallRecord) =
+  ## Lane C reports one accepted, fully identified call. The game thread owns
+  ## file order and drains this queue only at a tick boundary.
+  {.gcsafe.}:
+    withLock appState.lock:
+      appState.pendingPlayCallRecords.add(record)
+
+proc queueShellAnnotation*(annotation: ShellAnnotation) =
+  ## Async runtime annotations cross the same narrow game-thread seam.
+  {.gcsafe.}:
+    withLock appState.lock:
+      appState.pendingShellAnnotations.add(annotation)
+
+proc queueLobbyChatRecord*(record: LobbyChatRecord) =
+  ## Maxwell's accepted lobby message enters the replay only after sim-side
+  ## admission has assigned its global ordinal.
+  {.gcsafe.}:
+    withLock appState.lock:
+      appState.pendingLobbyChatRecords.add(record)
+
+proc drainShellReplayRecords(
+  replayWriter: var CtfReplayWriter,
+  sim: var SimServer,
+  replayTimeMs: uint32,
+) =
+  ## One format-2 batch in the P5a total order: lifecycle (phase 1), lobby
+  ## transcript (phase 3), then calls (phase 4). Annotation ticks form their
+  ## own per-seat stream and do not participate in replay-time ordering.
+  var
+    lifecycle: seq[PendingLifecycleRecord]
+    calls: seq[PlayCallRecord]
+    annotations: seq[ShellAnnotation]
+    transcript: seq[LobbyChatRecord]
+  {.gcsafe.}:
+    withLock appState.lock:
+      lifecycle = move(appState.pendingLifecycleRecords)
+      calls = move(appState.pendingPlayCallRecords)
+      annotations = move(appState.pendingShellAnnotations)
+      transcript = move(appState.pendingLobbyChatRecords)
+      appState.pendingLifecycleRecords = @[]
+      appState.pendingPlayCallRecords = @[]
+      appState.pendingShellAnnotations = @[]
+      appState.pendingLobbyChatRecords = @[]
+  for pending in lifecycle:
+    replayWriter.writeLifecycle(LifecycleRecord(
+      kind: pending.kind,
+      replayTimeMs: replayTimeMs,
+      seat: uint8(pending.seat)))
+    case pending.kind
+    of lrDisconnect, lrKick:
+      replayWriter.writeInputMaskChange(
+        replayTimeMs, pending.playerIndex, 0)
+    of lrRebind:
+      let accountIndex = sim.rewardAccountForPlayer(pending.playerIndex)
+      if accountIndex >= 0:
+        sim.rewardAccounts[accountIndex].abandoned = false
+  for record in transcript:
+    replayWriter.writeLobbyChat(record)
+  for record in calls:
+    replayWriter.writePlayCall(record)
+  for annotation in annotations:
+    replayWriter.writeAnnotation(annotation)
+
 proc removeWebSocketState(websocket: WebSocket): int =
   ## Removes websocket-owned state and returns its former player index.
   if websocket in appState.globalViewers:
@@ -1071,6 +1191,76 @@ proc removeWebSocketState(websocket: WebSocket): int =
   if websocket in appState.rewardViewers:
     appState.rewardViewers.del(websocket)
   result = removePlayerWebSocketState(websocket)
+
+proc retainShellSocketLoss(
+  sim: var SimServer,
+  websocket: WebSocket,
+  prevInputs: var seq[InputState],
+): bool =
+  ## Applies the shell episode's stable-row rule. Caller holds appState.lock.
+  if not appState.config.isPlaySeatEpisode():
+    return false
+  let seat = appState.playerSlots.getOrDefault(websocket, -1)
+  if seat < 0 or seat >= appState.config.slots.len:
+    return false
+  let playerIndex = appState.playerIndices.getOrDefault(
+    websocket, appState.seatPlayerIndices[seat])
+  if playerIndex >= 0 and playerIndex < UnresolvedPlayerIndex:
+    appState.seatPlayerIndices[seat] = playerIndex
+  if appState.config.slots[seat].control == scPlay:
+    let ingressSeat = seat.playIngressSeat()
+    if ingressSeat != nil:
+      ingressSeat[].playerIndex = playerIndex
+    discard removeWebSocketState(websocket)
+    return true
+
+  # A socket can vanish before strict slot-sequential admission creates its
+  # sim row. There is no stable row or replay join to tombstone in that case;
+  # discard only the pending registration and allow a fresh join later.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    discard removeWebSocketState(websocket)
+    return true
+
+  if appState.seatTombstones[seat].disconnect(sim.phase != Lobby):
+    sim.recordGameAbandon(playerIndex)
+    if playerIndex >= 0 and playerIndex < prevInputs.len:
+      prevInputs[playerIndex] = InputState()
+    appState.pendingLifecycleRecords.add(PendingLifecycleRecord(
+      kind: lrDisconnect, seat: seat, playerIndex: playerIndex))
+  discard removeWebSocketState(websocket)
+  true
+
+proc terminallyTombstoneShellSeat(
+  sim: var SimServer,
+  websocket: WebSocket,
+  prevInputs: var seq[InputState],
+): bool =
+  ## Applies an administrative kick without deleting or reindexing the row.
+  ## Caller holds appState.lock.
+  if not appState.config.isPlaySeatEpisode():
+    return false
+  let seat = appState.playerSlots.getOrDefault(websocket, -1)
+  if seat < 0 or seat >= appState.seatTombstones.len:
+    return false
+  let playerIndex = appState.playerIndices.getOrDefault(
+    websocket, appState.seatPlayerIndices[seat])
+  if not appState.seatTombstones[seat].kick(sim.phase != Lobby):
+    return true
+  if playerIndex >= 0 and playerIndex < UnresolvedPlayerIndex:
+    appState.seatPlayerIndices[seat] = playerIndex
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    discard removeWebSocketState(websocket)
+    return true
+  sim.recordGameAbandon(playerIndex)
+  if playerIndex >= 0 and playerIndex < prevInputs.len:
+    prevInputs[playerIndex] = InputState()
+  appState.pendingLifecycleRecords.add(PendingLifecycleRecord(
+    kind: lrKick, seat: seat, playerIndex: playerIndex))
+  if appState.config.isPlaySeat(seat) and playReceiveConsumers.kick != nil:
+    for annotation in playReceiveConsumers.kick(seat):
+      appState.pendingShellAnnotations.add(annotation)
+  discard removeWebSocketState(websocket)
+  true
 
 proc removePlayer(sim: var SimServer, websocket: WebSocket) =
   ## Removes a websocket and keeps live player indices consistent.
@@ -2312,7 +2502,7 @@ proc rewardAccountFor(sim: SimServer, address: string): int =
   -1
 
 proc writeInputFrameMasks(
-  replayWriter: var ReplayWriter,
+  replayWriter: var CtfReplayWriter,
   time: uint32,
   playerIndex: int,
   appliedMask,
@@ -2334,7 +2524,7 @@ proc drainPlayerDebugSprites*(
   state: PlayerViewerState,
   time: uint32,
   playerIndex: int,
-  replayWriter: var ReplayWriter,
+  replayWriter: var CtfReplayWriter,
   overlay: var DebugOverlay
 ) =
   ## Drains, caps, records, and folds one player's pending debug packets.
@@ -2915,16 +3105,16 @@ proc runServerLoop*(
   var replayData =
     if replayLoaded:
       try:
-        loadReplay(loadReplayPath)
+        loadCtfReplay(loadReplayPath)
       except CatchableError as e:
         # A bad or version-mismatched replay must not kill the server: the
         # viewer would see a dead socket (frozen shell, 0/0 scrubber, empty
         # lives) with no explanation. Serve the empty lobby and say why.
         echo "replay load failed (serving without replay): ", e.msg
         replayLoaded = false
-        ReplayData()
+        CtfReplayData()
     else:
-      ReplayData()
+      CtfReplayData()
   var initializedReplay =
     if replayLoaded:
       initReplayRuntime(replayData, runtimeConfig.mismatchQuit)
@@ -2934,7 +3124,12 @@ proc runServerLoop*(
     if replayLoaded: move(initializedReplay.config)
     else: initialConfig
   var
-    replayWriter = openReplayWriter(saveReplayPath, config.configJson())
+    replayWriter = ctfReplayCodec.openReplayWriter(
+      saveReplayPath,
+      config.configJson(),
+      CtfReplaySpec,
+      shellEpisode = config.isPlaySeatEpisode(),
+      shellSeatCount = (if config.isPlaySeatEpisode(): config.slots.len else: 0))
     # Per-cog last RECORDED direct-aim bearing, -1 = channel off. Lives beside
     # the writer it feeds, for the writer's whole life, because the aim stream
     # is deduped exactly like the mask stream: a record is written only when
@@ -3130,7 +3325,7 @@ proc runServerLoop*(
           appState.loadingReplayUri = pendingReplayUri
     if pendingReplayUri.len > 0:
       var
-        pendingData: ReplayData
+        pendingData: CtfReplayData
         pendingOk = true
       try:
         pendingData = loadReplayUri(pendingReplayUri)
@@ -3180,21 +3375,15 @@ proc runServerLoop*(
 
     {.gcsafe.}:
       withLock appState.lock:
+        appState.shellEpisodeInLobby = sim.phase == Lobby
         if not replayLoaded and appState.resetRequested:
           shouldReset = true
           appState.resetRequested = false
           appState.chatMessages.clear()
           appState.policyPageFlashes.clear()
         for websocket in appState.closedSockets:
-          let closedSlot = appState.playerSlots.getOrDefault(websocket, -1)
-          if not replayLoaded and appState.config.isPlaySeat(closedSlot):
-            let ingressSeat = closedSlot.playIngressSeat()
-            if ingressSeat != nil:
-              let playerIndex = appState.playerIndices.getOrDefault(
-                websocket, ingressSeat[].playerIndex)
-              if playerIndex >= 0 and playerIndex < UnresolvedPlayerIndex:
-                ingressSeat[].playerIndex = playerIndex
-            discard removeWebSocketState(websocket)
+          if not replayLoaded and
+              sim.retainShellSocketLoss(websocket, prevInputs):
             continue
           if squadMode:
             # A seat that drops does NOT remove its cogs: the squad is fixed
@@ -3234,6 +3423,10 @@ proc runServerLoop*(
                 if websocket notin socketsToKick:
                   socketsToKick.add(websocket)
           for websocket in socketsToKick:
+            if not replayLoaded and
+                sim.terminallyTombstoneShellSeat(websocket, prevInputs):
+              socketsToClose.add(websocket)
+              continue
             if websocket in appState.playerIndices:
               let playerIndex = appState.playerIndices[websocket]
               if playerIndex >= 0 and playerIndex < sim.players.len:
@@ -3348,6 +3541,10 @@ proc runServerLoop*(
                 if ingressSeat != nil:
                   ingressSeat[].playerIndex =
                     appState.playerIndices[join.websocket]
+              if appState.config.isPlaySeatEpisode() and admittedSlot >= 0 and
+                  admittedSlot < appState.seatPlayerIndices.len:
+                appState.seatPlayerIndices[admittedSlot] =
+                  appState.playerIndices[join.websocket]
               replayWriter.writeJoin(
                 tickTime(sim.tickCount),
                 appState.playerIndices[join.websocket],
@@ -3966,6 +4163,8 @@ proc runServerLoop*(
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         if config.isPlaySeatEpisode():
           drainPlayIngressAtTickBoundary()
+          replayWriter.drainShellReplayRecords(
+            sim, tickTime(sim.tickCount))
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
         if firstLightEpisode.enabled:
@@ -3974,6 +4173,9 @@ proc runServerLoop*(
             let slot = player.joinOrder
             if slot < 0 or slot >= config.slots.len or
                 config.slots[slot].control != scPlay:
+              continue
+            if slot < appState.seatTombstones.len and
+                appState.seatTombstones[slot].presence == spTerminal:
               continue
             let bodyInputs = sim.firstLightBodyInputs(playerIndex)
             frames.add(FirstLightSeatFrame(
@@ -4016,6 +4218,8 @@ proc runServerLoop*(
             echo sim.firstLightZoneLogLine()
           for install in firstLight.installs:
             echo install.formatInstall()
+          for annotation in firstLight.annotations:
+            replayWriter.writeAnnotation(annotation)
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
@@ -4081,6 +4285,9 @@ proc runServerLoop*(
             if slot < 0 or slot >= config.slots.len or
                 config.slots[slot].control != scPlay:
               continue
+            if slot < appState.seatTombstones.len and
+                appState.seatTombstones[slot].presence == spTerminal:
+              continue
             let selfState = sim.firstLightSelfState(playerIndex)
             lifecycleFrames.add(FirstLightSeatFrame(
               seat: uint8(slot),
@@ -4096,6 +4303,7 @@ proc runServerLoop*(
           for annotation in firstLightEpisode.observeDeaths(
               lifecycleFrames, uint32(sim.tickCount)):
             echo annotation.formatLifecycleAnnotation()
+            replayWriter.writeAnnotation(annotation)
         if sim.collectEvents:
           # Drained every tick, like the extractor's walk: the sink is a plain
           # seq on the sim and would otherwise grow for the whole match.

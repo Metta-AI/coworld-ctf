@@ -1,6 +1,6 @@
 ## Server-level proof that the play leading-byte switch precedes Sprite parsing.
 
-import std/[atomics, unittest]
+import std/[atomics, os, unittest]
 import ../src/ctf/labels
 import ../src/shell/types
 import ./raw_websocket_client
@@ -54,6 +54,12 @@ proc consumeLobby(
   doAssert packet.text == "hello"
   seenLobby.store(1)
 
+proc consumeKick(seat: int): seq[ShellAnnotation] {.gcsafe.} =
+  @[ShellAnnotation(
+    tick: 12, seat: uint8(seat), kind: akInstallSafeIntent,
+    installGeneration: 0, installReason: "kicked",
+    safeBytes: "{\"kind\":\"hold\"}")]
+
 proc binaryMessage(data: string): Message =
   Message(kind: BinaryMessage, data: data)
 
@@ -73,6 +79,7 @@ suite "server play receive arm":
     registerPlayCallConsumer(consumeCall)
     registerPlayStatusAckConsumer(consumeAck)
     registerPlayLobbyChatConsumer(consumeLobby)
+    registerPlaySeatKickConsumer(consumeKick)
     seenUpload.store(0)
     seenCall.store(0)
     seenAck.store(0)
@@ -598,3 +605,86 @@ suite "server play receive arm":
     client.close()
     httpServer.close()
     joinThread(serverThread)
+
+  test "game-thread replay batch emits lifecycle transcript call and annotation":
+    let path = getTempDir() / ("shell-server-replay-batch-" &
+      $getCurrentProcessId() & ".bitreplay")
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.slots = @[
+      PlayerSlotConfig(name: "play", control: scPlay),
+      PlayerSlotConfig(name: "input", control: scInput)]
+    appState.config = config
+    configurePlayIngress(config)
+    appState.pendingLifecycleRecords = @[
+      PendingLifecycleRecord(kind: lrDisconnect, seat: 1, playerIndex: 1),
+      PendingLifecycleRecord(kind: lrRebind, seat: 1, playerIndex: 1),
+      PendingLifecycleRecord(kind: lrKick, seat: 1, playerIndex: 1)]
+    queueLobbyChatRecord(LobbyChatRecord(
+      replayTimeMs: 7, ordinal: 1, seat: 0, team: 0, text: "ready"))
+    queuePlayCallRecord(PlayCallRecord(
+      replayTimeMs: 7, seat: 0, epoch: 1,
+      ladderBytes: "{\"plays\":[]}", entries: @[]))
+    queueShellAnnotation(ShellAnnotation(
+      tick: 1, seat: 0, kind: akInstallSafeIntent,
+      installGeneration: 0, installReason: "activation",
+      safeBytes: "{\"kind\":\"hold\"}"))
+    try:
+      var
+        writer = ctfReplayCodec.openReplayWriter(
+          path, config.configJson(), CtfReplaySpec,
+          shellEpisode = true, shellSeatCount = config.slots.len,
+          openedAtMs = 1_735_689_600_000'u64)
+        simServer = initSimServer(config)
+      writer.drainShellReplayRecords(simServer, 7)
+      writer.closeReplayWriter()
+      let detailed = loadCtfReplay(path)
+      check detailed.shell.lifecycle.len == 3
+      check detailed.shell.lifecycle[0].kind == lrDisconnect
+      check detailed.shell.lifecycle[1].kind == lrRebind
+      check detailed.shell.lifecycle[2].kind == lrKick
+      check detailed.shell.lobbyTranscript.len == 1
+      check detailed.shell.calls.len == 1
+      check detailed.shell.annotations.len == 1
+      check detailed.shell.manifestVerified
+    finally:
+      if fileExists(path):
+        removeFile(path)
+
+  test "input disconnect and lobby rebind retain one stable sim row":
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.minPlayers = 3
+    config.slots = @[
+      PlayerSlotConfig(name: "play", control: scPlay),
+      PlayerSlotConfig(name: "input", control: scInput),
+      PlayerSlotConfig(name: "waiting", control: scInput)]
+    appState.config = config
+    configurePlayIngress(config)
+    var simServer = initSimServer(config)
+    discard simServer.addPlayer("play", 0, "", trusted = true)
+    discard simServer.addPlayer("input", 1, "", trusted = true)
+    let oldSocket = cast[WebSocket](701)
+    appState.playerIndices[oldSocket] = 1
+    appState.playerSlots[oldSocket] = 1
+    appState.playerAddresses[oldSocket] = "input"
+    appState.seatPlayerIndices[1] = 1
+    var prevInputs = newSeq[InputState](2)
+
+    check simServer.retainShellSocketLoss(oldSocket, prevInputs)
+    check simServer.players.len == 2
+    check appState.seatTombstones[1].presence == spReconnectable
+    check appState.pendingLifecycleRecords.len == 1
+
+    appState.shellEpisodeInLobby = true
+    let replacement = cast[WebSocket](702)
+    check replacement.registerPlayerWebSocket("input", 1, "")
+    check appState.playerIndices[replacement] == 1
+    check simServer.players.len == 2
+    check appState.seatTombstones[1].presence == spConnected
+    check appState.pendingLifecycleRecords.len == 2
+
+    check simServer.terminallyTombstoneShellSeat(replacement, prevInputs)
+    check simServer.players.len == 2
+    check appState.seatTombstones[1].presence == spTerminal
+    check appState.pendingLifecycleRecords.len == 3
