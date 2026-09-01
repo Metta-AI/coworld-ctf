@@ -101,6 +101,14 @@ type
     active*: array[ReflexKind, bool]
     telemetry*: seq[ReflexTelemetry]
 
+  GrenadeScoreFact = object
+    pos: BodyPoint
+    ticksToBlast: int64
+    blastRadiusWithMargin: int
+    clearanceDenominator: int64
+
+const ReflexDedupSlots = 2048
+
 proc reflexName*(kind: ReflexKind): string =
   case kind
   of rkClearGrenade: ReflexClearGrenadeName
@@ -147,49 +155,395 @@ proc earliestDetonation(grenades: openArray[VisibleGrenade]): int64 =
   for grenade in grenades:
     result = min(result, int64(grenade.ticksToBlast))
 
-proc minBlastDistance(point: BodyPoint;
-                      grenades: openArray[VisibleGrenade]): int64 =
-  result = InfiniteArrival
-  for grenade in grenades:
-    result = min(result, squaredDistance(point, grenade.predictedBlastPos))
+proc clearanceNumerator(point: BodyPoint; fact: GrenadeScoreFact): int64 =
+  let
+    nearX = max(0, abs(point.x - fact.pos.x) - body_map.PlayerHalf)
+    nearY = max(0, abs(point.y - fact.pos.y) - body_map.PlayerHalf)
+  int64(nearX) * int64(nearX) + int64(nearY) * int64(nearY)
 
-proc clearanceNumerator(point: BodyPoint; grenade: VisibleGrenade): int64 =
-  boxDistanceSquared(point, grenade.predictedBlastPos)
+proc grenadeFacts(grenades: seq[VisibleGrenade]): seq[GrenadeScoreFact] =
+  result.setLen(grenades.len)
+  for index, grenade in grenades:
+    let radius = grenade.blastRadius + ReflexGrenadeMarginPx
+    result[index] = GrenadeScoreFact(
+      pos: grenade.predictedBlastPos,
+      ticksToBlast: int64(grenade.ticksToBlast),
+      blastRadiusWithMargin: radius,
+      clearanceDenominator: int64(radius) * int64(radius))
 
-proc clearanceDenominator(grenade: VisibleGrenade): int64 =
-  let radius = grenade.blastRadius + ReflexGrenadeMarginPx
-  int64(radius) * int64(radius)
+proc reflexPointKey(point: BodyPoint): uint64 =
+  ((uint64(point.x) shl 32) or uint64(point.y)) + 1'u64
 
-proc grenadeScorer(grenades: seq[VisibleGrenade]): EscapeScorer =
-  let earliest = earliestDetonation(grenades)
-  result = proc(candidate: EscapeCandidate): EscapeScore =
-    var safe = candidate.arrival < earliest
-    for grenade in grenades:
-      if candidate.resolved.grenadeCovers(grenade):
-        safe = false
-    var aggregation: seq[VisibleGrenade]
-    for grenade in grenades:
-      if int64(grenade.ticksToBlast) <= candidate.arrival:
-        aggregation.add grenade
-    if aggregation.len == 0:
-      aggregation = grenades
+proc seenOrAdd(keys: var array[ReflexDedupSlots, uint64]; key: uint64): bool =
+  var slot = int((key xor (key shr 33)) and uint64(ReflexDedupSlots - 1))
+  while keys[slot] != 0'u64:
+    if keys[slot] == key:
+      return true
+    slot = (slot + 1) and (ReflexDedupSlots - 1)
+  keys[slot] = key
+  false
 
-    var minScaledClearance = InfiniteArrival
-    var earliestInAggregation = InfiniteArrival
-    for grenade in aggregation:
-      # Integer ratio comparison by scaling a/b to a common positive range.
-      let scaled = clearanceNumerator(candidate.resolved, grenade) *
-        1_000_000'i64 div max(1'i64, clearanceDenominator(grenade))
-      minScaledClearance = min(minScaledClearance, scaled)
-      earliestInAggregation = min(earliestInAggregation,
-        int64(grenade.ticksToBlast))
+proc betterHard(minDistance, arrival: int64; ordinal: int;
+                bestMinDistance, bestArrival: int64; bestOrdinal: int): bool =
+  if minDistance != bestMinDistance:
+    return minDistance > bestMinDistance
+  if arrival != bestArrival:
+    return arrival < bestArrival
+  ordinal < bestOrdinal
 
-    EscapeScore(
-      hardPass: safe,
-      normal: scoreKeys([maxKey(minBlastDistance(candidate.resolved,
-        grenades))]),
-      fallback: scoreKeys([maxKey(minScaledClearance),
-        maxKey(earliestInAggregation)]))
+proc betterFallback(minScaledClearance, earliestInAggregation, arrival: int64;
+                    ordinal: int; bestScaledClearance,
+                    bestEarliestInAggregation, bestArrival: int64;
+                    bestOrdinal: int): bool =
+  if minScaledClearance != bestScaledClearance:
+    return minScaledClearance > bestScaledClearance
+  if earliestInAggregation != bestEarliestInAggregation:
+    return earliestInAggregation > bestEarliestInAggregation
+  if arrival != bestArrival:
+    return arrival < bestArrival
+  ordinal < bestOrdinal
+
+proc latticeAllExact(map: BodyMap; fromPoint: BodyPoint; component: int): bool =
+  ## A component pixel resolves to itself in the validator table: distance 0
+  ## wins both EDT passes. When the whole candidate lattice is in the actor's
+  ## component, the resolved stream is therefore exactly the requested stream
+  ## and duplicate suppression cannot remove a candidate.
+  if component == 0:
+    return false
+  for dy in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                   ReflexCandidateSpacingPx):
+    for dx in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                     ReflexCandidateSpacingPx):
+      let requested = (fromPoint.x + dx, fromPoint.y + dy)
+      if not map.inBounds(requested) or map.componentOf(requested) != component:
+        return false
+  true
+
+proc grenadeScore(candidatePoint: BodyPoint; arrival: int64;
+                  facts: openArray[GrenadeScoreFact]; earliest: int64):
+    tuple[safe: bool, minDistance, minScaledClearance,
+      earliestInAggregation: int64] =
+  result.safe = arrival < earliest
+  result.minDistance = InfiniteArrival
+  var
+    minScaledAll = InfiniteArrival
+    earliestAll = InfiniteArrival
+    hasArrivedAggregation = false
+  result.minScaledClearance = InfiniteArrival
+  result.earliestInAggregation = InfiniteArrival
+  for fact in facts:
+    let
+      dx = int64(candidatePoint.x) - int64(fact.pos.x)
+      dy = int64(candidatePoint.y) - int64(fact.pos.y)
+      distance = dx * dx + dy * dy
+      clearance = candidatePoint.clearanceNumerator(fact)
+    result.minDistance = min(result.minDistance, distance)
+    if clearance <= int64(fact.blastRadiusWithMargin) *
+        int64(fact.blastRadiusWithMargin):
+      result.safe = false
+    let scaled = clearance * 1_000_000'i64 div
+      max(1'i64, fact.clearanceDenominator)
+    minScaledAll = min(minScaledAll, scaled)
+    earliestAll = min(earliestAll, fact.ticksToBlast)
+    if fact.ticksToBlast <= arrival:
+      hasArrivedAggregation = true
+      result.minScaledClearance = min(result.minScaledClearance, scaled)
+      result.earliestInAggregation = min(result.earliestInAggregation,
+        fact.ticksToBlast)
+  if not hasArrivedAggregation:
+    result.minScaledClearance = minScaledAll
+    result.earliestInAggregation = earliestAll
+
+proc planGrenadeExactThroughStage(input: PlanEscapeInput;
+                                  facts: openArray[GrenadeScoreFact];
+                                  earliest: int64;
+                                  stage: PlanEscapeProfileStage):
+    PlanEscapeResult =
+  var
+    ordinal = 0
+    haveHard = false
+    haveFallback = false
+    bestHardPoint: BodyPoint
+    bestFallbackPoint: BodyPoint
+    bestHardOrdinal = 0
+    bestFallbackOrdinal = 0
+    bestHardArrival = InfiniteArrival
+    bestFallbackArrival = InfiniteArrival
+    bestHardDistance = low(int64)
+    bestFallbackScaled = low(int64)
+    bestFallbackEarliest = low(int64)
+
+  for dy in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                   ReflexCandidateSpacingPx):
+    for dx in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                     ReflexCandidateSpacingPx):
+      let resolved = (input.fromPoint.x + dx, input.fromPoint.y + dy)
+      inc result.considered
+      if stage == psCandidateBounds or stage == psGoalValidation:
+        inc ordinal
+        continue
+
+      inc result.resolvedCount
+      inc result.dedupedCount
+      if stage == psOptionDedup:
+        inc ordinal
+        continue
+
+      let arrival = input.arrivalFor(resolved)
+      if stage == psArrival:
+        inc ordinal
+        continue
+
+      let score = grenadeScore(resolved, arrival, facts, earliest)
+      if stage == psScorer:
+        inc ordinal
+        continue
+
+      if score.safe and (not haveHard or betterHard(score.minDistance,
+          arrival, ordinal, bestHardDistance, bestHardArrival,
+          bestHardOrdinal)):
+        haveHard = true
+        bestHardPoint = resolved
+        bestHardOrdinal = ordinal
+        bestHardArrival = arrival
+        bestHardDistance = score.minDistance
+      if not haveFallback or betterFallback(score.minScaledClearance,
+          score.earliestInAggregation, arrival, ordinal, bestFallbackScaled,
+          bestFallbackEarliest, bestFallbackArrival, bestFallbackOrdinal):
+        haveFallback = true
+        bestFallbackPoint = resolved
+        bestFallbackOrdinal = ordinal
+        bestFallbackArrival = arrival
+        bestFallbackScaled = score.minScaledClearance
+        bestFallbackEarliest = score.earliestInAggregation
+      inc ordinal
+
+  if not haveFallback:
+    return
+  result.found = true
+  if haveHard:
+    result.point = bestHardPoint
+    result.ordinal = bestHardOrdinal
+    result.arrival = bestHardArrival
+  else:
+    result.fallbackUsed = true
+    result.point = bestFallbackPoint
+    result.ordinal = bestFallbackOrdinal
+    result.arrival = bestFallbackArrival
+  result.goal = input.map.validateGoal(result.point, input.fromPoint)
+
+proc planGrenadeEscapeThroughStage(input: PlanEscapeInput;
+                                   grenades: seq[VisibleGrenade];
+                                   stage: PlanEscapeProfileStage):
+    PlanEscapeResult =
+  doAssert input.map != nil
+  doAssert ReflexCandidateRadiusPx mod ReflexCandidateSpacingPx == 0
+  let
+    facts = grenadeFacts(grenades)
+    earliest = earliestDetonation(grenades)
+    component = input.map.componentOf(input.fromPoint)
+  if input.map.latticeAllExact(input.fromPoint, component):
+    return planGrenadeExactThroughStage(input, facts, earliest, stage)
+
+  var
+    seenKeys: array[ReflexDedupSlots, uint64]
+    ordinal = 0
+    haveHard = false
+    haveFallback = false
+    bestHardGoal = none(ValidatedGoal)
+    bestFallbackGoal = none(ValidatedGoal)
+    bestHardPoint: BodyPoint
+    bestFallbackPoint: BodyPoint
+    bestHardOrdinal = 0
+    bestFallbackOrdinal = 0
+    bestHardArrival = InfiniteArrival
+    bestFallbackArrival = InfiniteArrival
+    bestHardDistance = low(int64)
+    bestFallbackScaled = low(int64)
+    bestFallbackEarliest = low(int64)
+
+  for dy in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                   ReflexCandidateSpacingPx):
+    for dx in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                     ReflexCandidateSpacingPx):
+      let requested = (input.fromPoint.x + dx, input.fromPoint.y + dy)
+      inc result.considered
+      if not input.map.inBounds(requested):
+        inc ordinal
+        continue
+      if stage == psCandidateBounds:
+        inc ordinal
+        continue
+
+      let goal = input.map.validateGoal(requested, input.fromPoint)
+      if goal.isNone:
+        inc ordinal
+        continue
+      if stage == psGoalValidation:
+        inc ordinal
+        continue
+
+      inc result.resolvedCount
+      let
+        resolved = goal.get.goalPoint
+        key = reflexPointKey(resolved)
+      if seenKeys.seenOrAdd(key):
+        inc ordinal
+        continue
+      inc result.dedupedCount
+      if stage == psOptionDedup:
+        inc ordinal
+        continue
+
+      let arrival = input.arrivalFor(resolved)
+      if stage == psArrival:
+        inc ordinal
+        continue
+
+      let score = grenadeScore(resolved, arrival, facts, earliest)
+      if stage == psScorer:
+        inc ordinal
+        continue
+
+      if score.safe and (not haveHard or betterHard(score.minDistance,
+          arrival, ordinal, bestHardDistance, bestHardArrival,
+          bestHardOrdinal)):
+        haveHard = true
+        bestHardGoal = goal
+        bestHardPoint = resolved
+        bestHardOrdinal = ordinal
+        bestHardArrival = arrival
+        bestHardDistance = score.minDistance
+      if not haveFallback or betterFallback(score.minScaledClearance,
+          score.earliestInAggregation, arrival, ordinal, bestFallbackScaled,
+          bestFallbackEarliest, bestFallbackArrival, bestFallbackOrdinal):
+        haveFallback = true
+        bestFallbackGoal = goal
+        bestFallbackPoint = resolved
+        bestFallbackOrdinal = ordinal
+        bestFallbackArrival = arrival
+        bestFallbackScaled = score.minScaledClearance
+        bestFallbackEarliest = score.earliestInAggregation
+      inc ordinal
+
+  if not haveFallback:
+    return
+  result.found = true
+  if haveHard:
+    result.goal = bestHardGoal
+    result.point = bestHardPoint
+    result.ordinal = bestHardOrdinal
+    result.arrival = bestHardArrival
+  else:
+    result.fallbackUsed = true
+    result.goal = bestFallbackGoal
+    result.point = bestFallbackPoint
+    result.ordinal = bestFallbackOrdinal
+    result.arrival = bestFallbackArrival
+
+proc planGrenadeEscape(input: PlanEscapeInput;
+                       grenades: seq[VisibleGrenade]): PlanEscapeResult =
+  input.planGrenadeEscapeThroughStage(grenades, psTupleComparison)
+
+proc betterZone(insideNext, safeTicks, arrival: int64; ordinal: int;
+                bestInsideNext, bestSafeTicks, bestArrival: int64;
+                bestOrdinal: int): bool =
+  if insideNext != bestInsideNext:
+    return insideNext > bestInsideNext
+  if safeTicks != bestSafeTicks:
+    return safeTicks > bestSafeTicks
+  if arrival != bestArrival:
+    return arrival < bestArrival
+  ordinal < bestOrdinal
+
+proc planZoneExactThroughStage(input: PlanEscapeInput;
+                               nextZone: MapRect;
+                               zoneTicksUntilOutside: ZoneTicksUntilOutside;
+                               stage: PlanEscapeProfileStage):
+    PlanEscapeResult =
+  var
+    ordinal = 0
+    haveBest = false
+    bestPoint: BodyPoint
+    bestOrdinal = 0
+    bestArrival = InfiniteArrival
+    bestInsideNext = low(int64)
+    bestSafeTicks = low(int64)
+
+  for dy in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                   ReflexCandidateSpacingPx):
+    for dx in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                     ReflexCandidateSpacingPx):
+      let resolved = (input.fromPoint.x + dx, input.fromPoint.y + dy)
+      inc result.considered
+      if stage == psCandidateBounds or stage == psGoalValidation:
+        inc ordinal
+        continue
+
+      inc result.resolvedCount
+      inc result.dedupedCount
+      if stage == psOptionDedup:
+        inc ordinal
+        continue
+
+      let arrival = input.arrivalFor(resolved)
+      if stage == psArrival:
+        inc ordinal
+        continue
+
+      let
+        insideNext = if resolved.pointInRect(nextZone): 1'i64 else: 0'i64
+        safeTicks = zoneTicksUntilOutside(resolved)
+      if stage == psScorer:
+        inc ordinal
+        continue
+
+      if not haveBest or betterZone(insideNext, safeTicks, arrival, ordinal,
+          bestInsideNext, bestSafeTicks, bestArrival, bestOrdinal):
+        haveBest = true
+        bestPoint = resolved
+        bestOrdinal = ordinal
+        bestArrival = arrival
+        bestInsideNext = insideNext
+        bestSafeTicks = safeTicks
+      inc ordinal
+
+  if not haveBest:
+    return
+  result.found = true
+  result.point = bestPoint
+  result.ordinal = bestOrdinal
+  result.arrival = bestArrival
+  result.goal = input.map.validateGoal(result.point, input.fromPoint)
+
+proc planZoneEscapeThroughStage(input: PlanEscapeInput;
+                                nextZone: MapRect;
+                                zoneTicksUntilOutside: ZoneTicksUntilOutside;
+                                stage: PlanEscapeProfileStage):
+    PlanEscapeResult =
+  doAssert input.map != nil
+  doAssert ReflexCandidateRadiusPx mod ReflexCandidateSpacingPx == 0
+  if zoneTicksUntilOutside == nil:
+    return
+  let component = input.map.componentOf(input.fromPoint)
+  if input.map.latticeAllExact(input.fromPoint, component):
+    return input.planZoneExactThroughStage(nextZone, zoneTicksUntilOutside,
+      stage)
+  input.planEscapeThroughStage(
+    proc(candidate: EscapeCandidate): EscapeScore =
+      let
+        insideNext = if candidate.resolved.pointInRect(nextZone): 1'i64
+          else: 0'i64
+        safeTicks = zoneTicksUntilOutside(candidate.resolved)
+      EscapeScore(hardPass: true,
+        normal: scoreKey2(maxKey(insideNext), maxKey(safeTicks)),
+        fallback: scoreKey2(maxKey(insideNext), maxKey(safeTicks))),
+    stage)
+
+proc planZoneEscape(input: PlanEscapeInput; source: ReflexTickInput):
+    PlanEscapeResult =
+  input.planZoneEscapeThroughStage(source.nextZone,
+    source.zoneTicksUntilOutside, psTupleComparison)
 
 proc activeImpactCount(input: ReflexTickInput): int =
   for impact in input.sprayImpacts:
@@ -243,8 +597,8 @@ proc sprayScorer(input: ReflexTickInput): EscapeScorer =
       else:
         squaredDistance(candidate.resolved, centroid)
     EscapeScore(hardPass: true,
-      normal: scoreKeys([maxKey(cover), maxKey(distance)]),
-      fallback: scoreKeys([maxKey(cover), maxKey(distance)]))
+      normal: scoreKey2(maxKey(cover), maxKey(distance)),
+      fallback: scoreKey2(maxKey(cover), maxKey(distance)))
 
 proc zoneActive(input: ReflexTickInput): bool =
   input.mode == gmBr and input.zoneTicksUntilOutside != nil and
@@ -253,16 +607,6 @@ proc zoneActive(input: ReflexTickInput): bool =
 proc zoneRelease(input: ReflexTickInput): bool =
   input.mode != gmBr or input.zoneTicksUntilOutside == nil or
     input.zoneTicksUntilOutside(input.selfPos) > ReflexZoneReleaseTicks
-
-proc zoneScorer(input: ReflexTickInput): EscapeScorer =
-  result = proc(candidate: EscapeCandidate): EscapeScore =
-    let
-      insideNext = if candidate.resolved.pointInRect(input.nextZone): 1'i64
-        else: 0'i64
-      safeTicks = input.zoneTicksUntilOutside(candidate.resolved)
-    EscapeScore(hardPass: true,
-      normal: scoreKeys([maxKey(insideNext), maxKey(safeTicks)]),
-      fallback: scoreKeys([maxKey(insideNext), maxKey(safeTicks)]))
 
 proc note(state: var ReflexSeatState; tick: uint32;
           kind: ReflexTelemetryKind; reflex: ReflexKind) =
@@ -301,11 +645,26 @@ proc planInput(input: ReflexTickInput): PlanEscapeInput =
 proc planFor(input: ReflexTickInput; kind: ReflexKind): PlanEscapeResult =
   case kind
   of rkClearGrenade:
-    input.planInput.planEscape(grenadeScorer(input.triggeringGrenades))
+    input.planInput.planGrenadeEscape(input.triggeringGrenades)
   of rkClearSpray:
     input.planInput.planEscape(sprayScorer(input))
   of rkZoneEscape:
-    input.planInput.planEscape(zoneScorer(input))
+    input.planInput.planZoneEscape(input)
+
+proc profilePlanFor*(input: ReflexTickInput; kind: ReflexKind;
+                     stage: PlanEscapeProfileStage): PlanEscapeResult =
+  ## Measurement-only entry point used by the reflex budget tests. Production
+  ## callers stay on `planFor`/`selectReflex` so profiling timers do not affect
+  ## the runtime row.
+  case kind
+  of rkClearGrenade:
+    input.planInput.planGrenadeEscapeThroughStage(input.triggeringGrenades,
+      stage)
+  of rkClearSpray:
+    input.planInput.planEscapeThroughStage(sprayScorer(input), stage)
+  of rkZoneEscape:
+    input.planInput.planZoneEscapeThroughStage(input.nextZone,
+      input.zoneTicksUntilOutside, stage)
 
 proc selectReflex*(state: var ReflexSeatState; input: ReflexTickInput;
                    subscriptions: openArray[ReflexSubscription]):

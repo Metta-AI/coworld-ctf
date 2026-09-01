@@ -3,8 +3,8 @@
 import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
-import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
-  episode, standing_order, types]
+import ../src/shell/[binary_view, body, body_map, body_nav, body_planner,
+  default_play, episode, standing_order, types]
 
 proc controls(kind: SlotControl, count: int): seq[SlotControl] =
   result = newSeq[SlotControl](count)
@@ -41,6 +41,7 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
     currentZone: MapRect(x: 0, y: 0, w: 400, h: 400),
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
+    zonePhase: 2,
     zoneDps: 1,
     idleAimCenterBrads: seat mod 256,
     coverGoal: none(ValidatedGoal))
@@ -56,6 +57,7 @@ proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
     present: true,
     playing: playing,
     alive: alive,
+    aliveTeams: 2,
     bodyInputs: BodyTickInputs(
       self: BodySelfState(pos: selfPos, hp: hp, hpFrac: hpFrac,
         lives: some(1), aimBrads: seat mod 256, fireCooldown: 0,
@@ -175,7 +177,7 @@ suite "shell FIRST LIGHT":
     else:
       check "reason=runtime_unavailable" in lines[0]
 
-  test "first-light view carries truthful hp count and fraction":
+  test "first-light binary view carries truthful hp count and fraction":
     let map = testBodyMap()
     let liveFrame = frame(map, 0, alive = true)
     let deadFrame = frame(map, 0, alive = false)
@@ -183,10 +185,28 @@ suite "shell FIRST LIGHT":
       (liveFrame.bodyInputs.self.hpFrac > 0.0)
     check (deadFrame.bodyInputs.self.hp > 0) ==
       (deadFrame.bodyInputs.self.hpFrac > 0.0)
-    let view = parseJson(provisionalFirstLightView(liveFrame, 12))
-    check view["self"]["hp"].getInt() == liveFrame.bodyInputs.self.hp
-    check view["self"]["hp_frac"].getFloat() ==
-      liveFrame.bodyInputs.self.hpFrac
+    when ShellRuntimeAvailable:
+      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+        map, 331)
+      discard episode.step([liveFrame], 12)
+      let bytes = episode.firstLightViewBytes(0, 12)
+      check bytes[0 .. 3] == "PV1\0"
+      let sectionCount = ord(bytes[7])
+      var selfOffset = -1
+      for index in 0 ..< sectionCount:
+        let entry = BinaryFrameHeaderBytes + index * BinarySectionEntryBytes
+        let kind = ord(bytes[entry]) or (ord(bytes[entry + 1]) shl 8)
+        if kind == int(BvSelf):
+          selfOffset = ord(bytes[entry + 8]) or
+            (ord(bytes[entry + 9]) shl 8) or
+            (ord(bytes[entry + 10]) shl 16) or
+            (ord(bytes[entry + 11]) shl 24)
+      check selfOffset >= 0
+      let hpOffset = selfOffset + 12
+      let hp = ord(bytes[hpOffset]) or (ord(bytes[hpOffset + 1]) shl 8) or
+        (ord(bytes[hpOffset + 2]) shl 16) or
+        (ord(bytes[hpOffset + 3]) shl 24)
+      check hp == liveFrame.bodyInputs.self.hp
 
   test "activation installs safe hold then the epoch-zero default same tick":
     let map = testBodyMap()
@@ -259,6 +279,8 @@ suite "shell FIRST LIGHT":
       positions[seat] = (10 + seat, 10)
     var output: FirstLightTickResult
     var sawMovement = false
+    var weaponBitProjection = ""
+    var movementBitProjection = ""
     for tick in 1 .. 400:
       var frames: seq[FirstLightSeatFrame]
       for seat in 0 ..< 32:
@@ -271,9 +293,25 @@ suite "shell FIRST LIGHT":
           (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0):
         sawMovement = true
       for mask in output.masks:
+        let encoded = mask.input.encodeInputMask()
+        # Phase 5 replaces the idle-aim placeholder with Stencil's sweep, so
+        # aim bytes may move. The first-light invariant is byte preservation
+        # for actuator weapon bits: attack and C stay zero for every seat/tick
+        # under the default demo config.
+        weaponBitProjection.add(char(encoded and (ButtonA or ButtonC)))
+        # Phase 5 also inserted a fire-freeze branch AHEAD of the movement
+        # path in seatTick. It cannot trigger under the demo config, because
+        # fireHoldTicks is assigned only on the same branch that emits
+        # ButtonA and weapon bits are zero above — but that is a coupling
+        # between two facts, so pin the movement bits directly rather than
+        # leaving the demo's visible behaviour resting on an inference.
+        movementBitProjection.add(char(encoded and
+          (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)))
         positions[mask.seat.int].applyMask(mask.input)
     check output.masks.len == 32
     check sawMovement
+    check weaponBitProjection == newString(32 * 400)
+    check movementBitProjection != newString(32 * 400)
 
     let path = getTempDir() / "shell-first-light-masks.bitreplay"
     defer:

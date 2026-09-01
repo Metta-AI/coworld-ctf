@@ -5,6 +5,7 @@ import
   test_artlog,
   test_barriers,
   test_blocked_damage,
+  test_br_map_pool,
   test_br_spawn_points,
   test_dedup_object_placements_perf,
   test_hit_damage,
@@ -26,8 +27,11 @@ import
   test_shell_dispatch,
   test_shell_seats,
   test_sprite_collisions,
+  test_squad_shutdown_scoping,
+  test_squad_shutdown_timing,
   test_pb_engine,
   test_pb_replay,
   test_pb_startup,
+  test_vote_phase,
   test_zone
 {.warning[UnusedImport]: on.}

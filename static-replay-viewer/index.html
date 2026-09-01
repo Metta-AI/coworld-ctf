@@ -208,6 +208,28 @@ html, body {
    swatch + name + numeral structure and its DOM, so everything that reads or
    updates a plate keeps working. Without this the 16 chips overflow the bar
    and the outermost ones clip. */
+/* THREE/FOUR TEAMS: two plates per side track. Everything below is the
+   classic plate at the size two-to-a-side actually affords — the name and
+   numeral stay (they are the score), the second-order detail goes. Without
+   this the plates overprinted each other on any board narrower than the
+   design width. `many` (>4 teams) keeps its own, harder compaction below. */
+.plates.row.tight { gap: calc(10 * var(--u)); }
+.plates.row.tight .plate { gap: calc(5 * var(--u)); }
+.plates.row.tight .team-name { font-size: calc(11 * var(--u)); }
+.plates.row.tight .lives-num { font-size: calc(13 * var(--u)); }
+/* The labels are the first thing to go: "Hill"/"Lives" repeated four times is
+   four words saying what the numeral's position already says. */
+.plates.row.tight .lives-label { display: none; }
+/* Tag counts and squad pips are per-team detail that needs room this tier
+   does not have; they are what was colliding with the neighbouring plate. */
+.plates.row.tight .pb-tags,
+.plates.row.tight .squad { display: none; }
+.plates.row.tight .pb-sub { margin-top: 0; }
+.plates.row.tight .hillchip {
+  font-size: calc(10 * var(--u));
+  min-width: calc(22 * var(--u));
+  padding: calc(2 * var(--u)) calc(3 * var(--u));
+}
 .plates.row.many { gap: calc(7 * var(--u)); }
 .plates.row.many .plate { gap: calc(3 * var(--u)); }
 .plates.row.many .swatchicon,
@@ -1900,7 +1922,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var cogScratch = document.createElement('canvas'), cogScratchCtx = null;
   // Engine-authoritative wire constants (read via the shared chrome; the
   // fallback literals for raw file:// opens live in chrome_common.js).
-  var WIRE = C.WIRE, SPEEDS = C.SPEEDS, FPS = C.FPS;
+  var WIRE = C.WIRE, SPEEDS = C.SPEEDS, FPS = C.FPS, SPEED_CMD = C.SPEED_CMD;
 
   // Two independent tempo levers (§11, L20):
   //  (1) ANIM_MAX_FACTOR — chrome beat animations never play faster than this
@@ -2080,6 +2102,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   try {
     if (new URLSearchParams(location.search).get('viewpanel') === '0')
       document.body.setAttribute('data-noviewpanel', '1');
+  } catch (e) {}
+
+  // ?speed=<n> starts playback at that speed, via the same one-character
+  // command the speed chip sends. Explicit opt-IN only: absent, every existing
+  // embed keeps the 1x default it has always had. A BILLBOARD needs this — an
+  // unattended wall panel cannot click a chip, and at 1x a ~7,900-tick episode
+  // shows only its opening shuffle before the board rotates to the next one,
+  // which reads as a frozen picture rather than a game. Unknown or unlisted
+  // values are ignored rather than clamped: a typo should leave the viewer at
+  // its normal speed, not silently pick a different one.
+  var START_SPEED = null;
+  try {
+    var spRaw = new URLSearchParams(location.search).get('speed');
+    if (spRaw != null && SPEED_CMD[spRaw]) START_SPEED = SPEED_CMD[spRaw];
   } catch (e) {}
 
   // Tick deep-link (?t=<tick>): seek there on load, paused, via the same s:
@@ -2285,6 +2321,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (!PB_MODE && s.regime !== undefined) PB_MODE = true;
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
+    if (START_SPEED != null) { send(START_SPEED); START_SPEED = null; }
     if (SEEK_T != null) { send('s:' + SEEK_T); SEEK_T = null; }
     if (SEEK_FRAC != null && s.en) { seekToFraction(s, SEEK_FRAC); SEEK_FRAC = null; }
     applyAchievementFocus(s);
@@ -2487,8 +2524,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var many = teams.length > 4;
     sides[0].innerHTML = '';
     sides[1].innerHTML = '';
+    // THREE OR FOUR teams put TWO plates in each side track, so every plate
+    // gets about half the room a classic red/blue plate was sized against —
+    // but nothing used to shrink, because the only compaction tier keyed on
+    // `many` (>4). Four full-size plates then overran their minmax(0,1fr)
+    // tracks and printed ON TOP of each other: on the office wall board a
+    // 4ffa round showed RED's "0 TAGS - 0 UP" overprinted by GREEN's pips and
+    // the GAME/TURN line buried under BLUE's. `tight` is that missing middle
+    // tier — the plates stay (unlike `many`, which replaces them with two BR
+    // stats), they just wear sizes that fit two-to-a-side.
+    var tight = teams.length > 2 && !many;
     sides[0].classList.toggle('row', teams.length > 2);
     sides[1].classList.toggle('row', teams.length > 2);
+    sides[0].classList.toggle('tight', tight);
+    sides[1].classList.toggle('tight', tight);
     sides[0].classList.toggle('many', many);
     sides[1].classList.toggle('many', many);
     if (many) {

@@ -153,9 +153,13 @@ a policy uploads a playbook of WebAssembly "plays", talks with the other
 policies in a lobby chat phase, and then calls plays by name with parameters
 while the game runs them itself. The authoritative plan is
 [`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md)
-(design status; nothing in this repository implements it yet). The runtime
+(implemented and merged behind the `season2Shell` config gate, off by
+default: the ported body, the wasmtime runtime, the episode ladder, the
+reference plays, and the wire codec are all on main, dark; a shipped
+config never runs any of it). The runtime
 choice behind it is documented in
 [`docs/reports/wasm-runtime-embedding-2026-08-30.md`](docs/reports/wasm-runtime-embedding-2026-08-30.md).
+A proof-of-concept policy image that drives a play seat over the real wire protocol — and a list of what the server still has to register before one can — is in [`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md).
 
 ## Debug overlays (visualize what your bot is thinking)
 

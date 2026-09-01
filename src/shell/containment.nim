@@ -4,7 +4,7 @@
 ## hook. It runs real RuntimeEngine/ShellInstance/BodyMap/CompilePlane work
 ## against already-admitted Wasm bytes and returns deterministic evidence rows.
 
-import std/[monotimes, options, strutils, times]
+import std/[options, strutils, times]
 import bitworld/spriteprotocol
 
 import ../ctf/sim_types
@@ -70,8 +70,21 @@ const
   EmptyModule = [
     0x00'u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
 
-proc elapsedUs(started: MonoTime): float {.inline.} =
-  (getMonoTime() - started).inNanoseconds.float / 1000.0
+proc elapsedUs(started: float): float {.inline.} =
+  ## `started` is a cpuTime() reading, not a wall-clock one. This module has
+  ## exactly one consumer (test_shell_containment.nim's hostile-wave stress
+  ## gate) and no production caller, so there is no wall-clock telemetry
+  ## contract to preserve here. Was getMonoTime()-based; switched following
+  ## test_shell_reflexes.nim's template (the same "N seats stay inside a
+  ## runtime budget" property, cpuTime()-gated there already) after a
+  ## wall-clock/fixed-budget audit found this file's BodyGateUs/RuntimeGateUs/
+  ## ControlGateUs checks (1.4-5ms wall-clock ceilings) were the same defect
+  ## shape as test_shell_episode_ladder.nim's -- confirmed failing on a real
+  ## CI run, not just a loaded local box. cpuTime() only counts time this
+  ## process actually spent executing, so a scheduler preemption or another
+  ## process's contention on a shared runner no longer fails this test for
+  ## reasons unrelated to the code under test.
+  (cpuTime() - started) * 1_000_000.0
 
 proc testMap*(): BodyMap =
   const Width = 720
@@ -107,7 +120,10 @@ proc cleanDefaultBodyTick(map: BodyMap, seatCount: int, tick: uint32): bool =
     var state: StandingOrderState
     state.stepFirstLightDefault(body, tick, fallback)
     let mask = body.seatTick(inputs, tick)
-    if mask != InputState() or not state.hasStanding or
+    let unsafeBits = mask.encodeInputMask() and
+      (ButtonUp or ButtonDown or ButtonLeft or ButtonRight or ButtonA or
+        ButtonC)
+    if unsafeBits != 0 or not state.hasStanding or
         body.standingIntent.kind != ikHold or body.standingGoal.isSome:
       return false
   true
@@ -192,7 +208,7 @@ proc runContainmentGate*(engine: RuntimeEngine, hostiles: openArray[HostileModul
       for seat in 0 ..< seatCount:
         var shell = newShellInstance(validation.module, map, (30, 30),
           ecController)
-        let started = getMonoTime()
+        let started = cpuTime()
         let outcome = shell.runAttack(hostile.attack)
         wave.maxRuntimeUs = max(wave.maxRuntimeUs, elapsedUs(started))
         let statusBytes = outcome.terminalStatusBytes(uint64(seat + 1), 1,
@@ -209,12 +225,12 @@ proc runContainmentGate*(engine: RuntimeEngine, hostiles: openArray[HostileModul
     finally:
       validation.close()
 
-    let bodyStarted = getMonoTime()
+    let bodyStarted = cpuTime()
     wave.defaultBodyOk = cleanDefaultBodyTick(map, seatCount,
       uint32(waveIndex + 1))
     wave.maxBodyUs = elapsedUs(bodyStarted)
 
-    let controlStarted = getMonoTime()
+    let controlStarted = cpuTime()
     let control = runControlMaximum(engine, seatCount)
     wave.maxControlUs = elapsedUs(controlStarted)
     wave.controlAdmissions = control.admissions

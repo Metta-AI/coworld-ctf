@@ -7310,8 +7310,8 @@ const
                              ## meniscus/room-lag split Maxwell ruled on is
                              ## untouched.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
-                             ## arena.nim's MinCorridorWidth (the narrowest
-                             ## built corridor): local flow speed throttles
+                             ## arena.nim's MinPassableWidth (the narrowest
+                             ## passable floor): local flow speed throttles
                              ## toward its floor as clearance shrinks toward
                              ## this, a genuine bottleneck at a real doorway.
   ZoneApertureMinMult = 0.15   ## flow-speed floor at a fully-choked cell —
@@ -8566,6 +8566,23 @@ var
                                  ## the key changes (a fresh episode/map),
                                  ## which is the only time it gets resent.
 
+type ZoneArrivalFieldDebugState* = object
+  built*: bool
+  shipped*: bool
+  gridW*, gridH*: int
+  cells*: int
+
+proc zoneArrivalFieldDebugState*(): ZoneArrivalFieldDebugState =
+  ## Read-only live diagnostic for first-light launcher traces. It reports the
+  ## exact cached field/shipping state owned by addZoneEdgeBand without causing
+  ## the field to build.
+  ZoneArrivalFieldDebugState(
+    built: ZoneArrivalFieldValue.arrival.len > 0,
+    shipped: ZoneArrivalFieldShipped,
+    gridW: ZoneArrivalFieldValue.gridW,
+    gridH: ZoneArrivalFieldValue.gridH,
+    cells: ZoneArrivalFieldValue.arrival.len)
+
 proc ensureZoneArrivalField*(sim: SimServer): bool {.discardable, measure.} =
   ## Builds paintArrivalTick ONCE per episode (the key folds map dims/center,
   ## the drawn zone center, and the zonePhases schedule — any of those
@@ -8856,6 +8873,10 @@ proc addZoneEdgeBand(
       zoneArrivalFieldBytes(ZoneArrivalFieldValue),
       ZoneArrivalFieldLabel, changed = true)
     ZoneArrivalFieldShipped = true
+    if getEnv("FIRST_LIGHT_ZONE_LOG") == "1":
+      stderr.writeLine("FIRST_LIGHT_ZONE_PAINT shipped=true grid=" &
+        $ZoneArrivalFieldValue.gridW & "x" & $ZoneArrivalFieldValue.gridH &
+        " cells=" & $ZoneArrivalFieldValue.arrival.len)
   packet.addSpriteChanged(
     spriteDefs, ZoneClockSpriteId, 1, 1, newRgbaPixels(1, 1),
     ZoneEdgeFxLabelTag & " clock")

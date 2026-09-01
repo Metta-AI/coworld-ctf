@@ -180,7 +180,7 @@ suite "direct aim: a PLAY replay says so, and re-simulates":
 
   test "the aim stream records a change and holds it in between":
     var
-      writer = ReplayWriter(enabled: false)
+      writer = CtfReplayWriter(enabled: false)
       lastAim: seq[int] = @[]
     writer.writeDirectAimChange(lastAim, 0'u32, 3, 90)
     check lastAim[3] == 90
@@ -197,7 +197,7 @@ suite "direct aim: a PLAY replay says so, and re-simulates":
     # the turret on its policy heading.
     var
       sim = twoTeamGame()
-      writer = ReplayWriter(enabled: false)
+      writer = CtfReplayWriter(enabled: false)
       lastAim: seq[int] = @[]
       records: seq[ReplayInput] = @[]
       livePath: seq[int] = @[]

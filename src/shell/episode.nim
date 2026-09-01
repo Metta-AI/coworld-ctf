@@ -1,8 +1,8 @@
 ## FIRST LIGHT's gate-on episode owner: lifecycle, standing-order handoff,
 ## ordinary InputState masks, annotations, and split body/runtime timings.
 ##
-## Lane A FL-B supplies the concrete body, belief-lite, navigation, and
-## movement-only seatTick. This module owns only the server-side lifecycle,
+## Lane A supplies the concrete body, belief-lite, navigation, and seatTick
+## actuation. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
 import std/[json, monotimes, options, os, strformat, strutils, times]
@@ -10,6 +10,8 @@ import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_map
 import body_nav
+import reflexes
+import replay_records
 import types
 import standing_order
 
@@ -17,8 +19,8 @@ const ShellRuntimeAvailable* =
   compileOption("threads") and static(getEnv("WASMTIME_C_API")).len > 0
 
 when ShellRuntimeAvailable:
-  import call_validation, canonical, compile_plane, emit_validator, guards,
-    instance, ladder, runtime
+  import binary_view, call_validation, canonical, compile_plane, emit_validator,
+    guards, instance, ladder, runtime, view
 
 type
   FirstLightInventory* = object
@@ -37,6 +39,9 @@ type
     present*: bool
     playing*: bool
     alive*: bool
+    aliveTeams*: int
+    motionScale*: int
+    velocity*: int
     bodyInputs*: BodyTickInputs
     defaultFallbacks*: BrDefaultFallbacks
 
@@ -53,10 +58,61 @@ type
     bytesHash*: string
     bytes*: string
 
+  FirstLightModuleStatus* = object
+    seat*: int
+    uploadId*: uint64
+    terminal*: string
+    status*: StatusEntry
+    statusBytes*: string
+
+  FirstLightEntryIdentity* = object
+    seat*: int
+    entryId*: string
+    play*: string
+
+  FirstLightLadderStatus* = object
+    seat*: int
+    entryId*: string
+    status*: StatusEntry
+    statusBytes*: string
+
+  FirstLightCallReplayIdentity* = object
+    seat*: uint8
+    epoch*: uint64
+    ladderBytes*: string
+    entries*: seq[PlayCallEntryIdentity]
+    contentSha256*: string
+      ## Codec-derived identity hash with replayTimeMs=0. Lane B owns real
+      ## replay time and must call toPlayCallRecord(identity, replayTimeMs)
+      ## for the queued record's time-stamped content hash.
+
+  FirstLightAdmissionResult* = object
+    accepted*: bool
+    reason*: string
+    status*: StatusEntry
+    statusBytes*: string
+
+  FirstLightCallResult* = object
+    accepted*: bool
+    reason*: string
+    path*: string
+    epoch*: uint64
+    status*: StatusEntry
+    statusBytes*: string
+    pendingRetunes*: seq[FirstLightEntryIdentity]
+    replayIdentity*: Option[FirstLightCallReplayIdentity]
+
+  FirstLightPlayConfigResult* = object
+    lines*: seq[string]
+    callIdentities*: seq[FirstLightCallReplayIdentity]
+
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
     annotations*: seq[ShellAnnotation]
     installs*: seq[FirstLightInstall]
+    moduleStatuses*: seq[FirstLightModuleStatus]
+    ladderStatuses*: seq[FirstLightLadderStatus]
+    retuned*: seq[FirstLightEntryIdentity]
     bodyNanoseconds*: int64
     runtimeNanoseconds*: int64
 
@@ -78,6 +134,8 @@ type
   FirstLightRuntimeState = ref object
     frames: seq[FirstLightViewFrameSlot]
     selfPositions: seq[BodyPoint]
+    reflexStates: seq[ReflexSeatState]
+    lastCompileTick: Option[uint32]
 
   FirstLightSeatState* = object
     seat*: uint8
@@ -117,29 +175,6 @@ proc bodyActivationCount*(episode: FirstLightEpisode): int =
   ## recorded masks and never constructs SeatBody instances.
   episode.bodyActivations
 
-proc rectBytes(rect: MapRect): string =
-  "[" & $rect.x & "," & $rect.y & "," & $rect.w & "," & $rect.h & "]"
-
-proc provisionalFirstLightView*(frame: FirstLightSeatFrame;
-                                tick: uint32): string =
-  ## Provisional lane-C view source for the episode/ladder wiring proof. It
-  ## emits only the lean JSON rows `edge_ride` reads today: self position,
-  ## tick, and BR zone facts. Lane A's encoder replaces this source; do not
-  ## grow it into a second view producer.
-  let self = frame.bodyInputs.self
-  "{\"schema\":\"play_view\",\"self\":{\"aim_brads\":" & $self.aimBrads &
-    ",\"alive\":" & (if self.alive: "true" else: "false") &
-    ",\"hp\":" & $self.hp &
-    ",\"hp_frac\":" & $self.hpFrac &
-    ",\"pos\":[" & $self.pos.x & "," & $self.pos.y & "]}," &
-    "\"tick\":" & $tick &
-    ",\"v\":1,\"world\":{\"alive_teams\":0,\"zone\":{\"current\":" &
-    frame.defaultFallbacks.currentZone.rectBytes &
-    ",\"dps\":" & $frame.defaultFallbacks.zoneDps &
-    ",\"next\":" & frame.defaultFallbacks.nextZone.rectBytes &
-    ",\"phase\":0,\"ticks_to_shrink\":" &
-    $frame.defaultFallbacks.ticksToNextShrink & "}}}"
-
 proc frameForSeat(episode: FirstLightEpisode; seatIndex: int):
     Option[FirstLightSeatFrame] =
   when ShellRuntimeAvailable:
@@ -149,12 +184,52 @@ proc frameForSeat(episode: FirstLightEpisode; seatIndex: int):
       return some(episode.runtimeState.frames[seatIndex].frame)
   none(FirstLightSeatFrame)
 
-proc defaultViewSource(episode: FirstLightEpisode): ViewSource =
-  result = proc(seatIndex: int; tick: uint32): string =
+const MaxPlayZoneTicksToShrink = high(int32).int
+
+proc playZoneTicksToShrink(value: int): int =
+  ## The sim uses high(int) div 4 as the "no more zone phases" sentinel, but
+  ## the play view is an int32 ABI. Preserve the sentinel's meaning by
+  ## saturating it to the largest representable future tick count; plays testing
+  ## "ticks_to_shrink <= enterLead" still do not trigger at the final phase.
+  if value < 0:
+    0
+  elif value > MaxPlayZoneTicksToShrink:
+    MaxPlayZoneTicksToShrink
+  else:
+    value
+
+proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
+                          tick: uint32): string =
+  when ShellRuntimeAvailable:
     let frame = episode.frameForSeat(seatIndex)
     if frame.isNone:
       return "{}"
-    frame.get.provisionalFirstLightView(tick)
+    for state in episode.seats:
+      if state.active and state.seat.int == seatIndex:
+        let fallbacks = frame.get.defaultFallbacks
+        let source = playViewSourceFromBody(
+          state.body,
+          tick,
+          if episode.brMode: gmBr else: gmCtf,
+          frame.get.aliveTeams,
+          some(PlayZone(
+            phase: fallbacks.zonePhase,
+            current: PlayRect(x: fallbacks.currentZone.x,
+              y: fallbacks.currentZone.y, w: fallbacks.currentZone.w,
+              h: fallbacks.currentZone.h),
+            next: some(PlayRect(x: fallbacks.nextZone.x,
+              y: fallbacks.nextZone.y, w: fallbacks.nextZone.w,
+              h: fallbacks.nextZone.h)),
+            ticksToShrink:
+              playZoneTicksToShrink(fallbacks.ticksToNextShrink),
+            dps: fallbacks.zoneDps)))
+        return buildBinaryPlayView(source)
+    "{}"
+  else:
+    discard episode
+    discard seatIndex
+    discard tick
+    "{}"
 
 proc initFirstLightEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
@@ -171,8 +246,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
   when ShellRuntimeAvailable:
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
-      selfPositions: newSeq[BodyPoint](controls.len))
-  result.viewSource = result.defaultViewSource()
+      selfPositions: newSeq[BodyPoint](controls.len),
+      reflexStates: newSeq[ReflexSeatState](controls.len))
   for index, control in controls:
     if control == scPlay:
       result.enabled = true
@@ -228,7 +303,11 @@ proc provenanceText(provenance: Provenance): string =
   case provenance.base.kind
   of pbEntry: "entry:" & provenance.base.entryId
   of pbDefault: "default"
-  of pbReflex: provenance.base.reflexName
+  of pbReflex:
+    if provenance.base.reflexName.startsWith(ReflexNamePrefix):
+      "reflex:" & provenance.base.reflexName[ReflexNamePrefix.len .. ^1]
+    else:
+      "reflex:" & provenance.base.reflexName
 
 proc bytesHash(bytes: string): string =
   var hash = 14_695_981_039_346_656_037'u64
@@ -308,7 +387,30 @@ proc firstLightPlayConfigRefusal(episode: FirstLightEpisode;
         "firstLightPlay.seats entry outside roster")
   none(string)
 
+proc toPlayCallRecord*(identity: FirstLightCallReplayIdentity;
+    replayTimeMs: uint32): PlayCallRecord =
+  ## Builds the landed replay record shape from the lane-C accepted-call
+  ## identity. The decoder owns `contentSha256`; keep this helper on the codec
+  ## path instead of maintaining a parallel hash definition.
+  let bytes = PlayCallRecord(
+    replayTimeMs: replayTimeMs,
+    seat: identity.seat,
+    epoch: identity.epoch,
+    ladderBytes: identity.ladderBytes,
+    entries: identity.entries).encodePlayCallRecord()
+  bytes.decodePlayCallRecord()
+
+proc withContentSha(identity: FirstLightCallReplayIdentity):
+    FirstLightCallReplayIdentity =
+  result = identity
+  result.contentSha256 = identity.toPlayCallRecord(0).contentSha256
+
 when ShellRuntimeAvailable:
+  const NativeReflexSubscriptions = [
+    ReflexSubscription(kind: rkClearGrenade, epoch: 0),
+    ReflexSubscription(kind: rkClearSpray, epoch: 0),
+    ReflexSubscription(kind: rkZoneEscape, epoch: 0)]
+
   proc noGuardContext(): IntentContext =
     IntentContext(
       resolveNumber: proc(path: string): float =
@@ -318,20 +420,24 @@ when ShellRuntimeAvailable:
         discard path
         false)
 
+  proc ensureLadder(episode: var FirstLightEpisode) =
+    if episode.ladder == nil:
+      episode.ladder = newLadderDriver(episode.runtimeState.frames.len,
+        DefaultPathRegistry, if episode.brMode: gmBr else: gmCtf,
+        episode.map)
+
   proc ensureRuntime(episode: var FirstLightEpisode) =
     if episode.engine == nil:
       episode.engine = newRuntimeEngine()
     if episode.compilePlane == nil:
       episode.compilePlane = newCompilePlane(episode.engine,
         episode.runtimeState.frames.len)
-    if episode.ladder == nil:
-      episode.ladder = newLadderDriver(episode.runtimeState.frames.len,
-        DefaultPathRegistry, if episode.brMode: gmBr else: gmCtf,
-        episode.map)
+    episode.ensureLadder()
 
   proc addBindingFor(episode: var FirstLightEpisode; bound: BoundModule) =
     for binding in episode.bindings.mitems:
-      if binding.manifest.name == bound.manifest.name:
+      if binding.manifest.name == bound.manifest.name and
+          binding.hash == bound.hash:
         return
     let runtimeState = episode.runtimeState
     let map = episode.map
@@ -354,59 +460,212 @@ when ShellRuntimeAvailable:
         except ShellRuntimeError:
           nil)
 
+  proc seatIsConfiguredPlay(episode: FirstLightEpisode; seatIndex: int): bool =
+    for state in episode.seats:
+      if state.seat.int == seatIndex:
+        return true
+
+  proc moduleStatus(commit: CompileCommit): FirstLightModuleStatus =
+    FirstLightModuleStatus(seat: commit.seat, uploadId: commit.uploadId,
+      terminal: $commit.terminal, status: commit.status,
+      statusBytes: commit.statusBytes)
+
+  proc entryIdentity(seat: int; identity: LadderEntryIdentity):
+      FirstLightEntryIdentity =
+    FirstLightEntryIdentity(seat: seat, entryId: identity.entryId,
+      play: identity.play)
+
+  proc ladderStatus(status: LadderStatus): FirstLightLadderStatus =
+    FirstLightLadderStatus(seat: status.seat, entryId: status.entryId,
+      status: status.status, statusBytes: status.statusBytes)
+
+  proc callReplayIdentity(seatIndex: int; accepted: LadderCallResult):
+      FirstLightCallReplayIdentity =
+    FirstLightCallReplayIdentity(
+      seat: uint8(seatIndex),
+      epoch: accepted.epoch,
+      ladderBytes: accepted.ladderBytes,
+      entries: accepted.entries).withContentSha()
+
+  proc commitReadyModules(episode: var FirstLightEpisode;
+      maxCommits = MaxCompileCommitsPerTick): seq[FirstLightModuleStatus] =
+    if episode.compilePlane == nil:
+      return
+    for commit in episode.compilePlane.commitCompileResults(maxCommits):
+      if commit.terminal == tkReady:
+        let bound = episode.compilePlane.boundModule(commit.seat, commit.status.name)
+        if bound.isSome:
+          episode.addBindingFor(bound.get)
+      result.add commit.moduleStatus
+
+  proc progressCompilePlane(episode: var FirstLightEpisode):
+      seq[FirstLightModuleStatus] =
+    if episode.compilePlane == nil:
+      return
+    for commit in episode.compilePlane.progressCompileWorkers():
+      if commit.terminal == tkReady:
+        let bound = episode.compilePlane.boundModule(commit.seat, commit.status.name)
+        if bound.isSome:
+          episode.addBindingFor(bound.get)
+      result.add commit.moduleStatus
+
+  proc beginCompileTick(episode: var FirstLightEpisode; tick: uint32) =
+    if episode.compilePlane == nil or episode.runtimeState == nil:
+      return
+    if episode.runtimeState.lastCompileTick.isSome and
+        episode.runtimeState.lastCompileTick.get == tick:
+      return
+    episode.compilePlane.beginTick()
+    episode.runtimeState.lastCompileTick = some(tick)
+
+  proc seatBindings(episode: var FirstLightEpisode;
+      seatIndex: int): seq[LadderBinding] =
+    if episode.compilePlane == nil:
+      return
+    for bound in episode.compilePlane.boundModules(seatIndex):
+      episode.addBindingFor(bound)
+      for binding in episode.bindings:
+        if binding.manifest.name == bound.manifest.name and
+            binding.hash == bound.hash:
+          result.add binding
+          break
+
+  proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
+      uploadId, originGeneration: uint64; bytes: openArray[byte]):
+      FirstLightAdmissionResult =
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+      return
+    if seatIndex < 0 or seatIndex >= episode.rosterSize:
+      result.reason = "badSeat"
+      return
+    if not episode.seatIsConfiguredPlay(seatIndex):
+      result.reason = "seatNotPlay"
+      return
+    episode.ensureRuntime()
+    let admitted = episode.compilePlane.admitModule(seatIndex, uploadId,
+      originGeneration, bytes)
+    result.accepted = admitted.accepted
+    result.status = admitted.status
+    result.statusBytes = admitted.statusBytes
+    if admitted.accepted:
+      result.reason = ""
+    else:
+      result.reason = admitted.refusal.refusalReason
+
+  proc acceptPlayCall*(episode: var FirstLightEpisode; seatIndex: int;
+      proposalId, originGeneration: uint64; tick: uint32; callBytes: string):
+      FirstLightCallResult =
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+      result.path = "episode"
+      return
+    if seatIndex < 0 or seatIndex >= episode.rosterSize:
+      result.reason = "badSeat"
+      result.path = "seat"
+      return
+    if not episode.seatIsConfiguredPlay(seatIndex):
+      result.reason = "seatNotPlay"
+      result.path = "seat"
+      return
+    episode.ensureRuntime()
+    let accepted = episode.ladder.acceptCall(seatIndex, proposalId,
+      originGeneration, tick, callBytes, episode.seatBindings(seatIndex),
+      noGuardContext())
+    result.accepted = accepted.accepted
+    result.reason = accepted.reason
+    result.path = accepted.path
+    result.epoch = accepted.epoch
+    result.status = accepted.status
+    result.statusBytes = accepted.statusBytes
+    for identity in accepted.pendingRetunes:
+      result.pendingRetunes.add entryIdentity(seatIndex, identity)
+    if accepted.accepted:
+      result.replayIdentity = some(callReplayIdentity(seatIndex, accepted))
+
   proc callBytes(config: FirstLightPlayConfig): string =
     canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" &
       config.playName & "\",\"params\":" & config.paramsBytes &
       ",\"play\":\"" & config.playName & "\"}]}"))
 
-  proc configureFirstLightPlay*(episode: var FirstLightEpisode;
-      config: FirstLightPlayConfig): seq[string] =
+  proc configureFirstLightPlayWithReplayIdentities*(
+      episode: var FirstLightEpisode;
+      config: FirstLightPlayConfig): FirstLightPlayConfigResult =
     ## Binds a configured first-light play through the production admission,
     ## compile, cache, instance, and call-validation seams.
     let refusal = episode.firstLightPlayConfigRefusal(config)
     if refusal.isSome:
-      return @[refusal.get]
+      result.lines.add refusal.get
+      return
     if not fileExists(config.modulePath):
-      return @["FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
-        config.modulePath]
+      result.lines.add "FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
+        config.modulePath
+      return
 
     episode.ensureRuntime()
     let moduleBytes = readFile(config.modulePath)
     for index, seat in config.seats:
       let uploadId = config.uploadIdBase + uint64(index)
-      let admitted = episode.compilePlane.admitModule(seat, uploadId,
+      let admitted = episode.admitPlayModule(seat, uploadId,
         config.originGeneration, moduleBytes.rawBytes)
-      result.add(&"FIRST_LIGHT_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
+      result.lines.add(&"FIRST_LIGHT_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
         &"accepted={admitted.accepted} status={admitted.statusBytes}")
     if not episode.compilePlane.drainCompileWorkers():
-      result.add("FIRST_LIGHT_PLAY_COMPILE drained=false")
+      result.lines.add("FIRST_LIGHT_PLAY_COMPILE drained=false")
       return
     var commits = 0
     while commits < config.seats.len:
-      let batch = episode.compilePlane.commitCompileResults()
+      let batch = episode.commitReadyModules()
       if batch.len == 0:
         break
       for commit in batch:
         inc commits
-        result.add(&"FIRST_LIGHT_PLAY_COMMIT seat={commit.seat} " &
+        result.lines.add(&"FIRST_LIGHT_PLAY_COMMIT seat={commit.seat} " &
           &"upload_id={commit.uploadId} terminal={commit.terminal} " &
           &"status={commit.statusBytes}")
 
     for seat in config.seats:
-      let bound = episode.compilePlane.boundModule(seat, config.playName)
-      if bound.isNone:
-        result.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted=false " &
-          "reason=module_not_ready")
-        continue
-      episode.addBindingFor(bound.get)
-      let accepted = episode.ladder.acceptCall(seat,
+      let accepted = episode.acceptPlayCall(seat,
         config.proposalIdBase + uint64(seat), config.originGeneration, 0,
-        config.callBytes, episode.bindings, noGuardContext())
-      result.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
+        config.callBytes)
+      result.lines.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
         &"epoch={accepted.epoch} reason={accepted.reason} " &
         &"status={accepted.statusBytes}")
+      if accepted.replayIdentity.isSome:
+        result.callIdentities.add accepted.replayIdentity.get
+
+  proc configureFirstLightPlay*(episode: var FirstLightEpisode;
+      config: FirstLightPlayConfig): seq[string] =
+    episode.configureFirstLightPlayWithReplayIdentities(config).lines
 
 else:
+  proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
+      uploadId, originGeneration: uint64; bytes: openArray[byte]):
+      FirstLightAdmissionResult =
+    discard seatIndex
+    discard uploadId
+    discard originGeneration
+    discard bytes
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+    else:
+      result.reason = "runtimeUnavailable"
+
+  proc acceptPlayCall*(episode: var FirstLightEpisode; seatIndex: int;
+      proposalId, originGeneration: uint64; tick: uint32; callBytes: string):
+      FirstLightCallResult =
+    discard seatIndex
+    discard proposalId
+    discard originGeneration
+    discard tick
+    discard callBytes
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+      result.path = "episode"
+    else:
+      result.reason = "runtimeUnavailable"
+      result.path = "runtime"
+
   proc configureFirstLightPlay*(episode: var FirstLightEpisode;
       config: FirstLightPlayConfig): seq[string] =
     let refusal = episode.firstLightPlayConfigRefusal(config)
@@ -415,16 +674,96 @@ else:
     @["FIRST_LIGHT_PLAY configured=false reason=runtime_unavailable " &
       "hint=compile with --threads:on and WASMTIME_C_API"]
 
-proc configureFirstLightDemoPlayFromJson*(episode: var FirstLightEpisode;
-    configJson: string; repoRoot = getCurrentDir()): seq[string] =
+  proc configureFirstLightPlayWithReplayIdentities*(
+      episode: var FirstLightEpisode;
+      config: FirstLightPlayConfig): FirstLightPlayConfigResult =
+    result.lines = episode.configureFirstLightPlay(config)
+
+proc configureFirstLightDemoPlayFromJsonWithReplayIdentities*(
+    episode: var FirstLightEpisode; configJson: string;
+    repoRoot = getCurrentDir()): FirstLightPlayConfigResult =
   let node = firstLightPlayNode(configJson)
   if node == nil:
     return
   try:
-    result = episode.configureFirstLightPlay(node.playConfigFromNode(repoRoot))
+    result = episode.configureFirstLightPlayWithReplayIdentities(
+      node.playConfigFromNode(repoRoot))
   except CatchableError as error:
-    result = @["FIRST_LIGHT_PLAY configured=false reason=parse_error detail=" &
+    result.lines = @["FIRST_LIGHT_PLAY configured=false reason=parse_error detail=" &
       error.msg]
+
+proc configureFirstLightDemoPlayFromJson*(episode: var FirstLightEpisode;
+    configJson: string; repoRoot = getCurrentDir()): seq[string] =
+  episode.configureFirstLightDemoPlayFromJsonWithReplayIdentities(
+    configJson, repoRoot).lines
+
+when ShellRuntimeAvailable:
+  proc eventIdInt(value: uint64): int =
+    if value <= uint64(high(int)): value.int else: high(int)
+
+  proc zoneTicksUntilOutside(fallback: BrDefaultFallbacks):
+      ZoneTicksUntilOutside =
+    let
+      current = fallback.currentZone
+      ticksToShrink =
+        int64(playZoneTicksToShrink(fallback.ticksToNextShrink))
+    result = proc(point: BodyPoint): int64 =
+      if point.x < current.x or point.y < current.y or
+          point.x >= current.x + current.w or
+          point.y >= current.y + current.h:
+        0
+      else:
+        ticksToShrink
+
+  proc reflexInput(state: FirstLightSeatState; frame: FirstLightSeatFrame;
+                   tick: uint32; mode: GameMode): ReflexTickInput =
+    result = ReflexTickInput(
+      tick: tick,
+      mode: mode,
+      map: state.body.map,
+      selfPos: frame.bodyInputs.self.pos,
+      alive: frame.alive,
+      motionScale: if frame.motionScale > 0: frame.motionScale else:
+        MotionScale,
+      velocity: if frame.velocity > 0: frame.velocity else: MaxSpeed,
+      zoneTicksUntilOutside:
+        zoneTicksUntilOutside(frame.defaultFallbacks),
+      nextZone: frame.defaultFallbacks.nextZone)
+    for hazard in state.body.hazards.grenades:
+      result.visibleGrenades.add VisibleGrenade(
+        predictedBlastPos: hazard.predictedBlastPos,
+        ticksToBlast: hazard.ticksToBlast,
+        blastRadius: GrenadeBlastRadius,
+        eventId: hazard.eventId.eventIdInt)
+    for cue in state.body.hazards.blastCues:
+      result.blastCues.add BlastCue(
+        pos: cue.pos,
+        tick: cue.tick,
+        eventId: cue.eventId.eventIdInt)
+    for hazard in state.body.hazards.sprays:
+      case hazard.kind
+      of bshVisibleCone:
+        result.sprayCones.add VisibleSprayCone(
+          origin: hazard.origin,
+          aimBrads: hazard.aimBrads,
+          coversSelf: hazard.coversSelf,
+          tick: hazard.tick,
+          eventId: hazard.eventId.eventIdInt)
+      of bshAnonymousImpact:
+        result.sprayImpacts.add AnonymousSprayImpact(
+          impactPos: hazard.impactPos,
+          incomingDir: hazard.incomingDirBrads,
+          tick: hazard.tick,
+          eventId: hazard.eventId.eventIdInt)
+
+  proc nativeBase(decision: ReflexDecision): Option[LadderNativeBase] =
+    if not decision.selected:
+      return none(LadderNativeBase)
+    some(LadderNativeBase(
+      intent: decision.order.intent,
+      goal: decision.order.goal,
+      provenance: decision.order.provenance,
+      contributingEpoch: decision.order.contributingEpoch))
 
 proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
     nav: BodyNavSystem, annotations: var seq[ShellAnnotation]) =
@@ -514,6 +853,8 @@ proc step*(episode: var FirstLightEpisode,
           episode.runtimeState.frames[seat] =
             FirstLightViewFrameSlot(present: frame.present, frame: frame)
           episode.runtimeState.selfPositions[seat] = frame.bodyInputs.self.pos
+    episode.beginCompileTick(tick)
+    result.moduleStatuses = episode.progressCompilePlane()
 
   for state in episode.seats.mitems:
     var frameIndex = -1
@@ -550,6 +891,8 @@ proc step*(episode: var FirstLightEpisode,
     result.runtimeNanoseconds += (getMonoTime() - runtimeStarted).inNanoseconds
 
   when ShellRuntimeAvailable:
+    if episode.runtimeState != nil:
+      episode.ensureLadder()
     if episode.ladder != nil:
       let runtimeStarted = getMonoTime()
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
@@ -577,19 +920,30 @@ proc step*(episode: var FirstLightEpisode,
         state.standing.lastDefaultRule = decision.rule
         let finished = finishDefault(decision.intent,
           facts.idleAimCenterBrads)
+        let reflexDecision =
+          episode.runtimeState.reflexStates[seat].selectReflex(
+            state.reflexInput(slot.frame, tick,
+              if episode.brMode: gmBr else: gmCtf),
+            NativeReflexSubscriptions)
         inputs[seat] = LadderSeatInput(
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,
           contextBytes: "{}",
           viewBytes: (if episode.viewSource == nil:
-            slot.frame.provisionalFirstLightView(tick)
+            episode.firstLightViewBytes(seat, tick)
           else:
             episode.viewSource(seat, tick)),
           guardContext: noGuardContext(),
           defaultIntent: finished.intent,
-          defaultGoal: decision.goal)
+          defaultGoal: decision.goal,
+          nativeBase: reflexDecision.nativeBase)
 
       let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
+      for row in ladderOutput.seats:
+        for status in row.statuses:
+          result.ladderStatuses.add status.ladderStatus
+        for identity in row.retuned:
+          result.retuned.add entryIdentity(row.seat, identity)
       for state in episode.seats.mitems:
         let seat = state.seat.int
         if seat < 0 or seat >= ladderOutput.seats.len or
