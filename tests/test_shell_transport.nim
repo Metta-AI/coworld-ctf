@@ -20,24 +20,34 @@ var heartbeat: Atomic[int]
 template markProgress() = discard heartbeat.fetchAdd(1)
 
 proc waitFor(startedAt: var float64, lastSeen: var int,
-             noProgressSeconds = 45.0) =
+             noProgressSeconds = 180.0) =
   ## HEARTBEAT-RESET, not a flat wall-clock ceiling: startedAt only
   ## advances (via lastSeen catching up to heartbeat) when real progress
   ## has happened since the last check, so this only ever times out on
   ## noProgressSeconds of genuine STALL, never on cumulative slowness.
+  ## Was a flat 120.0s ceiling before this (raised from 10.0s after a
+  ## wall-clock audit caught this file failing 2/3 runs at ~10.6-10.9s
+  ## under heavy synthetic CPU load) -- a bigger flat constant just moves
+  ## the same race further out, which is why this converted to
+  ## heartbeat-reset instead of another flat bump.
   ##
-  ## Was a flat 120.0s ceiling (raised from 10.0s after a wall-clock audit
-  ## caught this file failing 2/3 runs at ~10.6-10.9s under heavy
-  ## synthetic CPU load) -- a bigger flat constant just moves the same
-  ## race further out. It stopped being enough once James's CI pipelining
-  ## (16f031e8) made shards compile while other shards run: a 2-core
-  ## runner now has permanent co-tenant contention for the life of the
-  ## job, the same load profile that made this file flake on a dev box.
-  ## The internal refusal/flood loops this guards already self-terminate
-  ## on an event count (consecutiveRefusals < 50), not wall time, so
-  ## progress-based waiting matches what's actually being proven: the
-  ## adapter keeps making progress, at whatever pace the runner allows,
-  ## rather than "the adapter finishes inside N flat seconds."
+  ## 45.0s (the first heartbeat-reset value) still timed out once on real
+  ## CI (run 33501567167, "no progress for 45.0s", ~4 min into the run --
+  ## checked directly: James's shard compile/run pipelining, 16f031e8,
+  ## was NOT active for that run; it had already been reverted by
+  ## d8691771 hours earlier). The real, simpler, always-true mechanism:
+  ## this file's own `Run test shards in parallel` step starts all 4
+  ## shard binaries concurrently on a 2-core `ubuntu-latest` runner --
+  ## 2x+ oversubscription for the FULL duration of every test run,
+  ## independent of whether compile and run are pipelined. A
+  ## markProgress()-covered path can still go quiet for tens of seconds
+  ## at a time if this test's own thread simply isn't scheduled while
+  ## three sibling shards' threads are. 180s rides out a worse scheduling
+  ## drought without weakening what's being proven: a genuine deadlock
+  ## still fails this, just in 3 minutes instead of 45s, which costs
+  ## nothing -- the property under test was never "finishes fast," it's
+  ## "keeps making progress," and heartbeat-reset already guarantees that
+  ## regardless of the ceiling's exact size.
   let current = heartbeat.load
   if current != lastSeen:
     lastSeen = current
@@ -46,7 +56,7 @@ proc waitFor(startedAt: var float64, lastSeen: var int,
     "timed out waiting: no progress for " & $noProgressSeconds & "s"
   sleep(5)
 
-template waitUntil(condition: untyped, noProgressSeconds = 45.0) =
+template waitUntil(condition: untyped, noProgressSeconds = 180.0) =
   block:
     var startedAt = epochTime()
     var lastSeen = heartbeat.load
