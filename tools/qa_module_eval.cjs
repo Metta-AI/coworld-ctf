@@ -170,4 +170,111 @@ for (const [src, out] of bundled) {
     'looks green in the source and is broken in the browser');
 }
 
-process.exit(failures);
+// ---- 3. the committed wasm is not stale --------------------------------
+// Contract 2 above only byte-diffs the HAND-WRITTEN JS against its source --
+// it has no way to look inside a compiled binary. That blind spot is exactly
+// what let THE FLIP (GameVersion 48 -> 50, 2026-09-01) ship with this whole
+// file green while static-replay-viewer/ctf_replay.wasm still reported
+// GameVersion 48: every hosted replay recorded after the flip failed to
+// load in the browser ("Replay game version \"50\" is not compatible"),
+// invisibly, because nothing here ever asked the wasm what version it was
+// built for. So: actually INSTANTIATE the committed wasm (same trick
+// tools/wasm_replay_smoke.cjs uses -- `Module` as a function PARAMETER, not
+// a global, because the bundle's own `var Module=typeof Module!=
+// "undefined"?Module:{}` is hoisted and shadows a global set before
+// `require()`) and ask it directly, rather than inferring anything from
+// file mtimes or git history.
+{
+  const wasmGameVersion = () => new Promise((resolve, reject) => {
+    const distDir = path.join(repo, 'static-replay-viewer');
+    const bundlePath = path.join(distDir, 'ctf_replay.js');
+    const watchdog = setTimeout(
+      () => reject(new Error('wasm runtime did not initialize within 60s')),
+      60000);
+    const Module = {
+      locateFile: (p) => path.join(distDir, p),
+      onAbort: (what) => {
+        clearTimeout(watchdog);
+        reject(new Error('wasm runtime aborted: ' + what));
+      },
+      onRuntimeInitialized: () => {
+        clearTimeout(watchdog);
+        try {
+          if (typeof Module._ctf_game_version_len !== 'function' ||
+              typeof Module._ctf_game_version_ptr !== 'function') {
+            // The exact shape of the OLD 19c310dc-era bundle: it predates
+            // this check's own export, so it fails here rather than on a
+            // TypeError from calling an undefined function.
+            resolve(null);
+            return;
+          }
+          const length = Module._ctf_game_version_len();
+          if (!length) { resolve(''); return; }
+          const pointer = Module._ctf_game_version_ptr();
+          resolve(Buffer.from(
+            Module.HEAPU8.subarray(pointer, pointer + length)).toString('utf8'));
+        } catch (e) {
+          reject(e);
+        }
+      },
+    };
+    try {
+      new Function('Module', 'require', '__filename', '__dirname',
+        fs.readFileSync(bundlePath, 'utf8'))(Module, require, bundlePath, distDir);
+    } catch (e) {
+      clearTimeout(watchdog);
+      reject(e);
+    }
+  });
+
+  const sourceGameVersion = () => {
+    const constFile = path.join(repo, 'src/ctf/sim_types.nim');
+    const text = fs.readFileSync(constFile, 'utf8');
+    const line = text.split('\n').find((l) => /GameVersion\* =/.test(l));
+    const m = line && line.match(/"([0-9]+)"/);
+    if (!m) {
+      throw new Error('could not read GameVersion from ' + constFile +
+        ' -- if the const was renamed, update tools/qa_module_eval.cjs ' +
+        '(and tools/ci/check_gameversion.sh)');
+    }
+    return m[1];
+  };
+
+  wasmGameVersion().then((wasmVersion) => {
+    let sourceVersion;
+    try {
+      sourceVersion = sourceGameVersion();
+    } catch (e) {
+      check('committed wasm GameVersion matches src/ctf/sim_types.nim',
+        false, e.message);
+      process.exit(failures);
+      return;
+    }
+    if (wasmVersion === null) {
+      check('committed wasm GameVersion matches src/ctf/sim_types.nim',
+        false,
+        'static-replay-viewer/ctf_replay.wasm does not export ' +
+        'ctf_game_version_ptr/len -- it predates this check and is ' +
+        'almost certainly stale. Source is GameVersion ' + sourceVersion +
+        '. Rebuild with tools/build_replay_viewer.sh.');
+    } else {
+      check('committed wasm GameVersion matches src/ctf/sim_types.nim',
+        wasmVersion === sourceVersion,
+        'wasm reports GameVersion ' + JSON.stringify(wasmVersion) +
+        ', source (src/ctf/sim_types.nim) is GameVersion ' +
+        JSON.stringify(sourceVersion) + ' -- the committed ' +
+        'static-replay-viewer/ctf_replay.wasm is stale (this is the exact ' +
+        'class of bug that shipped THE FLIP broken: a GameVersion bump ' +
+        'with no matching bundle rebuild). Rebuild with ' +
+        'tools/build_replay_viewer.sh and commit the result.');
+    }
+    process.exit(failures);
+  }).catch((e) => {
+    check('committed wasm GameVersion matches src/ctf/sim_types.nim',
+      false,
+      'could not instantiate static-replay-viewer/ctf_replay.wasm: ' +
+      (e && e.message ? e.message : String(e)) +
+      ' -- rebuild with tools/build_replay_viewer.sh.');
+    process.exit(failures);
+  });
+}
