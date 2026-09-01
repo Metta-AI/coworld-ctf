@@ -1257,6 +1257,27 @@ proc zoneSeedBranchAt(sim: SimServer, px, py: int): bool =
     float(sim.gameMap.width), float(sim.gameMap.height), ampTicks)
   (float(t0) + delay) - float(cell.arrival) <= ZoneSeedBranchTolTicks
 
+proc frontierIsolineProbe(
+  sim: SimServer, fixedCoord, v, otherGridMaxPx, t: int, alongX: bool
+): tuple[ok, occluded: bool, arrival: int] =
+  ## frontierIsolineCoord's per-cell reading — one coordinate along its
+  ## walk ray. `ok` = painted by tick t; `occluded` = off-grid, a wall, an
+  ## interior-room cell (architecture, exactly like a wall — see the
+  ## invalid-case list on frontierIsolineCoord for the measurement), or a
+  ## never-arriving cell.
+  if v < 0 or v >= otherGridMaxPx: return (false, true, 0)
+  let mask = if alongX: zoneD4MaskAt(sim, fixedCoord, v)
+    else: zoneD4MaskAt(sim, v, fixedCoord)
+  if not mask.walkable: return (false, true, 0)
+  let roomId = if alongX: zoneTestRoomIdAt(fixedCoord, v)
+    else: zoneTestRoomIdAt(v, fixedCoord)
+  if roomId >= 0: return (false, true, 0)
+  let cell = if alongX: zoneArrivalFieldCellAt(fixedCoord, v)
+    else: zoneArrivalFieldCellAt(v, fixedCoord)
+  if not cell.has or cell.arrival == ZoneNeverArrives.int:
+    return (false, true, 0)
+  (cell.arrival <= t, false, cell.arrival)
+
 proc frontierIsolineCoord(
   sim: SimServer, fixedCoord, startCoord, stepSign, otherGridMaxPx: int,
   t: int, alongX: bool
@@ -1332,23 +1353,18 @@ proc frontierIsolineCoord(
   ##    the instrument that measures it;
   ##  * a never-arriving cell reached before any paint — a sealed pocket;
   ##  * no paint at all within the walk budget.
-  proc probe(v: int): tuple[ok, occluded: bool, arrival: int] =
-    if v < 0 or v >= otherGridMaxPx: return (false, true, 0)
-    let mask = if alongX: zoneD4MaskAt(sim, fixedCoord, v)
-      else: zoneD4MaskAt(sim, v, fixedCoord)
-    if not mask.walkable: return (false, true, 0)
-    # An interior-room cell is ARCHITECTURE, and gets a wall's treatment
-    # exactly — see the invalid-case list above for the measurement.
-    let roomId = if alongX: zoneTestRoomIdAt(fixedCoord, v)
-      else: zoneTestRoomIdAt(v, fixedCoord)
-    if roomId >= 0: return (false, true, 0)
-    let cell = if alongX: zoneArrivalFieldCellAt(fixedCoord, v)
-      else: zoneArrivalFieldCellAt(v, fixedCoord)
-    if not cell.has or cell.arrival == ZoneNeverArrives.int:
-      return (false, true, 0)
-    (cell.arrival <= t, false, cell.arrival)
+  ##
+  ## `frontierIsolineProbe` (top-level, above) is this walk's per-cell
+  ## reading. It is deliberately NOT a nested proc: a nested proc capturing
+  ## `sim` makes Nim copy the whole SimServer value object into the closure
+  ## environment at every frontierIsolineCoord call — ~30ms per SAMPLE on
+  ## the real showmatch map, which is what made this instrument the paint
+  ## suite's dominant cost (the same defect ensureZoneFloorGrid's cache-hit
+  ## path had; see buildZoneFloorGrid's doc in global.nim).
   const MaxWalkSteps = 300  ## * ZoneFieldCellPx = 1200px
   const Invalid = (pos: -1.0, span: 0, seeded: false)
+  template probe(v: int): tuple[ok, occluded: bool, arrival: int] =
+    frontierIsolineProbe(sim, fixedCoord, v, otherGridMaxPx, t, alongX)
   var prev = probe(startCoord)
   if prev.occluded or prev.ok:
     return Invalid
