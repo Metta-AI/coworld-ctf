@@ -216,14 +216,33 @@ proc completedFuel(engine: RuntimeEngine; module: RuntimeModule;
   ## module completes the 1958-byte marginal-cost probe at ~45.1k of the
   ## 50k StepFuel budget (~90% utilized, ~10% headroom); a CI
   ## (ubuntu-latest) run of the identical source exhausted fuel on that
-  ## same probe. That is codegen drift on a deliberately near-the-edge
-  ## synthetic byte-padding case used only to compute a marginal
-  ## fuel-per-byte ratio for observability, not a realistic play input
-  ## and not a behavioral contract -- so callers that use it for exactly
-  ## that (the floor probe's `large` case below) pass
-  ## toleratesFuelExhaustion=true. It still hard-fails on any fault that
-  ## ISN'T plain fuel exhaustion (a trap, a bad return code, a crash),
-  ## which would be a real bug, not toolchain drift.
+  ## same probe.
+  ##
+  ## This isn't a surprise bug -- it's the exact, named, ratified
+  ## tradeoff in 9570d366 ("edge_ride, the loop-2 cold-review fixes, and
+  ## the binary view-frame spec"), which rewrote play_sdk/play.nim's
+  ## reader (view_floor.nim's own `import ../play`) to fix a real
+  ## correctness bug (a substring search that could match the wrong
+  ## field) with an acknowledged cost: per that commit's own message, "a
+  ## lean 218-byte controller view costs 13,893 fuel and completes, while
+  ## the 3,401-byte view with a populated 32-seat tracks list EXHAUSTS
+  ## StepFuel entirely -- a correct parser cannot even SKIP a full view
+  ## affordably, because skipping still costs ~28 fuel per skipped byte,"
+  ## ratified by James. This test's 1958-byte probe sits close enough to
+  ## that same edge that host codegen variance alone decides which side
+  ## of it a given machine lands on. StepFuel (src/shell/types.nim) is
+  ## explicitly commented "provisional until the freeze (native x86 +
+  ## quiet window runs)" as of this commit -- not yet frozen, but also
+  ## not a number this test gets to move unilaterally without that
+  ## process, and the code's own author already measured and accepted
+  ## that large views can legitimately exhaust it. So: tolerate exactly
+  ## that acknowledged outcome for the deliberately-marginal synthetic
+  ## probe (not a realistic play input, not a behavioral contract, used
+  ## here only to compute a fuel-per-byte ratio for observability) via
+  ## toleratesFuelExhaustion=true at the floor probe's `large` call site
+  ## below. Still hard-fails on any fault that ISN'T plain fuel
+  ## exhaustion (a trap, a bad return code, a crash), which would be a
+  ## real bug, not this known tradeoff.
   let measured = engine.readerStep(module, viewBytes)
   if measured.faulted and toleratesFuelExhaustion:
     check measured.reason.contains("all fuel consumed")
