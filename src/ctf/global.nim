@@ -7715,25 +7715,16 @@ var
                                       ## same sealed room, marginally less
                                       ## dead" apart).
 
-proc ensureZoneFloorGrid(sim: SimServer) =
-  ## Static per-map coarse floor grid, the D4a fix's foundation: walkability
-  ## comes from sim.walkMask (TRUE collision), never from rendered wall art.
-  ## Cached the same way ensureZoneWallArtMask is (keyed on map dims/center,
-  ## a no-op past the first call for a given map).
-  ensureZoneWallArtMask(sim)
-  let
-    w = sim.gameMap.width
-    h = sim.gameMap.height
-    cx = sim.gameMap.center.x
-    cy = sim.gameMap.center.y
-    key = (w: w, h: h, cx: cx, cy: cy)
-    gw = (w + ZoneFieldCellPx - 1) div ZoneFieldCellPx
-    gh = (h + ZoneFieldCellPx - 1) div ZoneFieldCellPx
-  if key == ZoneFloorGridKey and ZoneFloorWalkable.len == gw * gh:
-    return
-  ZoneFloorGridKey = key
-  ZoneFloorGridW = gw
-  ZoneFloorGridH = gh
+proc buildZoneFloorGrid(sim: SimServer, w, h, gw, gh: int) =
+  ## The rebuild body of ensureZoneFloorGrid, split out so the CACHE-HIT
+  ## path never touches it. This proc contains a nested proc that captures
+  ## `sim`, and Nim populates a nested proc's closure environment at the
+  ## ENCLOSING proc's entry — copying the whole SimServer value object
+  ## (mapRgba, walkMask, fonts: tens of MB on the giant showmatch map, ~30ms
+  ## per call) before any early return could run. Keeping the cache check in
+  ## a proc with no captures (ensureZoneFloorGrid below) makes the hit path
+  ## the O(1) lookup it always claimed to be; this build path pays the copy
+  ## once per map, where it is noise.
   let
     haveWalk = sim.walkMask.len == w * h
     haveWall = sim.wallMask.len == w * h
@@ -8026,6 +8017,30 @@ proc ensureZoneFloorGrid(sim: SimServer) =
       before.writeFile("/tmp/d4-before.png")
       after.writeFile("/tmp/d4-after.png")
       stderr.writeLine("D4 dump: wrote /tmp/d4-before.png and /tmp/d4-after.png")
+
+proc ensureZoneFloorGrid(sim: SimServer) =
+  ## Static per-map coarse floor grid, the D4a fix's foundation: walkability
+  ## comes from sim.walkMask (TRUE collision), never from rendered wall art.
+  ## Cached the same way ensureZoneWallArtMask is (keyed on map dims/center,
+  ## a no-op past the first call for a given map). The rebuild lives in
+  ## buildZoneFloorGrid, and MUST stay there: see its doc for why hoisting
+  ## it back inline would silently turn every cache hit into a full
+  ## SimServer copy.
+  ensureZoneWallArtMask(sim)
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    cx = sim.gameMap.center.x
+    cy = sim.gameMap.center.y
+    key = (w: w, h: h, cx: cx, cy: cy)
+    gw = (w + ZoneFieldCellPx - 1) div ZoneFieldCellPx
+    gh = (h + ZoneFieldCellPx - 1) div ZoneFieldCellPx
+  if key == ZoneFloorGridKey and ZoneFloorWalkable.len == gw * gh:
+    return
+  ZoneFloorGridKey = key
+  ZoneFloorGridW = gw
+  ZoneFloorGridH = gh
+  buildZoneFloorGrid(sim, w, h, gw, gh)
 
 proc zoneScheduleTotalTicks(sim: SimServer): int =
   ## Sum of every configured phase's wait+shrink — the tick past which the
