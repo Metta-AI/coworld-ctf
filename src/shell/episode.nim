@@ -64,6 +64,17 @@ type
     status*: StatusEntry
     statusBytes*: string
 
+  FirstLightEntryIdentity* = object
+    seat*: int
+    entryId*: string
+    play*: string
+
+  FirstLightLadderStatus* = object
+    seat*: int
+    entryId*: string
+    status*: StatusEntry
+    statusBytes*: string
+
   FirstLightAdmissionResult* = object
     accepted*: bool
     reason*: string
@@ -77,12 +88,15 @@ type
     epoch*: uint64
     status*: StatusEntry
     statusBytes*: string
+    pendingRetunes*: seq[FirstLightEntryIdentity]
 
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
     annotations*: seq[ShellAnnotation]
     installs*: seq[FirstLightInstall]
     moduleStatuses*: seq[FirstLightModuleStatus]
+    ladderStatuses*: seq[FirstLightLadderStatus]
+    retuned*: seq[FirstLightEntryIdentity]
     bodyNanoseconds*: int64
     runtimeNanoseconds*: int64
 
@@ -422,6 +436,15 @@ when ShellRuntimeAvailable:
       terminal: $commit.terminal, status: commit.status,
       statusBytes: commit.statusBytes)
 
+  proc entryIdentity(seat: int; identity: LadderEntryIdentity):
+      FirstLightEntryIdentity =
+    FirstLightEntryIdentity(seat: seat, entryId: identity.entryId,
+      play: identity.play)
+
+  proc ladderStatus(status: LadderStatus): FirstLightLadderStatus =
+    FirstLightLadderStatus(seat: status.seat, entryId: status.entryId,
+      status: status.status, statusBytes: status.statusBytes)
+
   proc commitReadyModules(episode: var FirstLightEpisode;
       maxCommits = MaxCompileCommitsPerTick): seq[FirstLightModuleStatus] =
     if episode.compilePlane == nil:
@@ -513,6 +536,8 @@ when ShellRuntimeAvailable:
     result.epoch = accepted.epoch
     result.status = accepted.status
     result.statusBytes = accepted.statusBytes
+    for identity in accepted.pendingRetunes:
+      result.pendingRetunes.add entryIdentity(seatIndex, identity)
 
   proc callBytes(config: FirstLightPlayConfig): string =
     canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" &
@@ -849,6 +874,11 @@ proc step*(episode: var FirstLightEpisode,
           nativeBase: reflexDecision.nativeBase)
 
       let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
+      for row in ladderOutput.seats:
+        for status in row.statuses:
+          result.ladderStatuses.add status.ladderStatus
+        for identity in row.retuned:
+          result.retuned.add entryIdentity(row.seat, identity)
       for state in episode.seats.mitems:
         let seat = state.seat.int
         if seat < 0 or seat >= ladderOutput.seats.len or
