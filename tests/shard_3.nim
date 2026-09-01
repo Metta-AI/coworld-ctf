@@ -28,5 +28,6 @@ import
   test_pb_engine,
   test_pb_replay,
   test_pb_startup,
+  test_vote_phase,
   test_zone
 {.warning[UnusedImport]: on.}
