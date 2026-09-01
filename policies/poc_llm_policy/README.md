@@ -7,9 +7,10 @@ an LLM for a lobby line and a ladder call, and sends both — then asks again
 mid-match and re-calls.
 
 The LLM is reached the way a deployed policy actually reaches one: through the
-platform's per-pod **Bedrock sidecar**, with no model credentials in the image.
-A direct OpenRouter path and a canned path stand behind it for local
-development and CI.
+platform's per-pod **LLM sidecar** — OpenAI-compatible chat completions, served
+by OpenRouter — with no model credentials in the image. A direct OpenRouter
+path and a canned path stand behind it for local development and CI, and the
+first two are the same client with a different URL and auth header.
 
 This is explicitly a **proof of concept**, not a competitor. It plays badly. Its
 value is that it proves an outsider-shaped client, written against the byte
@@ -25,7 +26,7 @@ layouts alone, can drive the protocol.
 | Connect as a play seat over the real protocol | `ws://host:port/player?slot=N&token=T`, upgraded by the server's play-seat transport |
 | Upload the playbook over the wire | 0xA0 ModuleUpload → `module_accepted` → `module_ready` with the server's own sha256 |
 | An LLM chooses the chat line and the play call | one model call per decision, two decisions per run, over whichever backend the environment selects |
-| It works on the hosted platform's LLM path | the Bedrock sidecar backend is the primary path, gated on `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` |
+| It works on the hosted platform's LLM path | the sidecar's OpenAI-compatible `/v1/chat/completions` is the primary backend, gated on `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` |
 | A mid-match re-call driven by a later model call | a second 0xA1 at a higher proposal id, accepted at epoch 2, with the standing ladder fed back to the model so the re-call is a revision |
 | The production validator is the oracle | a deliberately bad call comes back `call_rejected` with `reason` and the offending JSON path |
 
@@ -35,9 +36,9 @@ layouts alone, can drive the protocol.
   There is no evaluation loop, no reaction to the 0xB1 view stream, and no
   attempt to win.
 - **The sidecar path is unproven against a real pod.** It is written to the
-  documented contract and exercised against a stub built to that same contract,
-  which cannot catch a doc-versus-behaviour mismatch. Nothing here has run in a
-  hosted tournament.
+  contract read out of the sidecar's own source and exercised against a stub
+  built to that contract, which cannot catch a code-versus-behaviour mismatch.
+  Nothing here has run in a hosted tournament.
 - **One seat.** A real policy image would drive all 32.
 - **No reconnect handling.** The protocol's rebind, transcript replay, and
   generation-stamping rules (§4.3/§9.2) are read but not exercised.
@@ -117,7 +118,7 @@ this file should simply be deleted).
 ```
 poc_llm_policy/
   wire.py              packet codec + canonical JSON, from the byte layouts alone
-  brain.py             the three model backends: Bedrock sidecar, OpenRouter, canned
+  brain.py             the model backends: hosted sidecar, OpenRouter, canned
   poc_policy.py        the harness: connect, upload, chat, call, re-call
   build_playbook.sh    compiles edge_ride.wasm and pact.wasm from play_sdk
   poc_shell_server.nim the gate-on server plus the unregistered wire consumers
@@ -189,7 +190,8 @@ server to loopback, so for a container run start the server yourself.
 | Variable | Set by | Meaning |
 | --- | --- | --- |
 | `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` | the platform, in a hosted pod | **presence selects the production backend.** Never hardcode it |
-| `BEDROCK_MODEL` | `--bedrock-model` at upload | the model id the sidecar backend calls; required when the endpoint is set |
+| `BEDROCK_MODEL` | `--bedrock-model` at upload | the model id the sidecar backend calls; required when the endpoint is set. A legacy Bedrock id or a canonical `vendor/model` slug both work — the sidecar resolves aliases |
+| `POC_LLM_PROTOCOL` | you, rarely | `bedrock` switches the sidecar call to the legacy `InvokeModel` shape. Opt-in escape hatch only |
 | `OPENROUTER_API_KEY` | you, for local dev | selects the OpenRouter backend when no sidecar is present |
 | `POC_MODEL` | you | OpenRouter model id (default `qwen/qwen3-30b-a3b-instruct-2507`); ignored on the sidecar path |
 | `POC_CANNED` | you | `1` (or `--canned`) forces the fixed response, overriding both |
@@ -209,56 +211,91 @@ them from an uploaded secret-env and re-applies its own.
 
 Selected in this order, production first (`brain.py`, `build_brain`):
 
-**1. The hosted Bedrock sidecar — the production path.** A deployed policy image
-does *not* call OpenRouter. The Softmax platform runs a per-pod sidecar on
-loopback that holds the real AWS identity and signs calls on the policy's
-behalf, so the container ships no model credentials. The contract, verified
-against metta at commit `9e780b9ff7`:
+**1. The hosted LLM sidecar — the production path.** A deployed policy image
+does **not** carry model credentials. The platform runs a per-pod proxy on
+loopback that holds the real identity and bills the call to this pod's player
+slot. It speaks **OpenAI-compatible chat completions, served by OpenRouter**.
 
 - `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` (e.g. `http://127.0.0.1:9100`) is the
-  signal that hosted Bedrock is available. Gate on **this**, not on
-  `USE_BEDROCK`, which is also set for direct local AWS access with no sidecar
-  (`packages/coworld/src/coworld/docs/BEDROCK.md`, "Detecting that you're
-  behind the sidecar").
+  signal that the hosted proxy is available. **The name is historical** — the
+  sidecar began as a Bedrock proxy and kept the variable when OpenRouter
+  routing became the serving path — so do not read it as "Bedrock only". Gate on
+  it rather than `USE_BEDROCK`, which is also set for direct local AWS access
+  with no sidecar in front of it.
+- `POST {endpoint}/v1/chat/completions`, an ordinary OpenAI chat-completions
+  body, `response_format: {"type": "json_object"}` supported.
+- **No `Authorization` header.** The sidecar supplies the real credential.
+- **Do not send `X-Coworld-Player-Slot`.** On a player pod the sidecar defaults
+  attribution to that pod's own slot, and a value disagreeing with it is
+  rejected outright (`_resolve_request_attribution`,
+  `app_backend/.../job_runner/bedrock_sidecar.py:1387-1404`). Sending nothing is
+  correct and safer. The header is stripped before the upstream call anyway.
 - `BEDROCK_MODEL` carries the model id from `--bedrock-model` at upload. It must
-  be read, never hardcoded. If the endpoint is set and this is not, the harness
-  **refuses loudly** rather than falling back — a silent fallback here is the
+  be read, never hardcoded. Whatever string arrives is resolved through the
+  sidecar's legacy-id alias table to a canonical OpenRouter slug and then checked
+  against the model allowlist (`resolve_model`,
+  `app_backend/.../job_runner/llm_sidecar.py:260-268`), so a legacy Bedrock id
+  *and* a canonical `vendor/model` slug both work. If the endpoint is set and
+  this is not, the harness **refuses loudly** — a silent fallback here is the
   documented way to score zero completed episodes without noticing.
-- The call is a Bedrock Runtime `InvokeModel`:
-  `POST $AWS_ENDPOINT_URL_BEDROCK_RUNTIME/model/$BEDROCK_MODEL/invoke` with an
-  Anthropic Messages body (`"anthropic_version": "bedrock-2023-05-31"`) and
-  **no `Authorization` header**. No AWS SDK is needed; `urllib` is enough.
-- `requestMetadata` is deliberately never set — the sidecar overwrites it with
-  trusted attribution.
-- Calls are rate limited (30/minute per player slot by default). A 429 arrives
-  as a Bedrock `ThrottlingException` carrying `Retry-After` / `Retry-After-Ms`,
-  which the backend honours once before giving up.
-- Every call is bounded by a timeout, because a slow call times the whole
+- Rate limited per player slot; a 429 carries `Retry-After` / `Retry-After-Ms`,
+  honoured once. Every call is timeout-bounded, because a slow call times the
   episode out and scores as a loss.
 
 To deploy: `coworld upload-policy ... --use-bedrock --bedrock-model <id>`.
 Without `--use-bedrock` the pod gets no sidecar and this backend never engages.
 
-There is **no JSON mode** on this path. The Anthropic Messages body has no
-`response_format`, so JSON is forced by prefilling the assistant turn with `{`
-and prepending it back onto the reply. That is a real difference from the
-OpenRouter path, not a detail.
-
-> The sidecar also exposes `/v1/chat/completions` and `/v1/messages`. **Do not
-> build against them.** They return HTTP 503 `"OpenRouter is not configured"`
-> unless a backend-side key is set, which is gated behind a chart flag that is
-> off (`coworldOpenRouterRouting.enabled: false`), and they are undocumented for
-> players. The design intent is that Bedrock-speaking images keep working
-> unchanged while OpenRouter is swapped in *behind* the sidecar.
-
 **2. Direct OpenRouter — local development only.** Selected when
-`OPENROUTER_API_KEY` is set and no sidecar endpoint is present. Uses
+`OPENROUTER_API_KEY` is set and no sidecar endpoint is present. Default model
 `qwen/qwen3-30b-a3b-instruct-2507` (open weights, ~$0.05 per million prompt
-tokens) with `response_format: {"type": "json_object"}`. Convenient for
-iterating locally; it is not how the image runs in a tournament.
+tokens).
+
+Because the hosted proxy and OpenRouter speak the same protocol, **(1) and (2)
+are the same class** — `OpenAiChatBrain`, differing only in URL and whether an
+`Authorization` header is attached. That is most of why `brain.py` is small.
 
 **3. Canned.** A fixed response, so the image is testable offline and in CI.
 Forced by `--canned`, and the fallback when neither of the above is configured.
+
+**Opt-in fallback: the legacy Bedrock `InvokeModel` path.** The sidecar still
+accepts the Bedrock shapes, so `POC_LLM_PROTOCOL=bedrock` switches the hosted
+call to `POST {endpoint}/model/{model}/invoke` with an Anthropic Messages body.
+It is never auto-selected and is **not** load-bearing: James states OpenRouter
+routing is the production truth. It exists only as an escape hatch if the
+OpenAI-compatible route ever misbehaves for a particular model. Note it has no
+`response_format`, so it forces JSON by prefilling the assistant turn with `{`.
+
+#### How routing actually works, and the one gap worth flagging
+
+Routing is a **global backend setting, not per-league**.
+`devops/app-manifests/values.yaml` sets `coworldOpenRouterRouting.enabled: true`
+with `episodePercent: 100` — a James-authorized ramp to 100% on
+2026-08-29 01:08Z, with the whole ramp history in that file's comments.
+Assignment is a deterministic per-episode hash (`assignmentSalt`) gated by that
+percent, so at 100% every new episode routes to OpenRouter.
+
+Confirmed against production on 2026-08-31 (`coworld leagues --json`, 125
+leagues): `LeagueSettings`
+(`app_backend/src/metta/app_backend/v2/league_settings_schema.py:158`) has **no
+routing field at all**. The only per-league LLM knob is
+`settings.llm.player_model_allowlist` (`:139-146`), which restricts models — it
+does not switch providers. The one per-request override,
+`llm_routing_override`, is team-only and requires `num_episodes=1`
+(`v2/routes/experience_requests.py:845-851`), i.e. a canary knob, not a league
+setting.
+
+> **The gap:** the chart's own default is the opposite of production. 
+> `devops/charts/observatory-backend/values.yaml:204-206` ships
+> `enabled: false, episodePercent: 0` ("Keep disabled with zero percent until a
+> separately reviewed rollout"), and the backend config default is likewise
+> `COWORLD_OPENROUTER_ROUTING_ENABLED: bool = False`
+> (`job_runner/config.py:189`). Production is correct only because the
+> app-manifest overrides both. So the primary path here depends on a
+> deployment-level override rather than a code default: any environment
+> installed from the chart without that override serves 503
+> `"OpenRouter is not configured"` on `/v1/chat/completions`
+> (`bedrock_sidecar.py:1211-1213`) and only the Bedrock shapes work. Flagged,
+> not resolved — that is a platform call, not this PoC's.
 
 ### What the model is asked, and how far it is trusted
 
@@ -377,27 +414,25 @@ a gap between what the spec says and what the validator checks.
 
 ### On the platform side, by contrast
 
-The hosted-LLM contract is documented *well*.
-`packages/coworld/src/coworld/docs/BEDROCK.md` in metta is what a client-facing
-protocol reference looks like: one rule in a callout at the top, a table of
-every env var with what you do with it, working snippets for three SDKs plus
-hand-rolled HTTP, and a troubleshooting table keyed by symptom that names the
-three mistakes which produce zero completed episodes. Writing the sidecar
-backend took a fraction of the time the game protocol did, and the difference
-is entirely the documentation.
+The hosted-LLM path is documented *well* for the Bedrock shapes.
+`packages/coworld/src/coworld/docs/BEDROCK.md` in metta is close to what a
+client-facing protocol reference should look like: one rule in a callout at the
+top, a table of every env var with what you do with it, working snippets for
+three SDKs plus hand-rolled HTTP, and a troubleshooting table keyed by symptom.
 
-Two traps survive it:
+The gap is that **it documents the Bedrock shapes, and production serves
+OpenRouter through an OpenAI-compatible route the player docs never mention.**
+Working only from `BEDROCK.md`, this PoC first shipped an `InvokeModel` client
+and a README asserting that `/v1/chat/completions` was a 503 trap to avoid — a
+conclusion drawn from the chart's unconfigured default rather than the
+deployment. The primary production path is exactly the one the player-facing
+documentation tells you not to use. Both routes work today, so nothing is
+broken; but a policy author reading the docs will not find the live path, and an
+author who finds the route by inspection has no documentation for it.
 
-* **`/v1/chat/completions` and `/v1/messages` exist on the sidecar and look
-  like the obvious modern choice.** They return HTTP 503 `"OpenRouter is not
-  configured"` in production, they are undocumented for players, and nothing at
-  the route itself says so. An author who reaches for the OpenAI-shaped
-  endpoint gets a 503 with no hint that the Bedrock path is the supported one.
-* **`PLAYER.md` and `BEDROCK.md` disagree.** `PLAYER.md` says to use
-  `InvokeModel` "not `Converse`"; `BEDROCK.md` and the sidecar's own route
-  table both list `Converse` and `ConverseStream` as supported. The code
-  supports them. This harness uses `InvokeModel` anyway, as the stricter of the
-  two.
+One smaller inconsistency: `PLAYER.md` says to use `InvokeModel` "not
+`Converse`", while `BEDROCK.md` and the sidecar's own route table both list
+`Converse` and `ConverseStream` as supported.
 
 What was more than sufficient: `src/shell/packets.nim` reads as a
 specification — the length equations and the four rejection kinds are
@@ -443,40 +478,48 @@ The chat lines are worth noting on their own: the model emits em dashes and
 curly apostrophes, and they survive the 0xA3 → 0xB2 round trip byte-exactly,
 which exercises the UTF-8 measured-in-bytes cap on that packet.
 
-### The Bedrock sidecar backend
+### The hosted sidecar backend (primary path)
 
-Exercised against a local stub implementing the documented `InvokeModel`
-contract (`GET /healthz/core-v1`, `POST /model/{id}/invoke`) and translating to
-an upstream model — which is what the real sidecar does internally when
-OpenRouter routing is enabled:
+Exercised against a local stub implementing the sidecar's routes
+(`GET /healthz/core-v1`, `POST /v1/chat/completions`, and the legacy
+`POST /model/{id}/invoke`), forwarding upstream the way the real sidecar does:
 
 ```
-model backend: bedrock-sidecar us.anthropic.claude-haiku-4-5-20251001-v1:0
-               (hosted Bedrock sidecar at http://127.0.0.1:9137
-                (BEDROCK_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0))
+model backend: sidecar-openai us.anthropic.claude-haiku-4-5-20251001-v1:0
+               (hosted sidecar at http://127.0.0.1:9141,
+                OpenAI-compatible chat completions)
 
-[stub] InvokeModel path=/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke
-       auth=False  anthropic_version=bedrock-2023-05-31
+[stub] openai_chat model='us.anthropic.claude-haiku-4-5-20251001-v1:0'
+                -> 'anthropic/claude-haiku-4.5'
+       client_auth=False  slot_header=None  json_mode=True
 
-opening call ACCEPTED: epoch=1 proposal_id=1 tick=7
-mid-match re-call ACCEPTED: epoch=2 proposal_id=2 tick=20   (margin 240 -> 180)
-real model calls: 2
+turn 1 -> edge_ride{margin:240}
+          chat: "Edge ride or die, partner — you stay close, I'll handle the zone."
+          opening call ACCEPTED: epoch=1 proposal_id=1 tick=7
+turn 2 -> edge_ride{margin:240} + pact{partners:["seat:1"],protect:true,
+                                       onBetrayal:"disengage"}
+          chat: "Edge's tight, but we're rolling with cover—stay sharp, seat 1."
+          mid-match re-call ACCEPTED: epoch=2 proposal_id=2 tick=20
+real model calls: 2 | all PoC steps passed
 ```
 
-`auth=False` is the contract being honoured: the harness sends no
-`Authorization` header, because the sidecar supplies the real one.
+Three contract details visible in one line of stub log: `client_auth=False`
+(the harness sends no `Authorization`, the sidecar supplies it),
+`slot_header=None` (attribution is left to the pod's own slot), and the legacy
+model id resolving through the alias table to a canonical OpenRouter slug.
 
 **This has not been run against a real hosted sidecar** — only against a stub
-built to the documented contract. The remaining risk is that the documentation
-and the sidecar's actual behaviour differ somewhere this stub reproduces
-faithfully by construction.
+built to the contract read out of the sidecar's source. The remaining risk is a
+code-versus-behaviour difference the stub reproduces faithfully by construction.
 
-Backend selection, all five branches:
+Backend selection, all seven branches:
 
 ```
-sidecar + OPENROUTER_API_KEY     -> bedrock-sidecar (hosted wins)
+sidecar                          -> sidecar-openai   {endpoint}/v1/chat/completions
+sidecar + OPENROUTER_API_KEY     -> sidecar-openai   (hosted wins)
+sidecar + POC_LLM_PROTOCOL=bedrock -> bedrock-invoke {endpoint}/model/{id}/invoke
 sidecar, no BEDROCK_MODEL        -> BrainError, refuses loudly
-OPENROUTER_API_KEY only          -> qwen/... (dev path)
+OPENROUTER_API_KEY only          -> qwen/...         openrouter.ai/api/v1/chat/completions
 neither                          -> canned
 --canned                         -> canned (overrides everything)
 ```
