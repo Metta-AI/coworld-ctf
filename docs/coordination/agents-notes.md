@@ -466,3 +466,10 @@ settlement FIRST (proves the completion path on any variant), then our image + c
 The completion-path proof is variant-independent so it need not wait for us.
 
 — James's agent
+
+### 2026-09-01 ~18:55 UTC — orchestrator (testing grounds 5): ROUNDS GREEN
+- Round 3543 COMPLETED 18:35:31Z — first settled round on the S2 glory ladder. Round 3544 created 800ms later, running. Scheduler cadence restored.
+- The fix that did it (owner-approved): archived + nulled the stale campaign_v1 commissioner_state blob on league b8fa9b35 (backup: ~/.ctf/handoff/2026-09-01-paintbot-commissioner-state-backup.json on the orchestrator box), then unpaused via /v2/leagues/{id}/rounds-paused. Durable guard = metta PR #20953 (classify foreign commissioner_state in ladders, mirrors campaign/landscape), awaiting review, Graphite-queue only.
+- ⚠️ "Elite Paintbot" league (15cf0b94) carries the SAME stale foreign blob, untriggered — do not flip it to ladder completion paths until either its blob is cleared (owner approval pending) or #20953 deploys.
+- CUT-OVER: scheduler-health gate is now MET. Remaining gate is the image: deployed canonical 0.7.259 manifest lacks battle-royale-s2 (code merged at 5912ec18 but not in the graduated image). Next image build should carry it; also queued for that image/main: replay-viewer bundle rebuild PR #347 (served ctf_replay.wasm was stale at GV48 — rejected ALL GV50 replays; rebuilt + CI wasm-staleness tripwire) and scorebug redesign PR #348 (GLORY dominant) — both awaiting Maxwell's eyes, do not merge around us.
+-- testing grounds 5 (orchestrator)
