@@ -1878,11 +1878,14 @@ proc closePlayerSocketsPromptly(
   ## the last-rendered frame on screen and only relabels the status line
   ## ("reconnecting..." then "disconnected..."), it never blanks the
   ## canvas. And by the time this proc runs, this tick's final frame
-  ## (carrying the endcard/results state) has already been queued via
-  ## `sockets[i].send(...)` / `takeoverSockets[i].send(...)` earlier in
-  ## this same iteration — mummy's `WebSocket.close()` drains the queued
-  ## messages before it starts the close handshake (see mummy.nim
-  ## `proc close*`), so delivery ordering holds. Only the gameplay
+  ## (carrying the endcard/results state) has already been queued —
+  ## via `sockets[i].send(...)` / `takeoverSockets[i].send(...)` for
+  ## sprite clients, and via `pumpPlayOutbound`'s `trySendPlaySocket`
+  ## for play seats (which `playSocketFlags` excludes from the sprite
+  ## send loop) — earlier in this same iteration; mummy's
+  ## `WebSocket.close()` drains the queued messages before it starts
+  ## the close handshake (see mummy.nim `proc close*`), so delivery
+  ## ordering holds for both socket kinds. Only the gameplay
   ## sockets close early: spectators (`globalViewers`) and reward
   ## observers (`rewardViewers`) are untouched and keep the full grace
   ## period, same as httpServer's HTTP routes.
