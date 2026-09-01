@@ -1,8 +1,8 @@
 ## `pact` reference overlay.
 ##
 ## The overlay emits `combat_policy` bytes only. Those bytes are validated and
-## folded by the Season 2 shell today, but they do not affect live weapon paths
-## until lane A lands the body-side weapon integration.
+## folded by the Season 2 shell, then enforced by the body-side weapon
+## integration before live weapon paths actuate.
 
 import ../play
 

@@ -6263,11 +6263,12 @@ proc stepLobby(sim: var SimServer) {.measure.} =
   ## startWaitTicks logic, unchanged in shape). Voting precedes chatting so
   ## that chat, once it starts, can refer to the resolved bundle rather
   ## than negotiating blind (prematch-vote-wire-2026-08-31.md §1). Both
-  ## substates exist ONLY for a play-seat episode (hasPlaySeat,
-  ## sim_config.nim) with their own ticks field > 0 — "nothing below
+  ## substates exist ONLY for a play-seat episode with their own ticks field
+  ## > 0 — `hasPlaySeat` is the gate-blind roster check in sim_config.nim;
+  ## server/shell boundaries use the conjunctive `isPlaySeatEpisode`. "Nothing below
   ## changes a configuration with no play seat" (§9.2) is enforced HERE,
   ## not by either field's own default value, so an ordinary input-only
-  ## lobby plays byte-identically to the pre-huddle engine regardless of
+  ## lobby follows the direct-input path regardless of
   ## either field's configured value. `voteTicks` additionally defaults to
   ## 0 REGARDLESS of hasPlaySeat (VoteTicksDefault's own comment,
   ## sim_types.nim) — the v1/huddle-v1 divergence.

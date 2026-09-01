@@ -1,8 +1,9 @@
 ## Engine-native Appendix R reflex observers and reflex base selection.
 ##
-## Phase 13 reads explicit engine hazard snapshots. Lane-A hazard view rows have
-## not landed yet, so the must-agree-with-view-row parity goldens are deferred:
-## once those rows exist, their serializer should feed the same facts used here.
+## Phase 13 reads explicit engine hazard snapshots. The play-view hazard rows
+## have since landed (view.nim); the must-agree-with-view-row parity goldens
+## remain deferred — when added, their serializer should feed the same facts
+## used here.
 ## Observers still run every tick regardless of which reflexes the current
 ## ladder subscribes to, so a mid-emergency call change cannot blind the newly
 ## selected ladder.

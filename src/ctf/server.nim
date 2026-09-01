@@ -1252,8 +1252,8 @@ proc isPlayerWebSocket(websocket: WebSocket): bool =
 
 proc playSeatIndex(websocket: WebSocket): int =
   ## Returns the stable configured seat for a play socket, or -1. The gate is
-  ## intentionally conjunctive: season2Shell on with an all-input roster is
-  ## byte-identical to the legacy path.
+  ## intentionally conjunctive: season2Shell defaults on, but an all-input
+  ## roster must remain on the direct-input path.
   let seat = appState.playerSlots.getOrDefault(websocket, -1)
   if appState.config.isPlaySeat(seat):
     return seat
@@ -3872,9 +3872,9 @@ proc runServerLoop*(
       else: initBroadcastTracker()
     firstLightEpisode: FirstLightEpisode
 
-  # FIRST LIGHT is reachable only under the two-part runtime gate. Gate-on
-  # with an all-input roster and every gate-off configuration leave the zero
-  # value untouched and never call into the episode owner.
+  # FIRST LIGHT is reachable only in a play-seat episode. The default-true
+  # shell with an all-input roster leaves the zero value untouched and never
+  # calls into the episode owner.
   firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup",
     runtimeConfig.config)
   defer:
