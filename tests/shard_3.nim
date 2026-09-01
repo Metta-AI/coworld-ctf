@@ -4,6 +4,7 @@ import
   test_artlog,
   test_barriers,
   test_blocked_damage,
+  test_br_map_pool,
   test_br_spawn_points,
   test_dedup_object_placements_perf,
   test_hit_damage,
