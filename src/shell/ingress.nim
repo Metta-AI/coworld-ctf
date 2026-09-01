@@ -37,6 +37,16 @@ type
     piqQueued
     piqDropped
 
+  PlayIngressRefusalKind* = enum
+    pirUpload
+    pirCall
+
+  PlayIngressRefusal* = object
+    kind*: PlayIngressRefusalKind
+    generation*: uint64
+    id*: uint64
+    reason*: string
+
   PlayIngressFeedback* = object
     ## Lane C reports only outcomes whose retained status entries have been
     ## retired. Proposal ids name calls whose complete outcome set is gone;
@@ -72,7 +82,16 @@ type
 
   PlayIngressDrain*[Socket] = object
     admitted*: seq[PlayIngressMessage[Socket]]
+    refusals*: seq[PlayIngressRefusal]
     rejected*: int
+
+  PlayIngressSnapshot* = object
+    counters*: PlayIngressCounters
+    admittedModules*: int
+    admittedUploadBytes*: uint64
+    reservedStatusSlots*: int
+    uploadIdFloor*: uint64
+    proposalIdFloor*: uint64
 
 const
   RegularStatusCapacity = MaxRetainedStatusEntries - StatusFaultReserve
@@ -225,6 +244,13 @@ proc reserve[Socket](seat: var PlayIngressSeat[Socket], count: int): bool =
   seat.reservedStatusSlots += count
   true
 
+proc refuse[Socket](drain: var PlayIngressDrain[Socket];
+                    kind: PlayIngressRefusalKind;
+                    generation, id: uint64; reason: string) =
+  inc drain.rejected
+  drain.refusals.add(PlayIngressRefusal(
+    kind: kind, generation: generation, id: id, reason: reason))
+
 proc admitUpload[Socket](
   seat: var PlayIngressSeat[Socket],
   message: sink PlayIngressMessage[Socket],
@@ -233,17 +259,25 @@ proc admitUpload[Socket](
   let packet = message.upload
   if packet.uploadId in seat.uploadPayloads:
     if seat.uploadPayloads[packet.uploadId] != packet.wasm:
-      inc drain.rejected
+      drain.refuse(pirUpload, message.generation, packet.uploadId,
+        "upload_id_conflict")
     return
   if seat.hasUploadIdFloor and packet.uploadId <= seat.uploadIdFloor:
-    inc drain.rejected
+    drain.refuse(pirUpload, message.generation, packet.uploadId,
+      "upload_id_stale")
     return
-  if seat.admittedModules >= MaxModulesPerSeatPerEpisode or
-      uint64(packet.wasm.len) >
-        uint64(MaxUploadBytesPerSeatPerEpisode) - seat.admittedUploadBytes:
-    inc drain.rejected
+  if seat.admittedModules >= MaxModulesPerSeatPerEpisode:
+    drain.refuse(pirUpload, message.generation, packet.uploadId,
+      "module_budget_exhausted")
+    return
+  if uint64(packet.wasm.len) >
+      uint64(MaxUploadBytesPerSeatPerEpisode) - seat.admittedUploadBytes:
+    drain.refuse(pirUpload, message.generation, packet.uploadId,
+      "upload_byte_budget_exhausted")
     return
   if not seat.reserve(UploadStatusReservation):
+    drain.refuse(pirUpload, message.generation, packet.uploadId,
+      "status_backpressure")
     return
   inc seat.admittedModules
   seat.admittedUploadBytes += uint64(packet.wasm.len)
@@ -260,12 +294,16 @@ proc admitCall[Socket](
   let packet = message.call
   if packet.proposalId in seat.callPayloads:
     if seat.callPayloads[packet.proposalId] != packet.callBytes:
-      inc drain.rejected
+      drain.refuse(pirCall, message.generation, packet.proposalId,
+        "proposal_id_conflict")
     return
   if seat.hasProposalIdFloor and packet.proposalId <= seat.proposalIdFloor:
-    inc drain.rejected
+    drain.refuse(pirCall, message.generation, packet.proposalId,
+      "proposal_id_stale")
     return
   if not seat.reserve(CallStatusReservation):
+    drain.refuse(pirCall, message.generation, packet.proposalId,
+      "status_backpressure")
     return
   seat.hasProposalIdFloor = true
   seat.proposalIdFloor = packet.proposalId
@@ -292,3 +330,12 @@ proc drainPlayIngress*[Socket](
 
 proc pendingCount*[Socket](seat: PlayIngressSeat[Socket]): int =
   seat.pending.len
+
+proc snapshot*[Socket](seat: PlayIngressSeat[Socket]): PlayIngressSnapshot =
+  PlayIngressSnapshot(
+    counters: seat.counters,
+    admittedModules: seat.admittedModules,
+    admittedUploadBytes: seat.admittedUploadBytes,
+    reservedStatusSlots: seat.reservedStatusSlots,
+    uploadIdFloor: if seat.hasUploadIdFloor: seat.uploadIdFloor else: 0,
+    proposalIdFloor: if seat.hasProposalIdFloor: seat.proposalIdFloor else: 0)

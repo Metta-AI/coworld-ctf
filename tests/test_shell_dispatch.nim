@@ -2,7 +2,9 @@
 
 import std/[atomics, os, unittest]
 import ../src/ctf/labels
+import ../src/ctf/sim_types as ctfTypes
 import ../src/shell/types
+import ../src/shell/types as shellTypes
 import ./raw_websocket_client
 
 include ../src/ctf/server
@@ -16,9 +18,11 @@ var
 proc consumeUpload(
   websocket: WebSocket,
   seat: int,
+  generation: uint64,
   packet: ModuleUploadPacket,
 ) {.gcsafe.} =
   doAssert seat == 0
+  doAssert generation > 0
   seenUpload.store(packet.uploadId)
   seenUploadBytes.store(packet.wasm.len)
   discard uploadDeliveries.fetchAdd(1)
@@ -26,9 +30,11 @@ proc consumeUpload(
 proc consumeCall(
   websocket: WebSocket,
   seat: int,
+  generation: uint64,
   packet: PlayCallPacket,
 ) {.gcsafe.} =
   doAssert seat == 0
+  doAssert generation > 0
   seenCall.store(packet.proposalId)
   discard callDeliveries.fetchAdd(1)
 
@@ -688,3 +694,230 @@ suite "server play receive arm":
     check simServer.players.len == 2
     check appState.seatTombstones[1].presence == spTerminal
     check appState.pendingLifecycleRecords.len == 3
+
+suite "server play outbound arm":
+  setup:
+    initAppState()
+
+  test "control envelopes and durable status retirement are byte-exact":
+    var seat: PlayOutboundSeat[int]
+    seat.bindOutbound(7, generation = 5, transcriptMark = 9)
+    check seat.retainStatus(StatusEntry(
+      kind: skModuleAccepted, originGeneration: 5, acceptedUploadId: 7),
+      reservationSlots = 1)
+    check seat.retainCallRefusal(5, 8, "nope", spontaneous = false,
+      reservationSlots = 1)
+    let expectedView =
+      "{\"counters\":{\"backpressure\":0,\"dropped_calls\":0," &
+      "\"dropped_chat\":0,\"dropped_uploads\":0,\"faults_dropped\":0}," &
+      "\"gen\":\"5\",\"schema\":\"control_view\",\"statuses\":[" &
+      "{\"gen\":\"5\",\"kind\":\"module_accepted\",\"ordinal\":\"1\"," &
+      "\"upload_id\":\"7\"}," &
+      "{\"gen\":\"5\",\"kind\":\"call_rejected\",\"ordinal\":\"2\"," &
+      "\"proposal_id\":\"8\",\"reason\":\"nope\"}],\"v\":1}"
+    check seat.controlViewEnvelope() == expectedView
+    check controlContextEnvelope(PlayContextRecovery(
+      generation: 5, epoch: 0, uploadIdFloor: 7, proposalIdFloor: 8,
+      modulesLeft: 15, uploadBytesLeft: 123, ackMark: 0,
+      lobbyTranscriptMark: 9)) ==
+      "{\"ack_mark\":\"0\",\"budgets\":{\"modules_left\":15," &
+      "\"upload_bytes_left\":123},\"epoch\":\"0\",\"floors\":{" &
+      "\"proposal_id\":\"8\",\"upload_id\":\"7\"},\"gen\":\"5\"," &
+      "\"lobby_transcript_mark\":\"9\",\"schema\":\"control_context\"," &
+      "\"v\":1}"
+
+    check not seat.acknowledge(3).valid
+    check seat.retainedStatusCount == 2
+    let retired = seat.acknowledge(2)
+    check retired.valid
+    check retired.statusSlotsRetired == 2
+    check retired.retiredProposalIds == @[8'u64]
+    check seat.retainedStatusCount == 0
+
+  test "spontaneous refusals are bounded by the 16 fault-reserve slots":
+    var seat: PlayOutboundSeat[int]
+    seat.bindOutbound(7, generation = 1, transcriptMark = 0)
+    for id in 1'u64 .. uint64(StatusFaultReserve):
+      check seat.retainModuleRefusal(1, id, "per_tick_upload_cap")
+    check not seat.retainModuleRefusal(1, 99, "per_tick_upload_cap")
+    check seat.retainedStatusCount == StatusFaultReserve
+    check seat.counters.faultsDropped == 1
+
+  test "production registration is conjunctively gate-conditioned":
+    var config = playConfig(scInput)
+    appState.config = config
+    configurePlayIngress(config)
+    installProductionPlayConsumers(config)
+    check playReceiveConsumers.moduleUpload == nil
+    check playReceiveConsumers.playCall == nil
+    check playReceiveConsumers.statusAck == nil
+    check playReceiveConsumers.lobbyChat == nil
+
+    config.slots[0].control = scPlay
+    appState.config = config
+    configurePlayIngress(config)
+    installProductionPlayConsumers(config)
+    check playReceiveConsumers.moduleUpload != nil
+    check playReceiveConsumers.playCall != nil
+    check playReceiveConsumers.statusAck != nil
+    check playReceiveConsumers.lobbyChat != nil
+
+  test "blocked runtime consumers return honest durable statuses and ack capacity":
+    let config = playConfig(scPlay)
+    appState.config = config
+    configurePlayIngress(config)
+    installProductionPlayConsumers(config)
+    let websocket = cast[WebSocket](801)
+    check websocket.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(websocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 7, wasm: "wasm").encodePacket()))
+    websocketHandler(websocket, MessageEvent, binaryMessage(
+      PlayCallPacket(proposalId: 8, callBytes: "{}").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+
+    check appState.playOutbound[0].retainedStatusCount == 3
+    let statuses = appState.playOutbound[0].statusBytes.join("\n")
+    check "module_accepted" in statuses
+    check "episode_upload_seam_unavailable" in statuses
+    check "episode_call_seam_unavailable" in statuses
+    check appState.playIngress[0].snapshot.reservedStatusSlots == 3
+    check appState.playIngress[0].hasCallPayload(8)
+
+    websocketHandler(websocket, MessageEvent, binaryMessage(
+      StatusAckPacket(mark: 3).encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    check appState.playOutbound[0].retainedStatusCount == 0
+    check appState.playIngress[0].snapshot.reservedStatusSlots == 0
+    check not appState.playIngress[0].hasCallPayload(8)
+
+  test "every deterministic ingress refusal mints a visible status":
+    let config = playConfig(scPlay)
+    appState.config = config
+    configurePlayIngress(config)
+    installProductionPlayConsumers(config)
+    let websocket = cast[WebSocket](802)
+    check websocket.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(websocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "a").encodePacket()))
+    websocketHandler(websocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "b").encodePacket()))
+    websocketHandler(websocket, MessageEvent, binaryMessage("\xA1\x01"))
+    drainPlayIngressAtTickBoundary()
+    let statuses = appState.playOutbound[0].statusBytes.join("\n")
+    check "per_tick_upload_cap" in statuses
+    check "malformed_packet" in statuses
+
+  test "episode upload budget refusal is durable and visible to the policy":
+    let config = playConfig(scPlay)
+    appState.config = config
+    configurePlayIngress(config)
+    installProductionPlayConsumers(config)
+    let websocket = cast[WebSocket](803)
+    check websocket.registerPlayerWebSocket("play", 0, "")
+    for uploadId in 1'u64 .. uint64(MaxModulesPerSeatPerEpisode + 1):
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(uploadId: uploadId, wasm: "w").encodePacket()))
+      drainPlayIngressAtTickBoundary()
+    let statuses = appState.playOutbound[0].statusBytes.join("\n")
+    check "module_budget_exhausted" in statuses
+
+  test "live socket sends B0 then B1 and rebind replays B2 from ordinal one":
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.closedRoster = true
+    config.minPlayers = 2
+    config.startWaitTicks = 0
+    config.lobbyChatTicks = 100
+    config.slots = @[
+      PlayerSlotConfig(name: "play", token: "secret", team: Red,
+        control: scPlay),
+      PlayerSlotConfig(name: "input", token: "input", team: Blue,
+        control: scInput)]
+    appState.config = config
+    configurePlayIngress(config)
+    installProductionPlayConsumers(config)
+
+    var httpServer = newServer(httpHandler, websocketHandler, workerThreads = 1)
+    var
+      serverThread: Thread[ServerThreadArgs]
+      serverPtr = cast[ptr Server](unsafeAddr httpServer)
+    createThread(serverThread, serverThreadProc, ServerThreadArgs(
+      server: serverPtr, address: "127.0.0.1", port: 8397))
+    httpServer.waitUntilReady()
+    let first = connectRawWebSocket(8397, "/player?slot=0&token=secret")
+    let firstBindDeadline = epochTime() + 5.0
+    while epochTime() < firstBindDeadline:
+      var bound = false
+      withLock appState.lock:
+        bound = appState.playOutbound.len > 0 and
+          appState.playOutbound[0].currentSocket.isSome
+      if bound:
+        break
+      sleep(5)
+    var simServer = initSimServer(config)
+    discard simServer.addPlayer("play", 0, "secret", trusted = true)
+    discard simServer.addPlayer("input", 1, "input", trusted = true)
+    let noInputs: seq[InputState] = @[]
+    simServer.step(noInputs, noInputs)
+    var firstSocket: WebSocket
+    withLock appState.lock:
+      for socket, slot in appState.playerSlots.pairs:
+        if slot == 0:
+          firstSocket = socket
+      appState.playerIndices[firstSocket] = 0
+      appState.seatPlayerIndices[0] = 0
+      appState.playIngress[0].playerIndex = 0
+    simServer.pumpPlayOutbound(config, FirstLightEpisode())
+    check decodeServerPacket(first.recvBinary()).kind == spkPlayContext
+    let firstView = decodeServerPacket(first.recvBinary())
+    check firstView.kind == spkPlayView
+    check firstView.playView.view.len == 0
+
+    first.sendBinary(LobbyChatSendPacket(text: "e\u0301 pact").encodePacket())
+    let chatDeadline = epochTime() + 5.0
+    while epochTime() < chatDeadline:
+      var chatPending = false
+      withLock appState.lock:
+        chatPending = appState.pendingLobbyChats.len > 0
+      if chatPending:
+        break
+      sleep(5)
+    simServer.drainProductionLobbyChats()
+    check appState.lobbyTranscript.len == 1
+    check appState.lobbyTranscript[0].text == "e\u0301 pact"
+    simServer.pumpPlayOutbound(config, FirstLightEpisode())
+    let liveChat = decodeServerPacket(first.recvBinary())
+    check liveChat.kind == spkLobbyChatBroadcast
+    check liveChat.lobbyChatBroadcast.ordinal == 1
+    check liveChat.lobbyChatBroadcast.text == "e\u0301 pact"
+
+    let replacement = connectRawWebSocket(
+      8397, "/player?slot=0&token=secret")
+    let replacementBindDeadline = epochTime() + 5.0
+    while epochTime() < replacementBindDeadline:
+      var rebound = false
+      withLock appState.lock:
+        rebound = appState.playOutbound.len > 0 and
+          appState.playOutbound[0].generation >= 2
+      if rebound:
+        break
+      sleep(5)
+    simServer.pumpPlayOutbound(config, FirstLightEpisode())
+    check decodeServerPacket(replacement.recvBinary()).kind == spkPlayContext
+    let replayed = decodeServerPacket(replacement.recvBinary())
+    check replayed.kind == spkLobbyChatBroadcast
+    check replayed.lobbyChatBroadcast.ordinal == 1
+    check replayed.lobbyChatBroadcast.text == "e\u0301 pact"
+    check decodeServerPacket(replacement.recvBinary()).kind == spkPlayView
+
+    first.close()
+    replacement.close()
+    httpServer.close()
+    joinThread(serverThread)
+
+  test "lobby constants agree across the deliberately duplicated owners":
+    check ctfTypes.LobbyChatMaxBytes == shellTypes.LobbyChatMaxBytes
+    check ctfTypes.LobbyChatMaxMessagesPerSeat ==
+      shellTypes.LobbyChatMaxPerSeatPerPhase
+    check ctfTypes.LobbyChatMinSpacingTicks ==
+      shellTypes.LobbyChatMinSpacingTicks
