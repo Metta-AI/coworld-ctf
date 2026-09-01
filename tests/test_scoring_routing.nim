@@ -40,13 +40,17 @@ proc paintbotSchemaDefaults(): JsonNode =
       result[key] = prop["default"]
 
 proc effectivePaintbotVariantConfig(variantId: string): JsonNode =
-  let manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
+  ## Classic variants live in the deprecated-variants archive since the
+  ## season-2 slim; the published manifest carries only battle-royale-s2.
+  ## Search both so this anchor keeps proving the platform's
+  ## defaults-then-overlay materialization for whichever file holds the id.
   result = paintbotSchemaDefaults()
-  for variant in manifest["variants"]:
-    if variant["id"].getStr() == variantId:
-      for key, value in variant["game_config"]:
-        result[key] = value
-      return
+  for path in ["coworld_manifest_paintbot.json", "deprecated_variants_paintbot.json"]:
+    for variant in parseFile(GameDir / path)["variants"]:
+      if variant["id"].getStr() == variantId:
+        for key, value in variant["game_config"]:
+          result[key] = value
+        return
   doAssert false, "missing paintbot variant " & variantId
 
 suite "scoring schema routing":
