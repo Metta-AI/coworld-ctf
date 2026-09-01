@@ -7310,8 +7310,8 @@ const
                              ## meniscus/room-lag split Maxwell ruled on is
                              ## untouched.
   ZoneApertureDoorRefPx = 26.0  ## reference doorway width, px — matches
-                             ## arena.nim's MinCorridorWidth (the narrowest
-                             ## built corridor): local flow speed throttles
+                             ## arena.nim's MinPassableWidth (the narrowest
+                             ## passable floor): local flow speed throttles
                              ## toward its floor as clearance shrinks toward
                              ## this, a genuine bottleneck at a real doorway.
   ZoneApertureMinMult = 0.15   ## flow-speed floor at a fully-choked cell —
