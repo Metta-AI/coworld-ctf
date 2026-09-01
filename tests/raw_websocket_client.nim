@@ -42,5 +42,30 @@ proc sendBinary*(client: RawWebSocketClient, payload: string) =
     frame.add(char(byte.uint8 xor mask[index mod mask.len]))
   client.socket.send(frame)
 
+proc recvExact(socket: Socket; length: int; timeoutMs: int): string =
+  result = newStringOfCap(length)
+  while result.len < length:
+    let chunk = socket.recv(length - result.len, timeout = timeoutMs)
+    doAssert chunk.len > 0, "unexpected EOF while reading WebSocket frame"
+    result.add(chunk)
+
+proc recvBinary*(client: RawWebSocketClient; timeoutMs = 5000): string =
+  let header = client.socket.recvExact(2, timeoutMs)
+  doAssert (uint8(header[0]) and 0x0f'u8) == 0x02'u8,
+    "expected a binary WebSocket frame"
+  doAssert (uint8(header[1]) and 0x80'u8) == 0,
+    "server WebSocket frames must not be masked"
+  var length = uint64(uint8(header[1]) and 0x7f'u8)
+  if length == 126:
+    let extended = client.socket.recvExact(2, timeoutMs)
+    length = (uint64(uint8(extended[0])) shl 8) or uint64(uint8(extended[1]))
+  elif length == 127:
+    let extended = client.socket.recvExact(8, timeoutMs)
+    length = 0
+    for byte in extended:
+      length = (length shl 8) or uint64(uint8(byte))
+  doAssert length <= uint64(high(int))
+  client.socket.recvExact(int(length), timeoutMs)
+
 proc close*(client: RawWebSocketClient) =
   client.socket.close()

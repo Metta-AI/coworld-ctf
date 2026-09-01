@@ -3,8 +3,9 @@
 import
   std/[os, strutils, unittest],
   bitworld/replays as replayCodec,
-  ctf/[replay_codec as ctfReplayCodec, replays, sim_types],
-  shell/[playbook_archive, replay_records, types],
+  crunchy,
+  ctf/[replay_codec as ctfReplayCodec, replays, sim, sim_types],
+  shell/[playbook_archive, replay_records, seats, types],
   helpers
 
 const FixtureDir = GameDir / "tests" / "fixtures" / "shell" / "replay"
@@ -106,6 +107,138 @@ proc sampleTranscript(): seq[LobbyChatRecord] =
     LobbyChatRecord(replayTimeMs: 9, ordinal: 2, seat: 1, team: 2,
       text: "go")]
 
+proc hexNibbleManual(value: char): uint8 =
+  case value
+  of '0' .. '9': uint8(ord(value) - ord('0'))
+  of 'a' .. 'f': uint8(ord(value) - ord('a') + 10)
+  else: raise newException(ValueError, "expected lowercase SHA-256 hex")
+
+proc addHashRawManual(bytes: var string, value: string) =
+  ## Independent contract-side hex decoding. The record encoder's hashRaw
+  ## helper is deliberately not used by these golden builders.
+  doAssert value.len == 64
+  for index in 0 ..< 32:
+    bytes.addU8((value[index * 2].hexNibbleManual shl 4) or
+      value[index * 2 + 1].hexNibbleManual)
+
+proc hashHexManual(bytes: openArray[uint8]): string =
+  const Hex = "0123456789abcdef"
+  result = newString(bytes.len * 2)
+  for index, value in bytes:
+    result[index * 2] = Hex[int(value shr 4)]
+    result[index * 2 + 1] = Hex[int(value and 0x0f)]
+
+proc orderedChainHashManual(records: openArray[string]): string =
+  ## Independent implementation of SHA256(previous raw digest || record).
+  var state = newString(32)
+  for record in records:
+    let digest = sha256(state & record)
+    for index in 0 ..< 32:
+      state[index] = char(digest[index])
+  if records.len == 0:
+    return "0".repeat(64)
+  var raw = newSeq[uint8](32)
+  for index in 0 ..< 32:
+    raw[index] = state[index].uint8
+  raw.hashHexManual
+
+proc playCallGolden(record: PlayCallRecord): string =
+  ## Hand-written 0x10 layout; never calls encodePlayCallRecord.
+  result.addU8(0x10)
+  result.addU32(record.replayTimeMs)
+  result.addU8(record.seat)
+  result.addU64(record.epoch)
+  result.addString16(record.ladderBytes)
+  result.addU8(uint8(record.entries.len))
+  for entry in record.entries:
+    result.addString16(entry.entryId)
+    case entry.code.kind
+    of cikModule:
+      result.addU8(0)
+      result.addHashRawManual(entry.code.moduleSha256)
+    of cikNative:
+      result.addU8(1)
+      result.addString16(entry.code.nativeName)
+      result.addString16(entry.code.nativeGameVersion)
+
+proc annotationGolden(annotation: ShellAnnotation): string =
+  ## Hand-written 0x11 layout; wire kind values are literal contract bytes.
+  result.addU8(0x11)
+  result.addU32(annotation.tick)
+  result.addU8(annotation.seat)
+  case annotation.kind
+  of akAcceptedIntentChange:
+    result.addU8(0)
+    result.addU64(annotation.effectiveEpoch)
+    case annotation.provenance.base.kind
+    of pbEntry:
+      result.addU8(0)
+      result.addString16(annotation.provenance.base.entryId)
+      result.addHashRawManual(annotation.provenance.base.moduleSha256)
+      result.addU32(annotation.provenance.base.emitTick)
+    of pbDefault:
+      result.addU8(1)
+    of pbReflex:
+      result.addU8(2)
+      result.addString16(annotation.provenance.base.reflexName)
+    result.addU8(uint8(annotation.provenance.overlays.len))
+    for overlay in annotation.provenance.overlays:
+      result.addString16(overlay.entryId)
+      result.addHashRawManual(overlay.moduleSha256)
+      result.addU32(overlay.acceptedTick)
+      result.addHashRawManual(overlay.policySha256)
+    result.addString16(annotation.intentBytes)
+  of akClearOnDeath:
+    result.addU8(1)
+    result.addU64(annotation.clearGeneration)
+  of akInstallSafeIntent:
+    result.addU8(2)
+    result.addU64(annotation.installGeneration)
+    result.addString16(annotation.installReason)
+    result.addString16(annotation.safeBytes)
+  of akPlayFault:
+    result.addU8(3)
+    result.addU64(annotation.faultAtEpoch)
+    result.addString16(annotation.faultEntryId)
+    result.addString16(annotation.annotationFaultReason)
+
+proc lobbyChatGolden(record: LobbyChatRecord): string =
+  ## Hand-written 0x13 layout; never calls encodeLobbyChatRecord.
+  result.addU8(0x13)
+  result.addU32(record.replayTimeMs)
+  result.addU64(record.ordinal)
+  result.addU8(record.seat)
+  result.addU8(record.team)
+  result.addString16(record.text)
+
+proc lifecycleGolden(kind: LifecycleRecordKind, replayTimeMs: uint32,
+    seat: uint8): string =
+  ## Hand-written fixed layouts for 0x14, 0x15, and 0x16.
+  result.addU8(case kind
+    of lrDisconnect: 0x14'u8
+    of lrKick: 0x15'u8
+    of lrRebind: 0x16'u8)
+  result.addU32(replayTimeMs)
+  result.addU8(seat)
+
+proc manifestGolden(call, annotation, transcript: string): string =
+  ## Hand-written 0x12 layout for two seat arms. Counts and chain roots are
+  ## derived independently from the exact record bytes above.
+  result.addU8(0x12)
+  result.addU16(2)
+  result.addU8(0)
+  result.addU32(1)
+  result.addHashRawManual(orderedChainHashManual([call]))
+  result.addU32(1)
+  result.addHashRawManual(orderedChainHashManual([annotation]))
+  result.addU8(1)
+  result.addU32(0)
+  result.addHashRawManual(orderedChainHashManual(newSeq[string]()))
+  result.addU32(0)
+  result.addHashRawManual(orderedChainHashManual(newSeq[string]()))
+  result.addU32(1)
+  result.addHashRawManual(orderedChainHashManual([transcript]))
+
 proc completeReplay(
   calls: seq[PlayCallRecord] = @[everyReflexCall()],
   annotations: seq[ShellAnnotation] = sampleAnnotations(),
@@ -153,48 +286,60 @@ template expectArchiveError(body: untyped) =
 when defined(writeShellReplayGoldens):
   createDir(FixtureDir)
   let
-    call = everyReflexCall().encodePlayCallRecord()
+    call = everyReflexCall().playCallGolden()
     annotations = sampleAnnotations()
-    transcript = sampleTranscript()[0].encodeLobbyChatRecord()
-    manifest = buildShellReplayManifest(
-      @[@[call], newSeq[string]()],
-      @[@[annotations[0].encodeAnnotationRecord()], newSeq[string]()],
-      @[transcript]).encodeManifestRecord()
+    transcript = sampleTranscript()[0].lobbyChatGolden()
+    manifest = manifestGolden(call, annotations[0].annotationGolden(),
+      transcript)
   writeFile(FixtureDir / "play-call.bin", call)
   writeFile(FixtureDir / "annotation-accepted.bin",
-    annotations[0].encodeAnnotationRecord())
+    annotations[0].annotationGolden())
   writeFile(FixtureDir / "annotation-clear.bin",
-    annotations[1].encodeAnnotationRecord())
+    annotations[1].annotationGolden())
   writeFile(FixtureDir / "annotation-install.bin",
-    annotations[2].encodeAnnotationRecord())
+    annotations[2].annotationGolden())
   writeFile(FixtureDir / "annotation-fault.bin",
-    annotations[3].encodeAnnotationRecord())
+    annotations[3].annotationGolden())
   writeFile(FixtureDir / "lobby-chat.bin", transcript)
+  writeFile(FixtureDir / "disconnect.bin",
+    lifecycleGolden(lrDisconnect, 0x44434241'u32, 0x45))
+  writeFile(FixtureDir / "kick.bin",
+    lifecycleGolden(lrKick, 0x54535251'u32, 0x55))
+  writeFile(FixtureDir / "rebind.bin",
+    lifecycleGolden(lrRebind, 0x64636261'u32, 0x65))
   writeFile(FixtureDir / "manifest.bin", manifest)
 
 suite "shell replay record bytes":
   test "checked-in goldens cover calls annotations transcript and manifest":
     let annotations = sampleAnnotations()
-    check readFile(FixtureDir / "play-call.bin") ==
-      everyReflexCall().encodePlayCallRecord()
-    check readFile(FixtureDir / "annotation-accepted.bin") ==
-      annotations[0].encodeAnnotationRecord()
-    check readFile(FixtureDir / "annotation-clear.bin") ==
-      annotations[1].encodeAnnotationRecord()
-    check readFile(FixtureDir / "annotation-install.bin") ==
-      annotations[2].encodeAnnotationRecord()
-    check readFile(FixtureDir / "annotation-fault.bin") ==
-      annotations[3].encodeAnnotationRecord()
-    check readFile(FixtureDir / "lobby-chat.bin") ==
-      sampleTranscript()[0].encodeLobbyChatRecord()
+    let callGolden = everyReflexCall().playCallGolden()
+    let transcriptGolden = sampleTranscript()[0].lobbyChatGolden()
+    check readFile(FixtureDir / "play-call.bin") == callGolden
+    check callGolden == everyReflexCall().encodePlayCallRecord()
+    for index, name in ["annotation-accepted.bin", "annotation-clear.bin",
+        "annotation-install.bin", "annotation-fault.bin"]:
+      let golden = annotations[index].annotationGolden()
+      check readFile(FixtureDir / name) == golden
+      check golden == annotations[index].encodeAnnotationRecord()
+    check readFile(FixtureDir / "lobby-chat.bin") == transcriptGolden
+    check transcriptGolden == sampleTranscript()[0].encodeLobbyChatRecord()
+    for (name, kind, time, seat) in [
+      ("disconnect.bin", lrDisconnect, 0x44434241'u32, 0x45'u8),
+      ("kick.bin", lrKick, 0x54535251'u32, 0x55'u8),
+      ("rebind.bin", lrRebind, 0x64636261'u32, 0x65'u8),
+    ]:
+      let golden = lifecycleGolden(kind, time, seat)
+      check readFile(FixtureDir / name) == golden
+      check golden == LifecycleRecord(kind: kind, replayTimeMs: time,
+        seat: seat).encodeLifecycleRecord()
     let
-      call = everyReflexCall().encodePlayCallRecord()
-      transcript = sampleTranscript()[0].encodeLobbyChatRecord()
-      expectedManifest = buildShellReplayManifest(
-        @[@[call], newSeq[string]()],
-        @[@[annotations[0].encodeAnnotationRecord()], newSeq[string]()],
-        @[transcript]).encodeManifestRecord()
+      expectedManifest = manifestGolden(callGolden,
+        annotations[0].annotationGolden(), transcriptGolden)
     check readFile(FixtureDir / "manifest.bin") == expectedManifest
+    check expectedManifest == buildShellReplayManifest(
+      @[@[callGolden], newSeq[string]()],
+      @[@[annotations[0].annotationGolden()], newSeq[string]()],
+      @[transcriptGolden]).encodeManifestRecord()
 
   test "call golden names a module and every native reflex":
     let bytes = readFile(FixtureDir / "play-call.bin")
@@ -406,6 +551,107 @@ suite "CTF-owned replay writer":
       for path in [legacyPath, ctfPath, allInputPath, shellPath]:
         if fileExists(path):
           removeFile(path)
+
+  test "live decision writer round trips every shell stream and one manifest":
+    let path = getTempDir() / ("shell-live-roundtrip-" &
+      $getCurrentProcessId() & ".bitreplay")
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.slots = @[
+      PlayerSlotConfig(name: "play", control: scPlay),
+      PlayerSlotConfig(name: "input", control: scInput)]
+    try:
+      var writer = replays.openReplayWriter(
+        path, config.configJson(), openedAtMs = 1_735_689_600_000'u64)
+      check writer.shellEpisode
+      writer.writeJoin(0, 0, "play", 0, "")
+      writer.writeJoin(0, 1, "input", 1, "")
+      # Exercise the live server's incidental call order: phase-2 input can
+      # arrive before phase-1 lifecycle, and a call before lobby transcript.
+      # The CTF writer must flush the timestamp in canonical phase order.
+      writer.writeInput(ReplayInput(time: 7, player: 1, keys: 0))
+      writer.writeLifecycle(LifecycleRecord(
+        kind: lrDisconnect, replayTimeMs: 7, seat: 1))
+      writer.writePlayCall(everyReflexCall(8))
+      writer.writeLobbyChat(LobbyChatRecord(
+        replayTimeMs: 8, ordinal: 1, seat: 0, team: 2, text: "ready"))
+      writer.writeAnnotation(acceptedAnnotation(9))
+      writer.closeReplayWriter()
+      writer.closeReplayWriter() # Idempotent close cannot append a manifest.
+
+      let
+        bytes = readFile(path)
+        detailed = loadCtfReplay(path)
+      check detailed.replay.joins.len == 2
+      check detailed.replay.inputs.len == 1
+      check detailed.shell.lifecycle == @[LifecycleRecord(
+        kind: lrDisconnect, replayTimeMs: 7, seat: 1)]
+      check detailed.shell.lobbyTranscript == @[sampleTranscript()[0]]
+      check detailed.shell.calls.len == 1
+      check detailed.shell.annotations == @[acceptedAnnotation(9)]
+      check detailed.shell.manifestVerified
+      check detailed.shell.manifest.seats[0].callCount == 1
+      check detailed.shell.manifest.seats[0].annotationCount == 1
+      check detailed.shell.manifest.transcriptCount == 1
+
+      # Gate 2 negative controls run against bytes produced through the live
+      # selection wrapper, not a synthetic codec-only aggregate.
+      for damaged in [
+        bytes.replace(everyReflexCall(8).encodePlayCallRecord(), ""),
+        bytes.replace(sampleTranscript()[0].encodeLobbyChatRecord(), ""),
+        bytes.replace(acceptedAnnotation(9).encodeAnnotationRecord(), ""),
+      ]:
+        expect ReplayError:
+          discard ctfReplayCodec.parseCtfReplayBytes(
+            damaged, CtfReplaySpec, ReplayCompatibleGameVersions)
+    finally:
+      if fileExists(path):
+        removeFile(path)
+
+suite "shell lifecycle replay presence":
+  test "disconnect and lobby rebind survive keyframes and seeks without compaction":
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.minPlayers = 3 # Keep the two recorded seats in Lobby for rebind.
+    config.slots = @[
+      PlayerSlotConfig(name: "play", control: scPlay),
+      PlayerSlotConfig(name: "input", control: scInput),
+      PlayerSlotConfig(name: "waiting", control: scInput)]
+    let detailed = CtfReplayData(
+      replay: ReplayData(
+        configJson: config.configJson(),
+        joins: @[
+          ReplayJoin(time: 0, player: 0, name: "play", slot: 0),
+          ReplayJoin(time: 0, player: 1, name: "input", slot: 1)],
+        # A final-only hash supplies the deterministic scan horizon. Its value
+        # is deliberately not reached by either assertion below.
+        hashes: @[ReplayHash(tick: 150, hash: 0)]),
+      shell: ShellReplayRecords(lifecycle: @[
+        LifecycleRecord(kind: lrDisconnect,
+          replayTimeMs: tickTime(10), seat: 1),
+        LifecycleRecord(kind: lrRebind,
+          replayTimeMs: tickTime(110), seat: 1)]))
+    var
+      replay = initReplayPlayer(detailed)
+      simServer = initSimServer(config)
+    replay.buildReplayKeyframes(simServer, interval = 25)
+
+    replay.seekReplay(simServer, 50)
+    check simServer.players.len == 2
+    check simServer.players[0].address == "play"
+    check simServer.players[1].address == "input"
+    check replay.lifecyclePlayback.presence(1) == spReconnectable
+    let abandonedIndex = simServer.rewardAccountForPlayer(1)
+    check abandonedIndex >= 0
+    check simServer.rewardAccounts[abandonedIndex].abandoned
+
+    replay.seekReplay(simServer, 130)
+    check simServer.players.len == 2
+    check simServer.players[1].joinOrder == 1
+    check replay.lifecyclePlayback.presence(1) == spConnected
+    let reboundIndex = simServer.rewardAccountForPlayer(1)
+    check reboundIndex >= 0
+    check not simServer.rewardAccounts[reboundIndex].abandoned
 
 suite "playbook archive":
   test "content-addressed modules verify against recorded hashes":

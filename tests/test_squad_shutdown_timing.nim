@@ -56,9 +56,17 @@ proc ensureServerBinary() =
   if fileExists(ServerBinaryPath):
     return
   createDir("bin")
+  # src/ctf.nim's own import graph reaches shell/runtime.nim (server.nim ->
+  # shell/episode -> shell/module_cache -> shell/runtime, since af8158f5),
+  # which hard-{.error.}s without -d:noSignalHandler --threads:on -- the
+  # same requirement build.yml's `nim check` and all 4 shard compiles
+  # already carry (see this branch's b406bd2e/af9bf122). This is a THIRD,
+  # separate build invocation of the same entry point that needed the same
+  # two flags and didn't have them yet.
   let (output, exitCode) = execCmdEx(
-    "nim c -d:release -d:useMalloc --opt:speed --stackTrace:on " &
-    "--hints:off --out:" & ServerBinaryPath & " src/ctf.nim"
+    "nim c -d:release -d:useMalloc -d:noSignalHandler --threads:on " &
+    "--opt:speed --stackTrace:on --hints:off --out:" & ServerBinaryPath &
+    " src/ctf.nim"
   )
   doAssert exitCode == 0, "failed to build " & ServerBinaryPath & ":\n" & output
 
