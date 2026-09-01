@@ -106,10 +106,30 @@ proc sampleTranscript(): seq[LobbyChatRecord] =
     LobbyChatRecord(replayTimeMs: 9, ordinal: 2, seat: 1, team: 2,
       text: "go")]
 
+proc sampleBallots(): seq[BallotRecord] =
+  ## docs/designs/prematch-vote-wire-2026-08-31.md §4: a two-seat ballot
+  ## (seat 0 red casts A, seat 1 blue casts C) resolved to A (option 0) --
+  ## the shape a replaying VIEWER (not the classifier lane) needs to render
+  ## the transcript + winner. Timed no earlier than sampleTranscript()'s
+  ## last entry (ms 9) and no later than everyReflexCall()'s default (ms
+  ## 10): completeReplay() places ballots after the transcript and before
+  ## calls in the byte stream, and record order enforces one GLOBAL
+  ## non-decreasing replay time across every record type, not a per-type
+  ## clock (same-time is fine; phase 3 -> phase 3 -> phase 4 only moves
+  ## forward).
+  @[
+    BallotRecord(replayTimeMs: 9, ordinal: 1, kind: brkCast,
+      seat: 0, team: 0, option: 0),
+    BallotRecord(replayTimeMs: 9, ordinal: 2, kind: brkCast,
+      seat: 1, team: 1, option: 2),
+    BallotRecord(replayTimeMs: 10, ordinal: 3, kind: brkResolved,
+      category: 1, tieBreakDrawn: 0, finalOption: 0)]
+
 proc completeReplay(
   calls: seq[PlayCallRecord] = @[everyReflexCall()],
   annotations: seq[ShellAnnotation] = sampleAnnotations(),
   transcript: seq[LobbyChatRecord] = sampleTranscript(),
+  ballots: seq[BallotRecord] = @[],
 ): string =
   var
     callBuckets = newSeq[seq[string]](2)
@@ -120,6 +140,11 @@ proc completeReplay(
     let bytes = record.encodeLobbyChatRecord()
     transcriptBytes.add(bytes)
     result.add(bytes)
+  # `0x17` (RecVoteReserved) is hash-coupled, not manifest-arm'd (settled
+  # 2c2f905c) -- unlike the transcript loop above, its bytes never feed
+  # `transcriptBytes`/the manifest.
+  for record in ballots:
+    result.add(record.encodeBallotRecord())
   for record in calls:
     let bytes = record.encodePlayCallRecord()
     callBuckets[int(record.seat)].add(bytes)
@@ -229,6 +254,15 @@ suite "shell replay record bytes":
     expect ReplayRecordError:
       discard hostile.decodeLobbyChatRecord(offset)
 
+  test "ballot round trip preserves cast and resolved records":
+    for expected in sampleBallots():
+      let bytes = expected.encodeBallotRecord()
+      check bytes.len == RecBallotBytes
+      var offset = 0
+      let decoded = bytes.decodeBallotRecord(offset)
+      check decoded == expected
+      check offset == bytes.len
+
   test "whole-record decoders reject trailing bytes":
     let
       call = everyReflexCall().encodePlayCallRecord()
@@ -260,6 +294,23 @@ suite "shell replay file verification":
     check ctfReplayCodec.parseReplayBytes(
       completeReplay(), CtfReplaySpec,
       ReplayCompatibleGameVersions) == detailed.replay
+
+  test "format 2 retains ballot records and enforces their ordinal order":
+    let detailed = ctfReplayCodec.parseCtfReplayBytes(
+      completeReplay(ballots = sampleBallots()),
+      CtfReplaySpec, ReplayCompatibleGameVersions)
+    check detailed.shell.ballots == sampleBallots()
+    # `0x17` is hash-coupled, not manifest-arm'd (settled 2c2f905c) -- the
+    # ONE record-level invariant a replay parse still enforces for it is the
+    # same one `0x13` gets: ordinals strictly increase. A real corrupt
+    # resolution is caught by the gameplay hash chain instead (out of scope
+    # for a replay VIEWER's codec, which only decodes-and-retains).
+    var outOfOrder = sampleBallots()
+    outOfOrder[1].ordinal = outOfOrder[0].ordinal
+    expectReplayError("Replay ballot ordinals are not increasing"):
+      discard ctfReplayCodec.parseCtfReplayBytes(
+        completeReplay(ballots = outOfOrder),
+        CtfReplaySpec, ReplayCompatibleGameVersions)
 
   test "call drop shift and code-hash alteration fail the seat arm":
     let

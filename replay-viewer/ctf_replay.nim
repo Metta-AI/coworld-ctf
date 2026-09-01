@@ -1,6 +1,7 @@
 import
   std/json,
-  ctf/[broadcast, global, replay_runtime, replays, sim]
+  ctf/[broadcast, global, replay_runtime, replays, sim],
+  shell/replay_records
 
 var
   runtimeLoaded = false
@@ -10,6 +11,68 @@ var
   tracker: BroadcastTracker
   packet: seq[uint8]
   lastError: string
+  # SEASON 2: the huddle transcript + ballot, decoded ONCE from the replay's
+  # verified `.shell` metadata right after a successful load (see
+  # `ctfLoadReplay` below) and re-sent on every `buildReplayViewerPacket`
+  # call -- that proc itself only forwards them into the chrome on the lead
+  # frame (`sendLead`), matching `achievementBadges`' "send once" contract.
+  # `nil` (never assigned) on a replay whose `.shell` carries neither, so
+  # the client simply never sees a "huddle"/"vote" key -- the degrade-to-
+  # nothing path.
+  lobbyChatJson: JsonNode
+  ballotJson: JsonNode
+
+proc safeTeam(raw: uint8): Team =
+  ## Defensive `Team` conversion for bytes that came off disk, not out of a
+  ## live sim: a corrupt or forward-dated replay file must never abort the
+  ## wasm module over a purely cosmetic huddle/vote row. Out-of-range clamps
+  ## to Red rather than raising -- the same "never trust a stored byte"
+  ## posture as `readReplayString`'s length checks.
+  if raw.int <= ord(high(Team)): Team(raw) else: Red
+
+proc lobbyChatRecordsJson(records: openArray[LobbyChatRecord]): JsonNode =
+  ## SEASON 2 huddle: the lobby chat transcript (shell record `0x13`), in
+  ## the order it was recorded. `ms`/`ord` ride along so the client can sort
+  ## defensively and show relative timing even though it renders the whole
+  ## transcript at once (the phase is over almost as soon as playback
+  ## reaches it).
+  result = newJArray()
+  for rec in records:
+    result.add(%*{
+      "ms": rec.replayTimeMs,
+      "ord": rec.ordinal,
+      "seat": rec.seat,
+      "team": teamText(safeTeam(rec.team)),
+      "text": rec.text
+    })
+
+proc ballotRecordsJson(records: openArray[BallotRecord]): JsonNode =
+  ## SEASON 2 vote: the pre-match ballot (shell record `0x17`) -- every
+  ## accepted cast plus the resolution, in recorded order. This purely
+  ## RENDERS what the replay carries; it does not recompute the section-5
+  ## tally/resolution (the gameplay hash chain is that check, per
+  ## docs/designs/prematch-vote-wire-2026-08-31.md §4).
+  result = newJArray()
+  for rec in records:
+    case rec.kind
+    of brkCast:
+      result.add(%*{
+        "k": "cast",
+        "ms": rec.replayTimeMs,
+        "ord": rec.ordinal,
+        "seat": rec.seat,
+        "team": teamText(safeTeam(rec.team)),
+        "opt": rec.option
+      })
+    of brkResolved:
+      result.add(%*{
+        "k": "resolved",
+        "ms": rec.replayTimeMs,
+        "ord": rec.ordinal,
+        "cat": rec.category,
+        "tie": rec.tieBreakDrawn,
+        "final": rec.finalOption
+      })
 
 ## --- Progress stage note ---
 ## wasm32 has no memory protection: when emscripten's malloc fails, a write
@@ -40,15 +103,31 @@ proc bytesFromPointer(data: ptr uint8, length: int): string =
 
 proc renderCurrent(events: JsonNode) =
   var nextViewer: GlobalViewerState
-  packet = game.buildReplayViewerPacket(replay, viewer, nextViewer, events)
+  packet = game.buildReplayViewerPacket(
+    replay, viewer, nextViewer, events, lobbyChatJson, ballotJson)
   viewer = nextViewer
 
 proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     {.exportc: "ctf_load_replay", cdecl.} =
   try:
     lastError = ""
+    # Reset SEASON 2 shell chrome across reloads (this proc may be called
+    # more than once per wasm session) so a huddle/vote panel from a
+    # PREVIOUS replay can never bleed into a freshly loaded one.
+    lobbyChatJson = nil
+    ballotJson = nil
     stampStage("parse replay")
-    let replayData = parseReplayBytes(data.bytesFromPointer(int(length)))
+    # Keeps `.shell` (huddle transcript, ballot) instead of the discarding
+    # `parseReplayBytes` -- see `parseCtfReplayBytesFull`'s own doc comment.
+    # Format-2 shell metadata is already fully decoded+verified during this
+    # call regardless (parseReplayBytes wraps the same parse and throws the
+    # result away), so this costs nothing extra to keep.
+    let ctfData = parseCtfReplayBytesFull(data.bytesFromPointer(int(length)))
+    let replayData = ctfData.replay
+    if ctfData.shell.lobbyTranscript.len > 0:
+      lobbyChatJson = lobbyChatRecordsJson(ctfData.shell.lobbyTranscript)
+    if ctfData.shell.ballots.len > 0:
+      ballotJson = ballotRecordsJson(ctfData.shell.ballots)
     stampStage("initialize replay runtime")
     # Match the native replay server default: keep a historical replay usable
     # after the first integrity mismatch and surface the warning in the shared

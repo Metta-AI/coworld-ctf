@@ -386,6 +386,19 @@ proc parseReplayBytes*(bytes: string): ReplayData =
     ReplayCompatibleGameVersions
   )
 
+proc parseCtfReplayBytesFull*(bytes: string): ctfReplayCodec.CtfReplayData =
+  ## Same parse as `parseReplayBytes` above, but retains the verified format-2
+  ## shell metadata (`.shell`: lobby transcript, ballots, ...) instead of
+  ## discarding it. A host that wants to RENDER shell records (the replay
+  ## viewer's huddle/vote panels) calls this instead of `parseReplayBytes`;
+  ## every other consumer (native playback, which never reads `.shell`) is
+  ## unaffected by this addition.
+  ctfReplayCodec.parseCtfReplayBytes(
+    bytes,
+    CtfReplaySpec,
+    ReplayCompatibleGameVersions
+  )
+
 proc loadReplay*(path: string): ReplayData =
   ## Loads a replay file into memory.
   ctfReplayCodec.loadReplay(
