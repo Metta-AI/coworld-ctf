@@ -283,7 +283,7 @@ proc admitModule*(plane: CompilePlane; seatIndex: int; uploadId: uint64;
   if plane.pendingBytes + bytes.len > MaxPendingCompileBytes:
     inc seat[].uploadsThisTick
     return AdmissionResult(refusal: arPendingBytes)
-  let reservation = bytes.len * CompiledBytesPerRawByte
+  let reservation = compiledReservationBytes(bytes.len)
   if plane.cacheUsed + reservation > MaxCompiledCacheBytes:
     inc seat[].uploadsThisTick
     return AdmissionResult(refusal: arCompiledCache)

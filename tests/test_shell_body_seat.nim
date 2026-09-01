@@ -32,7 +32,8 @@ proc smallOpenMap(): BodyMap =
 
 proc selfState(pos: BodyPoint = (16, 48), alive = true,
                aimBrads = 32): BodySelfState =
-  BodySelfState(pos: pos, hpFrac: 2.0 / 3.0, aimBrads: aimBrads,
+  BodySelfState(pos: pos, hp: (if alive: 2 else: 0),
+    hpFrac: (if alive: 2.0 / 3.0 else: 0.0), aimBrads: aimBrads,
     alive: alive, carrying: false)
 
 proc holdIntent(idleAim = none(int)): shellTypes.Intent =

@@ -37,7 +37,7 @@ proc main() =
     for seat in 0 ..< Seats:
       let point = MapPoint(x: 200 + (tick and 1), y: 300 + seat)
       var input = BodyTickInputs(
-        self: BodySelfState(pos: (100 + seat, 100), hpFrac: 1.0,
+        self: BodySelfState(pos: (100 + seat, 100), hp: 4, hpFrac: 1.0,
           aimBrads: seat * 7 mod 256, alive: true, carrying: false),
         partner: some(PartnerSample(seat: uint8(seat xor 1),
           pos: (120 + seat, 120), aimBrads: seat * 11 mod 256,

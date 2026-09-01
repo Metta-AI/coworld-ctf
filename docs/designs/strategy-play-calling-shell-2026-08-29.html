@@ -1848,7 +1848,8 @@
         <tr><td><code>MaxPendingCompileBytes</code> (server-wide raw bytes admitted but not yet finished; admission backpressures past it)</td><td>8388608</td></tr>
         <tr><td><code>MaxCompileCommitsPerTick</code> (finished results committed per tick boundary, round-robin by seat)</td><td>8</td></tr>
         <tr><td><code>MaxCompiledCacheBytes</code> (server-wide resident compiled-module cache, reserved at admission; provisional until P0 measures expansion)</td><td>268435456</td></tr>
-        <tr><td><code>CompiledBytesPerRawByte</code> (reservation bound; provisional until P0)</td><td>8</td></tr>
+        <tr><td><code>MinCompiledReservationBytes</code> (P0 floor for compiled-cache admission reservation)</td><td>524288</td></tr>
+        <tr><td><code>CompiledBytesPerRawByte</code> (P0 multiplier for compiled-cache admission reservation; reservation is <code>max(raw_bytes * 16, 512 KiB)</code>)</td><td>16</td></tr>
         <tr><td>Epoch ticker period / step deadline (guest-code wall-clock backstop only)</td><td>5 ms / 4 epochs</td></tr>
         <tr><td>Guest stack (<code>max_wasm_stack</code>)</td><td>256 KiB, overflow traps</td></tr>
       </tbody>
@@ -1925,11 +1926,11 @@
       the engine can meter it).</li>
       <li><strong>Compile</strong> on the compile worker, never on the tick thread. Compiled modules are
       cached per episode by hash, and the cache is accounted <strong>by reservation</strong>: admission
-      charges <code>MaxCompiledCacheBytes</code> with the module's raw size times
-      <code>CompiledBytesPerRawByte</code>, a bound P0 establishes from adversarial shapes (provisionally
-      8); the finished artifact, and the queue slot it waits in before commit, live inside that
-      reservation, which is settled to the measured size at commit and the excess released. An artifact
-      that exceeds its reservation, which the bound is meant to make impossible, is discarded with
+      charges <code>MaxCompiledCacheBytes</code> with the larger of the module's raw size times
+      <code>CompiledBytesPerRawByte</code> and <code>MinCompiledReservationBytes</code>; the finished
+      artifact, and the queue slot it waits in before commit, live inside that reservation, which is
+      settled to the measured size at commit and the excess released. An artifact that exceeds its
+      reservation, which the bound is meant to make impossible, is discarded with
       <code>moduleRejected(cacheFull)</code> rather than admitted over the cap;
       <code>MaxPendingCompileBytes</code> releases at the same commit; a duplicate hash refunds both.
       Because commits happen in <code>uploadId</code> order per seat and seats commit in seat order at one

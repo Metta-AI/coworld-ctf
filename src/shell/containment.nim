@@ -92,6 +92,7 @@ proc cleanDefaultBodyTick(map: BodyMap, seatCount: int, tick: uint32): bool =
     let inputs = BodyTickInputs(
       self: BodySelfState(
         pos: (30, 30),
+        hp: 4,
         hpFrac: 1.0,
         aimBrads: idleAimCenterBrads,
         alive: true,
