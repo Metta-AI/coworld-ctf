@@ -1,5 +1,9 @@
 # Paintbot wire protocol — Sprite v1 plus CTF extensions
 
+> **Deprecated since 0.7.253.** This is the direct-input protocol for modes
+> enabled with `allowDeprecatedModes: true`, not the Season 2 play-seat wire.
+> New policy authors should start in [`policies/starters/`](../policies/starters/README.md).
+
 Both the player endpoints (`/player`, POV observation streams) and the
 global/spectator endpoint speak
 [Sprite v1](https://github.com/Metta-AI/bitworld/blob/master/docs/sprite_v1.md).
@@ -37,7 +41,7 @@ to a median ~15-brad error at the trigger and its gun accuracy collapsed from
 44–54% to 13–23%; removing the send flipped an 0W–23L record to 8W–10L vs the
 champion (p=0.0039). Send `0x85` only when you know the server is in fast
 mode (fixture recording); competitive clients should not send it at all. The
-reference implementation gates it behind `CTF_BOT_FAST_READY=1`
+deprecated reference implementation gates it behind `CTF_BOT_FAST_READY=1`
 (`players/baseline/baseline.nim`, `fastReadyEnabled`).
 
 ## Your own aim: read the `own aim` marker; dead-reckon between frames

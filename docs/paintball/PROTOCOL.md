@@ -1,5 +1,9 @@
 # Paintball wire protocol
 
+> **Deprecated since 0.7.253.** Paintball is a retired Sprite v1 mode and runs
+> only with `allowDeprecatedModes: true`; it cannot drive a Season 2 play seat.
+> New policies start in [`policies/starters/`](../../policies/starters/README.md).
+
 Paintball inherits coworld-ctf's **Sprite v1** protocol unchanged. This file
 states what a paintball SEAT connects to, what it may send, and exactly what it
 can and cannot see.
@@ -12,14 +16,13 @@ can and cannot see.
 | `GET /player?slot=N&token=T` | the seat websocket (403 on a bad slot or token) |
 | `GET /global` | the spectator/board websocket |
 | `GET /reward` | the reward stream |
-| `GET /client/global`, `GET /client/player` | real HTML pages, registered before any catch-all asset route |
-| `GET /replay-data` | the recorded replay bytes |
+| `GET /client/global`, `GET /client/player`, `GET /client/replay` | real HTML pages, registered before any catch-all asset route |
+| `GET /replay` (WebSocket upgrade) | live or loaded replay stream used by the replay client |
 
-There is deliberately **no replay page on the pod**. Paintball's replay viewer
-is the static wasm bundle the manifest declares
-(`"replay_viewer": {"bundle": "static-replay-viewer"}`), served from object
-storage and contacting nothing but the `?replay=` URL it is given; the
-starter's pod-served replay routes are removed rather than left listening.
+The archived paintball manifest used the static wasm replay-viewer bundle.
+The merged in-repo mode still inherits the engine's local `/client/replay` page
+and `/replay` WebSocket; the separate-fork plan's claim that replay routes were
+removed never described this implementation.
 
 `/healthz` and `/global` keep answering for a bounded ~20 s grace after the
 episode's artifacts are written, then the process exits.
@@ -96,10 +99,13 @@ standing.
 
 ## The replay
 
-The starter's binary `COWLDPNT` format: magic, format version, game
+The shared engine's binary `COWLDCTF` format: magic, format version, game
 name/version, the resolved config JSON (seed, `mapSpec`, roster, every tuning
 field), then the record stream — joins, leaves, per-**cog** input-mask changes,
 chat records and **one `gameHash` per tick**.
+
+`COWLDPNT` appeared only in the historical separate-fork design; no such
+format shipped in this repository.
 
 The chat stream carries two kinds of thing, told apart by a leading `{`:
 

@@ -47,18 +47,16 @@ Knobs (environment variables):
 
 ## Gating
 
-Everything is behind the `season2Shell` config flag — **absent from every
-shipped config, defaulting off**. The flag comes on only via the demo's own
-generated config (the script overlays
-`tests/fixtures/shell/first_light_config.json` onto `config.practice.json`).
+Season 2 now defaults on. The demo's distinctive path is gated by its
+configured `control: "play"` seats plus its generated config overlay (the
+script overlays `tests/fixtures/shell/first_light_config.json` onto
+`config.practice.json`); an all-input roster still takes the direct-input path.
 The overlay carries no map of its own, so the demo runs the practice config's
 BR arena — the generated `br-gen-4242`, 3211x1713. (It used to pin an authored
 512x256 map to dodge the body-map atlas density cap; the constants freeze
 retired that workaround, and the small arena made 32 seats look like a scrum.)
-With the gate off the sim is byte-identical to
-pre-shell main; the archived replay fixtures re-simulating hash-exact is the
-enforced proof (`tests/test_shell_first_light.nim` and the replay compat
-suite).
+The archived replay fixtures re-simulating hash-exact remain the compatibility
+proof (`tests/test_shell_first_light.nim` and the replay compat suite).
 
 ## Current limits (deliberate, tracked)
 

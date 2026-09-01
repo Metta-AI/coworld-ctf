@@ -10,7 +10,8 @@ main) and main @ `c226faf4` (GV47).
 The BR lineage forked at **GV45**; main has since moved to **GV47**
 (damage-credit stats rule). So this is a true reconciliation merge, not a
 fast-forward, and the merged engine must prove it did not disturb either
-lineage: **the merge criterion is that every archived gate-off fixture
+lineage: **the merge criterion at that dark-landing stage was that every
+archived gate-off fixture
 re-simulates bit-identically post-merge.** All branch behavior is
 config-gated dark (brMode, 16-team rosters, allowPolicyReflash default
 off, glory ledger OUT of gameHash on inc2), so a fixture break in the
@@ -44,7 +45,7 @@ Probe results (2026-08-30): merging main = 30 commits, 17 conflicts —
 ~10 source files (the GV46/47 damage-credit stats work vs our gated
 additions), shard-import unions, and 6 BINARY fixture conflicts (both
 lineages re-recorded). Fixture resolution rule: MAIN's fixtures win
-(the merged engine's gate-off behavior must equal GV47 by the darkness
+(the merged engine's then-current gate-off behavior must equal GV47 by the darkness
 criterion, and the fixtures are its proof); BR-gated fixtures
 (br-golden-16team) re-record on the merged engine if broken — that is a
 gated-fixture refresh, not an archived-replay re-record. Pre-merge BR
@@ -71,9 +72,9 @@ branches.
    **GV48** and the ONE planned 7-fixture re-record. Sequenced first and
    alone so the re-record happens exactly once, on the merged lineage.
    (Re-records are a dice roll — nothing else batches with this.)
-2. **Play-calling P2's Season 2 gate** (call-hash + epoch mixing into
-   gameHash under `season2Shell`): claims **GV49** — the shell's first
-   live version — ONLY if P2 changes gate-off behavior; otherwise no
+2. **Play-calling P2's then-planned Season 2 gate** (call-hash + epoch mixing
+   into gameHash under `season2Shell`): would claim **GV49** — the shell's first
+   live version — ONLY if P2 changed gate-off behavior; otherwise no
    bump, same rule as wave 1. Note for P2: the codec gates BOTH
    `formatVersion` (:363) and `gameVersion` (:370) with strict equality
    in the vendored bitworld package, so "old replays keep loading"

@@ -195,8 +195,9 @@ vote gate, no GV claim)." That resolves PR #319 §9 Q1 in favor of the
 "lifecycle record" precedent over the "lobby chat" precedent, and rules
 out the GameVersion claim PR #319 flagged as "very likely" (prematch-
 vote-phase-2026-08-31.md:216-223) — the ruling is explicit that this
-lands "under the vote gate," i.e., inside the existing `season2Shell` gate
-rather than a new GV. Concretely: **no change to `RecManifest` (`0x12`)
+lands "under the vote gate," i.e., inside a play-seat episode (the conjunctive
+`isPlaySeatEpisode` path), not merely under the now-default-true
+`season2Shell` value, and does not require a new GV. Concretely: **no change to `RecManifest` (`0x12`)
 is needed**, because hash-coupled records need no separate arm, the same
 reason `0x14`-`0x16` need none today.
 

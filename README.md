@@ -30,7 +30,49 @@ building or submitting a CTF policy, preserve the evidence and file a GitHub iss
 instead of silently working around it. Include the command, league/Coworld ids,
 logs or replay links, and the smallest repro.
 
-## Rules at a glance
+## Start with a Season 2 policy
+
+Season 2 policies upload WebAssembly plays, call them by name while the engine
+drives the cog, and participate in the lobby chat. Start from one of the three
+working policy personas in [`policies/starters/`](policies/starters/README.md):
+
+- [`aggressive`](policies/starters/aggressive/) hunts, accepts tight safety
+  margins, and recalls plays eagerly when the fight changes.
+- [`cautious`](policies/starters/cautious/) prioritizes survival and placement,
+  using wider margins, fewer calls, and safe parameter defaults.
+- [`collaborative`](policies/starters/collaborative/) tracks its duo partner,
+  coordinates in chat, and uses a protect-partner pact.
+
+Each directory contains the policy prompt, harness, and playbook it uses. For a
+lower-level example of the binary upload/call/status protocol, see
+[`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md); it is a wire
+reference, not the recommended policy template.
+
+## Run Season 2 locally
+
+Install Nim and sync the lock file. We recommend
+[Nimby](https://github.com/treeform/nimby).
+
+```sh
+nimby use 2.2.10
+nimby sync -g nimby.lock
+```
+
+The PoC runner is the repository's end-to-end local wire exercise: it builds
+the game and policy image, starts a battle-royale play-seat episode, uploads a
+play, calls it, and checks the returned status stream.
+
+```sh
+policies/poc_llm_policy/run_poc.sh
+```
+
+Use the starter personas above as the policy-authoring baseline; use the PoC
+when debugging the wire itself.
+
+## Deprecated classic rules at a glance
+
+> The classic Sprite v1 mode is deprecated since 0.7.253. It remains here as a
+> mechanics reference and can run only with `allowDeprecatedModes: true`.
 
 - **8 vs 8.** Red spawns on the **left** edge, Blue on the **right**. Each team's
   flag sits on a pedestal inside its spawn pocket.
@@ -75,15 +117,32 @@ logs or replay links, and the smallest repro.
 
 See [`docs/RULES.md`](docs/RULES.md) for exact mechanics and tuning defaults.
 
-## Run the game locally (without Docker)
+## Season 2: the play-calling shell
 
-Install Nim and sync the lock file. We recommend
-[Nimby](https://github.com/treeform/nimby).
+Season 2 changes what a policy is: instead of driving a cog with button masks,
+a policy uploads a playbook of WebAssembly "plays", talks with the other
+policies in a lobby chat phase, and then calls plays by name with parameters
+while the game runs them itself. The authoritative design is
+[`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md)
+(the ported body, wasmtime runtime, episode ladder, reference plays, and wire
+protocol are implemented; Season 2 is now the supported default). The runtime
+choice is documented in
+[`docs/reports/wasm-runtime-embedding-2026-08-30.md`](docs/reports/wasm-runtime-embedding-2026-08-30.md).
 
-```sh
-nimby use 2.2.10
-nimby sync -g nimby.lock
-```
+## Deprecated modes and Sprite v1 policies
+
+The published paintbot manifest now offers only `battle-royale-s2`. The nine
+former classic, CTF, paintball, and first-generation battle-royale configs are
+preserved verbatim in [`deprecated_variants_paintbot.json`](deprecated_variants_paintbot.json),
+while [`coworld_manifest_br.json`](coworld_manifest_br.json) remains the older
+historical 32-seat archive. Live boot refuses these deprecated modes since
+0.7.253 unless the config explicitly sets `allowDeprecatedModes: true`.
+
+`players/baseline/` and `players/onepage/` are retained only for these
+deprecated Sprite v1 modes. They cannot connect to or drive a Season 2 play
+seat. The commands below remain useful for explicitly enabled legacy matches.
+
+### Run a deprecated Sprite v1 game locally
 
 Build and run the game with the repo config:
 
@@ -117,7 +176,7 @@ Watch the match with the global viewer at <http://localhost:2000/client/global>.
 To play one slot yourself, open a configured player URL in the browser, e.g.
 `http://localhost:2000/client/player?slot=0&token=0xBADA55_0`.
 
-## Run the game with Docker
+### Run a deprecated Sprite v1 game with Docker
 
 > **Note:** the public CTF images are not published yet. Build the image locally
 > first (`docker build -t coworld-ctf:local .`) and substitute it below, or wait
@@ -137,9 +196,9 @@ docker run --rm -d \
   coworld-ctf:local
 ```
 
-## Policy starting points
+### Deprecated Sprite v1 policy references
 
-CTF policies speak the shared Bitworld Sprite v1 protocol:
+The retired policies speak the shared Bitworld Sprite v1 protocol:
 <https://github.com/Metta-AI/bitworld/blob/master/docs/sprite_v1.md>
 
 The runner starts every policy with a `COWORLD_PLAYER_WS_URL` environment
@@ -149,31 +208,9 @@ exits when the runner stops it.
 - **Stock baseline:** run the bundled baseline bot to compare against your own.
 - **Improve baseline:** edit `players/baseline/` and use its README as a guide.
 - **From scratch:** implement Sprite v1 in any language and package it in a Docker
-  image.
+  image for an explicitly enabled deprecated match.
 
-## Season 2: the play-calling shell
-
-Season 2 changes what a policy is: instead of driving a cog with button masks,
-a policy uploads a playbook of WebAssembly "plays", talks with the other
-policies in a lobby chat phase, and then calls plays by name with parameters
-while the game runs them itself. The authoritative design is
-[`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md)
-(the ported body, wasmtime runtime, episode ladder, reference plays, and wire
-protocol are implemented; Season 2 is now the supported default). The runtime
-choice is documented in
-[`docs/reports/wasm-runtime-embedding-2026-08-30.md`](docs/reports/wasm-runtime-embedding-2026-08-30.md).
-A proof-of-concept policy image that drives a play seat over the real wire protocol is in [`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md).
-
-### Deprecated variants
-
-The published paintbot manifest now offers only `battle-royale-s2`. The nine
-former classic, CTF, paintball, and first-generation battle-royale configs are
-preserved verbatim in [`deprecated_variants_paintbot.json`](deprecated_variants_paintbot.json),
-while [`coworld_manifest_br.json`](coworld_manifest_br.json) remains the older
-historical 32-seat archive. Live boot refuses these deprecated modes since
-0.7.253 unless the config explicitly sets `allowDeprecatedModes: true`.
-
-## Debug overlays (visualize what your bot is thinking)
+### Deprecated Sprite v1 debug overlays
 
 A policy can send Sprite v1 **debug sprite** packets (client message `0x86` —
 see the spec above) to draw private annotations: planned paths, target marks,
@@ -235,6 +272,8 @@ uses, pickups, shouts, and the existing damage/kill/objective events:
 nim r tools/extract_events.nim tests/replays/<replay>.bitreplay
 ```
 
-Start with replays where your bot scored poorly, died early, stood still, missed
-shots, or failed to escort/defend the flag carrier. Expand the timeline, name the
-failed capability, then find the function in `players/baseline/` that controls it.
+Start with replays where your policy scored poorly, died early, or failed to
+adapt its play. Expand the timeline, identify the failed decision, then compare
+the policy's module, call, and status sequence with the persona and playbook in
+[`policies/starters/`](policies/starters/README.md). For a deprecated Sprite v1
+replay, the retained baseline implementation remains in `players/baseline/`.

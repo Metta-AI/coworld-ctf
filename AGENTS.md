@@ -157,37 +157,30 @@ instead of blending in.
 - Dependencies come from nimby (`nimby --global sync nimby.lock`; the
   Dockerfile is the canonical build recipe).
 
-## Season 2 play-calling shell (design converged, NOT implemented)
+## Season 2 play-calling shell (supported default)
 
-The authoritative plan for Season 2 (language-model policies that upload
+The authoritative design for Season 2 (language-model policies that upload
 WebAssembly "plays", a game-side body ported from stencil, an embedded
 wasmtime runtime, the play-seat protocol, and the engine-native lobby chat
 phase) is `docs/designs/strategy-play-calling-shell-2026-08-29.md`, with a
-commentable HTML twin beside it. It is a design, cross-reviewed to
-convergence; none of it exists in `src/` yet. Before touching anything it
-names (`src/shell/`, play seats, the replay format bump, the Mummy patch,
-the new config fields), read it and build to it; when the code and the
-design disagree during implementation, the design's Appendix H records why
-each decision was made, and a change to a ratified decision goes through
-James, not around the doc. The CONTRACTS-FIRST commit is landed: the
-shared types and limits (`src/shell/types.nim`), the canonical encoding
-(`src/shell/canonical.nim`), the wire schemas (`src/shell/schemas/`), the
-byte goldens (`tests/fixtures/shell/`, pinned by
-`tests/test_shell_contracts.nim` in shard 2), and the five config fields
-behind the `season2Shell` gate — build lane work against those, and a
-contract change goes through the integration branch (`james/s2-shell`),
-never a lane's own copy. Supporting material: the runtime comparison that
-picked wasmtime (`docs/reports/wasm-runtime-embedding-2026-08-30.md`), the
-research report on Maxwell's Season 2 substrate
+commentable HTML twin beside it. The body, runtime, play-seat protocol,
+durable status path, lobby chat, and format-2 replay records are implemented
+under `src/shell/` and their `src/ctf/` integration points. `season2Shell`
+defaults true; an all-input roster still takes the direct-input path, while an
+explicit false requests a deprecated mode that live boot refuses unless
+`allowDeprecatedModes` is true. Before changing the shell, read the design;
+Appendix H records why its ratified decisions were made. The shared contracts
+are `src/shell/types.nim`, `src/shell/canonical.nim`, `src/shell/schemas/`, and
+the byte goldens in `tests/fixtures/shell/`, pinned by
+`tests/test_shell_contracts.nim` in shard 2. Supporting material includes the
+runtime comparison that picked wasmtime
+(`docs/reports/wasm-runtime-embedding-2026-08-30.md`), the report on the Season
+2 substrate
 (`docs/reports/maxwell-s2-paradigms-2026-08-29.md`), and the branch
-inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). The
-BR season-2 substrate landed dark on main via the wave-1 reconciliation
-merge (PR #312, 2026-08-30; a convergence audit against the parallel
-independent merge is in
-`docs/reports/br-season2-landing-notes-2026-08-30.md`), so **main is the
-integration base** for the shell work now. The dark landing claimed no
-GameVersion (GV47 stands); GV48 is reserved for Maxwell's glory
-increment 3.
+inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). New policy
+authors should start in `policies/starters/`; `policies/poc_llm_policy/` is the
+lower-level wire reference. The original dark-landing history is preserved in
+`docs/reports/br-season2-landing-notes-2026-08-30.md`.
 
 ## Build shapes
 

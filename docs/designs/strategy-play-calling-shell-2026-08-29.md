@@ -7,6 +7,12 @@ revision history) · **Author:** James's coding agent, direction from James ·
 `BR_PLAYS.md` supplies the reference play menu) · **Canonical home:** this
 file, in `coworld-ctf`.
 
+**Postscript (2026-09-01, 0.7.253):** The design is implemented and
+`season2Shell` now defaults true. Explicit false selects a deprecated live
+mode, refused unless `allowDeprecatedModes` is true. Default-off language below
+is retained as the design and dark-landing history, not current configuration
+guidance.
+
 Companion reading: `docs/reports/maxwell-s2-paradigms-2026-08-29.md` (the
 research report on Maxwell's Season 2 substrate, with a plain-language primer
 in its section 0) and `docs/recon/paintbot-s2-policy-shell-2026-08-29.md`

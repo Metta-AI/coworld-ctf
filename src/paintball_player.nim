@@ -1,5 +1,8 @@
 ## The paintball player container: a policy is just a prompt.
 ##
+## DEPRECATED since 0.7.253: this Sprite v1 registrar is retained only for the
+## paintball mode behind allowDeprecatedModes; use policies/starters for S2.
+##
 ## This process is DELIBERATELY thin. It connects to its seat, sends ONE
 ## Sprite v1 chat message carrying its registration, and then only receives.
 ## Every decision happens inside the GAME server, because that is the only

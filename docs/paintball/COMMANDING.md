@@ -1,5 +1,9 @@
 # Writing a paintball prompt
 
+> **Deprecated since 0.7.253.** Paintball is a retired mode and runs only with
+> `allowDeprecatedModes: true`; this prompt interface is not a Season 2 play
+> seat. New policies start in [`policies/starters/`](../../policies/starters/README.md).
+
 A policy here is just a prompt. Your prompt is handed to Claude every 4.5
 seconds under a "GUIDANCE FROM YOUR OPERATOR" heading, together with a fogged
 report of what your squad can see, and the reply is your directive for the next

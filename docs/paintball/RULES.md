@@ -1,5 +1,9 @@
 # Paintball rules
 
+> **Deprecated since 0.7.253.** Paintball is a retired mode and runs only with
+> `allowDeprecatedModes: true`; it cannot use Season 2 play seats. New policies
+> start in [`policies/starters/`](../../policies/starters/README.md).
+
 Two squads of four cogs. One hill. The floor is the scoreboard.
 
 ## The board
