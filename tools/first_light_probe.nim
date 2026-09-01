@@ -6,7 +6,7 @@ import std/[algorithm, options, os, strformat, strutils]
 import bitworld/spriteprotocol
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
-  episode, standing_order]
+  episode, reflexes, standing_order]
 
 when ShellRuntimeAvailable:
   import ../src/shell/[module_validation, runtime, types]
@@ -29,6 +29,15 @@ proc probeMap(): BodyMap =
   for value in walkable.mitems:
     value = true
   newBodyMap(walkable, Side, Side, 1, @[(100, 100)])
+
+proc firstLightFixedMap(): BodyMap =
+  const
+    Width = 512
+    Height = 256
+  var walkable = newSeq[bool](Width * Height)
+  for value in walkable.mitems:
+    value = true
+  newBodyMap(walkable, Width, Height, 1, @[(100, 100)])
 
 proc movementProbeMap(): BodyMap =
   const Side = 128
@@ -130,6 +139,20 @@ proc movementFrames(map: BodyMap,
                     positions: array[Seats, BodyPoint]): seq[FirstLightSeatFrame] =
   for seat in 0 ..< Seats:
     result.add(movementFrame(map, seat, positions))
+
+proc floodReflexFrame(tick, seat: int, map: BodyMap,
+                      positions: array[Seats, BodyPoint]): FirstLightSeatFrame =
+  result = frame(tick, seat, map, positions)
+  result.defaultFallbacks.currentZone = MapRect(x: 0, y: 0, w: 80, h: 80)
+  result.defaultFallbacks.nextZone = MapRect(x: 160, y: 120, w: 160, h: 160)
+  result.defaultFallbacks.ticksToNextShrink = ReflexZoneTriggerTicks
+  result.motionScale = MotionScale
+  result.velocity = MaxSpeed
+
+proc floodReflexFrames(tick: int, map: BodyMap,
+                       positions: array[Seats, BodyPoint]): seq[FirstLightSeatFrame] =
+  for seat in 0 ..< Seats:
+    result.add(floodReflexFrame(tick, seat, map, positions))
 
 proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
                  withThreat: bool): FirstLightSeatFrame =
@@ -257,6 +280,10 @@ when ShellRuntimeAvailable:
 else:
   proc moduleSizeProof(): bool = true
 
+proc percentile(values: seq[int64], numerator, denominator: int): int64 =
+  values[min(values.high,
+    (values.len * numerator + denominator - 1) div denominator - 1)]
+
 proc dangerProof() =
   let map = dangerProbeMap()
   let start: BodyPoint = (32, 80)
@@ -294,9 +321,48 @@ proc dangerProof() =
   if not dangerPass:
     quit(1)
 
-proc percentile(values: seq[int64], numerator, denominator: int): int64 =
-  values[min(values.high,
-    (values.len * numerator + denominator - 1) div denominator - 1)]
+proc reflexProofAndTiming() =
+  let map = firstLightFixedMap()
+  var episode = initFirstLightEpisode(true, true, controls(), map, 331)
+  episode.configureAllSeatEdgeRide()
+  var positions: array[Seats, BodyPoint]
+  for seat in 0 ..< Seats:
+    positions[seat] = (100 + seat, 100)
+
+  var sawReflexInstall = false
+  for tick in 1 .. WarmTicks:
+    let output = episode.step(floodReflexFrames(tick, map, positions),
+      uint32(tick))
+    doAssert output.masks.len == Seats
+    for install in output.installs:
+      if install.provenance == "reflex:zone_escape":
+        sawReflexInstall = true
+        if tick <= InstallTelemetryTicks:
+          echo install.formatInstall()
+    for mask in output.masks:
+      positions[mask.seat.int].applyMask(mask.input)
+
+  var runtime: seq[int64]
+  for tick in WarmTicks + 1 .. WarmTicks + Samples:
+    let output = episode.step(floodReflexFrames(tick, map, positions),
+      uint32(tick))
+    doAssert output.masks.len == Seats
+    for install in output.installs:
+      if install.provenance == "reflex:zone_escape":
+        sawReflexInstall = true
+    for mask in output.masks:
+      positions[mask.seat.int].applyMask(mask.input)
+    runtime.add(output.runtimeNanoseconds)
+  runtime.sort()
+
+  let pass = runtime[^1] <= RuntimeGateNs
+  echo &"FIRST_LIGHT_REFLEX_RUNTIME seats={Seats} warm_ticks={WarmTicks} " &
+    &"samples={Samples} median_us={runtime.percentile(50, 100).float / 1000.0:.3f} " &
+    &"p95_us={runtime.percentile(95, 100).float / 1000.0:.3f} " &
+    &"max_us={runtime[^1].float / 1000.0:.3f} gate_us=4000.000 " &
+    (if pass: "verdict=PASS" else: "verdict=FAIL")
+  if not sawReflexInstall or not pass:
+    quit(1)
 
 proc main() =
   let map = probeMap()
@@ -338,6 +404,7 @@ proc main() =
       movementPositions[mask.seat.int].applyMask(mask.input)
 
   dangerProof()
+  reflexProofAndTiming()
 
   var measured = initFirstLightEpisode(true, true, controls(), moveMap, 331)
   measured.configureAllSeatEdgeRide()

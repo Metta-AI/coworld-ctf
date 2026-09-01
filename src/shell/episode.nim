@@ -10,6 +10,7 @@ import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_map
 import body_nav
+import reflexes
 import types
 import standing_order
 
@@ -38,6 +39,8 @@ type
     playing*: bool
     alive*: bool
     aliveTeams*: int
+    motionScale*: int
+    velocity*: int
     bodyInputs*: BodyTickInputs
     defaultFallbacks*: BrDefaultFallbacks
 
@@ -79,6 +82,7 @@ type
   FirstLightRuntimeState = ref object
     frames: seq[FirstLightViewFrameSlot]
     selfPositions: seq[BodyPoint]
+    reflexStates: seq[ReflexSeatState]
 
   FirstLightSeatState* = object
     seat*: uint8
@@ -127,6 +131,20 @@ proc frameForSeat(episode: FirstLightEpisode; seatIndex: int):
       return some(episode.runtimeState.frames[seatIndex].frame)
   none(FirstLightSeatFrame)
 
+const MaxPlayZoneTicksToShrink = high(int32).int
+
+proc playZoneTicksToShrink(value: int): int =
+  ## The sim uses high(int) div 4 as the "no more zone phases" sentinel, but
+  ## the play view is an int32 ABI. Preserve the sentinel's meaning by
+  ## saturating it to the largest representable future tick count; plays testing
+  ## "ticks_to_shrink <= enterLead" still do not trigger at the final phase.
+  if value < 0:
+    0
+  elif value > MaxPlayZoneTicksToShrink:
+    MaxPlayZoneTicksToShrink
+  else:
+    value
+
 proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
                           tick: uint32): string =
   when ShellRuntimeAvailable:
@@ -149,7 +167,8 @@ proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
             next: some(PlayRect(x: fallbacks.nextZone.x,
               y: fallbacks.nextZone.y, w: fallbacks.nextZone.w,
               h: fallbacks.nextZone.h)),
-            ticksToShrink: fallbacks.ticksToNextShrink,
+            ticksToShrink:
+              playZoneTicksToShrink(fallbacks.ticksToNextShrink),
             dps: fallbacks.zoneDps)))
         return buildBinaryPlayView(source)
     "{}"
@@ -174,7 +193,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
   when ShellRuntimeAvailable:
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
-      selfPositions: newSeq[BodyPoint](controls.len))
+      selfPositions: newSeq[BodyPoint](controls.len),
+      reflexStates: newSeq[ReflexSeatState](controls.len))
   for index, control in controls:
     if control == scPlay:
       result.enabled = true
@@ -230,7 +250,11 @@ proc provenanceText(provenance: Provenance): string =
   case provenance.base.kind
   of pbEntry: "entry:" & provenance.base.entryId
   of pbDefault: "default"
-  of pbReflex: provenance.base.reflexName
+  of pbReflex:
+    if provenance.base.reflexName.startsWith(ReflexNamePrefix):
+      "reflex:" & provenance.base.reflexName[ReflexNamePrefix.len .. ^1]
+    else:
+      "reflex:" & provenance.base.reflexName
 
 proc bytesHash(bytes: string): string =
   var hash = 14_695_981_039_346_656_037'u64
@@ -311,6 +335,11 @@ proc firstLightPlayConfigRefusal(episode: FirstLightEpisode;
   none(string)
 
 when ShellRuntimeAvailable:
+  const NativeReflexSubscriptions = [
+    ReflexSubscription(kind: rkClearGrenade, epoch: 0),
+    ReflexSubscription(kind: rkClearSpray, epoch: 0),
+    ReflexSubscription(kind: rkZoneEscape, epoch: 0)]
+
   proc noGuardContext(): IntentContext =
     IntentContext(
       resolveNumber: proc(path: string): float =
@@ -320,16 +349,19 @@ when ShellRuntimeAvailable:
         discard path
         false)
 
+  proc ensureLadder(episode: var FirstLightEpisode) =
+    if episode.ladder == nil:
+      episode.ladder = newLadderDriver(episode.runtimeState.frames.len,
+        DefaultPathRegistry, if episode.brMode: gmBr else: gmCtf,
+        episode.map)
+
   proc ensureRuntime(episode: var FirstLightEpisode) =
     if episode.engine == nil:
       episode.engine = newRuntimeEngine()
     if episode.compilePlane == nil:
       episode.compilePlane = newCompilePlane(episode.engine,
         episode.runtimeState.frames.len)
-    if episode.ladder == nil:
-      episode.ladder = newLadderDriver(episode.runtimeState.frames.len,
-        DefaultPathRegistry, if episode.brMode: gmBr else: gmCtf,
-        episode.map)
+    episode.ensureLadder()
 
   proc addBindingFor(episode: var FirstLightEpisode; bound: BoundModule) =
     for binding in episode.bindings.mitems:
@@ -427,6 +459,74 @@ proc configureFirstLightDemoPlayFromJson*(episode: var FirstLightEpisode;
   except CatchableError as error:
     result = @["FIRST_LIGHT_PLAY configured=false reason=parse_error detail=" &
       error.msg]
+
+when ShellRuntimeAvailable:
+  proc eventIdInt(value: uint64): int =
+    if value <= uint64(high(int)): value.int else: high(int)
+
+  proc zoneTicksUntilOutside(fallback: BrDefaultFallbacks):
+      ZoneTicksUntilOutside =
+    let
+      current = fallback.currentZone
+      ticksToShrink =
+        int64(playZoneTicksToShrink(fallback.ticksToNextShrink))
+    result = proc(point: BodyPoint): int64 =
+      if point.x < current.x or point.y < current.y or
+          point.x >= current.x + current.w or
+          point.y >= current.y + current.h:
+        0
+      else:
+        ticksToShrink
+
+  proc reflexInput(state: FirstLightSeatState; frame: FirstLightSeatFrame;
+                   tick: uint32; mode: GameMode): ReflexTickInput =
+    result = ReflexTickInput(
+      tick: tick,
+      mode: mode,
+      map: state.body.map,
+      selfPos: frame.bodyInputs.self.pos,
+      alive: frame.alive,
+      motionScale: if frame.motionScale > 0: frame.motionScale else:
+        MotionScale,
+      velocity: if frame.velocity > 0: frame.velocity else: MaxSpeed,
+      zoneTicksUntilOutside:
+        zoneTicksUntilOutside(frame.defaultFallbacks),
+      nextZone: frame.defaultFallbacks.nextZone)
+    for hazard in state.body.hazards.grenades:
+      result.visibleGrenades.add VisibleGrenade(
+        predictedBlastPos: hazard.predictedBlastPos,
+        ticksToBlast: hazard.ticksToBlast,
+        blastRadius: GrenadeBlastRadius,
+        eventId: hazard.eventId.eventIdInt)
+    for cue in state.body.hazards.blastCues:
+      result.blastCues.add BlastCue(
+        pos: cue.pos,
+        tick: cue.tick,
+        eventId: cue.eventId.eventIdInt)
+    for hazard in state.body.hazards.sprays:
+      case hazard.kind
+      of bshVisibleCone:
+        result.sprayCones.add VisibleSprayCone(
+          origin: hazard.origin,
+          aimBrads: hazard.aimBrads,
+          coversSelf: hazard.coversSelf,
+          tick: hazard.tick,
+          eventId: hazard.eventId.eventIdInt)
+      of bshAnonymousImpact:
+        result.sprayImpacts.add AnonymousSprayImpact(
+          impactPos: hazard.impactPos,
+          incomingDir: hazard.incomingDirBrads,
+          tick: hazard.tick,
+          eventId: hazard.eventId.eventIdInt)
+
+  proc nativeBase(decision: ReflexDecision): Option[LadderNativeBase] =
+    if not decision.selected:
+      return none(LadderNativeBase)
+    some(LadderNativeBase(
+      intent: decision.order.intent,
+      goal: decision.order.goal,
+      provenance: decision.order.provenance,
+      contributingEpoch: decision.order.contributingEpoch))
 
 proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
     nav: BodyNavSystem, annotations: var seq[ShellAnnotation]) =
@@ -552,6 +652,8 @@ proc step*(episode: var FirstLightEpisode,
     result.runtimeNanoseconds += (getMonoTime() - runtimeStarted).inNanoseconds
 
   when ShellRuntimeAvailable:
+    if episode.runtimeState != nil:
+      episode.ensureLadder()
     if episode.ladder != nil:
       let runtimeStarted = getMonoTime()
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
@@ -579,6 +681,11 @@ proc step*(episode: var FirstLightEpisode,
         state.standing.lastDefaultRule = decision.rule
         let finished = finishDefault(decision.intent,
           facts.idleAimCenterBrads)
+        let reflexDecision =
+          episode.runtimeState.reflexStates[seat].selectReflex(
+            state.reflexInput(slot.frame, tick,
+              if episode.brMode: gmBr else: gmCtf),
+            NativeReflexSubscriptions)
         inputs[seat] = LadderSeatInput(
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,
@@ -589,7 +696,8 @@ proc step*(episode: var FirstLightEpisode,
             episode.viewSource(seat, tick)),
           guardContext: noGuardContext(),
           defaultIntent: finished.intent,
-          defaultGoal: decision.goal)
+          defaultGoal: decision.goal,
+          nativeBase: reflexDecision.nativeBase)
 
       let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
       for state in episode.seats.mitems:
