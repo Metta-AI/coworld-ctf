@@ -226,3 +226,68 @@ suite "row 2 — med-kit cap and carryable bandages":
     sim.stepIdle(1)
     check sim.players[0].hp == 3          # untouched: already at max
     check sim.players[0].bandages == 1    # not consumed
+
+suite "row 3 — loot-start: unarmed spawn, marker+hopper BOTH to shoot":
+  test "dark BR seats spawn armed and fire exactly as before":
+    var sim = startedGame(brConfig(), 2)
+    check sim.weaponSpawns.len == 0
+    check sim.hopperSpawns.len == 0
+    sim.pointBlank(0, 1)
+    check sim.canFire(0)
+
+  test "lootStart spawns everyone unarmed with crates on the board":
+    var config = brConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)
+    for i in 0 ..< sim.players.len:
+      check not sim.players[i].hasGun
+      check not sim.players[i].hasHopper
+    check sim.weaponSpawns.len > 0    # fallback: the grenade pickup points
+    check sim.hopperSpawns.len > 0    # fallback: the med-kit points
+    sim.players[0].fireCooldown = 0
+    check not sim.canFire(0)
+
+  test "the gun needs BOTH halves — marker alone stays silent":
+    var config = brConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)
+    sim.centerOn(0, sim.weaponSpawns[0].x, sim.weaponSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.players[0].hasGun
+    check not sim.players[0].hasHopper
+    sim.players[0].fireCooldown = 0
+    check not sim.canFire(0)
+    sim.centerOn(0, sim.hopperSpawns[0].x, sim.hopperSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.players[0].hasHopper
+    sim.players[0].fireCooldown = 0
+    check sim.canFire(0)
+    let picks = sim.eventsOf(Pickup)
+    var looted: seq[string]
+    for p in picks:
+      if p.source == 0 and p.item in ["gun", "hopper"]:
+        looted.add p.item
+    check "gun" in looted and "hopper" in looted
+
+  test "a crate serves one cog and never refills":
+    var config = brConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)
+    sim.centerOn(0, sim.weaponSpawns[0].x, sim.weaponSpawns[0].y)
+    sim.stepIdle(1)
+    check not sim.weaponSpawns[0].present
+    # Force the (inert) respawn timer far past due: still no refill,
+    # because no code path refills this family.
+    sim.weaponSpawns[0].respawnAt = sim.tickCount - 1
+    sim.centerOn(0, 300, 300)
+    sim.stepIdle(3)
+    check not sim.weaponSpawns[0].present
+
+  test "an armed cog walks over a crate without consuming it":
+    var config = brConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)
+    sim.players[0].hasGun = true
+    sim.centerOn(0, sim.weaponSpawns[0].x, sim.weaponSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.weaponSpawns[0].present

@@ -935,6 +935,53 @@ proc resetBandages*(sim: var SimServer) =
     targets.add(base[k mod base.len])
   sim.placeWalkablePickups(bandageSpawns, targets)
 
+proc resetLootCrates*(sim: var SimServer) =
+  ## LOOT(s2): places the loot-start crates — the marker (gun) and the
+  ## hopper (its ammo), the two halves a cog must BOTH loot to fire. The
+  ## map's authored weaponSpawns/hopperSpawns pools win when present;
+  ## otherwise marker crates land on the RESOLVED grenade pickup points
+  ## (sim.grenadeSpawns — already placed, already walkable, fairness-gated
+  ## on certified BR maps and formula-derived on classic maps) and hopper
+  ## crates on the map's med-kit points, so every existing map hosts a
+  ## loot-start game with no respec. MUST run after resetGrenades for the
+  ## marker fallback points.
+  ## Both families empty when lootStart is dark (the default), so no dark
+  ## surface ever sees a crate. One-shot by construction: no code path
+  ## calls refillElapsedPickups on these families, so a taken crate stays
+  ## taken for the whole game (the respawn timer written at pickup is
+  ## inert).
+  if not sim.config.lootStart or sim.paintballLoadout():
+    sim.weaponSpawns.setLen(0)
+    sim.hopperSpawns.setLen(0)
+    return
+  var weaponTargets: seq[tuple[x, y: int]]
+  if sim.gameMap.weaponSpawns.len > 0:
+    for point in sim.gameMap.weaponSpawns:
+      weaponTargets.add((point.x, point.y))
+  else:
+    for spawn in sim.grenadeSpawns:
+      weaponTargets.add((spawn.x, spawn.y))
+  var hopperTargets: seq[tuple[x, y: int]]
+  if sim.gameMap.hopperSpawns.len > 0:
+    for point in sim.gameMap.hopperSpawns:
+      hopperTargets.add((point.x, point.y))
+  else:
+    # NOT the spray-can points: a co-located can pickup would put a can in
+    # the looter's hands, and a can carrier cannot fire the gun — the crate
+    # would disarm the very cog it just armed. The med-kit points are the
+    # harmless fair set (a co-located kit merely heals a hurt looter).
+    for point in sim.gameMap.medKitSpawns:
+      hopperTargets.add((point.x, point.y))
+    for point in sim.gameMap.medKitCandidates:
+      hopperTargets.add((point.x, point.y))
+    if hopperTargets.len == 0:
+      hopperTargets = @[
+        (MapWidth div 2, MapHeight div 3),
+        (MapWidth div 2, 2 * MapHeight div 3),
+      ]
+  sim.placeWalkablePickups(weaponSpawns, weaponTargets)
+  sim.placeWalkablePickups(hopperSpawns, hopperTargets)
+
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
   ## as the corner grenade pickups but in the BOTTOM half (three quarters of
@@ -1219,7 +1266,12 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].assassinKills = 0
     sim.players[i].blastsSurvived = 0
     sim.players[i].zoneOutsideTicks = 0
-    # LOOT(s2): per-game bandage state (dark games never read either).
+    # LOOT(s2): per-game loot-rework state. The unarmed spawn IS the
+    # loot-start mechanic: hasGun/hasHopper start OFF exactly when
+    # lootStart arms and ON otherwise (dark values are never read — the
+    # canFire gate short-circuits on the config first).
+    sim.players[i].hasGun = not sim.config.lootStart
+    sim.players[i].hasHopper = not sim.config.lootStart
     sim.players[i].bandages = 0
     sim.players[i].lastDamageTick = 0
     sim.recordGameTeamAssigned(i)
@@ -1231,9 +1283,11 @@ proc startGame*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
-  # LOOT(s2): fresh bandages per game — a no-op (empty family) on a dark
-  # config.
+  # LOOT(s2): fresh bandages and loot crates per game — both no-ops (empty
+  # families) on a dark config. resetLootCrates MUST follow resetGrenades/
+  # sprays for the crate-fallback points.
   sim.resetBandages()
+  sim.resetLootCrates()
   sim.resetZone()
   # Paintball: the can is issued for good, the hearts leave play, and the
   # floor starts clean. Each GAME of the episode is an independent board.
@@ -2127,10 +2181,16 @@ proc absorbDamage*(
 
 proc canFire*(sim: SimServer, shooterIndex: int): bool =
   ## Returns whether one player is able to fire a shot right now.
+  ## LOOT(s2): under lootStart the gun additionally needs BOTH looted
+  ## halves — the marker (hasGun) and the hopper (hasHopper, the ammo).
+  ## The config gate short-circuits first, so a dark game's verdict is the
+  ## pre-existing expression bit-for-bit.
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasSprayPaint
+  shooter.alive and shooter.fireCooldown <= 0 and
+    not shooter.hasSprayPaint and
+    (not sim.config.lootStart or (shooter.hasGun and shooter.hasHopper))
 
 proc canFireArc*(sim: SimServer, attackerIndex: int): bool =
   ## Returns whether one player can fire an immediate spray burst.
@@ -3437,6 +3497,45 @@ proc updateBandageApplies*(sim: var SimServer) =
     )
     sim.logGameEvent(
       playerColorText(sim.players[i].color) & " applied a bandage"
+    )
+
+proc tryPickupWeapons*(sim: var SimServer, playerIndex: int) =
+  ## LOOT(s2): lets an unarmed living cog loot a marker (gun) crate by
+  ## touch. A cog already holding the marker walks over the crate untouched
+  ## — a crate arms exactly one cog per game (the family is never
+  ## refilled; see resetLootCrates).
+  if not sim.config.lootStart:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  if sim.players[playerIndex].hasGun:
+    return
+  # respawnTicks 0 is inert: no refill call exists for this family.
+  sim.pickupByTouch(playerIndex, weaponSpawns, WeaponPickupRange, 0):
+    sim.players[playerIndex].hasGun = true
+    sim.emitPickup(playerIndex, "gun", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " looted a marker"
+    )
+
+proc tryPickupHoppers*(sim: var SimServer, playerIndex: int) =
+  ## LOOT(s2): lets a living cog loot a hopper (the marker's ammo) crate by
+  ## touch — the other half of the BOTH-to-shoot gate (canFire). Same
+  ## one-crate-one-cog rule as tryPickupWeapons.
+  if not sim.config.lootStart:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  if sim.players[playerIndex].hasHopper:
+    return
+  # respawnTicks 0 is inert: no refill call exists for this family.
+  sim.pickupByTouch(playerIndex, hopperSpawns, WeaponPickupRange, 0):
+    sim.players[playerIndex].hasHopper = true
+    sim.emitPickup(playerIndex, "hopper", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " looted a hopper"
     )
 
 proc updateShields*(sim: var SimServer) =
@@ -5768,8 +5867,10 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetShields()
   result.resetSprayPaints()
   result.resetBarriers()
-  # LOOT(s2): a no-op (empty family) on a dark config.
+  # LOOT(s2): no-ops (empty families) on a dark config; after grenades/
+  # sprays for the crate-fallback points.
   result.resetBandages()
+  result.resetLootCrates()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -5805,8 +5906,10 @@ proc resetToLobby*(sim: var SimServer) =
   sim.resetShields()
   sim.resetSprayPaints()
   sim.resetBarriers()
-  # LOOT(s2): a no-op (empty family) on a dark config.
+  # LOOT(s2): no-ops (empty families) on a dark config; after grenades/
+  # sprays for the crate-fallback points.
   sim.resetBandages()
+  sim.resetLootCrates()
   sim.recentBlasts = @[]
   sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
@@ -6367,8 +6470,10 @@ proc step*(
       sim.tryPickupShields(playerIndex)
       sim.tryPickupSprayPaints(playerIndex)
       sim.tryPickupBarriers(playerIndex)
-      # LOOT(s2): config-gated at the proc head; a no-op when dark.
+      # LOOT(s2): config-gated at each proc's own head; no-ops when dark.
       sim.tryPickupBandages(playerIndex)
+      sim.tryPickupWeapons(playerIndex)
+      sim.tryPickupHoppers(playerIndex)
     sim.updateFlags()
     # LOOT(s2): bandage self-application, after pickups so a bandage
     # pocketed this tick still waits out its own calm window. Config-gated
