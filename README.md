@@ -156,6 +156,7 @@ while the game runs them itself. The authoritative plan is
 (design status; nothing in this repository implements it yet). The runtime
 choice behind it is documented in
 [`docs/reports/wasm-runtime-embedding-2026-08-30.md`](docs/reports/wasm-runtime-embedding-2026-08-30.md).
+A proof-of-concept policy image that drives a play seat over the real wire protocol — and a list of what the server still has to register before one can — is in [`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md).
 
 ## Debug overlays (visualize what your bot is thinking)
 
