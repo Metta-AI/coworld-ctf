@@ -83,18 +83,21 @@ proc scoreKeys*(items: openArray[ScoreKey]): ScoreKeyList =
   for index, item in items:
     result.items[index] = item
 
-proc pointKey(point: BodyPoint): int64 =
-  (int64(point.x) shl 32) xor (int64(point.y) and 0xffff_ffff'i64)
+proc scoreKey2*(a, b: ScoreKey): ScoreKeyList =
+  result.len = 2
+  result.items[0] = a
+  result.items[1] = b
 
-proc seenOrAdd(keys: var array[DedupSlots, int64];
-               used: var array[DedupSlots, bool]; key: int64): bool =
-  var slot = int((uint64(key) xor (uint64(key) shr 33)) and
+proc pointKey(point: BodyPoint): uint64 =
+  ((uint64(point.x) shl 32) or uint64(point.y)) + 1'u64
+
+proc seenOrAdd(keys: var array[DedupSlots, uint64]; key: uint64): bool =
+  var slot = int((key xor (key shr 33)) and
     uint64(DedupSlots - 1))
-  while used[slot]:
+  while keys[slot] != 0'u64:
     if keys[slot] == key:
       return true
     slot = (slot + 1) and (DedupSlots - 1)
-  used[slot] = true
   keys[slot] = key
   false
 
@@ -180,8 +183,7 @@ proc planEscape*(input: PlanEscapeInput; scorer: EscapeScorer):
   doAssert ReflexCandidateRadiusPx mod ReflexCandidateSpacingPx == 0
 
   var
-    seenKeys: array[DedupSlots, int64]
-    seenUsed: array[DedupSlots, bool]
+    seenKeys: array[DedupSlots, uint64]
     ordinal = 0
     haveHard = false
     haveFallback = false
@@ -206,7 +208,7 @@ proc planEscape*(input: PlanEscapeInput; scorer: EscapeScorer):
       inc result.resolvedCount
       let resolved = goal.get.goalPoint
       let key = pointKey(resolved)
-      if seenKeys.seenOrAdd(seenUsed, key):
+      if seenKeys.seenOrAdd(key):
         inc ordinal
         continue
       inc result.dedupedCount
@@ -253,8 +255,7 @@ proc planEscapeThroughStage*(input: PlanEscapeInput; scorer: EscapeScorer;
   doAssert ReflexCandidateRadiusPx mod ReflexCandidateSpacingPx == 0
 
   var
-    seenKeys: array[DedupSlots, int64]
-    seenUsed: array[DedupSlots, bool]
+    seenKeys: array[DedupSlots, uint64]
     ordinal = 0
     haveHard = false
     haveFallback = false
@@ -287,7 +288,7 @@ proc planEscapeThroughStage*(input: PlanEscapeInput; scorer: EscapeScorer;
       inc result.resolvedCount
       let resolved = goal.get.goalPoint
       let key = pointKey(resolved)
-      if seenKeys.seenOrAdd(seenUsed, key):
+      if seenKeys.seenOrAdd(key):
         inc ordinal
         continue
       inc result.dedupedCount

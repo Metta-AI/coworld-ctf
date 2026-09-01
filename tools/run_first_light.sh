@@ -81,6 +81,7 @@ nim c -d:release --hints:off --path:src -o:"$PRESENCE_BIN" \
 
 COGAME_HOST=0.0.0.0 \
 COGAME_PORT="$PORT" \
+FIRST_LIGHT_ZONE_LOG=1 \
 COGAME_CONFIG_URI="file://$CONFIG_PATH" \
   "$SERVER_BIN" >"$SERVER_LOG" 2>&1 &
 PIDS+=("$!")

@@ -953,6 +953,48 @@ const
   LobbyChatMinSpacingTicks* = 24     ## no two accepted messages from the
                                      ## same seat closer than this many ticks
 
+  # Pre-match vote phase (docs/designs/prematch-vote-phase-2026-08-31.md,
+  # docs/designs/prematch-vote-wire-2026-08-31.md; opcodes/record reserved
+  # on main in 2c2f905c, src/shell/types.nim: OpBallotCastReserved* =
+  # 0xA4'u8, OpVoteStateReserved* = 0xB3'u8, RecVoteReserved* = 0x17'u8).
+  # Same "src/ctf never imports src/shell" reasoning as the LobbyChat block
+  # above — these are ctf's OWN mirrored copies of the shell's reserved
+  # values, cross-checked byte-exact by tests/test_vote_phase.nim's wire
+  # goldens, not by a cross-module doAssert.
+  #
+  # DELIBERATE DIVERGENCE from LobbyChatTicksDefault's precedent: that
+  # field defaults NONZERO (720) and relies ENTIRELY on the hasPlaySeat
+  # gate for darkness, because huddle-v1 (#321) landed BOTH the engine
+  # substate AND the 0xA3/0xB2 packet classifier arms in packets.nim —
+  # chat was ready to go fully live. This lane does NOT land the 0xA4/0xB3
+  # classifier arms (ownership split: that's sequenced, their-side work —
+  # see tests/test_vote_phase.nim's own ownership note) — so
+  # `VoteTicksDefault` is NOT wired into `defaultGameConfig()`
+  # (sim_config.nim); GameConfig.voteTicks defaults to 0 (phase off)
+  # regardless of hasPlaySeat, so darkness holds even for an existing
+  # play-seat config that never mentions this field. A future lane that
+  # lands the classifier can flip the default the way huddle did, once a
+  # live client can actually cast.
+  VoteTicksDefault* = 240            ## 10 s at 24 Hz; the value a manifest
+                                     ## should use once opting in — NOT
+                                     ## GameConfig's own zero-value default
+                                     ## (see above). 0 disables the phase.
+  VoteTicksMax* = 2400
+  BallotOptionCount* = 4             ## A/B/C/D, fixed by the product
+                                     ## design (PR #319 §1), not configurable
+  BallotCastMaxPerSeatPerPhase* = 8  ## per seat, per phase
+  BallotCastMinSpacingTicks* = 4     ## no two accepted casts from the same
+                                     ## seat closer than this many ticks
+  BallotCastOp* = 0xA4'u8            ## client→server, matches shell's
+                                     ## OpBallotCastReserved
+  VoteStateOp* = 0xB3'u8             ## server→client, matches shell's
+                                     ## OpVoteStateReserved
+  RecBallotType* = 0x17'u8           ## matches shell's RecVoteReserved
+  VoteWireVersion* = 1'u8
+  BallotCastPacketBytes* = 16
+  VoteStatePacketBytes* = 18
+  RecBallotBytes* = 17
+
   MaxPolicyPageBytes* = 60000
     ## Hard ceiling on one flashed one-page policy, in bytes. The reflash
     ## record rides the replay's existing string-carrying record, whose
@@ -2217,6 +2259,20 @@ type
                             ## sim.paintStains, both already cosmetic-only
                             ## and excluded from gameHash, so this can never
                             ## move the hash either way.
+    # GVNEXT(vote): appended field, same append-safety reasoning as
+    # allowCosmeticFx above -- a scalar int on GameConfig.
+    voteTicks*: int  ## Pre-match vote phase length in ticks (docs/designs/
+                      ## prematch-vote-phase-2026-08-31.md,
+                      ## prematch-vote-wire-2026-08-31.md §7), range
+                      ## [0, VoteTicksMax]. Default 0 (phase off) —
+                      ## DELIBERATELY not VoteTicksDefault, unlike
+                      ## lobbyChatTicks: see VoteTicksDefault's own comment
+                      ## (sim_types.nim consts) for why this stays off by
+                      ## construction, not by the hasPlaySeat gate alone,
+                      ## until the 0xA4/0xB3 socket classifier lands.
+                      ## Runs, when nonzero and hasPlaySeat, BEFORE the
+                      ## chatting substate (voting precedes chatting,
+                      ## prematch-vote-wire-2026-08-31.md §1).
 
   Player* = object
     x*, y*: int
@@ -3013,6 +3069,68 @@ type
     ordinal*: uint64
     reason*: LobbyChatRejectReason
 
+  BallotCastRejectReason* = enum
+    ## prematch-vote-wire-2026-08-31.md §2's admission outcomes for one
+    ## `BallotCast` (0xA4) send, in the order applyBallotCast checks them.
+    bcrOk
+    bcrClosed          ## not currently in the `voting` substate
+    bcrBadSeat         ## seat index is not a joined player
+    bcrBadOption       ## option is not one of 0-3 (A/B/C/D)
+    bcrCastIdConflict  ## castId reused with a DIFFERENT option
+    bcrCastIdStale     ## castId at or below one already used by this seat
+    bcrRateLimited     ## BallotCastMaxPerSeatPerPhase already cast this phase
+    bcrTooSoon         ## fewer than BallotCastMinSpacingTicks since the last
+
+  BallotCastResult* = object
+    ## The outcome of one applyBallotCast call. `ordinal` is meaningful only
+    ## when `ok`; `fresh` distinguishes a genuine new accept (mint a 0xB3
+    ## kind-0 broadcast + a 0x17 record) from an idempotent resend of an
+    ## already-accepted (castId, option) pair (§2: "a silent no-op ... the
+    ## original outcome ... without re-applying or re-recording anything")
+    ## — a resend is `ok: true` with the ORIGINAL ordinal, `fresh: false`.
+    ok*: bool
+    ordinal*: uint64
+    reason*: BallotCastRejectReason
+    fresh*: bool
+
+  VoteSeatState* = object
+    ## One seat's ballot bookkeeping (prematch-vote-wire-2026-08-31.md §2,
+    ## §5), indexed exactly like applyLobbyChat's seatIndex — a `sim.players`
+    ## array position. Lobby-lifecycle only: never read by gameHash (mirrors
+    ## lastLobbyChatTick/lobbyChatSentCount's own exclusion on `Player`).
+    hasCastVote*: bool  ## false = never cast (abstention resolves as
+                        ## implicit D, §5 point 1) — the sentinel every
+                        ## other field here is gated behind, so lastCastTick
+                        ## needs no separate -1 sentinel the way
+                        ## lastLobbyChatTick does.
+    lastCastId*: uint64 ## meaningful only when hasCastVote
+    option*: uint8      ## the seat's CURRENT declared vote (0-3); meaningful
+                        ## only when hasCastVote — "a seat's vote is its
+                        ## latest accepted cast" (§2)
+    lastOrdinal*: uint64 ## the 0xB3 kind-0 ordinal this seat's current
+                        ## cast was minted with; returned again, unchanged,
+                        ## on an idempotent resend
+    castCount*: int     ## accepted casts this seat has made THIS phase
+                        ## (resend not counted, §2); caps at
+                        ## BallotCastMaxPerSeatPerPhase
+    lastCastTick*: int  ## meaningful only when hasCastVote; the tick of
+                        ## this seat's latest ACCEPTED cast, for the
+                        ## BallotCastMinSpacingTicks check
+    tombstoned*: bool   ## J1 (prematch-vote-wire-2026-08-31.md §6): marks
+                        ## this configured seat as currently reconnecting
+                        ## (the shell's `pssLost`, src/shell/seats.nim — NOT
+                        ## wired to src/ctf at all in this v1: this is the
+                        ## seam a future presence-aware caller drives, see
+                        ## setVoteSeatTombstoned in sim.nim). Not read by
+                        ## `allConfiguredPlaySeatsCast` on its own: an
+                        ## un-cast seat ALREADY blocks early resolution
+                        ## whether or not it is flagged tombstoned (J1's
+                        ## rule — "that seat is absent, not resolved" — is
+                        ## the DEFAULT the plain hasCastVote check already
+                        ## gives; tombstoned exists to make the scenario
+                        ## explicit/testable and as the documented hook,
+                        ## not to add a second, different gate).
+
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
@@ -3365,6 +3483,40 @@ type
     lobbyChatOrdinal*: uint64  ## next lobby-chat ordinal to assign — per
                                ## episode, monotonic across every seat
                                ## (§9.2). Lobby-lifecycle only: not hashed.
+
+    # Pre-match vote phase (docs/designs/prematch-vote-phase-2026-08-31.md,
+    # prematch-vote-wire-2026-08-31.md). Appended after every pre-vote
+    # field, same GVNEXT append-safety convention. Every field below is
+    # lobby-lifecycle only: none is read by gameHash (proven by
+    # tests/test_vote_phase.nim's own "gameHash independence" suite,
+    # mirroring lobby chat's).
+    votingActive*: bool     ## true while the `voting` substate runs — HELD
+                            ## exactly like lobbyChatActive (the roster
+                            ## check never runs while this is true), and
+                            ## checked BEFORE lobbyChatActive in stepLobby
+                            ## so voting always precedes chatting.
+    votingTicksLeft*: int   ## ticks remaining in the active vote phase.
+    votingDone*: bool       ## true once voting has run to completion (or
+                            ## was skipped, voteTicks == 0 or no play seat)
+                            ## THIS episode — voting runs at most once.
+    voteOrdinal*: uint64    ## next 0xB3 ordinal to assign — its OWN
+                            ## sequence, independent of lobbyChatOrdinal /
+                            ## 0xB2's (F3, prematch-vote-wire-2026-08-31.md
+                            ## §3).
+    voteSeats*: array[MaxPlayers, VoteSeatState]  ## per-seat cast
+                            ## bookkeeping, indexed like applyBallotCast's
+                            ## seatIndex.
+    voteResolved*: bool     ## true once resolveVote has run this episode.
+    voteCategory*: uint8    ## the plurality-winning bucket, 0-3 (A/B/C/D);
+                            ## meaningful only when voteResolved (§5).
+    voteTieBreakDrawn*: bool ## true when voteCategory needed the
+                            ## episode-seed tie-break among tied plurality
+                            ## leaders (§5 point 2).
+    voteFinalOption*: uint8 ## the resolved bundle, ALWAYS 0-2 (A/B/C) even
+                            ## when voteCategory is D (§5 point 3);
+                            ## meaningful only when voteResolved.
+    voteResolutionTick*: int ## the tick `voting` exited; stamps the kind-1
+                            ## VoteState/0x17 record's `tick`/`replayTimeMs`.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const
