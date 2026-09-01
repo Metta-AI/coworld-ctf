@@ -29,20 +29,48 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["48"]
+  ReplayCompatibleGameVersions* = ["49"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV47 is
-    ## excluded because GV48 added the glory ledger to gameHash itself
-    ## ("every .bitreplay this engine has ever produced ... needs a GV48
-    ## stamp to load again"); GV46 was already excluded because GV47
-    ## relaid RewardAccount on the wire. Widening requires a real archived
-    ## fixture that survives initialization and stepping (PM ruling,
-    ## 2026-08-30), never a header rewrite.
-  GameVersion* = "48"
-    ## GV48 (GLORY PORT increment 3/3, GLORY v11): the ledger is CAUSAL now.
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV48 is
+    ## excluded because GV49 moved the hash TRAJECTORY, not the schema: the
+    ## achievement claim set and per-player xp (hashed since GV48) now
+    ## evolve on different rules (the recut gates, the conclusion sweep,
+    ## XpPerCapture 0), so a GV48 recording re-simulates to different
+    ## hashes under this engine. GV47 was already excluded because GV48
+    ## added the glory ledger to gameHash itself; GV46 because GV47 relaid
+    ## RewardAccount on the wire. Widening requires a real archived fixture
+    ## that survives initialization and stepping (PM ruling, 2026-08-30),
+    ## never a header rewrite.
+  GameVersion* = "49"
+    ## GV49 (GLORY v12: HEART RECUT + STRUCTURAL CONCLUSION SWEEP): the
+    ## curriculum's terminal-tick hole is closed. `finishGame` now runs one
+    ## full conclusion sweep (`evalAchievementsAtConclusion`, sim.nim) over
+    ## every team and every tree as part of the game-over transition —
+    ## every end path, draws included — replacing the Clean Sheet special
+    ## case. In Season 2's modes (2-team 8v8 CTF, 16-duo BR) every episode
+    ## ends on a terminal tick, so facts created by the act that ends the
+    ## game (a capture's Delivered / Victory Lap, the final kill's
+    ## thresholds) now mint at the ending tick instead of never. Bundled in
+    ## the same wave (GLORY v12 — `glory.nim`'s changelog has the full
+    ## table): the Heart (treeCarrier) tier recut (Fighting Carry II, NEW
+    ## Double Steal III / Hard Carry IV, Delivered V terminal),
+    ## "Uphill"/"Fast Break" retired from the ladder into display-only
+    ## endcard distinctions (`over.distinctions`, broadcast.nim), Victory
+    ## Lap's Amendment-1 gate (`kits >= KitLegsImplemented and
+    ## anyCapture`), "Full Kit" tombstoned zero-claim, `XpPerCapture`
+    ## 30 → 0, and the ALLIANCE-VOCAB FOLD (Amendment 3 Option C, ruled
+    ## 2026-08-31): `dAssist` (14g) and `dRescue` (18g) minted as CTF
+    ## deeds at the kill site, brMode-gated OFF (the BR overlay rides
+    ## increment 2). The claim set and per-player xp/level are hashed state
+    ## (GV48), and XpPerCapture moves live level buffs after any N-team
+    ## capture, so every recorded episode's hash trajectory moves: all 7
+    ## committed fixtures re-recorded in this same commit.
+    ##
+    ## Previously GV48 (GLORY PORT increment 3/3, GLORY v11): the ledger is
+    ## CAUSAL now.
     ## Every per-player counter and per-team field `glory.nim`'s own
     ## GLORY PORT increment-2/3 comments marked "will be" hashed (xp,
     ## level, the achievement-gate counters, `teamGlory`, heat, the
@@ -2529,11 +2557,14 @@ type
                                ## reachable on real BR maps.
     capturedOutnumbered*: bool ## GLORY: true once a capture has landed
                                ## while this cog's team was strictly behind
-                               ## on live bodies (the `Uphill` gate).
-                               ## Flag-keyed (needs a capture).
+                               ## on live bodies (v12: the `Uphill` ENDCARD
+                               ## DISTINCTION, `cdUphill` -- no longer a
+                               ## ladder gate). Flag-keyed (needs a capture).
     capturedFastBreak*: bool   ## GLORY: true once a capture has landed
                                ## within `FastBreakTicks` of this life's own
-                               ## steal (the `Fast Break` gate). Flag-keyed.
+                               ## steal (v12: the `Fast Break` ENDCARD
+                               ## DISTINCTION, `cdFastBreak` -- no longer a
+                               ## ladder gate). Flag-keyed.
     lastDamagedBy*: int        ## GLORY: index of the last ENEMY whose hit
                                ## left this cog ALIVE -- set at every
                                ## enemy-damage application, but never by a

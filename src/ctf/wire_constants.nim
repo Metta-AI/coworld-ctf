@@ -62,6 +62,15 @@ const WireConstantsJs* =
   ",zoneFieldCellPx:" & $ZoneFieldCellPx &
   ",zonePaintBody:\"#" & hex2(ZonePaintBody.r) & hex2(ZonePaintBody.g) &
     hex2(ZonePaintBody.b) & "\"" &
+  # SEASON 2: the glory cosmetic-pop lifetimes (`gloryPopsJson`'s "t"/"delay"
+  # are engine ticks; a client fading a pop by age needs these to never
+  # drift from `pruneAgedFx`'s own call site, sim.nim) and the achievement
+  # curriculum's total tier count (Tree.len * AchievementTiers), so the
+  # endcard's "N/40" denominator can never go stale against a future
+  # curriculum change without a client rebuild picking it back up.
+  ",gloryFxTicks:" & $GloryFxTicks &
+  ",achievementFxTicks:" & $AchievementFxTicks &
+  ",achievementTotal:" & $((ord(high(Tree)) + 1) * AchievementTiers) &
   "};"
 
 const WireConstantsMarker* = "<!-- WIRE_CONSTANTS -->"

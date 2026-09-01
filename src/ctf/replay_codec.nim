@@ -291,6 +291,19 @@ proc writeLobbyChat*(writer: var CtfReplayWriter, record: LobbyChatRecord) =
   writer.transcriptRecords.add(bytes)
   writer.writeTimed(record.replayTimeMs, 3, bytes)
 
+proc writeBallot*(writer: var CtfReplayWriter, record: BallotRecord) =
+  ## `0x17` is hash-coupled, not manifest-arm'd (settled 2c2f905c) -- unlike
+  ## `writeLobbyChat` above, there is no `transcriptRecords`-style
+  ## accumulator to feed. This writer proc exists for tooling that needs to
+  ## produce a real format-2 fixture with a ballot on it (no live casting
+  ## path exists yet -- see sim_types.nim's VoteTicksDefault comment); the
+  ## eventual live classifier lane can reuse it unchanged.
+  if not writer.enabled:
+    return
+  if not writer.shellEpisode:
+    raise newException(ReplayError, "shell record requires format 2")
+  writer.writeRaw(record.encodeBallotRecord())
+
 proc writeLifecycle*(writer: var CtfReplayWriter, record: LifecycleRecord) =
   if not writer.enabled:
     return
@@ -553,6 +566,8 @@ proc parseFormat2Records(
     lastRecordPhase = 0'u8
     hasLobbyOrdinal = false
     lastLobbyOrdinal = 0'u64
+    hasBallotOrdinal = false
+    lastBallotOrdinal = 0'u64
     hasAnnotationTick: array[256, bool]
     lastAnnotationTick: array[256, uint32]
     callBytes: seq[tuple[seat: uint8, bytes: string]]
@@ -681,6 +696,29 @@ proc parseFormat2Records(
           hasRecordTime, lastRecordTime, lastRecordPhase)
         result.shell.lobbyTranscript.add(lobby)
         transcriptBytes.add(replayBytes[recordStart ..< offset])
+      of RecVoteReserved:
+        # docs/designs/prematch-vote-wire-2026-08-31.md §4: `0x17`, placed
+        # under the same tick-ordering rule `0x13` follows (one time value
+        # after that tick's join/leave/rebind, before any call record) and
+        # in ordinal order like the lobby transcript above. Unlike
+        # `RecLobbyChat`, `0x17` is ruled HASH-COUPLED (settled 2c2f905c: "no
+        # manifest arm, ... in-chain under the vote gate, no GV claim") --
+        # its integrity is the gameplay tick-hash chain, not a manifest arm,
+        # so there is no `transcriptBytes`-style accumulator here. This is a
+        # decode-and-retain addition for the replay VIEWER (rendering the
+        # ballot); it does not recompute or verify the tally/resolution
+        # section 5 describes.
+        sawShellRecord = true
+        offset = recordStart
+        let ballot = replayBytes.decodeBallotRecord(offset)
+        if hasBallotOrdinal and ballot.ordinal <= lastBallotOrdinal:
+          raise newException(ReplayError,
+            "Replay ballot ordinals are not increasing")
+        hasBallotOrdinal = true
+        lastBallotOrdinal = ballot.ordinal
+        noteRecordOrder(ballot.replayTimeMs, 3, "ballot",
+          hasRecordTime, lastRecordTime, lastRecordPhase)
+        result.shell.ballots.add(ballot)
       of RecDisconnect, RecKick, RecRebind:
         sawShellRecord = true
         if replayBytes.len - recordStart < 6:

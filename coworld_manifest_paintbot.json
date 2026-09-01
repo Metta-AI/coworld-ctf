@@ -4240,33 +4240,39 @@
         "zonePhases": [
           {
             "z": 0.75,
-            "waitTicks": 600,
-            "shrinkTicks": 420,
+            "waitTicks": 345,
+            "shrinkTicks": 213,
             "dps": 0
           },
           {
             "z": 0.55,
-            "waitTicks": 480,
-            "shrinkTicks": 360,
-            "dps": 2
+            "waitTicks": 0,
+            "shrinkTicks": 244,
+            "dps": 3
           },
           {
-            "z": 0.4,
-            "waitTicks": 360,
-            "shrinkTicks": 300,
-            "dps": 4
+            "z": 0.35,
+            "waitTicks": 0,
+            "shrinkTicks": 348,
+            "dps": 6
           },
           {
-            "z": 0.28,
-            "waitTicks": 240,
-            "shrinkTicks": 240,
-            "dps": 8
+            "z": 0.2,
+            "waitTicks": 0,
+            "shrinkTicks": 600,
+            "dps": 10
           },
           {
-            "z": 0.17,
-            "waitTicks": 180,
-            "shrinkTicks": 180,
-            "dps": 12
+            "z": 0.08,
+            "waitTicks": 0,
+            "shrinkTicks": 1550,
+            "dps": 15
+          },
+          {
+            "z": 0.001,
+            "waitTicks": 0,
+            "shrinkTicks": 1700,
+            "dps": 20
           }
         ]
       }
