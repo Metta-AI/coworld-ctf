@@ -1,5 +1,8 @@
 # Grenade barrage — escalating-bombardment endgame
 
+> **Historical plan.** Preserved unchanged as the design record for a classic
+> gameplay addition; it is not current Season 2 mode or policy guidance.
+
 ## Problem
 
 Timed games that reach `maxTicks` without a capture or wipe end in a scoreless

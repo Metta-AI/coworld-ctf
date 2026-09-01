@@ -1,5 +1,9 @@
 # Wasmtime runtime spike
 
+> **Historical P0 measurement rig.** This records the experiment that selected
+> the shipped runtime. Use the living play-calling design and `play_sdk/` for
+> current Season 2 contracts; preserve the measurements below as provenance.
+
 This directory is the standalone measurement rig for the Season 2 shell's P0
 runtime half. It links Wasmtime's C API without importing or changing gameplay
 code. Phase 2 adds the no-WASI hello play, the minimal v48 binding, and the

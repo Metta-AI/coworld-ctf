@@ -1,8 +1,14 @@
 # Map Editor Design
 
-A visual editor for CTF / Paintbot maps that reads and writes the existing
+A visual editor for engine `mapSpec` geometry that reads and writes the existing
 `mapSpec` JSON format, with the Nim sim as the single source of truth for all
 geometry, derivation, and validation.
+
+For the active Season 2 mode, author and validate a draw with `brmapkit`, then
+convert it with `tools/br_spec_to_ctf.nim` before opening the resulting
+`mapSpec` here. The seeded CTF generator workflow described below is retained
+for deprecated classic modes and requires `allowDeprecatedModes: true` to boot;
+the editor and shared geometry tooling themselves are not deprecated.
 
 Status: **All three phases implemented.** Inspection, editing, and diagnostics
 all work; every goal below is met. See Rollout at the end for what each phase

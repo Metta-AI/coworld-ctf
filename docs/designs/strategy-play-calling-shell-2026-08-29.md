@@ -1,8 +1,8 @@
 # The Play-Calling Shell: Player-Authored WASM Plays Over a Game-Side Body
 
-**Status:** DESIGN · **Date:** 2026-08-30 (supersedes the 2026-08-29 and
+**Status:** LIVING DESIGN, IMPLEMENTED · **Date:** 2026-08-30 (supersedes the 2026-08-29 and
 earlier 2026-08-30 revisions; see Appendix H for the decision record and
-revision history) · **Author:** James's coding agent, direction from James ·
+revision history; gate/default state updated 2026-09-01) · **Author:** James's coding agent, direction from James ·
 **Reviewers:** Codex (cross-agent, round-gated), Maxwell (coordinating; his
 `BR_PLAYS.md` supplies the reference play menu) · **Canonical home:** this
 file, in `coworld-ctf`.
@@ -215,10 +215,11 @@ namespace (`src/shell/`), with three hard rules:
    but as non-hashed annotation records for display and analysis
    (section 4.3), the way paintball records its redacted directive
    records.
-3. Nothing in `src/shell/` is reachable from a non-Season-2 configuration.
-   The whole subsystem sits behind a config gate that defaults off, per the
-   engine's house rule that a gate-off configuration plays byte-identically
-   (`AGENTS.md:136-147`).
+3. Season 2 is the default (`season2Shell: true`), but shell execution remains
+   conjunctive: it is reachable only in a **play-seat episode**, with at least
+   one `slots[].control: "play"`. A default all-input roster stays on the
+   direct-input path. Explicit `season2Shell: false` selects a deprecated live
+   mode and boot-refuses unless `allowDeprecatedModes: true`.
 
 The play runtime of section 7 lives in the same namespace, under the same
 gate, on the same side of the hash boundary: plays run in the server
@@ -857,9 +858,9 @@ budgets (instance memory, fuel, emission caps) are in section 6.1's table.
   overlays, and sim (`src/ctf/server.nim:1520-1536`), and
   `removePlayerAt` deletes the row and shifts every later index
   (`src/ctf/roster.nim:437-449`). So in a play-seat episode
-  (`season2Shell` on and at least one `"play"` slot; every rule in this
-  bullet is gated on that, and a gate-on all-input roster keeps today's
-  behavior) **no seat is ever compacted before episode teardown**: an input
+  (`season2Shell` enabled and at least one `"play"` slot; every rule in this
+  bullet is gated on that, and the default-enabled all-input roster keeps the
+  direct-input behavior) **no seat is ever compacted before episode teardown**: an input
   seat that disconnects keeps its row, its standing and pressed masks
   are held at zero (an AFK player, which the sim already handles), and
   results attribute it with the existing leave outcome; configured-slot
@@ -959,8 +960,8 @@ budgets (instance memory, fuel, emission caps) are in section 6.1's table.
   marks the row abandoned (reconnectable or terminal) and zeroes its
   masks in place instead of calling `removePlayerAt` (which today deletes
   the row and, for non-squad games, its masks and overlays,
-  `src/ctf/replays.nim:353-381`). Legacy files and gate-off episodes
-  keep their destructive leave untouched, and the writer, the eager scan
+  `src/ctf/replays.nim:353-381`). Format-1 files and non-play episodes
+  keep their destructive leave semantics, and the writer, the eager scan
   and keyframes, both readers, and gate 2 (a lower-index input loss
   round-tripping with identical hashes, indices, results attribution,
   and seeks) cover the new records. Start sufficiency
@@ -1126,9 +1127,9 @@ every other bitworld game shares; it adds a **coworld-ctf-side load
 override** in P2 that owns the two checks for this game: it accepts
 format versions 1 and 2 and writes only 2, and it accepts a
 `gameVersion` from a **maintained allowlist** in `sim_types.nim` naming
-every version whose gate-off rules are byte-identical to the current
-engine's (a new entry is added exactly when a change lands dark; a
-gate-off rule change empties the list, since playback re-simulates and
+every version whose direct-input simulation rules are byte-identical to the
+current engine's (a new entry is added when a shell-only change leaves that
+surface unchanged; a direct-input rule change empties the list, since playback re-simulates and
 an older replay would diverge silently). New readers therefore load
 every archived replay the allowlist covers, an explicit contract rather
 than an accident; old viewers cannot load Season 2 replays, which is
@@ -1289,9 +1290,9 @@ how the design is supposed to work.
 Serialization discipline: the view format is versioned with the game, and
 adding fields is backward-compatible for built plays (unknown fields
 ignored on decode). Removing or changing a field's meaning is an ABI
-version event (section 6.1) and, because the change is gated to play
-seats, an entry in the replay allowlist of section 4.3 rather than a
-GameVersion bump, unless it also changes gate-off behavior.
+version event (section 6.1) and, when confined to play-seat behavior, an entry
+in the replay allowlist of section 4.3 rather than a GameVersion bump, unless
+it also changes the direct-input simulation.
 
 ### 5.1 Game mode, derived not declared
 
@@ -1314,18 +1315,19 @@ name, token, team, color, and skin, `src/ctf/sim_types.nim:1338-1345`;
 `readConfigSlots` reads exactly those, `src/ctf/sim_config.nim:197-239`;
 the hosted manifest's slot schema is closed, `additionalProperties:
 false`, `coworld_manifest_paintbot.json:66-79`). The field is
-`slots[].control`, a closed enum: `"input"` (the default, the legacy
-mask protocol, byte-identical to today) or `"play"`. It is parsed by
+`slots[].control`, a closed enum: `"input"` (the default direct-mask protocol)
+or `"play"`. It is parsed by
 `readConfigSlots`, echoed by the config serializer, recorded in the
 replay header's configuration like every other slot field (so playback
 and viewers know each seat's kind), and added to the hosted manifest's
 slot schema, with `slots[]` required whenever any slot is `"play"`. It
-composes with the global Season 2 gate (`season2Shell`, default on since the
-P36 core inversion; section 3.2) in one direction: a `"play"` slot under a gate-off
-configuration is a validation error (`playSeatRequiresShell`), and a
-gate-on configuration with no `"play"` slot is legal and plays
-byte-identically to gate-off, which is the house rule. Goldens cover
-an all-input gate-off roster, an all-play roster, and a mixed roster,
+composes with the default-true Season 2 selector (`season2Shell`, default on
+since the P36 core inversion; section 3.2) in one direction: a `"play"` slot
+with explicit `season2Shell: false` is a validation error
+(`playSeatRequiresShell`), while the default configuration with no `"play"`
+slot is legal, stays on the direct-input path, and plays byte-identically to
+an explicit-disabled configuration — the house rule. Goldens cover an
+explicit-disabled all-input roster, an all-play roster, and a mixed roster,
 proving per seat the opcode dispatch, the readiness rule, and mask
 rejection of section 4.3.
 
@@ -1491,8 +1493,8 @@ without a canonical-ABI layer, and because the whole interface fits in
 five exports and four imports. The ABI version is `1`; a module declares
 it in its manifest, and the engine refuses any other value. Bumping the
 ABI version changes only play-seat behavior, so it is an allowlist
-entry under section 4.3's rule, and a GameVersion bump only if gate-off
-behavior changes with it.
+entry under section 4.3's rule, and a GameVersion bump only if the
+direct-input simulation changes with it.
 
 **Exports the module must provide.**
 
@@ -2481,13 +2483,13 @@ nothing below changes a configuration with no play seat:
 
 | Substate | Entry | While in it | Exit |
 |---|---|---|---|
-| `joining` | lobby begins | roster sufficiency now means the existing `minPlayers` rule **and** every configured play seat bound (section 4.3's socket lifecycle). Outside the shell gate the existing `lobbyJoinTimeoutTicks` abort is untouched (it advances only while `sim.players.len < minPlayers`, `src/ctf/sim.nim:3903-3913,3065-3076`, and its default 0 means never). Inside a **play-seat episode**, the term this document uses for `season2Shell` on **and** at least one `control: "play"` slot (a gate-on all-input roster is not one, and keeps today's lobby, clocks, and removal byte-for-byte, which is the house rule), it is **suppressed**, so exactly one clock owns lobby termination and a simultaneous expiry cannot produce two artifacts (`src/ctf/server.nim:1578-1596` would otherwise blame `nextPlayerSlot` on the same tick): a new **presence budget**, `playSeatBindTicks`, which is a cumulative absence clock for the whole pre-activation period, not a first-bind timer: on every lobby tick from lobby start until Playing, in `joining`, `chatting`, and `countdown` alike, it advances on every tick in which the presence predicate is false, where presence is exactly `everyPlaySeatBound AND connectedSeatCount >= minPlayers` (so an optional input slot above `minPlayers` never consumes budget, and a play seat `lost` counts as absent just like one never bound), regardless of `sim.players.len` (a closed roster may have more slots than `minPlayers`, `src/ctf/sim_config.nim:722-727`, and a retained row keeps `sim.players.len` unchanged, so the existing clock alone could stop while a seat is still missing); a successful rebind pauses it without resetting it, and never replays the chat phase. Play-seat episodes must set it positive (validation rejects 0 there; without a play seat the field is inert and any value in range is accepted), and its default (7200, five minutes) is deliberately longer than the hosted runner's 180-second pod-startup allowance (`coworld/runner/kubernetes_runner.py:107,591-607` in the metta repository), because the clock starts at lobby start, which is game health, *before* the runner launches player pods; a slower default would blame a healthy policy whose pod is still scheduling, and the deployed hosted lobby timeout is the same 7200. On expiry the episode fails through the existing player-failure path, which carries exactly one `failed_policy_index` (`src/ctf/server.nim:1218-1229`; the runner contract requires one non-negative integer, metta `packages/coworld/src/coworld/docs/roles/GAME.md:63-76`): the **lowest absent configured slot** is the seat the platform attributes, and every other absent seat is listed diagnostically in the failure message. There is no cog for a default to drive, and the design does not pretend one into existence. Uploads and calls flow (section 4.3). Goldens: `slots.len > minPlayers` with the play seat missing after `minPlayers` has joined; a play-seat configuration with `lobbyJoinTimeoutTicks = 0`; two absent seats asserting the exact artifact and platform error; a hosted cold start where a play pod binds after 60 seconds and is not blamed; a lobby short of `minPlayers` with several absent seats running to the budget, asserting one artifact and no legacy-clock failure; `slots.len > minPlayers` with only an optional input seat absent, asserting the budget never advances; a gate-on all-input roster with `playSeatBindTicks = 0` and a missing player, asserting the legacy clock fires and writes today's artifact; and, for both an input seat and a play seat lost during `chatting` and during `countdown`, a no-rebind case that fails at the budget and a transient-rebind case that pauses it, each with `minPlayers == slots.len` and with `slots.len > minPlayers`. | roster sufficient: connected input seats and bound play seats reach `minPlayers`, and every play seat is bound |
+| `joining` | lobby begins | roster sufficiency means the existing `minPlayers` rule **and** every configured play seat bound (section 4.3's socket lifecycle). In a non-play episode the existing `lobbyJoinTimeoutTicks` abort is unchanged (it advances only while `sim.players.len < minPlayers`, `src/ctf/sim.nim:3903-3913,3065-3076`, and its default 0 means never). Inside a **play-seat episode** — `season2Shell` enabled **and** at least one `control: "play"` slot; the default-enabled all-input roster is not one — it is **suppressed**, so exactly one clock owns lobby termination and a simultaneous expiry cannot produce two artifacts (`src/ctf/server.nim:1578-1596` would otherwise blame `nextPlayerSlot` on the same tick): a new **presence budget**, `playSeatBindTicks`, which is a cumulative absence clock for the whole pre-activation period, not a first-bind timer. On every lobby tick from lobby start until Playing, in `joining`, `chatting`, and `countdown` alike, it advances whenever `everyPlaySeatBound AND connectedSeatCount >= minPlayers` is false (so an optional input slot above `minPlayers` never consumes budget, and a play seat `lost` counts as absent just like one never bound), regardless of `sim.players.len`. A successful rebind pauses it without resetting it and never replays chat. Play-seat episodes must set it positive; without a play seat the field is inert. Its default is 7200 (five minutes), longer than the hosted runner's 180-second pod-startup allowance. On expiry the episode reports the **lowest absent configured slot** through the existing player-failure path and lists every other absent seat diagnostically. Uploads and calls flow throughout. Goldens cover missing and rebinding play/input seats, open and closed rosters, both lobby substates, the legacy timeout on a default-enabled all-input roster, and the explicit-false-plus-play validation error. | roster sufficient: connected input seats and bound play seats reach `minPlayers`, and every play seat is bound |
 | `chatting` | once per episode, when `joining` exits and `lobbyChatTicks > 0` | the chat step below. The `startWaitTicks` countdown is **held**, not running. A play seat losing and rebinding its socket does not restart or extend the phase (persistent seat). An input seat leaving does not end chat and does not compact anything (section 4.3's no-compaction rule for play-seat episodes); if the roster is short when `countdown` re-checks sufficiency, the existing reset rule applies. | `lobbyChatTicks` elapsed, or skipped entirely when it is 0 |
 | `countdown` | `chatting` exits (or `joining` exits when chat is skipped) | the existing `startWaitTicks` logic, unchanged in shape: runs while sufficient, resets while short, immediate when 0, where "sufficient" is the connected-seat predicate of `joining` (an abandoned input row does not count) | countdown reaches 0 and the section 10 map barrier is satisfied (the map build starts when `joining` begins, so it normally finishes during chat) |
 
 **The chat step.** The phase lasts `lobbyChatTicks` (default 720,
-thirty seconds at the real tick rate; zero disables it, which is the
-byte-identical gate-off shape). It is paced by the wall clock even when
+thirty seconds at the real tick rate; zero skips chat while preserving the
+rest of the play-seat episode). It is paced by the wall clock even when
 `fastMode` is on: the server's early frame advance, which fires whenever
 every current player is ready (`src/ctf/server.nim:1005-1025`) and
 which play seats would trigger every tick because they always count as
@@ -2738,11 +2740,11 @@ dark since it landed).
   landing plan with Maxwell: which branches merge, in what order, and
   what GameVersion numbers this work claims. The rule for claiming one
   is the codec's: a GameVersion bump orphans every archived replay
-  (section 4.3), so a number is claimed only by a change to gate-off
-  behavior, and **this design claims none for P1 through P5**, because
-  every engine change here is gated dark and byte-identical off; the
+  (section 4.3), so a number is claimed only by a change to the direct-input
+  simulation, and **this design claims none for P1 through P5**, because
+  those engine changes are confined to play-seat episodes; the
   later ABI-version and view-meaning "GameVersion events" of sections 5
-  and 6 are bumps only when they change gate-off behavior, and otherwise
+  and 6 are bumps only when they change direct-input behavior, and otherwise
   are entries in the allowlist. Engine changes here are gameplay and
   wire changes, so the repository's standing obligations apply and are
   named per phase: replay format compatibility through the section 4.3
@@ -2790,24 +2792,24 @@ dark since it landed).
   episodes and the per-socket outbound queue of section 9; the five new
   configuration fields through the config parser, defaults, validation,
   echo, replay header, and the hosted manifest schema: the per-slot
-  `control` of section 5.1, the root `season2Shell` gate of section 3.2
-  (default false), the root `viewIntervalTicks` of section 4.3
+  `control` of section 5.1, the root `season2Shell` selector of section 3.2
+  (default true), the root `viewIntervalTicks` of section 4.3
   (default 6, range [1, 48]), and the root `lobbyChatTicks` (default
   720, range [0, 4320]) and `playSeatBindTicks` (default 7200, range
   [1, 14400]) of section 9 (the existing `lobbyJoinTimeoutTicks` keeps
   its deployed abort semantics everywhere except a play-seat episode,
-  where the presence budget replaces it), none of which exist in `GameConfig` today
-  (`src/ctf/sim_types.nim:1386-1465`, `src/ctf/sim_config.nim:10-79`);
+  where the presence budget replaces it), all of which are now implemented in
+  `GameConfig` and the hosted schema;
   the hosted schema admits all four root fields independently of the roster
-  (so the gate-on, all-input configuration section 5.1 calls legal is
+  (so the default-enabled all-input configuration section 5.1 calls legal is
   host-authorable, and `viewIntervalTicks` simply has no effect without
-  a play seat), and goldens cover gate-off with both omitted, gate-on
-  with an all-input roster through the hosted schema, the cadence at 1,
+  a play seat), and goldens cover explicit false with an all-input roster,
+  default true with an all-input roster through the hosted schema, the cadence at 1,
   6, 48, and 49 (rejected), `lobbyChatTicks` at 0, 720, 4320, and 4321
   (rejected), `playSeatBindTicks` at 0 with a play seat (rejected) and
   without one (accepted, inert), 1, 7200, 14400, and 14401 (rejected),
-  a gate-on all-input roster with a missing player proving the legacy
-  clock and artifact, and a `"play"` slot under gate-off (rejected);
+  a default-enabled all-input roster with a missing player proving the direct
+  clock and artifact, and a `"play"` slot with explicit false (rejected);
   and the page-to-play-call
   rename with Maxwell.
 - **P3: the play runtime.** The largest single piece. The embedded

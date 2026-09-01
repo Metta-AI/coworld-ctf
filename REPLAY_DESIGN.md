@@ -1,5 +1,9 @@
 # REPLAY_DESIGN — Ctf
 
+> **Historical design artifact.** This records the deprecated classic replay
+> design at its cited phase; it is not current Season 2 rules or policy
+> guidance. The artifact body is preserved unchanged.
+
 > Companion artifacts: `DEPTH_TARGET.md` (Phase 0r) + `REPLAY_BRIEF.md` (Phase 0 engine-traced brief +
 > fidelity audit). This file is the Phase-2 unlock; the Phase-4 battery grades the build against it.
 

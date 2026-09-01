@@ -1,5 +1,9 @@
 # Embedding a WebAssembly runtime in the CTF game server: runtime comparison
 
+> **Historical research report (2026-08-30).** Preserved unchanged as the
+> comparison that selected Wasmtime. Package status and “current” claims below
+> are point-in-time evidence, not present-day dependency guidance.
+
 Research spike for `docs/designs/strategy-play-calling-shell-2026-08-29.md` (section 7.0, Appendix W). Produced 2026-08-30 by a research subagent with live web verification; James's coding agent edited nothing below the header.
 
 ---

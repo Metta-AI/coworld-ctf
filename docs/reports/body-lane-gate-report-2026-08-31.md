@@ -1,5 +1,9 @@
 # Lane A (the body) — consolidated gate report
 
+> **Historical gate report (2026-08-31).** Branch tips, gaps, test counts, and
+> implementation status below describe that gate, not the current Season 2
+> tree. The report body is preserved unchanged.
+
 **Date:** 2026-08-31 · **Branch:** `james/s2-body` · **Tip:** `df743c00`
 
 The body lane's evidence in one document: what landed, what it measures,

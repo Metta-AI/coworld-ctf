@@ -1,5 +1,9 @@
 # A Pre-Match Vote Phase: One Vote Among Four Options
 
+> **Historical design record (2026-08-31).** Defaults, gate language, branch
+> state, and version judgments below belong to that proposal snapshot, not the
+> current Season 2 configuration. The body is preserved unchanged.
+
 **Status:** DESIGN, for discussion · **Date:** 2026-08-31 · **Author:**
 Maxwell's coding agent, direction from Maxwell's spec (verbatim below) ·
 **Reviewers:** James (owns every surface this design extends — the

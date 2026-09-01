@@ -1,5 +1,9 @@
 # Paintball range cap + aim jitter + vision range (GV34)
 
+> **Historical plan.** Paintball/classic gun tuning is deprecated since
+> 0.7.253 and live boot requires `allowDeprecatedModes: true`. The GV34 design
+> body below is preserved unchanged.
+
 ## Goal
 
 Three coupled changes — two to the paintball gun, one to vision:

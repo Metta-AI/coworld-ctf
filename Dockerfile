@@ -4,6 +4,8 @@
 # policy set is env-switched inside this same image (PLAYER_PROMPT vs
 # PLAYER_SCRIPTED), which is what keeps a champion and a scripted filler
 # byte-identical apart from their environment.
+# /bin/paintball-player is deprecated since 0.7.253 and is retained only for
+# paintball configs explicitly enabled with allowDeprecatedModes: true.
 FROM debian:bookworm-slim AS build
 
 RUN apt-get update && \

@@ -1,5 +1,9 @@
 # The camera-transform bands ("blackbars"): five mitigations, standing down
 
+> **Historical investigation.** This is an incident record for the earlier
+> player client, not current Season 2 game or policy guidance. The findings
+> below remain preserved for future renderer diagnosis.
+
 **For:** whoever next picks up Maxwell's "black bars when I move" report on the
 player client, or anyone about to trust a small-N screenshot experiment on this
 codebase in general.

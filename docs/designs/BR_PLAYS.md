@@ -1,18 +1,25 @@
-# BR PLAYS — the hard-coded strategy vocabulary (v1 menu)
+# BR PLAYS — the Season 2 strategy vocabulary
 
-Maxwell's direction (2026-08-29): the optimization loop should compose
+This is the normative behavior and parameter reference for the seven Season 2
+Battle Royale plays. Their core-WASM reference modules live in
+`play_sdk/reference/`; policies upload those modules and submit ordered
+`PlayCall` ladders over the Season 2 wire described in
+`strategy-play-calling-shell-2026-08-29.md` §4.3 and §7.
+
+The vocabulary began with Maxwell's direction (2026-08-29): the optimization loop should compose
 strategies that are complex, reactive, and prioritized — do-not-kill lists,
 ally-relative routing, negotiated alliances — and "that needs to be more
 complex than a JSON file… but it doesn't need code interpretation yet. We
 just need to come up with a handful of plays and the parameters they would
-require, and hard code those in for now."
+require, and hard code those in for now." The architecture has since moved from
+that one-page prototype to uploaded WASM; the seven behavior contracts below
+are the part that survived unchanged.
 
 ## The architecture move
 
-A **play** is a hard-coded, named behavior bundle with typed parameters.
-The one-page policy stops being raw scored rules and becomes an **ordered
-ladder of play invocations** — which is exactly stencil's first-match-wins
-priority ladder, one level up:
+A **play** is a named, uploaded WASM behavior module with a typed manifest.
+The policy submits an **ordered ladder of play invocations** — stencil's
+first-match-wins priority ladder, one level up:
 
 ```json
 { "plays": [
@@ -22,11 +29,11 @@ priority ladder, one level up:
 ] }
 ```
 
-- **Determinism unchanged.** The page carries only names + params (well
-  under the ~4KB cap), is flashed on the wire, and lands in the replay as
-  a chat record — the entire episode-verify contract survives verbatim.
-  Play BODIES are engine-versioned code; changing one is a GameVersion
-  event, same as any sim change.
+- **Determinism is replay-owned.** The canonical call carries module identity,
+  entry ids, guards, and parameters under the 4096-byte call cap. Accepted
+  calls are format-2 `0x10` replay records, while the engine records the body's
+  resulting per-cog masks in the gameplay hash chain; playback does not
+  re-execute policy WASM.
 - **Stencil-compatible.** Each play expands to ladder rungs + weights;
   parameters are the per-Intent tunables James already chose to expose.
   Do-not-shoot lists live in BODY-side targeting — where stencil already
@@ -34,7 +41,7 @@ priority ladder, one level up:
 - **The LLM's job** becomes choosing, ordering, and tuning plays — and
   NEGOTIATING them: the pre-round lobby chat (open, non-blocking) is where
   "Maxwell, let's not fight until the end" happens; the authoring loop
-  reads chat and writes `pact(partners=[...])` into its page. Callouts are
+  reads chat and writes `pact(partners=[...])` into its next call. Callouts are
   the human→AI channel; this is the AI→AI half of the same idea.
 
 ## The v1 menu (seven plays)
@@ -66,7 +73,7 @@ enter the next ring as late as safety allows.
   narrow to carry it degrades to "hold the middle of the band" — every seat
   keeps its own place along the band instead of stacking on the centre.
 - Needs: zone rect + phase perception (EXISTS), cover-aware routing
-  (EXISTS in nav layers). ring-hugger page is this play, promoted.
+  (EXISTS in nav layers). The old ring-hugger page became this play.
 
 ### 3. `bodyguard` — cover each other
 Ward-relative movement: hold a leash to the ward, optionally interpose
@@ -84,7 +91,7 @@ Loiter at earshot of an active fight, join only when it's cheap, leave
 with the profit.
 - `earshot: px` · `joinWhen: "afterKill" | "bothWeakened"` ·
   `exitAfter: {kills: n} | {hpFloor: h}`
-- third-party-jackal page promoted; parameters make it tunable.
+- The old third-party-jackal page became this tunable play.
 
 ### 5. `target_law` — who to shoot, who never to shoot, when to start
 The standing targeting filter under every other play.
@@ -110,16 +117,16 @@ bear without friendly-fire geometry.
 - Evidence: point-blank accuracy inversion + friendly-fire geometry;
   opening concentration is the surviving lever.
 
-## What v1 needs from the engine/runner (delta list)
+## Shipped engine surface
 
 | primitive | status |
 |---|---|
-| body-side never-target / prefer-target filter | NEW — aligns with stencil's body-side targeting |
-| attacker-of-ward detection | PARTIAL — killer track exists; aimed-at needs the aimedAtUs read |
-| ward-relative routing (leash/interpose) | NEW routing mode on existing nav |
-| zone rect/phase, alive-team count, cover nav | EXISTS |
-| play-ladder page schema + flash record | EXISTS (schema rev of tools/flash SCHEMA.md) |
+| seven core-WASM reference plays | SHIPPED in `play_sdk/reference/`; each has a manifest and focused shard-2 tests |
+| body-side never/prefer targeting and pact protection | SHIPPED through the combat-policy overlay and body weapon path |
+| attacker-of-ward detection and ward-relative routing | SHIPPED for `bodyguard` |
+| zone rect/phase, alive-team count, cover navigation | SHIPPED through the binary play view and body map |
+| upload, compile, bind, call, retune, and durable status lifecycle | SHIPPED through the episode's compile plane and ladder |
+| replay identity and accepted-call records | SHIPPED in format 2; playback uses recorded masks and records rather than re-running WASM |
 
-Cut from v1 deliberately: code interpretation (Maxwell: "not yet"),
-mid-life reflash of plays (spawn-boundary flash is canon), any play whose
-body would need the 3 open stencil blockers resolved first.
+The retired one-page flash schema remains under `tools/flash/` only for
+deprecated modes. It is not part of this Season 2 contract.

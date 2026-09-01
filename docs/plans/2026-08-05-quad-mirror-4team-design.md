@@ -1,5 +1,9 @@
 # Quad-mirror symmetry: rectangular 4-team maps (GV39)
 
+> **Historical plan.** Four-team classic modes are deprecated since 0.7.253
+> and live boot requires `allowDeprecatedModes: true`. The GV39 body below is
+> preserved unchanged.
+
 ## Goal
 
 4-team (corners/plus) maps are rot90-only today, and rot90 requires a square

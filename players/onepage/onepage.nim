@@ -1,5 +1,9 @@
 ## The one-page policy runner for paintbot BATTLE ROYALE.
 ##
+## DEPRECATED since 0.7.253: this Sprite v1 policy runs only in deprecated
+## modes with allowDeprecatedModes: true and cannot drive a Season 2 play seat.
+## New policies start in policies/starters/.
+##
 ## Architecture (Maxwell's ruling): an LLM produces a STRATEGY — a one-page
 ## JSON scoring sheet — which selects an INTENT from a fixed menu, which
 ## RESOLVES to an ACTION (moveMask, desiredAim, wantFire: the same three

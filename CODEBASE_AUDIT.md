@@ -1,5 +1,9 @@
 # coworld-ctf codebase audit
 
+> **Historical record (2026-08-01).** Preserved as a snapshot of that checkout,
+> not current architecture, game-mode, or policy guidance. Season 2 is now the
+> active game; start with `README.md` and `docs/designs/BR_PLAYS.md`.
+
 *2026-08-01. Method: six parallel subsystem audits (sim.nim, global.nim, server/replay/support modules, client + replay-viewer, tools/scripts, tests/players) plus an independent external review, with every dead-code and drift claim re-verified by direct grep/diff against this worktree. Claims that did not survive verification are listed in the appendix, not in the body.*
 
 ## Verdict

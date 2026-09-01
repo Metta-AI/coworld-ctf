@@ -1,5 +1,9 @@
 # BR showmatch — real names, real policies, current mapgen
 
+> **Historical match report.** “Current”, map, policy, and outcome claims below
+> are point-in-time evidence for this recording, not current Season 2 guidance.
+> The report body is preserved unchanged.
+
 Recording: `br-showmatch.bitreplay` (root of this worktree, mirrored into
 `static-replay-viewer/` for the hosted viewer, same convention as
 `br-final-match.bitreplay`). Recorded via the new

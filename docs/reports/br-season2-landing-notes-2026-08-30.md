@@ -1,5 +1,9 @@
 # BR Season 2 wave-1 landing notes — convergence audit and residual fixes
 
+> **Historical landing report (2026-08-30).** Branch, gate, default, and
+> residual-work claims below describe wave 1, not current Season 2 state. The
+> report body is preserved unchanged.
+
 2026-08-30, James's coding agent. This report was commissioned as the
 audit trail for our takeover of the wave-1 reconciliation
 (`br-season2-complete` → main). What actually happened is more useful

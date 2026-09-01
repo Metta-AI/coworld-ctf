@@ -1,5 +1,9 @@
 # The play's view, as a fixed-layout binary frame
 
+> **Historical design record (2026-08-31).** Preserved as the lane-C decision
+> record that led to the shipped binary view. For current contracts, use the
+> schemas and SDK referenced by the living play-calling design.
+
 Lane C spec, 2026-08-31. James ratified the call: **the play's copy of the
 view becomes a fixed-layout binary frame; JSON stays for the socket and
 replay copies.** This is the implementation input for lane A's view

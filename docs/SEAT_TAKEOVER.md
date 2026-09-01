@@ -1,5 +1,9 @@
 # Freeplay seat takeover
 
+> **Deprecated-mode surface since 0.7.253.** This document describes takeover
+> of direct-input Sprite v1 seats. Such live modes require
+> `allowDeprecatedModes: true`; this is not the Season 2 play-seat interface.
+
 A human walks up to the standing freeplay field and **takes over a policy seat**.
 They do not join an empty slot — every seat is already held by a policy — and
 they are never dropped into a cog mid-fight. The handoff lands at **that cog's

@@ -1,4 +1,34 @@
-# mapkit — LLM-authored, interesting-but-fair CTF maps
+# Map authoring CLIs — Season 2 BR and deprecated classic maps
+
+Season 2 battle royale uses `tools/brmapkit.nim`, which authors full-board,
+asymmetric BR draws and validates spawn, mass, ring, zone, item, and wire-size
+doctrine. Build the authoring tool and its engine-spec converter:
+
+```bash
+nim c -d:release -o:/tmp/brmapkit tools/brmapkit.nim
+nim c -d:release -o:/tmp/br2ctf tools/br_spec_to_ctf.nim
+```
+
+The current loop is:
+
+```bash
+/tmp/brmapkit generate --seed 7 -o br-draw.json
+/tmp/brmapkit render br-draw.json -o br-draw.png
+/tmp/brmapkit validate br-draw.json
+/tmp/brmapkit metrics br-draw.json --json
+/tmp/br2ctf br-draw.json -o map-spec.json
+```
+
+`brmapkit`'s draw grammar carries BR-only concepts; `br_spec_to_ctf` performs
+the required, self-verifying conversion to the engine's `mapSpec`. Do not feed
+the draw JSON directly to the engine or map editor.
+
+## Deprecated classic mapkit
+
+The remainder of this guide documents `tools/mapkit.nim`, the retained
+two/four-team classic authoring flow. Its output is useful for deprecated modes,
+which boot only with `allowDeprecatedModes: true`; it is not the Season 2 map
+generator.
 
 `tools/mapkit.nim` is a CLI for generating and hand-editing CTF maps in the
 native `mapSpec` format. It is a peer to the [map editor](designs/map-editor.md)

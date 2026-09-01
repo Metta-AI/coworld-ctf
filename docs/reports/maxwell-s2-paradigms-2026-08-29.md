@@ -1,5 +1,9 @@
 # The Play-Calling Paradigm: Maxwell's Season 2 Architecture and the Policy / Shell / Game Boundary
 
+> **Historical research report (2026-08-29/30).** Branch inventory, default,
+> gate, and missing-surface claims below describe the pre-landing tree. They are
+> preserved as research evidence, not current Season 2 guidance.
+
 Research report · 2026-08-29, updated 2026-08-30 · for James and the coding
 agents planning the Season 2 policy shell. The 2026-08-30 update adds section 0,
 which is a plain-language primer on every component plus Maxwell's overnight

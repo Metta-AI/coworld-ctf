@@ -1,5 +1,9 @@
 # baseline — Coworld CTF bot (8v8, fog-of-war)
 
+> **Deprecated since 0.7.253.** This Sprite v1 policy is retained for deprecated
+> modes, which run only with `allowDeprecatedModes: true`; it cannot drive a
+> Season 2 play seat. Start at [`policies/starters/`](../../policies/starters/README.md).
+
 A capture-the-flag reference bot that speaks the Bitworld Sprite v1 protocol.
 Its WebSocket disables Nagle buffering so separate input and chat messages
 arrive within the simulation tick that produced them.

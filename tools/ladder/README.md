@@ -1,5 +1,10 @@
 # Ladder assessment tools
 
+> **Historical pre-Season-2 analysis runbook.** It remains useful for archived
+> classic league rounds, but its combat/heal metrics and cogherence-player
+> workflow are not current Season 2 policy guidance. Start current policy work
+> in [`policies/starters/`](../../policies/starters/README.md).
+
 Judge a submitted policy on the LIVE Elo ladder. Run everything with the
 cogherence player's venv, which holds the working login:
 
