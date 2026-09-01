@@ -123,19 +123,22 @@ jobs:
       # paintball-player binaries with -d:useMalloc (see its NimFlags ARG);
       # this only makes the test build match production instead of
       # exercising a riskier allocator config production never ships.
-      # Compile and run are pipelined per shard: each shard starts running
-      # the moment ITS OWN compile finishes, instead of every run waiting
-      # for the slowest compile. Same coverage, same logs, no extra runner
-      # minutes — only the compile-then-run serialization is gone.
-      - name: Compile and run test shards (pipelined)
+      - name: Compile test shards (release)
         run: |
           for i in 1 2 3 4; do
-            (
-              nim c -d:release --hints:off -d:noSignalHandler --threads:on \
-                -d:useMalloc -o:shard_$i tests/shard_$i.nim \
-                > shard_$i.compile.log 2>&1 \
-              && ./shard_$i > shard_$i.log 2>&1
-            ) &
+            nim c -d:release --hints:off -d:noSignalHandler --threads:on \
+              -d:useMalloc -o:shard_$i tests/shard_$i.nim &
+            eval "pid_$i=\$!"
+          done
+          fail=0
+          for i in 1 2 3 4; do
+            eval "wait \$pid_$i" || fail=1
+          done
+          exit $fail
+      - name: Run test shards in parallel
+        run: |
+          for i in 1 2 3 4; do
+            ./shard_$i > shard_$i.log 2>&1 &
             eval "pid_$i=\$!"
           done
           fail=0
@@ -143,11 +146,8 @@ jobs:
             eval "wait \$pid_$i" || fail=1
           done
           for i in 1 2 3 4; do
-            echo "::group::shard $i compile"
-            cat shard_$i.compile.log
-            echo "::endgroup::"
             echo "::group::shard $i"
-            cat shard_$i.log 2>/dev/null || echo "(shard $i never ran: compile failed)"
+            cat shard_$i.log
             echo "::endgroup::"
           done
           exit $fail
