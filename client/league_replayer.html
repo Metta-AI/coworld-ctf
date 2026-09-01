@@ -412,12 +412,15 @@
   //    the replay source and the embedded board is /client/replay on the same
   //    (possibly session-proxied) prefix, talking over its own websocket.
   //  - STATIC (the browser-only WASM bundle): served as league.html NEXT TO
-  //    the bundle's index.html, `replay` carries the replay URL (the same
-  //    param the bundle's board reads) and the embedded board is
-  //    ./index.html — no server, the sim runs in WASM inside the iframe. The
-  //    postMessage bridge (frames up, transport commands down) is identical.
+  //    the bundle's index.html. Host mints league.html?v=2#replay=<url> (same
+  //    fragment the board's static_replay.js reads); local opens still use
+  //    ?replay=. The embedded board is ./index.html?embed=1#replay= — no
+  //    server, the sim runs in WASM inside the iframe. The postMessage bridge
+  //    (frames up, transport commands down) is identical.
   var params = new URLSearchParams(location.search);
-  var staticReplayUri = params.get('replay') || '';
+  var staticReplayUri =
+    new URLSearchParams((location.hash || '').slice(1)).get('replay') ||
+    params.get('replay') || '';
   var STATIC_BUNDLE = staticReplayUri !== '';
   var replayUri = params.get('uri') || '';
   // standings: base64/JSON of {division, competitors:{red,blue}, ladder:[{name,rank,score,you}]}
@@ -438,11 +441,12 @@
   // ---- build the embedded replay src (board-only embed mode) ---------------
   // Native: same-prefix as the shell so the board's own websocket (derived
   // from its location.pathname) stays inside the session proxy. Static: the
-  // sibling index.html with the bundle's own `replay` param.
+  // sibling index.html with embed in the query and the replay URL in the
+  // fragment, matching the host mint (index.html?v=2#replay=).
   (function(){
     var src;
     if (STATIC_BUNDLE) {
-      src = './index.html?embed=1&replay=' + encodeURIComponent(staticReplayUri);
+      src = './index.html?embed=1#replay=' + encodeURIComponent(staticReplayUri);
     } else {
       src = ROUTE_BASE + '/client/replay?embed=1';
       if (replayUri) src += '&uri=' + encodeURIComponent(replayUri);
