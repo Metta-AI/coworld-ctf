@@ -57,10 +57,32 @@ type
     bytesHash*: string
     bytes*: string
 
+  FirstLightModuleStatus* = object
+    seat*: int
+    uploadId*: uint64
+    terminal*: string
+    status*: StatusEntry
+    statusBytes*: string
+
+  FirstLightAdmissionResult* = object
+    accepted*: bool
+    reason*: string
+    status*: StatusEntry
+    statusBytes*: string
+
+  FirstLightCallResult* = object
+    accepted*: bool
+    reason*: string
+    path*: string
+    epoch*: uint64
+    status*: StatusEntry
+    statusBytes*: string
+
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
     annotations*: seq[ShellAnnotation]
     installs*: seq[FirstLightInstall]
+    moduleStatuses*: seq[FirstLightModuleStatus]
     bodyNanoseconds*: int64
     runtimeNanoseconds*: int64
 
@@ -83,6 +105,7 @@ type
     frames: seq[FirstLightViewFrameSlot]
     selfPositions: seq[BodyPoint]
     reflexStates: seq[ReflexSeatState]
+    lastCompileTick: Option[uint32]
 
   FirstLightSeatState* = object
     seat*: uint8
@@ -365,7 +388,8 @@ when ShellRuntimeAvailable:
 
   proc addBindingFor(episode: var FirstLightEpisode; bound: BoundModule) =
     for binding in episode.bindings.mitems:
-      if binding.manifest.name == bound.manifest.name:
+      if binding.manifest.name == bound.manifest.name and
+          binding.hash == bound.hash:
         return
     let runtimeState = episode.runtimeState
     let map = episode.map
@@ -388,6 +412,108 @@ when ShellRuntimeAvailable:
         except ShellRuntimeError:
           nil)
 
+  proc seatIsConfiguredPlay(episode: FirstLightEpisode; seatIndex: int): bool =
+    for state in episode.seats:
+      if state.seat.int == seatIndex:
+        return true
+
+  proc moduleStatus(commit: CompileCommit): FirstLightModuleStatus =
+    FirstLightModuleStatus(seat: commit.seat, uploadId: commit.uploadId,
+      terminal: $commit.terminal, status: commit.status,
+      statusBytes: commit.statusBytes)
+
+  proc commitReadyModules(episode: var FirstLightEpisode;
+      maxCommits = MaxCompileCommitsPerTick): seq[FirstLightModuleStatus] =
+    if episode.compilePlane == nil:
+      return
+    for commit in episode.compilePlane.commitCompileResults(maxCommits):
+      if commit.terminal == tkReady:
+        let bound = episode.compilePlane.boundModule(commit.seat, commit.status.name)
+        if bound.isSome:
+          episode.addBindingFor(bound.get)
+      result.add commit.moduleStatus
+
+  proc progressCompilePlane(episode: var FirstLightEpisode):
+      seq[FirstLightModuleStatus] =
+    if episode.compilePlane == nil:
+      return
+    for commit in episode.compilePlane.progressCompileWorkers():
+      if commit.terminal == tkReady:
+        let bound = episode.compilePlane.boundModule(commit.seat, commit.status.name)
+        if bound.isSome:
+          episode.addBindingFor(bound.get)
+      result.add commit.moduleStatus
+
+  proc beginCompileTick(episode: var FirstLightEpisode; tick: uint32) =
+    if episode.compilePlane == nil or episode.runtimeState == nil:
+      return
+    if episode.runtimeState.lastCompileTick.isSome and
+        episode.runtimeState.lastCompileTick.get == tick:
+      return
+    episode.compilePlane.beginTick()
+    episode.runtimeState.lastCompileTick = some(tick)
+
+  proc seatBindings(episode: var FirstLightEpisode;
+      seatIndex: int): seq[LadderBinding] =
+    if episode.compilePlane == nil:
+      return
+    for bound in episode.compilePlane.boundModules(seatIndex):
+      episode.addBindingFor(bound)
+      for binding in episode.bindings:
+        if binding.manifest.name == bound.manifest.name and
+            binding.hash == bound.hash:
+          result.add binding
+          break
+
+  proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
+      uploadId, originGeneration: uint64; bytes: openArray[byte]):
+      FirstLightAdmissionResult =
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+      return
+    if seatIndex < 0 or seatIndex >= episode.rosterSize:
+      result.reason = "badSeat"
+      return
+    if not episode.seatIsConfiguredPlay(seatIndex):
+      result.reason = "seatNotPlay"
+      return
+    episode.ensureRuntime()
+    let admitted = episode.compilePlane.admitModule(seatIndex, uploadId,
+      originGeneration, bytes)
+    result.accepted = admitted.accepted
+    result.status = admitted.status
+    result.statusBytes = admitted.statusBytes
+    if admitted.accepted:
+      result.reason = ""
+    else:
+      result.reason = admitted.refusal.refusalReason
+
+  proc acceptPlayCall*(episode: var FirstLightEpisode; seatIndex: int;
+      proposalId, originGeneration: uint64; tick: uint32; callBytes: string):
+      FirstLightCallResult =
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+      result.path = "episode"
+      return
+    if seatIndex < 0 or seatIndex >= episode.rosterSize:
+      result.reason = "badSeat"
+      result.path = "seat"
+      return
+    if not episode.seatIsConfiguredPlay(seatIndex):
+      result.reason = "seatNotPlay"
+      result.path = "seat"
+      return
+    episode.ensureRuntime()
+    let accepted = episode.ladder.acceptCall(seatIndex, proposalId,
+      originGeneration, tick, callBytes, episode.seatBindings(seatIndex),
+      noGuardContext())
+    result.accepted = accepted.accepted
+    result.reason = accepted.reason
+    result.path = accepted.path
+    result.epoch = accepted.epoch
+    result.status = accepted.status
+    result.statusBytes = accepted.statusBytes
+
   proc callBytes(config: FirstLightPlayConfig): string =
     canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" &
       config.playName & "\",\"params\":" & config.paramsBytes &
@@ -408,7 +534,7 @@ when ShellRuntimeAvailable:
     let moduleBytes = readFile(config.modulePath)
     for index, seat in config.seats:
       let uploadId = config.uploadIdBase + uint64(index)
-      let admitted = episode.compilePlane.admitModule(seat, uploadId,
+      let admitted = episode.admitPlayModule(seat, uploadId,
         config.originGeneration, moduleBytes.rawBytes)
       result.add(&"FIRST_LIGHT_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
         &"accepted={admitted.accepted} status={admitted.statusBytes}")
@@ -417,7 +543,7 @@ when ShellRuntimeAvailable:
       return
     var commits = 0
     while commits < config.seats.len:
-      let batch = episode.compilePlane.commitCompileResults()
+      let batch = episode.commitReadyModules()
       if batch.len == 0:
         break
       for commit in batch:
@@ -427,20 +553,41 @@ when ShellRuntimeAvailable:
           &"status={commit.statusBytes}")
 
     for seat in config.seats:
-      let bound = episode.compilePlane.boundModule(seat, config.playName)
-      if bound.isNone:
-        result.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted=false " &
-          "reason=module_not_ready")
-        continue
-      episode.addBindingFor(bound.get)
-      let accepted = episode.ladder.acceptCall(seat,
+      let accepted = episode.acceptPlayCall(seat,
         config.proposalIdBase + uint64(seat), config.originGeneration, 0,
-        config.callBytes, episode.bindings, noGuardContext())
+        config.callBytes)
       result.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
         &"epoch={accepted.epoch} reason={accepted.reason} " &
         &"status={accepted.statusBytes}")
 
 else:
+  proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
+      uploadId, originGeneration: uint64; bytes: openArray[byte]):
+      FirstLightAdmissionResult =
+    discard seatIndex
+    discard uploadId
+    discard originGeneration
+    discard bytes
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+    else:
+      result.reason = "runtimeUnavailable"
+
+  proc acceptPlayCall*(episode: var FirstLightEpisode; seatIndex: int;
+      proposalId, originGeneration: uint64; tick: uint32; callBytes: string):
+      FirstLightCallResult =
+    discard seatIndex
+    discard proposalId
+    discard originGeneration
+    discard tick
+    discard callBytes
+    if not episode.enabled:
+      result.reason = "episodeDisabled"
+      result.path = "episode"
+    else:
+      result.reason = "runtimeUnavailable"
+      result.path = "runtime"
+
   proc configureFirstLightPlay*(episode: var FirstLightEpisode;
       config: FirstLightPlayConfig): seq[string] =
     let refusal = episode.firstLightPlayConfigRefusal(config)
@@ -616,6 +763,8 @@ proc step*(episode: var FirstLightEpisode,
           episode.runtimeState.frames[seat] =
             FirstLightViewFrameSlot(present: frame.present, frame: frame)
           episode.runtimeState.selfPositions[seat] = frame.bodyInputs.self.pos
+    episode.beginCompileTick(tick)
+    result.moduleStatuses = episode.progressCompilePlane()
 
   for state in episode.seats.mitems:
     var frameIndex = -1

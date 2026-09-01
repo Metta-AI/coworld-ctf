@@ -363,9 +363,9 @@ proc emitClass(entry: LadderEntry): EmitClass =
 
 proc bindingFactory(bindings: openArray[LadderBinding],
                     entry: LadderEntry): LadderGuestFactory =
-  let binding = bindings.boundFor(entry.call.play)
-  if binding.isSome:
-    return binding.get.makeGuest
+  for binding in bindings:
+    if binding.manifest.name == entry.call.play and binding.hash == entry.hash:
+      return binding.makeGuest
 
 proc needsInit(entry: LadderEntry, guardActive: bool): bool =
   guardActive and entry.state == pisAbsent and entry.guest == nil
