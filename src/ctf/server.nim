@@ -1243,6 +1243,48 @@ proc disconnectWebSocket(websocket: WebSocket) =
   else:
     websocket.close()
 
+proc gracefulCloseSocket(websocket: WebSocket) {.gcsafe.} =
+  ## The real close action `closePlayerSocketsPromptly` uses in production:
+  ## mummy's own queued, handshake-respecting close (see the proc's own
+  ## doc comment for why this — not `disconnectWebSocket`'s raw SHUT_RDWR
+  ## — is the one that cannot drop an already-queued frame). Broken out to
+  ## a plain top-level proc, rather than inlined, so a test can substitute
+  ## a spy in its place and assert exactly which sockets this call site
+  ## reaches, without needing a live mummy connection behind each one.
+  websocket.close()
+
+proc closePlayerSocketsPromptly(
+  sockets: seq[WebSocket],
+  takeoverSockets: seq[WebSocket],
+  closeSocket: proc(websocket: WebSocket) {.gcsafe.} = gracefulCloseSocket
+) =
+  ## Certification headroom fix (2026-08-31): a platform certification run
+  ## polls the PLAYER pod's process exit with a bounded budget after the
+  ## game concludes. A bundled baseline player only exits once its
+  ## websocket errors (players/baseline/baseline.nim: the `except` branch
+  ## that calls artFlush() then quit(0)), so how soon the SERVER closes
+  ## that socket after results is exactly the certification's headroom.
+  ##
+  ## The `ShutdownGraceSeconds` window this runs ahead of exists for the
+  ## httpServer's /healthz and /global HTTP polling (see the comment at its
+  ## use site) — NOT to give a human a longer look at the endcard.
+  ## client/player_client.html's onclose handler confirms this: it leaves
+  ## the last-rendered frame on screen and only relabels the status line
+  ## ("reconnecting..." then "disconnected..."), it never blanks the
+  ## canvas. And by the time this proc runs, this tick's final frame
+  ## (carrying the endcard/results state) has already been queued via
+  ## `sockets[i].send(...)` / `takeoverSockets[i].send(...)` earlier in
+  ## this same iteration — mummy's `WebSocket.close()` drains the queued
+  ## messages before it starts the close handshake (see mummy.nim
+  ## `proc close*`), so delivery ordering holds. Only the gameplay
+  ## sockets close early: spectators (`globalViewers`) and reward
+  ## observers (`rewardViewers`) are untouched and keep the full grace
+  ## period, same as httpServer's HTTP routes.
+  for websocket in sockets:
+    closeSocket(websocket)
+  for websocket in takeoverSockets:
+    closeSocket(websocket)
+
 proc evictSeatTakeover(seat: int) =
   ## Drops whichever websocket currently holds `seat`'s takeover, if any.
   ##
@@ -4461,11 +4503,20 @@ proc runServerLoop*(
           echo "Metrics written: ", metricsPath,
             " (", getFileSize(metricsPath), " bytes)"
       if squadMode:
+        # Player-facing sockets close NOW, not after the grace window below:
+        # a bundled baseline (or human) player only finishes once its
+        # connection closes, and the certification runner is waiting on
+        # exactly that. Both this tick's final frame and the result record
+        # written above are already queued on these sockets, so closing
+        # them here loses nothing — see closePlayerSocketsPromptly.
+        closePlayerSocketsPromptly(sockets, takeoverSockets)
         # Bounded shutdown grace: the certification runner pings /healthz and
         # /global AFTER the player pods start, and a short squad episode can
         # already have written its artifacts by then. Keep answering for a
         # bounded window, then exit — the runner waits on process exit anyway.
-        # Classic games exit immediately, as they always have.
+        # Classic games exit immediately, as they always have. Spectators
+        # (`globalViewers`) and reward observers stay connected through this
+        # whole window untouched, same as before this fix.
         let graceUntil =
           getMonoTime() + initDuration(seconds = ShutdownGraceSeconds)
         while getMonoTime() < graceUntil:
