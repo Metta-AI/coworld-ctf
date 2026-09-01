@@ -11,7 +11,7 @@
 ##     identical protocol. The report never stores a pass bar from a past
 ##     engine build: every judgment is "vs the control, measured now", so
 ##     engine drift re-baselines automatically. The only absolute constants
-##     are STRUCTURAL, derived from live engine constants (MinCorridorWidth,
+##     are STRUCTURAL, derived from live engine constants (MinPassableWidth,
 ##     the map's own gunRange).
 ##  2. No count without its denominator on the same line.
 ##  3. Distributions, not anecdotes.
@@ -48,10 +48,20 @@ import
   ../src/ctf/sim
 
 const
-  MinCorridorWidth* = 26
-    ## arena.nim:1609's own (unexported) constant: the narrowest corridor for
-    ## the 13px footprint. Mirrored here because arena.nim does not export it;
-    ## test_defect_probe pins the two in sync via the generator's failure text.
+  MinPassableWidth* = 26
+    ## arena.nim:1609's own (unexported) constant: PHYSICS, the narrowest
+    ## floor the 13px solid footprint can occupy. Mirrored here because
+    ## arena.nim does not export it; test_defect_probe pins the two in sync
+    ## by parsing the value out of the generator's own source text.
+    ##
+    ## RENAMED 2026-09-01 (54cb0c1a): this used to be arena.nim's
+    ## `MinCorridorWidth`, which did double duty as a DESIGN-level corridor
+    ## target too. arena.nim split that into this physics floor
+    ## (`MinPassableWidth`, unchanged value 26) and a new, larger, differently
+    ## MEANT `MinCorridorWidth` (68px, two drawn cog bodies abreast) — a
+    ## different question this tool does not measure. Every use site below is
+    ## about "can a body stand/pass here", i.e. the physics floor, so this
+    ## mirror follows `MinPassableWidth`, not the new `MinCorridorWidth`.
   MarchStep* = 2
     ## px per sightline march step; finer than the thinnest wall feature.
   UsefulDepthPx* = 200
@@ -61,7 +71,7 @@ const
     ## block in the report re-verifies that on every run).
   DecorativeDepthPx* = 100
     ## Below this a pane looks into a pocket, not a lane.
-  StandDepthPx* = MinCorridorWidth
+  StandDepthPx* = MinPassableWidth
     ## Below the player footprint nobody can stand on that side: pane inert.
 
 # ---------------------------------------------------------------------------
@@ -306,7 +316,7 @@ proc nearestOpenDist*(c: MapCtx, x, y: int, cap = 400): int =
 type
   WindowClass* = enum
     winDead      ## zero glass pixels survive: the pane does not exist
-    winInert     ## a side has < MinCorridorWidth free: nobody can stand
+    winInert     ## a side has < MinPassableWidth free: nobody can stand
     winDecor     ## a side has < 100px free: looks into a pocket
     winShallow   ## a side has < 200px free
     winUseful    ## >= 200px free on BOTH sides
@@ -483,7 +493,7 @@ type
                                ## same shape of defect the old probe's
                                ## sightline-repair-plug hunt existed to count.
     onOpenFloor*: bool
-    hasClearance*: bool        ## MinCorridorWidth box of open floor around it
+    hasClearance*: bool        ## MinPassableWidth box of open floor around it
     reachable*: bool           ## in the map's main flooded component
     nudgePx*: int              ## distance the sim must nudge to usable floor
     nnDistPx*: int             ## Euclidean distance to nearest other point
@@ -578,7 +588,7 @@ proc measureSpawnGeometry*(c: MapCtx): seq[SpawnPointRow] =
   if g.spawnPoints.len == 0: return
   var open = newSeq[bool](c.w * c.h)
   for i in 0 ..< open.len: open[i] = not c.maxWall[i]
-  let half = MinCorridorWidth div 2
+  let half = MinPassableWidth div 2
   for i, p in g.spawnPoints:
     var row = SpawnPointRow(idx: i, x: p.x, y: p.y)
     for shape in c.obstacles:

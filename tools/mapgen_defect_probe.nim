@@ -331,7 +331,7 @@ proc report(rows: seq[MapRow], wins: seq[WindowRow], title: string) =
       &"{totalSpawns} points)"
     echo &"  authored inside an obstacle {stone:>2}  {pct(stone, totalSpawns)}" &
       "  <- the rasterizer carves a pocket through it: silent repair"
-    echo &"  cramped (<{MinCorridorWidth}px box)     {cramped:>5}  {pct(cramped, totalSpawns)}"
+    echo &"  cramped (<{MinPassableWidth}px box)     {cramped:>5}  {pct(cramped, totalSpawns)}"
     echo &"  unreachable              {unreach2:>5}  {pct(unreach2, totalSpawns)}"
     echo &"  nearest-neighbour px  p10={percentile(nn, 0.1):.0f} " &
       &"p50={percentile(nn, 0.5):.0f} p90={percentile(nn, 0.9):.0f}"

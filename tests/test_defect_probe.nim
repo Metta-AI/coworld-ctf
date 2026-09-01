@@ -7,9 +7,11 @@
 ## Layers covered:
 ##   1. window classifier boundaries (dead / inert / decor / shallow / useful)
 ##      at their exact edges;
-##   2. the mirrored MinCorridorWidth pinned against arena.nim's SOURCE (the
+##   2. the mirrored MinPassableWidth pinned against arena.nim's SOURCE (the
 ##      constant is unexported; a test restating the mirror could not catch a
-##      drift, reading the source can);
+##      drift, reading the source can) -- parsed out of the declaration line,
+##      not matched as an exact-formatted string, so reformatting alone
+##      cannot silently defeat the pin;
 ##   3. losClear + measureWindow + spawn geometry on a synthetic flagless map
 ##      with known distances;
 ##   4. the played-outcome probe end-to-end on the committed 16-team BR golden
@@ -29,14 +31,37 @@ import
 
 const GoldenReplay = GameDir / "tests" / "fixtures" / "br-golden-16team.bitreplay"
 
+proc extractConstInt(src, name: string): int =
+  ## Finds `name`'s own const DECLARATION line (not a mention in a comment
+  ## or a longer identifier sharing the prefix) and parses its integer
+  ## value, tolerant of export markers and any spacing around `=` -- so
+  ## routine reformatting of arena.nim cannot silently defeat this pin the
+  ## way an exact-string match would. Raises (failing the test loudly) if
+  ## the declaration is gone or its value isn't a bare integer literal.
+  for line in src.splitLines():
+    let s = line.strip()
+    if not s.startsWith(name): continue
+    var rest = s[name.len .. ^1]
+    if rest.startsWith("*"): rest = rest[1 .. ^1]  ## optional export marker
+    rest = rest.strip()
+    if rest.len == 0 or rest[0] != '=': continue    ## e.g. a longer ident
+    rest = rest[1 .. ^1].strip()
+    var numStr = ""
+    for ch in rest:
+      if ch.isDigit: numStr.add ch
+      else: break
+    if numStr.len > 0:
+      return numStr.parseInt()
+  raise newException(ValueError, &"const '{name}' declaration not found in source")
+
 suite "defect probe: window classifier boundaries":
   test "dead beats every depth: zero glass pixels is not a window":
     check classifyWindow(0, 10_000) == winDead
     check classifyWindow(0, 0) == winDead
 
-  test "inert / decor edge sits exactly at MinCorridorWidth":
-    check classifyWindow(5, MinCorridorWidth - 1) == winInert
-    check classifyWindow(5, MinCorridorWidth) == winDecor
+  test "inert / decor edge sits exactly at MinPassableWidth":
+    check classifyWindow(5, MinPassableWidth - 1) == winInert
+    check classifyWindow(5, MinPassableWidth) == winDecor
 
   test "decor / shallow edge sits exactly at DecorativeDepthPx":
     check classifyWindow(5, DecorativeDepthPx - 1) == winDecor
@@ -46,12 +71,14 @@ suite "defect probe: window classifier boundaries":
     check classifyWindow(5, UsefulDepthPx - 1) == winShallow
     check classifyWindow(5, UsefulDepthPx) == winUseful
 
-  test "mirrored MinCorridorWidth matches arena.nim's own source":
+  test "mirrored MinPassableWidth matches arena.nim's own source":
     ## arena.nim does not export the constant, so probekit mirrors it; this
     ## reads the SOURCE so a drift there fails here (assert against the
-    ## source, not the prose).
+    ## source, not the prose) -- via extractConstInt's tolerant parse, not
+    ## an exact-formatted string match, so reformatting alone can't defeat
+    ## it the way a brittle grep would.
     let src = readFile(GameDir / "src" / "ctf" / "arena.nim")
-    check &"MinCorridorWidth = {probekit.MinCorridorWidth} " in src
+    check extractConstInt(src, "MinPassableWidth") == probekit.MinPassableWidth
 
 suite "defect probe: geometry on a synthetic map":
   ## A hand-built flagless board with one glass pane and one solid wall at
