@@ -279,6 +279,8 @@ suite "shell FIRST LIGHT":
       positions[seat] = (10 + seat, 10)
     var output: FirstLightTickResult
     var sawMovement = false
+    var weaponBitProjection = ""
+    var movementBitProjection = ""
     for tick in 1 .. 400:
       var frames: seq[FirstLightSeatFrame]
       for seat in 0 ..< 32:
@@ -291,9 +293,25 @@ suite "shell FIRST LIGHT":
           (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0):
         sawMovement = true
       for mask in output.masks:
+        let encoded = mask.input.encodeInputMask()
+        # Phase 5 replaces the idle-aim placeholder with Stencil's sweep, so
+        # aim bytes may move. The first-light invariant is byte preservation
+        # for actuator weapon bits: attack and C stay zero for every seat/tick
+        # under the default demo config.
+        weaponBitProjection.add(char(encoded and (ButtonA or ButtonC)))
+        # Phase 5 also inserted a fire-freeze branch AHEAD of the movement
+        # path in seatTick. It cannot trigger under the demo config, because
+        # fireHoldTicks is assigned only on the same branch that emits
+        # ButtonA and weapon bits are zero above — but that is a coupling
+        # between two facts, so pin the movement bits directly rather than
+        # leaving the demo's visible behaviour resting on an inference.
+        movementBitProjection.add(char(encoded and
+          (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)))
         positions[mask.seat.int].applyMask(mask.input)
     check output.masks.len == 32
     check sawMovement
+    check weaponBitProjection == newString(32 * 400)
+    check movementBitProjection != newString(32 * 400)
 
     let path = getTempDir() / "shell-first-light-masks.bitreplay"
     defer:

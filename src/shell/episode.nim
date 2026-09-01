@@ -1,8 +1,8 @@
 ## FIRST LIGHT's gate-on episode owner: lifecycle, standing-order handoff,
 ## ordinary InputState masks, annotations, and split body/runtime timings.
 ##
-## Lane A FL-B supplies the concrete body, belief-lite, navigation, and
-## movement-only seatTick. This module owns only the server-side lifecycle,
+## Lane A supplies the concrete body, belief-lite, navigation, and seatTick
+## actuation. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
 import std/[json, monotimes, options, os, strformat, strutils, times]
