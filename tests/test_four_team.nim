@@ -376,7 +376,7 @@ suite "pot scoring":
       bad.update("""{"scoring": "winner-take-all"}""")
 
   test "4ffa8 shape: 32 seats deal 8 per team on a locked giant board":
-    ## The paintbot 4ffa8 variant: MaxPlayers seats, teams 4, mapSize giant.
+    ## The archived paintbot 4ffa8 variant: MaxPlayers seats, teams 4, mapSize giant.
     var config = fourTeamConfig("")   # layout drawn from the map seed
     config.mapGen.size = "giant"
     var sim = initCtfForTest(config)

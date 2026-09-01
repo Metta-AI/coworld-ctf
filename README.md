@@ -20,10 +20,10 @@ server, and replay infrastructure, and replaces the social-deduction game layer
 The **full, authoritative ruleset lives in [`docs/RULES.md`](docs/RULES.md)**. The
 summary below is just an orientation.
 
-This repo publishes one `paintbot` Coworld manifest for both products. Paintbot
-keeps its established variant ids (`2v2`, `4ffa`, `4ffa8`, `default`, `1v1`),
-while the CTF leagues select `ctf-default` or `ctf-1v1`. The leagues remain
-independent; they share only the versioned game artifact and schema.
+This repo publishes one `paintbot` Coworld manifest. Its sole published variant
+is `battle-royale-s2`, the Season 2 play-calling game; the former classic, CTF,
+paintball, and first-generation battle-royale variants are archived as described
+below.
 
 If docs, commands, runtime behavior, logs, or replays disagree while you are
 building or submitting a CTF policy, preserve the evidence and file a GitHub issue
@@ -151,20 +151,27 @@ exits when the runner stops it.
 - **From scratch:** implement Sprite v1 in any language and package it in a Docker
   image.
 
-## Season 2: the play-calling shell (design, not yet implemented)
+## Season 2: the play-calling shell
 
 Season 2 changes what a policy is: instead of driving a cog with button masks,
 a policy uploads a playbook of WebAssembly "plays", talks with the other
 policies in a lobby chat phase, and then calls plays by name with parameters
-while the game runs them itself. The authoritative plan is
+while the game runs them itself. The authoritative design is
 [`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md)
-(implemented and merged behind the `season2Shell` config gate, off by
-default: the ported body, the wasmtime runtime, the episode ladder, the
-reference plays, and the wire codec are all on main, dark; a shipped
-config never runs any of it). The runtime
-choice behind it is documented in
+(the ported body, wasmtime runtime, episode ladder, reference plays, and wire
+protocol are implemented; Season 2 is now the supported default). The runtime
+choice is documented in
 [`docs/reports/wasm-runtime-embedding-2026-08-30.md`](docs/reports/wasm-runtime-embedding-2026-08-30.md).
-A proof-of-concept policy image that drives a play seat over the real wire protocol — and a list of what the server still has to register before one can — is in [`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md).
+A proof-of-concept policy image that drives a play seat over the real wire protocol is in [`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md).
+
+### Deprecated variants
+
+The published paintbot manifest now offers only `battle-royale-s2`. The nine
+former classic, CTF, paintball, and first-generation battle-royale configs are
+preserved verbatim in [`deprecated_variants_paintbot.json`](deprecated_variants_paintbot.json),
+while [`coworld_manifest_br.json`](coworld_manifest_br.json) remains the older
+historical 32-seat archive. Live boot refuses these deprecated modes since
+0.7.253 unless the config explicitly sets `allowDeprecatedModes: true`.
 
 ## Debug overlays (visualize what your bot is thinking)
 

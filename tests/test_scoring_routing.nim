@@ -2,8 +2,8 @@
 ## switch (the "every live round scores 0.5/0.5" incident).
 ##
 ## The manifest unification on Aug 6 (c8fa5558, "Unify CTF into the Paintbot
-## Coworld") set `num_agents` on every flagship CLASSIC variant (2v2, 4ffa,
-## 4ffa8, 1v1, ctf-default, ctf-1v1) for an unrelated squad/seat-broadcast
+## Coworld") set `num_agents` on every now-archived classic variant (2v2,
+## 4ffa, 4ffa8, 1v1, ctf-default, ctf-1v1) for an unrelated squad/seat-broadcast
 ## reason. The Aug 25 Paintball KOTH commit (b25ee1444) then keyed the
 ## scoring-schema switch on that same `numAgents` field, assuming it meant
 ## "paintball is on". It didn't -- it meant "this game has seats" -- so

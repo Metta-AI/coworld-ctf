@@ -7,16 +7,18 @@ import pb_helpers
 
 const
   ManifestPath = "coworld_manifest_paintbot.json"
+  ArchivePath = "deprecated_variants_paintbot.json"
   Seats = 2
   EpisodeTimeoutSeconds = 1200
 
-suite "paintbot manifest, paintball variant":
+suite "paintbot manifest and deprecated variants":
   let manifest = parseJson(readFile(ManifestPath))
+  let archive = parseJson(readFile(ArchivePath))
   let game = manifest["game"]
 
   test "the paintball variant exists, with 2 seats and both regimes":
     var found = false
-    for variant in manifest["variants"]:
+    for variant in archive["variants"]:
       if variant["id"].getStr() != "paintball":
         continue
       found = true
@@ -87,6 +89,8 @@ suite "paintbot manifest, paintball variant":
     var configs = @[manifest["certification"]["game_config"]]
     for variant in manifest["variants"]:
       configs.add(variant["game_config"])
+    for variant in archive["variants"]:
+      configs.add(variant["game_config"])
     for config in configs:
       for key in config.keys:
         check props.hasKey(key)
@@ -112,7 +116,7 @@ suite "paintbot manifest, paintball variant":
       LobbyCapSeconds = 100
       PlayCapSeconds = 180
       TailSeconds = 20
-    for variant in manifest["variants"]:
+    for variant in archive["variants"]:
       let cfg = variant["game_config"]
       if not cfg.hasKey("wallClockBudgetSeconds"):
         continue                       ## a classic variant: no LLM turn loop.

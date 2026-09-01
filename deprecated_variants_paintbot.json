@@ -1,1079 +1,274 @@
 {
-  "$schema": "https://raw.githubusercontent.com/Metta-AI/metta/main/packages/coworld/src/coworld/coworld_manifest_schema.json",
-  "tags": [
-    "tag",
-    "team",
-    "battle-royale",
-    "elimination",
-    "play-calling",
-    "wasm"
-  ],
-  "game": {
-    "name": "paintbot",
-    "replay_viewer": {
-      "bundle": "static-replay-viewer"
-    },
-    "description": "Paintbot: paintball-flavored team tag. The players are submitted AI policies - and there's a human seat if you want in. Season 2 plays battle royale: sixteen duos on a giant generated map, a closing zone, no respawns, last team standing. Policies talk before the round, shout during it, and alliances hold only as long as both sides keep them. Every act mints Glory as it happens - the league standing is a ledger of deeds, not a placement average. Full rules live in the wiki.",
-    "owner": "treeform@softmax.com",
-    "runnable": {
-      "type": "game",
-      "image": "{{GAME_IMAGE}}",
-      "run": [
-        "/bin/ctf"
-      ],
-      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main",
-      "env": {
-        "ANTHROPIC_API_KEY_URI": "secret://coworld/paintbot/anthropic_api_key"
-      }
-    },
-    "config_schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "tokens",
-        "players"
-      ],
-      "properties": {
-        "tokens": {
-          "description": "One connection token per player slot, indexed by slot.",
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 32,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "players": {
-          "description": "One player display-name object per player slot, indexed by slot.",
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 32,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "name"
-            ],
-            "properties": {
-              "name": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          }
-        },
-        "slots": {
-          "description": "Optional fixed player slot team, color, skin, and token settings.",
-          "type": "array",
-          "maxItems": 32,
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "token": {
-                "type": "string"
-              },
-              "team": {
-                "type": "string",
-                "enum": [
-                  "red",
-                  "blue",
-                  "green",
-                  "yellow",
-                  "black",
-                  "silver",
-                  "ivory",
-                  "pink",
-                  "umber",
-                  "rust",
-                  "orange",
-                  "plum",
-                  "lime",
-                  "navy",
-                  "azure",
-                  "peach"
-                ],
-                "description": "Fixed team for this seat. Green and yellow are only valid when teams is 4; the remaining 12 colors are only valid when teams is 16 (battle-royale); with no team the seat is dealt slot mod teams."
-              },
-              "skin": {
-                "description": "Cosmetic body-art skin for this slot's player. Rendering only: no gameplay effect and no observation-label change.",
-                "type": "string",
-                "enum": [
-                  "default",
-                  "crown"
-                ]
-              },
-              "color": {
-                "type": "string",
-                "enum": [
-                  "red",
-                  "orange",
-                  "yellow",
-                  "light blue",
-                  "pink",
-                  "lime",
-                  "blue",
-                  "pale blue",
-                  "gray",
-                  "white",
-                  "dark brown",
-                  "brown",
-                  "dark teal",
-                  "green",
-                  "dark navy",
-                  "black"
-                ]
-              },
-              "control": {
-                "description": "Input source for this seat. \"input\" is the direct socket/input path; \"play\" arms the Season 2 play-seat protocol and requires season2Shell.",
-                "type": "string",
-                "enum": [
-                  "input",
-                  "play"
-                ]
-              }
-            }
-          },
-          "minItems": 0
-        },
-        "closedRoster": {
-          "description": "Reject players outside the configured token/slot roster.",
-          "type": "boolean",
-          "default": false
-        },
-        "seed": {
-          "description": "Random seed.",
-          "type": "integer",
-          "default": 679961
-        },
-        "minPlayers": {
-          "description": "Players needed before the game countdown starts.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 32,
-          "default": 16
-        },
-        "lives": {
-          "description": "Lives per player. Out of lives = out for the round.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 3
-        },
-        "hitPoints": {
-          "description": "Hit points per life. Each shot removes one; at zero you die.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 3
-        },
-        "respawnTicks": {
-          "description": "Ticks dead before respawning at home (~3s at 24 ticks/s).",
-          "type": "integer",
-          "minimum": 0,
-          "default": 72
-        },
-        "gunRange": {
-          "description": "Maximum hitscan gun range in pixels.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 1300
-        },
-        "fireCooldownTicks": {
-          "description": "Minimum ticks between shots (~0.5s at 24 ticks/s).",
-          "type": "integer",
-          "minimum": 0,
-          "default": 12
-        },
-        "carrierSpeedPct": {
-          "description": "Movement speed percentage while carrying the heart.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100,
-          "default": 70
-        },
-        "playerBouncePct": {
-          "description": "Restitution percentage of player-player collisions; bodies are always solid.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100,
-          "default": 40
-        },
-        "aimTurnRate": {
-          "description": "Aim rotation speed in brads (256ths of a turn) per tick while a rotate button is held. B rotates counter-clockwise, Select clockwise; movement never changes the aim.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 5
-        },
-        "visionConeDeg": {
-          "description": "Vision cone half-angle in degrees around the aim angle. Fog of war hides everything outside the cone, the vision bubble, and line of sight.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 180,
-          "default": 45
-        },
-        "visionBubble": {
-          "description": "Omnidirectional vision radius in pixels around each player, seen regardless of aim.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 90
-        },
-        "startWaitTicks": {
-          "description": "Lobby countdown ticks after enough players join.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 120
-        },
-        "lobbyJoinTimeoutTicks": {
-          "type": "integer",
-          "default": 0,
-          "minimum": 0,
-          "description": "Finite matches only: abort the lobby when the roster is still short of minPlayers after this many lobby ticks (24 ticks = 1s), declaring the stuck seat via COGAME_PLAYER_FAILURE_URI so the platform charges the no-show to that policy. 0 = wait forever (default). The clock runs on lobby ticks, so board bake time never eats the budget."
-        },
-        "gameOverTicks": {
-          "description": "Game over display duration in ticks.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 360
-        },
-        "maxTicks": {
-          "description": "Maximum game ticks before tiebreak, where 0 means no limit.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 10000
-        },
-        "maxGames": {
-          "description": "Maximum games before shutdown.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 0
-        },
-        "showPlayerLabels": {
-          "description": "Show player labels.",
-          "type": "boolean",
-          "default": true
-        },
-        "fastMode": {
-          "description": "Advance frames early when all players report ready.",
-          "type": "boolean",
-          "default": true
-        },
-        "mapPath": {
-          "description": "Arena map identifier (procedurally generated).",
-          "type": "string",
-          "default": "arena"
-        },
-        "num_agents": {
-          "description": "Number of agent seats; must equal the player slot count. Used by the platform ladder service for block seating.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 32,
-          "default": 16
-        },
-        "fireWindupTicks": {
-          "description": "Ticks from trigger pull to the shot releasing (~0.2s at 24 ticks/s). Aim locks at the pull; a peeking target can duck back behind cover before the bullet leaves.",
-          "type": "integer",
-          "minimum": 0,
-          "default": 5
-        },
-        "teams": {
-          "description": "Active team count: 2 (classic sides), 4 (corner/plus free-for-all), or 16 (battle-royale, brMode).",
-          "type": "integer",
-          "enum": [
-            2,
-            4,
-            16
-          ]
-        },
-        "mapLayout": {
-          "description": "Generated-map layout lock: sides, corners, or plus. Empty draws corners/plus from the map seed for 4-team games.",
-          "type": "string",
-          "enum": [
-            "sides",
-            "corners",
-            "plus"
-          ]
-        },
-        "mapSeed": {
-          "description": "Terrain seed for mapPath gen/pool; -1 derives from the per-episode game seed.",
-          "type": "integer"
-        },
-        "scoring": {
-          "description": "End-of-game reward rule. \"classic\": the winning team scores +1 per losing team and each loser -1. \"pot\": every team antes one point and the winning team takes the whole pot, the losing teams splitting the forfeit evenly - 2 teams pay +2/-2, 4 teams pay +4/-1/-1/-1.",
-          "type": "string",
-          "enum": [
-            "classic",
-            "pot"
-          ],
-          "default": "classic"
-        },
-        "mapSize": {
-          "description": "Generated-map size-class lock: small, standard, large, huge, or giant. Empty draws the size from the map seed.",
-          "type": "string",
-          "enum": [
-            "small",
-            "standard",
-            "large",
-            "huge",
-            "giant"
-          ]
-        },
-        "handicaps": {
-          "description": "Per-team handicap that weakens a team, keyed by team name. Each value is 0..1: 0 = normal, 1 = 50% of shots miss, 1 life, 1 hit point, half max speed; values in between interpolate linearly. Omitted teams are unhandicapped. Intended for a league to level a dominating team.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "red": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "blue": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "green": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "yellow": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            }
-          }
-        },
-        "mapSpec": {
-          "description": "Full expanded map geometry (obstacles, trenches, endzones, and \u2014 for a battle-royale map \u2014 spawn points/spawnGroups and the four neutral item pools) as a JSON object. Pins an exact authored map \u2014 e.g. a league board cell's custom organic terrain, or a generated flagless BR map \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
-          "type": "object"
-        },
-        "brMode": {
-          "description": "Battle-royale elimination ruleset (docs/designs/BR_MAPGEN.md \u00a71): no respawns (a death is permanent for the round), last team standing wins, flags never end or score the round, and a stalled timeout resolves by tiebreak (most living players, then total damage dealt) instead of an automatic draw. Off by default; the battle-royale variant turns it on.",
-          "type": "boolean",
-          "default": false
-        },
-        "season2Shell": {
-          "description": "Master gate for the Season 2 play-calling shell. On by default; the Season 2 shell is the default and only supported mode \u2014 legacy variants are deprecated.",
-          "type": "boolean",
-          "default": true
-        },
-        "allowDeprecatedModes": {
-          "description": "This config is allowed to run deprecated modes. Deprecated modes are refused at live boot since 0.7.253 unless this override is true.",
-          "type": "boolean",
-          "default": false
-        },
-        "viewIntervalTicks": {
-          "description": "PlayView frame interval in game ticks for play seats. No effect without a play seat.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 48,
-          "default": 6
-        },
-        "lobbyChatTicks": {
-          "description": "Season 2 lobby-chat phase length in game ticks. 0 disables the phase.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 4320,
-          "default": 720
-        },
-        "playSeatBindTicks": {
-          "description": "Cumulative pre-activation presence budget in game ticks for play seats. Required positive in a play-seat episode.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 14400,
-          "default": 7200
-        },
-        "zonePhases": {
-          "description": "Battle-royale closing-zone schedule: a list of {z, waitTicks, shrinkTicks, dps} phases (docs/designs/BR_MAPGEN.md \u00a74.3). z (0 < z <= 1) is the target scale relative to the full map, strictly decreasing phase over phase (including the implicit phase-0 value of 1.0); waitTicks holds the previous rect before shrinking; shrinkTicks linearly interpolates into the target; dps is hit points per continuous second spent outside the current rect (through the shield layer first). Omitted/empty (the engine default) turns the mode off entirely - no draw, no rect, no damage. At most 8 phases.",
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "z"
-            ],
-            "properties": {
-              "z": {
-                "type": "number",
-                "exclusiveMinimum": 0,
-                "maximum": 1
-              },
-              "waitTicks": {
-                "type": "integer",
-                "minimum": 0,
-                "default": 0
-              },
-              "shrinkTicks": {
-                "type": "integer",
-                "minimum": 0,
-                "default": 0
-              },
-              "dps": {
-                "type": "integer",
-                "minimum": 0,
-                "default": 0
-              }
-            }
-          }
-        },
-        "zoneCenter": {
-          "description": "Optional authored [x, y] map-pixel point the shrink zone closes on, overriding the default per-episode random draw. Only meaningful when zonePhases is non-empty.",
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "allowSeatTakeover": {
-          "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
-          "type": "boolean",
-          "default": false
-        },
-        "allowDirectAim": {
-          "description": "Allow a seat's aim to be driven directly (human mouse/stick aim) instead of only the discrete rotate buttons. Required by allowAimAssist.",
-          "type": "boolean",
-          "default": false
-        },
-        "allowAimAssist": {
-          "description": "Snap a human's aim onto a live enemy's windup intercept when already close, within aimAssistConeBrads. Requires allowDirectAim: true; rejected otherwise.",
-          "type": "boolean",
-          "default": false
-        },
-        "allowCallouts": {
-          "description": "Allow the human-client grid-cell callout affordance on top of the base 10-character shout.",
-          "type": "boolean",
-          "default": false
-        },
-        "perks": {
-          "perkVocabulary": [
-            {
-              "id": "armor",
-              "effect": "+1 max hp"
-            },
-            {
-              "id": "scope",
-              "effect": "50% tighter gun aim"
-            },
-            {
-              "id": "grenade",
-              "effect": "+25% throw range"
-            },
-            {
-              "id": "thruster",
-              "effect": "+10% max speed"
-            },
-            {
-              "id": "luck",
-              "effect": "10% of landed gun shots deal 2 damage"
-            }
-          ],
-          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) \u2014 magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "red": {
-              "type": [
-                "array",
-                "object"
-              ]
-            },
-            "blue": {
-              "type": [
-                "array",
-                "object"
-              ]
-            },
-            "green": {
-              "type": [
-                "array",
-                "object"
-              ]
-            },
-            "yellow": {
-              "type": [
-                "array",
-                "object"
-              ]
-            }
-          }
-        },
-        "perkMods": {
-          "description": "Perk magnitude overrides. Fractions are 0..1: scopeAim = fraction of aim deviation removed, grenadeRange/thrusterSpeed = extra range/speed, luckChance = chance a landed shot is lucky; armorHp/luckDamage are hit-point counts (0..100).",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "armorHp": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100
-            },
-            "scopeAim": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "grenadeRange": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "thrusterSpeed": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "luckChance": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "luckDamage": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100
-            }
-          }
-        },
-        "barrierPickups": {
-          "description": "Cardboard-barrier pickups per team, staged between base and center. A carried barrier places with the grenade button as a standing half-hex that blocks paint but not sight, takes 10 paintball hits, and is flattened by any cog that drives into it; carrying one excludes carrying a grenade. 0 disables the item (the default).",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2,
-          "default": 0
-        },
-        "barrageMaxPerSec": {
-          "description": "Grenade-barrage endgame: the launch rate the bombardment ramps up to, in grenades/second across the whole board. 0 disables the mode; requires maxTicks > 0 when set. With the barrage on, the time limit no longer ends the game \u2014 it plays past 0:00 under full bombardment until one team is wiped.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 50,
-          "default": 0
-        },
-        "barrageStartPerSec": {
-          "description": "Grenade-barrage launch rate at the latch, along the map edges, grenades/second.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 4
-        },
-        "barrageStartSec": {
-          "description": "Clock seconds remaining that latch the barrage on (30 = starts at 4:30 on a 5:00 clock).",
-          "type": "integer",
-          "minimum": 1,
-          "default": 30
-        },
-        "barrageSaturateSec": {
-          "description": "Seconds from the latch until full saturation: whole board targeted at barrageMaxPerSec (30 = saturated exactly at 5:00 with the default start).",
-          "type": "integer",
-          "minimum": 1,
-          "default": 30
-        },
-        "cogsPerTeam": {
-          "type": "integer",
-          "default": 1,
-          "description": "Cogs one seat commands. Classic fields one; values above 1 arm the deprecated squad mode (paintball sets 4: RED-alpha..RED-delta)."
-        },
-        "sprayDamage": {
-          "type": "integer",
-          "default": 3,
-          "description": "Hit points removed by one spray-cone touch."
-        },
-        "turnTicks": {
-          "type": "integer",
-          "default": 108,
-          "description": "Sim ticks per decision turn (4.5 s)."
-        },
-        "turnBudgetMs": {
-          "type": "integer",
-          "default": 10000,
-          "description": "Monotonic cap on one whole decision turn."
-        },
-        "attempt1Ms": {
-          "type": "integer",
-          "default": 6000,
-          "description": "First parallel batch deadline; whole seconds only."
-        },
-        "retryMs": {
-          "type": "integer",
-          "default": 3000,
-          "description": "Single retry batch deadline; whole seconds only."
-        },
-        "turnSpacingMs": {
-          "type": "integer",
-          "default": 5000,
-          "description": "Wall-clock floor between LLM batch starts."
-        },
-        "wallClockBudgetSeconds": {
-          "type": "integer",
-          "default": 690,
-          "description": "Engine hard stop; 57.5% of episodeTimeoutSeconds."
-        },
-        "loadout": {
-          "type": "string",
-          "enum": [
-            "ctf",
-            "paintball"
-          ],
-          "default": "ctf"
-        },
-        "floorPaint": {
-          "type": "boolean",
-          "default": false
-        },
-        "paintBuff": {
-          "type": "boolean",
-          "default": false
-        },
-        "hill": {
-          "type": "boolean",
-          "default": false
-        },
-        "paintTile": {
-          "type": "integer",
-          "default": 34
-        },
-        "hillRadiusTiles": {
-          "type": "integer",
-          "default": 2
-        },
-        "hillOwnPermille": {
-          "type": "integer",
-          "default": 800
-        },
-        "hillDecisiveTicks": {
-          "type": "integer",
-          "default": 720
-        },
-        "paintSpeedOwnPct": {
-          "type": "integer",
-          "default": 125
-        },
-        "paintSpeedEnemyPct": {
-          "type": "integer",
-          "default": 85
-        },
-        "paintHealTicks": {
-          "type": "integer",
-          "default": 48
-        },
-        "model": {
-          "type": "string",
-          "default": "",
-          "description": "Pinned Anthropic model id; empty = the default ladder."
-        },
-        "maxOutputTokens": {
-          "type": "integer",
-          "default": 900
-        },
-        "regimes": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 4,
-          "items": {
-            "type": "string",
-            "enum": [
-              "resident",
-              "visitor"
-            ]
-          },
-          "default": [
-            "resident"
-          ],
-          "description": "Which cogs a seat drives, per game index."
-        }
-      }
-    },
-    "results_schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "scores"
-      ],
-      "properties": {
-        "names": {
-          "description": "One player name or address per player slot.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "string"
-          }
-        },
-        "scores": {
-          "description": "One scalar score per player slot.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "number"
-          }
-        },
-        "win": {
-          "description": "One win flag per player slot.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "boolean"
-          }
-        },
-        "team": {
-          "description": "One team name (red or blue) per player slot.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "string"
-          }
-        },
-        "kills": {
-          "description": "One enemy-kill count per player slot; teammate kills are counted separately in teamKills.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "teamKills": {
-          "description": "One teammate-kill (backstab) count per player slot, kept apart from kills.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "hitDamage": {
-          "description": "Hit points this slot removed from ENEMIES across the episode; teammate damage is counted separately in teamHitDamage.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "teamHitDamage": {
-          "description": "Hit points this slot removed from its own TEAMMATES (friendly fire), kept apart from hitDamage.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "deaths": {
-          "description": "One death count per player slot.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "captures": {
-          "description": "One heart-capture count per player slot.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "achievements": {
-          "description": "Achievement ids earned per player slot across the episode's games (win-gated; see the game.achievements catalog).",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-z0-9_-]+$"
-            }
-          }
-        },
-        "residentScore": {
-          "description": "One entry per SEAT (roster.nim squadResultsJson: `for seat in 0 ..< seats`, seats = num_agents), not one per team \u2014 a 2-team-era assumption. Bounds match scores/win/team: 1..32.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "number"
-          }
-        },
-        "visitorScore": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "number"
-          }
-        },
-        "hillTicks": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "residentHillTicks": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "visitorHillTicks": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "paintTiles": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "tagsDealt": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "teamTags": {
-          "description": "Tags landed on the seat's own teammates (friendly fire), kept apart from tagsDealt. Per-seat, same bounds as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "tagsTaken": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "llmTurns": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "fallbackTurns": {
-          "description": "Per-seat, same as residentScore.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "integer"
-          }
-        },
-        "reason": {
-          "type": "string",
-          "enum": [
-            "complete",
-            "deadline",
-            "fault"
-          ]
-        },
-        "endRule": {
-          "type": "string",
-          "enum": [
-            "full_time",
-            "mercy",
-            "wipe",
-            "wall_clock",
-            "sim_fault",
-            "host_error"
-          ]
-        },
-        "games": {
-          "type": "integer"
-        },
-        "finalTick": {
-          "type": "integer"
-        },
-        "seed": {
-          "type": "integer"
-        }
-      }
-    },
-    "protocols": {
-      "player": {
-        "type": "uri",
-        "value": "https://github.com/Metta-AI/coworld-ctf/blob/main/docs/PROTOCOL.md"
-      },
-      "global": {
-        "type": "uri",
-        "value": "https://github.com/Metta-AI/coworld-ctf/blob/main/docs/PROTOCOL.md"
-      }
-    },
-    "docs": {
-      "readme": {
-        "type": "uri",
-        "value": "https://github.com/Metta-AI/coworld-ctf/blob/master/README.md"
-      },
-      "pages": [
-        {
-          "id": "rules.md",
-          "title": "Rules",
-          "content": {
-            "type": "uri",
-            "value": "https://github.com/Metta-AI/coworld-ctf/blob/master/docs/RULES.md"
-          }
-        }
-      ]
-    },
-    "achievements": [
-      {
-        "id": "pacifist",
-        "name": "Pacifist",
-        "description": "Win a game in which no cog on your team attacked at all \u2014 no gun shots, grenades, or spray.",
-        "points": 25
-      },
-      {
-        "id": "spotless",
-        "name": "Spotless",
-        "description": "Win a game in which no cog on your team took damage; shield-absorbed hits still count.",
-        "points": 25
-      },
-      {
-        "id": "almost",
-        "name": "Almost",
-        "description": "Win a game with under 2 hit points of life left across the whole team \u2014 living hp plus any respawns still owed.",
-        "points": 50
-      },
-      {
-        "id": "grenadier",
-        "name": "Grenadier",
-        "description": "Win a game in which at least 80% of the damage your team dealt came from grenades.",
-        "points": 30
-      },
-      {
-        "id": "rambo",
-        "name": "Rambo",
-        "description": "Win a game in which a cog on your team killed more than 8 cogs in a single life, without respawning.",
-        "points": 40
-      },
-      {
-        "id": "medic",
-        "name": "Medic",
-        "description": "Win a game in which a cog on your team picked up 4 med kits in a single life.",
-        "points": 30
-      },
-      {
-        "id": "sniper",
-        "name": "Sniper",
-        "description": "Win a game in which every point of damage your team dealt came from the paintball gun \u2014 no grenades, no spray.",
-        "points": 30
-      },
-      {
-        "id": "banksy",
-        "name": "Banksy",
-        "description": "Win a game in which at least 90% of the damage your team dealt came from spray paint.",
-        "points": 30
-      },
-      {
-        "id": "pack",
-        "name": "Pack",
-        "description": "Win a game in which every cog on your team spent at least 90% of its time alive within a circle of 5% of the map's area of two or more teammates.",
-        "points": 40
-      },
-      {
-        "id": "pit-master",
-        "name": "Pit Master",
-        "description": "Win a game in which at least 90% of the damage your team dealt was dealt from inside a pit.",
-        "points": 40
-      },
-      {
-        "id": "heist",
-        "name": "Heist",
-        "description": "Win by carrying the enemy heart home without your team killing a single enemy.",
-        "points": 50
-      },
-      {
-        "id": "silent",
-        "name": "Silent",
-        "description": "Win a game in which nobody on your team shouted a single word.",
-        "points": 30
-      },
-      {
-        "id": "assassin",
-        "name": "Assassin",
-        "description": "Win a game in which a cog on your team landed 10 kill shots (gun or grenade, spray paint does not count) on cogs it had never damaged before in that life.",
-        "points": 50
-      },
-      {
-        "id": "lucky",
-        "name": "Lucky",
-        "description": "Win a game in which a cog on your team was caught in 5 grenade blasts and survived every one of them.",
-        "points": 40
-      }
-    ]
-  },
-  "player": [
-    {
-      "id": "baseline",
-      "name": "baseline",
-      "type": "player",
-      "description": "Minimal sprite-protocol CTF baseline bot: grab the flag, run it home, tag enemies in front. Image placeholder is replaced at deploy time.",
-      "image": "{{PLAYER_IMAGE}}",
-      "run": [
-        "/bin/baseline"
-      ],
-      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main/players/baseline",
-      "resources": {
-        "requests": {
-          "cpu": "500m",
-          "memory": "384Mi"
-        },
-        "limits": {
-          "cpu": "2"
-        }
-      }
-    }
-  ],
+  "$comment": "Deprecated variant configs preserved per James's 2026-09-01 deprecation ruling; not published; each entry is verbatim from the pre-slim manifest. Live boot requires allowDeprecatedModes: true; see docs/designs/ (deprecation seam).",
   "variants": [
     {
-      "id": "battle-royale-s2",
-      "name": "Battle Royale \u2014 Season 2",
-      "description": "The 32-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays \u2014 an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire \u2014 the competitive floor every private playbook must beat. Same arena as classic Battle Royale: sixteen duos on the generated giant flagless map, no respawns, six zone phases that close the field completely (median resolve ~4,540 ticks), last team standing, classic scoring with placement bonuses.",
+      "id": "2v2",
+      "name": "2v2",
+      "description": "Classic two-sided play on RANDOM GENERATED terrain: 16 seats, each parity team split between two entrant policies (4 policies per episode, 4 agents each). The map seed derives from the per-episode game seed; replays pin the exact geometry. Every team antes a point and the winning side takes the pot: +2 to each winning policy, -2 to each loser.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 2,
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 7200,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "4ffa",
+      "name": "4-team free-for-all",
+      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4), each defending its own heart on a generated square corner or plus map. Steal any enemy heart and carry it home; last team standing wins a wipe; every team antes a point and the winner takes the pot: +4 to the winning policy, -1 to each of the three losers.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 4,
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 7200,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "4ffa8",
+      "name": "4-team free-for-all (8 per team)",
+      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4) at double muster: 32 seats, 8 agents per team, always on a giant generated corner or plus map. Rules and scoring match 4ffa: steal any enemy heart and carry it home, last team standing wins a wipe, and every team antes a point with the winner taking the pot: +4 to the winning policy, -1 to each of the three losers.",
       "game_config": {
         "players": [
           {
@@ -1175,132 +370,816 @@
         ],
         "slots": [
           {
-            "team": "red",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "blue",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "green",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "yellow",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "black",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "silver",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "ivory",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "pink",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "umber",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "rust",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "orange",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "plum",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "lime",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "navy",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "azure",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "peach",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "red",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "blue",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "green",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "yellow",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "black",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "silver",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "ivory",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "pink",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "umber",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "rust",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "orange",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "plum",
-            "control": "play"
+            "team": "yellow"
           },
           {
-            "team": "lime",
-            "control": "play"
+            "team": "red"
           },
           {
-            "team": "navy",
-            "control": "play"
+            "team": "blue"
           },
           {
-            "team": "azure",
-            "control": "play"
+            "team": "green"
           },
           {
-            "team": "peach",
-            "control": "play"
+            "team": "yellow"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 32,
+        "minPlayers": 32,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 45,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7500,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 4,
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 7200,
+        "mapSize": "giant",
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "default",
+      "name": "Default",
+      "description": "Sixteen-player 8v8 CTF episode using the default balanced game settings.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "teams": 2,
+        "showPlayerLabels": true,
+        "lobbyJoinTimeoutTicks": 7200,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "1v1",
+      "name": "1v1 (8 per team)",
+      "description": "Two-policy Paintbot team battle for custom lobbies and league board cells: one policy fields the full Red team of 8 versus the other fielding the full Blue team of 8 on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 2,
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 7200,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "ctf-default",
+      "name": "CTF Default",
+      "description": "Sixteen-player 8v8 CTF episode using the default balanced game settings.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "arena",
+        "showPlayerLabels": true,
+        "lobbyJoinTimeoutTicks": 7200,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "ctf-1v1",
+      "name": "CTF 1v1 Duel",
+      "description": "Two-player custom-lobby duel: one Red player versus one Blue player on the default arena with the standard CTF rules and tuning.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "num_agents": 2,
+        "minPlayers": 2,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "arena",
+        "showPlayerLabels": true,
+        "teams": 2,
+        "lobbyJoinTimeoutTicks": 7200,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "paintball",
+      "name": "Paintball \u2014 King of the Hill",
+      "description": "The league default: two 90-second games on one hill, the first commanding your whole squad and the second as a lone visitor beside scripted teammates. The two halves are averaged.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Red Command"
+          },
+          {
+            "name": "Blue Command"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "num_agents": 2,
+        "minPlayers": 2,
+        "cogsPerTeam": 4,
+        "seed": 679961,
+        "mapPath": "arena",
+        "loadout": "paintball",
+        "floorPaint": true,
+        "hill": true,
+        "lives": 12,
+        "hitPoints": 3,
+        "sprayDamage": 1,
+        "respawnTicks": 48,
+        "turnTicks": 108,
+        "turnBudgetMs": 10000,
+        "turnSpacingMs": 5000,
+        "wallClockBudgetSeconds": 690,
+        "lobbyJoinTimeoutTicks": 2400,
+        "fastMode": true,
+        "showPlayerLabels": false,
+        "maxGames": 2,
+        "regimes": [
+          "resident",
+          "visitor"
+        ],
+        "maxTicks": 2160,
+        "paintBuff": true
+      }
+    },
+    {
+      "id": "battle-royale",
+      "name": "Battle Royale",
+      "description": "Sixteen-duo, 32-seat battle royale on a generated giant flagless map: one entrant policy per duo team, no respawns, last team standing wins. The zone holds at full size for 345 ticks (~14 s), then closes completely through six phases - 75%, 55%, 35%, 20%, 8%, shut - ramping environmental damage outside it from 0 to 20 hp/s, so episodes resolve by elimination (median ~4,540 ticks) rather than the 10,000-tick clock; a stalled timeout still resolves by living-player count, then total damage dealt. Classic scoring: the winner scores +1 per losing team, and every OTHER team that made at least one attack or dealt damage scores an added placement bonus by final rank.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          },
+          {
+            "name": "Player17"
+          },
+          {
+            "name": "Player18"
+          },
+          {
+            "name": "Player19"
+          },
+          {
+            "name": "Player20"
+          },
+          {
+            "name": "Player21"
+          },
+          {
+            "name": "Player22"
+          },
+          {
+            "name": "Player23"
+          },
+          {
+            "name": "Player24"
+          },
+          {
+            "name": "Player25"
+          },
+          {
+            "name": "Player26"
+          },
+          {
+            "name": "Player27"
+          },
+          {
+            "name": "Player28"
+          },
+          {
+            "name": "Player29"
+          },
+          {
+            "name": "Player30"
+          },
+          {
+            "name": "Player31"
+          },
+          {
+            "name": "Player32"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "black"
+          },
+          {
+            "team": "silver"
+          },
+          {
+            "team": "ivory"
+          },
+          {
+            "team": "pink"
+          },
+          {
+            "team": "umber"
+          },
+          {
+            "team": "rust"
+          },
+          {
+            "team": "orange"
+          },
+          {
+            "team": "plum"
+          },
+          {
+            "team": "lime"
+          },
+          {
+            "team": "navy"
+          },
+          {
+            "team": "azure"
+          },
+          {
+            "team": "peach"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "black"
+          },
+          {
+            "team": "silver"
+          },
+          {
+            "team": "ivory"
+          },
+          {
+            "team": "pink"
+          },
+          {
+            "team": "umber"
+          },
+          {
+            "team": "rust"
+          },
+          {
+            "team": "orange"
+          },
+          {
+            "team": "plum"
+          },
+          {
+            "team": "lime"
+          },
+          {
+            "team": "navy"
+          },
+          {
+            "team": "azure"
+          },
+          {
+            "team": "peach"
           }
         ],
         "seed": 679961,
@@ -3363,180 +3242,8 @@
             "shrinkTicks": 1700,
             "dps": 20
           }
-        ],
-        "season2Shell": true,
-        "viewIntervalTicks": 6,
-        "lobbyChatTicks": 600,
-        "playSeatBindTicks": 7200
+        ]
       }
     }
-  ],
-  "certification": {
-    "players": [
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      },
-      {
-        "player_id": "baseline"
-      }
-    ],
-    "game_config": {
-      "players": [
-        {
-          "name": "Player1"
-        },
-        {
-          "name": "Player2"
-        },
-        {
-          "name": "Player3"
-        },
-        {
-          "name": "Player4"
-        },
-        {
-          "name": "Player5"
-        },
-        {
-          "name": "Player6"
-        },
-        {
-          "name": "Player7"
-        },
-        {
-          "name": "Player8"
-        },
-        {
-          "name": "Player9"
-        },
-        {
-          "name": "Player10"
-        },
-        {
-          "name": "Player11"
-        },
-        {
-          "name": "Player12"
-        },
-        {
-          "name": "Player13"
-        },
-        {
-          "name": "Player14"
-        },
-        {
-          "name": "Player15"
-        },
-        {
-          "name": "Player16"
-        }
-      ],
-      "slots": [
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        },
-        {
-          "team": "red"
-        },
-        {
-          "team": "blue"
-        }
-      ],
-      "seed": 679961,
-      "num_agents": 16,
-      "cogsPerTeam": 1,
-      "minPlayers": 16,
-      "lives": 1,
-      "hitPoints": 1,
-      "startWaitTicks": 0,
-      "gameOverTicks": 1,
-      "maxTicks": 300,
-      "maxGames": 1,
-      "brMode": true,
-      "season2Shell": true,
-      "mapPath": "arena",
-      "showPlayerLabels": true
-    }
-  }
+  ]
 }

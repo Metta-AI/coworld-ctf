@@ -1,4 +1,4 @@
-## The "battle-royale" variant paintbot now ships: 16 duo teams, 2 agents
+## The "battle-royale-s2" variant paintbot now ships: 16 duo teams, 2 agents
 ## each, 32 seats total -- ported field-for-field from
 ## coworld_manifest_br.json (the original, never-uploaded 32-seat/16-duo
 ## manifest), not reinvented. This is the manifest-plus-sim companion to
@@ -45,7 +45,7 @@ const
   Teams = 16
   SeatsPerTeam = 2
   Seats = Teams * SeatsPerTeam
-  VariantId = "battle-royale"
+  VariantId = "battle-royale-s2"
 
 proc findVariant(manifest: JsonNode): JsonNode =
   for variant in manifest["variants"]:
@@ -53,7 +53,7 @@ proc findVariant(manifest: JsonNode): JsonNode =
       return variant
   doAssert false, ManifestPath & " has no " & VariantId & " variant"
 
-suite "paintbot manifest, battle-royale variant":
+suite "paintbot manifest, battle-royale-s2 variant":
   let
     manifest = parseJson(readFile(ManifestPath))
     variant = manifest.findVariant()
@@ -68,6 +68,7 @@ suite "paintbot manifest, battle-royale variant":
     check gc["lives"].getInt() == 1
     check gc["maxGames"].getInt() == 1
     check gc["brMode"].getBool()
+    check gc["season2Shell"].getBool()
     check gc["zonePhases"].len > 0
     var seen: seq[string]
     for i in 0 ..< Teams:
