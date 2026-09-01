@@ -192,3 +192,59 @@ suite "results seat arity (the coworld hosted-certification regression)":
     let results = parseJson(sim.playerResultsJson())
     check results["scores"].len == 4
     check results["kills"][1].getInt() == 1
+
+  test "BR shape: 32 seats with one cog each is already correct arity (the fold is a no-op)":
+    ## The other real production shape sharing this code path (PR #331, the
+    ## BR variant): `num_agents=32`, `cogsPerTeam` left at its default (4,
+    ## same as the 16-seat classic cert config that broke), but BR seats
+    ## exactly 32 REAL players -- one cog per seat, no squad multiplier.
+    ## `squadMode`'s auto-fill (server.nim) would try to top up toward
+    ## `sim.totalCogs()` = 32*4 = 128, but `MaxPlayers` (32) is already
+    ## exhausted by the 32 real joins alone, so it adds ZERO extra cogs:
+    ## `sim.players.len` stays exactly 32. This is NOT the certification bug
+    ## shape (`namesArr.len == seatCount`, so the fold/pad block above is a
+    ## no-op) -- 32 scores for 32 seats is the CORRECT answer here, a
+    ## different shape from the 16-seat classic config that broke
+    ## certification, and must stay 32, not collapse further.
+    var sim = initCtfForTest(defaultGameConfig())
+    sim.config.numAgents = 32
+    for i in 0 ..< 32:
+      discard sim.addPlayer("policy" & $i, i, "", trusted = true)
+    sim.startGame()
+    check sim.players.len == 32
+    sim.recordKillCredit(0, 1)
+    sim.finishGame(Red)
+
+    let results = parseJson(sim.playerResultsJson())
+    check results["scores"].len == 32
+    check results["names"].len == 32
+    check results["kills"][0].getInt() == 1
+    # No cross-seat bleed: seat 1 (a different real cog, not a squadmate of
+    # seat 0) reports nothing from seat 0's kill.
+    check results["kills"][1].getInt() == 0
+
+  test "the seat-arity fold composes with #330's glory-as-league-score: a squadmate's TEAM-scalar glory is not double-counted":
+    ## #330 repurposed `scores[slot]` to `sim.teamGlory[team]` on a win
+    ## (roster.nim's GLORY-AS-LEAGUE-SCORE comment). Because glory is a
+    ## TEAM scalar, every cog on one seat's squad would read the SAME
+    ## value -- the fold above deliberately does not SUM `scoresArr` the
+    ## way it sums kills/deaths/etc (see its own comment), so a seat with a
+    ## squadmate still reports its team's exact glory total once, not
+    ## doubled.
+    var sim = initCtfForTest(defaultGameConfig())
+    sim.config.numAgents = 16
+    for i in 0 ..< 16:
+      discard sim.addPlayer("policy" & $i, i, "", trusted = true)
+    sim.startGame()
+    sim.awardDeed(Red, dHonorableKill, 10, 10)
+    # Seat 0's squadmate (cog 16, same team as seat 0 -- `cogSeat` = 16 mod
+    # 16 = 0) joins AFTER the mint, so the ledger is already nonzero when
+    # the fold runs.
+    discard sim.addPlayer("squad-alias-16", 16, "", trusted = true)
+    sim.finishGame(Red)
+    let redGlory = sim.teamGlory[Red]
+    check redGlory > 0
+
+    let results = parseJson(sim.playerResultsJson())
+    check results["scores"].len == 16
+    check results["scores"][0].getInt() == redGlory  # exact total, not 2x
