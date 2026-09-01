@@ -22,6 +22,7 @@ import
   test_policy_reflash,
   test_puddles,
   test_replay_controls,
+  test_season2_replay_hud,
   test_shell_replay,
   test_shell_transport,
   test_shot_feedback_wire,

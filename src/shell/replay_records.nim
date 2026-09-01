@@ -110,6 +110,13 @@ type
     lifecycle*: seq[LifecycleRecord]
     manifest*: ShellReplayManifest
     manifestVerified*: bool
+    ballots*: seq[BallotRecord]
+      ## §4's `0x17` (RecVoteReserved) records, in ordinal order. Hash-coupled
+      ## like `0x14`-`0x16` (settled 2c2f905c): no manifest arm, so unlike
+      ## `lobbyTranscript` above there is nothing here to verify against --
+      ## the gameplay hash chain is the integrity check. Populated by the
+      ## replay codec's format-2 record loop, same as every other field on
+      ## this object; empty on a replay that never armed the vote phase.
 
   ReplayRecordError* = object of CatchableError
 
@@ -164,6 +171,20 @@ proc `==`*(a, b: ShellAnnotation): bool =
     a.faultAtEpoch == b.faultAtEpoch and
       a.faultEntryId == b.faultEntryId and
       a.annotationFaultReason == b.annotationFaultReason
+
+proc `==`*(a, b: BallotRecord): bool =
+  ## Nim's generic structural `==` (unittest's `check`) cannot walk a `case`
+  ## object's fields in parallel -- same reason `ShellAnnotation`/
+  ## `CodeIdentity`/`ProvenanceBase` above all carry an explicit override.
+  if a.replayTimeMs != b.replayTimeMs or a.ordinal != b.ordinal or
+      a.kind != b.kind:
+    return false
+  case a.kind
+  of brkCast:
+    a.seat == b.seat and a.team == b.team and a.option == b.option
+  of brkResolved:
+    a.category == b.category and a.tieBreakDrawn == b.tieBreakDrawn and
+      a.finalOption == b.finalOption
 
 proc recordError(message: string) {.noReturn.} =
   raise newException(ReplayRecordError, message)
