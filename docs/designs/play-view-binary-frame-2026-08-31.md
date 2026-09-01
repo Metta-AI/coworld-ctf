@@ -100,18 +100,21 @@ about — so both a new section and a grown record leave an older play
 working. That is the same compatibility promise the JSON schema made,
 enforced by structure instead of by a parser's tolerance.
 
-## The cap, derived under the same rule
+## The cap, corrected by measurement
 
-The rule: reader fixed cost plus a full scan of a maximum-size view must
-fit 60% of `StepFuel`, i.e. 30,000 fuel.
+The original rule assumed reader fixed cost plus a full scan of a maximum-size
+view must fit 60% of `StepFuel`, i.e. 30,000 fuel. That assumption was wrong
+for a typed full decode. Measurement corrected it:
 
-- Binary access costs 1-2 instructions per byte for a *full* scan, and
-  effectively nothing for a play that uses the section table. At 2
-  instructions per byte, 30,000 fuel scans 15,000 bytes.
-- The largest power of two under that is **8,192**, which leaves 14,000+
-  fuel of margin even for a play that reads every byte of a maximal
-  frame, and leaves essentially all of `StepFuel` for a play like
-  `edge_ride` that reads two sections.
+- A reader that decodes every section into typed structs measures roughly
+  **17-22 fuel per byte** on completed rows, not 1-2.
+- The required skeleton costs about **9,786 fuel** in the measured release
+  row.
+- A 32-track all-section frame at **1,484 bytes** costs **29,130 fuel** and
+  completes.
+- The largest all-section proportional frame that completed was **2,964
+  bytes** at **41,432 fuel**.
+- The **4,532-byte** proportional frame exhausted `StepFuel`.
 
 **The cap splits, and this is deliberate.** The binary play frame gets
 its own constant at **8,192 bytes** — that is the number this spec names
@@ -121,11 +124,14 @@ that copy inside a fuel budget, P0 measured a real maximum of 12,202
 bytes for it, and de-provisioning a cap that is not hurting anyone would
 be churn for its own sake.
 
-Note what changed for the play's cap: under JSON it had to be small
-enough to *parse*; under binary it only has to be large enough to *hold*.
-Every element cap at maximum lands near 4 KiB (32 tracks at ~40 bytes is
-1.3 KiB), so 8,192 is generous margin, and a full scan of it at 2
-instructions per byte costs ~16,000 fuel against the 30,000 budget.
+The acceptance basis therefore changes. The ruled **8,192-byte** cap stays, but
+not because every play can afford a blind full-frame decode. That was the
+JSON-era question, mandatory only because finding any field required parsing or
+skipping the whole document. Under the binary frame, a play is expected to use
+the section table and read the sections it actually needs. The acceptance is:
+every reference play affords the sections it reads with at least 50% of
+`StepFuel` left on a maximum frame. The measured rows satisfy that: `edge_ride`
+uses 3,508 fuel and `pact` uses 20,117 fuel on populated 32-track BR frames.
 
 **One model, two encoders, no divergence.** The two copies are renderings
 of the same per-seat view state, and they must never disagree about what

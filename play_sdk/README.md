@@ -20,6 +20,11 @@ typed binary accessors (`readBinaryViewInto` or the narrower
 `play_retune` params are still canonical JSON today; the SDK keeps a small
 params-only reader for that path until a binary params encoding exists.
 
+Read the sections your play actually needs. A full typed decode of every
+section measures roughly 17-22 fuel per byte, and the all-section reader
+exhausts `StepFuel` near a 4.5 KiB frame. The binary frame makes section access
+cheap; it does not make "decode the whole world every step" cheap.
+
 ## Testing decoders
 
 Decoder tests must anchor on a landed contract artifact: checked-in golden

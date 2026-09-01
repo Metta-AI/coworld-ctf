@@ -86,6 +86,56 @@ proc ladderInput(base: Option[LadderNativeBase]): LadderSeatInput =
     guardContext: IntentContext(), defaultIntent: holdIntent("default"),
     nativeBase: base)
 
+proc stageLabel(stage: PlanEscapeProfileStage): string =
+  case stage
+  of psCandidateBounds: "candidate_generation_and_bounds"
+  of psGoalValidation: "goal_validation"
+  of psOptionDedup: "option_dedup_and_resolved_key"
+  of psArrival: "arrival_math"
+  of psScorer: "scorer_specific_work"
+  of psTupleComparison: "tuple_key_comparison"
+
+proc profileStageUs(kind: ReflexKind; facts: ReflexTickInput;
+                    stage: PlanEscapeProfileStage): float =
+  const Batches = 16
+  let start = cpuTime()
+  for _ in 0 ..< Batches:
+    for seat in 0 ..< 32:
+      discard seat
+      discard profilePlanFor(facts, kind, stage)
+  (cpuTime() - start) * 1_000_000.0 / Batches.float
+
+proc averagedProfileStageUs(kind: ReflexKind; facts: ReflexTickInput;
+                            stage: PlanEscapeProfileStage): float =
+  const Samples = 3
+  for _ in 0 ..< Samples:
+    result += profileStageUs(kind, facts, stage)
+  result / Samples.float
+
+proc echoProfilePart(kind, part: string; totalUs: float; considered: int) =
+  echo "SHELL_REFLEX_PROFILE kind=", kind,
+    " part=", part,
+    " total_us=", totalUs,
+    " per_candidate_ns=", totalUs * 1000.0 / considered.float
+
+proc echoStageProfile(kindLabel: string; kind: ReflexKind;
+                      facts: ReflexTickInput) =
+  const considered = 32 * MaxReflexCandidates
+  var totals: array[PlanEscapeProfileStage, float]
+  for stage in PlanEscapeProfileStage:
+    totals[stage] = averagedProfileStageUs(kind, facts, stage)
+  echo "SHELL_REFLEX_PROFILE kind=", kindLabel,
+    " part=total",
+    " total_us=", totals[psTupleComparison],
+    " per_candidate_ns=", totals[psTupleComparison] * 1000.0 /
+      considered.float,
+    " considered=", considered
+  var previous = 0.0
+  for stage in PlanEscapeProfileStage:
+    let delta = max(0.0, totals[stage] - previous)
+    echoProfilePart(kindLabel, stage.stageLabel, delta, considered)
+    previous = totals[stage]
+
 suite "shell planEscape":
   test "arrival arithmetic covers speed modifiers and motion scale boundaries":
     var config = defaultGameConfig()
@@ -312,3 +362,11 @@ suite "shell reflexes":
       " hazards=8 elapsed_us=", elapsedUs
     check selected == 32
     check elapsedUs <= ReflexRuntimeBudgetUs
+
+    echoStageProfile("grenade_max", rkClearGrenade, facts)
+
+    var zoneFacts = facts
+    zoneFacts.visibleGrenades.setLen(0)
+    zoneFacts.zoneTicksUntilOutside = zoneQuery(MapRect(x: 320, y: 320,
+      w: 128, h: 128))
+    echoStageProfile("zone_escape", rkZoneEscape, zoneFacts)
