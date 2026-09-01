@@ -291,3 +291,191 @@ suite "row 3 — loot-start: unarmed spawn, marker+hopper BOTH to shoot":
     sim.centerOn(0, sim.weaponSpawns[0].x, sim.weaponSpawns[0].y)
     sim.stepIdle(1)
     check sim.weaponSpawns[0].present
+
+proc downedConfig(): GameConfig =
+  result = brConfig()
+  result.downedMode = true
+  result.downedBleedOutTicks = 3 * DownedMinBleedOutTicks
+  result.downedReviveTicks = 5
+
+suite "row 4 — downed-state: ghost, tag revive, bleed-out, splat":
+  test "dark: a lethal hit still kills on the spot":
+    var sim = startedGame(brConfig(), 2)
+    sim.killPlayer(1, 0)
+    check not sim.players[1].alive
+    check not sim.players[1].downed
+
+  test "armed: a lethal hit downs into a frozen ghost, Death deferred":
+    var sim = startedGame(downedConfig(), 4)
+    # Spread the board first: home clusters can put the ghost's teammate
+    # inside DownedTagRange, and an accidental tag would revive it mid-test.
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.centerOn(3, 700, 500)
+    sim.killPlayer(1, 0)
+    check sim.players[1].downed
+    check sim.players[1].alive          # a ghost is revivable, not dead
+    check sim.players[1].hp == 0
+    check sim.players[1].downedCount == 1
+    check sim.eventsOf(Downed).len == 1
+    check sim.eventsOf(Death).len == 0
+    check sim.players[1].deaths == 0
+    # Frozen: held movement input goes nowhere.
+    let ghostX = sim.players[1].x
+    var held = sim.none()
+    held[1].right = true
+    for _ in 0 ..< 10:
+      sim.step(held, sim.none())
+    check sim.players[1].x == ghostX
+    # Frozen trigger: cooldown clear changes nothing.
+    sim.players[1].fireCooldown = 0
+    check not sim.canFire(1)
+
+  test "an adjacent teammate tags the ghost back in at 1 hp":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 400 + DownedTagRange - 10, 300)   # teammate in tag range
+    sim.centerOn(0, 900, 300)                          # enemies far away
+    sim.centerOn(2, 900, 340)
+    sim.killPlayer(1, 0)
+    check sim.players[1].downed
+    sim.stepIdle(5)                                    # downedReviveTicks
+    check not sim.players[1].downed
+    check sim.players[1].alive
+    check sim.players[1].hp == 1
+    let revives = sim.eventsOf(Revived)
+    check revives.len == 1
+    check revives[0].source == 3
+    check revives[0].target == 1
+
+  test "a broken tag resets the revive channel":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 400 + 20, 300)
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.killPlayer(1, 0)
+    sim.stepIdle(3)                                    # partial channel
+    check sim.players[1].reviveProgress == 3
+    sim.centerOn(3, 400 + DownedTagRange * 3, 300)     # tagger walks off
+    sim.stepIdle(1)
+    check sim.players[1].reviveProgress == 0
+    check sim.players[1].downed
+
+  test "an untagged ghost bleeds out into a real, attributed death":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 900, 500)                          # teammate out of range
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.killPlayer(1, 0)
+    let window = 3 * DownedMinBleedOutTicks
+    sim.stepIdle(window - 1)
+    check sim.players[1].downed                        # still hanging on
+    sim.stepIdle(2)
+    check not sim.players[1].downed
+    check not sim.players[1].alive
+    check sim.players[1].deaths == 1
+    check sim.eventsOf(Death).len == 1
+
+  test "escalation halves the second down's window; off keeps it flat":
+    for escalation in [true, false]:
+      var config = downedConfig()
+      config.downedEscalation = escalation
+      var sim = startedGame(config, 4)
+      sim.centerOn(1, 400, 300)
+      sim.centerOn(3, 400 + 20, 300)
+      sim.centerOn(0, 900, 300)
+      sim.centerOn(2, 900, 340)
+      sim.killPlayer(1, 0)
+      sim.stepIdle(5)                                  # tag back in
+      check not sim.players[1].downed
+      sim.centerOn(3, 900, 500)                        # tagger leaves
+      sim.killPlayer(1, 0)                             # second down
+      check sim.players[1].downedCount == 2
+      # Halved window = max(3*min div 2, min): well under the base window.
+      let halved = max(3 * DownedMinBleedOutTicks div 2,
+        DownedMinBleedOutTicks)
+      sim.stepIdle(halved + 1)
+      if escalation:
+        check not sim.players[1].alive                 # bled out early
+      else:
+        check sim.players[1].downed                    # flat window holds
+
+  test "an enemy paintball splats the ghost with no second kill credit":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(3, 900, 500)
+    sim.centerOn(2, 900, 340)
+    sim.pointBlank(0, 1)
+    sim.players[1].hp = 1
+    sim.armToFire(0)
+    sim.tryFire(0)                                     # the down
+    check sim.players[1].downed
+    check sim.players[0].kills == 1                    # credited at the down
+    sim.armToFire(0)
+    sim.tryFire(0)                                     # the splat confirm
+    check not sim.players[1].downed
+    check not sim.players[1].alive
+    check sim.players[0].kills == 1                    # never double-counted
+    check sim.eventsOf(Kill).len == 1
+    check sim.eventsOf(Death).len == 1
+
+  test "a teammate's stray paint never confirms":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.killPlayer(1, 0)
+    sim.pointBlank(3, 1)                               # TEAMMATE aims at ghost
+    sim.armToFire(3)
+    sim.tryFire(3)
+    check sim.players[1].downed                        # still tag-able
+    check sim.players[1].alive
+
+  test "a fully-downed team fades out and the round resolves":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(0, 300, 300)
+    sim.centerOn(2, 300, 340)
+    sim.centerOn(1, 500, 300)
+    sim.centerOn(3, 500, 340)
+    sim.killPlayer(1, 0)
+    sim.killPlayer(3, 0)                               # last upright Blue
+    sim.stepIdle(1)
+    check not sim.players[1].alive
+    check not sim.players[3].alive
+    check sim.phase == GamePhase.GameOver
+    check sim.winner == Red
+
+  test "upright cogs walk straight through a ghost":
+    var sim = startedGame(downedConfig(), 4)
+    sim.blockAll()
+    sim.openField(280, 280, 560, 340)
+    sim.centerOn(1, 400, 300)                          # the ghost-to-be
+    sim.centerOn(0, 340, 300)                          # enemy west of it
+    sim.centerOn(2, 300, 330)
+    sim.centerOn(3, 540, 330)
+    sim.killPlayer(1, 0)
+    check sim.players[1].downed
+    var held = sim.none()
+    held[0].right = true
+    for _ in 0 ..< 60:
+      sim.step(held, sim.none())
+    # Passed through the ghost's body, never bounced off it.
+    check sim.players[0].x + CollisionW div 2 > 430
+
+  test "going down clears the hazard clocks with the rest of the body":
+    # (The hazard loops themselves also skip ghosts — updatePuddles/
+    # updateZone — but both early-return on this zone-free, puddle-free
+    # test arena, so the behavioral assertion here is the downPlayer reset;
+    # the loop guards are exercised by any zone-armed BR episode.)
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.centerOn(3, 700, 500)
+    sim.players[1].zoneOutsideTicks = 7
+    sim.players[1].puddleTicks = 7
+    sim.killPlayer(1, 0)
+    check sim.players[1].downed
+    check sim.players[1].zoneOutsideTicks == 0
+    check sim.players[1].puddleTicks == 0
