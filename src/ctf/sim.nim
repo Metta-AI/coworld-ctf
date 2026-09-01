@@ -9,8 +9,10 @@ import
   bitworld/server,
   pixie
 
-import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster, paint
-export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster, paint
+import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster,
+  paint, ballot
+export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster,
+  paint, ballot
 
 # ─────────────────────────────────────────────────────────────────────────
 # GLORY PORT, increment 2/3 — the team ledger, the per-life ladder,
@@ -5623,6 +5625,16 @@ proc resetToLobby*(sim: var SimServer) =
   sim.lobbyChatTicksLeft = 0
   sim.lobbyChatDone = false
   sim.lobbyChatOrdinal = 0
+  sim.votingActive = false
+  sim.votingTicksLeft = 0
+  sim.votingDone = false
+  sim.voteOrdinal = 0
+  sim.voteSeats = default(array[MaxPlayers, VoteSeatState])
+  sim.voteResolved = false
+  sim.voteCategory = 0
+  sim.voteTieBreakDrawn = false
+  sim.voteFinalOption = 0
+  sim.voteResolutionTick = 0
   sim.timeLimitReached = false
   sim.barrageStartTick = -1
   sim.barrageAccum = 0
@@ -5642,15 +5654,203 @@ proc inLobbyChat*(sim: SimServer): bool =
   ## window a `LobbyChat` (0xA3) send is admitted in (applyLobbyChat below).
   sim.phase == Lobby and sim.lobbyChatActive
 
+proc inVoting*(sim: SimServer): bool =
+  ## True while the pre-match vote phase's `voting` substate (docs/designs/
+  ## prematch-vote-phase-2026-08-31.md §2, prematch-vote-wire-2026-08-31.md
+  ## §1) is actively running: the ONLY window a `BallotCast` (0xA4) send is
+  ## admitted in (applyBallotCast below). Mirrors inLobbyChat exactly.
+  sim.phase == Lobby and sim.votingActive
+
+proc voteSeatIndexForSlot(sim: SimServer, slotIndex: int): int =
+  ## Returns the CURRENT `sim.players` array index bound to configured
+  ## slot `slotIndex` (an applyBallotCast-style seatIndex), or -1 if that
+  ## slot has no currently-joined player. `sim.players` is capped at
+  ## MaxPlayers (32), so this linear scan is cheap even called once per
+  ## configured play seat, once per tick, while voting is active.
+  for seatIndex in 0 ..< sim.players.len:
+    if sim.players[seatIndex].joinOrder == slotIndex:
+      return seatIndex
+  -1
+
+proc allConfiguredPlaySeatsCast(sim: SimServer): bool =
+  ## §6/J1's early-resolution predicate: every configured "play" slot
+  ## (§5.1) has an accepted cast on record. Walks `config.slots`, NOT
+  ## `sim.players`, on purpose: a configured play seat that is not
+  ## currently bound to a live player — never joined yet, or removed by a
+  ## disconnect this v1 engine has no `pssLost`-aware reconnect path for
+  ## (see VoteSeatState.tombstoned's own comment) — must still block early
+  ## resolution exactly like one that IS present but silent. Only
+  ## `voteTicks` can close the phase around such a seat (J1: "that seat is
+  ## absent, not resolved").
+  for slotIndex in 0 ..< sim.config.slots.len:
+    if sim.config.slots[slotIndex].control != scPlay:
+      continue
+    let seatIndex = sim.voteSeatIndexForSlot(slotIndex)
+    if seatIndex < 0 or not sim.voteSeats[seatIndex].hasCastVote:
+      return false
+  true
+
+proc setVoteSeatTombstoned*(sim: var SimServer, seatIndex: int, tombstoned: bool) =
+  ## The seam a presence-aware caller (the shell's `pssLost` tracking, once
+  ## wired) drives — see VoteSeatState.tombstoned's own comment for why
+  ## this does not, on its own, change `allConfiguredPlaySeatsCast`'s
+  ## outcome. Exported mainly so tests and a future caller have one named
+  ## entry point rather than reaching into `sim.voteSeats` directly.
+  if seatIndex >= 0 and seatIndex < MaxPlayers:
+    sim.voteSeats[seatIndex].tombstoned = tombstoned
+
+proc voteDraw(seed: int, tag: uint32, n: int): int =
+  ## A fresh, tag-separated deterministic draw from the episode's own seed
+  ## (prematch-vote-wire-2026-08-31.md §5 point 4) — NOT `sim.rng`, whose
+  ## mutable position depends on unrelated gameplay draws elsewhere in the
+  ## tick, which would make resolution a function of "how much else
+  ## happened first," not just seed+votes. Two calls with different tags
+  ## (the plurality tie-break and D's own delegated draw, below) never
+  ## correlate by construction. Pure in its arguments, so a replaying
+  ## client recomputes the identical draw from record 0x17's transcript and
+  ## the launch-config seed alone (§4's reconstruction requirement) — the
+  ## whole reason the seed itself never rides the wire.
+  var mixed = 14695981039346656037'u64
+  mixed = mixed xor cast[uint64](int64(seed))
+  mixed *= 1099511628211'u64
+  mixed = mixed xor uint64(tag)
+  mixed *= 1099511628211'u64
+  var r = initRand(cast[int64](mixed))
+  r.rand(n - 1)
+
+const
+  VoteTieBreakDrawTag = 1'u32
+  VoteDelegationDrawTag = 2'u32
+    ## Domain-separates section 5's two draws (the plurality tie-break
+    ## among leaders, and D's own delegated draw over A/B/C) so they never
+    ## correlate — ballot.nim's own candidate-generation draw uses a
+    ## THIRD, visibly distinct tag for the same reason.
+
+proc resolveVote(sim: var SimServer) =
+  ## prematch-vote-wire-2026-08-31.md §5's tally + resolution, run exactly
+  ## once when `voting` exits (either clock). A PURE function of (every
+  ## configured play seat's latest accepted cast, sim.config.seed) — no
+  ## sim.rng, no new wire entropy — so a replaying client recomputes the
+  ## identical category/tieBreakDrawn/finalOption from record 0x17's
+  ## transcript alone (§4 point 3).
+  var counts: array[4, int]
+  for slotIndex in 0 ..< sim.config.slots.len:
+    if sim.config.slots[slotIndex].control != scPlay:
+      continue
+    let seatIndex = sim.voteSeatIndexForSlot(slotIndex)
+    if seatIndex >= 0 and sim.voteSeats[seatIndex].hasCastVote:
+      inc counts[int(sim.voteSeats[seatIndex].option)]
+    else:
+      inc counts[3]   # implicit D: abstention (§5 point 1)
+  var
+    best = -1
+    leaders: seq[uint8] = @[]
+  for bucket in 0 .. 3:
+    if counts[bucket] > best:
+      best = counts[bucket]
+      leaders = @[uint8(bucket)]
+    elif counts[bucket] == best:
+      leaders.add uint8(bucket)
+  var
+    category: uint8
+    tieBreakDrawn = false
+  if leaders.len == 1:
+    category = leaders[0]
+  else:
+    tieBreakDrawn = true
+    category =
+      leaders[voteDraw(sim.config.seed, VoteTieBreakDrawTag, leaders.len)]
+  let finalOption =
+    if category == 3'u8:
+      uint8(voteDraw(sim.config.seed, VoteDelegationDrawTag, 3))
+    else:
+      category
+  sim.voteCategory = category
+  sim.voteTieBreakDrawn = tieBreakDrawn
+  sim.voteFinalOption = finalOption
+  sim.voteResolved = true
+  sim.voteResolutionTick = sim.tickCount
+
+proc ballotCandidatesForEpisode*(sim: SimServer): array[3, BallotCandidate] =
+  ## THIS episode's pre-match vote A/B/C (docs/designs/prematch-vote-phase-
+  ## 2026-08-31.md §3): deterministic from the episode seed via
+  ## ballot.nim's `defaultBallotCandidates`, recomputed on demand rather
+  ## than cached on SimServer — cheap, pure, and keeps ballot generation
+  ## entirely out of the flatty-serialized/gameHash surface. v1 does not
+  ## yet ACT on the result (no PlayContext/map-switch wiring — darkness
+  ## discipline, see the module doc at the top of this file's vote-phase
+  ## section); once `sim.voteResolved`, `sim.voteFinalOption` indexes into
+  ## this array to name which bundle the vote picked.
+  defaultBallotCandidates(sim.config.seed)
+
+proc applyBallotCast*(
+  sim: var SimServer,
+  seatIndex: int,
+  castId: uint64,
+  option: uint8
+): BallotCastResult {.discardable.} =
+  ## Admits one prematch-vote-wire-2026-08-31.md §2 `BallotCast` (0xA4)
+  ## send. Mirrors applyLobbyChat's shape and check order (closed -> bad
+  ## seat -> structural validity -> dedup/stale/conflict -> rate cap ->
+  ## spacing); no play-seat-only admission restriction, same generality
+  ## applyLobbyChat has (any joined seat may send — only CONFIGURED PLAY
+  ## seats are counted in the tally, resolveVote above).
+  if not sim.inVoting():
+    return BallotCastResult(ok: false, reason: bcrClosed)
+  if seatIndex < 0 or seatIndex >= sim.players.len:
+    return BallotCastResult(ok: false, reason: bcrBadSeat)
+  if option > 3'u8:
+    return BallotCastResult(ok: false, reason: bcrBadOption)
+  var seat = sim.voteSeats[seatIndex]
+  if seat.hasCastVote and castId == seat.lastCastId:
+    if option == seat.option:
+      # Silent no-op resend (§2): the original outcome, unchanged state, no
+      # new ordinal, no broadcast, no rate charge.
+      return BallotCastResult(
+        ok: true, ordinal: seat.lastOrdinal, reason: bcrOk, fresh: false)
+    return BallotCastResult(ok: false, reason: bcrCastIdConflict)
+  if seat.hasCastVote and castId < seat.lastCastId:
+    return BallotCastResult(ok: false, reason: bcrCastIdStale)
+  if seat.castCount >= BallotCastMaxPerSeatPerPhase:
+    return BallotCastResult(ok: false, reason: bcrRateLimited)
+  if seat.hasCastVote and
+      sim.tickCount - seat.lastCastTick < BallotCastMinSpacingTicks:
+    return BallotCastResult(ok: false, reason: bcrTooSoon)
+  inc sim.voteOrdinal
+  seat.hasCastVote = true
+  seat.lastCastId = castId
+  seat.option = option
+  seat.lastOrdinal = sim.voteOrdinal
+  seat.lastCastTick = sim.tickCount
+  inc seat.castCount
+  sim.voteSeats[seatIndex] = seat
+  BallotCastResult(ok: true, ordinal: sim.voteOrdinal, reason: bcrOk, fresh: true)
+
 proc stepLobby(sim: var SimServer) {.measure.} =
-  ## Advances the lobby: `joining` (roster fill, unchanged) -> `chatting`
-  ## (once, held countdown, §9.2) -> `countdown` (today's startWaitTicks
-  ## logic, unchanged in shape). The chatting substate exists ONLY for a
-  ## play-seat episode (hasPlaySeat, sim_config.nim) with lobbyChatTicks >
-  ## 0 — "nothing below changes a configuration with no play seat" (§9.2)
-  ## is enforced HERE, not by lobbyChatTicks's own default value, so an
-  ## ordinary input-only lobby plays byte-identically to the pre-huddle
-  ## engine regardless of that field's configured value.
+  ## Advances the lobby: `joining` (roster fill, unchanged) -> `voting`
+  ## (once, held countdown, prematch-vote-wire-2026-08-31.md §1) ->
+  ## `chatting` (once, held countdown, §9.2) -> `countdown` (today's
+  ## startWaitTicks logic, unchanged in shape). Voting precedes chatting so
+  ## that chat, once it starts, can refer to the resolved bundle rather
+  ## than negotiating blind (prematch-vote-wire-2026-08-31.md §1). Both
+  ## substates exist ONLY for a play-seat episode (hasPlaySeat,
+  ## sim_config.nim) with their own ticks field > 0 — "nothing below
+  ## changes a configuration with no play seat" (§9.2) is enforced HERE,
+  ## not by either field's own default value, so an ordinary input-only
+  ## lobby plays byte-identically to the pre-huddle engine regardless of
+  ## either field's configured value. `voteTicks` additionally defaults to
+  ## 0 REGARDLESS of hasPlaySeat (VoteTicksDefault's own comment,
+  ## sim_types.nim) — the v1/huddle-v1 divergence.
+  if sim.votingActive:
+    # Held exactly like lobbyChatActive below: the roster-sufficiency check
+    # never runs while voting is open, and an input seat leaving does not
+    # end it — checked BEFORE, and independent of, that check.
+    dec sim.votingTicksLeft
+    if sim.votingTicksLeft <= 0 or sim.allConfiguredPlaySeatsCast():
+      sim.resolveVote()
+      sim.votingActive = false
+      sim.votingDone = true
+    return
   if sim.lobbyChatActive:
     # Held: startWaitTimer does not run, and an input seat leaving does not
     # end chat (§9.2) — so this branch is checked BEFORE, and independent
@@ -5669,6 +5869,13 @@ proc stepLobby(sim: var SimServer) {.measure.} =
       inc sim.lobbyWaitTimer
     sim.logLobbyWaiting()
     return
+  if not sim.votingDone:
+    if sim.config.voteTicks <= 0 or not sim.config.hasPlaySeat():
+      sim.votingDone = true
+    else:
+      sim.votingActive = true
+      sim.votingTicksLeft = sim.config.voteTicks
+      return
   if not sim.lobbyChatDone:
     if sim.config.lobbyChatTicks <= 0 or not sim.config.hasPlaySeat():
       sim.lobbyChatDone = true
