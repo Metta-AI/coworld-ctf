@@ -2,6 +2,7 @@
 
 import std/[options, unittest]
 
+import bitworld/spriteprotocol
 import ../src/ctf/sim_types
 import ../src/shell/body
 import ../src/shell/body_map
@@ -18,28 +19,56 @@ proc openMap(): BodyMap =
       walkable[y * Width + x] = true
   newBodyMap(walkable, Width, Height, 2, @[p(16, 80), p(Width - 17, 80)])
 
-proc selfState(pos = p(16, 80)): BodySelfState =
-  BodySelfState(pos: pos, hp: 3, hpFrac: 1.0, lives: some(1),
-    aimBrads: 0, alive: true)
+proc sightBlockedMap(): BodyMap =
+  const Width = 256
+  const Height = 160
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      walkable[y * Width + x] = not (x == 80 and y in 64 .. 96)
+  newBodyMap(walkable, Width, Height, 2, @[p(16, 80), p(Width - 17, 80)])
+
+proc selfState(pos = p(16, 80), aimBrads = 0, hp = 3, hpFrac = 1.0,
+               hasGrenade = false, hasSprayPaint = false,
+               fireCooldown = 0, fireWindup = 0): BodySelfState =
+  BodySelfState(pos: pos, hp: hp, hpFrac: hpFrac, lives: some(1),
+    aimBrads: aimBrads, fireCooldown: fireCooldown, fireWindup: fireWindup,
+    hasGrenade: hasGrenade, hasSprayPaint: hasSprayPaint,
+    alive: true)
 
 proc updateTracks(body: SeatBody, tick: uint32,
-                  tracks: openArray[BodyTrackUpdate]) =
-  body.updateBelief(BodyTickInputs(self: selfState(),
+                  tracks: openArray[BodyTrackUpdate],
+                  self = selfState()) =
+  body.updateBelief(BodyTickInputs(self: self,
     visibleTracks: @tracks), tick)
 
 proc track(seat: int, pos: BodyPoint, team: Team, tick: uint32,
-           hp = 3, aim = some(128)): BodyTrackUpdate =
+           hp = 3, aim = some(128), shielded = false,
+           weapon = none(BodyWeapon)): BodyTrackUpdate =
   BodyTrackUpdate(seat: seat, pos: pos, team: team, aimBrads: aim,
-    hpKnown: some(hp), tick: tick)
+    hpKnown: some(hp), shielded: shielded, weapon: weapon, tick: tick)
+
+proc unknownHpTrack(seat: int, pos: BodyPoint, team: Team,
+                    tick: uint32): BodyTrackUpdate =
+  BodyTrackUpdate(seat: seat, pos: pos, team: team, aimBrads: some(128),
+    hpKnown: none(int), tick: tick)
 
 proc candidate(seat: int, score: float, shootable = true,
                identity = some(seat)): CombatCandidateInput =
   CombatCandidateInput(seat: seat, shootable: shootable, baseScore: score,
     identity: identity)
 
+proc combatHold(policy: CombatPolicy): shellTypes.Intent =
+  shellTypes.Intent(kind: shellTypes.ikHold, point: none(MapPoint),
+    idleAimCenterBrads: none(int), profile: shellTypes.cpDefault,
+    combat: policy)
+
 proc selectedSeat(decision: Option[CombatDecision]): int =
   doAssert decision.isSome
   decision.get.combatTarget.combatSeat
+
+proc closeTo(actual, expected: float): bool =
+  abs(actual - expected) < 0.000001
 
 suite "shell combat policy":
   test "noShoot target is not constructible outside the selector":
@@ -254,13 +283,13 @@ suite "shell combat policy":
     let decision = body.selectCombatTarget(CombatPolicy(),
       [candidate(1, 1.0)], 30, 331, 3)
     let target = decision.get.combatTarget
-    check body.revalidateGrenadeCommit(CombatPolicy(), target, []).isSome
+    check body.revalidateGrenadeCommit(CombatPolicy(), target, [], 30).isSome
     check body.revalidateGrenadeCommit(
       CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(1'u8)])),
-      target, []).isNone
+      target, [], 30).isNone
     check body.revalidateGrenadeCommit(
       CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(2'u8)])),
-      target, [2]).isNone
+      target, [2], 30).isNone
 
     let absent = activateSeatBody(openMap(), 0, 331)
     absent.updateTracks(31, [track(1, p(64, 40), Blue, 31)])
@@ -268,12 +297,135 @@ suite "shell combat policy":
       [candidate(1, 1.0)], 31, 331, 3).get.combatTarget
     check absent.revalidateGrenadeCommit(
       CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(2'u8)])),
-      absentTarget, [2]).isNone
+      absentTarget, [2], 31).isNone
     # Team bans need a fog-readable team. With no track for splash seat 2, the
     # seat id is known but its team is not, so a team-only ban cannot cancel.
     check absent.revalidateGrenadeCommit(
       CombatPolicy(noShoot: ProtectedSet(teams: {Green})),
-      absentTarget, [2]).isSome
+      absentTarget, [2], 31).isSome
+
+  test "baseScore isolates every stencil term owned by body weapons":
+    block unknownWound:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(70, [unknownHpTrack(1, p(96, 80), Blue, 70)])
+      check body.combatBaseScore(1, 3).closeTo(
+        FirefightWoundWeight * FirefightWoundUnknown)
+
+    block rangePlateau:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(70, [track(1, p(236, 80), Blue, 70, hp = 3)])
+      check body.combatBaseScore(1, 3).closeTo(FirefightRangeWeight)
+
+    block aimCostOnly:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(70, [track(1, p(16, 160), Blue, 70, hp = 3)])
+      check body.combatBaseScore(1, 3).closeTo(
+        -FirefightAimCostWeight * 0.5)
+
+    block shieldOnly:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(70, [
+        track(1, p(96, 80), Blue, 70, hp = 3, shielded = true)])
+      check body.combatBaseScore(1, 3).closeTo(-FirefightShieldWeight)
+
+    block sprayOnly:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(70, [
+        track(1, p(96, 80), Blue, 70, hp = 3,
+          weapon = some(bwSpray))])
+      check body.combatBaseScore(1, 3).closeTo(FirefightSprayWeight)
+
+    block assembled:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(70, [
+        track(1, p(236, 80), Blue, 70, hp = 1, shielded = true,
+          weapon = some(bwSpray))])
+      check body.combatBaseScore(1, 3).closeTo(
+        FirefightWoundWeight * (2.0 / 3.0) + FirefightRangeWeight -
+          FirefightShieldWeight + FirefightSprayWeight)
+
+  test "shootability uses live range, map ray, and protected blockers":
+    block liveRange:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(78, [track(1, p(136, 80), Blue, 78, hp = 1)])
+      check not body.trackShootable(CombatPolicy(), 1, 78, 100)
+
+    block mapRay:
+      let body = activateSeatBody(sightBlockedMap(), 0, 331)
+      body.updateTracks(78, [track(1, p(136, 80), Blue, 78, hp = 1)])
+      check not body.trackShootable(CombatPolicy(), 1, 78, 331)
+
+    block protectedBlocker:
+      let body = activateSeatBody(openMap(), 0, 331)
+      let policy = CombatPolicy(protect: ProtectedSet(seats: @[SeatRef(2'u8)]))
+      body.updateTracks(78, [
+        track(1, p(136, 80), Blue, 78, hp = 1),
+        track(2, p(80, 80), Red, 78, hp = 3)])
+      check not body.trackShootable(policy, 1, 78, 331)
+
+  test "fire timing and final policy veto gate actuation":
+    let policy = CombatPolicy(prefer: @[ptWeakened])
+
+    block gunFiresWhenReady:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(80, [track(1, p(136, 80), Blue, 80, hp = 1)])
+      let decision = body.selectCombatTarget(policy,
+        body.combatCandidates(policy, 80, 331, 3), 80, 331, 3)
+      let fired = body.weaponActuationMask(policy, decision, 80)
+      check (fired and ButtonA) != 0
+      check (fired and ButtonC) == 0
+
+    block seatTickRoutesStandingCombatToActuation:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(policy), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[track(1, p(136, 80), Blue, 80, hp = 1)]), 80)
+      check input.attack
+      check not input.c
+
+    block policyChangeCancelsBetweenDecisionAndActuation:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(80, [track(1, p(136, 80), Blue, 80, hp = 1)])
+      let decision = body.selectCombatTarget(policy,
+        body.combatCandidates(policy, 80, 331, 3), 80, 331, 3)
+      let veto = CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(1'u8)]),
+        prefer: @[ptWeakened])
+      check body.weaponActuationMask(veto, decision, 80) == 0
+
+      let holdFireVeto = CombatPolicy(holdFire: true, prefer: @[ptWeakened])
+      check body.weaponActuationMask(holdFireVeto, decision, 80) == 0
+
+    block cooldownAndWindupBlockTrigger:
+      for blockedSelf in [
+          selfState(fireCooldown = 1),
+          selfState(fireWindup = 1)]:
+        let body = activateSeatBody(openMap(), 0, 331)
+        body.updateTracks(80, [track(1, p(136, 80), Blue, 80, hp = 1)],
+          blockedSelf)
+        let decision = body.selectCombatTarget(policy,
+          body.combatCandidates(policy, 80, 331, 3), 80, 331, 3)
+        check (body.weaponActuationMask(policy, decision, 80) and ButtonA) == 0
+
+    block sprayUsesAttackBitOnlyWhenConeContainsTarget:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(80, [track(1, p(96, 80), Blue, 80, hp = 1)],
+        selfState(hasSprayPaint = true))
+      let decision = body.selectCombatTarget(policy,
+        body.combatCandidates(policy, 80, 331, 3), 80, 331, 3)
+      let fired = body.weaponActuationMask(policy, decision, 80)
+      check (fired and ButtonA) != 0
+      check (fired and ButtonC) == 0
+
+    block grenadeChargesThenPolicyVetoCancelsReleasePath:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.updateTracks(80, [track(1, p(136, 80), Blue, 80, hp = 1)],
+        selfState(hasGrenade = true))
+      let decision = body.selectCombatTarget(policy,
+        body.combatCandidates(policy, 80, 331, 3), 80, 331, 3)
+      check body.weaponActuationMask(policy, decision, 80) == ButtonC
+      let veto = CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(1'u8)]),
+        prefer: @[ptWeakened])
+      check body.weaponActuationMask(veto, decision, 81) == 0
 
   test "selection is deterministic across repeats and candidate permutations":
     proc filled(): SeatBody =

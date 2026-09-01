@@ -515,6 +515,14 @@ suite "shell body seat belief-lite seam":
       replayPos = stepPosition(replayPos, input)
       replayAim = stepAim(replayAim, input)
 
+  test "idleSweepAim persists and reverses at both arc ends":
+    let body = activateSeatBody(openMap(), 0, 331)
+    var observed: seq[int]
+    for _ in 0 ..< 28:
+      observed.add(body.idleSweepAim(64))
+    check observed == @[69, 74, 79, 84, 89, 94, 96, 91, 86, 81, 76, 71,
+      66, 61, 56, 51, 46, 41, 36, 32, 37, 42, 47, 52, 57, 62, 67, 72]
+
   test "seatTick hold emits no movement and honors idle aim":
     let body = activateSeatBody(openMap(), 0, 331)
     body.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
@@ -526,9 +534,14 @@ suite "shell body seat belief-lite seam":
     check not rotating.select
     check rotating.withoutActuatorWeapons
 
-    let settled = body.seatTick(BodyTickInputs(
+    # Aim bits are allowed to move in phase 5: the old FL-B placeholder
+    # converged and held; the real Stencil idle aim sweeps continuously.
+    let sweeping = body.seatTick(BodyTickInputs(
       self: selfState(aimBrads = 63)), 1)
-    check settled.mask == 0
+    check not sweeping.hasMovement
+    check sweeping.b
+    check not sweeping.select
+    check sweeping.withoutActuatorWeapons
 
   test "seatTick arrival stops movement before scheduling route work":
     let map = openMap()
