@@ -711,7 +711,8 @@ proc recordCapture*(sim: var SimServer, playerIndex: int) =
   ## Increments the capture counter for one player.
   ##
   ## GLORY PORT (increment 2/3): the deed/xp mint and the "Uphill"/"Fast Break"
-  ## achievement pins live at the CALL SITE (`checkWinCondition`, sim.nim),
+  ## pins (v12: endcard distinctions now, not ladder gates -- same pin
+  ## sites) live at the CALL SITE (`checkWinCondition`, sim.nim),
   ## not here -- `roster.nim` only imports `sim_types`/`sim_state`, so it
   ## cannot see `awardDeed`/`addXp`/`teamAliveCount` (all in sim.nim, which
   ## imports `roster`, not the reverse). Splitting the mint out of this
@@ -863,7 +864,36 @@ proc squadResultsJson*(sim: SimServer): string =
   $results
 
 proc ctfPlayerResultsJson(sim: SimServer): string =
-  ## Returns final player win states and LEAGUE SCORES (glory) as JSON.
+  ## Returns final player win states and LEAGUE SCORES (glory) as JSON:
+  ## exactly one entry per SEAT, in seat order, when `numAgents` configures
+  ## a seat count.
+  ##
+  ## SEAT ARITY: a seat can command more than one cog -- `cogSeat`'s own
+  ## rule (sim.nim) is `joinOrder mod numAgents`, so seat k's squadmates are
+  ## cogs k, k+numAgents, k+2*numAgents, ... (this project's own "k, k+16"
+  ## duo-seat spacing, not adjacent indices). This proc used to emit one row
+  ## per joined SLOT (== per cog), which equals `numAgents` only when every
+  ## seat fields exactly one cog. server.nim's `squadMode` (gated on
+  ## `numAgents > 0 and cogsPerTeam > 1` -- true for every classic variant
+  ## too, since `cogsPerTeam` defaults to 4 and none of them override it)
+  ## auto-fills trusted cogs past the real seats up toward `sim.totalCogs()`,
+  ## capped by `MaxPlayers` (32) rather than by the seat count -- a 16-seat
+  ## classic match's squad-fill silently parked 16 EXTRA anonymous cogs
+  ## (32 total, the `MaxPlayers` ceiling) in `sim.players`, and the pre-fix
+  ## version of this proc reported one row per cog: the platform's hosted
+  ## certification rejected it outright ("game returned 32 scores for 16
+  ## seats"). Every extra cog's stats now fold into its OWNING seat's single
+  ## row instead of emitting a separate one, so `scores` always has exactly
+  ## `numAgents` entries (`squadResultsJson`'s own per-seat contract, kept
+  ## consistent here). Identity fields (name/team/win/score) come only from
+  ## the seat's OWN slot -- summing across squadmates would inflate a win/
+  ## loss or duplicate a team-scalar score -- while the analysis counters
+  ## (kills/deaths/etc.) and achievements are summed/unioned across every
+  ## cog the seat commands, so a real kill/capture/wipe by a squadmate still
+  ## drives the seat's row (#327's scoring fix stays intact: this never
+  ## touches the scoring VALUES, only which row a cog's stats land in).
+  ## `numAgents == 0` (no seat concept configured -- synthetic/test rosters
+  ## only) keeps the pre-fix behavior: one row per joined slot, unchanged.
   ##
   ## GLORY-AS-LEAGUE-SCORE: `scores[slot]` used to carry the RL training
   ## `reward` (WinReward/LossReward, +-1 scaled by team count) -- that
@@ -873,12 +903,16 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   ## `sim.teamGlory[team]` (the GV48 GLORY ledger, glory.nim/sim.nim's
   ## `awardDeed`) instead: "to get the glory you have to win, and if you win
   ## you get that score" -- a winning slot reports its team's full glory
-  ## total, a losing slot reports exactly 0. A draw (`sim.isDraw`) bank 0 for
-  ## everyone -- nobody won, so nobody banks -- which falls out of the same
-  ## `playerWon` gate already used for `win[]` below, unchanged. `scores` is
-  ## the platform's hardcoded canonical league-score key (its results
-  ## schema is `additionalProperties: false` with no field-selection knob),
-  ## so glory rides the existing key rather than adding a new one.
+  ## total, a losing slot reports exactly 0. A draw (`sim.isDraw`) banks 0
+  ## for everyone -- nobody won, so nobody banks -- which falls out of the
+  ## same `playerWon` gate already used for `win[]` below, unchanged.
+  ## `scores` is the platform's hardcoded canonical league-score key (its
+  ## results schema is `additionalProperties: false` with no field-selection
+  ## knob), so glory rides the existing key rather than adding a new one.
+  ## Because glory is a TEAM scalar, every cog on one seat's squad reports
+  ## the identical value, so the SEAT ARITY fold above (which keeps only the
+  ## primary slot's score and drops -- never sums -- a squadmate's) cannot
+  ## double- or under-count it.
   ##
   ## teamGlory is read, never written, and was already mixed into gameHash
   ## by GV48 increment 3/3 (sim_state.nim) well before this proc runs at
@@ -894,20 +928,19 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   ## `resetGloryLedger`) the way a multi-game path would; today none exists.
   var
     resultSlots: seq[int] = @[]
-    names = newJArray()
-    scores = newJArray()
-    win = newJArray()
-    teamList = newJArray()
-    killsList = newJArray()
-    teamKillsList = newJArray()
-    hitDamageList = newJArray()
-    teamHitDamageList = newJArray()
-    deathsList = newJArray()
-    capturesList = newJArray()
-    shotsFiredList = newJArray()
-    shotsHitList = newJArray()
-    achievementsList = newJArray()
-    results = newJObject()
+    namesArr: seq[string] = @[]
+    scoresArr: seq[int] = @[]
+    winArr: seq[bool] = @[]
+    teamArr: seq[string] = @[]
+    killsArr: seq[int] = @[]
+    teamKillsArr: seq[int] = @[]
+    hitDamageArr: seq[int] = @[]
+    teamHitDamageArr: seq[int] = @[]
+    deathsArr: seq[int] = @[]
+    capturesArr: seq[int] = @[]
+    shotsFiredArr: seq[int] = @[]
+    shotsHitArr: seq[int] = @[]
+    achievementsArr: seq[seq[string]] = @[]
   for slotIndex in 0 ..< sim.playerResultSlotCount():
     resultSlots.add(slotIndex)
   for slotIndex in resultSlots:
@@ -936,7 +969,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
       captures = 0
       shotsFired = 0
       shotsHit = 0
-      achievements = newJArray()
+      achievements: seq[string] = @[]
     if accountIndex >= 0:
       let account = sim.rewardAccounts[accountIndex]
       name = account.address
@@ -950,7 +983,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
       deaths = account.deaths
       captures = account.captures
       for id in account.earnedAchievements:
-        achievements.add(%id)
+        achievements.add(id)
     if playerIndex >= 0:
       let player = sim.players[playerIndex]
       name = player.address
@@ -985,18 +1018,112 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
         sim.teamGlory[playerTeam]
       else:
         0
-    names.add(%name)
-    scores.add(%glory)
-    win.add(%playerWon)
-    teamList.add(%(if hasTeam: teamText(playerTeam) else: "unknown"))
-    killsList.add(%kills)
-    teamKillsList.add(%teamKills)
-    hitDamageList.add(%hitDamage)
-    teamHitDamageList.add(%teamHitDamage)
-    deathsList.add(%deaths)
-    capturesList.add(%captures)
-    shotsFiredList.add(%shotsFired)
-    shotsHitList.add(%shotsHit)
+    namesArr.add(name)
+    scoresArr.add(glory)
+    winArr.add(playerWon)
+    teamArr.add(if hasTeam: teamText(playerTeam) else: "unknown")
+    killsArr.add(kills)
+    teamKillsArr.add(teamKills)
+    hitDamageArr.add(hitDamage)
+    teamHitDamageArr.add(teamHitDamage)
+    deathsArr.add(deaths)
+    capturesArr.add(captures)
+    shotsFiredArr.add(shotsFired)
+    shotsHitArr.add(shotsHit)
+    achievementsArr.add(achievements)
+
+  # --- collapse to one row per SEAT --------------------------------------
+  # numAgents <= 0 means "no seat concept configured" (only synthetic/test
+  # rosters do this): seatCount falls back to the per-slot row count above,
+  # which makes the block below a no-op and keeps pre-fix behavior exactly.
+  let seatCount =
+    if sim.config.numAgents > 0: sim.config.numAgents
+    else: namesArr.len
+  if seatCount > 0 and namesArr.len != seatCount:
+    if namesArr.len > seatCount:
+      # Extra squad-filled cogs past the real seats: fold each one's stats
+      # onto its owning seat (`joinOrder mod numAgents`, `cogSeat`'s own
+      # rule) before the row itself is dropped. `scoresArr` (glory, a TEAM
+      # scalar) is deliberately NOT folded here -- every cog on a seat's
+      # squad already carries the identical value, so the primary slot's
+      # own entry (kept below) is already correct; summing it would inflate
+      # a winning seat's glory by its squad size.
+      for i in seatCount ..< namesArr.len:
+        let seat = i mod seatCount
+        killsArr[seat] += killsArr[i]
+        teamKillsArr[seat] += teamKillsArr[i]
+        hitDamageArr[seat] += hitDamageArr[i]
+        teamHitDamageArr[seat] += teamHitDamageArr[i]
+        deathsArr[seat] += deathsArr[i]
+        capturesArr[seat] += capturesArr[i]
+        shotsFiredArr[seat] += shotsFiredArr[i]
+        shotsHitArr[seat] += shotsHitArr[i]
+        for id in achievementsArr[i]:
+          if id notin achievementsArr[seat]:
+            achievementsArr[seat].add(id)
+    else:
+      # Fewer joined slots than configured seats (a no-show, or a config
+      # that never populated `slots`): pad so the invariant -- exactly
+      # `numAgents` rows -- holds either direction.
+      for i in namesArr.len ..< seatCount:
+        namesArr.add("player-" & $i)
+        scoresArr.add(0)
+        winArr.add(false)
+        teamArr.add("unknown")
+        killsArr.add(0)
+        teamKillsArr.add(0)
+        hitDamageArr.add(0)
+        teamHitDamageArr.add(0)
+        deathsArr.add(0)
+        capturesArr.add(0)
+        shotsFiredArr.add(0)
+        shotsHitArr.add(0)
+        achievementsArr.add(@[])
+    namesArr.setLen(seatCount)
+    scoresArr.setLen(seatCount)
+    winArr.setLen(seatCount)
+    teamArr.setLen(seatCount)
+    killsArr.setLen(seatCount)
+    teamKillsArr.setLen(seatCount)
+    hitDamageArr.setLen(seatCount)
+    teamHitDamageArr.setLen(seatCount)
+    deathsArr.setLen(seatCount)
+    capturesArr.setLen(seatCount)
+    shotsFiredArr.setLen(seatCount)
+    shotsHitArr.setLen(seatCount)
+    achievementsArr.setLen(seatCount)
+
+  var
+    names = newJArray()
+    scores = newJArray()
+    win = newJArray()
+    teamList = newJArray()
+    killsList = newJArray()
+    teamKillsList = newJArray()
+    hitDamageList = newJArray()
+    teamHitDamageList = newJArray()
+    deathsList = newJArray()
+    capturesList = newJArray()
+    shotsFiredList = newJArray()
+    shotsHitList = newJArray()
+    achievementsList = newJArray()
+    results = newJObject()
+  for i in 0 ..< namesArr.len:
+    names.add(%namesArr[i])
+    scores.add(%scoresArr[i])
+    win.add(%winArr[i])
+    teamList.add(%teamArr[i])
+    killsList.add(%killsArr[i])
+    teamKillsList.add(%teamKillsArr[i])
+    hitDamageList.add(%hitDamageArr[i])
+    teamHitDamageList.add(%teamHitDamageArr[i])
+    deathsList.add(%deathsArr[i])
+    capturesList.add(%capturesArr[i])
+    shotsFiredList.add(%shotsFiredArr[i])
+    shotsHitList.add(%shotsHitArr[i])
+    var achievements = newJArray()
+    for id in achievementsArr[i]:
+      achievements.add(%id)
     achievementsList.add(achievements)
   results["names"] = names
   results["scores"] = scores

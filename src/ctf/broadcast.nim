@@ -484,6 +484,46 @@ proc rosterJson(sim: SimServer): JsonNode =
       item["pk"] = pk
     result.add(item)
 
+proc gloryPopsJson(sim: SimServer): JsonNode =
+  ## GLORY: the CURRENT cosmetic pop queue (`sim.gloryPops`), for a viewer to
+  ## draw a floating "+Ng"/named-claim sprite at the deed site. Read-only
+  ## exposure of state `awardDeed`/`addGloryPop` already maintain (aged out
+  ## by `pruneAgedFx` every tick, same as `damagePops`/`splatters`) -- never
+  ## gameHash (see `GloryFx`'s own doc comment). `first`/`earnerIndex` ride
+  ## along so a viewer can style a claim differently from a plain deed pop
+  ## and anchor a unit-earned pop to that cog's own sprite instead of the
+  ## site coordinate (client work not yet done -- see `earner`'s own note
+  ## below). `row` rides along too: `addGloryPop`'s own site-collision search
+  ## (sim.nim) already computes it specifically so a renderer can stack
+  ## same-site pops instead of drawing them on top of each other -- visually
+  ## confirmed missing this field renders two legitimately-simultaneous pops
+  ## (e.g. a rank-up beside an unrelated 0..N-glory deed at the same spawn
+  ## point) as illegible mashed text. Wire lifetimes (`gloryFxTicks`/
+  ## `achievementFxTicks`, picked by `label.len > 0` the same way
+  ## `pruneAgedFx`'s own call site does) ride `window.CTF_WIRE`
+  ## (wire_constants.nim) so the client's fade timing can never drift from
+  ## the engine's own aging.
+  result = newJArray()
+  for pop in sim.gloryPops:
+    result.add(%*{
+      "x": pop.x,
+      "y": pop.y,
+      "t": pop.tick,
+      "delay": pop.startDelay,
+      "amt": pop.amount,
+      "team": teamText(pop.team),
+      "lbl": pop.label,
+      "word": pop.word,
+      "first": pop.first,
+      # `earner`: the minting cog's roster index, -1 if site-anchored. Rides
+      # the wire (has done since the pop queue was first exposed) but no
+      # client yet resolves it to a live sprite position -- see this proc's
+      # own doc comment. A pop with `earner >= 0` still renders at its
+      # frozen mint-time (x, y) today, same as a site-anchored one.
+      "earner": pop.earnerIndex,
+      "row": pop.row
+    })
+
 const
   FpColumns = 96              ## raycast columns per first-person frame.
   FpMarchStep = 2.0           ## px per wall-march step (fine enough at 1235px).
@@ -882,7 +922,9 @@ proc buildStateJson*(
   fastForwarding: bool = false,
   lullSpans: seq[array[2, int]] = @[],
   beatEvents: JsonNode = nil,
-  achievementBadges: JsonNode = nil
+  achievementBadges: JsonNode = nil,
+  lobbyChat: JsonNode = nil,
+  ballots: JsonNode = nil
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -917,7 +959,12 @@ proc buildStateJson*(
     "pov": povSlot,
     "teams": teams,
     "roster": sim.rosterJson(),
-    "events": (if events.isNil: newJArray() else: events)
+    "events": (if events.isNil: newJArray() else: events),
+    # GLORY: the live cosmetic pop queue, every frame (see `gloryPopsJson`'s
+    # own doc comment) -- unconditional and cheap like `roster`, since the
+    # queue is already bounded by `pruneAgedFx`, not something to gate behind
+    # a "send once" flag the way the full-match `ach`/`lead` chrome is.
+    "pops": sim.gloryPopsJson()
   }
 
   # BR mode, for the CHROME. The header bakes CTF identity into itself — a
@@ -1030,6 +1077,22 @@ proc buildStateJson*(
   if not achievementBadges.isNil and achievementBadges.len > 0:
     state["ach"] = achievementBadges
 
+  # SEASON 2: the lobby-phase huddle transcript (shell record `0x13`,
+  # RecLobbyChat) and the pre-match ballot (`0x17`, RecVoteReserved),
+  # shipped once on the same lead frame as `ach`/`beats`/`lead` above. Both
+  # are shell-layer records, not sim state -- the caller decodes them once
+  # from the replay's verified `.shell` metadata (see `ctf_replay.nim`) and
+  # passes them here every frame; only the FIRST (lead) frame actually
+  # forwards them into the chrome, same "send once, client caches it"
+  # convention as `achievementBadges`. Absent on a replay that never
+  # recorded either phase (a pre-huddle/pre-vote replay, or the phase
+  # ticked-off in config) -- the client's own "degrade to nothing" is
+  # simply never seeing the key.
+  if not lobbyChat.isNil and lobbyChat.len > 0:
+    state["huddle"] = lobbyChat
+  if not ballots.isNil and ballots.len > 0:
+    state["vote"] = ballots
+
   # Full-timeline lull spans, shipped alongside the lead series on the same
   # first frame: [[firstTick, lastTick], …] quiet stretches the skip-lulls mode
   # fast-forwards. The client caches them to shade the scrubber.
@@ -1100,6 +1163,32 @@ proc buildStateJson*(
           "slot": claim.slot
         })
       state["over"]["achievements"] = feed
+    # GLORY v12 (contract §3): capture DISTINCTIONS -- "Uphill" and "Fast
+    # Break" moved off the Heart ladder and onto the match record. The
+    # engine still pins `capturedOutnumbered`/`capturedFastBreak` at the
+    # capture site (checkWinCondition); this block just ships the pins so
+    # the endcard can render the distinction line(s). Display only: no
+    # glory, no claim, no heat -- which is why these ride their own key and
+    # not the achievements feed above. Omit-when-absent, like every other
+    # conditional key on this frame. Shape per entry:
+    #   { team, slot (joinOrder, same seat space as the feed's "slot"),
+    #     name, desc }
+    var distinctions = newJArray()
+    for i in 0 ..< sim.players.len:
+      for distinction in CaptureDistinction:
+        let pinned =
+          case distinction
+          of cdUphill: sim.players[i].capturedOutnumbered
+          of cdFastBreak: sim.players[i].capturedFastBreak
+        if pinned:
+          distinctions.add(%*{
+            "team": teamText(sim.players[i].team),
+            "slot": sim.players[i].joinOrder,
+            "name": captureDistinctionName(distinction),
+            "desc": captureDistinctionDescription(distinction)
+          })
+    if distinctions.len > 0:
+      state["over"]["distinctions"] = distinctions
     if not sim.gameMap.flagless:
       state["over"]["redProg"] = %sim.teamFlagProgress(Red)
       state["over"]["blueProg"] = %sim.teamFlagProgress(Blue)

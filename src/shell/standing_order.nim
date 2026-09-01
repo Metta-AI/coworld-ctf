@@ -28,6 +28,7 @@ type
     currentZone*: MapRect
     nextZone*: MapRect
     ticksToNextShrink*: int
+    zonePhase*: int
     zoneDps*: int
     idleAimCenterBrads*: int
     rotateTarget*: Option[BodyPoint]

@@ -58,6 +58,14 @@ type
     ordinal*: int
     arrival*: int64
 
+  PlanEscapeProfileStage* = enum
+    psCandidateBounds
+    psGoalValidation
+    psOptionDedup
+    psArrival
+    psScorer
+    psTupleComparison
+
   EscapeScorer* = proc(candidate: EscapeCandidate): EscapeScore {.closure.}
 
 proc maxKey*(value: int64): ScoreKey =
@@ -75,18 +83,21 @@ proc scoreKeys*(items: openArray[ScoreKey]): ScoreKeyList =
   for index, item in items:
     result.items[index] = item
 
-proc pointKey(point: BodyPoint): int64 =
-  (int64(point.x) shl 32) xor (int64(point.y) and 0xffff_ffff'i64)
+proc scoreKey2*(a, b: ScoreKey): ScoreKeyList =
+  result.len = 2
+  result.items[0] = a
+  result.items[1] = b
 
-proc seenOrAdd(keys: var array[DedupSlots, int64];
-               used: var array[DedupSlots, bool]; key: int64): bool =
-  var slot = int((uint64(key) xor (uint64(key) shr 33)) and
+proc pointKey(point: BodyPoint): uint64 =
+  ((uint64(point.x) shl 32) or uint64(point.y)) + 1'u64
+
+proc seenOrAdd(keys: var array[DedupSlots, uint64]; key: uint64): bool =
+  var slot = int((key xor (key shr 33)) and
     uint64(DedupSlots - 1))
-  while used[slot]:
+  while keys[slot] != 0'u64:
     if keys[slot] == key:
       return true
     slot = (slot + 1) and (DedupSlots - 1)
-  used[slot] = true
   keys[slot] = key
   false
 
@@ -172,8 +183,7 @@ proc planEscape*(input: PlanEscapeInput; scorer: EscapeScorer):
   doAssert ReflexCandidateRadiusPx mod ReflexCandidateSpacingPx == 0
 
   var
-    seenKeys: array[DedupSlots, int64]
-    seenUsed: array[DedupSlots, bool]
+    seenKeys: array[DedupSlots, uint64]
     ordinal = 0
     haveHard = false
     haveFallback = false
@@ -198,7 +208,7 @@ proc planEscape*(input: PlanEscapeInput; scorer: EscapeScorer):
       inc result.resolvedCount
       let resolved = goal.get.goalPoint
       let key = pointKey(resolved)
-      if seenKeys.seenOrAdd(seenUsed, key):
+      if seenKeys.seenOrAdd(key):
         inc ordinal
         continue
       inc result.dedupedCount
@@ -206,6 +216,100 @@ proc planEscape*(input: PlanEscapeInput; scorer: EscapeScorer):
         resolved: resolved, goal: goal, ordinal: ordinal,
         arrival: input.arrivalFor(resolved))
       let score = scorer(candidate)
+      if score.hardPass:
+        let keys = score.normal.withUniversal(candidate)
+        if not haveHard or keys.betterKeys(hardKeys):
+          haveHard = true
+          bestHard = candidate
+          hardKeys = keys
+      let keys = score.fallback.withUniversal(candidate)
+      if not haveFallback or keys.betterKeys(fallbackKeys):
+        haveFallback = true
+        bestFallback = candidate
+        fallbackKeys = keys
+      inc ordinal
+
+  if not haveFallback:
+    return
+
+  let chosen =
+    if haveHard:
+      bestHard
+    else:
+      result.fallbackUsed = true
+      bestFallback
+  result.found = true
+  result.goal = chosen.goal
+  result.point = chosen.resolved
+  result.ordinal = chosen.ordinal
+  result.arrival = chosen.arrival
+
+proc planEscapeThroughStage*(input: PlanEscapeInput; scorer: EscapeScorer;
+                             stage: PlanEscapeProfileStage):
+    PlanEscapeResult =
+  ## Measurement-only cumulative stage runner. It keeps timers outside the
+  ## candidate loop and stops after the requested stage, so tests can attribute
+  ## costs by subtracting full-loop stage totals without contaminating the
+  ## production `planEscape` path.
+  doAssert input.map != nil
+  doAssert ReflexCandidateRadiusPx mod ReflexCandidateSpacingPx == 0
+
+  var
+    seenKeys: array[DedupSlots, uint64]
+    ordinal = 0
+    haveHard = false
+    haveFallback = false
+    bestHard: EscapeCandidate
+    bestFallback: EscapeCandidate
+    hardKeys: ScoreKeyList
+    fallbackKeys: ScoreKeyList
+
+  for dy in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                   ReflexCandidateSpacingPx):
+    for dx in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
+                     ReflexCandidateSpacingPx):
+      let requested = (input.fromPoint.x + dx, input.fromPoint.y + dy)
+      inc result.considered
+      if not input.map.inBounds(requested):
+        inc ordinal
+        continue
+      if stage == psCandidateBounds:
+        inc ordinal
+        continue
+
+      let goal = input.map.validateGoal(requested, input.fromPoint)
+      if goal.isNone:
+        inc ordinal
+        continue
+      if stage == psGoalValidation:
+        inc ordinal
+        continue
+
+      inc result.resolvedCount
+      let resolved = goal.get.goalPoint
+      let key = pointKey(resolved)
+      if seenKeys.seenOrAdd(key):
+        inc ordinal
+        continue
+      inc result.dedupedCount
+      if stage == psOptionDedup:
+        inc ordinal
+        continue
+
+      let arrival = input.arrivalFor(resolved)
+      if stage == psArrival:
+        inc ordinal
+        continue
+
+      let candidate = EscapeCandidate(requested: requested,
+        resolved: resolved, goal: goal, ordinal: ordinal,
+        arrival: arrival)
+
+      let score = scorer(candidate)
+      if stage == psScorer:
+        inc ordinal
+        continue
+
       if score.hardPass:
         let keys = score.normal.withUniversal(candidate)
         if not haveHard or keys.betterKeys(hardKeys):

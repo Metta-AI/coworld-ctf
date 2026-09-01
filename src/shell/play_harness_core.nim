@@ -7,8 +7,8 @@
 import std/[json, options, os, strutils]
 
 import ../ctf/[arena, sim_types]
-import abi, body_map, canonical, canonical_fast, emit_validator, instance, manifest,
-  module_validation, runtime, types
+import abi, binary_view, body_map, canonical, canonical_fast, emit_validator,
+  instance, manifest, module_validation, runtime, types, view
 
 type
   HarnessError* = object of CatchableError
@@ -84,6 +84,59 @@ proc payloadBytes(node: JsonNode; field, fallback: string): string =
     value.getStr()
   else:
     canonicalJson(value)
+
+proc rectFromNode(node: JsonNode): PlayRect =
+  if node.kind != JArray or node.len != 4:
+    harnessInvalid("view zone rect must be [x,y,w,h]")
+  PlayRect(x: node[0].getInt(), y: node[1].getInt(),
+    w: node[2].getInt(), h: node[3].getInt())
+
+proc binaryViewBytes(node: JsonNode; tick: uint32; mode: GameMode;
+                     selfPos: BodyPoint): string =
+  if node.kind == JString:
+    return node.getStr()
+  if node.kind != JObject:
+    return canonicalJson(node)
+  var source = PlayViewSource(
+    tick: if node.hasKey("tick"): uint32(node["tick"].getInt()) else: tick,
+    mode: mode,
+    self: PlaySelf(pos: selfPos, hp: 1, hpFrac: 1.0, aimBrads: 0,
+      alive: true),
+    aliveTeams: 2)
+  if node.hasKey("self") and node["self"].kind == JObject:
+    let self = node["self"]
+    if self.hasKey("pos") and self["pos"].kind == JArray and
+        self["pos"].len == 2:
+      source.self.pos = (self["pos"][0].getInt(), self["pos"][1].getInt())
+    if self.hasKey("hp"):
+      source.self.hp = self["hp"].getInt()
+    if self.hasKey("hp_frac"):
+      source.self.hpFrac = self["hp_frac"].getFloat()
+    if self.hasKey("aim_brads"):
+      source.self.aimBrads = self["aim_brads"].getInt()
+    if self.hasKey("alive"):
+      source.self.alive = self["alive"].getBool()
+  if node.hasKey("world") and node["world"].kind == JObject:
+    let world = node["world"]
+    if world.hasKey("alive_teams"):
+      source.aliveTeams = world["alive_teams"].getInt()
+    if world.hasKey("zone") and world["zone"].kind == JObject:
+      let zone = world["zone"]
+      var playZone = PlayZone()
+      if zone.hasKey("phase"):
+        playZone.phase = zone["phase"].getInt()
+      if zone.hasKey("current"):
+        playZone.current = rectFromNode(zone["current"])
+      else:
+        playZone.current = PlayRect(x: 0, y: 0, w: 720, h: 96)
+      if zone.hasKey("next"):
+        playZone.next = some(rectFromNode(zone["next"]))
+      if zone.hasKey("ticks_to_shrink"):
+        playZone.ticksToShrink = zone["ticks_to_shrink"].getInt()
+      if zone.hasKey("dps"):
+        playZone.dps = zone["dps"].getInt()
+      source.zone = some(playZone)
+  buildBinaryPlayView(source)
 
 proc parsePoint(node: JsonNode; field: string; fallback: BodyPoint): BodyPoint =
   if not node.hasKey(field):
@@ -172,14 +225,18 @@ proc parseHarnessCase*(bytes: string; baseDir = ""): HarnessCase =
   for frameNode in root["frames"]:
     if frameNode.kind != JObject or not frameNode.hasKey("op"):
       harnessInvalid("each frame requires op")
-    var frame = HarnessFrame(kind: parseFrameKind(frameNode["op"].getStr()),
+    let kind = parseFrameKind(frameNode["op"].getStr())
+    let tick = if frameNode.hasKey("tick"): frameNode["tick"].getInt().uint32
+      else: 0'u32
+    var frame = HarnessFrame(kind: kind,
       paramsBytes: frameNode.payloadBytes("params", "{}"),
       contextBytes: frameNode.payloadBytes("context", "{}"),
-      viewBytes: frameNode.payloadBytes("view", "{}"),
+      viewBytes: if frameNode.hasKey("view"):
+        binaryViewBytes(frameNode["view"], tick, result.mode, result.selfPos)
+        else: "{}",
       oldParamsBytes: frameNode.payloadBytes("old_params", "{}"),
       newParamsBytes: frameNode.payloadBytes("new_params", "{}"),
-      tick: if frameNode.hasKey("tick"): frameNode["tick"].getInt().uint32
-            else: 0'u32)
+      tick: tick)
     result.frames.add(frame)
 
 proc openRoomsMap(): BodyMap =

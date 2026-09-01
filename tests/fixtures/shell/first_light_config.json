@@ -1,4 +1,5 @@
 {
+  "_comment": "FIRST LIGHT demo timings: zonePhases deliberately compress practice's match-length BR schedule so the flood is visible during a watched demo.",
   "season2Shell": true,
   "viewIntervalTicks": 6,
   "lobbyChatTicks": 0,
@@ -34,5 +35,37 @@
     {"control": "play"}, {"control": "play"},
     {"control": "play"}, {"control": "play"},
     {"control": "play"}, {"control": "play"}
+  ],
+  "zonePhases": [
+    {
+      "z": 0.75,
+      "waitTicks": 480,
+      "shrinkTicks": 360,
+      "dps": 0
+    },
+    {
+      "z": 0.55,
+      "waitTicks": 360,
+      "shrinkTicks": 360,
+      "dps": 2
+    },
+    {
+      "z": 0.4,
+      "waitTicks": 300,
+      "shrinkTicks": 300,
+      "dps": 4
+    },
+    {
+      "z": 0.28,
+      "waitTicks": 240,
+      "shrinkTicks": 240,
+      "dps": 8
+    },
+    {
+      "z": 0.17,
+      "waitTicks": 180,
+      "shrinkTicks": 180,
+      "dps": 12
+    }
   ]
 }

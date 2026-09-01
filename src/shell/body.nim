@@ -22,11 +22,32 @@ const
   ItemMemoryCap = 32
   AggressorWindowTicks = 120'u32
   KillFeedWindowTicks = 240'u32
+  MovementMask = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
   # PORTED from the pinned lab — parity-bound, do NOT tune. Changing one of
   # these changes the gate-1 differential, not just behaviour.
+  AimSweepStepBrads* = AimTurnRate      ## LAB config.nim:76
+  SweepHalfArc* = 32                    ## LAB config.nim:111
+  FireSlackPx* = 8                      ## LAB config.nim:111
+  CloseRangePx* = 220                   ## LAB config.nim:111
+  FirefightRangeScoreFalloffPx* = 350   ## LAB config.nim:97
+  FirefightRangeClosePx* = 120          ## LAB config.nim:168-169
+  FirefightRangeIdealMinPx* = 220       ## LAB config.nim:170-171
+  FirefightRangeIdealMaxPx* = 300       ## LAB config.nim:172-173
   FirefightTargetMinDwellTicks* = 8     ## LAB config.nim:164-165
   FirefightTargetSwitchMargin* = 0.10   ## LAB config.nim:166-167
+  FirefightWoundWeight* = 0.50          ## LAB config.nim:174
+  FirefightWoundUnknown* = 0.15         ## LAB config.nim:175-176
+  FirefightRangeWeight* = 0.30          ## LAB config.nim:177
+  FirefightClaimWeight* = 0.12          ## LAB config.nim:178
   FirefightShootabilityWeight* = 0.35   ## LAB config.nim:179-180
+  FirefightAimCostWeight* = 0.18        ## LAB config.nim:181
+  FirefightShieldWeight* = 0.10         ## LAB config.nim:182
+  FirefightSprayWeight* = 1.0           ## LAB config.nim:224-225
+  GrenadeMinThrowPx* = 90               ## LAB config.nim:99
+  GrenadeForceReleaseTicks* = 16        ## LAB config.nim:100
+  ArcFireRangePx* = 170                 ## LAB config.nim:206-207
+  ArcMaxWidthPx* = 85                   ## LAB config.nim:208-209
+  GrenadeAimErrBrads* = 4               ## LAB config.nim:242
   # SHELL INVENTIONS — wards are a §4.2 shell concept with no stencil
   # counterpart, so these are chosen, not ported, and are legitimately
   # tunable. WardThreatScoreBoost sits deliberately above the shootability
@@ -263,6 +284,12 @@ type
     partnerGrant: Option[PartnerTelemetry]
     heldCombatTarget: Option[CombatTarget]
     heldCombatSelectedTick: uint32
+    sweepOffset: int
+    sweepDir: int
+    aHeld: bool
+    fireHoldTicks: int
+    throwChargeTicks: int
+    throwTarget: Option[CombatTarget]
 
 proc tickInsideWindow(eventTick, now, window: uint32): bool =
   eventTick <= now and uint64(now - eventTick) < uint64(window)
@@ -293,6 +320,66 @@ proc distanceSquared(a, b: BodyPoint): int64 =
     dx = int64(a.x - b.x)
     dy = int64(a.y - b.y)
   dx * dx + dy * dy
+
+proc distancePx(a, b: BodyPoint): float =
+  hypot((a.x - b.x).float, (a.y - b.y).float)
+
+proc rangeTerm(distancePx: float): float =
+  let
+    idealMin = min(FirefightRangeIdealMinPx, FirefightRangeScoreFalloffPx)
+    idealMax = min(max(FirefightRangeIdealMaxPx, idealMin),
+      FirefightRangeScoreFalloffPx)
+    close = min(FirefightRangeClosePx, idealMin)
+  if distancePx <= close.float or
+      distancePx > FirefightRangeScoreFalloffPx.float:
+    return 0.0
+  if distancePx < idealMin.float:
+    return (distancePx - close.float) / max((idealMin - close).float, 1.0)
+  if distancePx <= idealMax.float:
+    return 1.0
+  (FirefightRangeScoreFalloffPx.float - distancePx) /
+    max((FirefightRangeScoreFalloffPx - idealMax).float, 1.0)
+
+proc woundTerm(hpKnown: Option[int], targetMaxHp: int): float =
+  if hpKnown.isNone:
+    return FirefightWoundUnknown
+  # PARKED PARITY TERM: stencil scores `(3 - hpSegments) / 2` over a
+  # paintbot-only segment count. The shell seam carries raw hp, so this uses
+  # the shell's own weakened signal until the phase-7 differential decides the
+  # segment mapping.
+  max(0.0, 1.0 - min(1.0, hpKnown.get.float / targetMaxHp.float))
+
+proc aimCost(fromPos: BodyPoint, aimBrads: int, target: BodyPoint): float =
+  let wanted = bradsOfVector(target.x - fromPos.x, target.y - fromPos.y)
+  abs(shortestAimBradsDelta(aimBrads, wanted)).float /
+    (AimBradsTurn div 2).float
+
+proc fireGateAligned(fromPos: BodyPoint, aimBrads: int,
+                     target: BodyPoint): bool =
+  let range = distancePx(fromPos, target)
+  if range < 1.0:
+    return true
+  let wanted = bradsOfVector(target.x - fromPos.x, target.y - fromPos.y)
+  let errorRadians = abs(shortestAimBradsDelta(aimBrads, wanted)).float /
+    AimBradsTurn.float * 2.0 * PI
+  let slack = FireSlackPx.float *
+    (if range <= CloseRangePx.float: 2.0 else: 1.0)
+  range * sin(errorRadians) <= slack
+
+proc pointBlocksSegment(point, fromPos, target: BodyPoint,
+                        corridorHalfWidth: float): bool =
+  let range = distancePx(fromPos, target)
+  if range < 1.0:
+    return false
+  let
+    ux = (target.x - fromPos.x).float / range
+    uy = (target.y - fromPos.y).float / range
+    mx = (point.x - fromPos.x).float
+    my = (point.y - fromPos.y).float
+    along = mx * ux + my * uy
+  if along <= 0.0 or along >= range:
+    return false
+  abs(mx * -uy + my * ux) <= corridorHalfWidth
 
 proc sortItemsForRetention(items: var seq[BodyItemMemory], selfPos: BodyPoint) =
   items.sort(proc(a, b: BodyItemMemory): int =
@@ -405,6 +492,8 @@ proc activateSeatBody*(nav: BodyNavSystem, seatIndex: int): SeatBody =
   result.standingIntent = safeIntent()
   result.effectiveEpoch = 0
   result.standingGoal = none(ValidatedGoal)
+  result.sweepDir = 1
+  result.throwTarget = none(CombatTarget)
 
 proc activateSeatBody*(map: BodyMap, seatIndex: int,
                        liveGunRangePx: int): SeatBody =
@@ -627,6 +716,87 @@ proc protectedPolicySeat*(policy: shellTypes.CombatPolicy, seat: int): bool =
   validateSeat(seat, "combat target")
   policy.noShoot.containsSeat(seat) or policy.protect.containsSeat(seat)
 
+proc combatPolicyActive(policy: shellTypes.CombatPolicy): bool =
+  policy.holdFire or policy.prefer.len > 0 or card(policy.noShoot.teams) > 0 or
+    policy.noShoot.seats.len > 0 or card(policy.protect.teams) > 0 or
+    policy.protect.seats.len > 0
+
+proc targetMaxHpEstimate(body: SeatBody): int =
+  ## The body seam has no config object. In ordinary CTF all cogs share max hp,
+  ## so self `hp / hpFrac` recovers the live value when readable; fall back to
+  ## the sim default when the fraction is absent/zero.
+  if body.selfState.hp > 0 and body.selfState.hpFrac > 0.0:
+    return max(1, int(round(body.selfState.hp.float / body.selfState.hpFrac)))
+  HitPoints
+
+proc protectedTrackBlocksShot(body: SeatBody,
+    policy: shellTypes.CombatPolicy, targetSeat: int, tick: uint32): bool =
+  for seat in 0 ..< MaxPlayers:
+    if seat == body.seatIndex or seat == targetSeat or body.tracks[seat].isNone:
+      continue
+    let track = body.tracks[seat].get
+    if track.freshTick == tick and policy.protectedPolicyTarget(seat, track.team) and
+        pointBlocksSegment(track.pos, body.selfState.pos,
+          body.tracks[targetSeat].get.pos, BulletHalfWidth):
+      return true
+  false
+
+proc trackShootable*(body: SeatBody, policy: shellTypes.CombatPolicy,
+    targetSeat: int, tick: uint32, liveWeaponRangePx: int): bool =
+  ## Shootability is the live geometry term used by Stencil's target
+  ## candidates: range, wall LoS, and policy-protected blockers. The body does
+  ## not need an own-team seam field here because noShoot/protect is the
+  ## structural weapon veto surface in the shell.
+  validateSeat(targetSeat, "combat target")
+  if liveWeaponRangePx <= 0:
+    raise newException(ValueError, "live weapon range must be positive")
+  if body.tracks[targetSeat].isNone:
+    return false
+  let track = body.tracks[targetSeat].get
+  if track.freshTick != tick:
+    return false
+  distancePx(body.selfState.pos, track.pos) <= liveWeaponRangePx.float and
+    body.map.rayClear(body.selfState.pos, track.pos) and
+    not body.protectedTrackBlocksShot(policy, targetSeat, tick)
+
+proc combatBaseScore*(body: SeatBody, targetSeat: int, targetMaxHp: int): float =
+  ## Stencil scoreTarget's generic score without shootability. Phase 4 already
+  ## owns the shootability term in `selectCombatTarget`, so including it here
+  ## would double-count.
+  validateSeat(targetSeat, "combat target")
+  if targetMaxHp <= 0:
+    raise newException(ValueError, "target max hp must be positive")
+  if body.tracks[targetSeat].isNone:
+    raise newException(ValueError, "combat target track is absent")
+  let track = body.tracks[targetSeat].get
+  let
+    wound = woundTerm(track.hpKnown, targetMaxHp)
+    rangeBand = rangeTerm(distancePx(body.selfState.pos, track.pos))
+    # PARKED PARITY TERM: stencil's focus-claim coordination has no shell
+    # counterpart in this phase. The value is intentionally zero, not an
+    # omitted term; phase-7 owns the differential answer.
+    claim = 0.0
+    shield = if track.shielded: 1.0 else: 0.0
+    spray = if track.weapon == some(bwSpray): 1.0 else: 0.0
+  FirefightWoundWeight * wound + FirefightRangeWeight * rangeBand +
+    FirefightClaimWeight * claim -
+    FirefightAimCostWeight * aimCost(body.selfState.pos,
+      body.selfState.aimBrads, track.pos) -
+    FirefightShieldWeight * shield + FirefightSprayWeight * spray
+
+proc combatCandidates*(body: SeatBody, policy: shellTypes.CombatPolicy,
+    tick: uint32, liveWeaponRangePx, targetMaxHp: int): seq[CombatCandidateInput] =
+  for seat in 0 ..< MaxPlayers:
+    if seat == body.seatIndex or body.tracks[seat].isNone:
+      continue
+    let track = body.tracks[seat].get
+    if track.freshTick != tick:
+      continue
+    result.add(CombatCandidateInput(seat: seat,
+      shootable: body.trackShootable(policy, seat, tick, liveWeaponRangePx),
+      baseScore: body.combatBaseScore(seat, targetMaxHp),
+      identity: some(seat)))
+
 proc combatSeat*(target: CombatTarget): int {.inline.} = target.seat
 proc combatTeam*(target: CombatTarget): Team {.inline.} = target.team
 proc combatPos*(target: CombatTarget): BodyPoint {.inline.} = target.pos
@@ -829,20 +999,24 @@ proc selectCombatTarget*(body: SeatBody, policy: shellTypes.CombatPolicy,
   some(body.recordSelectedCombatTarget(current.get, tick))
 
 proc combatTargetStillAllowed*(body: SeatBody,
-    policy: shellTypes.CombatPolicy, target: CombatTarget): bool =
+    policy: shellTypes.CombatPolicy, target: CombatTarget,
+    tick: uint32): bool =
   ## Final weapon veto hook for phase 5: re-check the endpoint against the
   ## current standing policy immediately before actuation.
-  discard body
-  not policy.protectedPolicyTarget(target.seat, target.team)
+  if policy.protectedPolicyTarget(target.seat, target.team):
+    return false
+  if policy.holdFire and not body.returnFirePermitted(target.seat, tick):
+    return false
+  true
 
 proc revalidateGrenadeCommit*(body: SeatBody,
     policy: shellTypes.CombatPolicy, target: CombatTarget,
-    splashSeats: openArray[int]): Option[CombatTarget] =
+    splashSeats: openArray[int], tick: uint32): Option[CombatTarget] =
   ## Grenade decisions are re-validated at commit time, against the current
   ## standing policy and the current predicted splash victims. A policy change
   ## or newly protected splash victim cancels the commit instead of force-
   ## releasing the stale throw.
-  if not body.combatTargetStillAllowed(policy, target):
+  if not body.combatTargetStillAllowed(policy, target, tick):
     return none(CombatTarget)
   for seat in splashSeats:
     validateSeat(seat, "grenade splash")
@@ -862,17 +1036,12 @@ proc arrived(pos, goal: BodyPoint, radius: float): bool =
     dy = pos.y - goal.y
   float(dx * dx + dy * dy) <= radius * radius
 
-proc idleAimMask(body: SeatBody): uint8 =
-  ## FIRST-LIGHT PLACEHOLDER: converges the aim to the center and holds.
-  ## Stencil's idle aim is an oscillating sweep around the center
-  ## (LAB:action.nim:62-68, idleSweepAim); phase 5's full action port
-  ## replaces this with the stencil-exact sweep — the phase-7 CTF
-  ## differential exercises that path, never this one.
-  if body.standingIntent.idleAimCenterBrads.isNone:
-    return 0'u8
-  let desired = ((body.standingIntent.idleAimCenterBrads.get mod
-    AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
-  let delta = shortestAimBradsDelta(body.selfState.aimBrads, desired)
+proc normalAimBrads(value: int): int {.inline.} =
+  ((value mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+
+proc aimRotationMask(target, current: int): uint8 =
+  let delta = shortestAimBradsDelta(normalAimBrads(current),
+    normalAimBrads(target))
   if delta > IdleAimDeadband:
     ButtonB
   elif delta < -IdleAimDeadband:
@@ -880,38 +1049,228 @@ proc idleAimMask(body: SeatBody): uint8 =
   else:
     0'u8
 
+proc aimAfterRotationMask(current: int, mask: uint8): int =
+  if (mask and ButtonB) != 0 and (mask and ButtonSelect) == 0:
+    normalAimBrads(current + AimTurnRate)
+  elif (mask and ButtonSelect) != 0 and (mask and ButtonB) == 0:
+    normalAimBrads(current - AimTurnRate)
+  else:
+    normalAimBrads(current)
+
+proc idleSweepAim*(body: SeatBody, center: int): int =
+  ## PORTED from Stencil `idleSweepAim` (LAB action.nim:62-68): persistent
+  ## per-seat oscillation around the strategy-provided idle aim center.
+  if body.sweepDir == 0:
+    body.sweepDir = 1
+  body.sweepOffset += body.sweepDir * AimSweepStepBrads
+  if body.sweepOffset >= SweepHalfArc:
+    body.sweepOffset = SweepHalfArc
+    body.sweepDir = -1
+  elif body.sweepOffset <= -SweepHalfArc:
+    body.sweepOffset = -SweepHalfArc
+    body.sweepDir = 1
+  normalAimBrads(center + body.sweepOffset)
+
+proc idleAimMask(body: SeatBody): uint8 =
+  if body.standingIntent.idleAimCenterBrads.isNone:
+    return 0'u8
+  aimRotationMask(body.idleSweepAim(body.standingIntent.idleAimCenterBrads.get),
+    body.selfState.aimBrads)
+
+proc sprayContains(fromPos: BodyPoint, aimBrads: int,
+                   target: BodyPoint): bool =
+  let
+    (ux, uy) = aimVector(normalAimBrads(aimBrads))
+    vx = float(target.x - fromPos.x)
+    vy = float(target.y - fromPos.y)
+    forward = vx * ux + vy * uy
+    perpendicular = abs(vx * uy - vy * ux)
+  forward > 0.0 and forward <= ArcFireRangePx.float and
+    perpendicular <= forward * ArcMaxWidthPx.float /
+      (2.0 * ArcFireRangePx.float)
+
+proc grenadeSplashSeats(body: SeatBody, target: BodyPoint,
+                        tick: uint32): seq[int] =
+  for seat in 0 ..< MaxPlayers:
+    if seat == body.seatIndex or body.tracks[seat].isNone:
+      continue
+    let track = body.tracks[seat].get
+    if track.freshTick == tick and
+        distancePx(track.pos, target) <=
+          (GrenadeBlastRadius + sim_types.PlayerHalf).float:
+      result.add(seat)
+
+proc grenadeChargeTicksFor(body: SeatBody, target: BodyPoint): int =
+  let
+    mapRange = max(GrenadeMinRange + 1, body.map.width div 5)
+    dist = max(GrenadeMinRange.float,
+      min(distancePx(body.selfState.pos, target), mapRange.float))
+    ratio = (dist - GrenadeMinRange.float) /
+      max(1.0, (mapRange - GrenadeMinRange).float)
+  max(1, min(GrenadeChargeTicks, int(ceil(ratio * GrenadeChargeTicks.float))))
+
+proc resetWeaponState(body: SeatBody) =
+  body.aHeld = false
+  body.throwChargeTicks = 0
+  body.throwTarget = none(CombatTarget)
+
+proc gunActuationMask(body: SeatBody, policy: shellTypes.CombatPolicy,
+    decision: CombatDecision, tick: uint32): uint8 =
+  let target = decision.combatTarget
+  if not body.combatTargetStillAllowed(policy, target, tick):
+    body.aHeld = false
+    return 0'u8
+  let
+    desiredAim = bradsOfVector(target.combatPos.x - body.selfState.pos.x,
+      target.combatPos.y - body.selfState.pos.y)
+    rotateMask = aimRotationMask(desiredAim, body.selfState.aimBrads)
+    ready = body.selfState.fireCooldown <= 0 and body.selfState.fireWindup <= 0
+    geometryOk =
+      if body.selfState.hasSprayPaint:
+        body.selfState.arcTicksLeft <= 0 and
+          sprayContains(body.selfState.pos, body.selfState.aimBrads,
+            target.combatPos)
+      else:
+        fireGateAligned(body.selfState.pos, body.selfState.aimBrads,
+          target.combatPos) and body.map.rayClear(body.selfState.pos,
+          target.combatPos) and not body.protectedTrackBlocksShot(policy,
+          target.combatSeat, tick)
+    canFire = ready and decision.combatShootable and geometryOk
+  if canFire and not body.aHeld:
+    body.aHeld = true
+    if not body.selfState.hasSprayPaint:
+      body.fireHoldTicks = FireWindupTicks
+    return ButtonA
+  if canFire and body.aHeld:
+    body.aHeld = false
+  rotateMask
+
+proc grenadeActuationMask(body: SeatBody, policy: shellTypes.CombatPolicy,
+    decision: Option[CombatDecision], tick: uint32): uint8 =
+  if not body.selfState.hasGrenade:
+    body.throwChargeTicks = 0
+    body.throwTarget = none(CombatTarget)
+    return 0'u8
+  if body.throwChargeTicks == 0:
+    if decision.isNone:
+      return 0'u8
+    let target = decision.get.combatTarget
+    if distancePx(body.selfState.pos, target.combatPos) < GrenadeMinThrowPx.float:
+      return 0'u8
+    if body.revalidateGrenadeCommit(policy, target,
+        body.grenadeSplashSeats(target.combatPos, tick), tick).isNone:
+      return 0'u8
+    body.throwTarget = some(target)
+    body.throwChargeTicks = 1
+    return ButtonC
+
+  if body.throwTarget.isNone:
+    body.throwChargeTicks = 0
+    return 0'u8
+  let target = body.throwTarget.get
+  if body.revalidateGrenadeCommit(policy, target,
+      body.grenadeSplashSeats(target.combatPos, tick), tick).isNone:
+    body.throwChargeTicks = 0
+    body.throwTarget = none(CombatTarget)
+    return 0'u8
+
+  inc body.throwChargeTicks
+  let
+    desiredAim = bradsOfVector(target.combatPos.x - body.selfState.pos.x,
+      target.combatPos.y - body.selfState.pos.y)
+    rotateMask = aimRotationMask(desiredAim, body.selfState.aimBrads)
+    postAim = aimAfterRotationMask(body.selfState.aimBrads, rotateMask)
+    ready = body.throwChargeTicks >= body.grenadeChargeTicksFor(target.combatPos) and
+      abs(shortestAimBradsDelta(postAim, desiredAim)) <= GrenadeAimErrBrads
+    forced = body.throwChargeTicks >= GrenadeChargeTicks + GrenadeForceReleaseTicks
+  if ready or forced:
+    body.throwChargeTicks = 0
+    body.throwTarget = none(CombatTarget)
+    return rotateMask
+  rotateMask or ButtonC
+
+proc weaponActuationMask*(body: SeatBody, policy: shellTypes.CombatPolicy,
+    decision: Option[CombatDecision], tick: uint32): uint8 =
+  ## Phase-5 actuation entrypoint. Target acquisition remains phase 4's single
+  ## route; every concrete weapon path calls the final policy veto immediately
+  ## before producing actuator bits.
+  if decision.isNone:
+    body.aHeld = false
+    if body.throwChargeTicks == 0:
+      body.throwTarget = none(CombatTarget)
+    return 0'u8
+  var mask = 0'u8
+  if body.selfState.hasGrenade:
+    mask = mask or body.grenadeActuationMask(policy, decision, tick)
+    if body.throwChargeTicks > 0 or (mask and ButtonC) != 0:
+      body.aHeld = false
+      return mask
+  mask or body.gunActuationMask(policy, decision.get, tick)
+
 proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
                tick: uint32): InputState =
-  ## Executes one seat's movement-only body tick.
+  ## Executes one seat's body tick.
   ##
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
   ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
   body.updateBelief(inputs, tick)
   if not body.selfState.alive:
+    body.resetWeaponState()
     return InputState()
 
   var mask = 0'u8
+  var needsIdleAim = false
+  let fireFreeze = body.fireHoldTicks > 0 and not body.selfState.carrying and
+    not body.standingIntent.suppressFireFreeze
+  if body.fireHoldTicks > 0:
+    dec body.fireHoldTicks
   case body.standingIntent.kind
   of shellTypes.ikHold:
-    mask = body.idleAimMask()
+    needsIdleAim = true
   of shellTypes.ikNavigateTo:
     if body.standingGoal.isNone:
-      return decodeInputMask(body.idleAimMask())
-    let goal = body.standingGoal.get
-    let seat = body.nav.seats[body.seatIndex]
-    if arrived(body.selfState.pos, goal.goalPoint,
-        body.standingIntent.arriveRadius):
-      seat.resetProgress(body.selfState.pos)
-      mask = body.idleAimMask()
+      needsIdleAim = true
+    elif fireFreeze:
+      discard
     else:
-      let waypoint = body.nav.navigationWaypoint(body.seatIndex,
-        body.selfState.pos, goal, tick.int,
-        body.standingIntent.movingGoal, body.standingIntent.profile)
-      mask = octantToward(body.selfState.pos, waypoint)
-      if mask != 0'u8:
-        seat.noteProgress(body.selfState.pos)
+      let goal = body.standingGoal.get
+      let seat = body.nav.seats[body.seatIndex]
+      if arrived(body.selfState.pos, goal.goalPoint,
+          body.standingIntent.arriveRadius):
+        seat.resetProgress(body.selfState.pos)
+        needsIdleAim = true
       else:
-        mask = body.idleAimMask()
+        let waypoint = body.nav.navigationWaypoint(body.seatIndex,
+          body.selfState.pos, goal, tick.int,
+          body.standingIntent.movingGoal, body.standingIntent.profile)
+        mask = octantToward(body.selfState.pos, waypoint)
+        if mask != 0'u8:
+          seat.noteProgress(body.selfState.pos)
+        else:
+          needsIdleAim = true
+
+  if combatPolicyActive(body.standingIntent.combat):
+    let
+      liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
+      maxHp = body.targetMaxHpEstimate()
+      candidates = body.combatCandidates(body.standingIntent.combat, tick,
+        liveRange, maxHp)
+      decision = body.selectCombatTarget(body.standingIntent.combat,
+        candidates, tick, liveRange, maxHp)
+      weaponMask = body.weaponActuationMask(body.standingIntent.combat,
+        decision, tick)
+    if decision.isSome:
+      needsIdleAim = false
+    if (weaponMask and ButtonA) != 0 and not body.selfState.hasSprayPaint and
+        not body.selfState.carrying and
+        not body.standingIntent.suppressFireFreeze:
+      mask = mask and not uint8(MovementMask)
+    mask = mask or weaponMask
+  else:
+    body.resetWeaponState()
+
+  if needsIdleAim and (mask and (ButtonB or ButtonSelect)) == 0:
+    mask = mask or body.idleAimMask()
   decodeInputMask(mask)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,

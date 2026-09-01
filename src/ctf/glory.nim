@@ -102,6 +102,36 @@ type
                        ## does not double-pay the steal or the eventual
                        ## capture. Wired via `KillContext.escorted`.
 
+    # ── Alliance vocabulary (v12 FOLD -- Amendment 3 Option C, Maxwell's
+    # 2026-08-31 ruling, alliance-vocab deed specs Part 1). CTF-ONLY mints:
+    # both sites are gated on `not sim.config.brMode`; the BR overlay rides
+    # increment 2. Both promote an already-instrumented engine fact into a
+    # priced deed -- the deed reads the SAME facts at the kill site that
+    # the counter reads, and the wire (`GloryDeed` events) is the proven
+    # reconstruction source the offline ledger rebuilds from. dPartnerPeel
+    # and dJointAct are NOT in this fold (spec: parked / increment 2). ────
+    dAssist            ## the other half of a finished kill: the victim's
+                       ## most recent enemy damager (single slot,
+                       ## `lastDamagedBy`, inside `AssistWindowTicks`) was a
+                       ## TEAMMATE of the killer, not the killer -- credited
+                       ## to the assister B, never the killer A, who already
+                       ## banks the kill deed. One mint per kill (one slot,
+                       ## no multi-assist chains), same shape as the
+                       ## `assists` counter beside it. Priced at
+                       ## `dEscortKill` parity (spec option B): promoting a
+                       ## real, already-instrumented fact deserves the same
+                       ## footing as the deed it structurally resembles.
+    dRescue            ## killed the attacker whose window-damage left a
+                       ## TEAMMATE at clutch hp -- and that teammate is
+                       ## STILL ALIVE (the whole point is the partner
+                       ## survived; the `rescues` counter does not check
+                       ## aliveness, the deed does -- the one predicate
+                       ## difference, deliberate). Credited to the rescuer
+                       ## at the kill site. Priced at `dRevengeKill` parity
+                       ## (spec option A -- under the `dAceTag` ceiling; the
+                       ## 56g life-value derivation breaches it and is
+                       ## parked as an owner feel-check item, NOT taken).
+
     # ── Survival and support ─────────────────────────────────────────────
     #
     # 🚨 ZERO+TOMBSTONE (2026-08-26, GLORYVERSION 9, LAW AUDIT E1): `dClutchHeal`
@@ -181,9 +211,68 @@ type
                        ## here. Never climbs heat (see `paysHeat`).
 
 const
-  GloryVersion* = 11
+  GloryVersion* = 12
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v12 (2026-08-31, HEART RECUT + CONCLUSION SWEEP -- the ruled
+    ## 2026-08-31 recut contract plus its Amendment 1, implemented verbatim):
+    ##   - STRUCTURAL CONCLUSION SWEEP: `finishGame` (sim.nim) now runs ONE
+    ##     full achievement pass over every team and every tree at the moment
+    ##     a game concludes (capture, wipe, mutual-wipe draw, time limit --
+    ##     every path through `finishGame`; an aborted game still sweeps
+    ##     nothing), under the same read-all-before-any-mint first-claim tie
+    ##     law the per-tick pass applies. This closes the terminal-tick hole
+    ##     the decisive claimability experiment proved (branch
+    ##     maxwell/heart-claimability-test): a fact created by the capture or
+    ##     kill that ENDS the game could never mint, because the per-tick
+    ##     sweep runs before the win check and both eval procs are
+    ##     Playing-gated. In Season 2's modes (2-team 8v8 CTF, 16-duo BR)
+    ##     EVERY episode ends on a terminal tick, so conclusion-time
+    ##     evaluation is the MAIN mint path there, not an edge. Clean Sheet's
+    ##     dedicated conclusion mint (`evalCleanSheetAtConclusion`) folds
+    ##     into the general sweep -- same "never reported while Playing,
+    ##     evaluated once at conclusion" semantics, one mechanism instead of
+    ##     a special case.
+    ##   - THE HEART (treeCarrier) RECUT, per the contract table: I "Hands
+    ##     On" (contestedSteals >= 1, unchanged), II "Fighting Carry"
+    ##     (carryKills >= 1, was III), III "Double Steal" (NEW,
+    ##     contestedSteals >= 2 -- mirrors The Peel's "Double Peel" naming
+    ##     and shape), IV "Hard Carry" (NEW, contestedSteals >= 2 and
+    ##     carryKills >= 1 -- the strict superset of II+III: kept taking it
+    ##     AND kept fighting), V "Delivered" (captures >= 1, was II; the
+    ##     single terminal tier, claimable via the conclusion sweep). II/III
+    ##     ordering is PROVISIONAL (contract ordering caveat): re-measure
+    ##     both rates on real episodes EXCLUDING game-ending captures (the
+    ##     subset the offline scorer over-credited -- Amendment 1's C4-swap
+    ##     revisit) and swap then if the field says so.
+    ##   - "Uphill" and "Fast Break" leave the ladder for the ENDCARD (see
+    ##     `CaptureDistinction` below): the engine keeps pinning
+    ##     `capturedOutnumbered`/`capturedFastBreak` at the capture site
+    ##     (unchanged code path), the game-over frame ships the pins as
+    ##     display-only distinction lines -- no glory, no claim, no heat.
+    ##   - VICTORY LAP (treeSquad V) amended gate (Amendment 1):
+    ##     `kits >= KitLegsImplemented and anyCapture` -- every kit leg this
+    ##     port implements, converted, plus a capture. The old `kits >= 4`
+    ##     could never hold (`teamConvertedKits` hard-caps at 3: the med leg
+    ##     reads `supplyShared`, absent on this port), so the tier was dead
+    ##     for a reason UPSTREAM of sweep timing. Restoring it to 4 when the
+    ##     med leg lands is a one-constant change. "Full Kit" (treeSquad
+    ##     III, 4 of 4 kits) is TOMBSTONED zero-claim until then -- a
+    ##     3-value counter cannot carry three thresholds, so I/II are NOT
+    ##     re-spaced.
+    ##   - `XpPerCapture` 30 -> 0, tombstoned in place (contract §5) -- see
+    ##     its own comment for the ruling.
+    ##   - ALLIANCE-VOCAB FOLD (Amendment 3 Option C, Maxwell's 2026-08-31
+    ##     ruling; alliance-vocab deed specs Part 1): `dAssist` (14g/15
+    ##     drama, dEscortKill parity) and `dRescue` (18g/30 drama,
+    ##     dRevengeKill parity) promoted as CTF deeds, minted at the kill
+    ##     site in sim.nim from the same engine facts their counters read
+    ##     -- gated `not brMode` (the BR overlay rides increment 2). The
+    ##     rescue deed additionally requires the menaced teammate be ALIVE
+    ##     at mint time (spec: "the partner survived"), which the
+    ##     `rescues` counter never checked. `dPartnerPeel`/`dJointAct`
+    ##     deliberately NOT added (parked / increment 2 per the spec).
     ##
     ## v11 (2026-08-30, BR increment 3, the glory-inc3 wave): makes the BR
     ## ledger honest against real measured numbers, gated everywhere on
@@ -532,6 +621,12 @@ const
     90,     # dCarrierKill
     120,    # dDenial
     14,     # dEscortKill
+    # alliance vocabulary (v12 fold: CTF-only mint sites)
+    14,     # dAssist  (dEscortKill parity -- spec Part 1, option B)
+    18,     # dRescue  (dRevengeKill parity -- spec Part 1, option A;
+            #          NOT the 56g life-value derivation, which breaches
+            #          the dAceTag-40 ordinal ceiling and went to the
+            #          owner as a feel-check item)
     # survival and support
     0,      # dClutchHeal (v9 GLORY LAW E1: zero+tombstoned -- self-heal is
             #             never above-and-beyond; see the Deed enum comment)
@@ -564,6 +659,9 @@ const
     35,     # dCarrierKill
     45,     # dDenial
     15,     # dEscortKill
+    # alliance vocabulary (v12 fold)
+    15,     # dAssist  (dEscortKill parity, with its glory)
+    30,     # dRescue  (dRevengeKill parity, with its glory)
     # survival and support
     0,      # dClutchHeal (v9 GLORY LAW E1: the "SAVE" pop and its heat dies
             #             with it -- see the Deed enum comment)
@@ -927,14 +1025,19 @@ const
                               ## `>= 1` half of that (a steal reaches AT
                               ## LEAST L1). Intentional: the objective
                               ## spine should always read as SOME progress.
-  XpPerCapture* = 30
-    ## DESIGN-CONSISTENCY CHECK (GLORY C7, not a field-fit):
-    ## `levelForXp(XpPerCapture) == 3` -- a single capture alone promotes a
-    ## fresh life straight to L3, the plume/supply-drop/ace threshold.
-    ## Intentional: completing the objective should feel like an instant
-    ## power spike, not a fractional xp tick. Still ⚠️ UNCALIBRATED against
-    ## any real paintbot capture-value field measurement -- this only checks
-    ## that the number is INTERNALLY consistent with the ladder it feeds.
+  XpPerCapture* = 0
+    ## v12 TOMBSTONE (was 30; contract §5, Maxwell's 2026-08-31 ruling): the
+    ## payment lands on a game that is already over -- per-life buffs and
+    ## supply credit can never matter -- so a capture no longer pays xp.
+    ## Constant stays (orphaned-consts-are-tombstones convention), the
+    ## `addXp(carrierIndex, XpPerCapture)` mint site in `checkWinCondition`
+    ## (sim.nim) stays wired, and the deed/counter cadence
+    ## (`dCapture`/`deedCounts`) keeps tracking exactly as before -- the §8
+    ## audit still sees the site FIRE, just for nothing.
+    ##
+    ## (The old DESIGN-CONSISTENCY CHECK here -- `levelForXp(30) == 3`, "a
+    ## capture is an instant power spike" -- died with the value; the
+    ## capture's reward is the win itself.)
   XpPerReturn* = 12
     ## The heart returns home when its carrier dies, so in THIS game the peel
     ## IS the return: killXp prices the carrier kill as this FLAG ACTION, not
@@ -1237,6 +1340,21 @@ const
                               ## measured contest rate. Re-derive once a
                               ## field query for "enemy proximity at steal
                               ## time" exists.
+  KitLegsImplemented* = 3     ## v12 (Amendment 1): how many kit-conversion
+                              ## legs `teamConvertedKits` (sim.nim) can
+                              ## actually count on this port -- nade, spray,
+                              ## shield; the med leg reads `supplyShared`,
+                              ## which does not exist here (GLORY-PORT-TODO
+                              ## on `teamConvertedKits` itself). "Victory
+                              ## Lap" gates on `kits >= KitLegsImplemented
+                              ## and anyCapture` so the tier means "every
+                              ## kit this engine can field, converted, plus
+                              ## a capture" instead of being structurally
+                              ## dead. When the med leg lands, restore the
+                              ## design gate by setting this to 4 -- ONE
+                              ## constant, no gate rewrite ("Full Kit"'s
+                              ## tombstone in `satisfiedAchievements` lifts
+                              ## with the same landing).
   FastBreakTicks* = 240       ## the `Fast Break` gate (v8, GLORY C3c
                               ## replacement): steal the heart and capture it
                               ## within this many ticks of the steal, same
@@ -1672,38 +1790,42 @@ const
     # the pickup tiers v3 already deleted everywhere else, exempted only by a
     # comment's ASSERTION that carrier play is special. It is not: re-cut to
     # the same standard as every other tree -- a CONVERTED, contested act.
+    # v12 (HEART RECUT, the 2026-08-31 contract table verbatim): one terminal
+    # tier ("Delivered") instead of three capture-gated ones, and a ladder
+    # that CLIMBS -- every rung below V is accumulable mid-game and sweeps
+    # live. "Uphill"/"Fast Break" moved to the endcard as display-only
+    # distinctions on the capture itself (see `CaptureDistinction` below).
+    # II/III ordering is PROVISIONAL (see the v12 changelog entry): re-measure
+    # excluding game-ending captures before trusting the old field rates.
     ["Hands On",            ## I    a steal landed while a LIVE enemy stood
                             ##      within ContestedStealPx -- an uncontested
                             ##      walk-in no longer counts.
-     "Delivered",           ## II   score the enemy heart (v6, GLORY C4: was
-                            ##      III -- field claim rate 18.8% vs
-                            ##      "Fighting Carry"'s 11.7% (n=240 team-
-                            ##      eps) means THIS is the easier act; swapped.
-     "Fighting Carry",      ## III  an enemy kill landed WHILE CARRYING the
+     "Fighting Carry",      ## II   an enemy kill landed WHILE CARRYING the
                             ##      heart -- live possession alone (the old
                             ##      "hold for 120+ ticks") no longer counts.
-                            ##      (v6, GLORY C4: was II -- the rarer act,
-                            ##      moved up; see "Delivered" above.)
-     "Uphill",              ## IV   score while your team is outnumbered
-     "Fast Break"],         ## V    steal the heart and slam it home within
-                            ##      `FastBreakTicks` (240t, ~10s) of the
-                            ##      steal -- a genuine speed-run act, not
-                            ##      possession-plus-duration. (v8, GLORY
-                            ##      FAST BREAK wave: replaces "Full Run",
-                            ##      which read `captures >= 1 and
-                            ##      stealTickThisLife >= 0` -- PROVEN
-                            ##      redundant with "Delivered" (II) in this
-                            ##      engine, not merely correlated: every
-                            ##      capture this engine can ever produce
-                            ##      already satisfies that old check, since
-                            ##      there is no flag hand-off mechanic (a
-                            ##      carry is set once, at the steal, cleared
-                            ##      only by that same carrier's death or
-                            ##      capture) -- n=45 field claims, identical
-                            ##      claim-tick distributions for ("carrier",
-                            ##      1) and ("carrier", 4). See `GloryVersion`'s
-                            ##      own v8 changelog entry for the full proof
-                            ##      this replaces.)
+                            ##      (v12: was III; the 11.7% team-episode
+                            ##      rate (n=240) is the one carrier figure
+                            ##      the offline scorer measured honestly,
+                            ##      since its counter accumulates mid-game.)
+     "Double Steal",        ## III  2 contested steals in one game
+                            ##      (`contestedSteals >= 2` -- v12, NEW:
+                            ##      mirrors The Peel's "Double Peel"
+                            ##      (`carrierKills >= 2`) naming and shape.
+                            ##      Deliberately NOT `escortKills` -- that
+                            ##      counter already gates "Escort Duty" (The
+                            ##      Backup II), and one counter must never
+                            ##      be recognized by two trees.)
+     "Hard Carry",          ## IV   2 contested steals AND a carry kill in
+                            ##      one game (`contestedSteals >= 2 and
+                            ##      carryKills >= 1` -- v12, NEW: the strict
+                            ##      superset of II+III, kept taking it AND
+                            ##      kept fighting).
+     "Delivered"],          ## V    score the enemy heart (`captures >= 1` --
+                            ##      v12: was II; THE terminal tier. On a
+                            ##      game-ending capture (every S2 2-team
+                            ##      capture, the last capture of an N-team
+                            ##      game) it mints in `finishGame`'s
+                            ##      conclusion sweep, at the ending tick.
     # treeDefender — "The Peel". v3: "Eyes Back" (a heart return) is GONE --
     # `resetFlag` credits `returns` to every LIVING teammate when a heart
     # comes home, not to whoever caused it, so it was bystander credit, not
@@ -1742,12 +1864,26 @@ const
                             ##      "Combined Arms" -- real-world military
                             ##      jargon, replaced with a gaming-neutral
                             ##      term)
-     "Full Kit",            ## III  4 of 4 kits converted
-     "Clean Sheet",         ## IV   FULL-GAME zero team kills (conclusion-only)
-     "Victory Lap"],        ## V    4 of 4 converted AND a capture this game
-                            ##      (v6, GLORY C6: was "The Parade" --
-                            ##      "victory lap" is the paintball-league
-                            ##      idiom for a dominant, capped-off win)
+     "Full Kit",            ## III  4 of 4 kits converted. v12 TOMBSTONE
+                            ##      (Amendment 1): zero-claim on this port --
+                            ##      `teamConvertedKits` hard-caps at
+                            ##      `KitLegsImplemented` (3, no med leg), and
+                            ##      a 3-value counter cannot carry three
+                            ##      thresholds, so I/II are NOT re-spaced.
+                            ##      Lifts when the med leg lands (see
+                            ##      `KitLegsImplemented`'s own comment).
+     "Clean Sheet",         ## IV   FULL-GAME zero team kills (conclusion-only:
+                            ##      reported exclusively by the conclusion
+                            ##      sweep's `atConclusion` read, v12)
+     "Victory Lap"],        ## V    every implemented kit converted AND a
+                            ##      capture this game (v12, Amendment 1:
+                            ##      `kits >= KitLegsImplemented and
+                            ##      anyCapture` -- was `>= 4`, structurally
+                            ##      dead on this port; see the constant's
+                            ##      own comment. v6, GLORY C6: was "The
+                            ##      Parade" -- "victory lap" is the
+                            ##      paintball-league idiom for a dominant,
+                            ##      capped-off win)
   ]
 
   AchievementDescriptions*: array[Tree, array[AchievementTiers, string]] = [
@@ -1791,11 +1927,12 @@ const
      "Share 3 supply drops with your team in one game.",
      "Save a badly hurt teammate with your supply drop, twice in one game.",
      "Share 6 supply drops with your team in one game."],
+    # v12: II-V rewritten with the recut table (contract §8 tooltip row).
     ["Steal the enemy's heart while a live enemy is close enough to contest it.",
-     "Carry the enemy's heart all the way home for a capture.",
      "Get a kill while you're carrying the enemy's heart.",
-     "Score a capture while your team has fewer players alive than the enemy.",
-     "Steal the heart and capture it again in one fast run."],
+     "Steal the enemy's heart twice in one game, both times against contest.",
+     "Steal against contest twice AND get a kill while carrying, all in one game.",
+     "Carry the enemy's heart all the way home for a capture."],
     ["Kill the enemy who is carrying your team's heart.",
      "Stop a carrier right at your own team's doorstep.",
      "Kill an enemy carrier twice in one game.",
@@ -1805,7 +1942,38 @@ const
      "Your team gets real use out of 3 of the 4 kits in one game.",
      "Your team gets real use out of all 4 kits in one game.",
      "Finish the whole game without a single teammate shooting a teammate.",
+     # v12 (Amendment 1): "every kit", not "all 4" -- the gate reads
+     # `KitLegsImplemented`, truthful at 3 today and at 4 after the med leg.
      "Use every kit AND capture the enemy's heart in the same game."],
+  ]
+
+type
+  CaptureDistinction* = enum
+    ## v12 (contract §3): "Uphill" and "Fast Break" moved OFF the Heart
+    ## ladder and onto the ENDCARD, as distinctions on the capture itself.
+    ## The engine keeps pinning `capturedOutnumbered`/`capturedFastBreak` at
+    ## the capture site in `checkWinCondition` (unchanged code path); the
+    ## game-over frame (`broadcast.nim`'s `over.distinctions`) reads the
+    ## pins and ships one entry per pinned player. Display only: no glory
+    ## minted, no claim, no heat -- which is why these are NOT `Tree` tiers
+    ## and have no `TierGlory` price.
+    cdUphill      ## the capture landed while the carrier's team had fewer
+                  ## players alive than the captured team (`capturedOutnumbered`)
+    cdFastBreak   ## steal -> capture within `FastBreakTicks`, same life
+                  ## (`capturedFastBreak`)
+
+const
+  CaptureDistinctionNames*: array[CaptureDistinction, string] = [
+    ## The names carry over from the retired ladder tiers verbatim.
+    "Uphill",
+    "Fast Break",
+  ]
+
+  CaptureDistinctionDescriptions*: array[CaptureDistinction, string] = [
+    ## The kid-register descriptions carry over from
+    ## `AchievementDescriptions`' retired treeCarrier IV/V rows verbatim.
+    "Score a capture while your team has fewer players alive than the enemy.",
+    "Steal the heart and capture it again in one fast run.",
   ]
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -1891,6 +2059,14 @@ func achievementDescription*(tree: Tree, tier: int): string {.inline.} =
   ## `AchievementDescriptions`' own comment for the shipping path.
   if tier < 0 or tier >= AchievementTiers: ""
   else: AchievementDescriptions[tree][tier]
+
+func captureDistinctionName*(distinction: CaptureDistinction): string {.inline.} =
+  ## v12 (contract §3): the endcard label for a capture distinction.
+  CaptureDistinctionNames[distinction]
+
+func captureDistinctionDescription*(distinction: CaptureDistinction): string {.inline.} =
+  ## v12 (contract §3): the kid-register tooltip for a capture distinction.
+  CaptureDistinctionDescriptions[distinction]
 
 func heatRung*(embers: int): int {.inline.} =
   ## Rung for an ember count. Each rung costs more than the last.
@@ -2157,6 +2333,8 @@ func deedName*(deed: Deed): string =
   of dCarrierKill: "the peel"
   of dDenial: "doorstep stop"
   of dEscortKill: "escort tag"
+  of dAssist: "assist"
+  of dRescue: "rescue"
   of dClutchHeal: "clutch patch"
   of dShieldSoak: "shield soak"
   of dWipe: "wipeout"
@@ -2213,6 +2391,8 @@ func deedPopWord*(deed: Deed): string =
                              ## agree.
   of dDenial: "DENIED!"
   of dEscortKill: "ESCORT"
+  of dAssist: "ASSIST"
+  of dRescue: "RESCUE"
   of dClutchHeal: ""         ## v9: excluded from `popsScore` (zero+
                              ## tombstoned, GLORY LAW E1); never drawn. The
                              ## word stays on record ("SAVE") only in this

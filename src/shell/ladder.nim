@@ -11,7 +11,7 @@ import crunchy/[common, sha256]
 import ../ctf/policy_page
 import ../ctf/sim_types
 import body_map, call_validation, emit_validator, guards, instance,
-  manifest, module_cache, replacement, types
+  manifest, module_cache, replacement, replay_records, types
 
 type
   LadderEmission* = object
@@ -68,11 +68,15 @@ type
     status*: StatusEntry
     statusBytes*: string
 
+  LadderEntryIdentity* = object
+    entryId*: string
+    play*: string
+
   LadderSeatTick* = object
     seat*: int
     epoch*: uint64
     initialized*: seq[string]
-    retuned*: seq[string]
+    retuned*: seq[LadderEntryIdentity]
     stepped*: seq[string]
     statuses*: seq[LadderStatus]
     selectedEntryId*: string
@@ -93,8 +97,11 @@ type
     reason*: string
     path*: string
     epoch*: uint64
+    ladderBytes*: string
+    entries*: seq[PlayCallEntryIdentity]
     status*: StatusEntry
     statusBytes*: string
+    pendingRetunes*: seq[LadderEntryIdentity]
 
   LadderEntrySnapshot* = object
     entryId*: string
@@ -314,6 +321,9 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
   var newEntries: seq[LadderEntry]
   for call in validated.entries:
     let binding = bindings.boundFor(call.play).get
+    result.entries.add PlayCallEntryIdentity(
+      entryId: call.entryId,
+      code: CodeIdentity(kind: cikModule, moduleSha256: binding.hash))
     var entry = LadderEntry(call: call, hash: binding.hash,
       originGeneration: originGeneration,
       guard: compiledGuard(call.guardBytes, driver.registry),
@@ -336,6 +346,8 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
         entry.oldParamsBytes = replacement.oldParamsBytes
         entry.callEpoch = nextEpoch
         old[].guest = nil
+        result.pendingRetunes.add LadderEntryIdentity(entryId: call.entryId,
+          play: call.play)
       of raStartAbsent:
         discard
     newEntries.add entry
@@ -347,6 +359,7 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
   seat[].epoch = nextEpoch
   result.accepted = true
   result.epoch = nextEpoch
+  result.ladderBytes = validated.canonicalBytes
   result.status = seat[].callAcceptedStatus(proposalId, originGeneration,
     nextEpoch, tick)
   result.statusBytes = encodeStatusEntry(result.status)
@@ -363,9 +376,9 @@ proc emitClass(entry: LadderEntry): EmitClass =
 
 proc bindingFactory(bindings: openArray[LadderBinding],
                     entry: LadderEntry): LadderGuestFactory =
-  let binding = bindings.boundFor(entry.call.play)
-  if binding.isSome:
-    return binding.get.makeGuest
+  for binding in bindings:
+    if binding.manifest.name == entry.call.play and binding.hash == entry.hash:
+      return binding.makeGuest
 
 proc needsInit(entry: LadderEntry, guardActive: bool): bool =
   guardActive and entry.state == pisAbsent and entry.guest == nil
@@ -437,7 +450,8 @@ proc retuneEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     return false
   entry[].state = pisLive
   entry[].oldParamsBytes.setLen(0)
-  output.retuned.add entry[].call.entryId
+  output.retuned.add LadderEntryIdentity(entryId: entry[].call.entryId,
+    play: entry[].call.play)
   true
 
 proc firstInitializationCandidate(seat: LadderSeat,
