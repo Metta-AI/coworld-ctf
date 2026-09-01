@@ -131,7 +131,7 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
 
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var decoded: EdgeRideView
-  if not readEdgeRideViewInto(view(viewPtr, viewLen), decoded):
+  if not readEdgeRideBinaryViewInto(view(viewPtr, viewLen), decoded):
     return 1
 
   let raw = chooseRaw(decoded)

@@ -17,8 +17,8 @@ const ShellRuntimeAvailable* =
   compileOption("threads") and static(getEnv("WASMTIME_C_API")).len > 0
 
 when ShellRuntimeAvailable:
-  import call_validation, canonical, compile_plane, emit_validator, guards,
-    instance, ladder, runtime
+  import binary_view, call_validation, canonical, compile_plane, emit_validator,
+    guards, instance, ladder, runtime, view
 
 type
   FirstLightInventory* = object
@@ -37,6 +37,7 @@ type
     present*: bool
     playing*: bool
     alive*: bool
+    aliveTeams*: int
     bodyInputs*: BodyTickInputs
     defaultFallbacks*: BrDefaultFallbacks
 
@@ -117,29 +118,6 @@ proc bodyActivationCount*(episode: FirstLightEpisode): int =
   ## recorded masks and never constructs SeatBody instances.
   episode.bodyActivations
 
-proc rectBytes(rect: MapRect): string =
-  "[" & $rect.x & "," & $rect.y & "," & $rect.w & "," & $rect.h & "]"
-
-proc provisionalFirstLightView*(frame: FirstLightSeatFrame;
-                                tick: uint32): string =
-  ## Provisional lane-C view source for the episode/ladder wiring proof. It
-  ## emits only the lean JSON rows `edge_ride` reads today: self position,
-  ## tick, and BR zone facts. Lane A's encoder replaces this source; do not
-  ## grow it into a second view producer.
-  let self = frame.bodyInputs.self
-  "{\"schema\":\"play_view\",\"self\":{\"aim_brads\":" & $self.aimBrads &
-    ",\"alive\":" & (if self.alive: "true" else: "false") &
-    ",\"hp\":" & $self.hp &
-    ",\"hp_frac\":" & $self.hpFrac &
-    ",\"pos\":[" & $self.pos.x & "," & $self.pos.y & "]}," &
-    "\"tick\":" & $tick &
-    ",\"v\":1,\"world\":{\"alive_teams\":0,\"zone\":{\"current\":" &
-    frame.defaultFallbacks.currentZone.rectBytes &
-    ",\"dps\":" & $frame.defaultFallbacks.zoneDps &
-    ",\"next\":" & frame.defaultFallbacks.nextZone.rectBytes &
-    ",\"phase\":0,\"ticks_to_shrink\":" &
-    $frame.defaultFallbacks.ticksToNextShrink & "}}}"
-
 proc frameForSeat(episode: FirstLightEpisode; seatIndex: int):
     Option[FirstLightSeatFrame] =
   when ShellRuntimeAvailable:
@@ -149,12 +127,37 @@ proc frameForSeat(episode: FirstLightEpisode; seatIndex: int):
       return some(episode.runtimeState.frames[seatIndex].frame)
   none(FirstLightSeatFrame)
 
-proc defaultViewSource(episode: FirstLightEpisode): ViewSource =
-  result = proc(seatIndex: int; tick: uint32): string =
+proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
+                          tick: uint32): string =
+  when ShellRuntimeAvailable:
     let frame = episode.frameForSeat(seatIndex)
     if frame.isNone:
       return "{}"
-    frame.get.provisionalFirstLightView(tick)
+    for state in episode.seats:
+      if state.active and state.seat.int == seatIndex:
+        let fallbacks = frame.get.defaultFallbacks
+        let source = playViewSourceFromBody(
+          state.body,
+          tick,
+          if episode.brMode: gmBr else: gmCtf,
+          frame.get.aliveTeams,
+          some(PlayZone(
+            phase: fallbacks.zonePhase,
+            current: PlayRect(x: fallbacks.currentZone.x,
+              y: fallbacks.currentZone.y, w: fallbacks.currentZone.w,
+              h: fallbacks.currentZone.h),
+            next: some(PlayRect(x: fallbacks.nextZone.x,
+              y: fallbacks.nextZone.y, w: fallbacks.nextZone.w,
+              h: fallbacks.nextZone.h)),
+            ticksToShrink: fallbacks.ticksToNextShrink,
+            dps: fallbacks.zoneDps)))
+        return buildBinaryPlayView(source)
+    "{}"
+  else:
+    discard episode
+    discard seatIndex
+    discard tick
+    "{}"
 
 proc initFirstLightEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
@@ -172,7 +175,6 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
       selfPositions: newSeq[BodyPoint](controls.len))
-  result.viewSource = result.defaultViewSource()
   for index, control in controls:
     if control == scPlay:
       result.enabled = true
@@ -582,7 +584,7 @@ proc step*(episode: var FirstLightEpisode,
           selfPos: slot.frame.bodyInputs.self.pos,
           contextBytes: "{}",
           viewBytes: (if episode.viewSource == nil:
-            slot.frame.provisionalFirstLightView(tick)
+            episode.firstLightViewBytes(seat, tick)
           else:
             episode.viewSource(seat, tick)),
           guardContext: noGuardContext(),

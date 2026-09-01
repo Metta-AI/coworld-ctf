@@ -14,6 +14,12 @@ The build uses the arena recipe minus WASI: imports must live only in the
 `play` namespace. The SDK stubs expose `emit`, `log`, `nearest_reachable`, and
 `nearest_cover`.
 
+`play_step` receives `play_view` as a fixed-layout binary frame. Use the SDK's
+typed binary accessors (`readBinaryViewInto` or the narrower
+`readEdgeRideBinaryViewInto`) instead of parsing JSON. `play_init` and
+`play_retune` params are still canonical JSON today; the SDK keeps a small
+params-only reader for that path until a binary params encoding exists.
+
 ## Testing decoders
 
 Decoder tests must anchor on a landed contract artifact: checked-in golden
