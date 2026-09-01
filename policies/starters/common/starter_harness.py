@@ -262,6 +262,33 @@ def _log(persona: Persona, message: str) -> None:
     print(f"[{persona.name}] {message}", flush=True)
 
 
+def _send_coordination(persona: Persona, seat: StarterSeat, turn: int,
+                       await_echo: bool) -> None:
+    """Send the persona's extra coordination line, spaced past the chat rate
+    limit.
+
+    The server refuses a second line from the same seat within
+    ``LobbyChatMinSpacingTicks`` (24 ticks, ~1s -- ``lobby_chat:lcrTooSoon``),
+    and the model's own chat line has just gone out, so hold for a moment
+    first. Delivery is best-effort: a refused line must never fail the run.
+    """
+    if persona.extra_chat is None:
+        return
+    extra = persona.extra_chat(seat.context or {}, turn)
+    if not extra:
+        return
+    held = time.monotonic() + 1.5
+    while time.monotonic() < held:
+        seat.pump()
+        seat.drain(0.3)
+    _log(persona, f"0xA3 coordination: {extra!r}")
+    seat.send(wire.encode_lobby_chat(extra))
+    if await_echo:
+        echo = seat.await_chat(extra, seconds=5.0)
+        if echo is not None:
+            _log(persona, f"coordination echoed at ordinal {echo['ordinal']}")
+
+
 def run(persona: Persona, args) -> int:
     playbook_dir = pathlib.Path(args.playbook)
     available = plays.scan_playbook(playbook_dir)
@@ -313,11 +340,7 @@ def run(persona: Persona, args) -> int:
             failures.append("no 0xB2 broadcast echo for our opening chat")
         else:
             _log(persona, f"chat echoed at ordinal {echo['ordinal']}")
-        if persona.extra_chat is not None:
-            extra = persona.extra_chat(seat.context or {}, 1)
-            if extra:
-                _log(persona, f"0xA3 coordination: {extra!r}")
-                seat.send(wire.encode_lobby_chat(extra))
+        _send_coordination(persona, seat, turn=1, await_echo=True)
 
         for name, blob in playbook:
             if not seat.upload(name, blob):
@@ -352,11 +375,7 @@ def run(persona: Persona, args) -> int:
             recall_text = str(decision.get("chat", "")).strip()
             if recall_text:
                 seat.send(wire.encode_lobby_chat(recall_text))
-            if persona.extra_chat is not None:
-                extra = persona.extra_chat(seat.context or {}, turn)
-                if extra:
-                    _log(persona, f"0xA3 coordination: {extra!r}")
-                    seat.send(wire.encode_lobby_chat(extra))
+            _send_coordination(persona, seat, turn=turn, await_echo=False)
 
             payload, _ = repair_call(decision, persona, seat)
             recall = seat.call(payload, f"re-call {turn - 1}")
