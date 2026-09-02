@@ -4965,7 +4965,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '');
         el.textContent = p.lbl
           ? p.lbl
-          : (p.amt >= 0 ? '+' : '') + p.amt + 'g' + (p.word ? ' ' + p.word : '');
+          : (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
         gloryPopsEl.appendChild(el);
         gloryPopEls[key] = el;
       }
@@ -5734,7 +5734,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       mvpLine.innerHTML = anyGlory && gloryLeader !== null
         ? 'GLORY LEADER — <span class="ec-mvp-team" style="--tc:' +
           (teamCol(gloryLeader) || AMBER) + '">' + labelHtml(gloryLeader) +
-          '</span> ' + leaderGlory + 'g <span class="ec-mvp-dim">(' +
+          '</span> ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
     }
@@ -5762,7 +5762,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
-          ? '<span class="ec-fglory">' + (fg !== null ? fg + 'g' : '—') + '</span>' : '') +
+          ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
         '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
         '</div>';
