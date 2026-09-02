@@ -765,6 +765,63 @@ def repair_call(decision: dict, persona: Persona, seat: StarterSeat,
     return gate_and_build(seat, available)
 
 
+def _base_name(name) -> str:
+    """'James Botts (2)' -> 'James Botts': the roster de-duplicates one
+    entrant's seats with a ' (N)' suffix."""
+    if not isinstance(name, str):
+        return ""
+    stripped = name.rstrip()
+    if stripped.endswith(")") and " (" in stripped:
+        head, _, tail = stripped.rpartition(" (")
+        if tail[:-1].isdigit():
+            return head
+    return stripped
+
+
+def clone_seats(context: dict) -> list[int]:
+    """The other seats this same entrant is driving. The league seats an
+    entrant's two (or more) seats as SEPARATE duos on different teams, often
+    adjacent at spawn -- and to the body a clone is just an enemy. In the
+    first competitive rounds 44 of 51 early aggressive deaths were gun kills
+    by the other aggressive seat: the entrant was shooting its own score."""
+    me = (context or {}).get("self", {})
+    mine = _base_name(poc_policy.seat_name(context, me.get("seat")))
+    if not mine:
+        return []
+    out = []
+    for row in (context or {}).get("roster", []):
+        if not isinstance(row, dict) or row.get("seat") == me.get("seat"):
+            continue
+        if _base_name(row.get("name")) == mine and isinstance(row.get("seat"), int):
+            out.append(row["seat"])
+    return sorted(out)
+
+
+def ally_clones(entries: list, context: dict) -> list:
+    """Never shoot yourself: pact with every clone seat (protect stays the
+    persona's call) and keep them on target_law's never-list. Idempotent;
+    the generic repair afterwards still clamps and caps everything."""
+    clones = clone_seats(context)
+    if not clones:
+        return entries
+    refs = [f"seat:{s}" for s in clones]
+    pact = next((e for e in entries if e.get("play") == "pact"), None)
+    if pact is None:
+        pact = {"play": "pact", "entry_id": "clones", "params": {}}
+        entries.insert(0, pact)
+    params = pact.setdefault("params", {})
+    partners = [p for p in params.get("partners", []) if isinstance(p, str)]
+    params["partners"] = partners + [r for r in refs if r not in partners]
+    law = next((e for e in entries if e.get("play") == "target_law"), None)
+    if law is None:
+        law = {"play": "target_law", "entry_id": "no_clone_fire", "params": {}}
+        entries.append(law)
+    lp = law.setdefault("params", {})
+    never = [p for p in lp.get("never", []) if isinstance(p, str)]
+    lp["never"] = never + [r for r in refs if r not in never]
+    return entries
+
+
 def gate_and_build(seat: StarterSeat, available: list[str]) -> tuple[bytes, list]:
     """Gate the seat's wanted ladder against the live view and canonicalize
     it. Re-runs the generic repair so the result is still clamped, sorted,
@@ -780,6 +837,7 @@ def gate_and_build(seat: StarterSeat, available: list[str]) -> tuple[bytes, list
     gated = layer_ladder(seat.wanted_entries, seat.view or {},
                          seat.context or {}, seat.kill_feed,
                          base_play=base_play)
+    gated = ally_clones(gated, seat.context or {})
     return build_call({"call": {"entries": gated}}, available)
 
 
