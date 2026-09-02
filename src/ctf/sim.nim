@@ -371,6 +371,14 @@ proc startGame*(sim: var SimServer) =
   sim.diamondStains = @[]
   sim.damagePops = @[]
   sim.shotFeedback = @[]
+  # Swap#13 S1/S5: -1 = "no recorded killer yet" for every seat this match —
+  # a fresh 0-filled seq would collide with player index 0, so this fills
+  # explicitly rather than relying on Nim's zero default.
+  sim.lastKilledBy = newSeq[int](sim.players.len)
+  for i in 0 ..< sim.lastKilledBy.len:
+    sim.lastKilledBy[i] = -1
+  sim.partnerDownFx = @[]
+  sim.avengeFx = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   let groupOffset = sim.spawnGroupOffset()
@@ -890,6 +898,27 @@ proc barrageRatePermille*(sim: SimServer): int =
     (sim.config.barrageMaxPerSec - sim.config.barrageStartPerSec) *
       sim.barrageProgressPermille()
 
+proc partnerIndex*(sim: SimServer, idx: int): int =
+  ## Returns the OTHER player sharing `idx`'s team, when that team has
+  ## EXACTLY two members (a duo) — the same "two playerRows sharing
+  ## selfTeam" convention player_hud.js's own (reverted, Swap#12 item 5)
+  ## client-side partner-tracking attempt used, now mirrored server-side so
+  ## killPlayer can name a partner without guessing. -1 for a solo/squad
+  ## team or an out-of-range index — never a guess.
+  if idx < 0 or idx >= sim.players.len:
+    return -1
+  let team = sim.players[idx].team
+  var other = -1
+  var count = 0
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team == team:
+      inc count
+      if i != idx:
+        other = i
+  if count == 2:
+    return other
+  -1
+
 proc killPlayer*(
   sim: var SimServer,
   targetIndex,
@@ -995,6 +1024,35 @@ proc killPlayer*(
   # the killfeed/scrubber markers diffed from it) records combat only.
   if not elimination:
     sim.recordDeath(targetIndex)
+  # Swap#13 S1/S5: cosmetic-only avenge/partner-down tracking for the
+  # takeover-only cosmetic-fx channel — never touches gameHash, same
+  # "purely additive" gating as the tag-site paint stain above. Skipped for
+  # an elimination death (GV35: nobody was shot, the team's heart was
+  # captured — there is no partner-out MOMENT to notify, and nothing to
+  # avenge) exactly like the deaths-stat block just above.
+  if not elimination and targetIndex < sim.lastKilledBy.len:
+    let partner = sim.partnerIndex(targetIndex)
+    if partner >= 0:
+      sim.partnerDownFx.add PartnerDownFx(
+        partnerIndex: partner,
+        x: sim.players[targetIndex].x + CollisionW div 2,
+        y: sim.players[targetIndex].y + CollisionH div 2,
+        color: sim.players[targetIndex].color
+      )
+    if killerIndex >= 0 and killerIndex < sim.lastKilledBy.len and
+        killerIndex != targetIndex:
+      # AVENGE check: killerIndex just killed targetIndex. That is an
+      # avenge moment when targetIndex is the SAME cog that most recently
+      # killed killerIndex (self-avenge) OR killerIndex's own duo partner
+      # (partner-avenge) — read from lastKilledBy BEFORE it is overwritten
+      # by this death, below. avengesKiller (sim.nim, the separate
+      # undeployed Glory branch) is SELF-only; this mirrors that check and
+      # extends it to the partner case for the display-layer beat only.
+      let killerPartner = sim.partnerIndex(killerIndex)
+      if sim.lastKilledBy[killerIndex] == targetIndex or
+          (killerPartner >= 0 and sim.lastKilledBy[killerPartner] == targetIndex):
+        sim.avengeFx.add AvengeFx(avengerIndex: killerIndex)
+    sim.lastKilledBy[targetIndex] = killerIndex
   # Death is the victim-side record (source = victim, target = killer); the
   # weapon-attributed Kill is emitted by each weapon's own damage site, where
   # the weapon is known first-hand.
@@ -3621,6 +3679,34 @@ proc zoneRectAndDps*(
     raw.dps
   )
 
+proc zoneTicksToNextEvent*(sim: SimServer): tuple[ticks: int, shrinking: bool] =
+  ## Swap#13 S6 (AGENCY C9: "the schedule is init-only... a real countdown
+  ## is computable" — docs/designs deliberately keep the zone LABEL
+  ## qualitative, but zonePhases itself is known in full at config load, so
+  ## a countdown is honest, not fabricated). Ticks remaining until the
+  ## CURRENT phase's boundary: a HOLD's `waitTicks` completing (shrinking =
+  ## false — the next event is a shrink STARTING), or an active SHRINK
+  ## reaching its target (shrinking = true — the next event is the shrink
+  ## ENDING). Walks sim.config.zonePhases with the EXACT same accumulation
+  ## as zoneRectAndDpsRaw (including its own early-return on a `shrinkTicks
+  ## <= 0` instant-snap phase) so this never disagrees with the rect/dps
+  ## timeline the client already renders. (0, false) once every phase has
+  ## resolved (the rect holds forever) or when zonePhases is empty — "no
+  ## more shrink coming" is the honest answer, never a stale countdown.
+  if sim.config.zonePhases.len == 0:
+    return (0, false)
+  var t = sim.gameTicksElapsed()
+  for phase in sim.config.zonePhases:
+    if t < phase.waitTicks:
+      return (phase.waitTicks - t, false)
+    t -= phase.waitTicks
+    if phase.shrinkTicks <= 0:
+      return (0, false)  # already snapped to target — mirrors zoneRectAndDpsRaw's own early return for this case.
+    if t < phase.shrinkTicks:
+      return (phase.shrinkTicks - t, true)
+    t -= phase.shrinkTicks
+  (0, false)
+
 proc updateZone*(sim: var SimServer) =
   ## One tick of the battle-royale shrink-zone hazard (§4.3): a player whose
   ## center has stood OUTSIDE the current zone rect for a full second
@@ -4298,6 +4384,9 @@ proc resetToLobby*(sim: var SimServer) =
   sim.diamondStains = @[]
   sim.damagePops = @[]
   sim.shotFeedback = @[]
+  sim.lastKilledBy = @[]
+  sim.partnerDownFx = @[]
+  sim.avengeFx = @[]
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
   sim.startWaitTimer = 0

@@ -2176,6 +2176,40 @@ type
                         ## reader.
     shooterY*: int       ## the shooter's CENTER y; see shooterX.
 
+  PartnerDownFx* = object
+    ## A PRIVATE, one-shot "your duo partner just went out" record —
+    ## Swap#13 S1 (DUET C2/C7: "death of partner = zero acknowledgment,
+    ## tested"). Populated in killPlayer (sim.nim) for every non-elimination
+    ## death of a player whose team has exactly one other member
+    ## (partnerIndex), regardless of cause (combat, zone, environmental) —
+    ## a partner going out is worth notifying about even with no killer.
+    ## Like ShotFeedbackFx, never mixed into gameHash (SimServer.
+    ## partnerDownFx is drained every tick by server.nim's send loop and
+    ## never read by gameHash's hand-built field walk) and delivered
+    ## UNFOGGED: the surviving partner is entitled to know their partner is
+    ## out regardless of whether they could currently see them.
+    partnerIndex*: int  ## who to notify — the ONE index this delivers to,
+                        ## on their own takeover socket only.
+    x*, y*: int          ## the fallen partner's CENTER position at the
+                        ## moment they went out (client-side minimap pulse
+                        ## target — see buildCosmeticFxPacket's "partner_down"
+                        ## kind).
+    color*: uint8        ## the fallen partner's paint color.
+
+  AvengeFx* = object
+    ## A PRIVATE, one-shot "you just avenged a death" acknowledgment —
+    ## Swap#13 S5 (DUET C6: "PAYBACK/avenge moments... does the HUMAN see
+    ## it?"). Populated in killPlayer when the newly-dead cog is the SAME
+    ## one recorded in SimServer.lastKilledBy for either the killer
+    ## themselves (self-avenge) or the killer's duo partner (partner-avenge)
+    ## — see killPlayer's own comment for the exact check. No Glory tie-in:
+    ## this is the display-layer beat only (avengesKiller/sim.nim's SELF-only
+    ## Glory hook is a separate, undeployed branch). Never mixed into
+    ## gameHash, same as PartnerDownFx above.
+    avengerIndex*: int  ## who gets the PAYBACK acknowledgment — the ONE
+                        ## index this delivers to, on their own takeover
+                        ## socket only.
+
   SimEventKind* = enum
     ## Tier-2 analysis event channel (the Logs substrate). Every kind is
     ## emitted at the exact in-sim site where the fact is known first-hand
@@ -2379,6 +2413,17 @@ type
       ## config-gated (allowShotFeedback) and excluded from gameHash; drained
       ## every tick by server.nim's send loop (see ShotFeedbackFx's doc
       ## comment), never pruned by age like the fading Fx seqs above it.
+    lastKilledBy*: seq[int]  ## Swap#13 S5: per-player index of whoever last
+      ## killed them (-1 = none yet this match), sized to players.len and
+      ## reset in startGame/resetToLobby. Cosmetic-only avenge-detection
+      ## state (killPlayer's own comment has the exact check) — excluded
+      ## from gameHash, same as every Fx seq on this object.
+    partnerDownFx*: seq[PartnerDownFx]  ## PRIVATE one-shot partner-death
+      ## notices, config-gated (allowCosmeticFx) and excluded from gameHash;
+      ## drained every tick by server.nim's send loop, same shape as
+      ## shotFeedback above.
+    avengeFx*: seq[AvengeFx]  ## PRIVATE one-shot avenge acknowledgments,
+      ## same gating/drain/exclusion shape as partnerDownFx above.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: seq[PickupSpawn]      ## 4 on the classic formula (every
                                           ## 2-4 team map); the map's own

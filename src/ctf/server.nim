@@ -2087,7 +2087,10 @@ const CosmeticFxShotSamples = 14
 
 proc buildCosmeticFxPacket(
   sim: SimServer,
-  viewerIndex: int
+  viewerIndex: int,
+  incoming: seq[ShotFeedbackFx] = @[],
+  partnerDown: seq[PartnerDownFx] = @[],
+  avenge: seq[AvengeFx] = @[]
 ): string {.measure.} =
   ## Builds the fog-clipped cosmetic-effects JSON for one takeover socket's
   ## cog this tick (GameConfig.allowCosmeticFx): the two effects
@@ -2123,6 +2126,32 @@ proc buildCosmeticFxPacket(
   ## buildShotFeedbackPacket's victimColor/killerColor, so the client's
   ## existing colorWordCss() palette lookup (player_client.html) applies
   ## unchanged.
+  ##
+  ## Swap#13 additive members (S1/S4/S5/S6 — the human-facing signal layer;
+  ## same "kind-tagged, additive" contract, all delivered on THIS seat's own
+  ## socket only, same as every kind above):
+  ##   {"kind":"incoming", "bearing":int}  -- S4 (ORIENT C7/PULSE C6). Brads
+  ##     (sim_types.bradsOfVector's units, same as aimBrads/AimBradsTurn —
+  ##     no new unit for the client to learn) from the victim toward the
+  ##     shooter, on a NON-fatal hit only. `incoming` (the caller's param)
+  ##     is pre-filtered to entries naming this cog as targetIndex with
+  ##     kill=false; a FATAL hit already gets the killcam's exact
+  ##     killerX/killerY (buildShotFeedbackPacket) — this is a deliberately
+  ##     coarser cousin for the hits that don't end the life, so a
+  ##     still-standing victim gets a rough turn-toward cue, never a
+  ##     wallhack-grade fix (see that proc's own killcam-narrowing comment).
+  ##   {"kind":"partner_down", "x":int, "y":int, "color":string}  -- S1
+  ##     (DUET C2/C7). One entry per PartnerDownFx the caller filtered to
+  ##     this cog (sim.partnerDownFx, populated in killPlayer). Delivered
+  ##     UNFOGGED like ShotFeedbackFx's own two participants — see
+  ##     PartnerDownFx's doc comment.
+  ##   {"kind":"avenge"}  -- S5 (DUET C6). No payload; one entry per
+  ##     AvengeFx the caller filtered to this cog (sim.avengeFx, populated
+  ##     in killPlayer — see that proc's own avenge-check comment).
+  ##   {"kind":"zone_eta", "ticks":int, "shrinking":bool}  -- S6 (AGENCY
+  ##     C9). Unfiltered/unfogged (match-wide schedule, not a per-viewer
+  ##     fact) — sim.zoneTicksToNextEvent(), added whenever zonePhases is
+  ##     configured at all, independent of `incoming`/`partnerDown`/`avenge`.
   if not sim.config.allowCosmeticFx:
     return ""
   if viewerIndex < 0 or viewerIndex >= sim.players.len:
@@ -2166,6 +2195,25 @@ proc buildCosmeticFxPacket(
       "color": playerColorText(stain.color),
       "onWall": stain.onWall
     })
+  let victimX = sim.players[viewerIndex].x + CollisionW div 2
+  let victimY = sim.players[viewerIndex].y + CollisionH div 2
+  for hit in incoming:
+    fx.add(%*{
+      "kind": "incoming",
+      "bearing": bradsOfVector(hit.shooterX - victimX, hit.shooterY - victimY)
+    })
+  for pd in partnerDown:
+    fx.add(%*{
+      "kind": "partner_down",
+      "x": pd.x,
+      "y": pd.y,
+      "color": playerColorText(pd.color)
+    })
+  for i in 0 ..< avenge.len:
+    fx.add(%*{"kind": "avenge"})
+  if sim.config.zonePhases.len > 0:
+    let (etaTicks, shrinking) = sim.zoneTicksToNextEvent()
+    fx.add(%*{"kind": "zone_eta", "ticks": etaTicks, "shrinking": shrinking})
   if fx.len == 0:
     return ""
   $(%*{"fx": fx})
@@ -2844,6 +2892,11 @@ proc runServerLoop*(
     # socket to deliver it to (takeoverSockets is only ever populated on the
     # `not replayLoaded` path above).
     var frameShotFeedback: seq[ShotFeedbackFx] = @[]
+    # Swap#13 S1/S5: same per-frame accumulation shape as frameShotFeedback
+    # above, for the two other killPlayer-populated private channels — see
+    # SimServer.partnerDownFx/avengeFx's own doc comments.
+    var framePartnerDownFx: seq[PartnerDownFx] = @[]
+    var frameAvengeFx: seq[AvengeFx] = @[]
     if replayLoaded:
       frameEvents = replayPlayer.advanceReplayFrame(
         sim,
@@ -2909,6 +2962,16 @@ proc runServerLoop*(
         for fx in sim.shotFeedback:
           frameShotFeedback.add fx
         sim.shotFeedback.setLen(0)
+        # Swap#13 S1/S5: same drain shape, for killPlayer's two other
+        # private channels (unconditionally populated — no allow* gate at
+        # the populate site, since gating happens once at delivery below,
+        # same as sim.events above).
+        for fx in sim.partnerDownFx:
+          framePartnerDownFx.add fx
+        sim.partnerDownFx.setLen(0)
+        for fx in sim.avengeFx:
+          frameAvengeFx.add fx
+        sim.avengeFx.setLen(0)
         # Broadcast chrome's kill-feed/phase/gameover beats (stakes #7/#9):
         # the SAME diff-the-tracker-against-this-tick call the replay path
         # makes once per stepped tick via advanceReplayPlayback's callback,
@@ -3069,7 +3132,29 @@ proc runServerLoop*(
       # are already fog-clipped inside the builder), not drained from a
       # per-frame buffer like shot feedback — there is nothing to accumulate
       # across steps here.
-      let cosmeticFxPacket = sim.buildCosmeticFxPacket(takeoverCogs[i])
+      #
+      # Swap#13 S1/S4/S5: three more per-cog filters, same shape as
+      # cogShotFeedback above but computed unconditionally (not gated behind
+      # frameShotFeedback.len>0) since buildCosmeticFxPacket folds them into
+      # the SAME fx array as tracer/stain, independent of allowShotFeedback.
+      # `incoming` reuses frameShotFeedback (S4 depends on allowShotFeedback
+      # actually populating it — see buildCosmeticFxPacket's own doc
+      # comment); a NON-fatal hit only, since a fatal one already has the
+      # killcam.
+      var cogIncoming: seq[ShotFeedbackFx] = @[]
+      for fx in frameShotFeedback:
+        if fx.targetIndex == takeoverCogs[i] and not fx.kill:
+          cogIncoming.add fx
+      var cogPartnerDown: seq[PartnerDownFx] = @[]
+      for fx in framePartnerDownFx:
+        if fx.partnerIndex == takeoverCogs[i]:
+          cogPartnerDown.add fx
+      var cogAvenge: seq[AvengeFx] = @[]
+      for fx in frameAvengeFx:
+        if fx.avengerIndex == takeoverCogs[i]:
+          cogAvenge.add fx
+      let cosmeticFxPacket = sim.buildCosmeticFxPacket(
+        takeoverCogs[i], cogIncoming, cogPartnerDown, cogAvenge)
       if cosmeticFxPacket.len > 0:
         try:
           takeoverSockets[i].send(cosmeticFxPacket, TextMessage)
