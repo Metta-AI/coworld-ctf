@@ -1,7 +1,7 @@
-## The "battle-royale-s2" variant paintbot now ships: 16 duo teams, 2 agents
-## each, 32 seats total -- ported field-for-field from
-## coworld_manifest_br.json (the original, never-uploaded 32-seat/16-duo
-## manifest), not reinvented. This is the manifest-plus-sim companion to
+## The "battle-royale-s2" variant paintbot now ships: 8 duo teams, 2 agents
+## each, 16 seats total -- the half-field rescale of the original
+## 32-seat/16-duo shape (owner capacity ruling: we don't field 32 players),
+## same rules and zone pacing on a half-area map. This is the manifest-plus-sim companion to
 ## two things that already exist and stay untouched:
 ##   - test_br_elim.nim, which already proves BR's elimination/tiebreak/zone
 ##     machinery is generic over team count and over seats-per-team (its
@@ -12,12 +12,13 @@
 ##     results_schema covers everything either results document writes.
 ##
 ## What neither of those pins is the property specific to THIS variant:
-## that the shipped 32-seat roster pairs slot k with slot k+16 on the SAME
+## that the shipped 16-seat roster pairs slot k with slot k+8 on the SAME
 ## team (the duo shape -- BR_MAPGEN.md's duo pocket, see arena.nim's
-## spawnPosition/spawnGroupOffset), across all 16 teams -- and that the
-## results payload built from that 32-seat roster carries exactly one score
-## entry per SEAT (32, not 16): the score-arity property a hosted
-## recertify actually enforces. A paintbot recertify failed earlier the
+## spawnPosition/spawnGroupOffset; the duo offset is DERIVED, seats/teams,
+## never a constant), across all 8 teams -- and that the results payload
+## built from that 16-seat roster carries exactly one score entry per SEAT
+## (16, not 8): the score-arity property a hosted recertify actually
+## enforces. A paintbot recertify failed earlier the
 ## same day with "game returned 32 scores for 16 seats" on a CLASSIC
 ## config where one seat commands a squad of cogs (loadout: paintball,
 ## cogsPerTeam > 1) -- squadResultsJson's per-SEAT count there is 16.  BR
@@ -42,7 +43,7 @@ import
 
 const
   ManifestPath = "coworld_manifest_paintbot.json"
-  Teams = 16
+  Teams = 8
   SeatsPerTeam = 2
   Seats = Teams * SeatsPerTeam
   VariantId = "battle-royale-s2"
@@ -59,7 +60,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     variant = manifest.findVariant()
     gc = variant["game_config"]
 
-  test "32 seats, 16 teams x 2 -- slot k paired with slot k+16 (the duo shape)":
+  test "16 seats, 8 teams x 2 -- slot k paired with slot k+8 (the duo shape)":
     check gc["players"].len == Seats
     check gc["slots"].len == Seats
     check gc["num_agents"].getInt() == Seats
@@ -73,12 +74,12 @@ suite "paintbot manifest, battle-royale-s2 variant":
     var seen: seq[string]
     for i in 0 ..< Teams:
       let team = gc["slots"][i]["team"].getStr()
-      check team notin seen        ## the first 16 slots are 16 DISTINCT teams.
+      check team notin seen        ## the first 8 slots are 8 DISTINCT teams.
       seen.add team
-      ## slot k and slot k+16 are the SAME team -- the duo pairing this
-      ## variant is now pinned to (the pairing a solo roster would have
-      ## broken, and the thing that made the earlier solo pass wrong once
-      ## the owner reversed the capacity call).
+      ## slot k and slot k+8 are the SAME team -- the duo pairing this
+      ## variant is now pinned to. The offset is seats/teams by derivation
+      ## (teamForSlot deals order mod teamCount), so the 16-seat shape
+      ## pairs at +8 exactly where the 32-seat one paired at +16.
       check gc["slots"][i + Teams]["team"].getStr() == team
     check seen.len == Teams
 
@@ -87,7 +88,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for key, _ in gc:
       check props.hasKey(key)
 
-  test "a REAL sim built from the variant's own game_config seats 32 duo seats across 16 teams":
+  test "a REAL sim built from the variant's own game_config seats 16 duo seats across 8 teams":
     var config = defaultGameConfig()
     config.update($gc)
     check config.brMode
@@ -95,7 +96,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
     ## roster.nim's slotRestricted/matchingConfiguredSlot): a real join
-    ## must use the configured "Player1".."Player32" identities to seat
+    ## must use the configured "Player1".."Player16" identities to seat
     ## in order, exactly like a real episode's roster does.
     for i in 0 ..< Seats:
       discard sim.addPlayer("Player" & $(i + 1))
@@ -110,7 +111,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for team, count in perTeam:
       check count == SeatsPerTeam   ## every team fields exactly its duo.
 
-  test "wiping 15 of 16 duo teams ends the round with ONE winning team and exactly 32 score entries":
+  test "wiping 7 of 8 duo teams ends the round with ONE winning team and exactly 16 score entries":
     var config = defaultGameConfig()
     config.update($gc)
     var sim = initCtfForTest(config)
@@ -118,9 +119,9 @@ suite "paintbot manifest, battle-royale-s2 variant":
       discard sim.addPlayer("Player" & $(i + 1))
     sim.startGame()
     let survivorTeam = sim.players[0].team
-    check sim.players[Teams].team == survivorTeam  ## slot 0's duo partner is slot 16.
-    ## Wipe every OTHER team's both seats (slots 1..15 and their partners
-    ## 17..31), leaving team 0's duo (slots 0 and 16) as the sole survivor.
+    check sim.players[Teams].team == survivorTeam  ## slot 0's duo partner is slot 8.
+    ## Wipe every OTHER team's both seats (slots 1..7 and their partners
+    ## 9..15), leaving team 0's duo (slots 0 and 8) as the sole survivor.
     for i in 1 ..< Teams:
       sim.killPlayer(i, 0)
       sim.killPlayer(i + Teams, 0)
@@ -130,8 +131,8 @@ suite "paintbot manifest, battle-royale-s2 variant":
     check sim.winner == survivorTeam
 
     ## The score-arity property a hosted recertify actually enforces: BR's
-    ## 32-SEAT roster (16 duo teams) must carry exactly 32 score entries --
-    ## one per seat, never 16 (one per team/squad).
+    ## 16-SEAT roster (8 duo teams) must carry exactly 16 score entries --
+    ## one per seat, never 8 (one per team/squad).
     let results = parseJson(sim.playerResultsJson())
     check results["scores"].len == Seats
     check results["names"].len == Seats

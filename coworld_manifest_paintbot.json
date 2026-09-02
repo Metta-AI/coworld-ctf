@@ -96,7 +96,7 @@
                   "azure",
                   "peach"
                 ],
-                "description": "Fixed team for this seat. Green and yellow are only valid when teams is 4; the remaining 12 colors are only valid when teams is 16 (battle-royale); with no team the seat is dealt slot mod teams."
+                "description": "Fixed team for this seat. Green and yellow are only valid when teams is 4 or more; black through pink additionally need teams 8 (8-duo battle-royale) or 16; the last 8 colors (umber through peach) are only valid when teams is 16 (full battle-royale); with no team the seat is dealt slot mod teams."
               },
               "skin": {
                 "description": "Cosmetic body-art skin for this slot's player. Rendering only: no gameplay effect and no observation-label change.",
@@ -278,11 +278,12 @@
           "default": 5
         },
         "teams": {
-          "description": "Active team count: 2 (classic sides), 4 (corner/plus free-for-all), or 16 (battle-royale, brMode).",
+          "description": "Active team count: 2 (classic sides), 4 (corner/plus free-for-all), 8 (half-field battle-royale duos), or 16 (full battle-royale, brMode).",
           "type": "integer",
           "enum": [
             2,
             4,
+            8,
             16
           ]
         },
@@ -1073,7 +1074,7 @@
     {
       "id": "battle-royale-s2",
       "name": "Battle Royale \u2014 Season 2",
-      "description": "The 32-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays \u2014 an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire \u2014 the competitive floor every private playbook must beat. Same arena as classic Battle Royale: sixteen duos on the generated giant flagless map, no respawns, six zone phases that close the field completely (median resolve ~4,540 ticks), last team standing, classic scoring with placement bonuses.",
+      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays \u2014 an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire \u2014 the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: eight duos on a generated flagless map scaled to keep every duo's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last team standing, classic scoring with placement bonuses.",
       "game_config": {
         "players": [
           {
@@ -1123,54 +1124,6 @@
           },
           {
             "name": "Player16"
-          },
-          {
-            "name": "Player17"
-          },
-          {
-            "name": "Player18"
-          },
-          {
-            "name": "Player19"
-          },
-          {
-            "name": "Player20"
-          },
-          {
-            "name": "Player21"
-          },
-          {
-            "name": "Player22"
-          },
-          {
-            "name": "Player23"
-          },
-          {
-            "name": "Player24"
-          },
-          {
-            "name": "Player25"
-          },
-          {
-            "name": "Player26"
-          },
-          {
-            "name": "Player27"
-          },
-          {
-            "name": "Player28"
-          },
-          {
-            "name": "Player29"
-          },
-          {
-            "name": "Player30"
-          },
-          {
-            "name": "Player31"
-          },
-          {
-            "name": "Player32"
           }
         ],
         "slots": [
@@ -1207,38 +1160,6 @@
             "control": "play"
           },
           {
-            "team": "umber",
-            "control": "play"
-          },
-          {
-            "team": "rust",
-            "control": "play"
-          },
-          {
-            "team": "orange",
-            "control": "play"
-          },
-          {
-            "team": "plum",
-            "control": "play"
-          },
-          {
-            "team": "lime",
-            "control": "play"
-          },
-          {
-            "team": "navy",
-            "control": "play"
-          },
-          {
-            "team": "azure",
-            "control": "play"
-          },
-          {
-            "team": "peach",
-            "control": "play"
-          },
-          {
             "team": "red",
             "control": "play"
           },
@@ -1269,43 +1190,11 @@
           {
             "team": "pink",
             "control": "play"
-          },
-          {
-            "team": "umber",
-            "control": "play"
-          },
-          {
-            "team": "rust",
-            "control": "play"
-          },
-          {
-            "team": "orange",
-            "control": "play"
-          },
-          {
-            "team": "plum",
-            "control": "play"
-          },
-          {
-            "team": "lime",
-            "control": "play"
-          },
-          {
-            "team": "navy",
-            "control": "play"
-          },
-          {
-            "team": "azure",
-            "control": "play"
-          },
-          {
-            "team": "peach",
-            "control": "play"
           }
         ],
         "seed": 679961,
-        "num_agents": 32,
-        "minPlayers": 32,
+        "num_agents": 16,
+        "minPlayers": 16,
         "lives": 1,
         "hitPoints": 3,
         "respawnTicks": 72,
@@ -1322,14 +1211,14 @@
         "maxTicks": 10000,
         "maxGames": 1,
         "showPlayerLabels": true,
-        "teams": 16,
+        "teams": 8,
         "fireWindupTicks": 5,
         "barrageMaxPerSec": 0,
         "mapSpec": {
-          "name": "br-gen-1339",
-          "genSeed": 1339,
-          "width": 3211,
-          "height": 1713,
+          "name": "br-gen-8024",
+          "genSeed": 8024,
+          "width": 2271,
+          "height": 1212,
           "flagRing": 70,
           "captureClear": 210,
           "spawnClearW": 70,
@@ -1342,1986 +1231,1514 @@
           "homeDepth": 0,
           "medKitSpawns": [
             [
-              2897,
-              1413
+              1755,
+              506
             ],
             [
-              2809,
-              1058
+              1186,
+              1216
             ],
             [
-              174,
+              1537,
+              190
+            ],
+            [
+              608,
               452
             ],
             [
-              284,
+              1148,
               452
             ],
             [
-              864,
-              1540
+              1132,
+              588
             ],
             [
-              2392,
-              912
+              460,
+              396
             ],
             [
-              2396,
-              280
+              420,
+              1128
             ],
             [
-              3200,
-              12
+              2072,
+              220
             ],
             [
-              448,
-              1400
-            ],
-            [
-              836,
+              1416,
               440
             ],
             [
-              2976,
-              1368
+              1347,
+              504
             ],
             [
-              264,
-              1200
+              411,
+              570
             ],
             [
-              2485,
-              432
+              468,
+              738
             ],
             [
-              2273,
-              953
+              298,
+              458
             ],
             [
-              1794,
-              775
+              1358,
+              728
             ],
             [
-              2363,
-              479
+              808,
+              504
             ],
             [
-              1831,
-              1010
-            ],
-            [
-              1607,
-              1010
-            ],
-            [
-              2244,
-              775
-            ],
-            [
-              2019,
-              775
+              713,
+              504
             ],
             [
               1252,
-              775
+              504
             ],
             [
-              625,
-              1284
+              588,
+              1116
             ],
             [
-              813,
-              1391
+              232,
+              1216
             ],
             [
-              2147,
-              1136
+              983,
+              465
             ],
             [
-              1954,
-              620
+              652,
+              372
             ],
             [
-              1036,
-              1560
+              636,
+              68
             ],
             [
-              708,
-              576
+              1965,
+              756
             ],
             [
-              1320,
-              624
+              1683,
+              813
             ],
             [
-              734,
-              857
-            ],
-            [
-              1812,
-              394
-            ],
-            [
-              3079,
-              267
-            ],
-            [
-              1945,
-              1377
-            ],
-            [
-              2411,
-              1409
+              891,
+              682
             ]
           ],
           "medKitCandidates": [
             [
-              2897,
-              1413
+              1755,
+              506
             ],
             [
-              2809,
-              1058
+              1186,
+              1216
             ],
             [
-              174,
+              1537,
+              190
+            ],
+            [
+              608,
               452
             ],
             [
-              284,
+              1148,
               452
             ],
             [
-              864,
-              1540
+              1132,
+              588
             ],
             [
-              2392,
-              912
+              460,
+              396
             ],
             [
-              2396,
-              280
+              420,
+              1128
             ],
             [
-              3200,
-              12
+              2072,
+              220
             ],
             [
-              448,
-              1400
-            ],
-            [
-              836,
+              1416,
               440
             ],
             [
-              2976,
-              1368
+              1347,
+              504
             ],
             [
-              264,
-              1200
+              411,
+              570
             ],
             [
-              2485,
-              432
+              468,
+              738
             ],
             [
-              2273,
-              953
+              298,
+              458
             ],
             [
-              1794,
-              775
+              1358,
+              728
             ],
             [
-              2363,
-              479
+              808,
+              504
             ],
             [
-              1831,
-              1010
-            ],
-            [
-              1607,
-              1010
-            ],
-            [
-              2244,
-              775
-            ],
-            [
-              2019,
-              775
+              713,
+              504
             ],
             [
               1252,
-              775
+              504
             ],
             [
-              625,
-              1284
+              588,
+              1116
             ],
             [
-              813,
-              1391
+              232,
+              1216
             ],
             [
-              2147,
-              1136
+              983,
+              465
             ],
             [
-              1954,
-              620
+              652,
+              372
             ],
             [
-              1036,
-              1560
+              636,
+              68
             ],
             [
-              708,
-              576
+              1965,
+              756
             ],
             [
-              1320,
-              624
+              1683,
+              813
             ],
             [
-              734,
-              857
-            ],
-            [
-              1812,
-              394
-            ],
-            [
-              3079,
-              267
-            ],
-            [
-              1945,
-              1377
-            ],
-            [
-              2411,
-              1409
+              891,
+              682
             ]
           ],
           "leftObstacles": [
             {
               "kind": "rect",
-              "x": 1288,
-              "y": 468,
-              "w": 364,
-              "h": 72
+              "x": 1196,
+              "y": 1111,
+              "w": 10,
+              "h": 36
             },
             {
               "kind": "rect",
-              "x": 1288,
-              "y": 669,
-              "w": 364,
-              "h": 72
+              "x": 1196,
+              "y": 843,
+              "w": 219,
+              "h": 34
             },
             {
               "kind": "rect",
-              "x": 1288,
-              "y": 468,
-              "w": 72,
-              "h": 111
-            },
-            {
-              "kind": "rect",
-              "x": 1288,
-              "y": 629,
-              "w": 72,
-              "h": 112
-            },
-            {
-              "kind": "rect",
-              "x": 1580,
-              "y": 468,
-              "w": 72,
-              "h": 111
-            },
-            {
-              "kind": "rect",
-              "x": 1580,
-              "y": 629,
-              "w": 72,
-              "h": 112
-            },
-            {
-              "kind": "rect",
-              "x": 1472,
-              "y": 540,
-              "w": 32,
-              "h": 43
-            },
-            {
-              "kind": "rect",
-              "x": 1472,
-              "y": 625,
-              "w": 32,
-              "h": 44
-            },
-            {
-              "kind": "rect",
-              "x": 2627,
-              "y": 922,
-              "w": 118,
-              "h": 72
-            },
-            {
-              "kind": "rect",
-              "x": 2627,
-              "y": 1123,
-              "w": 157,
-              "h": 72
-            },
-            {
-              "kind": "rect",
-              "x": 2834,
-              "y": 1123,
-              "w": 157,
-              "h": 72
-            },
-            {
-              "kind": "rect",
-              "x": 2627,
-              "y": 922,
-              "w": 72,
-              "h": 273
-            },
-            {
-              "kind": "rect",
-              "x": 2919,
-              "y": 1108,
-              "w": 72,
-              "h": 87
-            },
-            {
-              "kind": "rect",
-              "x": 369,
-              "y": 316,
-              "w": 75,
-              "h": 72
-            },
-            {
-              "kind": "rect",
-              "x": 80,
-              "y": 517,
-              "w": 81,
-              "h": 72
-            },
-            {
-              "kind": "rect",
-              "x": 80,
-              "y": 477,
-              "w": 72,
-              "h": 112
-            },
-            {
-              "kind": "rect",
-              "x": 372,
-              "y": 316,
-              "w": 72,
-              "h": 111
-            },
-            {
-              "kind": "rect",
-              "x": 1185,
-              "y": 576,
-              "w": 36,
-              "h": 39
-            },
-            {
-              "kind": "rect",
-              "x": 1185,
-              "y": 735,
-              "w": 36,
-              "h": 39
-            },
-            {
-              "kind": "rect",
-              "x": 1185,
-              "y": 576,
-              "w": 36,
-              "h": 198
-            },
-            {
-              "kind": "rect",
-              "x": 1686,
-              "y": 346,
-              "w": 198,
-              "h": 39
-            },
-            {
-              "kind": "rect",
-              "x": 1686,
-              "y": 346,
-              "w": 39,
-              "h": 50
-            },
-            {
-              "kind": "rect",
-              "x": 1686,
-              "y": 396,
-              "w": 26,
-              "h": 26
-            },
-            {
-              "kind": "rect",
-              "x": 1845,
-              "y": 346,
-              "w": 39,
-              "h": 50
-            },
-            {
-              "kind": "rect",
-              "x": 2765,
-              "y": 1314,
-              "w": 102,
-              "h": 52
-            },
-            {
-              "kind": "rect",
-              "x": 2926,
-              "y": 1314,
-              "w": 103,
-              "h": 52
-            },
-            {
-              "kind": "rect",
-              "x": 2797,
-              "y": 1460,
-              "w": 70,
-              "h": 52
-            },
-            {
-              "kind": "rect",
-              "x": 2926,
-              "y": 1460,
-              "w": 103,
-              "h": 52
-            },
-            {
-              "kind": "rect",
-              "x": 2765,
-              "y": 1314,
-              "w": 52,
-              "h": 129
-            },
-            {
-              "kind": "rect",
-              "x": 2797,
-              "y": 1443,
-              "w": 20,
+              "x": 1381,
+              "y": 843,
+              "w": 34,
               "h": 69
             },
             {
               "kind": "rect",
-              "x": 2977,
-              "y": 1314,
+              "x": 1196,
+              "y": 843,
+              "w": 34,
+              "h": 286
+            },
+            {
+              "kind": "rect",
+              "x": 1101,
+              "y": 1129,
+              "w": 95,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 1101,
+              "y": 1129,
+              "w": 34,
+              "h": 175
+            },
+            {
+              "kind": "rect",
+              "x": 1230,
+              "y": 1015,
+              "w": 6,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 427,
+              "y": 1113,
+              "w": 12,
+              "h": 36
+            },
+            {
+              "kind": "rect",
+              "x": 421,
+              "y": 1131,
+              "w": 36,
+              "h": 8
+            },
+            {
+              "kind": "rect",
+              "x": 421,
+              "y": 1193,
+              "w": 36,
+              "h": 9
+            },
+            {
+              "kind": "rect",
+              "x": 272,
+              "y": 1131,
+              "w": 36,
+              "h": 41
+            },
+            {
+              "kind": "rect",
+              "x": 361,
+              "y": 829,
+              "w": 226,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 553,
+              "y": 829,
+              "w": 34,
+              "h": 249
+            },
+            {
+              "kind": "rect",
+              "x": 439,
+              "y": 1106,
               "w": 52,
-              "h": 198
+              "h": 25
             },
             {
               "kind": "rect",
-              "x": 2801,
-              "y": 1383,
-              "w": 60,
-              "h": 60
+              "x": 361,
+              "y": 829,
+              "w": 34,
+              "h": 277
             },
             {
               "kind": "rect",
-              "x": 2933,
-              "y": 1383,
-              "w": 60,
-              "h": 60
-            },
-            {
-              "kind": "rect",
-              "x": 242,
-              "y": 831,
-              "w": 198,
-              "h": 39
-            },
-            {
-              "kind": "rect",
-              "x": 242,
-              "y": 794,
-              "w": 39,
-              "h": 76
-            },
-            {
-              "kind": "rect",
-              "x": 401,
-              "y": 739,
-              "w": 39,
-              "h": 131
-            },
-            {
-              "kind": "diagonal",
-              "x0": 2311,
-              "y0": 868,
-              "x1": 2502,
-              "y1": 1059,
-              "t": 30
-            },
-            {
-              "kind": "diagonal",
-              "x0": 1252,
-              "y0": 736,
-              "x1": 1701,
-              "y1": 736,
-              "t": 30
-            },
-            {
-              "kind": "diagonal",
-              "x0": 1794,
-              "y0": 736,
-              "x1": 2244,
-              "y1": 736,
-              "t": 30
-            },
-            {
-              "kind": "diagonal",
-              "x0": 2497,
-              "y0": 785,
-              "x1": 2301,
-              "y1": 981,
-              "t": 30
-            },
-            {
-              "kind": "diagonal",
-              "x0": 1384,
-              "y0": 971,
-              "x1": 1831,
-              "y1": 971,
-              "t": 30
-            },
-            {
-              "kind": "rect",
-              "x": 475,
-              "y": 1241,
-              "w": 144,
-              "h": 28
-            },
-            {
-              "kind": "rect",
-              "x": 475,
-              "y": 1198,
-              "w": 28,
-              "h": 71
-            },
-            {
-              "kind": "rect",
-              "x": 591,
-              "y": 1198,
-              "w": 28,
-              "h": 71
-            },
-            {
-              "kind": "rect",
-              "x": 799,
-              "y": 257,
-              "w": 49,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 781,
-              "y": 275,
-              "w": 67,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 763,
-              "y": 296,
-              "w": 252,
-              "h": 15
-            },
-            {
-              "kind": "rect",
-              "x": 745,
-              "y": 311,
-              "w": 288,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 727,
-              "y": 329,
-              "w": 324,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 347,
-              "w": 360,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 365,
-              "w": 360,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 383,
-              "w": 360,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 401,
-              "w": 360,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 419,
-              "w": 360,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 437,
-              "w": 126,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 853,
-              "y": 437,
-              "w": 216,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 455,
-              "w": 108,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 925,
-              "y": 455,
-              "w": 144,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 473,
-              "w": 90,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 943,
-              "y": 473,
-              "w": 126,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 491,
-              "w": 108,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 943,
-              "y": 491,
-              "w": 126,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 709,
-              "y": 509,
-              "w": 126,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 853,
-              "y": 509,
-              "w": 18,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 943,
-              "y": 509,
-              "w": 18,
-              "h": 17
-            },
-            {
-              "kind": "rect",
-              "x": 1051,
-              "y": 509,
-              "w": 18,
-              "h": 17
-            },
-            {
-              "kind": "rect",
-              "x": 727,
-              "y": 527,
-              "w": 162,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 745,
-              "y": 545,
-              "w": 144,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 763,
-              "y": 563,
-              "w": 126,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 781,
-              "y": 581,
+              "x": 290,
+              "y": 1158,
               "w": 36,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1287,
-              "w": 126,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1305,
-              "w": 144,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1006,
-              "y": 1323,
-              "w": 144,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1341,
-              "w": 180,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1359,
-              "w": 198,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1377,
-              "w": 213,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1395,
-              "w": 213,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1006,
-              "y": 1413,
-              "w": 195,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 880,
-              "y": 1431,
-              "w": 18,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 988,
-              "y": 1431,
-              "w": 213,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 880,
-              "y": 1449,
-              "w": 72,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 970,
-              "y": 1449,
-              "w": 18,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1114,
-              "y": 1449,
-              "w": 87,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 862,
-              "y": 1467,
-              "w": 90,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1132,
-              "y": 1467,
-              "w": 69,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 844,
-              "y": 1485,
-              "w": 90,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1150,
-              "y": 1485,
-              "w": 51,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 844,
-              "y": 1503,
-              "w": 54,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 916,
-              "y": 1503,
-              "w": 18,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1168,
-              "y": 1503,
-              "w": 33,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 844,
-              "y": 1521,
-              "w": 36,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1150,
-              "y": 1528,
-              "w": 54,
-              "h": 11
-            },
-            {
-              "kind": "rect",
-              "x": 1150,
-              "y": 1521,
-              "w": 51,
               "h": 7
             },
             {
               "kind": "rect",
-              "x": 844,
-              "y": 1539,
-              "w": 18,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 1168,
-              "y": 1539,
+              "x": 290,
+              "y": 1134,
               "w": 36,
+              "h": 20
+            },
+            {
+              "kind": "rect",
+              "x": 405,
+              "y": 1202,
+              "w": 34,
+              "h": 68
+            },
+            {
+              "kind": "rect",
+              "x": 439,
+              "y": 1064,
+              "w": 51,
+              "h": 14
+            },
+            {
+              "kind": "rect",
+              "x": 538,
+              "y": 1064,
+              "w": 47,
+              "h": 14
+            },
+            {
+              "kind": "rect",
+              "x": 439,
+              "y": 1078,
+              "w": 51,
+              "h": 8
+            },
+            {
+              "kind": "rect",
+              "x": 551,
+              "y": 1064,
+              "w": 34,
+              "h": 14
+            },
+            {
+              "kind": "rect",
+              "x": 551,
+              "y": 1153,
+              "w": 34,
+              "h": 49
+            },
+            {
+              "kind": "rect",
+              "x": 439,
+              "y": 1168,
+              "w": 146,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 439,
+              "y": 1064,
+              "w": 34,
+              "h": 17
+            },
+            {
+              "kind": "rect",
+              "x": 439,
+              "y": 1113,
+              "w": 34,
               "h": 18
             },
             {
               "kind": "rect",
-              "x": 952,
-              "y": 1575,
-              "w": 18,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 952,
-              "y": 1593,
-              "w": 36,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 934,
-              "y": 1611,
-              "w": 72,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 934,
-              "y": 1629,
-              "w": 72,
-              "h": 18
-            },
-            {
-              "kind": "rect",
-              "x": 2372,
-              "y": 1323,
-              "w": 144,
-              "h": 28
-            },
-            {
-              "kind": "rect",
-              "x": 2372,
-              "y": 1439,
-              "w": 144,
-              "h": 28
-            },
-            {
-              "kind": "rect",
-              "x": 2372,
-              "y": 1323,
+              "x": 262,
+              "y": 1074,
               "w": 28,
-              "h": 144
+              "h": 34
             },
             {
               "kind": "rect",
-              "x": 2488,
-              "y": 1323,
+              "x": 256,
+              "y": 1110,
+              "w": 34,
+              "h": 21
+            },
+            {
+              "kind": "rect",
+              "x": 262,
+              "y": 1074,
               "w": 28,
-              "h": 50
+              "h": 36
             },
             {
               "kind": "rect",
-              "x": 2488,
-              "y": 1416,
-              "w": 28,
-              "h": 51
+              "x": 145,
+              "y": 1110,
+              "w": 34,
+              "h": 56
             },
             {
               "kind": "rect",
-              "x": 2201,
-              "y": 482,
+              "x": 145,
+              "y": 1214,
+              "w": 34,
+              "h": 53
+            },
+            {
+              "kind": "rect",
+              "x": 395,
+              "y": 1003,
+              "w": 57,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 496,
+              "y": 1003,
+              "w": 57,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 491,
+              "y": 1155,
+              "w": 34,
+              "h": 13
+            },
+            {
+              "kind": "rect",
+              "x": 1700,
+              "y": 431,
+              "w": 55,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 1801,
+              "y": 431,
+              "w": 55,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 1822,
+              "y": 431,
+              "w": 34,
+              "h": 150
+            },
+            {
+              "kind": "rect",
+              "x": 1700,
+              "y": 547,
+              "w": 55,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 1801,
+              "y": 547,
+              "w": 55,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 1700,
+              "y": 431,
+              "w": 34,
+              "h": 150
+            },
+            {
+              "kind": "rect",
+              "x": 478,
+              "y": 209,
+              "w": 20,
+              "h": 17
+            },
+            {
+              "kind": "rect",
+              "x": 467,
+              "y": 154,
+              "w": 29,
+              "h": 8
+            },
+            {
+              "kind": "rect",
+              "x": 462,
+              "y": 324,
+              "w": 34,
+              "h": 107
+            },
+            {
+              "kind": "rect",
+              "x": 467,
+              "y": 236,
+              "w": 29,
+              "h": 88
+            },
+            {
+              "kind": "rect",
+              "x": 267,
+              "y": 397,
+              "w": 229,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 267,
+              "y": 324,
+              "w": 34,
+              "h": 107
+            },
+            {
+              "kind": "rect",
+              "x": 496,
+              "y": 86,
+              "w": 54,
+              "h": 16
+            },
+            {
+              "kind": "rect",
+              "x": 542,
+              "y": 106,
+              "w": 8,
+              "h": 14
+            },
+            {
+              "kind": "rect",
+              "x": 595,
+              "y": 86,
+              "w": 54,
+              "h": 34
+            },
+            {
+              "kind": "rect",
+              "x": 615,
+              "y": 86,
+              "w": 34,
+              "h": 150
+            },
+            {
+              "kind": "rect",
+              "x": 546,
+              "y": 202,
+              "w": 20,
+              "h": 24
+            },
+            {
+              "kind": "rect",
+              "x": 614,
+              "y": 202,
+              "w": 35,
+              "h": 24
+            },
+            {
+              "kind": "rect",
+              "x": 496,
+              "y": 86,
+              "w": 34,
+              "h": 16
+            },
+            {
+              "kind": "rect",
+              "x": 554,
+              "y": 183,
+              "w": 12,
+              "h": 19
+            },
+            {
+              "kind": "rect",
+              "x": 1929,
+              "y": 701,
               "w": 50,
               "h": 28
             },
             {
               "kind": "rect",
-              "x": 2294,
-              "y": 482,
+              "x": 2022,
+              "y": 701,
               "w": 51,
               "h": 28
             },
             {
               "kind": "rect",
-              "x": 2201,
-              "y": 598,
+              "x": 1929,
+              "y": 817,
+              "w": 144,
+              "h": 9
+            },
+            {
+              "kind": "rect",
+              "x": 1980,
+              "y": 826,
+              "w": 93,
+              "h": 19
+            },
+            {
+              "kind": "rect",
+              "x": 1929,
+              "y": 701,
+              "w": 28,
+              "h": 125
+            },
+            {
+              "kind": "rect",
+              "x": 2045,
+              "y": 701,
+              "w": 28,
+              "h": 144
+            },
+            {
+              "kind": "rect",
+              "x": 609,
+              "y": 469,
               "w": 144,
               "h": 28
             },
             {
               "kind": "rect",
-              "x": 2201,
-              "y": 482,
+              "x": 609,
+              "y": 585,
+              "w": 144,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 609,
+              "y": 469,
               "w": 28,
               "h": 144
             },
             {
               "kind": "rect",
-              "x": 2317,
-              "y": 482,
+              "x": 725,
+              "y": 469,
               "w": 28,
-              "h": 144
-            },
-            {
-              "kind": "diagonal",
-              "x0": 2621,
-              "y0": 421,
-              "x1": 2377,
-              "y1": 514,
-              "t": 26
-            },
-            {
-              "kind": "diagonal",
-              "x0": 644,
-              "y0": 1252,
-              "x1": 832,
-              "y1": 1359,
-              "t": 26
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  523,
-                  153
-                ],
-                [
-                  481,
-                  197
-                ],
-                [
-                  424,
-                  250
-                ],
-                [
-                  372,
-                  189
-                ],
-                [
-                  393,
-                  127
-                ],
-                [
-                  427,
-                  72
-                ],
-                [
-                  501,
-                  84
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2416,
-                  68
-                ],
-                [
-                  2390,
-                  150
-                ],
-                [
-                  2315,
-                  109
-                ],
-                [
-                  2251,
-                  103
-                ],
-                [
-                  2239,
-                  27
-                ],
-                [
-                  2305,
-                  26
-                ],
-                [
-                  2353,
-                  32
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2509,
-                  68
-                ],
-                [
-                  2443,
-                  110
-                ],
-                [
-                  2396,
-                  126
-                ],
-                [
-                  2294,
-                  123
-                ],
-                [
-                  2365,
-                  47
-                ],
-                [
-                  2394,
-                  26
-                ],
-                [
-                  2463,
-                  26
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2318,
-                  153
-                ],
-                [
-                  2273,
-                  196
-                ],
-                [
-                  2217,
-                  248
-                ],
-                [
-                  2167,
-                  188
-                ],
-                [
-                  2175,
-                  122
-                ],
-                [
-                  2224,
-                  87
-                ],
-                [
-                  2299,
-                  78
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2404,
-                  153
-                ],
-                [
-                  2381,
-                  225
-                ],
-                [
-                  2306,
-                  232
-                ],
-                [
-                  2287,
-                  171
-                ],
-                [
-                  2217,
-                  101
-                ],
-                [
-                  2309,
-                  86
-                ],
-                [
-                  2364,
-                  103
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2486,
-                  153
-                ],
-                [
-                  2448,
-                  202
-                ],
-                [
-                  2390,
-                  236
-                ],
-                [
-                  2321,
-                  195
-                ],
-                [
-                  2366,
-                  132
-                ],
-                [
-                  2389,
-                  66
-                ],
-                [
-                  2463,
-                  86
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2272,
-                  238
-                ],
-                [
-                  2305,
-                  321
-                ],
-                [
-                  2219,
-                  324
-                ],
-                [
-                  2181,
-                  266
-                ],
-                [
-                  2184,
-                  211
-                ],
-                [
-                  2216,
-                  138
-                ],
-                [
-                  2296,
-                  167
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2394,
-                  238
-                ],
-                [
-                  2395,
-                  326
-                ],
-                [
-                  2311,
-                  297
-                ],
-                [
-                  2266,
-                  266
-                ],
-                [
-                  2246,
-                  201
-                ],
-                [
-                  2302,
-                  140
-                ],
-                [
-                  2356,
-                  198
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  2490,
-                  238
-                ],
-                [
-                  2474,
-                  320
-                ],
-                [
-                  2400,
-                  277
-                ],
-                [
-                  2335,
-                  274
-                ],
-                [
-                  2307,
-                  189
-                ],
-                [
-                  2398,
-                  192
-                ],
-                [
-                  2458,
-                  177
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  283,
-                  1291
-                ],
-                [
-                  245,
-                  1359
-                ],
-                [
-                  175,
-                  1360
-                ],
-                [
-                  138,
-                  1317
-                ],
-                [
-                  94,
-                  1244
-                ],
-                [
-                  175,
-                  1221
-                ],
-                [
-                  227,
-                  1245
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  321,
-                  1291
-                ],
-                [
-                  334,
-                  1364
-                ],
-                [
-                  253,
-                  1393
-                ],
-                [
-                  236,
-                  1310
-                ],
-                [
-                  206,
-                  1257
-                ],
-                [
-                  254,
-                  1197
-                ],
-                [
-                  329,
-                  1225
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  241,
-                  1376
-                ],
-                [
-                  262,
-                  1465
-                ],
-                [
-                  176,
-                  1440
-                ],
-                [
-                  128,
-                  1406
-                ],
-                [
-                  121,
-                  1342
-                ],
-                [
-                  170,
-                  1285
-                ],
-                [
-                  238,
-                  1317
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  351,
-                  1376
-                ],
-                [
-                  341,
-                  1458
-                ],
-                [
-                  264,
-                  1429
-                ],
-                [
-                  212,
-                  1407
-                ],
-                [
-                  181,
-                  1330
-                ],
-                [
-                  262,
-                  1313
-                ],
-                [
-                  321,
-                  1320
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  485,
-                  1376
-                ],
-                [
-                  402,
-                  1428
-                ],
-                [
-                  349,
-                  1431
-                ],
-                [
-                  280,
-                  1415
-                ],
-                [
-                  277,
-                  1336
-                ],
-                [
-                  345,
-                  1306
-                ],
-                [
-                  389,
-                  1341
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  1695,
-                  1206
-                ],
-                [
-                  1647,
-                  1249
-                ],
-                [
-                  1594,
-                  1290
-                ],
-                [
-                  1532,
-                  1245
-                ],
-                [
-                  1545,
-                  1173
-                ],
-                [
-                  1601,
-                  1164
-                ],
-                [
-                  1677,
-                  1164
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  1657,
-                  1291
-                ],
-                [
-                  1662,
-                  1352
-                ],
-                [
-                  1594,
-                  1373
-                ],
-                [
-                  1521,
-                  1335
-                ],
-                [
-                  1578,
-                  1274
-                ],
-                [
-                  1594,
-                  1210
-                ],
-                [
-                  1684,
-                  1201
-                ]
-              ]
-            },
-            {
-              "kind": "polygon",
-              "points": [
-                [
-                  1706,
-                  1376
-                ],
-                [
-                  1662,
-                  1438
-                ],
-                [
-                  1597,
-                  1448
-                ],
-                [
-                  1557,
-                  1403
-                ],
-                [
-                  1514,
-                  1328
-                ],
-                [
-                  1599,
-                  1316
-                ],
-                [
-                  1655,
-                  1324
-                ]
-              ]
+              "h": 50
             },
             {
               "kind": "rect",
-              "x": 2364,
-              "y": 36,
+              "x": 725,
+              "y": 562,
+              "w": 28,
+              "h": 51
+            },
+            {
+              "kind": "rect",
+              "x": 1004,
+              "y": 143,
+              "w": 150,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1204,
+              "y": 143,
+              "w": 50,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1115,
+              "y": 280,
+              "w": 139,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1004,
+              "y": 143,
+              "w": 50,
+              "h": 55
+            },
+            {
+              "kind": "rect",
+              "x": 1204,
+              "y": 143,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 1115,
+              "y": 257,
               "w": 20,
-              "h": 4
+              "h": 23
             },
             {
               "kind": "rect",
-              "x": 2368,
-              "y": 40,
+              "x": 161,
+              "y": 513,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 314,
+              "y": 513,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 161,
+              "y": 650,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 314,
+              "y": 650,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 161,
+              "y": 513,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 361,
+              "y": 513,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 194,
+              "y": 576,
+              "w": 60,
+              "h": 60
+            },
+            {
+              "kind": "rect",
+              "x": 318,
+              "y": 576,
+              "w": 60,
+              "h": 60
+            },
+            {
+              "kind": "rect",
+              "x": 1412,
+              "y": 103,
+              "w": 20,
+              "h": 44
+            },
+            {
+              "kind": "rect",
+              "x": 1412,
+              "y": 234,
+              "w": 20,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1412,
+              "y": 103,
+              "w": 20,
+              "h": 181
+            },
+            {
+              "kind": "rect",
+              "x": 1577,
+              "y": 718,
+              "w": 144,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 1577,
+              "y": 834,
+              "w": 123,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 1577,
+              "y": 718,
+              "w": 28,
+              "h": 144
+            },
+            {
+              "kind": "rect",
+              "x": 1693,
+              "y": 718,
+              "w": 28,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1693,
+              "y": 811,
+              "w": 28,
+              "h": 15
+            },
+            {
+              "kind": "rect",
+              "x": 1693,
+              "y": 826,
+              "w": 7,
+              "h": 36
+            },
+            {
+              "kind": "rect",
+              "x": 1081,
+              "y": 535,
+              "w": 75,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1206,
+              "y": 535,
+              "w": 125,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1081,
+              "y": 672,
+              "w": 75,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1206,
+              "y": 672,
+              "w": 125,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1081,
+              "y": 535,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 1281,
+              "y": 535,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 1216,
+              "y": 585,
+              "w": 32,
+              "h": 22
+            },
+            {
+              "kind": "rect",
+              "x": 1216,
+              "y": 649,
+              "w": 32,
+              "h": 23
+            },
+            {
+              "kind": "rect",
+              "x": 647,
+              "y": 939,
+              "w": 144,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 647,
+              "y": 1055,
+              "w": 50,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 740,
+              "y": 1055,
+              "w": 51,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 647,
+              "y": 939,
+              "w": 28,
+              "h": 144
+            },
+            {
+              "kind": "rect",
+              "x": 763,
+              "y": 939,
+              "w": 28,
+              "h": 144
+            },
+            {
+              "kind": "rect",
+              "x": 2044,
+              "y": 105,
+              "w": 50,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 2137,
+              "y": 105,
+              "w": 51,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 2044,
+              "y": 221,
+              "w": 144,
+              "h": 28
+            },
+            {
+              "kind": "rect",
+              "x": 2044,
+              "y": 105,
+              "w": 28,
+              "h": 144
+            },
+            {
+              "kind": "rect",
+              "x": 2160,
+              "y": 105,
+              "w": 28,
+              "h": 144
+            },
+            {
+              "kind": "rect",
+              "x": 1349,
+              "y": 390,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1502,
+              "y": 390,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1349,
+              "y": 527,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1502,
+              "y": 527,
+              "w": 97,
+              "h": 50
+            },
+            {
+              "kind": "rect",
+              "x": 1349,
+              "y": 390,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 1549,
+              "y": 390,
+              "w": 50,
+              "h": 187
+            },
+            {
+              "kind": "rect",
+              "x": 1382,
+              "y": 453,
+              "w": 60,
+              "h": 60
+            },
+            {
+              "kind": "rect",
+              "x": 1506,
+              "y": 453,
+              "w": 60,
+              "h": 60
+            },
+            {
+              "kind": "diagonal",
+              "x0": 271,
+              "y0": 486,
+              "x1": 496,
+              "y1": 711,
+              "t": 30
+            },
+            {
+              "kind": "diagonal",
+              "x0": 619,
+              "y0": 465,
+              "x1": 808,
+              "y1": 465,
+              "t": 30
+            },
+            {
+              "kind": "diagonal",
+              "x0": 1157,
+              "y0": 465,
+              "x1": 1347,
+              "y1": 465,
+              "t": 30
+            },
+            {
+              "kind": "diagonal",
+              "x0": 1397,
+              "y0": 408,
+              "x1": 1397,
+              "y1": 728,
+              "t": 30
+            },
+            {
+              "kind": "rect",
+              "x": 418,
+              "y": 1130,
+              "w": 44,
+              "h": 60
+            },
+            {
+              "kind": "rect",
+              "x": 534,
+              "y": 1126,
+              "w": 40,
+              "h": 52
+            },
+            {
+              "kind": "rect",
+              "x": 158,
+              "y": 1114,
+              "w": 136,
+              "h": 40
+            },
+            {
+              "kind": "rect",
+              "x": 158,
+              "y": 1154,
+              "w": 168,
+              "h": 12
+            },
+            {
+              "kind": "rect",
+              "x": 206,
+              "y": 1166,
+              "w": 120,
+              "h": 16
+            },
+            {
+              "kind": "rect",
+              "x": 158,
+              "y": 1146,
+              "w": 168,
+              "h": 8
+            },
+            {
+              "kind": "rect",
+              "x": 474,
+              "y": 154,
+              "w": 44,
+              "h": 24
+            },
+            {
+              "kind": "rect",
+              "x": 474,
+              "y": 178,
+              "w": 24,
+              "h": 48
+            },
+            {
+              "kind": "rect",
+              "x": 530,
+              "y": 70,
+              "w": 88,
+              "h": 32
+            },
+            {
+              "kind": "rect",
+              "x": 318,
+              "y": 1086,
+              "w": 68,
+              "h": 48
+            },
+            {
+              "kind": "rect",
+              "x": 318,
+              "y": 1134,
               "w": 8,
-              "h": 4
+              "h": 20
+            },
+            {
+              "kind": "rect",
+              "x": 374,
+              "y": 1134,
+              "w": 12,
+              "h": 20
+            },
+            {
+              "kind": "rect",
+              "x": 354,
+              "y": 1206,
+              "w": 76,
+              "h": 20
+            },
+            {
+              "kind": "rect",
+              "x": 374,
+              "y": 1158,
+              "w": 56,
+              "h": 24
+            },
+            {
+              "kind": "rect",
+              "x": 526,
+              "y": 82,
+              "w": 40,
+              "h": 48
+            },
+            {
+              "kind": "rect",
+              "x": 498,
+              "y": 98,
+              "w": 68,
+              "h": 80
+            },
+            {
+              "kind": "rect",
+              "x": 422,
+              "y": 1066,
+              "w": 40,
+              "h": 64
+            },
+            {
+              "kind": "rect",
+              "x": 422,
+              "y": 1018,
+              "w": 40,
+              "h": 68
+            },
+            {
+              "kind": "rect",
+              "x": 470,
+              "y": 206,
+              "w": 40,
+              "h": 52
+            },
+            {
+              "kind": "rect",
+              "x": 474,
+              "y": 206,
+              "w": 92,
+              "h": 20
+            },
+            {
+              "kind": "polygon",
+              "points": [
+                [
+                  1958,
+                  68
+                ],
+                [
+                  1902,
+                  124
+                ],
+                [
+                  1845,
+                  124
+                ],
+                [
+                  1816,
+                  104
+                ],
+                [
+                  1816,
+                  26
+                ],
+                [
+                  1852,
+                  40
+                ],
+                [
+                  1913,
+                  26
+                ]
+              ]
             }
           ],
           "trenches": [],
           "spawnPoints": [
             [
-              229,
-              278
+              327,
+              184
             ],
             [
-              988,
-              156
+              975,
+              338
             ],
             [
-              1916,
-              164
+              1572,
+              243
             ],
             [
-              3020,
-              337
+              2081,
+              432
             ],
             [
-              301,
-              599
+              122,
+              970
             ],
             [
-              1045,
-              666
+              777,
+              767
             ],
             [
-              1852,
-              536
+              1376,
+              1052
             ],
             [
-              2788,
-              750
-            ],
-            [
-              481,
-              1058
-            ],
-            [
-              1109,
-              1125
-            ],
-            [
-              2032,
-              944
-            ],
-            [
-              2885,
-              968
-            ],
-            [
-              522,
-              1613
-            ],
-            [
-              1341,
-              1388
-            ],
-            [
-              1889,
-              1449
-            ],
-            [
-              2657,
-              1583
+              1840,
+              966
             ]
           ],
-          "spawnGroups": 16,
+          "spawnGroups": 8,
           "flagless": true,
           "shieldSpawns": [
             [
-              979,
-              1332
+              1186,
+              1216
             ],
             [
-              1534,
-              604
-            ],
-            [
-              2809,
+              474,
               1058
             ],
             [
-              284,
-              452
+              1181,
+              628
             ],
             [
-              1360,
-              540
+              286,
+              606
             ],
             [
-              2396,
-              280
+              300,
+              492
             ],
             [
-              1794,
-              775
+              1380,
+              580
             ],
             [
-              1476,
-              775
+              1157,
+              504
             ],
             [
-              813,
-              1391
+              1252,
+              504
             ],
             [
-              2244,
-              775
+              1358,
+              728
             ],
             [
-              968,
-              600
+              411,
+              570
             ],
             [
-              1880,
-              971
+              332,
+              68
             ],
             [
-              1036,
-              1560
+              588,
+              1116
+            ],
+            [
+              1220,
+              388
             ]
           ],
           "spraySpawns": [
             [
-              844,
-              482
+              1755,
+              506
             ],
             [
-              1424,
-              604
+              286,
+              606
             ],
             [
-              1006,
-              536
-            ],
-            [
-              979,
-              1332
-            ],
-            [
-              284,
-              452
-            ],
-            [
-              1123,
-              1512
-            ],
-            [
-              174,
-              452
-            ],
-            [
-              1534,
-              604
-            ],
-            [
-              961,
-              1422
-            ],
-            [
-              2809,
+              474,
               1058
             ],
             [
-              2897,
-              1413
+              529,
+              1133
             ],
             [
-              1051,
-              1602
+              341,
+              1200
             ],
             [
-              1116,
-              1304
+              474,
+              941
             ],
             [
-              796,
-              272
+              381,
+              232
             ],
             [
-              1380,
-              956
+              1161,
+              236
             ],
             [
-              2184,
-              272
+              1256,
+              628
             ],
             [
-              2468,
-              28
+              593,
+              161
             ],
             [
-              284,
-              828
+              1537,
+              190
             ],
             [
-              2976,
-              1368
+              204,
+              1168
             ],
             [
-              1556,
-              1404
+              381,
+              349
             ],
             [
-              1360,
-              668
+              1474,
+              483
             ],
             [
-              136,
-              1232
+              460,
+              700
             ],
             [
-              1016,
-              308
+              528,
+              80
+            ],
+            [
+              1232,
+              1012
             ],
             [
               12,
               12
             ],
             [
-              1360,
-              540
+              1824,
+              28
             ],
             [
-              2273,
-              953
+              396,
+              864
             ],
             [
-              813,
-              1391
+              12,
+              1200
             ],
             [
-              2378,
-              991
+              608,
+              452
             ],
             [
-              625,
-              1284
+              304,
+              396
             ],
             [
-              2485,
-              432
+              1132,
+              588
             ],
             [
-              2469,
-              757
+              2260,
+              1200
             ],
             [
-              2607,
-              386
+              808,
+              504
             ],
             [
-              2019,
-              775
+              1252,
+              504
             ],
             [
-              1954,
-              620
+              1358,
+              728
             ],
             [
-              1748,
-              736
+              713,
+              504
             ],
             [
-              1880,
-              971
+              411,
+              570
             ],
             [
-              708,
-              576
+              1347,
+              504
+            ],
+            [
+              983,
+              465
+            ],
+            [
+              144,
+              908
+            ],
+            [
+              652,
+              372
+            ],
+            [
+              636,
+              68
             ]
           ],
           "grenadeSpawns": [
             [
-              1424,
-              604
+              1305,
+              1063
             ],
             [
-              2897,
-              1413
+              1474,
+              483
             ],
             [
-              844,
-              482
+              568,
+              160
             ],
             [
-              2976,
-              1368
+              1380,
+              880
             ],
             [
-              2184,
-              272
+              304,
+              396
             ],
             [
-              2472,
+              676,
               1052
             ],
             [
-              2916,
-              1120
+              396,
+              864
             ],
             [
-              2232,
-              512
+              396,
+              1000
             ],
             [
-              2607,
-              386
+              619,
+              426
             ],
             [
-              2363,
-              479
+              468,
+              738
             ],
             [
-              2283,
-              895
+              808,
+              504
             ],
             [
-              625,
-              1284
+              144,
+              908
             ],
             [
-              1701,
-              775
+              636,
+              68
             ],
             [
-              1384,
-              1010
+              983,
+              465
             ],
             [
-              1252,
-              775
-            ],
-            [
-              2469,
-              757
-            ],
-            [
-              1954,
-              620
-            ],
-            [
-              1320,
-              624
-            ],
-            [
-              708,
-              576
-            ],
-            [
-              2396,
-              976
+              232,
+              1216
             ]
           ]
         },
