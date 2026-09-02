@@ -1792,21 +1792,22 @@
       const entry = roster.byName.get(String(partnerRow.name).toLowerCase());
       if (entry && entry.name && entry.name !== partnerRow.name) return entry.name;
     }
+    // Teammate-ship must be PROVEN before renaming, or a chip could label a
+    // bot partner with some unrelated human's name. The proof is seat
+    // arithmetic, not proximity (status positions are poll-stale): the
+    // engine's default team assignment is order mod teamCount
+    // (roster.nim teamForSlot), teamCount is the live teamScores row count,
+    // and my TRUE seat comes from my own /takeover/status row (a pending
+    // takeover can MIGRATE off the URL's requested slot — observed live on
+    // the rig, requested 3 -> holding 1 — so myIdentity.slot can lie here).
     const myName = (myIdentity.name || '').toLowerCase();
-    const others = roster.humanSeats.filter(function (h) { return h.name.toLowerCase() !== myName; });
-    if (others.length === 1) return others[0].name;
-    if (others.length > 1) {
-      const pc = state.cogs.filter(function (c) { return !c.self && c.alive && c.color === state.selfTeam; })[0];
-      if (pc) {
-        let best = null, bestD = 140 * 140; // generous: status positions are poll-stale
-        for (let i = 0; i < others.length; i++) {
-          const h = others[i];
-          if (typeof h.x !== 'number' || typeof h.y !== 'number') continue;
-          const d = (h.x - pc.x) * (h.x - pc.x) + (h.y - pc.y) * (h.y - pc.y);
-          if (d < bestD) { bestD = d; best = h; }
-        }
-        if (best) return best.name;
-      }
+    const mine = roster.humanSeats.filter(function (h) { return h.name.toLowerCase() === myName; })[0];
+    const teamCount = state.teamScores.length;
+    if (mine && typeof mine.seat === 'number' && teamCount > 0) {
+      const sameTeam = roster.humanSeats.filter(function (h) {
+        return h !== mine && typeof h.seat === 'number' && h.seat % teamCount === mine.seat % teamCount;
+      });
+      if (sameTeam.length === 1) return sameTeam[0].name;
     }
     return fallback;
   }
