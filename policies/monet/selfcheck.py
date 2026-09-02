@@ -110,7 +110,8 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
 # ── gate_open unit checks: monet's two custom plays ───────────────────────
 def facts(**kw):
     base = dict(pos=[500, 500], hp_frac=1.0, enemies=[], items=[],
-                nearest_enemy=None, in_zone=True, partner=19,
+                nearest_enemy=None, in_zone=True, in_next_zone=True,
+                ticks_to_shrink=None, partner=19,
                 partner_dead=False, partner_track=None, partner_dist=None,
                 max_hp=6)
     base.update(kw)
@@ -140,9 +141,22 @@ check("gate fire_superiority CLOSED: outside the zone",
       not starter_harness.gate_open(FS, facts(enemies=[ENEMY],
                                               nearest_enemy=900,
                                               in_zone=False)))
-check("both custom plays are registered as gated",
+check("all three custom plays are registered as gated",
       "hold_vs_gun" in starter_harness.GATED_PLAYS
-      and "fire_superiority" in starter_harness.GATED_PLAYS)
+      and "fire_superiority" in starter_harness.GATED_PLAYS
+      and "ring_walker" in starter_harness.GATED_PLAYS)
+
+RW = {"play": "ring_walker", "params": {"inset": 64, "leadTicks": 240}}
+check("gate ring_walker OPEN: outside the current rect",
+      starter_harness.gate_open(RW, facts(in_zone=False)))
+check("gate ring_walker OPEN: outside next rect, shrink inside leadTicks",
+      starter_harness.gate_open(RW, facts(in_next_zone=False,
+                                          ticks_to_shrink=100)))
+check("gate ring_walker CLOSED: inside current and next rects",
+      not starter_harness.gate_open(RW, facts(ticks_to_shrink=100)))
+check("gate ring_walker CLOSED: outside next rect but shrink still far",
+      not starter_harness.gate_open(RW, facts(in_next_zone=False,
+                                              ticks_to_shrink=600)))
 
 # ── layer_ladder: the gates actually steer the wire ladder ────────────────
 TURN3 = [dict(e) for e in PERSONA.canned_turns[2]["call"]["entries"]]
@@ -172,6 +186,24 @@ check("layer_ladder turn 3, no enemies: base jackal present",
       "jackal" in calm, str(calm))
 check("monet base_play is jackal", PERSONA.base_play == "jackal",
       str(PERSONA.base_play))
+
+# Outside the NEXT rect with the shrink close: ring_walker leads the ladder.
+RING_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp_frac": 1.0},
+    "world": {"zone": {"current": [0, 0, 2000, 2000],
+                       "next": [900, 900, 600, 600], "phase": 2,
+                       "ticks_to_shrink": 100}},
+    "tracks": [ENEMY],
+}
+ring = [e["play"] for e in starter_harness.layer_ladder(
+    TURN3, RING_VIEW, FAKE_CONTEXT, [], base_play=PERSONA.base_play)]
+controllers = [p for p in ring
+               if plays.PLAYS[p]["class"] == "controller"]
+check("layer_ladder outside next rect: ring_walker on the ladder",
+      "ring_walker" in ring, str(ring))
+check("layer_ladder outside next rect: ring_walker is the FIRST controller",
+      bool(controllers) and controllers[0] == "ring_walker", str(ring))
 
 # ── anti-stack formation floors ───────────────────────────────────────────
 stack_seat = fake_seat()

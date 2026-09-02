@@ -582,18 +582,27 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
         k.get("victim_seat") == partner for k in kill_feed)
     nearest_enemy = (min(_dist(pos, t["pos"]) for t in enemies)
                      if pos is not None and enemies else None)
-    # Inside the current safe zone? True when unknown (no zone marker yet,
-    # non-BR, or no position) so a missing rect never suppresses a gate.
-    zone_rect = ((view or {}).get("world") or {}).get("zone", {}) or {}
-    zone_rect = zone_rect.get("current")
-    in_zone = True
-    if (pos is not None and isinstance(zone_rect, (list, tuple))
-            and len(zone_rect) == 4
-            and all(isinstance(v, (int, float)) for v in zone_rect)):
-        in_zone = _inside(pos, zone_rect)
+    # Inside the current/next safe zone? True when unknown (no zone marker
+    # yet, non-BR, or no position) so a missing rect never suppresses a
+    # gate. ticks_to_shrink is None when unknown for the same reason.
+    zone = ((view or {}).get("world") or {}).get("zone", {}) or {}
+
+    def _in_rect(rect) -> bool:
+        if (pos is not None and isinstance(rect, (list, tuple))
+                and len(rect) == 4
+                and all(isinstance(v, (int, float)) for v in rect)):
+            return _inside(pos, rect)
+        return True
+
+    in_zone = _in_rect(zone.get("current"))
+    in_next_zone = _in_rect(zone.get("next"))
+    ticks_to_shrink = (zone.get("ticks_to_shrink")
+                       if isinstance(zone.get("ticks_to_shrink"), int)
+                       else None)
     return dict(
         pos=pos, hp_frac=me.get("hp_frac"), enemies=enemies, items=items,
         nearest_enemy=nearest_enemy, in_zone=in_zone,
+        in_next_zone=in_next_zone, ticks_to_shrink=ticks_to_shrink,
         partner=partner, partner_dead=partner_dead, partner_track=partner_track,
         partner_dist=(_dist(pos, partner_track["pos"])
                       if pos is not None and partner_track is not None else None),
@@ -645,6 +654,19 @@ def gate_open(entry: dict, facts: dict) -> bool:
     if play == "crossfire":
         return (facts["partner"] is not None and not facts["partner_dead"]
                 and facts["partner_track"] is not None and bool(facts["enemies"]))
+    if play == "ring_walker":
+        # The anti-corner walk (owner field report 2026-09-02): on the
+        # ladder when already caught outside the current rect, or when
+        # sitting outside the NEXT rect with the shrink closer than
+        # leadTicks -- the ring is a schedule, not a surprise.
+        lead = params.get(
+            "leadTicks",
+            plays.PLAYS["ring_walker"]["params"]["leadTicks"]["default"])
+        if not facts.get("in_zone", True):
+            return True
+        tts = facts.get("ticks_to_shrink")
+        return (not facts.get("in_next_zone", True)
+                and tts is not None and tts < lead)
     if play == "hold_vs_gun":
         # Stand-your-ground only bites with a live gun in reach: a fresh
         # enemy track within its own engageDist -- and only inside the zone
@@ -664,7 +686,7 @@ def gate_open(entry: dict, facts: dict) -> bool:
 
 
 GATED_PLAYS = ("supply_run", "loot", "bodyguard", "jackal", "crossfire",
-               "hold_vs_gun", "fire_superiority")
+               "hold_vs_gun", "fire_superiority", "ring_walker")
 
 
 def layer_ladder(entries: list, view: dict, context: dict | None = None,

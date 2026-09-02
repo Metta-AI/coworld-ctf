@@ -334,6 +334,35 @@ PLAYS = {
             "numbers are merely even."
         ),
     },
+    # MONET custom play #3 (2026-09-02, compiled from
+    # policies/monet/plays/ring_walker.nim by the monet Dockerfile). The
+    # anti-corner play from the owner field report: we died to the ring by
+    # cornering ourselves in building pockets. Spec transcribed from the
+    # play's own wasm-carried manifest.
+    "ring_walker": {
+        "class": "controller",
+        "params": {
+            "inset": {"kind": "int", "min": 16, "max": 256, "default": 64},
+            "leadTicks": {"kind": "int", "min": 24, "max": 720,
+                          "default": 240},
+        },
+        "brief": (
+            '"ring_walker" (class: controller). The ring is a schedule, not '
+            "a surprise: when you are outside the current safe zone, or "
+            "outside the NEXT zone rect with the shrink closer than "
+            "leadTicks, it walks you to a point inside the next rect "
+            "(inset from the edge, biased toward the center) -- always via "
+            "the engine's reachability query, so the target is in YOUR "
+            "connected pocket of the map, never a beeline into a wall. "
+            "Inside the schedule it holds and should be off the ladder. "
+            "Params:\n"
+            "     - inset: integer 16..256, default 64. How deep inside the "
+            "rect edge to aim.\n"
+            "     - leadTicks: integer 24..720, default 240. Start the walk "
+            "when the shrink is this close and you are not yet inside the "
+            "next rect."
+        ),
+    },
 }
 
 LADDER_RULES = """\

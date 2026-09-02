@@ -231,6 +231,14 @@ PERSONA = Persona(
                              "contact: it is how a winning fight gets "
                              "FINISHED instead of drawn, and a draw pays "
                              "nobody."),
+        "ring_walker": ("ring_walker is survival rule zero: the ring is "
+                        "a schedule, not a surprise -- leave the building "
+                        "BEFORE the walk turns into an escape, and only "
+                        "ever toward reachable ground (the play routes "
+                        "every target through the engine's reachability "
+                        "query, so it never beelines into a wall pocket). "
+                        "Keep it above every fight rung: no tag is worth "
+                        "being cornered by the storm."),
         "jackal": ("jackal is your signature tag source: join after the "
                    "first tag lands and stay for TWO -- clustered tags in "
                    "one fight multiply the glory (x2, x4, x8 as the streak "
@@ -257,6 +265,8 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -280,6 +290,8 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -304,6 +316,8 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 600, "pressRange": 400,
@@ -335,6 +349,8 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  "params": {"breakDeficit": 2, "coverMax": 200,
                             "engageDist": 600, "pressRange": 340,

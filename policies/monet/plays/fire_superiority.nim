@@ -257,11 +257,14 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
 
 const ZoneInsetPx = 64'i32
 
-proc zoneTarget(decoded: SdkView): SdkPoint =
+proc zoneTargets(decoded: SdkView; clamped, biased: var SdkPoint) =
   ## Outside the current safe zone nothing else matters: the re-entry point
-  ## is self clamped into the rect inset toward the center (server-version-
-  ## independent zone discipline -- guards may not be evaluated for us).
-  result.present = false
+  ## is self clamped into the rect (inset), plus a center-biased variant --
+  ## both are only ever emitted through nearest_reachable, which resolves to
+  ## self's own connectivity component (owner field report 2026-09-02: raw
+  ## clamp beelines cornered us in building pockets).
+  clamped.present = false
+  biased.present = false
   let zone = decoded.world.zone.current
   if not zone.present or not decoded.self.pos.present:
     return
@@ -276,9 +279,12 @@ proc zoneTarget(decoded: SdkView): SdkPoint =
   let
     ix = minI(ZoneInsetPx, (hix - lox) div 2)
     iy = minI(ZoneInsetPx, (hiy - loy) div 2)
-  result.present = true
-  result.x = clampI(decoded.self.pos.x, lox + ix, hix - ix)
-  result.y = clampI(decoded.self.pos.y, loy + iy, hiy - iy)
+  clamped.present = true
+  clamped.x = clampI(decoded.self.pos.x, lox + ix, hix - ix)
+  clamped.y = clampI(decoded.self.pos.y, loy + iy, hiy - iy)
+  biased.present = true
+  biased.x = (clamped.x + (lox + hix) div 2) div 2
+  biased.y = (clamped.y + (loy + hiy) div 2) div 2
 
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var decoded: SdkView
@@ -289,10 +295,14 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     return emitHoldIfChanged()
 
   # Zone discipline first: no press and no break is worth standing in the
-  # storm for -- walk back inside, whatever the count says.
-  let reentry = zoneTarget(decoded)
-  if reentry.present:
-    let goal = nearestReachable(reentry.x, reentry.y)
+  # storm for -- walk back inside by reachable targets only (center-biased
+  # request first, raw clamp second; 2 calls = MaxSpatialCallsPerStep).
+  var zClamped, zBiased: SdkPoint
+  zoneTargets(decoded, zClamped, zBiased)
+  if zClamped.present:
+    var goal = nearestReachable(zBiased.x, zBiased.y)
+    if not goal.ok:
+      goal = nearestReachable(zClamped.x, zClamped.y)
     if goal.ok:
       return emitGoal(dkZone, goal, "fire_superiority:zone")
     return emitHoldIfChanged()
