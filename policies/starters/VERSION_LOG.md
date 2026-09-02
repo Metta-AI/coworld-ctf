@@ -24,6 +24,8 @@ the change it carries. All uploads below were made with
 
 | player swap: cautious re-uploaded as player **Games Bond** so it can hold its own champion seat (v12 was the same image accidentally bound to the default player — inert) | v12 (James Botts), v13 (Games Bond) | — | — | competitive seating |
 
+| never shoot your own clone: harness pacts with the entrant's other seats and keeps them on target_law's never-list (44 of 51 early competitive aggressive deaths were clone-on-clone gun kills) | v14 (Games Bond) | v13 | v11 | competitive rounds from 3705+ |
+
 Seating rule learned the hard way: the scheduler seats **one champion per player**, an
 account is capped at **2 active players**, and a policy version is bound to the player
 that uploaded it. So at most two starters can compete as entrants at once
@@ -36,8 +38,8 @@ Glory per starter seat, 5% end-survivors. Final (60 episodes): 0.73 kills (+28%)
 auto-aim) scores ~0.95 kills / 0.92 Glory, so the play-calling layer is at best level with the engine
 today; the gains were cautious and collaborative catching up, plus robustness.
 
-**Current recommended build:** `starter-cautious:v10`, `starter-aggressive:v11`,
-`starter-collaborative:v9`. Still open: items are never used (the play view's
+**Current recommended build:** `starter-cautious:v14` (Games Bond), `starter-aggressive:v13`,
+`starter-collaborative:v11` — the league filler list and the entrant submissions point at these. Still open: items are never used (the play view's
 `items` array is empty in live play — an engine gap, not a policy one), and
 no aggressive variant beats the engine default on kills.
 
