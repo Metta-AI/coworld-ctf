@@ -192,10 +192,12 @@ were not enough"), one more found while building these:
 From the repository root:
 
 ```bash
-docker build -f policies/starters/aggressive/Dockerfile    -t starter-aggressive .
-docker build -f policies/starters/cautious/Dockerfile      -t starter-cautious .
-docker build -f policies/starters/collaborative/Dockerfile -t starter-collaborative .
+docker build --platform linux/amd64 -f policies/starters/aggressive/Dockerfile    -t starter-aggressive .
+docker build --platform linux/amd64 -f policies/starters/cautious/Dockerfile      -t starter-cautious .
+docker build --platform linux/amd64 -f policies/starters/collaborative/Dockerfile -t starter-collaborative .
 ```
+
+`--platform linux/amd64` is required on Apple Silicon: `coworld upload-policy` refuses an arm64 image ("Coworld uploads and hosted execution require linux/amd64 images").
 
 Run as in the PoC README (`POC_HOST=host.docker.internal`, or `--network
 host` on Linux). No model credentials are baked into any image.
