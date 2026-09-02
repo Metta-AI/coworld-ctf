@@ -120,11 +120,24 @@ function connect(caps) {
   // player=1 is not optional. The stock client infers "I am a player, capture
   // keys" from its socket path being /player; a takeover socket lands on
   // /takeover, so without this the field renders and the keyboard does nothing.
-  document.getElementById("field").src =
+  const field = document.getElementById("field");
+  field.src =
     "/client/player?player=1&address=" + encodeURIComponent(ws) +
     "&slot=" + encodeURIComponent(seat) +
     "&token=" + encodeURIComponent(token) +
     "&name=" + encodeURIComponent(name);
+  // Keyboard focus must START inside the iframe, or every key is silently
+  // dead: the client's canvas mousedown handler preventDefault()s (to stop
+  // text-selection/drag), and preventDefault on mousedown ALSO suppresses
+  // the browser's click-to-focus default — so clicking the field can NEVER
+  // move keyboard focus into the iframe. Wire-measured on the swap13 rig
+  // (Z adjudication, 2026-09-02): with the parent focused, holding Z or W
+  // produced ZERO packets in sendMask; the moment the iframe held focus,
+  // Z pulsed the fire bit every other tick. Focus it on load, and once
+  // inside, canvas clicks keep focus there (no default action runs at all).
+  field.addEventListener("load", () => {
+    try { field.contentWindow.focus(); } catch (e) { field.focus(); }
+  });
 }
 capabilities().then(connect);
 

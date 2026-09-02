@@ -2772,6 +2772,15 @@ function drawHitmarker(nowT){
    judged safer than inventing a new sound without direction). */
 addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;mouseClientX=e.clientX;mouseClientY=e.clientY;haveMouse=true;sendDirectAim(mouseX,mouseY)});
 c.addEventListener("mousedown",e=>{
+  /* preventDefault below also suppresses the browser's click-to-focus
+     default -- when this page is EMBEDDED (takeover.html's iframe), a
+     canvas click could therefore never pull keyboard focus into this
+     frame, leaving every key (WASD/Z/Space) silently dead until the user
+     happened to Tab in. Wire-measured on the swap13 rig (Z adjudication,
+     2026-09-02): parent-focused hold of Z or W = zero sendMask packets;
+     iframe-focused = fire bit pulsing every other tick. Self-focus on the
+     gesture is allowed cross-frame (same origin) and a no-op top-level. */
+  if(window!==window.top){try{window.focus()}catch(err){}}
   if(e.button===0){
     lmb=true;e.preventDefault();
     if(selfPos)ensureAudio(); // first real user gesture unlocks WebAudio; playFire() itself fires off the HUD edge, not from here
