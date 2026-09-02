@@ -92,6 +92,13 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for key, _ in gc:
       check props.hasKey(key)
 
+  test "results_schema declares Season 2 qualification scalars":
+    let props = manifest["game"]["results_schema"]["properties"]
+    check props["s2_seats_uploaded"]["type"].getStr() == "integer"
+    check props["s2_calls_accepted"]["type"].getStr() == "integer"
+    check props["s2_seats_moved"]["type"].getStr() == "integer"
+    check props["decisive"]["type"].getStr() == "boolean"
+
   test "a REAL sim built from the variant's own game_config seats 16 solo seats across 16 teams":
     var config = defaultGameConfig()
     config.update($gc)

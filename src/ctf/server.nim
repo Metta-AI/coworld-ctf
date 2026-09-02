@@ -200,6 +200,9 @@ type
     playIngress: seq[PlayIngressSeat[WebSocket]]
     playOutbound: seq[PlayOutboundSeat[WebSocket]]
     outstandingPlayCalls: seq[seq[OutstandingPlayCall]]
+    s2SeatsUploaded: seq[bool]
+    s2CallsAccepted: seq[bool]
+    s2SeatsMoved: seq[bool]
     playIngressConfigured: bool
     seatTombstones: seq[SeatTombstone]
     seatPlayerIndices: seq[int]
@@ -618,6 +621,9 @@ proc initAppState() =
   appState.playIngress = @[]
   appState.playOutbound = @[]
   appState.outstandingPlayCalls = @[]
+  appState.s2SeatsUploaded = @[]
+  appState.s2CallsAccepted = @[]
+  appState.s2SeatsMoved = @[]
   appState.playIngressConfigured = false
   appState.seatTombstones = @[]
   appState.seatPlayerIndices = @[]
@@ -697,6 +703,9 @@ proc configurePlayIngress(config: GameConfig) =
   appState.playOutbound = newSeq[PlayOutboundSeat[WebSocket]](config.slots.len)
   appState.outstandingPlayCalls =
     newSeq[seq[OutstandingPlayCall]](config.slots.len)
+  appState.s2SeatsUploaded = newSeq[bool](config.slots.len)
+  appState.s2CallsAccepted = newSeq[bool](config.slots.len)
+  appState.s2SeatsMoved = newSeq[bool](config.slots.len)
   appState.seatTombstones = newSeq[SeatTombstone](config.slots.len)
   appState.seatPlayerIndices = newSeq[int](config.slots.len)
   for seat in 0 ..< appState.playIngress.len:
@@ -711,6 +720,36 @@ proc configurePlayIngress(config: GameConfig) =
   appState.lobbyTranscript = @[]
   appState.lobbyTranscriptTicks = @[]
   appState.playIngressConfigured = true
+
+proc noteS2SeatUploaded(seat: int) =
+  if seat >= 0 and seat < appState.s2SeatsUploaded.len and
+      appState.config.isPlaySeat(seat):
+    appState.s2SeatsUploaded[seat] = true
+
+proc noteS2CallAccepted(seat: int) =
+  if seat >= 0 and seat < appState.s2CallsAccepted.len and
+      appState.config.isPlaySeat(seat):
+    appState.s2CallsAccepted[seat] = true
+
+proc noteS2SeatMoved(seat: int) =
+  if seat >= 0 and seat < appState.s2SeatsMoved.len and
+      appState.config.isPlaySeat(seat):
+    appState.s2SeatsMoved[seat] = true
+
+proc countTrue(values: openArray[bool]): int =
+  for value in values:
+    if value:
+      inc result
+
+proc currentS2ComplianceScalars(config: GameConfig): S2ComplianceScalars =
+  if not config.isPlaySeatEpisode():
+    return
+  result.enabled = true
+  {.gcsafe.}:
+    withLock appState.lock:
+      result.seatsUploaded = countTrue(appState.s2SeatsUploaded)
+      result.callsAccepted = countTrue(appState.s2CallsAccepted)
+      result.seatsMoved = countTrue(appState.s2SeatsMoved)
 
 proc ensurePlayIngressConfigured() =
   if not appState.playIngressConfigured:
@@ -819,6 +858,8 @@ proc handleProductionPlayCall(
         discard appState.playOutbound[seat].retainStatus(
           accepted.status, reservationSlots = 1,
           proposalId = some(packet.proposalId))
+        if accepted.status.kind == skCallAccepted:
+          noteS2CallAccepted(seat)
       else:
         discard appState.playOutbound[seat].retainCallRefusal(
           generation, packet.proposalId,
@@ -863,6 +904,8 @@ proc retainProductionModuleStatuses(
           continue
         discard appState.playOutbound[terminal.seat].retainStatus(
           terminal.status, reservationSlots = 1)
+        if terminal.status.kind == skModuleReady:
+          noteS2SeatUploaded(terminal.seat)
 
 proc countPlayOutcomeFeedbackError(seat: int) =
   appState.playIngressFeedbackErrors.saturatingAdd(1)
@@ -4072,6 +4115,10 @@ proc resetShellForSim(episode: var ShellEpisode,
     for line in configured.lines:
       echo line
     for identity in configured.callIdentities:
+      {.gcsafe.}:
+        withLock appState.lock:
+          noteS2SeatUploaded(int(identity.seat))
+          noteS2CallAccepted(int(identity.seat))
       discard queueAcceptedPlayCallIdentity(
         int(identity.seat), some(identity), tickTime(sim.tickCount))
   else:
@@ -5230,6 +5277,12 @@ proc runServerLoop*(
             stepInputs[mask.playerIndex] = mask.input
             if mask.playerIndex < downInputs.len:
               downInputs[mask.playerIndex] = mask.input
+            if sim.phase == Playing and
+                (encoded and (ButtonUp or ButtonDown or
+                  ButtonLeft or ButtonRight)) != 0:
+              {.gcsafe.}:
+                withLock appState.lock:
+                  noteS2SeatMoved(mask.seat.int)
             replayWriter.writeInputMaskChange(
               tickTime(sim.tickCount), mask.playerIndex,
               encoded)
@@ -5793,10 +5846,12 @@ proc runServerLoop*(
         echo "Events written: ", eventsPath,
           " (", collectedEvents.len, " events, ", getFileSize(eventsPath), " bytes)"
       if runtimeConfig.resultsUri.len > 0:
-        let scoresJson = sim.playerResultsJson() & "\n"
+        let scoresJson =
+          sim.playerResultsJson(currentS2ComplianceScalars(config)) & "\n"
         runtimeConfig.writeResults(scoresJson)
       elif saveScoresPath.len > 0:
-        writeFile(saveScoresPath, sim.playerResultsJson() & "\n")
+        writeFile(saveScoresPath,
+          sim.playerResultsJson(currentS2ComplianceScalars(config)) & "\n")
         echo "Scores written: ", saveScoresPath,
           " (", getFileSize(saveScoresPath), " bytes)"
       block:

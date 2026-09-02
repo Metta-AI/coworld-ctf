@@ -308,6 +308,48 @@ suite "server play receive arm":
       appState.playOutbound[0].statusBytes[2]
     check uploadDeliveries.load == 0
 
+  test "Season 2 compliance tracker counts play seats once":
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.numAgents = 4
+    config.slots = @[
+      PlayerSlotConfig(control: scPlay, team: Red),
+      PlayerSlotConfig(control: scPlay, team: Blue),
+      PlayerSlotConfig(control: scInput, team: Red),
+      PlayerSlotConfig(control: scPlay, team: Blue)]
+    appState.config = config
+    configurePlayIngress(config)
+
+    retainProductionModuleStatuses([
+      ShellModuleStatus(seat: 0,
+        status: StatusEntry(kind: skModuleReady)),
+      ShellModuleStatus(seat: 1,
+        status: StatusEntry(kind: skModuleRejected)),
+      ShellModuleStatus(seat: 2,
+        status: StatusEntry(kind: skModuleReady))])
+    {.gcsafe.}:
+      withLock appState.lock:
+        noteS2SeatUploaded(0)
+        noteS2SeatUploaded(0)
+        noteS2CallAccepted(0)
+        noteS2CallAccepted(3)
+        noteS2CallAccepted(2)
+        noteS2SeatMoved(1)
+        noteS2SeatMoved(3)
+        noteS2SeatMoved(2)
+
+    let summary = currentS2ComplianceScalars(config)
+    check summary.enabled
+    check summary.seatsUploaded == 1
+    check summary.callsAccepted == 2
+    check summary.seatsMoved == 2
+
+    var classic = config
+    for slot in classic.slots.mitems:
+      slot.control = scInput
+    let disabled = currentS2ComplianceScalars(classic)
+    check not disabled.enabled
+
   test "newest authenticated socket invalidates queued work from its predecessor":
     appState.config = playConfig(scPlay)
     let

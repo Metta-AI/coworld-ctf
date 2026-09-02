@@ -8,6 +8,18 @@ import
   std/json,
   sim_types, sim_state, paint
 
+type
+  S2ComplianceScalars* = object
+    ## Non-sim, results-only Season 2 qualification evidence. Server-side
+    ## runtime code owns the per-seat accumulation; roster.nim only attaches
+    ## the final scalar document when the caller proves this was a play-seat
+    ## episode. Keeping this outside SimServer/Player avoids any replay or
+    ## GameVersion-bearing state change.
+    enabled*: bool
+    seatsUploaded*: int
+    callsAccepted*: int
+    seatsMoved*: int
+
 proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
   ## The perk group for a seat about to join `team` as `address`. NAMED
   ## groups (object config form) match the seat's policyName exactly — an
@@ -885,7 +897,17 @@ proc squadResultsJson*(sim: SimServer): string =
   results["seed"] = %sim.config.seed
   $results
 
-proc ctfPlayerResultsJson(sim: SimServer): string =
+proc s2Decisive(sim: SimServer): bool =
+  let
+    reason = if sim.endReason.len > 0: sim.endReason else: ReasonComplete
+    rule = if sim.endRule.len > 0: sim.endRule else: EndRuleFullTime
+  reason == ReasonComplete and not sim.isDraw and
+    rule in [EndRuleFullTime, EndRuleMercy, EndRuleWipe]
+
+proc ctfPlayerResultsJson(
+  sim: SimServer,
+  s2Compliance = S2ComplianceScalars()
+): string =
   ## Returns final player win states and LEAGUE SCORES (glory) as JSON:
   ## exactly one entry per SEAT, in seat order, when `numAgents` configures
   ## a seat count.
@@ -1162,6 +1184,11 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   results["deaths"] = deathsList
   results["captures"] = capturesList
   results["achievements"] = achievementsList
+  if s2Compliance.enabled:
+    results["s2_seats_uploaded"] = %s2Compliance.seatsUploaded
+    results["s2_calls_accepted"] = %s2Compliance.callsAccepted
+    results["s2_seats_moved"] = %s2Compliance.seatsMoved
+    results["decisive"] = %sim.s2Decisive()
   # shotsFired/shotsHit stay OUT of the results payload: the platform's
   # episode-results schema is closed (additionalProperties: false) and the
   # certifier rejects unknown fields, blocking every canonical upload. The
@@ -1169,7 +1196,10 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   # only after the platform schema learns the fields.
   $results
 
-proc playerResultsJson*(sim: SimServer): string =
+proc playerResultsJson*(
+  sim: SimServer,
+  s2Compliance = S2ComplianceScalars()
+): string =
   ## The episode results document. A paintball game (loadout ==
   ## LoadoutPaintball) reports one entry per SEAT through squadResultsJson;
   ## every classic game (the default LoadoutCtf) plays the starter's rules
@@ -1189,4 +1219,4 @@ proc playerResultsJson*(sim: SimServer): string =
   if sim.config.loadout == LoadoutPaintball:
     sim.squadResultsJson()
   else:
-    sim.ctfPlayerResultsJson()
+    sim.ctfPlayerResultsJson(s2Compliance)

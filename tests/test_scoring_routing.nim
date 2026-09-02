@@ -164,6 +164,48 @@ suite "scoring schema routing":
     # 0), same as the winner's row does for its own team.
     check results["scores"][1].getInt() == blueGlory
 
+  test "classic results omit Season 2 qualification scalars":
+    var sim = twoTeamGame()
+    sim.finishGame(Red)
+
+    let results = parseJson(sim.playerResultsJson())
+    for key in ["s2_seats_uploaded", "s2_calls_accepted",
+                "s2_seats_moved", "decisive"]:
+      check not results.hasKey(key)
+
+  test "Season 2 qualification scalars are explicit and per-seat counted":
+    var sim = twoTeamGame()
+    sim.config.season2Shell = true
+    sim.config.slots = @[
+      PlayerSlotConfig(control: scPlay, team: Red),
+      PlayerSlotConfig(control: scPlay, team: Blue),
+      PlayerSlotConfig(control: scPlay, team: Red),
+      PlayerSlotConfig(control: scPlay, team: Blue)]
+    sim.config.numAgents = sim.config.slots.len
+    sim.finishGame(Red)
+
+    let results = parseJson(sim.playerResultsJson(S2ComplianceScalars(
+      enabled: true, seatsUploaded: 2, callsAccepted: 1, seatsMoved: 3)))
+    check results["s2_seats_uploaded"].getInt() == 2
+    check results["s2_calls_accepted"].getInt() == 1
+    check results["s2_seats_moved"].getInt() == 3
+    check results["decisive"].getBool()
+
+  test "Season 2 decisive is false for draws and faults":
+    var draw = twoTeamGame()
+    draw.finishGame(Red, isDraw = true)
+    let drawResults = parseJson(draw.playerResultsJson(S2ComplianceScalars(
+      enabled: true, seatsUploaded: 1, callsAccepted: 1, seatsMoved: 1)))
+    check not drawResults["decisive"].getBool()
+
+    var fault = twoTeamGame()
+    fault.endReason = ReasonFault
+    fault.endRule = EndRuleSimFault
+    fault.phase = GameOver
+    let faultResults = parseJson(fault.playerResultsJson(S2ComplianceScalars(
+      enabled: true, seatsUploaded: 1, callsAccepted: 1, seatsMoved: 1)))
+    check not faultResults["decisive"].getBool()
+
   test "a paintball config with num_agents == 0 still routes on loadout, not the seat count":
     ## The discriminating edge in the OTHER direction: a hypothetical
     ## paintball config that never sets num_agents (or sets it to 0) must

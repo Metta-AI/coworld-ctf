@@ -749,6 +749,28 @@
               "pattern": "^[a-z0-9_-]+$"
             }
           }
+        },
+        "s2_seats_uploaded": {
+          "description": "Season 2 qualification scalar: count of play seats whose module reached module_ready during the episode.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "s2_calls_accepted": {
+          "description": "Season 2 qualification scalar: count of play seats with at least one accepted call during the episode.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "s2_seats_moved": {
+          "description": "Season 2 qualification scalar: count of play seats whose nonzero movement input reached the sim while Playing.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "decisive": {
+          "description": "Season 2 qualification scalar: true when the round ended by gameplay decision, including the BR tiebreak; false for draws or fault endings.",
+          "type": "boolean"
         }
       }
     },
