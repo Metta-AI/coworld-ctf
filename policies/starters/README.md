@@ -161,7 +161,7 @@ coworld play <coworld id of the canonical paintbot> starter-cautious:vN \
   --variant battle-royale-s2 --no-open-browser -o /tmp/localplay
 ```
 
-`--run` is required: without it the runner reuses the manifest's reference
+The policy argument is a LOCAL docker tag (`coworld play` inspects the local docker store and refuses a platform label it cannot find there: "players[0].image is not available locally or reachable remotely"). `--run` is required: without it the runner reuses the manifest's reference
 player command (`/bin/baseline`) and every seat fails to start. The per-seat
 logs land in `<output dir>/logs/policy_agent_N.log` and the replay in
 `<output dir>/replay`.
