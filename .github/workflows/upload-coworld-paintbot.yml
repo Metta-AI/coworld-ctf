@@ -84,6 +84,10 @@ jobs:
         if: steps.freshness.outputs.stale != '1'
         working-directory: coworld-ctf
         run: |
+          # Stamp the game image's engine so its recordings carry
+          # "engineStamp" (compose.yaml forwards this to the Dockerfile).
+          export SIM_SOURCES_STAMP="$(tools/sim_sources_stamp.sh)"
+          echo "engine stamp: $SIM_SOURCES_STAMP"
           uvx --from "coworld[auth]==0.1.43" coworld build \
             --version "${{ steps.version.outputs.version }}" \
             --project . \
@@ -94,24 +98,40 @@ jobs:
             build/coworld-package/coworld_manifest.json \
             --timeout-seconds 900 \
             --wait-hosted-smoke \
-            --hosted-smoke-timeout-seconds 1800
+            --hosted-smoke-timeout-seconds 1800 \
+            --wait-certification \
+            --certification-timeout-seconds 1800
       - name: Verify upload
         if: steps.freshness.outputs.stale != '1'
+        # Canonical promotion is asynchronous: it lands some minutes after the
+        # hosted smoke and certification the upload already waited for (run
+        # 33582260538 checked 0.7.281 at once, found it not canonical, and
+        # failed; the version was promoted six minutes later). So poll: the
+        # version must appear promptly, and then it gets up to fifteen
+        # minutes to become canonical before this counts as a failure.
         run: |
           set -euo pipefail
-          uvx --from "coworld[auth]==0.1.43" coworld list --json --limit 500 > /tmp/coworlds-after.json
           python3 - "${{ steps.version.outputs.version }}" <<'EOF'
-          import json, sys
+          import json, subprocess, sys, time
           expected = sys.argv[1]
-          rows = json.load(open("/tmp/coworlds-after.json"))
-          match = [r for r in rows if r.get("name") == "paintbot" and r.get("version") == expected]
-          if not match:
-              raise SystemExit(f"uploaded version {expected} not found on server")
-          entry = match[0]
-          if not entry.get("canonical"):
-              raise SystemExit(
-                  f"paintbot:{expected} uploaded but is not canonical; "
-                  "the league will not advance. Hosted smoke certification likely did not pass."
-              )
-          print(entry["id"], entry["name"], entry["version"], "canonical")
+          deadline = time.monotonic() + 15 * 60
+          poll_seconds = 30
+          while True:
+              rows = json.loads(subprocess.check_output([
+                  "uvx", "--from", "coworld[auth]==0.1.43", "coworld", "list",
+                  "--json", "--limit", "500"]))
+              match = [r for r in rows
+                       if r.get("name") == "paintbot" and r.get("version") == expected]
+              if match and match[0].get("canonical"):
+                  entry = match[0]
+                  print(entry["id"], entry["name"], entry["version"], "canonical")
+                  break
+              state = "not found on server" if not match else "uploaded, not yet canonical"
+              if time.monotonic() >= deadline:
+                  raise SystemExit(
+                      f"paintbot:{expected} {state} after 15 minutes; "
+                      "the league will not advance. Hosted smoke or certification "
+                      "likely did not pass, or promotion is stuck.")
+              print(f"paintbot:{expected} {state}; waiting {poll_seconds}s", flush=True)
+              time.sleep(poll_seconds)
           EOF

@@ -20,6 +20,10 @@ typed binary accessors (`readBinaryViewInto` or the narrower
 `play_retune` params are still canonical JSON today; the SDK keeps a small
 params-only reader for that path until a binary params encoding exists.
 
+Reference plays live in `play_sdk/reference/` (edge_ride, pact, supply_run,
+bodyguard, jackal, crossfire, target_law, and `loot` — the general pickup
+fetcher the starters gate on "no enemy tracked, item within reach").
+
 Read the sections your play actually needs. A full typed decode of every
 section measures roughly 17-22 fuel per byte, and the all-section reader
 exhausts `StepFuel` near a 4.5 KiB frame. The binary frame makes section access

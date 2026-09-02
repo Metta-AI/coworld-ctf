@@ -11,7 +11,8 @@ import
   ../shell/[body, body_map, episode, ingress, outbound,
     standing_order, transport, view],
   ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
-  ../shell/types
+  ../shell/types,
+  ../shell/vote_packets as votePackets
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -43,6 +44,12 @@ type
     packet: LobbyChatSendPacket,
   ) {.gcsafe.}
 
+  PlayBallotCastConsumer* = proc(
+    websocket: WebSocket,
+    seat: int,
+    packet: BallotCastPacket,
+  ) {.gcsafe.}
+
   PlaySeatKickConsumer* = proc(
     seat: int,
   ): seq[ShellAnnotation] {.gcsafe.}
@@ -52,6 +59,7 @@ type
     playCall: PlayCallConsumer
     statusAck: PlayStatusAckConsumer
     lobbyChat: PlayLobbyChatConsumer
+    ballotCast: PlayBallotCastConsumer
     kick: PlaySeatKickConsumer
 
   WebSocketSocketFields = object
@@ -124,6 +132,15 @@ type
     generation: uint64
     packet: LobbyChatSendPacket
 
+  PendingBallotCast = object
+    ## MAP VOTE: one 0xA4 send, queued by the socket-side consumer and
+    ## admitted (sim.applyBallotCast) on the game thread — the exact
+    ## PendingLobbyChat shape, for the exact §9.2 thread-ownership reason.
+    websocket: WebSocket
+    seat: int
+    generation: uint64
+    packet: BallotCastPacket
+
   OutstandingPlayCall = object
     proposalId: uint64
     acceptAcked: bool
@@ -192,6 +209,9 @@ type
     pendingShellAnnotations: seq[ShellAnnotation]
     pendingLobbyChatRecords: seq[LobbyChatRecord]
     pendingLobbyChats: seq[PendingLobbyChat]
+    pendingBallotCasts: seq[PendingBallotCast]
+    pendingBallotRecords: seq[BallotRecord]
+    voteResolutionRecorded: bool
     lobbyTranscript: seq[LobbyChatRecord]
     lobbyTranscriptTicks: seq[uint32]
 
@@ -233,6 +253,10 @@ proc registerPlayStatusAckConsumer*(consumer: PlayStatusAckConsumer) =
 proc registerPlayLobbyChatConsumer*(consumer: PlayLobbyChatConsumer) =
   ## Startup-only registration seam consumed by Maxwell's lobby implementation.
   playReceiveConsumers.lobbyChat = consumer
+
+proc registerPlayBallotCastConsumer*(consumer: PlayBallotCastConsumer) =
+  ## Startup-only registration seam for the MAP VOTE's 0xA4 ballot casts.
+  playReceiveConsumers.ballotCast = consumer
 
 proc registerPlaySeatKickConsumer*(consumer: PlaySeatKickConsumer) =
   ## Lane C drops the ladder/body and returns the safe-hold annotation.
@@ -959,19 +983,37 @@ proc handleProductionLobbyChat(
       generation: appState.playIngress[seat].binding.generation,
       packet: packet))
 
+proc handleProductionBallotCast(
+  websocket: WebSocket,
+  seat: int,
+  packet: BallotCastPacket,
+) {.gcsafe.} =
+  ## Called by dispatch while appState.lock is held — PendingLobbyChat's
+  ## exact shape. Admission (window/dedup/rate/spacing, sim.applyBallotCast)
+  ## stays game-thread-owned and runs from this bounded inbox.
+  {.cast(gcsafe).}:
+    if seat < 0 or seat >= appState.playIngress.len:
+      return
+    appState.pendingBallotCasts.add(PendingBallotCast(
+      websocket: websocket, seat: seat,
+      generation: appState.playIngress[seat].binding.generation,
+      packet: packet))
+
 proc installProductionPlayConsumers(config: GameConfig) =
-  ## The four registrations are live only for the conjunctive play-seat gate.
+  ## The five registrations are live only for the conjunctive play-seat gate.
   if config.isPlaySeatEpisode():
     registerPlayModuleUploadConsumer(
       handleProductionModuleUpload)
     registerPlayCallConsumer(handleProductionPlayCall)
     registerPlayStatusAckConsumer(handleProductionStatusAck)
     registerPlayLobbyChatConsumer(handleProductionLobbyChat)
+    registerPlayBallotCastConsumer(handleProductionBallotCast)
   else:
     registerPlayModuleUploadConsumer(nil)
     registerPlayCallConsumer(nil)
     registerPlayStatusAckConsumer(nil)
     registerPlayLobbyChatConsumer(nil)
+    registerPlayBallotCastConsumer(nil)
 
 proc registerPlayerWebSocket(
   websocket: WebSocket,
@@ -1374,6 +1416,11 @@ proc dispatchPlaySeatMessage(
       inc appState.playProtocolRejected
     else:
       playReceiveConsumers.lobbyChat(websocket, seat, received.lobbyChat)
+  of prBallotCast:
+    if playReceiveConsumers.ballotCast == nil:
+      inc appState.playProtocolRejected
+    else:
+      playReceiveConsumers.ballotCast(websocket, seat, received.ballotCast)
   of prRejected:
     inc appState.playProtocolRejected
     let opcode = if data.len > 0: uint8(data[0]) else: 0'u8
@@ -1553,6 +1600,64 @@ proc drainProductionLobbyChats(sim: var SimServer) =
         appState.lobbyTranscriptTicks.add(uint32(sim.tickCount))
         appState.pendingLobbyChatRecords.add(record)
 
+proc drainProductionBallotCasts(sim: var SimServer) =
+  ## MAP VOTE: applies queued 0xA4 sends on the game thread, inside the
+  ## same pre-step block that drains lobby chat, stamping every FRESH
+  ## accept as a `0x17` kind-0 record at tickTime(sim.tickCount) — the
+  ## exact tick playback re-applies it on (replays.applyReplayEvents), so
+  ## the tally, the early-resolution tick and the winner-map install all
+  ## reproduce. The sim owns admission (window, castId dedup, rate cap,
+  ## spacing) and the global ordinal; a refused cast leaves a
+  ## "ballot_cast:<reason>" refusal on the seat's status channel. Once
+  ## resolution has run (inside stepLobby), the kind-1 record is emitted
+  ## exactly once, right here, ordinal voteOrdinal + 1 — the contract
+  ## tests/test_vote_phase.nim pins.
+  var pending: seq[PendingBallotCast]
+  {.gcsafe.}:
+    withLock appState.lock:
+      pending = move(appState.pendingBallotCasts)
+      appState.pendingBallotCasts = @[]
+  for item in pending:
+    var playerIndex = -1
+    {.gcsafe.}:
+      withLock appState.lock:
+        if item.seat >= 0 and item.seat < appState.playIngress.len and
+            appState.playIngress[item.seat].binding.admits(
+              item.websocket, item.generation):
+          playerIndex = appState.seatPlayerIndices[item.seat]
+    if playerIndex < 0:
+      continue
+    let outcome = sim.applyBallotCast(
+      playerIndex, item.packet.castId, item.packet.option)
+    if not outcome.ok:
+      {.gcsafe.}:
+        withLock appState.lock:
+          if item.seat < appState.playOutbound.len:
+            discard appState.playOutbound[item.seat].retainCallRefusal(
+              item.generation, 0, "ballot_cast:" & $outcome.reason)
+      continue
+    if not outcome.fresh:
+      continue   # idempotent resend: nothing new to record (§2).
+    let record = BallotRecord(kind: brkCast,
+      replayTimeMs: tickTime(sim.tickCount), ordinal: outcome.ordinal,
+      seat: uint8(item.seat),
+      team: uint8(ord(sim.teamForSlot(item.seat))),
+      option: item.packet.option)
+    {.gcsafe.}:
+      withLock appState.lock:
+        appState.pendingBallotRecords.add(record)
+  if sim.voteResolved:
+    {.gcsafe.}:
+      withLock appState.lock:
+        if not appState.voteResolutionRecorded:
+          appState.voteResolutionRecorded = true
+          appState.pendingBallotRecords.add(BallotRecord(kind: brkResolved,
+            replayTimeMs: tickTime(sim.tickCount),
+            ordinal: sim.voteOrdinal + 1,
+            category: sim.voteCategory,
+            tieBreakDrawn: (if sim.voteTieBreakDrawn: 1'u8 else: 0'u8),
+            finalOption: sim.voteFinalOption))
+
 proc playContextBytes(sim: SimServer; config: GameConfig; seat: int): string =
   var source = PlayContextSource(
     mode: if config.brMode: gmBr else: gmCtf,
@@ -1560,12 +1665,18 @@ proc playContextBytes(sim: SimServer; config: GameConfig; seat: int): string =
     mapWidth: sim.gameMap.width, mapHeight: sim.gameMap.height,
     selfSeat: seat, selfTeam: config.slots[seat].team,
     gunRange: config.gunRange, viewInterval: config.viewIntervalTicks)
+  var controls: seq[SlotControl]
+  var teams: seq[Team]
+  var names: seq[string]
   for index, slot in config.slots:
-    source.roster.add(PlayContextRosterRow(
-      seat: index, team: slot.team,
-      control: if slot.control == scPlay: pccPlay else: pccInput))
+    controls.add(slot.control)
+    teams.add(slot.team)
+    names.add(slot.name)
     if config.brMode and index != seat and slot.team == source.selfTeam:
       source.duoPartner = some(index)
+  # Same builder as episode.nim's contextRoster, so the socket 0xB0 and the
+  # play_init context cannot drift (view.playContextRosterRows).
+  source.roster = playContextRosterRows(controls, teams, names)
   buildPlayContext(source)
 
 proc playSocketStillCurrent(seat: int; websocket: WebSocket;
@@ -1709,16 +1820,19 @@ proc drainShellReplayRecords(
     calls: seq[PlayCallRecord]
     annotations: seq[ShellAnnotation]
     transcript: seq[LobbyChatRecord]
+    ballots: seq[BallotRecord]
   {.gcsafe.}:
     withLock appState.lock:
       lifecycle = move(appState.pendingLifecycleRecords)
       calls = move(appState.pendingPlayCallRecords)
       annotations = move(appState.pendingShellAnnotations)
       transcript = move(appState.pendingLobbyChatRecords)
+      ballots = move(appState.pendingBallotRecords)
       appState.pendingLifecycleRecords = @[]
       appState.pendingPlayCallRecords = @[]
       appState.pendingShellAnnotations = @[]
       appState.pendingLobbyChatRecords = @[]
+      appState.pendingBallotRecords = @[]
   for pending in lifecycle:
     replayWriter.writeLifecycle(LifecycleRecord(
       kind: pending.kind,
@@ -1734,6 +1848,10 @@ proc drainShellReplayRecords(
         sim.rewardAccounts[accountIndex].abandoned = false
   for record in transcript:
     replayWriter.writeLobbyChat(record)
+  for record in ballots:
+    # Same phase-3 batch as the transcript (0x17's placement rule mirrors
+    # 0x13's); ordinal order within the batch is queue order.
+    replayWriter.writeBallot(record)
   for record in calls:
     replayWriter.writePlayCall(record)
   for annotation in annotations:
@@ -3560,6 +3678,23 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
         weapon: target.bodyVisibleWeapon,
         veteranMarker: target.bodyVeteranMarker,
         tick: uint32(sim.tickCount + 1)))
+  # Item sightings: every fixed pickup point inside this seat's fog, whether
+  # the item is there or taken (the body's item memory keeps "seen empty"
+  # facts so a play stops chasing a kit someone else grabbed). Until this
+  # pass existed nothing fed BodyTickInputs.sightedItems outside the tests,
+  # so body.items -- and with it the play view's `items` array -- was always
+  # empty in live play: supply_run and loot could never see a pickup.
+  template sight(spawns: seq[PickupSpawn], itemKind: BodyItemKind) =
+    for spawn in spawns:
+      if sim.fovVisibleAt(playerIndex, spawn.x, spawn.y):
+        result.sightedItems.add(ItemSighting(kind: itemKind,
+          pos: (spawn.x, spawn.y), present: spawn.present,
+          tick: uint32(sim.tickCount + 1)))
+  sight(sim.grenadeSpawns, bikGrenade)
+  sight(sim.medKitSpawns, bikMedkit)
+  sight(sim.shieldSpawns, bikShield)
+  sight(sim.sprayPaintSpawns, bikSpray)
+  sight(sim.barrierSpawns, bikBarrier)
 
 proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]
@@ -3664,6 +3799,7 @@ proc firstLightZoneLogLine(sim: SimServer): string =
 type FirstLightControlSet = tuple[
   controls: seq[SlotControl],
   teams: seq[Team],
+  names: seq[string],
   hasPlaySeat: bool
 ]
 
@@ -3671,6 +3807,7 @@ proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
   for slot in config.slots:
     result.controls.add(slot.control)
     result.teams.add(slot.team)
+    result.names.add(slot.name)
     if slot.control == scPlay:
       result.hasPlaySeat = true
 
@@ -3687,7 +3824,7 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
     episode.resetFirstLightEpisode(
       config.season2Shell, config.brMode, controlSet.controls,
       newBodyMap(sim.gameMap), config.gunRange, controlSet.teams,
-      mapName, config.viewIntervalTicks)
+      mapName, config.viewIntervalTicks, controlSet.names)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
     let configured =
@@ -4786,6 +4923,7 @@ proc runServerLoop*(
           drainPlayIngressAtTickBoundary(
             firstLightEpisode, uint32(sim.tickCount + 1))
           sim.drainProductionLobbyChats()
+          sim.drainProductionBallotCasts()
           replayWriter.drainShellReplayRecords(
             sim, tickTime(sim.tickCount))
         let phaseBeforeStep = sim.phase

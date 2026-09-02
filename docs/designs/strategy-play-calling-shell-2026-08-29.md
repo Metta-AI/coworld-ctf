@@ -1185,7 +1185,8 @@ guest never sees it. Each encoding has its own golden.
 **The `PlayContext`, once per episode** (re-sent on reconnect, and handed
 to every play instance at init). Gameplay payload: the episode-static
 facts, which are the game mode (section 5.1), the map identity and
-dimensions, the roster (teams and seat references), the seat's own
+dimensions, the roster (teams, seat references, and each seat's display
+name — added 2026-09-02 so huddle partners can be addressed by name), the seat's own
 identity and duo, the live weapon range, and the view interval. The
 firing-position and cover atlas the body derives for this map stays
 engine-side and is reached by host query (below). Control envelope: the
@@ -2528,8 +2529,12 @@ negotiating a pact must be able to name its partner, and the `seat:N`
 and `duo:<team>` references it hears are exactly the `SeatOrDuoRef`
 forms its calls use (Appendix P.1), so "we will not shoot you" in the
 lobby becomes `pact` with `partners: ["duo:navy"]` in the opening call
-with no translation. Player display names are not in the packet; a seat
-is a seat. After the phase, in-match communication is the shout.
+with no translation. Player display names are not in the packet — a seat
+is a seat on the wire — but since 2026-09-02 (James: "let them be
+identified") every `PlayContext` roster row carries the seat's display
+name (`name`, the closed roster's `players[].name`, at most 64 bytes), so
+a policy maps `seat -> name` once from its context, addresses partners by
+name in the huddle, and still writes `seat:N` in its calls.
 
 **Delivery is ordered, at-least-once, deduplicated by ordinal.** An
 ordered websocket proves order on one surviving connection and nothing
@@ -3348,6 +3353,26 @@ evidence needed to maintain and verify historical replays.
   activation-barrier prewarm probe is recorded by absolute p95 only; its
   old 434 ms comparison baseline was this lane's episode-build number,
   not a pre-change prewarm measurement.
+- Ruling eleven (2026-09-02, from league round 3633 on 0.7.283): the
+  cold-plan budget pools **one 256-unit slice per configured seat**
+  (`planBudgetPerTick`, `src/shell/body_nav.nim`), not one flat 256 units
+  server-wide. Ruling ten's cold rows above (~500 ticks to a far goal on
+  the real BR map) are what a 16-seat roster actually suffered: a 900 px
+  route costs ~17k units on the `PlanStepPx` lattice, sixteen such plans
+  took a slice every thirty-odd ticks, and the follower holds a cog still
+  while its plan is pending, so cogs stood where they spawned until the
+  zone killed them. With the pool, the same sixteen long plans finish in
+  under seventy ticks in parallel; a single seat keeps the historical 256,
+  and the pass stays outside the containment body-tick gate. Two sibling
+  fixes landed with it: the zone reflex ranks candidates by distance to
+  the next rect before its arrival tie-break (on field-sized boards the
+  next rect lies beyond the candidate lattice, and the old ranking chose
+  the cog's own position), and the follower replans whenever its loaded
+  path predates the last requested plan (a goal re-installed a few pixels
+  over cancelled the plan in flight and left every replan trigger quiet).
+  Pinned by `test_shell_reflexes` ("beyond the candidate lattice"),
+  `test_shell_body_nav` (pool + stale path), and `test_shell_episode_ladder`
+  ("sixteen play seats all escape").
 - Lane C's optimized JSON reader measured 28-57 fuel per byte on
   2026-08-31, on top of an 11,187-fuel fixed cost; even a loop that
   merely touched each byte cost 23 instructions per byte with checks on

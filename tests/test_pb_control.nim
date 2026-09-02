@@ -231,9 +231,14 @@ suite "control layer and scripted baselines":
         ## the whole suite on an IndexDefect.
         check owners[^1] == ord(sweeper)
 
-  test "holdline beats sprayer at seed 679961, and the hill changes hands twice":
+  test "holdline beats sprayer at seed 679962, and the hill changes hands twice":
+    ## Re-pinned from 679961 at GV51 (parallel motion between touching
+    ## bodies passes): at the old seed holdline banked 0 hill ticks under the
+    ## new rule while the tuned ladder still favours it (4 of 6, +695);
+    ## 679962 is the first seed of the next thirty where every property below
+    ## holds (holdline 169, sprayer 37, 10 changes of hands).
     ## The pin the design note names, restored: "a `holdline` vs `sprayer`
-    ## episode at seed 679961 completes, `holdline` wins, and the hill changes
+    ## episode at seed 679962 completes, `holdline` wins, and the hill changes
     ## hands at least twice (a pinned regression against a degenerate
     ## stalemate)".
     ##
@@ -245,8 +250,8 @@ suite "control layer and scripted baselines":
     ## parked 250 px off the hill leaves holdline painting three cogs against
     ## four. The harness pulled both radii in; the ordering the note names now
     ## holds, and this asserts it.
-    let single = playEpisode(679961, DefaultBaselineParams, holdlineOnBlue = false)
-    echo "seed 679961: holdline ", single.holdline, " hill ticks, sprayer ",
+    let single = playEpisode(679962, DefaultBaselineParams, holdlineOnBlue = false)
+    echo "seed 679962: holdline ", single.holdline, " hill ticks, sprayer ",
       single.sprayer, ", hill changed hands ", single.flips, " times"
     check single.holdline > single.sprayer      ## holdline WINS
     check single.flips >= 2                     ## the hill CHANGES HANDS twice

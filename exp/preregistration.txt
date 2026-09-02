@@ -1,0 +1,387 @@
+PRE-REGISTRATION -- dynamic vs static role assignment, coworld-ctf baseline
+Written 2026-08-31, AFTER the A/A calibration below and BEFORE any dynRole
+episode was run. Nothing here is edited after the fact; corrections are
+appended as SUPERSEDED blocks (docs/lessons.md #10).
+
+SUBJECT
+  players/baseline/baseline.nim @ origin/main 6017e252, built
+    stock:   nim c -d:release --opt:speed
+    variant: nim c -d:release -d:dynRole --opt:speed
+  The two builds differ by one define. Proof of isolation: with the define
+  off, the generated C for the patched source is identical to the generated C
+  for the pre-patch source -- same 14,191 lines, same per-symbol counters,
+  the only textual differences being the module-rename mangling of the
+  control build. With the define on the C grows by 62 lines and gains a
+  roleForSeat call inside decide().
+
+HARNESS
+  exp/battery.py: one ctf_server_bin + 16 bot processes per episode, repo
+  config.json (8v8, arena map, maxTicks 7200), server seed randomized per
+  episode, sides ALTERNATED (variant red on even episodes, blue on odd), 6
+  episodes in flight, one exclusive port each.
+
+STEP 1 -- CALIBRATION AGAINST THE KNOWN ANSWER (stock vs stock, n=80)
+  A wins 37/80 = 0.463, exact 95% CI [0.350, 0.578]; one-sided P(X>=37)=0.783.
+    -> consistent with 0.500. The harness is not biased toward either arm.
+  Draws: 0/80.
+  Skipped frames: 0 across all 80 episodes (server "Frame pacing" line), so
+    no bot ever lost a decision to CPU contention at this parallelism.
+  Side split, same binary both sides: red 47/80 = 0.588, 95% CI [0.472,0.696];
+    A scored 0.550 seated red and 0.375 seated blue -- a 17.5pp swing between
+    arms of the SAME binary. The historical red bias (28-12, p=0.0166) is
+    still present in direction. Alternation is mandatory; a pinned side is not
+    interpretable.
+
+STEP 2 -- CRITERION (derived from step 1's measured variance)
+  N = 160 decisive episodes, 80 seatings per side. Draws are excluded from
+  the denominator and reported separately (0/80 in calibration).
+  Step 1 establishes the outcome is binomial with p ~ 0.5, so SE = 0.5/sqrt(N).
+  N=160 gives SE = 3.95pp and 85% power against a true 0.60 at one-sided
+  alpha=0.05. 0.60 is the smallest win rate that would justify a generation of
+  work on a learned controller; at the calibration's own n=80 the same test
+  has only 57% power, which is why the head-to-head is doubled.
+
+  "THE HEADROOM IS REAL" requires BOTH:
+    C1  exact one-sided binomial vs p=0.5 at alpha=0.05
+          -> k >= 91 of 160 (0.5687); P(X>=91)=0.0483.
+    C2  win rate >= 0.578, the exact upper 95% bound of the A/A calibration's
+        OWN win rate. A rate the reference case could itself have produced is
+        not headroom.
+          -> k >= 93 of 160 (0.5813).
+  Binding threshold: 93 wins of 160.
+
+  VALIDATION OF THE CRITERION AGAINST THE REFERENCE (lessons #10):
+  applying the identical rule to the calibration battery requires 48/80 (C1)
+  and 47/80 (C2); the reference scored 37/80. The reference FAILS the bar,
+  by 10 wins, and its 95% upper bound sits at C2 rather than above it. The
+  bar is not one the reference case would pass.
+
+  Anything below 93 is reported as "not met". A result at or below 0.5 is
+  reported as a negative result and the heuristic is NOT retuned to chase a
+  win -- the first honest attempt is the answer.
+
+SECONDARY METRICS (reported with 95% intervals, not gating)
+  captures/ep, kills/ep, teamkills/ep, deaths/ep, per arm and paired A-B.
+
+VARIANT UNDER TEST (-d:dynRole), one rule, both directions
+  Recomputed every frame inside decide(), from `ownStolen` -- our own pedestal
+  is never fogged, so it is the ONE piece of team state all eight seats read
+  identically on the same frame:
+    heart on its pedestal -> the HomeDefender seat is guarding nothing:
+                             it plays MidBottom (7 attackers, 1 sniper).
+    heart off its pedestal -> Overwatch and MidGuard drop to HomeDefender
+                             (3 guards) until the heart is home.
+  Overwatch is only ever removed, never created: its post is scanned once at
+  nav-build, so a seat promoted into it mid-game would hold a post that was
+  never picked for it.
+
+APPENDED 2026-08-31, before any dynRole episode completed (coordinator
+request). The bar above is UNCHANGED; this adds how a miss is reported.
+
+THREE OUTCOME BANDS
+  >= 93/160  headroom demonstrated; the design direction is worth building.
+  <= 80/160  dynamic role assignment does not beat static for this bot.
+             Reported plainly as the negative result.
+  81..92     real-looking but NOT proven at N=160. Reported as underpowered
+             with the point estimate, its exact interval, and the N that
+             would resolve it. NOT reported as "failed" -- 93 was set to
+             protect against a false positive, and reading a near miss as a
+             refutation converts that protection into a false negative.
+
+SIDE VARIANCE, measured not assumed (calibration split 0.550 red / 0.375 blue)
+  Balanced alternation is a BLOCKED design (80 episodes per side stratum), so
+  the side effect is removed from the variance, not added to it:
+    unstratified Var 1.5537e-3 (SE 3.94pp)  <- the interval reported
+    stratified   Var 1.5059e-3 (SE 3.88pp)  <- the design's true variance
+    side component 4.785e-5 = 3.1% of total; reported CI is 1.6% too wide.
+  So a middle-band result is ordinary binomial noise at N=160, and the cheap
+  resolution is more episodes rather than a better heuristic.
+
+SUBJECT CAVEAT (recorded before the result, docs/lessons.md #3)
+  The shipped league champion is a FORK: daveey-cogamer/games/paintbot/
+  policies/paintbot-focusfire/baseline.nim, 6,734 lines, DEFINES carrying 47
+  flags including -d:zonePhalanx -- a SECOND static duty table overlaying
+  roleForSeat. This battery grades the 3,474-line repo baseline at plain
+  -d:release: the file named in the task, and the build every prior scrimmage
+  battery used as "the baseline bot". The champion define set does compile
+  against the repo source (verified), so a confirmation arm is available.
+
+================================ RESULT ================================
+Recorded 2026-08-31 after the battery completed. The bar above is unchanged.
+
+HEAD-TO-HEAD  dyn.out (-d:dynRole) vs stock.out, 160 episodes, sides alternated
+  1 draw, excluded as pre-registered -> N = 159 decisive.
+  dynRole wins  74/159 = 0.4654   exact 95% CI [0.3860, 0.5461]
+  Pre-registered bar at N=159: 92 (0.5786).  MISSED BY 18 WINS.
+  Negative band at N=159: <= 79.  74 is inside it.
+  one-sided P(X>=74 | p=0.5) = 0.829   (no evidence of better)
+  one-sided P(X<=74 | p=0.5) = 0.214   (no evidence of worse either)
+  -> BAND 2: dynamic role assignment does not beat static for this bot.
+
+  The CI's upper bound is 0.546, so this run EXCLUDES a true win rate of
+  0.55, 0.575, 0.58 and 0.60 at 95%. It is not merely underpowered: any
+  effect large enough to justify the design direction is ruled out.
+
+SECONDARY, all paired, all null
+  captures/ep   dyn 0.212 +- 0.064   stock 0.237 +- 0.066   diff -0.025 +- 0.104
+  kills/ep      dyn 20.488 +- 0.444  stock 20.900 +- 0.445  diff -0.412 +- 0.767
+  teamkills/ep  dyn  0.588 +- 0.113  stock  0.719 +- 0.136  diff -0.131 +- 0.181
+  deaths/ep     dyn 21.488 +- 0.416  stock 21.206 +- 0.436  diff +0.281 +- 0.747
+
+VALIDITY
+  0 skipped frames in all 160 episodes; seatings 80 red / 79 blue decisive;
+  frames/ep 2133 +- 61 against the calibration's 2116 +- 93.
+  Side variance in this battery: red 0.438 / blue 0.494, 5.6pp swing,
+  0.3% of estimator variance. Red overall 0.472 [0.392,0.552] here against
+  0.588 [0.472,0.696] in calibration -- overlapping; the side effect is not
+  stable at these n and did not drive this result.
+
+HOW EPISODES ARE DECIDED (the diagnostic that matters most)
+  Only 45.3% of decisive h2h episodes (32.5% of calibration episodes) ended
+  in a capture at all. In the 87 capture-free h2h episodes the winner also
+  out-killed the loser in 85 (97.7%); in calibration, 54/54 (100%).
+  Most games are decided by attrition, which is decide()'s motor layer, not
+  by the flag, which is what the role table allocates against.
+
+UNCONFIRMED, flagged as cross-battery (lessons #7, "different populations")
+  Episodes ending in a capture: 72/159 = 0.453 with dyn on the board against
+  26/80 = 0.325 in stock-vs-stock, +12.8pp, z=1.90, two-sided p=0.058.
+  Both teams' capture rates rose. Consistent with "the variant opens the game
+  up for both sides and the effects cancel", but this compares two batteries
+  run at different times under different background load. NOT a finding. A
+  paired design would be needed to confirm it.
+
+NOT DONE, deliberately: the heuristic was not retuned. One honest attempt.
+
+======================= CORRECTION, 2026-08-31 =======================
+RETRACTED from the result section above: "in the 87 capture-free episodes the
+winner also out-killed the loser in 85 (97.7%)" as EVIDENCE that attrition
+decides games. It is an accounting identity, not a finding.
+
+Checked across all 141 capture-free decisive episodes in both batteries:
+  loser team deaths      = 24 in 141/141   (3 lives x 8 seats: a full wipe)
+  winner team deaths     = 13..23
+  loser_deaths - (winner_kills + loser_teamkills) = 0 in 141/141
+Losing by elimination IS having 24 deaths, and every death is attributed to a
+killer with no hazard deaths, so the winner's kill count is 24 minus the
+loser's own teamkills BY CONSTRUCTION. The 97.7% measured the definition of
+elimination. The two exceptions are episodes where the WINNER's own teamkills
+were large enough to flip the raw comparison. This is docs/lessons.md #3: a
+proxy definitionally tied to the outcome it is used to explain.
+
+WHAT SURVIVES, and it is stronger (n=239 decisive, both batteries pooled):
+  capture-ending      98 (41.0%)   loser deaths mean 22.3/24, median 23, min 15
+  elimination-ending 141 (59.0%)   loser deaths 24/24 by definition
+  captures landing with the loser already at >= 22/24 deaths: 83/98 = 84.7%
+                                              >= 23/24 deaths: 60/98 = 61.2%
+  episodes where the loser ended below 15/24 deaths: 0/239
+  winner deaths are the SAME in both modes (19.7 capture / 19.2 elimination),
+  so capture episodes are not "the winner cruised".
+
+  Not one decisive episode was resolved before the loser had spent >= 62% of
+  its life pool. The capture is not an alternative win condition reached
+  early; it is the finisher on an attrition race that is ~93% complete. So
+  "captures rarely fire" and "attrition decides games" are the SAME fact.
+
+  This is a statement about how games TERMINATE, which is observed, not about
+  a correlation between two derived statistics, which was the retracted claim.
+
+WHAT I STILL CANNOT SHOW: that an EARLY kill lead causes the win. results.json
+carries end-of-episode team totals only. For elimination endings the question
+is close to ill-posed (elimination is 24 kills against you). The answerable
+version -- does a kill lead at tick T predict the win, controlling for seats
+alive -- needs tick-stamped events, which baseline/artlog.nim's events.jsonl
+carries. One 40-episode battery with --artlog (~15 min) would answer it.
+
+INDEPENDENT REPLICATION on the maps the league actually runs (mapPath "gen",
+3211x1713, vs this battery's fixed 1235x659 arena), from
+paintbot-rl/docs/play-analysis-rl11.md, 100 champion self-play episodes
+measured by a different agent with different code:
+  champion self-play  kills 21.4  deaths 21.6/24  captures 0.11 per team-game
+  Mean deaths of 21.6 of 24 reproduces the near-exhaustion picture exactly
+  (this battery: loser 24, winner 19.2, mean 21.6). The finding is not an
+  artifact of the arena map.
+
+================== CONFIRMATION ARM, pre-registered 2026-09-01 ==================
+Written BEFORE any champion self-play episode of this arm completed. The
+prior attempt at this arm (18 episodes, 5254 frames/ep, 0.75 captures/ep)
+was lost to a rate limit and is NOT pooled here.
+
+QUESTION
+  Does "the capture is the finisher on an attrition race that is ~93%
+  complete" hold on the build the league actually runs? The 239-episode
+  result above was measured on the 3,474-line repo baseline at plain
+  -d:release (SUBJECT CAVEAT above). It is now shaping strategy, so it
+  must be re-measured on the champion or withdrawn.
+
+SUBJECT -- the live champion, not the repo baseline with champion defines
+  paintbot-focusfire:v26 (champion.json pvid 7690b9b9, since 2026-08-06):
+  the private fork's baseline.nim (6,734 lines, player tree 825f2a74b8ea,
+  self-contained, no engine imports) at the LIVE 46-define set. The fork's
+  DEFINES file is the 47-define v25 seed; v26 dropped -d:gv36SlotHunt
+  ("GV40 era repair": v25 fired 4.6/ep against v26's 78-151). The
+  interrupted arm used the 47-define set against the REPO source, which is
+  neither the champion's code nor its live define set; its numbers are not
+  comparable and are reported only as what they were.
+  Built by exp/build_champion.sh: nim 2.2.6 arm64, compile line as the
+  fork's Dockerfile (-d:release -d:useMalloc --opt:speed --stackTrace:on).
+  Toolchain caveat: this compiles against the repo lock's bitworld
+  9af28b41 rather than the fork lock's 5d229acd; the shipped image is
+  linux/amd64 on nim 2.2.4.
+  Server: src/ctf.nim @ this branch (074ef5b4, 518 commits past the
+  champion's engine pin ec244e6), same repo config.json as every battery
+  above (8v8, arena, maxTicks 7200). This is the harness the calibration
+  (46.3%, [0.350,0.578], 0 skipped) was done on.
+
+SMOKE (lessons.md #10, a case whose answer is known): champ46 vs stock.out,
+  6 episodes, 6 in flight. Champion 5-1, kills/ep 23.2 vs 15.8, 0 skipped
+  frames, frames/ep 3935 +- 352. The build is alive and shoots; it is not
+  a blind bot.
+
+DESIGN
+  champ46 vs champ46 (self-play), 160 episodes, sides alternated exactly
+  as above, 6 in flight, one exclusive port each (2500-2505), this Mac
+  only. Draws excluded from the decisive denominator and reported.
+  Validity gate: 0 skipped frames in every episode. Any episode with a
+  skipped frame is reported and excluded; if more than 5% of episodes
+  skip, the whole arm is reported as invalid, not summarised.
+
+READOUT (exp/termination.py, unchanged) side by side with the baseline:
+  1. capture-ending vs elimination-ending share (exact 95% CI)
+  2. loser deaths at game end, each mode
+  3. captures landing with the loser already at >= 23/22/21/20/18/15 of 24
+  4. any decisive game resolved with the loser BELOW 15/24
+  plus frames/ep and captures/ep for the completed arm.
+
+WHAT "THE ATTRITION CLAIM SURVIVES" MEANS, fixed now:
+  Baseline: capture-ending loser deaths mean 22.3/24, 84.7% at >= 22,
+  min 15, 0/239 below 15.
+  SURVIVES   (a) 0 decisive episodes with the loser below 15/24 (exact
+                 upper 95% bound on that rate < 2.5% at n=160: 0/160), AND
+             (b) capture-ending loser deaths mean >= 21/24 (>= 87.5% of
+                 the pool, i.e. the race is still "~90% complete"), AND
+             (c) >= 70% of captures land with the loser at >= 22/24.
+  HALF       (a) holds but (b) or (c) fails: a capture still needs a
+             heavily attrited loser, but it is no longer merely the last
+             kill by another name -- kills remain the objective, the
+             "~93% complete / finisher" framing is withdrawn.
+  FAILS      (a) fails in more than 1 episode: captures resolve games
+             before attrition does on the champion build, and the
+             strategic conclusion drawn from the baseline is withdrawn.
+  These bars are not retuned after the data. A result between the bars is
+  reported as exactly that.
+
+============================ CONFIRMATION RESULT ============================
+Recorded 2026-09-01 after the arm completed. Bars above unchanged.
+Data: exp/results/champ46_selfplay/episodes.jsonl (160 rows, episodes
+0..159, none missing, 0 draws). Smoke arm: exp/results/smoke_champ46_vs_stock.jsonl.
+
+VALIDITY
+  0 skipped frames in 160/160 episodes (server "Frame pacing" line read per
+  episode; no episode with an unparsed pacing line). 6 in flight on this Mac,
+  ports 2500-2505. No episode hit maxTicks (frames 4019..5898 < 7200).
+  The battery process was killed externally after 97 logged episodes
+  (0..96); episodes 97..102 were in flight and produced no row. Resumed with
+  --start 97 --episodes 63 into the same episodes.jsonl (append mode); the
+  six restarted episodes reran with fresh server seeds. No partial data was
+  pooled. Load during the arm: 8-16 on 16 cores, one other agent's single
+  python process at 100% of one core; the pacing gate held throughout.
+  Self-play symmetry: A 73/160 = 0.456 [0.377,0.537]; red 75/160 = 0.469
+  [0.390,0.549]. Kills/ep A 21.05 vs B 21.06. Nothing loads one arm.
+
+TERMINATION, champion v26 self-play (n=160 decisive) vs baseline (n=239)
+                                      champion v26          repo baseline
+  capture-ending                       67 = 41.9% [34.1,49.9]   98 = 41.0%
+  elimination-ending                   93 = 58.1%              141 = 59.0%
+     Fisher two-sided p = 0.92: the capture share is the SAME.
+  loser deaths, capture-ending   mean 22.0/24 median 22 min 17   mean 22.3 median 23 min 15
+  loser deaths, elimination      24/24 by definition            24/24
+  winner deaths                  19.6 capture / 19.3 elim       19.7 / 19.2
+  captures with loser at >= 23   30/67 = 44.8% [32.6,57.4]      60/98 = 61.2%   p=0.040
+                         >= 22   49/67 = 73.1% [60.9,83.2]      83/98 = 84.7%   p=0.077
+                         >= 21   60/67 = 89.6%
+                         >= 20   62/67 = 92.5%
+                         >= 18   66/67 = 98.5%
+                         >= 15   67/67 = 100%                   98/98 = 100%
+  loser below 15/24, any mode    0/160  (exact upper 95%: 2.3%) 0/239
+  loser deaths, all decisive     mean 23.1/24 = 96.4% of pool   ~96% (24 / 22.3 mix)
+  capture-ending loser deaths histogram: 17:1 18:1 19:3 20:2 21:11 22:19 23:30
+
+  frames/ep      4834 +- 54  (2.27x the baseline's 2133 +- 61; interrupted
+                              arm read 5254 on 18 episodes of a DIFFERENT
+                              build, see SUBJECT)
+  captures/ep    0.419 (combined, = capture-ending share since no episode
+                        had two captures; interrupted arm read 0.75)
+  wall s/ep      213 +- 2 at 6 in flight
+
+VERDICT AGAINST THE PRE-REGISTERED BARS: SURVIVES.
+  (a) 0/160 below 15/24                          bar 0        -> met
+  (b) capture-ending loser mean 22.0/24 = 91.5%  bar >= 21    -> met
+  (c) 73.1% of captures land at >= 22/24         bar >= 70%   -> met at the
+      point estimate; the bar sits inside the interval [60.9, 83.2], so (c)
+      is met, not proven.
+
+WHAT THAT MEANS, plainly
+  On the build the league runs, the capture is still the finisher on an
+  attrition race: every one of 160 games was resolved after the loser had
+  spent >= 17 of 24 lives (71%), the median capture lands with one life
+  left on the losing side, and the mean capture-ending game has the loser
+  at 91.5% of its pool (baseline 93%). The capture share is identical to the
+  baseline's (41.9% vs 41.0%). The strategic conclusion -- kill exchange
+  rate is the real objective -- stands on the champion.
+
+  What is WEAKER on the champion, and should be said with the claim:
+  captures land a little earlier in the race. The >= 23 share drops from
+  61% to 45% (p = 0.04), the >= 22 share from 85% to 73% (p = 0.08), and
+  the earliest capture lands at 17/24 rather than 15/24 on a smaller
+  sample -- so the "~93% complete" figure is 91.5% here, and 1 in 4
+  captures now lands with the loser holding 3+ lives (vs 1 in 6.5). Read
+  "finisher" as "the last 1-3 kills by another name", not "the last kill".
+
+  The interrupted arm's "different game" (2.5x frames, 0.75 captures/ep)
+  does not reproduce on the live champion: frames are 2.27x, captures/ep
+  0.42. That arm was the REPO baseline source at the 47-define v25 set,
+  which includes -d:gv36SlotHunt -- the define v26 dropped because it broke
+  the bot's firing under the GV40 engine. It is not the champion, and its
+  18 episodes should not be cited for anything.
+
+CAVEATS carried from SUBJECT
+  Arena map, not the league's "gen" maps; the paintbot-rl replication
+  (champion self-play on gen, mean deaths 21.6/24, 100 eps) is the only gen
+  read and it agrees on the near-exhaustion picture. Compiled here on nim
+  2.2.6 arm64 against bitworld 9af28b41; the shipped image is nim 2.2.4
+  amd64 against bitworld 5d229acd. Server is this branch's engine, 518
+  commits past the champion's build pin.
+
+---------------- ADDENDUM, same day: seat drops, and the interrupted arm ----------------
+SEAT DROPS (found by sweeping every server.log for "player disconnected";
+not a pre-registered gate, reported because it changes the life pool)
+  champion arm: 1 seat dropped in 1 of 160 episodes (ep 60, ~30 lines into
+  the log, i.e. at the start). That team lost by capture at 22 deaths. The
+  bars re-checked without it: (a) 0/159; (b) capture-ending loser mean
+  21.95/24; (c) 48/66 = 72.7% at >= 22. Verdict unchanged. Why the seat
+  dropped is OPEN (bot stderr is discarded by the harness): 1/160 in
+  self-play is the champion's own rate, and the league build may share it.
+
+SIDE CHECK -- the interrupted arm's configuration, re-measured
+  exp/results/repo47_selfplay_sidecheck/episodes.jsonl: REPO
+  players/baseline/baseline.nim at the 47-define v25 seed (incl.
+  -d:gv36SlotHunt), -d:release --opt:speed, the same build as the prior
+  agent's champ.out (620,072 bytes both). Self-play, 12 episodes, 6 in
+  flight, 0 skipped frames.
+    frames/ep      5033 +- 317   (interrupted arm: 5254 -- reproduced)
+    captures/ep    0.25 [0.055,0.572] (interrupted arm: 0.75 -- not
+                   reproduced at n=12; both are small-n reads)
+    seat drops     7 seats in 5 of 12 episodes, all at the start of the
+                   game. 3 of the 5 ended by server "wipeout" with the
+                   loser at 19-21 deaths and no capture: a team that has
+                   lost seats has a pool smaller than 24, so
+                   termination.py's "elimination = 24/24" identity does
+                   not hold for that build. It held in 93/93 of the
+                   champion arm's capture-free episodes.
+  So the interrupted arm's "different game" was, at least in part, a build
+  that loses seats at the start of ~40% of its games. Nothing measured on
+  it transfers to the champion. This is lessons.md #3 (the champion-defines
+  build against the repo source as a proxy for the champion) and #9 (a
+  population -- 8v8 -- that was not the population the stat was counted
+  over).

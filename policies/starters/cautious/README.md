@@ -5,9 +5,15 @@ fights are mistakes, and health is the only resource that compounds.
 
 What this harness does differently from the other two starters:
 
-- **Two model turns only** — one opening call and one late re-call (~14s
-  hold), the fewest model calls of the three; between calls the seat simply
-  rides its standing ladder.
+- **The sparsest live-loop schedule** — up to 4 model calls a match, at
+  least 15 s apart; between calls the seat rides its standing ladder and the
+  harness only re-sends it when a gate opens or closes (a medkit while
+  wounded, a safe pickup within 300 px).
+- **Hold fire, then fight** — `target_law` always carries a hold trigger
+  that releases while the seat is alive: `{zonePhase: 2}` (about 25 s into
+  play), and an `aliveTeams` trigger from the model is clamped to 7 or more.
+  The original `aliveTeams: 6` never released before death: zero shots and
+  zero Glory across nineteen hosted episodes.
 - **Safe clamping** (`adjust_entries` in `policy.py`) — every `edge_ride`
   is floored toward the safe corner: `margin` at least 280, `enterLead` at
   least 220, `coverBias` at least 0.8; parameters the model omits are filled
@@ -15,7 +21,7 @@ What this harness does differently from the other two starters:
 - **Never trade** — any `pact` is softened to `onBetrayal: disengage`, and
   any `supply_run` is forced to `contested: avoid` with `whenHpBelow`
   floored at 4 (absolute hp units — heal at the first scratch).
-- **Canned turns** open at `margin: 420` with `coverBias: 1.0`, and the
-  mid-match re-call puts `supply_run` above the ride — even offline, this
-  seat visibly rides far wider (and heals far earlier) than the other
-  starters.
+- **Canned turns** open at `margin: 420` with `coverBias: 1.0` and the
+  hold trigger, and the mid-match turn adds `supply_run` — which the harness
+  keeps off the ladder until the seat is actually wounded with a medkit in
+  view, so it can never pin a healthy seat in place.

@@ -93,3 +93,6 @@ my-paint-verify.bitreplay
 /caos-std/
 /static-replay-viewer/
 br-paint4-match.bitreplay
+
+# Private champion source, copied in by exp/build_champion.sh. Never commit.
+exp/champion/

@@ -32,7 +32,12 @@ git merge origin/main    # or: git rebase origin/main — bring the branch curre
 
 If `behind` is non-zero, merge/rebase `origin/main` **first**, then start.
 Re-derive version-sensitive work (the `GameVersion` const, replay fixtures)
-against the *updated* code, never the base you happened to check out. When
+against the *updated* code, never the base you happened to check out. Any
+change under `src/*.nim` also changes the sim-sources stamp
+(`tools/sim_sources_stamp.sh`), so rebuild the committed viewer bundle
+(`tools/build_replay_viewer.sh "$PWD/static-replay-viewer"`, a Docker build)
+and commit it with the change — otherwise the `wasm-replay-viewer` CI job
+fails its staleness check and the paintbot upload is skipped. When
 working in a worktree, also confirm you're editing files under that worktree's
 path — not a sibling checkout on an unrelated branch.
 
@@ -373,7 +378,7 @@ against the CURRENT rules and must be re-recorded on every GameVersion
 bump (`tools/record_fixture.sh`; exact recipes in
 `tests/test_broadcast_state.nim`).
 
-**ALL SIX, every time — the shards only read four.** `gen-small-pits` and
+**ALL EIGHT, every time — the shards only read six.** `gen-small-pits` and
 `gen-colossal-4team` are read by NO native test; only the CI
 `wasm-replay-viewer` smoke job loads them, so a re-record pass that works
 from the test files alone misses them and CI fails on a job that looks
@@ -384,9 +389,11 @@ unrelated (GV44 shipped exactly this way). The full set and its recipes:
 | `tests/fixtures/capture-seed1` | `record_fixture.sh <out> 1` |
 | `tests/fixtures/wipe-lives1` | `record_fixture.sh <out> 3 10000 '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'` |
 | `tests/fixtures/draw-nokill` | `record_fixture.sh <out> 7 1500 '{"hitPoints":1000,"carrierSpeedPct":1,"barrageMaxPerSec":0}'` |
+| `tests/fixtures/seats-numagents16` | `record_fixture.sh <out> 5 1500 '{"num_agents":16}'` — the hosted config shape (a seat count set); guards the `num_agents` echo |
 | `tests/replays/ctf` | `record_fixture.sh <out> 907 10000 '{"lives":9}'` |
 | `tests/fixtures/gen-small-pits` | `record_fixture.sh <out> 4242 1500 '{"mapPath":"gen","mapSeed":4242,"mapSize":"small"}'` |
 | `tests/fixtures/gen-colossal-4team` | `record_colossal_demo.sh <out> 4242 1500 16` |
+| `tests/fixtures/br-golden-16team` | `record_br_golden.sh 4248` (own script, own port; seed 4248 since GV51 — 4242 stopped reaching the shield pool under the parallel-motion collision rule) |
 
 `test_replay`'s "EVERY committed .bitreplay carries the current
 GameVersion" sweeps `tests/` and fails on any straggler, so a miss now

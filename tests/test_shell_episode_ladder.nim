@@ -499,6 +499,141 @@ suite "shell episode ladder":
         pos.applyMask(output.masks[0].input)
       check sawEntryInstall
 
+  test "episode roster carries the configured display names":
+    when ShellRuntimeAvailable:
+      var episode = initFirstLightEpisode(true, true, controls(2), testMap(),
+        331, [Red, Blue], "arena", ViewIntervalTicksDefault,
+        ["daveey", "Starter: Cautious (2)"])
+      defer:
+        episode.closeFirstLightEpisode()
+      let roster = episode.playContextRoster
+      check roster.len == 2
+      check roster[0].name == "daveey"
+      check roster[1].name == "Starter: Cautious (2)"
+      expect ValueError:
+        discard initFirstLightEpisode(true, true, controls(2), testMap(),
+          331, [Red, Blue], "arena", ViewIntervalTicksDefault, ["only-one"])
+
+  test "sixteen play seats all escape a far next zone on a field-sized board":
+    ## League round 3633 (0.7.283): with the next rect beyond the reflex
+    ## lattice, sixteen seats sharing one flat planning budget, and every
+    ## re-installed goal cancelling the plan in flight, cogs stood outside
+    ## the closing zone until it killed them. This pins the whole chain at
+    ## the mask level FIRST_LIGHT_MOVEMENT counts: every seat must move and
+    ## end the window nearer the next rect than it started.
+    when ShellRuntimeAvailable:
+      const
+        Width = 2048
+        Height = 1024
+        Seats = 16
+        WindowTicks = 300
+        Movement = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
+      var walkable = newSeq[bool](Width * Height)
+      for value in walkable.mitems:
+        value = true
+      let map = newBodyMap(walkable, Width, Height, 1,
+        @[(64, 64), (1984, 960)])
+      var episode = initFirstLightEpisode(true, true, controls(Seats), map,
+        1300)
+      defer:
+        episode.closeFirstLightEpisode()
+      let nextZone = MapRect(x: 960, y: 448, w: 128, h: 128)
+      var pos = newSeq[BodyPoint](Seats)
+      for seat in 0 ..< Seats:
+        pos[seat] = (200 + (seat mod 8) * 220, if seat < 8: 120 else: 900)
+      let start = pos
+      var movementTicks = newSeq[int](Seats)
+      var tick = 1
+      for _ in 0 ..< WindowTicks:
+        var frames: seq[FirstLightSeatFrame]
+        for seat in 0 ..< Seats:
+          var seatFrame = frame(seat, pos[seat], tick)
+          seatFrame.defaultFallbacks.currentZone =
+            MapRect(x: 0, y: 0, w: Width, h: Height)
+          seatFrame.defaultFallbacks.nextZone = nextZone
+          seatFrame.defaultFallbacks.ticksToNextShrink = ReflexZoneTriggerTicks
+          seatFrame.motionScale = MotionScale
+          seatFrame.velocity = MaxSpeed
+          frames.add seatFrame
+        let output = episode.step(frames, uint32(tick))
+        check output.masks.len == Seats
+        for mask in output.masks:
+          if (mask.input.encodeInputMask() and Movement) != 0:
+            inc movementTicks[mask.playerIndex]
+          pos[mask.playerIndex].applyMask(mask.input)
+        inc tick
+      for seat in 0 ..< Seats:
+        check movementTicks[seat] > 0
+        check pos[seat].rectDistanceSquared(nextZone) <
+          start[seat].rectDistanceSquared(nextZone)
+
+  test "accepted mid-episode play call drives movement within the window":
+    ## Live-round regression pin (r3626 / ereq_e33bbe4a, 0.7.281): a starter
+    ## seat's 0xB1 call_accepted landed mid-episode (tick 768) while
+    ## FIRST_LIGHT_MOVEMENT stayed moving=0 for the whole episode. This test
+    ## asserts the executor contract at the mask level FIRST_LIGHT_MOVEMENT
+    ## counts: before the call the default holds (zero movement bits), and
+    ## within a bounded window after acceptance the play's masks move the
+    ## seat. Discriminating on both halves keeps a future wiring drop (an
+    ## orphaned executor writer, a lane binding gap) from reading as green.
+    when ShellRuntimeAvailable:
+      const
+        MovementBits = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
+        PreCallControlTicks = 30
+        DriveWindowTicks = 120
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let admitted = episode.admitPlayModule(0, 190_000, 1,
+        readFile(EdgeRideWasm).bytesOf)
+      check admitted.accepted
+      var
+        tick = 1
+        pos: BodyPoint = (20, 128)
+      discard episode.waitReady(0, 190_000, tick, pos)
+
+      # Control half: the frame() fallbacks pin the default to hold (zone
+      # covers the map, shrink beyond the rotate lead, no threats), so any
+      # movement bit below is attributable to the play alone.
+      var preCallMovementTicks = 0
+      for _ in 0 ..< PreCallControlTicks:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.masks.len == 1
+        if (output.masks[0].input.encodeInputMask() and MovementBits) != 0:
+          inc preCallMovementTicks
+        pos.applyMask(output.masks[0].input)
+        inc tick
+      check preCallMovementTicks == 0
+
+      # The prod shape: the call is accepted MID-episode, over the same
+      # acceptPlayCall seam the 0xA1 socket consumer drains into.
+      let acceptedTick = tick
+      check acceptedTick > 1
+      let accepted = episode.acceptPlayCall(0, 190_100, 1,
+        uint32(acceptedTick), edgeRideCallBytes())
+      check accepted.accepted
+      check accepted.epoch == 1
+
+      var
+        movementTicks = 0
+        sawPlayInstall = false
+      let startPos = pos
+      for _ in 0 ..< DriveWindowTicks:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.masks.len == 1
+        sawPlayInstall = sawPlayInstall or
+          output.installs.anyIt(it.provenance == "entry:edge_ride")
+        if (output.masks[0].input.encodeInputMask() and MovementBits) != 0:
+          inc movementTicks
+        pos.applyMask(output.masks[0].input)
+        inc tick
+      check sawPlayInstall
+      check movementTicks > 0
+      check pos != startPos
+
   test "live admission upload quota resets on the episode tick":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
@@ -929,3 +1064,60 @@ suite "shell episode ladder":
       (if pass: "verdict=PASS" else: "verdict=FAIL")
     check sawReflexInstall
     check pass
+
+  test "play-seat guard context resolves the registered paths from the body":
+    # Before playGuardContext every live play seat got noGuardContext(): each
+    # registered path read 0.0 / false, so `self.hp_frac < 0.8` was always
+    # true and `partner.alive` always false whatever the match looked like.
+    let map = testMap()
+    let body = activateSeatBody(map, 3, 331)
+    var inputs = BodyTickInputs(self: BodySelfState(pos: (100, 100), hp: 2,
+      hpFrac: 2.0 / 3.0, alive: true))
+    inputs.visibleTracks.add BodyTrackUpdate(seat: 7, pos: (400, 100),
+      team: Blue, aimBrads: some(0), hpKnown: some(1), tick: 10)
+    inputs.partner = some(PartnerSample(seat: 11, pos: (150, 100),
+      aimBrads: 0, alive: true))
+    inputs.sightedItems = @[
+      ItemSighting(kind: bikMedkit, pos: (100, 160), present: true, tick: 10),
+      ItemSighting(kind: bikGrenade, pos: (100, 400), present: true, tick: 10),
+      ItemSighting(kind: bikShield, pos: (100, 110), present: false, tick: 10)]
+    body.updateBelief(inputs, 10)
+    let facts = brDefaultFacts(body, 10, BrDefaultFallbacks(
+      currentZone: MapRect(x: 0, y: 0, w: 256, h: 256),
+      nextZone: MapRect(x: 64, y: 64, w: 128, h: 128),
+      ticksToNextShrink: 100, zonePhase: 1))
+    let ctx = playGuardContext(body, facts)
+    check abs(ctx.resolveNumber("self.hp_frac") - 2.0 / 3.0) < 1e-6
+    check ctx.resolveNumber("world.enemy_count") == 1.0
+    check abs(ctx.resolveNumber("world.nearest_enemy_dist") - 300.0) < 1e-6
+    check ctx.resolveNumber("world.weakest_enemy_hp") == 1.0
+    check abs(ctx.resolveNumber("world.medkit_dist") - 60.0) < 1e-6
+    # the shield is seen-but-taken, so the nearest non-medkit item is the grenade
+    check abs(ctx.resolveNumber("world.item_dist") - 300.0) < 1e-6
+    check ctx.resolveBool("partner.alive")
+    check abs(ctx.resolveNumber("partner.dist") - 50.0) < 1e-6
+    check not ctx.resolveBool("partner.in_combat")  # enemy is 250 px from partner
+    check ctx.resolveBool("world.in_zone")
+    check ctx.resolveNumber("world.zone_dist") == 0.0
+    check ctx.resolveNumber("intent.target_dist") == -1.0
+    check not ctx.resolveBool("intent.is_enemy")
+
+  test "play-seat guard context reports the sentinels when nothing was seen":
+    let map = testMap()
+    let body = activateSeatBody(map, 4, 331)
+    body.updateBelief(BodyTickInputs(self: BodySelfState(pos: (300, 300),
+      hp: 3, hpFrac: 1.0, alive: true)), 5)
+    let facts = brDefaultFacts(body, 5, BrDefaultFallbacks(
+      currentZone: MapRect(x: 0, y: 0, w: 256, h: 256),
+      nextZone: MapRect(x: 0, y: 0, w: 128, h: 128),
+      ticksToNextShrink: 100, zonePhase: 1))
+    let ctx = playGuardContext(body, facts)
+    check ctx.resolveNumber("world.enemy_count") == 0.0
+    check ctx.resolveNumber("world.nearest_enemy_dist") == -1.0
+    check ctx.resolveNumber("world.weakest_enemy_hp") == -1.0
+    check ctx.resolveNumber("world.medkit_dist") == -1.0
+    check ctx.resolveNumber("world.item_dist") == -1.0
+    check ctx.resolveNumber("partner.dist") == -1.0
+    check not ctx.resolveBool("partner.alive")
+    check not ctx.resolveBool("world.in_zone")   # (300, 300) is outside 0..255
+    check ctx.resolveNumber("world.zone_dist") > 0.0

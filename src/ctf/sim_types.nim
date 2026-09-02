@@ -29,12 +29,16 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["50"]
+  ReplayCompatibleGameVersions* = ["51"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV49 stays
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV50 is
+    ## excluded because GV51 changed the collision rule (parallel motion
+    ## between touching bodies now passes), a hash TRAJECTORY change: a GV50
+    ## recording with two cogs abreast re-simulates to different positions
+    ## from their first such contact. GV49 stays
     ## out of the launch allowlist because GV50 is the first shipped shell
     ## replay surface: play-seat episodes can now carry the 0x10-0x16 shell
     ## records and call/replay attribution channel, so the committed fixtures
@@ -48,10 +52,20 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "50"
-    ## GV50 (SEASON 2 FLIP): the play-calling shell's first shipped version:
-    ## play seats, wasm playbooks, the seven-play reference menu, lobby chat,
-    ## and the call/replay attribution channel (0x10-0x16 shell records).
+  GameVersion* = "51"
+    ## GV51 (COLLISION: PARALLEL MOTION PASSES): blockingPlayerAt refuses
+    ## only steps that bring two bodies CLOSER (`toDist < fromDist`); a step
+    ## that keeps their Chebyshev distance — two cogs abreast walking the
+    ## same way — passes. The old `<=` deadlocked every duo standing within
+    ## PlayerSolidSpan: each blocked the other, the slide scan could not leave
+    ## the solid band, equal-velocity bounces changed nothing, and both stood
+    ## until the zone killed them. Recorded input masks re-simulate to
+    ## different positions from the first such contact, hence the bump.
+    ##
+    ## Previously GV50 (SEASON 2 FLIP): the play-calling shell's first shipped
+    ## version: play seats, wasm playbooks, the seven-play reference menu,
+    ## lobby chat, and the call/replay attribution channel (0x10-0x16 shell
+    ## records).
     ##
     ## Previously GV49 (GLORY v12: HEART RECUT + STRUCTURAL CONCLUSION SWEEP):
     ## the curriculum's terminal-tick hole is closed. `finishGame` now runs one
@@ -2315,9 +2329,13 @@ type
                       ## [0, VoteTicksMax]. Default 0 (phase off) —
                       ## DELIBERATELY not VoteTicksDefault, unlike
                       ## lobbyChatTicks: see VoteTicksDefault's own comment
-                      ## (sim_types.nim consts) for why this stays off by
-                      ## construction, not by the hasPlaySeat gate alone,
-                      ## until the 0xA4/0xB3 socket classifier lands.
+                      ## (sim_types.nim consts). THE MAP-VOTE ARMING KNOB:
+                      ## a brpool episode parsed with voteTicks > 0 pins a
+                      ## 4-map ballot (voteMapSpecs below) and the vote
+                      ## picks the episode map. 0xA4's classifier arm is
+                      ## now live (src/shell/dispatch.nim), so darkness
+                      ## rests entirely on this default staying 0 until a
+                      ## variant/league config flips it deliberately.
                       ## Runs, when nonzero and hasPlaySeat, BEFORE the
                       ## chatting substate (voting precedes chatting,
                       ## prematch-vote-wire-2026-08-31.md §1).
@@ -2357,6 +2375,28 @@ type
                         ## successive down of the same cog, floored at
                         ## DownedMinBleedOutTicks. Read only while
                         ## downedMode is on.
+    # GVNEXT(mapvote): appended field, same append-safety reasoning as
+    # everything above. Empty (the default) = no map ballot: the vote
+    # phase, if it ever runs, keeps its v1 mode-bundle semantics and the
+    # episode map never moves — byte-identical to a build without this
+    # field.
+    voteMapSpecs*: seq[string] ## MAP VOTE (S2): the episode's ballot as
+                        ## FULL expanded mapSpec JSONs, one per option
+                        ## (A/B/C/D = index 0..3), pinned at config parse
+                        ## exactly like mapSpec itself so the replay header
+                        ## carries every candidate's exact geometry and
+                        ## playback never consults the rotating pool (the
+                        ## #355 pinning discipline). Populated only when
+                        ## mapPath == "brpool" AND voteTicks > 0 (see
+                        ## sim_config.update); candidate 0 is ALWAYS the
+                        ## member `pickBrS2SpecJson` pins as mapSpec, so a
+                        ## vote that never resolves (or resolves to A)
+                        ## changes nothing. When non-empty, resolveVote
+                        ## runs MAP-BALLOT semantics: plurality over
+                        ## EXPLICIT casts only, zero casts => option 0, tie
+                        ## => the seed-deterministic draw; the winner's
+                        ## spec is installed as the episode map at
+                        ## resolution (sim.applyVoteWinnerMap).
 
   Player* = object
     x*, y*: int
@@ -3219,9 +3259,14 @@ type
 
   VoteSeatState* = object
     ## One seat's ballot bookkeeping (prematch-vote-wire-2026-08-31.md §2,
-    ## §5), indexed exactly like applyLobbyChat's seatIndex — a `sim.players`
-    ## array position. Lobby-lifecycle only: never read by gameHash (mirrors
-    ## lastLobbyChatTick/lobbyChatSentCount's own exclusion on `Player`).
+    ## §5), indexed by the seat's STABLE configured slot (Player.joinOrder
+    ## — see sim.nim's voteSlotForSeat). NEVER by `sim.players` position:
+    ## that array COMPACTS on disconnect (roster.removePlayerAt), and the
+    ## original positional keying re-attributed every later seat's accepted
+    ## ballot to the wrong player after one mid-vote disconnect (the
+    ## sentinel-wedge-class rekey bug). Lobby-lifecycle only: never read by
+    ## gameHash (mirrors lastLobbyChatTick/lobbyChatSentCount's own
+    ## exclusion on `Player`).
     hasCastVote*: bool  ## false = never cast (abstention resolves as
                         ## implicit D, §5 point 1) — the sentinel every
                         ## other field here is gated behind, so lastCastTick
@@ -3628,17 +3673,22 @@ type
                             ## 0xB2's (F3, prematch-vote-wire-2026-08-31.md
                             ## §3).
     voteSeats*: array[MaxPlayers, VoteSeatState]  ## per-seat cast
-                            ## bookkeeping, indexed like applyBallotCast's
-                            ## seatIndex.
+                            ## bookkeeping, indexed by STABLE configured
+                            ## slot (Player.joinOrder — the rekey; see
+                            ## VoteSeatState's own doc), never by position
+                            ## in the compacting players array.
     voteResolved*: bool     ## true once resolveVote has run this episode.
     voteCategory*: uint8    ## the plurality-winning bucket, 0-3 (A/B/C/D);
                             ## meaningful only when voteResolved (§5).
     voteTieBreakDrawn*: bool ## true when voteCategory needed the
                             ## episode-seed tie-break among tied plurality
                             ## leaders (§5 point 2).
-    voteFinalOption*: uint8 ## the resolved bundle, ALWAYS 0-2 (A/B/C) even
-                            ## when voteCategory is D (§5 point 3);
-                            ## meaningful only when voteResolved.
+    voteFinalOption*: uint8 ## the resolved option; meaningful only when
+                            ## voteResolved. Mode-bundle ballot (§5 point
+                            ## 3): ALWAYS 0-2 (A/B/C) even when
+                            ## voteCategory is D. MAP ballot (voteMapSpecs
+                            ## pinned): 0-3, indexes the winning candidate
+                            ## spec directly (there is no delegation).
     voteResolutionTick*: int ## the tick `voting` exited; stamps the kind-1
                             ## VoteState/0x17 record's `tick`/`replayTimeMs`.
     # ── S2 LOOT REWORK ── appended (flatty append-only rule). All three are

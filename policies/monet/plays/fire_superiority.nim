@@ -43,6 +43,7 @@ type
     dkHold
     dkPress
     dkCover
+    dkZone
 
   FsParams = object
     valid: bool
@@ -65,6 +66,17 @@ proc play_manifest*() {.exportc, cdecl.} =
 
 proc absI64(value: int64): int64 {.inline.} =
   if value < 0: -value else: value
+
+proc minI(a, b: int32): int32 {.inline.} =
+  if a < b: a else: b
+
+proc maxI(a, b: int32): int32 {.inline.} =
+  if a > b: a else: b
+
+proc clampI(value, lo, hi: int32): int32 {.inline.} =
+  if value < lo: lo
+  elif value > hi: hi
+  else: value
 
 proc sq(value: int32): int64 {.inline.} =
   int64(value) * int64(value)
@@ -243,12 +255,46 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
   loadContext(ctxPtr, ctxLen)
   loadParams(paramsPtr, paramsLen, true)
 
+const ZoneInsetPx = 64'i32
+
+proc zoneTarget(decoded: SdkView): SdkPoint =
+  ## Outside the current safe zone nothing else matters: the re-entry point
+  ## is self clamped into the rect inset toward the center (server-version-
+  ## independent zone discipline -- guards may not be evaluated for us).
+  result.present = false
+  let zone = decoded.world.zone.current
+  if not zone.present or not decoded.self.pos.present:
+    return
+  let
+    lox = minI(zone.x1, zone.x2)
+    hix = maxI(zone.x1, zone.x2)
+    loy = minI(zone.y1, zone.y2)
+    hiy = maxI(zone.y1, zone.y2)
+  if decoded.self.pos.x >= lox and decoded.self.pos.x <= hix and
+      decoded.self.pos.y >= loy and decoded.self.pos.y <= hiy:
+    return                        # already inside: no zone move
+  let
+    ix = minI(ZoneInsetPx, (hix - lox) div 2)
+    iy = minI(ZoneInsetPx, (hiy - loy) div 2)
+  result.present = true
+  result.x = clampI(decoded.self.pos.x, lox + ix, hix - ix)
+  result.y = clampI(decoded.self.pos.y, loy + iy, hiy - iy)
+
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var decoded: SdkView
   if not readBinaryViewInto(view(viewPtr, viewLen), decoded):
     return 1
   if not decoded.self.pos.present or
       (decoded.self.alivePresent and not decoded.self.alive):
+    return emitHoldIfChanged()
+
+  # Zone discipline first: no press and no break is worth standing in the
+  # storm for -- walk back inside, whatever the count says.
+  let reentry = zoneTarget(decoded)
+  if reentry.present:
+    let goal = nearestReachable(reentry.x, reentry.y)
+    if goal.ok:
+      return emitGoal(dkZone, goal, "fire_superiority:zone")
     return emitHoldIfChanged()
 
   # Count the guns we can SEE (fog-honest; unknown hp is HEALTHY).

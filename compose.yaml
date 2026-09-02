@@ -9,6 +9,10 @@ services:
       context: *game_context
       dockerfile: Dockerfile
       network: host
+      args:
+        # Engine build stamp for replay headers (see Dockerfile); empty when
+        # the caller does not export it, which leaves recordings unstamped.
+        SIM_SOURCES_STAMP: ${SIM_SOURCES_STAMP:-}
   player:
     image: coworld-ctf-baseline:latest
     platform: linux/amd64

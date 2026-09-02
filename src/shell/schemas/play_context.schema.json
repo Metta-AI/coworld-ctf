@@ -70,6 +70,10 @@
           "team": {
             "type": "string"
           },
+          "name": {
+            "type": "string",
+            "$comment": "the seat's display name (the closed roster's players[].name), at most 64 UTF-8 bytes; omitted when the episode has none. Huddle partners are addressed by name (James, 2026-09-02); LobbyChat 0xB2 stays seat-indexed, so map seat -> name from here"
+          },
           "control": {
             "enum": [
               "input",

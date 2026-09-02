@@ -21,6 +21,17 @@ var
   # nothing path.
   lobbyChatJson: JsonNode
   ballotJson: JsonNode
+  # SEASON 2 observability: the accepted play-call ("flash") records --
+  # shell record `0x10`, RecPlayCall -- serialized ONCE at load into a
+  # stable string the page reads through ctf_calls_ptr/len (same contract
+  # as ctf_error_*: pointer into this module's linear memory, valid until
+  # the next ctf_load_replay). Unlike huddle/vote this does NOT ride the
+  # per-frame chrome (`buildReplayViewerPacket` stays untouched -- that
+  # proc is a sim source and this is pure viewer plumbing): the worker
+  # pulls it once after a successful load and hands it to the page beside
+  # the 'loaded' message. Empty on a replay whose `.shell` carries no
+  # calls -- the degrade-to-nothing path, exactly like "huddle"/"vote".
+  callsJsonText: string
 
 proc safeTeam(raw: uint8): Team =
   ## Defensive `Team` conversion for bytes that came off disk, not out of a
@@ -74,6 +85,25 @@ proc ballotRecordsJson(records: openArray[BallotRecord]): JsonNode =
         "final": rec.finalOption
       })
 
+proc playCallRecordsJson(records: openArray[PlayCallRecord]): JsonNode =
+  ## SEASON 2 observability: every accepted play call ("flash") in recorded
+  ## order -- when the caller flashed each seat, and the entry ids of the
+  ## ladder it flashed (the readable play names). `ladderBytes` stays out on
+  ## purpose: it is the opaque compiled ladder, useless to a viewer and by
+  ## far the heaviest field. `epoch` rides along so the feed can show "this
+  ## seat's Nth flash" without recounting.
+  result = newJArray()
+  for rec in records:
+    var plays = newJArray()
+    for entry in rec.entries:
+      plays.add(%entry.entryId)
+    result.add(%*{
+      "ms": rec.replayTimeMs,
+      "seat": rec.seat,
+      "epoch": rec.epoch,
+      "plays": plays
+    })
+
 ## --- Progress stage note ---
 ## wasm32 has no memory protection: when emscripten's malloc fails, a write
 ## through the nil pointer lands at address 0 and silently corrupts the
@@ -116,6 +146,7 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     # PREVIOUS replay can never bleed into a freshly loaded one.
     lobbyChatJson = nil
     ballotJson = nil
+    callsJsonText = ""
     stampStage("parse replay")
     # Keeps `.shell` (huddle transcript, ballot) instead of the discarding
     # `parseReplayBytes` -- see `parseCtfReplayBytesFull`'s own doc comment.
@@ -123,17 +154,23 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     # call regardless (parseReplayBytes wraps the same parse and throws the
     # result away), so this costs nothing extra to keep.
     let ctfData = parseCtfReplayBytesFull(data.bytesFromPointer(int(length)))
-    let replayData = ctfData.replay
     if ctfData.shell.lobbyTranscript.len > 0:
       lobbyChatJson = lobbyChatRecordsJson(ctfData.shell.lobbyTranscript)
-    if ctfData.shell.ballots.len > 0:
-      ballotJson = ballotRecordsJson(ctfData.shell.ballots)
+    if ctfData.shell.calls.len > 0:
+      callsJsonText = $playCallRecordsJson(ctfData.shell.calls)
     stampStage("initialize replay runtime")
     # Match the native replay server default: keep a historical replay usable
     # after the first integrity mismatch and surface the warning in the shared
     # replay chrome. `--mismatch-quit` remains a native diagnostic mode.
+    #
+    # MAP VOTE: hand the runtime the FULL CtfReplayData (the overload the
+    # native replay server has always used), not the bare `.replay` half —
+    # that is what retains `.shell`'s lifecycle stream AND ballots on the
+    # ReplayPlayer, so playback re-applies recorded 0x17 casts at their
+    # tick and the resolved winner map installs inside the wasm viewer
+    # exactly as it did live (replays.applyReplayEvents).
     var initialized = initReplayRuntime(
-      replayData,
+      ctfData,
       mismatchQuit = false,
       gameEventLoggingEnabled = false
     )
@@ -142,6 +179,20 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     tracker = move(initialized.tracker)
     viewer = initGlobalViewerState()
     runtimeLoaded = true
+    if ctfData.shell.ballots.len > 0:
+      # The vote surface the 4-quadrant renderer consumes (see the
+      # episodeflow lane + prematch-vote-wire addendum §4): the decoded
+      # 0x17 stream under "records", plus the pinned candidate map names
+      # under "candidates" (option index == array index), read from the
+      # SAME header config playback just booted from.
+      var vote = newJObject()
+      vote["records"] = ballotRecordsJson(ctfData.shell.ballots)
+      if game.config.voteMapSpecs.len > 0:
+        var candidates = newJArray()
+        for spec in game.config.voteMapSpecs:
+          candidates.add(%parseJson(spec)["name"].getStr(""))
+        vote["candidates"] = candidates
+      ballotJson = vote
     let mapNote =
       " (map " & $game.gameMap.width & "x" & $game.gameMap.height & ")"
     # Refuse boards whose render buffers cannot fit the 32-bit address space
@@ -215,6 +266,18 @@ proc ctfErrorPointer(): ptr uint8 {.exportc: "ctf_error_ptr", cdecl.} =
 
 proc ctfErrorLength(): cint {.exportc: "ctf_error_len", cdecl.} =
   cint(lastError.len)
+
+proc ctfCallsPointer(): ptr uint8 {.exportc: "ctf_calls_ptr", cdecl.} =
+  ## The play-call ("flash") records JSON -- see callsJsonText's own doc
+  ## comment. nil/0 on a replay with no calls; the worker degrades to
+  ## simply never forwarding a calls payload.
+  if callsJsonText.len == 0:
+    nil
+  else:
+    cast[ptr uint8](callsJsonText[0].addr)
+
+proc ctfCallsLength(): cint {.exportc: "ctf_calls_len", cdecl.} =
+  cint(callsJsonText.len)
 
 proc ctfStagePointer(): ptr uint8 {.exportc: "ctf_stage_ptr", cdecl.} =
   ## The progress note (see stageNote above). Unlike ctf_error_*, this stays

@@ -4,7 +4,7 @@
 ## canonical JSON bytes. This keeps the future binary play-view encoder from
 ## inheriting JSON-specific row selection behavior.
 
-import std/[algorithm, json, options, sequtils, unittest]
+import std/[strutils, algorithm, json, options, sequtils, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[binary_view, body, body_map, canonical, canonical_fast,
@@ -433,6 +433,33 @@ suite "shell play context producer":
     check not node["roster"][0].hasKey("control")
     check node["roster"][1]["control"].getStr() == "play"
     check node["self"]["duo_partner"].getInt() == 0
+
+  test "context carries roster display names, capped on a UTF-8 boundary":
+    ## James's ruling 2026-09-02: huddle partners are addressed by name, so
+    ## the roster row carries the seat's display name; empty names are
+    ## omitted and long ones are cut on a scalar boundary so the canonical
+    ## bytes stay valid UTF-8.
+    let long = "x" & "é".repeat(40)
+    check long.len == 81
+    let context = PlayContextSource(mode: gmBr, mapName: "gen:14005",
+      mapWidth: 3200, mapHeight: 1800,
+      roster: @[
+        PlayContextRosterRow(seat: 0, team: Red, control: pccPlay,
+          name: "daveey"),
+        PlayContextRosterRow(seat: 1, team: Red, control: pccPlay),
+        PlayContextRosterRow(seat: 2, team: Blue, control: pccPlay,
+          name: rosterDisplayName(long))],
+      selfSeat: 0, selfTeam: Red, duoPartner: some(1),
+      gunRange: 331, viewInterval: 6)
+    let bytes = newPlayContextProducer().buildPlayContext(context)
+    validateCanonical("" & bytes)
+    let node = parseJson(bytes)
+    check node["roster"][0]["name"].getStr() == "daveey"
+    check not node["roster"][1].hasKey("name")
+    let capped = node["roster"][2]["name"].getStr()
+    check capped.len == 63
+    check capped == "x" & "é".repeat(31)
+    check rosterDisplayName("Starter: Cautious (2)") == "Starter: Cautious (2)"
 
   test "context enforces br duo presence and byte cap":
     let context = PlayContextSource(mode: gmCtf, mapName: "arena",

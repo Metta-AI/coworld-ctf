@@ -187,6 +187,12 @@ type
     seat*: int
     team*: Team
     control*: PlayContextControl
+    name*: string
+      ## The seat's display name (the closed roster's `players[].name`),
+      ## capped by rosterDisplayName; empty when the episode has none.
+      ## James's ruling 2026-09-02: huddle partners are addressed by name,
+      ## so the context carries it — the LobbyChat packet stays seat-indexed
+      ## and a policy maps seat -> name from this roster.
 
   PlayContextSource* = object
     mode*: GameMode
@@ -630,6 +636,8 @@ proc writeJson*(w: var CanonicalWriter, source: PlayContextSource) =
     w.beginObject()
     if row.control == pccPlay:
       w.field("control", "play")
+    if row.name.len > 0:
+      w.field("name", row.name)
     w.field("seat", int64(row.seat))
     w.field("team", teamText(row.team))
     w.endObject()
@@ -645,6 +653,43 @@ proc writeJson*(w: var CanonicalWriter, source: PlayContextSource) =
   w.field("v", 1'i64)
   w.field("view_interval", int64(source.viewInterval))
   w.endObject()
+
+const MaxRosterNameBytes* = 64
+  ## Cap on one roster row's display name in the PlayContext. Thirty-two
+  ## rows of 64 bytes is 2 KB of a 65536-byte context, so the map-and-roster
+  ## size bound (MaxContextBytes) still holds for any platform-supplied name.
+
+proc rosterDisplayName*(name: string): string =
+  ## The roster name as the context carries it: unchanged when it fits,
+  ## otherwise cut to MaxRosterNameBytes on a UTF-8 boundary so the canonical
+  ## writer never sees a torn multibyte scalar.
+  if name.len <= MaxRosterNameBytes:
+    return name
+  var cut = MaxRosterNameBytes
+  while cut > 0 and (uint8(name[cut]) and 0xC0'u8) == 0x80'u8:
+    dec cut
+  name[0 ..< cut]
+
+proc playContextRosterRows*(controls: openArray[SlotControl],
+                            teams: openArray[Team],
+                            names: openArray[string]): seq[PlayContextRosterRow] =
+  ## THE roster the PlayContext carries, in seat order, from the configured
+  ## slots' control, team, and display name (`names` may be empty: no names).
+  ## Both producers — episode.nim's contextRoster (play_init) and server.nim's
+  ## socket 0xB0 — build through here, so the two payloads cannot drift: they
+  ## did once (names shipped on the episode side only, round 3641).
+  if teams.len != controls.len:
+    raise newException(ValueError,
+      "roster team/control facts must have the same length")
+  if names.len > 0 and names.len != controls.len:
+    raise newException(ValueError,
+      "roster name/control facts must have the same length")
+  for index, control in controls:
+    result.add(PlayContextRosterRow(
+      seat: index,
+      team: teams[index],
+      control: if control == scPlay: pccPlay else: pccInput,
+      name: if names.len > 0: rosterDisplayName(names[index]) else: ""))
 
 proc jsonEncodedSize*(model: PlayViewModel): int =
   var sizeWriter = initCanonicalWriter(MaxViewFrameBytes)

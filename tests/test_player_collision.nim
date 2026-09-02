@@ -78,6 +78,45 @@ suite "player body collisions":
       sim.applyInput(mover, InputState(right: true))
     check sim.players[mover].x > 160 + PlayerSolidSpan  # drove straight past
 
+  test "two cogs abreast can walk the same way without blocking each other":
+    ## GV51. A duo standing side by side within PlayerSolidSpan and pushing
+    ## the same direction keeps a constant Chebyshev distance; the old
+    ## `toDist <= fromDist` refusal treated that as "not moving apart" and
+    ## pinned both cogs in place for good (the zone then killed them).
+    ## Parallel motion must pass; closing in must still be refused.
+    var sim = initCtfForTest(defaultGameConfig())
+    let
+      a = sim.addPlayer("a")
+      b = sim.addPlayer("b")
+    sim.blockAll()
+    sim.openField(40, 40, 640, 300)
+    sim.placeStill(a, 160, 240)
+    sim.placeStill(b, 166, 240)
+    let startGap = sim.bodyGap(a, b)
+    check startGap <= PlayerSolidSpan
+    for _ in 0 .. 60:
+      sim.applyInput(a, InputState(up: true))
+      sim.applyInput(b, InputState(up: true))
+      check sim.bodyGap(a, b) >= startGap               # never deeper in
+    check sim.players[a].y < 200                        # both actually walked
+    check sim.players[b].y < 200
+
+  test "an overlapped pair still cannot close in on each other":
+    var sim = initCtfForTest(defaultGameConfig())
+    let
+      a = sim.addPlayer("a")
+      b = sim.addPlayer("b")
+    sim.blockAll()
+    sim.openField(40, 40, 640, 240)
+    sim.placeStill(a, 160, 140)
+    sim.placeStill(b, 166, 140)
+    let startGap = sim.bodyGap(a, b)
+    for _ in 0 .. 30:
+      sim.applyInput(a, InputState(right: true))
+      sim.applyInput(b, InputState(left: true))
+      check sim.bodyGap(a, b) >= startGap
+    check sim.bodyGap(a, b) >= startGap
+
   test "overlapping players can move apart but not further in":
     var sim = initCtfForTest(defaultGameConfig())
     let

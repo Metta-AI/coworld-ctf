@@ -3,8 +3,11 @@
 
 Harness deltas (the code that makes this seat behave unlike the other two):
 
-* ONE re-call, held long -- fewest model turns of the three; between calls
-  the seat simply rides its standing ladder,
+* the sparsest live-loop schedule of the three (up to 4 model calls a match,
+  15 s apart); between calls the seat rides its standing ladder and the
+  harness only re-sends it when a gate (a medkit while wounded, a safe
+  pickup) opens or closes,
+* hold fire until zone phase 1 (``target_law holdTrigger``), then fight,
 * ``adjust_entries`` clamps every edge_ride toward the safe end (margin
   floored at 280, early enterLead, high coverBias) and fills any parameter
   the model omitted with a conservative default instead of the play's own --
@@ -45,6 +48,26 @@ def adjust_entries(entries, context, view):
         elif entry.get("play") == "pact":
             # Never trade shots, not even with a betrayer.
             params["onBetrayal"] = "disengage"
+        elif entry.get("play") == "target_law":
+            # Hold fire through the opening brawl, then FIGHT. The old
+            # `aliveTeams: 6` trigger never released in practice -- across
+            # 19 hosted episodes cautious seats fired 0.08 shots and banked
+            # zero Glory, because they died before the field thinned to six.
+            # A zone-phase trigger releases on the clock (phase 2 is ~25 s
+            # into play), and an aliveTeams trigger is clamped so it can
+            # release once the first team falls.
+            # Competitive rounds 3705-3706: 26 of 45 cautious deaths were gun
+            # kills, 12 of them before tick 600, while the seat held fire
+            # for zone phase 2 -- it walked around visible and never shot
+            # back. Phase 1 (the first shrink, ~15 s in) is the latest hold
+            # that does not cost the seat its life.
+            trigger = params.get("holdTrigger")
+            if isinstance(trigger, dict) and "aliveTeams" in trigger:
+                trigger["aliveTeams"] = max(int(trigger["aliveTeams"]), 7)
+            elif isinstance(trigger, dict) and "zonePhase" in trigger:
+                trigger["zonePhase"] = min(int(trigger["zonePhase"]), 1)
+            elif not isinstance(trigger, dict):
+                params["holdTrigger"] = {"zonePhase": 1}
         elif entry.get("play") == "supply_run":
             # Heal early and never fight over an item. whenHpBelow is
             # ABSOLUTE hp units (a full seat is only a few), so the floor
@@ -52,6 +75,15 @@ def adjust_entries(entries, context, view):
             params.setdefault("detourMax", 900)
             params["whenHpBelow"] = max(int(params.get("whenHpBelow", 4)), 4)
             params["contested"] = "avoid"
+        elif entry.get("play") == "loot":
+            params["contested"] = "avoid"
+            params["detourMax"] = min(int(params.get("detourMax", 300)), 300)
+    if not any(e.get("play") == "loot" for e in entries):
+        # Short, safe detours only: a shield or a grenade within 300 px when
+        # nobody is tracked. The harness guard keeps it off the ladder top
+        # the moment an enemy appears.
+        entries.append({"play": "loot", "entry_id": "loot",
+                        "params": {"detourMax": 300, "contested": "avoid"}})
     return entries
 
 
@@ -59,6 +91,9 @@ PERSONA = Persona(
     name="cautious",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
+        "loot": ("loot: short, safe detours only -- a shield or a grenade within "
+                 "300 px while nobody is tracked; the harness keeps it off the "
+                 "ladder the moment an enemy appears."),
         "edge_ride": ("edge_ride is your whole game: margin 280 or wider, "
                       "enterLead 220 or more, coverBias 0.8+. Rotate early, "
                       "arrive first, sit in cover."),
@@ -70,10 +105,12 @@ PERSONA = Persona(
                        "few units), wide detourMax, contested always avoid."),
         "bodyguard": ("bodyguard only for a partner already in a pact, and "
                       "with a wide leash -- never interpose."),
-        "target_law": ("target_law: always carry a holdTrigger -- the first "
-                       "shot is a commitment you rarely want, and remember "
-                       "a released hold NEVER re-arms, so choose the "
-                       "trigger for the endgame you actually intend."),
+        "target_law": ("target_law: always carry a holdTrigger, but one "
+                       "that actually releases while you are alive -- "
+                       '{"zonePhase": 1} sits out the drop and '
+                       "then lets you defend yourself; an aliveTeams "
+                       "trigger below 7 never fires before you die. A "
+                       "released hold NEVER re-arms."),
     },
     canned_turns=[
         {
@@ -83,11 +120,10 @@ PERSONA = Persona(
                 {"play": "edge_ride", "entry_id": "shelter",
                  "params": {"margin": 420, "enterLead": 320,
                             "coverBias": 1.0}},
-                # Hold-fire discipline: not a shot until the field thins
-                # to six teams. A released hold never re-arms, so the
-                # trigger is chosen for the endgame, not the skirmish.
+                # Hold-fire discipline: not a shot until the first shrink.
+                # A released hold never re-arms.
                 {"play": "target_law", "entry_id": "discipline",
-                 "params": {"holdTrigger": {"aliveTeams": 6}}},
+                 "params": {"holdTrigger": {"zonePhase": 1}}},
             ]},
         },
         {
@@ -104,7 +140,8 @@ PERSONA = Persona(
         },
     ],
     recall_count=1,
-    recall_seconds=14.0,
+    recall_seconds=15.0,
+    max_calls=4,
     adjust_entries=adjust_entries,
 )
 

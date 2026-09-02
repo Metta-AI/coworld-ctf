@@ -1389,7 +1389,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -1521,7 +1522,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -1750,7 +1752,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -2013,7 +2016,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -2237,7 +2241,8 @@
           "visitor"
         ],
         "maxTicks": 2160,
-        "paintBuff": true
+        "paintBuff": true,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -4501,7 +4506,8 @@
             "shrinkTicks": 1700,
             "dps": 20
           }
-        ]
+        ],
+        "allowDeprecatedModes": true
       }
     }
   ],

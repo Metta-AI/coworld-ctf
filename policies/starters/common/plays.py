@@ -105,6 +105,48 @@ PLAYS = {
             "What to do when someone else is also heading for the item."
         ),
     },
+    "scatter": {
+        "class": "controller",
+        "params": {
+            "distance": {"kind": "int", "min": 60, "max": 1200,
+                         "default": 320},
+            "ticks": {"kind": "int", "min": 24, "max": 2400, "default": 300},
+        },
+        "brief": (
+            '"scatter" (class: controller). Gets off the spawn cluster: for '
+            "the opening ticks it walks away from the nearest tracked enemy "
+            "(toward the zone centre when nobody is tracked), then yields. "
+            "The harness makes it the base rung for the first seconds of "
+            "every match. Params:\n"
+            "     - distance: integer 60..1200, default 320. How far to walk "
+            "per leg.\n"
+            "     - ticks: integer 24..2400, default 300. How long after the "
+            "drop to keep scattering (24 ticks = 1 s)."
+        ),
+    },
+    "loot": {
+        "class": "controller",
+        "params": {
+            "detourMax": {"kind": "int", "min": 0, "max": 4096,
+                          "default": 400},
+            "contested": {"kind": "enum", "of": ["avoid", "race"],
+                          "default": "avoid"},
+            "medkits": {"kind": "bool", "default": False},
+        },
+        "brief": (
+            '"loot" (class: controller). Fetches the nearest reachable '
+            "pickup of any kind -- grenade, shield, spray can, barrier -- "
+            "when it is safe to. The harness gates it so it only runs while "
+            "no fresh enemy track is within 500 px and an item is within "
+            "reach; otherwise your base play keeps driving. Params:\n"
+            "     - detourMax: integer 0..4096, default 400. Maximum detour "
+            "in px to reach an item.\n"
+            '     - contested: one of "avoid" or "race", default "avoid". '
+            "What to do when someone else is also heading for the item.\n"
+            "     - medkits: boolean, default false. Also fetch medkits "
+            "(normally supply_run's job)."
+        ),
+    },
     "bodyguard": {
         "class": "controller",
         "params": {
@@ -353,5 +395,6 @@ Reply with a single JSON object and nothing else:
 Rules: every "play" must be {names}. Every "entry_id" must be
 unique within the call and made of letters, digits, underscores or hyphens.
 Only use parameters named above, within their stated ranges. Include at least
-one entry.
+one entry. In "chat", address other players by the NAME the roster gives
+them (they see yours); inside "call", a seat is always written seat:<N>.
 """

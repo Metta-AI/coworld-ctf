@@ -1,11 +1,24 @@
 ## Seat navigation coordinator: danger cadence, global cold-work scheduler,
 ## atomic route replacement, and stencil-exact warm follower behavior.
 ##
-## One 256-unit budget per tick. Plans are spent first, in the existing
-## persisted seat-index round robin. Field minting consumes only what
-## the plan pass leaves, through its own persisted seat-index cursor,
-## with at most one mint in flight server-wide. A play's order moves the
-## cog before it warms the oracle.
+## One 256-unit budget PER SEAT per tick, pooled (planBudgetPerTick).
+## Plans are spent first, in the existing persisted seat-index round
+## robin. Field minting consumes only what the plan pass leaves, through
+## its own persisted seat-index cursor, with at most one mint in flight
+## server-wide. A play's order moves the cog before it warms the oracle.
+##
+## WHY the pool scales with seats: the budget was a flat 256 units per
+## tick server-wide, sized for one or two seats on a paintball board. A
+## Season 2 league episode runs 16 seats on a 2271x1212 generated map,
+## where one 900 px route costs ~17k units on the PlanStepPx lattice.
+## Sixteen such plans sharing 256 units a tick each got a slice every
+## thirty-odd ticks and took over a thousand ticks to finish, and the
+## follower holds a cog still while its plan is pending — so hosted cogs
+## stood where they spawned until the zone killed them (round 3633,
+## 0.7.283). Per-seat pooling keeps every single-seat contract byte-
+## identical and lets a full roster plan in parallel; the worst case
+## (32 seats, all planning) is ~8k units, a few milliseconds of a 41 ms
+## tick, and the planning pass is outside the containment body-tick gate.
 
 import std/[hashes, math, options]
 import bitworld/spriteprotocol
@@ -545,9 +558,14 @@ proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
           "pending mint made no progress under available budget")
   budgetLimit - budget
 
+proc planBudgetPerTick*(system: BodyNavSystem): int =
+  ## The pooled cold-work budget for one tick: ColdPlanBudgetPerTick for
+  ## every configured seat (see the module comment for why it scales).
+  ColdPlanBudgetPerTick * max(1, system.seats.len)
+
 proc runPlanningTick*(system: BodyNavSystem, tick: int,
     evaluationOrder: openArray[int] = []): int =
-  system.runPlanningWork(tick, ColdPlanBudgetPerTick, evaluationOrder)
+  system.runPlanningWork(tick, system.planBudgetPerTick, evaluationOrder)
 
 proc prewarmColdPlans*(system: BodyNavSystem) =
   ## Activation-barrier cold-plan drain.
@@ -560,7 +578,7 @@ proc prewarmColdPlans*(system: BodyNavSystem) =
   ## path. It deliberately does not warm route fields: after ruling 10 a plan
   ## never needs a field, and stencil mints fields lazily on demand.
   while system.hasPendingPlan:
-    discard system.runPlanningWork(-1, ColdPlanBudgetPerTick, [], false)
+    discard system.runPlanningWork(-1, system.planBudgetPerTick, [], false)
 
 proc planCursor*(system: BodyNavSystem): int = system.lastPlanSeat
 
@@ -656,6 +674,14 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     tick - seat.lastPlanTick >= PlanMovingReplanTicks
   let profileChanged = seat.desiredProfile != profile
   let forcedReplan = not seat.job.planPending and seat.stuckTicks >= StuckTicks
+  # The last requested plan was cancelled before it landed (setStandingIntent
+  # drops the plan in flight on every new order) and the loaded path
+  # predates that request: ask again rather than follow the stale route.
+  # Idle only — a FAILED plan keeps the historical retry rules (empty path
+  # or a stuck follower), because re-requesting a doomed plan every tick
+  # for every seat is real body-tick time on a 32-seat board.
+  let planLost = seat.job.stage == pjsIdle and
+    seat.pathRevision != seat.revision
   if forcedReplan:
     if seat.lastFollowReplanTick.isSome and
         tick - seat.lastFollowReplanTick.get <= FollowStuckWindowTicks:
@@ -665,7 +691,7 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     inc seat.followReplans
   if goalMoved or profileChanged or
       (seat.pathLen == 0 and not seat.job.planPending) or
-      forcedReplan or movingReplan:
+      forcedReplan or movingReplan or planLost:
     inc seat.revision
     let avoid = if seat.blockedPenalty.isSome:
       some(seat.blockedPenalty.get.pos) else: none(BodyPoint)
