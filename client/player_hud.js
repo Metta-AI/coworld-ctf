@@ -181,7 +181,13 @@
        Against a pre-50a13efc engine the label never arrives and the rail
        stays at "—" — tolerance, not fabrication.
      - combat.score/xp/level/rank/buffs: Glory is not deployed to the field
-       yet. Fields are reserved and always render as an honest placeholder.
+       yet. Fields are reserved. Swap#11 item 3: SCORE/RANK are no longer
+       rendered as a permanent "—" placeholder tile — a tile that can only
+       ever read "—" isn't an honest placeholder, it's dead rail weight —
+       the two tiles (#phud-sc-tile/#phud-rk-tile) are structurally hidden
+       (display:none) until the wire actually carries a value, then reappear
+       with no code change. buffs already worked this way (phud-buffwrap
+       hidden when the list is empty); score/rank now follow the same idiom.
      - BR (>4 teams) playerRows: RESOLVED end to end. 50a13efc lifted the
        addScoreboard >4-team suppression ("score " rows at every team count,
        kills/deaths included — /client/global builds only), and 8ad1c420
@@ -941,8 +947,17 @@
       '<div id="phud-rail" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">kills</span><span class="phud-num" id="phud-k">—</span></div>' +
       '<div class="phud-stat"><span class="phud-eyebrow">deaths</span><span class="phud-num" id="phud-d">—</span></div>' +
-      '<div class="phud-stat"><span class="phud-eyebrow">score</span><span class="phud-num" id="phud-sc">—</span></div>' +
-      '<div class="phud-stat"><span class="phud-eyebrow">rank</span><span class="phud-num" id="phud-rk" style="font-size:11px">—</span></div>' +
+      // SCORE/RANK tiles: Swap#11 item 3 — combat.score/rank are reserved
+      // Glory fields that always render the placeholder while Glory is
+      // undeployed (see the KNOWN GAPS note above). A tile that can only
+      // ever read "—" is not an honest placeholder, it's permanent dead
+      // weight in the rail; hidden here by STRUCTURE (display:none on the
+      // whole .phud-stat, not just the number span) whenever the value is
+      // the placeholder, and unhidden with zero further code the day Glory
+      // actually ships real values — see the display toggle in the render
+      // loop below (nodes.scTile/nodes.rkTile).
+      '<div class="phud-stat" id="phud-sc-tile" style="display:none"><span class="phud-eyebrow">score</span><span class="phud-num" id="phud-sc">—</span></div>' +
+      '<div class="phud-stat" id="phud-rk-tile" style="display:none"><span class="phud-eyebrow">rank</span><span class="phud-num" id="phud-rk" style="font-size:11px">—</span></div>' +
       '</div>' +
       '<div id="phud-cond" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">condition</span><span class="phud-num" id="phud-hp">—</span></div>' +
@@ -971,6 +986,7 @@
       rail: root.querySelector('#phud-rail'),
       k: root.querySelector('#phud-k'), d: root.querySelector('#phud-d'),
       sc: root.querySelector('#phud-sc'), rk: root.querySelector('#phud-rk'),
+      scTile: root.querySelector('#phud-sc-tile'), rkTile: root.querySelector('#phud-rk-tile'),
       hp: root.querySelector('#phud-hp'), lv: root.querySelector('#phud-lv'),
       buffWrap: root.querySelector('#phud-buffwrap'), buffs: root.querySelector('#phud-buffs'),
       cooldown: root.querySelector('#phud-cooldown'), weaponText: root.querySelector('#phud-weapon-text'),
@@ -1409,8 +1425,21 @@
     setStat(nodes.k, state.combat.kills, function () { return prevKills !== null && state.combat.kills !== null && state.combat.kills > prevKills; });
     prevKills = state.combat.kills;
     nodes.d.textContent = fmtDash(state.combat.deaths);
-    nodes.sc.textContent = fmtDash(state.combat.score);
-    nodes.rk.textContent = state.combat.rank ? state.combat.rank : '—';
+    // SCORE/RANK tiles stay structurally absent while Glory is undeployed
+    // (combat.score/rank null placeholder) and reappear untouched — same
+    // text, same markup — the moment the wire starts carrying real values.
+    if (state.combat.score !== null && state.combat.score !== undefined) {
+      nodes.sc.textContent = fmtDash(state.combat.score);
+      nodes.scTile.style.display = '';
+    } else {
+      nodes.scTile.style.display = 'none';
+    }
+    if (state.combat.rank) {
+      nodes.rk.textContent = state.combat.rank;
+      nodes.rkTile.style.display = '';
+    } else {
+      nodes.rkTile.style.display = 'none';
+    }
 
     // B — minimap (+ BR zone label; qualitative, never a fabricated countdown).
     nodes.miniLabel.textContent = state.zone
