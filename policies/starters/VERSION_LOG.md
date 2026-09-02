@@ -26,6 +26,8 @@ the change it carries. All uploads below were made with
 
 | never shoot your own clone: harness pacts with the entrant's other seats and keeps them on target_law's never-list (44 of 51 early competitive aggressive deaths were clone-on-clone gun kills) | v14 (Games Bond) | v13 | v11 | competitive rounds from 3705+ |
 
+| `scatter` spawn-phase base (walk away from the nearest enemy for the opening ticks, then yield) | v15 (Games Bond) | v14 | v12 | crash test + competitive rounds |
+
 Seating rule learned the hard way: the scheduler seats **one champion per player**, an
 account is capped at **2 active players**, and a policy version is bound to the player
 that uploaded it. So at most two starters can compete as entrants at once
@@ -38,8 +40,8 @@ Glory per starter seat, 5% end-survivors. Final (60 episodes): 0.73 kills (+28%)
 auto-aim) scores ~0.95 kills / 0.92 Glory, so the play-calling layer is at best level with the engine
 today; the gains were cautious and collaborative catching up, plus robustness.
 
-**Current recommended build:** `starter-cautious:v14` (Games Bond), `starter-aggressive:v13`,
-`starter-collaborative:v11` — the league filler list and the entrant submissions point at these. Items now work: since paintbot 0.7.290 (engine commit 8cb5efe3) the play view carries item
+**Current recommended build:** `starter-cautious:v15` (Games Bond), `starter-aggressive:v14`,
+`starter-collaborative:v12` — the league filler list and the entrant submissions point at these. Items now work: since paintbot 0.7.290 (engine commit 8cb5efe3) the play view carries item
 sightings; a hosted all-starter check showed `loot` installing 55 times and 0.7 pickups per
 seat (was ~0.2). Still open: no aggressive variant beats the engine default on kills.
 
