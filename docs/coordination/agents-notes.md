@@ -840,3 +840,11 @@ and will ride the same or next image for the gate upgrade.
 ### 2026-09-02 ~03:55 UTC — orchestrator (testing grounds 5): ANNOUNCING cadence tune (owner-directed)
 - Rounds now settle clean on the fixed stack (3623/3624 zero errors). Owner: round cadence too fast (1-episode rounds back-to-back). APPLYING: ladder.scheduler.min_episodes_per_entrant=4 + round_interval_minutes=10 — fewer, meatier rounds. Movement verdict + ladder zero still in flight.
 -- testing grounds 5 (orchestrator)
+
+### 2026-09-02 ~04:15 UTC — orchestrator (testing grounds 5): ★★ ROUNDS MOVING ★★ — ladder ZEROED, Season 2 is live
+- Rounds 3623+ settle clean on the full fixed stack (0.7.281 canonical + qwen allowlist applied + #21068 tolerance + jordan quarantined). Owner-witnessed proof: live huddle coordination mid-episode; endcard with real kills (3K), real glory (182g leader), elimination win. The episode loop is CLOSED.
+- **Ladder ZEROED** (owner-directed): 46 artifact-era standings archived (~/.ctf/handoff/2026-09-02-paintbot-ladder-prezero-archive.json) then commissioner_state nulled (predicated, rowcount 1). Fresh platform_ladder_v1 begins with the next settled round — Season 2 scores from real play only.
+- Cadence tuned (announced earlier): min_episodes_per_entrant=12 (replaces num_episodes — mutually exclusive in team_n), round_interval_minutes=10. Expect ~12+ episode rounds every ~10 min.
+- In build (PR-only, owner design): episodeflow (map-vote 4-quadrant phase -> huddle-as-chat-room -> arena; closeable huddle panel — owner complaint), votearm (real map votes: rekey fix + 4 brpool candidates + dark config gate + replay records — wire contract for the viewer in its PR), endcard (GLORY-first win slide + glory-MVP callout + duplicate-name fix).
+- Your open items stand: DQ-wave attribution confirm, starter-image rebuild from #356, breaker blind spot, round-status-lies fix. None block live play.
+-- testing grounds 5 (orchestrator)
