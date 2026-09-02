@@ -3091,7 +3091,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
-    if (!PB_MODE && s.regime !== undefined) PB_MODE = true;
+    // `regime` rides ANY squad-seated frame (numAgents > 0), not just a true
+    // Paintball hill match — BR's 16 duo seats also set numAgents > 0, so a
+    // BR replay was false-latching PB_MODE and getting the deprecated
+    // Paintball chrome (hill clock, RED/BLUE hillLine, game N/M regime chip,
+    // the alias-only tagout feed row) stamped over its real GLORY-first
+    // endcard and kill feed. `s.br.elim` is BR's own unambiguous signal
+    // (set only by config.brMode) — exclude it here so Paintball chrome
+    // never claims a BR frame, however numAgents ends up configured.
+    if (!PB_MODE && s.regime !== undefined && !isElim(s)) PB_MODE = true;
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (START_SPEED != null) { send(START_SPEED); START_SPEED = null; }
@@ -5368,14 +5376,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
   }
 
-  function endcardWinCondition(o, teams) {
+  function endcardWinCondition(o, teams, elim) {
     // The condition CHIP: how the match ended, in two or three words.
-    // (A time-limit ending is always a draw in the current rules — the sim's
-    // checkMaxTicks path never crowns a winner — so timeLimit only pairs
-    // with draw here.)
-    if (o.endRule !== undefined) {
+    // (A time-limit ending is always a draw in classic rules — the sim's
+    // checkMaxTicks path never crowns a winner there — so timeLimit only
+    // pairs with draw below. BR is the one exception: brTiebreakWinner()
+    // crowns a winner off the clock too, draw-free by design, so `elim`
+    // gets its own timeLimit branch instead of falling into that rule.)
+    if (o.endRule !== undefined && !elim) {
       // PAINTBALL names the RULE the server actually applied, so the chip can
-      // never disagree with the endRule in results.json.
+      // never disagree with the endRule in results.json. `endRule` is NOT a
+      // BR signal — BR never sets it, so a BR frame just carries the
+      // SimServer struct's own startup default ("full_time") forever, which
+      // read here as a genuine Paintball hill verdict ("FULL TIME ON THE
+      // HILL") on a game that has no hill. Skipped entirely when `elim`.
       switch (o.endRule) {
         case 'wipe': return o.draw ? 'MUTUAL WIPE' : 'WIPE';
         case 'mercy': return 'MERCY — LEAD BEYOND THE CLOCK';
@@ -5386,6 +5400,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       }
     }
     if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (elim && o.timeLimit) return 'TIME LIMIT — TIEBREAK';
+    if (elim) return 'LAST TEAM STANDING';
     var losers = teams.filter(function (t) { return t !== o.winner; });
     var bestLoser = 0;
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
@@ -5812,7 +5828,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    $('ec-wincond').textContent = endcardWinCondition(o, teams);
+    $('ec-wincond').textContent = endcardWinCondition(o, teams, elim);
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).
@@ -5916,21 +5932,29 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
 
     if (o.timeLimit) {
-      // Time-limit resolution — name the key and the values (F3).
+      // Time-limit resolution — name the key and the values (F3). BR's
+      // brTiebreakWinner() is draw-free and ranks on more than lives alone,
+      // so a lives tie here can still be a real, non-arbitrary decision —
+      // "heart progress" is classic-CTF-only vocabulary (BR is flagless).
       if (winL !== bestLoser) {
         how.textContent = 'Time expired — ' + winName + ' held more lives (' + winL + ' vs ' + bestLoser + ').';
       } else {
-        how.textContent = 'Time expired — lives tied; ' + winName + ' won on heart progress.';
+        how.textContent = elim
+          ? 'Time expired — lives tied; ' + winName + ' won on the tiebreak.'
+          : 'Time expired — lives tied; ' + winName + ' won on heart progress.';
       }
     } else {
       if (bestLoser <= 0) {
         head.textContent = losers.length === 1
           ? winName + ' WIPES OUT ' +
-            teamName(s, losers[0], String(losers[0]).toUpperCase())
+            (elim ? brTeamLabel(s, losers[0]) : teamName(s, losers[0], String(losers[0]).toUpperCase()))
           : winName + ' WIPES THE FIELD';
-        how.textContent = winName + ' eliminated every opposing life.';
+        how.textContent = elim
+          ? winName + ' outlasted every rival team.'
+          : winName + ' eliminated every opposing life.';
       } else {
-        how.textContent = winName + ' captured the enemy heart.';
+        // BR is flagless (isFlagless) — there is no heart to capture.
+        how.textContent = elim ? winName + ' outlasted the field.' : winName + ' captured the enemy heart.';
       }
     }
   }
