@@ -19,6 +19,32 @@ import std/[unittest, json]
 
 include ../src/ctf/server
 
+proc duoFxSim(allowCosmeticFx: bool): SimServer =
+  ## Swap#13 S1/S5: a started, brMode duo game — 4 players, 2 teams of 2
+  ## (Red: 0,1; Blue: 2,3) — so partnerIndex/killPlayer's avenge/
+  ## partner-down tracking has an actual duo to work with. Same
+  ## self-contained init shape as cosmeticFxSim below (initSimServer
+  ## directly, since this file `include`s server.nim rather than importing
+  ## helpers.nim's initCtfForTest).
+  let previousDir = getCurrentDir()
+  setCurrentDir(currentSourcePath.parentDir.parentDir)
+  try:
+    var config = defaultGameConfig()
+    config.allowCosmeticFx = allowCosmeticFx
+    config.brMode = true
+    result = initSimServer(config)
+  finally:
+    setCurrentDir(previousDir)
+  discard result.addPlayer("red0")
+  discard result.addPlayer("red1")
+  discard result.addPlayer("blue0")
+  discard result.addPlayer("blue1")
+  result.startGame()
+  result.players[0].team = Red
+  result.players[1].team = Red
+  result.players[2].team = Blue
+  result.players[3].team = Blue
+
 proc cosmeticFxSim(allowCosmeticFx: bool): SimServer =
   ## Same self-contained init shape as test_shot_feedback_wire.nim's
   ## twoPlayerSim() -- initSimServer directly (not helpers.initCtfForTest),
@@ -177,3 +203,175 @@ suite "cosmetic fx gate: byte-identical POLICY stream, on vs off (demonstrated, 
       sim[].paintStains.add PaintStain(x: cx, y: cy,
         color: sim[].players[0].color, onWall: false, seed: 3)
     check gateOff.gameHash == gateOn.gameHash
+
+  test "gameHash and policy stream are unaffected by S1/S5 state (lastKilledBy/partnerDownFx/avengeFx), gate on or off":
+    ## The three Swap#13 fields (SimServer.lastKilledBy/partnerDownFx/
+    ## avengeFx) live exactly like recentShots/paintStains above -- this
+    ## proves the same safety claim extends to them: populated state here
+    ## must move neither the policy-facing sprite packet nor gameHash,
+    ## regardless of the cosmetic-fx gate.
+    var gateOff = duoFxSim(false)
+    var gateOn = duoFxSim(true)
+    check gateOff.gameHash == gateOn.gameHash
+    for sim in [addr gateOff, addr gateOn]:
+      sim[].lastKilledBy[0] = 2
+      sim[].partnerDownFx.add PartnerDownFx(
+        partnerIndex: 1, x: 10, y: 20, color: sim[].players[0].color)
+      sim[].avengeFx.add AvengeFx(avengerIndex: 0)
+    check gateOff.gameHash == gateOn.gameHash
+    var offState, offNext, onState, onNext: PlayerViewerState
+    let offPacket =
+      gateOff.buildSpriteProtocolPlayerUpdates(0, offState, offNext)
+    let onPacket =
+      gateOn.buildSpriteProtocolPlayerUpdates(0, onState, onNext)
+    check offPacket == onPacket
+
+suite "partnerIndex":
+  test "returns the other player on a two-member team":
+    var sim = duoFxSim(true)
+    check sim.partnerIndex(0) == 1
+    check sim.partnerIndex(1) == 0
+    check sim.partnerIndex(2) == 3
+    check sim.partnerIndex(3) == 2
+
+  test "returns -1 for a team that is not exactly two members, or an out-of-range index":
+    var sim = cosmeticFxSim(true) # 2 players, 2 DIFFERENT teams -- solo each.
+    check sim.partnerIndex(0) == -1
+    check sim.partnerIndex(1) == -1
+    check sim.partnerIndex(-1) == -1
+    check sim.partnerIndex(99) == -1
+
+suite "killPlayer: S1/S5 avenge/partner-down tracking (Swap#13)":
+  test "a non-elimination BR death notifies the fallen player's duo partner":
+    var sim = duoFxSim(true)
+    sim.players[0].x = 111
+    sim.players[0].y = 222
+    sim.killPlayer(0, 2)
+    check sim.partnerDownFx.len == 1
+    check sim.partnerDownFx[0].partnerIndex == 1
+    check sim.partnerDownFx[0].x == 111 + CollisionW div 2
+    check sim.partnerDownFx[0].y == 222 + CollisionH div 2
+    check sim.partnerDownFx[0].color == sim.players[0].color
+
+  test "self-avenge fires when the just-killed cog is your own last killer":
+    var sim = duoFxSim(true)
+    sim.killPlayer(0, 2) # blue0 kills red0.
+    check sim.avengeFx.len == 0 # nothing to avenge yet.
+    # Direct state poke to re-engage the dead cog for the return trade --
+    # same idiom test_shot_feedback_wire.nim's mutual-trade test uses.
+    sim.players[0].alive = true
+    sim.killPlayer(2, 0) # red0 kills blue0 back.
+    check sim.avengeFx.len == 1
+    check sim.avengeFx[0].avengerIndex == 0
+
+  test "partner-avenge fires when you kill your partner's last killer":
+    var sim = duoFxSim(true)
+    sim.killPlayer(0, 2) # blue0 kills red0 -- red0's partner is red1 (1).
+    check sim.avengeFx.len == 0
+    sim.killPlayer(2, 1) # red1 kills blue0 back -- avenges the PARTNER's death.
+    check sim.avengeFx.len == 1
+    check sim.avengeFx[0].avengerIndex == 1
+
+  test "an unrelated kill fires neither avenge relationship":
+    var sim = duoFxSim(true)
+    sim.killPlayer(0, 2) # blue0 kills red0.
+    sim.avengeFx.setLen(0)
+    # red1 kills blue1 (3) -- blue1 never killed anyone on red's duo.
+    sim.killPlayer(3, 1)
+    check sim.avengeFx.len == 0
+
+  test "an elimination death fires neither avenge nor partner-down":
+    var sim = duoFxSim(true)
+    sim.killPlayer(0, -1, elimination = true)
+    check sim.partnerDownFx.len == 0
+    check sim.avengeFx.len == 0
+
+  test "a non-brMode game never populates partner-down/avenge, even with a duo-shaped team":
+    var sim = duoFxSim(true)
+    sim.config.brMode = false
+    sim.killPlayer(0, 2)
+    check sim.partnerDownFx.len == 0
+    check sim.avengeFx.len == 0
+
+suite "zoneTicksToNextEvent (Swap#13 S6)":
+  test "no zonePhases configured returns (0, false)":
+    var sim = cosmeticFxSim(true)
+    let (ticks, shrinking) = sim.zoneTicksToNextEvent()
+    check ticks == 0
+    check not shrinking
+
+  test "during the initial wait, counts down to the wait's end (shrinking=false)":
+    var sim = cosmeticFxSim(true)
+    sim.config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 100, shrinkTicks: 50, dps: 5)]
+    sim.gameStartTick = sim.tickCount # elapsed = 0
+    let (ticks, shrinking) = sim.zoneTicksToNextEvent()
+    check ticks == 100
+    check not shrinking
+
+  test "mid-shrink, counts down to the shrink's end (shrinking=true)":
+    var sim = cosmeticFxSim(true)
+    sim.config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 100, shrinkTicks: 50, dps: 5)]
+    sim.gameStartTick = 0
+    sim.tickCount = 120 # elapsed = 120 -> 20 ticks into the 50-tick shrink.
+    let (ticks, shrinking) = sim.zoneTicksToNextEvent()
+    check ticks == 30
+    check shrinking
+
+  test "after every phase resolves, holds forever at (0, false)":
+    var sim = cosmeticFxSim(true)
+    sim.config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 100, shrinkTicks: 50, dps: 5)]
+    sim.gameStartTick = 0
+    sim.tickCount = 500
+    let (ticks, shrinking) = sim.zoneTicksToNextEvent()
+    check ticks == 0
+    check not shrinking
+
+suite "buildCosmeticFxPacket: S1/S4/S5/S6 additive kinds (Swap#13)":
+  test "an 'incoming' entry serializes only kind+bearing, never a position":
+    var sim = cosmeticFxSim(true)
+    let fx = @[ShotFeedbackFx(shooterIndex: 1, targetIndex: 0, kill: false,
+      weapon: "gun", distance: 40,
+      shooterX: sim.players[0].x + CollisionW div 2 + 100,
+      shooterY: sim.players[0].y + CollisionH div 2)]
+    let packet = buildCosmeticFxPacket(sim, 0, incoming = fx)
+    let parsed = parseJson(packet)
+    check parsed["fx"].len == 1
+    check parsed["fx"][0]["kind"].getStr == "incoming"
+    check parsed["fx"][0].hasKey("bearing")
+    check not parsed["fx"][0].hasKey("x")
+    check not parsed["fx"][0].hasKey("y")
+
+  test "a 'partner_down' entry serializes x/y/color":
+    var sim = cosmeticFxSim(true)
+    let fx = @[PartnerDownFx(partnerIndex: 0, x: 55, y: 66, color: sim.players[1].color)]
+    let packet = buildCosmeticFxPacket(sim, 0, partnerDown = fx)
+    let parsed = parseJson(packet)
+    check parsed["fx"].len == 1
+    check parsed["fx"][0]["kind"].getStr == "partner_down"
+    check parsed["fx"][0]["x"].getInt == 55
+    check parsed["fx"][0]["y"].getInt == 66
+    check parsed["fx"][0]["color"].getStr == playerColorText(sim.players[1].color)
+
+  test "an 'avenge' entry serializes just the kind, one per AvengeFx":
+    var sim = cosmeticFxSim(true)
+    let fx = @[AvengeFx(avengerIndex: 0), AvengeFx(avengerIndex: 0)]
+    let packet = buildCosmeticFxPacket(sim, 0, avenge = fx)
+    let parsed = parseJson(packet)
+    check parsed["fx"].len == 2
+    check parsed["fx"][0]["kind"].getStr == "avenge"
+    check parsed["fx"][1]["kind"].getStr == "avenge"
+
+  test "a 'zone_eta' entry appears whenever zonePhases is configured, independent of the other params":
+    var sim = cosmeticFxSim(true)
+    sim.config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 100, shrinkTicks: 50, dps: 5)]
+    sim.gameStartTick = sim.tickCount
+    let packet = buildCosmeticFxPacket(sim, 0)
+    let parsed = parseJson(packet)
+    check parsed["fx"].len == 1
+    check parsed["fx"][0]["kind"].getStr == "zone_eta"
+    check parsed["fx"][0]["ticks"].getInt == 100
+    check parsed["fx"][0]["shrinking"].getBool == false
+
+  test "gate on, nothing to say (no shots/stains/incoming/partnerDown/avenge/zonePhases) returns empty string":
+    var sim = cosmeticFxSim(true)
+    check buildCosmeticFxPacket(sim, 0) == ""
