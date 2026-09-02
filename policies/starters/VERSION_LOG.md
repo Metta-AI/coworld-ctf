@@ -39,9 +39,9 @@ auto-aim) scores ~0.95 kills / 0.92 Glory, so the play-calling layer is at best 
 today; the gains were cautious and collaborative catching up, plus robustness.
 
 **Current recommended build:** `starter-cautious:v14` (Games Bond), `starter-aggressive:v13`,
-`starter-collaborative:v11` — the league filler list and the entrant submissions point at these. Still open: items are never used (the play view's
-`items` array is empty in live play — an engine gap, not a policy one), and
-no aggressive variant beats the engine default on kills.
+`starter-collaborative:v11` — the league filler list and the entrant submissions point at these. Items now work: since paintbot 0.7.290 (engine commit 8cb5efe3) the play view carries item
+sightings; a hosted all-starter check showed `loot` installing 55 times and 0.7 pickups per
+seat (was ~0.2). Still open: no aggressive variant beats the engine default on kills.
 
 Noise floor: the same collaborative build scored 0.97 and 0.65 kills in two
 20-episode arms. Treat differences under ±0.3 kills per seat as noise.
