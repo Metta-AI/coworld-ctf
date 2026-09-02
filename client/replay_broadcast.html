@@ -1646,6 +1646,17 @@ body[data-embed] #board { top: 0; height: 100%; }
    thumbnail capture — append &viewpanel=0 to drop the panel. Independent of
    embed: the two params don't touch each other. */
 body[data-noviewpanel] #viewpanel { display: none !important; }
+
+/* ============================================================
+   LIVE MODE — /client/global, /clients/global (Swap#12 item 3)
+   Only #transport is a VOD-only artifact (scrubber/spoilers/frame counter);
+   scorebug, killfeed, banners and the ambient layer all stay — a live
+   broadcast still IS a broadcast. relayout() measures #transport.offsetHeight
+   into --band each pass, so hiding it already reclaims the board's bottom
+   band with no separate #board override needed (unlike embed, which also
+   hides #scorebug and sets --topband to 0 the same way).
+   ============================================================ */
+body[data-live] #transport { display: none !important; }
 </style>
 </head>
 <body>
@@ -2061,6 +2072,21 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var EMBED = false;
   try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
   if (EMBED) document.body.setAttribute('data-embed', '1');
+
+  // ---- live mode (/client/global, /clients/global) --------------------------
+  // Swap#12 item 3 (THEATER C10): this same HTML is served for BOTH the VOD
+  // route (/client/replay) and the live spectator route (/client/global) —
+  // server.nim routes both to EmbeddedBroadcastReplayHtml, and
+  // broadcast_core.js's websocketPathForClientPage() already distinguishes
+  // them the same way (path ends with /client/global or /clients/global →
+  // plain /global socket, never the replay-uri path). A live viewer has
+  // nothing to scrub/pause/spoil — there is no "ahead of the playhead" and no
+  // fixed tick total — so #transport (scrubber, spoilers toggle, N/total tick
+  // counter) reads as a broken/confusing artifact there. Reuse the ?embed=1
+  // CSS treatment for #transport only (scorebug/killfeed/banners stay; a live
+  // broadcast still wants team state and event theater, just no VOD controls).
+  var LIVE = /(^|\/)clients?\/global$/.test(location.pathname);
+  if (LIVE) document.body.setAttribute('data-live', '1');
 
   // ?viewpanel=0 hides the #viewpanel overlay (zoom bar + minimap). This is an
   // explicit opt-OUT only — the default (param absent) is unchanged for every
