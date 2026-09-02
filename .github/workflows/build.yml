@@ -176,6 +176,7 @@ jobs:
       - name: Build the static replay viewer bundle
         run: |
           docker build --file Dockerfile.replay-viewer \
+            --build-arg SIM_SOURCES_STAMP="$(tools/sim_sources_stamp.sh)" \
             --target replay-viewer-builder --tag ctf-replay-viewer-ci .
           id=$(docker create ctf-replay-viewer-ci)
           docker cp "$id":/workspace/ctf/replay-viewer/dist replay-viewer/dist

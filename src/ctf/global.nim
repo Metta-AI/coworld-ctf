@@ -41,6 +41,14 @@ const
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
+  ## Quiet tier of the same warning: a hash mismatch on a replay recorded
+  ## under a DIFFERENT engine build (or one whose build cannot be proven —
+  ## see ReplayPlayer.sameEngineBuild). Expected drift, not an alarm, so it
+  ## draws as a dim slate chip instead of the red banner.
+  ReplayDriftBgR = 38'u8
+  ReplayDriftBgG = 42'u8
+  ReplayDriftBgB = 48'u8
+  ReplayDriftBgA = 235'u8
   ## Map is emitted as horizontal BANDS, not one sprite. The full arena
   ## (1235×659 RGBA) compresses to ~1.09 MB — a SINGLE sprite-protocol message
   ## that alone exceeds the hosted replay's 1 MiB WebSocket frame limit, so the
@@ -9700,22 +9708,39 @@ proc buildReplayControlsSprite(
 
 proc buildReplayMismatchSprite(
   sim: SimServer,
-  tick: int
+  tick: int,
+  sameBuild: bool
 ): tuple[width, height: int, pixels: seq[uint8], label: string] {.measure.} =
-  ## Builds the top-center replay hash mismatch warning sprite.
-  result.label = "hash mismatch at tick " & $tick
+  ## Builds the top-center replay hash mismatch warning sprite, tiered:
+  ## a SAME-build mismatch is a true determinism break and keeps the loud
+  ## red banner; a cross-build (or unprovable) mismatch is the expected
+  ## drift of replaying across engine builds and draws as a quiet chip.
+  result.label =
+    if sameBuild:
+      "hash mismatch at tick " & $tick
+    else:
+      "recorded inputs - different engine build"
   let textWidth = sim.asciiSprites.textWidth(result.label)
   result.width = max(ReplayMismatchMinWidth, textWidth + ReplayMismatchPadX * 2)
   result.height = TextLineHeight + ReplayMismatchPadY * 2
   result.pixels = newRgbaPixels(result.width, result.height)
   for i in 0 ..< result.width * result.height:
-    result.pixels.putRawRgbaPixel(
-      i,
-      ReplayMismatchBgR,
-      ReplayMismatchBgG,
-      ReplayMismatchBgB,
-      ReplayMismatchBgA
-    )
+    if sameBuild:
+      result.pixels.putRawRgbaPixel(
+        i,
+        ReplayMismatchBgR,
+        ReplayMismatchBgG,
+        ReplayMismatchBgB,
+        ReplayMismatchBgA
+      )
+    else:
+      result.pixels.putRawRgbaPixel(
+        i,
+        ReplayDriftBgR,
+        ReplayDriftBgG,
+        ReplayDriftBgB,
+        ReplayDriftBgA
+      )
   sim.blitSmallText(
     result.pixels,
     result.width,
@@ -9731,12 +9756,14 @@ proc addReplayMismatchWarning(
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
-  tick: int
+  tick: int,
+  sameBuild: bool
 ) {.measure.} =
-  ## Adds a fixed top-center replay hash mismatch warning.
+  ## Adds a fixed top-center replay hash mismatch warning (tiered — see
+  ## buildReplayMismatchSprite).
   if tick < 0:
     return
-  let warning = sim.buildReplayMismatchSprite(tick)
+  let warning = sim.buildReplayMismatchSprite(tick, sameBuild)
   packet.addLayer(
     ReplayMismatchLayerId,
     ReplayMismatchLayerType,
@@ -10116,7 +10143,8 @@ proc buildSpriteProtocolUpdates*(
   replayMaxTick = -1,
   replayLooping = false,
   replayEnabled = false,
-  replayMismatchTick = -1
+  replayMismatchTick = -1,
+  replayMismatchSameBuild = false
 ): seq[uint8] {.measure.} =
   ## Builds global viewer object updates for the current tick.
   result = @[]
@@ -10239,7 +10267,8 @@ proc buildSpriteProtocolUpdates*(
       nextState.spriteDefs,
       currentIds,
       result,
-      replayMismatchTick
+      replayMismatchTick,
+      replayMismatchSameBuild
     )
     if not povClearsObjects:
       for objectId in state.objectIds:
@@ -10569,7 +10598,8 @@ proc buildSpriteProtocolUpdates*(
     nextState.spriteDefs,
     currentIds,
     result,
-    replayMismatchTick
+    replayMismatchTick,
+    replayMismatchSameBuild
   )
   # GLOBAL VIEWER only: the classic red-left/blue-right chip strip
   # (TeamScoreWidth = 132px) is authored for 2-4 chips; 16 BR teams crammed

@@ -952,7 +952,8 @@ proc buildStateJson*(
   beatEvents: JsonNode = nil,
   achievementBadges: JsonNode = nil,
   lobbyChat: JsonNode = nil,
-  ballots: JsonNode = nil
+  ballots: JsonNode = nil,
+  mismatchSameBuild: bool = false
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -994,6 +995,14 @@ proc buildStateJson*(
     # a "send once" flag the way the full-match `ach`/`lead` chrome is.
     "pops": sim.gloryPopsJson()
   }
+
+  # Mismatch banner TIER, present only while a mismatch is actually being
+  # shown (mm >= 0) so every clean frame stays byte-identical. true = the
+  # recording and this engine carry the SAME build stamp (build_stamp.nim):
+  # a real determinism break, keep the loud red banner. false = cross-build
+  # drift or nothing provable: the chrome shows the quiet chip instead.
+  if mismatchTick >= 0:
+    state["mmsb"] = %mismatchSameBuild
 
   # BR mode, for the CHROME. The header bakes CTF identity into itself — a
   # flag glyph per team, a "Lives" label — and a battle royale has neither.
