@@ -39,10 +39,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The sim-sources stamp is computed HERE, on the host, because the build
+# context excludes .git (.dockerignore) — the container cannot derive it.
+# It is baked into the wasm (-d:ctfSimSourcesStamp) and exported as
+# ctf_sim_sources_stamp_ptr/len so tools/qa_module_eval.cjs can recompute
+# at HEAD and fail CI when the committed bundle was built from older sim
+# sources — the same-GameVersion drift the GameVersion tripwire cannot see.
+sim_sources_stamp="$("${repo_dir}/tools/sim_sources_stamp.sh")"
+
 build_args=(
   --platform linux/amd64
   --file "${repo_dir}/Dockerfile.replay-viewer"
   --target replay-viewer-builder
+  --build-arg "SIM_SOURCES_STAMP=${sim_sources_stamp}"
   --tag "${image_tag}"
   "${repo_dir}"
 )

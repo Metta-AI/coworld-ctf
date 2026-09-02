@@ -1,6 +1,6 @@
 import
   std/json,
-  ctf/[broadcast, global, replay_runtime, replays, sim],
+  ctf/[broadcast, build_stamp, global, replay_runtime, replays, sim],
   shell/replay_records
 
 var
@@ -262,6 +262,38 @@ proc ctfGameVersionLength(): cint
   if gameVersionCopy.len == 0:
     gameVersionCopy = GameVersion
   cint(gameVersionCopy.len)
+
+var simSourcesStampCopy: string
+  ## Runtime binding of build_stamp.nim's compile-time stamp — the same
+  ## lazy copy-on-first-call pattern as gameVersionCopy above, for the same
+  ## reason (module-level initializers do not reliably run on this bundle's
+  ## call-in-only path, and a const has no stable address to export).
+
+proc ctfSimSourcesStampPointer(): ptr uint8
+    {.exportc: "ctf_sim_sources_stamp_ptr", cdecl.} =
+  ## The content hash of the sim-relevant sources this bundle was BUILT
+  ## from (tools/sim_sources_stamp.sh, injected as -d:ctfSimSourcesStamp by
+  ## tools/build_replay_viewer.sh / Dockerfile.replay-viewer). The
+  ## GameVersion export above only catches drift someone remembered to
+  ## hand-bump; the 2026-09-01 engine train changed sim behavior under a
+  ## constant GameVersion 50 and every fresh hosted replay re-simulated to
+  ## a hash mismatch in the older committed bundle. CI
+  ## (tools/qa_module_eval.cjs) recomputes the hash at HEAD and compares it
+  ## to this export, so a bundle built from older sim sources fails the
+  ## build instead of failing every viewer. Absent (nil/0) only in a bundle
+  ## built without the define — which that same check treats as stale.
+  if simSourcesStampCopy.len == 0:
+    simSourcesStampCopy = ctfSimSourcesStamp
+  if simSourcesStampCopy.len == 0:
+    nil
+  else:
+    cast[ptr uint8](simSourcesStampCopy[0].unsafeAddr)
+
+proc ctfSimSourcesStampLength(): cint
+    {.exportc: "ctf_sim_sources_stamp_len", cdecl.} =
+  if simSourcesStampCopy.len == 0:
+    simSourcesStampCopy = ctfSimSourcesStamp
+  cint(simSourcesStampCopy.len)
 
 when defined(emscripten):
   proc emscriptenExitWithLiveRuntime() {.
