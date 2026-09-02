@@ -308,6 +308,31 @@ html, body {
   max-width: calc(38 * var(--u));
   flex: none;
 }
+/* GLORY SCOREBUG v3 (2026-09-01, Maxwell's ruling — duos are TEAMS): "one
+   team name with two squares for lives next to it", never repeat a team.
+   One small square per MEMBER rides beside the name — two for an s2 duo
+   (seats k and k+16, the engine's teamForSlot mirror), one for a solo BR
+   seat — and each square is that cog's own life light: lit in the team's
+   palette while the cog stands, dimmed (.dead) once it is down. One
+   palette per team (squares wear the cell's --cellcol, same color as the
+   swatch — never a per-seat color); the whole cell only grays (.out,
+   below) when ALL members are out, the same lives<=0 ledger signal as
+   before. */
+.br-cell-lives {
+  display: flex;
+  align-items: center;
+  gap: calc(2 * var(--u));
+  flex: none;
+}
+.br-cell-life {
+  width: calc(5 * var(--u));
+  height: calc(5 * var(--u));
+  border-radius: calc(1 * var(--u));
+  background: var(--cellcol, var(--paper-dim));
+  box-shadow: inset 0 0 0 calc(0.75 * var(--u)) rgba(0, 0, 0, 0.45);
+  transition: opacity 300ms ease;
+}
+.br-cell-life.dead { opacity: 0.22; }
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -2891,24 +2916,32 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     sides[0].classList.toggle('many', many);
     sides[1].classList.toggle('many', many);
     if (many) {
-      // BR (16 seats): sixteen name+lives chips used to be unreadable noise
+      // BR (16 teams): sixteen name+lives chips used to be unreadable noise
       // (the pre-glory board this replaced), so this branch has always
       // rebuilt the whole chip row rather than compacting the classic
       // .plate markup. GLORY SCOREBUG v2 (2026-09-01, Maxwell's ruling,
       // supersedes the single-leader .br-glory block from the prior PR):
       // "it should show the 16 teams, their glory, and they get grayed out
-      // when knocked out." One .br-cell per team — swatch (BR identity IS
-      // the palette) + short name + that team's own GLORY numeral — split
-      // 8-per-side flanking the clock; renderScorebug fills in the
-      // numbers, elimination state and leader emphasis every frame.
+      // when knocked out." v3 (same day, Maxwell — duos are TEAMS): "one
+      // team name with two squares for lives next to it", NEVER repeat a
+      // team. One .br-cell per TEAM always — swatch (BR identity IS the
+      // palette, one palette per duo) + ONE team name + a life square per
+      // MEMBER (two for an s2 duo, one for a solo seat) + that team's own
+      // GLORY numeral — split 8-per-side flanking the clock;
+      // renderScorebug fills in the names, numbers, member life squares,
+      // elimination state and leader emphasis every frame. --cellcol
+      // carries the palette to the member squares so a duo's two squares
+      // wear ONE color, never a per-seat color.
       function cellsHtml(list) {
         var html = '';
         list.forEach(function (team) {
           var col = teamCol(team) || AMBER;
           html +=
-            '<div class="br-cell" id="cell-' + team + '" data-team="' + team + '">' +
+            '<div class="br-cell" id="cell-' + team + '" data-team="' + team +
+            '" style="--cellcol:' + col + '">' +
             '<span class="br-cell-swatch" style="background:' + col + '"></span>' +
             '<span class="br-cell-name" id="cell-name-' + team + '">' + team.toUpperCase() + '</span>' +
+            '<span class="br-cell-lives" id="cell-lives-' + team + '"></span>' +
             '<span class="heat-flame" id="cell-flame-' + team + '"></span>' +
             '<span class="br-cell-glory" id="cell-glory-' + team + '">0</span>' +
             '</div>';
@@ -3016,10 +3049,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // Every cell gets its own name + GLORY numeral + elimination state
       // every frame. Elimination reads the same lives<=0 signal the old
       // "Teams alive" counter used (0 = eliminated, matches the end-card's
-      // own definition) — a cell STAYS in its slot when eliminated, it
-      // just grays out (.out via CSS filter:grayscale), so the band never
-      // re-shrinks or reflows as the field thins; it reads as a ledger of
-      // the whole field, not a shrinking list.
+      // own definition; teamLivesRemaining sums every member's spare lives
+      // PLUS live bodies, so 0 means ALL members are out — exactly when the
+      // whole cell may gray, per v3) — a cell STAYS in its slot when
+      // eliminated, it just grays out (.out via CSS filter:grayscale), so
+      // the band never re-shrinks or reflows as the field thins; it reads
+      // as a ledger of the whole field, not a shrinking list.
+      //
+      // v3 (2026-09-01, Maxwell — duos are TEAMS): members are grouped by
+      // the wire's own seat→team assignment (roster[].team, the engine's
+      // teamForSlot deal: Team(order mod teamCount), so an s2 duos match
+      // seats k and k+16 on team ordinal k — the k/k+16 mirror). That is
+      // the EXPLICIT mapping, published per seat by rosterJson; never
+      // name-matching (policy names can repeat across teams and filler
+      // names lie). Each member paints one life square, lead seat (k)
+      // first.
+      var membersByTeam = {};
+      (s.roster || []).forEach(function (p) {
+        if (!p || !p.team) return;
+        (membersByTeam[p.team] = membersByTeam[p.team] || []).push(p);
+      });
       var leader = null, leaderGlory = -Infinity;
       teams.forEach(function (team) {
         var gv = tr[team] && tr[team].glory;
@@ -3032,10 +3081,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // no cell earns the leader glow/flame until someone actually scores.
       var haveLeader = leader !== null && leaderGlory > 0;
       teams.forEach(function (team) {
-        // Identity via teamName() — the exact helper the classic plates +
-        // end-card already resolve names through, so "seat name" stays one
-        // resolution path everywhere it is shown, same as the prior PR.
-        setName('cell-name-' + team, teamName(s, team, team.toUpperCase()));
+        // Identity, v3: ONE team name, never a joined pair. A duo seating
+        // one policy resolves to that policy (teamPolicies already collapses
+        // the hosted runtime's "(N)" seat suffixes — the exact resolution
+        // the classic plates use); anything without a single shared
+        // identity (local scrim duos seating two distinct bots, 3+ names)
+        // falls back to the palette name, which IS the BR team identity.
+        // Never teamName()'s "A + B" doubles join here — on this board that
+        // reads as the team listed twice, the exact defect v3 removes.
+        var pols = teamPolicies(s, team);
+        setName('cell-name-' + team,
+          pols.length === 1 && pols[0] ? teamHeadline(pols[0]) : team.toUpperCase());
         var gv = tr[team] && tr[team].glory;
         var gloryEl = $('cell-glory-' + team);
         if (gloryEl) gloryEl.textContent = typeof gv === 'number' ? gv : '—';
@@ -3044,6 +3100,35 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         if (cell) {
           cell.classList.toggle('out', lives[team] <= 0);
           cell.classList.toggle('leader', isLeader);
+        }
+        // v3 member life squares: one per seated cog, lead seat (k) first,
+        // its k+16 mirror second (sorted by join slot — the roster keys
+        // members by stable slot `s`). Persistent DOM: rebuilt only when
+        // the member list itself changes (a join/leave), retinted never —
+        // the square wears the cell's --cellcol; only .dead toggles per
+        // frame. A member's square dims the moment that cog is down
+        // (p.alive false) and relights on respawn while it still has
+        // lives; the CELL only grays via .out above once every member is
+        // out for good.
+        var livesEl = $('cell-lives-' + team);
+        if (livesEl) {
+          var members = (membersByTeam[team] || []).slice().sort(
+            function (a, b) { return (a.s || 0) - (b.s || 0); });
+          var mkey = members.map(function (p) { return p.s; }).join(',');
+          if (livesEl._mkey !== mkey) {
+            livesEl.innerHTML = '';
+            members.forEach(function (p) {
+              var sq = document.createElement('span');
+              sq.className = 'br-cell-life';
+              sq.title = shortName(p.name);
+              livesEl.appendChild(sq);
+            });
+            livesEl._mkey = mkey;
+          }
+          members.forEach(function (p, mi) {
+            var sq = livesEl.children[mi];
+            if (sq) sq.classList.toggle('dead', !p.alive);
+          });
         }
         // Leader emphasis rides ONE flame (Maxwell: "no single-block
         // takeover") — every other cell's flame resets to cold.
