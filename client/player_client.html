@@ -45,6 +45,20 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
   background:radial-gradient(ellipse at center,transparent 40%,rgba(210,20,20,calc(var(--dmg)*.85)) 100%);
   transition:opacity 260ms ease-out}
 #dmgFlash.show{opacity:1;transition:opacity 30ms ease-out}
+/* Swap#13 S4 (ORIENT C7/PULSE C6): a DIRECTIONAL cousin of #dmgFlash above —
+   "replaces nothing, the symmetric vignette stays, this adds the
+   direction" (brief's own words). z-index one below #dmgFlash so a
+   simultaneous fatal hit still reads the symmetric vignette on top; a
+   non-fatal hit (the only case this fires for — see triggerIncomingFlash's
+   own comment) shows this one alone. --ix/--iy (screen-space %) are set per
+   trigger from the server's coarse bearing (buildCosmeticFxPacket's
+   "incoming" kind), never exact position — see that packet's own doc
+   comment for the wallhack-narrowing reasoning this mirrors. */
+#incomingFlash{position:fixed;inset:0;pointer-events:none;z-index:49;opacity:0;
+  --ix:50%;--iy:0%;
+  background:radial-gradient(circle at var(--ix) var(--iy),rgba(255,70,20,.6),transparent 40%);
+  transition:opacity 380ms ease-out}
+#incomingFlash.show{opacity:1;transition:opacity 40ms ease-out}
 /* Event-chrome display face (Maxwell, "it can't say SPLAT when you die AND
    when a game ends even if you win... and the font is not painty at all"):
    ui-monospace read as a terminal/HUD face for the one moment that most
@@ -201,12 +215,23 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 #roundFlip{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
   pointer-events:none;z-index:52;opacity:0;transition:opacity 260ms ease-out}
 #roundFlip.show{opacity:1;transition:opacity 90ms ease-out}
-#roundFlip .rfCard,#matchOver .rfCard{display:flex;flex-direction:column;align-items:center;gap:3px;
+#roundFlip .rfCard,#matchOver .rfCard,#payback .rfCard{display:flex;flex-direction:column;align-items:center;gap:3px;
   padding:12px 22px;background:#1a1714e6;border:1px solid #4a453c;border-radius:4px;
   box-shadow:0 6px 20px #000a;text-align:center}
-#roundFlip .rfWho,#matchOver .rfWho{font:800 20px var(--eventfont);letter-spacing:1px;
+#roundFlip .rfWho,#matchOver .rfWho,#payback .rfWho{font:800 20px var(--eventfont);letter-spacing:1px;
   text-transform:uppercase;color:#e8e4dc}
-#roundFlip .rfSub,#matchOver .rfSub{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;color:#b9b3a9}
+#roundFlip .rfSub,#matchOver .rfSub,#payback .rfSub{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;color:#b9b3a9}
+/* Swap#13 S5 (DUET C6): "PAYBACK" beat, same .rfCard/.rfWho/.rfSub idiom as
+   #roundFlip/#matchOver above (the "event-face system") rather than a new
+   chrome language — display layer only (Glory stays undeployed; this is
+   fed by server.nim's "avenge" cosmetic-fx kind, populated in killPlayer
+   off the self/partner avenge check, see that proc's own comment). A
+   combat beat, so it holds shorter than the round/match boundary cards. */
+#payback{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;z-index:52;opacity:0;transition:opacity 260ms ease-out}
+#payback.show{opacity:1;transition:opacity 60ms ease-out}
+#payback .rfCard{border-color:#e8a33d;box-shadow:0 6px 20px #000a,0 0 14px #e8a33d55}
+#payback .rfWho{color:#ffcf7a}
 /* Quick-callout radial wheel: RMB-hold overlay for the six standard team
    pings (player_controls.js KEYMAP id "wheel", callout-spec.md sec.5). Sits
    above the canvas but never intercepts pointer events (pointer-events:none
@@ -246,15 +271,17 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <div id="wheel" aria-hidden="true"><div id="wheelRing"></div><div id="wheelHub"></div></div>
 <div id="feed" aria-hidden="true"></div>
 <div id="dmgFlash" aria-hidden="true"></div>
+<div id="incomingFlash" aria-hidden="true"></div>
 <div id="splat" aria-hidden="true"><b>SPLAT!</b></div>
 <div id="matchOver" aria-hidden="true"><div class="rfCard"><div class="rfWho"></div><div class="rfSub"></div></div></div>
 <div id="roundFlip" aria-hidden="true"><div class="rfCard"><div class="rfWho">new round</div><div class="rfSub">back on the field</div></div></div>
+<div id="payback" aria-hidden="true"><div class="rfCard"><div class="rfWho">payback</div><div class="rfSub">you got the cog that got you</div></div></div>
 <button id="mute" type="button">sound: on</button>
 <button id="leave" type="button" hidden>leave</button>
 <script src="snappyjs.min.js"></script>
 <script src="player_controls.js"></script>
 <script>
-const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),splatEl=document.getElementById("splat"),roundFlipEl=document.getElementById("roundFlip"),matchOverEl=document.getElementById("matchOver"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
+const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),incomingFlashEl=document.getElementById("incomingFlash"),splatEl=document.getElementById("splat"),roundFlipEl=document.getElementById("roundFlip"),matchOverEl=document.getElementById("matchOver"),paybackEl=document.getElementById("payback"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
 /* Only offer it where it can actually work -- see #leave's own comment
    above for why the portal's embedded iframe (sandboxed, no
    allow-top-navigation) must stay on its own existing "Leave the field"
@@ -1149,6 +1176,11 @@ let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
 let mouseClientX=0,mouseClientY=0;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
 let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=false;
+// Swap#13 S7 (ORIENT C10/GRAVITY): snapshotted ONCE at the death edge below
+// (never re-read live) -- see deathStatusLine's own comment for why a live
+// re-read would be dishonest (teamsAlive keeps ticking down after you're
+// out if a partner is still in it).
+let deathPlacement=null;
 /* roundEndedAlive: the sibling of isDead for the OTHER way seatedNow can go
    false -- the round/match itself ending while this seat never took a fatal
    hit (see the death-edge check and #matchOver's own comment). Kept
@@ -1857,7 +1889,18 @@ function controlsTick(){
      for the honest, outcome-agnostic copy that plays instead. */
   if(!seatedNow&&wasSeated){
     diedAt=performance.now();
-    if(objects.has(1)){isDead=true;triggerSelfSplat()}
+    if(objects.has(1)){
+      isDead=true;triggerSelfSplat();
+      // Swap#13 S7: teams-alive AT THIS TICK, off player_hud.js's own
+      // "teamsalive " mirror (window.PaintbotHUD.teamsAliveNow -- see that
+      // getter's own comment) -- null on an older engine/pre-resolve, never
+      // a guessed number. Duo caveat (this file has no partner concept):
+      // if a partner is still alive this reads "how many teams remain
+      // RIGHT NOW", not a certified final placement -- still the most
+      // honest number this file can show at this instant, same tolerance
+      // idiom as every other field deathStatusLine reads.
+      deathPlacement=(window.PaintbotHUD&&typeof window.PaintbotHUD.teamsAliveNow==="number")?window.PaintbotHUD.teamsAliveNow:null;
+    }
     else{roundEndedAlive=true;triggerMatchOver()}
     roundBoundaryPending=true;
   }
@@ -2156,11 +2199,15 @@ function triggerMatchOver(){
   matchOverHideTimer=setTimeout(()=>{matchOverEl.classList.remove("show")},MATCH_OVER_HOLD_MS);
 }
 const FEED_MAX=4, FEED_HOLD_MS=4500, FEED_FADE_MS=1400;
-function pushFeedEvent(color,isKill){
+// Swap#13 S3 (ORIENT C8/PULSE C5): `text` lets a caller override the
+// "COLOR splatted/hit" format with a plain custom line -- added for the
+// one-time "FIRST TAG!" milestone (handleShotFeedback's shooter half)
+// without a second feed-rendering codepath.
+function pushFeedEvent(color,isKill,text){
   if(!feedEl)return;
   const el=document.createElement("div");
   el.className="fev"+(isKill?" kill":"");
-  el.textContent=(color||"?").toUpperCase()+(isKill?" splatted":" hit");
+  el.textContent=text||((color||"?").toUpperCase()+(isKill?" splatted":" hit"));
   feedEl.appendChild(el);
   while(feedEl.children.length>FEED_MAX)feedEl.removeChild(feedEl.firstChild);
   setTimeout(()=>{el.classList.add("fade")},FEED_HOLD_MS);
@@ -2189,6 +2236,41 @@ function triggerDamageFlash(amount){
   void dmgFlashEl.offsetWidth; // force reflow so re-triggering mid-decay restarts the transition
   dmgFlashEl.classList.add("show");
   dmgFlashHideTimer=setTimeout(()=>{dmgFlashEl.classList.remove("show")},DMG_FLASH_HOLD_MS);
+}
+/* Swap#13 S4 (ORIENT C7/PULSE C6): directional screen-edge flash toward a
+   NON-fatal shot's source. bearing arrives in aim-brads (server.nim's
+   "incoming" cosmetic-fx kind, bradsOfVector -- the exact unit aimBrads
+   already uses), converted to a screen-space unit vector with the SAME
+   formula the reticle's own aim-preview already uses (see the estAim->a
+   conversion above): cos for x, -sin for y, since brads count clockwise
+   from north and screen y grows downward. Never fires for a fatal hit --
+   the killcam already owns that moment (killcamInfo/updateCamera). */
+const INCOMING_FLASH_HOLD_MS=180;
+let incomingFlashHideTimer=0;
+function triggerIncomingFlash(bearing){
+  if(!incomingFlashEl||typeof bearing!=="number")return;
+  const a=bearing*Math.PI/(CC.AIM_BRADS_TURN/2),ux=Math.cos(a),uy=-Math.sin(a);
+  incomingFlashEl.style.setProperty("--ix",(50+ux*46)+"%");
+  incomingFlashEl.style.setProperty("--iy",(50+uy*46)+"%");
+  clearTimeout(incomingFlashHideTimer);
+  incomingFlashEl.classList.remove("show");
+  void incomingFlashEl.offsetWidth; // force reflow so re-triggering mid-decay restarts the transition
+  incomingFlashEl.classList.add("show");
+  incomingFlashHideTimer=setTimeout(()=>{incomingFlashEl.classList.remove("show")},INCOMING_FLASH_HOLD_MS);
+}
+/* Swap#13 S5 (DUET C6): "PAYBACK" beat, same class-toggle-on-a-timer idiom
+   as triggerRoundFlip/triggerMatchOver above. Fed by server.nim's "avenge"
+   cosmetic-fx kind (killPlayer's self/partner avenge check) -- display
+   layer only, no Glory tie-in. */
+const PAYBACK_HOLD_MS=1400;
+let paybackHideTimer=0;
+function triggerPayback(){
+  if(!paybackEl)return;
+  clearTimeout(paybackHideTimer);
+  paybackEl.classList.remove("show");
+  void paybackEl.offsetWidth; // force reflow so a rapid re-trigger restarts the fade cleanly
+  paybackEl.classList.add("show");
+  paybackHideTimer=setTimeout(()=>{paybackEl.classList.remove("show")},PAYBACK_HOLD_MS);
 }
 function handleDamagePopBirth(px,py,spriteId){
   const sp=sprites.get(spriteId);
@@ -2265,6 +2347,7 @@ const SHOT_FEEDBACK_DEDUPE_MS=250;
 const DEATH_ATTRIB_MS=3000;
 let lastPopFeedbackAt=0,lastPopFeedbackKill=false;
 let lastWireFeedbackAt=0,lastWireFeedbackKill=false;
+let firstTagShown=false; // Swap#13 S3 -- see handleShotFeedback's own comment.
 let deathInfo=null,diedAt=0,deathCardKey="";
 const shotFeedbackCounts={framesSeen:0,shotsLanded:0,hitsTaken:0,killsConfirmed:0,dedupedConfirms:0};
 /* Published for the HUD lane and for scripted verification, same idiom as
@@ -2388,6 +2471,26 @@ function handleCosmeticFx(list){
     if(!e||typeof e!=="object")continue;
     if(e.kind==="tracer"&&Array.isArray(e.pts))tracers.push(e);
     else if(e.kind==="stain"&&typeof e.x==="number"&&typeof e.y==="number")stains.push(e);
+    // Swap#13 S1/S4/S5/S6 -- the other four members of this additive family
+    // (buildCosmeticFxPacket's own doc comment). These are EVENT-shaped
+    // (one-shot, or a fast-changing single number), not a per-tick geometry
+    // snapshot like tracers/stains above, so they dispatch immediately here
+    // rather than replacing cosmeticFxTracers/cosmeticFxStains.
+    else if(e.kind==="incoming"&&typeof e.bearing==="number")triggerIncomingFlash(e.bearing);
+    else if(e.kind==="avenge")triggerPayback();
+    else if(e.kind==="partner_down"&&typeof e.x==="number"&&typeof e.y==="number"){
+      // player_hud.js owns the toast + minimap pulse (it already owns the
+      // minimap canvas) -- this is the explicit push bridge that module's
+      // own comment documents, since it has no way to see this file's
+      // socket messages on its own.
+      if(window.PaintbotHUD&&typeof window.PaintbotHUD.notifyPartnerDown==="function")
+        window.PaintbotHUD.notifyPartnerDown(e.x,e.y,colorWordCss(e.color));
+    }
+    else if(e.kind==="zone_eta"&&typeof e.ticks==="number"){
+      // player_hud.js owns the "zone" eyebrow this countdown lives beside.
+      if(window.PaintbotHUD&&typeof window.PaintbotHUD.notifyZoneEta==="function")
+        window.PaintbotHUD.notifyZoneEta(e.ticks,e.shrinking===true);
+    }
     // else: an unrecognized kind is ignored, not an error -- the additive
     // contract GameConfig.allowCosmeticFx's doc comment promises.
   }
@@ -2495,6 +2598,12 @@ function handleShotFeedback(landed,taken){
       triggerHitstop();triggerHitmarker(realKill);
       if(realKill)playKillConfirm();else playHitDealt();
     }
+    // Swap#13 S3: one-time "first tag!" milestone off the FIRST landed shot
+    // this channel ever confirms, regardless of the dedupe branch above
+    // (a landed shot is real either way -- dedupe only suppresses a
+    // REPEATED confirm chime for the same trigger pull, not the fact a hit
+    // happened). Never rearms -- a per-page, not per-life, milestone.
+    if(!firstTagShown){firstTagShown=true;pushFeedEvent(null,false,"first tag!")}
   }
   publishShotFeedback();
   if(isDead)scheduleDraw(); // a card datum trailing the death edge repaints now, not at the next packet
@@ -2544,7 +2653,25 @@ function deathStatusLine(){
      guessed 0. */
   const kills=(window.PaintbotHUD&&typeof window.PaintbotHUD.selfKills==="number")?window.PaintbotHUD.selfKills:null;
   const tagPart=kills===null?"":" -- "+kills+(kills===1?" tag":" tags");
-  return "you're out for this round"+tagPart+" -- next round starts soon...";
+  // Swap#13 S7: teams-alive snapshot at the death edge (deathPlacement --
+  // see its own declaration comment). "of M" reuses the same team-count
+  // signal player_hud.js's top bar already shows ("teams alive N / M");
+  // shown only when BOTH numbers resolved, never "Nth of —".
+  const teamsTotal=teamsInMatchTotal();
+  const placementPart=(deathPlacement===null||teamsTotal===null)?"":
+    " -- "+ordinal(deathPlacement)+" of "+teamsTotal;
+  return "you're out for this round"+placementPart+tagPart+" -- next round starts soon...";
+}
+// Swap#13 S7 helpers. ordinal() is display-only text formatting (1st/2nd/
+// 3rd/Nth); teamsInMatchTotal() reads the same wire total player_hud.js's
+// own top bar shows as "/ M" -- both null-tolerant, never a guess.
+function ordinal(n){
+  const rem100=n%100;
+  if(rem100>=11&&rem100<=13)return n+"th";
+  switch(n%10){case 1:return n+"st";case 2:return n+"nd";case 3:return n+"rd";default:return n+"th";}
+}
+function teamsInMatchTotal(){
+  return (window.PaintbotHUD&&typeof window.PaintbotHUD.teamsInMatch==="number")?window.PaintbotHUD.teamsInMatch:null;
 }
 function renderDeathOverlay(){
   if(!isDead){deathCardKey="";n("");return}
