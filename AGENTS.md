@@ -429,6 +429,28 @@ full config JSON it was recorded with. Gotchas:
   902 → 905 → 908 → 907, and some of that walking was probably this
   nondeterminism, not the rule changes it was blamed on.
 
+## Operating the prod league (settings, fillers, pause, retire)
+
+Read `docs/recon/observatory-permission-model-2026-09-02.md` before touching league
+state; the Season 2 retrospective (`docs/reports/s2-permissions-retrospective-2026-09-02.md`)
+records what it cost to guess. The short version:
+
+- API base is `https://softmax.com/api/observatory`; `/api/v2/...` returns an HTML 404.
+- James's user token is not a league owner. Send `X-Use-Elevated-Privileges: true`
+  (CLI: `coworld --elevated`) on every league read or write; without it a team
+  member's token is an ordinary user token. A `ply_` session (after
+  `coworld player use`) cannot manage leagues or use `--elevated`.
+- `POST /v2/leagues/{id}/settings` replaces the whole document with no version
+  check and no actor audit: GET, snapshot, modify, POST, read back, and post a
+  one-line intent in `docs/coordination/agents-notes.md` first. Announcing is
+  notification, not a request for approval.
+- The filler list is `POST /v2/leagues/{id}/filler-policies`; pool credits are on
+  `GET /v2/leagues/{id}/owner-status` (an unfunded pool skips rounds silently);
+  retire or re-enable a seeded league with
+  `PATCH /v2/coworld-league-seeds/{lseed_...} {"enabled": ...}`, not a DB write.
+- Disabled and private leagues 404 everywhere by design. `GET /v2/rounds` takes
+  `league_id`; unknown query parameters are dropped silently.
+
 ## Debugging prod league replays (don't drive the Observatory UI)
 
 To investigate a prod replay issue, download the replay bytes directly —
