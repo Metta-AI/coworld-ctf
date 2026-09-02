@@ -172,18 +172,19 @@ class StarterSeat(poc_policy.PlaySeat):
 
 
 def _partner_lines(seat: StarterSeat, partner: int) -> list[str]:
-    lines = [f"PARTNER STATUS FIRST -- your duo partner is seat {partner}."]
+    label = poc_policy.seat_label(seat.context, partner)
+    lines = [f"PARTNER STATUS FIRST -- your duo partner is {label}."]
     if any(kill.get("victim_seat") == partner for kill in seat.kill_feed):
-        lines.append(f"Your partner seat {partner} has been ELIMINATED. "
+        lines.append(f"Your partner {label} has been ELIMINATED. "
                      "You are alone now.")
         return lines
     track = next((t for t in seat.view.get("tracks", [])
                   if t.get("seat") == partner), None)
     if track is None:
-        lines.append(f"No fresh track on seat {partner} -- close the distance "
+        lines.append(f"No fresh track on {label} -- close the distance "
                      "until you can see each other.")
     else:
-        lines.append(f"Seat {partner} last seen at {track.get('pos')} "
+        lines.append(f"{label} last seen at {track.get('pos')} "
                      f"(tick {track.get('fresh_tick')}"
                      + (f", hp {track['hp']}" if "hp" in track else "")
                      + ").")
@@ -215,9 +216,9 @@ def _kill_feed_lines(seat: StarterSeat, limit: int = 5) -> list[str]:
         return ["Kill feed: quiet so far. Nobody has died. Find them."]
     lines = ["Kill feed (most recent last):"]
     for kill in seat.kill_feed[-limit:]:
-        lines.append(f"  tick {kill.get('tick', '?')}: seat "
-                     f"{kill.get('victim_seat', '?')} eliminated by team "
-                     f"{kill.get('killer_team', '?')}.")
+        victim = poc_policy.seat_label(seat.context, kill.get("victim_seat"))
+        lines.append(f"  tick {kill.get('tick', '?')}: {victim} eliminated "
+                     f"by team {kill.get('killer_team', '?')}.")
     return lines
 
 

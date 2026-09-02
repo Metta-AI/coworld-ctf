@@ -1185,7 +1185,8 @@ guest never sees it. Each encoding has its own golden.
 **The `PlayContext`, once per episode** (re-sent on reconnect, and handed
 to every play instance at init). Gameplay payload: the episode-static
 facts, which are the game mode (section 5.1), the map identity and
-dimensions, the roster (teams and seat references), the seat's own
+dimensions, the roster (teams, seat references, and each seat's display
+name — added 2026-09-02 so huddle partners can be addressed by name), the seat's own
 identity and duo, the live weapon range, and the view interval. The
 firing-position and cover atlas the body derives for this map stays
 engine-side and is reached by host query (below). Control envelope: the
@@ -2528,8 +2529,12 @@ negotiating a pact must be able to name its partner, and the `seat:N`
 and `duo:<team>` references it hears are exactly the `SeatOrDuoRef`
 forms its calls use (Appendix P.1), so "we will not shoot you" in the
 lobby becomes `pact` with `partners: ["duo:navy"]` in the opening call
-with no translation. Player display names are not in the packet; a seat
-is a seat. After the phase, in-match communication is the shout.
+with no translation. Player display names are not in the packet — a seat
+is a seat on the wire — but since 2026-09-02 (James: "let them be
+identified") every `PlayContext` roster row carries the seat's display
+name (`name`, the closed roster's `players[].name`, at most 64 bytes), so
+a policy maps `seat -> name` once from its context, addresses partners by
+name in the huddle, and still writes `seat:N` in its calls.
 
 **Delivery is ordered, at-least-once, deduplicated by ordinal.** An
 ordered websocket proves order on one surviving connection and nothing

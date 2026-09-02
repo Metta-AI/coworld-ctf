@@ -351,6 +351,58 @@ class PlaySeat:
         return outcome
 
 
+HUDDLE_LINES = 12
+"""How many heard huddle lines the summary quotes (most recent last)."""
+
+
+def seat_name(context: dict | None, seat_index) -> str | None:
+    """The display name the PlayContext roster carries for a seat, if any.
+
+    The engine fills ``roster[].name`` from the closed roster (James's ruling
+    2026-09-02: huddle partners are addressed by name); an older engine or an
+    unnamed seat simply has no ``name`` key.
+    """
+    for row in (context or {}).get("roster", []):
+        if isinstance(row, dict) and row.get("seat") == seat_index:
+            name = row.get("name")
+            return name if isinstance(name, str) and name else None
+    return None
+
+
+def seat_label(context: dict | None, seat_index) -> str:
+    """``"<name> (seat N)"`` when the roster names the seat, else ``"seat N"``."""
+    name = seat_name(context, seat_index)
+    return f"{name} (seat {seat_index})" if name else f"seat {seat_index}"
+
+
+def roster_lines(context: dict | None) -> list[str]:
+    """One line per roster seat: who they are and which team they are on."""
+    rows = [row for row in (context or {}).get("roster", [])
+            if isinstance(row, dict)]
+    if not rows:
+        return []
+    lines = ["Roster (name, seat, team):"]
+    for row in rows:
+        lines.append(f"  {seat_label(context, row.get('seat'))} -- "
+                     f"team {row.get('team', '?')}")
+    return lines
+
+
+def huddle_lines(seat: "PlaySeat", limit: int = HUDDLE_LINES) -> list[str]:
+    """The lobby chat heard so far, most recent last, attributed by name.
+
+    The 0xB2 packet carries only the sender's seat index; the name comes from
+    the context roster, so the model can answer people rather than numbers.
+    """
+    if not seat.chat:
+        return []
+    lines = ["Huddle so far (most recent last):"]
+    for packet in seat.chat[-limit:]:
+        lines.append(f"  {seat_label(seat.context, packet.get('seat'))}: "
+                     f"{packet.get('text', '')}")
+    return lines
+
+
 def summarize(seat: PlaySeat, phase: str, standing: bytes | None = None) -> str:
     """The tiny text summary the model reasons over.
 
@@ -362,20 +414,32 @@ def summarize(seat: PlaySeat, phase: str, standing: bytes | None = None) -> str:
     context = seat.context or {}
     game_map = context.get("map", {})
     roster = context.get("roster", [])
+    my_seat = context.get("self", {}).get("seat", seat.slot)
     lines = [
         f"Phase: {phase}.",
         f"Mode: {context.get('mode', 'unknown')}.",
         f"Map: {game_map.get('name', '?')}, "
         f"{game_map.get('width', '?')}x{game_map.get('height', '?')} px.",
         f"Seats in the roster: {len(roster)}.",
-        f"You are seat {context.get('self', {}).get('seat', seat.slot)} "
+        f"You are {seat_label(context, my_seat)} "
         f"on team {context.get('self', {}).get('team', '?')}.",
         f"Gun range: {context.get('gun_range', '?')} px.",
         f"Server tick: {seat.last_view_tick}.",
     ]
     partner = context.get("self", {}).get("duo_partner")
     if partner is not None:
-        lines.append(f"Your duo partner is seat {partner}.")
+        lines.append(f"Your duo partner is {seat_label(context, partner)}.")
+    roster_block = roster_lines(context)
+    if roster_block:
+        lines.append("")
+        lines.extend(roster_block)
+    heard = huddle_lines(seat)
+    if heard:
+        lines.append("")
+        lines.extend(heard)
+    lines.append("")
+    lines.append("In chat, address other players by name; they see yours. "
+                 "In the call, seats are always written seat:<N>.")
     if standing is not None:
         lines.append("")
         lines.append("The ladder you already have in force is:")

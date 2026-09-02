@@ -331,7 +331,12 @@ setting.
 
 Each backend gets the same system prompt — the two plays and their parameter
 ranges, transcribed from the reference manifests — plus a short match summary,
-and returns `{"chat": ..., "call": {"entries": [...]}}`. The mid-match summary
+and returns `{"chat": ..., "call": {"entries": [...]}}`. The summary names
+people: the engine's PlayContext roster carries each seat's display name
+(since 2026-09-02), so self, partner, the roster, and the last twelve heard
+huddle lines are rendered as `name (seat N)`, and the rules tell the model to
+address players by name in chat while calls keep `seat:<N>`
+(`test_summary.py`). The mid-match summary
 also carries **the ladder currently in force**, so the second call is a revision
 rather than a fresh decision. Without that, a model handed the same map facts
 twice simply repeats itself, which is exactly what the first live run did.

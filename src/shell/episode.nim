@@ -274,10 +274,16 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     liveGunRangePx: int = GunRange,
     teams: openArray[Team] = [],
     mapName = "",
-    viewInterval = ViewIntervalTicksDefault): FirstLightEpisode =
+    viewInterval = ViewIntervalTicksDefault,
+    names: openArray[string] = []): FirstLightEpisode =
+  ## `names` are the seats' display names in seat order (the closed
+  ## roster's players[].name); empty means the context carries none.
   if teams.len > 0 and teams.len != controls.len:
     raise newException(ValueError,
       "FIRST LIGHT team/control facts must have the same length")
+  if names.len > 0 and names.len != controls.len:
+    raise newException(ValueError,
+      "FIRST LIGHT name/control facts must have the same length")
   result.brMode = brMode
   result.rosterSize = controls.len
   result.map = map
@@ -295,7 +301,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
         result.contextRoster.add(PlayContextRosterRow(
           seat: index,
           team: teams[index],
-          control: if control == scPlay: pccPlay else: pccInput))
+          control: if control == scPlay: pccPlay else: pccInput,
+          name: if names.len > 0: rosterDisplayName(names[index]) else: ""))
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
       selfPositions: newSeq[BodyPoint](controls.len),
@@ -304,6 +311,14 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     if control == scPlay:
       result.enabled = true
       result.seats.add(FirstLightSeatState(seat: uint8(index)))
+
+proc playContextRoster*(episode: FirstLightEpisode): seq[PlayContextRosterRow] =
+  ## The roster every seat's PlayContext carries (seat order), for tests and
+  ## diagnostics; empty until a Season 2 episode with team facts exists.
+  when ShellRuntimeAvailable:
+    episode.contextRoster
+  else:
+    @[]
 
 proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
@@ -341,13 +356,14 @@ proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
     liveGunRangePx: int = GunRange,
     teams: openArray[Team] = [],
     mapName = "",
-    viewInterval = ViewIntervalTicksDefault) =
+    viewInterval = ViewIntervalTicksDefault,
+    names: openArray[string] = []) =
   ## Full episode replacement boundary for any server-side sim/config
   ## replacement. Fresh bodies re-run the activation safe install instead of
   ## carrying standing orders, nav state, or map-owned goals across matches.
   episode.closeFirstLightEpisode()
   episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
-    liveGunRangePx, teams, mapName, viewInterval)
+    liveGunRangePx, teams, mapName, viewInterval, names)
 
 proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
   finishDefault(Intent(

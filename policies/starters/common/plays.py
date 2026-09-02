@@ -280,5 +280,6 @@ Reply with a single JSON object and nothing else:
 Rules: every "play" must be {names}. Every "entry_id" must be
 unique within the call and made of letters, digits, underscores or hyphens.
 Only use parameters named above, within their stated ranges. Include at least
-one entry.
+one entry. In "chat", address other players by the NAME the roster gives
+them (they see yours); inside "call", a seat is always written seat:<N>.
 """

@@ -499,6 +499,21 @@ suite "shell episode ladder":
         pos.applyMask(output.masks[0].input)
       check sawEntryInstall
 
+  test "episode roster carries the configured display names":
+    when ShellRuntimeAvailable:
+      var episode = initFirstLightEpisode(true, true, controls(2), testMap(),
+        331, [Red, Blue], "arena", ViewIntervalTicksDefault,
+        ["daveey", "Starter: Cautious (2)"])
+      defer:
+        episode.closeFirstLightEpisode()
+      let roster = episode.playContextRoster
+      check roster.len == 2
+      check roster[0].name == "daveey"
+      check roster[1].name == "Starter: Cautious (2)"
+      expect ValueError:
+        discard initFirstLightEpisode(true, true, controls(2), testMap(),
+          331, [Red, Blue], "arena", ViewIntervalTicksDefault, ["only-one"])
+
   test "sixteen play seats all escape a far next zone on a field-sized board":
     ## League round 3633 (0.7.283): with the next rect beyond the reflex
     ## lattice, sixteen seats sharing one flat planning budget, and every

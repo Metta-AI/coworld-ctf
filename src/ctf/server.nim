@@ -3664,6 +3664,7 @@ proc firstLightZoneLogLine(sim: SimServer): string =
 type FirstLightControlSet = tuple[
   controls: seq[SlotControl],
   teams: seq[Team],
+  names: seq[string],
   hasPlaySeat: bool
 ]
 
@@ -3671,6 +3672,7 @@ proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
   for slot in config.slots:
     result.controls.add(slot.control)
     result.teams.add(slot.team)
+    result.names.add(slot.name)
     if slot.control == scPlay:
       result.hasPlaySeat = true
 
@@ -3687,7 +3689,7 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
     episode.resetFirstLightEpisode(
       config.season2Shell, config.brMode, controlSet.controls,
       newBodyMap(sim.gameMap), config.gunRange, controlSet.teams,
-      mapName, config.viewIntervalTicks)
+      mapName, config.viewIntervalTicks, controlSet.names)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
     let configured =
