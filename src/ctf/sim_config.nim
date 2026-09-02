@@ -5,7 +5,7 @@
 import
   std/[json, strutils],
   jsony,
-  sim_types, arena
+  sim_types, arena, br_map_pool
 
 proc defaultGameConfig*(): GameConfig =
   ## Returns the default CTF gameplay config.
@@ -1167,6 +1167,18 @@ proc update*(config: var GameConfig, jsonText: string) =
     if node["mapSpec"].kind != JObject:
       raise newException(CtfError, "Config field mapSpec must be an object.")
     config.mapSpec = $node["mapSpec"]
+  ## BR S2 (#354 follow-up): mapPath "brpool" gives every episode a FRESH
+  ## certified map — selected deterministically from the episode seed over
+  ## data/br_s2_map_pool.json (see br_map_pool.nim's s2 section) and pinned
+  ## as mapSpec RIGHT HERE, before the resolve below, so the replay carries
+  ## the exact geometry. Playback re-parses a config that already HAS a
+  ## mapSpec, so the explicit branch above wins and the pool is never
+  ## consulted again: a recorded episode stays loadable forever, even after
+  ## its map rotates OUT of the pool. An unpinned hosted seed is randomized
+  ## per boot BEFORE update (ctf.nim), which is exactly what makes the
+  ## selection per-episode.
+  if config.mapSpec.len == 0 and config.mapPath == BrPoolMapName:
+    config.mapSpec = pickBrS2SpecJson(config.seed)
   ## Resolve the effective map ONCE: a generated map is expanded and pinned
   ## as mapSpec here, so the replay carries the exact geometry and playback
   ## never re-runs the generator. The gun range follows the selected map
