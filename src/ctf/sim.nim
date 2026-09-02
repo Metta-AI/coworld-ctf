@@ -944,9 +944,34 @@ proc killPlayer*(
     color: sim.players[targetIndex].color,
     hit: false
   )
-  # No permanent stain at the death spot either: the paint that killed this cog
-  # landed ON the cog, and the fading splatter above is the record of it. Only
-  # paint that MISSED and reached terrain leaves a mark on terrain.
+  # Swap#11 item 7: a permanent terrain stain at the tag site too, same
+  # cosmetic family and the SAME attribution convention as addPaintStain's
+  # other three call sites (spray-cone/gun/grenade misses — always the
+  # ATTACKER's paint color, since that is whose paintball actually landed).
+  # Superseded reasoning, kept for history: this comment used to argue the
+  # splatter above ("fading, never enters gameHash") was already "the
+  # record of it" and a permanent mark would be redundant — true only for
+  # the splatter's own couple-second fade. The dried-stain family is what
+  # actually persists for the rest of the match, on a wall a shot missed
+  # OR a floor a spray/grenade coated, and a tag site had none once its
+  # splatter faded — a register gap (a real paintball hit leaves a real
+  # mark on whatever it hits, cog included), not a deliberate omission.
+  # Skipped for a killerless death — `elimination` (GV35: the team lost,
+  # nobody was killed; eliminateTeam's own killerIndex is the flag
+  # capturer, not a shooter, so it must not be read as attacker paint here)
+  # or an environmental `cause` (puddle/zone, killerIndex -1) — there is no
+  # attacker paint to mark the ground with either way. addPaintStain
+  # itself never touches sim.rng and sim.paintStains is already excluded
+  # from gameHash (see its own doc comments), so this is purely additive —
+  # gated on the golden fixtures staying byte-identical and
+  # test_cosmetic_fx_wire's policy-stream/gameHash parity suite staying
+  # green (see this lane's own report).
+  if not elimination and killerIndex >= 0 and killerIndex < sim.players.len:
+    sim.addPaintStain(
+      sim.players[targetIndex].x + CollisionW div 2,
+      sim.players[targetIndex].y + CollisionH div 2,
+      sim.players[killerIndex].color
+    )
   # A floating "SPLAT" kill marker rises and fades from the death spot — the same
   # mechanism as the "-1" damage pops, so a kill reads at a glance in the
   # spectator/replay view (cosmetic only, never in gameHash).
