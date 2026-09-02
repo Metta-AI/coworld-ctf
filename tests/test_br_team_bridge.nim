@@ -142,17 +142,21 @@ suite "BR team-count bridge (spawnGroups)":
     check seen.len == Groups        ## all 16 identities actually fielded.
 
     ## Seats per group is 1 (16 points / 16 groups), so BOTH members of a duo
-    ## land on their group's single point — the duo pocket of BR_MAPGEN.md
-    ## §4.2, which is sized for two bodies.
+    ## share their group's single point — the duo pocket of BR_MAPGEN.md
+    ## §4.2, which is sized for two bodies. Since GV52 the second member
+    ## stands SpawnShareStagger px down the pocket from the point, not on
+    ## the first member's pixel.
     let
       points = gridSpawnPointsNode()
       offset = sim.spawnGroupOffset()
     for i, player in sim.players:
       ## Team k seats on group (k + offset) mod 16 — the per-episode
       ## rotation, so no team owns a grid cell across episodes.
-      let expected = points[(i + offset) mod Groups]
+      let
+        expected = points[(i + offset) mod Groups]
+        stagger = (if i >= Groups: SpawnShareStagger else: 0)
       check player.x == expected[0].getInt()
-      check player.y == expected[1].getInt()
+      check player.y == expected[1].getInt() + stagger
 
   test "an 8-team config on an 8-group map boots, and 16-seat duos pair k/k+8":
     ## The Season 2 half-field game: 8 duos on 16 seats. The duo pairing is
@@ -177,16 +181,18 @@ suite "BR team-count bridge (spawnGroups)":
     for i, player in sim.players:
       check player.team == Team(i mod 8)
     ## Seats k and k+8 are the duo: same team, and (with 8 points over 8
-    ## groups, perTeam = 1) the same single landing spot — the duo pocket.
+    ## groups, perTeam = 1) the same single authored point — the duo pocket;
+    ## since GV52 the second member stands SpawnShareStagger px below it.
     let
       points = gridSpawnPointsNode(8)
       offset = sim.spawnGroupOffset()
     for k in 0 ..< 8:
       check sim.players[k].team == sim.players[k + 8].team
       let expected = points[(k + offset) mod 8]
-      for i in [k, k + 8]:
-        check sim.players[i].x == expected[0].getInt()
-        check sim.players[i].y == expected[1].getInt()
+      check sim.players[k].x == expected[0].getInt()
+      check sim.players[k].y == expected[1].getInt()
+      check sim.players[k + 8].x == expected[0].getInt()
+      check sim.players[k + 8].y == expected[1].getInt() + SpawnShareStagger
 
   test "a count MISMATCH is rejected, naming both counts":
     let msg = errorFor(brSpec(), teams = 4)
