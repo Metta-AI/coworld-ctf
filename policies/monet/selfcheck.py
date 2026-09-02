@@ -106,6 +106,22 @@ line1 = PERSONA.extra_chat(FAKE_SEAT.context, 1)
 check("turn-1 truce offer addresses the neighboring duo",
       "seats 4 and 20" in (line1 or ""), repr(line1))
 
+# ── 8-duo field: team count must derive from the roster, never assume 16 ──
+duo8_seat = types.SimpleNamespace(
+    context={"self": {"seat": 3, "duo_partner": 11},
+             "roster": [{"seat": i} for i in range(16)]}, view={})
+_, entries8 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, duo8_seat, AVAILABLE)
+pact8 = next((e for e in entries8 if e["play"] == "pact"), None)
+law8 = next((e for e in entries8 if e["play"] == "target_law"), None)
+check("8-duo field: pact aims at the roster-derived neighbor duo",
+      pact8 is not None
+      and set(pact8["params"]["partners"]) == {"seat:4", "seat:12"},
+      str(pact8))
+check("8-duo field: partner still on the never-list",
+      law8 is not None and "seat:11" in set(law8["params"].get("never", [])),
+      str(law8))
+
 # ── the team-0 edge: the placeholder IS our own duo and must be re-aimed ──
 team0_seat = types.SimpleNamespace(
     context={"self": {"seat": 0, "duo_partner": 16}}, view={})

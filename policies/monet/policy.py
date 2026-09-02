@@ -30,9 +30,11 @@ sys.path.insert(0, str(_HERE.parent / "starters" / "common"))
 import starter_harness  # noqa: E402
 from starter_harness import Persona  # noqa: E402
 
-# 32 seats, 16 duos: seat k pairs with k+16 and team is k % 16. The
-# "neighboring" duo is the next team number -- arbitrary but computable from
-# lobby context alone, which is all a canned opener has to aim politics at.
+# Duo fields pair seat k with k+teamCount and team is k % teamCount; the
+# team count is DERIVED from the roster (the hosted field is flipping to 8
+# duos, so 16 must not be assumed). The "neighboring" duo is the next team
+# number -- arbitrary but computable from lobby context alone, which is all
+# a canned opener has to aim politics at. 16 is only the no-roster fallback.
 TEAM_COUNT = 16
 
 # The guaranteed conversion rung. hp is a small absolute number on this
@@ -55,9 +57,13 @@ def _neighbor_duo(context):
     seat = (context.get("self") or {}).get("seat")
     if not isinstance(seat, int):
         return None
-    team = seat % TEAM_COUNT
-    nt = (team + 1) % TEAM_COUNT
-    return (nt, nt + TEAM_COUNT)
+    roster = context.get("roster")
+    seats = (len(roster) if isinstance(roster, list) and roster
+             else 2 * TEAM_COUNT)
+    team_count = max(1, seats // 2)
+    team = seat % team_count
+    nt = (team + 1) % team_count
+    return (nt, nt + team_count)
 
 
 def adjust_entries(entries, context, view):
