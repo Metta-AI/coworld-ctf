@@ -168,6 +168,14 @@
           if (typeof message.zoneEndcardMs === 'number') {
             zoneEndcardMs = message.zoneEndcardMs;
           }
+          // SEASON 2 observability: the play-call ("flash") records the
+          // runtime decoded from the replay's shell metadata, forwarded
+          // once — the comms feed renders them beside the huddle
+          // transcript. Absent (no calls in the replay, or an older wasm
+          // bundle) the page hook is simply never called.
+          if (message.calls && config.onCalls) {
+            try { config.onCalls(JSON.parse(message.calls)); } catch (ignored) {}
+          }
           loaded = true;
           document.documentElement.setAttribute('data-replay-loaded', 'true');
           requestAnimationFrame(animate);
@@ -265,6 +273,13 @@
       },
       clickMap: function (mapX, mapY) {
         if (worker) worker.postMessage({ type: 'click', x: mapX, y: mapY });
+      },
+      // Flash observability: the page resolves each flash record's seat to
+      // its CURRENT roster index and hands the enriched list to the core
+      // (which anchors the in-arena pulse ring on that player's rig) — see
+      // broadcast_core.js setFlashCalls. Re-sent whenever the mapping moves.
+      setFlashCalls: function (calls) {
+        if (worker) worker.postMessage({ type: 'flashCalls', calls: calls });
       },
       // Zoom/pan forwarded to the worker that owns the OffscreenCanvas. Same
       // signatures as the in-process core, so the page drives one API whether

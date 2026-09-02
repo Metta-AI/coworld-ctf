@@ -740,17 +740,276 @@ html, body {
 }
 .glory-pop.neg { color: var(--red); }
 
-/* ---------- 1c. SEASON 2 LOBBY: huddle transcript + pre-match ballot ------
-   Both panels are built once (from the shell-record chrome the host decoded
-   from the replay's .shell metadata — see ctf_replay.nim), then simply
-   TOGGLED by phase: visible only while s.ph === 'lobby', gone the instant
-   play starts, so they never compete with the board for attention once the
-   match is actually running. Absent (display:none forever) on a replay
-   whose .shell carried neither record type — the degrade-to-nothing path
-   both docs/designs/prematch-vote-wire-2026-08-31.md §4 and the huddle lane
-   call for. */
-#huddlePanel, #votePanel {
+/* ---------- 1c. SEASON 2 phase presentation: vote -> huddle -> arena ------
+   The episode opens as a broadcast SEGMENT SEQUENCE (owner spec): the MAP
+   VOTE takes the board region first (4 options in 4 quadrants, a name-chip
+   sliding under a quadrant as each recorded cast's moment passes), then the
+   HUDDLE plays as a full-focus chat room, and only then does the arena take
+   the stage. Once play begins the huddle collapses to a small chip with an
+   unread badge (narrow layouts) or lives in the persistent left COMMS
+   sidebar (wide layouts, where the letterbox column is reclaimed and the
+   board docks right). Everything is driven off the CURRENT frame (s.ph +
+   s.t against the records' own ms stamps), so scrubbing back into the
+   lobby replays the same sequence; a replay whose .shell carries none of
+   these records shows none of it -- the degrade-to-nothing path
+   docs/designs/prematch-vote-wire-2026-08-31.md paragraph 4 and the huddle
+   lane call for. */
+
+/* The two full-focus acts cover the BOARD region only (same geometry as
+   #endcard): scorebug and transport stay live so the field roster reads
+   and the scrubber can skip an act. z below #endcard (30) -- a gameover
+   reached by seeking always outranks a lobby act. */
+.phase-stage {
   position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--topband, 0px);
+  bottom: var(--band, 0px);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(10 * var(--u));
+  background: radial-gradient(80% 70% at 50% 45%, rgba(22, 15, 9, 0.90), rgba(9, 6, 3, 0.97));
+  z-index: 28;
+  padding: calc(16 * var(--u));
+}
+.phase-stage.show { display: flex; animation: cardfade 220ms ease-out; }
+.stage-kicker {
+  font-family: var(--pixfont);
+  font-size: calc(11 * var(--u));
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.stage-note {
+  font-family: var(--finefont);
+  font-size: calc(9.5 * var(--u));
+  color: var(--paper-dim);
+}
+
+/* MAP VOTE: 4 quadrants. Cards, not thumbnails -- the ballot record carries
+   option indices only (no map spec rides the wire), so each option is a
+   labeled card; D is the design's "random" delegate. */
+#voteGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: calc(10 * var(--u));
+  width: min(calc(560 * var(--u)), 92%);
+  flex: 0 1 auto;
+  min-height: calc(220 * var(--u));
+}
+.vq {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(4 * var(--u));
+  padding: calc(10 * var(--u)) calc(12 * var(--u));
+  border-radius: calc(4 * var(--u));
+  background: rgba(242, 232, 216, 0.055);
+}
+.vq.winner {
+  background: rgba(232, 163, 61, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.55);
+}
+.vq-letter {
+  font-family: var(--pixfont);
+  font-size: calc(20 * var(--u));
+  color: var(--paper-dim);
+  line-height: 1;
+}
+.vq.winner .vq-letter { color: var(--amber); }
+.vq-name {
+  font-family: var(--pixfont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper);
+}
+.vq-flag {
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.14em;
+  color: var(--amber);
+}
+.vq-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(3 * var(--u));
+  margin-top: auto;
+  min-height: calc(14 * var(--u));
+}
+.vq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4 * var(--u));
+  padding: calc(2 * var(--u)) calc(6 * var(--u));
+  border-radius: calc(8 * var(--u));
+  background: rgba(20, 14, 9, 0.7);
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  color: var(--paper);
+  animation: chip-in 240ms ease-out;
+}
+.vq-chip .swatch { width: calc(6 * var(--u)); height: calc(6 * var(--u)); }
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(calc(5 * var(--u))); }
+  to { opacity: 1; transform: none; }
+}
+.swatch {
+  flex: none;
+  width: calc(7 * var(--u));
+  height: calc(7 * var(--u));
+  border-radius: calc(1.5 * var(--u));
+  background: var(--tc, var(--ghost));
+}
+
+/* HUDDLE act (narrow layouts): the pre-match chat ROOM, full focus. */
+#huddleStage .hs-card {
+  display: flex;
+  flex-direction: column;
+  width: min(calc(520 * var(--u)), 88%);
+  max-height: 100%;
+  min-height: 0;
+}
+.hs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: calc(6 * var(--u));
+}
+.lobby-panel-title {
+  font-family: var(--pixfont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+.hud-x {
+  border: 0;
+  background: none;
+  color: var(--paper-dim);
+  font-family: var(--finefont);
+  font-size: calc(13 * var(--u));
+  line-height: 1;
+  padding: 0 calc(2 * var(--u));
+  cursor: pointer;
+}
+.hud-x:hover { color: var(--paper); }
+#huddleFeed {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--u));
+  min-height: 0;
+}
+.hs-foot {
+  margin-top: calc(8 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(8.5 * var(--u));
+  font-style: italic;
+  color: var(--paper-dim);
+}
+/* Chat bubbles: warm paper-on-ink, no hard borders; the speaker line wears
+   the seat team's palette color. Shared by the room, the corner panel and
+   the comms sidebar (one renderer -- commsEntryHtml). */
+.hd-msg { display: flex; flex-direction: column; gap: calc(1.5 * var(--u)); }
+.hd-who {
+  display: flex;
+  align-items: center;
+  gap: calc(4 * var(--u));
+  font-family: var(--finefont);
+  font-weight: 600;
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.06em;
+  color: var(--tc, var(--paper-dim));
+  text-transform: uppercase;
+}
+.hd-text {
+  align-self: flex-start;
+  padding: calc(4 * var(--u)) calc(8 * var(--u));
+  border-radius: calc(2 * var(--u)) calc(8 * var(--u)) calc(8 * var(--u)) calc(8 * var(--u));
+  background: rgba(242, 232, 216, 0.08);
+  font-size: calc(9.5 * var(--u));
+  color: var(--paper);
+  line-height: 1.45;
+}
+.hd-msg { animation: chip-in 240ms ease-out; }
+/* A FLASH row: the caller retuning a seat (play-call record 0x10). Amber
+   bolt + play names -- visually apart from chat on purpose: this is
+   observability, not conversation. */
+.hd-flash {
+  display: flex;
+  align-items: center;
+  gap: calc(5 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(8.5 * var(--u));
+  color: var(--amber);
+  animation: chip-in 240ms ease-out;
+}
+.hd-flash .swatch { width: calc(6 * var(--u)); height: calc(6 * var(--u)); }
+.hd-flash .fl-who { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.hd-flash .fl-plays { color: var(--paper-dim); }
+.huddle-empty {
+  color: var(--paper-dim);
+  font-style: italic;
+  font-size: calc(9 * var(--u));
+}
+
+/* Collapsed huddle chip (narrow layouts, arena acts): bottom-left, above
+   the transport, one pill + unread badge. */
+#huddleChip {
+  position: absolute;
+  left: calc(12 * var(--u));
+  bottom: calc(76 * var(--u));
+  display: none;
+  align-items: center;
+  gap: calc(5 * var(--u));
+  padding: calc(4 * var(--u)) calc(9 * var(--u));
+  border: 0;
+  border-radius: calc(10 * var(--u));
+  background: rgba(20, 14, 9, 0.84);
+  box-shadow: inset 0 0 0 1px rgba(242, 232, 216, 0.14);
+  color: var(--paper-dim);
+  font-family: var(--pixfont);
+  font-size: calc(8.5 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  z-index: 20;
+}
+#huddleChip.show { display: inline-flex; }
+#huddleChip:hover { color: var(--paper); }
+#huddleUnread {
+  display: none;
+  min-width: calc(11 * var(--u));
+  padding: calc(1 * var(--u)) calc(3 * var(--u));
+  border-radius: calc(7 * var(--u));
+  background: var(--amber);
+  color: var(--ink);
+  font-family: var(--finefont);
+  font-weight: 700;
+  font-size: calc(8 * var(--u));
+  text-align: center;
+}
+#huddleUnread.on { display: inline-block; }
+#huddleChip.pulse { animation: chip-pulse 600ms ease-out; }
+@keyframes chip-pulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* Expanded corner panel (narrow layouts, during the arena): same footprint
+   as before, now with a real header -- click the header (or its X) to
+   collapse back to the chip. */
+#huddlePanel {
+  position: absolute;
+  left: calc(12 * var(--u));
+  bottom: calc(76 * var(--u));
+  width: calc(248 * var(--u));
+  max-height: 46%;
   display: none;
   flex-direction: column;
   background: rgba(20, 14, 9, 0.84);
@@ -761,76 +1020,82 @@ html, body {
   z-index: 20;
   animation: cardfade 220ms ease-out;
 }
-#huddlePanel.show, #votePanel.show { display: flex; }
-.lobby-panel-title {
-  font-family: var(--pixfont);
-  font-size: calc(9 * var(--u));
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--paper-dim);
-  margin-bottom: calc(6 * var(--u));
-}
-#huddlePanel {
-  left: calc(12 * var(--u));
-  bottom: calc(76 * var(--u));
-  width: calc(248 * var(--u));
-  max-height: 46%;
+#huddlePanel.show { display: flex; }
+#huddlePanel .hud-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  margin-bottom: calc(5 * var(--u));
 }
 #huddleLines {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: calc(4 * var(--u));
+  gap: calc(5 * var(--u));
+  min-height: 0;
 }
-.huddle-line { font-size: calc(9.5 * var(--u)); color: var(--paper); line-height: 1.4; }
-.huddle-seat {
-  font-weight: 600;
-  color: var(--tc, var(--paper-dim));
-  margin-right: calc(4 * var(--u));
+
+/* ---------- 1d. COMMS SIDEBAR (wide layouts) --------------------------
+   When the fitted board leaves >= 280 free px in the viewport, relayout()
+   docks the stage RIGHT and this column reclaims the letterbox: the
+   persistent observability feed (huddle + flashes now; ballots/play votes
+   when the votearm lane's records land -- see commsEntryHtml). Nothing
+   floats over the arena in this mode. */
+#commsdock {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-self: stretch;
+  padding: calc(14 * var(--u)) calc(14 * var(--u)) calc(10 * var(--u));
+  background: linear-gradient(180deg, rgba(36, 26, 18, 0.55), rgba(22, 15, 9, 0.35));
+  position: relative;
 }
-.huddle-empty, .vote-empty {
-  color: var(--paper-dim);
-  font-style: italic;
-  font-size: calc(9 * var(--u));
-}
-#votePanel {
-  right: calc(12 * var(--u));
-  bottom: calc(76 * var(--u));
-  width: calc(208 * var(--u));
-}
-.vote-opt {
-  display: flex;
-  align-items: center;
-  gap: calc(6 * var(--u));
-  padding: calc(3 * var(--u)) 0;
+body.commswide #commsdock { display: flex; }
+body.commswide #viewport { justify-content: flex-end; }
+.cd-head {
   font-family: var(--pixfont);
-  font-size: calc(10 * var(--u));
-  color: var(--paper);
-  border-top: 1px solid rgba(242, 232, 216, 0.08);
-}
-.vote-opt:first-child { border-top: none; }
-.vote-opt.winner { color: var(--amber); }
-.vote-opt .vo-letter { color: var(--paper-dim); width: calc(12 * var(--u)); flex: none; }
-.vote-opt.winner .vo-letter { color: var(--amber); }
-.vote-opt .vo-dots { display: flex; flex-wrap: wrap; gap: calc(2 * var(--u)); flex: 1; min-width: 0; }
-.vote-dot {
-  width: calc(6 * var(--u));
-  height: calc(6 * var(--u));
-  border-radius: 50%;
-  background: var(--tc, var(--paper-dim));
-  flex: none;
-}
-.vote-opt .vo-count {
-  font-variant-numeric: tabular-nums;
+  font-size: calc(9.5 * var(--u));
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--paper-dim);
+  margin-bottom: calc(8 * var(--u));
   flex: none;
 }
-.vote-opt .vo-crown {
-  font-family: var(--finefont);
-  font-size: calc(7.5 * var(--u));
+#commsFeed {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: calc(7 * var(--u));
+  flex: 1 1 auto;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+#commsLive {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(14 * var(--u));
+  display: none;
+  border: 0;
+  border-radius: calc(10 * var(--u));
+  padding: calc(4 * var(--u)) calc(10 * var(--u));
+  background: var(--amber);
+  color: var(--ink);
+  font-family: var(--pixfont);
+  font-size: calc(8 * var(--u));
   letter-spacing: 0.1em;
-  color: var(--amber);
-  flex: none;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+#commsLive.show { display: block; }
+/* The huddle ACT at wide widths is the sidebar itself in focus: the board
+   dims behind it instead of a separate chat-room overlay. */
+body.commswide.act-huddle #board,
+body.commswide.act-huddle #lightpool { filter: brightness(0.45) saturate(0.7); }
+body.commswide.act-huddle #commsdock {
+  background: linear-gradient(180deg, rgba(36, 26, 18, 0.9), rgba(22, 15, 9, 0.8));
 }
 
 /* ---------- 2. KILL FEED ---------- */
@@ -2085,6 +2350,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 </head>
 <body>
 <div id="viewport">
+<div id="commsdock">
+  <div class="cd-head">Comms</div>
+  <div id="commsFeed"></div>
+  <button id="commsLive">▾ Jump to live</button>
+  <!-- votearm lane: ballot casts / play-vote rows will join this same feed
+       as new entry kinds — commsEntryHtml() is the insertion point. -->
+</div>
 <div id="stage">
   <canvas id="board"></canvas>
   <div id="lightpool"></div>
@@ -2174,17 +2446,36 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     <div id="bannerlane"></div>
     <div id="killfeed"></div>
     <div id="gloryPops"></div>
-    <!-- SEASON 2: lobby-phase huddle transcript + pre-match ballot. Both stay
-         display:none until renderLobbyPanels() sees the corresponding shell
-         record chrome AND the current phase is 'lobby' — see the CSS block's
-         own comment for the degrade-to-nothing contract. -->
-    <div id="huddlePanel">
-      <div class="lobby-panel-title">Huddle</div>
-      <div id="huddleLines"></div>
+    <!-- SEASON 2 phase presentation: the MAP VOTE and HUDDLE acts, plus the
+         collapsed huddle chip + expandable corner panel that follow the match
+         into the arena on narrow layouts. All stay display:none until
+         renderPhaseOverlays() sees the corresponding shell-record chrome —
+         see the CSS block's own comment for the act sequence + the
+         degrade-to-nothing contract. -->
+    <div id="voteStage" class="phase-stage">
+      <div class="stage-kicker">Map vote</div>
+      <div class="stage-note" id="voteNote">The lobby is calling the next arena</div>
+      <div id="voteGrid"></div>
     </div>
-    <div id="votePanel">
-      <div class="lobby-panel-title">Vote</div>
-      <div id="voteBody"></div>
+    <div id="huddleStage" class="phase-stage">
+      <div class="hs-card">
+        <div class="hs-head">
+          <span class="lobby-panel-title">Huddle</span>
+          <button id="huddleStageClose" class="hud-x" title="Skip to the arena">×</button>
+        </div>
+        <div id="huddleFeed"></div>
+        <div class="hs-foot">Pre-match comms — the arena is next</div>
+      </div>
+    </div>
+    <button id="huddleChip" class="" title="Open the huddle feed">
+      <span>Huddle</span><span id="huddleUnread"></span>
+    </button>
+    <div id="huddlePanel">
+      <div class="hud-head" id="huddleHead" title="Click to collapse">
+        <span class="lobby-panel-title">Huddle</span>
+        <button id="huddleClose" class="hud-x" title="Collapse">×</button>
+      </div>
+      <div id="huddleLines"></div>
     </div>
 
     <div id="transport">
@@ -2697,6 +2988,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     canvas: canvas,
     onText: function (txt, hasZoneField) { onFrame(txt, hasZoneField); },
     onStatus: function (st) { onStatus(st); },
+    // SEASON 2 observability: the play-call ("flash") records, decoded once
+    // by the replay runtime and delivered beside the Worker's 'loaded'
+    // message. Absent on a replay with no calls — the feed never gains
+    // flash rows and the pulse layer stays dark.
+    onCalls: function (calls) { ingestFlashCalls(calls); },
     onFirstFrame: function () { core.setViewportFit(); syncViewUi(); },
     // The core owns the view, so it tells the controls where it ended up —
     // never the other way round. That keeps the slider honest when the zoom
@@ -2832,7 +3128,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     renderPov(s);
     renderMismatch(s);
     renderGloryPops(s);
-    renderLobbyPanels(s);
+    renderPhaseOverlays(s);
 
     if (s.events && s.events.length && !jumped) {
       for (var i = 0; i < s.events.length; i++) applyEvent(s.events[i], s);
@@ -4700,81 +4996,358 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     gloryPopEls = {};
   }
 
-  // ---------- SEASON 2 lobby panels: huddle transcript + ballot ----------
-  // Both `s.huddle`/`s.vote` are shell-record chrome the host decoded ONCE
-  // from the replay's verified `.shell` metadata and ships on a single lead
-  // frame (broadcast.nim buildStateJson, the same "send once" contract as
-  // `ach`/`beats`/`lead`) — cache the payload the first time it's seen and
-  // render its DOM once; every later frame only toggles visibility by phase.
-  var huddleCache = null, voteCache = null;
+  // ---------- SEASON 2 phase presentation + comms observability ----------
+  // Three record streams feed this section, all decoded host-side from the
+  // replay's verified .shell metadata and delivered ONCE (the same "send
+  // once, client caches" contract as ach/beats/lead):
+  //   s.huddle — the lobby chat transcript (record 0x13), on the lead frame;
+  //   s.vote   — the pre-match ballot (record 0x17), on the lead frame;
+  //   onCalls  — the accepted play-call "flash" records (record 0x10),
+  //              beside the Worker's 'loaded' message (static bundle only —
+  //              a live websocket frame never carries calls today).
+  // Presentation is a pure function of the CURRENT frame: the acts are
+  //   VOTE act    s.ph === 'lobby' and the ballot's own window still open,
+  //   HUDDLE act  s.ph === 'lobby' after the vote resolves,
+  //   ARENA       any other phase — chip/panel (narrow) or sidebar (wide).
+  // Record stamps are recording-wall ms on the same 24 Hz clock the tick
+  // counter runs, so "has this moment passed" is s.t * 1000/FPS against
+  // the record's ms (verified against live s2 replays; on a replay whose
+  // stamps cannot be reconciled the gameover frame still reveals all).
+  var huddleCache = null, voteCache = null, flashCache = null;
+  var voteStageEl = $('voteStage'), voteGridEl = $('voteGrid'), voteNoteEl = $('voteNote');
+  var huddleStageEl = $('huddleStage'), huddleFeedEl = $('huddleFeed');
   var huddlePanelEl = $('huddlePanel'), huddleLinesEl = $('huddleLines');
-  var votePanelEl = $('votePanel'), voteBodyEl = $('voteBody');
+  var huddleChipEl = $('huddleChip'), huddleUnreadEl = $('huddleUnread');
+  var commsFeedEl = $('commsFeed'), commsLiveEl = $('commsLive');
 
-  function renderHuddleLines(lines) {
-    if (!lines || !lines.length) {
-      return '<div class="huddle-empty">No huddle chatter recorded.</div>';
-    }
-    return lines.map(function (m) {
-      return '<div class="huddle-line"><span class="huddle-seat" style="--tc:' +
-        (teamCol(m.team) || 'var(--paper-dim)') + '">Seat ' + m.seat + '</span>' +
-        esc(m.text) + '</div>';
-    }).join('');
+  var byOrd = function (a, b) { return (a.ord || 0) - (b.ord || 0); };
+  var byMs = function (a, b) { return (a.ms || 0) - (b.ms || 0) || (a.ord || 0) - (b.ord || 0); };
+
+  // One merged, chronological COMMS timeline: chat + flash rows. Rebuilt
+  // whenever a source arrives (each arrives at most once per load).
+  var commsItems = [];
+  var COMMS_AVAILABLE = false;  // gates the wide dock: no comms, no column
+  function rebuildCommsItems() {
+    commsItems = [];
+    (huddleCache || []).forEach(function (m) {
+      commsItems.push({ kind: 'chat', ms: m.ms || 0, ord: m.ord || 0, seat: m.seat, team: m.team, text: m.text });
+    });
+    (flashCache || []).forEach(function (c) {
+      commsItems.push({ kind: 'flash', ms: c.ms || 0, ord: 0, seat: c.seat, epoch: c.epoch, plays: c.plays || [] });
+    });
+    // votearm lane: push ballot/play-vote entries here as new kinds when
+    // those records reach the feed contract.
+    commsItems.sort(byMs);
+    // The sources land SECONDS apart (flash records ride 'loaded'; the
+    // huddle/vote chrome waits for the wasm's full-replay scan — sendLead),
+    // so a container may already hold rows in the OLD ordering. Drop them;
+    // the next frame refills in merged order.
+    [commsFeedEl, huddleFeedEl, huddleLinesEl].forEach(function (el) {
+      if (el) el.innerHTML = '';
+    });
+    COMMS_AVAILABLE = commsItems.length > 0;
+    // The dock's very existence depends on comms being present, and both
+    // sources land after the first layout — re-run it off-frame.
+    requestAnimationFrame(function () { try { relayout(); } catch (e) {} });
   }
 
-  var VOTE_LETTERS = ['A', 'B', 'C', 'D'];
+  function ingestFlashCalls(calls) {
+    if (!calls || !calls.length || flashCache) return;
+    flashCache = calls.slice().sort(byMs);
+    rebuildCommsItems();
+    commsShownCount = -1;  // force a feed resync on the next frame
+    pushFlashCallsToCore();
+  }
 
-  function renderVoteBody(votes) {
-    if (!votes || !votes.length) {
-      return '<div class="vote-empty">No ballot recorded.</div>';
+  // Seat identity, scorebug rules: the wire's explicit roster mapping
+  // (roster[].s = join slot, roster[].team = the engine's own seat->team
+  // deal), never name-matching. Learned per frame — the roster fills as
+  // seats join during the lobby.
+  var seatInfo = {};
+  var seatIdxSig = '';
+  function learnSeats(s) {
+    var r = s.roster;
+    if (!r || !r.length) return;
+    var sig = '';
+    for (var i = 0; i < r.length; i++) {
+      var e = r[i];
+      if (!e || e.s === undefined) continue;
+      seatInfo[e.s] = {
+        team: e.team || null,
+        idx: i,
+        name: teamHeadline(e.pol != null ? e.pol : stripSeatSuffix(e.name))
+      };
+      sig += e.s + ':' + i + ',';
     }
-    // Fold each seat's LATEST cast before the resolution's own ordinal into
-    // one of four buckets — the same rule
-    // docs/designs/prematch-vote-wire-2026-08-31.md §4 defines for a
-    // replaying client to reconstruct the tally. (Abstaining seats with no
-    // cast at all are simply absent from every bucket here — this renders
-    // what was cast, not a reconstructed full-roster tally.)
-    var latestBySeat = {};
-    var resolved = null;
-    votes.forEach(function (v) {
-      if (v.k === 'cast') {
-        var prev = latestBySeat[v.seat];
-        if (!prev || v.ord > prev.ord) latestBySeat[v.seat] = v;
-      } else if (v.k === 'resolved') {
-        if (!resolved || v.ord > resolved.ord) resolved = v;
-      }
+    // In-arena pulse ring: the core anchors on the rig-head object pool,
+    // which is keyed by sim.players INDEX — the roster's array position.
+    // Whenever that mapping moves (joins during the lobby, a removal), hand
+    // the core a freshly enriched copy of the flash records.
+    if (sig !== seatIdxSig) {
+      seatIdxSig = sig;
+      pushFlashCallsToCore();
+    }
+  }
+  function pushFlashCallsToCore() {
+    if (!flashCache || !core || !core.setFlashCalls) return;
+    core.setFlashCalls(flashCache.map(function (c) {
+      var info = seatInfo[c.seat];
+      return { ms: c.ms, idx: info ? info.idx : -1 };
+    }));
+  }
+  function seatName(seat) {
+    var info = seatInfo[seat];
+    return (info && info.name && info.name !== '?') ? info.name : ('SEAT ' + seat);
+  }
+  function seatCol(seat, fallbackTeam) {
+    var info = seatInfo[seat];
+    return teamCol((info && info.team) || fallbackTeam) || 'var(--paper-dim)';
+  }
+
+  function commsEntryHtml(item) {
+    // THE feed renderer — room, corner panel and sidebar all draw from it.
+    // New observability kinds (votearm lane: ballot casts, play votes) slot
+    // in as new cases here.
+    if (item.kind === 'flash') {
+      return '<div class="hd-flash">' +
+        '<span class="swatch" style="--tc:' + seatCol(item.seat) + '"></span>' +
+        '<span class="fl-who">' + esc(seatName(item.seat)) + ' · S' + item.seat + '</span>' +
+        '<span>⚡ flashed</span>' +
+        '<span class="fl-plays">' + esc((item.plays || []).join(' · ') || 'play #' + item.epoch) + '</span>' +
+        '</div>';
+    }
+    return '<div class="hd-msg">' +
+      '<div class="hd-who" style="--tc:' + seatCol(item.seat, item.team) + '">' +
+      '<span class="swatch" style="--tc:' + seatCol(item.seat, item.team) + '"></span>' +
+      esc(seatName(item.seat)) + ' · S' + item.seat + '</div>' +
+      '<div class="hd-text">' + esc(item.text) + '</div>' +
+      '</div>';
+  }
+
+  // Reveal/read accounting. commsShownCount is what the visible containers
+  // hold; commsSeenCount is the viewer's high-water mark (drives the chip's
+  // unread badge). Scrubbing back truncates shown but never seen.
+  var commsShownCount = -1;
+  var commsSeenCount = 0;
+  var lastUnread = 0;
+  var commsPinned = true;   // sidebar autoscroll pinned to newest
+  var huddleOpen = null;    // null = follow the acts; true/false = user override
+  var lastPhSeen = '';
+
+  function revealedCount(nowMs, ph) {
+    if (ph === 'gameover') return commsItems.length;  // everything happened
+    var n = 0;
+    for (var i = 0; i < commsItems.length; i++) {
+      if (commsItems[i].ms <= nowMs) n++; else break;
+    }
+    return n;
+  }
+
+  function syncFeed(el, count, autoscroll) {
+    if (!el) return;
+    var have = el.childElementCount;
+    if (have > count) { el.innerHTML = ''; have = 0; }  // scrubbed backwards
+    if (have === count) return;
+    var html = '';
+    for (var i = have; i < count; i++) html += commsEntryHtml(commsItems[i]);
+    el.insertAdjacentHTML('beforeend', html);
+    if (autoscroll) el.scrollTop = el.scrollHeight;
+  }
+
+  // Sidebar scroll pinning: stay glued to newest unless the user scrolled
+  // up; then offer the jump-to-live chip instead of fighting them.
+  if (commsFeedEl) {
+    commsFeedEl.addEventListener('scroll', function () {
+      commsPinned = commsFeedEl.scrollTop + commsFeedEl.clientHeight >=
+        commsFeedEl.scrollHeight - 24;
+      if (commsPinned && commsLiveEl) commsLiveEl.classList.remove('show');
     });
-    var casts = Object.keys(latestBySeat).map(function (seat) { return latestBySeat[seat]; })
-      .sort(function (a, b) { return a.seat - b.seat; });
+  }
+  if (commsLiveEl) {
+    commsLiveEl.addEventListener('click', function () {
+      commsPinned = true;
+      commsLiveEl.classList.remove('show');
+      if (commsFeedEl) commsFeedEl.scrollTop = commsFeedEl.scrollHeight;
+    });
+  }
+
+  // ---- MAP VOTE act ----
+  var VOTE_LETTERS = ['A', 'B', 'C', 'D'];
+  var VOTE_LINGER_MS = 2600;  // hold the resolved winner before the huddle
+  var voteBuilt = false;
+  var voteRenderKey = '';
+
+  function buildVoteGrid() {
+    if (voteBuilt || !voteGridEl) return;
+    voteBuilt = true;
     var html = '';
     VOTE_LETTERS.forEach(function (letter, i) {
-      var isWinner = !!(resolved && resolved.final === i);
-      var here = casts.filter(function (v) { return v.opt === i; });
-      var dots = here.map(function (v) {
-        return '<span class="vote-dot" style="--tc:' + (teamCol(v.team) || 'var(--paper-dim)') +
-          '" title="Seat ' + v.seat + ' (' + v.team + ')"></span>';
-      }).join('');
-      html += '<div class="vote-opt' + (isWinner ? ' winner' : '') + '">' +
-        '<span class="vo-letter">' + letter + '</span>' +
-        '<span class="vo-dots">' + dots + '</span>' +
-        '<span class="vo-count">' + here.length + '</span>' +
-        (isWinner ? '<span class="vo-crown">WINNER</span>' : '') +
+      // Cards, not thumbnails: the ballot record carries option indices
+      // only — no map spec rides the replay (see BallotRecord). D is the
+      // design's "random" delegate over A/B/C.
+      html += '<div class="vq" id="vq-' + i + '">' +
+        '<span class="vq-letter">' + letter + '</span>' +
+        '<span class="vq-name">' + (i === 3 ? 'Random draw' : 'Option ' + letter) + '</span>' +
+        '<span class="vq-flag" id="vq-flag-' + i + '"></span>' +
+        '<div class="vq-chips" id="vq-chips-' + i + '"></div>' +
         '</div>';
     });
-    return html;
+    voteGridEl.innerHTML = html;
   }
 
-  function renderLobbyPanels(s) {
+  function voteResolved() {
+    var r = null;
+    (voteCache || []).forEach(function (v) {
+      if (v.k === 'resolved' && (!r || v.ord > r.ord)) r = v;
+    });
+    return r;
+  }
+  function voteEndMs() {
+    if (!voteCache || !voteCache.length) return -1;
+    var r = voteResolved();
+    var last = r ? r.ms : voteCache[voteCache.length - 1].ms;
+    return (last || 0) + VOTE_LINGER_MS;
+  }
+
+  function renderVoteStage(nowMs) {
+    buildVoteGrid();
+    var resolved = voteResolved();
+    var showResolved = !!(resolved && (resolved.ms || 0) <= nowMs);
+    // Latest cast per seat among the casts whose moment has passed — the
+    // same replaying-client tally rule the wire design states.
+    var latestBySeat = {};
+    var castCount = 0;
+    (voteCache || []).forEach(function (v) {
+      if (v.k !== 'cast' || (v.ms || 0) > nowMs) return;
+      var prev = latestBySeat[v.seat];
+      if (!prev || v.ord > prev.ord) latestBySeat[v.seat] = v;
+    });
+    var key = Object.keys(latestBySeat).map(function (seat) {
+      return seat + ':' + latestBySeat[seat].opt;
+    }).sort().join(',') + '|' + showResolved;
+    if (key === voteRenderKey) return;
+    voteRenderKey = key;
+    var buckets = [[], [], [], []];
+    Object.keys(latestBySeat).forEach(function (seat) {
+      var v = latestBySeat[seat];
+      castCount++;
+      if (v.opt >= 0 && v.opt <= 3) buckets[v.opt].push(v);
+    });
+    VOTE_LETTERS.forEach(function (letter, i) {
+      var cell = $('vq-' + i), chips = $('vq-chips-' + i), flag = $('vq-flag-' + i);
+      if (!cell) return;
+      buckets[i].sort(function (a, b) { return a.seat - b.seat; });
+      if (chips) {
+        chips.innerHTML = buckets[i].map(function (v) {
+          return '<span class="vq-chip"><span class="swatch" style="--tc:' +
+            seatCol(v.seat, v.team) + '"></span>' + esc(seatName(v.seat)) + '</span>';
+        }).join('');
+      }
+      var isWinner = showResolved && resolved.final === i;
+      var isDelegate = showResolved && i === 3 && resolved.cat === 3;
+      cell.classList.toggle('winner', isWinner);
+      if (flag) {
+        flag.textContent = isWinner ? 'WINNER' :
+          (isDelegate ? '→ drew ' + VOTE_LETTERS[resolved.final] : '');
+      }
+    });
+    if (voteNoteEl) {
+      voteNoteEl.textContent = showResolved
+        ? ('Option ' + VOTE_LETTERS[resolved.final] + ' takes it' +
+           (resolved.tie ? ' — by tie-break draw' : (resolved.cat === 3 ? ' — by random draw' : '')))
+        : (castCount ? castCount + ' vote' + (castCount === 1 ? '' : 's') + ' in' :
+           'The lobby is calling the next arena');
+    }
+  }
+
+  // ---- user controls: close/collapse/expand ----
+  function repaintPhases() { if (lastState) renderPhaseOverlays(lastState); }
+  if (huddleChipEl) huddleChipEl.addEventListener('click', function () {
+    // In the lobby WITH a huddle transcript, reopening returns to the room
+    // act; anywhere else (arena, or a flash-only lobby) it expands the
+    // corner panel.
+    huddleOpen = (lastState && lastState.ph === 'lobby' && huddleCache) ? null : true;
+    repaintPhases();
+  });
+  var huddleHeadEl = $('huddleHead');
+  if (huddleHeadEl) huddleHeadEl.addEventListener('click', function () {
+    huddleOpen = false; repaintPhases();
+  });
+  var huddleStageCloseEl = $('huddleStageClose');
+  if (huddleStageCloseEl) huddleStageCloseEl.addEventListener('click', function () {
+    huddleOpen = false; repaintPhases();
+  });
+
+  function renderPhaseOverlays(s) {
     if (s.huddle && !huddleCache) {
-      huddleCache = s.huddle;
-      if (huddleLinesEl) huddleLinesEl.innerHTML = renderHuddleLines(huddleCache);
+      huddleCache = s.huddle.slice().sort(byOrd);
+      rebuildCommsItems();
+      commsShownCount = -1;
     }
-    if (s.vote && !voteCache) {
-      voteCache = s.vote;
-      if (voteBodyEl) voteBodyEl.innerHTML = renderVoteBody(voteCache);
+    if (s.vote && !voteCache) voteCache = s.vote.slice().sort(byOrd);
+    learnSeats(s);
+
+    var inLobby = s.ph === 'lobby';
+    var nowMs = (s.t || 0) * 1000 / FPS;
+    var wide = document.body.classList.contains('commswide');
+
+    // Auto-collapse at the lobby -> arena boundary: the huddle act is over,
+    // the chip (narrow) or the sidebar (wide) carries comms from here — and
+    // a user 'close' from the lobby room resets so the chip can appear.
+    if (!inLobby && lastPhSeen === 'lobby') huddleOpen = null;
+    lastPhSeen = s.ph;
+
+    // Acts.
+    var voteAct = inLobby && !!voteCache && nowMs <= voteEndMs();
+    var huddleAct = inLobby && !voteAct && !!huddleCache;
+    document.body.classList.toggle('act-huddle', huddleAct);
+
+    if (voteStageEl) voteStageEl.classList.toggle('show', voteAct);
+    if (voteAct) renderVoteStage(nowMs);
+
+    // Comms reveal + containers.
+    var count = revealedCount(nowMs, s.ph);
+    var roomOpen = !wide && huddleAct && huddleOpen !== false;
+    var panelOpen = !wide && !voteAct && !!commsItems.length && huddleOpen === true && !roomOpen;
+    var chipShow = !wide && !voteAct && !!commsItems.length && !roomOpen && !panelOpen;
+
+    if (huddleStageEl) huddleStageEl.classList.toggle('show', roomOpen);
+    if (huddlePanelEl) huddlePanelEl.classList.toggle('show', panelOpen);
+    if (huddleChipEl) huddleChipEl.classList.toggle('show', chipShow);
+
+    if (commsShownCount !== count) {
+      if (wide) {
+        syncFeed(commsFeedEl, count, commsPinned);
+        if (!commsPinned && commsLiveEl) commsLiveEl.classList.add('show');
+      } else if (commsFeedEl && commsFeedEl.childElementCount) {
+        commsFeedEl.innerHTML = '';  // left wide mode: drop the hidden copy
+      }
+      if (roomOpen) syncFeed(huddleFeedEl, count, true);
+      else if (huddleFeedEl && !roomOpen && huddleFeedEl.childElementCount > count) {
+        huddleFeedEl.innerHTML = '';
+      }
+      if (panelOpen) syncFeed(huddleLinesEl, count, true);
+      commsShownCount = count;
+    } else {
+      // Same count, but a container may have just opened empty.
+      if (roomOpen && huddleFeedEl && huddleFeedEl.childElementCount !== count) syncFeed(huddleFeedEl, count, true);
+      if (panelOpen && huddleLinesEl && huddleLinesEl.childElementCount !== count) syncFeed(huddleLinesEl, count, true);
+      if (wide && commsFeedEl && commsFeedEl.childElementCount !== count) syncFeed(commsFeedEl, count, commsPinned);
     }
-    var showLobby = s.ph === 'lobby';
-    if (huddlePanelEl) huddlePanelEl.classList.toggle('show', showLobby && !!huddleCache);
-    if (votePanelEl) votePanelEl.classList.toggle('show', showLobby && !!voteCache);
+
+    // Read/unread + the chip's pulse on fresh arrivals.
+    if (wide || roomOpen || panelOpen) commsSeenCount = Math.max(commsSeenCount, count);
+    var unread = Math.max(0, count - commsSeenCount);
+    if (huddleUnreadEl) {
+      huddleUnreadEl.textContent = unread > 9 ? '9+' : String(unread);
+      huddleUnreadEl.classList.toggle('on', unread > 0);
+    }
+    if (unread > lastUnread && chipShow && huddleChipEl) {
+      huddleChipEl.classList.remove('pulse');
+      void huddleChipEl.offsetWidth;  // restart the animation
+      huddleChipEl.classList.add('pulse');
+    }
+    lastUnread = unread;
   }
 
   // (scrubber beat markers — markBeat / killMarkerTeam / renderBeatMarkers —
@@ -5763,6 +6336,16 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       root.style.setProperty('--band', band + 'px');
       if (Math.abs(topBand - prevTop) < 0.5 && Math.abs(band - prevBand) < 0.5) break;
     }
+    // COMMS-WIDE layout (owner spec): when the fitted stage would leave a
+    // real letterbox column (>= 280 free px), dock the stage RIGHT and let
+    // the comms sidebar reclaim the left column — nothing floats over the
+    // arena in this mode. Narrow boxes (and the embed shell, which owns its
+    // own wall chrome around the iframe) keep the centered stage + the
+    // chip/panel presentation. The fitted stage SIZE is untouched either
+    // way — this only decides where the letterbox space goes.
+    var commsWide = !EMBED && COMMS_AVAILABLE && (boxW - stageW) >= 280;
+    document.body.classList.toggle('commswide', commsWide);
+    if (lastState) renderPhaseOverlays(lastState);
     core.setViewportFit();
   }
   var ro = new ResizeObserver(relayout);

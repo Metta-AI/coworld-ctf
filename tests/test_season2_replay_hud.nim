@@ -74,33 +74,68 @@ suite "SEASON 2 replay viewer HUD: glory":
     checkInBoth "o.achievements || []"
     checkInBoth "ACH_TOTAL"
 
-suite "SEASON 2 replay viewer HUD: huddle + vote":
-  test "lobby panels exist, are wired to the send-once shell chrome, and degrade to nothing":
+suite "SEASON 2 replay viewer HUD: phase presentation + comms":
+  test "phase overlays exist, are wired per-frame, and degrade to nothing":
+    # The three-act presentation (owner spec): MAP VOTE stage, HUDDLE stage,
+    # then the arena with the collapsed huddle chip (narrow) or the comms
+    # sidebar (wide). All driven from renderPhaseOverlays on the same
+    # per-frame pipeline the scorebug uses.
+    checkInBoth "id=\"voteStage\""
+    checkInBoth "id=\"huddleStage\""
     checkInBoth "id=\"huddlePanel\""
-    checkInBoth "id=\"votePanel\""
-    checkInBoth "function renderLobbyPanels(s)"
-    checkInBoth "renderLobbyPanels(s);"
-    # Cached on first sight (the huddle/vote chrome ships once, like ach/
-    # beats/lead) and only ever SHOWN during the lobby phase — never a
-    # full-match takeover.
+    checkInBoth "id=\"huddleChip\""
+    checkInBoth "id=\"commsdock\""
+    checkInBoth "function renderPhaseOverlays(s)"
+    checkInBoth "renderPhaseOverlays(s);"
+    # Acts only ever engage during the lobby phase — never a full-match
+    # takeover — and the collapse boundary is the lobby -> arena flip.
     checkInBoth "s.ph === 'lobby'"
-    # The degrade-to-nothing path: absent s.huddle/s.vote (no shell records
-    # on this replay) never toggles the panel visible — there is no
-    # unconditional ".show" anywhere for either panel.
+    # The degrade-to-nothing path: absent s.huddle/s.vote/onCalls (no shell
+    # records on this replay) no overlay is ever toggled visible — there is
+    # no unconditional ".show" for any of them.
     for page in bothPages():
       checkpoint(page.label & ": huddlePanel must not be unconditionally shown")
       check not page.text.contains("$('huddlePanel').classList.add('show')")
-      checkpoint(page.label & ": votePanel must not be unconditionally shown")
-      check not page.text.contains("$('votePanel').classList.add('show')")
+      checkpoint(page.label & ": voteStage must not be unconditionally shown")
+      check not page.text.contains("$('voteStage').classList.add('show')")
 
-  test "vote panel renders the A-D ballot and highlights the resolved winner":
+  test "map-vote stage renders the A-D ballot quadrants and the resolved winner":
     checkInBoth "VOTE_LETTERS = ['A', 'B', 'C', 'D']"
     checkInBoth "resolved.final === i"
-    checkInBoth "class=\"vo-crown\""
+    checkInBoth "classList.toggle('winner'"
+    # Cast chips reveal by the record's own ms stamp against the playhead —
+    # a scrub back into the lobby replays the sequence.
+    checkInBoth "(v.ms || 0) > nowMs"
 
-  test "huddle panel renders seats by team color and escapes chat text":
-    checkInBoth "class=\"huddle-seat\""
+  test "comms feed renders chat + flash rows by seat palette and escapes text":
+    # One renderer feeds the huddle room, the corner panel and the wide
+    # sidebar; flash rows (play-call record 0x10) are visually distinct.
+    checkInBoth "function commsEntryHtml(item)"
+    checkInBoth "class=\"hd-flash\""
+    checkInBoth "seatCol(item.seat"
     # esc() is the shared chrome_common.js HTML-escape helper — chat text
     # must never be interpolated raw (an unescaped '<' from a policy's
     # message would otherwise inject markup into the transcript).
-    checkInBoth "esc(m.text)"
+    checkInBoth "esc(item.text)"
+
+  test "the huddle collapses to a chip with an unread badge and reopens":
+    checkInBoth "id=\"huddleUnread\""
+    checkInBoth "chip-pulse"
+    # Auto-collapse at the lobby -> arena boundary, user reopen any time.
+    checkInBoth "huddleOpen = null"
+    checkInBoth "huddleOpen = false"
+
+  test "flash records ride the loaded channel and anchor the in-arena pulse":
+    # Page side: the onCalls hook ingests the play-call records and enriches
+    # them with each seat's roster index for the core's pulse ring.
+    checkInBoth "onCalls: function (calls) { ingestFlashCalls(calls); }"
+    checkInBoth "function pushFlashCallsToCore()"
+    # Worker/core side (shipped beside the page in the bundle): the worker
+    # forwards calls from the wasm export, and the core draws the ring on
+    # the rig-head anchor. These live in their own files, not the page.
+    let workerText = readFile(GameDir / "replay-viewer" / "static_replay_worker.js")
+    check workerText.contains("_ctf_calls_len")
+    check workerText.contains("'flashCalls'")
+    let coreText = readFile(GameDir / "client" / "broadcast_core.js")
+    check coreText.contains("function drawFlashPulses(targetCtx)")
+    check coreText.contains("RIG_HEAD_OBJECT_BASE")
