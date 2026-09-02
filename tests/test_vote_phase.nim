@@ -26,19 +26,29 @@
 ## The central darkness claim this suite has to prove, not just assert:
 ## `voteTicks` defaults to 0 REGARDLESS of hasPlaySeat — unlike
 ## lobbyChatTicks, whose darkness relies ENTIRELY on the hasPlaySeat gate
-## because huddle-v1 (#321) landed the classifier arms too. This lane does
-## NOT land 0xA4/0xB3's classifier arms, so a live client can never cast —
-## if voteTicks defaulted nonzero the way lobbyChatTicks does, every
-## existing play-seat episode (including every test_lobby_chat.nim case)
-## would gain an un-castable, un-skippable wait before chat could ever
-## start. The first suite below proves this explicitly.
+## because huddle-v1 (#321) landed the classifier arms too. If voteTicks
+## defaulted nonzero the way lobbyChatTicks does, every existing play-seat
+## episode (including every test_lobby_chat.nim case) would gain an
+## un-skippable wait before chat could ever start. The first suite below
+## proves this explicitly.
+##
+## MAP VOTE UPDATE (this lane, post-v1): the historical note above about
+## "does NOT land the classifier" is superseded for 0xA4 ONLY —
+## classifyPlaySeatMessage (src/shell/dispatch.nim) now admits 0xA4 via
+## the STANDALONE vote_packets codec (packets.nim's own switch remains the
+## packets lane's work, and 0xB3 VoteState outbound remains unlanded).
+## Darkness therefore rests on voteTicks == 0, exactly the default the
+## first suite pins. The suites at the bottom cover the voteSeats REKEY
+## (stable-slot keying across roster compaction), the 4-map brpool ballot
+## (config.voteMapSpecs), the winner-map install, and the recorded-replay
+## round trip.
 
 import
   helpers,
-  std/[unittest],
+  std/[json, os, unittest],
   bitworld/spriteprotocol,
-  ctf/[replays, sim],
-  shell/[replay_records, vote_packets]
+  ctf/[br_map_pool, replay_runtime, replays, sim],
+  shell/[replay_records, seats, vote_packets]
 
 proc voteConfig(
   voteTicks: int,
@@ -540,3 +550,265 @@ suite "vote phase: ballot candidate generation (ctf/ballot.nim)":
     var sim = initCtfForTest(voteConfig(voteTicks = 10, seed = 555))
     discard sim.addPlayer("red0")
     check sim.ballotCandidatesForEpisode() == defaultBallotCandidates(555)
+
+# ───────────────────────────────────────────────────────────────────────────
+# MAP VOTE (S2): the rekey fix, the 4-map ballot, the winner install, and
+# the recorded-replay round trip. Everything below ships DARK: voteTicks
+# defaults to 0 and voteMapSpecs is only ever populated by an armed brpool
+# parse — the darkness suites at the top of this file still pin that.
+# ───────────────────────────────────────────────────────────────────────────
+
+template withGameDir(body: untyped) =
+  ## Pins cwd to the game dir (data/ paths) for pool/config access, the way
+  ## helpers.initCtfForTest does for sim construction.
+  let previousDir = getCurrentDir()
+  setCurrentDir(GameDir)
+  try:
+    body
+  finally:
+    setCurrentDir(previousDir)
+
+proc specName(specJson: string): string =
+  parseJson(specJson)["name"].getStr()
+
+suite "vote phase: REKEY — accepted casts survive roster compaction":
+  ## THE BUG (accepted slot-index rekey, sentinel-wedge class): voteSeats
+  ## used to be keyed by position in `sim.players`, a COMPACTING array —
+  ## roster.removePlayerAt deletes the row and shifts every later player
+  ## down one. One mid-vote disconnect then re-attributed every later
+  ## seat's accepted ballot to the wrong player and orphaned the removed
+  ## seat's own cast. The fix keys voteSeats by the seat's stable
+  ## configured slot (Player.joinOrder).
+  test "mid-vote disconnect: every remaining seat keeps ITS OWN ballot, and the leaver's accepted cast stands":
+    var sim = initCtfForTest(voteConfig(voteTicks = 200, numPlaySeats = 4,
+      minPlayers = 4))
+    sim.addPlayers(4)
+    sim.step(NoInput, NoInput)          # roster sufficient -> voting opens
+    check sim.inVoting()
+    # Seats 0..3 declare options 0,2,2,1 (by players index == slot today).
+    check sim.applyBallotCast(0, 1'u64, 0'u8).ok
+    check sim.applyBallotCast(1, 1'u64, 2'u8).ok
+    check sim.applyBallotCast(2, 1'u64, 2'u8).ok
+    # Seat 3 stays silent for now. Seat 0's player disconnects mid-vote:
+    # the players array COMPACTS (this is the exact trigger).
+    sim.removePlayerAt(0)
+    check sim.players.len == 3
+    check sim.players[0].joinOrder == 1  # position 0 now holds SLOT 1
+    # Slot-keyed state survived: slot 1's declared vote is still option 2,
+    # not slot 0's option 0 (the old positional read returned exactly that
+    # mis-attribution).
+    check sim.voteSeats[0].hasCastVote and sim.voteSeats[0].option == 0'u8
+    check sim.voteSeats[1].hasCastVote and sim.voteSeats[1].option == 2'u8
+    check sim.voteSeats[2].hasCastVote and sim.voteSeats[2].option == 2'u8
+    check not sim.voteSeats[3].hasCastVote
+    # A post-compaction re-cast through the COMPACTED players index lands
+    # on the caster's own slot: players[0] is the seat with joinOrder 1.
+    for _ in 0 ..< BallotCastMinSpacingTicks:
+      sim.step(NoInput, NoInput)      # respect the per-seat cast spacing
+    let recast = sim.applyBallotCast(0, 2'u64, 3'u8)
+    check recast.ok
+    check sim.voteSeats[1].option == 3'u8
+    check sim.voteSeats[0].option == 0'u8   # slot 0's ballot untouched
+    # Seat 3 (players index 2 after compaction) casts; with all four slots
+    # on record the phase early-resolves on the next step, counting each
+    # slot's own option: {0:1, 2:1, 3:1, 1:1} + no abstentions.
+    check sim.applyBallotCast(2, 1'u64, 1'u8).ok
+    sim.step(NoInput, NoInput)
+    check sim.voteResolved
+    # All four options got exactly one vote -> four-way tie -> the seed
+    # tie-break draw ran (the old positional tally would have found an
+    # implicit-D abstention for "empty" slot 0 instead).
+    check sim.voteTieBreakDrawn
+
+  test "a cast-then-disconnected seat no longer blocks early resolution (its ballot is on the record)":
+    var sim = initCtfForTest(voteConfig(voteTicks = 200, numPlaySeats = 2,
+      minPlayers = 2))
+    sim.addPlayers(2)
+    sim.step(NoInput, NoInput)
+    check sim.inVoting()
+    check sim.applyBallotCast(0, 1'u64, 1'u8).ok
+    sim.removePlayerAt(0)               # the voter leaves
+    check sim.applyBallotCast(0, 1'u64, 1'u8).ok  # seat 1 (now index 0)
+    sim.step(NoInput, NoInput)
+    check sim.voteResolved              # both slots on record -> early exit
+    check sim.voteFinalOption == 1'u8
+
+suite "map vote: config arming (sim_config.update) and darkness":
+  test "brpool + voteTicks pins 4 DISTINCT candidates; candidate 0 IS the #355 pick":
+    withGameDir:
+      var config = defaultGameConfig()
+      config.update($ %*{"mapPath": "brpool", "voteTicks": 240, "teams": 8,
+        "seed": 77001, "slots": [{"control": "play"}]})
+      check config.voteMapSpecs.len == 4
+      check config.mapSpec == config.voteMapSpecs[0]
+      check config.voteMapSpecs[0] == pickBrS2SpecJson(77001)
+      var names: seq[string]
+      for spec in config.voteMapSpecs:
+        names.add specName(spec)
+      for i in 0 ..< 4:
+        for j in i + 1 ..< 4:
+          check names[i] != names[j]
+      # Deterministic: the same seed re-draws the identical ballot.
+      check config.voteMapSpecs == pickBrS2VoteBallotSpecJsons(77001)
+
+  test "DARK: the same brpool config withOUT voteTicks parses byte-identical to #355":
+    withGameDir:
+      var armed = defaultGameConfig()
+      armed.update($ %*{"mapPath": "brpool", "seed": 77001, "teams": 8,
+        "slots": [{"control": "play"}]})
+      check armed.voteMapSpecs.len == 0
+      check armed.mapSpec == pickBrS2SpecJson(77001)
+      # And the echoed replay-header config carries no trace of the field.
+      check not parseJson(armed.configJson()).hasKey("voteMapSpecs")
+      check not parseJson(armed.configJson()).hasKey("voteTicks")
+
+  test "the recorded header round-trips the ballot verbatim (no re-draw at playback parse)":
+    withGameDir:
+      var config = defaultGameConfig()
+      config.update($ %*{"mapPath": "brpool", "voteTicks": 240, "teams": 8,
+        "seed": 424242, "slots": [{"control": "play"}]})
+      var reparsed = defaultGameConfig()
+      reparsed.update(config.configJson())
+      check reparsed.voteMapSpecs == config.voteMapSpecs
+      check reparsed.mapSpec == config.mapSpec
+
+proc mapVoteSim(voteTicks: int, numPlaySeats: int, seed: int): SimServer =
+  ## A play-seat sim whose ballot is the 4-map brpool draw — built through
+  ## the REAL parse path (update), then initialized from the game dir.
+  var config = defaultGameConfig()
+  withGameDir:
+    var slots: seq[JsonNode]
+    for _ in 0 ..< numPlaySeats:
+      slots.add %*{"control": "play"}
+    config.update($ %*{"mapPath": "brpool", "voteTicks": voteTicks,
+      "teams": 8, "seed": seed, "minPlayers": numPlaySeats,
+      "startWaitTicks": 0, "lobbyChatTicks": 0, "slots": slots})
+  result = initCtfForTest(config)
+
+suite "map vote: resolution installs the winner map":
+  test "HAPPY PATH: 4 seats vote, plurality winner's map is INSTALLED at resolution":
+    var sim = mapVoteSim(voteTicks = 200, numPlaySeats = 4, seed = 90210)
+    let names = block:
+      var acc: seq[string]
+      for spec in sim.config.voteMapSpecs:
+        acc.add specName(spec)
+      acc
+    check sim.gameMap.name == names[0]  # candidate A installed at parse
+    sim.addPlayers(4)
+    sim.step(NoInput, NoInput)
+    check sim.inVoting()
+    check sim.applyBallotCast(0, 1'u64, 2'u8).ok
+    check sim.applyBallotCast(1, 1'u64, 2'u8).ok
+    check sim.applyBallotCast(2, 1'u64, 2'u8).ok
+    check sim.applyBallotCast(3, 1'u64, 1'u8).ok
+    sim.step(NoInput, NoInput)          # all seats cast -> early resolution
+    check sim.voteResolved
+    check sim.voteFinalOption == 2'u8
+    check not sim.voteTieBreakDrawn
+    # THE INSTALL: the episode map is now candidate C, geometry and all,
+    # and the pinned mapSpec follows so every downstream consumer agrees.
+    check sim.gameMap.name == names[2]
+    check specName(sim.config.mapSpec) == names[2]
+    # Every player stands on walkable ground of the NEW map.
+    for player in sim.players:
+      check sim.walkMask[mapIndex(player.x, player.y)]
+    # The episode proceeds into the huddle/countdown lobby flow untouched.
+    var guard = 0
+    while sim.phase == Lobby and guard < 3000:
+      sim.step(NoInput, NoInput)
+      inc guard
+    check sim.phase == Playing
+
+  test "NO-VOTES FALLBACK: the window expires silent -> candidate 0, no draw, map untouched":
+    var sim = mapVoteSim(voteTicks = 12, numPlaySeats = 2, seed = 90210)
+    let nameA = specName(sim.config.voteMapSpecs[0])
+    sim.addPlayers(2)
+    sim.runVotingToResolution(40)
+    check sim.voteResolved
+    check sim.voteFinalOption == 0'u8
+    check not sim.voteTieBreakDrawn
+    check sim.gameMap.name == nameA
+    check specName(sim.config.mapSpec) == nameA
+
+  test "a lone cast beats silence (no implicit-D outvoting the one real ballot)":
+    var sim = mapVoteSim(voteTicks = 12, numPlaySeats = 4, seed = 90210)
+    sim.addPlayers(4)
+    sim.step(NoInput, NoInput)
+    check sim.inVoting()
+    check sim.applyBallotCast(1, 1'u64, 3'u8).ok
+    sim.runVotingToResolution(40)
+    check sim.voteResolved
+    check sim.voteFinalOption == 3'u8
+    check sim.gameMap.name == specName(sim.config.voteMapSpecs[3])
+
+suite "map vote: the recorded replay round trip (0x17 casts + resolution reproduce)":
+  test "records ride the replay; playback re-applies them, re-resolves, and loads the WINNER map with a clean hash chain":
+    var sim = mapVoteSim(voteTicks = 200, numPlaySeats = 4, seed = 31337)
+    let expectedWinner = specName(sim.config.voteMapSpecs[1])
+    let replayPath = getTempDir() / "mapvote_roundtrip.bitreplay"
+    var writer = openReplayWriter(
+      replayPath, sim.config.configJson(), CtfReplaySpec,
+      shellEpisode = sim.config.isPlaySeatEpisode(),
+      shellSeatCount = sim.config.slots.len)
+    # Mirror the live server's per-tick protocol: joins at their tick, the
+    # pre-step ballot drain stamping fresh accepts at tickTime(tickCount),
+    # the kind-1 record once resolution has run, and the post-step tick
+    # hash. (server.nim: drainProductionBallotCasts + writeHash.)
+    for i in 0 ..< 4:
+      discard sim.addPlayer("policy" & $i)
+      writer.writeJoin(tickTime(sim.tickCount), i, "policy" & $i, -1, "")
+      writer.lastMasks.add(0)
+    var resolutionRecorded = false
+    var castsPlanned = @[
+      (tick: 2, seat: 0, option: 1'u8),
+      (tick: 2, seat: 1, option: 1'u8),
+      (tick: 8, seat: 2, option: 3'u8),
+      (tick: 11, seat: 3, option: 1'u8)]
+    var guard = 0
+    while sim.phase == Lobby and guard < 600:
+      # pre-step drain, exactly like the live block
+      for planned in castsPlanned:
+        if planned.tick == sim.tickCount and sim.inVoting():
+          let outcome = sim.applyBallotCast(planned.seat, 1'u64, planned.option)
+          check outcome.ok and outcome.fresh
+          writer.writeBallot(BallotRecord(kind: brkCast,
+            replayTimeMs: tickTime(sim.tickCount), ordinal: outcome.ordinal,
+            seat: uint8(planned.seat),
+            team: uint8(ord(sim.teamForSlot(planned.seat))),
+            option: planned.option))
+      if sim.voteResolved and not resolutionRecorded:
+        resolutionRecorded = true
+        writer.writeBallot(BallotRecord(kind: brkResolved,
+          replayTimeMs: tickTime(sim.tickCount),
+          ordinal: sim.voteOrdinal + 1, category: sim.voteCategory,
+          tieBreakDrawn: (if sim.voteTieBreakDrawn: 1'u8 else: 0'u8),
+          finalOption: sim.voteFinalOption))
+      sim.step(NoInput, NoInput)
+      writer.writeHash(uint32(sim.tickCount), sim.gameHash())
+      inc guard
+    check sim.phase == Playing
+    check resolutionRecorded
+    check sim.gameMap.name == expectedWinner
+    for _ in 0 ..< 20:                  # a slice of real play on the winner
+      sim.step(NoInput, NoInput)
+      writer.writeHash(uint32(sim.tickCount), sim.gameHash())
+    writer.closeReplayWriter()
+
+    # LOAD + PLAYBACK: the recorded truth alone reproduces the vote.
+    withGameDir:
+      let data = loadCtfReplay(replayPath)
+      check data.shell.ballots.len == 5
+      var casts = 0
+      for record in data.shell.ballots:
+        if record.kind == brkCast:
+          inc casts
+        else:
+          check record.finalOption == 1'u8
+      check casts == 4
+      var runtime = initReplayRuntime(data, mismatchQuit = false)
+      check runtime.sim.phase == Playing
+      check runtime.sim.voteResolved
+      check runtime.sim.voteFinalOption == 1'u8
+      check runtime.sim.gameMap.name == expectedWinner
+      check not runtime.player.hashValidationFailed
+    removeFile(replayPath)

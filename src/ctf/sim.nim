@@ -5877,50 +5877,40 @@ proc updateAnimatedDiamonds*(sim: var SimServer) =
   if sim.applyDiamondGeometry(sim.tickCount):
     sim.pushPlayersOutOfDiamonds()
 
-proc initSimServer*(config: GameConfig): SimServer =
-  result.config = config
-  result.rng = initRand(config.seed)
-  loadPalette(clientDataDir() / "pallete.png")
-  result.asciiSprites = readTiny5Font()
-  result.shoutFont = loadShoutFont()
-
-  let sheet = loadSpriteSheet()
-  result.crewSprites = loadCrewSprites()
-  # Reuse the former task-icon cell as the flag sprite.
-  result.flagSprite = spriteFromImage(
-    sheet.subImage(SpriteSize * 4, 0, SpriteSize, SpriteSize)
-  )
-
-  result.gameMap = loadCtfMap(config)
-  result.rooms = result.gameMap.rooms
-
-  let (mapImage, walkImage, wallImage) = loadMapLayers(result.gameMap)
-  result.mapPixels = newSeq[uint8](MapWidth * MapHeight)
-  result.mapRgba = newSeq[uint8](MapWidth * MapHeight * 4)
-  result.darkBgPixels = loadDarkBgPixels()
+proc buildMapBakes*(sim: var SimServer) =
+  ## (Re)derives every static per-map bake from `sim.gameMap`: the render
+  ## pixels, the walk/wall collision masks, the glass-aware fog occlusion
+  ## grid. Exactly the fields replays.nim's ReplayStaticBakes strips from
+  ## keyframes (minus the map-independent darkBgPixels), factored out of
+  ## initSimServer so the MAP VOTE's winner install (applyVoteWinnerMap
+  ## below) and a cross-map keyframe restore can rebuild them for a map
+  ## that changed mid-episode.
+  let (mapImage, walkImage, wallImage) = loadMapLayers(sim.gameMap)
+  sim.mapPixels = newSeq[uint8](MapWidth * MapHeight)
+  sim.mapRgba = newSeq[uint8](MapWidth * MapHeight * 4)
   for y in 0 ..< MapHeight:
     for x in 0 ..< MapWidth:
       let
         pixel = mapImage[x, y]
         index = mapIndex(x, y)
         offset = index * 4
-      result.mapPixels[index] = nearestPaletteIndex(pixel)
-      result.mapRgba[offset] = pixel.r
-      result.mapRgba[offset + 1] = pixel.g
-      result.mapRgba[offset + 2] = pixel.b
-      result.mapRgba[offset + 3] = pixel.a
+      sim.mapPixels[index] = nearestPaletteIndex(pixel)
+      sim.mapRgba[offset] = pixel.r
+      sim.mapRgba[offset + 1] = pixel.g
+      sim.mapRgba[offset + 2] = pixel.b
+      sim.mapRgba[offset + 3] = pixel.a
 
-  result.walkMask = newSeq[bool](MapWidth * MapHeight)
+  sim.walkMask = newSeq[bool](MapWidth * MapHeight)
   for y in 0 ..< MapHeight:
     for x in 0 ..< MapWidth:
       let pixel = walkImage[x, y]
-      result.walkMask[mapIndex(x, y)] = pixel.a > 0
+      sim.walkMask[mapIndex(x, y)] = pixel.a > 0
 
-  result.wallMask = newSeq[bool](MapWidth * MapHeight)
+  sim.wallMask = newSeq[bool](MapWidth * MapHeight)
   for y in 0 ..< MapHeight:
     for x in 0 ..< MapWidth:
       let pixel = wallImage[x, y]
-      result.wallMask[mapIndex(x, y)] = pixel.a > 0
+      sim.wallMask[mapIndex(x, y)] = pixel.a > 0
 
   ## The fog occlusion grid builds from the OPAQUE walls only: glass window
   ## pixels stay in wallMask (movement/bullets/spray cones) but drop out here, so
@@ -5933,12 +5923,12 @@ proc initSimServer*(config: GameConfig): SimServer =
   ## a spinning diamond — windows are stub shapes out on column 1 — so a live
   ## diamond can add wall over a window pixel but can never create or destroy
   ## one.)
-  result.windowMask = newSeq[bool](MapWidth * MapHeight)
-  var opaqueMask = result.wallMask
+  sim.windowMask = newSeq[bool](MapWidth * MapHeight)
+  var opaqueMask = sim.wallMask
   block:
     let
-      cx = result.gameMap.center.x
-      cy = result.gameMap.center.y
+      cx = sim.gameMap.center.x
+      cy = sim.gameMap.center.y
     ## Only a window shape's own footprint can hold glass, so the sweep runs
     ## over those few boxes instead of asking isArenaWindowPixel (a full
     ## obstacle scan) at every map pixel.
@@ -5955,18 +5945,45 @@ proc initSimServer*(config: GameConfig): SimServer =
         for x in x0 .. x1:
           if inShape(x, y, shape) and isArenaWall(x, y, cx, cy):
             let index = mapIndex(x, y)
-            result.windowMask[index] = true
+            sim.windowMask[index] = true
             opaqueMask[index] = false
-  result.fovBlocked = buildFovBlocked(opaqueMask)
+  sim.fovBlocked = buildFovBlocked(opaqueMask)
+
+proc installEpisodeMap(sim: var SimServer, map: CtfMap) =
+  ## Installs one map as THE episode map: the def, its bakes, the diamond
+  ## snapshot and the paint grid — the exact per-map block initSimServer
+  ## has always run, factored so the MAP VOTE's winner (applyVoteWinnerMap)
+  ## installs through the identical path. Callers with a live roster or
+  ## placed pickups own re-seating them afterwards.
+  sim.gameMap = map
+  sim.rooms = map.rooms
+  sim.buildMapBakes()
   ## The bake left the spinning diamonds OUT of every collision layer; snapshot
   ## that diamond-free ground truth, then stamp tick 0's rotation over it. From
   ## here the masks track the art (updateAnimatedDiamonds, every step).
-  result.initDiamondPatches()
-  discard result.applyDiamondGeometry(0)   # no roster yet: nobody to push out.
+  sim.initDiamondPatches()
+  discard sim.applyDiamondGeometry(0)   # roster, if any, is re-seated by caller.
   ## The paint grid's PAINTABLE mask is computed here, against the wall mask
   ## with the diamonds at spin frame 0 — the one state the native server and
   ## the wasm viewer are both guaranteed to be in at map install.
-  result.initPaintGrid()
+  sim.initPaintGrid()
+
+proc initSimServer*(config: GameConfig): SimServer =
+  result.config = config
+  result.rng = initRand(config.seed)
+  loadPalette(clientDataDir() / "pallete.png")
+  result.asciiSprites = readTiny5Font()
+  result.shoutFont = loadShoutFont()
+
+  let sheet = loadSpriteSheet()
+  result.crewSprites = loadCrewSprites()
+  # Reuse the former task-icon cell as the flag sprite.
+  result.flagSprite = spriteFromImage(
+    sheet.subImage(SpriteSize * 4, 0, SpriteSize, SpriteSize)
+  )
+
+  result.darkBgPixels = loadDarkBgPixels()
+  result.installEpisodeMap(loadCtfMap(config))
   result.regime =
     if result.config.regimes.len > 0: result.config.regimes[0]
     else: regimeResident
@@ -6091,43 +6108,52 @@ proc inVoting*(sim: SimServer): bool =
   ## admitted in (applyBallotCast below). Mirrors inLobbyChat exactly.
   sim.phase == Lobby and sim.votingActive
 
-proc voteSeatIndexForSlot(sim: SimServer, slotIndex: int): int =
-  ## Returns the CURRENT `sim.players` array index bound to configured
-  ## slot `slotIndex` (an applyBallotCast-style seatIndex), or -1 if that
-  ## slot has no currently-joined player. `sim.players` is capped at
-  ## MaxPlayers (32), so this linear scan is cheap even called once per
-  ## configured play seat, once per tick, while voting is active.
-  for seatIndex in 0 ..< sim.players.len:
-    if sim.players[seatIndex].joinOrder == slotIndex:
-      return seatIndex
-  -1
+proc voteSlotForSeat(sim: SimServer, seatIndex: int): int =
+  ## THE REKEY (sentinel-wedge class fix): `sim.voteSeats` is keyed by the
+  ## seat's STABLE configured slot (`Player.joinOrder`) — never by its
+  ## position in `sim.players`, which is a COMPACTING array
+  ## (roster.removePlayerAt `delete`s the row and shifts every later player
+  ## down one). Keying accepted casts positionally meant one mid-vote
+  ## disconnect re-attributed every later seat's ballot to the wrong
+  ## player and orphaned/duplicated the removed seat's own accepted cast.
+  ## This proc maps a caller-facing `sim.players` index (the shape the
+  ## socket layer and applyLobbyChat already speak) to that stable key,
+  ## or -1 when the index names no joined player or an out-of-range slot.
+  if seatIndex < 0 or seatIndex >= sim.players.len:
+    return -1
+  let slot = sim.players[seatIndex].joinOrder
+  if slot < 0 or slot >= MaxPlayers:
+    return -1
+  slot
 
 proc allConfiguredPlaySeatsCast(sim: SimServer): bool =
   ## §6/J1's early-resolution predicate: every configured "play" slot
-  ## (§5.1) has an accepted cast on record. Walks `config.slots`, NOT
-  ## `sim.players`, on purpose: a configured play seat that is not
-  ## currently bound to a live player — never joined yet, or removed by a
-  ## disconnect this v1 engine has no `pssLost`-aware reconnect path for
-  ## (see VoteSeatState.tombstoned's own comment) — must still block early
-  ## resolution exactly like one that IS present but silent. Only
-  ## `voteTicks` can close the phase around such a seat (J1: "that seat is
-  ## absent, not resolved").
+  ## (§5.1) has an accepted cast on record. Walks `config.slots` and reads
+  ## `voteSeats` BY SLOT (the rekey above): a configured play seat that is
+  ## not currently bound to a live player — never joined yet, or removed
+  ## by a disconnect — still blocks early resolution while it has no
+  ## accepted cast on record (J1: "that seat is absent, not resolved");
+  ## only `voteTicks` can close the phase around it. A seat that CAST and
+  ## then disconnected no longer blocks: its accepted ballot is already on
+  ## the record (and in the replay stream) and survives the roster
+  ## compaction — exactly the property the positional keying broke.
   for slotIndex in 0 ..< sim.config.slots.len:
     if sim.config.slots[slotIndex].control != scPlay:
       continue
-    let seatIndex = sim.voteSeatIndexForSlot(slotIndex)
-    if seatIndex < 0 or not sim.voteSeats[seatIndex].hasCastVote:
+    if slotIndex >= MaxPlayers or not sim.voteSeats[slotIndex].hasCastVote:
       return false
   true
 
-proc setVoteSeatTombstoned*(sim: var SimServer, seatIndex: int, tombstoned: bool) =
+proc setVoteSeatTombstoned*(sim: var SimServer, slotIndex: int, tombstoned: bool) =
   ## The seam a presence-aware caller (the shell's `pssLost` tracking, once
   ## wired) drives — see VoteSeatState.tombstoned's own comment for why
   ## this does not, on its own, change `allConfiguredPlaySeatsCast`'s
-  ## outcome. Exported mainly so tests and a future caller have one named
-  ## entry point rather than reaching into `sim.voteSeats` directly.
-  if seatIndex >= 0 and seatIndex < MaxPlayers:
-    sim.voteSeats[seatIndex].tombstoned = tombstoned
+  ## outcome. Keyed by CONFIGURED SLOT, like every voteSeats access after
+  ## the rekey (voteSlotForSeat above). Exported mainly so tests and a
+  ## future caller have one named entry point rather than reaching into
+  ## `sim.voteSeats` directly.
+  if slotIndex >= 0 and slotIndex < MaxPlayers:
+    sim.voteSeats[slotIndex].tombstoned = tombstoned
 
 proc voteDraw(seed: int, tag: uint32, n: int): int =
   ## A fresh, tag-separated deterministic draw from the episode's own seed
@@ -6156,6 +6182,64 @@ const
     ## correlate — ballot.nim's own candidate-generation draw uses a
     ## THIRD, visibly distinct tag for the same reason.
 
+proc isMapVote*(sim: SimServer): bool =
+  ## True when this episode's ballot is a MAP ballot: 4 candidate map
+  ## specs were pinned into the config at parse (sim_config.update — a
+  ## brpool episode with voteTicks armed). Empty = the v1 mode-bundle
+  ## ballot semantics, untouched.
+  sim.config.voteMapSpecs.len > 0
+
+proc voteMapCandidateName*(sim: SimServer, option: int): string =
+  ## The pinned candidate's own "name" field ("br-gen-<seed>"), or "" for
+  ## an out-of-range option / a non-map ballot. Parsed on demand — the
+  ## specs are config-pinned strings, never cached sim state.
+  if option < 0 or option >= sim.config.voteMapSpecs.len:
+    return ""
+  try:
+    let node = parseJson(sim.config.voteMapSpecs[option])
+    result = node["name"].getStr("")
+  except CatchableError:
+    result = ""
+
+proc applyVoteWinnerMap(sim: var SimServer) =
+  ## MAP VOTE: installs the resolved winner as THE episode map, at the
+  ## instant `voting` closes (still Lobby, before huddle/countdown/
+  ## startGame). Runs identically on the live server and on replay
+  ## playback — a pure function of (config.voteMapSpecs, voteFinalOption)
+  ## — so the recorded hash chain reproduces. Candidate 0 is already the
+  ## installed map (sim_config pinned it as mapSpec at parse), so an A win
+  ## or a no-show fallback touches nothing and stays byte-identical.
+  if not sim.isMapVote():
+    return
+  let index = int(sim.voteFinalOption)
+  if index <= 0 or index >= sim.config.voteMapSpecs.len:
+    return
+  let spec = sim.config.voteMapSpecs[index]
+  sim.config.mapSpec = spec
+  sim.installEpisodeMap(mapFromSpecJson(spec))
+  ## Every map-anchored placement re-seats on the winner's geometry — the
+  ## same reset family initSimServer runs after its own install (all are
+  ## lobby-safe: no game is running yet).
+  sim.resetFlags()
+  sim.resetGrenades()
+  sim.resetMedKits()
+  sim.resetShields()
+  sim.resetSprayPaints()
+  sim.resetBarriers()
+  sim.resetBandages()
+  sim.resetLootCrates()
+  ## Players joined onto the OLD map's floor; nudge anyone the new walls
+  ## swallowed onto walkable ground (startGame's arrangeHomePositions
+  ## re-places every seat at match start regardless), and drop every fog
+  ## cache built against the old occlusion grid.
+  for i in 0 ..< sim.players.len:
+    let spot = sim.nearestWalkable(sim.players[i].x, sim.players[i].y)
+    sim.players[i].x = spot.x
+    sim.players[i].y = spot.y
+  for i in 0 ..< sim.fovCaches.len:
+    sim.fovCaches[i].valid = false
+  sim.logGameEvent("map vote: " & sim.gameMap.name & " wins")
+
 proc resolveVote(sim: var SimServer) =
   ## prematch-vote-wire-2026-08-31.md §5's tally + resolution, run exactly
   ## once when `voting` exits (either clock). A PURE function of (every
@@ -6163,35 +6247,53 @@ proc resolveVote(sim: var SimServer) =
   ## sim.rng, no new wire entropy — so a replaying client recomputes the
   ## identical category/tieBreakDrawn/finalOption from record 0x17's
   ## transcript alone (§4 point 3).
+  ##
+  ## TWO BALLOT SEMANTICS, keyed on isMapVote():
+  ## - v1 mode-bundle ballot (voteMapSpecs empty): §5 verbatim — abstention
+  ##   is an implicit D, and a D category delegates to a second draw over
+  ##   A/B/C. Unchanged.
+  ## - MAP ballot (voteMapSpecs pinned): every option is a REAL map, so
+  ##   there is no delegation and no implicit-D: only EXPLICIT casts count,
+  ##   zero casts fall back to option 0 (candidate A — the exact member
+  ##   the gate-off #355 path would have played), and a tie takes the same
+  ##   seed-deterministic draw. The winner is installed immediately
+  ##   (applyVoteWinnerMap above).
   var counts: array[4, int]
+  var explicitCasts = 0
+  let optionLimit =
+    if sim.isMapVote(): sim.config.voteMapSpecs.len else: 4
   for slotIndex in 0 ..< sim.config.slots.len:
     if sim.config.slots[slotIndex].control != scPlay:
       continue
-    let seatIndex = sim.voteSeatIndexForSlot(slotIndex)
-    if seatIndex >= 0 and sim.voteSeats[seatIndex].hasCastVote:
-      inc counts[int(sim.voteSeats[seatIndex].option)]
-    else:
+    if slotIndex < MaxPlayers and sim.voteSeats[slotIndex].hasCastVote and
+        int(sim.voteSeats[slotIndex].option) < optionLimit:
+      inc counts[int(sim.voteSeats[slotIndex].option)]
+      inc explicitCasts
+    elif not sim.isMapVote():
       inc counts[3]   # implicit D: abstention (§5 point 1)
-  var
-    best = -1
-    leaders: seq[uint8] = @[]
-  for bucket in 0 .. 3:
-    if counts[bucket] > best:
-      best = counts[bucket]
-      leaders = @[uint8(bucket)]
-    elif counts[bucket] == best:
-      leaders.add uint8(bucket)
   var
     category: uint8
     tieBreakDrawn = false
-  if leaders.len == 1:
-    category = leaders[0]
+  if sim.isMapVote() and explicitCasts == 0:
+    category = 0'u8   # no votes at all: the deterministic default, A.
   else:
-    tieBreakDrawn = true
-    category =
-      leaders[voteDraw(sim.config.seed, VoteTieBreakDrawTag, leaders.len)]
+    var
+      best = -1
+      leaders: seq[uint8] = @[]
+    for bucket in 0 ..< optionLimit:
+      if counts[bucket] > best:
+        best = counts[bucket]
+        leaders = @[uint8(bucket)]
+      elif counts[bucket] == best:
+        leaders.add uint8(bucket)
+    if leaders.len == 1:
+      category = leaders[0]
+    else:
+      tieBreakDrawn = true
+      category =
+        leaders[voteDraw(sim.config.seed, VoteTieBreakDrawTag, leaders.len)]
   let finalOption =
-    if category == 3'u8:
+    if not sim.isMapVote() and category == 3'u8:
       uint8(voteDraw(sim.config.seed, VoteDelegationDrawTag, 3))
     else:
       category
@@ -6200,6 +6302,7 @@ proc resolveVote(sim: var SimServer) =
   sim.voteFinalOption = finalOption
   sim.voteResolved = true
   sim.voteResolutionTick = sim.tickCount
+  sim.applyVoteWinnerMap()
 
 proc ballotCandidatesForEpisode*(sim: SimServer): array[3, BallotCandidate] =
   ## THIS episode's pre-match vote A/B/C (docs/designs/prematch-vote-phase-
@@ -6227,11 +6330,13 @@ proc applyBallotCast*(
   ## seats are counted in the tally, resolveVote above).
   if not sim.inVoting():
     return BallotCastResult(ok: false, reason: bcrClosed)
-  if seatIndex < 0 or seatIndex >= sim.players.len:
+  let slot = sim.voteSlotForSeat(seatIndex)
+  if slot < 0:
     return BallotCastResult(ok: false, reason: bcrBadSeat)
-  if option > 3'u8:
+  if option > 3'u8 or
+      (sim.isMapVote() and int(option) >= sim.config.voteMapSpecs.len):
     return BallotCastResult(ok: false, reason: bcrBadOption)
-  var seat = sim.voteSeats[seatIndex]
+  var seat = sim.voteSeats[slot]
   if seat.hasCastVote and castId == seat.lastCastId:
     if option == seat.option:
       # Silent no-op resend (§2): the original outcome, unchanged state, no
@@ -6253,8 +6358,32 @@ proc applyBallotCast*(
   seat.lastOrdinal = sim.voteOrdinal
   seat.lastCastTick = sim.tickCount
   inc seat.castCount
-  sim.voteSeats[seatIndex] = seat
+  sim.voteSeats[slot] = seat
   BallotCastResult(ok: true, ordinal: sim.voteOrdinal, reason: bcrOk, fresh: true)
+
+proc applyReplayBallotCast*(
+  sim: var SimServer, slotIndex: int, option: uint8, ordinal: uint64
+) =
+  ## Replay playback's re-application of one RECORDED (already-admitted)
+  ## `0x17` kind-0 cast, keyed by the record's own stable `seat` field
+  ## (the configured slot — exactly the rekey key). Deliberately NOT
+  ## applyBallotCast: admission (window, castId dedup, rate, spacing)
+  ## already happened on the live server and the record is its accepted
+  ## truth — re-adjudicating could diverge. Writes only what resolveVote
+  ## and allConfiguredPlaySeatsCast read, so the recorded vote reproduces:
+  ## the same seats hold the same options when `voting` closes, on the
+  ## same tick (early resolution included).
+  if slotIndex < 0 or slotIndex >= MaxPlayers:
+    return
+  var seat = sim.voteSeats[slotIndex]
+  seat.hasCastVote = true
+  seat.option = option
+  seat.lastOrdinal = ordinal
+  seat.lastCastTick = sim.tickCount
+  inc seat.castCount
+  sim.voteSeats[slotIndex] = seat
+  if ordinal > sim.voteOrdinal:
+    sim.voteOrdinal = ordinal
 
 proc stepLobby(sim: var SimServer) {.measure.} =
   ## Advances the lobby: `joining` (roster fill, unchanged) -> `voting`

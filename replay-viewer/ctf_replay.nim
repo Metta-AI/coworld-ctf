@@ -154,19 +154,23 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     # call regardless (parseReplayBytes wraps the same parse and throws the
     # result away), so this costs nothing extra to keep.
     let ctfData = parseCtfReplayBytesFull(data.bytesFromPointer(int(length)))
-    let replayData = ctfData.replay
     if ctfData.shell.lobbyTranscript.len > 0:
       lobbyChatJson = lobbyChatRecordsJson(ctfData.shell.lobbyTranscript)
-    if ctfData.shell.ballots.len > 0:
-      ballotJson = ballotRecordsJson(ctfData.shell.ballots)
     if ctfData.shell.calls.len > 0:
       callsJsonText = $playCallRecordsJson(ctfData.shell.calls)
     stampStage("initialize replay runtime")
     # Match the native replay server default: keep a historical replay usable
     # after the first integrity mismatch and surface the warning in the shared
     # replay chrome. `--mismatch-quit` remains a native diagnostic mode.
+    #
+    # MAP VOTE: hand the runtime the FULL CtfReplayData (the overload the
+    # native replay server has always used), not the bare `.replay` half —
+    # that is what retains `.shell`'s lifecycle stream AND ballots on the
+    # ReplayPlayer, so playback re-applies recorded 0x17 casts at their
+    # tick and the resolved winner map installs inside the wasm viewer
+    # exactly as it did live (replays.applyReplayEvents).
     var initialized = initReplayRuntime(
-      replayData,
+      ctfData,
       mismatchQuit = false,
       gameEventLoggingEnabled = false
     )
@@ -175,6 +179,20 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     tracker = move(initialized.tracker)
     viewer = initGlobalViewerState()
     runtimeLoaded = true
+    if ctfData.shell.ballots.len > 0:
+      # The vote surface the 4-quadrant renderer consumes (see the
+      # episodeflow lane + prematch-vote-wire addendum §4): the decoded
+      # 0x17 stream under "records", plus the pinned candidate map names
+      # under "candidates" (option index == array index), read from the
+      # SAME header config playback just booted from.
+      var vote = newJObject()
+      vote["records"] = ballotRecordsJson(ctfData.shell.ballots)
+      if game.config.voteMapSpecs.len > 0:
+        var candidates = newJArray()
+        for spec in game.config.voteMapSpecs:
+          candidates.add(%parseJson(spec)["name"].getStr(""))
+        vote["candidates"] = candidates
+      ballotJson = vote
     let mapNote =
       " (map " & $game.gameMap.width & "x" & $game.gameMap.height & ")"
     # Refuse boards whose render buffers cannot fit the 32-bit address space

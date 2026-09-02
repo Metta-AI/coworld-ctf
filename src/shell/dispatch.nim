@@ -7,6 +7,7 @@
 import bitworld/spriteprotocol
 
 import ./[packets, types]
+import ./vote_packets as votePackets
 
 type
   PlayReceiveReject* = enum
@@ -24,6 +25,7 @@ type
     prPlayCall
     prStatusAck
     prLobbyChat
+    prBallotCast
 
   PlayReceive* = object
     case kind*: PlayReceiveKind
@@ -39,6 +41,8 @@ type
       statusAck*: StatusAckPacket
     of prLobbyChat:
       lobbyChat*: LobbyChatSendPacket
+    of prBallotCast:
+      ballotCast*: BallotCastPacket
     of prIgnoredSpriteInput, prIgnoredSpriteReady:
       discard
 
@@ -60,7 +64,19 @@ proc classifyPlaySeatMessage*(message: string): PlayReceive =
       of cpkLobbyChatSend:
         return PlayReceive(kind: prLobbyChat,
           lobbyChat: packet.lobbyChatSend)
-    except PacketError:
+    except packets.PacketError:
+      return PlayReceive(kind: prRejected,
+        rejection: prrMalformedShellPacket)
+  if opcode == OpBallotCastReserved:
+    ## MAP VOTE: `0xA4` decodes via the STANDALONE codec module
+    ## (vote_packets.nim) rather than packets.nim's `decodeClientPacket`
+    ## switch — that switch's opcode set is the packets lane's own
+    ## sequenced work (see vote_packets.nim's header); this arm lifts
+    ## mechanically onto it once 0xA4 joins `ClientPacketKind`.
+    try:
+      return PlayReceive(kind: prBallotCast,
+        ballotCast: message.decodeBallotCast())
+    except votePackets.PacketError:
       return PlayReceive(kind: prRejected,
         rejection: prrMalformedShellPacket)
   case opcode

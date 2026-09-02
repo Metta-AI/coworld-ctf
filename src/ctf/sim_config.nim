@@ -999,6 +999,17 @@ proc validate(config: GameConfig) =
       CtfError,
       "Config field voteTicks must be 0.." & $VoteTicksMax & "."
     )
+  if config.voteMapSpecs.len notin [0, BallotOptionCount]:
+    raise newException(
+      CtfError,
+      "Config field voteMapSpecs must hold exactly " & $BallotOptionCount &
+        " candidate map specs (or be absent)."
+    )
+  if config.voteMapSpecs.len > 0 and config.voteTicks <= 0:
+    raise newException(
+      CtfError,
+      "Config field voteMapSpecs requires voteTicks > 0 (the vote window)."
+    )
   if config.playSeatBindTicks < 0 or
       config.playSeatBindTicks > PlaySeatBindTicksMax:
     raise newException(
@@ -1177,8 +1188,34 @@ proc update*(config: var GameConfig, jsonText: string) =
   ## its map rotates OUT of the pool. An unpinned hosted seed is randomized
   ## per boot BEFORE update (ctf.nim), which is exactly what makes the
   ## selection per-episode.
+  ## MAP VOTE (S2): the pre-match ballot's 4 candidates ride the config the
+  ## same way mapSpec does — pinned FULL specs, so the replay header names
+  ## every candidate's exact geometry and playback never consults the
+  ## rotating pool. Two sources, mirroring mapSpec's own two branches:
+  ## an explicit "voteMapSpecs" key (a replay re-parse — the recorded
+  ## ballot, taken verbatim) or, absent that, a fresh seed-deterministic
+  ## draw when this parse is arming a brpool episode's vote (voteTicks > 0
+  ## — read EARLY here for exactly this gate; the tail-position GVNEXT read
+  ## below re-reads the same key idempotently). voteTicks == 0 (the
+  ## default) leaves voteMapSpecs empty and this whole block byte-inert:
+  ## the #355 single-pick branch below runs unchanged.
+  if node.hasKey("voteMapSpecs"):
+    if node["voteMapSpecs"].kind != JArray:
+      raise newException(
+        CtfError, "Config field voteMapSpecs must be an array of objects.")
+    config.voteMapSpecs = @[]
+    for item in node["voteMapSpecs"]:
+      if item.kind != JObject:
+        raise newException(
+          CtfError, "Config field voteMapSpecs must be an array of objects.")
+      config.voteMapSpecs.add $item
+  node.readConfigInt("voteTicks", config.voteTicks)
   if config.mapSpec.len == 0 and config.mapPath == BrPoolMapName:
-    config.mapSpec = pickBrS2SpecJson(config.seed)
+    if config.voteTicks > 0 and config.voteMapSpecs.len == 0:
+      config.voteMapSpecs = pickBrS2VoteBallotSpecJsons(config.seed)
+      config.mapSpec = config.voteMapSpecs[0]
+    else:
+      config.mapSpec = pickBrS2SpecJson(config.seed)
   ## Resolve the effective map ONCE: a generated map is expanded and pinned
   ## as mapSpec here, so the replay carries the exact geometry and playback
   ## never re-runs the generator. The gun range follows the selected map
@@ -1521,6 +1558,14 @@ proc echoShellKeys(config: GameConfig, node: JsonNode) =
     node["playSeatBindTicks"] = %config.playSeatBindTicks
   if config.voteTicks != 0:
     node["voteTicks"] = %config.voteTicks
+  ## MAP VOTE (S2): the pinned ballot candidates, echoed only when the
+  ## ballot exists at all — a voteTicks-off (or non-brpool) game's replay
+  ## config stays byte-identical to a build without the field.
+  if config.voteMapSpecs.len > 0:
+    let specs = newJArray()
+    for spec in config.voteMapSpecs:
+      specs.add fromJson(spec)
+    node["voteMapSpecs"] = specs
 
 proc echoShotFeedbackKeys(config: GameConfig, node: JsonNode) =
   ## Echo the shot-feedback gate only when it is on, so an

@@ -137,3 +137,32 @@ proc brS2PoolNames*(path: string = BrS2MapPoolPath): seq[string] =
   ## Every s2 pool member's name, in file (= certification) order.
   for node in loadBrS2PoolRaw(path):
     result.add node["name"].getStr()
+
+proc pickBrS2VoteBallotSpecJsons*(
+  seed: int, path: string = BrS2MapPoolPath
+): seq[string] =
+  ## MAP VOTE (S2): the episode's 4-candidate ballot — 4 DISTINCT certified
+  ## pool members, deterministic from the episode seed alone: candidate i's
+  ## first draw is `brPoolIndex(seed + i, n)` (the splitmix64 finalizer, so
+  ## i = 0 is EXACTLY the member `pickBrS2SpecJson` pins — the vote's
+  ## no-show fallback is the #355 status quo), deduplicated by walking
+  ## forward (+1 mod n) past already-drawn slots. Pure integer math on the
+  ## seed: the same seed names the same 4 candidates on every box — and a
+  ## replaying client never needs this proc at all, because the drawn specs
+  ## are pinned into the replay header config (`voteMapSpecs`), following
+  ## mapSpec's own rotation-proof pinning discipline.
+  let pool = loadBrS2PoolRaw(path)
+  if pool.len < 4:
+    raise newException(ValueError,
+      &"br s2 map pool at '{path}' has fewer than 4 members; a map ballot needs 4 distinct candidates")
+  var chosen: seq[int]
+  for i in 0 ..< 4:
+    var index = brPoolIndex(seed + i, pool.len)
+    while index in chosen:
+      index = (index + 1) mod pool.len
+    chosen.add index
+    let entry = pool[index]
+    if entry.kind != JObject or not entry.hasKey("spec"):
+      raise newException(ValueError,
+        &"br s2 map pool at '{path}' entry {index} has no \"spec\"")
+    result.add $entry["spec"]
