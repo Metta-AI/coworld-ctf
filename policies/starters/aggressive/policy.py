@@ -3,7 +3,8 @@
 
 Harness deltas (the code that makes this seat behave unlike the other two):
 
-* short re-call interval and TWO re-calls (three model turns total),
+* the tightest live-loop schedule of the three (up to 8 model calls a match,
+  6 s apart) and jackal as the always-on base rung,
 * the match summary carries kill-feed lines, so the model reacts to fights,
 * ``adjust_entries`` clamps every edge_ride toward the tight end (margin
   capped at 160, small enterLead, low coverBias) and forces any pact to
@@ -45,6 +46,12 @@ def adjust_entries(entries, context, view):
         elif entry.get("play") == "supply_run":
             # A contested medkit is a fight worth taking.
             params["contested"] = "race"
+        elif entry.get("play") == "loot":
+            params["contested"] = "race"
+    if not any(e.get("play") == "loot" for e in entries):
+        # Grenades and spray cans are the hunter's tools; race for them.
+        entries.append({"play": "loot", "entry_id": "loot",
+                        "params": {"detourMax": 500, "contested": "race"}})
     return entries
 
 
@@ -52,6 +59,8 @@ PERSONA = Persona(
     name="aggressive",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
+        "loot": ("loot: grenades and spray cans are your tools -- race for "
+                 "them when nobody is tracked; the harness gates it."),
         "edge_ride": ("edge_ride is your hunting lane: margin under 160, "
                       "small enterLead, low coverBias. The edge is where the "
                       "rotations funnel -- meet them there."),
@@ -113,7 +122,13 @@ PERSONA = Persona(
         },
     ],
     recall_count=2,
-    recall_seconds=4.0,
+    recall_seconds=6.0,
+    max_calls=8,
+    # The hunter's always-on rung is jackal, not edge_ride: idle jackal holds
+    # in cover with the gun up and joins the first fight it hears; the zone
+    # reflex handles the rotations. Measured: the v4 aggressive (jackal on
+    # top) beat every edge_ride-based build on kills and survival.
+    base_play="jackal",
     include_kill_feed=True,
     adjust_entries=adjust_entries,
 )

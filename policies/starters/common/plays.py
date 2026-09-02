@@ -105,6 +105,29 @@ PLAYS = {
             "What to do when someone else is also heading for the item."
         ),
     },
+    "loot": {
+        "class": "controller",
+        "params": {
+            "detourMax": {"kind": "int", "min": 0, "max": 4096,
+                          "default": 400},
+            "contested": {"kind": "enum", "of": ["avoid", "race"],
+                          "default": "avoid"},
+            "medkits": {"kind": "bool", "default": False},
+        },
+        "brief": (
+            '"loot" (class: controller). Fetches the nearest reachable '
+            "pickup of any kind -- grenade, shield, spray can, barrier -- "
+            "when it is safe to. The harness gates it so it only runs while "
+            "no fresh enemy track is within 500 px and an item is within "
+            "reach; otherwise your base play keeps driving. Params:\n"
+            "     - detourMax: integer 0..4096, default 400. Maximum detour "
+            "in px to reach an item.\n"
+            '     - contested: one of "avoid" or "race", default "avoid". '
+            "What to do when someone else is also heading for the item.\n"
+            "     - medkits: boolean, default false. Also fetch medkits "
+            "(normally supply_run's job)."
+        ),
+    },
     "bodyguard": {
         "class": "controller",
         "params": {

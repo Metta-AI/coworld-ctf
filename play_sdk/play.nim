@@ -229,6 +229,12 @@ type
     detourMax*: int32
     contested*: SupplyContestedMode
 
+  LootParams* = object
+    valid*: bool
+    detourMax*: int32
+    contested*: SupplyContestedMode
+    medkits*: bool
+
   BodyguardParams* = object
     valid*: bool
     wardPresent*: bool
@@ -1499,6 +1505,36 @@ proc readSupplyRunParams*(ctx: PlayContext): SupplyRunParams =
         result.contested = scmRace
       else:
         result.valid = false
+    else:
+      discard r.skipParamValue()
+      result.valid = false
+  result.valid = result.valid and r.ok and r.pos == r.len
+
+proc readLootParams*(ctx: PlayContext): LootParams =
+  result.valid = true
+  result.detourMax = 400
+  result.contested = scmAvoid
+  result.medkits = false
+  var r = initJsonReader(ctx.data, ctx.len)
+  if not r.beginObject():
+    result.valid = false
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "detourMax"):
+      result.valid = result.valid and r.readIntValue(result.detourMax)
+      if result.detourMax < 0 or result.detourMax > 4096:
+        result.valid = false
+    elif r.stringEquals(key, "contested"):
+      let value = r.readJsonString()
+      if r.stringEquals(value, "avoid"):
+        result.contested = scmAvoid
+      elif r.stringEquals(value, "race"):
+        result.contested = scmRace
+      else:
+        result.valid = false
+    elif r.stringEquals(key, "medkits"):
+      result.valid = result.valid and r.readBoolValue(result.medkits)
     else:
       discard r.skipParamValue()
       result.valid = false

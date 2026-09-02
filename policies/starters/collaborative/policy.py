@@ -62,6 +62,10 @@ def adjust_entries(entries, context, view):
                for e in entries):
         entries.append({"play": "edge_ride", "entry_id": "together",
                         "params": dict(TOGETHER_DEFAULTS)})
+    if not any(e.get("play") == "loot" for e in entries):
+        # Kit up while the duo is unbothered; never fight over a pickup.
+        entries.append({"play": "loot", "entry_id": "loot",
+                        "params": {"detourMax": 400, "contested": "avoid"}})
     return entries
 
 
@@ -82,6 +86,8 @@ PERSONA = Persona(
     name="collaborative",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
+        "loot": ("loot: kit up while the duo is unbothered; never fight over a "
+                 "pickup. The harness gates it."),
         "pact": ("pact is your first entry in EVERY call: your duo partner "
                  "in partners, protect true, disengage on betrayal."),
         "edge_ride": ("edge_ride steady and readable (margin ~260) so your "
@@ -138,7 +144,8 @@ PERSONA = Persona(
         },
     ],
     recall_count=1,
-    recall_seconds=8.0,
+    recall_seconds=10.0,
+    max_calls=6,
     partner_focus=True,
     adjust_entries=adjust_entries,
     extra_chat=extra_chat,

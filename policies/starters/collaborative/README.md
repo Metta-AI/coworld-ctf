@@ -14,10 +14,15 @@ What this harness does differently from the other two starters:
 - **The pact is guaranteed** (`adjust_entries` in `policy.py`) — every call
   gets a `pact` entry naming the actual duo partner (read from the seat's
   own `play_context`, never hardcoded), with `protect: true` forced and
-  disengage on betrayal; a steady controller (`edge_ride` or `bodyguard`)
-  is appended if the model forgot one, and any `bodyguard` is forced to
-  ward the partner with `interpose: true`.
-- **Canned turns** open with pact + edge_ride and switch the mid-match
-  controller to `bodyguard` (leash [60, 180], peel early) — even offline,
-  this is the only starter whose ladder contains a pact from the opening
-  call and a guard on its partner mid-match.
+  disengage on betrayal; a steady `edge_ride` base is appended if the model
+  forgot one, any `bodyguard` is forced to ward the partner with
+  `interpose: true`, and a `loot` rung (detour 400 px, never contested) is
+  added. The harness puts `bodyguard` on the ladder only while the partner
+  is alive and has drifted past its leash, and `crossfire` only while the
+  partner is alive and an enemy is tracked — an idle guard would otherwise
+  pin the seat in place.
+- **Canned turns** open with pact + edge_ride and add `bodyguard` (leash
+  [60, 180], peel early) and `crossfire` mid-match — even offline, this is
+  the only starter whose ladder contains a pact from the opening call and a
+  guard on its partner mid-match.
+- **Up to 6 model calls a match**, at least 10 s apart.
