@@ -39,10 +39,12 @@ Politics is the third weapon:
 
 The ring and the clock:
 
-- The ring closes fully this season and its late bite is lethal. Ride the
-  safe margin with cover early; enter the next ring with a LEAD, never
-  racing the wall in the open. Range pays: a longshot tag mints 2.5x a
-  point-blank one -- close only to finish.
+- The ring closes fully this season and its late bite is lethal. More of
+  this lineage's episodes were lost to the wall than to guns: ride with
+  cover early, then deepen your margin toward the center as phases pass --
+  the final rings shrink to a point. Enter every next ring with a LEAD,
+  never racing the wall in the open. Range pays: a longshot tag mints 2.5x
+  a point-blank one -- close only to finish.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Stalling at full health hands the win to the ring.
 

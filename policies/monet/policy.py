@@ -37,7 +37,7 @@ TEAM_COUNT = 16
 
 # The guaranteed conversion rung. hp is a small absolute number on this
 # engine (a bodyguard peels at 2-3); below 2 means genuinely wounded.
-SUPPLY_DEFAULTS = {"whenHpBelow": 2, "detourMax": 400, "contested": "avoid"}
+SUPPLY_DEFAULTS = {"whenHpBelow": 2, "detourMax": 300, "contested": "avoid"}
 
 # A pact with no partners is dropped by the generic repair BEFORE the hook
 # runs (partners is required), so a canned pact carries team 0's duo as a
@@ -165,10 +165,13 @@ PERSONA = Persona(
                        "editing the list. Set a holdTrigger only for a "
                        "planned endgame release: a released hold LATCHES "
                        "and can never re-arm."),
-        "edge_ride": ("edge_ride is your default rotation: margin around "
-                      "200 with high coverBias early, enterLead generous -- "
-                      "the ring closes fully this season, and the wall is "
-                      "crossed with a lead, never raced in the open."),
+        "edge_ride": ("edge_ride is your default rotation, and margin is "
+                      "how deep INSIDE the safe zone you ride -- never hug "
+                      "the wall. Around 220-270 with high coverBias early, "
+                      "then DEEPER (300+) as the ring accelerates: the "
+                      "final rings shrink to a point and the wall is pure "
+                      "attrition. enterLead generous -- cross with a lead, "
+                      "never race the wall in the open."),
         "supply_run": ("supply_run is the conversion play this lineage "
                        "always skipped: after a fight, bank the life. The "
                        "harness guarantees the rung; you tune it. Avoid "
@@ -219,10 +222,12 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 2, "detourMax": 500,
+                 "params": {"whenHpBelow": 2, "detourMax": 350,
                             "contested": "avoid"}},
+                # Margin DEEPENS as the ring accelerates (series v1 lesson:
+                # 13 of 20 duo-deaths were the wall, not guns).
                 {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 190, "enterLead": 140,
+                 "params": {"margin": 270, "enterLead": 180,
                             "coverBias": 0.75}},
             ]},
         },
@@ -241,10 +246,10 @@ PERSONA = Persona(
                  "params": {"earshot": 600, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 1}}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 2, "detourMax": 400,
+                 "params": {"whenHpBelow": 2, "detourMax": 250,
                             "contested": "avoid"}},
                 {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 170, "enterLead": 150,
+                 "params": {"margin": 300, "enterLead": 200,
                             "coverBias": 0.7}},
             ]},
         },
@@ -259,11 +264,13 @@ PERSONA = Persona(
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 2, "detourMax": 300,
+                 "params": {"whenHpBelow": 2, "detourMax": 150,
                             "contested": "avoid"}},
+                # Endgame rides DEEP: the final rings shrink to a point and
+                # the wall is pure attrition.
                 {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 120, "enterLead": 220,
-                            "coverBias": 0.6}},
+                 "params": {"margin": 380, "enterLead": 260,
+                            "coverBias": 0.5}},
             ]},
         },
     ],
