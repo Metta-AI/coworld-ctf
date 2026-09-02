@@ -3738,6 +3738,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // second half of the pair is suppressed (one linked row, not two). Keyed by
   // "tick:victimSlot"; a tiny ring is plenty since only same-tick pairs matter.
   var tradeConsumed = {};
+  // Swap#12 item 2 (THEATER C3): banner() was wired only to leftover CTF
+  // heart events, so a BR team's last cog dying got nothing but the ordinary
+  // 2s killfeed row. Detect the wipe client-side off the frame's own roster
+  // (teamAliveCount/teamSeatCount, already used by the end-card) instead of
+  // trusting any dedicated wire event — one banner per team ever, guarded by
+  // wipedTeams so a multi-kill tick or a later frame can't refire it.
+  var wipedTeams = {};
+  function checkTeamWipe(team, s) {
+    if (!team || wipedTeams[team]) return;
+    if (teamSeatCount(s, team) === 0) return; // no roster info yet — never guess
+    if (teamAliveCount(s, team) > 0) return;
+    wipedTeams[team] = true;
+    banner(teamName(s, team, String(team).toUpperCase()).toUpperCase() + ' ELIMINATED', 'wipe accent', teamCol(team));
+  }
   function onKill(e, s) {
     var killer = e.killer, victim = e.victim;
     var victimTeam = teamOf(s, victim);
@@ -3748,7 +3762,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // Provable mutual trade: the server proved these two killed each other
       // this tick (the two killers ARE the two victims). Draw ONE linked row
       // with both names; skip the partner's own event so it isn't doubled.
-      if (tradeConsumed[e.t + ':' + victim]) { delete tradeConsumed[e.t + ':' + victim]; return; }
+      if (tradeConsumed[e.t + ':' + victim]) { delete tradeConsumed[e.t + ':' + victim]; checkTeamWipe(victimTeam, s); return; }
       tradeConsumed[e.t + ':' + e.trade] = true;
       var row = document.createElement('div');
       row.className = 'feed-row';
@@ -3757,6 +3771,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="who ' + (teamOf(s, e.trade) || '') + '">' + esc(shortName(rosterName(s, e.trade))) + '</span>' +
         '<span class="badge">traded</span>';
       pushFeed(row);
+      checkTeamWipe(victimTeam, s);
+      checkTeamWipe(teamOf(s, e.trade), s);
       return;
     }
     var row = document.createElement('div');
@@ -3775,6 +3791,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
     }
     pushFeed(row);
+    checkTeamWipe(victimTeam, s);
   }
 
   function onSteal(e, s) {
@@ -3814,8 +3831,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var bannerEl = $('bannerlane');
   var bannerQueue = [];
   var bannerBusy = false;
-  function banner(text, cls) {
-    bannerQueue.push({ text: text, cls: cls });
+  function banner(text, cls, tcHex) {
+    bannerQueue.push({ text: text, cls: cls, tc: tcHex || null });
     pumpBanner();
   }
   function pumpBanner() {
@@ -3825,6 +3842,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var chip = document.createElement('div');
     chip.className = 'banner-chip ' + b.cls;
     chip.textContent = b.text;
+    // BR team colors run past the four static .red/.blue/.green/.yellow
+    // classes (16-team wire palette) — an explicit hex (teamCol()) sets --tc
+    // directly, same pattern as the end-card's heroName styling. Calls that
+    // omit it (the CTF heart events) keep relying on the class-name trick.
+    if (b.tc) chip.style.setProperty('--tc', b.tc);
     bannerEl.appendChild(chip);
     // lever 1 (animFactor cap): the pop-in never plays faster than 2x, so a
     // fast-forward scrub can't reduce a banner to a subliminal flash.
@@ -3843,6 +3865,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     bannerQueue = [];
     bannerEl.innerHTML = '';
     bannerBusy = false;
+    wipedTeams = {}; // a seek/loop can revisit an already-wiped team's tick
   }
 
   // (scrubber beat markers — markBeat / killMarkerTeam / renderBeatMarkers —
