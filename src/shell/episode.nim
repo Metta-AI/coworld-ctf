@@ -312,13 +312,15 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
       result.enabled = true
       result.seats.add(FirstLightSeatState(seat: uint8(index)))
 
-proc playContextRoster*(episode: FirstLightEpisode): seq[PlayContextRosterRow] =
-  ## The roster every seat's PlayContext carries (seat order), for tests and
-  ## diagnostics; empty until a Season 2 episode with team facts exists.
-  when ShellRuntimeAvailable:
+when ShellRuntimeAvailable:
+  proc playContextRoster*(episode: FirstLightEpisode):
+      seq[PlayContextRosterRow] =
+    ## The roster every seat's PlayContext carries (seat order), for tests
+    ## and diagnostics. Runtime-linked shape only: the row type comes from
+    ## `view`, which this module imports under the same guard, so the whole
+    ## proc lives under it — a guarded body beneath an unguarded signature
+    ## does not compile in the stub shape (CI run 33597295995).
     episode.contextRoster
-  else:
-    @[]
 
 proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
