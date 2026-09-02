@@ -151,6 +151,16 @@ class BrainError(Exception):
     """The model call failed, or returned something unusable."""
 
 
+class ModelNotJsonError(BrainError):
+    """The model REPLIED, but with prose instead of a JSON object.
+
+    Distinct from transport/HTTP failures because it is the one failure
+    class a corrective retry can actually fix (observed live on monet v8
+    hosted seats, 2026-09-02: sonnet-4.5 sometimes opens with situation
+    analysis and never emits JSON; 2 of 4 sampled episodes degraded to
+    canned mid-episode on it)."""
+
+
 class CannedBrain:
     """A fixed response standing in for the model.
 
@@ -290,7 +300,8 @@ class OpenAiChatBrain:
         try:
             return parse_model_json(content)
         except ValueError as error:
-            raise BrainError(f"model did not return JSON: {content[:400]}") from error
+            raise ModelNotJsonError(
+                f"model did not return JSON: {content[:400]}") from error
 
 
 def parse_model_json(text: str) -> dict:
@@ -389,7 +400,8 @@ class BedrockInvokeBrain:
         try:
             return parse_model_json(text)
         except ValueError as error:
-            raise BrainError(f"model did not return JSON: {text[:400]}") from error
+            raise ModelNotJsonError(
+                f"model did not return JSON: {text[:400]}") from error
 
 
 class ResilientBrain:
@@ -400,7 +412,10 @@ class ResilientBrain:
     transport error, unusable output -- is logged ONCE, and every decision
     from then on comes from the canned ``fallback`` instead. No further model
     calls are attempted, so a hard rejection costs exactly one upstream
-    request.
+    request. One exception: a prose reply (:class:`ModelNotJsonError`) gets
+    EXACTLY ONE immediate corrective retry before degrading -- it is the one
+    failure class a format nudge can fix, and one-strike there was turning
+    healthy hosted seats canned for whole episodes.
 
     Why: a policy that cannot reach its LLM should play its scripted game, not
     exit 1. On the hosted platform a dead pod forfeits the seat, and when the
@@ -425,10 +440,31 @@ class ResilientBrain:
         """Real model calls, for the end-of-run summary."""
         return getattr(self.primary, "calls", 0)
 
+    #: Appended to the user turn on the single corrective retry.
+    CORRECTIVE = "Reply with only the JSON object, nothing else."
+
     def decide(self, summary: str) -> dict:
         if self.error is None:
             try:
                 return self.primary.decide(summary)
+            except ModelNotJsonError as error:
+                # Prose instead of JSON is the ONE failure a corrective nudge
+                # can fix (live finding 2026-09-02: sonnet-4.5 opened with
+                # situation analysis on 2 of 4 sampled monet v8 episodes and
+                # the seat played canned for the rest of the match). Exactly
+                # one immediate retry with the format directive appended to
+                # the user turn; transport/HTTP failures stay one-strike.
+                print(f"[poc] model backend {self.primary.name} replied prose,"
+                      f" not JSON; one corrective retry: "
+                      f"{str(error)[:200]}", flush=True)
+                try:
+                    return self.primary.decide(
+                        f"{summary}\n\n{self.CORRECTIVE}")
+                except Exception as retry_error:  # noqa: BLE001
+                    self.error = retry_error
+                    print(f"[poc] model backend {self.primary.name} failed; "
+                          f"playing on with {self.fallback.name} decisions: "
+                          f"{retry_error}", flush=True)
             except Exception as error:  # noqa: BLE001 -- ANY model failure
                 self.error = error
                 print(f"[poc] model backend {self.primary.name} failed; "

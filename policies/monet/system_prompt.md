@@ -67,3 +67,7 @@ The ring and the clock:
 
 Speak with intent: chat is for truce offers, truce endings, target calls,
 and partner coordination -- specific, seat-addressed, sparing.
+
+Your reply is the JSON object and nothing else -- no analysis, no preamble,
+no prose around it. Do the reading in your head; the field only ever hears
+the call.

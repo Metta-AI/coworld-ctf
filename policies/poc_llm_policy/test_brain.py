@@ -234,3 +234,93 @@ for bad in ("", "no json here", "```json\n{not json}\n```", "[1, 2]"):
 
 fenced_server.shutdown()
 print("fenced-JSON model output: OK")
+
+# ── 7. Prose reply gets ONE corrective retry before any degrade ───────────
+# Observed live (monet v8 hosted seats, 2026-09-02): sonnet-4.5 sometimes
+# replies with situation-analysis prose containing no JSON at all, and the
+# one-strike rule turned 2 of 4 sampled episodes canned mid-episode. The
+# contract: a ModelNotJsonError triggers exactly one immediate retry whose
+# user turn carries the corrective directive; a good second reply means NO
+# degradation, a second prose reply degrades exactly as before.
+PROSE = ("Looking at the field: **Situation Analysis:** the zone favors the "
+         "north buildings and our duo should rotate early.")
+GOOD = ('{"chat": "recovered line", "call": {"entries": '
+        '[{"play": "edge_ride", "entry_id": "ride"}]}}')
+
+
+class ProseThenJson(BaseHTTPRequestHandler):
+    hits = 0
+    user_turns: list = []
+    replies = [PROSE, GOOD]
+
+    def do_POST(self):
+        cls = type(self)
+        request = json.loads(
+            self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        cls.user_turns.append(request["messages"][-1]["content"])
+        reply = cls.replies[min(cls.hits, len(cls.replies) - 1)]
+        cls.hits += 1
+        body = json.dumps({"choices": [{"message": {
+            "content": reply}}]}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+prose_server = HTTPServer(("127.0.0.1", 0), ProseThenJson)
+threading.Thread(target=prose_server.serve_forever, daemon=True).start()
+
+with env(**{**CLEAN,
+            "AWS_ENDPOINT_URL_BEDROCK_RUNTIME":
+                f"http://127.0.0.1:{prose_server.server_port}",
+            "BEDROCK_MODEL": INJECTED}):
+    engine, why = brain.build_brain(False, brain.DEFAULT_MODEL)
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        decision = engine.decide("lobby, before the drop")
+    assert decision["chat"] == "recovered line", decision
+    assert engine.error is None, f"retry must not degrade: {engine.error}"
+    assert ProseThenJson.hits == 2, ProseThenJson.hits
+    assert ProseThenJson.user_turns[1].endswith(
+        brain.ResilientBrain.CORRECTIVE), ProseThenJson.user_turns[1]
+    assert log.getvalue().count("corrective retry") == 1, log.getvalue()
+    assert "playing on" not in log.getvalue(), log.getvalue()
+
+prose_server.shutdown()
+
+
+class ProseAlways(ProseThenJson):
+    hits = 0
+    user_turns: list = []
+    replies = [PROSE]
+
+
+stubborn_server = HTTPServer(("127.0.0.1", 0), ProseAlways)
+threading.Thread(target=stubborn_server.serve_forever, daemon=True).start()
+
+with env(**{**CLEAN,
+            "AWS_ENDPOINT_URL_BEDROCK_RUNTIME":
+                f"http://127.0.0.1:{stubborn_server.server_port}",
+            "BEDROCK_MODEL": INJECTED}):
+    engine, why = brain.build_brain(False, brain.DEFAULT_MODEL)
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        first = engine.decide("lobby, before the drop")
+        second = engine.decide("mid-match, the zone is closing")
+    # Alive on canned decisions, ONE retry (2 upstream hits total), then no
+    # further model calls -- prose twice degrades exactly as before.
+    entries_of(first)
+    entries_of(second)
+    assert ProseAlways.hits == 2, ProseAlways.hits
+    assert engine.error is not None
+    assert "did not return JSON" in str(engine.error), engine.error
+    assert log.getvalue().count("corrective retry") == 1, log.getvalue()
+    assert log.getvalue().count("playing on") == 1, log.getvalue()
+
+stubborn_server.shutdown()
+print("prose-reply corrective retry: OK")
