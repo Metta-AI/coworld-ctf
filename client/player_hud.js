@@ -376,6 +376,22 @@
     lime: '#00e436', navy: '#5a6fb4', azure: '#29adff', peach: '#ffccaa',
   };
   function teamColor(word) { return (word && TEAM_COLOR[word]) || '#b7b0a3'; }
+  // Swap#12 item 6 (DUET+ORIENT): the minimap dot outline used to be a single
+  // fixed dark stroke (rgba(10,8,5,.9)) regardless of the dot's own fill --
+  // fine contrast for a light team color against the dark scrim, but for a
+  // dark-ish fill (black's lifted-but-still-moderate #8d8d8d chief among
+  // them) a dark ring on a dark fill against a dark scrim is three dark
+  // things stacked, which is exactly the measured "black dot invisible"
+  // failure. Pick the outline that contrasts with THIS dot's own fill —
+  // guarantees the ring reads as a ring against both a dark scrim and a
+  // light paint field, without touching the self-ring (still literal white,
+  // unrelated to this — see the own-dot-white investigation note below).
+  function minContrastOutline(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return luma > 0.5 ? 'rgba(10,8,5,.9)' : 'rgba(255,255,255,.85)';
+  }
 
   const GLORY_RANKS = ['PRIMER', 'DABBLER', 'SPLATTER', 'DRENCHER', 'ARTIST', 'MAESTRO'];
 
@@ -1138,9 +1154,12 @@
     // Cog dots. A same-team-colored dot on a floor already painted that
     // team's color is a real failure mode found by testing (not guessed):
     // at this minimap scale a plain filled circle can disappear into a
-    // same-hue splat behind it. Every dot gets a thin dark outline first
+    // same-hue splat behind it. Every dot gets a min-contrast outline first
     // (regardless of self/bot/human) so it reads as a DOT, not a paint
-    // pixel, before any fill/stroke color decision.
+    // pixel, before any fill/stroke color decision — Swap#12 item 6 made
+    // that outline color adapt to the dot's own fill (see minContrastOutline)
+    // instead of always being dark, which is what let a dark-ish team color
+    // vanish into the dark scrim outline-and-all.
     for (let i = 0; i < state.cogs.length; i++) {
       const c = state.cogs[i];
       const px = c.x * scale, py = c.y * scale;
@@ -1152,7 +1171,7 @@
       }
       const r = c.self ? 2.2 : 1.9;
       ctx.beginPath(); ctx.arc(px, py, r + 0.9, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(10,8,5,.9)'; ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.strokeStyle = minContrastOutline(col); ctx.lineWidth = 1.4; ctx.stroke();
       ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
       if (c.human === false) { // confirmed bot: hollow ring, not filled
         ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
