@@ -841,6 +841,15 @@ def gate_and_build(seat: StarterSeat, available: list[str]) -> tuple[bytes, list
     gated = layer_ladder(seat.wanted_entries, seat.view or {},
                          seat.context or {}, seat.kill_feed,
                          base_play=base_play)
+    if _in_spawn_phase(seat):
+        # Nothing rides above scatter in the spawn phase. Gated controllers
+        # sort above the base, and a jackal whose gate opens the moment an
+        # enemy is in view holds the seat ON the spawn point -- on top of
+        # its duo partner, since the engine drops both on one point -- where
+        # the two shoot each other. Measured over 928 duo pairs: 32% of
+        # aggressive seats were still on the spawn point 150 ticks in, 0% of
+        # cautious and collaborative (no jackal).
+        gated = [e for e in gated if e.get("play") not in GATED_PLAYS]
     gated = ally_clones(gated, seat.context or {})
     return build_call({"call": {"entries": gated}}, available)
 
