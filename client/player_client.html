@@ -1790,7 +1790,13 @@ function readKeys(){
   return {
     up:!z&&!!(k.KeyW||k.ArrowUp), down:!z&&!!(k.KeyS||k.ArrowDown),
     left:!z&&!!(k.KeyA||k.ArrowLeft), right:!z&&!!(k.KeyD||k.ArrowRight),
-    rotate:committedRotate, fire:!z&&lmb, item:!z&&!!k.Space,
+    /* Swap#12 item 4 (PULSE confound): takeover.html's own controls footer
+       has said "Z fire" since the old 8-button keyboard scheme; the live
+       KEYMAP (player_controls.js) only ever wired left-click, so pressing Z
+       did nothing -- a real "fired, nothing happened" trap. KeyZ is unbound
+       anywhere else in onkeydown (no collision), so it's added here as a
+       genuine fire alias instead of just fixing the copy to admit the gap. */
+    rotate:committedRotate, fire:!z&&(lmb||!!k.KeyZ), item:!z&&!!k.Space,
   };
 }
 /* Movement and item respond the instant a key moves, but the rotate and

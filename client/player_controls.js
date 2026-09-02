@@ -214,9 +214,12 @@
     { id: "aim",    label: "Aim",           keys: ["Mouse"], alt: [],
       wire: "mask", bits: ["b", "select"], status: "live",
       note: "cursor angle drives one rotate button per tick, shortest arc" },
-    { id: "fire",   label: "Fire",          keys: ["Left click"], alt: [],
+    { id: "fire",   label: "Fire",          keys: ["Left click"], alt: ["Z"],
       wire: "mask", bits: ["attack"], status: "live",
-      note: "press fires; the shot leaves after a short windup, aim locked at the pull" },
+      note: "press fires; the shot leaves after a short windup, aim locked at the pull. " +
+            "Z is a keyboard alias (Swap#12 item 4) -- added because takeover.html's " +
+            "controls footer had claimed Z fired since an older keyboard-only scheme; " +
+            "the copy is honest now either way." },
     { id: "item",   label: "Use item",      keys: ["Space"], alt: [],
       wire: "mask", bits: ["c"], status: "live",
       note: "hold to charge a grenade, release to throw" },

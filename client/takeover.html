@@ -78,7 +78,7 @@
   </div>
 </header>
 <iframe id="field" title="the field"></iframe>
-<footer id="controls"><kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Z</kbd> fire · <kbd>X</kbd> / <kbd>Space</kbd> turn — the same eight buttons the policy was pressing.</footer>
+<footer id="controls"><kbd>WASD</kbd> / <kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Mouse</kbd> aim · <kbd>Left click</kbd> / <kbd>Z</kbd> fire · <kbd>Space</kbd> item — the same eight buttons the policy was pressing.</footer>
 <script>
 const q = new URLSearchParams(location.search);
 const seat = q.get("slot") || "0";
@@ -105,8 +105,15 @@ function connect(caps) {
     "//" + location.host + "/takeover";
   if (caps.directAim) {
     ws += "?directAim=1";
+    // Swap#12 item 4: this line and the static footer above it both said
+    // "Z fire" with no left-click and an "X / Space turn" pair that doesn't
+    // exist in the live keymap (X is unbound; there is no discrete "turn" --
+    // the mouse aims). Copy now matches player_controls.js's KEYMAP, and
+    // player_client.html's readKeys() now genuinely binds Z as a fire alias
+    // (see that file, Swap#12 item 4) so this text is honest either way.
     document.getElementById("controls").innerHTML =
-      '<kbd>&larr; &uarr; &darr; &rarr;</kbd> move \u00b7 <kbd>Z</kbd> fire ' +
+      '<kbd>WASD</kbd> / <kbd>&larr; &uarr; &darr; &rarr;</kbd> move \u00b7 ' +
+      '<kbd>Left click</kbd> / <kbd>Z</kbd> fire ' +
       '\u00b7 <b>the turret points wherever your cursor is</b> \u2014 the same ' +
       'eight buttons the policy was pressing, aimed by hand.';
   }
