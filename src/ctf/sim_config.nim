@@ -782,8 +782,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field frictionDen must be positive.")
   if config.minPlayers < 1:
     raise newException(CtfError, "Config field minPlayers must be at least 1.")
-  if config.teams notin [2, 4, 16]:
-    raise newException(CtfError, "Config field teams must be 2, 4, or 16.")
+  if config.teams notin [2, 4, 8, 16]:
+    raise newException(CtfError, "Config field teams must be 2, 4, 8, or 16.")
   if config.scoring notin [ClassicScoring, PotScoring]:
     raise newException(
       CtfError,

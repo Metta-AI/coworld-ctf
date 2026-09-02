@@ -154,6 +154,40 @@ suite "BR team-count bridge (spawnGroups)":
       check player.x == expected[0].getInt()
       check player.y == expected[1].getInt()
 
+  test "an 8-team config on an 8-group map boots, and 16-seat duos pair k/k+8":
+    ## The Season 2 half-field game: 8 duos on 16 seats. The duo pairing is
+    ## DERIVED, not hardcoded: teamForSlot deals Team(order mod teamCount())
+    ## and order-within-team is order div teamCount(), both reading the
+    ## map's spawnGroups — so on 16 seats the duo is seat k and seat k+8
+    ## (k/k+16 was never a constant, it was 32 seats over 16 groups).
+    var config = defaultGameConfig()
+    config.teams = 8
+    config.mapSpec = brSpec(spawnGroups = 8, spawnPoints = 8)
+    var sim = initCtfForTest(config)
+    for i in 0 ..< 16:
+      discard sim.addPlayer("p" & $i)
+    sim.startGame()
+    invalidateBoardMapCaches()
+    check sim.players.len == 16
+    check sim.gameMap.teamCount() == 8
+    check sim.gameMap.spawnGroups == 8
+    ## The active slice is the 8-team prefix Red..Pink, never the full enum.
+    check sim.gameMap.teams() == Red .. Pink
+    check toSeq(sim.gameMap.teams()).len == 8
+    for i, player in sim.players:
+      check player.team == Team(i mod 8)
+    ## Seats k and k+8 are the duo: same team, and (with 8 points over 8
+    ## groups, perTeam = 1) the same single landing spot — the duo pocket.
+    let
+      points = gridSpawnPointsNode(8)
+      offset = sim.spawnGroupOffset()
+    for k in 0 ..< 8:
+      check sim.players[k].team == sim.players[k + 8].team
+      let expected = points[(k + offset) mod 8]
+      for i in [k, k + 8]:
+        check sim.players[i].x == expected[0].getInt()
+        check sim.players[i].y == expected[1].getInt()
+
   test "a count MISMATCH is rejected, naming both counts":
     let msg = errorFor(brSpec(), teams = 4)
     check "16" in msg
@@ -176,10 +210,10 @@ suite "BR team-count bridge (spawnGroups)":
     check "divide evenly" in msg
 
   test "an out-of-range spawnGroups is a map error, not a crash":
-    ## activeTeams doAsserts on a count outside [2, 4, 16]; a doAssert is a
-    ## crash, and a bad map should never be able to cause one.
+    ## activeTeams doAsserts on a count outside [2, 4, 8, 16]; a doAssert is
+    ## a crash, and a bad map should never be able to cause one.
     let msg = errorFor(brSpec(spawnGroups = 5, spawnPoints = 20), teams = 5)
-    check "spawnGroups must be 2, 4 or 16" in msg
+    check "spawnGroups must be 2, 4, 8 or 16" in msg
 
   test "spawnGroups without any spawnPoints is rejected":
     var node = parseJson(brSpec())

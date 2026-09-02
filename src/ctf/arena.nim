@@ -81,11 +81,12 @@ proc validateMap(gameMap: CtfMap) =
   ## out-of-range value would otherwise reach `activeTeams`'s doAssert and
   ## come out as a crash instead of a loadable-map error.
   if gameMap.spawnGroups != 0:
-    if gameMap.spawnGroups notin [2, 4, 16]:
+    if gameMap.spawnGroups notin [2, 4, 8, 16]:
       raise newException(CtfError,
-        "spawnGroups must be 2, 4 or 16 (got " & $gameMap.spawnGroups &
-        ") — it selects the active-team prefix of the Team enum, and no " &
-        "code path seats a count between 4 and 16 (BR_MAPGEN.md §6.2).")
+        "spawnGroups must be 2, 4, 8 or 16 (got " & $gameMap.spawnGroups &
+        ") — it selects the active-team prefix of the Team enum; 16 is " &
+        "full-field BR, 8 is the half-field 8-duo BR variant, and no " &
+        "other count between 4 and 16 is seated (BR_MAPGEN.md §6.2).")
     if gameMap.spawnPoints.len == 0:
       raise newException(CtfError,
         "spawnGroups is " & $gameMap.spawnGroups & " but the map authors no " &
