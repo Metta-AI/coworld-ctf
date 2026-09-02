@@ -48,6 +48,28 @@
   const CHROME_SPRITE_ID =
     (window.CTF_WIRE && window.CTF_WIRE.chromeSpriteId) || 4090;
 
+  // SEASON 2 observability: the in-arena FLASH pulse. A "flash" is an
+  // accepted play call landing on a seat (shell record 0x10); the ring is
+  // drawn over that seat's own sprite for a beat so a viewer can SEE the
+  // moment the caller retunes a player. Player board objects use the stable
+  // id contract PlayerObjectBase + joinOrder (src/ctf/sim_types.nim:
+  // PlayerObjectBase = 1000; global.nim spriteObjectId) — wire-preferred
+  // with the contract literal as fallback, same pattern as
+  // CHROME_SPRITE_ID above. Purely additive chrome on the composite pass:
+  // never a sprite, never an object, never part of the frame-change
+  // detection — a paused board with an expired pulse stays clean.
+  // Anchor: the rig HEAD object pool — the one per-player object family the
+  // GLOBAL board actually places (src/ctf/global.nim: RigHeadObjectBase =
+  // 38100, "1 head object per player: 38100..38131", keyed by sim.players
+  // INDEX). The page resolves seat -> player index off the roster it already
+  // tracks and hands enriched calls over setFlashCalls — the core never
+  // guesses identity. (PlayerObjectBase/1000 is the POV stream's pool and
+  // never appears on this board — measured, not assumed.)
+  const RIG_HEAD_OBJECT_BASE =
+    (window.CTF_WIRE && window.CTF_WIRE.rigHeadObjectBase) || 38100;
+  const FLASH_PULSE_TICKS = 32;        // ~1.3 s at 24 Hz
+  const FLASH_PULSE_COLOR = '232, 163, 61';  // the chrome's amber accent
+
   // BR zone paint (round 3): the shrinking zone's cosmetic flood is a STATIC
   // per-episode arrival-time field (src/ctf/global.nim's addZoneEdgeBand),
   // shipped once as a data sprite — never drawn as an image, decoded into
@@ -401,6 +423,14 @@
     let zoneLastAppliedTick = -1;  // last INTEGER tick fully applied.
     let zoneLastTouchedCells = 0;  // last frame's touched-cell count, for
                                     // the perf probe (getZonePaintStats).
+
+    // Flash observability state: the decoded play-call records (setFlashCalls,
+    // called once by the replay Worker after load) with their ms stamps mapped
+    // onto the tick clock, and the current state tick read off the chrome
+    // label as it passes through (noteFlashClock). Both stay inert (null/-1)
+    // on a replay with no calls — drawFlashPulses exits on the first check.
+    let flashCalls = null;
+    let flashClockTick = -1;
 
     let socket = null;
     let rafHandle = null;
@@ -1323,8 +1353,67 @@
         }
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
+      drawFlashPulses(offscreenCtx);
       staticBandsDirty = false;
       dirty = false;
+    }
+
+    function noteFlashClock(label) {
+      // The chrome JSON's first key is the tick ("t": sim.tickCount leads
+      // buildStateJson's object) — read it with a prefix match instead of
+      // parsing the whole frame a second time (the page owns the full
+      // parse; this side only needs a clock for pulse ageing).
+      if (!flashCalls) return;
+      const match = /^\{"t":\s*(\d+)/.exec(label);
+      if (match) flashClockTick = +match[1];
+    }
+
+    function setFlashCalls(calls) {
+      // Enriched play-call ("flash") records from the page: {ms, idx} where
+      // idx is the seat's CURRENT sim.players index (resolved off the
+      // roster; the page re-sends whenever the mapping shifts). Record
+      // stamps are recording-wall ms on the same 24 Hz clock the tick
+      // counter runs (verified against live s2 replays), so the pulse tick
+      // is a straight remap.
+      const fps = (window.CTF_WIRE && window.CTF_WIRE.fps) || 24;
+      flashCalls = (calls || [])
+        .filter(call => call && typeof call.ms === 'number' &&
+          typeof call.idx === 'number' && call.idx >= 0)
+        .map(call => ({ idx: call.idx, tick: Math.round(call.ms * fps / 1000) }));
+      if (!flashCalls.length) flashCalls = null;
+    }
+
+    function drawFlashPulses(targetCtx) {
+      // Two thin expanding rings over the flashed seat's sprite — strokes
+      // only, in the chrome's amber, deliberately unlike any paint/game FX
+      // (those are team-colored and filled): this is observability chrome,
+      // not gameplay. Scrub-proof by construction: a pulse is a pure
+      // function of (flash tick, current tick), so seeking re-plays or
+      // un-plays it with no retained state.
+      if (!flashCalls || flashClockTick < 0) return;
+      for (const call of flashCalls) {
+        const age = flashClockTick - call.tick;
+        if (age < 0 || age > FLASH_PULSE_TICKS) continue;
+        const obj = objects.get(RIG_HEAD_OBJECT_BASE + call.idx);
+        if (!obj) continue;  // seat currently has no rig (down/gone): no ring
+        const sprite = sprites.get(obj.spriteId);
+        const cx = obj.dispX + (sprite ? sprite.width / 2 : 0);
+        const cy = obj.dispY + (sprite ? sprite.height / 2 : 0);
+        const base = Math.max(sprite ? Math.max(sprite.width, sprite.height) : 0, 14) * 1.3;
+        for (let ring = 0; ring < 2; ring++) {
+          const ringAge = age - ring * 7;
+          if (ringAge < 0) continue;
+          const t = ringAge / FLASH_PULSE_TICKS;
+          if (t > 1) continue;
+          const radius = base * (0.55 + 1.25 * t);
+          targetCtx.beginPath();
+          targetCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+          targetCtx.strokeStyle =
+            'rgba(' + FLASH_PULSE_COLOR + ',' + (0.9 * (1 - t)).toFixed(3) + ')';
+          targetCtx.lineWidth = 3.5 * (1 - 0.45 * t);
+          targetCtx.stroke();
+        }
+      }
     }
 
     function draw() {
@@ -1464,7 +1553,7 @@
             // replay keeps sending chrome (the clock JSON rides every
             // packet), and marking the board dirty for it would re-composite
             // an identical frame per packet forever.
-            if (label) onText(label);
+            if (label) { noteFlashClock(label); onText(label); }
           } else if (id === ZONE_ARRIVAL_FIELD_SPRITE_ID) {
             // The static BR zone paint-arrival field (see
             // ZONE_ARRIVAL_FIELD_SPRITE_ID above): raw per-cell DATA, never
@@ -1963,6 +2052,7 @@
       panTo,
       resetView,
       attachMinimap,
+      setFlashCalls,
       stop
     };
   }
