@@ -20,7 +20,7 @@ the change it carries. All uploads below were made with
 | aggressive `base_play="jackal"` (jackal always-on above edge_ride) | — | v9 | — | 30 eps: agg 0.72 / 8%, caut 0.63 / 0%, collab 0.88 / 10% |
 | loot gate relaxed to "no fresh enemy within 500 px"; loot notes in every prompt; docs | v10 | v10 | v9 | 60 eps pooled: agg 0.82 / 7% (Glory 1.07, spawn deaths 22%), caut 0.59 / 6% (Glory 0.75), collab 0.78 / 7% (Glory 1.05); pickups unchanged (~0.2, the view never carries items) |
 | aggressive spawn-phase override: edge_ride base for the first 150 ticks, then jackal | — | v11 | — | 29 eps: agg 0.74 / 5%, spawn deaths 27% → 17%, survival ticks 594 → 727 |
-| same images, `--bedrock-model anthropic/claude-haiku-4.5` (does the model matter?) | v11 | v12 | v10 | pending |
+| same images, `--bedrock-model anthropic/claude-haiku-4.5` (does the model matter?) | v11 | v12 | v10 | 30 eps: agg 0.72 / 2%, caut 0.27 / 3%, collab 0.85 / 7% — indistinguishable from qwen (arm K); the model is not the lever today |
 
 **Pooled before/after, pinned seats vs 10 random champions.** v3 (50 episodes): 0.57 kills and 0.75
 Glory per starter seat, 5% end-survivors. Final (60 episodes): 0.73 kills (+28%) and 0.96 Glory (+28%),
