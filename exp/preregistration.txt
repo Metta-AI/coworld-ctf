@@ -352,3 +352,36 @@ CAVEATS carried from SUBJECT
   2.2.6 arm64 against bitworld 9af28b41; the shipped image is nim 2.2.4
   amd64 against bitworld 5d229acd. Server is this branch's engine, 518
   commits past the champion's build pin.
+
+---------------- ADDENDUM, same day: seat drops, and the interrupted arm ----------------
+SEAT DROPS (found by sweeping every server.log for "player disconnected";
+not a pre-registered gate, reported because it changes the life pool)
+  champion arm: 1 seat dropped in 1 of 160 episodes (ep 60, ~30 lines into
+  the log, i.e. at the start). That team lost by capture at 22 deaths. The
+  bars re-checked without it: (a) 0/159; (b) capture-ending loser mean
+  21.95/24; (c) 48/66 = 72.7% at >= 22. Verdict unchanged. Why the seat
+  dropped is OPEN (bot stderr is discarded by the harness): 1/160 in
+  self-play is the champion's own rate, and the league build may share it.
+
+SIDE CHECK -- the interrupted arm's configuration, re-measured
+  exp/results/repo47_selfplay_sidecheck/episodes.jsonl: REPO
+  players/baseline/baseline.nim at the 47-define v25 seed (incl.
+  -d:gv36SlotHunt), -d:release --opt:speed, the same build as the prior
+  agent's champ.out (620,072 bytes both). Self-play, 12 episodes, 6 in
+  flight, 0 skipped frames.
+    frames/ep      5033 +- 317   (interrupted arm: 5254 -- reproduced)
+    captures/ep    0.25 [0.055,0.572] (interrupted arm: 0.75 -- not
+                   reproduced at n=12; both are small-n reads)
+    seat drops     7 seats in 5 of 12 episodes, all at the start of the
+                   game. 3 of the 5 ended by server "wipeout" with the
+                   loser at 19-21 deaths and no capture: a team that has
+                   lost seats has a pool smaller than 24, so
+                   termination.py's "elimination = 24/24" identity does
+                   not hold for that build. It held in 93/93 of the
+                   champion arm's capture-free episodes.
+  So the interrupted arm's "different game" was, at least in part, a build
+  that loses seats at the start of ~40% of its games. Nothing measured on
+  it transfers to the champion. This is lessons.md #3 (the champion-defines
+  build against the repo source as a proxy for the champion) and #9 (a
+  population -- 8v8 -- that was not the population the stat was counted
+  over).
