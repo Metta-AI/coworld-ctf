@@ -39,7 +39,7 @@ TEAM_COUNT = 16
 
 # The guaranteed conversion rung. hp is a small absolute number on this
 # engine (a bodyguard peels at 2-3); below 2 means genuinely wounded.
-SUPPLY_DEFAULTS = {"whenHpBelow": 2, "detourMax": 300, "contested": "avoid"}
+SUPPLY_DEFAULTS = {"whenHpBelow": 3, "detourMax": 300, "contested": "avoid"}
 
 # A pact with no partners is dropped by the generic repair BEFORE the hook
 # runs (partners is required), so a canned pact carries team 0's duo as a
@@ -171,13 +171,12 @@ PERSONA = Persona(
                        "editing the list. Set a holdTrigger only for a "
                        "planned endgame release: a released hold LATCHES "
                        "and can never re-arm."),
-        "edge_ride": ("edge_ride is your default rotation, and margin is "
-                      "how deep INSIDE the safe zone you ride -- never hug "
-                      "the wall. Around 220-270 with high coverBias early, "
-                      "then DEEPER (300+) as the ring accelerates: the "
-                      "final rings shrink to a point and the wall is pure "
-                      "attrition. enterLead generous -- cross with a lead, "
-                      "never race the wall in the open."),
+        "edge_ride": ("edge_ride: think twice. The native escape reflex "
+                      "outranks it at the wall and the default rotation "
+                      "measurably outplaces it -- calling edge_ride "
+                      "REPLACES a good default. Call it only with a "
+                      "specific positional read; margin is depth inside "
+                      "the safe zone (deeper = safer) if you do."),
         "supply_run": ("supply_run is the conversion play this lineage "
                        "always skipped: after a fight, bank the life. The "
                        "harness guarantees the rung; you tune it. Avoid "
@@ -198,9 +197,13 @@ PERSONA = Persona(
     },
     canned_turns=[
         {
-            # Opening: politics + formation. The pact carries the
+            # Opening: politics only. The liveness probe proved the native
+            # zone-escape reflex + default rotation OUTPLACE any rotation
+            # controller we call, so movement is deliberately left to them;
+            # the ladder carries what actually bites -- targeting law,
+            # truce, and the hp-gated conversion rung. The pact carries the
             # placeholder duo (see PACT_PLACEHOLDER); adjust_entries re-aims
-            # it at the neighboring duo and derives the law's never-list.
+            # it and derives the law's never-list.
             "chat": "Truce first, tags later. Partner, spread on me -- one "
                     "gun always up.",
             "call": {"entries": [
@@ -209,16 +212,14 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
-                {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 220, "enterLead": 160,
-                            "coverBias": 0.8}},
-                {"play": "crossfire", "entry_id": "shape",
-                 "params": {"spacing": [140, 300], "minAngle": 40}},
+                {"play": "supply_run", "entry_id": "bank",
+                 "params": {"whenHpBelow": 3, "detourMax": 350,
+                            "contested": "avoid"}},
             ]},
         },
         {
-            # Consolidation: same posture, tightened; the guaranteed
-            # supply_run rung lands above the rotation.
+            # Consolidation: same minimal posture -- stay out of trouble,
+            # let the reflex own the wall, bank any wounds.
             "chat": "Holding the truce. We rotate with cover and bank "
                     "every life.",
             "call": {"entries": [
@@ -228,18 +229,14 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 2, "detourMax": 350,
+                 "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
-                # Margin DEEPENS as the ring accelerates (series v1 lesson:
-                # 13 of 20 duo-deaths were the wall, not guns).
-                {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 270, "enterLead": 180,
-                            "coverBias": 0.75}},
             ]},
         },
         {
-            # Mid: the jackal takes over as the driving controller; the
-            # fight we take is the one already started.
+            # Mid: jackal is the ONE controller rung -- kill conversion is
+            # where monet already led the field; everything else stays with
+            # the reflex/default movement.
             "chat": "Feed is ticking. We arrive third, tag the weakened, "
                     "leave paid.",
             "call": {"entries": [
@@ -249,19 +246,18 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
                 {"play": "jackal", "entry_id": "third",
-                 "params": {"earshot": 600, "joinWhen": "afterKill",
+                 "params": {"earshot": 700, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 1}}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 2, "detourMax": 250,
+                 "params": {"whenHpBelow": 3, "detourMax": 250,
                             "contested": "avoid"}},
-                {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 300, "enterLead": 200,
-                            "coverBias": 0.7}},
             ]},
         },
         {
             # Endgame: the pact is DROPPED -- said out loud -- so the law
-            # releases the truce seats on this same call. Converge, finish.
+            # releases the truce seats on this same call. Crossfire is the
+            # one controller: converge and FINISH (the engine's own bots
+            # stall at full health and let the ring decide).
             "chat": "Field is thin: our truce ends here, no hard feelings. "
                     "Partner, on me -- we finish.",
             "call": {"entries": [
@@ -270,13 +266,8 @@ PERSONA = Persona(
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 2, "detourMax": 150,
+                 "params": {"whenHpBelow": 3, "detourMax": 150,
                             "contested": "avoid"}},
-                # Endgame rides DEEP: the final rings shrink to a point and
-                # the wall is pure attrition.
-                {"play": "edge_ride", "entry_id": "rotate",
-                 "params": {"margin": 380, "enterLead": 260,
-                            "coverBias": 0.5}},
             ]},
         },
     ],

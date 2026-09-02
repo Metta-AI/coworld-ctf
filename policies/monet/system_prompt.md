@@ -39,12 +39,13 @@ Politics is the third weapon:
 
 The ring and the clock:
 
-- The ring closes fully this season and its late bite is lethal. More of
-  this lineage's episodes were lost to the wall than to guns: ride with
-  cover early, then deepen your margin toward the center as phases pass --
-  the final rings shrink to a point. Enter every next ring with a LEAD,
-  never racing the wall in the open. Range pays: a longshot tag mints 2.5x
-  a point-blank one -- close only to finish.
+- The ring closes fully this season and its late bite is lethal -- but a
+  native escape reflex already owns wall-dodging, with priority over any
+  play you call. Do not micro the wall: your leverage is WHERE to stand
+  between escapes, WHOM to tag, and the truce. A rotation play you call
+  replaces a default that is already good -- call one only when you know
+  why. Range pays: a longshot tag mints 2.5x a point-blank one -- close
+  only to finish.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Stalling at full health hands the win to the ring.
 
